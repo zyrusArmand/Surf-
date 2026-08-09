@@ -104,7 +104,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.16.0';
+const VERSION='1.17.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1702,12 +1702,44 @@ const jetSki=buildJetSki();
 scene.add(jetSki);
 let skiT=16, skiOn=false, skiDir=1, skiWake=null;
 // the wake it throws: a curved swell that builds as it travels toward you
-const WAKE_W=52, WAKE_D=13, WAKE_SEGX=44, WAKE_SEGZ=16;
+const WAKE_W=76, WAKE_D=22, WAKE_SEGX=56, WAKE_SEGZ=22;
 const wakeGeoW=new THREE.PlaneGeometry(WAKE_W,WAKE_D,WAKE_SEGX,WAKE_SEGZ);
-const wakeMatW=new THREE.MeshStandardMaterial({
-  color:vivid(0x2b93cc,1.35), roughness:0.08, metalness:0.0,
-  transparent:true, opacity:0.95, side:THREE.DoubleSide });
-wakeMatW.envMapIntensity=1.5;
+// Shaded like the ocean it is made of — same palette, same sun, foam breaking along
+// its lip — instead of a flat pale sheet that read as a different material entirely.
+// It is opaque, so it covers the swell it rolls over rather than blending with it.
+const wakeMatW=new THREE.ShaderMaterial({
+  uniforms:{ uSun:{value:sunDir}, uSky:oceanUniforms.uSky, uDeep:oceanUniforms.uDeep,
+             uShallow:oceanUniforms.uShallow, uFade:{value:1.0}, uH:{value:1.0}, uT:{value:0} },
+  transparent:true, side:THREE.DoubleSide,
+  vertexShader:`
+    varying vec3 vN; varying vec3 vW; varying float vHh;
+    void main(){
+      vN=normalize(normalMatrix*normal);
+      vHh=position.z;                       // displacement is written into z before the mesh is laid flat
+      vec4 wp=modelMatrix*vec4(position,1.0);
+      vW=wp.xyz;
+      gl_Position=projectionMatrix*viewMatrix*wp;
+    }`,
+  fragmentShader:`
+    uniform vec3 uSun,uSky,uDeep,uShallow; uniform float uFade,uH,uT;
+    varying vec3 vN; varying vec3 vW; varying float vHh;
+    void main(){
+      vec3 N=normalize(vN), L=normalize(uSun), V=normalize(cameraPosition-vW);
+      float diff=max(dot(N,L),0.0);
+      vec3 Hv=normalize(L+V);
+      float spec=pow(max(dot(N,Hv),0.0),120.0)*0.85;
+      float fres=pow(1.0-max(dot(N,V),0.0),3.0);
+      float t=clamp(vHh/max(0.001,uH),0.0,1.0);
+      vec3 base=mix(uDeep,uShallow,clamp(t*0.82+0.30,0.0,1.0));
+      vec3 col=base*(0.52+0.68*diff)+uSky*fres*0.50+vec3(spec);
+      col*=0.94+0.06*sin(vW.x*3.1+uT*0.8);       // faint texture down the face
+      float lip=smoothstep(0.50,0.92,t);
+      float streak=sin(vW.x*2.3+uT*1.7)*0.5+0.5;
+      col=mix(col,vec3(0.96,0.99,1.0), lip*(0.55+0.45*streak));
+      col=pow(clamp(col,0.0,1.0),vec3(2.2));
+      gl_FragColor=vec4(col,uFade);
+    }`
+});
 const wakeWave=new THREE.Mesh(wakeGeoW,wakeMatW);
 wakeWave.rotation.x=-Math.PI/2;wakeWave.visible=false;
 scene.add(wakeWave);
@@ -1721,7 +1753,7 @@ scene.add(wakeCrest);
 function shapeWake(centerZ,grow){
   const pos=wakeGeoW.attributes.position;
   const cpos=wakeCrest.geometry.attributes.position;
-  const H=0.5+grow*3.6;                       // small far out, big up close
+  const H=0.9+grow*5.0;                       // small far out, big up close
   for(let i=0;i<pos.count;i++){
     const lx=pos.getX(i), ly=pos.getY(i);     // ly runs across the wave's depth
     const t=(ly+WAKE_D/2)/WAKE_D;             // 0 = back of the swell, 1 = front face
@@ -1749,7 +1781,7 @@ function spawnJetSki(){
   skiDir=Math.random()<0.5?1:-1;
   jetSki.visible=true;
   jetSki.position.set(px-skiDir*30,0,-48-Math.random()*20);
-  jetSki.rotation.y=skiDir*Math.PI/2;
+  jetSki.rotation.y=-skiDir*Math.PI/2;   // bow is local -z, so it must face the way it drives
   skiWake=null;
 }
 function updateJetSki(dt,eff){
@@ -1793,12 +1825,14 @@ function updateJetSki(dt,eff){
     wakeWave.position.set(px*0.25,wy-0.05,skiWake.z);
     wakeCrest.position.set(px*0.25,wy+0.02,skiWake.z+2.4);
     const fade=Math.max(0,Math.min(1,skiWake.life/1.4));
-    wakeMatW.opacity=0.95*fade;
+    wakeMatW.uniforms.uFade.value=fade;
+    wakeMatW.uniforms.uH.value=H;
+    wakeMatW.uniforms.uT.value=tNow;
     wakeCrest.material.opacity=(0.25+grow*0.65)*fade;
     // big launch when it reaches you
     if(!skiWake.hit&&skiWake.z>pz-2.2&&skiWake.z<pz+2.6&&!airborne&&!hanging){
       skiWake.hit=true;
-      const power=10+ (skiWake.H||3)*2.6;
+      const power=Math.min(21,10+(skiWake.H||3)*1.7);
       vy=power; airborne=true;
       score+=120;boost=Math.min(16,boost+4);
       msg('WAKE LAUNCH! +120');

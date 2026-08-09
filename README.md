@@ -44,6 +44,11 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.17.0** — The jet ski was driving backwards: its bow points along local -z, and
+  its heading was set to the opposite of its travel. Its wake is rebuilt too — shaded
+  from the ocean's own palette with foam breaking along the lip instead of a pale sheet,
+  opaque so it covers the swell it rolls over, and roughly half again as wide, deep and
+  tall.
 - **v1.16.0** — Shark fins hunt you again. Removing the head-on ones in v1.15.0 took
   their tracking with it; most fins now turn onto the rider at a limited rate while a
   floor on the heading keeps the approach angled rather than straight down the line.
