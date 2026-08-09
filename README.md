@@ -46,6 +46,11 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.22.1** — Half a surfboard. The export carried an unapplied Mirror modifier, so
+  the file genuinely only held the left side. Models are now checked for it — all the
+  geometry on one side of the origin with a clean edge sitting on it — and the missing
+  half is rebuilt at load, with the face winding and normals turned back the right way
+  so both sides light identically.
 - **v1.22.0** — The surfboard is now a real model, built in Blender and imported.
   Getting it in raised three things the pipeline had to learn: colours exported with
   the model are kept instead of being painted over, only their reflection strength

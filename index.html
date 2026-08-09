@@ -105,7 +105,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.22.0';
+const VERSION='1.22.1';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -485,6 +485,46 @@ function sampleVerts(root){
 // as not. Fins are the giveaway: they are the only thing that stands well clear of
 // the slab, so the face they are on is the underside, and the end they sit at is the
 // tail. Turn it until the fins hang down and trail behind.
+// A Mirror modifier left unapplied in Blender exports as half the object: every
+// vertex on one side of the origin, with a clean edge sitting exactly on it. Build
+// the missing half rather than sending the model back — mirroring reverses the face
+// winding and the normals, so both are put back the right way round.
+function mendMirror(root){
+  root.updateMatrixWorld(true);
+  const inv=new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const meshes=[];
+  root.traverse(o=>{if(o.isMesh&&o.geometry&&o.geometry.attributes.position)meshes.push(o);});
+  if(!meshes.length)return;
+  const flat=[], box=new THREE.Box3();
+  for(const o of meshes){
+    const g=(o.geometry.index?o.geometry.toNonIndexed():o.geometry.clone());
+    g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv,o.matrixWorld));   // into the model's own frame
+    g.computeBoundingBox(); box.union(g.boundingBox); flat.push(g);
+  }
+  const s=box.getSize(new THREE.Vector3()), tol=Math.max(s.x,s.y,s.z)*0.01;
+  // flush against the origin plane on one side, and nowhere near it on the other
+  if(!((box.max.x<=tol&&box.min.x<-tol*8)||(box.min.x>=-tol&&box.max.x>tol*8)))return;
+  for(let i=0;i<meshes.length;i++){
+    const g=flat[i], p=g.attributes.position, n=g.attributes.normal;
+    for(let k=0;k<p.count;k++)p.setX(k,-p.getX(k));
+    if(n)for(let k=0;k<n.count;k++)n.setX(k,-n.getX(k));
+    // the mirror turns every triangle inside out; swapping two corners turns it back
+    for(const name in g.attributes){
+      const a=g.attributes[name];
+      for(let t=0;t+2<a.count;t+=3)
+        for(let c=0;c<a.itemSize;c++){
+          const x=a.array[t*a.itemSize+c];
+          a.array[t*a.itemSize+c]=a.array[(t+2)*a.itemSize+c];
+          a.array[(t+2)*a.itemSize+c]=x;
+        }
+      a.needsUpdate=true;
+    }
+    g.computeBoundingBox(); g.computeBoundingSphere();   // the cached box is now the wrong half
+    const m=new THREE.Mesh(g,meshes[i].material);
+    m.name=(meshes[i].name||'part')+'_mirror';
+    root.add(m);
+  }
+}
 // The layer a flat object's body lies in: slice it and take the layer whose plan
 // covers the most ground. For a board that is the deck — the fins, the pad and the
 // rocker of the nose all cover far less of it. Counting vertices instead would only
@@ -617,7 +657,8 @@ function skinAndFit(kind,root,target,orient){
 function loadModel(file,onReady){
   if(!THREE.GLTFLoader)return;
   new THREE.GLTFLoader().load('models/'+file,
-    g=>{ try{ onReady(g.scene||g.scenes[0]); }catch(e){ console.warn('model '+file+' failed to fit',e); } },
+    g=>{ const root=g.scene||g.scenes[0];
+         try{ mendMirror(root); onReady(root); }catch(e){ console.warn('model '+file+' failed to fit',e); } },
     undefined,
     ()=>{ /* no such file — keep the built-in shape */ });
 }

@@ -29,6 +29,10 @@ Nothing else needs setting up:
   so a board exported down the wrong axis still lands nose-to-tail. The board gets a
   second check: the fins are found and turned to hang down and trail behind, so it
   does not matter if it was modelled deck-down or pointing the wrong way.
+- **A Mirror modifier you forgot to apply** — if the file holds only half an object,
+  every vertex on one side of the origin and a clean edge sitting on it, the missing
+  half is rebuilt on load, winding and normals and all. You do not have to re-export,
+  though applying the modifier in Blender is tidier.
 - **Position** — it is centred on exactly where the original sat, so it floats,
   collides and gets ridden the same way. The board is lined up deck-to-deck rather
   than box-to-box, so a thin one still sits down in the water with the rider's feet
