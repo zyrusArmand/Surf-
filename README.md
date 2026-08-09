@@ -46,6 +46,15 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.22.0** — The surfboard is now a real model, built in Blender and imported.
+  Getting it in raised three things the pipeline had to learn: colours exported with
+  the model are kept instead of being painted over, only their reflection strength
+  matched to the scene; a board modelled deck-down or pointing the wrong way is
+  turned the right way up by finding the fins — the layer of the mesh that covers the
+  most ground is the deck, and whatever stands clear of it is the fins, so they are
+  put underneath and behind; and the board is aligned deck-to-deck rather than
+  box-to-box, so a thin board sits down in the water like the thick built-in one
+  instead of perching on top of it.
 - **v1.21.0** — Blender models can be dropped straight into the game. Put a `.glb`
   in `models/` and it replaces the built-in shape — board, pug, buoy, log, jellyfish,
   ramp, octopus, shark fin or jet ski — while a missing file just leaves the

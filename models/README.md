@@ -26,9 +26,13 @@ Nothing else needs setting up:
 - **Scale** — the model is measured and resized to match the shape it replaces, so
   a board modelled 80 m long comes in the right size.
 - **Orientation** — its longest side is laid along the longest side of the original,
-  so a board exported down the wrong axis still lands nose-to-tail.
+  so a board exported down the wrong axis still lands nose-to-tail. The board gets a
+  second check: the fins are found and turned to hang down and trail behind, so it
+  does not matter if it was modelled deck-down or pointing the wrong way.
 - **Position** — it is centred on exactly where the original sat, so it floats,
-  collides and gets ridden the same way.
+  collides and gets ridden the same way. The board is lined up deck-to-deck rather
+  than box-to-box, so a thin one still sits down in the water with the rider's feet
+  on the grip.
 
 Collision size is unchanged — the game still uses the original's radius and height,
 so a model that is wildly a different shape will feel slightly off even though it
@@ -36,7 +40,9 @@ looks right.
 
 ## Colours
 
-If you export with materials or textures, those are used as-is.
+If you export with materials or textures, those are used as-is — only the reflection
+strength is matched to the rest of the game, which is tone mapped and lit by an
+environment map that would otherwise wash an imported colour out.
 
 If you export bare geometry, the game paints it in its own palette, and it picks
 the colour from each object's **name**. Naming your objects in Blender is all it

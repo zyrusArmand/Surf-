@@ -105,7 +105,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.21.0';
+const VERSION='1.22.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -450,18 +450,83 @@ function longAxis(v){return (v.x>=v.y&&v.x>=v.z)?'x':(v.y>=v.z?'y':'z');}
 // shape it replaces — a board exported down Blender's X still lands nose-to-tail
 const AXIS_SPIN={xy:['z',Math.PI/2], yx:['z',-Math.PI/2], xz:['y',Math.PI/2],
                  zx:['y',-Math.PI/2], yz:['x',-Math.PI/2], zy:['x',Math.PI/2]};
-function fitToBox(root,target){
-  const wrap=new THREE.Group(); wrap.add(root);
+function fitToBox(root,target,orient){
+  // three nested frames: wrap carries the scale, flip the correction turn and the
+  // final offset, spin the quarter turn onto the right long axis
+  const wrap=new THREE.Group(), flip=new THREE.Group(), spin=new THREE.Group();
+  spin.add(root); flip.add(spin); wrap.add(flip);
   let size=boxOf(wrap).getSize(new THREE.Vector3());
   const tSize=target.getSize(new THREE.Vector3());
-  const spin=AXIS_SPIN[longAxis(size)+longAxis(tSize)];
-  if(spin){root.rotation[spin[0]]=spin[1];size=boxOf(wrap).getSize(new THREE.Vector3());}
+  const q=AXIS_SPIN[longAxis(size)+longAxis(tSize)];
+  if(q){spin.rotation[q[0]]=q[1];}
+  if(orient)orient(wrap,flip);                 // sets flip.rotation, if anything is upside down
+  size=boxOf(wrap).getSize(new THREE.Vector3());
   const k=Math.max(tSize.x,tSize.y,tSize.z)/Math.max(1e-6,Math.max(size.x,size.y,size.z));
   wrap.scale.setScalar(k);
   const c=boxOf(wrap).getCenter(new THREE.Vector3()), t=target.getCenter(new THREE.Vector3());
-  // wrap is scaled by k, so a local step of d moves the model k*d in the world
-  root.position.x+=(t.x-c.x)/k; root.position.y+=(t.y-c.y)/k; root.position.z+=(t.z-c.z)/k;
+  // flip sits inside wrap, which only scales, so a local step of d moves it k*d
+  flip.position.x+=(t.x-c.x)/k; flip.position.y+=(t.y-c.y)/k; flip.position.z+=(t.z-c.z)/k;
+  wrap.userData.frame=flip; wrap.userData.k=k;      // so the caller can still nudge it
   return wrap;
+}
+// Sample vertices in world space — enough of them to find the shape, not so many
+// that a dense model costs anything noticeable.
+function sampleVerts(root){
+  const out=[], v=new THREE.Vector3();
+  root.updateMatrixWorld(true);
+  root.traverse(o=>{
+    if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+    const p=o.geometry.attributes.position, step=Math.max(1,Math.ceil(p.count/2000));
+    for(let i=0;i<p.count;i+=step){out.push(v.fromBufferAttribute(p,i).applyMatrix4(o.matrixWorld).clone());}
+  });
+  return out;
+}
+// A board is modelled either way up, and Blender's own +Z-up habit flips it as often
+// as not. Fins are the giveaway: they are the only thing that stands well clear of
+// the slab, so the face they are on is the underside, and the end they sit at is the
+// tail. Turn it until the fins hang down and trail behind.
+// The layer a flat object's body lies in: slice it and take the layer whose plan
+// covers the most ground. For a board that is the deck — the fins, the pad and the
+// rocker of the nose all cover far less of it. Counting vertices instead would only
+// find wherever the mesh happens to be dense.
+function slabInfo(root){
+  const pts=sampleVerts(root);
+  if(pts.length<64)return null;
+  let y0=Infinity,y1=-Infinity,cz=0;
+  for(const p of pts){ if(p.y<y0)y0=p.y; if(p.y>y1)y1=p.y; cz+=p.z; }
+  cz/=pts.length;
+  if(y1-y0<1e-6)return null;
+  const N=24, lo=new Float64Array(N).fill(Infinity), hi=new Float64Array(N).fill(-Infinity),
+        zlo=new Float64Array(N).fill(Infinity), zhi=new Float64Array(N).fill(-Infinity);
+  for(const p of pts){
+    const b=Math.min(N-1,Math.floor((p.y-y0)/(y1-y0)*N));
+    if(p.x<lo[b])lo[b]=p.x; if(p.x>hi[b])hi[b]=p.x;
+    if(p.z<zlo[b])zlo[b]=p.z; if(p.z>zhi[b])zhi[b]=p.z;
+  }
+  let bestB=0,bestA=-1;
+  for(let b=0;b<N;b++){
+    if(hi[b]<lo[b])continue;
+    const a=(hi[b]-lo[b])*(zhi[b]-zlo[b]);
+    if(a>bestA){bestA=a;bestB=b;}
+  }
+  return {pts,cz,y0,y1,ys:y0+(bestB+0.5)/N*(y1-y0)};
+}
+function slabY(root){ const s=slabInfo(root); return s?s.ys:0; }
+// A board is modelled either way up, and Blender's +Z-up habit flips it as often as
+// not. The fins are the giveaway: they are the only thing standing well clear of the
+// deck, so the face they are on is the underside and the end they sit at is the tail.
+// Turn it until they hang down and trail behind.
+function orientBoard(wrap,flip){
+  const s=slabInfo(wrap);
+  if(!s)return;
+  const above=s.y1-s.ys, below=s.ys-s.y0;
+  const upsideDown = above>below*1.5;                 // the fins stand clear on top
+  if(!upsideDown && below<=above*1.5)return;          // nothing to read: leave it as exported
+  const fy = upsideDown ? s.ys+above*0.45 : s.ys-below*0.45;
+  let fz=0,fn=0;
+  for(const p of s.pts){ if(upsideDown ? p.y>fy : p.y<fy){fz+=p.z;fn++;} }
+  if(upsideDown)flip.rotation.z=Math.PI;              // roll it over; nose and tail stay put
+  if(fn>0&&(fz/fn)<s.cz)flip.rotation.y=Math.PI;      // fins ahead of centre: turn it end for end
 }
 // Untextured parts get the game's own palette, picked by object name where possible,
 // so a model exported without materials still comes in looking like the thing it
@@ -503,21 +568,51 @@ const MODEL_SKINS={
         [/belly|chest|cream|paw/i,FUR_MAT(0xf2dcae)]],
        FUR_MAT(0xdca85f)],
 };
+// An imported material lands in a scene that is already tone mapped and lit by an
+// environment map, which washes a flat colour out — the game's own palette is
+// authored saturated to survive it. Give imports the same treatment: the reflection
+// strength the rest of the art uses, and the same push away from grey.
+function harmonise(m){
+  if(!m||!m.isMeshStandardMaterial)return;
+  if(m.userData.__tuned)return;
+  m.userData.__tuned=1;
+  m.envMapIntensity=0.55;                    // what PBR() gives everything else
+  const c=m.color;
+  if(c&&!m.map){                             // colours only; a texture is left alone
+    const avg=(c.r+c.g+c.b)/3, k=0.30;       // already linear, so no colour-space step
+    c.r=Math.max(0,Math.min(1,avg+(c.r-avg)*(1+k)));
+    c.g=Math.max(0,Math.min(1,avg+(c.g-avg)*(1+k)));
+    c.b=Math.max(0,Math.min(1,avg+(c.b-avg)*(1+k)));
+  }
+}
+// True when the file actually shipped a material for this mesh: a texture, a named
+// material, or any colour that is not the untouched default white. Those are the
+// author's choices and are left exactly as exported — only bare geometry is painted.
+function authored(m){
+  if(!m)return false;
+  if(Array.isArray(m))return m.some(authored);
+  if(m.map||m.name)return true;
+  const c=m.color;
+  return !!c&&(c.r<0.985||c.g<0.985||c.b<0.985);
+}
 function paintModel(root,table,fallback){
   root.traverse(o=>{
     if(!o.isMesh)return;
     o.castShadow=true;o.receiveShadow=true;
-    if(o.material&&o.material.map)return;         // it brought its own texture; leave it
+    if(authored(o.material)){
+      for(const m of (Array.isArray(o.material)?o.material:[o.material]))harmonise(m);
+      return;
+    }
     const name=(o.name||'')+' '+((o.parent&&o.parent.name)||'');
     for(const [re,m] of table){ if(re.test(name)){o.material=m;return;} }
     if(fallback)o.material=fallback;
   });
 }
 // paint it, then size and place it exactly where the built-in shape sat
-function skinAndFit(kind,root,target){
+function skinAndFit(kind,root,target,orient){
   const skin=MODEL_SKINS[kind]||[[],null];
   paintModel(root,skin[0],skin[1]);
-  return fitToBox(root,target);
+  return fitToBox(root,target,orient);
 }
 function loadModel(file,onReady){
   if(!THREE.GLTFLoader)return;
@@ -529,8 +624,14 @@ function loadModel(file,onReady){
 // measured now, while everything is still at rest and unrotated, because the file
 // may not arrive until the rider is already carving
 const BOARD_BOX=boxOf(boardArt);
+const BOARD_SLAB=slabY(boardArt);
 loadModel('board.glb',s=>{
-  const fitted=skinAndFit('board',s,BOARD_BOX);
+  const fitted=skinAndFit('board',s,BOARD_BOX,orientBoard);
+  // Match deck to deck rather than box to box. A thin model has nothing like the
+  // built-in board's deep fins, so centring the two boxes would perch it on top of
+  // the water and leave the rider's feet in the air; lining the decks up puts the
+  // hull at the same depth and the feet back on the grip.
+  fitted.userData.frame.position.y+=(BOARD_SLAB-slabY(fitted))/fitted.userData.k;
   boardArt.clear ? boardArt.clear() : (boardArt.children.length=0);
   boardArt.add(fitted);
 });
