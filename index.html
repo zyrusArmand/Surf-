@@ -104,7 +104,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.10.0';
+const VERSION='1.11.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -248,6 +248,27 @@ const oceanMat=new THREE.ShaderMaterial({
     uniform vec3 uSun; uniform vec3 uSky; uniform vec3 uDeep; uniform vec3 uShallow;
     uniform float uT; uniform float uDist; uniform float uAmp; uniform float uPeak;
     varying vec3 vN; varying vec3 vW; varying float vH; varying vec2 vPh;
+    // Value noise with a rotation between octaves. The rotation is the point: it
+    // stops every octave lining up with the same two axes, which is what made the
+    // old sine-product foam tile into a visible net.
+    float hash21(vec2 p){
+      p=fract(p*vec2(123.34,345.45));
+      p+=dot(p,p+34.345);
+      return fract(p.x*p.y);
+    }
+    float vnoise(vec2 p){
+      vec2 i=floor(p), f=fract(p);
+      f=f*f*(3.0-2.0*f);
+      float a=hash21(i), b=hash21(i+vec2(1.0,0.0));
+      float c=hash21(i+vec2(0.0,1.0)), d=hash21(i+vec2(1.0,1.0));
+      return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
+    }
+    float fbm(vec2 p){
+      float v=0.0, a=0.5;
+      mat2 m=mat2(1.62,1.18,-1.18,1.62);
+      for(int i=0;i<3;i++){ v+=a*vnoise(p); p=m*p; a*=0.5; }
+      return v/0.875;
+    }
     void main(){
       vec3 N = normalize(vN);
       vec3 L = normalize(uSun);
@@ -258,15 +279,15 @@ const oceanMat=new THREE.ShaderMaterial({
       float fres = pow(1.0-max(dot(N,V),0.0),3.0);
       vec3 base = mix(uDeep,uShallow,clamp(vH*0.28+0.5,0.0,1.0));
       vec3 col = base*(0.38+0.72*diff) + uSky*fres*0.5 + vec3(spec);
-      // original foam: broad crest caps + fine lace netting, in world space
-      float shimmer = sin(vW.x*1.7+uT*0.55)*sin((vW.z+uDist)*2.1-uT*0.45);
+      // foam: crest caps, torn patches and fine flecks, all from drifting noise
+      vec2 fp = vec2(vW.x, vW.z + uDist);
+      float shimmer = fbm(fp*0.55 + vec2(uT*0.05,-uT*0.04))*2.0 - 1.0;
       float crest = smoothstep(0.42*uPeak, 0.71*uPeak, vH+shimmer*0.10);
-      float streak = sin(vW.x*3.1+uT*0.30)*sin((vW.z+uDist)*5.3-uT*0.55)
-                   + 0.6*sin(vW.x*7.7-uT*0.40)*sin((vW.z+uDist)*9.1+uT*0.26);
-      float lace = smoothstep(0.25,0.95,streak*0.5+0.5) * crest;
+      float lace  = smoothstep(0.40,0.84, fbm(fp*1.45 + vec2(-uT*0.07, uT*0.06))) * crest;
+      float fleck = smoothstep(0.56,0.93, fbm(fp*3.90 + vec2( uT*0.11, uT*0.09))) * crest;
       float slope = 1.0-clamp(N.y,0.0,1.0);
       float lip = smoothstep(0.16,0.34,slope)*smoothstep(0.25*uPeak,0.55*uPeak,vH);
-      float foam = clamp(crest*0.55 + lace*0.75 + lip*0.60, 0.0, 1.0);
+      float foam = clamp(crest*0.50 + lace*0.68 + fleck*0.34 + lip*0.60, 0.0, 1.0);
       col = mix(col, vec3(0.96,0.99,1.0), foam*0.85);
       col += vec3(1.0)*pow(max(dot(N,H),0.0),480.0)*0.6;
       float fog = smoothstep(70.0,230.0,length(cameraPosition-vW));
@@ -1177,7 +1198,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;
   trail.length=0;trailT=0;
   skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;wakeWave.visible=false;wakeCrest.visible=false;
-  splatT=0;if(zapEl)zapEl.classList.remove('on');
+  splatT=0;splatCd=0;if(zapEl)zapEl.classList.remove('on');
   while(stars.length){const st=stars.pop();st.m.visible=false;STAR_POOL.push(st.m);}
   splat3D.visible=false;
   while(splashes.length){const d=splashes.pop();freeDrop(d);}
@@ -1828,7 +1849,7 @@ splat3D.traverse(o=>{if(o.isMesh&&o.material.color.getHex()===splat3D.userData.s
 const splatMats=[];
 splat3D.traverse(o=>{if(o.isMesh)splatMats.push(o.material);});
 camera.add(splat3D);
-let splatT=0,splatSpin=0,splatX=0;
+let splatT=0,splatSpin=0,splatX=0,splatCd=0;
 
 // Aimed shot: solve the flight so it arrives at your line, then decide whether that
 // aim is honest. A miss is thrown wide on purpose rather than left to chance.
@@ -1849,6 +1870,7 @@ function throwStarfish(oct){
     sx:(Math.random()-0.5)*13,sy:(Math.random()-0.5)*13,t:0});
 }
 function updateStars(dt,eff){
+  splatCd=Math.max(0,splatCd-dt);
   for(let i=stars.length-1;i>=0;i--){
     const s2=stars[i];s2.t+=dt;
     s2.vy-=13*dt;
@@ -1858,7 +1880,10 @@ function updateStars(dt,eff){
               && Math.abs(s2.m.position.y-py)<2.2;
     const sea=waveH(s2.m.position.x,dist*WAVE_DRIFT+s2.m.position.z,waveClock);
     if(hit){
-      splatOnScreen(s2.m.userData.tint);
+      // One splat at a time. A second star landing while the first is still across
+      // your view just breaks apart beside you instead of stacking another on top.
+      if(splatCd<=0){ splatOnScreen(s2.m.userData.tint); splatCd=splatT+0.9; }
+      else { splash(s2.m.position.x,s2.m.position.y,s2.m.position.z,6,0xff8a3d); }
       splash(s2.m.position.x,s2.m.position.y,s2.m.position.z,10,0xff8a3d);
       s2.m.visible=false;STAR_POOL.push(s2.m);stars.splice(i,1);continue;
     }

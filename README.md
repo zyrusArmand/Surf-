@@ -44,6 +44,11 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.11.0** — Foam rebuilt on rotated value noise. It was a product of
+  axis-aligned sines, which tiles into a grid — the fish-net look. Now it reads as
+  crest caps, torn patches and flecks. Two starfish can no longer splat your view
+  back to back: a second hit while the first is still across the screen breaks apart
+  beside you instead of stacking.
 - **v1.10.0** — The camera rises with you. On the water it still only loosely tracks
   the swell so the board visibly lifts and drops, but off it — jump, ramp, wake launch
   or plane tow — it follows most of the way up, chases faster, eases back and lifts its
