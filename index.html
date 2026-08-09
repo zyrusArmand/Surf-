@@ -1,0 +1,2114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Pug Surf</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#7ec8f0; font-family:'Trebuchet MS',sans-serif; touch-action:none; }
+  canvas { display:block; }
+  #hud { position:fixed; top:12px; left:14px; color:#fff; text-shadow:0 2px 4px rgba(0,40,80,.5); font-weight:bold; font-size:20px; pointer-events:none; }
+  #hud small { font-size:14px; opacity:.9; }
+  #splat { position:fixed; left:50%; top:34%; width:min(78vw,420px); height:min(78vw,420px);
+    transform:translate(-50%,-50%); display:none; pointer-events:none; z-index:5;
+    filter:drop-shadow(0 10px 22px rgba(0,0,0,.35)); transition:opacity .18s linear; }
+  #trickmsg { position:fixed; top:22%; width:100%; text-align:center; color:#ffdf2e; font-weight:bold; font-size:30px; text-shadow:0 3px 6px rgba(0,40,80,.6); pointer-events:none; opacity:0; transition:opacity .2s; }
+  .btn {
+    position:fixed; user-select:none; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-weight:bold; color:#fff; text-shadow:0 2px 3px rgba(0,0,0,.4);
+    border:3px solid rgba(255,255,255,.6); background:rgba(255,255,255,.2);
+  }
+  #jumpBtn { right:20px; bottom:30px; width:92px; height:92px; font-size:20px; }
+  #ropeBtn { right:20px; bottom:140px; width:92px; height:92px; font-size:18px;
+    background:rgba(255,111,165,.4); border-color:#ff9ec4; display:none; }
+  #trickBar { position:fixed; bottom:34px; left:20px; display:flex; gap:12px; }
+  .tbtn {
+    width:68px; height:68px; border-radius:50%; user-select:none;
+    display:flex; align-items:center; justify-content:center;
+    font-weight:bold; font-size:15px; color:#fff; text-shadow:0 2px 3px rgba(0,0,0,.4);
+    border:3px solid rgba(255,255,255,.65);
+  }
+  #spinBtn { background:rgba(80,160,255,.5); }
+  #flipBtn { background:rgba(255,140,46,.5); }
+  #grabBtn { background:rgba(120,224,129,.5); }
+  #overlay {
+    position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:rgba(10,40,70,.82); color:#fff; text-align:center; padding:20px;
+  }
+  #overlay h1 { font-size:min(11vw,54px); color:#ffdf2e; text-shadow:3px 3px 0 #b8641c; }
+  #overlay p { margin:12px 0; font-size:min(4.4vw,18px); line-height:1.55; max-width:540px; }
+  #overlay .go { margin-top:14px; padding:14px 48px; font-size:22px; font-weight:bold; color:#fff; background:#ff8c2e; border:none; border-radius:40px; box-shadow:0 5px 0 #b8641c; cursor:pointer; }
+  #overlay .go:active { transform:translateY(4px); box-shadow:0 1px 0 #b8641c; }
+  #overlay .hint { opacity:.85; font-size:min(3.8vw,15px); }
+  .hidden { display:none !important; }
+  #fatal { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+    background:#0a2846; color:#fff; text-align:center; padding:24px; font-size:18px; line-height:1.6; z-index:20; }
+</style>
+</head>
+<body>
+<div id="hud"></div>
+<div id="trickmsg"></div>
+<div id="splat"><svg viewBox="0 0 200 200" width="100%" height="100%">
+  <g fill="#ff8a3d" stroke="#d9531c" stroke-width="5" stroke-linejoin="round">
+    <path d="M100 12 L124 74 L190 78 L138 118 L156 184 L100 148 L44 184 L62 118 L10 78 L76 74 Z"/>
+  </g>
+  <g fill="#ffb072" opacity=".85">
+    <circle cx="100" cy="96" r="9"/><circle cx="84" cy="78" r="5"/><circle cx="118" cy="80" r="5"/>
+    <circle cx="88" cy="116" r="5"/><circle cx="115" cy="115" r="5"/>
+  </g>
+</svg></div>
+<div id="jumpBtn" class="btn hidden">JUMP</div>
+<div id="ropeBtn" class="btn">ROPE!</div>
+<div id="trickBar" class="hidden">
+  <div class="tbtn" id="spinBtn">SPIN</div>
+  <div class="tbtn" id="flipBtn">FLIP</div>
+  <div class="tbtn" id="grabBtn">GRAB</div>
+</div>
+<div id="overlay">
+  <h1>🏄 Pug Surf</h1>
+  <p id="ovText">Carve the swell, dodge the buoys, boost off the ramps and stomp the landing.<br>Hook the seaplane's rope for a Superman backflip.</p>
+  <button class="go" id="startBtn">Surf</button>
+  <p class="hint">touch: swipe to carve · buttons to trick<br>keyboard: A/D carve · W/S weight · Space jump · J spin · K flip · L grab / hand drag<br>mouse: drag to carve</p>
+</div>
+<div id="fatal">Couldn't load the 3D engine (three.js).<br>Check your connection and reload.</div>
+<!-- three.js r128, vendored so the page works offline and needs no third-party host -->
+<script src="vendor/three.min.js"></script>
+<script>
+// if the local copy is missing (e.g. the file was opened on its own), fall back to a CDN
+if(typeof THREE==='undefined'){
+  document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"><\/script>');
+}
+</script>
+<script>
+if(typeof THREE==='undefined'){
+  document.getElementById('fatal').style.display='flex';
+  document.getElementById('overlay').style.display='none';
+}
+</script>
+<script>
+if(typeof THREE!=='undefined')(() => {
+const hud=document.getElementById('hud'), trickmsg=document.getElementById('trickmsg');
+const jumpBtn=document.getElementById('jumpBtn'), ropeBtn=document.getElementById('ropeBtn');
+const trickBar=document.getElementById('trickBar');
+const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementById('flipBtn'), grabBtn=document.getElementById('grabBtn');
+const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
+
+// ---------- three setup ----------
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x8fd2f5);
+const camera=new THREE.PerspectiveCamera(62, innerWidth/innerHeight, 0.1, 500);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(2,devicePixelRatio));
+// filmic response instead of raw linear output — highlights roll off like a camera
+if(THREE.ACESFilmicToneMapping!==undefined)renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.02;
+if(THREE.sRGBEncoding!==undefined)renderer.outputEncoding=THREE.sRGBEncoding;
+if(renderer.shadowMap){renderer.shadowMap.enabled=true;
+  if(THREE.PCFSoftShadowMap!==undefined)renderer.shadowMap.type=THREE.PCFSoftShadowMap;}
+document.body.appendChild(renderer.domElement);
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+const hemi=new THREE.HemisphereLight(0xdfeeff,0x2a7ba8,0.62);scene.add(hemi);
+// bake the sky + ocean colours into an environment map — this is what gives every
+// surface real reflections instead of flat shading
+function buildEnvironment(){
+  if(!THREE.PMREMGenerator)return;
+  try{
+    const envScene=new THREE.Scene();
+    const sky=new THREE.Mesh(new THREE.SphereGeometry(50,24,16),
+      new THREE.MeshBasicMaterial({color:0x5fa8cf,side:THREE.BackSide}));
+    envScene.add(sky);
+    const sea=new THREE.Mesh(new THREE.PlaneGeometry(160,160),
+      new THREE.MeshBasicMaterial({color:0x14567f}));
+    sea.rotation.x=-Math.PI/2;sea.position.y=-6;envScene.add(sea);
+    const sunBall=new THREE.Mesh(new THREE.SphereGeometry(5,16,12),
+      new THREE.MeshBasicMaterial({color:0xd8c69a}));
+    sunBall.position.set(-22,26,-18);envScene.add(sunBall);
+    const pmrem=new THREE.PMREMGenerator(renderer);
+    if(pmrem.compileEquirectangularShader)pmrem.compileEquirectangularShader();
+    const rt=pmrem.fromScene(envScene,0.04);
+    scene.environment=rt.texture;
+    pmrem.dispose();
+  }catch(e){ /* older builds without PMREM just keep the lights */ }
+}
+const sunDir=new THREE.Vector3(-0.45,0.75,-0.5).normalize();
+const sun=new THREE.DirectionalLight(0xfff2cf,1.75);
+sun.position.copy(sunDir.clone().multiplyScalar(60));
+sun.castShadow=true;
+if(sun.shadow){
+  sun.shadow.mapSize.width=1024;sun.shadow.mapSize.height=1024;
+  const c=sun.shadow.camera;
+  if(c){c.left=-22;c.right=22;c.top=22;c.bottom=-22;c.near=1;c.far=140;}
+  sun.shadow.bias=-0.0012;sun.shadow.normalBias=0.035;
+}
+scene.add(sun);
+if(sun.target){sun.target.position.set(0,0,0);scene.add(sun.target);}
+buildEnvironment();
+
+// ---------- shared wave model ----------
+const WAVES=[
+  [0.00, 1.00, 0.190, 1.00, 0.013],
+  [0.60, 0.80, 0.310, 0.52, 0.019],
+  [-0.74,0.67, 0.470, 0.26, 0.026],
+  [0.40,-0.92, 0.720, 0.11, 0.033],
+  [1.00, 0.00, 1.050, 0.05, 0.040],
+];
+let waveAmp=0.78;                       // current swell height (varies set to set)
+// smooth pseudo-random drift so wave size wanders between small and extra-large
+function setNoise(t){
+  return 0.45*Math.sin(t*0.055)+0.30*Math.sin(t*0.021+2.1)+0.25*Math.sin(t*0.009+4.7);
+}
+const ZSTRETCH=1.0;                     // natural wave shape again
+let WAVE_DRIFT=0.46;                    // how fast the swell rolls past — climbs slightly as you go
+function waveH(x,z,t){
+  let h=0;
+  for(const w of WAVES)h+=w[3]*Math.sin((w[0]*x+w[1]*z*ZSTRETCH)*w[2]+t*w[4]);
+  return h*waveAmp;
+}
+// the long-period part of the sea only — what a floating object actually rides.
+// Short chop is filtered out, so buoys glide over the swell instead of vibrating,
+// and because they track the big waves they never get buried by a crest.
+function swellH(x,z,t){
+  let h=0;
+  for(let i=0;i<2;i++){const w=WAVES[i];h+=w[3]*Math.sin((w[0]*x+w[1]*z*ZSTRETCH)*w[2]+t*w[4]);}
+  return h*waveAmp*1.06;
+}
+const OCEAN_Z=-90;
+let dist=0;
+
+// ---------- GPU ocean ----------
+const ZS=1.0;
+const glslWaves=WAVES.map(w=>{
+  const ph=`(${w[0].toFixed(2)}*p.x+${(w[1]*ZS).toFixed(4)}*p.y)*${w[2].toFixed(3)}+uT*${w[4].toFixed(3)}`;
+  return `h+=${w[3].toFixed(3)}*sin(${ph});
+dhx+=${w[3].toFixed(3)}*${w[2].toFixed(3)}*${w[0].toFixed(2)}*cos(${ph});
+dhz+=${w[3].toFixed(3)}*${w[2].toFixed(3)}*${(w[1]*ZS).toFixed(4)}*cos(${ph});`;
+}).join('\n');
+const oceanUniforms={
+  uT:{value:0}, uDist:{value:0}, uAmp:{value:1.35}, uPeak:{value:2.85},
+  uSun:{value:sunDir},
+  uSky:{value:new THREE.Color(0x8fd2f5)},
+  uDeep:{value:new THREE.Color(0x0a5e9c)},
+  uShallow:{value:new THREE.Color(0x33aede)},
+};
+const oceanMat=new THREE.ShaderMaterial({
+  uniforms:oceanUniforms,
+  vertexShader:`
+    uniform float uT; uniform float uDist; uniform float uAmp; uniform float uPeak;
+    varying vec3 vN; varying vec3 vW; varying float vH; varying vec2 vPh;
+    void main(){
+      vec2 p = vec2(position.x, (-position.y + (${OCEAN_Z.toFixed(1)})) + uDist);
+      float h=0.0, dhx=0.0, dhz=0.0;
+      ${glslWaves}
+      h*=uAmp; dhx*=uAmp; dhz*=uAmp;
+      // phase of the two main swells — constant along a moving crest
+      vPh = vec2( (0.00*p.x + 1.00*p.y)*0.190 + uT*0.013,
+                  (0.60*p.x + 0.80*p.y)*0.310 + uT*0.019 );
+      vec3 displaced = vec3(position.x, position.y, h);
+      vN = normalize(vec3(-dhx, 1.0, -dhz));
+      vH = h;
+      vec4 wp = modelMatrix * vec4(displaced,1.0);
+      vW = wp.xyz;
+      gl_Position = projectionMatrix * viewMatrix * wp;
+    }
+  `,
+  fragmentShader:`
+    uniform vec3 uSun; uniform vec3 uSky; uniform vec3 uDeep; uniform vec3 uShallow;
+    uniform float uT; uniform float uDist; uniform float uAmp; uniform float uPeak;
+    varying vec3 vN; varying vec3 vW; varying float vH; varying vec2 vPh;
+    void main(){
+      vec3 N = normalize(vN);
+      vec3 L = normalize(uSun);
+      vec3 V = normalize(cameraPosition - vW);
+      float diff = max(dot(N,L),0.0);
+      vec3 H = normalize(L+V);
+      float spec = pow(max(dot(N,H),0.0),140.0)*0.9;
+      float fres = pow(1.0-max(dot(N,V),0.0),3.0);
+      vec3 base = mix(uDeep,uShallow,clamp(vH*0.28+0.5,0.0,1.0));
+      vec3 col = base*(0.38+0.72*diff) + uSky*fres*0.5 + vec3(spec);
+      // original foam: broad crest caps + fine lace netting, in world space
+      float shimmer = sin(vW.x*1.7+uT*0.55)*sin((vW.z+uDist)*2.1-uT*0.45);
+      float crest = smoothstep(0.42*uPeak, 0.71*uPeak, vH+shimmer*0.10);
+      float streak = sin(vW.x*3.1+uT*0.30)*sin((vW.z+uDist)*5.3-uT*0.55)
+                   + 0.6*sin(vW.x*7.7-uT*0.40)*sin((vW.z+uDist)*9.1+uT*0.26);
+      float lace = smoothstep(0.25,0.95,streak*0.5+0.5) * crest;
+      float slope = 1.0-clamp(N.y,0.0,1.0);
+      float lip = smoothstep(0.16,0.34,slope)*smoothstep(0.25*uPeak,0.55*uPeak,vH);
+      float foam = clamp(crest*0.55 + lace*0.75 + lip*0.60, 0.0, 1.0);
+      col = mix(col, vec3(0.96,0.99,1.0), foam*0.85);
+      col += vec3(1.0)*pow(max(dot(N,H),0.0),480.0)*0.6;
+      float fog = smoothstep(70.0,230.0,length(cameraPosition-vW));
+      col = mix(col,uSky,fog);
+      // hand-picked colours are sRGB — convert to linear so the renderer's single
+      // tone-map + encode returns exactly the intended shade
+      col = pow(clamp(col,0.0,1.0), vec3(2.2));
+      gl_FragColor = vec4(col,1.0);
+    }
+  `,
+});
+const oceanGeo=new THREE.PlaneGeometry(220,300,300,340);
+const ocean=new THREE.Mesh(oceanGeo,oceanMat);
+ocean.rotation.x=-Math.PI/2;
+ocean.position.z=OCEAN_Z;
+scene.add(ocean);
+
+// ---------- pug in surfer stance + board ----------
+// every surface now uses a physically-based material, so it responds to the environment
+// deepen and saturate a hand-picked colour, then move it into the renderer's colour space
+function vivid(hex,boost){
+  const c=new THREE.Color(hex);
+  const b=boost===undefined?1.0:boost;
+  // push saturation: pull each channel away from its own average
+  const avg=(c.r+c.g+c.b)/3, k=0.30*b;
+  c.r=Math.max(0,Math.min(1,avg+(c.r-avg)*(1+k)));
+  c.g=Math.max(0,Math.min(1,avg+(c.g-avg)*(1+k)));
+  c.b=Math.max(0,Math.min(1,avg+(c.b-avg)*(1+k)));
+  if(c.convertSRGBToLinear)c.convertSRGBToLinear();
+  return c;
+}
+function PBR(o){
+  const sh=o.shininess;
+  const rough = o.roughness!==undefined ? o.roughness
+              : (sh!==undefined ? Math.max(0.06,1-Math.min(1,sh/150)) : 0.72);
+  const params={color:vivid(o.color,o.vivid), roughness:rough,
+    metalness:o.metalness!==undefined?o.metalness:0.03};
+  if(o.transparent!==undefined)params.transparent=o.transparent;
+  if(o.opacity!==undefined)params.opacity=o.opacity;
+  if(o.depthWrite!==undefined)params.depthWrite=o.depthWrite;
+  if(o.side!==undefined)params.side=o.side;
+  const m=new THREE.MeshStandardMaterial(params);
+  m.envMapIntensity=o.envMapIntensity!==undefined?o.envMapIntensity*0.55:0.55;
+  return m;
+}
+function mat(c,sh=45){return PBR({color:c,shininess:sh});}
+function FUR_MAT(c){return PBR({color:c,roughness:0.80,metalness:0.0,envMapIntensity:0.40,vivid:1.5});}  // matte but saturated
+const player=new THREE.Group();      // gets trick rotations
+player.rotation.order='YZX';         // spin (Y) applies before flip (Z) — no gimbal tangle
+const rig=new THREE.Group();         // gets carve lean/yaw/pitch
+// longboard shaped from reference: round nose, parallel rails mid-board, tapered round tail
+const bg=new THREE.SphereGeometry(1,44,28);
+{
+  const pos=bg.attributes.position;
+  for(let i=0;i<pos.count;i++){
+    const x=pos.getX(i),y=pos.getY(i),z=pos.getZ(i);
+    const t=Math.max(0,Math.min(1,(z+1)/2));          // 0 = nose, 1 = tail
+    // outline: round nose, wide and near-parallel through the middle, tapering tail
+    const nose=Math.pow(Math.min(1,t/0.30),0.38);      // rounded nose, fills out fast
+    const tail=Math.pow(Math.min(1,(1-t)/0.30),0.42);  // rounded tail
+    const outline=Math.pow(Math.min(nose,tail),0.75)*0.93+0.07;   // fuller through the middle
+    // thickness: thickest just ahead of centre, thin at both tips
+    const thick=Math.pow(Math.sin(Math.pow(t,0.85)*Math.PI),0.35);   // full volume through the rails
+    pos.setX(i,x*0.62*outline);    // wider
+    // rounded rails: soften the vertical squash near the outer edge so the hull curves under
+    const rail=1.0-0.30*Math.pow(Math.min(1,Math.abs(x)),2.0);
+    pos.setY(i,y*0.185*thick*rail);
+    pos.setZ(i,z*2.85);
+    // rocker: gentle lift at the nose, slight kick at the tail
+    const rock=Math.pow(Math.max(0,0.30-t)/0.30,2.2)*0.50 + Math.pow(Math.max(0,t-0.72)/0.28,2.4)*0.18;
+    pos.setY(i,pos.getY(i)+rock);
+  }
+  bg.computeVertexNormals();
+}
+// cream outer rails
+const board=new THREE.Mesh(bg,PBR({color:0xfffdf4,roughness:0.14,metalness:0.02,envMapIntensity:1.0}));  // wet glassed foam
+// teal deck panel inset inside the rails
+const deckPad=new THREE.Mesh(bg.clone(),PBR({color:0x18b3a6,roughness:0.16,metalness:0.02,envMapIntensity:1.0,vivid:1.6}));
+deckPad.scale.set(0.80,0.62,0.97);deckPad.position.y=0.072;   // thin skin sitting on the deck only
+// warm wood panel running down the centre
+const woodPanel=new THREE.Mesh(bg.clone(),PBR({color:0xd98f2e,roughness:0.34,metalness:0.0,vivid:1.6}));
+woodPanel.scale.set(0.30,0.60,0.93);woodPanel.position.y=0.086;
+// wood grain lines on the panel
+const grainMat=PBR({color:0xa87b3c,shininess:50});
+const grains=[];
+for(let i=-1;i<=1;i++){
+  const g=new THREE.Mesh(new THREE.BoxGeometry(0.010,0.02,4.9),grainMat);
+  g.position.set(i*0.062,0.138,0.15);grains.push(g);
+}
+// nose logo dot
+const logo=new THREE.Mesh(new THREE.CircleGeometry(0.075,16),new THREE.MeshBasicMaterial({color:0x24413f}));
+logo.rotation.x=-Math.PI/2;logo.position.set(0,0.146,-1.35);
+rig.add(board,deckPad,woodPanel,logo);
+for(const g of grains)rig.add(g);
+// thruster fin setup
+function makeFin(x,z,tilt,size){
+  // shape drawn in the Z-Y plane with the tip BELOW the base, then given thickness across X
+  const g=new THREE.Shape();
+  g.moveTo(-0.16,0);
+  g.quadraticCurveTo(-0.02,-0.10,0.10,-0.30);   // swept-back leading edge going down
+  g.quadraticCurveTo(0.14,-0.16,0.18,0);        // trailing edge back up to the base
+  g.lineTo(-0.16,0);
+  const fg=new THREE.ExtrudeGeometry(g,{depth:0.028,bevelEnabled:true,bevelSize:0.008,bevelThickness:0.006,bevelSegments:1});
+  fg.translate(0,0,-0.014);
+  const f=new THREE.Mesh(fg,PBR({color:0x123b39,roughness:0.12,metalness:0.06,envMapIntensity:1.2,vivid:1.4}));  // wet fin
+  f.rotation.y=Math.PI/2;                        // thickness now runs across the board
+  f.position.set(x,-0.155,z);
+  f.rotation.z=tilt;
+  f.scale.setScalar(size||1);
+  rig.add(f);
+}
+makeFin(0,1.55,0,1.0);makeFin(-0.30,1.32,0.16,0.8);makeFin(0.30,1.32,-0.16,0.8);
+
+// ---- jointed surfer rig: pelvis > spine > chest > neck > head, with hip/knee/ankle + shoulder/elbow chains ----
+const pug=new THREE.Group();
+function joint(parent,x,y,z){const g=new THREE.Group();g.position.set(x,y,z);parent.add(g);return g;}
+function limb(parent,len,rad,col,ry=0){
+  const m=new THREE.Mesh(new THREE.CylinderGeometry(rad*0.85,rad,len,12),mat(col));
+  m.position.y=-len/2;parent.add(m);
+  const cap=new THREE.Mesh(new THREE.SphereGeometry(rad,12,10),mat(col));
+  cap.position.y=-len;parent.add(cap);
+  return m;
+}
+const FUR=0xdCa85f, FUR2=0xdCa85f, CREAM=0xf2dcae, DARK=0x2b1d12;   // warmer, deeper fawn
+const furMat=FUR_MAT(FUR), darkMat=PBR({color:DARK,roughness:0.72});
+
+const pelvis=joint(pug,0,0.59,0.02);
+const spine=joint(pelvis,0,0.16,0);
+const chestJ=joint(spine,0,0.30,-0.04);
+const neck=joint(chestJ,0,0.30,-0.06);
+const headJ=joint(neck,0,0.20,0);
+
+// one smooth chubby pug body (single mesh, still driven by the spine joint)
+const bodyGeo=new THREE.SphereGeometry(0.46,32,26);
+{
+  const pos=bodyGeo.attributes.position;
+  for(let i=0;i<pos.count;i++){
+    const x=pos.getX(i),y=pos.getY(i),z=pos.getZ(i);
+    const t=Math.max(0,Math.min(1,(y+0.46)/0.92)); // 0 = hips, 1 = shoulders (clamped: pow() of a negative is NaN)
+    const belly=1.06-0.30*Math.pow(t,2.1);     // heavy low, tapers to shoulders
+    pos.setX(i,x*belly*1.14);
+    pos.setZ(i,z*belly*0.86);
+    pos.setY(i,y*1.32+0.34+Math.pow(t,3)*0.06);
+  }
+  bodyGeo.computeVertexNormals();
+}
+const torso=new THREE.Mesh(bodyGeo,furMat);
+spine.add(torso);
+const collar=new THREE.Mesh(new THREE.SphereGeometry(0.22,16,14),furMat);
+collar.position.y=-0.16;collar.scale.set(1.15,1.0,1.1);headJ.add(collar);
+const head=new THREE.Mesh(new THREE.SphereGeometry(0.40,24,20),furMat);
+headJ.add(head);
+const muzzle=new THREE.Mesh(new THREE.SphereGeometry(0.22,18,14),darkMat);
+muzzle.position.set(0,-0.08,-0.34);muzzle.scale.set(1.1,0.85,0.95);headJ.add(muzzle);
+const pugNose=new THREE.Mesh(new THREE.SphereGeometry(0.075,12,10),mat(0x141416,90));
+pugNose.position.set(0,-0.05,-0.51);headJ.add(pugNose);
+const earL=new THREE.Mesh(new THREE.SphereGeometry(0.13,14,12),darkMat);
+earL.position.set(-0.27,0.26,0.03);earL.scale.set(1,1.5,0.65);earL.rotation.z=0.35;headJ.add(earL);
+const earR=earL.clone();earR.position.x=0.27;earR.rotation.z=-0.35;headJ.add(earR);
+const eyeL=new THREE.Mesh(new THREE.SphereGeometry(0.072,12,10),mat(0x111111,90));
+eyeL.position.set(-0.16,0.06,-0.35);headJ.add(eyeL);
+const eyeR=eyeL.clone();eyeR.position.x=0.16;headJ.add(eyeR);
+const tongue=new THREE.Mesh(new THREE.SphereGeometry(0.07,10,8),mat(0xff8fa0));
+tongue.position.set(0,-0.17,-0.42);tongue.scale.set(0.8,1.5,0.6);headJ.add(tongue);
+
+const tailJ=joint(pelvis,0,0.22,0.30);
+// tight curl sitting up on his back, like the reference
+const tailCurl=new THREE.Mesh(new THREE.TorusGeometry(0.115,0.055,12,22,5.4),furMat);
+tailCurl.rotation.set(0.35,Math.PI/2,0);
+tailJ.add(tailCurl);
+const tailBase=new THREE.Mesh(new THREE.SphereGeometry(0.075,12,10),furMat);
+tailBase.position.set(0,-0.10,0.02);tailBase.scale.set(1,1.5,1);tailJ.add(tailBase);
+tailJ.rotation.y=-1.16;
+
+// legs: hip -> knee -> ankle -> foot (front foot toward board nose, back foot toward tail)
+function makeLeg(zoff,xoff){
+  // one continuously tapering limb — wide where it leaves the body, slim at the paw
+  const hip=joint(pelvis,xoff,0.02,zoff);
+  // apply the body-alignment turn BEFORE the splay, so the leg swings along the board
+  hip.rotation.order='YXZ';
+  // thigh: starts at body width and narrows, so there's no ball-on-a-stick seam
+  const thigh=new THREE.Mesh(new THREE.CylinderGeometry(0.105,0.170,0.26,18),furMat);
+  thigh.position.y=-0.12;hip.add(thigh);
+  const hipBlend=new THREE.Mesh(new THREE.SphereGeometry(0.165,18,14),furMat);
+  hipBlend.position.y=0.03;hipBlend.scale.set(1,0.9,1.05);hip.add(hipBlend);   // rounds the top of the thigh into the belly
+  const knee=joint(hip,0,-0.25,0);
+  knee.rotation.order='YXZ';
+  // shin picks up exactly where the thigh ended (0.098) so the joint is invisible
+  const shin=new THREE.Mesh(new THREE.CylinderGeometry(0.080,0.105,0.20,18),furMat);
+  shin.position.y=-0.10;knee.add(shin);
+  const kneeBlend=new THREE.Mesh(new THREE.SphereGeometry(0.097,14,12),furMat);
+  knee.add(kneeBlend);
+  const ankle=joint(knee,0,-0.20,0);
+  ankle.rotation.order='YXZ';
+  // small flat paw, not a ball
+  const paw=new THREE.Mesh(new THREE.SphereGeometry(0.082,16,12),furMat);
+  paw.scale.set(1.15,0.62,1.5);paw.position.set(0,-0.015,-0.03);
+  ankle.add(paw);
+  const toes=new THREE.Mesh(new THREE.SphereGeometry(0.032,10,8),furMat);
+  toes.scale.set(2.0,0.6,0.9);toes.position.set(0,-0.025,-0.10);
+  ankle.add(toes);
+  return {hip,knee,ankle,zoff};
+}
+// place the feet in BOARD space (nose-to-tail), then convert into the rotated body's space
+const STANCE_ROT=-1.16;
+function boardToBody(bx,bz){
+  const c=Math.cos(-STANCE_ROT), sn=Math.sin(-STANCE_ROT);
+  return [bx*c+bz*sn, -bx*sn+bz*c];
+}
+const STANCE_F=-0.45, STANCE_B=0.85;        // front ahead of centre, back toward the fins
+const HIP_F=-0.10,   HIP_B=0.50;            // hip sockets inside the body, directly over each foot
+const [fx0,fz0]=boardToBody(-0.04,HIP_F);
+const [bx0,bz0]=boardToBody( 0.04,HIP_B);
+// shift the whole body back so his weight sits between the feet, not over the nose
+const [pgx,pgz]=boardToBody(0,(STANCE_F+STANCE_B)*0.5);
+const legFrontJ=makeLeg(fz0,fx0);
+const legBackJ=makeLeg(bz0,bx0);
+// arms: shoulder -> elbow -> paw
+function makeArm(xoff,zoff){
+  const sh=joint(chestJ,xoff,0.10,zoff);
+  const shoulder=new THREE.Mesh(new THREE.SphereGeometry(0.115,16,14),furMat);
+  shoulder.scale.set(1,0.95,1);sh.add(shoulder);
+  const upper=new THREE.Mesh(new THREE.CylinderGeometry(0.078,0.115,0.34,16),furMat);
+  upper.position.y=-0.17;sh.add(upper);
+  const el=joint(sh,0,-0.34,0);
+  const elbow=new THREE.Mesh(new THREE.SphereGeometry(0.077,14,12),furMat);
+  el.add(elbow);
+  const fore=new THREE.Mesh(new THREE.CylinderGeometry(0.058,0.078,0.30,16),furMat);
+  fore.position.y=-0.15;el.add(fore);
+  const paw=new THREE.Mesh(new THREE.SphereGeometry(0.072,14,12),furMat);
+  paw.position.y=-0.30;paw.scale.set(1.25,0.8,1.35);el.add(paw);
+  return {sh,el};
+}
+const armFrontJ=makeArm(-0.56,-0.10);   // shoulders sit clear of the body silhouette
+const armBackJ=makeArm(0.56,0.06);
+
+pug.position.set(pgx,0,pgz);   // centred over the board's balance point
+pug.rotation.y=STANCE_ROT;   // side-on to the board, angled slightly toward the nose
+rig.add(pug);
+player.add(rig);
+player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
+scene.add(player);
+
+// splash particles — pooled: one shared geometry + a fixed set of meshes, reused forever
+const SPLASH_GEO=new THREE.SphereGeometry(0.12,6,5);
+const SPLASH_MAT=new THREE.MeshBasicMaterial({color:0xffffff});
+const SPLASH_MAT_WARN=new THREE.MeshBasicMaterial({color:0xffc23e});
+const SPLASH_MAT_HIT=new THREE.MeshBasicMaterial({color:0xff5f5f});
+const POOL=[],splashes=[];
+for(let i=0;i<420;i++){
+  const m=new THREE.Mesh(SPLASH_GEO,SPLASH_MAT);
+  m.visible=false;scene.add(m);POOL.push(m);
+}
+function takeDrop(){
+  const m=POOL.pop();
+  if(m){m.visible=true;return m;}
+  const old=splashes.shift();          // recycle the oldest if we run dry
+  if(old)return old;
+  return null;
+}
+function freeDrop(m){m.visible=false;POOL.push(m);}
+function splash(x,y,z,n=8,col){
+  const mtl=col===0xffc23e?SPLASH_MAT_WARN:(col===0xff5f5f?SPLASH_MAT_HIT:SPLASH_MAT);
+  for(let i=0;i<n;i++){
+    const m=takeDrop();if(!m)return;
+    m.material=mtl;
+    m.position.set(x,y,z);
+    const sc=0.7+Math.random()*1.1;
+    m.scale.setScalar(sc);
+    m.userData={vx:(Math.random()-0.5)*6,vy:2+Math.random()*4,vz:(Math.random()-0.5)*6,t:0.7,s:sc};
+    splashes.push(m);
+  }
+}
+// soft contact shadows so nothing floats — the water shader can't receive real ones
+const shadowGeo=new THREE.CircleGeometry(1,20);
+function makeContactShadow(size){
+  const m=new THREE.Mesh(shadowGeo,new THREE.MeshBasicMaterial({
+    color:0x0a2c4a,transparent:true,opacity:0.16,depthWrite:false}));
+  m.rotation.x=-Math.PI/2;m.scale.setScalar(size);scene.add(m);return m;
+}
+const boardShadow=makeContactShadow(1.5);
+const OBST_SHADOWS=[];
+for(let i=0;i<16;i++){const sh=makeContactShadow(1);sh.visible=false;OBST_SHADOWS.push(sh);}
+
+// wake: a continuous ribbon that traces the board's actual path through the water,
+// widening and fading behind it (replaces the old stack of overlapping circles)
+const WAKE_SEGS=64;
+const wakeGeo=new THREE.BufferGeometry();
+const wakePos=new Float32Array(WAKE_SEGS*2*3);
+const wakeAlpha=new Float32Array(WAKE_SEGS*2);
+wakeGeo.setAttribute('position',new THREE.BufferAttribute(wakePos,3));
+wakeGeo.setAttribute('aAlpha',new THREE.BufferAttribute(wakeAlpha,1));
+{
+  const idx=[];
+  for(let i=0;i<WAKE_SEGS-1;i++){
+    const a=i*2,b=i*2+1,c=(i+1)*2,d=(i+1)*2+1;
+    idx.push(a,b,c, b,d,c);
+  }
+  wakeGeo.setIndex(idx);
+}
+const wakeMesh=new THREE.Mesh(wakeGeo,new THREE.ShaderMaterial({
+  transparent:true,depthWrite:false,side:THREE.DoubleSide,
+  vertexShader:`attribute float aAlpha; varying float vA;
+    void main(){vA=aAlpha; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+  fragmentShader:`varying float vA;
+    void main(){ if(vA<=0.001) discard; gl_FragColor=vec4(0.97,0.995,1.0,vA); }`
+}));
+wakeMesh.frustumCulled=false;scene.add(wakeMesh);
+const trail=[];                       // {x,y,z,w,age}
+let trailT=0;
+function pushTrail(x,y,z,w){ trail.unshift({x,y,z,w,age:0}); if(trail.length>WAKE_SEGS)trail.pop(); }
+function updateWake(dt,eff){
+  for(const t of trail){ t.age+=dt; t.z+=eff*dt; }
+  while(trail.length&&trail[trail.length-1].age>1.5)trail.pop();
+  for(let i=0;i<WAKE_SEGS;i++){
+    const t=trail[i];
+    const o=i*6, oa=i*2;
+    if(!t){ wakeAlpha[oa]=0;wakeAlpha[oa+1]=0; continue; }
+    const k=t.age/1.5;
+    const halfW=t.w*(0.55+k*2.6);                  // spreads out behind you
+    const y=waveH(t.x,dist*WAVE_DRIFT+t.z,waveClock)+0.05;         // rides the swell like everything else
+    wakePos[o]  =t.x-halfW; wakePos[o+1]=y; wakePos[o+2]=t.z;
+    wakePos[o+3]=t.x+halfW; wakePos[o+4]=y; wakePos[o+5]=t.z;
+    const a=Math.max(0,(1-k))*0.55*Math.min(1,i/2);
+    wakeAlpha[oa]=a*0.35; wakeAlpha[oa+1]=a*0.35;  // soft edges
+    if(i>0){ wakeAlpha[oa]=a*0.45; wakeAlpha[oa+1]=a*0.45; }
+  }
+  wakeGeo.attributes.position.needsUpdate=true;
+  wakeGeo.attributes.aAlpha.needsUpdate=true;
+}
+
+// ---------- plane + rope ----------
+const plane=new THREE.Group();
+{
+  const shell=PBR({color:0xf3f5f7,shininess:110,specular:0xffffff});
+  const trim=PBR({color:0xe23c3c,shininess:80});
+  const glass=PBR({color:0x2b4a63,shininess:140,specular:0xffffff});
+  const dark=PBR({color:0x2b2f35,shininess:60});
+  // tapered fuselage
+  const fusG=new THREE.CylinderGeometry(0.42,0.2,4.6,20);
+  const fus=new THREE.Mesh(fusG,shell);fus.rotation.x=Math.PI/2;fus.position.z=0.2;
+  const noseCone=new THREE.Mesh(new THREE.SphereGeometry(0.42,18,14),shell);
+  noseCone.position.z=-2.05;noseCone.scale.z=1.5;
+  // cockpit glass
+  const canopy=new THREE.Mesh(new THREE.SphereGeometry(0.32,16,12),glass);
+  canopy.position.set(0,0.26,-0.9);canopy.scale.set(0.85,0.7,1.5);
+  // wings with dihedral + red stripe
+  const wingL=new THREE.Mesh(new THREE.BoxGeometry(3.1,0.1,1.05),shell);
+  wingL.position.set(-1.7,0.06,-0.15);wingL.rotation.z=0.09;
+  const wingR=wingL.clone();wingR.position.x=1.7;wingR.rotation.z=-0.09;
+  const strL=new THREE.Mesh(new THREE.BoxGeometry(3.1,0.045,0.28),trim);
+  strL.position.set(-1.7,0.12,-0.15);strL.rotation.z=0.09;
+  const strR=strL.clone();strR.position.x=1.7;strR.rotation.z=-0.09;
+  // tail: horizontal stabilizer + vertical fin
+  const stab=new THREE.Mesh(new THREE.BoxGeometry(1.7,0.08,0.55),shell);
+  stab.position.set(0,0.16,2.15);
+  const vfin=new THREE.Mesh(new THREE.BoxGeometry(0.08,0.85,0.75),shell);
+  vfin.position.set(0,0.6,2.25);
+  const vtrim=new THREE.Mesh(new THREE.BoxGeometry(0.1,0.3,0.7),trim);
+  vtrim.position.set(0,0.85,2.3);
+  // engine cowl, spinner + blurred prop disc
+  const cowl=new THREE.Mesh(new THREE.CylinderGeometry(0.44,0.44,0.35,18),trim);
+  cowl.rotation.x=Math.PI/2;cowl.position.z=-1.95;
+  const spinner=new THREE.Mesh(new THREE.ConeGeometry(0.17,0.42,14),dark);
+  spinner.rotation.x=-Math.PI/2;spinner.position.z=-2.5;
+  const prop=new THREE.Mesh(new THREE.BoxGeometry(0.1,2.3,0.05),dark);
+  prop.position.z=-2.35;
+  const propBlur=new THREE.Mesh(new THREE.CircleGeometry(1.15,26),
+    new THREE.MeshBasicMaterial({color:0xd8dee4,transparent:true,opacity:0.2,side:THREE.DoubleSide,depthWrite:false}));
+  propBlur.position.z=-2.33;
+  // floats (it's a seaplane after all)
+  for(const sx of [-0.75,0.75]){
+    const float=new THREE.Mesh(new THREE.SphereGeometry(0.22,14,10),shell);
+    float.scale.set(1,0.8,4.2);float.position.set(sx,-0.75,-0.1);
+    const strutA=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,0.62,8),dark);
+    strutA.position.set(sx,-0.42,-0.7);
+    const strutB=strutA.clone();strutB.position.z=0.5;
+    plane.add(float,strutA,strutB);
+  }
+  plane.add(fus,noseCone,canopy,wingL,wingR,strL,strR,stab,vfin,vtrim,cowl,spinner,prop,propBlur);
+  plane.userData.prop=prop;
+}
+plane.rotation.y=Math.PI;   // nose (and prop) points the way it flies
+plane.visible=false;
+scene.add(plane);
+const ropeGeo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3()]);
+const rope=new THREE.Line(ropeGeo,new THREE.LineBasicMaterial({color:0xffffff}));
+rope.visible=false;scene.add(rope);
+
+// ---------- realistic obstacles ----------
+const obstacles=[];
+function buildObstacle(kind){
+  let m,r=1.1,h=1.6,ramp=false;
+  if(kind==='buoy'){
+    // navigational buoy: striped float, pole, flag
+    m=new THREE.Group();
+    const base=new THREE.Mesh(new THREE.CylinderGeometry(0.8,0.6,0.6,18),mat(0xd8dde2,60));
+    const bandR=new THREE.Mesh(new THREE.CylinderGeometry(0.72,0.78,0.45,18),PBR({color:0xff3a22,roughness:0.35,vivid:1.7}));
+    bandR.position.y=0.5;
+    const bandW=new THREE.Mesh(new THREE.CylinderGeometry(0.55,0.7,0.4,18),mat(0xf2f4f6));
+    bandW.position.y=0.9;
+    const top=new THREE.Mesh(new THREE.ConeGeometry(0.52,0.7,18),PBR({color:0xff3a22,roughness:0.35,vivid:1.7}));
+    top.position.y=1.4;
+    const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,1.1,10),mat(0x666a70,70));
+    pole.position.y=2.2;
+    const flag=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.3,0.03),PBR({color:0xffc21a,roughness:0.45,vivid:1.7}));
+    flag.position.set(0.27,2.55,0);
+    const light=new THREE.Mesh(new THREE.SphereGeometry(0.09,10,8),mat(0xfff2a0,120));
+    light.position.y=2.78;
+    m.add(base,bandR,bandW,top,pole,flag,light);
+    h=2.2;
+  } else if(kind==='reef'){
+    // translucent jellyfish drifting at the surface
+    m=new THREE.Group();
+    const tint=[0xff7ad0,0xb07aff,0x7ad8ff,0xffa8e0][(Math.random()*4)|0];
+    const bellMat=new THREE.MeshStandardMaterial({
+      color:vivid(tint,1.4), roughness:0.10, metalness:0.0,
+      transparent:true, opacity:0.62, depthWrite:false,
+      emissive:vivid(tint,1.2), emissiveIntensity:0.35, side:THREE.DoubleSide });
+    bellMat.envMapIntensity=1.3;
+    // domed bell with a soft scalloped rim
+    const bellGeo=new THREE.SphereGeometry(1,26,18,0,Math.PI*2,0,Math.PI*0.62);
+    {
+      const pos=bellGeo.attributes.position;
+      for(let i=0;i<pos.count;i++){
+        const x=pos.getX(i),y=pos.getY(i),z=pos.getZ(i);
+        const a=Math.atan2(z,x);
+        const rim=1+0.055*Math.sin(a*8);          // wavy edge
+        pos.setX(i,x*1.05*rim); pos.setZ(i,z*1.05*rim);
+        pos.setY(i,y*0.78);
+      }
+      bellGeo.computeVertexNormals();
+    }
+    const bell=new THREE.Mesh(bellGeo,bellMat);
+    bell.scale.setScalar(0.95);
+    // brighter inner core so it glows from within
+    const core=new THREE.Mesh(new THREE.SphereGeometry(0.52,18,14),
+      new THREE.MeshBasicMaterial({color:vivid(tint,1.6),transparent:true,opacity:0.30,depthWrite:false}));
+    core.position.y=-0.12;core.scale.set(1,0.7,1);
+    m.add(bell,core);
+    // frilly oral arms under the bell
+    const armMat=new THREE.MeshStandardMaterial({
+      color:vivid(tint,1.3), roughness:0.25, transparent:true, opacity:0.5,
+      depthWrite:false, side:THREE.DoubleSide });
+    for(let i=0;i<6;i++){
+      const a=(i/6)*Math.PI*2;
+      const arm=new THREE.Mesh(new THREE.ConeGeometry(0.10,0.85,7,1,true),armMat);
+      arm.position.set(Math.cos(a)*0.30,-0.48,Math.sin(a)*0.30);
+      arm.rotation.z=Math.cos(a)*0.22; arm.rotation.x=-Math.sin(a)*0.22;
+      m.add(arm);
+    }
+    // long trailing tentacles
+    const tentMat=new THREE.MeshBasicMaterial({color:vivid(tint,1.5),transparent:true,opacity:0.34,depthWrite:false});
+    for(let i=0;i<10;i++){
+      const a=(i/10)*Math.PI*2+0.3;
+      const len=1.1+Math.random()*1.0;
+      const t=new THREE.Mesh(new THREE.CylinderGeometry(0.018,0.006,len,5),tentMat);
+      t.position.set(Math.cos(a)*0.62,-0.35-len/2,Math.sin(a)*0.62);
+      t.rotation.z=Math.cos(a)*0.18; t.rotation.x=-Math.sin(a)*0.18;
+      m.add(t);
+    }
+    const wash=new THREE.Mesh(new THREE.CircleGeometry(1.5,26),
+      new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.22,depthWrite:false}));
+    wash.rotation.x=-Math.PI/2;wash.position.y=0.02;
+    m.add(wash);
+    m.userData.washIdx=m.children.indexOf(wash);
+    m.userData.bellIdx=m.children.indexOf(bell);
+    r=1.35;h=1.6;
+  } else if(kind==='log'){
+    m=new THREE.Group();
+    const trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.45,0.52,5,18),PBR({color:0x8c4f22,roughness:0.66,vivid:1.5}));
+    trunk.rotation.z=Math.PI/2;
+    const endA=new THREE.Mesh(new THREE.CylinderGeometry(0.46,0.46,0.06,18),mat(0xc9a06a,10));
+    endA.rotation.z=Math.PI/2;endA.position.x=2.52;
+    const endB=endA.clone();endB.position.x=-2.52;
+    const stub=new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.14,0.6,10),mat(0x74492a,10));
+    stub.position.set(0.8,0.45,0.1);stub.rotation.z=0.4;
+    m.add(trunk,endA,endB,stub);
+    r=2.6;h=1.1;
+  } else if(kind==='bigfin'){
+    // one very large dorsal fin cutting across your line — no body, just the fin
+    m=new THREE.Group();
+    const skin=PBR({color:0x3b4b58,roughness:0.20,metalness:0.03,envMapIntensity:1.5});
+    const fin=makeDorsal(3.6,skin);
+    fin.position.y=1.55;fin.rotation.y=Math.PI/2;
+    const wash=new THREE.Mesh(new THREE.CircleGeometry(2.2,22),
+      new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.45,depthWrite:false}));
+    wash.rotation.x=-Math.PI/2;wash.position.set(0,0.03,0.6);
+    m.add(fin,wash);
+    m.userData.washIdx=m.children.indexOf(wash);
+    r=2.0;h=3.2;
+  } else {
+    // clean solid wooden wedge — low edge toward the rider
+    m=new THREE.Group();
+    const wedge=new THREE.BufferGeometry();
+    const W2=1.6,L=2.4,Hh=1.85;
+    const v=new Float32Array([
+      -W2,0,L,  W2,0,L,  W2,0,-L,  -W2,0,-L,        // bottom
+      -W2,Hh,-L, W2,Hh,-L,                            // top back edge
+    ]);
+    wedge.setAttribute('position',new THREE.BufferAttribute(v,3));
+    wedge.setIndex([0,1,2, 0,2,3, 0,1,5, 0,5,4, 3,2,5, 3,5,4, 1,2,5, 0,4,3]);
+    wedge.computeVertexNormals();
+    const body=new THREE.Mesh(wedge,PBR({color:0xd98c33,roughness:0.58,vivid:1.5}));
+    m.add(body);
+    // plank seams on the ramp face
+    for(let i=1;i<6;i++){
+      const t=i/6;
+      const plank=new THREE.Mesh(new THREE.BoxGeometry(W2*2-0.1,0.04,0.06),PBR({color:0x74401c,roughness:0.64,vivid:1.5}));
+      plank.position.set(0,Hh*t,L-2*L*t+0.02);
+      plank.rotation.x=Math.atan2(Hh,2*L);
+      m.add(plank);
+    }
+    const lip=new THREE.Mesh(new THREE.BoxGeometry(W2*2+0.1,0.14,0.2),mat(0xff8c2e,50));
+    lip.position.set(0,Hh,-L);
+    m.add(lip);
+    ramp=true;r=1.8;h=99;
+  }
+  m.userData={...m.userData,kind,r,h,ramp,used:false};
+  return m;
+}
+// one template per obstacle type; every spawn is a clone that reuses the same GPU data
+const OBST_TEMPLATES={};
+// each obstacle floats at its own waterline so nothing gets buried by a passing swell
+const FLOAT_OFF={buoy:0.36,reef:0.34,log:0.40,bigfin:0.28,ramp:0.02};   // ramp sits low: water laps its base
+// clear the cached buoyancy state on a fresh clone so a new spawn doesn't inherit it
+function makeObstacle(kind,x,z){
+  if(!OBST_TEMPLATES[kind])OBST_TEMPLATES[kind]=buildObstacle(kind);
+  const t=OBST_TEMPLATES[kind];
+  const m=t.clone(true);
+  m.userData={...t.userData,used:false,by:undefined,bv:0,rx:undefined,rz:undefined};
+  // re-link animated sub-parts (indexes survive cloning; object references do not)
+  if(t.userData.washIdx!==undefined)m.userData.wash=m.children[t.userData.washIdx];
+  if(t.userData.bellIdx!==undefined)m.userData.bell=m.children[t.userData.bellIdx];
+  if(kind==='reef')m.userData.pulse=Math.random()*7;
+  if(kind==='bigfin'){
+    const d=Math.random()<0.5?1:-1;
+    m.rotation.y=d*Math.PI/2;
+    // start just off your side of the field and sweep across your line
+    m.userData.startX=px-d*(11+Math.random()*5);
+    m.userData.targetX=px+d*(0.5+Math.random()*2.5);
+    m.userData.crossT=0;
+    m.userData.cross=0;
+  }
+  m.position.set(kind==='bigfin'?m.userData.startX:x,0,z);
+  m.traverse&&m.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
+  scene.add(m);obstacles.push(m);
+}
+
+// ---------- state ----------
+let running=false,tNow=0,last=0,speed=22,score=0,best=0,waveClock=0,lastEff=22;
+let px=0,py=0,vy=0,vx=0,cutCd=0,airborne=false,trickReady=false;
+let boardYaw=0,boardLean=0,boardPitch=0,camX=0,camY=5.0,lookX=0,sprayAcc=0,leanW=0,pearlT=0;
+let spinHeld=false,flipHeld=false,spinRot=0,flipRot=0;
+let grabOn=false,grabPts=0,grabSide=1;
+let dragOn=false,dragPts=0,dragSide=1;
+let shake=0;
+let trick=null; // rope backflip only
+let planeT=8,planeActive=false,hanging=false,spawnT=0.4;
+let lastKind='',sameRun=0,bigFinCd=6,laneSlot=(Math.random()*5)|0;
+const keys={};
+addEventListener('keydown',e=>{
+  keys[e.code]=true;
+  if(e.code==='Space'){e.preventDefault();doJump();}
+  if(e.code==='KeyJ')startTrick('spin');
+  if(e.code==='KeyK')startTrick('flip');
+  if(e.code==='KeyL'){if(airborne||hanging)startTrick('grab');else startDrag();}
+});
+addEventListener('keyup',e=>{
+  keys[e.code]=false;
+  if(e.code==='KeyJ')releaseTrick('spin');
+  if(e.code==='KeyK')releaseTrick('flip');
+  if(e.code==='KeyL'){endGrab();endDrag();}
+});
+let steer=0;
+// swipe steering: swipe the way you want him to go — the swipe keeps steering, and
+// the anchor drifts back so you can keep swiping in the same direction.
+let touchId=null,touchX0=0,touchY0=0;
+let weight=0;   // -1 = leaning back over the tail, +1 = leaning forward over the nose
+addEventListener('touchstart',e=>{
+  for(const t of e.changedTouches){
+    if(t.target.closest&&(t.target.closest('.btn')||t.target.closest('.tbtn')))continue;
+    if(touchId===null){touchId=t.identifier;touchX0=t.clientX;touchY0=t.clientY;}
+  }
+},{passive:true});
+addEventListener('touchmove',e=>{
+  for(const t of e.changedTouches){
+    if(t.identifier===touchId){
+      const range=innerWidth*0.16;
+      let v=(t.clientX-touchX0)/range;
+      if(v>1){touchX0=t.clientX-range;v=1;}       // let the swipe keep going
+      if(v<-1){touchX0=t.clientX+range;v=-1;}
+      steer=v;
+      // up/down on the same swipe shifts your weight along the board
+      const vr=innerHeight*0.14;
+      let w=(t.clientY-touchY0)/vr;
+      if(w>1){touchY0=t.clientY-vr;w=1;}
+      if(w<-1){touchY0=t.clientY+vr;w=-1;}
+      weight=w;
+    }
+  }
+},{passive:true});
+addEventListener('touchend',e=>{
+  for(const t of e.changedTouches)if(t.identifier===touchId){touchId=null;steer=0;weight=0;}
+});
+// mouse steering for desktop: drag anywhere on the water, same feel as a swipe
+let mouseDrag=false,mouseX0=0,mouseY0=0;
+addEventListener('mousedown',e=>{
+  if(!running)return;
+  if(e.target.closest&&(e.target.closest('.btn')||e.target.closest('.tbtn')))return;
+  mouseDrag=true;mouseX0=e.clientX;mouseY0=e.clientY;
+});
+addEventListener('mousemove',e=>{
+  if(!mouseDrag)return;
+  const range=innerWidth*0.16;
+  let v=(e.clientX-mouseX0)/range;
+  if(v>1){mouseX0=e.clientX-range;v=1;}
+  if(v<-1){mouseX0=e.clientX+range;v=-1;}
+  steer=v;
+  const vr=innerHeight*0.14;
+  let w=(e.clientY-mouseY0)/vr;
+  if(w>1){mouseY0=e.clientY-vr;w=1;}
+  if(w<-1){mouseY0=e.clientY+vr;w=-1;}
+  weight=w;
+});
+function endMouseDrag(){ if(mouseDrag){mouseDrag=false;steer=0;weight=0;} }
+addEventListener('mouseleave',endMouseDrag);
+jumpBtn.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();doJump();});
+jumpBtn.addEventListener('mousedown',doJump);
+ropeBtn.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();ropeAction();});
+ropeBtn.addEventListener('mousedown',ropeAction);
+spinBtn.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();startTrick('spin');});
+spinBtn.addEventListener('touchend',e=>{e.preventDefault();releaseTrick('spin');});
+flipBtn.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();startTrick('flip');});
+flipBtn.addEventListener('touchend',e=>{e.preventDefault();releaseTrick('flip');});
+grabBtn.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();if(airborne||hanging)startTrick('grab');else startDrag();});
+grabBtn.addEventListener('touchend',e=>{e.preventDefault();endGrab();endDrag();});
+spinBtn.addEventListener('mousedown',()=>startTrick('spin'));
+flipBtn.addEventListener('mousedown',()=>startTrick('flip'));
+grabBtn.addEventListener('mousedown',()=>{if(airborne||hanging)startTrick('grab');else startDrag();});
+addEventListener('mouseup',()=>{endGrab();endDrag();releaseSpin();endMouseDrag();});
+
+const BEST_KEY='pug-surf-best';
+function loadBest(){
+  try{const v=localStorage.getItem(BEST_KEY);if(v)best=parseInt(v,10)||0;}catch(e){}
+}
+function saveBest(){try{localStorage.setItem(BEST_KEY,String(best));}catch(e){}}
+loadBest();
+
+function msg(t){trickmsg.textContent=t;trickmsg.style.opacity=1;setTimeout(()=>trickmsg.style.opacity=0,900);}
+
+function doJump(){
+  if(!running||airborne)return;
+  vy=10.8;airborne=true;splash(px,0.4,0,10);
+}
+function startTrick(type){
+  if(!running||!trickReady)return;
+  if(type==='spin')spinHeld=true;
+  else if(type==='flip')flipHeld=true;
+  else if(type==='grab'&&!grabOn){
+    grabOn=true;grabPts=0;grabSide=vx>=0?1:-1;
+  }
+}
+function releaseTrick(type){
+  if(type==='spin')spinHeld=false;
+  else if(type==='flip')flipHeld=false;
+}
+function releaseSpin(){ spinHeld=false; flipHeld=false; }
+function startDrag(){
+  if(!running||airborne||hanging||dragOn)return;
+  dragOn=true;dragPts=0;dragSide=vx>=0?1:-1;
+}
+function endDrag(){
+  if(dragOn){
+    const p=Math.round(dragPts);
+    if(p>=25){score+=p;msg(`HAND DRAG! +${p}`);}
+    dragOn=false;dragPts=0;releaseKick=0.30;
+  }
+}
+function endGrab(){
+  if(grabOn){
+    const p=Math.round(grabPts);
+    if(p>=30){score+=p;msg(`${grabSide>0?'INDY':'MELON'} GRAB! +${p}`);}
+    grabOn=false;grabPts=0;releaseKick=0.35;
+  }
+}
+// everything you're doing in the air, scored and judged together
+function settleTricks(landed){
+  let pts=0,names=[];
+  const spinRevs=spinRot/(Math.PI*2), flipRevs=flipRot/(Math.PI*2);
+  if(spinRot>0.4){pts+=Math.floor(spinRevs*4)*90;names.push(Math.round(spinRevs*360)+'° SPIN');}
+  if(flipRot>0.4){pts+=Math.floor(flipRevs*4)*110;names.push(Math.round(flipRevs*360)+'° FLIP');}
+  if(grabOn&&grabPts>=30){pts+=Math.round(grabPts);names.push(grabSide>0?'INDY':'MELON');}
+  if(landed&&pts>0){
+    if(names.length>1)pts=Math.round(pts*1.5);          // combo bonus
+    score+=pts;
+    msg(names.join(' + ')+(names.length>1?' COMBO':'')+`! +${pts}`);
+  }
+  spinRot=0;flipRot=0;spinHeld=false;flipHeld=false;
+  grabOn=false;grabPts=0;
+  player.rotation.set(0,0,0);
+  return pts;
+}
+function ropeAction(){
+  if(!running)return;
+  if(!hanging&&planeActive&&plane.position.z>-90&&plane.position.z<-4){
+    hanging=true;rope.visible=true;ropeBtn.textContent='LET GO';
+    msg('HOOKED! 🛩️');
+  } else if(hanging){
+    releaseRope(true);
+  }
+}
+function releaseRope(withTrick){
+  hanging=false;rope.visible=false;ropeBtn.textContent='ROPE!';
+  vy=6;airborne=true;
+  if(withTrick){trick={type:'back',dur:0.8,t:0,pts:500,name:'SUPERMAN BACKFLIP'};msg('SUPERMAN! 🛩️');}
+}
+
+function reset(){
+  if(wipe){ scene.remove(rig); player.add(rig);
+player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}}); rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null; }
+  player.rotation.set(0,0,0);
+  for(const o of obstacles)scene.remove(o);obstacles.length=0;
+  dist=0;speed=22;score=0;px=0;py=0;vy=0;vx=0;cutCd=0;airborne=false;trick=null;
+  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;
+  trail.length=0;trailT=0;
+  skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;wakeWave.visible=false;wakeCrest.visible=false;
+  squidOn=false;squid.visible=false;squidT=26;splatT=0;
+  while(stars.length){const st=stars.pop();st.m.visible=false;STAR_POOL.push(st.m);}
+  if(splatEl)splatEl.style.display='none';
+  while(splashes.length){const d=splashes.pop();freeDrop(d);}
+  for(const o of seaLife)scene.remove(o);seaLife.length=0;lifeT=6;
+  planeT=7;planeActive=false;plane.visible=false;hanging=false;rope.visible=false;
+  ropeBtn.style.display='none';ropeBtn.textContent='ROPE!';
+  player.rotation.set(0,0,0);
+  spawnT=0.4;lastKind='';sameRun=0;bigFinCd=6;laneSlot=(Math.random()*5)|0;
+}
+
+startBtn.addEventListener('click',()=>{
+  overlay.classList.add('hidden');jumpBtn.classList.remove('hidden');
+  reset();running=true;last=performance.now();
+});
+
+// how each kind of crash throws him
+const WIPE={
+  buoy:  {vy: 9.0, vz:-3.5, spin:[ 9, 3, 2], msg:'BUOY!',        kick:1.8},
+  reef:  {vy: 6.5, vz:-1.5, spin:[12, 2, 7], msg:'ROCKS!',       kick:2.2},
+  log:   {vy: 5.0, vz:-2.0, spin:[14, 1, 3], msg:'LOG!',         kick:2.0},
+  bigfin:{vy:11.0, vz:-5.0, spin:[ 7, 8, 4], msg:'SHARK!',       kick:2.6},
+  pearl: {vy: 3.0, vz:-7.5, spin:[16, 0, 1], msg:'PEARLED!',     kick:1.4},
+  land:  {vy: 6.0, vz: 1.5, spin:[ 5, 6, 9], msg:'SKETCHY LANDING!', kick:1.6},
+  under: {vy: 4.5, vz: 0.5, spin:[11, 4, 5], msg:'UNDER-ROTATED!',   kick:1.5},
+  foam:  {vy: 2.5, vz:-1.0, spin:[ 6, 2, 8], msg:'ATE IT!',      kick:1.2},
+};
+let wipe=null;
+function startWipeout(kind){
+  if(wipe)return;
+  const W=WIPE[kind]||WIPE.foam;
+  running=false;                       // controls stop, but the world keeps running
+  endMouseDrag();steer=0;weight=0;
+  jumpBtn.classList.add('hidden');ropeBtn.style.display='none';trickBar.classList.add('hidden');
+  hanging=false;rope.visible=false;
+  msg(W.msg);
+  shake=W.kick;
+  splash(px,py,0,30);
+  // carry his current rotation into the tumble instead of snapping to zero
+  wipe={
+    t:0, rx:player.rotation.x, ry:player.rotation.y, rz:player.rotation.z,
+    camX:px, camY:camY, camZ:11.0,        // freeze the shot on the crash spot
+    atX:px, atY:py,
+    vy:W.vy, vz:W.vz*0.55, vx:vx*0.25+(Math.random()-0.5)*2.4 + (Math.random()<0.5?-1.8:1.8),
+    sx:(Math.random()<0.5?-1:1)*W.spin[0]*0.16,
+    sy:(Math.random()<0.5?-1:1)*W.spin[1]*0.16,
+    sz:(Math.random()<0.5?-1:1)*W.spin[2]*0.16,
+    // the board is flung the other way and tumbles off on its own
+    bvx:-vx*0.5+(Math.random()-0.5)*5, bvy:W.vy*0.55+1.5, bvz:W.vz*0.6-2, landed:false,
+    bsx:(Math.random()-0.5)*9, bsz:(Math.random()-0.5)*9,
+    bx:px, by:py, bz:0, splashed:false
+  };
+  // detach the board where it is, keeping its exact lean and pitch
+  const keep={x:rig.rotation.x,y:rig.rotation.y,z:rig.rotation.z};
+  player.remove(rig); scene.add(rig);
+  rig.position.set(px,py,0);
+  rig.rotation.set(keep.x+player.rotation.x,keep.y+player.rotation.y,keep.z+player.rotation.z);
+  spinHeld=false;flipHeld=false;spinRot=0;flipRot=0;grabOn=false;dragOn=false;
+}
+function updateWipeout(dt){
+  const w=wipe; w.t+=dt;
+  // pug: thrown, tumbling, then splashdown
+  w.vy-=22*dt;
+  w.vx*=(1-Math.min(1,dt*1.6));   // air drag, so he doesn't fly off sideways
+  px+=w.vx*dt; py+=w.vy*dt;
+  player.position.set(px,py,Math.max(-7,Math.min(2,w.vz*w.t*0.45)));
+  w.rx+=w.sx*dt*6; w.ry+=w.sy*dt*6; w.rz+=w.sz*dt*6;
+  player.rotation.set(w.rx,w.ry,w.rz);
+  const sea=waveH(px,dist*WAVE_DRIFT,waveClock)+0.13;
+  if(!w.splashed&&py<=sea){
+    w.splashed=true;
+    splash(px,sea,w.vz*w.t,34);
+    pushTrail(px,sea,w.vz*w.t,2.2);
+    shake=Math.max(shake,1.6);
+    py=sea;
+  }
+  if(w.splashed){
+    // he floats at the surface, not under it — bobbing with the swell
+    py+=((sea-0.06)-py)*Math.min(1,dt*5);
+    w.vy=0;
+    w.rx+=((Math.PI*0.45)-w.rx)*Math.min(1,dt*2.2);   // settles onto his side in the water
+    w.rz*=0.90; w.sx*=0.86; w.sy*=0.86; w.sz*=0.86;
+    if(Math.random()<dt*6)splash(px+(Math.random()-0.5)*1.2,sea,w.vz*w.t,1);
+  }
+  // board: cartwheels away and slaps down
+  w.bvy-=20*dt;
+  w.bx+=w.bvx*dt; w.by+=w.bvy*dt; w.bz+=w.bvz*dt;
+  const bsea=waveH(w.bx,dist*WAVE_DRIFT+w.bz,waveClock)+0.13;
+  if(w.by<bsea){
+    w.by=bsea; w.bvy*=-0.30; w.bvx*=0.7; w.bvz*=0.7;
+    if(Math.abs(w.bvy)>1.2)splash(w.bx,bsea,w.bz,12);
+    w.landed=true;
+  }
+  rig.position.set(w.bx,w.by,w.bz);
+  if(w.landed){
+    // the board settles flat on the surface and drifts
+    rig.rotation.x+=(0-rig.rotation.x)*Math.min(1,dt*3);
+    rig.rotation.z+=(0-rig.rotation.z)*Math.min(1,dt*3);
+    rig.rotation.y+=w.bsz*dt*0.25;
+    w.by=bsea+0.02;
+  } else {
+    rig.rotation.x+=w.bsx*dt; rig.rotation.z+=w.bsz*dt;
+  }
+  // camera holds the crash spot — it does not chase him or drift away
+  w.camY+=((sea+4.6)-w.camY)*Math.min(1,dt*2.5);
+  camera.up.set(0,1,0);
+  camera.position.set(w.camX,w.camY,w.camZ);
+  // aim gently toward where he ended up, but clamped so the shot never leaves the area
+  const tx=Math.max(w.atX-5,Math.min(w.atX+5,px));
+  const ty=Math.max(sea+0.4,Math.min(w.atY+3,py+0.3));
+  const tz=Math.max(-7,Math.min(1,w.vz*w.t*0.35));
+  camera.lookAt(tx,ty,tz);
+  if(w.t>2.4)gameOver();
+}
+function updateWorldDuringWipeout(dt){
+  tNow+=dt;
+  waveClock += dt*(1.0 + 0.55*Math.sin(tNow*0.045) + 0.28*Math.sin(tNow*0.017+1.3));
+  oceanUniforms.uT.value=waveClock;
+  oceanUniforms.uAmp.value=waveAmp;
+  oceanUniforms.uDist.value=dist*WAVE_DRIFT;
+  if(shake>0)shake-=dt*8;
+  for(let i=splashes.length-1;i>=0;i--){
+    const s2=splashes[i],u=s2.userData;
+    u.t-=dt;u.vy-=14*dt;
+    s2.position.x+=u.vx*dt;s2.position.y+=u.vy*dt;s2.position.z+=u.vz*dt;
+    s2.scale.setScalar(Math.max(0.05,u.t*u.s));
+    if(u.t<=0){freeDrop(s2);splashes.splice(i,1);}
+  }
+  updateWake(dt,0);
+  updateDayCycle();
+}
+function gameOver(){
+  running=false;
+  const s=score|0;
+  if(s>best){best=s;saveBest();}
+  jumpBtn.classList.add('hidden');ropeBtn.style.display='none';trickBar.classList.add('hidden');
+  overlay.querySelector('h1').textContent='Wipeout! 🌊';
+  document.getElementById('ovText').innerHTML=`Astro went under...<br><br>Score: <b>${s}</b><br>Best: <b>${best}</b>`;
+  startBtn.textContent='Surf again';
+  overlay.classList.remove('hidden');
+}
+
+
+
+// ---------- time of day: starts at dawn, sinks toward a permanent golden sunset ----------
+// gradient sky dome: blue up top, sunset bands near the horizon. Ocean colors are NOT touched.
+const skyUniforms={
+  uTop:{value:new THREE.Color(0x3f8fd6)},
+  uMid:{value:new THREE.Color(0x8fd2f5)},
+  uHorizon:{value:new THREE.Color(0xd8eefb)},
+  uGlow:{value:new THREE.Color(0xffffff)},
+  uSunX:{value:0.0},
+  uGlowAmt:{value:0.0},
+};
+const skyDome=new THREE.Mesh(
+  new THREE.SphereGeometry(320,32,24),
+  new THREE.ShaderMaterial({
+    uniforms:skyUniforms,side:THREE.BackSide,depthWrite:false,
+    vertexShader:`varying vec3 vP; void main(){vP=normalize(position); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+    fragmentShader:`
+      uniform vec3 uTop,uMid,uHorizon,uGlow; uniform float uSunX,uGlowAmt;
+      varying vec3 vP;
+      void main(){
+        float h=clamp(vP.y,0.0,1.0);
+        vec3 c=mix(uHorizon,uMid,smoothstep(0.0,0.30,h));
+        c=mix(c,uTop,smoothstep(0.25,0.85,h));
+        // warm glow blooming out of the sun's spot on the horizon
+        float d=distance(vec2(vP.x,vP.y*1.7),vec2(uSunX,0.10));
+        c=mix(c,uGlow,uGlowAmt*smoothstep(1.5,0.05,d));
+        // streaky sunset cloud bands low in the sky
+        float band=sin(vP.y*46.0)*0.5+0.5;
+        float lowband=smoothstep(0.42,0.02,h)*band*uGlowAmt*0.35;
+        c=mix(c,uGlow,lowband);
+        c=pow(clamp(c,0.0,1.0),vec3(2.2));
+        gl_FragColor=vec4(c,1.0);
+      }`
+  })
+);
+skyDome.renderOrder=-20;scene.add(skyDome);
+const SKY_KEYS=[
+  {t:0.00, top:0x3f8fd6, mid:0x8fd2f5, hz:0xd8eefb, glow:0xfff4dc, gAmt:0.10, sunX:-0.45, sunY:0.72},
+  {t:0.40, top:0x3a8ad2, mid:0x8fd2f5, hz:0xe6f4fd, glow:0xfff0cf, gAmt:0.16, sunX:-0.30, sunY:0.78},
+  {t:0.70, top:0x4a86c8, mid:0x9cd0ee, hz:0xffd9a8, glow:0xffb765, gAmt:0.55, sunX:0.05, sunY:0.42},
+  {t:0.88, top:0x5b6fae, mid:0xc98db2, hz:0xff9c62, glow:0xff8a4a, gAmt:0.80, sunX:0.25, sunY:0.24},
+  {t:1.00, top:0x4b4d8f, mid:0xd07c9a, hz:0xff7a4e, glow:0xff6a3a, gAmt:0.95, sunX:0.38, sunY:0.14},
+];
+const skyLayer=new THREE.Group();scene.add(skyLayer);
+const sunDisc=new THREE.Mesh(new THREE.SphereGeometry(6.5,26,20),
+  new THREE.MeshBasicMaterial({color:0xfff3cf,depthTest:false,depthWrite:false,transparent:true}));
+sunDisc.renderOrder=-9;skyLayer.add(sunDisc);
+const sunHalo=new THREE.Mesh(new THREE.SphereGeometry(16,20,16),
+  new THREE.MeshBasicMaterial({color:0xffd9a0,transparent:true,opacity:0.2,depthTest:false,depthWrite:false}));
+sunHalo.renderOrder=-10;skyLayer.add(sunHalo);
+const moon=new THREE.Mesh(new THREE.SphereGeometry(3.4,18,14),
+  new THREE.MeshBasicMaterial({color:0xf6f4ea,transparent:true,opacity:0,depthTest:false,depthWrite:false}));
+moon.renderOrder=-9;skyLayer.add(moon);
+const _cA=new THREE.Color(),_cB=new THREE.Color();
+function lerpHex(a,b,k,out){out.setHex(a);_cB.setHex(b);out.lerp(_cB,k);return out;}
+function updateDayCycle(){
+  const tod=1-Math.exp(-dist/3600);
+  let i=0;while(i<SKY_KEYS.length-2&&tod>SKY_KEYS[i+1].t)i++;
+  const A=SKY_KEYS[i],B=SKY_KEYS[i+1];
+  const k=Math.max(0,Math.min(1,(tod-A.t)/(B.t-A.t)));
+  lerpHex(A.top,B.top,k,skyUniforms.uTop.value);
+  lerpHex(A.mid,B.mid,k,skyUniforms.uMid.value);
+  lerpHex(A.hz,B.hz,k,skyUniforms.uHorizon.value);
+  lerpHex(A.glow,B.glow,k,skyUniforms.uGlow.value);
+  const sxn=A.sunX+(B.sunX-A.sunX)*k, sy=A.sunY+(B.sunY-A.sunY)*k;
+  skyUniforms.uSunX.value=sxn;
+  skyUniforms.uGlowAmt.value=A.gAmt+(B.gAmt-A.gAmt)*k;
+  // sun sits in the sky, always above the horizon, drawn behind everything
+  skyDome.position.set(camera.position.x,0,camera.position.z);
+  skyLayer.position.set(camera.position.x,0,camera.position.z);
+  sunDisc.position.set(sxn*130, 26+sy*95, -195);
+  sunDisc.material.color.copy(skyUniforms.uGlow.value);
+  sunHalo.position.copy(sunDisc.position);
+  sunHalo.material.color.copy(skyUniforms.uGlow.value);
+  sunHalo.material.opacity=0.16+skyUniforms.uGlowAmt.value*0.25;
+  // light warms very slightly so the water still reads the same
+  sun.position.set(sxn*60,Math.max(28,sy*70),-40);
+  const mo=Math.max(0,(tod-0.75)/0.25);
+  moon.material.opacity=mo*0.75;
+  moon.position.set(-sxn*140,120,-205);
+}
+
+
+// a real dorsal fin: swept-back curved blade with a trailing notch
+function makeDorsal(height,mtl){
+  const sh=new THREE.Shape();
+  sh.moveTo(-0.42,0);
+  sh.bezierCurveTo(-0.34,0.45, -0.14,0.80, 0.30,1.00);   // leading edge curving back
+  sh.bezierCurveTo(0.06,0.72, 0.02,0.42, 0.10,0.10);     // trailing edge scoops in
+  sh.lineTo(0.38,0);
+  sh.lineTo(-0.42,0);
+  const g=new THREE.ExtrudeGeometry(sh,{depth:0.13,bevelEnabled:true,bevelSize:0.05,bevelThickness:0.04,bevelSegments:2});
+  g.center();
+  const m=new THREE.Mesh(g,mtl);
+  m.scale.set(height,height,height*0.85);
+  return m;
+}
+
+// ---------- sea life: cruising shark fins & breaching dolphins ----------
+const seaLife=[];let lifeT=6;const SEA_TPL={};
+function buildDolphin(){
+  const g=new THREE.Group();
+  const skin=PBR({color:0x6b7f92,shininess:95,specular:0xdfeaf5});
+  const pale=PBR({color:0xd7dfe6,shininess:80});
+  const body=new THREE.Mesh(new THREE.SphereGeometry(0.6,26,20),skin);
+  body.scale.set(0.62,0.62,2.5);g.add(body);
+  const under=new THREE.Mesh(new THREE.SphereGeometry(0.5,20,16),pale);
+  under.scale.set(0.55,0.4,2.2);under.position.y=-0.16;g.add(under);
+  const snout=new THREE.Mesh(new THREE.ConeGeometry(0.2,0.75,16),skin);
+  snout.rotation.x=-Math.PI/2;snout.position.z=-1.75;g.add(snout);
+  const melon=new THREE.Mesh(new THREE.SphereGeometry(0.34,18,14),skin);
+  melon.position.set(0,0.12,-1.2);melon.scale.set(0.9,0.85,1.1);g.add(melon);
+  const dors=new THREE.Mesh(new THREE.ConeGeometry(0.22,0.62,4),skin);
+  dors.position.set(0,0.5,0.1);dors.rotation.x=-0.42;dors.scale.z=0.45;g.add(dors);
+  for(const sx of [-1,1]){
+    const flip=new THREE.Mesh(new THREE.ConeGeometry(0.16,0.62,4),skin);
+    flip.position.set(sx*0.42,-0.16,-0.75);
+    flip.rotation.set(0.5,0,sx*1.05);flip.scale.z=0.4;g.add(flip);
+  }
+  const flukeJ=new THREE.Group();flukeJ.position.z=1.45;g.add(flukeJ);
+  const tailStem=new THREE.Mesh(new THREE.SphereGeometry(0.2,12,10),skin);
+  tailStem.scale.set(0.5,0.5,1.6);flukeJ.add(tailStem);
+  for(const sx of [-1,1]){
+    const fl=new THREE.Mesh(new THREE.ConeGeometry(0.2,0.68,4),skin);
+    fl.position.set(sx*0.32,0,0.42);fl.rotation.set(Math.PI/2,0,sx*0.95);fl.scale.z=0.35;
+    flukeJ.add(fl);
+  }
+  const eye=new THREE.Mesh(new THREE.SphereGeometry(0.055,10,8),PBR({color:0x14181c,shininess:110}));
+  eye.position.set(-0.3,0.1,-1.05);g.add(eye);
+  const eye2=eye.clone();eye2.position.x=0.3;g.add(eye2);
+  g.userData.flukeIdx=g.children.indexOf(flukeJ);
+  return g;
+}
+function buildShark(){
+  const g=new THREE.Group();
+  const skin=PBR({color:0x40525f,roughness:0.20,metalness:0.03,envMapIntensity:1.5});
+  const fin=makeDorsal(1.15,skin);
+  fin.position.y=0.5;fin.rotation.y=Math.PI/2;
+  // just a faint waterline shadow where it meets the surface — no body
+  const wash=new THREE.Mesh(new THREE.CircleGeometry(0.85,18),
+    new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.3,depthWrite:false}));
+  wash.rotation.x=-Math.PI/2;wash.position.y=0.02;
+  g.add(fin,wash);
+  return g;
+}
+function spawnSeaLife(){
+  // small fins only — some cruise across the screen, some track toward you (harmless scares)
+  if(!SEA_TPL.shark)SEA_TPL.shark=buildShark();
+  const tpl=SEA_TPL.shark;
+  const o=tpl.clone(true);
+  const chase=Math.random()<0.4;
+  const dir=Math.random()<0.5?1:-1;
+  if(chase){
+    o.position.set(px+(Math.random()*14-7),0,-120);
+    o.userData.vx=0;o.userData.chase=true;o.rotation.y=0;
+  } else {
+    o.position.set(px-dir*(14+Math.random()*5),0,-40-Math.random()*60);
+    o.userData.vx=dir*(4+Math.random()*3);o.userData.chase=false;o.rotation.y=dir*Math.PI/2;
+  }
+  o.userData.dir=dir;o.userData.t=0;o.userData.wob=Math.random()*7;
+  scene.add(o);seaLife.push(o);
+}
+function updateSeaLife(dt,eff){
+  lifeT-=dt;
+  if(lifeT<=0){lifeT=5+Math.random()*7;spawnSeaLife();}
+  for(let i=seaLife.length-1;i>=0;i--){
+    const o=seaLife[i],u=o.userData;
+    u.t+=dt;
+    o.position.x+=u.vx*dt;
+    o.position.z+=eff*dt*(u.chase?0.85:0.5);
+    const base=swellH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock);
+    const ty=base-0.05+Math.sin(u.t*2+u.wob)*0.04;
+    if(u.by===undefined)u.by=ty;
+    u.by+=(ty-u.by)*Math.min(1,dt*7);        // fins ride the swell smoothly
+    o.position.y=u.by;
+    if(u.chase){
+      // swims toward your line, fin pointed at you
+      o.position.x+=(px-o.position.x)*Math.min(1,dt*0.5);
+      o.rotation.set(0,Math.sin(u.t*1.4+u.wob)*0.12,0);
+    } else {
+      o.rotation.set(0,u.dir*Math.PI/2+Math.sin(u.t*1.1+u.wob)*0.15,0);
+    }
+    if(Math.random()<dt*7)splash(o.position.x,base+0.05,o.position.z+0.8,1);
+    if(Math.abs(o.position.x-px)>30||o.position.z>22){scene.remove(o);seaLife.splice(i,1);}
+  }
+}
+
+
+// ---------- jet ski: crosses your line and throws a big wake wave at you ----------
+function buildJetSki(){
+  const g=new THREE.Group();
+  const blue   =PBR({color:0x1f6fd0,roughness:0.13,metalness:0.06,envMapIntensity:1.3,vivid:1.6});
+  const blueDk =PBR({color:0x123f7d,roughness:0.15,metalness:0.06,envMapIntensity:1.2,vivid:1.5});
+  const white  =PBR({color:0xf6f8fa,roughness:0.16,metalness:0.04,envMapIntensity:1.2});
+  const dark   =PBR({color:0x191d22,roughness:0.38});
+  const lime   =PBR({color:0x8ede2a,roughness:0.30,vivid:1.7});
+
+  // long planing hull, deeper at the bow
+  const hull=new THREE.Mesh(new THREE.SphereGeometry(1,28,20),blue);
+  hull.scale.set(0.62,0.42,2.05);hull.position.y=-0.06;
+  const hullBelly=new THREE.Mesh(new THREE.SphereGeometry(1,24,16),blueDk);
+  hullBelly.scale.set(0.52,0.30,1.95);hullBelly.position.y=-0.30;
+  // pointed bow
+  const bow=new THREE.Mesh(new THREE.ConeGeometry(0.60,1.75,20),blue);
+  bow.rotation.x=-Math.PI/2;bow.position.set(0,-0.02,-2.55);bow.scale.set(1,1,0.62);
+  // white rub rail along the side
+  for(const sx of [-1,1]){
+    const rail=new THREE.Mesh(new THREE.BoxGeometry(0.09,0.13,3.3),white);
+    rail.position.set(sx*0.58,-0.10,-0.15);rail.rotation.y=sx*0.02;g.add(rail);
+    const stripe=new THREE.Mesh(new THREE.BoxGeometry(0.05,0.09,1.5),lime);
+    stripe.position.set(sx*0.60,-0.26,0.75);g.add(stripe);
+  }
+  // stepped deck and long saddle seat
+  const deck=new THREE.Mesh(new THREE.SphereGeometry(1,24,16),white);
+  deck.scale.set(0.50,0.16,1.55);deck.position.y=0.30;
+  const seat=new THREE.Mesh(new THREE.SphereGeometry(1,20,14),dark);
+  seat.scale.set(0.38,0.20,1.05);seat.position.set(0,0.50,0.55);
+  const seatBack=new THREE.Mesh(new THREE.SphereGeometry(0.34,16,12),dark);
+  seatBack.scale.set(1.05,1.1,0.7);seatBack.position.set(0,0.62,1.45);
+  // raked forward cowl / hood
+  const cowl=new THREE.Mesh(new THREE.SphereGeometry(1,22,16),blue);
+  cowl.scale.set(0.46,0.34,0.95);cowl.position.set(0,0.42,-1.25);
+  const hood=new THREE.Mesh(new THREE.SphereGeometry(1,20,14),white);
+  hood.scale.set(0.34,0.16,0.62);hood.position.set(0,0.66,-1.35);
+  // handlebars with mirrors
+  const bars=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,1.02,10),dark);
+  bars.rotation.z=Math.PI/2;bars.position.set(0,0.86,-1.05);
+  for(const sx of [-1,1]){
+    const mir=new THREE.Mesh(new THREE.SphereGeometry(0.11,12,10),dark);
+    mir.scale.set(1,0.55,0.4);mir.position.set(sx*0.62,0.98,-1.18);g.add(mir);
+    const grip=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,0.20,8),dark);
+    grip.rotation.z=Math.PI/2;grip.position.set(sx*0.46,0.86,-1.05);g.add(grip);
+  }
+  // rear platform and jet nozzle
+  const platform=new THREE.Mesh(new THREE.BoxGeometry(0.95,0.10,0.7),white);
+  platform.position.set(0,0.02,2.05);
+  const nozzle=new THREE.Mesh(new THREE.CylinderGeometry(0.20,0.26,0.42,14),dark);
+  nozzle.rotation.x=Math.PI/2;nozzle.position.set(0,-0.18,2.30);
+
+  // rider, sitting and leaning into the turn
+  const rider=new THREE.Group();
+  const suit=PBR({color:0x14202b,roughness:0.45});
+  const vest=PBR({color:0xff5a1f,roughness:0.40,vivid:1.7});
+  const skin=PBR({color:0xe8b184,roughness:0.72});
+  const torso=new THREE.Mesh(new THREE.SphereGeometry(0.34,18,14),vest);
+  torso.scale.set(0.82,1.15,0.66);torso.position.y=0.36;torso.rotation.x=-0.30;
+  const hips=new THREE.Mesh(new THREE.SphereGeometry(0.28,16,12),suit);
+  hips.scale.set(0.9,0.8,1.0);hips.position.set(0,0.06,0.22);
+  for(const sx of [-1,1]){
+    const thigh=new THREE.Mesh(new THREE.CylinderGeometry(0.11,0.13,0.62,10),suit);
+    thigh.position.set(sx*0.22,-0.02,-0.10);thigh.rotation.x=1.15;rider.add(thigh);
+    const shin=new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.11,0.55,10),suit);
+    shin.position.set(sx*0.24,-0.34,-0.02);rider.add(shin);
+    const arm=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.08,0.62,10),skin);
+    arm.position.set(sx*0.26,0.42,-0.42);arm.rotation.set(-1.25,0,sx*0.22);rider.add(arm);
+  }
+  const head=new THREE.Mesh(new THREE.SphereGeometry(0.20,16,14),skin);
+  head.position.set(0,0.76,-0.16);
+  const helm=new THREE.Mesh(new THREE.SphereGeometry(0.225,16,14),PBR({color:0xffd21a,roughness:0.20,vivid:1.7}));
+  helm.position.set(0,0.79,-0.16);helm.scale.set(1,0.88,1.02);
+  const visor=new THREE.Mesh(new THREE.SphereGeometry(0.20,14,12),PBR({color:0x16323f,roughness:0.08,metalness:0.2}));
+  visor.scale.set(0.92,0.5,0.75);visor.position.set(0,0.78,-0.30);
+  rider.add(torso,hips,head,helm,visor);
+  rider.position.set(0,0.42,0.30);
+  rider.scale.setScalar(1.05);
+
+  g.add(hull,hullBelly,bow,deck,seat,seatBack,cowl,hood,bars,platform,nozzle,rider);
+  g.userData.rider=rider;
+  g.scale.setScalar(1.75);        // reads properly against the board
+  g.visible=false;
+  return g;
+}
+const jetSki=buildJetSki();
+scene.add(jetSki);
+let skiT=16, skiOn=false, skiDir=1, skiWake=null;
+// the wake it throws: a curved swell that builds as it travels toward you
+const WAKE_W=52, WAKE_D=13, WAKE_SEGX=44, WAKE_SEGZ=16;
+const wakeGeoW=new THREE.PlaneGeometry(WAKE_W,WAKE_D,WAKE_SEGX,WAKE_SEGZ);
+const wakeMatW=new THREE.MeshStandardMaterial({
+  color:vivid(0x2b93cc,1.35), roughness:0.08, metalness:0.0,
+  transparent:true, opacity:0.95, side:THREE.DoubleSide });
+wakeMatW.envMapIntensity=1.5;
+const wakeWave=new THREE.Mesh(wakeGeoW,wakeMatW);
+wakeWave.rotation.x=-Math.PI/2;wakeWave.visible=false;
+scene.add(wakeWave);
+// foam along the breaking lip
+const wakeCrest=new THREE.Mesh(new THREE.PlaneGeometry(WAKE_W,2.2,WAKE_SEGX,1),
+  new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.85,side:THREE.DoubleSide,depthWrite:false}));
+wakeCrest.rotation.x=-Math.PI/2;wakeCrest.visible=false;
+scene.add(wakeCrest);
+
+// shape the swell each frame: height grows as it closes in, face steepens
+function shapeWake(centerZ,grow){
+  const pos=wakeGeoW.attributes.position;
+  const cpos=wakeCrest.geometry.attributes.position;
+  const H=0.5+grow*3.6;                       // small far out, big up close
+  for(let i=0;i<pos.count;i++){
+    const lx=pos.getX(i), ly=pos.getY(i);     // ly runs across the wave's depth
+    const t=(ly+WAKE_D/2)/WAKE_D;             // 0 = back of the swell, 1 = front face
+    // rounded back, steep front — a real wave section
+    const profile=Math.pow(Math.sin(Math.min(1,Math.max(0,t))*Math.PI),0.75)
+                 *(t>0.55?1.0:0.72);
+    // taper the ends so it doesn't look like a wall
+    const taper=Math.pow(Math.max(0,1-Math.abs(lx)/(WAKE_W*0.5)),0.55);
+    const ripple=Math.sin(lx*0.55+tNow*2.2)*0.10+Math.sin(lx*1.3-tNow*1.6)*0.05;
+    pos.setZ(i,(profile*H+ripple*grow)*taper);
+  }
+  pos.needsUpdate=true;
+  wakeGeoW.computeVertexNormals();
+  // crest strip rides the top of the face
+  for(let i=0;i<cpos.count;i++){
+    const lx=cpos.getX(i);
+    const taper=Math.pow(Math.max(0,1-Math.abs(lx)/(WAKE_W*0.5)),0.55);
+    cpos.setZ(i,(H*0.98+Math.sin(lx*0.55+tNow*2.2)*0.10)*taper);
+  }
+  cpos.needsUpdate=true;
+  return H;
+}
+function spawnJetSki(){
+  skiOn=true;
+  skiDir=Math.random()<0.5?1:-1;
+  jetSki.visible=true;
+  jetSki.position.set(px-skiDir*30,0,-48-Math.random()*20);
+  jetSki.rotation.y=skiDir*Math.PI/2;
+  skiWake=null;
+}
+function updateJetSki(dt,eff){
+  if(!skiOn){
+    skiT-=dt;
+    if(skiT<=0){skiT=22+Math.random()*14;spawnJetSki();}
+  } else {
+    // rips across the field
+    jetSki.position.x+=skiDir*26*dt;
+    jetSki.position.z+=eff*dt*0.35;
+    const sy=waveH(jetSki.position.x,dist*WAVE_DRIFT+jetSki.position.z,waveClock);
+    jetSki.position.y=sy+0.34+Math.sin(tNow*9)*0.05;
+    jetSki.rotation.z=-skiDir*0.22+Math.sin(tNow*7)*0.05;
+    jetSki.rotation.x=-0.10;
+    // rooster tail of spray behind it
+    for(let i=0;i<2;i++){
+      const m=takeDrop(); if(!m)break;
+      m.material=SPLASH_MAT;
+      const sc=0.9+Math.random()*1.3;m.scale.setScalar(sc);
+      m.position.set(jetSki.position.x-skiDir*1.8,sy+0.2,jetSki.position.z+0.4);
+      m.userData={vx:-skiDir*(3+Math.random()*5),vy:3+Math.random()*6,vz:1.5+Math.random()*3,t:0.6+Math.random()*0.4,s:sc};
+      splashes.push(m);
+    }
+    // once it has crossed in front of you, it leaves a wake wave rolling your way
+    if(!skiWake&&Math.abs(jetSki.position.x-px)<6){
+      skiWake={z:jetSki.position.z-2,life:6.0,hit:false};
+      wakeWave.visible=true;wakeCrest.visible=true;
+      msg('WAKE INCOMING!');
+    }
+    if(Math.abs(jetSki.position.x-px)>34){skiOn=false;jetSki.visible=false;}
+  }
+  // the wake wave travels toward you and launches you off its face
+  if(skiWake){
+    skiWake.life-=dt;
+    skiWake.z+=(eff*0.42+13)*dt;                 // rolls toward you
+    // grows from a ripple far out to a full face as it arrives
+    const grow=Math.max(0,Math.min(1,1-(-skiWake.z)/46));
+    const H=shapeWake(skiWake.z,grow);
+    skiWake.H=H;
+    const wy=waveH(px,dist*WAVE_DRIFT+skiWake.z,waveClock);
+    wakeWave.position.set(px*0.25,wy-0.05,skiWake.z);
+    wakeCrest.position.set(px*0.25,wy+0.02,skiWake.z+2.4);
+    const fade=Math.max(0,Math.min(1,skiWake.life/1.4));
+    wakeMatW.opacity=0.95*fade;
+    wakeCrest.material.opacity=(0.25+grow*0.65)*fade;
+    // big launch when it reaches you
+    if(!skiWake.hit&&skiWake.z>-2.2&&skiWake.z<2.6&&!airborne&&!hanging){
+      skiWake.hit=true;
+      const power=10+ (skiWake.H||3)*2.6;
+      vy=power; airborne=true;
+      score+=120;
+      msg('WAKE LAUNCH! +120');
+      shake=1.8;
+      splash(px,py,0,26);
+    }
+    if(skiWake.life<=0||skiWake.z>18){skiWake=null;wakeWave.visible=false;wakeCrest.visible=false;}
+  }
+}
+
+
+// ---------- giant squid: rises up and hurls starfish that splat over your view ----------
+function buildSquid(){
+  const g=new THREE.Group();
+  const body=PBR({color:0x8e2a6b,roughness:0.28,metalness:0.02,envMapIntensity:1.2,vivid:1.7});
+  const bodyDk=PBR({color:0x5e1a4c,roughness:0.32,vivid:1.6});
+  const skinPale=PBR({color:0xc0509a,roughness:0.35,vivid:1.6});
+  // long mantle
+  const mantle=new THREE.Mesh(new THREE.SphereGeometry(1,24,18),body);
+  mantle.scale.set(0.85,0.85,1.85);mantle.position.z=1.0;
+  const tip=new THREE.Mesh(new THREE.ConeGeometry(0.8,1.9,18),bodyDk);
+  tip.rotation.x=-Math.PI/2;tip.position.z=3.0;tip.scale.set(1,1,0.8);
+  // twin fins
+  for(const sx of [-1,1]){
+    const fin=new THREE.Mesh(new THREE.SphereGeometry(0.7,16,12),skinPale);
+    fin.scale.set(0.22,0.55,1.1);fin.position.set(sx*0.75,0.15,2.3);
+    fin.rotation.z=sx*0.35;g.add(fin);
+  }
+  // head and huge eyes
+  const head=new THREE.Mesh(new THREE.SphereGeometry(0.78,20,16),body);
+  head.position.z=-0.5;head.scale.set(1,0.92,0.95);
+  for(const sx of [-1,1]){
+    const eye=new THREE.Mesh(new THREE.SphereGeometry(0.30,16,14),PBR({color:0xfff4d8,roughness:0.10}));
+    eye.position.set(sx*0.62,0.16,-0.62);g.add(eye);
+    const pup=new THREE.Mesh(new THREE.SphereGeometry(0.17,14,12),PBR({color:0x120a12,roughness:0.05}));
+    pup.position.set(sx*0.74,0.16,-0.78);g.add(pup);
+  }
+  // eight arms + two long tentacles, kept so we can wave them
+  const arms=[];
+  for(let i=0;i<8;i++){
+    const a=(i/8)*Math.PI*2;
+    const arm=new THREE.Group();
+    const seg=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.05,2.3,10),i%2?body:skinPale);
+    seg.position.y=-1.15;arm.add(seg);
+    arm.position.set(Math.cos(a)*0.52,-0.2,-1.05+Math.sin(a)*0.30);
+    arm.rotation.z=Math.cos(a)*0.5;arm.rotation.x=-0.5-Math.sin(a)*0.4;
+    g.add(arm);arms.push({arm,phase:a});
+  }
+  for(const sx of [-1,1]){
+    const t=new THREE.Group();
+    const seg=new THREE.Mesh(new THREE.CylinderGeometry(0.10,0.04,3.6,8),skinPale);
+    seg.position.y=-1.8;t.add(seg);
+    const club=new THREE.Mesh(new THREE.SphereGeometry(0.20,12,10),body);
+    club.scale.set(0.8,1.5,0.8);club.position.y=-3.5;t.add(club);
+    t.position.set(sx*0.42,-0.25,-1.25);t.rotation.x=-0.8;t.rotation.z=sx*0.25;
+    g.add(t);arms.push({arm:t,phase:sx});
+  }
+  g.add(mantle,tip,head);
+  g.userData.arms=arms;
+  g.rotation.x=-0.35;
+  g.scale.setScalar(1.5);
+  g.visible=false;
+  return g;
+}
+const squid=buildSquid();
+scene.add(squid);
+let squidT=26, squidOn=false, squidState='', squidTimer=0, squidThrow=0, squidSide=1;
+
+// starfish projectiles
+function buildStarfish(){
+  const g=new THREE.Group();
+  const mtl=PBR({color:0xff8a3d,roughness:0.45,vivid:1.7});
+  const core=new THREE.Mesh(new THREE.SphereGeometry(0.30,14,12),mtl);
+  core.scale.set(1,0.42,1);g.add(core);
+  for(let i=0;i<5;i++){
+    const a=(i/5)*Math.PI*2;
+    const arm=new THREE.Mesh(new THREE.ConeGeometry(0.19,0.72,8),mtl);
+    arm.rotation.z=Math.PI/2;arm.rotation.y=-a;
+    arm.position.set(Math.cos(a)*0.44,0,Math.sin(a)*0.44);
+    arm.scale.set(1,1,0.5);g.add(arm);
+  }
+  return g;
+}
+const STAR_POOL=[],stars=[];
+for(let i=0;i<8;i++){const st=buildStarfish();st.visible=false;scene.add(st);STAR_POOL.push(st);}
+// the splat that covers your view
+const splatEl=document.getElementById('splat');
+let splatT=0;
+
+function throwStarfish(){
+  const st=STAR_POOL.pop(); if(!st)return;
+  st.visible=true;
+  st.position.copy(squid.position);
+  st.position.y-=1.2;
+  const dx=px-st.position.x, dz=(0)-st.position.z;
+  const d=Math.max(1,Math.hypot(dx,dz));
+  const spd=26+Math.random()*6;
+  stars.push({m:st,vx:dx/d*spd,vz:dz/d*spd,vy:5.5+Math.random()*2.5,
+    sx:(Math.random()-0.5)*14,sy:(Math.random()-0.5)*14,t:0});
+}
+function updateSquid(dt,eff){
+  if(!squidOn){
+    squidT-=dt;
+    if(squidT<=0){
+      squidT=34+Math.random()*20;
+      squidOn=true;squidState='rise';squidTimer=0;squidThrow=0.5;
+      squidSide=Math.random()<0.5?-1:1;
+      squid.visible=true;
+      squid.position.set(px+squidSide*(9+Math.random()*4),-6,-34);
+      msg('SQUID!');
+    }
+  } else {
+    squidTimer+=dt;
+    const sy=waveH(squid.position.x,dist*WAVE_DRIFT+squid.position.z,waveClock);
+    squid.position.z+=eff*dt*0.55;
+    // arms and tentacles undulate
+    for(const a of squid.userData.arms){
+      a.arm.rotation.x=(a.arm.rotation.x*0.9)+(-0.5+Math.sin(tNow*3+a.phase*2)*0.35)*0.1;
+      a.arm.rotation.z=Math.cos(tNow*2.4+a.phase*2)*0.35;
+    }
+    if(squidState==='rise'){
+      squid.position.y+=(sy+2.6-squid.position.y)*Math.min(1,dt*2.2);
+      if(squidTimer>1.1){squidState='attack';squidTimer=0;}
+    } else if(squidState==='attack'){
+      squid.position.y=sy+2.6+Math.sin(tNow*2)*0.25;
+      squid.rotation.y=Math.atan2(px-squid.position.x,-squid.position.z)*0.6;
+      squidThrow-=dt;
+      if(squidThrow<=0){squidThrow=0.75+Math.random()*0.5;throwStarfish();}
+      if(squidTimer>4.5){squidState='sink';squidTimer=0;}
+    } else {
+      squid.position.y+=(sy-7-squid.position.y)*Math.min(1,dt*1.6);
+      if(squidTimer>2.2||squid.position.z>16){squidOn=false;squid.visible=false;}
+    }
+  }
+  // starfish fly, tumble, and splat on your view if they connect
+  for(let i=stars.length-1;i>=0;i--){
+    const s2=stars[i];s2.t+=dt;
+    s2.vy-=13*dt;
+    s2.m.position.x+=s2.vx*dt; s2.m.position.y+=s2.vy*dt; s2.m.position.z+=s2.vz*dt+eff*dt*0.4;
+    s2.m.rotation.x+=s2.sx*dt; s2.m.rotation.y+=s2.sy*dt;
+    const hit=Math.abs(s2.m.position.x-px)<1.5 && Math.abs(s2.m.position.z)<2.2
+              && Math.abs(s2.m.position.y-py)<2.2;
+    const sea=waveH(s2.m.position.x,dist*WAVE_DRIFT+s2.m.position.z,waveClock);
+    if(hit){
+      splatOnScreen();
+      splash(s2.m.position.x,s2.m.position.y,s2.m.position.z,10,0xff8a3d);
+      s2.m.visible=false;STAR_POOL.push(s2.m);stars.splice(i,1);continue;
+    }
+    if(s2.m.position.y<sea||s2.t>4||s2.m.position.z>18){
+      if(s2.m.position.y<sea)splash(s2.m.position.x,sea,s2.m.position.z,6,0xff8a3d);
+      s2.m.visible=false;STAR_POOL.push(s2.m);stars.splice(i,1);
+    }
+  }
+  // the splat slides down and drops off after a moment
+  if(splatT>0){
+    splatT-=dt;
+    if(splatEl){
+      const k=Math.max(0,Math.min(1,splatT/2.4));
+      const drop=(1-k)*(1-k)*260;
+      splatEl.style.opacity=splatT<0.55?String(splatT/0.55):'1';
+      splatEl.style.transform='translate(-50%,'+(drop-50)+'%) rotate('+((1-k)*22)+'deg)';
+      if(splatT<=0){splatEl.style.display='none';}
+    }
+  }
+}
+function splatOnScreen(){
+  splatT=2.4;shake=1.1;
+  if(splatEl){splatEl.style.display='block';splatEl.style.opacity='1';}
+  msg('SPLAT!');
+}
+
+// ---------- character animation: waves, g-force, jump crouch, grab reach ----------
+let rigCrouch=0,rigAir=0,releaseKick=0;
+// how far each thigh must lean to carry the foot from its socket out to the stance
+const LEG_LEN=0.25+0.20+0.08;
+const SPLAY_F=Math.asin(Math.max(-0.9,Math.min(0.9,(STANCE_F-HIP_F)/LEG_LEN)));
+const SPLAY_B=Math.asin(Math.max(-0.9,Math.min(0.9,(STANCE_B-HIP_B)/LEG_LEN)));
+function ease(cur,tgt,dt,k){return cur+(tgt-cur)*Math.min(1,dt*k);}
+function animateRig(dt,carve,grab,waterY){
+  const g=Math.abs(carve);
+  // how much the wave is heaving under the board right now
+  const heave=(waveH(px,dist*WAVE_DRIFT+0.6,waveClock)-waveH(px,dist*WAVE_DRIFT-0.6,waveClock));
+  const chop=Math.sin(tNow*4.2)*0.35+Math.sin(tNow*7.7)*0.18;
+
+  // knees absorb the swell and the g-force of the carve
+  const dragging = dragOn&&!airborne;
+  const compress = airborne ? (grab?1.05:-0.16) : (g*0.42 + Math.abs(heave)*0.5 + chop*0.05 + (dragging?0.55:0));   // grabs crouch, no forward pitch
+  releaseKick=Math.max(0,releaseKick-dt);
+  rigCrouch=ease(rigCrouch,compress-releaseKick*0.55,dt,9);   // pops upright out of a grab
+  rigAir=ease(rigAir,airborne?1:0,dt,8);
+
+  pelvis.position.y=0.59-Math.max(0,Math.min(0.24,rigCrouch))*0.14;
+  pelvis.rotation.z=-carve*0.10;
+  pelvis.rotation.x=heave*0.22;
+
+  // hip/knee/ankle chain — deeper bend the more you compress
+  const cr=Math.max(-0.08,Math.min(0.26,rigCrouch));
+  const bendF=0.30+cr*0.55, bendB=0.32+cr*0.58;   // knees bent into a surf crouch
+  legFrontJ.hip.rotation.x=ease(legFrontJ.hip.rotation.x,-SPLAY_F-bendF*0.5+heave*0.10,dt,10);
+  legFrontJ.knee.rotation.x=ease(legFrontJ.knee.rotation.x,SPLAY_F*0.55+bendF,dt,12);
+  legFrontJ.ankle.rotation.x=ease(legFrontJ.ankle.rotation.x,SPLAY_F*0.45-bendF*0.9,dt,10);   // paw stays flat on the deck
+  legFrontJ.hip.rotation.y=-STANCE_ROT;
+  legFrontJ.knee.rotation.y=0;legFrontJ.ankle.rotation.y=0;
+  legFrontJ.hip.rotation.z=-carve*0.10;
+  legBackJ.hip.rotation.x=ease(legBackJ.hip.rotation.x,SPLAY_B+bendB*0.5-heave*0.10,dt,10);
+  legBackJ.knee.rotation.x=ease(legBackJ.knee.rotation.x,-SPLAY_B*0.55-bendB,dt,12);
+  legBackJ.ankle.rotation.x=ease(legBackJ.ankle.rotation.x,-SPLAY_B*0.45+bendB*0.9,dt,10);
+  legBackJ.hip.rotation.y=-STANCE_ROT;
+  legBackJ.knee.rotation.y=0;legBackJ.ankle.rotation.y=0;
+  legBackJ.hip.rotation.z=-carve*0.08;
+
+  // spine/chest counter-rotate against the board like a real surfer
+  const gSide = grab ? grabSide : 0;
+  const dragLean = dragging ? dragSide*0.42 : 0;
+  spine.rotation.z=ease(spine.rotation.z,-carve*0.16+gSide*0.58+dragLean,dt,8);   // leans right over the grabbed rail
+  const crouchLean = grab ? 0.62 : rigCrouch*0.30 + Math.max(0,boardPitch)*0.55;   // leans forward as the nose drops
+  spine.rotation.x=ease(spine.rotation.x,0.18+crouchLean+(airborne?-0.32:0)+leanW*0.45,dt,8);
+  chestJ.rotation.y=ease(chestJ.rotation.y,0.30+carve*0.55,dt,7);   // shoulders swing with the turn
+  chestJ.rotation.z=ease(chestJ.rotation.z,-carve*0.14,dt,7);
+  // head keeps looking down the line, level with the horizon
+  neck.rotation.x=ease(neck.rotation.x,-spine.rotation.x*0.8+(airborne?0.12:0),dt,9);   // head stays level
+  headJ.rotation.y=ease(headJ.rotation.y,0.90+carve*0.34,dt,6);   // head still looks down the line
+  headJ.rotation.z=ease(headJ.rotation.z,carve*0.10,dt,6);
+  // ears and tail flap with speed and motion
+  const flap=Math.sin(tNow*11)*(0.18+g*0.35);
+  earL.rotation.x=flap;earR.rotation.x=-flap*0.85;
+
+  // arms: reach for the rail on a grab, windmill for balance in the air, drop and counterweight on the wave
+  let shF,elF,shB,elB,armSpread;
+  if(grab){
+    // fold right over and take the rail underneath the board
+    const gs = grabSide;
+    // arm hangs down and leans out to the rail — small angles, paw lands on the edge
+    shF=[0.22, gs*0.18, gs*0.52]; elF=[0.30,0,0];
+    shB=[-0.55,-0.25,-1.85];      elB=[-0.50,0,0];   // free paw thrown high behind
+    armSpread=0;
+  } else if(airborne){
+    const w=tNow*8;
+    shF=[0.55+Math.sin(w)*0.35, 0.20, 1.50+Math.sin(w)*0.25];   // windmilling, still wide
+    elF=[0.35,0,0];
+    shB=[-0.35+Math.sin(w+2.1)*0.35,-0.20,-1.50+Math.sin(w+2.1)*0.25];
+    elB=[0.30,0,0];
+    armSpread=0;
+  } else if(dragging){
+    // crouched low with one paw carving through the water beside the board
+    const ds=dragSide;
+    shF=[1.15, ds*0.25, 1.05*ds]; elF=[0.55,0,0];    // reaching down and out to the surface
+    shB=[-0.35,-0.15,-1.45];      elB=[0.30,0,0];    // other paw up for balance
+    armSpread=0;
+  } else {
+    // planted surf stance: both paws out wide and slightly forward, like the reference
+    const drag=Math.max(0,carve), drag2=Math.max(0,-carve);
+    shF=[0.42+drag*0.55, 0.18, 1.32+drag*0.30];   // z rotation swings the arm out sideways
+    elF=[0.30-drag*0.18,0,0];
+    shB=[0.30+drag2*0.55,-0.18,-1.38-drag2*0.30];
+    elB=[0.28-drag2*0.18,0,0];
+    armSpread=Math.sin(tNow*2.4)*0.16 + heave*0.55;   // arms sway with the swell and the ride
+  }
+  const A=armFrontJ,B=armBackJ;
+  A.sh.rotation.x=ease(A.sh.rotation.x,shF[0]+armSpread,dt,10);
+  A.sh.rotation.y=ease(A.sh.rotation.y,shF[1]+Math.sin(tNow*1.9)*0.10,dt,10);
+  A.sh.rotation.z=ease(A.sh.rotation.z,shF[2],dt,10);
+  A.el.rotation.x=ease(A.el.rotation.x,elF[0]+Math.sin(tNow*2.6)*0.09,dt,10);
+  B.sh.rotation.x=ease(B.sh.rotation.x,shB[0]-armSpread,dt,10);
+  B.sh.rotation.y=ease(B.sh.rotation.y,shB[1]-Math.sin(tNow*1.9+0.8)*0.10,dt,10);
+  B.sh.rotation.z=ease(B.sh.rotation.z,shB[2],dt,10);
+  B.el.rotation.x=ease(B.el.rotation.x,elB[0]+Math.sin(tNow*2.6+1.4)*0.09,dt,10);
+}
+
+// ---------- update ----------
+function update(dt){
+  tNow+=dt;
+  speed=Math.min(46,22+dist/220);
+
+  // momentum carving
+  let wt=weight+(keys.KeyW||keys.ArrowUp?-1:0)+(keys.KeyS||keys.ArrowDown?1:0);
+  wt=Math.max(-1,Math.min(1,wt));
+  let sx=steer+(keys.KeyA||keys.ArrowLeft?-1:0)+(keys.KeyD||keys.ArrowRight?1:0);
+  sx=Math.max(-1,Math.min(1,sx));
+  vx+=sx*55*dt;
+  vx-=vx*3.4*dt;
+  px+=vx*dt;
+  if(px<-17){px=-17;vx=0;}      // slide out to the far lanes and stop there
+  if(px>17){px=17;vx=0;}
+  const carve=Math.max(-1,Math.min(1,vx/9));
+  leanW+=(wt-leanW)*Math.min(1,dt*6);
+  // dropping down a wave face accelerates you, climbing one costs a little
+  const faceDrive=(waveH(px,dist*WAVE_DRIFT+2.6,waveClock)-waveH(px,dist*WAVE_DRIFT-2.6,waveClock))*5.5;
+  const trim=(leanW>=0 ? leanW*8.0 : leanW*13.0) + faceDrive;
+  const eff=Math.max(9,speed+Math.abs(vx)*0.3+trim);
+  lastEff=eff;
+  dist+=eff*dt;
+  score+=eff*dt*0.6;
+  cutCd=Math.max(0,cutCd-dt);
+
+  const waterY=waveH(px,dist*WAVE_DRIFT,waveClock)+0.13;   // hull just wetted, fins fully under the surface
+
+  if(hanging){
+    py+=(5.4-py)*Math.min(1,dt*2.4);   // towed above the water, high enough to throw tricks
+    px+=(plane.position.x-px)*Math.min(1,dt*1.5);
+    score+=60*dt;
+    speed=Math.min(60,speed+14*dt);
+    if(!planeActive||plane.position.z>2)releaseRope(false);
+  } else if(airborne||py>waterY+0.05){
+    vy-=20*dt;py+=vy*dt;
+    if(py<=waterY){
+      py=waterY;
+      if(airborne){
+        splash(px,waterY,0,22);
+        pushTrail(px,waterY,0.5,1.4);
+        const anySpin=spinRot>0.4||flipRot>0.4;
+        if(grabOn&&(spinRot>0.4||flipRot>0.4||grabPts>40)){
+          // still holding the rail when you touch down
+          settleTricks(false);startWipeout('foam');return;
+        }
+        if(anySpin){
+          const offS=Math.abs(((spinRot+Math.PI)%(Math.PI*2))-Math.PI);
+          const offF=Math.abs(((flipRot+Math.PI)%(Math.PI*2))-Math.PI);
+          if(offS<0.62&&offF<0.62){ settleTricks(true); }
+          else { settleTricks(false); startWipeout(offF>=0.62?'under':'land'); return; }
+        } else if(grabOn){ settleTricks(false); startWipeout('foam'); return; }
+      }
+      airborne=false;vy=0;
+      player.rotation.set(0,0,0);
+    }
+  } else {
+    py+=(waterY-py)*Math.min(1,dt*14);
+  }
+  trickReady=(airborne&&py>waterY+0.8)||hanging;   // you can trick while being towed
+  trickBar.classList.toggle('hidden',!(trickReady||(!airborne&&!hanging)));
+  jumpBtn.style.opacity=trickReady?'0.25':'1';
+
+  // bury the nose too long and you pearl
+  if(!airborne&&!hanging&&leanW>0.72){pearlT+=dt;} else {pearlT=Math.max(0,pearlT-dt*1.6);}
+  if(pearlT>1.35){
+    startWipeout('pearl');return;
+  }
+
+  // cutback + carve spray
+  if(!airborne&&!hanging){
+    if(cutCd<=0&&Math.abs(vx)>5.5&&sx!==0&&Math.sign(sx)!==Math.sign(vx)){
+      cutCd=1.2;score+=75;msg('CUTBACK! +75');
+      const bside=-Math.sign(vx);
+      for(let i=0;i<26;i++){
+        const m=takeDrop();if(!m)break;
+        m.material=SPLASH_MAT;
+        const sc=0.8+Math.random()*1.4;m.scale.setScalar(sc);
+        m.position.set(px+bside*0.8,waterY+0.1,0.4+Math.random()*0.6);
+        m.userData={vx:bside*(4+Math.random()*7),vy:2.5+Math.random()*5,vz:2+Math.random()*4,t:0.6+Math.random()*0.3,s:sc};
+        splashes.push(m);
+      }
+    }
+    // continuous rail spray while carving — the white fan off the outside rail
+    const sprayRate=(Math.abs(carve)*170+14)*(eff/40);
+    sprayAcc+=dt*sprayRate;
+    const side=-Math.sign(vx||1);
+    while(sprayAcc>1){
+      sprayAcc-=1;
+      if(Math.abs(carve)<0.10)continue;
+      const m=takeDrop();if(!m)break;
+      m.material=SPLASH_MAT;
+      const sc=0.7+Math.random()*1.1;m.scale.setScalar(sc);
+      m.position.set(px+side*(0.5+Math.abs(carve)*0.6),waterY-0.10,0.2+Math.random()*0.9);
+      m.userData={vx:side*(3.0+Math.abs(carve)*11+Math.random()*3),vy:1.2+Math.random()*Math.abs(carve)*9,vz:1.5+Math.random()*3,t:0.45+Math.random()*0.35,s:sc};
+      splashes.push(m);
+    }
+  }
+
+  // trick progression + rotations (player group spins; camera never tilts)
+  // hand drag on the water
+  if(dragOn){
+    if(airborne||hanging)endDrag();
+    else{
+      dragPts+=70*dt;
+      sprayAcc+=dt*90;
+      while(sprayAcc>1){
+        sprayAcc-=1;
+        const m=takeDrop(); if(!m)break;
+        m.material=SPLASH_MAT;
+        const sc=0.7+Math.random()*1.0; m.scale.setScalar(sc);
+        m.position.set(px+dragSide*(0.95+Math.random()*0.2), waterY-0.12, -0.15+Math.random()*0.7);
+        m.userData={vx:dragSide*(1.4+Math.random()*3),vy:1.8+Math.random()*4.2,vz:2.2+Math.random()*3,t:0.5+Math.random()*0.35,s:sc};
+        splashes.push(m);
+      }
+      pushTrail(px+dragSide*0.8,waterY,0.5,0.55);
+    }
+  }
+  // spin / flip / grab all run at once while you're off the water
+  if(airborne||hanging){
+    if(spinHeld)spinRot+=dt*Math.PI*2*1.35;
+    if(flipHeld)flipRot+=dt*Math.PI*2*1.25;
+    if(grabOn)grabPts+=95*dt;
+    player.rotation.set(0,spinRot,flipRot);
+    // rope tricks bank as soon as you square up
+    if(hanging&&!spinHeld&&!flipHeld&&(spinRot>0.4||flipRot>0.4)){
+      const offS=Math.abs(((spinRot+Math.PI)%(Math.PI*2))-Math.PI);
+      const offF=Math.abs(((flipRot+Math.PI)%(Math.PI*2))-Math.PI);
+      if(offS<0.7&&offF<0.7)settleTricks(true);
+    }
+  } else { spinHeld=false; flipHeld=false; }
+  if(trick&&trick.type==='back'){
+    trick.t+=dt;
+    const prog=Math.min(1,trick.t/trick.dur);
+    player.rotation.set(-prog*Math.PI*2,spinRot,flipRot);
+    if(prog>=1){score+=trick.pts;msg(`${trick.name}! +${trick.pts}`);trick=null;}
+  }
+
+  // board rig: damped yaw/lean/pitch — eases onto the rail like a real board
+  player.position.set(px,py,0);
+  const grab=grabOn&&(airborne||hanging);
+  const yawT=-carve*0.30, leanT=carve*0.55;
+  // slope of the wave under the board, measured over the board's own length
+  const faceSlope=(waveH(px,dist*WAVE_DRIFT+2.6,waveClock)-waveH(px,dist*WAVE_DRIFT-2.6,waveClock));
+  // drop down a face and the nose tips right over; climbing one lifts it more gently
+  const drop = faceSlope>0 ? faceSlope*1.35 : faceSlope*0.65;
+  const pitchT=airborne?-0.22:Math.max(-0.30,Math.min(0.85,drop)) + leanW*0.42;
+  boardYaw+=(yawT-boardYaw)*Math.min(1,dt*7);
+  boardLean+=(leanT-boardLean)*Math.min(1,dt*7);
+  boardPitch+=(pitchT-boardPitch)*Math.min(1,dt*11);
+  const grabRoll = grab ? grabSide*0.30 : 0;   // board tips toward the rail he's holding
+  rig.rotation.set(boardPitch,boardYaw,boardLean+grabRoll);
+  animateRig(dt,carve,grab,waterY);
+
+  // whitewater under the board + wash trail behind it
+  if(!airborne&&!hanging){
+    // water piles up on the inside rail of the turn and peels off the outside — no discs
+    trailT-=dt;
+    if(trailT<=0){trailT=0.026;pushTrail(px,waterY,0.9,0.42+Math.abs(carve)*0.85);}
+  }
+
+  if(!airborne&&Math.random()<dt*14)splash(px+(Math.random()-0.5),waterY-0.1,1.4,1);
+
+  // obstacles
+  bigFinCd=Math.max(0,bigFinCd-dt);
+  spawnT-=dt;
+  if(spawnT<=0){
+    spawnT=Math.max(0.35,1.1-dist/900)*(0.6+Math.random()*0.8);
+    // weighted bag with anti-repeat: same type can't appear more than twice in a row
+    const WEIGHTS=[['buoy',26],['reef',24],['log',20],['ramp',18],['bigfin',12]];
+    let pick=null;
+    for(let tries=0;tries<8;tries++){
+      let total=0;for(const w of WEIGHTS)total+=w[1];
+      let roll=Math.random()*total,cand=WEIGHTS[0][0];
+      for(const w of WEIGHTS){roll-=w[1];if(roll<=0){cand=w[0];break;}}
+      if(cand===lastKind&&sameRun>=2)continue;          // break up streaks
+      if(cand==='bigfin'&&bigFinCd>0)continue;          // big fin needs breathing room
+      pick=cand;break;
+    }
+    if(!pick)pick='buoy';
+    sameRun=(pick===lastKind)?sameRun+1:1;
+    lastKind=pick;
+    if(pick==='bigfin')bigFinCd=9;
+    // spread across the full lane, centred on the player, with jittered slots so it
+    // never clusters on one side
+    // seven lanes spanning wider than you can steer, so the edges are never safe
+    laneSlot=(laneSlot+1+((Math.random()*3)|0))%7;
+    const laneX=(-3+laneSlot)*4.9+(Math.random()-0.5)*3.0;
+    makeObstacle(pick,Math.max(-17,Math.min(17,px*0.55+laneX)),-170);
+    // and every so often drop an extra one right against an edge
+    if(Math.random()<0.34){
+      const edge=(Math.random()<0.5?-1:1)*(11.5+Math.random()*4.5);
+      makeObstacle(Math.random()<0.5?'buoy':'log',edge,-176);
+    }
+  }
+  for(let i=obstacles.length-1;i>=0;i--){
+    const o=obstacles[i];
+    o.position.z+=eff*dt;
+    // ride the long swell, ignore the chop — and stay on top of it, never under
+    const oy=swellH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock)+FLOAT_OFF[o.userData.kind];
+    if(o.userData.by===undefined)o.userData.by=oy;
+    // a big rigid ramp barely moves; small floats respond more
+    const follow=o.userData.ramp?3.0:9.0;
+    o.userData.by+=(oy-o.userData.by)*Math.min(1,dt*follow);
+    o.position.y=o.userData.by;
+    // tilt with the swell face — heavily damped on ramps so they don't wobble
+    const tilt=o.userData.ramp?0.06:0.30;
+    const span=o.userData.ramp?3.2:1.6;
+    const slopeZ=(swellH(o.position.x,dist*WAVE_DRIFT+o.position.z+span,waveClock)-swellH(o.position.x,dist*WAVE_DRIFT+o.position.z-span,waveClock))*tilt;
+    const slopeX=(swellH(o.position.x+span,dist*WAVE_DRIFT+o.position.z,waveClock)-swellH(o.position.x-span,dist*WAVE_DRIFT+o.position.z,waveClock))*tilt;
+    if(o.userData.rx===undefined){o.userData.rx=slopeZ;o.userData.rz=-slopeX;}
+    o.userData.rx+=(slopeZ-o.userData.rx)*Math.min(1,dt*(o.userData.ramp?2.0:6.0));
+    o.userData.rz+=((-slopeX)-o.userData.rz)*Math.min(1,dt*(o.userData.ramp?2.0:6.0));
+    o.rotation.x=o.userData.rx; o.rotation.z=o.userData.rz;
+    if(o.userData.kind==='buoy')o.rotation.z+=Math.sin(tNow*2+o.position.x)*0.06;
+    if(o.userData.kind==='bigfin'){
+      // pace the crossing so it arrives in your lane just as you reach it
+      const togo=Math.max(0.35,(-o.position.z)/Math.max(8,eff));
+      o.position.x+=((o.userData.targetX-o.position.x)/togo)*dt;
+      if(Math.random()<dt*14)splash(o.position.x,o.position.y+0.1,o.position.z+1.4,1);
+    }
+    if(o.userData.bell){
+      // slow swimming pulse: the bell squashes and springs back
+      const ph=tNow*1.6+o.userData.pulse;
+      const sq=0.5+0.5*Math.sin(ph);
+      const hit=o.userData.squash||0;
+      if(o.userData.squash)o.userData.squash=Math.max(0,o.userData.squash-dt*2.4);
+      o.userData.bell.scale.set(0.95+sq*0.13+hit*0.45,0.95-sq*0.20-hit*0.55,0.95+sq*0.13+hit*0.45);
+      o.rotation.y+=dt*0.25;
+      o.position.y+=Math.sin(ph)*dt*0.35;          // bobs upward on each pulse
+    }
+    if(o.userData.wash){const w=1+Math.sin(tNow*3+o.position.x)*0.12;o.userData.wash.scale.set(w,w,1);o.userData.wash.material.opacity=0.4+Math.sin(tNow*3+o.position.x)*0.15;}
+
+    if(o.position.z>18){scene.remove(o);obstacles.splice(i,1);continue;}
+    const zWin=o.userData.ramp? Math.max(o.userData.r, eff*dt*2.2+1.9) : o.userData.r;
+    if(Math.abs(o.position.z)<zWin&&Math.abs(o.position.x-px)<o.userData.r){
+      if(o.userData.ramp){
+        // launch if you're anywhere near deck height, even mid-swell or slightly airborne
+        if(!o.userData.used && py < o.position.y+3.0 && vy<=1.5){
+          o.userData.used=true;vy=13.5;airborne=true;py=Math.max(py,o.position.y+0.6);score+=50;msg('RAMP! +50');
+          splash(px,waterY,0,8,0xffc23e);
+        }
+      } else if(o.userData.kind==='reef' && vy<0 && py>o.position.y+0.55){
+        // coming down onto the bell — bounce off it
+        vy=Math.max(12.5,-vy*0.85+9.0);
+        airborne=true;
+        py=o.position.y+0.9;
+        score+=60;
+        msg('JELLY BOUNCE! +60');
+        shake=0.7;
+        splash(o.position.x,o.position.y+0.5,o.position.z,14);
+        if(o.userData.bell)o.userData.squash=1.0;      // the bell flattens under you
+      } else if(py<waterY+o.userData.h&&!hanging){
+        startWipeout(o.userData.kind);return;
+      }
+    }
+  }
+
+  // plane
+  planeT-=dt;
+  if(planeT<=0&&!planeActive){
+    planeActive=true;plane.visible=true;
+    plane.position.set(Math.random()*16-8,11,-190);
+    planeT=18+Math.random()*10;
+  }
+  if(planeActive){
+    plane.position.z+=(eff*0.45+12)*dt;
+    plane.position.y=11+Math.sin(tNow*1.5)*0.6;
+    plane.userData.prop.rotation.z+=dt*40;
+    plane.rotation.y=Math.PI;
+    if(plane.position.z>40){planeActive=false;plane.visible=false;if(hanging)releaseRope(false);}
+  }
+  const ropeWindow=planeActive&&plane.position.z>-90&&plane.position.z<-4;
+  ropeBtn.style.display=(ropeWindow||hanging)?'flex':'none';
+  if(hanging){
+    rope.geometry.setFromPoints([
+      new THREE.Vector3(px,py+1.2,-0.5),
+      new THREE.Vector3(plane.position.x,plane.position.y-0.6,plane.position.z)
+    ]);
+  }
+
+  // splashes
+  for(let i=splashes.length-1;i>=0;i--){
+    const s2=splashes[i],u=s2.userData;
+    u.t-=dt;u.vy-=14*dt;
+    s2.position.x+=u.vx*dt;s2.position.y+=u.vy*dt;s2.position.z+=u.vz*dt+eff*dt*0.4;
+    s2.scale.setScalar(Math.max(0.05,u.t*u.s));
+    if(u.t<=0){freeDrop(s2);splashes.splice(i,1);}
+  }
+  // keep the contact shadows glued under everything
+  {
+    const sy=waveH(px,dist*WAVE_DRIFT,waveClock)+0.06;
+    boardShadow.visible=true;
+    boardShadow.position.set(px+0.35,sy,0.25);
+    const lift=Math.max(0,py-(sy+0.1));
+    const sc=0.85/(1+lift*0.45);
+    boardShadow.scale.set(sc*0.75,sc*1.9,1);
+    boardShadow.material.opacity=0.17/(1+lift*1.2);
+    let si=0;
+    for(const o of obstacles){
+      if(si>=OBST_SHADOWS.length)break;
+      if(o.position.z<-70||o.position.z>14)continue;
+      const sh=OBST_SHADOWS[si++];
+      sh.visible=true;
+      const oy=swellH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock)+0.05;
+      sh.position.set(o.position.x+0.3,oy,o.position.z+0.3);
+      const r=o.userData.r||1.2;
+      sh.scale.set(r*0.55,r*0.85,1);
+      sh.material.opacity=0.14;
+    }
+    for(;si<OBST_SHADOWS.length;si++)OBST_SHADOWS[si].visible=false;
+  }
+  updateWake(dt,eff);
+
+  updateSeaLife(dt,eff);
+  updateJetSki(dt,eff);
+  updateSquid(dt,eff);
+  updateDayCycle();
+
+  // stage sets the range; sets roll through it so you get small, medium, large and
+  // the occasional extra-large — and the whole range climbs the further you get
+  const stage=Math.min(1,dist/9000);
+  const base=0.62+stage*0.70;                 // typical size for this point in the run
+  const swing=0.26+stage*0.42;                // how much the sets vary
+  waveAmp=Math.max(0.34, base+setNoise(waveClock)*swing);
+  WAVE_DRIFT=0.46+stage*0.16;                 // rolls past a little quicker later on
+  oceanUniforms.uAmp.value=waveAmp;
+  oceanUniforms.uPeak.value=1.94*waveAmp;   // total wave height, so foam thresholds track the swell
+  // sets: the swell surges and eases instead of ticking at one constant rate
+  waveClock += dt*(1.0 + 0.55*Math.sin(tNow*0.045) + 0.28*Math.sin(tNow*0.017+1.3));
+  oceanUniforms.uT.value=waveClock;
+  oceanUniforms.uDist.value=dist*WAVE_DRIFT;
+
+  // camera: level horizon, smoothed follow, pulls back with speed
+  camX+=(px-camX)*Math.min(1,dt*7);     // camera sits directly behind him
+  lookX+=(px-lookX)*Math.min(1,dt*7);   // and looks straight down the line
+  camera.up.set(0,1,0);
+  camY+=((5.0+py*0.12)-camY)*Math.min(1,dt*1.6);   // lags the swell so the board visibly rises and drops
+  camera.position.set(camX,camY,11.0+eff*0.05);
+  camera.lookAt(lookX,1.1+py*0.25,-14);
+
+  hud.innerHTML=`Score ${score|0}<br><small>Best ${best}&nbsp;&nbsp;·&nbsp;&nbsp;${(eff*0.62)|0} mph</small>`;
+}
+
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt=Math.min(0.033,(now-last)/1000);last=now;
+  if(!running&&wipe){                       // crash plays out with the world still alive
+    updateWipeout(dt);
+    updateWorldDuringWipeout(dt);
+  }
+  if(running)update(dt);
+  else oceanUniforms.uT.value+=dt;
+  renderer.render(scene,camera);
+}
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
