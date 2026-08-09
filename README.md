@@ -6,8 +6,12 @@ dependencies to install.
 
 ## Play it
 
-**Hosted:** https://zyrusarmand.github.io/Surf-/
-(available once GitHub Pages is enabled — see below)
+**Right now, no setup:**
+https://raw.githack.com/zyrusArmand/Surf-/claude/pug-surf-game-f99mod/index.html
+(raw.githack.com serves this public repo's files directly)
+
+**Permanent home:** https://zyrusarmand.github.io/Surf-/
+— live once GitHub Pages is enabled, see below.
 
 **Locally:** clone the repo and open `index.html` in any modern browser, or serve
 the folder:
@@ -40,6 +44,12 @@ bounce you, and buoys, logs and shark fins end the run.
 
 ## Enabling GitHub Pages
 
-One-time setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-The workflow then publishes on every push to `main` (or to the game branch), and
-the URL above starts working.
+One-time setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**,
+then re-run the "Deploy to GitHub Pages" workflow from the Actions tab. After that
+it publishes on every push to `main` (or to the game branch) and the
+`github.io` URL above starts working.
+
+This step cannot be automated: the workflow's built-in token is not permitted to
+create a Pages site, so the first run fails with
+`Create Pages site failed … Resource not accessible by integration` until Pages
+is switched on by hand.
