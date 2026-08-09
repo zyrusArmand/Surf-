@@ -44,6 +44,10 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.13.0** — Slower, especially early: about 9 mph off the line instead of 16, on a
+  gentler ramp, with the swell surging you along less. The rider is no longer pinned to
+  one spot — he travels fore and aft, driven up the board by leaning and lunging forward
+  as he drops down a face, and the camera only partly follows so the movement reads.
 - **v1.12.0** — Waves actually propagate now. Each component travels at its own deep
   water speed (omega = sqrt(g*k)), so long swell outruns short chop and the interference
   between them never settles — the sea is no longer a frozen pattern you drive through.

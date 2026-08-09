@@ -104,7 +104,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.12.0';
+const VERSION='1.13.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -998,8 +998,8 @@ function makeObstacle(kind,x,z){
 
 // ---------- state ----------
 let running=false,tNow=0,last=0,speed=22,score=0,best=0,waveClock=0,lastEff=22;
-let px=0,py=0,vy=0,vx=0,cutCd=0,airborne=false,trickReady=false;
-let boardYaw=0,boardLean=0,boardPitch=0,camX=0,camY=5.0,lookX=0,sprayAcc=0,leanW=0,pearlT=0;
+let px=0,py=0,pz=0,vy=0,vx=0,cutCd=0,airborne=false,trickReady=false;
+let boardYaw=0,boardLean=0,boardPitch=0,camX=0,camY=5.0,camZ=11.0,lookX=0,sprayAcc=0,leanW=0,pearlT=0;
 let spinHeld=false,flipHeld=false,spinRot=0,flipRot=0;
 let grabOn=false,grabPts=0,grabSide=1;
 let dragOn=false,dragPts=0,dragSide=1;
@@ -1202,8 +1202,8 @@ function reset(){
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}}); rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null; }
   player.rotation.set(0,0,0);
   for(const o of obstacles)scene.remove(o);obstacles.length=0;
-  dist=0;speed=22;score=0;px=0;py=0;vy=0;vx=0;cutCd=0;airborne=false;trick=null;
-  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;
+  dist=0;speed=13.5;score=0;px=0;py=0;pz=0;vy=0;vx=0;cutCd=0;airborne=false;trick=null;
+  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;
   trail.length=0;trailT=0;
   skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;wakeWave.visible=false;wakeCrest.visible=false;
   splatT=0;splatCd=0;if(zapEl)zapEl.classList.remove('on');
@@ -1794,7 +1794,7 @@ function updateJetSki(dt,eff){
     wakeMatW.opacity=0.95*fade;
     wakeCrest.material.opacity=(0.25+grow*0.65)*fade;
     // big launch when it reaches you
-    if(!skiWake.hit&&skiWake.z>-2.2&&skiWake.z<2.6&&!airborne&&!hanging){
+    if(!skiWake.hit&&skiWake.z>pz-2.2&&skiWake.z<pz+2.6&&!airborne&&!hanging){
       skiWake.hit=true;
       const power=10+ (skiWake.H||3)*2.6;
       vy=power; airborne=true;
@@ -1907,7 +1907,7 @@ function updateStars(dt,eff){
     s2.vy-=13*dt;
     s2.m.position.x+=s2.vx*dt; s2.m.position.y+=s2.vy*dt; s2.m.position.z+=s2.vz*dt+eff*dt*0.4;
     s2.m.rotation.x+=s2.sx*dt; s2.m.rotation.y+=s2.sy*dt;
-    const hit=Math.abs(s2.m.position.x-px)<1.5 && Math.abs(s2.m.position.z)<2.2
+    const hit=Math.abs(s2.m.position.x-px)<1.5 && Math.abs(s2.m.position.z-pz)<2.2
               && Math.abs(s2.m.position.y-py)<2.2;
     const sea=waveH(s2.m.position.x,dist*WAVE_DRIFT+s2.m.position.z,waveClock);
     if(hit){
@@ -2061,7 +2061,7 @@ function animateRig(dt,carve,grab,waterY){
 // ---------- update ----------
 function update(dt){
   tNow+=dt;
-  speed=Math.min(60,22+dist/170);
+  speed=Math.min(50,13.5+dist/230);
 
   // momentum carving
   let wt=weight+(keys.KeyW||keys.ArrowUp?-1:0)+(keys.KeyS||keys.ArrowDown?1:0);
@@ -2076,11 +2076,11 @@ function update(dt){
   const carve=Math.max(-1,Math.min(1,vx/9));
   leanW+=(wt-leanW)*Math.min(1,dt*6);
   // dropping down a wave face accelerates you, climbing one costs a little
-  const faceDrive=(waveH(px,dist*WAVE_DRIFT+2.6,waveClock)-waveH(px,dist*WAVE_DRIFT-2.6,waveClock))*5.5;
+  const faceDrive=(waveH(px,dist*WAVE_DRIFT+2.6,waveClock)-waveH(px,dist*WAVE_DRIFT-2.6,waveClock))*3.8;
   // leaning is a real throttle now: forward drives hard, back scrubs hard
   const trim=(leanW>=0 ? leanW*16.0 : leanW*19.0) + faceDrive;
   boost=Math.max(0,boost-dt*3.0);            // speed carried out of a trick, bleeding off
-  const eff=Math.max(11,speed+Math.abs(vx)*0.3+trim+boost);
+  const eff=Math.max(8,speed+Math.abs(vx)*0.3+trim+boost);
   lastEff=eff;
   dist+=eff*dt;
   score+=eff*dt*0.6;
@@ -2204,11 +2204,16 @@ function update(dt){
   }
 
   // board rig: damped yaw/lean/pitch — eases onto the rail like a real board
-  player.position.set(px,py,0);
   const grab=grabOn&&(airborne||hanging);
   const yawT=-carve*0.30, leanT=carve*0.55;
   // slope of the wave under the board, measured over the board's own length
   const faceSlope=(waveH(px,dist*WAVE_DRIFT+2.6,waveClock)-waveH(px,dist*WAVE_DRIFT-2.6,waveClock));
+  // Ride fore and aft rather than sitting on one spot. Leaning drives him up the
+  // board, leaning back settles him toward the tail of the shot, and dropping down
+  // a face lunges him forward a little. Forward travel is kept short on purpose.
+  const pzT=Math.max(-3.0,Math.min(2.2, -leanW*2.3 - Math.max(-1,Math.min(1,faceSlope))*0.8));
+  pz+=(pzT-pz)*Math.min(1,dt*2.2);
+  player.position.set(px,py,pz);
   // drop down a face and the nose tips right over; climbing one lifts it more gently
   const drop = faceSlope>0 ? faceSlope*1.35 : faceSlope*0.65;
   const pitchT=airborne?-0.22:Math.max(-0.30,Math.min(0.85,drop)) + leanW*0.72;
@@ -2329,7 +2334,7 @@ function update(dt){
     const zWin=o.userData.ramp ? Math.max(o.userData.r, eff*dt*2.2+1.9)
              : (o.userData.kind==='jelly' ? Math.max(o.userData.r, eff*dt*1.8+1.1)
              : Math.max(o.userData.r, eff*dt*1.0));
-    if(Math.abs(o.position.z)<zWin&&Math.abs(o.position.x-px)<o.userData.r){
+    if(Math.abs(o.position.z-pz)<zWin&&Math.abs(o.position.x-px)<o.userData.r){
       if(o.userData.ramp){
         // launch if you're anywhere near deck height, even mid-swell or slightly airborne
         if(!o.userData.used && py < o.position.y+3.0 && vy<=1.5){
@@ -2441,7 +2446,10 @@ function update(dt){
   const airH=Math.max(0,py-waterY);
   const flying=airborne||hanging||airH>0.6;
   camY+=((5.0+py*0.12+airH*0.62)-camY)*Math.min(1,dt*(flying?4.6:1.6));
-  camera.position.set(camX,camY,11.0+eff*0.05+airH*0.22);
+  // follow his fore/aft travel only partly, so it reads on screen instead of the
+  // camera cancelling it out and pinning him to one spot again
+  camZ+=((11.0+eff*0.05+airH*0.22+pz*0.42)-camZ)*Math.min(1,dt*2.4);
+  camera.position.set(camX,camY,camZ);
   camera.lookAt(lookX,1.1+py*0.25+airH*0.30,-14);
 
   hScore.textContent=score|0;
