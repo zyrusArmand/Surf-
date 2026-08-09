@@ -104,7 +104,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.8.0';
+const VERSION='1.9.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -163,13 +163,18 @@ if(sun.target){sun.target.position.set(0,0,0);scene.add(sun.target);}
 buildEnvironment();
 
 // ---------- shared wave model ----------
+// Each component carries an envelope as well as a wave: [dirX, dirZ, k, amp, rate,
+// envK, envRate, envPhase]. The envelope runs along the same direction at a much
+// lower frequency, so a crest swells as it rolls in and flattens out again further
+// on — swell groups, rather than one rigid pattern sliding past you forever.
 const WAVES=[
-  [0.00, 1.00, 0.190, 1.00, 0.013],
-  [0.60, 0.80, 0.310, 0.52, 0.019],
-  [-0.74,0.67, 0.470, 0.26, 0.026],
-  [0.40,-0.92, 0.720, 0.11, 0.033],
-  [1.00, 0.00, 1.050, 0.05, 0.040],
+  [0.00, 1.00, 0.190, 1.00, 0.052, 0.38, 0.090, 0.00],
+  [0.60, 0.80, 0.310, 0.52, 0.071, 0.42, 0.120, 2.10],
+  [-0.74,0.67, 0.470, 0.26, 0.098, 0.50, 0.160, 4.20],
+  [0.40,-0.92, 0.720, 0.11, 0.125, 0.58, 0.210, 1.30],
+  [1.00, 0.00, 1.050, 0.05, 0.152, 0.66, 0.270, 5.40],
 ];
+const ENV_BASE=0.32, ENV_SWING=0.68;      // envelope floor and how far it breathes
 let waveAmp=0.78;                       // current swell height (varies set to set)
 // smooth pseudo-random drift so wave size wanders between small and extra-large
 function setNoise(t){
@@ -177,9 +182,14 @@ function setNoise(t){
 }
 const ZSTRETCH=1.0;                     // natural wave shape again
 let WAVE_DRIFT=0.46;                    // how fast the swell rolls past — climbs slightly as you go
+function waveComp(w,x,z,t){
+  const u=w[0]*x+w[1]*z*ZSTRETCH;
+  const env=ENV_BASE+ENV_SWING*Math.sin(u*w[2]*w[5]+t*w[6]+w[7]);
+  return w[3]*env*Math.sin(u*w[2]+t*w[4]);
+}
 function waveH(x,z,t){
   let h=0;
-  for(const w of WAVES)h+=w[3]*Math.sin((w[0]*x+w[1]*z*ZSTRETCH)*w[2]+t*w[4]);
+  for(const w of WAVES)h+=waveComp(w,x,z,t);
   return h*waveAmp;
 }
 // the long-period part of the sea only — what a floating object actually rides.
@@ -187,7 +197,7 @@ function waveH(x,z,t){
 // and because they track the big waves they never get buried by a crest.
 function swellH(x,z,t){
   let h=0;
-  for(let i=0;i<2;i++){const w=WAVES[i];h+=w[3]*Math.sin((w[0]*x+w[1]*z*ZSTRETCH)*w[2]+t*w[4]);}
+  for(let i=0;i<2;i++)h+=waveComp(WAVES[i],x,z,t);
   return h*waveAmp*1.06;
 }
 const OCEAN_Z=-90;
@@ -196,10 +206,15 @@ let dist=0;
 // ---------- GPU ocean ----------
 const ZS=1.0;
 const glslWaves=WAVES.map(w=>{
-  const ph=`(${w[0].toFixed(2)}*p.x+${(w[1]*ZS).toFixed(4)}*p.y)*${w[2].toFixed(3)}+uT*${w[4].toFixed(3)}`;
-  return `h+=${w[3].toFixed(3)}*sin(${ph});
-dhx+=${w[3].toFixed(3)}*${w[2].toFixed(3)}*${w[0].toFixed(2)}*cos(${ph});
-dhz+=${w[3].toFixed(3)}*${w[2].toFixed(3)}*${(w[1]*ZS).toFixed(4)}*cos(${ph});`;
+  const u=`(${w[0].toFixed(2)}*p.x+${(w[1]*ZS).toFixed(4)}*p.y)`;
+  const ph=`${u}*${w[2].toFixed(3)}+uT*${w[4].toFixed(3)}`;
+  const en=`(${ENV_BASE.toFixed(2)}+${ENV_SWING.toFixed(2)}*sin(${u}*${(w[2]*w[5]).toFixed(4)}+uT*${w[6].toFixed(3)}+${w[7].toFixed(2)}))`;
+  // the envelope varies far more slowly than the wave, so the normals treat it as
+  // locally constant — visually indistinguishable and much cheaper
+  return `e=${en};
+h+=${w[3].toFixed(3)}*e*sin(${ph});
+dhx+=${w[3].toFixed(3)}*e*${w[2].toFixed(3)}*${w[0].toFixed(2)}*cos(${ph});
+dhz+=${w[3].toFixed(3)}*e*${w[2].toFixed(3)}*${(w[1]*ZS).toFixed(4)}*cos(${ph});`;
 }).join('\n');
 const oceanUniforms={
   uT:{value:0}, uDist:{value:0}, uAmp:{value:1.35}, uPeak:{value:2.85},
@@ -215,7 +230,7 @@ const oceanMat=new THREE.ShaderMaterial({
     varying vec3 vN; varying vec3 vW; varying float vH; varying vec2 vPh;
     void main(){
       vec2 p = vec2(position.x, (-position.y + (${OCEAN_Z.toFixed(1)})) + uDist);
-      float h=0.0, dhx=0.0, dhz=0.0;
+      float h=0.0, dhx=0.0, dhz=0.0, e=1.0;
       ${glslWaves}
       h*=uAmp; dhx*=uAmp; dhz*=uAmp;
       // phase of the two main swells — constant along a moving crest
@@ -961,7 +976,8 @@ let boardYaw=0,boardLean=0,boardPitch=0,camX=0,camY=5.0,lookX=0,sprayAcc=0,leanW
 let spinHeld=false,flipHeld=false,spinRot=0,flipRot=0;
 let grabOn=false,grabPts=0,grabSide=1;
 let dragOn=false,dragPts=0,dragSide=1;
-let shake=0,boost=0;
+let shake=0,boost=0,carrySpin=0,carryFlip=0;
+const SPIN_RATE=Math.PI*2*1.35, FLIP_RATE=Math.PI*2*1.25;
 let trick=null; // rope backflip only
 let planeT=8,planeActive=false,hanging=false,spawnT=0.4;
 let lastKind='',sameRun=0,bigFinCd=6,laneSlot=(Math.random()*5)|0;
@@ -1120,7 +1136,7 @@ function endGrab(){
   }
 }
 // everything you're doing in the air, scored and judged together
-function settleTricks(landed){
+function settleTricks(landed,keepPose){
   let pts=0,names=[];
   const spinRevs=spinRot/(Math.PI*2), flipRevs=flipRot/(Math.PI*2);
   if(spinRot>0.4){pts+=Math.floor(spinRevs*4)*90;names.push(Math.round(spinRevs*360)+'° SPIN');}
@@ -1134,7 +1150,7 @@ function settleTricks(landed){
   }
   spinRot=0;flipRot=0;spinHeld=false;flipHeld=false;
   grabOn=false;grabPts=0;
-  player.rotation.set(0,0,0);
+  if(!keepPose)player.rotation.set(0,0,0);
   return pts;
 }
 function ropeAction(){
@@ -1201,20 +1217,32 @@ function startWipeout(kind){
   shake=W.kick;
   if(kind==='jelly')zapFlash();               // stung: the screen cracks white-blue
   splash(px,py,0,30,kind==='jelly'?0x9fe8ff:undefined);
-  // carry his current rotation into the tumble instead of snapping to zero
+  // Everything is launched from what he was actually doing. Forward momentum
+  // throws him over the obstacle, his lateral drift carries across, any vertical
+  // speed he already had is kept, and if he was mid-rotation he keeps turning that
+  // way. The table only supplies the character of each crash on top of that.
+  const fwd=lastEff*0.11;                       // faster ride, further he is thrown
+  const rider={
+    vy: Math.max(1.6, W.vy*0.55 + Math.max(-6,vy)*0.45),
+    vz: W.vz*0.55 - fwd,
+    vx: vx*0.80 + (Math.random()-0.5)*2.2 + (Math.random()<0.5?-1.4:1.4)
+  };
   wipe={
     t:0, rx:player.rotation.x, ry:player.rotation.y, rz:player.rotation.z,
     camX:px, camY:camY, camZ:11.0,        // freeze the shot on the crash spot
     atX:px, atY:py,
-    vy:W.vy, vz:W.vz*0.55, vx:vx*0.25+(Math.random()-0.5)*2.4 + (Math.random()<0.5?-1.8:1.8),
+    vy:rider.vy, vz:rider.vz, vx:rider.vx,
+    // a rotation already under way continues; otherwise the impact starts one
     sx:(Math.random()<0.5?-1:1)*W.spin[0]*0.16,
-    sy:(Math.random()<0.5?-1:1)*W.spin[1]*0.16,
-    sz:(Math.random()<0.5?-1:1)*W.spin[2]*0.16,
-    // the board is flung the other way and tumbles off on its own
-    bvx:-vx*0.5+(Math.random()-0.5)*5, bvy:W.vy*0.55+1.5, bvz:W.vz*0.6-2, landed:false,
+    sy:carrySpin*0.16 + (Math.random()<0.5?-1:1)*W.spin[1]*0.16,
+    sz:carryFlip*0.16 + (Math.random()<0.5?-1:1)*W.spin[2]*0.16,
+    // the board is kicked out from under him and tumbles off on its own
+    bvx:-vx*0.55+(Math.random()-0.5)*4.5, bvy:rider.vy*0.55+1.5, bvz:rider.vz*0.75-1.4,
+    landed:false,
     bsx:(Math.random()-0.5)*9, bsz:(Math.random()-0.5)*9,
     bx:px, by:py, bz:0, splashed:false
   };
+  carrySpin=0;carryFlip=0;
   // detach the board where it is, keeping its exact lean and pitch
   const keep={x:rig.rotation.x,y:rig.rotation.y,z:rig.rotation.z};
   player.remove(rig); scene.add(rig);
@@ -2020,14 +2048,19 @@ function update(dt){
         const anySpin=spinRot>0.4||flipRot>0.4;
         if(grabOn&&(spinRot>0.4||flipRot>0.4||grabPts>40)){
           // still holding the rail when you touch down
-          settleTricks(false);startWipeout('foam');return;
+          carrySpin=spinHeld?SPIN_RATE:0; carryFlip=flipHeld?FLIP_RATE:0;
+          settleTricks(false,true);startWipeout('foam');return;
         }
         if(anySpin){
           const offS=Math.abs(((spinRot+Math.PI)%(Math.PI*2))-Math.PI);
           const offF=Math.abs(((flipRot+Math.PI)%(Math.PI*2))-Math.PI);
           if(offS<0.62&&offF<0.62){ settleTricks(true); }
-          else { settleTricks(false); startWipeout(offF>=0.62?'under':'land'); return; }
-        } else if(grabOn){ settleTricks(false); startWipeout('foam'); return; }
+          else {
+            // he goes in exactly as he was: same attitude, still turning the same way
+            carrySpin=spinHeld?SPIN_RATE:0; carryFlip=flipHeld?FLIP_RATE:0;
+            settleTricks(false,true); startWipeout(offF>=0.62?'under':'land'); return;
+          }
+        } else if(grabOn){ settleTricks(false,true); startWipeout('foam'); return; }
       }
       airborne=false;vy=0;
       player.rotation.set(0,0,0);
@@ -2096,8 +2129,8 @@ function update(dt){
   }
   // spin / flip / grab all run at once while you're off the water
   if(airborne||hanging){
-    if(spinHeld)spinRot+=dt*Math.PI*2*1.35;
-    if(flipHeld)flipRot+=dt*Math.PI*2*1.25;
+    if(spinHeld)spinRot+=dt*SPIN_RATE;
+    if(flipHeld)flipRot+=dt*FLIP_RATE;
     if(grabOn)grabPts+=95*dt;
     player.rotation.set(0,spinRot,flipRot);
     // rope tricks bank as soon as you square up
@@ -2244,7 +2277,7 @@ function update(dt){
       if(o.userData.ramp){
         // launch if you're anywhere near deck height, even mid-swell or slightly airborne
         if(!o.userData.used && py < o.position.y+3.0 && vy<=1.5){
-          o.userData.used=true;vy=13.5;airborne=true;py=Math.max(py,o.position.y+0.6);score+=50;boost=Math.min(16,boost+4);msg('RAMP! +50');
+          o.userData.used=true;vy=18.5;airborne=true;py=Math.max(py,o.position.y+0.6);score+=50;boost=Math.min(16,boost+4);msg('RAMP! +50');
           splash(px,waterY,0,8,0xffc23e);
         }
       } else if(o.userData.kind==='jelly' && airborne && py>o.position.y+0.10){
@@ -2329,12 +2362,12 @@ function update(dt){
   // stage sets the range; sets roll through it so you get small, medium, large and
   // the occasional extra-large — and the whole range climbs the further you get
   const stage=Math.min(1,dist/9000);
-  const base=0.62+stage*0.70;                 // typical size for this point in the run
-  const swing=0.26+stage*0.42;                // how much the sets vary
+  const base=1.12+stage*1.00;                 // typical size for this point in the run
+  const swing=0.34+stage*0.50;                // how much the sets vary
   waveAmp=Math.max(0.34, base+setNoise(waveClock)*swing);
   WAVE_DRIFT=0.46+stage*0.16;                 // rolls past a little quicker later on
   oceanUniforms.uAmp.value=waveAmp;
-  oceanUniforms.uPeak.value=1.94*waveAmp;   // total wave height, so foam thresholds track the swell
+  oceanUniforms.uPeak.value=1.58*waveAmp;   // total wave height, so foam thresholds track the swell
   // sets: the swell surges and eases instead of ticking at one constant rate
   waveClock += dt*(1.0 + 0.55*Math.sin(tNow*0.045) + 0.28*Math.sin(tNow*0.017+1.3));
   oceanUniforms.uT.value=waveClock;

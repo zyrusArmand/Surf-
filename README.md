@@ -44,6 +44,12 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.9.0** — Waves build and fade as they roll in instead of a rigid pattern
+  sliding past: every component now carries a travelling envelope, so the sea comes
+  in sets with quiet stretches between. Crashes carry real momentum — forward speed
+  throws the rider, lateral drift carries across, and a blown trick puts him in the
+  water mid-rotation, still turning, rather than snapping upright first. Ramps give
+  enough hang time for over two full spins or flips.
 - **v1.8.0** — HUD split evenly across the top (score, distance, mph, best). Day now
   begins at sunrise and arcs up before settling into the sunset. Tentacle sweep roughly
   quadrupled so the arms visibly flow. The screen splat is sized from the viewport, so
