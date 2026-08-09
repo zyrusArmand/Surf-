@@ -44,6 +44,10 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.3.0** — Fixes steering freezing permanently after iOS cancelled a touch.
+  The jellyfish is no longer treated as rock: landing on the bell bounces you,
+  a direct hit stings with a lightning flash. The splat that covers your view is
+  now drawn to match the starfish that threw it, in that starfish's colour.
 - **v1.2.0** — Octopus reworked toward the real animal: one deep purple colourway
   instead of three, papillae on the mantle, amber eyes with horizontal slit pupils,
   and no cartoon face. Arms are much longer and rebuilt as eight-joint chains, so a

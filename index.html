@@ -42,6 +42,10 @@
   #overlay .go { margin-top:14px; padding:14px 48px; font-size:22px; font-weight:bold; color:#fff; background:#ff8c2e; border:none; border-radius:40px; box-shadow:0 5px 0 #b8641c; cursor:pointer; }
   #overlay .go:active { transform:translateY(4px); box-shadow:0 1px 0 #b8641c; }
   #overlay .hint { opacity:.85; font-size:min(3.8vw,15px); }
+  #zap { position:fixed; inset:0; z-index:6; pointer-events:none; opacity:0;
+    background:radial-gradient(circle at 50% 46%, rgba(190,250,255,.95) 0%, rgba(120,220,255,.55) 26%, rgba(60,140,255,.18) 52%, rgba(0,0,0,0) 74%);
+    transition:opacity .28s ease-out; }
+  #zap.on { opacity:1; transition:opacity .04s linear; }
   #ver { position:fixed; bottom:8px; left:50%; transform:translateX(-50%); z-index:10;
     color:#fff; opacity:.55; font-size:13px; font-weight:bold; letter-spacing:.5px;
     text-shadow:0 1px 3px rgba(0,40,80,.6); pointer-events:none; }
@@ -53,14 +57,12 @@
 <body>
 <div id="hud"></div>
 <div id="trickmsg"></div>
-<div id="splat"><svg viewBox="0 0 200 200" width="100%" height="100%">
-  <g fill="#ff8a3d" stroke="#d9531c" stroke-width="5" stroke-linejoin="round">
-    <path d="M100 12 L124 74 L190 78 L138 118 L156 184 L100 148 L44 184 L62 118 L10 78 L76 74 Z"/>
-  </g>
-  <g fill="#ffb072" opacity=".85">
-    <circle cx="100" cy="96" r="9"/><circle cx="84" cy="78" r="5"/><circle cx="118" cy="80" r="5"/>
-    <circle cx="88" cy="116" r="5"/><circle cx="115" cy="115" r="5"/>
-  </g>
+<div id="splat"><svg viewBox="-6 -6 212 212" width="100%" height="100%">
+  <path id="splatBody" d="M100.0 12.0 Q62.7 48.7 70.4 59.2 Q62.7 48.7 16.3 72.8 Q39.6 119.6 52.1 115.6 Q39.6 119.6 48.3 171.2 Q100.0 163.5 100.0 150.4 Q100.0 163.5 151.7 171.2 Q160.4 119.6 147.9 115.6 Q160.4 119.6 183.7 72.8 Q137.3 48.7 129.6 59.2 Q137.3 48.7 100.0 12.0 Z" fill="#ff8a3d" stroke="#9e4a1c" stroke-width="5" stroke-linejoin="round"/>
+  <g fill="#fff1de" opacity=".92"><circle cx="100.0" cy="61.7" r="7.1"/><circle cx="100.0" cy="42.5" r="5.8"/><circle cx="100.0" cy="23.4" r="4.5"/><circle cx="63.6" cy="88.2" r="7.1"/><circle cx="45.3" cy="82.2" r="5.8"/><circle cx="27.1" cy="76.3" r="4.5"/><circle cx="77.5" cy="131.0" r="7.1"/><circle cx="66.2" cy="146.5" r="5.8"/><circle cx="55.0" cy="162.0" r="4.5"/><circle cx="122.5" cy="131.0" r="7.1"/><circle cx="133.8" cy="146.5" r="5.8"/><circle cx="145.0" cy="162.0" r="4.5"/><circle cx="136.4" cy="88.2" r="7.1"/><circle cx="154.7" cy="82.2" r="5.8"/><circle cx="172.9" cy="76.3" r="4.5"/></g>
+  <g fill="#1a1016"><ellipse cx="82.3" cy="83.7" rx="8.2" ry="10.3"/><ellipse cx="117.7" cy="83.7" rx="8.2" ry="10.3"/></g>
+  <g fill="#fff1de"><circle cx="79.0" cy="78.7" r="3"/><circle cx="121.0" cy="78.7" r="3"/></g>
+  <path d="M87.5 101.4 Q100 117.4 112.5 101.4" fill="none" stroke="#1a1016" stroke-width="6" stroke-linecap="round"/>
 </svg></div>
 <div id="jumpBtn" class="btn hidden">JUMP</div>
 <div id="ropeBtn" class="btn">ROPE!</div>
@@ -75,6 +77,7 @@
   <button class="go" id="startBtn">Surf</button>
   <p class="hint">touch: swipe to carve · buttons to trick<br>keyboard: A/D carve · W/S weight · Space jump · J spin · K flip · L grab / hand drag<br>mouse: drag to carve</p>
 </div>
+<div id="zap"></div>
 <div id="ver"></div>
 <div id="fatal">Couldn't load the 3D engine (three.js).<br>Check your connection and reload.</div>
 <!-- three.js r128, vendored so the page works offline and needs no third-party host -->
@@ -100,7 +103,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.2.0';
+const VERSION='1.3.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -496,6 +499,7 @@ const SPLASH_GEO=new THREE.SphereGeometry(0.12,6,5);
 const SPLASH_MAT=new THREE.MeshBasicMaterial({color:0xffffff});
 const SPLASH_MAT_WARN=new THREE.MeshBasicMaterial({color:0xffc23e});
 const SPLASH_MAT_HIT=new THREE.MeshBasicMaterial({color:0xff5f5f});
+const SPLASH_MAT_ZAP=new THREE.MeshBasicMaterial({color:0x9fe8ff});
 const POOL=[],splashes=[];
 for(let i=0;i<420;i++){
   const m=new THREE.Mesh(SPLASH_GEO,SPLASH_MAT);
@@ -510,7 +514,8 @@ function takeDrop(){
 }
 function freeDrop(m){m.visible=false;POOL.push(m);}
 function splash(x,y,z,n=8,col){
-  const mtl=col===0xffc23e?SPLASH_MAT_WARN:(col===0xff5f5f?SPLASH_MAT_HIT:SPLASH_MAT);
+  const mtl=col===0xffc23e?SPLASH_MAT_WARN:(col===0xff5f5f?SPLASH_MAT_HIT:
+            (col===0x9fe8ff?SPLASH_MAT_ZAP:SPLASH_MAT));
   for(let i=0;i<n;i++){
     const m=takeDrop();if(!m)return;
     m.material=mtl;
@@ -777,7 +782,7 @@ function buildObstacle(kind){
     light.position.y=2.78;
     m.add(base,bandR,bandW,top,pole,flag,light);
     h=2.2;
-  } else if(kind==='reef'){
+  } else if(kind==='jelly'){
     // translucent jellyfish drifting at the surface
     m=new THREE.Group();
     const tint=[0xff7ad0,0xb07aff,0x7ad8ff,0xffa8e0][(Math.random()*4)|0];
@@ -890,7 +895,7 @@ function buildObstacle(kind){
 // one template per obstacle type; every spawn is a clone that reuses the same GPU data
 const OBST_TEMPLATES={};
 // each obstacle floats at its own waterline so nothing gets buried by a passing swell
-const FLOAT_OFF={buoy:0.36,reef:0.34,log:0.40,bigfin:0.28,ramp:0.02,octopus:0.26};   // ramp sits low: water laps its base
+const FLOAT_OFF={buoy:0.36,jelly:0.34,log:0.40,bigfin:0.28,ramp:0.02,octopus:0.26};   // ramp sits low: water laps its base
 // clear the cached buoyancy state on a fresh clone so a new spawn doesn't inherit it
 function makeObstacle(kind,x,z){
   if(!OBST_TEMPLATES[kind])OBST_TEMPLATES[kind]=buildObstacle(kind);
@@ -900,7 +905,7 @@ function makeObstacle(kind,x,z){
   // re-link animated sub-parts (indexes survive cloning; object references do not)
   if(t.userData.washIdx!==undefined)m.userData.wash=m.children[t.userData.washIdx];
   if(t.userData.bellIdx!==undefined)m.userData.bell=m.children[t.userData.bellIdx];
-  if(kind==='reef')m.userData.pulse=Math.random()*7;
+  if(kind==='jelly')m.userData.pulse=Math.random()*7;
   if(kind==='octopus'){
     // each one is a different shot: 20%–90% of its throws are actually aimed at you
     m.userData.acc=0.20+Math.random()*0.70;
@@ -955,7 +960,16 @@ let steer=0;
 // the anchor drifts back so you can keep swiping in the same direction.
 let touchId=null,touchX0=0,touchY0=0;
 let weight=0;   // -1 = leaning back over the tail, +1 = leaning forward over the nose
+function dropSteerTouch(){touchId=null;steer=0;weight=0;}
 addEventListener('touchstart',e=>{
+  // If the steering finger disappeared without a touchend — iOS cancels touches for
+  // notifications, Control Centre swipes and other system gestures — the slot would
+  // stay claimed by a dead id and steering would never come back. Reclaim it.
+  if(touchId!==null){
+    let alive=false;
+    for(const t of e.touches)if(t.identifier===touchId){alive=true;break;}
+    if(!alive)dropSteerTouch();
+  }
   for(const t of e.changedTouches){
     if(t.target.closest&&(t.target.closest('.btn')||t.target.closest('.tbtn')))continue;
     if(touchId===null){touchId=t.identifier;touchX0=t.clientX;touchY0=t.clientY;}
@@ -978,9 +992,13 @@ addEventListener('touchmove',e=>{
     }
   }
 },{passive:true});
-addEventListener('touchend',e=>{
-  for(const t of e.changedTouches)if(t.identifier===touchId){touchId=null;steer=0;weight=0;}
-});
+function endTouch(e){
+  for(const t of e.changedTouches)if(t.identifier===touchId){dropSteerTouch();return;}
+  if(e.touches.length===0)dropSteerTouch();     // belt and braces: nothing is down
+}
+addEventListener('touchend',endTouch);
+addEventListener('touchcancel',endTouch);       // without this, a cancelled touch froze steering
+addEventListener('blur',()=>{dropSteerTouch();endMouseDrag();});
 // mouse steering for desktop: drag anywhere on the water, same feel as a swipe
 let mouseDrag=false,mouseX0=0,mouseY0=0;
 addEventListener('mousedown',e=>{
@@ -1025,6 +1043,16 @@ function loadBest(){
 function saveBest(){try{localStorage.setItem(BEST_KEY,String(best));}catch(e){}}
 loadBest();
 
+// the sting: three quick strobes, then a slow bleed back to the scene
+const zapEl=document.getElementById('zap');
+function zapFlash(){
+  if(!zapEl)return;
+  const beats=[0,90,150,240,300];
+  beats.forEach((ms,i)=>setTimeout(()=>{
+    if(i===beats.length-1)zapEl.classList.remove('on');
+    else zapEl.classList.toggle('on',i%2===0);
+  },ms));
+}
 function msg(t){trickmsg.textContent=t;trickmsg.style.opacity=1;setTimeout(()=>trickmsg.style.opacity=0,900);}
 
 function doJump(){
@@ -1103,7 +1131,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;
   trail.length=0;trailT=0;
   skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;wakeWave.visible=false;wakeCrest.visible=false;
-  splatT=0;
+  splatT=0;if(zapEl)zapEl.classList.remove('on');
   while(stars.length){const st=stars.pop();st.m.visible=false;STAR_POOL.push(st.m);}
   if(splatEl)splatEl.style.display='none';
   while(splashes.length){const d=splashes.pop();freeDrop(d);}
@@ -1122,7 +1150,7 @@ startBtn.addEventListener('click',()=>{
 // how each kind of crash throws him
 const WIPE={
   buoy:  {vy: 9.0, vz:-3.5, spin:[ 9, 3, 2], msg:'BUOY!',        kick:1.8},
-  reef:  {vy: 6.5, vz:-1.5, spin:[12, 2, 7], msg:'ROCKS!',       kick:2.2},
+  jelly: {vy: 6.5, vz:-1.5, spin:[12, 2, 7], msg:'ZAPPED! \u26a1', kick:2.2},
   log:   {vy: 5.0, vz:-2.0, spin:[14, 1, 3], msg:'LOG!',         kick:2.0},
   bigfin:{vy:11.0, vz:-5.0, spin:[ 7, 8, 4], msg:'SHARK!',       kick:2.6},
   octopus:{vy:7.5, vz:-2.5, spin:[10, 5, 6], msg:'TENTACLED!',   kick:2.0},
@@ -1141,7 +1169,8 @@ function startWipeout(kind){
   hanging=false;rope.visible=false;
   msg(W.msg);
   shake=W.kick;
-  splash(px,py,0,30);
+  if(kind==='jelly')zapFlash();               // stung: the screen cracks white-blue
+  splash(px,py,0,30,kind==='jelly'?0x9fe8ff:undefined);
   // carry his current rotation into the tumble instead of snapping to zero
   wipe={
     t:0, rx:player.rotation.x, ry:player.rotation.y, rz:player.rotation.z,
@@ -1679,6 +1708,7 @@ function buildStarfish(variant){
   const grin=new THREE.Mesh(new THREE.TorusGeometry(0.088,0.021,10,24,Math.PI),black);
   grin.position.set(0,-0.010,0.203);grin.rotation.set(0,0,Math.PI);grin.scale.z=0.45;g.add(grin);
   g.scale.setScalar(0.92);
+  g.userData.tint=TINT;
   return g;
 }
 const STAR_POOL=[],stars=[];
@@ -1715,7 +1745,7 @@ function updateStars(dt,eff){
               && Math.abs(s2.m.position.y-py)<2.2;
     const sea=waveH(s2.m.position.x,dist*WAVE_DRIFT+s2.m.position.z,waveClock);
     if(hit){
-      splatOnScreen();
+      splatOnScreen(s2.m.userData.tint);
       splash(s2.m.position.x,s2.m.position.y,s2.m.position.z,10,0xff8a3d);
       s2.m.visible=false;STAR_POOL.push(s2.m);stars.splice(i,1);continue;
     }
@@ -1736,9 +1766,18 @@ function updateStars(dt,eff){
     }
   }
 }
-function splatOnScreen(){
+const _splatBody=document.getElementById('splatBody');
+function splatOnScreen(tint){
   splatT=2.4;shake=1.1;
-  if(splatEl){splatEl.style.display='block';splatEl.style.opacity='1';}
+  if(splatEl){
+    // the smear on your view is the same starfish that hit you, in its own colour
+    if(_splatBody&&tint!==undefined){
+      const c=new THREE.Color(tint);
+      _splatBody.setAttribute('fill','#'+c.getHexString());
+      _splatBody.setAttribute('stroke','#'+c.clone().multiplyScalar(0.58).getHexString());
+    }
+    splatEl.style.display='block';splatEl.style.opacity='1';
+  }
   msg('SPLAT!');
 }
 
@@ -2009,7 +2048,7 @@ function update(dt){
   if(spawnT<=0){
     spawnT=Math.max(0.35,1.1-dist/900)*(0.6+Math.random()*0.8);
     // weighted bag with anti-repeat: same type can't appear more than twice in a row
-    const WEIGHTS=[['buoy',24],['reef',21],['log',18],['ramp',17],['octopus',14],['bigfin',11]];
+    const WEIGHTS=[['buoy',24],['jelly',21],['log',18],['ramp',17],['octopus',14],['bigfin',11]];
     let pick=null;
     for(let tries=0;tries<8;tries++){
       let total=0;for(const w of WEIGHTS)total+=w[1];
@@ -2103,7 +2142,7 @@ function update(dt){
           o.userData.used=true;vy=13.5;airborne=true;py=Math.max(py,o.position.y+0.6);score+=50;msg('RAMP! +50');
           splash(px,waterY,0,8,0xffc23e);
         }
-      } else if(o.userData.kind==='reef' && vy<0 && py>o.position.y+0.55){
+      } else if(o.userData.kind==='jelly' && vy<=0.6 && py>o.position.y+0.30){
         // coming down onto the bell — bounce off it
         vy=Math.max(12.5,-vy*0.85+9.0);
         airborne=true;
