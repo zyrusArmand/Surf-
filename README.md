@@ -44,6 +44,11 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.2.0** — Octopus reworked toward the real animal: one deep purple colourway
+  instead of three, papillae on the mantle, amber eyes with horizontal slit pupils,
+  and no cartoon face. Arms are much longer and rebuilt as eight-joint chains, so a
+  travelling wave runs down each one and they coil and swirl instead of swinging
+  rigidly.
 - **v1.1.0** — Octopuses replace the giant squid: they float past like any other
   obstacle, turn to track you, and lob starfish. Each one rolls its own accuracy
   between 20% and 90%, so plenty of shots are thrown deliberately wide. Octopus
