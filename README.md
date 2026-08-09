@@ -44,6 +44,10 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.14.0** — The board is collided as the 5m plank it is, not a point: a capsule
+  from nose to tail, swept over the ground an obstacle covered that frame, so the nose
+  makes contact instead of sliding into things first. Whatever you hit is knocked aside,
+  lifted and set spinning rather than standing still while you tumble off.
 - **v1.13.0** — Slower, especially early: about 9 mph off the line instead of 16, on a
   gentler ramp, with the swell surging you along less. The rider is no longer pinned to
   one spot — he travels fore and aft, driven up the board by leaning and lunging forward

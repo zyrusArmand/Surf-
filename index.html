@@ -104,7 +104,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.13.0';
+const VERSION='1.14.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -823,10 +823,10 @@ function buildOctopus(){
   return g;
 }
 function buildObstacle(kind){
-  let m,r=1.1,h=1.6,ramp=false;
+  let m,r=0.85,h=1.6,ramp=false;
   if(kind==='octopus'){
     m=buildOctopus();
-    m.userData={...m.userData,kind,r:1.45,h:2.4,ramp:false,used:false};
+    m.userData={...m.userData,kind,r:1.15,h:2.4,ramp:false,used:false};
     return m;
   }
   if(kind==='buoy'){
@@ -903,7 +903,7 @@ function buildObstacle(kind){
     m.add(wash);
     m.userData.washIdx=m.children.indexOf(wash);
     m.userData.bellIdx=m.children.indexOf(bell);
-    r=1.35;h=1.6;
+    r=1.05;h=1.6;
   } else if(kind==='log'){
     m=new THREE.Group();
     const trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.45,0.52,5,18),PBR({color:0x8c4f22,roughness:0.66,vivid:1.5}));
@@ -914,7 +914,7 @@ function buildObstacle(kind){
     const stub=new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.14,0.6,10),mat(0x74492a,10));
     stub.position.set(0.8,0.45,0.1);stub.rotation.z=0.4;
     m.add(trunk,endA,endB,stub);
-    r=2.6;h=1.1;
+    r=2.35;h=1.1;
   } else if(kind==='bigfin'){
     // one very large dorsal fin cutting across your line — no body, just the fin
     m=new THREE.Group();
@@ -926,7 +926,7 @@ function buildObstacle(kind){
     wash.rotation.x=-Math.PI/2;wash.position.set(0,0.03,0.6);
     m.add(fin,wash);
     m.userData.washIdx=m.children.indexOf(wash);
-    r=2.0;h=3.2;
+    r=1.70;h=3.2;
   } else {
     // clean solid wooden wedge — low edge toward the rider
     m=new THREE.Group();
@@ -999,6 +999,7 @@ function makeObstacle(kind,x,z){
 // ---------- state ----------
 let running=false,tNow=0,last=0,speed=22,score=0,best=0,waveClock=0,lastEff=22;
 let px=0,py=0,pz=0,vy=0,vx=0,cutCd=0,airborne=false,trickReady=false;
+const BOARD_HALF_L=2.45, BOARD_HALF_W=0.55;   // the hull's own footprint
 let boardYaw=0,boardLean=0,boardPitch=0,camX=0,camY=5.0,camZ=11.0,lookX=0,sprayAcc=0,leanW=0,pearlT=0;
 let spinHeld=false,flipHeld=false,spinRot=0,flipRot=0;
 let grabOn=false,grabPts=0,grabSide=1;
@@ -1370,6 +1371,14 @@ function updateWorldDuringWipeout(dt){
     s2.position.x+=u.vx*dt;s2.position.y+=u.vy*dt;s2.position.z+=u.vz*dt;
     s2.scale.setScalar(Math.max(0.05,u.t*u.s));
     if(u.t<=0){freeDrop(s2);splashes.splice(i,1);}
+  }
+  for(const o of obstacles){
+    const k=o.userData.knock; if(!k)continue;
+    k.vy-=18*dt;
+    o.position.x+=k.vx*dt; o.position.y+=k.vy*dt; o.position.z+=k.vz*dt;
+    o.rotation.x+=k.sx*dt; o.rotation.z+=k.sz*dt;
+    const sea=swellH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock)+(FLOAT_OFF[o.userData.kind]||0.3);
+    if(o.position.y<sea){o.position.y=sea; k.vy*=-0.30; k.vx*=0.72; k.vz*=0.72; k.sx*=0.6; k.sz*=0.6;}
   }
   updateWake(dt,0);
   updateSplat(dt);          // a splat taken just before the crash still peels off
@@ -2331,10 +2340,19 @@ function update(dt){
     if(o.position.z>18){scene.remove(o);obstacles.splice(i,1);continue;}
     // the jelly closes fast and is only "at" you for a couple of frames, so its
     // window grows with speed — otherwise a jump can pass clean over the contact
-    const zWin=o.userData.ramp ? Math.max(o.userData.r, eff*dt*2.2+1.9)
-             : (o.userData.kind==='jelly' ? Math.max(o.userData.r, eff*dt*1.8+1.1)
-             : Math.max(o.userData.r, eff*dt*1.0));
-    if(Math.abs(o.position.z-pz)<zWin&&Math.abs(o.position.x-px)<o.userData.r){
+    // The board is a 5m plank, not a point. Test it as a capsule running nose to
+    // tail, swept over the ground the obstacle covered this frame, so the nose
+    // makes contact when it reaches something instead of sliding through it first.
+    const R=o.userData.r+BOARD_HALF_W;
+    const dxo=Math.abs(o.position.x-px);
+    let contact=false;
+    if(dxo<R){
+      const reach=Math.sqrt(R*R-dxo*dxo);          // z it can touch at this x offset
+      const z1=o.position.z, z0=z1-eff*dt;         // where it was a frame ago
+      const nose=pz-BOARD_HALF_L, tail=pz+BOARD_HALF_L;
+      contact=(Math.min(z0,z1)-reach)<tail && (Math.max(z0,z1)+reach)>nose;
+    }
+    if(contact){
       if(o.userData.ramp){
         // launch if you're anywhere near deck height, even mid-swell or slightly airborne
         if(!o.userData.used && py < o.position.y+3.0 && vy<=1.5){
@@ -2353,6 +2371,10 @@ function update(dt){
         splash(o.position.x,o.position.y+0.5,o.position.z,14);
         if(o.userData.bell)o.userData.squash=1.0;      // the bell flattens under you
       } else if(py<waterY+o.userData.h&&!hanging){
+        // it takes the impact too: shoved aside, lifted and set spinning
+        o.userData.knock={vx:(o.position.x-px)*0.9+(Math.random()-0.5)*2.4,
+          vy:2.0+Math.random()*2.4, vz:2.2+lastEff*0.06,
+          sx:(Math.random()-0.5)*6, sz:(Math.random()-0.5)*6};
         startWipeout(o.userData.kind);return;
       }
     }
