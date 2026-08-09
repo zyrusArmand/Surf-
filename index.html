@@ -104,7 +104,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.17.0';
+const VERSION='1.18.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -181,6 +181,19 @@ const WAVES=[
   {dx:-0.35, dz: 0.94, k:2.600, a:0.016, ek:0.80, ep:0.70},   // finer chop
 ].map(w=>({...w, w:Math.sqrt(WAVE_G*w.k)*WAVE_TSCALE}));
 const ENV_BASE=0.32, ENV_SWING=0.68;      // envelope floor and how far it breathes
+// A jet ski's wake is not a separate object floating on the sea — it is the sea. It
+// is added straight into the height field as a broad ridge, so the ocean shader
+// lights it, foams it and fogs it exactly like every other wave, and the board and
+// every floating thing ride over it for free.
+const WK_SIGMA=7.0, WK_HALF=26.0;
+let wkZ=0, wkA=0, wkX=0;                  // field-space centre, height, lateral centre
+function wakeBump(x,z){
+  if(wkA<=0.001)return 0;
+  const dz=z-wkZ;
+  const ez=Math.exp(-(dz*dz)/(2*WK_SIGMA*WK_SIGMA));
+  const ax=Math.max(0,Math.min(1,1-Math.abs(x-wkX)/WK_HALF));
+  return wkA*ez*ax*ax*(3-2*ax);
+}
 let waveAmp=0.78;                       // current swell height (varies set to set)
 // smooth pseudo-random drift so wave size wanders between small and extra-large
 function setNoise(t){
@@ -196,7 +209,7 @@ function waveComp(W,x,z,t){
 function waveH(x,z,t){
   let h=0;
   for(const W of WAVES)h+=waveComp(W,x,z,t);
-  return h*waveAmp;
+  return h*waveAmp+wakeBump(x,z);
 }
 // the long-period part of the sea only — what a floating object actually rides.
 // Short chop is filtered out, so buoys glide over the swell instead of vibrating,
@@ -204,7 +217,7 @@ function waveH(x,z,t){
 function swellH(x,z,t){
   let h=0;
   for(let i=0;i<2;i++)h+=waveComp(WAVES[i],x,z,t);
-  return h*waveAmp*1.06;
+  return h*waveAmp*1.06+wakeBump(x,z);
 }
 const OCEAN_Z=-90;
 let dist=0;
@@ -224,6 +237,7 @@ dhz+=${W.a.toFixed(3)}*e*${W.k.toFixed(3)}*${(W.dz*ZS).toFixed(4)}*cos(${ph});`;
 }).join('\n');
 const oceanUniforms={
   uT:{value:0}, uDist:{value:0}, uAmp:{value:1.35}, uPeak:{value:2.85},
+  uWakeZ:{value:0}, uWakeA:{value:0}, uWakeX:{value:0},
   uSun:{value:sunDir},
   uSky:{value:new THREE.Color(0x8fd2f5)},
   uDeep:{value:new THREE.Color(0x0a5e9c)},
@@ -233,12 +247,25 @@ const oceanMat=new THREE.ShaderMaterial({
   uniforms:oceanUniforms,
   vertexShader:`
     uniform float uT; uniform float uDist; uniform float uAmp; uniform float uPeak;
+    uniform float uWakeZ; uniform float uWakeA; uniform float uWakeX;
     varying vec3 vN; varying vec3 vW; varying float vH; varying vec2 vPh;
     void main(){
       vec2 p = vec2(position.x, (-position.y + (${OCEAN_Z.toFixed(1)})) + uDist);
       float h=0.0, dhx=0.0, dhz=0.0, e=1.0;
       ${glslWaves}
       h*=uAmp; dhx*=uAmp; dhz*=uAmp;
+      // the jet ski's wake, folded into the same surface
+      if(uWakeA>0.001){
+        float dz=p.y-uWakeZ;
+        float ez=exp(-(dz*dz)/(2.0*49.0));
+        float ax=clamp(1.0-abs(p.x-uWakeX)/26.0,0.0,1.0);
+        float ex=ax*ax*(3.0-2.0*ax);
+        h   += uWakeA*ez*ex;
+        dhz += uWakeA*ex*ez*(-dz/49.0);
+        float sg=(p.x-uWakeX)>=0.0?1.0:-1.0;
+        float dex=(ax>0.0&&ax<1.0)?(6.0*ax*(1.0-ax))*(-sg/26.0):0.0;
+        dhx += uWakeA*ez*dex;
+      }
       // phase of the two main swells — constant along a moving crest
       vPh = vec2( (0.00*p.x + 1.00*p.y)*0.190 + uT*0.013,
                   (0.60*p.x + 0.80*p.y)*0.310 + uT*0.019 );
@@ -1194,7 +1221,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   dist=0;speed=13.5;score=0;px=0;py=0;pz=0;vy=0;vx=0;cutCd=0;airborne=false;trick=null;
   boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;
   trail.length=0;trailT=0;
-  skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;wakeWave.visible=false;wakeCrest.visible=false;
+  skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;wkA=0;
   splatT=0;splatCd=0;if(zapEl)zapEl.classList.remove('on');
   while(stars.length){const st=stars.pop();st.m.visible=false;STAR_POOL.push(st.m);}
   splat3D.visible=false;
@@ -1352,6 +1379,7 @@ function updateWorldDuringWipeout(dt){
   oceanUniforms.uT.value=waveClock;
   oceanUniforms.uAmp.value=waveAmp;
   oceanUniforms.uDist.value=dist*WAVE_DRIFT;
+  oceanUniforms.uWakeZ.value=wkZ;oceanUniforms.uWakeA.value=wkA;oceanUniforms.uWakeX.value=wkX;
   if(shake>0)shake-=dt*8;
   for(let i=splashes.length-1;i>=0;i--){
     const s2=splashes[i],u=s2.userData;
@@ -1701,81 +1729,6 @@ function buildJetSki(){
 const jetSki=buildJetSki();
 scene.add(jetSki);
 let skiT=16, skiOn=false, skiDir=1, skiWake=null;
-// the wake it throws: a curved swell that builds as it travels toward you
-const WAKE_W=76, WAKE_D=22, WAKE_SEGX=56, WAKE_SEGZ=22;
-const wakeGeoW=new THREE.PlaneGeometry(WAKE_W,WAKE_D,WAKE_SEGX,WAKE_SEGZ);
-// Shaded like the ocean it is made of — same palette, same sun, foam breaking along
-// its lip — instead of a flat pale sheet that read as a different material entirely.
-// It is opaque, so it covers the swell it rolls over rather than blending with it.
-const wakeMatW=new THREE.ShaderMaterial({
-  uniforms:{ uSun:{value:sunDir}, uSky:oceanUniforms.uSky, uDeep:oceanUniforms.uDeep,
-             uShallow:oceanUniforms.uShallow, uFade:{value:1.0}, uH:{value:1.0}, uT:{value:0} },
-  transparent:true, side:THREE.DoubleSide,
-  vertexShader:`
-    varying vec3 vN; varying vec3 vW; varying float vHh;
-    void main(){
-      vN=normalize(normalMatrix*normal);
-      vHh=position.z;                       // displacement is written into z before the mesh is laid flat
-      vec4 wp=modelMatrix*vec4(position,1.0);
-      vW=wp.xyz;
-      gl_Position=projectionMatrix*viewMatrix*wp;
-    }`,
-  fragmentShader:`
-    uniform vec3 uSun,uSky,uDeep,uShallow; uniform float uFade,uH,uT;
-    varying vec3 vN; varying vec3 vW; varying float vHh;
-    void main(){
-      vec3 N=normalize(vN), L=normalize(uSun), V=normalize(cameraPosition-vW);
-      float diff=max(dot(N,L),0.0);
-      vec3 Hv=normalize(L+V);
-      float spec=pow(max(dot(N,Hv),0.0),120.0)*0.85;
-      float fres=pow(1.0-max(dot(N,V),0.0),3.0);
-      float t=clamp(vHh/max(0.001,uH),0.0,1.0);
-      vec3 base=mix(uDeep,uShallow,clamp(t*0.82+0.30,0.0,1.0));
-      vec3 col=base*(0.52+0.68*diff)+uSky*fres*0.50+vec3(spec);
-      col*=0.94+0.06*sin(vW.x*3.1+uT*0.8);       // faint texture down the face
-      float lip=smoothstep(0.50,0.92,t);
-      float streak=sin(vW.x*2.3+uT*1.7)*0.5+0.5;
-      col=mix(col,vec3(0.96,0.99,1.0), lip*(0.55+0.45*streak));
-      col=pow(clamp(col,0.0,1.0),vec3(2.2));
-      gl_FragColor=vec4(col,uFade);
-    }`
-});
-const wakeWave=new THREE.Mesh(wakeGeoW,wakeMatW);
-wakeWave.rotation.x=-Math.PI/2;wakeWave.visible=false;
-scene.add(wakeWave);
-// foam along the breaking lip
-const wakeCrest=new THREE.Mesh(new THREE.PlaneGeometry(WAKE_W,2.2,WAKE_SEGX,1),
-  new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.85,side:THREE.DoubleSide,depthWrite:false}));
-wakeCrest.rotation.x=-Math.PI/2;wakeCrest.visible=false;
-scene.add(wakeCrest);
-
-// shape the swell each frame: height grows as it closes in, face steepens
-function shapeWake(centerZ,grow){
-  const pos=wakeGeoW.attributes.position;
-  const cpos=wakeCrest.geometry.attributes.position;
-  const H=0.9+grow*5.0;                       // small far out, big up close
-  for(let i=0;i<pos.count;i++){
-    const lx=pos.getX(i), ly=pos.getY(i);     // ly runs across the wave's depth
-    const t=(ly+WAKE_D/2)/WAKE_D;             // 0 = back of the swell, 1 = front face
-    // rounded back, steep front — a real wave section
-    const profile=Math.pow(Math.sin(Math.min(1,Math.max(0,t))*Math.PI),0.75)
-                 *(t>0.55?1.0:0.72);
-    // taper the ends so it doesn't look like a wall
-    const taper=Math.pow(Math.max(0,1-Math.abs(lx)/(WAKE_W*0.5)),0.55);
-    const ripple=Math.sin(lx*0.55+tNow*2.2)*0.10+Math.sin(lx*1.3-tNow*1.6)*0.05;
-    pos.setZ(i,(profile*H+ripple*grow)*taper);
-  }
-  pos.needsUpdate=true;
-  wakeGeoW.computeVertexNormals();
-  // crest strip rides the top of the face
-  for(let i=0;i<cpos.count;i++){
-    const lx=cpos.getX(i);
-    const taper=Math.pow(Math.max(0,1-Math.abs(lx)/(WAKE_W*0.5)),0.55);
-    cpos.setZ(i,(H*0.98+Math.sin(lx*0.55+tNow*2.2)*0.10)*taper);
-  }
-  cpos.needsUpdate=true;
-  return H;
-}
 function spawnJetSki(){
   skiOn=true;
   skiDir=Math.random()<0.5?1:-1;
@@ -1807,40 +1760,32 @@ function updateJetSki(dt,eff){
     }
     // once it has crossed in front of you, it leaves a wake wave rolling your way
     if(!skiWake&&Math.abs(jetSki.position.x-px)<6){
-      skiWake={z:jetSki.position.z-2,life:6.0,hit:false};
-      wakeWave.visible=true;wakeCrest.visible=true;
+      skiWake={z:jetSki.position.z-2,life:6.0,hit:false,x:jetSki.position.x};
       msg('WAKE INCOMING!');
     }
     if(Math.abs(jetSki.position.x-px)>34){skiOn=false;jetSki.visible=false;}
   }
-  // the wake wave travels toward you and launches you off its face
+  // the wake rolls in as a ridge in the ocean itself
   if(skiWake){
     skiWake.life-=dt;
-    skiWake.z+=(eff*0.42+13)*dt;                 // rolls toward you
-    // grows from a ripple far out to a full face as it arrives
+    skiWake.z+=(eff*0.42+13)*dt;
     const grow=Math.max(0,Math.min(1,1-(-skiWake.z)/46));
-    const H=shapeWake(skiWake.z,grow);
-    skiWake.H=H;
-    const wy=waveH(px,dist*WAVE_DRIFT+skiWake.z,waveClock);
-    wakeWave.position.set(px*0.25,wy-0.05,skiWake.z);
-    wakeCrest.position.set(px*0.25,wy+0.02,skiWake.z+2.4);
     const fade=Math.max(0,Math.min(1,skiWake.life/1.4));
-    wakeMatW.uniforms.uFade.value=fade;
-    wakeMatW.uniforms.uH.value=H;
-    wakeMatW.uniforms.uT.value=tNow;
-    wakeCrest.material.opacity=(0.25+grow*0.65)*fade;
-    // big launch when it reaches you
-    if(!skiWake.hit&&skiWake.z>pz-2.2&&skiWake.z<pz+2.6&&!airborne&&!hanging){
+    // a swell several times the height of the surrounding sea, in the same water
+    wkA=4.6*grow*fade;
+    wkZ=dist*WAVE_DRIFT+skiWake.z;
+    wkX=skiWake.x;
+    skiWake.H=wkA;
+    if(!skiWake.hit&&skiWake.z>pz-2.6&&skiWake.z<pz+3.0&&!airborne&&!hanging){
       skiWake.hit=true;
-      const power=Math.min(21,10+(skiWake.H||3)*1.7);
-      vy=power; airborne=true;
+      vy=Math.min(19,8.5+wkA*1.5); airborne=true;
       score+=120;boost=Math.min(16,boost+4);
       msg('WAKE LAUNCH! +120');
       shake=1.8;
-      splash(px,py,0,26);
+      splash(px,py,pz,26);
     }
-    if(skiWake.life<=0||skiWake.z>18){skiWake=null;wakeWave.visible=false;wakeCrest.visible=false;}
-  }
+    if(skiWake.life<=0||skiWake.z>20){skiWake=null;wkA=0;}
+  } else if(wkA>0){ wkA=Math.max(0,wkA-dt*3); }
 }
 
 
@@ -2511,11 +2456,12 @@ function update(dt){
   waveAmp=Math.max(0.34, base+setNoise(waveClock)*swing);
   WAVE_DRIFT=0.46+stage*0.16;                 // rolls past a little quicker later on
   oceanUniforms.uAmp.value=waveAmp;
-  oceanUniforms.uPeak.value=1.58*waveAmp;   // total wave height, so foam thresholds track the swell
+  oceanUniforms.uPeak.value=1.58*waveAmp+wkA*0.78;   // so only the wake's crest foams   // total wave height, so foam thresholds track the swell
   // sets: the swell surges and eases instead of ticking at one constant rate
   waveClock += dt*(1.0 + 0.55*Math.sin(tNow*0.045) + 0.28*Math.sin(tNow*0.017+1.3));
   oceanUniforms.uT.value=waveClock;
   oceanUniforms.uDist.value=dist*WAVE_DRIFT;
+  oceanUniforms.uWakeZ.value=wkZ;oceanUniforms.uWakeA.value=wkA;oceanUniforms.uWakeX.value=wkX;
 
   // camera: level horizon, smoothed follow, pulls back with speed
   camX+=(px-camX)*Math.min(1,dt*7);     // camera sits directly behind him

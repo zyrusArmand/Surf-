@@ -44,6 +44,10 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.18.0** — The jet ski's wake is no longer a separate object. It is added straight
+  into the ocean's own height field as a broad ridge, so the water shader lights it,
+  foams it and fogs it exactly like every other wave — it simply arrives several times
+  taller. The board and everything else afloat ride over it for free.
 - **v1.17.0** — The jet ski was driving backwards: its bow points along local -z, and
   its heading was set to the opposite of its travel. Its wake is rebuilt too — shaded
   from the ocean's own palette with foam breaking along the lip instead of a pale sheet,
