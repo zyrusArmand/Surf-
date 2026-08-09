@@ -42,6 +42,9 @@
   #overlay .go { margin-top:14px; padding:14px 48px; font-size:22px; font-weight:bold; color:#fff; background:#ff8c2e; border:none; border-radius:40px; box-shadow:0 5px 0 #b8641c; cursor:pointer; }
   #overlay .go:active { transform:translateY(4px); box-shadow:0 1px 0 #b8641c; }
   #overlay .hint { opacity:.85; font-size:min(3.8vw,15px); }
+  #ver { position:fixed; bottom:8px; left:50%; transform:translateX(-50%); z-index:10;
+    color:#fff; opacity:.55; font-size:13px; font-weight:bold; letter-spacing:.5px;
+    text-shadow:0 1px 3px rgba(0,40,80,.6); pointer-events:none; }
   .hidden { display:none !important; }
   #fatal { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
     background:#0a2846; color:#fff; text-align:center; padding:24px; font-size:18px; line-height:1.6; z-index:20; }
@@ -72,6 +75,7 @@
   <button class="go" id="startBtn">Surf</button>
   <p class="hint">touch: swipe to carve · buttons to trick<br>keyboard: A/D carve · W/S weight · Space jump · J spin · K flip · L grab / hand drag<br>mouse: drag to carve</p>
 </div>
+<div id="ver"></div>
 <div id="fatal">Couldn't load the 3D engine (three.js).<br>Check your connection and reload.</div>
 <!-- three.js r128, vendored so the page works offline and needs no third-party host -->
 <script src="vendor/three.min.js"></script>
@@ -94,6 +98,10 @@ const jumpBtn=document.getElementById('jumpBtn'), ropeBtn=document.getElementByI
 const trickBar=document.getElementById('trickBar');
 const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementById('flipBtn'), grabBtn=document.getElementById('grabBtn');
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
+
+// bump this on every change that ships — it is shown at the bottom of the screen
+const VERSION='1.1.0';
+document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
 const scene=new THREE.Scene();
@@ -631,8 +639,139 @@ rope.visible=false;scene.add(rope);
 
 // ---------- realistic obstacles ----------
 const obstacles=[];
-function buildObstacle(kind){
+// taper a TubeGeometry so a limb thins toward its tip. Tube vertices come in rings:
+// ring i holds radialSegments+1 verts around curve point i, so each ring can be
+// pulled toward its own centre by a different amount.
+function taperTube(geo,curve,segs,radial,r0,r1,bias){
+  const pos=geo.attributes.position;
+  const c=new THREE.Vector3(), v=new THREE.Vector3();
+  for(let i=0;i<=segs;i++){
+    const t=i/segs;
+    curve.getPointAt(t,c);
+    const k=r0+(r1-r0)*Math.pow(t,bias);
+    for(let j=0;j<=radial;j++){
+      const idx=i*(radial+1)+j;
+      v.fromBufferAttribute(pos,idx).sub(c).multiplyScalar(k).add(c);
+      pos.setXYZ(idx,v.x,v.y,v.z);
+    }
+  }
+  pos.needsUpdate=true;
+  geo.computeVertexNormals();
+}
+// one curling tentacle: a tapered tube with suckers along its underside
+function buildTentacle(angle,len,skin,pale){
+  const grp=new THREE.Group();
+  const curl=0.85+Math.random()*0.5;
+  const pts=[
+    new THREE.Vector3(0.00, 0.52,0),
+    new THREE.Vector3(0.36, 0.10,0),
+    new THREE.Vector3(0.80,-0.34,0),
+    new THREE.Vector3(1.22,-0.30,0),
+    new THREE.Vector3(1.46, 0.06*curl,0),
+    new THREE.Vector3(1.34, 0.40*curl,0),
+    new THREE.Vector3(1.06, 0.44*curl,0),
+  ].map(p=>p.multiplyScalar(len));
+  const curve=new THREE.CatmullRomCurve3(pts);
+  const SEG=56, RAD=18;
+  const geo=new THREE.TubeGeometry(curve,SEG,0.20*len,RAD,false);
+  taperTube(geo,curve,SEG,RAD,1.0,0.16,1.35);
+  grp.add(new THREE.Mesh(geo,skin));
+  // rounded tip so the taper doesn't end in a hole
+  const tip=new THREE.Mesh(new THREE.SphereGeometry(0.20*len*0.17,14,12),skin);
+  tip.position.copy(curve.getPointAt(1));grp.add(tip);
+  // suckers: pale discs down the inside face of the limb
+  const t0=new THREE.Vector3(), p0=new THREE.Vector3();
+  for(let i=0;i<11;i++){
+    const t=0.20+i*0.072;
+    if(t>0.97)break;
+    curve.getPointAt(t,p0);curve.getTangentAt(t,t0);
+    const perp=new THREE.Vector3(t0.y,-t0.x,0).normalize();   // in-plane, points "under" the limb
+    const rad=0.20*len*(1.0+(0.16-1.0)*Math.pow(t,1.35));
+    const s=new THREE.Mesh(new THREE.SphereGeometry(rad*0.34,12,10),pale);
+    s.position.copy(p0).addScaledVector(perp,rad*0.72);
+    s.scale.set(1,1,0.55);
+    grp.add(s);
+  }
+  grp.rotation.y=angle;
+  return grp;
+}
+function buildOctopus(variant){
+  const PAL=[
+    {body:0xff5f96, dark:0xd42f6d, pale:0xffc7dc},   // pink
+    {body:0xff7a3d, dark:0xd44f14, pale:0xffd2ae},   // orange
+    {body:0x9a6bff, dark:0x6a3fd6, pale:0xd9c9ff},   // purple
+  ][variant%3];
+  const g=new THREE.Group();
+  const skin=PBR({color:PAL.body,roughness:0.40,metalness:0.0,envMapIntensity:0.9,vivid:1.7});
+  const skinDk=PBR({color:PAL.dark,roughness:0.45,vivid:1.6});
+  const pale=PBR({color:PAL.pale,roughness:0.52,vivid:1.3});
+  const white=PBR({color:0xffffff,roughness:0.22,envMapIntensity:0.8});
+  const black=PBR({color:0x140f18,roughness:0.16,metalness:0.05});
+
+  // big round mantle, gently pinched at the base where the arms gather
+  const headGeo=new THREE.SphereGeometry(1,72,54);
+  {
+    const pos=headGeo.attributes.position;
+    for(let i=0;i<pos.count;i++){
+      const x=pos.getX(i),y=pos.getY(i),z=pos.getZ(i);
+      const u=Math.max(0,Math.min(1,(y+1)/2));          // 0 = underside, 1 = crown
+      const pinch=0.72+0.28*Math.pow(u,0.55);            // narrows toward the arms
+      const crown=1.0+0.10*Math.pow(u,3.0);              // slight dome on top
+      pos.setX(i,x*pinch*crown);
+      pos.setZ(i,z*pinch*crown*0.96);
+      pos.setY(i,y*1.06+0.06);
+    }
+    headGeo.computeVertexNormals();
+  }
+  const head=new THREE.Mesh(headGeo,skin);
+  head.scale.setScalar(0.95);head.position.y=1.28;
+  g.add(head);
+  // soft mottling on the crown
+  for(let i=0;i<9;i++){
+    const a=Math.random()*Math.PI*2, r=0.30+Math.random()*0.42;
+    const sp=new THREE.Mesh(new THREE.SphereGeometry(0.055+Math.random()*0.06,14,10),skinDk);
+    sp.position.set(Math.cos(a)*r,1.28+Math.sqrt(Math.max(0,0.92-r*r))*0.90,Math.sin(a)*r-0.06);
+    sp.scale.set(1,0.42,1);g.add(sp);
+  }
+  // big cartoon eyes, set into the front of the mantle
+  for(const sx of [-1,1]){
+    const socket=new THREE.Mesh(new THREE.SphereGeometry(0.30,28,22),white);
+    socket.position.set(sx*0.34,1.30,-0.66);socket.scale.set(1,1.12,0.72);g.add(socket);
+    const pupil=new THREE.Mesh(new THREE.SphereGeometry(0.165,24,18),black);
+    pupil.position.set(sx*0.36,1.27,-0.83);pupil.scale.set(1,1.08,0.62);g.add(pupil);
+    const gleam=new THREE.Mesh(new THREE.SphereGeometry(0.055,12,10),white);
+    gleam.position.set(sx*0.30,1.37,-0.92);g.add(gleam);
+    const blush=new THREE.Mesh(new THREE.SphereGeometry(0.115,16,12),
+      new THREE.MeshStandardMaterial({color:vivid(PAL.dark,1.4),roughness:0.6,transparent:true,opacity:0.45}));
+    blush.position.set(sx*0.62,1.05,-0.60);blush.scale.set(1.25,0.72,0.35);g.add(blush);
+  }
+  // smile
+  const smile=new THREE.Mesh(new THREE.TorusGeometry(0.19,0.038,12,26,Math.PI*0.86),skinDk);
+  smile.position.set(0,1.06,-0.80);smile.rotation.set(0.22,0,Math.PI+Math.PI*0.07);
+  g.add(smile);
+  // eight arms, evenly spread, longer at the front so they trail toward the rider
+  const tentIdx=[];
+  for(let i=0;i<8;i++){
+    const a=(i/8)*Math.PI*2+Math.PI/8;
+    const len=0.92+Math.random()*0.22;
+    const tent=buildTentacle(a,len,skin,pale);
+    tent.position.y=0.42;
+    g.add(tent);tentIdx.push(g.children.indexOf(tent));
+  }
+  const wash=new THREE.Mesh(new THREE.CircleGeometry(1.5,28),
+    new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.20,depthWrite:false}));
+  wash.rotation.x=-Math.PI/2;wash.position.y=0.10;g.add(wash);
+  g.userData.washIdx=g.children.indexOf(wash);
+  g.userData.tentIdx=tentIdx;
+  return g;
+}
+function buildObstacle(kind,variant){
   let m,r=1.1,h=1.6,ramp=false;
+  if(kind==='octopus'){
+    m=buildOctopus(variant|0);
+    m.userData={...m.userData,kind,r:1.45,h:2.4,ramp:false,used:false};
+    return m;
+  }
   if(kind==='buoy'){
     // navigational buoy: striped float, pole, flag
     m=new THREE.Group();
@@ -764,17 +903,25 @@ function buildObstacle(kind){
 // one template per obstacle type; every spawn is a clone that reuses the same GPU data
 const OBST_TEMPLATES={};
 // each obstacle floats at its own waterline so nothing gets buried by a passing swell
-const FLOAT_OFF={buoy:0.36,reef:0.34,log:0.40,bigfin:0.28,ramp:0.02};   // ramp sits low: water laps its base
+const FLOAT_OFF={buoy:0.36,reef:0.34,log:0.40,bigfin:0.28,ramp:0.02,octopus:0.26};   // ramp sits low: water laps its base
 // clear the cached buoyancy state on a fresh clone so a new spawn doesn't inherit it
 function makeObstacle(kind,x,z){
-  if(!OBST_TEMPLATES[kind])OBST_TEMPLATES[kind]=buildObstacle(kind);
-  const t=OBST_TEMPLATES[kind];
+  // octopuses come in three colourways — one template per colour, picked at spawn
+  const key=kind==='octopus'?('octopus'+((Math.random()*3)|0)):kind;
+  if(!OBST_TEMPLATES[key])OBST_TEMPLATES[key]=buildObstacle(kind,key.charCodeAt(7)-48);
+  const t=OBST_TEMPLATES[key];
   const m=t.clone(true);
   m.userData={...t.userData,used:false,by:undefined,bv:0,rx:undefined,rz:undefined};
   // re-link animated sub-parts (indexes survive cloning; object references do not)
   if(t.userData.washIdx!==undefined)m.userData.wash=m.children[t.userData.washIdx];
   if(t.userData.bellIdx!==undefined)m.userData.bell=m.children[t.userData.bellIdx];
   if(kind==='reef')m.userData.pulse=Math.random()*7;
+  if(kind==='octopus'){
+    // each one is a different shot: 20%–90% of its throws are actually aimed at you
+    m.userData.acc=0.20+Math.random()*0.70;
+    m.userData.throwT=0.5+Math.random()*0.7;
+    m.userData.t=Math.random()*6;
+  }
   if(kind==='bigfin'){
     const d=Math.random()<0.5?1:-1;
     m.rotation.y=d*Math.PI/2;
@@ -967,7 +1114,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;
   trail.length=0;trailT=0;
   skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;wakeWave.visible=false;wakeCrest.visible=false;
-  squidOn=false;squid.visible=false;squidT=26;splatT=0;
+  splatT=0;
   while(stars.length){const st=stars.pop();st.m.visible=false;STAR_POOL.push(st.m);}
   if(splatEl)splatEl.style.display='none';
   while(splashes.length){const d=splashes.pop();freeDrop(d);}
@@ -989,6 +1136,7 @@ const WIPE={
   reef:  {vy: 6.5, vz:-1.5, spin:[12, 2, 7], msg:'ROCKS!',       kick:2.2},
   log:   {vy: 5.0, vz:-2.0, spin:[14, 1, 3], msg:'LOG!',         kick:2.0},
   bigfin:{vy:11.0, vz:-5.0, spin:[ 7, 8, 4], msg:'SHARK!',       kick:2.6},
+  octopus:{vy:7.5, vz:-2.5, spin:[10, 5, 6], msg:'TENTACLED!',   kick:2.0},
   pearl: {vy: 3.0, vz:-7.5, spin:[16, 0, 1], msg:'PEARLED!',     kick:1.4},
   land:  {vy: 6.0, vz: 1.5, spin:[ 5, 6, 9], msg:'SKETCHY LANDING!', kick:1.6},
   under: {vy: 4.5, vz: 0.5, spin:[11, 4, 5], msg:'UNDER-ROTATED!',   kick:1.5},
@@ -1494,130 +1642,81 @@ function updateJetSki(dt,eff){
 }
 
 
-// ---------- giant squid: rises up and hurls starfish that splat over your view ----------
-function buildSquid(){
+// ---------- starfish projectiles hurled by the octopuses ----------
+// pillowy five-point star: a rounded star outline given real thickness by a deep bevel
+function buildStarfish(variant){
+  const TINT=[0xff8a3d,0xff5f8a,0xffb037][variant%3];
   const g=new THREE.Group();
-  const body=PBR({color:0x8e2a6b,roughness:0.28,metalness:0.02,envMapIntensity:1.2,vivid:1.7});
-  const bodyDk=PBR({color:0x5e1a4c,roughness:0.32,vivid:1.6});
-  const skinPale=PBR({color:0xc0509a,roughness:0.35,vivid:1.6});
-  // long mantle
-  const mantle=new THREE.Mesh(new THREE.SphereGeometry(1,24,18),body);
-  mantle.scale.set(0.85,0.85,1.85);mantle.position.z=1.0;
-  const tip=new THREE.Mesh(new THREE.ConeGeometry(0.8,1.9,18),bodyDk);
-  tip.rotation.x=-Math.PI/2;tip.position.z=3.0;tip.scale.set(1,1,0.8);
-  // twin fins
+  const skin=PBR({color:TINT,roughness:0.46,metalness:0.0,envMapIntensity:0.8,vivid:1.7});
+  const dot=PBR({color:0xfff1de,roughness:0.40,vivid:1.2});
+  const black=PBR({color:0x1a1016,roughness:0.18});
+  const sh=new THREE.Shape();
+  const R=0.62, r=0.27, N=5;
+  for(let i=0;i<N;i++){
+    const a0=(i/N)*Math.PI*2-Math.PI/2;
+    const a1=a0+Math.PI/N, a2=a0+2*Math.PI/N;
+    const tip=[Math.cos(a0)*R,Math.sin(a0)*R];
+    const vly=[Math.cos(a1)*r,Math.sin(a1)*r];
+    const nxt=[Math.cos(a2)*R,Math.sin(a2)*R];
+    if(i===0)sh.moveTo(tip[0],tip[1]);
+    // bulge each edge outward so the arms read as plump, not knife-sharp
+    sh.quadraticCurveTo(vly[0]*1.34,vly[1]*1.34,vly[0],vly[1]);
+    sh.quadraticCurveTo(vly[0]*1.34,vly[1]*1.34,nxt[0],nxt[1]);
+  }
+  const geo=new THREE.ExtrudeGeometry(sh,{depth:0.10,curveSegments:26,bevelEnabled:true,
+    bevelThickness:0.13,bevelSize:0.13,bevelSegments:8});
+  geo.center();
+  const body=new THREE.Mesh(geo,skin);
+  g.add(body);
+  // pale bumps down each arm, on both faces — kept clear of the middle so the face reads
+  for(let i=0;i<N;i++){
+    const a=(i/N)*Math.PI*2-Math.PI/2;
+    for(let k=0;k<3;k++){
+      const d=0.27+k*0.135;
+      for(const zz of [0.185,-0.185]){   // body surface sits at |z| = 0.18, so these read as bumps
+        const b=new THREE.Mesh(new THREE.SphereGeometry(0.050-k*0.009,12,10),dot);
+        b.position.set(Math.cos(a)*d,Math.sin(a)*d,zz);
+        b.scale.z=0.5;g.add(b);
+      }
+    }
+  }
+  // a face on the front only, sitting just proud of the surface
   for(const sx of [-1,1]){
-    const fin=new THREE.Mesh(new THREE.SphereGeometry(0.7,16,12),skinPale);
-    fin.scale.set(0.22,0.55,1.1);fin.position.set(sx*0.75,0.15,2.3);
-    fin.rotation.z=sx*0.35;g.add(fin);
+    const eye=new THREE.Mesh(new THREE.SphereGeometry(0.066,16,14),black);
+    eye.position.set(sx*0.125,0.115,0.200);eye.scale.set(0.88,1.1,0.42);g.add(eye);
+    const gleam=new THREE.Mesh(new THREE.SphereGeometry(0.021,10,8),dot);
+    gleam.position.set(sx*0.148,0.150,0.224);gleam.scale.z=0.5;g.add(gleam);
   }
-  // head and huge eyes
-  const head=new THREE.Mesh(new THREE.SphereGeometry(0.78,20,16),body);
-  head.position.z=-0.5;head.scale.set(1,0.92,0.95);
-  for(const sx of [-1,1]){
-    const eye=new THREE.Mesh(new THREE.SphereGeometry(0.30,16,14),PBR({color:0xfff4d8,roughness:0.10}));
-    eye.position.set(sx*0.62,0.16,-0.62);g.add(eye);
-    const pup=new THREE.Mesh(new THREE.SphereGeometry(0.17,14,12),PBR({color:0x120a12,roughness:0.05}));
-    pup.position.set(sx*0.74,0.16,-0.78);g.add(pup);
-  }
-  // eight arms + two long tentacles, kept so we can wave them
-  const arms=[];
-  for(let i=0;i<8;i++){
-    const a=(i/8)*Math.PI*2;
-    const arm=new THREE.Group();
-    const seg=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.05,2.3,10),i%2?body:skinPale);
-    seg.position.y=-1.15;arm.add(seg);
-    arm.position.set(Math.cos(a)*0.52,-0.2,-1.05+Math.sin(a)*0.30);
-    arm.rotation.z=Math.cos(a)*0.5;arm.rotation.x=-0.5-Math.sin(a)*0.4;
-    g.add(arm);arms.push({arm,phase:a});
-  }
-  for(const sx of [-1,1]){
-    const t=new THREE.Group();
-    const seg=new THREE.Mesh(new THREE.CylinderGeometry(0.10,0.04,3.6,8),skinPale);
-    seg.position.y=-1.8;t.add(seg);
-    const club=new THREE.Mesh(new THREE.SphereGeometry(0.20,12,10),body);
-    club.scale.set(0.8,1.5,0.8);club.position.y=-3.5;t.add(club);
-    t.position.set(sx*0.42,-0.25,-1.25);t.rotation.x=-0.8;t.rotation.z=sx*0.25;
-    g.add(t);arms.push({arm:t,phase:sx});
-  }
-  g.add(mantle,tip,head);
-  g.userData.arms=arms;
-  g.rotation.x=-0.35;
-  g.scale.setScalar(1.5);
-  g.visible=false;
-  return g;
-}
-const squid=buildSquid();
-scene.add(squid);
-let squidT=26, squidOn=false, squidState='', squidTimer=0, squidThrow=0, squidSide=1;
-
-// starfish projectiles
-function buildStarfish(){
-  const g=new THREE.Group();
-  const mtl=PBR({color:0xff8a3d,roughness:0.45,vivid:1.7});
-  const core=new THREE.Mesh(new THREE.SphereGeometry(0.30,14,12),mtl);
-  core.scale.set(1,0.42,1);g.add(core);
-  for(let i=0;i<5;i++){
-    const a=(i/5)*Math.PI*2;
-    const arm=new THREE.Mesh(new THREE.ConeGeometry(0.19,0.72,8),mtl);
-    arm.rotation.z=Math.PI/2;arm.rotation.y=-a;
-    arm.position.set(Math.cos(a)*0.44,0,Math.sin(a)*0.44);
-    arm.scale.set(1,1,0.5);g.add(arm);
-  }
+  const grin=new THREE.Mesh(new THREE.TorusGeometry(0.088,0.021,10,24,Math.PI),black);
+  grin.position.set(0,-0.010,0.203);grin.rotation.set(0,0,Math.PI);grin.scale.z=0.45;g.add(grin);
+  g.scale.setScalar(0.92);
   return g;
 }
 const STAR_POOL=[],stars=[];
-for(let i=0;i<8;i++){const st=buildStarfish();st.visible=false;scene.add(st);STAR_POOL.push(st);}
+for(let i=0;i<10;i++){const st=buildStarfish(i);st.visible=false;scene.add(st);STAR_POOL.push(st);}
 // the splat that covers your view
 const splatEl=document.getElementById('splat');
 let splatT=0;
 
-function throwStarfish(){
+// Aimed shot: solve the flight so it arrives at your line, then decide whether that
+// aim is honest. A miss is thrown wide on purpose rather than left to chance.
+function throwStarfish(oct){
   const st=STAR_POOL.pop(); if(!st)return;
   st.visible=true;
-  st.position.copy(squid.position);
-  st.position.y-=1.2;
-  const dx=px-st.position.x, dz=(0)-st.position.z;
-  const d=Math.max(1,Math.hypot(dx,dz));
-  const spd=26+Math.random()*6;
-  stars.push({m:st,vx:dx/d*spd,vz:dz/d*spd,vy:5.5+Math.random()*2.5,
-    sx:(Math.random()-0.5)*14,sy:(Math.random()-0.5)*14,t:0});
+  const fx=oct.position.x, fy=oct.position.y+1.15, fz=oct.position.z;
+  st.position.set(fx,fy,fz);
+  st.rotation.set(Math.random()*3,Math.random()*3,Math.random()*3);
+  const onTarget=Math.random()<oct.userData.acc;
+  const wide=onTarget?0:(Math.random()<0.5?-1:1)*(2.6+Math.random()*3.8);
+  const tx=px+vx*0.22+wide, ty=py+0.55, tz=0;
+  const T=Math.max(0.40,Math.hypot(tx-fx,tz-fz)/(26+Math.random()*5));
+  stars.push({m:st,
+    vx:(tx-fx)/T,
+    vy:((ty-fy)+0.5*13*T*T)/T,          // matches the 13 u/s^2 drop applied below
+    vz:(tz-fz)/T-lastEff*0.4,           // the world scroll adds eff*0.4 to z each frame
+    sx:(Math.random()-0.5)*13,sy:(Math.random()-0.5)*13,t:0});
 }
-function updateSquid(dt,eff){
-  if(!squidOn){
-    squidT-=dt;
-    if(squidT<=0){
-      squidT=34+Math.random()*20;
-      squidOn=true;squidState='rise';squidTimer=0;squidThrow=0.5;
-      squidSide=Math.random()<0.5?-1:1;
-      squid.visible=true;
-      squid.position.set(px+squidSide*(9+Math.random()*4),-6,-34);
-      msg('SQUID!');
-    }
-  } else {
-    squidTimer+=dt;
-    const sy=waveH(squid.position.x,dist*WAVE_DRIFT+squid.position.z,waveClock);
-    squid.position.z+=eff*dt*0.55;
-    // arms and tentacles undulate
-    for(const a of squid.userData.arms){
-      a.arm.rotation.x=(a.arm.rotation.x*0.9)+(-0.5+Math.sin(tNow*3+a.phase*2)*0.35)*0.1;
-      a.arm.rotation.z=Math.cos(tNow*2.4+a.phase*2)*0.35;
-    }
-    if(squidState==='rise'){
-      squid.position.y+=(sy+2.6-squid.position.y)*Math.min(1,dt*2.2);
-      if(squidTimer>1.1){squidState='attack';squidTimer=0;}
-    } else if(squidState==='attack'){
-      squid.position.y=sy+2.6+Math.sin(tNow*2)*0.25;
-      squid.rotation.y=Math.atan2(px-squid.position.x,-squid.position.z)*0.6;
-      squidThrow-=dt;
-      if(squidThrow<=0){squidThrow=0.75+Math.random()*0.5;throwStarfish();}
-      if(squidTimer>4.5){squidState='sink';squidTimer=0;}
-    } else {
-      squid.position.y+=(sy-7-squid.position.y)*Math.min(1,dt*1.6);
-      if(squidTimer>2.2||squid.position.z>16){squidOn=false;squid.visible=false;}
-    }
-  }
-  // starfish fly, tumble, and splat on your view if they connect
+function updateStars(dt,eff){
   for(let i=stars.length-1;i>=0;i--){
     const s2=stars[i];s2.t+=dt;
     s2.vy-=13*dt;
@@ -1631,7 +1730,7 @@ function updateSquid(dt,eff){
       splash(s2.m.position.x,s2.m.position.y,s2.m.position.z,10,0xff8a3d);
       s2.m.visible=false;STAR_POOL.push(s2.m);stars.splice(i,1);continue;
     }
-    if(s2.m.position.y<sea||s2.t>4||s2.m.position.z>18){
+    if(s2.m.position.y<sea||s2.t>5||s2.m.position.z>18){
       if(s2.m.position.y<sea)splash(s2.m.position.x,sea,s2.m.position.z,6,0xff8a3d);
       s2.m.visible=false;STAR_POOL.push(s2.m);stars.splice(i,1);
     }
@@ -1921,7 +2020,7 @@ function update(dt){
   if(spawnT<=0){
     spawnT=Math.max(0.35,1.1-dist/900)*(0.6+Math.random()*0.8);
     // weighted bag with anti-repeat: same type can't appear more than twice in a row
-    const WEIGHTS=[['buoy',26],['reef',24],['log',20],['ramp',18],['bigfin',12]];
+    const WEIGHTS=[['buoy',24],['reef',21],['log',18],['ramp',17],['octopus',14],['bigfin',11]];
     let pick=null;
     for(let tries=0;tries<8;tries++){
       let total=0;for(const w of WEIGHTS)total+=w[1];
@@ -1972,6 +2071,24 @@ function update(dt){
       const togo=Math.max(0.35,(-o.position.z)/Math.max(8,eff));
       o.position.x+=((o.userData.targetX-o.position.x)/togo)*dt;
       if(Math.random()<dt*14)splash(o.position.x,o.position.y+0.1,o.position.z+1.4,1);
+    }
+    if(o.userData.kind==='octopus'){
+      const u=o.userData;
+      u.t+=dt;
+      // turns to keep the rider in front of it while it drifts past
+      o.rotation.y=Math.atan2(o.position.x-px,o.position.z);
+      o.position.y+=Math.sin(u.t*1.5)*dt*0.30;                 // gentle bob of its own
+      for(let k=0;k<u.tentIdx.length;k++){
+        const tg=o.children[u.tentIdx[k]];
+        if(!tg)continue;
+        tg.rotation.x=Math.sin(u.t*2.1+k*0.79)*0.20;
+        tg.rotation.z=Math.cos(u.t*1.6+k*0.53)*0.16;
+      }
+      // only throws while it is close enough to be a threat
+      if(o.position.z>-72&&o.position.z<-7){
+        u.throwT-=dt;
+        if(u.throwT<=0){u.throwT=0.75+Math.random()*0.75;throwStarfish(o);}
+      }
     }
     if(o.userData.bell){
       // slow swimming pulse: the bell squashes and springs back
@@ -2068,7 +2185,7 @@ function update(dt){
 
   updateSeaLife(dt,eff);
   updateJetSki(dt,eff);
-  updateSquid(dt,eff);
+  updateStars(dt,eff);
   updateDayCycle();
 
   // stage sets the range; sets roll through it so you get small, medium, large and

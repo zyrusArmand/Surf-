@@ -39,6 +39,18 @@ bounce you, and buoys, logs and shark fins end the run.
   depends on no third-party host
 - `.github/workflows/pages.yml` — publishes the repo root to GitHub Pages
 
+## Versions
+
+The running version is shown at the bottom of the screen. Bump `VERSION` in
+`index.html` whenever something ships.
+
+- **v1.1.0** — Octopuses replace the giant squid: they float past like any other
+  obstacle, turn to track you, and lob starfish. Each one rolls its own accuracy
+  between 20% and 90%, so plenty of shots are thrown deliberately wide. Octopus
+  and starfish both remodelled (curling suckered arms, plump dotted star with a
+  face). Version number now shown on screen.
+- **v1.0.0** — First playable release.
+
 ## Deployment notes
 
 Pages is already set up (**Settings → Pages → Source: GitHub Actions**) and the
