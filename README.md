@@ -44,6 +44,9 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.4.0** — The splat is now the real 3D starfish model parented to the camera,
+  hanging in front of the lens and drawn over the scene, rather than a flat SVG. It
+  squashes on impact, then peels off and slides down the view.
 - **v1.3.0** — Fixes steering freezing permanently after iOS cancelled a touch.
   The jellyfish is no longer treated as rock: landing on the bell bounces you,
   a direct hit stings with a lightning flash. The splat that covers your view is
