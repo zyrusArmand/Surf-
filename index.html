@@ -93,7 +93,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.4.0';
+const VERSION='1.5.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1134,7 +1134,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
 
 startBtn.addEventListener('click',()=>{
   overlay.classList.add('hidden');jumpBtn.classList.remove('hidden');
-  reset();running=true;last=performance.now();
+  reset();running=true;overlayUp=false;last=performance.now();
 });
 
 // how each kind of crash throws him
@@ -1149,7 +1149,7 @@ const WIPE={
   under: {vy: 4.5, vz: 0.5, spin:[11, 4, 5], msg:'UNDER-ROTATED!',   kick:1.5},
   foam:  {vy: 2.5, vz:-1.0, spin:[ 6, 2, 8], msg:'ATE IT!',      kick:1.2},
 };
-let wipe=null;
+let wipe=null,overlayUp=false;
 function startWipeout(kind){
   if(wipe)return;
   const W=WIPE[kind]||WIPE.foam;
@@ -1256,12 +1256,15 @@ function updateWorldDuringWipeout(dt){
   updateDayCycle();
 }
 function gameOver(){
+  if(!running&&overlayUp)return;          // updateWipeout keeps calling this each frame
+  overlayUp=true;
   running=false;
+  splatT=0;splat3D.visible=false;         // never leave the splat stuck over the menu
   const s=score|0;
   if(s>best){best=s;saveBest();}
   jumpBtn.classList.add('hidden');ropeBtn.style.display='none';trickBar.classList.add('hidden');
   overlay.querySelector('h1').textContent='Wipeout! 🌊';
-  document.getElementById('ovText').innerHTML=`Astro went under...<br><br>Score: <b>${s}</b><br>Best: <b>${best}</b>`;
+  document.getElementById('ovText').innerHTML=`Astro went under...<br><br>Score: <b>${s}</b><br>Distance: <b>${dist|0} m</b><br>Best: <b>${best}</b>`;
   startBtn.textContent='Surf again';
   overlay.classList.remove('hidden');
 }
@@ -2146,7 +2149,11 @@ function update(dt){
     if(o.userData.wash){const w=1+Math.sin(tNow*3+o.position.x)*0.12;o.userData.wash.scale.set(w,w,1);o.userData.wash.material.opacity=0.4+Math.sin(tNow*3+o.position.x)*0.15;}
 
     if(o.position.z>18){scene.remove(o);obstacles.splice(i,1);continue;}
-    const zWin=o.userData.ramp? Math.max(o.userData.r, eff*dt*2.2+1.9) : o.userData.r;
+    // the jelly closes fast and is only "at" you for a couple of frames, so its
+    // window grows with speed — otherwise a jump can pass clean over the contact
+    const zWin=o.userData.ramp ? Math.max(o.userData.r, eff*dt*2.2+1.9)
+             : (o.userData.kind==='jelly' ? Math.max(o.userData.r, eff*dt*1.8+1.1)
+             : o.userData.r);
     if(Math.abs(o.position.z)<zWin&&Math.abs(o.position.x-px)<o.userData.r){
       if(o.userData.ramp){
         // launch if you're anywhere near deck height, even mid-swell or slightly airborne
@@ -2154,8 +2161,9 @@ function update(dt){
           o.userData.used=true;vy=13.5;airborne=true;py=Math.max(py,o.position.y+0.6);score+=50;msg('RAMP! +50');
           splash(px,waterY,0,8,0xffc23e);
         }
-      } else if(o.userData.kind==='jelly' && vy<=0.6 && py>o.position.y+0.30){
-        // coming down onto the bell — bounce off it
+      } else if(o.userData.kind==='jelly' && airborne && py>o.position.y+0.10){
+        // in the air and above the bell — bounce, whether rising or falling.
+        // Only a rider still on the water gets stung.
         vy=Math.max(12.5,-vy*0.85+9.0);
         airborne=true;
         py=o.position.y+0.9;
@@ -2254,7 +2262,7 @@ function update(dt){
   camera.position.set(camX,camY,11.0+eff*0.05);
   camera.lookAt(lookX,1.1+py*0.25,-14);
 
-  hud.innerHTML=`Score ${score|0}<br><small>Best ${best}&nbsp;&nbsp;·&nbsp;&nbsp;${(eff*0.62)|0} mph</small>`;
+  hud.innerHTML=`Score ${score|0}<br><small>${dist|0} m&nbsp;&nbsp;·&nbsp;&nbsp;${(eff*0.62)|0} mph&nbsp;&nbsp;·&nbsp;&nbsp;Best ${best}</small>`;
 }
 
 function loop(now){

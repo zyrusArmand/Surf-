@@ -44,6 +44,10 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.5.0** — Distance travelled shown in the HUD and on the wipeout card. Jumping
+  onto a jellyfish now bounces reliably — any airborne contact above the bell counts,
+  rising or falling, and the contact window widens with speed. A splat can no longer
+  stay stuck over the game-over screen.
 - **v1.4.0** — The splat is now the real 3D starfish model parented to the camera,
   hanging in front of the lens and drawn over the scene, rather than a flat SVG. It
   squashes on impact, then peels off and slides down the view.
