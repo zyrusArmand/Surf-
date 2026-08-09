@@ -44,6 +44,9 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.20.0** — The jet ski crosses far out now, so its wake has a long run to build:
+  born around 110 units out, it grows the whole way in and arrives about 23 times the
+  height of the surrounding swell.
 - **v1.19.0** — The wake is now a towering set wave — about sixteen times the height of
   the surrounding swell, broader, and building over a longer approach, with the same
   water shading and foam as before. The camera's height is measured from the water under
