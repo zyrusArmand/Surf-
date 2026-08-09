@@ -6,12 +6,9 @@ dependencies to install.
 
 ## Play it
 
-**Right now, no setup:**
-https://raw.githack.com/zyrusArmand/Surf-/claude/pug-surf-game-f99mod/index.html
-(raw.githack.com serves this public repo's files directly)
+**▶ https://zyrusarmand.github.io/Surf-/**
 
-**Permanent home:** https://zyrusarmand.github.io/Surf-/
-— live once GitHub Pages is enabled, see below.
+Published from `main` by the workflow below, on every push.
 
 **Locally:** clone the repo and open `index.html` in any modern browser, or serve
 the folder:
@@ -42,14 +39,15 @@ bounce you, and buoys, logs and shark fins end the run.
   depends on no third-party host
 - `.github/workflows/pages.yml` — publishes the repo root to GitHub Pages
 
-## Enabling GitHub Pages
+## Deployment notes
 
-One-time setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**,
-then re-run the "Deploy to GitHub Pages" workflow from the Actions tab. After that
-it publishes on every push to `main` (or to the game branch) and the
-`github.io` URL above starts working.
+Pages is already set up (**Settings → Pages → Source: GitHub Actions**) and the
+site is live. Two things that had to be done by hand, worth knowing if this is
+ever rebuilt elsewhere:
 
-This step cannot be automated: the workflow's built-in token is not permitted to
-create a Pages site, so the first run fails with
-`Create Pages site failed … Resource not accessible by integration` until Pages
-is switched on by hand.
+- The workflow token cannot create a Pages site, so Pages must be switched on in
+  repository settings first — otherwise `configure-pages` fails with
+  `Create Pages site failed … Resource not accessible by integration`.
+- The `github-pages` environment only allows deployments from the default branch.
+  A run triggered on a feature branch is rejected before any step executes, so
+  the job fails in seconds with no logs. Deploy from `main`.
