@@ -81,6 +81,7 @@
 <div id="fatal">Couldn't load the 3D engine (three.js).<br>Check your connection and reload.</div>
 <!-- three.js r128, vendored so the page works offline and needs no third-party host -->
 <script src="vendor/three.min.js"></script>
+<script src="vendor/GLTFLoader.js"></script>
 <script>
 // if the local copy is missing (e.g. the file was opened on its own), fall back to a CDN
 if(typeof THREE==='undefined'){
@@ -104,7 +105,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.20.0';
+const VERSION='1.21.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -413,8 +414,10 @@ for(let i=-1;i<=1;i++){
 // nose logo dot
 const logo=new THREE.Mesh(new THREE.CircleGeometry(0.075,16),new THREE.MeshBasicMaterial({color:0x24413f}));
 logo.rotation.x=-Math.PI/2;logo.position.set(0,0.146,-1.35);
-rig.add(board,deckPad,woodPanel,logo);
-for(const g of grains)rig.add(g);
+const boardArt=new THREE.Group();   // everything that draws the board, so a model can swap it out
+rig.add(boardArt);
+boardArt.add(board,deckPad,woodPanel,logo);
+for(const g of grains)boardArt.add(g);
 // thruster fin setup
 function makeFin(x,z,tilt,size){
   // shape drawn in the Z-Y plane with the tip BELOW the base, then given thickness across X
@@ -430,9 +433,107 @@ function makeFin(x,z,tilt,size){
   f.position.set(x,-0.155,z);
   f.rotation.z=tilt;
   f.scale.setScalar(size||1);
-  rig.add(f);
+  boardArt.add(f);
 }
 makeFin(0,1.55,0,1.0);makeFin(-0.30,1.32,0.16,0.8);makeFin(0.30,1.32,-0.16,0.8);
+
+// ---------- optional models from Blender ----------
+// Drop a .glb into models/ and it replaces the built-in shape: models/board.glb for
+// the surfboard, models/buoy.glb, log.glb, jelly.glb, ramp.glb, octopus.glb,
+// bigfin.glb, jetski.glb, pug.glb for the rest. If a file is not there the load
+// fails quietly and the procedural version stays, so the game always runs and parts
+// can be replaced one at a time. Size, orientation and position are all taken from
+// the shape being replaced, so an export at any scale drops straight in.
+function boxOf(o){o.updateMatrixWorld(true);return new THREE.Box3().setFromObject(o);}
+function longAxis(v){return (v.x>=v.y&&v.x>=v.z)?'x':(v.y>=v.z?'y':'z');}
+// a quarter turn that lays the model's longest side along the longest side of the
+// shape it replaces — a board exported down Blender's X still lands nose-to-tail
+const AXIS_SPIN={xy:['z',Math.PI/2], yx:['z',-Math.PI/2], xz:['y',Math.PI/2],
+                 zx:['y',-Math.PI/2], yz:['x',-Math.PI/2], zy:['x',Math.PI/2]};
+function fitToBox(root,target){
+  const wrap=new THREE.Group(); wrap.add(root);
+  let size=boxOf(wrap).getSize(new THREE.Vector3());
+  const tSize=target.getSize(new THREE.Vector3());
+  const spin=AXIS_SPIN[longAxis(size)+longAxis(tSize)];
+  if(spin){root.rotation[spin[0]]=spin[1];size=boxOf(wrap).getSize(new THREE.Vector3());}
+  const k=Math.max(tSize.x,tSize.y,tSize.z)/Math.max(1e-6,Math.max(size.x,size.y,size.z));
+  wrap.scale.setScalar(k);
+  const c=boxOf(wrap).getCenter(new THREE.Vector3()), t=target.getCenter(new THREE.Vector3());
+  // wrap is scaled by k, so a local step of d moves the model k*d in the world
+  root.position.x+=(t.x-c.x)/k; root.position.y+=(t.y-c.y)/k; root.position.z+=(t.z-c.z)/k;
+  return wrap;
+}
+// Untextured parts get the game's own palette, picked by object name where possible,
+// so a model exported without materials still comes in looking like the thing it
+// replaces. Anything that arrives with a texture is left exactly as authored.
+const MODEL_SKINS={
+  board:[[[/fin|skeg/i,           PBR({color:0x123b39,roughness:0.12,metalness:0.06,envMapIntensity:1.2,vivid:1.4})],
+          [/deck|pad|grip/i,      PBR({color:0x18b3a6,roughness:0.16,metalness:0.02,envMapIntensity:1.0,vivid:1.6})],
+          [/wood|stringer/i,      PBR({color:0xd98f2e,roughness:0.34,metalness:0.0,vivid:1.6})],
+          [/rail|hull|board|body/i,PBR({color:0xfffdf4,roughness:0.14,metalness:0.02,envMapIntensity:1.0})]],
+         PBR({color:0xfffdf4,roughness:0.14,metalness:0.02,envMapIntensity:1.0})],
+  buoy:[[[/flag/i,                PBR({color:0xffc21a,roughness:0.45,vivid:1.7})],
+         [/pole|mast|rod/i,       mat(0x666a70,70)],
+         [/light|lamp|lens/i,     mat(0xfff2a0,120)],
+         [/band|stripe|cone|top|red/i,PBR({color:0xff3a22,roughness:0.35,vivid:1.7})]],
+        mat(0xd8dde2,60)],
+  log:[[[/end|cut|ring/i,         mat(0xc9a06a,10)],
+        [/branch|stub|knot|twig/i,mat(0x74492a,10)]],
+       PBR({color:0x8c4f22,roughness:0.66,vivid:1.5})],
+  jelly:[[[/tentacle|arm|frill|trail/i,new THREE.MeshBasicMaterial({color:vivid(0x7ad8ff,1.5),transparent:true,opacity:0.34,depthWrite:false})],
+          [/core|glow|inner/i,    new THREE.MeshBasicMaterial({color:vivid(0x7ad8ff,1.6),transparent:true,opacity:0.30,depthWrite:false})]],
+         new THREE.MeshStandardMaterial({color:vivid(0x7ad8ff,1.4),roughness:0.10,metalness:0.0,
+           transparent:true,opacity:0.62,depthWrite:false,emissive:vivid(0x7ad8ff,1.2),
+           emissiveIntensity:0.35,side:THREE.DoubleSide})],
+  ramp:[[[/lip|edge|kicker/i,     mat(0xff8c2e,50)],
+         [/plank|seam|slat/i,     PBR({color:0x74401c,roughness:0.64,vivid:1.5})]],
+        PBR({color:0xd98c33,roughness:0.58,vivid:1.5})],
+  octopus:[[[/sucker/i,           PBR({color:0xd9772e,roughness:0.50,vivid:1.40})],
+            [/pupil/i,            PBR({color:0x0d0a12,roughness:0.14,metalness:0.05})],
+            [/eye|iris/i,         PBR({color:0xc9a03c,roughness:0.30,metalness:0.10,envMapIntensity:1.1,vivid:1.2})],
+            [/arm|tentacle/i,     PBR({color:0x5a3596,roughness:0.62,vivid:1.15})]],
+           PBR({color:0x8a5fd0,roughness:0.58,metalness:0.0,envMapIntensity:0.75,vivid:1.20})],
+  bigfin:[[],                     PBR({color:0x3b4b58,roughness:0.20,metalness:0.03,envMapIntensity:1.5})],
+  jetski:[[[/seat|saddle|grip|handle|black/i,PBR({color:0x191d22,roughness:0.38})],
+           [/rail|trim|deck|white/i,PBR({color:0xf6f8fa,roughness:0.16,metalness:0.04,envMapIntensity:1.2})],
+           [/stripe|lime|green/i, PBR({color:0x8ede2a,roughness:0.30,vivid:1.7})]],
+          PBR({color:0x1f6fd0,roughness:0.13,metalness:0.06,envMapIntensity:1.3,vivid:1.6})],
+  pug:[[[/eye|pupil|nose|muzzle|mask|ear|claw/i,PBR({color:0x2b1d12,roughness:0.72})],
+        [/tongue/i,               PBR({color:0xd9607a,roughness:0.50,vivid:1.40})],
+        [/belly|chest|cream|paw/i,FUR_MAT(0xf2dcae)]],
+       FUR_MAT(0xdca85f)],
+};
+function paintModel(root,table,fallback){
+  root.traverse(o=>{
+    if(!o.isMesh)return;
+    o.castShadow=true;o.receiveShadow=true;
+    if(o.material&&o.material.map)return;         // it brought its own texture; leave it
+    const name=(o.name||'')+' '+((o.parent&&o.parent.name)||'');
+    for(const [re,m] of table){ if(re.test(name)){o.material=m;return;} }
+    if(fallback)o.material=fallback;
+  });
+}
+// paint it, then size and place it exactly where the built-in shape sat
+function skinAndFit(kind,root,target){
+  const skin=MODEL_SKINS[kind]||[[],null];
+  paintModel(root,skin[0],skin[1]);
+  return fitToBox(root,target);
+}
+function loadModel(file,onReady){
+  if(!THREE.GLTFLoader)return;
+  new THREE.GLTFLoader().load('models/'+file,
+    g=>{ try{ onReady(g.scene||g.scenes[0]); }catch(e){ console.warn('model '+file+' failed to fit',e); } },
+    undefined,
+    ()=>{ /* no such file — keep the built-in shape */ });
+}
+// measured now, while everything is still at rest and unrotated, because the file
+// may not arrive until the rider is already carving
+const BOARD_BOX=boxOf(boardArt);
+loadModel('board.glb',s=>{
+  const fitted=skinAndFit('board',s,BOARD_BOX);
+  boardArt.clear ? boardArt.clear() : (boardArt.children.length=0);
+  boardArt.add(fitted);
+});
 
 // ---- jointed surfer rig: pelvis > spine > chest > neck > head, with hip/knee/ankle + shoulder/elbow chains ----
 const pug=new THREE.Group();
@@ -560,6 +661,14 @@ const armBackJ=makeArm(0.56,0.06);
 pug.position.set(pgx,0,pgz);   // centred over the board's balance point
 pug.rotation.y=STANCE_ROT;   // side-on to the board, angled slightly toward the nose
 rig.add(pug);
+// A pug model replaces the built-in one wholesale; the joint chain above it is
+// detached, so an imported dog rides rigid rather than paddling and leaning.
+const PUG_BOX=boxOf(pug);
+loadModel('pug.glb',s3=>{
+  const fitted=skinAndFit('pug',s3,PUG_BOX);
+  pug.clear ? pug.clear() : (pug.children.length=0);
+  pug.add(fitted);
+});
 const PUG_HOME={x:pug.position.x,y:pug.position.y,z:pug.position.z};
 player.add(rig);
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
@@ -1010,6 +1119,20 @@ function makeObstacle(kind,x,z){
   m.traverse&&m.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
   scene.add(m);obstacles.push(m);
 }
+// Each obstacle can be replaced the same way. The template is built first so the
+// model can be measured against it, then it becomes the thing every future spawn is
+// cloned from. Its collision size and float height carry over untouched; the
+// hand-animated parts (the jelly's bell, the octopus's arms) do not exist in an
+// imported mesh, so those clones simply drift.
+for(const kind of ['buoy','jelly','log','bigfin','ramp','octopus'])(k=>{
+  loadModel(k+'.glb',s3=>{
+    if(!OBST_TEMPLATES[k])OBST_TEMPLATES[k]=buildObstacle(k);
+    const t=OBST_TEMPLATES[k];
+    const fitted=skinAndFit(k,s3,boxOf(t));
+    fitted.userData={kind:k,r:t.userData.r,h:t.userData.h,ramp:t.userData.ramp,used:false};
+    OBST_TEMPLATES[k]=fitted;
+  });
+})(kind);
 
 // ---------- state ----------
 let running=false,tNow=0,last=0,speed=22,score=0,best=0,waveClock=0,lastEff=22;
@@ -1728,6 +1851,12 @@ function buildJetSki(){
 }
 const jetSki=buildJetSki();
 scene.add(jetSki);
+const SKI_BOX=boxOf(jetSki);
+loadModel('jetski.glb',s3=>{
+  const fitted=skinAndFit('jetski',s3,SKI_BOX);
+  jetSki.clear ? jetSki.clear() : (jetSki.children.length=0);
+  jetSki.add(fitted);
+});
 let skiT=16, skiOn=false, skiDir=1, skiWake=null;
 function spawnJetSki(){
   skiOn=true;

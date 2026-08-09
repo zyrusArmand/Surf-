@@ -37,6 +37,8 @@ bounce you, and buoys, logs and shark fins end the run.
 - `index.html` — the whole game (markup, styles, and logic in one file)
 - `vendor/three.min.js` — three.js r128, vendored so the page works offline and
   depends on no third-party host
+- `vendor/GLTFLoader.js` — the glTF loader from the same release, for imported models
+- `models/` — drop a `.glb` here to replace a built-in shape (see `models/README.md`)
 - `.github/workflows/pages.yml` — publishes the repo root to GitHub Pages
 
 ## Versions
@@ -44,6 +46,13 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.21.0** — Blender models can be dropped straight into the game. Put a `.glb`
+  in `models/` and it replaces the built-in shape — board, pug, buoy, log, jellyfish,
+  ramp, octopus, shark fin or jet ski — while a missing file just leaves the
+  procedural version in place. Each import is measured against the shape it replaces
+  and rescaled, turned onto the same long axis and centred where the original sat, so
+  an export at any size or orientation drops in correctly. Untextured parts are
+  painted from the game's palette by object name. See `models/README.md`.
 - **v1.20.0** — The jet ski crosses far out now, so its wake has a long run to build:
   born around 110 units out, it grows the whole way in and arrives about 23 times the
   height of the surrounding swell.
