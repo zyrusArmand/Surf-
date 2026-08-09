@@ -93,7 +93,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.5.0';
+const VERSION='1.6.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -634,48 +634,67 @@ rope.visible=false;scene.add(rope);
 
 // ---------- realistic obstacles ----------
 const obstacles=[];
-// One arm segment. The cylinder gets its suckers pressed into the mesh itself —
-// two rows of bumps on the inner face of the curl — so a whole arm is still only
-// as many draw calls as it has segments.
+// Arm segment. Suckers are pressed into the mesh and painted through a vertex
+// colour attribute, so they read as the contrasting discs of the reference while a
+// whole arm still costs only one draw call per segment.
+const ARM_SKIN=vivid(0x8a5fd0,1.20), ARM_SUCKER=vivid(0xff9c3c,1.60);
+const _cTmp=new THREE.Color();
 function armSegment(rTop,rBot,len,mtl){
-  const g=new THREE.CylinderGeometry(rTop,rBot,len,16,12,false);
+  const g=new THREE.CylinderGeometry(rTop,rBot,len,18,14,false);
   const pos=g.attributes.position;
+  const cols=new Float32Array(pos.count*3);
   for(let i=0;i<pos.count;i++){
     const x=pos.getX(i),y=pos.getY(i),z=pos.getZ(i);
-    const rad=Math.hypot(x,z); if(rad<1e-5)continue;
-    const th=Math.atan2(z,x);
-    const inner=Math.max(0,Math.cos(th+Math.PI/2));          // arms curl toward -z
-    const rows=Math.pow(Math.max(0,Math.sin((y/len+0.5)*Math.PI*4.0)),6);
-    const amp=rad*0.34*Math.pow(inner,3)*rows;
-    pos.setX(i,x+(x/rad)*amp); pos.setZ(i,z+(z/rad)*amp);
+    const rad=Math.hypot(x,z);
+    let k=0;
+    if(rad>1e-5){
+      const th=Math.atan2(z,x);
+      const inner=Math.max(0,Math.cos(th+Math.PI/2));          // arms curl toward -z
+      const rows=Math.pow(Math.max(0,Math.sin((y/len+0.5)*Math.PI*4.0)),6);
+      k=Math.pow(inner,3)*rows;
+      const amp=rad*0.40*k;
+      pos.setX(i,x+(x/rad)*amp); pos.setZ(i,z+(z/rad)*amp);
+    }
+    _cTmp.copy(ARM_SKIN).lerp(ARM_SUCKER,Math.min(1,k*2.6));
+    cols[i*3]=_cTmp.r;cols[i*3+1]=_cTmp.g;cols[i*3+2]=_cTmp.b;
   }
+  g.setAttribute('color',new THREE.BufferAttribute(cols,3));
   g.computeVertexNormals();
   const m=new THREE.Mesh(g,mtl);
   m.position.y=-len/2;
   return m;
 }
-// A jointed arm: eight nested groups, each one bending a little more than the last.
-// Resting bends give the coiled shape; the animation walks a wave down the chain,
-// which is what makes it swirl instead of swinging as one rigid piece.
-function buildArm(armIndex,angle,skin){
+// A jointed arm. Every arm gets its own splay, coil, length and tip direction, and
+// every joint carries its own pair of frequencies, phases and amplitudes — so the
+// motion never lines up between arms and never repeats on a tidy loop.
+function buildArm(armIndex,angle,mtl){
   const root=new THREE.Group();
   root.rotation.y=angle;
-  const SEGS=8;
+  const SEGS=9;
+  const R=()=>Math.random();
+  const splay=0.86+R()*0.55;                 // how far out this arm throws
+  const coil =0.13+R()*0.11;                 // how tightly it curls along its length
+  const flick=(R()<0.5?-1:1)*(0.9+R()*0.9);  // some tips hook back the other way
+  const lenK =0.92+R()*0.34;
   let parent=root;
   for(let j=0;j<SEGS;j++){
     const t=j/(SEGS-1);
-    const len=0.42-0.20*t;
-    const rTop=0.185-0.150*Math.pow(t,0.85);
-    const rBot=0.185-0.150*Math.pow((j+1)/(SEGS-1),0.85);
+    const len=(0.44-0.20*t)*lenK;
+    const rTop=0.240-0.205*Math.pow(t,0.85);
+    const rBot=0.240-0.205*Math.pow(Math.min(1,(j+1)/(SEGS-1)),0.85);
     const joint=new THREE.Group();
-    // first joint throws the arm outward, the rest tighten into a coil
-    const rx = j===0 ? 1.02 : 0.155+0.030*j;
-    const ry = (j%2?1:-1)*0.055;
-    const rz = 0;
+    // first joint throws the arm outward; the rest coil, with the last few
+    // curling back on themselves into the hooks the reference has
+    const rx = j===0 ? splay : coil*(j>=SEGS-3 ? flick : 1);
+    const ry = (R()-0.5)*0.26;
+    const rz = (R()-0.5)*0.14;
     joint.rotation.set(rx,ry,rz);
-    joint.userData={tj:1,arm:armIndex,seg:j,rx,ry,rz};
+    joint.userData={tj:1,arm:armIndex,seg:j,rx,ry,rz,
+      f1:0.75+R()*0.95, f2:0.45+R()*0.75,      // two unrelated rates per joint
+      p1:R()*Math.PI*2, p2:R()*Math.PI*2,
+      a1:0.10+R()*0.13, a2:0.09+R()*0.14};
     parent.add(joint);
-    joint.add(armSegment(rTop,Math.max(0.022,rBot),len,skin));
+    joint.add(armSegment(rTop,Math.max(0.022,rBot),len,mtl));
     const next=new THREE.Group();
     next.position.y=-len;
     joint.add(next);
@@ -685,63 +704,65 @@ function buildArm(armIndex,angle,skin){
 }
 function buildOctopus(){
   const g=new THREE.Group();
-  // one deep purple animal, mottled rather than candy-coloured
-  const skin  =PBR({color:0x7d54c4,roughness:0.62,metalness:0.0,envMapIntensity:0.7,vivid:1.15});
-  const skinDk=PBR({color:0x4e2f86,roughness:0.66,vivid:1.10});
-  const skinLt=PBR({color:0x9c7ad8,roughness:0.60,vivid:1.10});
+  const skin  =PBR({color:0x8a5fd0,roughness:0.58,metalness:0.0,envMapIntensity:0.75,vivid:1.20});
+  const skinDk=PBR({color:0x5a3596,roughness:0.62,vivid:1.15});
+  const skinLt=PBR({color:0xa885e2,roughness:0.58,vivid:1.15});
   const iris  =PBR({color:0xc9a03c,roughness:0.30,metalness:0.10,envMapIntensity:1.1,vivid:1.2});
   const black =PBR({color:0x0d0a12,roughness:0.14,metalness:0.05});
+  const armMat=new THREE.MeshStandardMaterial({vertexColors:true,color:0xffffff,
+    roughness:0.58,metalness:0.0});
+  armMat.envMapIntensity=0.42;
 
-  // mantle: a soft egg, heavier at the brow and drawn in where the arms gather
+  // a broad round dome — wider than it is tall, drawn in at the base where the
+  // arms gather, rather than the upright egg it was
   const headGeo=new THREE.SphereGeometry(1,72,54);
   {
     const pos=headGeo.attributes.position;
     for(let i=0;i<pos.count;i++){
       const x=pos.getX(i),y=pos.getY(i),z=pos.getZ(i);
-      const u=Math.max(0,Math.min(1,(y+1)/2));           // 0 = under, 1 = crown
-      const pinch=0.66+0.34*Math.pow(u,0.5);
-      const taper=1.0-0.16*Math.pow(Math.max(0,u-0.55)/0.45,1.8);   // narrows to the tip
-      pos.setX(i,x*pinch*taper*0.94);
-      pos.setZ(i,z*pinch*taper*1.02+0.06*Math.pow(u,2));            // mantle leans back
-      pos.setY(i,y*1.22+0.10);
+      const u=Math.max(0,Math.min(1,(y+1)/2));
+      const pinch=0.66+0.34*Math.pow(u,0.40);       // narrow underneath, full above
+      pos.setX(i,x*pinch*1.12);
+      pos.setZ(i,z*pinch*1.04);
+      pos.setY(i,y*0.94+0.06);
     }
     headGeo.computeVertexNormals();
   }
   const head=new THREE.Mesh(headGeo,skin);
-  head.scale.setScalar(0.92);head.position.y=1.34;
+  head.scale.setScalar(1.02);head.position.y=1.22;
   g.add(head);
-  // papillae: raised skin texture, same family of colours as the body
-  for(let i=0;i<22;i++){
-    const a=Math.random()*Math.PI*2, rr=0.20+Math.random()*0.55;
-    const bump=new THREE.Mesh(new THREE.SphereGeometry(0.035+Math.random()*0.055,12,10),
+  // papillae across the dome
+  for(let i=0;i<20;i++){
+    const a=Math.random()*Math.PI*2, rr=0.18+Math.random()*0.55;
+    const bump=new THREE.Mesh(new THREE.SphereGeometry(0.038+Math.random()*0.055,12,10),
       Math.random()<0.45?skinDk:skinLt);
     const h=Math.sqrt(Math.max(0,1.0-rr*rr));
-    bump.position.set(Math.cos(a)*rr*0.86,1.34+h*1.02,Math.sin(a)*rr*0.90);
-    bump.scale.set(1,0.45,1);
+    bump.position.set(Math.cos(a)*rr*0.95,1.22+h*0.92,Math.sin(a)*rr*0.92);
+    bump.scale.set(1,0.42,1);
     g.add(bump);
   }
-  // brow ridge and a real eye: domed lid, amber iris, horizontal slit pupil
+  // eyes kept realistic: domed lid and brow over an amber eye with a slit pupil
   for(const sx of [-1,1]){
-    const lid=new THREE.Mesh(new THREE.SphereGeometry(0.29,26,20),skin);
-    lid.position.set(sx*0.50,1.36,-0.40);lid.scale.set(0.95,0.86,0.80);g.add(lid);
-    const brow=new THREE.Mesh(new THREE.SphereGeometry(0.17,18,14),skinDk);
-    brow.position.set(sx*0.50,1.55,-0.44);brow.scale.set(1.35,0.55,0.85);g.add(brow);
-    const ball=new THREE.Mesh(new THREE.SphereGeometry(0.185,24,18),iris);
-    ball.position.set(sx*0.56,1.33,-0.55);ball.scale.set(0.92,0.92,0.70);g.add(ball);
-    const slit=new THREE.Mesh(new THREE.SphereGeometry(0.145,20,14),black);
-    slit.position.set(sx*0.58,1.33,-0.63);slit.scale.set(1.0,0.30,0.42);g.add(slit);
+    const lid=new THREE.Mesh(new THREE.SphereGeometry(0.34,26,20),skin);
+    lid.position.set(sx*0.44,1.30,-0.76);lid.scale.set(0.98,0.90,0.78);g.add(lid);
+    const brow=new THREE.Mesh(new THREE.SphereGeometry(0.19,18,14),skinDk);
+    brow.position.set(sx*0.44,1.52,-0.66);brow.scale.set(1.35,0.55,0.85);g.add(brow);
+    const ball=new THREE.Mesh(new THREE.SphereGeometry(0.215,24,18),iris);
+    ball.position.set(sx*0.47,1.28,-0.90);ball.scale.set(0.92,0.92,0.70);g.add(ball);
+    const slit=new THREE.Mesh(new THREE.SphereGeometry(0.170,20,14),black);
+    slit.position.set(sx*0.49,1.28,-0.99);slit.scale.set(1.0,0.30,0.42);g.add(slit);
   }
-  // siphon tucked under the mantle
   const siphon=new THREE.Mesh(new THREE.CylinderGeometry(0.085,0.115,0.30,14),skinDk);
-  siphon.position.set(0.30,0.92,-0.44);siphon.rotation.set(-0.75,0,-0.35);g.add(siphon);
+  siphon.position.set(0.32,0.86,-0.46);siphon.rotation.set(-0.75,0,-0.35);g.add(siphon);
 
-  // eight long arms
   for(let i=0;i<8;i++){
-    const arm=buildArm(i,(i/8)*Math.PI*2+Math.PI/8,skin);
-    arm.position.y=0.52;
+    const a=(i/8)*Math.PI*2+Math.PI/8;
+    const arm=buildArm(i,a,armMat);
+    // sit each root out under the rim of the dome so they fan out from the body
+    arm.position.set(-Math.sin(a)*0.26,0.50,-Math.cos(a)*0.26);
     g.add(arm);
   }
-  const wash=new THREE.Mesh(new THREE.CircleGeometry(1.6,28),
+  const wash=new THREE.Mesh(new THREE.CircleGeometry(1.7,28),
     new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.16,depthWrite:false}));
   wash.rotation.x=-Math.PI/2;wash.position.y=0.10;g.add(wash);
   g.userData.washIdx=g.children.indexOf(wash);
@@ -901,6 +922,7 @@ function makeObstacle(kind,x,z){
     m.userData.acc=0.20+Math.random()*0.70;
     m.userData.throwT=0.5+Math.random()*0.7;
     m.userData.t=Math.random()*6;
+    m.userData.seed=Math.random()*Math.PI*2;   // no two octopuses wave in step
     // collect the arm joints of this clone so the wave can be driven down each arm
     const joints=[];
     m.traverse(o=>{if(o.userData&&o.userData.tj)joints.push(o);});
@@ -2125,10 +2147,13 @@ function update(dt){
       // three axes run at different rates so the tips coil and uncoil as they sweep
       for(let k=0;k<u.joints.length;k++){
         const j=u.joints[k], d=j.userData;
-        const ph=d.arm*0.85;
-        j.rotation.x=d.rx+Math.sin(u.t*1.75-d.seg*0.80+ph)*0.145;
-        j.rotation.y=d.ry+Math.sin(u.t*1.25-d.seg*0.62+ph*1.3)*0.185;
-        j.rotation.z=d.rz+Math.cos(u.t*1.50-d.seg*0.71+ph*0.6)*0.115;
+        // two unrelated rates per joint, so the sum never repeats on a neat loop,
+        // plus a lag down the arm and a per-animal offset — flowing, not metronomic
+        const t1=u.t*d.f1+d.p1+u.seed, t2=u.t*d.f2+d.p2+u.seed*1.7;
+        const lag=d.seg*0.62;
+        j.rotation.x=d.rx+Math.sin(t1-lag)*d.a1+Math.sin(t2*0.63-lag*0.5)*d.a1*0.55;
+        j.rotation.y=d.ry+Math.sin(t2-lag*0.8)*d.a2+Math.cos(t1*0.41)*d.a2*0.45;
+        j.rotation.z=d.rz+Math.cos((t1+t2)*0.5-lag*0.7)*d.a1*0.75;
       }
       // only throws while it is close enough to be a threat
       if(o.position.z>-72&&o.position.z<-7){

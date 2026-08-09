@@ -44,6 +44,11 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.6.0** — Octopus reshaped to the reference: a broad round dome instead of an
+  upright egg, arms fanning from around its rim with contrasting orange suckers, and
+  nine joints per arm. Every arm gets its own splay, coil, length and tip hook, and
+  every joint its own pair of rates, phases and amplitudes, so the motion flows,
+  never repeats on a loop, and no two octopuses wave in step.
 - **v1.5.0** — Distance travelled shown in the HUD and on the wipeout card. Jumping
   onto a jellyfish now bounces reliably — any airborne contact above the bell counts,
   rising or falling, and the contact window widens with speed. A splat can no longer
