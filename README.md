@@ -44,6 +44,10 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.19.0** — The wake is now a towering set wave — about sixteen times the height of
+  the surrounding swell, broader, and building over a longer approach, with the same
+  water shading and foam as before. The camera's height is measured from the water under
+  the rider rather than from zero, so a big face lifts it instead of swallowing it.
 - **v1.18.0** — The jet ski's wake is no longer a separate object. It is added straight
   into the ocean's own height field as a broad ridge, so the water shader lights it,
   foams it and fogs it exactly like every other wave — it simply arrives several times

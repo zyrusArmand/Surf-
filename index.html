@@ -104,7 +104,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.18.0';
+const VERSION='1.19.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -185,7 +185,7 @@ const ENV_BASE=0.32, ENV_SWING=0.68;      // envelope floor and how far it breat
 // is added straight into the height field as a broad ridge, so the ocean shader
 // lights it, foams it and fogs it exactly like every other wave, and the board and
 // every floating thing ride over it for free.
-const WK_SIGMA=7.0, WK_HALF=26.0;
+const WK_SIGMA=15.0, WK_HALF=54.0;
 let wkZ=0, wkA=0, wkX=0;                  // field-space centre, height, lateral centre
 function wakeBump(x,z){
   if(wkA<=0.001)return 0;
@@ -257,13 +257,13 @@ const oceanMat=new THREE.ShaderMaterial({
       // the jet ski's wake, folded into the same surface
       if(uWakeA>0.001){
         float dz=p.y-uWakeZ;
-        float ez=exp(-(dz*dz)/(2.0*49.0));
-        float ax=clamp(1.0-abs(p.x-uWakeX)/26.0,0.0,1.0);
+        float ez=exp(-(dz*dz)/(2.0*${(WK_SIGMA*WK_SIGMA).toFixed(2)}));
+        float ax=clamp(1.0-abs(p.x-uWakeX)/${WK_HALF.toFixed(1)},0.0,1.0);
         float ex=ax*ax*(3.0-2.0*ax);
         h   += uWakeA*ez*ex;
-        dhz += uWakeA*ex*ez*(-dz/49.0);
+        dhz += uWakeA*ex*ez*(-dz/${(WK_SIGMA*WK_SIGMA).toFixed(2)});
         float sg=(p.x-uWakeX)>=0.0?1.0:-1.0;
-        float dex=(ax>0.0&&ax<1.0)?(6.0*ax*(1.0-ax))*(-sg/26.0):0.0;
+        float dex=(ax>0.0&&ax<1.0)?(6.0*ax*(1.0-ax))*(-sg/${WK_HALF.toFixed(1)}):0.0;
         dhx += uWakeA*ez*dex;
       }
       // phase of the two main swells — constant along a moving crest
@@ -1769,16 +1769,16 @@ function updateJetSki(dt,eff){
   if(skiWake){
     skiWake.life-=dt;
     skiWake.z+=(eff*0.42+13)*dt;
-    const grow=Math.max(0,Math.min(1,1-(-skiWake.z)/46));
+    const grow=Math.max(0,Math.min(1,1-(-skiWake.z)/62));   // builds over a long approach
     const fade=Math.max(0,Math.min(1,skiWake.life/1.4));
     // a swell several times the height of the surrounding sea, in the same water
-    wkA=4.6*grow*fade;
+    wkA=15.5*grow*fade;
     wkZ=dist*WAVE_DRIFT+skiWake.z;
     wkX=skiWake.x;
     skiWake.H=wkA;
     if(!skiWake.hit&&skiWake.z>pz-2.6&&skiWake.z<pz+3.0&&!airborne&&!hanging){
       skiWake.hit=true;
-      vy=Math.min(19,8.5+wkA*1.5); airborne=true;
+      vy=Math.min(26,9.0+wkA*0.90); airborne=true;
       score+=120;boost=Math.min(16,boost+4);
       msg('WAKE LAUNCH! +120');
       shake=1.8;
@@ -2456,7 +2456,7 @@ function update(dt){
   waveAmp=Math.max(0.34, base+setNoise(waveClock)*swing);
   WAVE_DRIFT=0.46+stage*0.16;                 // rolls past a little quicker later on
   oceanUniforms.uAmp.value=waveAmp;
-  oceanUniforms.uPeak.value=1.58*waveAmp+wkA*0.78;   // so only the wake's crest foams   // total wave height, so foam thresholds track the swell
+  oceanUniforms.uPeak.value=1.58*waveAmp+wkA*0.60;   // so only the wake's crest foams   // total wave height, so foam thresholds track the swell
   // sets: the swell surges and eases instead of ticking at one constant rate
   waveClock += dt*(1.0 + 0.55*Math.sin(tNow*0.045) + 0.28*Math.sin(tNow*0.017+1.3));
   oceanUniforms.uT.value=waveClock;
@@ -2474,12 +2474,16 @@ function update(dt){
   // a wake launch or the plane tow.
   const airH=Math.max(0,py-waterY);
   const flying=airborne||hanging||airH>0.6;
-  camY+=((5.0+py*0.12+airH*0.62)-camY)*Math.min(1,dt*(flying?4.6:1.6));
+  // Height is measured from the water under the rider, not from zero. On a big
+  // swell the sea itself rises many units, and a camera anchored to zero ends up
+  // underneath it looking out through the inside of the wave.
+  camY+=((waterY+4.9+airH*0.62)-camY)*Math.min(1,dt*(flying?4.6:1.6));
+  camY=Math.max(camY,waterY+2.3);            // never let a fast-building face swallow it
   // follow his fore/aft travel only partly, so it reads on screen instead of the
   // camera cancelling it out and pinning him to one spot again
   camZ+=((11.0+eff*0.05+airH*0.22+pz*0.42)-camZ)*Math.min(1,dt*2.4);
   camera.position.set(camX,camY,camZ);
-  camera.lookAt(lookX,1.1+py*0.25+airH*0.30,-14);
+  camera.lookAt(lookX,waterY+1.05+airH*0.30,-14);
 
   hScore.textContent=score|0;
   hDist.textContent=(dist|0)+' m';
