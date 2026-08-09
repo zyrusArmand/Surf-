@@ -104,7 +104,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.9.0';
+const VERSION='1.10.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2377,9 +2377,16 @@ function update(dt){
   camX+=(px-camX)*Math.min(1,dt*7);     // camera sits directly behind him
   lookX+=(px-lookX)*Math.min(1,dt*7);   // and looks straight down the line
   camera.up.set(0,1,0);
-  camY+=((5.0+py*0.12)-camY)*Math.min(1,dt*1.6);   // lags the swell so the board visibly rises and drops
-  camera.position.set(camX,camY,11.0+eff*0.05);
-  camera.lookAt(lookX,1.1+py*0.25,-14);
+  // On the water the camera only loosely tracks the swell, so the board visibly
+  // rises and drops against it. Off the water it follows most of the way up —
+  // not the whole height, so the air still reads as air — and it chases faster,
+  // eases back a little and lifts its aim, keeping him framed on a ramp, a jump,
+  // a wake launch or the plane tow.
+  const airH=Math.max(0,py-waterY);
+  const flying=airborne||hanging||airH>0.6;
+  camY+=((5.0+py*0.12+airH*0.62)-camY)*Math.min(1,dt*(flying?4.6:1.6));
+  camera.position.set(camX,camY,11.0+eff*0.05+airH*0.22);
+  camera.lookAt(lookX,1.1+py*0.25+airH*0.30,-14);
 
   hScore.textContent=score|0;
   hDist.textContent=(dist|0)+' m';

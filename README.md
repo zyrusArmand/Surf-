@@ -44,6 +44,10 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.10.0** — The camera rises with you. On the water it still only loosely tracks
+  the swell so the board visibly lifts and drops, but off it — jump, ramp, wake launch
+  or plane tow — it follows most of the way up, chases faster, eases back and lifts its
+  aim, keeping you framed instead of drifting toward the top of the screen.
 - **v1.9.0** — Waves build and fade as they roll in instead of a rigid pattern
   sliding past: every component now carries a travelling envelope, so the sea comes
   in sets with quiet stretches between. Crashes carry real momentum — forward speed
