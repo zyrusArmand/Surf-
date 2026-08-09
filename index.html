@@ -104,7 +104,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.15.0';
+const VERSION='1.16.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1576,6 +1576,10 @@ function spawnSeaLife(){
   o.userData.vx=Math.sin(ang)*spd;
   o.userData.vzOwn=Math.cos(ang)*spd;
   o.userData.ang=ang;
+  o.userData.spd=spd;
+  // most of them hunt: they turn onto the rider over time, but the heading is
+  // held off the straight line so they close on a slant rather than head-on
+  o.userData.track=Math.random()<0.55;
   o.rotation.y=ang;
   o.userData.dir=dir;o.userData.t=0;o.userData.wob=Math.random()*7;
   scene.add(o);seaLife.push(o);
@@ -1586,6 +1590,16 @@ function updateSeaLife(dt,eff){
   for(let i=seaLife.length-1;i>=0;i--){
     const o=seaLife[i],u=o.userData;
     u.t+=dt;
+    if(u.track){
+      // steer toward where the rider is, at a limited turn rate
+      let d=Math.atan2(px-o.position.x, pz-o.position.z)-u.ang;
+      while(d>Math.PI)d-=Math.PI*2; while(d<-Math.PI)d+=Math.PI*2;
+      let a=u.ang+Math.max(-0.55*dt,Math.min(0.55*dt,d));
+      const MIN=0.42;                          // never quite straight down the line
+      if(Math.abs(a)<MIN)a=(a<0?-1:1)*MIN;
+      u.ang=a;
+      u.vx=Math.sin(a)*u.spd; u.vzOwn=Math.cos(a)*u.spd;
+    }
     o.position.x+=u.vx*dt;
     o.position.z+=eff*dt*0.5 + u.vzOwn*dt;
     const base=swellH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock);

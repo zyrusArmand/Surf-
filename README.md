@@ -44,6 +44,9 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.16.0** — Shark fins hunt you again. Removing the head-on ones in v1.15.0 took
+  their tracking with it; most fins now turn onto the rider at a limited rate while a
+  floor on the heading keeps the approach angled rather than straight down the line.
 - **v1.15.0** — The board floats like a hull: the water is sampled under its nose, tail
   and both rails, and it rests on the highest of them and lies along that surface, so
   waves no longer cut through it. The screen splat gets its own render pass so it stops
