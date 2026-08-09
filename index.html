@@ -93,7 +93,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.6.0';
+const VERSION='1.7.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1317,10 +1317,10 @@ const skyDome=new THREE.Mesh(
         c=mix(c,uTop,smoothstep(0.25,0.85,h));
         // warm glow blooming out of the sun's spot on the horizon
         float d=distance(vec2(vP.x,vP.y*1.7),vec2(uSunX,0.10));
-        c=mix(c,uGlow,uGlowAmt*smoothstep(1.5,0.05,d));
+        c=mix(c,uGlow,uGlowAmt*smoothstep(0.90,0.03,d));
         // streaky sunset cloud bands low in the sky
         float band=sin(vP.y*46.0)*0.5+0.5;
-        float lowband=smoothstep(0.42,0.02,h)*band*uGlowAmt*0.35;
+        float lowband=smoothstep(0.34,0.02,h)*band*uGlowAmt*0.22;
         c=mix(c,uGlow,lowband);
         c=pow(clamp(c,0.0,1.0),vec3(2.2));
         gl_FragColor=vec4(c,1.0);
@@ -1329,26 +1329,43 @@ const skyDome=new THREE.Mesh(
 );
 skyDome.renderOrder=-20;scene.add(skyDome);
 const SKY_KEYS=[
-  {t:0.00, top:0x3f8fd6, mid:0x8fd2f5, hz:0xd8eefb, glow:0xfff4dc, gAmt:0.10, sunX:-0.45, sunY:0.72},
-  {t:0.40, top:0x3a8ad2, mid:0x8fd2f5, hz:0xe6f4fd, glow:0xfff0cf, gAmt:0.16, sunX:-0.30, sunY:0.78},
-  {t:0.70, top:0x4a86c8, mid:0x9cd0ee, hz:0xffd9a8, glow:0xffb765, gAmt:0.55, sunX:0.05, sunY:0.42},
-  {t:0.88, top:0x5b6fae, mid:0xc98db2, hz:0xff9c62, glow:0xff8a4a, gAmt:0.80, sunX:0.25, sunY:0.24},
-  {t:1.00, top:0x4b4d8f, mid:0xd07c9a, hz:0xff7a4e, glow:0xff6a3a, gAmt:0.95, sunX:0.38, sunY:0.14},
+  {t:0.00, top:0x3f8fd6, mid:0x8fd2f5, hz:0xd8eefb, glow:0xfff6e2, gAmt:0.10, sunX:-0.50, sunY:0.80},
+  {t:0.30, top:0x3b8ad4, mid:0x93d4f4, hz:0xeaf6fd, glow:0xfff0c8, gAmt:0.16, sunX:-0.32, sunY:0.64},
+  {t:0.52, top:0x4088cf, mid:0xa9d6ef, hz:0xffe6bd, glow:0xffd287, gAmt:0.26, sunX:-0.12, sunY:0.44},
+  {t:0.70, top:0x3f7cc0, mid:0xb9b6dd, hz:0xffbe86, glow:0xffab5a, gAmt:0.36, sunX:0.08, sunY:0.28},
+  {t:0.86, top:0x3a5fa6, mid:0xc294bb, hz:0xff9a63, glow:0xff8b45, gAmt:0.46, sunX:0.24, sunY:0.16},
+  {t:1.00, top:0x2f4a86, mid:0xbe7b9c, hz:0xff7f4c, glow:0xff6f34, gAmt:0.55, sunX:0.36, sunY:0.07},
 ];
 const skyLayer=new THREE.Group();scene.add(skyLayer);
-const sunDisc=new THREE.Mesh(new THREE.SphereGeometry(6.5,26,20),
+// The sun is a sky element only: three additive shells over a bright core, all with
+// depth testing off and negative render order, so they are painted before the world
+// and everything else draws straight over them. No light in the scene is touched.
+function sunShell(size,opacity,order,falloff){
+  const mat=new THREE.ShaderMaterial({
+    uniforms:{uColor:{value:new THREE.Color(0xffd9a0)},uOpacity:{value:opacity},uPow:{value:falloff}},
+    transparent:true,depthTest:false,depthWrite:false,blending:THREE.AdditiveBlending,
+    vertexShader:'varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+    fragmentShader:'varying vec2 vUv; uniform vec3 uColor; uniform float uOpacity; uniform float uPow;'+
+      'void main(){ float d=length(vUv-0.5)*2.0; float a=pow(max(0.0,1.0-d),uPow);'+
+      ' gl_FragColor=vec4(uColor*a, a*uOpacity); }'
+  });
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(size,size),mat);
+  m.renderOrder=order;skyLayer.add(m);return m;
+}
+const sunGlowOuter=sunShell(300,0.55,-14,2.6);
+const sunGlowInner=sunShell(120,0.70,-13,2.0);
+const sunDisc=new THREE.Mesh(new THREE.SphereGeometry(10.5,30,22),
   new THREE.MeshBasicMaterial({color:0xfff3cf,depthTest:false,depthWrite:false,transparent:true}));
-sunDisc.renderOrder=-9;skyLayer.add(sunDisc);
-const sunHalo=new THREE.Mesh(new THREE.SphereGeometry(16,20,16),
-  new THREE.MeshBasicMaterial({color:0xffd9a0,transparent:true,opacity:0.2,depthTest:false,depthWrite:false}));
-sunHalo.renderOrder=-10;skyLayer.add(sunHalo);
+sunDisc.renderOrder=-12;skyLayer.add(sunDisc);
 const moon=new THREE.Mesh(new THREE.SphereGeometry(3.4,18,14),
   new THREE.MeshBasicMaterial({color:0xf6f4ea,transparent:true,opacity:0,depthTest:false,depthWrite:false}));
-moon.renderOrder=-9;skyLayer.add(moon);
-const _cA=new THREE.Color(),_cB=new THREE.Color();
+moon.renderOrder=-11;skyLayer.add(moon);
+const _cA=new THREE.Color(),_cB=new THREE.Color(),_cSun=new THREE.Color();
 function lerpHex(a,b,k,out){out.setHex(a);_cB.setHex(b);out.lerp(_cB,k);return out;}
 function updateDayCycle(){
-  const tod=1-Math.exp(-dist/3600);
+  // paced so a normal run actually gets there: warm by a few hundred metres,
+  // golden around a kilometre, full sunset beyond that
+  const tod=1-Math.exp(-dist/1250);
   let i=0;while(i<SKY_KEYS.length-2&&tod>SKY_KEYS[i+1].t)i++;
   const A=SKY_KEYS[i],B=SKY_KEYS[i+1];
   const k=Math.max(0,Math.min(1,(tod-A.t)/(B.t-A.t)));
@@ -1358,18 +1375,31 @@ function updateDayCycle(){
   lerpHex(A.glow,B.glow,k,skyUniforms.uGlow.value);
   const sxn=A.sunX+(B.sunX-A.sunX)*k, sy=A.sunY+(B.sunY-A.sunY)*k;
   skyUniforms.uSunX.value=sxn;
-  skyUniforms.uGlowAmt.value=A.gAmt+(B.gAmt-A.gAmt)*k;
-  // sun sits in the sky, always above the horizon, drawn behind everything
+  const gAmt=A.gAmt+(B.gAmt-A.gAmt)*k;
+  skyUniforms.uGlowAmt.value=gAmt;
   skyDome.position.set(camera.position.x,0,camera.position.z);
   skyLayer.position.set(camera.position.x,0,camera.position.z);
-  sunDisc.position.set(sxn*130, 26+sy*95, -195);
-  sunDisc.material.color.copy(skyUniforms.uGlow.value);
-  sunHalo.position.copy(sunDisc.position);
-  sunHalo.material.color.copy(skyUniforms.uGlow.value);
-  sunHalo.material.opacity=0.16+skyUniforms.uGlowAmt.value*0.25;
-  // light warms very slightly so the water still reads the same
-  sun.position.set(sxn*60,Math.max(28,sy*70),-40);
-  const mo=Math.max(0,(tod-0.75)/0.25);
+  // the disc sinks toward the horizon and reddens; the core stays hotter than the
+  // glow around it so it still reads as a sun rather than a flat blob
+  const sunY=20+sy*104;
+  sunDisc.position.set(sxn*130,sunY,-195);
+  // these are plain materials, so the hand-picked colours have to be moved into
+  // linear space by hand — the sky dome's shader does its own conversion
+  _cSun.copy(skyUniforms.uGlow.value).lerp(_cA.setHex(0xffffff),0.42-gAmt*0.34);
+  if(_cSun.convertSRGBToLinear)_cSun.convertSRGBToLinear();
+  sunDisc.material.color.copy(_cSun);
+  sunDisc.scale.setScalar(1+gAmt*0.35);            // swells a little as it sits low
+  for(const sh of [sunGlowInner,sunGlowOuter]){
+    sh.position.set(sunDisc.position.x,sunDisc.position.y,sunDisc.position.z-4);
+    sh.material.uniforms.uColor.value.copy(skyUniforms.uGlow.value);
+    if(sh.material.uniforms.uColor.value.convertSRGBToLinear)
+      sh.material.uniforms.uColor.value.convertSRGBToLinear();
+  }
+  sunGlowInner.material.uniforms.uOpacity.value=0.30+gAmt*0.55;
+  sunGlowOuter.material.uniforms.uOpacity.value=0.16+gAmt*0.42;
+  // NOTE: the scene lights are deliberately left alone. Moving or warming them
+  // would repaint the ocean, the animals, the board and the pug.
+  const mo=Math.max(0,(tod-0.80)/0.20);
   moon.material.opacity=mo*0.75;
   moon.position.set(-sxn*140,120,-205);
 }

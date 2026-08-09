@@ -44,6 +44,12 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.7.0** — A visible sun and a sunset. The day cycle existed but needed ~4300 m
+  to reach golden hour, so a normal run never saw it; it now warms within a few
+  hundred metres and is a full sunset past a kilometre. The sun is a bright disc with
+  a soft radial glow that sinks and reddens as you go. Sky only: the scene lights and
+  the ocean's colours are deliberately left untouched, so the water, animals, board
+  and pug render exactly as before.
 - **v1.6.0** — Octopus reshaped to the reference: a broad round dome instead of an
   upright egg, arms fanning from around its rim with contrasting orange suckers, and
   nine joints per arm. Every arm gets its own splay, coil, length and tip hook, and
