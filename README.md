@@ -44,6 +44,12 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.8.0** — HUD split evenly across the top (score, distance, mph, best). Day now
+  begins at sunrise and arcs up before settling into the sunset. Tentacle sweep roughly
+  quadrupled so the arms visibly flow. The screen splat is sized from the viewport, so
+  it fits within a phone's width instead of swallowing the screen. Speed climbs further
+  with distance, every landed trick leaves you carrying extra speed, and leaning is a
+  real throttle with a dead zone so carving no longer nudges it.
 - **v1.7.0** — A visible sun and a sunset. The day cycle existed but needed ~4300 m
   to reach golden hour, so a normal run never saw it; it now warms within a few
   hundred metres and is a full sunset past a kilometre. The sun is a bright disc with

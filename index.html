@@ -8,8 +8,12 @@
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body { width:100%; height:100%; overflow:hidden; background:#7ec8f0; font-family:'Trebuchet MS',sans-serif; touch-action:none; }
   canvas { display:block; }
-  #hud { position:fixed; top:12px; left:14px; color:#fff; text-shadow:0 2px 4px rgba(0,40,80,.5); font-weight:bold; font-size:20px; pointer-events:none; }
-  #hud small { font-size:14px; opacity:.9; }
+  #hud { position:fixed; top:0; left:0; right:0; display:flex; justify-content:space-between;
+    padding:calc(6px + env(safe-area-inset-top,0px)) 4px 0; color:#fff; font-weight:bold;
+    text-shadow:0 2px 4px rgba(0,40,80,.55); pointer-events:none; }
+  #hud .cell { flex:1 1 0; text-align:center; }
+  #hud .lab { display:block; font-size:min(2.9vw,11px); letter-spacing:1.4px; opacity:.72; }
+  #hud .val { display:block; font-size:min(5.4vw,21px); line-height:1.15; }
   #trickmsg { position:fixed; top:22%; width:100%; text-align:center; color:#ffdf2e; font-weight:bold; font-size:30px; text-shadow:0 3px 6px rgba(0,40,80,.6); pointer-events:none; opacity:0; transition:opacity .2s; }
   .btn {
     position:fixed; user-select:none; border-radius:50%;
@@ -52,7 +56,12 @@
 </style>
 </head>
 <body>
-<div id="hud"></div>
+<div id="hud">
+  <div class="cell"><span class="lab">SCORE</span><span class="val" id="hScore">0</span></div>
+  <div class="cell"><span class="lab">DIST</span><span class="val" id="hDist">0 m</span></div>
+  <div class="cell"><span class="lab">MPH</span><span class="val" id="hSpeed">0</span></div>
+  <div class="cell"><span class="lab">BEST</span><span class="val" id="hBest">0</span></div>
+</div>
 <div id="trickmsg"></div>
 <div id="jumpBtn" class="btn hidden">JUMP</div>
 <div id="ropeBtn" class="btn">ROPE!</div>
@@ -87,13 +96,15 @@ if(typeof THREE==='undefined'){
 <script>
 if(typeof THREE!=='undefined')(() => {
 const hud=document.getElementById('hud'), trickmsg=document.getElementById('trickmsg');
+const hScore=document.getElementById('hScore'), hDist=document.getElementById('hDist');
+const hSpeed=document.getElementById('hSpeed'), hBest=document.getElementById('hBest');
 const jumpBtn=document.getElementById('jumpBtn'), ropeBtn=document.getElementById('ropeBtn');
 const trickBar=document.getElementById('trickBar');
 const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementById('flipBtn'), grabBtn=document.getElementById('grabBtn');
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.7.0';
+const VERSION='1.8.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -690,9 +701,10 @@ function buildArm(armIndex,angle,mtl){
     const rz = (R()-0.5)*0.14;
     joint.rotation.set(rx,ry,rz);
     joint.userData={tj:1,arm:armIndex,seg:j,rx,ry,rz,
-      f1:0.75+R()*0.95, f2:0.45+R()*0.75,      // two unrelated rates per joint
+      f1:0.85+R()*1.15, f2:0.55+R()*0.85,      // two unrelated rates per joint
       p1:R()*Math.PI*2, p2:R()*Math.PI*2,
-      a1:0.10+R()*0.13, a2:0.09+R()*0.14};
+      a1:0.17+R()*0.21, a2:0.16+R()*0.21,
+      k:0.45+1.15*t};                          // tips sweep far, the base barely stirs
     parent.add(joint);
     joint.add(armSegment(rTop,Math.max(0.022,rBot),len,mtl));
     const next=new THREE.Group();
@@ -949,7 +961,7 @@ let boardYaw=0,boardLean=0,boardPitch=0,camX=0,camY=5.0,lookX=0,sprayAcc=0,leanW
 let spinHeld=false,flipHeld=false,spinRot=0,flipRot=0;
 let grabOn=false,grabPts=0,grabSide=1;
 let dragOn=false,dragPts=0,dragSide=1;
-let shake=0;
+let shake=0,boost=0;
 let trick=null; // rope backflip only
 let planeT=8,planeActive=false,hanging=false,spawnT=0.4;
 let lastKind='',sameRun=0,bigFinCd=6,laneSlot=(Math.random()*5)|0;
@@ -995,11 +1007,14 @@ addEventListener('touchmove',e=>{
       if(v>1){touchX0=t.clientX-range;v=1;}       // let the swipe keep going
       if(v<-1){touchX0=t.clientX+range;v=-1;}
       steer=v;
-      // up/down on the same swipe shifts your weight along the board
-      const vr=innerHeight*0.14;
-      let w=(t.clientY-touchY0)/vr;
-      if(w>1){touchY0=t.clientY-vr;w=1;}
-      if(w<-1){touchY0=t.clientY+vr;w=-1;}
+      // Up/down shifts weight, but only once you move deliberately: a dead zone
+      // keeps the wobble in a sideways carve from nudging the nose or tail.
+      const vr=innerHeight*0.17, dead=innerHeight*0.05;
+      const dy=t.clientY-touchY0;
+      let w=0;
+      if(Math.abs(dy)>dead)w=(dy-Math.sign(dy)*dead)/vr;
+      if(w>1){touchY0=t.clientY-vr-dead;w=1;}
+      if(w<-1){touchY0=t.clientY+vr+dead;w=-1;}
       weight=w;
     }
   }
@@ -1025,10 +1040,12 @@ addEventListener('mousemove',e=>{
   if(v>1){mouseX0=e.clientX-range;v=1;}
   if(v<-1){mouseX0=e.clientX+range;v=-1;}
   steer=v;
-  const vr=innerHeight*0.14;
-  let w=(e.clientY-mouseY0)/vr;
-  if(w>1){mouseY0=e.clientY-vr;w=1;}
-  if(w<-1){mouseY0=e.clientY+vr;w=-1;}
+  const vr=innerHeight*0.17, dead=innerHeight*0.05;
+  const dy=e.clientY-mouseY0;
+  let w=0;
+  if(Math.abs(dy)>dead)w=(dy-Math.sign(dy)*dead)/vr;
+  if(w>1){mouseY0=e.clientY-vr-dead;w=1;}
+  if(w<-1){mouseY0=e.clientY+vr+dead;w=-1;}
   weight=w;
 });
 function endMouseDrag(){ if(mouseDrag){mouseDrag=false;steer=0;weight=0;} }
@@ -1091,14 +1108,14 @@ function startDrag(){
 function endDrag(){
   if(dragOn){
     const p=Math.round(dragPts);
-    if(p>=25){score+=p;msg(`HAND DRAG! +${p}`);}
+    if(p>=25){score+=p;boost=Math.min(16,boost+2.5);msg(`HAND DRAG! +${p}`);}
     dragOn=false;dragPts=0;releaseKick=0.30;
   }
 }
 function endGrab(){
   if(grabOn){
     const p=Math.round(grabPts);
-    if(p>=30){score+=p;msg(`${grabSide>0?'INDY':'MELON'} GRAB! +${p}`);}
+    if(p>=30){score+=p;boost=Math.min(16,boost+3);msg(`${grabSide>0?'INDY':'MELON'} GRAB! +${p}`);}
     grabOn=false;grabPts=0;releaseKick=0.35;
   }
 }
@@ -1112,6 +1129,7 @@ function settleTricks(landed){
   if(landed&&pts>0){
     if(names.length>1)pts=Math.round(pts*1.5);          // combo bonus
     score+=pts;
+    boost=Math.min(16,boost+5+Math.min(7,pts/110));   // ride out of it with speed
     msg(names.join(' + ')+(names.length>1?' COMBO':'')+`! +${pts}`);
   }
   spinRot=0;flipRot=0;spinHeld=false;flipHeld=false;
@@ -1140,7 +1158,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   player.rotation.set(0,0,0);
   for(const o of obstacles)scene.remove(o);obstacles.length=0;
   dist=0;speed=22;score=0;px=0;py=0;vy=0;vx=0;cutCd=0;airborne=false;trick=null;
-  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;
+  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;
   trail.length=0;trailT=0;
   skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;wakeWave.visible=false;wakeCrest.visible=false;
   splatT=0;if(zapEl)zapEl.classList.remove('on');
@@ -1329,12 +1347,16 @@ const skyDome=new THREE.Mesh(
 );
 skyDome.renderOrder=-20;scene.add(skyDome);
 const SKY_KEYS=[
-  {t:0.00, top:0x3f8fd6, mid:0x8fd2f5, hz:0xd8eefb, glow:0xfff6e2, gAmt:0.10, sunX:-0.50, sunY:0.80},
-  {t:0.30, top:0x3b8ad4, mid:0x93d4f4, hz:0xeaf6fd, glow:0xfff0c8, gAmt:0.16, sunX:-0.32, sunY:0.64},
-  {t:0.52, top:0x4088cf, mid:0xa9d6ef, hz:0xffe6bd, glow:0xffd287, gAmt:0.26, sunX:-0.12, sunY:0.44},
-  {t:0.70, top:0x3f7cc0, mid:0xb9b6dd, hz:0xffbe86, glow:0xffab5a, gAmt:0.36, sunX:0.08, sunY:0.28},
-  {t:0.86, top:0x3a5fa6, mid:0xc294bb, hz:0xff9a63, glow:0xff8b45, gAmt:0.46, sunX:0.24, sunY:0.16},
-  {t:1.00, top:0x2f4a86, mid:0xbe7b9c, hz:0xff7f4c, glow:0xff6f34, gAmt:0.55, sunX:0.36, sunY:0.07},
+  // starts at sunrise: sun on the horizon, warm. It climbs, then comes back down
+  // into the sunset — and, as before, never actually sets.
+  {t:0.00, top:0x28407c, mid:0x9a7ab0, hz:0xff9d5e, glow:0xff8a46, gAmt:0.52, sunX:-0.26, sunY:0.05},
+  {t:0.10, top:0x2f5a9a, mid:0xb59ac2, hz:0xffbe86, glow:0xffab5c, gAmt:0.42, sunX:-0.23, sunY:0.16},
+  {t:0.26, top:0x3877bd, mid:0xc3d3ea, hz:0xffe3bd, glow:0xffd79a, gAmt:0.26, sunX:-0.19, sunY:0.38},
+  {t:0.46, top:0x3f8fd6, mid:0x8fd2f5, hz:0xe6f4fd, glow:0xfff4dc, gAmt:0.12, sunX:-0.09, sunY:0.72},
+  {t:0.62, top:0x4088cf, mid:0xa9d6ef, hz:0xffe6bd, glow:0xffd287, gAmt:0.24, sunX:0.01, sunY:0.52},
+  {t:0.78, top:0x3f7cc0, mid:0xb9b6dd, hz:0xffbe86, glow:0xffab5a, gAmt:0.36, sunX:0.09, sunY:0.30},
+  {t:0.90, top:0x3a5fa6, mid:0xc294bb, hz:0xff9a63, glow:0xff8b45, gAmt:0.46, sunX:0.16, sunY:0.16},
+  {t:1.00, top:0x2f4a86, mid:0xbe7b9c, hz:0xff7f4c, glow:0xff6f34, gAmt:0.55, sunX:0.23, sunY:0.06},
 ];
 const skyLayer=new THREE.Group();scene.add(skyLayer);
 // The sun is a sky element only: three additive shells over a bright core, all with
@@ -1696,7 +1718,7 @@ function updateJetSki(dt,eff){
       skiWake.hit=true;
       const power=10+ (skiWake.H||3)*2.6;
       vy=power; airborne=true;
-      score+=120;
+      score+=120;boost=Math.min(16,boost+4);
       msg('WAKE LAUNCH! +120');
       shake=1.8;
       splash(px,py,0,26);
@@ -1826,10 +1848,16 @@ function updateSplat(dt){
   const k=Math.max(0,Math.min(1,splatT/2.4));      // 1 at impact, 0 when gone
   const age=1-k;
   const squash=1+Math.max(0,0.20-age*2.6);         // brief flatten as it lands
-  // at z=-1.05 the view is ~1.26 units tall, so 0.78 leaves it covering about
-  // two thirds of the screen rather than blacking the whole thing out
-  const S=0.78;
-  splat3D.position.set(splatX+Math.sin(age*7)*0.02, 0.10-age*age*1.45, -1.05);
+  // Size it against the real viewport instead of a fixed number. A fixed scale is
+  // fine in landscape and swallows a portrait phone whole, because the visible
+  // width there is a fraction of the height. Tip-to-tip lands just inside the
+  // narrower axis, so you can always see past its points.
+  const D=1.05;
+  const vh=2*D*Math.tan(camera.fov*Math.PI/360);
+  const vw=vh*camera.aspect;
+  const STAR_W=1.09;                               // tip to tip at scale 1
+  const S=Math.min(vw*0.82, vh*0.62)/STAR_W;
+  splat3D.position.set(splatX*vw*0.16+Math.sin(age*7)*0.02, (0.10-age*age*1.45)*vh*0.85, -D);
   splat3D.rotation.set(0.10*Math.sin(age*4), 0.16*Math.sin(age*3), splatSpin+age*0.55);
   splat3D.scale.set(S*squash,S/squash,S);
   const fade=splatT<0.55?splatT/0.55:1;
@@ -1893,7 +1921,7 @@ function animateRig(dt,carve,grab,waterY){
   const dragLean = dragging ? dragSide*0.42 : 0;
   spine.rotation.z=ease(spine.rotation.z,-carve*0.16+gSide*0.58+dragLean,dt,8);   // leans right over the grabbed rail
   const crouchLean = grab ? 0.62 : rigCrouch*0.30 + Math.max(0,boardPitch)*0.55;   // leans forward as the nose drops
-  spine.rotation.x=ease(spine.rotation.x,0.18+crouchLean+(airborne?-0.32:0)+leanW*0.45,dt,8);
+  spine.rotation.x=ease(spine.rotation.x,0.18+crouchLean+(airborne?-0.32:0)+leanW*0.80,dt,8);
   chestJ.rotation.y=ease(chestJ.rotation.y,0.30+carve*0.55,dt,7);   // shoulders swing with the turn
   chestJ.rotation.z=ease(chestJ.rotation.z,-carve*0.14,dt,7);
   // head keeps looking down the line, level with the horizon
@@ -1949,7 +1977,7 @@ function animateRig(dt,carve,grab,waterY){
 // ---------- update ----------
 function update(dt){
   tNow+=dt;
-  speed=Math.min(46,22+dist/220);
+  speed=Math.min(60,22+dist/170);
 
   // momentum carving
   let wt=weight+(keys.KeyW||keys.ArrowUp?-1:0)+(keys.KeyS||keys.ArrowDown?1:0);
@@ -1965,8 +1993,10 @@ function update(dt){
   leanW+=(wt-leanW)*Math.min(1,dt*6);
   // dropping down a wave face accelerates you, climbing one costs a little
   const faceDrive=(waveH(px,dist*WAVE_DRIFT+2.6,waveClock)-waveH(px,dist*WAVE_DRIFT-2.6,waveClock))*5.5;
-  const trim=(leanW>=0 ? leanW*8.0 : leanW*13.0) + faceDrive;
-  const eff=Math.max(9,speed+Math.abs(vx)*0.3+trim);
+  // leaning is a real throttle now: forward drives hard, back scrubs hard
+  const trim=(leanW>=0 ? leanW*16.0 : leanW*19.0) + faceDrive;
+  boost=Math.max(0,boost-dt*3.0);            // speed carried out of a trick, bleeding off
+  const eff=Math.max(11,speed+Math.abs(vx)*0.3+trim+boost);
   lastEff=eff;
   dist+=eff*dt;
   score+=eff*dt*0.6;
@@ -2010,15 +2040,15 @@ function update(dt){
   jumpBtn.style.opacity=trickReady?'0.25':'1';
 
   // bury the nose too long and you pearl
-  if(!airborne&&!hanging&&leanW>0.72){pearlT+=dt;} else {pearlT=Math.max(0,pearlT-dt*1.6);}
-  if(pearlT>1.35){
+  if(!airborne&&!hanging&&leanW>0.80){pearlT+=dt;} else {pearlT=Math.max(0,pearlT-dt*1.6);}
+  if(pearlT>1.55){
     startWipeout('pearl');return;
   }
 
   // cutback + carve spray
   if(!airborne&&!hanging){
     if(cutCd<=0&&Math.abs(vx)>5.5&&sx!==0&&Math.sign(sx)!==Math.sign(vx)){
-      cutCd=1.2;score+=75;msg('CUTBACK! +75');
+      cutCd=1.2;score+=75;boost=Math.min(16,boost+3.5);msg('CUTBACK! +75');
       const bside=-Math.sign(vx);
       for(let i=0;i<26;i++){
         const m=takeDrop();if(!m)break;
@@ -2081,7 +2111,7 @@ function update(dt){
     trick.t+=dt;
     const prog=Math.min(1,trick.t/trick.dur);
     player.rotation.set(-prog*Math.PI*2,spinRot,flipRot);
-    if(prog>=1){score+=trick.pts;msg(`${trick.name}! +${trick.pts}`);trick=null;}
+    if(prog>=1){score+=trick.pts;boost=Math.min(16,boost+6);msg(`${trick.name}! +${trick.pts}`);trick=null;}
   }
 
   // board rig: damped yaw/lean/pitch — eases onto the rail like a real board
@@ -2092,7 +2122,7 @@ function update(dt){
   const faceSlope=(waveH(px,dist*WAVE_DRIFT+2.6,waveClock)-waveH(px,dist*WAVE_DRIFT-2.6,waveClock));
   // drop down a face and the nose tips right over; climbing one lifts it more gently
   const drop = faceSlope>0 ? faceSlope*1.35 : faceSlope*0.65;
-  const pitchT=airborne?-0.22:Math.max(-0.30,Math.min(0.85,drop)) + leanW*0.42;
+  const pitchT=airborne?-0.22:Math.max(-0.30,Math.min(0.85,drop)) + leanW*0.72;
   boardYaw+=(yawT-boardYaw)*Math.min(1,dt*7);
   boardLean+=(leanT-boardLean)*Math.min(1,dt*7);
   boardPitch+=(pitchT-boardPitch)*Math.min(1,dt*11);
@@ -2180,10 +2210,11 @@ function update(dt){
         // two unrelated rates per joint, so the sum never repeats on a neat loop,
         // plus a lag down the arm and a per-animal offset — flowing, not metronomic
         const t1=u.t*d.f1+d.p1+u.seed, t2=u.t*d.f2+d.p2+u.seed*1.7;
-        const lag=d.seg*0.62;
-        j.rotation.x=d.rx+Math.sin(t1-lag)*d.a1+Math.sin(t2*0.63-lag*0.5)*d.a1*0.55;
-        j.rotation.y=d.ry+Math.sin(t2-lag*0.8)*d.a2+Math.cos(t1*0.41)*d.a2*0.45;
-        j.rotation.z=d.rz+Math.cos((t1+t2)*0.5-lag*0.7)*d.a1*0.75;
+        const lag=d.seg*0.88;                  // a longer lag makes the wave read as it travels
+        const A=d.a1*d.k, B=d.a2*d.k;
+        j.rotation.x=d.rx+Math.sin(t1-lag)*A+Math.sin(t2*0.63-lag*0.5)*A*0.6;
+        j.rotation.y=d.ry+Math.sin(t2-lag*0.8)*B+Math.cos(t1*0.41)*B*0.5;
+        j.rotation.z=d.rz+Math.cos((t1+t2)*0.5-lag*0.7)*A*0.8;
       }
       // only throws while it is close enough to be a threat
       if(o.position.z>-72&&o.position.z<-7){
@@ -2208,12 +2239,12 @@ function update(dt){
     // window grows with speed — otherwise a jump can pass clean over the contact
     const zWin=o.userData.ramp ? Math.max(o.userData.r, eff*dt*2.2+1.9)
              : (o.userData.kind==='jelly' ? Math.max(o.userData.r, eff*dt*1.8+1.1)
-             : o.userData.r);
+             : Math.max(o.userData.r, eff*dt*1.0));
     if(Math.abs(o.position.z)<zWin&&Math.abs(o.position.x-px)<o.userData.r){
       if(o.userData.ramp){
         // launch if you're anywhere near deck height, even mid-swell or slightly airborne
         if(!o.userData.used && py < o.position.y+3.0 && vy<=1.5){
-          o.userData.used=true;vy=13.5;airborne=true;py=Math.max(py,o.position.y+0.6);score+=50;msg('RAMP! +50');
+          o.userData.used=true;vy=13.5;airborne=true;py=Math.max(py,o.position.y+0.6);score+=50;boost=Math.min(16,boost+4);msg('RAMP! +50');
           splash(px,waterY,0,8,0xffc23e);
         }
       } else if(o.userData.kind==='jelly' && airborne && py>o.position.y+0.10){
@@ -2222,7 +2253,7 @@ function update(dt){
         vy=Math.max(12.5,-vy*0.85+9.0);
         airborne=true;
         py=o.position.y+0.9;
-        score+=60;
+        score+=60;boost=Math.min(16,boost+3);
         msg('JELLY BOUNCE! +60');
         shake=0.7;
         splash(o.position.x,o.position.y+0.5,o.position.z,14);
@@ -2317,7 +2348,10 @@ function update(dt){
   camera.position.set(camX,camY,11.0+eff*0.05);
   camera.lookAt(lookX,1.1+py*0.25,-14);
 
-  hud.innerHTML=`Score ${score|0}<br><small>${dist|0} m&nbsp;&nbsp;·&nbsp;&nbsp;${(eff*0.62)|0} mph&nbsp;&nbsp;·&nbsp;&nbsp;Best ${best}</small>`;
+  hScore.textContent=score|0;
+  hDist.textContent=(dist|0)+' m';
+  hSpeed.textContent=(eff*0.62)|0;
+  hBest.textContent=best;
 }
 
 function loop(now){
