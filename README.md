@@ -44,6 +44,13 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.12.0** — Waves actually propagate now. Each component travels at its own deep
+  water speed (omega = sqrt(g*k)), so long swell outruns short chop and the interference
+  between them never settles — the sea is no longer a frozen pattern you drive through.
+  Two chop components added for surface life. On a crash the rider genuinely comes off:
+  he was parented to the board, so he had been riding it all the way down. He is now
+  thrown one way and the board kicked the other, and he flails in the air and washes
+  limp once he is in the water.
 - **v1.11.0** — Foam rebuilt on rotated value noise. It was a product of
   axis-aligned sines, which tiles into a grid — the fish-net look. Now it reads as
   crest caps, torn patches and flecks. Two starfish can no longer splat your view

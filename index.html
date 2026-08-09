@@ -104,7 +104,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.11.0';
+const VERSION='1.12.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -163,17 +163,22 @@ if(sun.target){sun.target.position.set(0,0,0);scene.add(sun.target);}
 buildEnvironment();
 
 // ---------- shared wave model ----------
-// Each component carries an envelope as well as a wave: [dirX, dirZ, k, amp, rate,
-// envK, envRate, envPhase]. The envelope runs along the same direction at a much
-// lower frequency, so a crest swells as it rolls in and flattens out again further
-// on — swell groups, rather than one rigid pattern sliding past you forever.
+// Real swell: every component propagates at its own speed. In deep water that is
+// omega = sqrt(g*k), so short waves travel slower than long ones — dispersion — and
+// the interference between them never settles, which is what stops the sea reading
+// as one frozen pattern you drive through. Each component also carries an envelope
+// travelling at half its phase speed (group velocity), so crests are born at the
+// back of a group, peak, and die at the front.
+const WAVE_G=9.8, WAVE_TSCALE=1.0;
 const WAVES=[
-  [0.00, 1.00, 0.190, 1.00, 0.052, 0.38, 0.090, 0.00],
-  [0.60, 0.80, 0.310, 0.52, 0.071, 0.42, 0.120, 2.10],
-  [-0.74,0.67, 0.470, 0.26, 0.098, 0.50, 0.160, 4.20],
-  [0.40,-0.92, 0.720, 0.11, 0.125, 0.58, 0.210, 1.30],
-  [1.00, 0.00, 1.050, 0.05, 0.152, 0.66, 0.270, 5.40],
-];
+  {dx: 0.00, dz: 1.00, k:0.190, a:1.000, ek:0.38, ep:0.00},
+  {dx: 0.60, dz: 0.80, k:0.310, a:0.520, ek:0.42, ep:2.10},
+  {dx:-0.74, dz: 0.67, k:0.470, a:0.260, ek:0.50, ep:4.20},
+  {dx: 0.40, dz:-0.92, k:0.720, a:0.110, ek:0.58, ep:1.30},
+  {dx: 1.00, dz: 0.00, k:1.050, a:0.050, ek:0.66, ep:5.40},
+  {dx: 0.86, dz: 0.51, k:1.700, a:0.030, ek:0.72, ep:3.10},   // chop
+  {dx:-0.35, dz: 0.94, k:2.600, a:0.016, ek:0.80, ep:0.70},   // finer chop
+].map(w=>({...w, w:Math.sqrt(WAVE_G*w.k)*WAVE_TSCALE}));
 const ENV_BASE=0.32, ENV_SWING=0.68;      // envelope floor and how far it breathes
 let waveAmp=0.78;                       // current swell height (varies set to set)
 // smooth pseudo-random drift so wave size wanders between small and extra-large
@@ -182,14 +187,14 @@ function setNoise(t){
 }
 const ZSTRETCH=1.0;                     // natural wave shape again
 let WAVE_DRIFT=0.46;                    // how fast the swell rolls past — climbs slightly as you go
-function waveComp(w,x,z,t){
-  const u=w[0]*x+w[1]*z*ZSTRETCH;
-  const env=ENV_BASE+ENV_SWING*Math.sin(u*w[2]*w[5]+t*w[6]+w[7]);
-  return w[3]*env*Math.sin(u*w[2]+t*w[4]);
+function waveComp(W,x,z,t){
+  const u=W.dx*x+W.dz*z*ZSTRETCH;
+  const env=ENV_BASE+ENV_SWING*Math.sin(u*W.k*W.ek - t*W.w*W.ek*0.5 + W.ep);
+  return W.a*env*Math.sin(u*W.k - t*W.w);
 }
 function waveH(x,z,t){
   let h=0;
-  for(const w of WAVES)h+=waveComp(w,x,z,t);
+  for(const W of WAVES)h+=waveComp(W,x,z,t);
   return h*waveAmp;
 }
 // the long-period part of the sea only — what a floating object actually rides.
@@ -205,16 +210,16 @@ let dist=0;
 
 // ---------- GPU ocean ----------
 const ZS=1.0;
-const glslWaves=WAVES.map(w=>{
-  const u=`(${w[0].toFixed(2)}*p.x+${(w[1]*ZS).toFixed(4)}*p.y)`;
-  const ph=`${u}*${w[2].toFixed(3)}+uT*${w[4].toFixed(3)}`;
-  const en=`(${ENV_BASE.toFixed(2)}+${ENV_SWING.toFixed(2)}*sin(${u}*${(w[2]*w[5]).toFixed(4)}+uT*${w[6].toFixed(3)}+${w[7].toFixed(2)}))`;
+const glslWaves=WAVES.map(W=>{
+  const u=`(${W.dx.toFixed(2)}*p.x+${(W.dz*ZS).toFixed(4)}*p.y)`;
+  const ph=`${u}*${W.k.toFixed(3)}-uT*${W.w.toFixed(4)}`;
+  const en=`(${ENV_BASE.toFixed(2)}+${ENV_SWING.toFixed(2)}*sin(${u}*${(W.k*W.ek).toFixed(5)}-uT*${(W.w*W.ek*0.5).toFixed(5)}+${W.ep.toFixed(2)}))`;
   // the envelope varies far more slowly than the wave, so the normals treat it as
   // locally constant — visually indistinguishable and much cheaper
   return `e=${en};
-h+=${w[3].toFixed(3)}*e*sin(${ph});
-dhx+=${w[3].toFixed(3)}*e*${w[2].toFixed(3)}*${w[0].toFixed(2)}*cos(${ph});
-dhz+=${w[3].toFixed(3)}*e*${w[2].toFixed(3)}*${(w[1]*ZS).toFixed(4)}*cos(${ph});`;
+h+=${W.a.toFixed(3)}*e*sin(${ph});
+dhx+=${W.a.toFixed(3)}*e*${W.k.toFixed(3)}*${W.dx.toFixed(2)}*cos(${ph});
+dhz+=${W.a.toFixed(3)}*e*${W.k.toFixed(3)}*${(W.dz*ZS).toFixed(4)}*cos(${ph});`;
 }).join('\n');
 const oceanUniforms={
   uT:{value:0}, uDist:{value:0}, uAmp:{value:1.35}, uPeak:{value:2.85},
@@ -527,6 +532,7 @@ const armBackJ=makeArm(0.56,0.06);
 pug.position.set(pgx,0,pgz);   // centred over the board's balance point
 pug.rotation.y=STANCE_ROT;   // side-on to the board, angled slightly toward the nose
 rig.add(pug);
+const PUG_HOME={x:pug.position.x,y:pug.position.y,z:pug.position.z};
 player.add(rig);
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
 scene.add(player);
@@ -1191,6 +1197,8 @@ function releaseRope(withTrick){
 
 function reset(){
   if(wipe){ scene.remove(rig); player.add(rig);
+    player.remove(pug); rig.add(pug);
+    pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}}); rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null; }
   player.rotation.set(0,0,0);
   for(const o of obstacles)scene.remove(o);obstacles.length=0;
@@ -1243,10 +1251,11 @@ function startWipeout(kind){
   // speed he already had is kept, and if he was mid-rotation he keeps turning that
   // way. The table only supplies the character of each crash on top of that.
   const fwd=lastEff*0.11;                       // faster ride, further he is thrown
+  const side=Math.random()<0.5?-1:1;            // he goes one way, the board the other
   const rider={
     vy: Math.max(1.6, W.vy*0.55 + Math.max(-6,vy)*0.45),
     vz: W.vz*0.55 - fwd,
-    vx: vx*0.80 + (Math.random()-0.5)*2.2 + (Math.random()<0.5?-1.4:1.4)
+    vx: vx*0.80 + side*(2.0+Math.random()*1.8)
   };
   wipe={
     t:0, rx:player.rotation.x, ry:player.rotation.y, rz:player.rotation.z,
@@ -1258,15 +1267,19 @@ function startWipeout(kind){
     sy:carrySpin*0.16 + (Math.random()<0.5?-1:1)*W.spin[1]*0.16,
     sz:carryFlip*0.16 + (Math.random()<0.5?-1:1)*W.spin[2]*0.16,
     // the board is kicked out from under him and tumbles off on its own
-    bvx:-vx*0.55+(Math.random()-0.5)*4.5, bvy:rider.vy*0.55+1.5, bvz:rider.vz*0.75-1.4,
+    bvx:-side*(2.8+Math.random()*2.4)-vx*0.35, bvy:rider.vy*0.55+1.5, bvz:rider.vz*0.45+1.2,
     landed:false,
     bsx:(Math.random()-0.5)*9, bsz:(Math.random()-0.5)*9,
     bx:px, by:py, bz:0, splashed:false
   };
   carrySpin=0;carryFlip=0;
-  // detach the board where it is, keeping its exact lean and pitch
+  // Detach both: the board keeps its lean and tumbles off on its own, and the
+  // rider is lifted out of it onto the player group, which is what gets thrown.
+  // He was a child of the board, so without this he rode it all the way down.
   const keep={x:rig.rotation.x,y:rig.rotation.y,z:rig.rotation.z};
   player.remove(rig); scene.add(rig);
+  rig.remove(pug); player.add(pug);
+  pug.position.set(0,0.12,0);
   rig.position.set(px,py,0);
   rig.rotation.set(keep.x+player.rotation.x,keep.y+player.rotation.y,keep.z+player.rotation.z);
   spinHeld=false;flipHeld=false;spinRot=0;flipRot=0;grabOn=false;dragOn=false;
@@ -1277,7 +1290,7 @@ function updateWipeout(dt){
   w.vy-=22*dt;
   w.vx*=(1-Math.min(1,dt*1.6));   // air drag, so he doesn't fly off sideways
   px+=w.vx*dt; py+=w.vy*dt;
-  player.position.set(px,py,Math.max(-7,Math.min(2,w.vz*w.t*0.45)));
+  player.position.set(px,py,Math.max(-9,Math.min(2,w.vz*w.t*0.70)));
   w.rx+=w.sx*dt*6; w.ry+=w.sy*dt*6; w.rz+=w.sz*dt*6;
   player.rotation.set(w.rx,w.ry,w.rz);
   const sea=waveH(px,dist*WAVE_DRIFT,waveClock)+0.13;
@@ -1295,6 +1308,24 @@ function updateWipeout(dt){
     w.rx+=((Math.PI*0.45)-w.rx)*Math.min(1,dt*2.2);   // settles onto his side in the water
     w.rz*=0.90; w.sx*=0.86; w.sy*=0.86; w.sz*=0.86;
     if(Math.random()<dt*6)splash(px+(Math.random()-0.5)*1.2,sea,w.vz*w.t,1);
+  }
+  // He is a body, not a prop: arms windmill for balance while he is in the air and
+  // wash limp once he is in the water, legs kick out from under him.
+  {
+    const air=w.splashed?0:1;
+    const f=w.t*11.0;
+    const amp=air?1.0:0.25;
+    armFrontJ.sh.rotation.x=0.6+Math.sin(f)*1.5*amp;
+    armFrontJ.sh.rotation.z=1.2+Math.cos(f*0.8)*0.7*amp;
+    armFrontJ.el.rotation.x=0.5+Math.sin(f*1.3)*0.6*amp;
+    armBackJ.sh.rotation.x=0.6+Math.sin(f+2.2)*1.5*amp;
+    armBackJ.sh.rotation.z=-1.2+Math.cos(f*0.8+1.1)*0.7*amp;
+    armBackJ.el.rotation.x=0.5+Math.sin(f*1.3+1.7)*0.6*amp;
+    legFrontJ.hip.rotation.x=-0.5+Math.sin(f*0.7+0.6)*0.9*amp;
+    legFrontJ.knee.rotation.x=0.9+Math.sin(f*0.9)*0.5*amp;
+    legBackJ.hip.rotation.x=0.5+Math.sin(f*0.7+2.6)*0.9*amp;
+    legBackJ.knee.rotation.x=-0.9+Math.sin(f*0.9+1.4)*0.5*amp;
+    headJ.rotation.z=Math.sin(f*0.6)*0.4*amp;
   }
   // board: cartwheels away and slaps down
   w.bvy-=20*dt;
