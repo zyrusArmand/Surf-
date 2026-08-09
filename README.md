@@ -44,6 +44,12 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.15.0** — The board floats like a hull: the water is sampled under its nose, tail
+  and both rails, and it rests on the highest of them and lies along that surface, so
+  waves no longer cut through it. The screen splat gets its own render pass so it stops
+  showing through itself, plus a speckled texture and a bevel that no longer folds into
+  the star's valleys. White discs removed from the jellyfish, sharks and octopus, and
+  shark fins now cruise diagonal lines instead of swimming straight at you.
 - **v1.14.0** — The board is collided as the 5m plank it is, not a point: a capsule
   from nose to tail, swept over the ground an obstacle covered that frame, so the nose
   makes contact instead of sliding into things first. Whatever you hit is knocked aside,

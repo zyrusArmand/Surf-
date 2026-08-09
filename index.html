@@ -104,7 +104,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.14.0';
+const VERSION='1.15.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -123,6 +123,7 @@ if(renderer.shadowMap){renderer.shadowMap.enabled=true;
 document.body.appendChild(renderer.domElement);
 addEventListener('resize',()=>{
   camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
+  if(typeof splatCam!=='undefined'){splatCam.aspect=camera.aspect;splatCam.updateProjectionMatrix();}
   renderer.setSize(innerWidth,innerHeight);
 });
 const hemi=new THREE.HemisphereLight(0xdfeeff,0x2a7ba8,0.62);scene.add(hemi);
@@ -816,10 +817,6 @@ function buildOctopus(){
     arm.position.set(-Math.sin(a)*0.26,0.50,-Math.cos(a)*0.26);
     g.add(arm);
   }
-  const wash=new THREE.Mesh(new THREE.CircleGeometry(1.7,28),
-    new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.16,depthWrite:false}));
-  wash.rotation.x=-Math.PI/2;wash.position.y=0.10;g.add(wash);
-  g.userData.washIdx=g.children.indexOf(wash);
   return g;
 }
 function buildObstacle(kind){
@@ -897,11 +894,6 @@ function buildObstacle(kind){
       t.rotation.z=Math.cos(a)*0.18; t.rotation.x=-Math.sin(a)*0.18;
       m.add(t);
     }
-    const wash=new THREE.Mesh(new THREE.CircleGeometry(1.5,26),
-      new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.22,depthWrite:false}));
-    wash.rotation.x=-Math.PI/2;wash.position.y=0.02;
-    m.add(wash);
-    m.userData.washIdx=m.children.indexOf(wash);
     m.userData.bellIdx=m.children.indexOf(bell);
     r=1.05;h=1.6;
   } else if(kind==='log'){
@@ -921,11 +913,7 @@ function buildObstacle(kind){
     const skin=PBR({color:0x3b4b58,roughness:0.20,metalness:0.03,envMapIntensity:1.5});
     const fin=makeDorsal(3.6,skin);
     fin.position.y=1.55;fin.rotation.y=Math.PI/2;
-    const wash=new THREE.Mesh(new THREE.CircleGeometry(2.2,22),
-      new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.45,depthWrite:false}));
-    wash.rotation.x=-Math.PI/2;wash.position.set(0,0.03,0.6);
-    m.add(fin,wash);
-    m.userData.washIdx=m.children.indexOf(wash);
+    m.add(fin);
     r=1.70;h=3.2;
   } else {
     // clean solid wooden wedge — low edge toward the rider
@@ -1571,11 +1559,7 @@ function buildShark(){
   const skin=PBR({color:0x40525f,roughness:0.20,metalness:0.03,envMapIntensity:1.5});
   const fin=makeDorsal(1.15,skin);
   fin.position.y=0.5;fin.rotation.y=Math.PI/2;
-  // just a faint waterline shadow where it meets the surface — no body
-  const wash=new THREE.Mesh(new THREE.CircleGeometry(0.85,18),
-    new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.3,depthWrite:false}));
-  wash.rotation.x=-Math.PI/2;wash.position.y=0.02;
-  g.add(fin,wash);
+  g.add(fin);
   return g;
 }
 function spawnSeaLife(){
@@ -1583,15 +1567,16 @@ function spawnSeaLife(){
   if(!SEA_TPL.shark)SEA_TPL.shark=buildShark();
   const tpl=SEA_TPL.shark;
   const o=tpl.clone(true);
-  const chase=Math.random()<0.4;
+  // Every fin now cruises a diagonal line of its own. None of them swim straight
+  // at the rider any more — they cut across the field at an angle and carry on past.
   const dir=Math.random()<0.5?1:-1;
-  if(chase){
-    o.position.set(px+(Math.random()*14-7),0,-120);
-    o.userData.vx=0;o.userData.chase=true;o.rotation.y=0;
-  } else {
-    o.position.set(px-dir*(14+Math.random()*5),0,-40-Math.random()*60);
-    o.userData.vx=dir*(4+Math.random()*3);o.userData.chase=false;o.rotation.y=dir*Math.PI/2;
-  }
+  const ang=dir*(0.60+Math.random()*0.70);      // +-pi/2 would be straight across
+  const spd=5+Math.random()*3.5;
+  o.position.set(px-dir*(13+Math.random()*7),0,-45-Math.random()*70);
+  o.userData.vx=Math.sin(ang)*spd;
+  o.userData.vzOwn=Math.cos(ang)*spd;
+  o.userData.ang=ang;
+  o.rotation.y=ang;
   o.userData.dir=dir;o.userData.t=0;o.userData.wob=Math.random()*7;
   scene.add(o);seaLife.push(o);
 }
@@ -1602,19 +1587,13 @@ function updateSeaLife(dt,eff){
     const o=seaLife[i],u=o.userData;
     u.t+=dt;
     o.position.x+=u.vx*dt;
-    o.position.z+=eff*dt*(u.chase?0.85:0.5);
+    o.position.z+=eff*dt*0.5 + u.vzOwn*dt;
     const base=swellH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock);
     const ty=base-0.05+Math.sin(u.t*2+u.wob)*0.04;
     if(u.by===undefined)u.by=ty;
     u.by+=(ty-u.by)*Math.min(1,dt*7);        // fins ride the swell smoothly
     o.position.y=u.by;
-    if(u.chase){
-      // swims toward your line, fin pointed at you
-      o.position.x+=(px-o.position.x)*Math.min(1,dt*0.5);
-      o.rotation.set(0,Math.sin(u.t*1.4+u.wob)*0.12,0);
-    } else {
-      o.rotation.set(0,u.dir*Math.PI/2+Math.sin(u.t*1.1+u.wob)*0.15,0);
-    }
+    o.rotation.set(0,u.ang+Math.sin(u.t*1.1+u.wob)*0.13,0);
     if(Math.random()<dt*7)splash(o.position.x,base+0.05,o.position.z+0.8,1);
     if(Math.abs(o.position.x-px)>30||o.position.z>22){scene.remove(o);seaLife.splice(i,1);}
   }
@@ -1819,14 +1798,34 @@ function updateJetSki(dt,eff){
 
 // ---------- starfish projectiles hurled by the octopuses ----------
 // pillowy five-point star: a rounded star outline given real thickness by a deep bevel
+// A grey speckle map: it multiplies the tint, so it adds grain without shifting
+// the colour, and one texture serves every starfish.
+let _starTex=null;
+function starfishTexture(){
+  if(_starTex)return _starTex;
+  const c=document.createElement('canvas');c.width=c.height=256;
+  const g=c.getContext('2d');
+  g.fillStyle='#ffffff';g.fillRect(0,0,256,256);
+  for(let i=0;i<3400;i++){
+    const x=Math.random()*256,y=Math.random()*256,r=0.8+Math.random()*3.4;
+    const v=Math.random()<0.55?(150+Math.random()*70):(235+Math.random()*20);
+    g.fillStyle='rgba('+(v|0)+','+(v|0)+','+(v|0)+','+(0.20+Math.random()*0.45)+')';
+    g.beginPath();g.arc(x,y,r,0,7);g.fill();
+  }
+  _starTex=new THREE.CanvasTexture(c);
+  _starTex.wrapS=_starTex.wrapT=THREE.RepeatWrapping;
+  _starTex.repeat.set(2.4,2.4);
+  return _starTex;
+}
 function buildStarfish(variant){
   const TINT=[0xff8a3d,0xff5f8a,0xffb037][variant%3];
   const g=new THREE.Group();
-  const skin=PBR({color:TINT,roughness:0.46,metalness:0.0,envMapIntensity:0.8,vivid:1.7});
+  const skin=PBR({color:TINT,roughness:0.52,metalness:0.0,envMapIntensity:0.8,vivid:1.7});
+  skin.map=starfishTexture();   // grain over the tint
   const dot=PBR({color:0xfff1de,roughness:0.40,vivid:1.2});
   const black=PBR({color:0x1a1016,roughness:0.18});
   const sh=new THREE.Shape();
-  const R=0.62, r=0.27, N=5;
+  const R=0.62, r=0.335, N=5;
   for(let i=0;i<N;i++){
     const a0=(i/N)*Math.PI*2-Math.PI/2;
     const a1=a0+Math.PI/N, a2=a0+2*Math.PI/N;
@@ -1838,8 +1837,8 @@ function buildStarfish(variant){
     sh.quadraticCurveTo(vly[0]*1.34,vly[1]*1.34,vly[0],vly[1]);
     sh.quadraticCurveTo(vly[0]*1.34,vly[1]*1.34,nxt[0],nxt[1]);
   }
-  const geo=new THREE.ExtrudeGeometry(sh,{depth:0.10,curveSegments:26,bevelEnabled:true,
-    bevelThickness:0.13,bevelSize:0.13,bevelSegments:8});
+  const geo=new THREE.ExtrudeGeometry(sh,{depth:0.14,curveSegments:26,bevelEnabled:true,
+    bevelThickness:0.10,bevelSize:0.062,bevelSegments:7});
   geo.center();
   const body=new THREE.Mesh(geo,skin);
   g.add(body);
@@ -1872,23 +1871,26 @@ function buildStarfish(variant){
 const STAR_POOL=[],stars=[];
 for(let i=0;i<10;i++){const st=buildStarfish(i);st.visible=false;scene.add(st);STAR_POOL.push(st);}
 
-// The splat is the real starfish, not a picture of one: a model parented to the
-// camera so it hangs in front of the lens, drawn over the scene with depth testing
-// off. The camera has to be in the scene graph for its children to render.
-scene.add(camera);
+// The splat is the real starfish, not a picture of one. It gets its own tiny scene
+// and camera, drawn in a second pass over the finished frame with the depth buffer
+// cleared. Previously it was drawn with depth testing switched off so it would sit
+// over the world, which also meant its own far side showed through its near side —
+// that was the overlapping, half-transparent mess on screen.
+const splatScene=new THREE.Scene();
+const splatCam=new THREE.PerspectiveCamera(62, innerWidth/innerHeight, 0.05, 8);
+splatScene.add(new THREE.HemisphereLight(0xffffff,0x6a5a70,1.05));
+{
+  const l=new THREE.DirectionalLight(0xfff4e2,1.5); l.position.set(-0.6,1.0,1.4);
+  splatScene.add(l);
+}
 const splat3D=buildStarfish(0);
 splat3D.visible=false;
-splat3D.traverse(o=>{
-  if(!o.isMesh)return;
-  o.renderOrder=999;
-  o.material=o.material.clone();
-  o.material.depthTest=false;o.material.depthWrite=false;o.material.transparent=true;
-});
+splat3D.traverse(o=>{ if(o.isMesh){ o.material=o.material.clone(); o.material.transparent=true; } });
 const splatSkins=[];
 splat3D.traverse(o=>{if(o.isMesh&&o.material.color.getHex()===splat3D.userData.skin.color.getHex())splatSkins.push(o.material);});
 const splatMats=[];
 splat3D.traverse(o=>{if(o.isMesh)splatMats.push(o.material);});
-camera.add(splat3D);
+splatScene.add(splat3D);
 let splatT=0,splatSpin=0,splatX=0,splatCd=0;
 
 // Aimed shot: solve the flight so it arrives at your line, then decide whether that
@@ -1946,8 +1948,8 @@ function updateSplat(dt){
   // width there is a fraction of the height. Tip-to-tip lands just inside the
   // narrower axis, so you can always see past its points.
   const D=1.05;
-  const vh=2*D*Math.tan(camera.fov*Math.PI/360);
-  const vw=vh*camera.aspect;
+  const vh=2*D*Math.tan(splatCam.fov*Math.PI/360);
+  const vw=vh*splatCam.aspect;
   const STAR_W=1.09;                               // tip to tip at scale 1
   const S=Math.min(vw*0.82, vh*0.62)/STAR_W;
   splat3D.position.set(splatX*vw*0.16+Math.sin(age*7)*0.02, (0.10-age*age*1.45)*vh*0.85, -D);
@@ -2084,8 +2086,20 @@ function update(dt){
   if(px>17){px=17;vx=0;}
   const carve=Math.max(-1,Math.min(1,vx/9));
   leanW+=(wt-leanW)*Math.min(1,dt*6);
+  // A rigid 5m hull does not follow one point on the water. Sample it under the
+  // nose, the tail and both rails; the board then rests on whatever is highest
+  // beneath it and lies along that surface, the way a real board sits on a face
+  // instead of slicing through the crest at its ends.
+  const WZ=dist*WAVE_DRIFT;
+  const hC=waveH(px,WZ+pz,waveClock);
+  const hN=waveH(px,WZ+pz-2.55,waveClock);      // under the nose
+  const hT=waveH(px,WZ+pz+2.55,waveClock);      // under the tail
+  const hL=waveH(px-0.58,WZ+pz,waveClock);
+  const hR=waveH(px+0.58,WZ+pz,waveClock);
+  const hullPitch=Math.atan2(hN-hT,5.10);       // nose high on a climb, down on a drop
+  const hullRoll =Math.atan2(hR-hL,1.16);
   // dropping down a wave face accelerates you, climbing one costs a little
-  const faceDrive=(waveH(px,dist*WAVE_DRIFT+2.6,waveClock)-waveH(px,dist*WAVE_DRIFT-2.6,waveClock))*3.8;
+  const faceDrive=(hT-hN)*3.8;
   // leaning is a real throttle now: forward drives hard, back scrubs hard
   const trim=(leanW>=0 ? leanW*16.0 : leanW*19.0) + faceDrive;
   boost=Math.max(0,boost-dt*3.0);            // speed carried out of a trick, bleeding off
@@ -2095,7 +2109,7 @@ function update(dt){
   score+=eff*dt*0.6;
   cutCd=Math.max(0,cutCd-dt);
 
-  const waterY=waveH(px,dist*WAVE_DRIFT,waveClock)+0.13;   // hull just wetted, fins fully under the surface
+  const waterY=Math.max(hC,hN,hT,(hL+hR)*0.5)+0.16;   // rides the highest water under the hull
 
   if(hanging){
     py+=(5.4-py)*Math.min(1,dt*2.4);   // towed above the water, high enough to throw tricks
@@ -2214,18 +2228,17 @@ function update(dt){
 
   // board rig: damped yaw/lean/pitch — eases onto the rail like a real board
   const grab=grabOn&&(airborne||hanging);
-  const yawT=-carve*0.30, leanT=carve*0.55;
-  // slope of the wave under the board, measured over the board's own length
-  const faceSlope=(waveH(px,dist*WAVE_DRIFT+2.6,waveClock)-waveH(px,dist*WAVE_DRIFT-2.6,waveClock));
+  // the hull banks with the water across its rails as well as leaning into the turn
+  const yawT=-carve*0.30, leanT=carve*0.55 + (airborne?0:hullRoll*0.85);
+  const faceSlope=hT-hN;                     // downhill when the tail is higher
   // Ride fore and aft rather than sitting on one spot. Leaning drives him up the
   // board, leaning back settles him toward the tail of the shot, and dropping down
   // a face lunges him forward a little. Forward travel is kept short on purpose.
   const pzT=Math.max(-3.0,Math.min(2.2, -leanW*2.3 - Math.max(-1,Math.min(1,faceSlope))*0.8));
   pz+=(pzT-pz)*Math.min(1,dt*2.2);
   player.position.set(px,py,pz);
-  // drop down a face and the nose tips right over; climbing one lifts it more gently
-  const drop = faceSlope>0 ? faceSlope*1.35 : faceSlope*0.65;
-  const pitchT=airborne?-0.22:Math.max(-0.30,Math.min(0.85,drop)) + leanW*0.72;
+  // it lies along the water it is resting on, plus whatever the rider's weight adds
+  const pitchT=airborne?-0.22:Math.max(-0.55,Math.min(0.60,hullPitch*1.15)) + leanW*0.62;
   boardYaw+=(yawT-boardYaw)*Math.min(1,dt*7);
   boardLean+=(leanT-boardLean)*Math.min(1,dt*7);
   boardPitch+=(pitchT-boardPitch)*Math.min(1,dt*11);
@@ -2490,6 +2503,13 @@ function loop(now){
   if(running)update(dt);
   else oceanUniforms.uT.value+=dt;
   renderer.render(scene,camera);
+  if(splat3D.visible){
+    // clear only depth, so it lands on top of the frame but still occludes itself
+    renderer.autoClear=false;
+    renderer.clearDepth();
+    renderer.render(splatScene,splatCam);
+    renderer.autoClear=true;
+  }
 }
 requestAnimationFrame(loop);
 })();
