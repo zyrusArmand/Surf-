@@ -52,6 +52,18 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.67.0** — The lump on the backside, which was three separate things. The seat laid
+  between the hips was laid ONCE, at build time, along the line the hips sit on while
+  riding — one foot in front of the other, down the board. Stood up for a portrait the
+  hips move side by side, and the seat stayed where it was: a sausage bridging a stance
+  the legs had left, hanging off the rump in every shop picture. It is now laid from
+  wherever the hips actually are, and its end padding is cut to just enough to close over
+  the haunch. The pug's curly tail had a teardrop hanging below and behind the joint
+  instead of a root filling the rump, and its spiral was exactly side-on, so from behind
+  the whole tail was edge-on and read as a stick — it is turned three-quarters now and
+  reads as a curl from any angle. And every chain tail — cat, raccoon — had no base tilt,
+  so it grew straight UP through the middle of the body and only its tip escaped out the
+  top. They leave the rump backwards now, the way a tail does.
 - **v1.66.0** — One body, not a pile of parts, the way Gang Beasts and Party Animals do
   it. The tube of every limb segment was built with its taper upside down against its own
   end caps: `CylinderGeometry` takes (radiusTop, radiusBottom) and the tube hangs down
