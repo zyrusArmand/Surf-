@@ -52,6 +52,11 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.60.0** — The puka is a proper piece of nacre. Eleven ribs, each its own facet with
+  its own gradient — near black where it meets the hinge, full colour at three quarters,
+  blown to white at the rim — which is what makes a shell look lit from inside rather than
+  printed flat. The hue runs teal to blue to a warm gold core and back to teal rather than
+  all the way round the spectrum: a full rainbow reads as a paint fan, not a shell.
 - **v1.59.0** — Every button gets a sheet of white inside it, underneath its colour. That
   is what a coloured glass actually is: the tint only looks vivid because there is light
   behind it. With the white doing that job the colour could come back down and still read,
