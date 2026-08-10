@@ -53,6 +53,15 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.29.0** — Two more things behind the wake launch, both found by measuring it.
+  The wave was dying before it arrived: its lifetime dated from when the ski crossed
+  forty units out, and over the new hundred-unit approach it faded on the way in and
+  reached the rider a third of its proper height. And the face was throwing him off its
+  front before the crest could — that path never flags him airborne, so the launch still
+  fired, and it fired while he was dropping at thirteen units a second, replacing that
+  with a small upward one. A seventeen-unit reversal in a single frame, which is the
+  snap. While a wake is on him the hull now stays stuck to the face, and the takeoff
+  adds to his speed instead of overwriting it, so there is nothing left to snap through.
 - **v1.28.0** — The wake launch was throwing. It read the ride height from a variable
   that only exists inside the frame update, so the moment every other condition lined up
   it hit a ReferenceError and never fired at all — since v1.26. Fixed, and rebuilt: he
