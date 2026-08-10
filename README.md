@@ -52,6 +52,12 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.53.0** — HOLD comes off the trick pad, which is four buttons in a square now.
+  Holding a finger on the water still grabs in the air and drags a paw on the wave — the
+  gesture is unchanged, only the button is gone. The ant is reproportioned: a gaster is
+  the biggest thing on an ant and a head is not, and having that the wrong way round is
+  most of what made him read as a balloon. Smaller head, alert eyes rather than googly
+  ones, and the abdomen given its proper mass.
 - **v1.52.0** — The ant is De Soto now, and he is one animal rather than a set of parts in
   formation. The legs were the giveaway: the sockets stayed where a pug's are while the
   body shrank to half its width, so they hung in mid-air beside him — they come in with
