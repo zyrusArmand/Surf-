@@ -138,7 +138,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.24.0';
+const VERSION='1.25.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1256,7 +1256,7 @@ const obstacles=[];
 const ARM_SKIN=vivid(0x8a5fd0,1.20), ARM_SUCKER=vivid(0xff9c3c,1.60);
 const _cTmp=new THREE.Color();
 function armSegment(rTop,rBot,len,mtl){
-  const g=new THREE.CylinderGeometry(rTop,rBot,len,18,14,false);
+  const g=new THREE.CylinderGeometry(rTop,rBot,len,14,8,false);
   const pos=g.attributes.position;
   const cols=new Float32Array(pos.count*3);
   for(let i=0;i<pos.count;i++){
@@ -1266,7 +1266,7 @@ function armSegment(rTop,rBot,len,mtl){
     if(rad>1e-5){
       const th=Math.atan2(z,x);
       const inner=Math.max(0,Math.cos(th+Math.PI/2));          // arms curl toward -z
-      const rows=Math.pow(Math.max(0,Math.sin((y/len+0.5)*Math.PI*4.0)),6);
+      const rows=Math.pow(Math.max(0,Math.sin((y/len+0.5)*Math.PI*2.2)),6);
       k=Math.pow(inner,3)*rows;
       const amp=rad*0.40*k;
       pos.setX(i,x+(x/rad)*amp); pos.setZ(i,z+(z/rad)*amp);
@@ -1283,10 +1283,20 @@ function armSegment(rTop,rBot,len,mtl){
 // A jointed arm. Every arm gets its own splay, coil, length and tip direction, and
 // every joint carries its own pair of frequencies, phases and amplitudes — so the
 // motion never lines up between arms and never repeats on a tidy loop.
+// Each segment is a straight cone, so the chain shows its corners. A ball dropped at
+// every joint, exactly the width of the arm there, fills them in and the whole thing
+// reads as one smooth tube instead of a string of beads.
+function armKnuckle(r,mtl){
+  const g=new THREE.SphereGeometry(r,12,8);
+  const n=g.attributes.position.count, cols=new Float32Array(n*3);
+  for(let i=0;i<n;i++){cols[i*3]=ARM_SKIN.r;cols[i*3+1]=ARM_SKIN.g;cols[i*3+2]=ARM_SKIN.b;}
+  g.setAttribute('color',new THREE.BufferAttribute(cols,3));
+  return new THREE.Mesh(g,mtl);
+}
 function buildArm(armIndex,angle,mtl){
   const root=new THREE.Group();
   root.rotation.y=angle;
-  const SEGS=9;
+  const SEGS=14;                             // more, shorter links: the bends stay gentle
   const R=()=>Math.random();
   const splay=0.86+R()*0.55;                 // how far out this arm throws
   const coil =0.13+R()*0.11;                 // how tightly it curls along its length
@@ -1295,7 +1305,7 @@ function buildArm(armIndex,angle,mtl){
   let parent=root;
   for(let j=0;j<SEGS;j++){
     const t=j/(SEGS-1);
-    const len=(0.44-0.20*t)*lenK;
+    const len=(0.30-0.13*t)*lenK;
     const rTop=0.240-0.205*Math.pow(t,0.85);
     const rBot=0.240-0.205*Math.pow(Math.min(1,(j+1)/(SEGS-1)),0.85);
     const joint=new THREE.Group();
@@ -1308,9 +1318,19 @@ function buildArm(armIndex,angle,mtl){
     joint.userData={tj:1,arm:armIndex,seg:j,rx,ry,rz,
       f1:0.85+R()*1.15, f2:0.55+R()*0.85,      // two unrelated rates per joint
       p1:R()*Math.PI*2, p2:R()*Math.PI*2,
-      a1:0.17+R()*0.21, a2:0.16+R()*0.21,
-      k:0.45+1.15*t};                          // tips sweep far, the base barely stirs
+      a1:0.13+R()*0.16, a2:0.12+R()*0.16,
+      k:0.70+0.95*t};                          // the whole arm works, not just the tip
+    if(j===0){
+      // the shoulder is what makes the arm travel: it swings the whole limb from up
+      // by the animal's face right down to hanging under it, and every arm takes its
+      // own time over it, so the eight never move together
+      joint.userData.sA=0.92+R()*0.42;
+      joint.userData.sM=1.16+R()*0.30;
+      joint.userData.sF=0.13+R()*0.30;
+      joint.userData.sP=R()*Math.PI*2;
+    }
     parent.add(joint);
+    joint.add(armKnuckle(rTop*0.99,mtl));
     joint.add(armSegment(rTop,Math.max(0.022,rBot),len,mtl));
     const next=new THREE.Group();
     next.position.y=-len;
@@ -1566,6 +1586,9 @@ let px=0,py=0,pz=0,vy=0,vx=0,cutCd=0,airborne=false,trickReady=false;
 const BOARD_HALF_L=2.45, BOARD_HALF_W=0.55;   // the hull's own footprint
 let boardYaw=0,boardLean=0,boardPitch=0,camX=0,camY=5.0,camZ=11.0,lookX=0,sprayAcc=0,leanW=0,pearlT=0;
 let spinHeld=false,flipHeld=false,spinRot=0,flipRot=0;
+// air off the jet ski's wake is its own thing: launched softer but falling slower, so
+// there is time up there to actually throw something
+let wakeAir=false;
 // handstand: Astro goes up on his front paws. It works on the water, not just in
 // the air, and it pays while it is held — but a hard carve on your hands ends badly.
 let handOn=false,handT=0,handPts=0,handRisk=0;
@@ -1756,7 +1779,7 @@ function settleTricks(landed,keepPose){
 function ropeAction(){
   if(!running)return;
   if(!hanging&&planeActive&&plane.position.z>-90&&plane.position.z<-4){
-    hanging=true;rope.visible=true;ropeBtn.textContent='LET GO';
+    hanging=true;wakeAir=false;rope.visible=true;ropeBtn.textContent='LET GO';
     msg('HOOKED! 🛩️');
   } else if(hanging){
     releaseRope(true);
@@ -1773,7 +1796,7 @@ function reset(){
     player.remove(pug); rig.add(pug);
     pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}}); rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null;
-  handOn=false;handT=0;handPts=0;handRisk=0;pug.rotation.x=0;pug.position.y=0; }
+  handOn=false;handT=0;handPts=0;handRisk=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false; }
   player.rotation.set(0,0,0);
   for(const o of obstacles)scene.remove(o);obstacles.length=0;
   dist=0;speed=13.5;score=0;px=0;py=0;pz=0;vy=0;vx=0;cutCd=0;airborne=false;trick=null;
@@ -2409,6 +2432,7 @@ function buildJetSki(){
   return g;
 }
 const jetSki=buildJetSki();
+jetSki.scale.setScalar(1.30);        // it crosses a long way out; small reads as nothing
 scene.add(jetSki);
 const SKI_BOX=boxOf(jetSki);
 loadModel('jetski.glb',s3=>{
@@ -2421,27 +2445,29 @@ function spawnJetSki(){
   skiOn=true;
   skiDir=Math.random()<0.5?1:-1;
   jetSki.visible=true;
-  jetSki.position.set(px-skiDir*32,0,-96-Math.random()*26);
+  // close enough to actually see it go past; the wake still has fifty units to build
+  jetSki.position.set(px-skiDir*34,0,-40-Math.random()*12);
+  msg('JET SKI!');
   jetSki.rotation.y=-skiDir*Math.PI/2;   // bow is local -z, so it must face the way it drives
   skiWake=null;
 }
 function updateJetSki(dt,eff){
   if(!skiOn){
     skiT-=dt;
-    if(skiT<=0){skiT=22+Math.random()*14;spawnJetSki();}
+    if(skiT<=0){skiT=40+Math.random()*24;spawnJetSki();}
   } else {
     // rips across the field
-    jetSki.position.x+=skiDir*26*dt;
+    jetSki.position.x+=skiDir*18*dt;      // slower, so it is on screen long enough to see
     jetSki.position.z+=eff*dt*0.35;
     const sy=waveH(jetSki.position.x,dist*WAVE_DRIFT+jetSki.position.z,waveClock);
     jetSki.position.y=sy+0.34+Math.sin(tNow*9)*0.05;
     jetSki.rotation.z=-skiDir*0.22+Math.sin(tNow*7)*0.05;
     jetSki.rotation.x=-0.10;
     // rooster tail of spray behind it
-    for(let i=0;i<2;i++){
+    for(let i=0;i<4;i++){
       const m=takeDrop(); if(!m)break;
       m.material=SPLASH_MAT;
-      const sc=0.9+Math.random()*1.3;m.scale.setScalar(sc);
+      const sc=1.1+Math.random()*1.6;m.scale.setScalar(sc);
       m.position.set(jetSki.position.x-skiDir*1.8,sy+0.2,jetSki.position.z+0.4);
       m.userData={vx:-skiDir*(3+Math.random()*5),vy:3+Math.random()*6,vz:1.5+Math.random()*3,t:0.6+Math.random()*0.4,s:sc};
       splashes.push(m);
@@ -2451,7 +2477,7 @@ function updateJetSki(dt,eff){
       skiWake={z:jetSki.position.z-2,life:11.0,hit:false,x:jetSki.position.x};
       msg('WAKE INCOMING!');
     }
-    if(Math.abs(jetSki.position.x-px)>34){skiOn=false;jetSki.visible=false;}
+    if(Math.abs(jetSki.position.x-px)>44){skiOn=false;jetSki.visible=false;}
   }
   // the wake rolls in as a ridge in the ocean itself
   if(skiWake){
@@ -2466,7 +2492,7 @@ function updateJetSki(dt,eff){
     skiWake.H=wkA;
     if(!skiWake.hit&&skiWake.z>pz-2.6&&skiWake.z<pz+3.0&&!airborne&&!hanging){
       skiWake.hit=true;
-      vy=Math.min(26,9.0+wkA*0.90); airborne=true;
+      vy=11.4; airborne=true; wakeAir=true;
       score+=120;boost=Math.min(16,boost+4);
       msg('WAKE LAUNCH! +120');
       shake=1.8;
@@ -2872,8 +2898,12 @@ function update(dt){
   // inside rail is driven in.
   const hHigh=Math.max(hC,hN,hT,(hL+hR)*0.5);
   const hMean=hC*0.34+hN*0.20+hT*0.20+hL*0.13+hR*0.13;
-  const railDig=Math.min(0.40,Math.abs(carve)*0.40+Math.abs(leanW)*0.13);
-  const waterY=hHigh*0.75+hMean*0.25-0.11-railDig;
+  // Running straight it floats, deck dry, the way a board actually does; only a real
+  // turn drives the inside rail under, and there is a dead zone so holding a line
+  // never quietly buries it.
+  const dig=Math.max(0,Math.abs(carve)-0.20)/0.80;
+  const railDig=Math.min(0.34,dig*dig*0.34+Math.max(0,leanW)*0.10);
+  const waterY=hHigh*0.88+hMean*0.12+0.05-railDig;
 
   if(hanging){
     py+=(5.4-py)*Math.min(1,dt*2.4);   // towed above the water, high enough to throw tricks
@@ -2882,7 +2912,7 @@ function update(dt){
     speed=Math.min(60,speed+14*dt);
     if(!planeActive||plane.position.z>2)releaseRope(false);
   } else if(airborne||py>waterY+0.55){    // clear of the water — the swell fell away under it
-    vy-=20*dt;py+=vy*dt;
+    vy-=(wakeAir?5.4:20)*dt;py+=vy*dt;
     if(py<=waterY){
       const impact=Math.min(1.6,Math.max(0,-vy)/15);
       if(airborne){
@@ -2906,7 +2936,7 @@ function update(dt){
           }
         } else if(grabOn){ settleTricks(false,true); startWipeout('foam'); return; }
       }
-      airborne=false;
+      airborne=false;wakeAir=false;
       // it does not stop dead on the surface: it keeps driving down, buries itself,
       // and the water throws it back — the harder the landing, the deeper it goes
       vy*=0.34;
@@ -2916,7 +2946,7 @@ function update(dt){
     // Buoyancy as a spring the hull works against, not a rail it slides along. It
     // lags a fast-building face, plunges when the water drops away and rebounds when
     // it comes back, so the board has weight instead of hovering on the surface.
-    vy+=((waterY-py)*46 - vy*8.6)*dt;
+    vy+=((waterY-py)*56 - vy*10.4)*dt;
     vy=Math.max(-24,Math.min(24,vy));
     py+=vy*dt;
     if(py<waterY-1.20){py=waterY-1.20;vy=Math.max(vy,0);}     // it never goes right under
@@ -3104,7 +3134,10 @@ function update(dt){
         const t1=u.t*d.f1+d.p1+u.seed, t2=u.t*d.f2+d.p2+u.seed*1.7;
         const lag=d.seg*0.88;                  // a longer lag makes the wave read as it travels
         const A=d.a1*d.k, B=d.a2*d.k;
-        j.rotation.x=d.rx+Math.sin(t1-lag)*A+Math.sin(t2*0.63-lag*0.5)*A*0.6;
+        if(d.seg===0)
+          j.rotation.x=d.sM+Math.sin(u.t*d.sF*Math.PI*2+d.sP+u.seed)*d.sA;
+        else
+          j.rotation.x=d.rx+Math.sin(t1-lag)*A+Math.sin(t2*0.63-lag*0.5)*A*0.6;
         j.rotation.y=d.ry+Math.sin(t2-lag*0.8)*B+Math.cos(t1*0.41)*B*0.5;
         j.rotation.z=d.rz+Math.cos((t1+t2)*0.5-lag*0.7)*A*0.8;
       }
@@ -3260,13 +3293,13 @@ function update(dt){
   // Height is measured from the water under the rider, not from zero. On a big
   // swell the sea itself rises many units, and a camera anchored to zero ends up
   // underneath it looking out through the inside of the wave.
-  camY+=((waterY+4.9+airH*0.62)-camY)*Math.min(1,dt*(flying?4.6:1.6));
+  camY+=((waterY+4.9+airH*0.80)-camY)*Math.min(1,dt*(flying?4.6:1.6));
   camY=Math.max(camY,waterY+2.3);            // never let a fast-building face swallow it
   // follow his fore/aft travel only partly, so it reads on screen instead of the
   // camera cancelling it out and pinning him to one spot again
   camZ+=((11.0+eff*0.05+airH*0.22+pz*0.42)-camZ)*Math.min(1,dt*2.4);
   camera.position.set(camX,camY,camZ);
-  camera.lookAt(lookX,waterY+1.05+airH*0.30,-14);
+  camera.lookAt(lookX,waterY+1.05+airH*0.62,-14);
 
   hScore.textContent=score|0;
   hDist.textContent=(dist|0)+' m';

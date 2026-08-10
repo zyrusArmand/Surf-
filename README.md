@@ -50,6 +50,19 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.25.0** — Three fixes from playtesting. The board floats: v1.23 gave it weight but
+  sank it too far, so water washed over the deck on a straight line. It now rides about a
+  third of a unit higher and only a genuine turn drives the inside rail under — there is a
+  dead zone, so holding a line no longer quietly buries it. The octopus's arms are one
+  continuous tube rather than a string of beads: fourteen shorter links with a ball at
+  every joint filling the corners, and each arm's shoulder now swings the whole limb from
+  up by the animal's face right down to hanging beneath it, every arm at its own pace.
+  The jet ski's wake launch is floaty instead of fast — the fall runs at roughly a quarter
+  gravity, so hang time goes from 2.6 to 4.2 seconds and the apex comes down from 17 units
+  to 12, with the camera climbing harder and aiming higher to keep the rider in frame.
+  The ski itself crosses about forty units out instead of a hundred, larger, slower and
+  with a proper rooster tail, so you can see what threw the wave — and it comes round
+  every 40 to 64 seconds rather than every 22.
 - **v1.24.0** — Clouds drift across the sky and warm into the sunset with it, and
   flocks of gulls cross behind them, wings beating out of step. Four new boards, each
   lofted from a spec — outline, rocker, rail profile, paint — rather than modelled, at
