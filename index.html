@@ -165,7 +165,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.29.1';
+const VERSION='1.30.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -262,12 +262,15 @@ function wakeBump(x,z){
 // down it rather than hovering over a decal.
 const WH_R=13.0;
 let whX=0, whZ=0, whA=0;                  // field-space centre and depth
+// A real one is a wide dish that turns into a steep throat in the last few metres,
+// not an even bowl. The smooth part joins the sea flat at the rim; the spike is what
+// makes the hole in the middle.
+function whirlProfile(k){ return k*k*(3-2*k)*(1+2.1*Math.pow(k,7)); }
 function whirlDip(x,z){
   if(whA<=0.001)return 0;
   const dx=x-whX, dz=z-whZ, d2=dx*dx+dz*dz;
   if(d2>=WH_R*WH_R)return 0;
-  const k=1-Math.sqrt(d2)/WH_R;
-  return -whA*k*k*(3-2*k);
+  return -whA*whirlProfile(1-Math.sqrt(d2)/WH_R);
 }
 let waveAmp=0.78;                       // current swell height (varies set to set)
 // smooth pseudo-random drift so wave size wanders between small and extra-large
@@ -349,9 +352,13 @@ const oceanMat=new THREE.ShaderMaterial({
         float r=length(wd);
         if(r<${WH_R.toFixed(1)}){
           float k=1.0-r/${WH_R.toFixed(1)};
-          h -= uWhA*k*k*(3.0-2.0*k);
+          float k7=pow(k,7.0);
+          float f=k*k*(3.0-2.0*k)*(1.0+2.1*k7);
+          h -= uWhA*f;
           if(r>1e-4){
-            float dfdr=(6.0*k*(1.0-k))*(-1.0/${WH_R.toFixed(1)});
+            float dsm=6.0*k*(1.0-k);
+            float dfdk=dsm*(1.0+2.1*k7)+k*k*(3.0-2.0*k)*14.7*pow(k,6.0);
+            float dfdr=dfdk*(-1.0/${WH_R.toFixed(1)});
             dhx -= uWhA*dfdr*(wd.x/r);
             dhz -= uWhA*dfdr*(wd.y/r);
           }
@@ -2160,19 +2167,21 @@ const skyDome=new THREE.Mesh(
 );
 skyDome.renderOrder=-20;scene.add(skyDome);
 const SKY_KEYS=[
-  // A real day: first light with the sun only just clear of the water and the sky
-  // still holding night, up and over, then down the other side and under. Where it
-  // rises is not where it sets, and both ends are dark.
-  {t:0.00, top:0x0d1636, mid:0x2a2a5c, hz:0x8a5a72, glow:0xff7a3c, gAmt:0.30, sunX:-0.62, sunY:-0.010},
-  {t:0.07, top:0x183069, mid:0x5b4c8a, hz:0xd97a52, glow:0xff8f45, gAmt:0.46, sunX:-0.57, sunY: 0.045},
-  {t:0.17, top:0x2a5a9e, mid:0x9c8ab8, hz:0xffb277, glow:0xffa65c, gAmt:0.40, sunX:-0.47, sunY: 0.210},
-  {t:0.31, top:0x3877bd, mid:0xc3d3ea, hz:0xffe3bd, glow:0xffd79a, gAmt:0.24, sunX:-0.31, sunY: 0.490},
-  {t:0.48, top:0x3f8fd6, mid:0x8fd2f5, hz:0xe6f4fd, glow:0xfff4dc, gAmt:0.10, sunX:-0.04, sunY: 0.920},
-  {t:0.64, top:0x4088cf, mid:0xa9d6ef, hz:0xffe6bd, glow:0xffd287, gAmt:0.22, sunX: 0.23, sunY: 0.560},
-  {t:0.78, top:0x3f7cc0, mid:0xb9b6dd, hz:0xffb277, glow:0xff9a4c, gAmt:0.38, sunX: 0.41, sunY: 0.265},
-  {t:0.89, top:0x2e4f92, mid:0xa06fa8, hz:0xff7f4c, glow:0xff6a30, gAmt:0.54, sunX: 0.53, sunY: 0.070},
-  {t:0.96, top:0x1b2a5e, mid:0x5a3f7c, hz:0xc4523f, glow:0xff5a24, gAmt:0.44, sunX: 0.60, sunY:-0.012},
-  {t:1.00, top:0x0b1230, mid:0x252247, hz:0x5b3252, glow:0xd0431f, gAmt:0.26, sunX: 0.64, sunY:-0.070},
+  // The four phases in order, and they are different things: dawn is soft and pale
+  // with the sun still under the water and no gold in it at all; sunrise is the hot
+  // low disc that follows; sunset is deep orange going red; dusk is what is left once
+  // it has gone, navy to black with stars.
+  {t:0.00, top:0x3a3f6e, mid:0x8f7f9e, hz:0xd7b6b8, glow:0xe0ab8c, gAmt:0.26, sunX:-0.66, sunY:-0.205},
+  {t:0.05, top:0x4a5480, mid:0xac96a8, hz:0xf0c9a8, glow:0xffb877, gAmt:0.40, sunX:-0.63, sunY:-0.088},
+  {t:0.11, top:0x3f6ea8, mid:0xc7a98f, hz:0xffcf8a, glow:0xffc061, gAmt:0.62, sunX:-0.58, sunY: 0.038},
+  {t:0.20, top:0x357ec0, mid:0xbfc9d8, hz:0xffdda8, glow:0xffd489, gAmt:0.44, sunX:-0.47, sunY: 0.190},
+  {t:0.34, top:0x3a86cc, mid:0xc3d3ea, hz:0xf2f0e4, glow:0xfff2d6, gAmt:0.22, sunX:-0.30, sunY: 0.520},
+  {t:0.50, top:0x3f8fd6, mid:0x8fd2f5, hz:0xe6f4fd, glow:0xfff8ea, gAmt:0.09, sunX:-0.03, sunY: 0.930},
+  {t:0.66, top:0x4088cf, mid:0xa9d6ef, hz:0xffe6bd, glow:0xffd287, gAmt:0.22, sunX: 0.26, sunY: 0.520},
+  {t:0.80, top:0x3d6fb4, mid:0xc9a6c0, hz:0xffa863, glow:0xff8f3c, gAmt:0.46, sunX: 0.45, sunY: 0.190},
+  {t:0.90, top:0x2b3f80, mid:0xa85f86, hz:0xff6a3a, glow:0xff4f18, gAmt:0.66, sunX: 0.57, sunY: 0.040},
+  {t:0.96, top:0x162452, mid:0x5a3168, hz:0xa8383a, glow:0xd8381a, gAmt:0.46, sunX: 0.63, sunY:-0.085},
+  {t:1.00, top:0x060a1c, mid:0x121a38, hz:0x33203f, glow:0x6a2418, gAmt:0.16, sunX: 0.68, sunY:-0.215},
 ];
 const skyLayer=new THREE.Group();scene.add(skyLayer);
 // The sun is a sky element only: three additive shells over a bright core, all with
@@ -2195,9 +2204,38 @@ const sunGlowInner=sunShell(120,0.70,-13,2.0);
 const sunDisc=new THREE.Mesh(new THREE.SphereGeometry(10.5,30,22),
   new THREE.MeshBasicMaterial({color:0xfff3cf,depthTest:false,depthWrite:false,transparent:true}));
 sunDisc.renderOrder=-12;skyLayer.add(sunDisc);
+// Stars come out whenever the sun is at or under the horizon, so they are there for
+// the dark half of dawn as well as after sunset. Drawn just in front of the sky dome
+// and behind everything else in the sky.
+const STAR_N=460;
+const starGeo=new THREE.BufferGeometry();
+{
+  const sp=new Float32Array(STAR_N*3);
+  for(let i=0;i<STAR_N;i++){
+    const az=Math.random()*Math.PI*2;
+    const el=Math.pow(Math.random(),0.75)*Math.PI*0.47;
+    const r=296;
+    sp[i*3]=Math.cos(az)*Math.cos(el)*r;
+    sp[i*3+1]=Math.sin(el)*r+6;
+    sp[i*3+2]=Math.sin(az)*Math.cos(el)*r;
+  }
+  starGeo.setAttribute('position',new THREE.BufferAttribute(sp,3));
+}
+const stars2=new THREE.Points(starGeo,new THREE.PointsMaterial({
+  color:0xfdfbf0,size:2.1,sizeAttenuation:false,transparent:true,opacity:0,
+  depthTest:false,depthWrite:false}));
+stars2.renderOrder=-18;skyLayer.add(stars2);
 const moon=new THREE.Mesh(new THREE.SphereGeometry(3.4,18,14),
   new THREE.MeshBasicMaterial({color:0xf6f4ea,transparent:true,opacity:0,depthTest:false,depthWrite:false}));
 moon.renderOrder=-11;skyLayer.add(moon);
+// The disc is painted beyond the far edge of the ocean, so there is no water out
+// there to hide it once it is down. Cut it at sea level instead: it then rises out
+// of the horizon and sinks back into it properly. The glow is deliberately not cut —
+// a sun just under the horizon is exactly what lights a dawn.
+renderer.localClippingEnabled=true;
+const horizonClip=new THREE.Plane(new THREE.Vector3(0,1,0),0);
+sunDisc.material.clippingPlanes=[horizonClip];
+moon.material.clippingPlanes=[horizonClip];
 const _cA=new THREE.Color(),_cB=new THREE.Color(),_cSun=new THREE.Color();
 function lerpHex(a,b,k,out){out.setHex(a);_cB.setHex(b);out.lerp(_cB,k);return out;}
 function updateDayCycle(){
@@ -2251,6 +2289,9 @@ function updateDayCycle(){
   sun.intensity=SUN_I*daylight;
   hemi.intensity=HEMI_I*(0.70+0.30*daylight);
   oceanUniforms.uLight.value=0.52+0.48*Math.max(0,Math.min(1,sy*2.6));
+  // out when the sun is down, gone once it is properly up, with a slow shimmer
+  const night=Math.max(0,Math.min(1,(0.085-sy)/0.13));
+  stars2.material.opacity=night*(0.80+0.20*Math.sin(tNow*0.9));
   const mo=Math.max(0,(tod-0.80)/0.20);
   moon.material.opacity=mo*0.75;
   moon.position.set(-sxn*140,120,-205);
@@ -2486,11 +2527,14 @@ function updateSeaLife(dt,eff){
 // ---------- jet ski: crosses your line and throws a big wake wave at you ----------
 function buildJetSki(){
   const g=new THREE.Group();
+  const sparkles=[];
   const blue   =PBR({color:0x1f6fd0,roughness:0.13,metalness:0.06,envMapIntensity:1.3,vivid:1.6});
   const blueDk =PBR({color:0x123f7d,roughness:0.15,metalness:0.06,envMapIntensity:1.2,vivid:1.5});
   const white  =PBR({color:0xf6f8fa,roughness:0.16,metalness:0.04,envMapIntensity:1.2});
   const dark   =PBR({color:0x191d22,roughness:0.38});
-  const lime   =PBR({color:0x8ede2a,roughness:0.30,vivid:1.7});
+  // not a flat decal stripe: polished chrome that mirrors the sky, with a hot line
+  // laid over it so it throws a glare rather than sitting there as a colour
+  const chrome =PBR({color:0xfff3cf,roughness:0.045,metalness:0.95,envMapIntensity:2.8});
 
   // long planing hull, deeper at the bow
   const hull=new THREE.Mesh(new THREE.SphereGeometry(1,28,20),blue);
@@ -2504,8 +2548,21 @@ function buildJetSki(){
   for(const sx of [-1,1]){
     const rail=new THREE.Mesh(new THREE.BoxGeometry(0.09,0.13,3.3),white);
     rail.position.set(sx*0.58,-0.10,-0.15);rail.rotation.y=sx*0.02;g.add(rail);
-    const stripe=new THREE.Mesh(new THREE.BoxGeometry(0.05,0.09,1.5),lime);
+    const stripe=new THREE.Mesh(new THREE.BoxGeometry(0.055,0.10,1.6),chrome);
     stripe.position.set(sx*0.60,-0.26,0.75);g.add(stripe);
+    const flare=new THREE.Mesh(new THREE.BoxGeometry(0.02,0.05,1.55),
+      new THREE.MeshBasicMaterial({color:0xfffdf2,transparent:true,opacity:0.75,
+        blending:THREE.AdditiveBlending,depthWrite:false}));
+    flare.position.set(sx*0.633,-0.245,0.75);g.add(flare);
+    sparkles.push(flare);
+    // a second, shorter catch up on the cowl where the light really would sit
+    const cap=new THREE.Mesh(new THREE.BoxGeometry(0.045,0.055,0.72),chrome);
+    cap.position.set(sx*0.42,0.60,-1.02);cap.rotation.x=-0.10;g.add(cap);
+    const capFlare=new THREE.Mesh(new THREE.BoxGeometry(0.018,0.03,0.70),
+      new THREE.MeshBasicMaterial({color:0xfffdf2,transparent:true,opacity:0.75,
+        blending:THREE.AdditiveBlending,depthWrite:false}));
+    capFlare.position.set(sx*0.446,0.617,-1.02);capFlare.rotation.x=-0.10;g.add(capFlare);
+    sparkles.push(capFlare);
   }
   // stepped deck and long saddle seat
   const deck=new THREE.Mesh(new THREE.SphereGeometry(1,24,16),white);
@@ -2580,6 +2637,7 @@ function buildJetSki(){
 
   g.add(hull,hullBelly,bow,deck,seat,seatBack,cowl,hood,bars,platform,nozzle,rider);
   g.userData.rider=rider;
+  g.userData.sparkles=sparkles;
   g.scale.setScalar(1.75);        // reads properly against the board
   g.visible=false;
   return g;
@@ -2641,6 +2699,10 @@ function updateJetSki(dt,eff){
     jetSki.position.y=sy+0.34+Math.sin(tNow*9)*0.05;
     jetSki.rotation.z=-skiDir*0.22+Math.sin(tNow*7)*0.05;
     jetSki.rotation.x=-0.10;
+    // the trim catches the light in passes rather than glowing steadily
+    for(let i=0;i<jetSki.userData.sparkles.length;i++)
+      jetSki.userData.sparkles[i].material.opacity=
+        0.30+0.70*Math.pow(Math.max(0,Math.sin(tNow*3.1+i*1.7)),3);
     // the flash rides on its cowl, square to the camera, breathing so it catches the eye
     skiGlint.visible=true;
     skiGlint.position.set(jetSki.position.x,sy+1.5,jetSki.position.z-1.2);
@@ -2663,7 +2725,7 @@ function updateJetSki(dt,eff){
     if(!skiWake&&Math.abs(jetSki.position.x-px)<6){
       // it now has a hundred units to travel, so it needs to live long enough to get
       // here — at eleven seconds it was fading out on the way in and arriving half size
-      skiWake={z:jetSki.position.z-2,life:22.0,hit:false,x:jetSki.position.x};
+      skiWake={z:jetSki.position.z-2,z0:jetSki.position.z-2,life:22.0,hit:false,x:jetSki.position.x};
       msg('WAKE INCOMING!');
     }
     if(Math.abs(jetSki.position.x-px)>48){skiOn=false;jetSki.visible=false;skiGlint.visible=false;}
@@ -2672,7 +2734,11 @@ function updateJetSki(dt,eff){
   if(skiWake){
     skiWake.life-=dt;
     skiWake.z+=(eff*0.28+7.5)*dt;         // a long roll in, so the wall has time to grow on you
-    const grow=Math.max(0,Math.min(1,1-(-skiWake.z)/150));  // builds the whole way in
+    // measured from where it was born rather than from a fixed line, and squared, so
+    // it leaves the ski as nothing and swells the whole way in instead of stepping
+    // straight up to half height the moment he passes
+    const p=Math.max(0,Math.min(1,(skiWake.z-skiWake.z0)/112));
+    const grow=p*p;
     const fade=Math.max(0,Math.min(1,skiWake.life/1.4));
     // a swell several times the height of the surrounding sea, in the same water
     wkA=21.0*grow*fade;
@@ -2705,32 +2771,50 @@ function updateJetSki(dt,eff){
 // rim when it forms and held there instead of being swallowed. There is always a
 // way out; you have to take it before the pull gets too strong.
 function whirlTexture(){
-  const S=256, c=document.createElement('canvas'); c.width=c.height=S;
+  const S=512, c=document.createElement('canvas'); c.width=c.height=S;
   const x=c.getContext('2d');
   x.translate(S/2,S/2);
-  for(let arm=0;arm<5;arm++){
+  let n=8123;
+  const R=()=>{n=(n*9301+49297)%233280;return n/233280;};
+  // Fine drawn-out filaments rather than painted arms. Water going round a hole
+  // shows thin streaks of aerated foam stretched along the flow, sparse and faint
+  // near the outside and gathering as they are pulled toward the middle.
+  for(let arm=0;arm<26;arm++){
+    const a0=R()*Math.PI*2, r0=0.10+R()*0.72, len=0.45+R()*0.85;
+    const wind=2.6+R()*1.7;
     x.beginPath();
-    for(let i=0;i<=90;i++){
-      const t=i/90;
-      const a=arm/5*Math.PI*2 + t*3.4;          // a log spiral winding outward
-      const r=t*S*0.48;
-      const px=Math.cos(a)*r, py=Math.sin(a)*r;
+    for(let i=0;i<=64;i++){
+      const t=i/64;
+      const rr=r0+(0.96-r0)*t*len;
+      if(rr>0.99)break;
+      const a=a0+wind*(Math.log(Math.max(0.06,rr))-Math.log(Math.max(0.06,r0)));
+      const px=Math.cos(a)*rr*S*0.5, py=Math.sin(a)*rr*S*0.5;
       if(i===0)x.moveTo(px,py); else x.lineTo(px,py);
     }
-    x.strokeStyle='rgba(255,255,255,0.72)';
-    x.lineWidth=9; x.lineCap='round';
+    x.strokeStyle='rgba(238,248,255,'+(0.10+R()*0.22).toFixed(3)+')';
+    x.lineWidth=1.1+R()*2.2; x.lineCap='round';
     x.stroke();
   }
-  // soften the whole thing out to nothing at the rim, and darken the throat
+  // the collar of broken water right around the throat, where it is actually white
+  for(let i=0;i<180;i++){
+    const a=R()*Math.PI*2, rr=(0.15+Math.pow(R(),1.7)*0.16)*S*0.5;
+    x.beginPath();
+    x.arc(Math.cos(a)*rr,Math.sin(a)*rr,0.6+R()*1.9,0,Math.PI*2);
+    x.fillStyle='rgba(245,252,255,'+(0.12+R()*0.32).toFixed(3)+')';
+    x.fill();
+  }
+  // fade to nothing well before the rim so the disc has no edge
   x.globalCompositeOperation='destination-in';
   let g=x.createRadialGradient(0,0,0,0,0,S*0.5);
-  g.addColorStop(0,'rgba(0,0,0,1)');g.addColorStop(0.62,'rgba(0,0,0,0.85)');
-  g.addColorStop(1,'rgba(0,0,0,0)');
+  g.addColorStop(0,'rgba(0,0,0,1)');g.addColorStop(0.55,'rgba(0,0,0,0.9)');
+  g.addColorStop(0.86,'rgba(0,0,0,0.25)');g.addColorStop(1,'rgba(0,0,0,0)');
   x.fillStyle=g; x.fillRect(-S/2,-S/2,S,S);
+  // ...and drop the throat itself into shadow, which is what makes it read as a hole
   x.globalCompositeOperation='source-over';
-  g=x.createRadialGradient(0,0,0,0,0,S*0.17);
-  g.addColorStop(0,'rgba(6,32,58,0.85)');g.addColorStop(1,'rgba(6,32,58,0)');
-  x.fillStyle=g; x.beginPath(); x.arc(0,0,S*0.17,0,Math.PI*2); x.fill();
+  g=x.createRadialGradient(0,0,0,0,0,S*0.155);
+  g.addColorStop(0,'rgba(3,14,26,0.94)');g.addColorStop(0.62,'rgba(4,20,36,0.72)');
+  g.addColorStop(1,'rgba(6,28,50,0)');
+  x.fillStyle=g; x.beginPath(); x.arc(0,0,S*0.155,0,Math.PI*2); x.fill();
   const t=new THREE.CanvasTexture(c);
   if(THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding;
   return t;
@@ -2790,7 +2874,7 @@ function updateWhirl(dt,eff){
   w.z+=eff*dt;                                   // it comes to you like everything else
   const grow=Math.max(0,Math.min(1,(w.z+100)/56));
   const fade=Math.max(0,Math.min(1,(24-w.z)/14));
-  whA=5.2*grow*fade; whX=w.x; whZ=dist*WAVE_DRIFT+w.z;
+  whA=7.6*grow*fade; whX=w.x; whZ=dist*WAVE_DRIFT+w.z;
   whirlArt.visible=whA>0.02;
   whirlArt.position.set(w.x,0,w.z);
   if(whirlArt.visible){
@@ -2800,7 +2884,7 @@ function updateWhirl(dt,eff){
     P.needsUpdate=true;
   }
   whirlArt.material.map.rotation-=w.spin*dt*(0.5+whA*0.2);
-  whirlArt.material.opacity=Math.min(0.94,whA*0.34);
+  whirlArt.material.opacity=Math.min(0.96,whA*0.22);
 
   // everything afloat is taken round and drawn in
   for(let i=obstacles.length-1;i>=0;i--){

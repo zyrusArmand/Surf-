@@ -53,6 +53,20 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.30.0** — Dawn, sunrise, sunset and dusk are four different things now rather than
+  one long orange smear. Dawn is soft and pale with the sun still under the water and no
+  gold in it; sunrise is the hot low disc that follows; sunset goes deep orange into red;
+  dusk is navy to black. Stars come out whenever the sun is at or below the horizon, so
+  they are there for the dark half of dawn as well as after sunset, and the sun and moon
+  are clipped at sea level so they rise out of the horizon and sink back into it instead
+  of floating past it — there is no ocean that far out to hide them otherwise. The
+  whirlpool is rebuilt from the reference: a wide dish that turns into a steep throat in
+  the last few metres, and its foam is fine drawn-out filaments with a collar of broken
+  water round the hole, instead of five painted white arms. The jet ski's wake now swells
+  from nothing over its whole run in — it was measured from a fixed line, so it stepped
+  straight up to a third of full height the moment the ski went past. And the ski's trim
+  is polished chrome with a hot line over it that catches in passes, rather than a flat
+  lime stripe.
 - **v1.29.1** — Whirlpools come round in about a third of the time. The first was on a
   55-95 second timer, which on the speed curve put it 840 to 1,590 m out — far enough
   that an ordinary run never met one. It is 26 to 42 seconds now, roughly 470 to 800 m,
