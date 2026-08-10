@@ -30,8 +30,9 @@ npx http-server -p 8080 .   # then open http://localhost:8080
 | Handstand (water or air) | HAND button | `H` (hold) | — |
 | Grab the seaplane's rope | ROPE! button | — | click ROPE! |
 
-Runs pay coins — from how far you get and how well you score getting there — and the
-board rack on the menu spends them. Every board is cosmetic; they all ride the same.
+Runs pay **puka shells** — distance pays the steady part, score pays for how you rode
+it — and the board rack on the menu spends them. Every board is cosmetic; they all ride
+the same. Go under once and you get one chance to get back up.
 
 Land your rotations square or you'll eat it. Hitting a ramp launches you, jellyfish
 bounce you, and buoys, logs and shark fins end the run. Every so often a whirlpool
@@ -52,6 +53,22 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.28.0** — The wake launch was throwing. It read the ride height from a variable
+  that only exists inside the frame update, so the moment every other condition lined up
+  it hit a ReferenceError and never fired at all — since v1.26. Fixed, and rebuilt: he
+  now leaves at the top of the wave and nowhere else, keeping the speed he already has
+  with only a nudge on top, and falls at a quarter gravity so the way down off a wall
+  that size is long. The jet ski itself starts a hundred units out with a flash off its
+  screen sized to hold its size on screen at any range, and the wake rolls in slowly from
+  there, building the whole way. Shark fins can no longer step over you between frames —
+  contact is swept sideways as well as forward — and the blade's full height counts. The
+  day is a real one: first light with the sun only just clear of the water, up and over,
+  down the other side and under, with the light level following it (no colour is tinted,
+  there is simply less of it at either end). Buttons can no longer overlap on a narrow
+  phone. Coins are puka shells now, with the run's distance and score shown converting
+  into them, and the emoji are gone. The jet ski's rider is a pug. And going under once
+  no longer ends it — there is one clip to watch to get back up, keeping everything you
+  had, with the water ahead cleared so you are not handed straight back to it.
 - **v1.27.0** — A whirlpool. It opens ahead of you, dished into the ocean's own height
   field so the water genuinely falls into it, with foam laid on the surface every frame
   and a swirl that turns. Everything afloat inside it is carried round and drawn in,

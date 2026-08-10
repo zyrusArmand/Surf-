@@ -24,16 +24,21 @@
   #jumpBtn { right:20px; bottom:30px; width:92px; height:92px; font-size:20px; }
   #ropeBtn { right:20px; bottom:140px; width:92px; height:92px; font-size:18px;
     background:rgba(255,111,165,.4); border-color:#ff9ec4; display:none; }
-  #trickBar { position:fixed; bottom:34px; left:20px; display:flex; gap:12px; }
+  /* the trick row is given the width left over beside JUMP and its buttons shrink
+     to fit it, so the two can never end up on top of each other on a narrow phone */
+  #trickBar { position:fixed; bottom:30px; left:14px; right:124px;
+    display:flex; gap:2.2vw; justify-content:flex-start; }
   .tbtn {
-    width:68px; height:68px; border-radius:50%; user-select:none;
+    width:min(68px, calc((100vw - 152px)/4 - 2.2vw)); aspect-ratio:1/1;
+    border-radius:50%; user-select:none; flex:none;
     display:flex; align-items:center; justify-content:center;
-    font-weight:bold; font-size:15px; color:#fff; text-shadow:0 2px 3px rgba(0,0,0,.4);
+    font-weight:bold; font-size:min(15px,3.4vw); color:#fff; text-shadow:0 2px 3px rgba(0,0,0,.4);
     border:3px solid rgba(255,255,255,.65);
   }
   #spinBtn { background:rgba(80,160,255,.5); }
   #flipBtn { background:rgba(255,140,46,.5); }
   #grabBtn { background:rgba(120,224,129,.5); }
+  #handBtn { background:rgba(186,140,255,.5); }
   #overlay {
     position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
     background:rgba(10,40,70,.82); color:#fff; text-align:center; padding:20px;
@@ -55,6 +60,21 @@
     display:flex; align-items:center; justify-content:center; padding:16px; }
   #shop .shopwrap { width:min(620px,100%); max-height:100%; display:flex; flex-direction:column; }
   #shop .go { align-self:center; margin-top:10px; padding:12px 44px; }
+  #overlay #reviveBtn { background:#18b3a6; box-shadow:0 5px 0 #0d6f67; margin-bottom:4px; }
+  #clip { position:fixed; inset:0; z-index:14; background:rgba(4,18,34,.96); color:#fff;
+    display:flex; align-items:center; justify-content:center; padding:18px; }
+  #clip .clipbox { width:min(520px,100%); text-align:center; }
+  #clip .clipart { position:relative; height:min(46vh,260px); border-radius:16px; overflow:hidden;
+    background:linear-gradient(#3a2a6b 0%, #b4496a 42%, #ff8a3c 62%, #1d7fc4 62%, #0d4f8c 100%); }
+  #clip .sun { position:absolute; left:50%; top:44%; width:74px; height:74px; margin:-37px 0 0 -37px;
+    border-radius:50%; background:#ffe9b0; box-shadow:0 0 60px 24px rgba(255,190,110,.55); }
+  #clip .sea { position:absolute; left:0; right:0; bottom:0; height:38%;
+    background:repeating-linear-gradient(180deg, rgba(255,255,255,.12) 0 2px, rgba(255,255,255,0) 2px 12px); }
+  #clip .sweep { position:absolute; inset:0;
+    background:linear-gradient(105deg, rgba(255,255,255,0) 38%, rgba(255,255,255,.28) 50%, rgba(255,255,255,0) 62%);
+    transform:translateX(-100%); animation:clipsweep 2.1s linear infinite; }
+  @keyframes clipsweep { to { transform:translateX(100%); } }
+  #clip .clipmsg { margin-top:16px; font-size:min(5vw,20px); font-weight:bold; }
   #shop h2 { font-size:min(6.5vw,26px); color:#ffdf2e; text-shadow:2px 2px 0 #b8641c; margin-bottom:12px;
     display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
   #shop h2 span { color:#ffe9a8; font-size:min(4.6vw,19px); text-shadow:none; }
@@ -80,7 +100,7 @@
   <div class="cell"><span class="lab">DIST</span><span class="val" id="hDist">0 m</span></div>
   <div class="cell"><span class="lab">MPH</span><span class="val" id="hSpeed">0</span></div>
   <div class="cell"><span class="lab">BEST</span><span class="val" id="hBest">0</span></div>
-  <div class="cell"><span class="lab">COINS</span><span class="val" id="hCoins">0</span></div>
+  <div class="cell"><span class="lab">PUKA</span><span class="val" id="hCoins">0</span></div>
 </div>
 <div id="trickmsg"></div>
 <div id="jumpBtn" class="btn hidden">JUMP</div>
@@ -94,15 +114,22 @@
 <div id="overlay">
   <h1>🏄 Pug Surf</h1>
   <p id="ovText">Carve the swell, dodge the buoys, boost off the ramps and stomp the landing.<br>Hook the seaplane's rope for a Superman backflip.</p>
+  <button class="go" id="reviveBtn" style="display:none">Watch a clip · get back up</button>
   <button class="go" id="startBtn">Surf</button>
-  <button class="go alt" id="shopBtn">Board rack · <span id="ovCoins">0</span> 🪙</button>
+  <button class="go alt" id="shopBtn">Board rack · <span id="ovCoins">0</span> puka</button>
   <p class="hint">touch: swipe to carve · buttons to trick<br>keyboard: A/D carve · W/S weight · Space jump · J spin · K flip · L grab · H handstand<br>mouse: drag to carve</p>
 </div>
 <div id="shop" class="hidden">
   <div class="shopwrap">
-    <h2>Board rack <span id="shopCoins">0 🪙</span></h2>
+    <h2>Board rack <span id="shopCoins">0 puka</span></h2>
     <div id="shopList"></div>
     <button class="go" id="shopClose">Back</button>
+  </div>
+</div>
+<div id="clip" class="hidden">
+  <div class="clipbox">
+    <div class="clipart"><div class="sun"></div><div class="sea"></div><div class="sweep"></div></div>
+    <div class="clipmsg">Back on the board in <b id="clipN">5</b></div>
   </div>
 </div>
 <div id="zap"></div>
@@ -138,7 +165,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.27.0';
+const VERSION='1.28.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -161,6 +188,7 @@ addEventListener('resize',()=>{
   renderer.setSize(innerWidth,innerHeight);
 });
 const hemi=new THREE.HemisphereLight(0xdfeeff,0x2a7ba8,0.62);scene.add(hemi);
+const HEMI_I=0.62;
 // bake the sky + ocean colours into an environment map — this is what gives every
 // surface real reflections instead of flat shading
 function buildEnvironment(){
@@ -184,6 +212,7 @@ function buildEnvironment(){
   }catch(e){ /* older builds without PMREM just keep the lights */ }
 }
 const sunDir=new THREE.Vector3(-0.45,0.75,-0.5).normalize();
+const SUN_I=1.75;
 const sun=new THREE.DirectionalLight(0xfff2cf,1.75);
 sun.position.copy(sunDir.clone().multiplyScalar(60));
 sun.castShadow=true;
@@ -285,7 +314,7 @@ const oceanUniforms={
   uT:{value:0}, uDist:{value:0}, uAmp:{value:1.35}, uPeak:{value:2.85},
   uWakeZ:{value:0}, uWakeA:{value:0}, uWakeX:{value:0},
   uWhX:{value:0}, uWhZ:{value:0}, uWhA:{value:0},
-  uSun:{value:sunDir},
+  uSun:{value:sunDir}, uLight:{value:1.0},
   uSky:{value:new THREE.Color(0x8fd2f5)},
   uDeep:{value:new THREE.Color(0x0a5e9c)},
   uShallow:{value:new THREE.Color(0x33aede)},
@@ -342,6 +371,7 @@ const oceanMat=new THREE.ShaderMaterial({
   fragmentShader:`
     uniform vec3 uSun; uniform vec3 uSky; uniform vec3 uDeep; uniform vec3 uShallow;
     uniform float uT; uniform float uDist; uniform float uAmp; uniform float uPeak;
+    uniform float uLight;
     varying vec3 vN; varying vec3 vW; varying float vH; varying vec2 vPh;
     // Value noise with a rotation between octaves. The rotation is the point: it
     // stops every octave lining up with the same two axes, which is what made the
@@ -390,7 +420,8 @@ const oceanMat=new THREE.ShaderMaterial({
       // hand-picked colours are sRGB — convert to linear so the renderer's single
       // tone-map + encode returns exactly the intended shade
       col = pow(clamp(col,0.0,1.0), vec3(2.2));
-      gl_FragColor = vec4(col,1.0);
+      // how much daylight there is, not what colour it is: the palette is untouched
+      gl_FragColor = vec4(col*uLight,1.0);
     }
   `,
 });
@@ -949,12 +980,16 @@ loadSave(); equipBoard(equipped);
 // Coins come out of a run: how far Astro got and how well he scored getting there.
 // Everything bought is cosmetic — the boards ride identically, they just look
 // different, so buying one can never make the game easier or harder.
-function coinsFor(d,sc){ return Math.floor(d/5)+Math.floor(sc/18); }
+// Puka shells: what a run is worth. Distance pays the steady part and score pays for
+// how you rode it, and both halves are shown so it is obvious where they came from.
+function pukaFromDist(d){ return Math.floor(d/5); }
+function pukaFromScore(sc){ return Math.floor(sc/18); }
+function coinsFor(d,sc){ return pukaFromDist(d)+pukaFromScore(sc); }
 function showCoins(){
   const t=String(coins);
   if(hCoins)hCoins.textContent=t;
   if(ovCoins)ovCoins.textContent=t;
-  if(shopCoins)shopCoins.textContent=t+' 🪙';
+  if(shopCoins)shopCoins.textContent=t+' puka';
 }
 function drawShop(){
   shopList.innerHTML='';
@@ -971,7 +1006,7 @@ function drawShop(){
       const btn=document.createElement('button');
       if(have){ btn.textContent='Ride it'; btn.onclick=()=>{equipBoard(b.id);saveGame();drawShop();}; }
       else {
-        btn.textContent=b.price+' 🪙';
+        btn.textContent=b.price+' puka';
         btn.disabled=coins<b.price;
         btn.onclick=()=>{
           if(coins<b.price)return;
@@ -1527,7 +1562,7 @@ function buildObstacle(kind){
     const fin=makeDorsal(3.6,skin);
     fin.position.y=1.55;fin.rotation.y=Math.PI/2;
     m.add(fin);
-    r=1.70;h=3.2;
+    r=1.70;h=4.2;                      // as tall as the blade really is, so you cannot clip it
   } else {
     // clean solid wooden wedge — low edge toward the rider
     m=new THREE.Group();
@@ -1621,6 +1656,10 @@ let spinHeld=false,flipHeld=false,spinRot=0,flipRot=0;
 // air off the jet ski's wake is its own thing: launched softer but falling slower, so
 // there is time up there to actually throw something
 let wakeAir=false;
+// the height the hull is riding at this frame. update() owns it, but the jet ski's
+// wake needs it too, and a const inside update() is not visible from there — reading
+// it from the wrong scope is what stopped the wake launch firing at all.
+let rideY=0;
 // handstand: Astro goes up on his front paws. It works on the water, not just in
 // the air, and it pays while it is held — but a hard carve on your hands ends badly.
 let handOn=false,handT=0,handPts=0,handRisk=0;
@@ -1834,7 +1873,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   dist=0;speed=13.5;score=0;px=0;py=0;pz=0;vy=0;vx=0;cutCd=0;airborne=false;trick=null;
   boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;
   trail.length=0;trailT=0;
-  skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;wkA=0;
+  skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;skiGlint.visible=false;wkA=0;
   splatT=0;splatCd=0;if(zapEl)zapEl.classList.remove('on');
   while(stars.length){const st=stars.pop();st.m.visible=false;STAR_POOL.push(st.m);}
   splat3D.visible=false;
@@ -1845,10 +1884,55 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   ropeBtn.style.display='none';ropeBtn.textContent='ROPE!';
   player.rotation.set(0,0,0);
   spawnT=0.4;lastKind='';sameRun=0;bigFinCd=6;laneSlot=(Math.random()*5)|0;
+  revivesLeft=1;
 }
+// One second chance a run. He is put back on the board where he went in, with the
+// water ahead cleared so he is not handed straight back to whatever got him, and
+// everything he had — score, distance, the shells earned so far — kept.
+function respawn(){
+  if(wipe){
+    scene.remove(rig); player.add(rig);
+    player.remove(pug); rig.add(pug);
+    pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
+    rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null;
+  }
+  player.rotation.set(0,0,0);
+  handOn=false;handT=0;handPts=0;handRisk=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;
+  for(let i=obstacles.length-1;i>=0;i--)
+    if(obstacles[i].position.z>-48){scene.remove(obstacles[i]);obstacles.splice(i,1);}
+  skiOn=false;skiWake=null;skiT=26;jetSki.visible=false;skiGlint.visible=false;wkA=0;
+  whirl=null;whA=0;whirlArt.visible=false;whirlT=45+Math.random()*30;
+  hanging=false;rope.visible=false;ropeBtn.style.display='none';ropeBtn.textContent='ROPE!';
+  planeActive=false;plane.visible=false;planeT=30+Math.random()*24;
+  splatT=0;splat3D.visible=false;
+  while(stars.length){const st=stars.pop();st.m.visible=false;STAR_POOL.push(st.m);}
+  px=0;py=0;pz=0;vy=0;vx=0;airborne=false;trick=null;spinRot=0;flipRot=0;
+  spinHeld=false;flipHeld=false;grabOn=false;grabPts=0;
+  boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;cutCd=0;
+  spawnT=1.8;
+  overlayUp=false;running=true;last=performance.now();
+  overlay.classList.add('hidden');jumpBtn.classList.remove('hidden');
+  msg('BACK UP!');
+}
+// The clip is a placeholder: a real build would hand this slot to a rewarded-ad SDK.
+// Nothing here talks to a network — it plays locally and then puts him back up.
+const clipEl=document.getElementById('clip'), clipN=document.getElementById('clipN');
+const reviveBtn=document.getElementById('reviveBtn');
+reviveBtn.onclick=()=>{
+  if(revivesLeft<=0)return;
+  revivesLeft--;
+  reviveBtn.style.display='none';
+  clipEl.classList.remove('hidden');
+  let n=5; clipN.textContent=n;
+  const tick=setInterval(()=>{
+    n--; clipN.textContent=Math.max(0,n);
+    if(n<=0){clearInterval(tick);clipEl.classList.add('hidden');respawn();}
+  },1000);
+};
 
 startBtn.addEventListener('click',()=>{
   overlay.classList.add('hidden');jumpBtn.classList.remove('hidden');
+  reviveBtn.style.display='none';
   reset();running=true;overlayUp=false;last=performance.now();
 });
 
@@ -1864,7 +1948,7 @@ const WIPE={
   under: {vy: 4.5, vz: 0.5, spin:[11, 4, 5], msg:'UNDER-ROTATED!',   kick:1.5},
   foam:  {vy: 2.5, vz:-1.0, spin:[ 6, 2, 8], msg:'ATE IT!',      kick:1.2},
 };
-let wipe=null,overlayUp=false;
+let wipe=null,overlayUp=false,revivesLeft=1;
 function startWipeout(kind){
   if(wipe)return;
   const W=WIPE[kind]||WIPE.foam;
@@ -2025,10 +2109,16 @@ function gameOver(){
   const earned=coinsFor(dist,s);
   coins+=earned; saveGame(); showCoins();
   jumpBtn.classList.add('hidden');ropeBtn.style.display='none';trickBar.classList.add('hidden');
-  overlay.querySelector('h1').textContent='Wipeout! 🌊';
-  document.getElementById('ovText').innerHTML=`Astro went under...<br><br>Score: <b>${s}</b><br>Distance: <b>${dist|0} m</b><br>Best: <b>${best}</b><br><br>Earned <b>${earned} 🪙</b> &nbsp;·&nbsp; purse <b>${coins} 🪙</b>`;
+  overlay.querySelector('h1').textContent='Wipeout!';
+  document.getElementById('ovText').innerHTML=
+    `Astro went under...<br><br>`+
+    `Distance <b>${dist|0} m</b> &nbsp;→&nbsp; <b>${pukaFromDist(dist)}</b> puka<br>`+
+    `Score <b>${s}</b> &nbsp;→&nbsp; <b>${pukaFromScore(s)}</b> puka<br>`+
+    `<b>${earned}</b> puka this run &nbsp;·&nbsp; purse <b>${coins}</b><br><br>`+
+    `Best <b>${best}</b>`;
   shopBtn.classList.remove('hidden');
   startBtn.textContent='Surf again';
+  reviveBtn.style.display=revivesLeft>0?'':'none';
   overlay.classList.remove('hidden');
 }
 
@@ -2070,16 +2160,19 @@ const skyDome=new THREE.Mesh(
 );
 skyDome.renderOrder=-20;scene.add(skyDome);
 const SKY_KEYS=[
-  // starts at sunrise: sun on the horizon, warm. It climbs, then comes back down
-  // into the sunset — and, as before, never actually sets.
-  {t:0.00, top:0x28407c, mid:0x9a7ab0, hz:0xff9d5e, glow:0xff8a46, gAmt:0.52, sunX:-0.26, sunY:0.05},
-  {t:0.10, top:0x2f5a9a, mid:0xb59ac2, hz:0xffbe86, glow:0xffab5c, gAmt:0.42, sunX:-0.23, sunY:0.16},
-  {t:0.26, top:0x3877bd, mid:0xc3d3ea, hz:0xffe3bd, glow:0xffd79a, gAmt:0.26, sunX:-0.19, sunY:0.38},
-  {t:0.46, top:0x3f8fd6, mid:0x8fd2f5, hz:0xe6f4fd, glow:0xfff4dc, gAmt:0.12, sunX:-0.09, sunY:0.72},
-  {t:0.62, top:0x4088cf, mid:0xa9d6ef, hz:0xffe6bd, glow:0xffd287, gAmt:0.24, sunX:0.01, sunY:0.52},
-  {t:0.78, top:0x3f7cc0, mid:0xb9b6dd, hz:0xffbe86, glow:0xffab5a, gAmt:0.36, sunX:0.09, sunY:0.30},
-  {t:0.90, top:0x3a5fa6, mid:0xc294bb, hz:0xff9a63, glow:0xff8b45, gAmt:0.46, sunX:0.16, sunY:0.16},
-  {t:1.00, top:0x2f4a86, mid:0xbe7b9c, hz:0xff7f4c, glow:0xff6f34, gAmt:0.55, sunX:0.23, sunY:0.06},
+  // A real day: first light with the sun only just clear of the water and the sky
+  // still holding night, up and over, then down the other side and under. Where it
+  // rises is not where it sets, and both ends are dark.
+  {t:0.00, top:0x0d1636, mid:0x2a2a5c, hz:0x8a5a72, glow:0xff7a3c, gAmt:0.30, sunX:-0.62, sunY:-0.010},
+  {t:0.07, top:0x183069, mid:0x5b4c8a, hz:0xd97a52, glow:0xff8f45, gAmt:0.46, sunX:-0.57, sunY: 0.045},
+  {t:0.17, top:0x2a5a9e, mid:0x9c8ab8, hz:0xffb277, glow:0xffa65c, gAmt:0.40, sunX:-0.47, sunY: 0.210},
+  {t:0.31, top:0x3877bd, mid:0xc3d3ea, hz:0xffe3bd, glow:0xffd79a, gAmt:0.24, sunX:-0.31, sunY: 0.490},
+  {t:0.48, top:0x3f8fd6, mid:0x8fd2f5, hz:0xe6f4fd, glow:0xfff4dc, gAmt:0.10, sunX:-0.04, sunY: 0.920},
+  {t:0.64, top:0x4088cf, mid:0xa9d6ef, hz:0xffe6bd, glow:0xffd287, gAmt:0.22, sunX: 0.23, sunY: 0.560},
+  {t:0.78, top:0x3f7cc0, mid:0xb9b6dd, hz:0xffb277, glow:0xff9a4c, gAmt:0.38, sunX: 0.41, sunY: 0.265},
+  {t:0.89, top:0x2e4f92, mid:0xa06fa8, hz:0xff7f4c, glow:0xff6a30, gAmt:0.54, sunX: 0.53, sunY: 0.070},
+  {t:0.96, top:0x1b2a5e, mid:0x5a3f7c, hz:0xc4523f, glow:0xff5a24, gAmt:0.44, sunX: 0.60, sunY:-0.012},
+  {t:1.00, top:0x0b1230, mid:0x252247, hz:0x5b3252, glow:0xd0431f, gAmt:0.26, sunX: 0.64, sunY:-0.070},
 ];
 const skyLayer=new THREE.Group();scene.add(skyLayer);
 // The sun is a sky element only: three additive shells over a bright core, all with
@@ -2126,7 +2219,9 @@ function updateDayCycle(){
   skyLayer.position.set(camera.position.x,0,camera.position.z);
   // the disc sinks toward the horizon and reddens; the core stays hotter than the
   // glow around it so it still reads as a sun rather than a flat blob
-  const sunY=20+sy*104;
+  // zero now means the horizon itself, so it can genuinely rise out of the sea and
+  // go back under it — the ocean paints over the disc once it is down
+  const sunY=sy*118;
   sunDisc.position.set(sxn*130,sunY,-195);
   // these are plain materials, so the hand-picked colours have to be moved into
   // linear space by hand — the sky dome's shader does its own conversion
@@ -2149,6 +2244,13 @@ function updateDayCycle(){
   _cA.setHex(0xffffff).lerp(skyUniforms.uGlow.value,gAmt*0.85);
   if(_cA.convertSRGBToLinear)_cA.convertSRGBToLinear();
   for(const c of clouds)c.material.color.copy(_cA);
+  // How much light is actually falling, which is a different thing from tinting: no
+  // colour anywhere is touched, there is simply less of it at either end of the day.
+  // The floor is deliberately high — this is dusk, not night.
+  const daylight=0.62+0.38*Math.max(0,Math.min(1,sy*2.6));
+  sun.intensity=SUN_I*daylight;
+  hemi.intensity=HEMI_I*(0.70+0.30*daylight);
+  oceanUniforms.uLight.value=0.52+0.48*Math.max(0,Math.min(1,sy*2.6));
   const mo=Math.max(0,(tod-0.80)/0.20);
   moon.material.opacity=mo*0.75;
   moon.position.set(-sxn*140,120,-205);
@@ -2436,7 +2538,7 @@ function buildJetSki(){
   const rider=new THREE.Group();
   const suit=PBR({color:0x14202b,roughness:0.45});
   const vest=PBR({color:0xff5a1f,roughness:0.40,vivid:1.7});
-  const skin=PBR({color:0xe8b184,roughness:0.72});
+  const skin=FUR_MAT(0xdca85f);        // he is a pug: fawn all the way down
   const torso=new THREE.Mesh(new THREE.SphereGeometry(0.34,18,14),vest);
   torso.scale.set(0.82,1.15,0.66);torso.position.y=0.36;torso.rotation.x=-0.30;
   const hips=new THREE.Mesh(new THREE.SphereGeometry(0.28,16,12),suit);
@@ -2449,13 +2551,30 @@ function buildJetSki(){
     const arm=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.08,0.62,10),skin);
     arm.position.set(sx*0.26,0.42,-0.42);arm.rotation.set(-1.25,0,sx*0.22);rider.add(arm);
   }
-  const head=new THREE.Mesh(new THREE.SphereGeometry(0.20,16,14),skin);
-  head.position.set(0,0.76,-0.16);
-  const helm=new THREE.Mesh(new THREE.SphereGeometry(0.225,16,14),PBR({color:0xffd21a,roughness:0.20,vivid:1.7}));
-  helm.position.set(0,0.79,-0.16);helm.scale.set(1,0.88,1.02);
-  const visor=new THREE.Mesh(new THREE.SphereGeometry(0.20,14,12),PBR({color:0x16323f,roughness:0.08,metalness:0.2}));
-  visor.scale.set(0.92,0.5,0.75);visor.position.set(0,0.78,-0.30);
-  rider.add(torso,hips,head,helm,visor);
+  // the one riding it is a pug as well — same fawn, same black mask, in a life vest
+  const fur=FUR_MAT(0xdca85f), pugDark=PBR({color:0x2b1d12,roughness:0.72});
+  const head=new THREE.Mesh(new THREE.SphereGeometry(0.23,20,16),fur);
+  head.scale.set(1.0,0.94,0.92);head.position.set(0,0.78,-0.18);
+  const muzzle=new THREE.Mesh(new THREE.SphereGeometry(0.135,16,12),pugDark);
+  muzzle.scale.set(1.0,0.80,0.85);muzzle.position.set(0,0.72,-0.36);
+  const nose=new THREE.Mesh(new THREE.SphereGeometry(0.055,12,10),PBR({color:0x140d08,roughness:0.35}));
+  nose.position.set(0,0.75,-0.47);
+  const brow=new THREE.Mesh(new THREE.SphereGeometry(0.16,16,12),pugDark);
+  brow.scale.set(1.0,0.42,0.5);brow.position.set(0,0.86,-0.30);
+  for(const sx of [-1,1]){
+    const eye=new THREE.Mesh(new THREE.SphereGeometry(0.052,12,10),PBR({color:0x0d0a08,roughness:0.16}));
+    eye.position.set(sx*0.095,0.82,-0.36);rider.add(eye);
+    const ear=new THREE.Mesh(new THREE.SphereGeometry(0.13,14,12),pugDark);   // floppy, laid back
+    ear.scale.set(0.46,0.92,0.60);ear.position.set(sx*0.20,0.83,-0.06);
+    ear.rotation.set(0.30,0,sx*0.26);rider.add(ear);
+  }
+  const goggles=new THREE.Mesh(new THREE.TorusGeometry(0.115,0.030,8,20),PBR({color:0xffd21a,roughness:0.25,vivid:1.7}));
+  goggles.position.set(0,0.855,-0.31);goggles.rotation.x=0.20;
+  const lens=new THREE.Mesh(new THREE.SphereGeometry(0.105,14,12),PBR({color:0x16323f,roughness:0.08,metalness:0.2}));
+  lens.scale.set(1.5,0.72,0.34);lens.position.set(0,0.855,-0.34);
+  const tail=new THREE.Mesh(new THREE.TorusGeometry(0.085,0.038,8,16,Math.PI*1.6),fur);
+  tail.position.set(0,0.34,0.44);tail.rotation.set(1.25,0,0.5);
+  rider.add(torso,hips,head,muzzle,nose,brow,goggles,lens,tail);
   rider.position.set(0,0.42,0.30);
   rider.scale.setScalar(1.05);
 
@@ -2468,6 +2587,31 @@ function buildJetSki(){
 const jetSki=buildJetSki();
 jetSki.scale.setScalar(1.30);        // it crosses a long way out; small reads as nothing
 scene.add(jetSki);
+// A hard flash off its screen, sized to be visible from a hundred units out. It is
+// what makes you look up in time — the wake it leaves is on its way long before it
+// is anywhere near you.
+function glintTexture(){
+  const S=128,c=document.createElement('canvas');c.width=c.height=S;
+  const x=c.getContext('2d');x.translate(S/2,S/2);
+  let g=x.createRadialGradient(0,0,0,0,0,S*0.5);
+  g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(0.14,'rgba(255,245,210,0.72)');
+  g.addColorStop(0.45,'rgba(255,220,150,0.16)');g.addColorStop(1,'rgba(255,200,120,0)');
+  x.fillStyle=g;x.fillRect(-S/2,-S/2,S,S);
+  x.strokeStyle='rgba(255,255,255,0.85)';x.lineCap='round';
+  for(let i=0;i<4;i++){
+    x.save();x.rotate(i*Math.PI/4);
+    x.lineWidth=i%2?2.5:5;
+    x.beginPath();x.moveTo(-S*(i%2?0.28:0.46),0);x.lineTo(S*(i%2?0.28:0.46),0);x.stroke();
+    x.restore();
+  }
+  const t=new THREE.CanvasTexture(c);
+  if(THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding;
+  return t;
+}
+const skiGlint=new THREE.Mesh(new THREE.PlaneGeometry(1,1),
+  new THREE.MeshBasicMaterial({map:glintTexture(),transparent:true,depthWrite:false,
+    blending:THREE.AdditiveBlending}));
+skiGlint.visible=false;scene.add(skiGlint);
 const SKI_BOX=boxOf(jetSki);
 loadModel('jetski.glb',s3=>{
   const fitted=skinAndFit('jetski',s3,SKI_BOX);
@@ -2480,7 +2624,7 @@ function spawnJetSki(){
   skiDir=Math.random()<0.5?1:-1;
   jetSki.visible=true;
   // close enough to actually see it go past; the wake still has fifty units to build
-  jetSki.position.set(px-skiDir*34,0,-40-Math.random()*12);
+  jetSki.position.set(px-skiDir*36,0,-104-Math.random()*22);
   msg('JET SKI!');
   jetSki.rotation.y=-skiDir*Math.PI/2;   // bow is local -z, so it must face the way it drives
   skiWake=null;
@@ -2491,12 +2635,21 @@ function updateJetSki(dt,eff){
     if(skiT<=0){skiT=40+Math.random()*24;spawnJetSki();}
   } else {
     // rips across the field
-    jetSki.position.x+=skiDir*18*dt;      // slower, so it is on screen long enough to see
+    jetSki.position.x+=skiDir*15*dt;      // slower, so it is on screen long enough to see
     jetSki.position.z+=eff*dt*0.35;
     const sy=waveH(jetSki.position.x,dist*WAVE_DRIFT+jetSki.position.z,waveClock);
     jetSki.position.y=sy+0.34+Math.sin(tNow*9)*0.05;
     jetSki.rotation.z=-skiDir*0.22+Math.sin(tNow*7)*0.05;
     jetSki.rotation.x=-0.10;
+    // the flash rides on its cowl, square to the camera, breathing so it catches the eye
+    skiGlint.visible=true;
+    skiGlint.position.set(jetSki.position.x,sy+1.5,jetSki.position.z-1.2);
+    skiGlint.quaternion.copy(camera.quaternion);
+    // sized off how far away it is, so it holds the same size on screen whether the
+    // ski is a hundred units out or going past — a fixed world size vanishes at range
+    const gd=camera.position.distanceTo(jetSki.position);
+    skiGlint.scale.setScalar(gd*0.105*(0.82+0.30*Math.sin(tNow*5.5)+0.10*Math.sin(tNow*2.1)));
+    skiGlint.material.opacity=0.72+0.26*Math.sin(tNow*5.5);
     // rooster tail of spray behind it
     for(let i=0;i<4;i++){
       const m=takeDrop(); if(!m)break;
@@ -2511,29 +2664,27 @@ function updateJetSki(dt,eff){
       skiWake={z:jetSki.position.z-2,life:11.0,hit:false,x:jetSki.position.x};
       msg('WAKE INCOMING!');
     }
-    if(Math.abs(jetSki.position.x-px)>44){skiOn=false;jetSki.visible=false;}
+    if(Math.abs(jetSki.position.x-px)>48){skiOn=false;jetSki.visible=false;skiGlint.visible=false;}
   }
   // the wake rolls in as a ridge in the ocean itself
   if(skiWake){
     skiWake.life-=dt;
-    skiWake.z+=(eff*0.42+13)*dt;
-    const grow=Math.max(0,Math.min(1,1-(-skiWake.z)/96));   // builds the whole way in
+    skiWake.z+=(eff*0.28+7.5)*dt;         // a long roll in, so the wall has time to grow on you
+    const grow=Math.max(0,Math.min(1,1-(-skiWake.z)/150));  // builds the whole way in
     const fade=Math.max(0,Math.min(1,skiWake.life/1.4));
     // a swell several times the height of the surrounding sea, in the same water
     wkA=21.0*grow*fade;
     wkZ=dist*WAVE_DRIFT+skiWake.z;
     wkX=skiWake.x;
     skiWake.H=wkA;
-    // Fire it off the face while the water is still lifting him, not once the crest
-    // has gone by. Past the crest the wave is falling away underneath, so he is
-    // already dropping, and setting an upward speed then reverses him mid-fall — the
-    // snap that made it read as two separate events. Launching on the way up also
-    // means the kick can be added to the speed he already has instead of replacing
-    // it, so nothing about the takeoff is discontinuous.
-    if(!skiWake.hit&&skiWake.z>pz-4.4&&skiWake.z<pz+0.4&&!airborne&&!hanging&&py<waterY+1.6){
+    // He leaves at the top and nowhere else. The crest reaching his z is the peak by
+    // construction, and at the peak he is already travelling with the water, so the
+    // launch keeps whatever speed he has and only adds a nudge on top. Nothing is
+    // overwritten, so there is no reversal and no seam — he simply carries on off the
+    // lip and then has the whole height of the wave to fall back down.
+    if(!skiWake.hit&&skiWake.z>=pz&&!airborne&&!hanging){
       skiWake.hit=true;
-      vy=Math.min(15.5,Math.max(0,vy)*0.55+10.6);
-      py=Math.max(py,waterY-0.10);       // leave from the surface, never from under it
+      vy=Math.max(vy,0)+3.6;
       airborne=true; wakeAir=true;
       score+=120;boost=Math.min(16,boost+4);
       msg('WAKE LAUNCH! +120');
@@ -3087,6 +3238,7 @@ function update(dt){
   const dig=Math.max(0,Math.abs(carve)-0.20)/0.80;
   const railDig=Math.min(0.34,dig*dig*0.34+Math.max(0,leanW)*0.10);
   const waterY=hHigh*0.88+hMean*0.12+0.05-railDig;
+  rideY=waterY;
 
   if(hanging){
     py+=(5.4-py)*Math.min(1,dt*2.4);   // towed above the water, high enough to throw tricks
@@ -3095,7 +3247,7 @@ function update(dt){
     speed=Math.min(60,speed+14*dt);
     if(!planeActive||plane.position.z>2)releaseRope(false);
   } else if(airborne||py>waterY+0.55){    // clear of the water — the swell fell away under it
-    vy-=(wakeAir?5.4:20)*dt;py+=vy*dt;
+    vy-=(wakeAir?4.6:20)*dt;py+=vy*dt;      // off a wave that size, the way down is long
     if(py<=waterY){
       const impact=Math.min(1.6,Math.max(0,-vy)/15);
       if(airborne){
@@ -3352,7 +3504,13 @@ function update(dt){
     // tail, swept over the ground the obstacle covered this frame, so the nose
     // makes contact when it reaches something instead of sliding through it first.
     const R=o.userData.r+BOARD_HALF_W;
-    const dxo=Math.abs(o.position.x-px);
+    // Sweep sideways as well as forward. A shark fin crosses your line fast, and
+    // testing only where it happens to be this frame lets it step straight over the
+    // board between two frames — you watch it go through you and nothing happens.
+    const ox1=o.position.x, ox0=(o.userData.lx===undefined?ox1:o.userData.lx);
+    const xlo=Math.min(ox0,ox1), xhi=Math.max(ox0,ox1);
+    const dxo=px<xlo?xlo-px:(px>xhi?px-xhi:0);
+    o.userData.lx=ox1;
     let contact=false;
     if(dxo<R){
       const reach=Math.sqrt(R*R-dxo*dxo);          // z it can touch at this x offset
@@ -3493,7 +3651,7 @@ function update(dt){
   hDist.textContent=(dist|0)+' m';
   hSpeed.textContent=(eff*0.62)|0;
   hBest.textContent=best;
-  hCoins.textContent=coins;
+  hCoins.textContent=coins+coinsFor(dist,score);
 }
 
 function loop(now){
