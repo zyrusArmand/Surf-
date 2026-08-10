@@ -399,7 +399,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.67.0';
+const VERSION='1.68.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2029,10 +2029,12 @@ function portraitPose(){
   armFrontJ.sh.rotation.set(0.10,0,-0.36); armFrontJ.el.rotation.x=0.26;
   armBackJ.sh.rotation.set(0.10,0, 0.36);  armBackJ.el.rotation.x=0.26;
   for(const e of charEars)e.rotation.x=e.userData.baseX;
+  updateLimbs();
   return ()=>{
     for(const [j,p,r] of keep){ j.position.copy(p); j.rotation.copy(r); }
     for(const [e,x] of ears)e.rotation.x=x;
     hipMass.position.copy(hipKeep[0]); hipMass.rotation.copy(hipKeep[1]); hipMass.scale.copy(hipKeep[2]);
+    updateLimbs();
   };
 }
 function charPreview(id){
@@ -2314,6 +2316,10 @@ const furMat=FUR_MAT(FUR), darkMat=PBR({color:DARK,roughness:0.72});
 // a penguin's feet are the one part of it that is not black; kept as its own material so
 // a foot can be a different colour from the rest of the animal without a second mesh
 const footMat=PBR({color:0xf2a01b,roughness:0.45,vivid:1.5});
+const handMat=PBR({color:0xf2a01b,roughness:0.45,vivid:1.5});
+// A panda's arms and legs are black and its body is white; a corgi wears white socks; a
+// raccoon has dark hands. Colour has to be able to stop at a limb, not just at an animal.
+const limbMat=PBR({color:0x1b1b20,roughness:0.66,vivid:1.2});
 
 // Short chunky legs mean the hips sit lower, or he floats above his own board.
 const PELVIS_Y=0.475;
@@ -2350,20 +2356,32 @@ const chestJ=joint(spine,0,0.30,-0.04);
 const neck=joint(chestJ,0,0.30,-0.06);
 const headJ=joint(neck,0,0.20,0);
 
-// one smooth chubby pug body (single mesh, still driven by the spine joint)
+// The body is rebuilt per character from a width profile rather than being one pug
+// scaled three ways. Scaling can only make the same shape bigger or smaller; a profile
+// says WHERE the mass sits — a pig is pear-shaped, an otter is a tube, a frog is wide at
+// the shoulders and narrow at the hip — and that is what separates one animal from
+// another far more than an overall size does.
 const bodyGeo=new THREE.SphereGeometry(0.46,32,26);
-{
-  const pos=bodyGeo.attributes.position;
+const bodyBase=bodyGeo.attributes.position.array.slice();
+// four widths, from hips to shoulders, smoothly joined
+const TORSO_DEF=[1.06,1.03,0.935,0.76];
+function shapeTorso(C){
+  const W=C.shape||TORSO_DEF, TL=C.tall||1.32, DZ=C.deep||0.86, WX=C.wide||1.14;
+  const sm=u=>u*u*(3-2*u);
+  const prof=t=>{const g=Math.min(2.999,t*3),i=Math.floor(g),f=sm(g-i);return W[i]*(1-f)+W[i+1]*f;};
+  const pos=bodyGeo.attributes.position, a=bodyBase;
   for(let i=0;i<pos.count;i++){
-    const x=pos.getX(i),y=pos.getY(i),z=pos.getZ(i);
+    const x=a[i*3],y=a[i*3+1],z=a[i*3+2];
     const t=Math.max(0,Math.min(1,(y+0.46)/0.92)); // 0 = hips, 1 = shoulders (clamped: pow() of a negative is NaN)
-    const belly=1.06-0.30*Math.pow(t,2.1);     // heavy low, tapers to shoulders
-    pos.setX(i,x*belly*1.14);
-    pos.setZ(i,z*belly*0.86);
-    pos.setY(i,y*1.32+0.34+Math.pow(t,3)*0.06);
+    const w=prof(t);
+    pos.setX(i,x*w*WX);
+    pos.setZ(i,z*w*DZ);
+    pos.setY(i,y*TL+0.258*TL+Math.pow(t,3)*0.06);
   }
+  pos.needsUpdate=true;
   bodyGeo.computeVertexNormals();
 }
+shapeTorso({});
 const torso=new THREE.Mesh(bodyGeo,furMat);
 spine.add(torso);
 const collar=new THREE.Mesh(new THREE.SphereGeometry(0.22,16,14),furMat);
@@ -2431,81 +2449,122 @@ function kitEyes(C,inner){
   }
 }
 const CHARS=[
+  // shape[] is the body's width from hips to shoulders, which is what actually separates
+  // one animal from another: a pig is pear-shaped, an otter is a tube, a frog is wide at
+  // the shoulder and narrow at the hip. tall/wide/deep are the box it lives in, neckLen
+  // is how much neck there is between the shoulders and the head.
   {id:'pug',   name:'Astro the Pug',  price:0,
    blurb:'The original. Flat face, curled tail, absolutely no quit.',
    fur:0xdca85f, dark:0x2b1d12, nose:0x141416, face:'pug',   ears:'floppy',  tail:'curl',
-   build:[1.02,0.94,1.02], limb:1.0, armLen:0.95, foot:1.0},
+   // barrel-chested and neckless, which is the whole silhouette of a pug
+   shape:[1.00,1.06,1.02,0.82], tall:1.24, wide:1.12, deep:0.96, neckLen:0.92,
+   build:[1.00,0.94,1.00], limb:1.00, armLen:0.92, foot:1.00, headS:[1.02,1.00,0.98]},
+
   {id:'cat',   name:'Miso the Cat',   price:700,
    blurb:'Grey tabby. Hates water, rides it anyway, will not discuss it.',
    fur:0x9aa0aa, dark:0x474d57, nose:0xe8909c, face:'cat',   ears:'pointed', tail:'long', whiskers:true,
-   // narrow through the chest and long in the leg — a cat is the slimmest thing here
-   build:[0.78,1.06,0.84], limb:0.98, arm:0.80, armLen:1.06, foot:0.86, headS:[0.92,0.94,0.96]},
+   // a tucked waist, a real neck and long legs — nothing else here is built like this
+   shape:[0.92,0.86,0.90,0.76], tall:1.42, wide:0.98, deep:0.80, neckLen:1.26,
+   build:[0.86,1.00,0.88], limb:0.96, arm:0.80, armLen:1.06, foot:0.88, headS:[0.90,0.94,0.94]},
   {id:'pig',   name:'Kiwi the Pig',   price:1400,
    blurb:'Round, pink and unreasonably buoyant. Floats before the board does.',
    fur:0xf3a6b6, dark:0xe07f96, nose:0xd4708a, face:'snout', ears:'small',   tail:'curl',
-   build:[1.16,0.92,1.14], limb:1.06, arm:1.0, armLen:0.8, foot:0.88},
+   // all the weight low and almost no shoulder, on little trotters
+   shape:[1.24,1.16,0.90,0.64], tall:1.22, wide:1.14, deep:1.02, neckLen:0.90,
+   build:[1.06,0.96,1.06], limb:1.02, arm:0.94, armLen:0.80, foot:0.84, footShape:[0.86,1.05,0.84], headS:[1.00,0.96,1.00]},
+
   {id:'corgi', name:'Waffle the Corgi',price:2400,
    blurb:'Short legs, enormous ears, catches everything out of pure enthusiasm.',
-   fur:0xe8a33d, dark:0xfaf0dc, nose:0x241a12, face:'long',  ears:'big',     tail:'bushy', bib:0xfaf0dc, bibS:0.72,
-   // a corgi is a long low body on stumps. Short limbs, wide barrel, white front.
-   build:[1.14,0.74,1.16], limb:1.02, limbLen:0.66, arm:1.0, armLen:0.62, foot:1.0},
+   fur:0xe8a33d, dark:0xfaf0dc, nose:0x241a12, face:'long',  ears:'big',     tail:'bushy',
+   bib:0xfaf0dc, bibS:0.72,
+   // a loaf on stumps, in white socks
+   shape:[1.06,1.10,1.04,0.82], tall:1.20, wide:1.20, deep:0.96, neckLen:1.00,
+   build:[1.06,0.80,1.08], limb:1.02, limbLen:0.66, arm:1.0, armLen:0.62, foot:1.00,
+   footCol:0xfaf0dc, handCol:0xfaf0dc, headS:[0.98,0.98,1.02]},
+
   {id:'bunny', name:'Pip the Bunny',  price:3600,
    blurb:'All ears and hop. Lands everything, mostly by accident.',
    fur:0xf3e9d6, dark:0xdcc7a8, nose:0xe08c9a, face:'bunny', ears:'long',    tail:'puff',
-   build:[0.88,1.00,0.90], limb:0.9, arm:0.84, armLen:0.88, foot:1.22},
+   // heavy in the haunch, light in the chest, and standing on two long back feet
+   shape:[1.12,1.00,0.86,0.72], tall:1.28, wide:1.00, deep:0.88, neckLen:1.04,
+   build:[0.92,0.98,0.92], limb:0.90, arm:0.80, armLen:0.86, foot:1.24, footShape:[0.94,0.90,1.28], headS:[0.92,0.96,0.94]},
+
   {id:'panda', name:'Bao the Panda',  price:5500,
    blurb:'Sits very low, turns very slowly, absolutely immovable once committed.',
    fur:0xf6f3ea, dark:0x1b1b20, nose:0x14141a, face:'long',  ears:'round',   tail:'puff', eyes:'patch',
-   build:[1.18,1.00,1.16], limb:1.16, arm:1.12, armLen:0.92, foot:1.06},
+   // the arms and legs are black and the body is white, which is most of being a panda
+   shape:[1.10,1.12,1.06,0.86], tall:1.30, wide:1.14, deep:1.04, neckLen:1.06,
+   build:[1.10,1.00,1.10], limb:1.10, arm:1.06, armLen:0.90, foot:1.04, limbCol:0x1b1b20, headS:[1.10,1.08,1.04]},
+
   {id:'frog',  name:'Lily the Frog',  price:900,
    blurb:'Born for this. Wide mouth, wider eyes, sticks every landing wetly.',
    fur:0x62c247, dark:0x39872b, nose:0x2a5c1f, inner:0xe8a0b0, drum:0x3f8a2a,
-   face:'frog',  ears:'hole',   tail:'none',  eyes:'bulge',
-   build:[1.06,0.82,1.08], limb:0.94, arm:0.86, armLen:0.9, foot:1.28},
+   face:'frog',  ears:'hole',   tail:'none',  eyes:'bulge', gloss:0.34,
+   // wide across the shoulders, narrow at the hip, low to the ground, on webbed feet
+   shape:[0.92,1.06,1.12,0.88], tall:1.08, wide:1.22, deep:0.90, neckLen:0.86,
+   build:[1.00,0.86,1.02], limb:0.92, arm:0.84, armLen:0.92, foot:1.20, footShape:[1.40,0.68,1.16], headS:[1.06,0.92,1.02]},
+
   {id:'otter', name:'Nori the Otter', price:1900,
    blurb:'Never off the water in the first place. Rolls for the fun of it.',
    fur:0x8a5f3c, dark:0xd8c39a, nose:0x241812, bib:0xd9c39c, bibS:0.60, muzzle:0xd6c199,
    face:'long',  ears:'round',   tail:'flat', whiskers:true,
-   // built like a swimmer: narrow, long through the middle, short limbs, big back feet
-   build:[0.78,1.12,0.84], limb:0.90, limbLen:0.82, arm:0.82, armLen:0.86, foot:1.30,
-   headS:[0.90,0.88,1.04]},
+   // one even tube from hip to shoulder with a long neck on it — a swimmer's body
+   shape:[0.92,0.96,0.94,0.80], tall:1.46, wide:0.94, deep:0.86, neckLen:1.18,
+   build:[0.82,1.06,0.86], limb:0.90, limbLen:0.82, arm:0.82, armLen:0.86, foot:1.24,
+   footShape:[1.28,0.80,1.10], headS:[0.90,0.88,1.04]},
   {id:'raccoon',name:'Bandit the Raccoon',price:3000,
    blurb:'Turned up uninvited with somebody else\'s board. Extremely good on it.',
    fur:0x9aa2ad, dark:0x25272e, nose:0x141418, muzzle:0xdfd8cb,
    face:'long',  ears:'round',   tail:'ringed', eyes:'mask', whiskers:true,
-   build:[0.96,0.96,0.98], limb:0.94, arm:0.9, armLen:0.98, foot:1.0, headS:[1.02,0.96,1.0]},
+   // stocky and low, with the dark hands it steals things with
+   shape:[1.08,1.04,0.96,0.78], tall:1.28, wide:1.08, deep:0.94, neckLen:1.06,
+   build:[0.98,0.96,1.00], limb:0.94, arm:0.90, armLen:1.00, foot:1.00,
+   footCol:0x2b2e36, handCol:0x2b2e36, headS:[1.02,0.96,1.00]},
   {id:'sloth', name:'Chill the Sloth', price:4200,
    blurb:'Takes the whole wave to make one turn and somehow still makes it.',
    fur:0xa9977c, dark:0x574734, nose:0x2a211a, face:'long',  ears:'tuft',    tail:'stub', eyes:'patch',
-   build:[0.96,1.00,0.98], limb:0.88, arm:0.86, armLen:1.32, foot:1.02, hand:1.08},
+   // narrow shoulders, arms half again as long as anyone else's, and hooks on the end
+   shape:[1.00,1.06,0.98,0.74], tall:1.30, wide:1.02, deep:0.92, neckLen:1.02,
+   build:[0.98,1.00,0.98], limb:0.86, arm:0.84, armLen:1.34, foot:1.00, hand:1.06,
+   claws:3, clawCol:0x3b2f24, headS:[1.00,1.00,0.96]},
+
   {id:'lizard',name:'Basil the Lizard',price:6200,
    blurb:'Crested, long-tailed and entirely unbothered. Runs across the flat bits.',
    fur:0x2fb37e, dark:0x18704e, nose:0x0f3a29, iris:0xf2c72a, crest:0xf2a71b, drum:0x1f8a5e,
-   face:'lizard',ears:'hole',  tail:'long',   eyes:'reptile', tailTilt:1.05,
-   build:[0.92,0.84,1.04], limb:0.9, arm:0.86, armLen:0.88, foot:1.1},
+   face:'lizard',ears:'hole',  tail:'long',   eyes:'reptile', tailTilt:1.05, gloss:0.42,
+   // flat and wide and close to the ground, with splayed toes
+   shape:[0.96,1.04,1.04,0.84], tall:1.14, wide:1.10, deep:0.86, neckLen:1.04,
+   build:[0.94,0.86,1.04], limb:0.90, arm:0.84, armLen:0.90, foot:1.10,
+   footShape:[1.22,0.80,1.18], claws:3, clawCol:0x123f2e, headS:[0.94,0.90,1.00]},
+
   {id:'penguin',name:'Tux the Penguin',price:7500,
    blurb:'Overdressed for the beach. Still the fastest thing off the line.',
    fur:0x20242c, dark:0xf6f6f2, nose:0xf2a01b, beak:0xf2a01b, bib:0xf7f5ee,
    face:'beak',  ears:'none',   tail:'stub',   eyes:'beady',
-   // no arms on a penguin: flat flippers, and it stands on its heels with big orange feet
-   build:[1.04,1.10,0.98], limb:0.88, limbLen:0.72, arm:0.86, armLen:0.94, foot:1.32, hand:1.0,
-   flipper:true, footCol:0xf2a01b},
+   // a teardrop standing on its heels: narrow at the shoulder, widest low down
+   shape:[1.02,1.12,1.06,0.72], tall:1.44, wide:1.00, deep:0.96, neckLen:0.96,
+   build:[1.00,1.06,0.98], limb:0.86, limbLen:0.70, arm:0.86, armLen:0.94, foot:1.28, hand:1.0,
+   footShape:[1.20,0.75,1.22], flipper:true, footCol:0xf2a01b, headS:[0.94,0.96,0.94]},
+
   {id:'ant',   name:'De Soto the Ant',price:2700,
    blurb:'Six legs, none of them needed. Carries three times his weight in puka.',
    fur:0xe23a1c, dark:0x8e1b08, nose:0x3a0c04, feelerCol:0xd0300f,
    face:'ant',   ears:'none',   tail:'none',  eyes:'wide',
    segs:true, feelers:true, gloss:0.22, metal:0.15,
-   // narrow through the middle, big in the head, and the sockets pulled in with the
-   // body so the legs leave it instead of hanging beside it
-   // the gaster is the biggest thing on an ant and the head is not — getting that the
-   // wrong way round is most of what made the first one look like a balloon
-   build:[0.50,0.74,0.52], socket:0.58, limb:0.66, limbLen:1.10, headS:[0.80,0.76,0.82], arm:0.6, armLen:0.92, foot:0.86},
+   // the thorax and gaster carry the shape, so the shared body only has to get out of
+   // the way — narrow through the middle and the sockets pulled in with it
+   shape:[0.86,0.78,0.88,0.80], tall:1.16, wide:0.96, deep:0.94, neckLen:0.94,
+   build:[0.50,0.74,0.52], socket:0.58, limb:0.66, limbLen:1.10, headS:[0.80,0.76,0.82],
+   arm:0.6, armLen:0.92, foot:0.86},
   {id:'rex',   name:'Rexy the T. rex',price:11000,
    blurb:'Tiny arms, enormous everything else. The wave gets out of the way.',
    fur:0x4c7a3a, dark:0x2f5226, nose:0x1c3418, crest:0xd8892a,
    face:'rex',   ears:'none',   tail:'thick',  eyes:'reptile', iris:0xe0532a, spines:true,
-   // the whole joke of a T. rex is the arms, so they are less than half length
-   build:[1.06,0.98,1.08], limb:1.14, arm:0.62, armLen:0.46, foot:1.08},
+   // deep through the chest and heavy in the hip to carry the tail, and the whole joke
+   // of a T. rex is the arms, so they are less than half length
+   shape:[1.06,1.10,1.04,0.84], tall:1.26, wide:1.02, deep:1.10, neckLen:1.02,
+   build:[1.02,0.98,1.04], limb:1.12, arm:0.62, armLen:0.46, foot:1.06,
+   footShape:[1.10,0.90,1.22], claws:3, clawCol:0xe8e0cc, headS:[0.98,0.96,1.02]},
 ];
 const CHAR_BY_ID={}; for(const c of CHARS)CHAR_BY_ID[c.id]=c;
 function buildChar(id){
@@ -2521,32 +2580,35 @@ function buildChar(id){
   // separates one animal's silhouette from another's.
   const L=C.limb||1, A=C.arm||L, B=C.build||[1,1,1], K=C.socket||1;
   const base=m=>m.userData.baseScale||(m.userData.baseScale=m.scale.clone());
-  // tubes take their thickness across, never along, or the segment lengths change and
-  // the feet come off the deck; caps stay spherical
   // Leg LENGTH, separately from leg thickness. A corgi is the same dog on a third less
   // leg; without this the only lever is thickness, and every animal ends up standing on
   // the same stilts. Everything below the hip slides up, and the pelvis comes down with
   // it by the same amount so the feet stay on the deck instead of hovering over it.
   legS=C.limbLen||1;
   for(const o of legStretch)o.position.y=o.userData.baseY*legS;
-  for(const m of legTube){const q=base(m);m.scale.set(q.x*L,q.y*legS,q.z*L);}
-  for(const m of legCap ){const q=base(m);m.scale.set(q.x*L,q.y*L,q.z*L);}
+  const lm=C.limbCol?limbMat:furMat;
+  if(C.limbCol)limbMat.color.copy(vivid(C.limbCol,1.2));
+  for(const m of limbTubes)m.material=lm;
+  // how thick the swept limb is, and optionally what shape it is along its length: a
+  // sloth's arms are thin and even, a rex's legs are heavy at the thigh
+  legThick=L; armThick=A;
+  legProf=C.legProf||LEG_PROFILE; armProf=C.armProf||ARM_PROFILE;
   // a penguin's arm is a paddle: same bones, pressed flat and spread wide
   const FL=C.flipper?1.55:1, FT=C.flipper?0.42:1;
-  for(const m of armTube){const q=base(m);m.scale.set(q.x*A*FL,q.y,q.z*A*FT);}
-  for(const m of armCap ){const q=base(m);m.scale.set(q.x*A*FL,q.y*A,q.z*A*FT);}
+  armFlat=C.flipper?[0.44,1.50]:[1,1];
   const F=C.foot||1, H=C.hand||A;
-  for(const m of footMesh){const q=base(m);m.scale.set(q.x*L*F,q.y*L*F,q.z*L*F);
-    m.material=C.footCol?footMat:furMat;}
+  // a webbed or splayed foot is a different SHAPE, not just a bigger one
+  const FS=C.footShape||[1,1,1];
+  for(const m of footMesh){const q=base(m);m.scale.set(q.x*L*F*FS[0],q.y*L*F*FS[1],q.z*L*F*FS[2]);
+    m.material=C.footCol?footMat:lm;}
   if(C.footCol)footMat.color.copy(vivid(C.footCol,1.5));
-  for(const m of handMesh){const q=base(m);m.scale.set(q.x*H*FL,q.y*H,q.z*H*FT);}
+  if(C.handCol)handMat.color.copy(vivid(C.handCol,1.5));
+  for(const m of handMesh){const q=base(m);m.scale.set(q.x*H*FL,q.y*H,q.z*H*FT);
+    m.material=C.handCol?handMat:lm;}
   // the whole arm can be shortened — a rex's are a fraction of the length, and unlike a
   // leg an arm is not standing on anything, so scaling it whole is safe
   const AL=C.armLen||1;
   for(const j of armRoot)j.scale.setScalar(AL);
-  // the deltoid rides that scale, so divide it back out: a shoulder is as wide as the
-  // arm is thick, however short the arm happens to be
-  for(const m of shoulderBall)m.scale.set(A/AL,0.94*A/AL,A/AL);
   // Shoulders follow the body's width automatically — a narrow animal with the pug's
   // shoulder sockets has its arms hanging in the air beside it. Hips do not: they are
   // placed so the feet land on the deck, and moving them slides him off his own board.
@@ -2557,6 +2619,10 @@ function buildChar(id){
   }
   hipBuild=B;
   layHips();
+  shapeTorso(C);
+  if(typeof updateLimbs==='function')updateLimbs();
+  // some animals have a neck and some do not; a cat is mostly neck and a pug has none
+  neck.position.y=0.30*(C.neckLen||1);
   torso.scale.set(B[0],B[1],B[2]);
   collar.scale.set(1.15*B[0],1.0*B[1],1.1*B[2]);
   head.scale.set(C.headS?C.headS[0]:1, C.headS?C.headS[1]:1, C.headS?C.headS[2]:1);
@@ -2625,6 +2691,22 @@ function buildChar(id){
     b.position.set(0,0.30+(1-bs)*0.22,-0.16);b.scale.set(0.98*bs,1.55*bs,0.98);
     const t=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.30,20,16),bm));
     t.position.set(0,-0.15,-0.16);t.scale.set(0.80*bs,0.58*bs,0.94);   // carries up under the chin
+  }
+
+  // ---- claws ----
+  // A sloth's whole silhouette is the hooks on the end of it, and a lizard and a rex have
+  // toes. They hang off the hand mesh so they inherit whatever size that character's
+  // hands ended up.
+  if(C.claws){
+    const cm=PBR({color:C.clawCol||0x3b2f24,roughness:0.38,vivid:1.1});
+    for(const h of handMesh)for(let i=0;i<C.claws;i++){
+      const a2=(i-(C.claws-1)/2)*0.62;
+      // a cone points +Y, so a NEGATIVE turn about X swings it down and FORWARD; the
+      // positive one had every claw raked backwards out of the back of the hand
+      const c=kit(h,new THREE.Mesh(new THREE.ConeGeometry(0.032,0.165,7),cm));
+      c.position.set(Math.sin(a2)*0.072,-0.070,-Math.cos(a2)*0.072);
+      c.rotation.set(-2.45,0,a2*0.35);
+    }
   }
 
   // ---- muzzle ----
@@ -2843,52 +2925,113 @@ function equipChar(id){
 // not built like that — an insect, say — needs the shared parts to change shape as
 // well as colour, so the limbs and the torso are collected here and rescaled per
 // character rather than being fixed at the pug's proportions.
-const limbMeshes=[], limbJoints=[];
-const legTube=[], legCap=[], armTube=[], armCap=[], footMesh=[], handMesh=[], armRoot=[], shoulderBall=[], legStretch=[];
-// One limb segment. The caps are spheres of exactly the radius the tube has where they
-// sit, so two segments meet without a seam — the old build used caps a shade smaller
-// than the tube, which left the tube's cut edge showing as a ring at every joint and is
-// what made these read as pipes threaded with beads.
-// CylinderGeometry takes (radiusTop, radiusBottom) and the tube hangs DOWN from the
-// joint, so rTop belongs in the first slot. It was in the second, which put the wide end
-// at the ankle and left the tube's rim standing a full centimetre proud of the cap
-// sphere at every knee and elbow — a hard bright ring at each joint, which is most of
-// what was reading as blocky and bolted together rather than as one soft body.
-function capsule(parent,rTop,rBot,len,tube,cap,stretch){
-  const m=new THREE.Mesh(new THREE.CylinderGeometry(rTop,rBot,len,18),furMat);
-  m.position.y=-len/2; parent.add(m); limbMeshes.push(m); tube.push(m);
-  const a=new THREE.Mesh(new THREE.SphereGeometry(rTop,16,13),furMat);
-  parent.add(a); limbMeshes.push(a); cap.push(a);
-  const b=new THREE.Mesh(new THREE.SphereGeometry(rBot,16,13),furMat);
-  b.position.y=-len; parent.add(b); limbMeshes.push(b); cap.push(b);
-  if(stretch){ for(const o of [m,b]){ o.userData.baseY=o.position.y; stretch.push(o); } }
+const limbJoints=[], footMesh=[], handMesh=[], armRoot=[], legStretch=[], limbTubes=[];
+// ---------------------------------------------------------------------------
+// A limb is ONE mesh, swept along the joint chain.
+//
+// Building an arm out of a cylinder for the upper, a cylinder for the lower and a ball
+// at the elbow can never look like Human Fall Flat or Gang Beasts, because in those the
+// arm is a single continuous surface — there is nothing AT the elbow to look wrong. Any
+// amount of tuning ball sizes only moves the seam around. So the segments are gone: the
+// joints still drive everything, but the visible limb is a tube swept along a smooth
+// curve through hip, knee and ankle, with a radius profile that thickens at the thigh,
+// nips in at the knee and swells again at the calf. It rebuilds every frame, which is
+// cheap at this size and means it bends smoothly at any angle.
+// ---------------------------------------------------------------------------
+const LR=15, LRAD=12;                                  // rings along, points around
+function newTube(){
+  const g=new THREE.BufferGeometry(), n=LR*LRAD+2;
+  g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*3),3));
+  const idx=[];
+  for(let i=0;i<LR-1;i++)for(let k=0;k<LRAD;k++){
+    const a=i*LRAD+k, b=i*LRAD+(k+1)%LRAD;
+    idx.push(a,a+LRAD,b, b,a+LRAD,b+LRAD);
+  }
+  const capA=LR*LRAD, capB=capA+1;                     // the two poles that close the ends
+  for(let k=0;k<LRAD;k++){
+    idx.push(capA,k,(k+1)%LRAD);
+    const o=(LR-1)*LRAD;
+    idx.push(capB,o+(k+1)%LRAD,o+k);
+  }
+  g.setIndex(idx);
+  return g;
+}
+// a radius profile sampled smoothly: six numbers from inside the body down to the wrist
+const smoothstep=u=>u*u*(3-2*u);
+function sampleProfile(P,t){
+  const g=Math.min(P.length-1.001,t*(P.length-1)), i=Math.floor(g), f=smoothstep(g-i);
+  return P[i]*(1-f)+P[i+1]*f;
+}
+// hip/shoulder, upper, joint, lower, ankle/wrist — the nip at index 2 IS the knee
+const LEG_PROFILE=[0.205,0.190,0.152,0.163,0.126,0.104];
+const ARM_PROFILE=[0.180,0.152,0.122,0.133,0.104,0.088];
+const _p=[new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3()];
+const _t=new THREE.Vector3(), _n=new THREE.Vector3(), _b=new THREE.Vector3(), _w=new THREE.Vector3();
+function sweepLimb(mesh,chain,prof,thick,flat){
+  const g=mesh.geometry, pos=g.attributes.position.array;
+  // the chain in the mesh's own space, with a control point pushed up inside the body so
+  // the limb grows out of the torso instead of starting at its surface
+  for(let i=0;i<4;i++){ chain[i].getWorldPosition(_w); pug.worldToLocal(_w); _p[i+1].copy(_w); }
+  _p[0].copy(_p[1]).sub(_p[2]).setLength(0.16).add(_p[1]);
+  const curve=mesh.userData.curve;
+  curve.points=_p;
+  _n.set(1,0,0);
+  for(let i=0;i<LR;i++){
+    const t=i/(LR-1);
+    curve.getPoint(t,_w);
+    curve.getTangent(t,_t).normalize();
+    // parallel transport: carry the last frame forward rather than recomputing it, so the
+    // tube does not spin where the curve straightens out
+    _n.addScaledVector(_t,-_n.dot(_t));
+    if(_n.lengthSq()<1e-6)_n.set(0,0,1).addScaledVector(_t,-_t.z);
+    _n.normalize();
+    _b.crossVectors(_t,_n);
+    // ends taper to nothing so the caps close cleanly instead of showing a rim
+    const edge=Math.min(1,Math.min(t,1-t)*9+0.18);
+    const r=sampleProfile(prof,t)*thick*edge;
+    for(let k=0;k<LRAD;k++){
+      const a=k/LRAD*Math.PI*2, c=Math.cos(a)*r*flat[0], d=Math.sin(a)*r*flat[1], o=(i*LRAD+k)*3;
+      pos[o  ]=_w.x+_n.x*c+_b.x*d;
+      pos[o+1]=_w.y+_n.y*c+_b.y*d;
+      pos[o+2]=_w.z+_n.z*c+_b.z*d;
+    }
+  }
+  curve.getPoint(0,_w); pos[LR*LRAD*3]=_w.x; pos[LR*LRAD*3+1]=_w.y; pos[LR*LRAD*3+2]=_w.z;
+  curve.getPoint(1,_w); pos[(LR*LRAD+1)*3]=_w.x; pos[(LR*LRAD+1)*3+1]=_w.y; pos[(LR*LRAD+1)*3+2]=_w.z;
+  g.attributes.position.needsUpdate=true;
+  g.computeVertexNormals();
+  g.computeBoundingSphere();
+}
+function limbMesh(){
+  const m=new THREE.Mesh(newTube(),furMat);
+  m.userData.curve=new THREE.CatmullRomCurve3(_p.map(v=>v.clone()),false,'catmullrom',0.5);
+  m.frustumCulled=false;
+  pug.add(m); limbTubes.push(m);
   return m;
+}
+let legThick=1, armThick=1, legProf=LEG_PROFILE, armProf=ARM_PROFILE, armFlat=[1,1];
+function updateLimbs(){
+  pug.updateMatrixWorld(true);
+  sweepLimb(legFrontJ.tube,legFrontJ.chain,legProf,legThick,[1,1]);
+  sweepLimb(legBackJ.tube ,legBackJ.chain ,legProf,legThick,[1,1]);
+  sweepLimb(armFrontJ.tube,armFrontJ.chain,armProf,armThick,armFlat);
+  sweepLimb(armBackJ.tube ,armBackJ.chain ,armProf,armThick,armFlat);
 }
 function makeLeg(zoff,xoff){
   const hip=joint(pelvis,xoff,0.02,zoff);
   hip.userData.socket=[xoff,0.02,zoff];  limbJoints.push(hip);
   // apply the body-alignment turn BEFORE the splay, so the leg swings along the board
   hip.rotation.order='YXZ';
-  // Barely any taper. A limb that halves in width from hip to ankle reads as a carrot;
-  // the soft-bodied look these are after comes from a near-even sausage that is short
-  // for the size of the body.
-  // a haunch, wider than the thigh, that sinks into the body — without it the leg is a
-  // pipe that stops at the belly with a seam around it instead of growing out of it
-  const haunch=new THREE.Mesh(new THREE.SphereGeometry(0.198,18,15),furMat);
-  haunch.scale.set(1.04,0.98,1.04);hip.add(haunch);limbMeshes.push(haunch);legCap.push(haunch);
-  capsule(hip,0.174,0.156,0.185,legTube,legCap,legStretch);     // thigh
-  const knee=joint(hip,0,-0.185,0);
-  knee.rotation.order='YXZ';
-  capsule(knee,0.156,0.146,0.155,legTube,legCap,legStretch);    // shin
-  const ankle=joint(knee,0,-0.155,0);
-  ankle.rotation.order='YXZ';
+  const knee=joint(hip,0,-0.185,0);   knee.rotation.order='YXZ';
+  const ankle=joint(knee,0,-0.155,0); ankle.rotation.order='YXZ';
   // a stumpy-legged animal moves these down the chain; each remembers where it started
   for(const j of [knee,ankle]){ j.userData.baseY=j.position.y; legStretch.push(j); }
+  const toe=joint(ankle,0,-0.055,-0.020);      // the curve runs on past the ankle into the foot
   // one soft stub, no toes — the moment a foot has parts it looks mechanical
   const foot=new THREE.Mesh(new THREE.SphereGeometry(0.152,20,15),furMat);
   foot.scale.set(0.94,0.62,1.24);foot.position.set(0,-0.040,-0.028);
-  ankle.add(foot);limbMeshes.push(foot);footMesh.push(foot);
-  return {hip,knee,ankle,zoff};
+  ankle.add(foot);footMesh.push(foot);
+  return {hip,knee,ankle,zoff,chain:[hip,knee,ankle,toe],tube:limbMesh()};
 }
 // place the feet in BOARD space (nose-to-tail), then convert into the rotated body's space
 const STANCE_ROT=-1.16;
@@ -2904,26 +3047,20 @@ const [bx0,bz0]=boardToBody( 0.04,HIP_B);
 const [pgx,pgz]=boardToBody(0,(STANCE_F+STANCE_B)*0.5);
 const legFrontJ=makeLeg(fz0,fx0);
 const legBackJ=makeLeg(bz0,bx0);
-// arms: shoulder -> elbow -> hand, same seamless segments as the legs
 function makeArm(xoff,zoff){
-  const sh=joint(chestJ,xoff,0.10,zoff);
+  const sh=joint(chestJ,xoff,0.14,zoff);
   sh.userData.socket=[xoff,0.14,zoff];  limbJoints.push(sh); armRoot.push(sh);
-  // a deltoid that overlaps into the chest. It hangs off the shoulder joint but is sized
-  // in buildChar against the arm's THICKNESS, not its length, so a T. rex with stubby
-  // arms still has a shoulder rather than two floating sausages
-  const delt=new THREE.Mesh(new THREE.SphereGeometry(0.176,18,15),furMat);
-  delt.scale.set(1.04,0.98,1.04);sh.add(delt);limbMeshes.push(delt);shoulderBall.push(delt);
-  capsule(sh,0.158,0.148,0.225,armTube,armCap);                 // upper arm
   const el=joint(sh,0,-0.225,0);
-  capsule(el,0.148,0.140,0.200,armTube,armCap);                 // forearm
+  const wr=joint(el,0,-0.200,0);
+  const tip=joint(wr,0,-0.060,0);
   // a mitten: one rounded lump, no fingers
-  const paw=new THREE.Mesh(new THREE.SphereGeometry(0.148,18,14),furMat);
-  paw.position.y=-0.205;paw.scale.set(1.0,0.94,1.06);
-  el.add(paw);limbMeshes.push(paw);handMesh.push(paw);
-  return {sh,el};
+  const paw=new THREE.Mesh(new THREE.SphereGeometry(0.128,18,14),furMat);
+  paw.position.y=-0.030;paw.scale.set(1.0,0.96,1.08);
+  wr.add(paw);handMesh.push(paw);
+  return {sh,el,chain:[sh,el,wr,tip],tube:limbMesh()};
 }
-// shoulders sit just INSIDE the chest, so the deltoid welds the arm to the body instead
-// of the arm starting at the silhouette edge with daylight behind it
+// shoulders sit just INSIDE the chest, so the arm grows out of the body instead of
+// starting at the silhouette edge with daylight behind it
 const armFrontJ=makeArm(-0.44,-0.10);
 const armBackJ=makeArm(0.44,0.06);
 // equipChar sizes the limbs as well as colouring them, so it has to wait until they
@@ -5266,6 +5403,7 @@ function animateRig(dt,carve,grab,waterY){
   B.sh.rotation.y=ease(B.sh.rotation.y,shB[1]-Math.sin(tNow*1.9+0.8)*0.10,dt,10);
   B.sh.rotation.z=ease(B.sh.rotation.z,shB[2],dt,10);
   B.el.rotation.x=ease(B.el.rotation.x,elB[0]+Math.sin(tNow*2.6+1.4)*0.09,dt,10);
+  updateLimbs();      // the visible limb is swept from wherever the joints ended up
 }
 
 // Astro tips up onto his front paws. The rig turns over about the deck line, so the

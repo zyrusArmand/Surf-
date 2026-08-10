@@ -52,6 +52,29 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.68.0** — The limbs are one mesh now, and the body is built per character.
+
+  A limb made of a cylinder for the upper, a cylinder for the lower and a ball at the
+  joint can never look like Human Fall Flat or Gang Beasts, because in those there is
+  nothing AT the elbow to look wrong — the arm is a single continuous surface. Tuning
+  ball sizes only moves the seam around, which is what the last two passes were doing.
+  So the segments are gone. The joints still drive everything, but the visible limb is a
+  tube swept along a smooth curve through hip, knee and ankle with a radius profile that
+  thickens at the thigh, nips in at the knee and swells again at the calf. It rebuilds
+  every frame — measured at 0.44 ms for all four limbs, in software rendering — so it
+  bends smoothly at any angle and has no joint parts at all.
+
+  The torso is rebuilt per character from a width profile rather than being one pug
+  scaled three ways. Scaling only makes the same shape bigger; a profile says where the
+  mass sits, and that is what separates animals: a pig is pear-shaped with almost no
+  shoulder, an otter is one even tube, a frog is wide across the shoulders and narrow at
+  the hip, a penguin is a teardrop standing on its heels. Every character also got a neck
+  length and a head size, because a head sunk into the shoulders is not a head.
+
+  Then per-animal detail: a panda's arms and legs are black and its body is white, a
+  corgi wears white socks, a raccoon has dark hands, a sloth has hooked claws, a frog and
+  an otter and a lizard have splayed webbed feet, a penguin's arms are flat paddles.
+  Feet stay planted: front feet sit within 0.016 of each other across the cast.
 - **v1.67.0** — The lump on the backside, which was three separate things. The seat laid
   between the hips was laid ONCE, at build time, along the line the hips sit on while
   riding — one foot in front of the other, down the board. Stood up for a portrait the
