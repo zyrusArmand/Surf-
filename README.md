@@ -52,6 +52,12 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.52.0** — The ant is De Soto now, and he is one animal rather than a set of parts in
+  formation. The legs were the giveaway: the sockets stayed where a pug's are while the
+  body shrank to half its width, so they hung in mid-air beside him — they come in with
+  the body now. The thorax and the gaster are bridged by a real tapered waist instead of
+  two floating nodes, a neck fills the space under the head, the gaster is ridged the way
+  an abdomen is, and he has a big pair of eyes and a smile in place of the mandibles.
 - **v1.51.0** — Glass with the colour still in it. The fill is let a long way down so the
   sea genuinely comes through, the blur behind is pushed harder so what comes through stays
   readable, and a sheen is laid across the top half — that highlight is what makes a
