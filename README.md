@@ -52,6 +52,9 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.57.0** — The ant's antennae no longer cross. A positive turn about Z tips the local
+  up-axis toward negative X, so each one was leaning across to the far side of the head;
+  they splay outward now.
 - **v1.56.0** — Tricks are timed. Hold ROLL, FLIP or SPIN and he keeps turning for as long
   as the button is down; where he is pointing when you let go is the attitude he lands in.
   The button lights while that axis is squared up, which is what teaches the window: 115 ms
