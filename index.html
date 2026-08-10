@@ -259,10 +259,14 @@
     <svg class="ges" viewBox="0 0 24 24"><path d="M12 3.5v17M12 3.5l-3.3 3.5M12 3.5l3.3 3.5M12 20.5l-3.3-3.5M12 20.5l3.3-3.5"/></svg>
     ROLL</div>
   <div class="tbtn" id="flipBtn" aria-label="Front or back flip — swipe left or right">
-    <svg class="ges" viewBox="0 0 24 24"><path d="M3.5 12h17M3.5 12l3.5-3.3M3.5 12l3.5 3.3M20.5 12l-3.5-3.3M20.5 12l-3.5 3.3"/></svg>
+    <!-- end over end, so it is drawn as a loop, with the sideways swipe marked either
+         side of it. The plain left-right arrows it replaces read as a spin. -->
+    <svg class="ges" viewBox="0 0 24 24"><path d="M17.9 7.4A6.7 6.7 0 1 1 12 4.3"/><path d="M9.4 1.6 12.2 4.4 9.4 7.2"/><path d="M4 10.3 2.1 11.9 4 13.5M20 10.3l1.9 1.6-1.9 1.6"/></svg>
     FLIP</div>
   <div class="tbtn" id="spinBtn" aria-label="Spin — draw a circle with one finger">
-    <svg class="ges" viewBox="0 0 24 24"><path d="M15.9 4.9a8 8 0 1 0 4 5.8"/><path d="M14.1 10.2l6.2.9 1-6.2"/></svg>
+    <!-- a spin turns about the up axis, so the loop is flattened into a horizontal
+         ring rather than an upright one — which is also the circle your finger draws -->
+    <svg class="ges" viewBox="0 0 24 24"><ellipse cx="12" cy="12.4" rx="8.7" ry="4.5"/><path class="dot" d="M11.3 8.2 15.3 7.5 13.4 11.1Z" stroke="none"/></svg>
     SPIN</div>
   <div class="tbtn" id="grabBtn" aria-label="Grab or hand drag — press and hold">
     <svg class="ges" viewBox="0 0 24 24"><circle class="dot" cx="12" cy="12" r="3.6"/><circle cx="12" cy="12" r="8.4" stroke-dasharray="3.1 3.3"/></svg>
@@ -335,7 +339,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.45.0';
+const VERSION='1.46.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2841,7 +2845,11 @@ function addSpin(dir,src){
 // there is time up there to actually throw something
 let wakeAir=false;
 // riding a kicker: he follows its surface and leaves on whatever angle the lip has
-let onRampO=null, rampPitchT=0;
+let onRampO=null, rampPitchT=0, rampExitV=0, wakeGrace=0;
+// How hard each launch throws him, in units per second. Both are floors: go faster and
+// the ramp gives more. Air time is roughly 2*v/g, and g is 20 in the open but 4.6 off
+// the wake, so these are about two rotations off a kicker and five off the jet ski.
+const RAMP_MIN_VY=17.0, WAKE_LAUNCH_VY=9.6;
 // the height the hull is riding at this frame. update() owns it, but the jet ski's
 // wake needs it too, and a const inside update() is not visible from there — reading
 // it from the wrong scope is what stopped the wake launch firing at all.
@@ -4052,7 +4060,16 @@ function updateJetSki(dt,eff){
     // lip and then has the whole height of the wave to fall back down.
     if(!skiWake.hit&&skiWake.z>=pz&&!airborne&&!hanging){
       skiWake.hit=true;
-      vy+=4.2;                       // added, never replaced, so the takeoff is seamless
+      // One launch off the top, not a nudge on top of whatever he was already doing.
+      // He arrives at the crest still attached to the water, so vy here is the face
+      // throwing him up; the floor guarantees the hang time whatever the face gave.
+      // At the wake's reduced gravity this is four to six full rotations of air.
+      vy=Math.max(vy,WAKE_LAUNCH_VY);
+      // He is standing on the crest at this instant, so the water is level with his
+      // feet: without this he "lands" on the same frame he takes off. Pop him clear
+      // and hold the landing test off while the ridge slides out from under him.
+      py=Math.max(py,rideY+1.6);
+      wakeGrace=0.34;
       airborne=true; wakeAir=true;
       score+=120;boost=Math.min(16,boost+4);
       msg('WAKE LAUNCH! +120');
@@ -4400,6 +4417,7 @@ function splatOnScreen(tint){
 
 // ---------- character animation: waves, g-force, jump crouch, grab reach ----------
 let rigCrouch=0,rigAir=0,releaseKick=0;
+let rigTuck=0;      // 0 riding, 1 folded up mid-rotation
 // how far each thigh must lean to carry the foot from its socket out to the stance
 const LEG_LEN=0.25+0.20+0.08;
 const SPLAY_F=Math.asin(Math.max(-0.9,Math.min(0.9,(STANCE_F-HIP_F)/LEG_LEN)));
@@ -4427,7 +4445,13 @@ function animateRig(dt,carve,grab,waterY){
 
   // knees absorb the swell and the g-force of the carve
   const dragging = dragOn&&!airborne;
-  const compress = airborne ? (grab?1.05:-0.16) : (g*0.42 + Math.abs(heave)*0.5 + chop*0.05 + (dragging?0.55:0));   // grabs crouch, no forward pitch
+  // Nobody throws a rotation standing up straight. While one is actually turning he
+  // pulls into a tuck — knees to the chest, spine curled, paws in — because that is
+  // what makes a body spin. The moment the rotation runs out he opens back up and
+  // spots the landing, which is what makes the tuck read as effort rather than a pose.
+  const rotQ = spinQ+flipQ+pitchQ;
+  rigTuck = ease(rigTuck, (airborne||hanging)&&rotQ>0.15 && !grab ? 1 : 0, dt, rotQ>0.15?13:7);
+  const compress = airborne ? (grab?1.05:-0.16+rigTuck*1.30) : (g*0.42 + Math.abs(heave)*0.5 + chop*0.05 + (dragging?0.55:0));   // grabs crouch, no forward pitch
   releaseKick=Math.max(0,releaseKick-dt);
   rigCrouch=ease(rigCrouch,compress-releaseKick*0.55,dt,9);   // pops upright out of a grab
   rigAir=ease(rigAir,airborne?1:0,dt,8);
@@ -4437,7 +4461,9 @@ function animateRig(dt,carve,grab,waterY){
   pelvis.rotation.x=heave*0.22;
 
   // hip/knee/ankle chain — deeper bend the more you compress
-  const cr=Math.max(-0.08,Math.min(0.26,rigCrouch));
+  // the crouch is normally capped so he cannot fold up on the wave; a tuck is exactly
+  // the case where he should, so the ceiling lifts with it
+  const cr=Math.max(-0.08,Math.min(0.26+rigTuck*0.72,rigCrouch));
   const bendF=0.30+cr*0.55, bendB=0.32+cr*0.58;   // knees bent into a surf crouch
   legFrontJ.hip.rotation.x=ease(legFrontJ.hip.rotation.x,-SPLAY_F-bendF*0.5+heave*0.10,dt,10);
   legFrontJ.knee.rotation.x=ease(legFrontJ.knee.rotation.x,SPLAY_F*0.55+bendF,dt,12);
@@ -4457,11 +4483,12 @@ function animateRig(dt,carve,grab,waterY){
   const dragLean = dragging ? dragSide*0.42 : 0;
   spine.rotation.z=ease(spine.rotation.z,carve*0.16+gSide*0.58+dragLean,dt,8);   // stays stacked over the rail he is on
   const crouchLean = grab ? 0.62 : rigCrouch*0.30 + Math.max(0,boardPitch)*0.55;   // leans forward as the nose drops
-  spine.rotation.x=ease(spine.rotation.x,0.18+crouchLean+(airborne?-0.32:0)+leanW*0.80,dt,8);
+  spine.rotation.x=ease(spine.rotation.x,0.18+crouchLean+(airborne?-0.32:0)+leanW*0.80+rigTuck*0.85,dt,8);
   chestJ.rotation.y=ease(chestJ.rotation.y,0.30+carve*0.55,dt,7);   // shoulders swing with the turn
   chestJ.rotation.z=ease(chestJ.rotation.z,carve*0.14,dt,7);
   // head keeps looking down the line, level with the horizon
-  neck.rotation.x=ease(neck.rotation.x,-spine.rotation.x*0.8+(airborne?0.12:0),dt,9);   // head stays level
+  // chin tucks to the chest through the rotation, then comes up to find the water
+  neck.rotation.x=ease(neck.rotation.x,-spine.rotation.x*0.8+(airborne?0.12:0)+rigTuck*0.46,dt,9);
   headJ.rotation.y=ease(headJ.rotation.y,0.90+carve*0.34,dt,6);   // head still looks down the line
   headJ.rotation.z=ease(headJ.rotation.z,-carve*0.10,dt,6);
   // ears and tail flap with speed and motion
@@ -4477,12 +4504,14 @@ function animateRig(dt,carve,grab,waterY){
     shF=[0.22, gs*0.18, gs*0.52]; elF=[0.30,0,0];
     shB=[-0.55,-0.25,-1.85];      elB=[-0.50,0,0];   // free paw thrown high behind
     armSpread=0;
-  } else if(airborne){
-    const w=tNow*8;
-    shF=[0.55+Math.sin(w)*0.35, 0.20, 1.50+Math.sin(w)*0.25];   // windmilling, still wide
-    elF=[0.35,0,0];
-    shB=[-0.35+Math.sin(w+2.1)*0.35,-0.20,-1.50+Math.sin(w+2.1)*0.25];
-    elB=[0.30,0,0];
+  } else if(airborne||hanging){
+    const w=tNow*8, k=rigTuck;
+    // windmilling wide when he is just floating, wrapped tight around himself when a
+    // rotation is running — the arms come in, which is half of why a tuck spins
+    shF=[(0.55+Math.sin(w)*0.35)*(1-k)+1.28*k, 0.20*(1-k)+0.46*k, (1.50+Math.sin(w)*0.25)*(1-k)+0.30*k];
+    elF=[0.35*(1-k)+2.05*k,0,0];
+    shB=[(-0.35+Math.sin(w+2.1)*0.35)*(1-k)+1.18*k, -0.20*(1-k)-0.46*k, (-1.50+Math.sin(w+2.1)*0.25)*(1-k)-0.30*k];
+    elB=[0.30*(1-k)+2.05*k,0,0];
     armSpread=0;
   } else if(dragging){
     // crouched low with one paw carving through the water beside the board
@@ -4651,7 +4680,13 @@ function update(dt){
   // is already dropping and has to reverse him. While one is on him the hull stays
   // stuck to the face instead: a much harder spring, and far more daylight needed
   // under the board before it counts as air. The crest is then the only way off.
+  wakeGrace=Math.max(0,wakeGrace-dt);
   const onWake=wkA>2.5&&skiWake&&skiWake.z<pz+1.0;
+  // Riding UP the face, before the crest reaches him. He used to come off the rising
+  // water here, go ballistic under full gravity, and be falling hard by the time the
+  // launch fired — which is why it read as a drop and then a bounce. He stays welded
+  // to the surface the whole way up now, so the only launch is the one at the top.
+  const wakeRide=onWake&&skiWake&&!skiWake.hit;
 
   if(hanging){
     py+=(5.4-py)*Math.min(1,dt*2.4);   // towed above the water, high enough to throw tricks
@@ -4659,9 +4694,9 @@ function update(dt){
     score+=60*dt;
     speed=Math.min(60,speed+14*dt);
     if(!planeActive||plane.position.z>2)releaseRope(false);
-  } else if(airborne||py>waterY+(onWake?3.4:0.55)){    // clear of the water
-    vy-=(wakeAir?4.6:20)*dt;py+=vy*dt;      // off a wave that size, the way down is long
-    if(py<=waterY){
+  } else if(airborne||(!wakeRide&&py>waterY+0.55)){    // clear of the water
+    vy-=(wakeAir?6.0:20)*dt;py+=vy*dt;      // off a wave that size, the way down is long
+    if(py<=waterY&&wakeGrace<=0){
       const impact=Math.min(1.6,Math.max(0,-vy)/15);
       if(airborne){
         splash(px,waterY,0,20+impact*40);
@@ -4728,6 +4763,12 @@ function update(dt){
     vy=Math.min(30,Math.max(vy,(py-prev)/Math.max(1e-3,dt)));
     airborne=false;wakeAir=false;
     const P=ramped.o.userData.rampP, H=ramped.o.userData.rampH, RL=ramped.o.userData.rampL;
+    // The exit speed taken from the ramp's own curve rather than from how far he
+    // happened to move between two frames. That measurement is frame-rate noise as
+    // much as anything, which is why the same kicker could throw a big jump or barely
+    // lift him. dy/dt at the lip is H*P*t^(P-1) over the ramp's length, times how fast
+    // it is coming at him.
+    rampExitV=H*P*Math.pow(Math.max(1e-3,ramped.t),P-1)/(2*RL)*Math.max(8,lastEff);
     rampPitchT=lifted?Math.atan(H*P*Math.pow(Math.max(1e-3,ramped.t),P-1)/(2*RL)):0;
     if(!ramped.o.userData.used&&ramped.t>0.72){
       ramped.o.userData.used=true;
@@ -4736,7 +4777,10 @@ function update(dt){
     }
     onRampO=ramped.o;
   } else if(onRampO){
-    onRampO=null;airborne=true;                    // off the lip with what it gave him
+    // off the lip with what the ramp gave him, and never with less than a real jump
+    onRampO=null;airborne=true;
+    vy=Math.max(vy,Math.min(28,rampExitV),RAMP_MIN_VY);
+    rampExitV=0;
   } else rampPitchT=0;
   trickReady=(airborne&&py>waterY+0.8)||hanging;   // you can trick while being towed
   // the pad stays put for the whole run — it used to blink out between leaving the

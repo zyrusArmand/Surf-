@@ -52,6 +52,22 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.46.0** — Both launches rebuilt, and the rider now looks like he means it.
+  A kicker's exit speed comes from the ramp's own curve rather than from how far he
+  happened to move between two frames — that measurement was frame-rate noise as much as
+  anything, which is why the same ramp could throw a big jump or barely lift him — and it
+  has a floor under it. Measured 1.75–2.0 s of air at every speed, which is two and a bit
+  full rotations every time.
+  The jet ski wake stopped dropping him. He used to come off the rising face before the
+  crest, go ballistic under full gravity, and be falling at 13 units a second by the time
+  the launch fired, so it read as a drop and then a bounce. He stays welded to the face all
+  the way up now and the launch sets his speed rather than adding to it: one step from 3.7
+  to 9.6 with no dip anywhere. Measured 4.75 s of air — near six full rotations.
+  Through any rotation he pulls into a tuck: knees to the chest, spine curled, chin down,
+  paws wrapped in — then opens out to spot the landing as the rotation runs out.
+  FLIP and SPIN swap their symbols. A flip goes end over end so it is drawn as a loop with
+  the sideways swipe marked either side of it, and a spin turns about the up axis so its
+  loop is flattened into a horizontal ring. The old pair read exactly backwards.
 - **v1.45.0** — The square is gone, and it was never a square. The menu never called the
   per-frame update, so its camera had never been placed and sat at the world origin — which
   is sea level. You were looking straight through the wave field edge-on: a slab of water
