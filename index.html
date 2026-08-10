@@ -271,6 +271,14 @@
   #stats .bar i { display:block; height:100%; border-radius:3px; min-width:2px;
     background:linear-gradient(90deg,#3fc0e6,#7ee896); }
   #stats .none { opacity:.45; font-size:13px; padding:5px 1px; }
+  #stats .heroes { display:grid; grid-template-columns:repeat(2,1fr); gap:9px; margin:2px 0 16px; }
+  #stats .hero { border-radius:15px; padding:12px 13px; border:1px solid rgba(255,255,255,.12);
+    background:linear-gradient(160deg, rgba(126,232,220,.14), rgba(255,255,255,.03)); }
+  #stats .hero .hv { display:block; font-size:25px; font-weight:800; letter-spacing:-.5px;
+    color:#8ff0e4; line-height:1.1; }
+  #stats .hero .hk { display:block; font-size:10.5px; font-weight:800; letter-spacing:1.3px;
+    text-transform:uppercase; opacity:.62; margin-top:3px; }
+  #stats .hero .hs { display:block; font-size:11px; opacity:.55; margin-top:2px; }
   #stats .acts { display:flex; gap:8px; justify-content:center; margin-top:12px; }
   /* three across one row, sharing the width rather than wrapping */
   #stats .acts .go { margin:0; flex:1 1 0; width:auto; min-width:0; max-width:160px;
@@ -313,7 +321,7 @@
     HAND</div>
 </div>
 <div id="stats" class="hidden"><div class="wrap">
-  <h2>Telemetry <small id="stTag"></small></h2>
+  <h2>Stats <small id="stTag"></small></h2>
   <div id="stBody"></div>
   <div class="acts">
     <button class="go alt sm" id="stCopy">Copy</button>
@@ -329,7 +337,7 @@
     <button class="go teal" id="reviveBtn">Watch a clip</button>
     <button class="go" id="startBtn">Play</button>
     <button class="go alt" id="shopBtn">Beach shop</button>
-    <button class="go calm" id="recordsBtn">Records</button>
+    <button class="go calm" id="recordsBtn">Stats</button>
     <button class="go calm" id="menuBtn">Main menu</button>
   </div>
 </div>
@@ -381,7 +389,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.54.0';
+const VERSION='1.55.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1796,7 +1804,7 @@ document.getElementById('shopClose').onclick=()=>shop.classList.add('hidden');
 // tap on the water during a run can never pull it over the game.
 const statsPanel=document.getElementById('stats'), stBody=document.getElementById('stBody');
 const verEl=document.getElementById('ver');
-let tapN=0, tapT=0;
+let tapN=0, tapT=0, statsFull=false;
 // The listener sits on the menu, not on the version itself: #ver keeps pointer-events
 // none so that during a run a tap at the bottom of the screen is still a tap on the
 // water and still jumps. While the menu is up, the tap lands on the menu and this
@@ -1811,7 +1819,7 @@ overlay.addEventListener('pointerdown',e=>{
   tapT=now;
   // no label, but the last two taps light it up, so you know it is counting
   verEl.style.opacity = tapN>=3 ? '0.95' : '';
-  if(tapN>=5){ tapN=0; verEl.style.opacity=''; openStats(); }
+  if(tapN>=5){ tapN=0; verEl.style.opacity=''; openStats(true); }
 });
 const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const row=(k,v)=>`<div class="row"><span>${esc(k)}</span><b>${v}</b></div>`;
@@ -1832,7 +1840,65 @@ function tally(o,names){
   const tot=ks.reduce((s,k)=>s+o[k],0);
   return ks.map(k=>meter((names&&names[k])||k, o[k]+'  ·  '+Math.round(o[k]/tot*100)+'%', o[k]/o[ks[0]])).join('');
 }
-function openStats(){
+// Two boards out of one panel. Stats is the one on the menu: big numbers, the things
+// a player actually enjoys knowing about themselves. Records — every count, every
+// death, the whole difficulty curve — stays behind the five taps on the version, which
+// is a workshop tool rather than something to put in front of a player.
+const HERO=(k,v,sub)=>`<div class="hero"><span class="hv">${v}</span>`+
+  `<span class="hk">${esc(k)}</span>${sub?`<span class="hs">${esc(sub)}</span>`:''}</div>`;
+function funStats(){
+  const S=stats, T=S.tricks||{}, D=S.deaths||{};
+  const total=k=>Object.keys(k).reduce((a,b)=>a+k[b],0);
+  const top=(o,names)=>{const ks=Object.keys(o).sort((a,b)=>o[b]-o[a]);
+    return ks.length?((names&&names[ks[0]])||ks[0]):'—';};
+  const nB=Object.keys(owned).length, nC=Object.keys(ownedChars).length;
+  const avg=S.runs?Math.round(S.dist/S.runs):0;
+  const km=(S.dist/1000);
+  // a distance means more with something to hold it against
+  const scale = km>=42.2 ? 'a marathon and then some'
+              : km>=5    ? (km/0.4).toFixed(0)+' laps of an Olympic pool'
+              : S.dist>=100 ? (S.dist/50).toFixed(0)+' Olympic pools'
+              : 'just getting started';
+  return `<div class="heroes">`+
+      HERO('Best score',(best||0).toLocaleString())+
+      HERO('Furthest',(S.bestDist||0).toLocaleString()+' m')+
+      HERO('Runs',(S.runs||0).toLocaleString())+
+      HERO('Day streak',(S.streak||0)+(S.streak===1?' day':' days'))+
+    `</div>`+
+    `<div class="sec"><h3>On the water</h3>`+
+      row('Total distance',S.dist.toLocaleString()+' m')+
+      row('Which is about',scale)+
+      row('Average run',avg+' m')+
+      row('Time riding',hhmm(S.secs))+
+      row('Best streak',S.bestStreak+(S.bestStreak===1?' day':' days'))+
+    `</div>`+
+    `<div class="sec"><h3>Tricks</h3>`+
+      row('Landed',total(T).toLocaleString())+
+      row('Favourite',top(T,TRICK_NAME))+
+      row('Handstands',(T.handstand||0).toLocaleString())+
+      row('Grabs',(T.grab||0).toLocaleString())+
+    `</div>`+
+    `<div class="sec"><h3>Nemesis</h3>`+
+      row('Ends most runs',top(D,DEATH_NAME))+
+      row('Wipeouts',(S.runs||0).toLocaleString())+
+      row('Clips watched',(S.revives||0).toLocaleString())+
+    `</div>`+
+    `<div class="sec"><h3>The collection</h3>`+
+      meter('Boards',nB+' / '+BOARDS.length,nB/BOARDS.length)+
+      meter('Surfers',nC+' / '+CHARS.length,nC/CHARS.length)+
+      row('Riding',((BOARD_BY_ID[equipped]||{}).name||'—'))+
+      row('As',((CHAR_BY_ID[rider]||{}).name||'—'))+
+      row('Puka earned',S.earned.toLocaleString())+
+    `</div>`;
+}
+function openStats(full){
+  statsFull=!!full;
+  document.getElementById('stTag').textContent = full
+    ? 'v'+VERSION+' · on this device only' : 'your surfing so far';
+  document.querySelector('#stats h2').firstChild.nodeValue = full ? 'Records ' : 'Stats ';
+  document.getElementById('stWipe').style.display = full ? '' : 'none';
+  document.getElementById('stCopy').style.display = full ? '' : 'none';
+  if(!full){ stBody.innerHTML=funStats(); statsPanel.classList.remove('hidden'); return; }
   const S=stats;
   const nB=Object.keys(owned).length, nC=Object.keys(ownedChars).length;
   const avg=S.runs?Math.round(S.dist/S.runs):0;
@@ -1885,7 +1951,6 @@ function openStats(){
       row('Riding',(BOARD_BY_ID[equipped]||{}).name+'  ·  '+(CHAR_BY_ID[rider]||{}).name)+
     `</div>`+
     `<div class="sec"><h3>Bought most recently</h3>`+recent+`</div>`;
-  document.getElementById('stTag').textContent='v'+VERSION+' · on this device only';
   statsPanel.classList.remove('hidden');
 }
 document.getElementById('stClose').onclick=()=>statsPanel.classList.add('hidden');
@@ -1897,7 +1962,7 @@ document.getElementById('stCopy').onclick=e=>{
 };
 document.getElementById('stWipe').onclick=e=>{
   // two presses: the first arms it, so a stray tap cannot erase months of history
-  if(e.target.dataset.armed){ stats=blankStats(); noteOpen(); openStats();
+  if(e.target.dataset.armed){ stats=blankStats(); noteOpen(); openStats(true);
     e.target.textContent='Reset'; delete e.target.dataset.armed; return; }
   e.target.dataset.armed='1'; e.target.textContent='Sure?';
   setTimeout(()=>{ if(e.target.dataset.armed){delete e.target.dataset.armed; e.target.textContent='Reset';} },3000);
@@ -2998,7 +3063,7 @@ const RAMP_MIN_VY=17.0, WAKE_LAUNCH_VY=9.6;
 let rideY=0;
 // handstand: Astro goes up on his front paws. It works on the water, not just in
 // the air, and it pays while it is held — but a hard carve on your hands ends badly.
-let handOn=false,handT=0,handPts=0,handRisk=0,handSrc='gesture';
+let handOn=false,handT=0,handPts=0,handRisk=0,handSrc='gesture',handHold=0;
 let grabOn=false,grabPts=0,grabSide=1,grabSrc='gesture';
 let dragOn=false,dragPts=0,dragSide=1,dragSrc='gesture';
 let shake=0,boost=0,carrySpin=0,carryFlip=0;
@@ -3271,12 +3336,23 @@ function endGrab(){
   }
 }
 // everything you're doing in the air, scored and judged together
+// A trick thrown over and over is worth less each time; the count decays back as you
+// do other things. Spamming one button was the cheapest score in the game.
+const trickFade={};
+function fade(k){
+  const n=trickFade[k]||0; trickFade[k]=n+1;
+  return Math.max(0.25, Math.pow(0.72,n));
+}
+function coolTricks(dt){
+  for(const k in trickFade){ trickFade[k]=Math.max(0,trickFade[k]-dt*0.34);
+    if(trickFade[k]<=0)delete trickFade[k]; }
+}
 function settleTricks(landed,keepPose){
   let pts=0,names=[];
   const spinRevs=spinRot/(Math.PI*2), flipRevs=flipRot/(Math.PI*2), pitchRevs=pitchRot/(Math.PI*2);
-  if(spinRot>0.4){pts+=Math.floor(spinRevs*4)*90;names.push(Math.round(spinRevs*360)+'° SPIN');}
-  if(flipRot>0.4){pts+=Math.floor(flipRevs*4)*110;names.push(Math.round(flipRevs*360)+'° ROLL');}
-  if(pitchRot>0.4){pts+=Math.floor(pitchRevs*4)*130;names.push(Math.round(pitchRevs*360)+'° FLIP');}
+  if(spinRot>0.4){pts+=Math.round(Math.floor(spinRevs*4)*90*fade('spin'));names.push(Math.round(spinRevs*360)+'° SPIN');}
+  if(flipRot>0.4){pts+=Math.round(Math.floor(flipRevs*4)*110*fade('roll'));names.push(Math.round(flipRevs*360)+'° ROLL');}
+  if(pitchRot>0.4){pts+=Math.round(Math.floor(pitchRevs*4)*130*fade('flip'));names.push(Math.round(pitchRevs*360)+'° FLIP');}
   if(grabOn&&grabPts>=30){pts+=Math.round(grabPts);names.push(grabSide>0?'INDY':'MELON');}
   if(landed&&pts>0){
     if(names.length>1)pts=Math.round(pts*1.5);          // combo bonus
@@ -3311,12 +3387,13 @@ function reset(){
     player.remove(pug); rig.add(pug);
     pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}}); rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null;
-  handOn=false;handT=0;handPts=0;handRisk=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;
+  handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;
   onRampO=null;rampPitchT=0; }
   player.rotation.set(0,0,0);
   for(const o of obstacles)scene.remove(o);obstacles.length=0;
   dist=0;speed=13.5;score=0;px=0;py=0;pz=0;vy=0;vx=0;cutCd=0;airborne=false;trick=null;
   boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;
+  for(const k in trickFade)delete trickFade[k];
   trail.length=0;trailT=0;
   skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;skiGlint.visible=false;wkA=0;
   splatT=0;splatCd=0;if(zapEl)zapEl.classList.remove('on');
@@ -3342,7 +3419,7 @@ function respawn(){
     rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null;
   }
   player.rotation.set(0,0,0);
-  handOn=false;handT=0;handPts=0;handRisk=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;
+  handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;
   for(let i=obstacles.length-1;i>=0;i--)
     if(obstacles[i].position.z>-48){scene.remove(obstacles[i]);obstacles.splice(i,1);}
   skiOn=false;skiWake=null;skiT=26;jetSki.visible=false;skiGlint.visible=false;wkA=0;
@@ -3357,7 +3434,7 @@ function respawn(){
   boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;cutCd=0;
   spawnT=1.8;
   overlayUp=false;running=true;last=performance.now();
-  player.visible=true; rig.visible=true;
+  player.visible=true; rig.visible=true; hud.style.display='';
   overlay.classList.add('hidden');jumpBtn.classList.remove('hidden');
   msg('BACK UP!');
 }
@@ -3396,6 +3473,7 @@ function showMenu(mode){
   recordsBtn.style.display = over ? 'none' : '';
   menuBtn.style.display    = over ? '' : 'none';
   // the menu is open water and nothing else; he is put on it when you press Play
+  hud.style.display='none';
   player.visible=over;
   // the rig is detached from the player mid-wipeout, so it needs hiding on its own
   // account; beginRun and respawn put both back
@@ -3404,14 +3482,14 @@ function showMenu(mode){
   showCoins();
 }
 function beginRun(){
-  player.visible=true; rig.visible=true;
+  player.visible=true; rig.visible=true; hud.style.display='';
   overlay.classList.add('hidden');jumpBtn.classList.remove('hidden');
   reviveBtn.style.display='none';
   reset();running=true;overlayUp=false;last=performance.now();
 }
 startBtn.addEventListener('click',beginRun);
 menuBtn.addEventListener('click',()=>showMenu('main'));
-recordsBtn.addEventListener('click',()=>openStats());
+recordsBtn.addEventListener('click',()=>openStats(false));
 showMenu('main');
 
 // how each kind of crash throws him
@@ -4766,15 +4844,21 @@ function updateHandstand(dt,carve){
   pug.rotation.x=handT*Math.PI;
   pug.position.y=handT*HAND_LIFT;
   if(handT>0.55){
-    // it pays while it is held, and it pays better with a rotation going
-    const rate=(airborne?46:26)*(1+Math.min(1,Math.abs(carve))*0.4);
+    // Anthony held this the whole way down, so it pays for the first few seconds and
+    // then stops paying: a handstand is a trick, not a stance.
+    handHold+=dt;
+    const tire=Math.max(0,1-Math.max(0,handHold-3.4)/2.6);
+    const rate=(airborne?46:26)*(1+Math.min(1,Math.abs(carve))*0.4)*tire;
     score+=rate*dt; handPts+=rate*dt;
-    // hands are not feet: lay it right over on the rail and he goes over the front
-    if(!airborne&&Math.abs(carve)>0.72){
-      handRisk+=dt;
+    // hands are not feet: lay it right over on the rail and he goes over the front,
+    // and the longer he has been up there the less it takes
+    if(!airborne&&Math.abs(carve)>0.72-Math.min(0.34,handHold*0.05)){
+      handRisk+=dt*(1+handHold*0.30);
       if(handRisk>0.55){handRisk=0;startWipeout('foam');return;}
     } else handRisk=Math.max(0,handRisk-dt*1.6);
-  }
+    // and past nine seconds his arms simply give out
+    if(handHold>9.0){ startWipeout('foam'); msg('ARMS GAVE OUT!'); return; }
+  } else handHold=Math.max(0,handHold-dt*2.2);
   if(!want&&handPts>0){
     if(handPts>=30){
       const p=Math.round(handPts);
@@ -4852,6 +4936,7 @@ function update(dt){
   // stuck to the face instead: a much harder spring, and far more daylight needed
   // under the board before it counts as air. The crest is then the only way off.
   wakeGrace=Math.max(0,wakeGrace-dt);
+  coolTricks(dt);
   const onWake=wkA>2.5&&skiWake&&skiWake.z<pz+1.0;
   // Riding UP the face, before the crest reaches him. He used to come off the rising
   // water here, go ballistic under full gravity, and be falling hard by the time the
@@ -4966,6 +5051,10 @@ function update(dt){
   // cutback + carve spray
   if(!airborne&&!hanging){
     if(cutCd<=0&&Math.abs(vx)>5.5&&sx!==0&&Math.sign(sx)!==Math.sign(vx)){
+      // Throw it back harder than the fins can hold and they let go. This is what
+      // stops a cutback being farmed by swinging side to side: the reward and the
+      // wipeout are the same move, a little further apart.
+      if(Math.abs(vx)>10.4){ startWipeout('foam'); msg('BLEW THE TAIL OUT!'); return; }
       cutCd=1.2;score+=75;boost=Math.min(16,boost+3.5);msg('CUTBACK! +75');
       const bside=-Math.sign(vx);
       for(let i=0;i<26;i++){

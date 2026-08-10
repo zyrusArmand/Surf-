@@ -52,6 +52,17 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.55.0** — Stats replaces Records on the menu: hero tiles for your bests, how far you
+  have surfed measured in swimming pools, your favourite trick, the thing that ends most of
+  your runs. Records — every count, every death, the whole difficulty curve — is a workshop
+  tool, so it now lives only behind the five taps on the version number. The HUD belongs to
+  the run and is hidden on the menu.
+  Anthony's three cheeses are closed. Swing the board back and forth hard enough and the
+  fins let go rather than paying out another cutback — the reward and the wipeout are the
+  same move, a little further apart. The same trick over and over pays 1, 0.72, 0.52, 0.37,
+  0.27 and then a floor of a quarter, recovering as you do other things. And a handstand
+  stops paying after three and a half seconds, gets easier to fall out of the longer it is
+  held, and past nine seconds his arms simply give out.
 - **v1.54.0** — Bright colour back in the buttons. A translucent colour takes on whatever
   sits behind it, and behind these is a deep navy sea, so orange kept landing on brown.
   Brightening the backdrop does not fix it — multiplying a navy still leaves it navy — so
