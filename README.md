@@ -54,6 +54,15 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.35.0** — The sea appeared to run backwards at speed. Every foam layer was drifting
+  with the full water motion, and the finest one is nearly four cycles a unit — past about
+  40 mph it was stepping more than a whole cycle between frames, which is exactly what
+  makes a wagon wheel spin the wrong way. The coarse foam keeps the real drift so the
+  water still travels; the detail is anchored in slower frames, which also settles it down
+  at the start. The measured worst case falls from 203 cycles a second to 24, under the
+  limit a 60 Hz screen can show. Carving buries the rail half as deep, so a turn wets it
+  rather than swamping the deck. And puka shells have an icon — the cone-shell slice with
+  the hole through it that the currency is named after.
 - **v1.34.0** — Six riders, not just the pug: a grey cat with whiskers and a long tail, a
   pink pig with a snout and a curl, a corgi with enormous ears, a lop-eared bunny, and a
   panda. They share one skeleton — everything that moves belongs to the rig, and a

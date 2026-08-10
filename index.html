@@ -134,6 +134,12 @@
   .card button:disabled { background:linear-gradient(165deg,#63798d,#44586a);
     box-shadow:none; cursor:default; opacity:.7; transform:none; }
   .card .tag { font-size:13px; font-weight:bold; color:#ffdf2e; }
+  /* a puka shell: the cone-shell slice with the natural hole through it that the
+     currency is named after — puka is Hawaiian for hole */
+  .pk { display:inline-block; width:1em; height:1em; vertical-align:-0.14em; margin:0 .1em 0 .14em;
+    background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3CradialGradient id='g' cx='36%25' cy='29%25' r='80%25'%3E%3Cstop offset='0' stop-color='%23fffdf5'/%3E%3Cstop offset='.55' stop-color='%23f5e6c6'/%3E%3Cstop offset='1' stop-color='%23c9a87c'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='14.2' fill='url(%23g)'/%3E%3Ccircle cx='16' cy='16' r='4.5' fill='%230a1f30' opacity='.6'/%3E%3Ccircle cx='16' cy='16' r='4.5' fill='none' stroke='%23a98a63' stroke-opacity='.55' stroke-width='1'/%3E%3Cpath d='M6.4 9.8a11.8 11.8 0 0 1 8.8-5.4' fill='none' stroke='%23ffffff' stroke-opacity='.9' stroke-width='2.1' stroke-linecap='round'/%3E%3Cpath d='M27.4 19.2a11.9 11.9 0 0 1-7.9 8' fill='none' stroke='%238d6c46' stroke-opacity='.45' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat;
+    filter:drop-shadow(0 1px 1px rgba(0,20,40,.35)); }
+  #hud .pk { width:.86em; height:.86em; }
   .hidden { display:none !important; }
   #fatal { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
     background:#0a2846; color:#fff; text-align:center; padding:24px; font-size:18px; line-height:1.6; z-index:20; }
@@ -145,7 +151,7 @@
   <div class="cell"><span class="lab">DIST</span><span class="val" id="hDist">0 m</span></div>
   <div class="cell"><span class="lab">MPH</span><span class="val" id="hSpeed">0</span></div>
   <div class="cell"><span class="lab">BEST</span><span class="val" id="hBest">0</span></div>
-  <div class="cell"><span class="lab">PUKA</span><span class="val" id="hCoins">0</span></div>
+  <div class="cell"><span class="lab">PUKA</span><span class="val"><i class="pk"></i><span id="hCoins">0</span></span></div>
 </div>
 <div id="trickmsg"></div>
 <div id="jumpBtn" class="btn hidden">JUMP</div>
@@ -161,7 +167,7 @@
   <p id="ovText"></p>
   <button class="go" id="reviveBtn" style="display:none">Watch a clip · get back up</button>
   <button class="go" id="startBtn">Surf</button>
-  <button class="go alt" id="shopBtn">Beach shop · <span id="ovCoins">0</span> puka</button>
+  <button class="go alt" id="shopBtn">Beach shop · <span id="ovCoins">0</span><i class="pk"></i></button>
 </div>
 <div id="shop" class="hidden">
   <div class="shopwrap">
@@ -210,7 +216,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.34.0';
+const VERSION='1.35.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -456,12 +462,19 @@ const oceanMat=new THREE.ShaderMaterial({
       float fres = pow(1.0-max(dot(N,V),0.0),3.0);
       vec3 base = mix(uDeep,uShallow,clamp(vH*0.28+0.5,0.0,1.0));
       vec3 col = base*(0.38+0.72*diff) + uSky*fres*0.5 + vec3(spec);
-      // foam: crest caps, torn patches and fine flecks, all from drifting noise
-      vec2 fp = vec2(vW.x, vW.z + uDist);
-      float shimmer = fbm(fp*0.55 + vec2(uT*0.05,-uT*0.04))*2.0 - 1.0;
+      // Foam: crest caps, torn patches and fine flecks, all from drifting noise. Each
+      // layer is anchored in a slower-moving frame than the one below it, because they
+      // were all riding the full drift: at nearly four cycles a unit the flecks were
+      // stepping more than a whole cycle between frames once the speed came up, which
+      // reads as the sea running backwards. The coarse foam keeps the real drift, so
+      // the water still travels; only the detail is held back.
+      vec2 fpC = vec2(vW.x, vW.z + uDist*0.55);
+      vec2 fpM = vec2(vW.x, vW.z + uDist*0.30);
+      vec2 fpF = vec2(vW.x, vW.z + uDist*0.12);
+      float shimmer = fbm(fpC*0.55 + vec2(uT*0.05,-uT*0.04))*2.0 - 1.0;
       float crest = smoothstep(0.42*uPeak, 0.71*uPeak, vH+shimmer*0.10);
-      float lace  = smoothstep(0.40,0.84, fbm(fp*1.45 + vec2(-uT*0.07, uT*0.06))) * crest;
-      float fleck = smoothstep(0.56,0.93, fbm(fp*3.90 + vec2( uT*0.11, uT*0.09))) * crest;
+      float lace  = smoothstep(0.40,0.84, fbm(fpM*1.45 + vec2(-uT*0.07, uT*0.06))) * crest;
+      float fleck = smoothstep(0.56,0.93, fbm(fpF*3.90 + vec2( uT*0.11, uT*0.09))) * crest;
       float slope = 1.0-clamp(N.y,0.0,1.0);
       float lip = smoothstep(0.16,0.34,slope)*smoothstep(0.25*uPeak,0.55*uPeak,vH);
       float foam = clamp(crest*0.50 + lace*0.68 + fleck*0.34 + lip*0.60, 0.0, 1.0);
@@ -1154,7 +1167,7 @@ function showCoins(){
   const t=String(coins);
   if(hCoins)hCoins.textContent=t;
   if(ovCoins)ovCoins.textContent=t;
-  if(shopCoins)shopCoins.textContent=t+' puka';
+  if(shopCoins)shopCoins.innerHTML=t+'<i class="pk"></i>';
 }
 const RACK_ORDER=BOARDS.slice().sort((a,b)=>a.price-b.price);
 // ---------- shop previews ----------
@@ -1242,7 +1255,7 @@ function shopCard(item,have,on,buy,use,thumb){
   else {
     const btn=document.createElement('button');
     if(have){ btn.textContent='Use'; btn.onclick=use; }
-    else { btn.textContent=item.price+' puka'; btn.disabled=coins<item.price; btn.onclick=buy; }
+    else { btn.innerHTML=item.price+'<i class="pk"></i>'; btn.disabled=coins<item.price; btn.onclick=buy; }
     act.appendChild(btn);
   }
   card.appendChild(txt); card.appendChild(act);
@@ -2533,9 +2546,9 @@ function gameOver(){
   overlay.querySelector('h1').textContent='Wipeout!';
   document.getElementById('ovText').innerHTML=
     `Astro went under...<br><br>`+
-    `Distance <b>${dist|0} m</b> &nbsp;→&nbsp; <b>${pukaFromDist(dist)}</b> puka<br>`+
-    `Score <b>${s}</b> &nbsp;→&nbsp; <b>${pukaFromScore(s)}</b> puka<br>`+
-    `<b>${earned}</b> puka this run &nbsp;·&nbsp; purse <b>${coins}</b><br><br>`+
+    `Distance <b>${dist|0} m</b> &nbsp;→&nbsp; <b>${pukaFromDist(dist)}</b><i class="pk"></i><br>`+
+    `Score <b>${s}</b> &nbsp;→&nbsp; <b>${pukaFromScore(s)}</b><i class="pk"></i><br>`+
+    `<b>${earned}</b><i class="pk"></i> this run &nbsp;·&nbsp; purse <b>${coins}</b><i class="pk"></i><br><br>`+
     `Best <b>${best}</b>`;
   shopBtn.classList.remove('hidden');
   startBtn.textContent='Surf again';
@@ -3739,7 +3752,7 @@ function update(dt){
   // turn drives the inside rail under, and there is a dead zone so holding a line
   // never quietly buries it.
   const dig=Math.max(0,Math.abs(carve)-0.20)/0.80;
-  const railDig=Math.min(0.34,dig*dig*0.34+Math.max(0,leanW)*0.10);
+  const railDig=Math.min(0.17,dig*dig*0.17+Math.max(0,leanW)*0.055);
   const waterY=hHigh*0.88+hMean*0.12+0.05-railDig;
   rideY=waterY;
 
