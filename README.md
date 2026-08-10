@@ -52,6 +52,13 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.59.0** — Every button gets a sheet of white inside it, underneath its colour. That
+  is what a coloured glass actually is: the tint only looks vivid because there is light
+  behind it. With the white doing that job the colour could come back down and still read,
+  so the buttons ended up more glassy rather than less — and because the ground is now the
+  button's own and not the sea, an orange button is the same orange over dark water as it
+  is over a bright sky. The white runs brighter toward the foot, the way light passes
+  through the base of a tumbler.
 - **v1.58.0** — A brighter palette. Play is a hot tangerine rather than a burnt one, the
   shop went from navy blue to teal, Stats is yellow with dark type on it because white on
   yellow cannot be read, and Watch a clip moved to spring green so it is not a second teal.
