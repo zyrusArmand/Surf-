@@ -52,6 +52,18 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.43.0** — The trick buttons are back, and each one wears the finger movement that
+  does the same thing: a vertical arrow on ROLL, a horizontal one on FLIP, a loop on SPIN,
+  a dot in a dashed ring on HOLD, two dots on HAND. A button is not a second way of doing
+  a trick — it makes exactly the same call the gesture does — so the button teaches the
+  gesture rather than replacing it. The pad also stays put for the whole run instead of
+  blinking out between leaving the water and reaching trick height.
+  Tapping the version number five times on the menu opens a telemetry panel: how often the
+  game is opened, day streaks, runs, best and average distance, time on the water, what
+  ends each run, how far people get in 100 m steps, which tricks are thrown and whether by
+  gesture or button, puka earned and spent, and what has been bought. It is all kept in
+  this browser's own storage and never sent anywhere. The listener sits on the menu rather
+  than on the version itself, so during a run a tap down there is still a tap on the water.
 - **v1.42.0** — Renamed to Surf: the browser tab, the title on the menu and the readme.
   The save key is deliberately left as it was, so nobody's coins, boards or riders are
   lost to the rename.
