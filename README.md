@@ -52,6 +52,12 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.54.0** — Bright colour back in the buttons. A translucent colour takes on whatever
+  sits behind it, and behind these is a deep navy sea, so orange kept landing on brown.
+  Brightening the backdrop does not fix it — multiplying a navy still leaves it navy — so
+  the colour carries itself instead, sitting high enough to read as the colour it is while
+  the sheen and the blur do the glass. Every round button in play got the same lift, so
+  ROLL is blue, FLIP orange, SPIN gold, HAND purple and JUMP amber again.
 - **v1.53.0** — HOLD comes off the trick pad, which is four buttons in a square now.
   Holding a finger on the water still grabs in the air and drags a paw on the wave — the
   gesture is unchanged, only the button is gone. The ant is reproportioned: a gaster is
