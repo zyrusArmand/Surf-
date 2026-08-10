@@ -1,4 +1,4 @@
-# 🏄 Pug Surf
+# 🏄 Surf
 
 A small 3D endless surfing game — a pug on a longboard, carving a procedurally
 generated ocean. Built with [three.js](https://threejs.org/); no build step, no
@@ -52,6 +52,9 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.42.0** — Renamed to Surf: the browser tab, the title on the menu and the readme.
+  The save key is deliberately left as it was, so nobody's coins, boards or riders are
+  lost to the rename.
 - **v1.41.1** — Every lofted board finishes properly. The thickness envelope already ran
   to nothing at both tips, but the plan outline still finished at its full nose width, so
   the last ring of every board was a flat, zero-thickness flange the width of the nose —
