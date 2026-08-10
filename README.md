@@ -27,7 +27,11 @@ npx http-server -p 8080 .   # then open http://localhost:8080
 | Spin | SPIN button | `J` (hold) | — |
 | Flip | FLIP button | `K` (hold) | — |
 | Grab (in air) / hand drag (on water) | GRAB button | `L` (hold) | — |
+| Handstand (water or air) | HAND button | `H` (hold) | — |
 | Grab the seaplane's rope | ROPE! button | — | click ROPE! |
+
+Runs pay coins — from how far you get and how well you score getting there — and the
+board rack on the menu spends them. Every board is cosmetic; they all ride the same.
 
 Land your rotations square or you'll eat it. Hitting a ramp launches you, jellyfish
 bounce you, and buoys, logs and shark fins end the run.
@@ -46,6 +50,17 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.24.0** — Clouds drift across the sky and warm into the sunset with it, and
+  flocks of gulls cross behind them, wings beating out of step. Four new boards, each
+  lofted from a spec — outline, rocker, rail profile, paint — rather than modelled, at
+  around sixteen thousand triangles apiece: a cream triple-stringer log, an orange
+  twin-keel swallowtail fish, a navy pintail gun with a neon rail, and a seventies
+  single-fin in resin bands. Runs now pay coins, and the board rack on the menu spends
+  them; what you own and what you ride is remembered between sessions. New trick: the
+  handstand, held on the water as well as in the air, paying while it lasts and paying
+  more with a rotation going — but lay it over on the rail up there and you go over the
+  front. Sky, boards and coins are all cosmetic: nothing about how the game plays has
+  changed.
 - **v1.23.0** — The board has weight in the water. It was hovering: it floated on the
   highest point under the hull, a touch above it, and snapped to that line every frame,
   which left it gliding over the sea rather than through it. It now displaces water —

@@ -50,6 +50,25 @@
   #ver { position:fixed; bottom:8px; left:50%; transform:translateX(-50%); z-index:10;
     color:#fff; opacity:.55; font-size:13px; font-weight:bold; letter-spacing:.5px;
     text-shadow:0 1px 3px rgba(0,40,80,.6); pointer-events:none; }
+  #overlay .go.alt { margin-top:10px; padding:11px 30px; font-size:17px; background:#1a9ec4; box-shadow:0 5px 0 #10627a; }
+  #shop { position:fixed; inset:0; z-index:12; background:rgba(6,26,46,.94); color:#fff;
+    display:flex; align-items:center; justify-content:center; padding:16px; }
+  #shop .shopwrap { width:min(620px,100%); max-height:100%; display:flex; flex-direction:column; }
+  #shop .go { align-self:center; margin-top:10px; padding:12px 44px; }
+  #shop h2 { font-size:min(6.5vw,26px); color:#ffdf2e; text-shadow:2px 2px 0 #b8641c; margin-bottom:12px;
+    display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
+  #shop h2 span { color:#ffe9a8; font-size:min(4.6vw,19px); text-shadow:none; }
+  #shopList { overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  .card { display:flex; align-items:center; gap:12px; text-align:left; padding:11px 13px; margin-bottom:9px;
+    background:rgba(255,255,255,.09); border:2px solid rgba(255,255,255,.16); border-radius:14px; }
+  .card.on { border-color:#ffdf2e; background:rgba(255,223,46,.14); }
+  .card .nm { font-weight:bold; font-size:17px; }
+  .card .bl { font-size:13px; opacity:.82; line-height:1.4; margin-top:2px; }
+  .card .act { margin-left:auto; flex:none; }
+  .card button { padding:9px 15px; font-size:14px; font-weight:bold; color:#fff; background:#ff8c2e;
+    border:none; border-radius:22px; box-shadow:0 4px 0 #b8641c; cursor:pointer; }
+  .card button:disabled { background:#5b7186; box-shadow:0 4px 0 #3d4d5c; cursor:default; opacity:.75; }
+  .card .tag { font-size:13px; font-weight:bold; color:#ffdf2e; }
   .hidden { display:none !important; }
   #fatal { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
     background:#0a2846; color:#fff; text-align:center; padding:24px; font-size:18px; line-height:1.6; z-index:20; }
@@ -61,6 +80,7 @@
   <div class="cell"><span class="lab">DIST</span><span class="val" id="hDist">0 m</span></div>
   <div class="cell"><span class="lab">MPH</span><span class="val" id="hSpeed">0</span></div>
   <div class="cell"><span class="lab">BEST</span><span class="val" id="hBest">0</span></div>
+  <div class="cell"><span class="lab">COINS</span><span class="val" id="hCoins">0</span></div>
 </div>
 <div id="trickmsg"></div>
 <div id="jumpBtn" class="btn hidden">JUMP</div>
@@ -69,12 +89,21 @@
   <div class="tbtn" id="spinBtn">SPIN</div>
   <div class="tbtn" id="flipBtn">FLIP</div>
   <div class="tbtn" id="grabBtn">GRAB</div>
+  <div class="tbtn" id="handBtn">HAND</div>
 </div>
 <div id="overlay">
   <h1>🏄 Pug Surf</h1>
   <p id="ovText">Carve the swell, dodge the buoys, boost off the ramps and stomp the landing.<br>Hook the seaplane's rope for a Superman backflip.</p>
   <button class="go" id="startBtn">Surf</button>
-  <p class="hint">touch: swipe to carve · buttons to trick<br>keyboard: A/D carve · W/S weight · Space jump · J spin · K flip · L grab / hand drag<br>mouse: drag to carve</p>
+  <button class="go alt" id="shopBtn">Board rack · <span id="ovCoins">0</span> 🪙</button>
+  <p class="hint">touch: swipe to carve · buttons to trick<br>keyboard: A/D carve · W/S weight · Space jump · J spin · K flip · L grab · H handstand<br>mouse: drag to carve</p>
+</div>
+<div id="shop" class="hidden">
+  <div class="shopwrap">
+    <h2>Board rack <span id="shopCoins">0 🪙</span></h2>
+    <div id="shopList"></div>
+    <button class="go" id="shopClose">Back</button>
+  </div>
 </div>
 <div id="zap"></div>
 <div id="ver"></div>
@@ -102,10 +131,14 @@ const hSpeed=document.getElementById('hSpeed'), hBest=document.getElementById('h
 const jumpBtn=document.getElementById('jumpBtn'), ropeBtn=document.getElementById('ropeBtn');
 const trickBar=document.getElementById('trickBar');
 const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementById('flipBtn'), grabBtn=document.getElementById('grabBtn');
+const handBtn=document.getElementById('handBtn');
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
+const hCoins=document.getElementById('hCoins'), ovCoins=document.getElementById('ovCoins');
+const shop=document.getElementById('shop'), shopBtn=document.getElementById('shopBtn');
+const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.23.0';
+const VERSION='1.24.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -414,10 +447,12 @@ for(let i=-1;i<=1;i++){
 // nose logo dot
 const logo=new THREE.Mesh(new THREE.CircleGeometry(0.075,16),new THREE.MeshBasicMaterial({color:0x24413f}));
 logo.rotation.x=-Math.PI/2;logo.position.set(0,0.146,-1.35);
-const boardArt=new THREE.Group();   // everything that draws the board, so a model can swap it out
+const boardArt=new THREE.Group();   // whichever board is equipped hangs here
 rig.add(boardArt);
-boardArt.add(board,deckPad,woodPanel,logo);
-for(const g of grains)boardArt.add(g);
+const stockBoard=new THREE.Group(); // Astro's own: the built-in art, or the Blender model
+boardArt.add(stockBoard);
+stockBoard.add(board,deckPad,woodPanel,logo);
+for(const g of grains)stockBoard.add(g);
 // thruster fin setup
 function makeFin(x,z,tilt,size){
   // shape drawn in the Z-Y plane with the tip BELOW the base, then given thickness across X
@@ -433,7 +468,7 @@ function makeFin(x,z,tilt,size){
   f.position.set(x,-0.155,z);
   f.rotation.z=tilt;
   f.scale.setScalar(size||1);
-  boardArt.add(f);
+  stockBoard.add(f);
 }
 makeFin(0,1.55,0,1.0);makeFin(-0.30,1.32,0.16,0.8);makeFin(0.30,1.32,-0.16,0.8);
 
@@ -664,8 +699,8 @@ function loadModel(file,onReady){
 }
 // measured now, while everything is still at rest and unrotated, because the file
 // may not arrive until the rider is already carving
-const BOARD_BOX=boxOf(boardArt);
-const BOARD_SLAB=slabY(boardArt);
+const BOARD_BOX=boxOf(stockBoard);
+const BOARD_SLAB=slabY(stockBoard);
 loadModel('board.glb',s=>{
   const fitted=skinAndFit('board',s,BOARD_BOX,orientBoard);
   // Match deck to deck rather than box to box. A thin model has nothing like the
@@ -673,9 +708,258 @@ loadModel('board.glb',s=>{
   // the water and leave the rider's feet in the air; lining the decks up puts the
   // hull at the same depth and the feet back on the grip.
   fitted.userData.frame.position.y+=(BOARD_SLAB-slabY(fitted))/fitted.userData.k;
-  boardArt.clear ? boardArt.clear() : (boardArt.children.length=0);
-  boardArt.add(fitted);
+  stockBoard.clear ? stockBoard.clear() : (stockBoard.children.length=0);
+  stockBoard.add(fitted);
 });
+
+// ---------- what carries between runs ----------
+const SAVE_KEY='pugSurfSave1';
+let coins=0, owned={astro:1}, equipped='astro';
+function loadSave(){
+  try{
+    const v=JSON.parse(localStorage.getItem(SAVE_KEY)||'{}');
+    coins=Math.max(0,v.coins|0);
+    owned=Object.assign({astro:1},v.owned||{});
+    equipped=v.equipped||'astro';
+  }catch(e){}
+}
+function saveGame(){
+  try{localStorage.setItem(SAVE_KEY,JSON.stringify({coins,owned,equipped}));}catch(e){}
+}
+
+// ---------- the board rack ----------
+// Every board bar Astro's own is lofted from a spec rather than modelled: an outline
+// curve, a rocker, a rail profile and a paint scheme. Sampling that finely is what
+// makes them dense — a little over ten thousand triangles each — and it means a new
+// shape is a dozen numbers rather than a new mesh.
+const _sm=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
+function buildBoardMesh(S){
+  const NU=S.nu||160, NR=S.nr||46, L=S.L, W=S.W, T=S.T;
+  // outline: a single-peaked curve whose wide point moves with the two exponents,
+  // then blended into whatever width the nose and tail actually finish at
+  const a=S.noseA, b=S.tailA, up=a/(a+b);
+  const peak=Math.pow(up,a)*Math.pow(1-up,b);
+  const beta=u=>Math.pow(Math.max(0,u),a)*Math.pow(Math.max(0,1-u),b)/peak;
+  const hw=u=>{
+    const kn=1-_sm(0,0.16,u), kt=_sm(0.82,1,u);
+    return W*(beta(u)*(1-kn)*(1-kt) + S.noseW*kn + S.tailW*kt);
+  };
+  // thickness runs to nothing at both tips, so the loft closes on a thin edge the
+  // way a real board does, with its fullest point just ahead of centre
+  const th=u=>Math.pow(Math.sin(Math.PI*Math.pow(Math.max(0,Math.min(1,u)),S.thSkew||1.0)),S.thPow||0.5);
+  const rock=u=>S.rockN*Math.pow(Math.max(0,(S.noseR-u)/S.noseR),2.2)
+                +S.rockT*Math.pow(Math.max(0,(u-1+S.tailR)/S.tailR),2.2);
+  // a swallow tail is the middle of the tail cut forward, so it is a shift in z
+  const notch=(u,v)=>S.swallow?-S.swallow*_sm(0.80,1,u)*(1-Math.pow(Math.abs(v),1.7)):0;
+
+  const pos=[],col=[],idx=[];
+  const c=new THREE.Color();
+  for(let i=0;i<=NU;i++){
+    const u=i/NU, w=hw(u), t=th(u), r=rock(u);
+    for(let j=0;j<NR;j++){
+      const phi=j/NR*Math.PI*2;
+      const v=Math.sin(phi), sAbs=Math.abs(v), top=Math.cos(phi)>=0;
+      const prof=Math.pow(Math.max(0,1-sAbs*sAbs), top?(S.deckPow||0.56):(S.hullPow||0.42));
+      pos.push(w*v, r+(top?T*t*prof:-T*(S.hullK||0.62)*t*prof), (u-0.5)*L+notch(u,v));
+      S.paint(c,u,v,top);
+      col.push(c.r,c.g,c.b);
+    }
+  }
+  for(let i=0;i<NU;i++)for(let j=0;j<NR;j++){
+    const j2=(j+1)%NR, A=i*NR+j, B=i*NR+j2, C=(i+1)*NR+j, D=(i+1)*NR+j2;
+    idx.push(A,C,B, B,C,D);
+  }
+  // cap the two tips: the rings there are all but closed, but a fan seals them
+  for(const [ring,fwd] of [[0,false],[NU,true]]){
+    const base=pos.length/3, u=ring/NU;
+    pos.push(0,rock(u),(u-0.5)*L+notch(u,0));
+    S.paint(c,u,0,true); col.push(c.r,c.g,c.b);
+    for(let j=0;j<NR;j++){
+      const j2=(j+1)%NR;
+      if(fwd)idx.push(base,ring*NR+j,ring*NR+j2); else idx.push(base,ring*NR+j2,ring*NR+j);
+    }
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const mat=new THREE.MeshStandardMaterial({vertexColors:true,color:0xffffff,
+    roughness:S.rough!==undefined?S.rough:0.27,metalness:0.02});
+  // wet-looking but not mirrored: a low sun on a glassier finish blows the deck out
+  // to white and the paint scheme stops reading at all
+  mat.envMapIntensity=0.40;
+  const mesh=new THREE.Mesh(g,mat);
+
+  const grp=new THREE.Group(); grp.add(mesh);
+  // grip pad: a thin skin lying on the deck over the back third
+  if(S.pad!==false){
+    const P0=S.padU0||0.735, P1=S.padU1||0.945, PU=34, PV=18, pp=[], pi=[];
+    for(let i=0;i<=PU;i++){
+      // a pad covers the back foot, not the back half: narrower than the outline and
+      // rounded off at both ends so it reads as a pad rather than a paint job
+      const e=Math.sin(Math.PI*Math.min(1,Math.max(0,i/PU)))*0.5+0.5;
+      const u=P0+(P1-P0)*i/PU, w=hw(u)*0.56*Math.pow(e,0.35), t=th(u), r=rock(u);
+      for(let j=0;j<=PV;j++){
+        const v=-1+2*j/PV;
+        const prof=Math.pow(Math.max(0,1-v*v*0.64),S.deckPow||0.56);
+        pp.push(w*v, r+T*t*prof+0.006, (u-0.5)*L+notch(u,v*0.8));
+      }
+    }
+    for(let i=0;i<PU;i++)for(let j=0;j<PV;j++){
+      const A=i*(PV+1)+j, B=A+1, C=A+PV+1, D=C+1;
+      pi.push(A,C,B, B,C,D);
+    }
+    const pg=new THREE.BufferGeometry();
+    pg.setAttribute('position',new THREE.Float32BufferAttribute(pp,3));
+    pg.setIndex(pi); pg.computeVertexNormals();
+    grp.add(new THREE.Mesh(pg,PBR({color:S.padCol||0x22262b,roughness:0.78,metalness:0.0})));
+  }
+  // fins
+  const finMat=PBR({color:S.finCol||0x14181d,roughness:0.14,metalness:0.05,envMapIntensity:1.2});
+  for(const f of S.fins){
+    const sh=new THREE.Shape();
+    const cL=f.c, d=f.d, rk=f.rake===undefined?0.10:f.rake;
+    sh.moveTo(-cL*0.5,0);
+    sh.bezierCurveTo(-cL*0.30,-d*0.44, -cL*0.02+rk,-d*0.82, cL*0.14+rk,-d);
+    sh.bezierCurveTo(cL*0.30+rk*0.5,-d*0.66, cL*0.42,-d*0.30, cL*0.5,0);
+    sh.lineTo(-cL*0.5,0);
+    const fg=new THREE.ExtrudeGeometry(sh,{depth:f.t||0.030,bevelEnabled:true,
+      bevelSize:(f.t||0.030)*0.45,bevelThickness:(f.t||0.030)*0.40,bevelSegments:3,curveSegments:26});
+    fg.translate(0,0,-(f.t||0.030)/2);
+    const m=new THREE.Mesh(fg,finMat);
+    m.rotation.y=Math.PI/2;                      // thickness now runs across the board
+    const u=0.5+f.z/L;
+    m.position.set(f.x, rock(u)-T*(S.hullK||0.62)*th(u)*0.92, f.z);
+    m.rotation.z=f.cant||0;
+    grp.add(m);
+  }
+  grp.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
+  return grp;
+}
+// paint helpers: everything is authored in sRGB and moved into linear by vivid()
+function _mix(c,hex,k){const t=vivid(hex,1.25);c.lerp(t,k);return c;}
+function deckScheme(o){
+  const sw=o.sw||0.022, ra=o.railAt||0.88;
+  return (c,u,v,top)=>{
+    const s=Math.abs(v);
+    if(top){
+      c.copy(vivid(o.deck,o.vivid===undefined?1.35:o.vivid));
+      if(o.bands){                                   // resin bands sprayed across the deck
+        for(const [at,wid,hex] of o.bands)c.lerp(vivid(hex,1.4),Math.max(0,1-Math.abs(u-at)/wid));
+      }
+      if(o.stringer&&s<sw)c.copy(vivid(o.stringer,1.3));
+      if(o.vstripes)for(const [at,wd,hex] of o.vstripes)
+        if(Math.abs(s-at)<wd)_mix(c,hex,1-Math.abs(s-at)/wd);
+      if(s>ra)_mix(c,o.rail,_sm(ra,1.0,s));
+    } else {
+      c.copy(vivid(o.hull,1.2));
+      if(o.stringer&&s<sw)c.copy(vivid(o.stringer,1.3));
+      if(o.pin&&s>ra-0.08&&s<ra+0.02)_mix(c,o.pin,1-Math.abs(s-(ra-0.03))/0.05);
+      if(s>ra+0.02)_mix(c,o.rail,_sm(ra+0.02,1.0,s));
+    }
+  };
+}
+const BOARDS=[
+  {id:'astro', name:'Astro Original', price:0,
+   blurb:'The board Astro learned on. Yours from the start.'},
+  {id:'driftwood', name:'Driftwood', price:350,
+   blurb:'9ft 6 log. Endless glide, one big fin, no hurry.',
+   spec:{L:6.30,W:0.82,T:0.165,noseA:0.62,tailA:0.88,noseW:0.30,tailW:0.30,
+     rockN:0.30,noseR:0.36,rockT:0.08,tailR:0.26,deckPow:0.60,hullPow:0.44,hullK:0.60,
+     pad:false,finCol:0x7a5227,
+     paint:deckScheme({deck:0xe9d4a4,hull:0xf7ecd6,rail:0x7a4a20,stringer:0x53300f,pin:0xb8863f,
+       sw:0.115,railAt:0.74,vstripes:[[0.36,0.045,0x53300f]]}),
+     fins:[{x:0,z:2.05,c:0.62,d:0.60,t:0.034,rake:0.16}]}},
+  {id:'tangerine', name:'Tangerine Fish', price:900,
+   blurb:'Twin-keel retro fish. Wide, loose and very fast off the bottom.',
+   spec:{L:5.05,W:0.86,T:0.155,noseA:0.78,tailA:0.70,noseW:0.26,tailW:0.54,
+     rockN:0.20,noseR:0.32,rockT:0.06,tailR:0.24,swallow:0.34,deckPow:0.54,hullPow:0.40,hullK:0.64,
+     padCol:0x2a2320,finCol:0xf7e6c8,padU0:0.71,padU1:0.915,
+     paint:deckScheme({deck:0xff7a1a,hull:0xfff1dc,rail:0xffffff,pin:0xffffff,stringer:0xffd9a0}),
+     fins:[{x:-0.50,z:1.72,c:0.72,d:0.44,t:0.036,rake:0.26,cant:0.16},
+           {x: 0.50,z:1.72,c:0.72,d:0.44,t:0.036,rake:0.26,cant:-0.16}]}},
+  {id:'midnight', name:'Midnight Gun', price:2000,
+   blurb:'Big-wave pintail. Narrow, heavy rocker, made for the ones that stand up.',
+   spec:{L:6.55,W:0.60,T:0.145,noseA:1.15,tailA:1.05,noseW:0.05,tailW:0.10,
+     rockN:0.42,noseR:0.40,rockT:0.13,tailR:0.30,deckPow:0.50,hullPow:0.38,hullK:0.66,
+     padCol:0x101418,finCol:0x0b2b33,
+     paint:deckScheme({deck:0x0e1a3a,hull:0x16265a,rail:0x00e0ff,pin:0x00e0ff,stringer:0x00e0ff,vivid:1.1}),
+     fins:[{x:0,z:2.55,c:0.50,d:0.50,t:0.030,rake:0.13},
+           {x:-0.34,z:2.24,c:0.40,d:0.38,t:0.028,rake:0.11,cant:0.20},
+           {x: 0.34,z:2.24,c:0.40,d:0.38,t:0.028,rake:0.11,cant:-0.20}]}},
+  {id:'sunburst', name:'Sunburst Single', price:3800,
+   blurb:'Seventies mid-length. Resin bands, one raked fin, all trim.',
+   spec:{L:5.85,W:0.75,T:0.175,noseA:0.86,tailA:0.96,noseW:0.12,tailW:0.17,
+     rockN:0.26,noseR:0.34,rockT:0.09,tailR:0.26,deckPow:0.58,hullPow:0.42,hullK:0.62,
+     padCol:0x3a2418,finCol:0xffb03a,
+     paint:deckScheme({deck:0xffd23a,hull:0xfff0c4,rail:0xd6360d,stringer:0x7a3b12,pin:0xd6360d,
+       bands:[[0.20,0.20,0xff4d16],[0.50,0.16,0xff8c19],[0.80,0.20,0xd6360d]]}),
+     fins:[{x:0,z:2.10,c:0.66,d:0.62,t:0.036,rake:0.22}]}},
+];
+const BOARD_BY_ID={}; for(const b of BOARDS)BOARD_BY_ID[b.id]=b;
+const _rack={};
+function boardArtFor(id){
+  if(id==='astro')return stockBoard;
+  if(!_rack[id]){
+    const g=buildBoardMesh(BOARD_BY_ID[id].spec);
+    g.position.y+=BOARD_SLAB-slabY(g);        // decks line up, so every board rides the same
+    _rack[id]=g;
+  }
+  return _rack[id];
+}
+function equipBoard(id){
+  if(!BOARD_BY_ID[id])id='astro';
+  equipped=id;
+  boardArt.clear ? boardArt.clear() : (boardArt.children.length=0);
+  boardArt.add(boardArtFor(id));
+}
+
+loadSave(); equipBoard(equipped);
+
+// ---------- the shop ----------
+// Coins come out of a run: how far Astro got and how well he scored getting there.
+// Everything bought is cosmetic — the boards ride identically, they just look
+// different, so buying one can never make the game easier or harder.
+function coinsFor(d,sc){ return Math.floor(d/5)+Math.floor(sc/18); }
+function showCoins(){
+  const t=String(coins);
+  if(hCoins)hCoins.textContent=t;
+  if(ovCoins)ovCoins.textContent=t;
+  if(shopCoins)shopCoins.textContent=t+' 🪙';
+}
+function drawShop(){
+  shopList.innerHTML='';
+  for(const b of BOARDS){
+    const have=!!owned[b.id], on=equipped===b.id;
+    const card=document.createElement('div');
+    card.className='card'+(on?' on':'');
+    const txt=document.createElement('div');
+    txt.innerHTML='<div class="nm">'+b.name+'</div><div class="bl">'+b.blurb+'</div>';
+    const act=document.createElement('div');
+    act.className='act';
+    if(on){ act.innerHTML='<span class="tag">Riding</span>'; }
+    else {
+      const btn=document.createElement('button');
+      if(have){ btn.textContent='Ride it'; btn.onclick=()=>{equipBoard(b.id);saveGame();drawShop();}; }
+      else {
+        btn.textContent=b.price+' 🪙';
+        btn.disabled=coins<b.price;
+        btn.onclick=()=>{
+          if(coins<b.price)return;
+          coins-=b.price; owned[b.id]=1; equipBoard(b.id); saveGame(); showCoins(); drawShop();
+        };
+      }
+      act.appendChild(btn);
+    }
+    card.appendChild(txt); card.appendChild(act);
+    shopList.appendChild(card);
+  }
+  showCoins();
+}
+shopBtn.onclick=()=>{drawShop();shop.classList.remove('hidden');};
+document.getElementById('shopClose').onclick=()=>shop.classList.add('hidden');
+showCoins();
 
 // ---- jointed surfer rig: pelvis > spine > chest > neck > head, with hip/knee/ankle + shoulder/elbow chains ----
 const pug=new THREE.Group();
@@ -1282,6 +1566,9 @@ let px=0,py=0,pz=0,vy=0,vx=0,cutCd=0,airborne=false,trickReady=false;
 const BOARD_HALF_L=2.45, BOARD_HALF_W=0.55;   // the hull's own footprint
 let boardYaw=0,boardLean=0,boardPitch=0,camX=0,camY=5.0,camZ=11.0,lookX=0,sprayAcc=0,leanW=0,pearlT=0;
 let spinHeld=false,flipHeld=false,spinRot=0,flipRot=0;
+// handstand: Astro goes up on his front paws. It works on the water, not just in
+// the air, and it pays while it is held — but a hard carve on your hands ends badly.
+let handOn=false,handT=0,handPts=0,handRisk=0;
 let grabOn=false,grabPts=0,grabSide=1;
 let dragOn=false,dragPts=0,dragSide=1;
 let shake=0,boost=0,carrySpin=0,carryFlip=0;
@@ -1296,12 +1583,14 @@ addEventListener('keydown',e=>{
   if(e.code==='KeyJ')startTrick('spin');
   if(e.code==='KeyK')startTrick('flip');
   if(e.code==='KeyL'){if(airborne||hanging)startTrick('grab');else startDrag();}
+  if(e.code==='KeyH')handOn=true;
 });
 addEventListener('keyup',e=>{
   keys[e.code]=false;
   if(e.code==='KeyJ')releaseTrick('spin');
   if(e.code==='KeyK')releaseTrick('flip');
   if(e.code==='KeyL'){endGrab();endDrag();}
+  if(e.code==='KeyH')handOn=false;
 });
 let steer=0;
 // swipe steering: swipe the way you want him to go — the swipe keeps steering, and
@@ -1387,7 +1676,10 @@ grabBtn.addEventListener('touchend',e=>{e.preventDefault();endGrab();endDrag();}
 spinBtn.addEventListener('mousedown',()=>startTrick('spin'));
 flipBtn.addEventListener('mousedown',()=>startTrick('flip'));
 grabBtn.addEventListener('mousedown',()=>{if(airborne||hanging)startTrick('grab');else startDrag();});
-addEventListener('mouseup',()=>{endGrab();endDrag();releaseSpin();endMouseDrag();});
+handBtn.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();handOn=true;});
+handBtn.addEventListener('touchend',e=>{e.preventDefault();handOn=false;});
+handBtn.addEventListener('mousedown',()=>{handOn=true;});
+addEventListener('mouseup',()=>{endGrab();endDrag();releaseSpin();endMouseDrag();handOn=false;});
 
 const BEST_KEY='pug-surf-best';
 function loadBest(){
@@ -1480,7 +1772,8 @@ function reset(){
   if(wipe){ scene.remove(rig); player.add(rig);
     player.remove(pug); rig.add(pug);
     pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
-player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}}); rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null; }
+player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}}); rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null;
+  handOn=false;handT=0;handPts=0;handRisk=0;pug.rotation.x=0;pug.position.y=0; }
   player.rotation.set(0,0,0);
   for(const o of obstacles)scene.remove(o);obstacles.length=0;
   dist=0;speed=13.5;score=0;px=0;py=0;pz=0;vy=0;vx=0;cutCd=0;airborne=false;trick=null;
@@ -1672,9 +1965,12 @@ function gameOver(){
   splatT=0;splat3D.visible=false;         // never leave the splat stuck over the menu
   const s=score|0;
   if(s>best){best=s;saveBest();}
+  const earned=coinsFor(dist,s);
+  coins+=earned; saveGame(); showCoins();
   jumpBtn.classList.add('hidden');ropeBtn.style.display='none';trickBar.classList.add('hidden');
   overlay.querySelector('h1').textContent='Wipeout! 🌊';
-  document.getElementById('ovText').innerHTML=`Astro went under...<br><br>Score: <b>${s}</b><br>Distance: <b>${dist|0} m</b><br>Best: <b>${best}</b>`;
+  document.getElementById('ovText').innerHTML=`Astro went under...<br><br>Score: <b>${s}</b><br>Distance: <b>${dist|0} m</b><br>Best: <b>${best}</b><br><br>Earned <b>${earned} 🪙</b> &nbsp;·&nbsp; purse <b>${coins} 🪙</b>`;
+  shopBtn.classList.remove('hidden');
   startBtn.textContent='Surf again';
   overlay.classList.remove('hidden');
 }
@@ -1791,11 +2087,132 @@ function updateDayCycle(){
   sunGlowOuter.material.uniforms.uOpacity.value=0.16+gAmt*0.42;
   // NOTE: the scene lights are deliberately left alone. Moving or warming them
   // would repaint the ocean, the animals, the board and the pug.
+  // clouds catch the same light as the sky behind them, so they warm into the
+  // sunset instead of staying white cut-outs pasted over it
+  _cA.setHex(0xffffff).lerp(skyUniforms.uGlow.value,gAmt*0.85);
+  if(_cA.convertSRGBToLinear)_cA.convertSRGBToLinear();
+  for(const c of clouds)c.material.color.copy(_cA);
   const mo=Math.max(0,(tod-0.80)/0.20);
   moon.material.opacity=mo*0.75;
   moon.position.set(-sxn*140,120,-205);
 }
 
+
+// ---------- clouds and birds: sky furniture, painted before the world ----------
+// Both live in skyLayer, which rides with the camera and draws with depth testing
+// off ahead of everything else, so the ocean, the animals and the board all paint
+// straight over them and none of their colours are touched.
+function cloudTexture(seed){
+  const W=384,H=192,c=document.createElement('canvas'); c.width=W; c.height=H;
+  const x=c.getContext('2d');
+  let n=seed*9301+49297;
+  const R=()=>{n=(n*9301+49297)%233280; return n/233280;};
+  // A cumulus is a pile of soft lumps on a flat base, brighter on top. Every lump is
+  // kept clear of the canvas edge, so the alpha has faded to nothing by the border
+  // and the plane never shows as a rectangle.
+  const lumps=9+((R()*6)|0), BASE=132;
+  for(let i=0;i<lumps;i++){
+    const t=i/(lumps-1);
+    const rad=24+R()*20+18*(1-Math.abs(t-0.45)*1.6);
+    const cx=76+t*232+(R()-0.5)*26;
+    const cy=BASE-rad*0.55-R()*26*(1-Math.abs(t-0.5)*1.4);
+    const g=x.createRadialGradient(cx,cy-rad*0.25,rad*0.12,cx,cy,rad);
+    const top=Math.round(238+R()*17);
+    g.addColorStop(0,'rgba(255,255,255,0.95)');
+    g.addColorStop(0.5,`rgba(${top},${top},${top},0.60)`);
+    g.addColorStop(1,'rgba(214,220,230,0)');
+    x.fillStyle=g; x.beginPath(); x.arc(cx,cy,rad,0,Math.PI*2); x.fill();
+  }
+  // shade the underside so it does not read as a flat smear
+  x.globalCompositeOperation='source-atop';
+  const sh=x.createLinearGradient(0,BASE-62,0,BASE+4);
+  sh.addColorStop(0,'rgba(150,163,185,0)');
+  sh.addColorStop(1,'rgba(138,152,177,0.36)');
+  x.fillStyle=sh; x.fillRect(0,0,W,H);
+  x.globalCompositeOperation='source-over';
+  const t=new THREE.CanvasTexture(c);
+  if(THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding;
+  return t;
+}
+const CLOUD_TEX=[cloudTexture(1),cloudTexture(7),cloudTexture(23)];
+const clouds=[];
+const CLOUD_SPAN=520;                       // how far they run before wrapping round
+for(let i=0;i<16;i++){
+  const w=48+Math.random()*92;
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(w,w*0.5),
+    new THREE.MeshBasicMaterial({map:CLOUD_TEX[(Math.random()*3)|0],transparent:true,
+      opacity:0.30+Math.random()*0.42,depthTest:false,depthWrite:false}));
+  m.renderOrder=-10;                        // over the sun's glow, under the world
+  m.position.set((Math.random()-0.5)*CLOUD_SPAN, 46+Math.random()*104, -175-Math.random()*95);
+  m.userData.v=1.4+Math.random()*3.6;       // high cloud drifts faster than low
+  m.userData.bob=Math.random()*Math.PI*2;
+  skyLayer.add(m); clouds.push(m);
+}
+// One gull: a swept wing either side of a slim body, flat black. At this distance
+// the shape is all that reads, so the whole thing is a silhouette.
+function buildGull(){
+  const g=new THREE.Group();
+  const mtl=new THREE.MeshBasicMaterial({color:0x101820,transparent:true,opacity:0.55,
+    side:THREE.DoubleSide,depthTest:false,depthWrite:false});
+  const wing=new THREE.Shape();
+  wing.moveTo(0,0);
+  wing.quadraticCurveTo(0.55,0.16, 1.15,0.06);     // leading edge
+  wing.quadraticCurveTo(1.34,0.02, 1.50,-0.14);    // out to the tip
+  wing.quadraticCurveTo(1.10,-0.10, 0.62,-0.14);   // trailing edge sweeping back
+  wing.quadraticCurveTo(0.26,-0.16, 0,-0.10);
+  const geo=new THREE.ShapeGeometry(wing,12);
+  const L=new THREE.Mesh(geo,mtl), Rw=new THREE.Mesh(geo,mtl);
+  Rw.scale.x=-1;
+  const body=new THREE.Mesh(new THREE.CircleGeometry(0.16,12),mtl);
+  body.scale.set(1,0.5,1);
+  g.add(L,Rw,body);
+  g.userData={L,Rw,f:2.6+Math.random()*2.2,p:Math.random()*Math.PI*2};
+  return g;
+}
+const birds=[];
+for(let f=0;f<3;f++){
+  const flock=new THREE.Group();
+  flock.renderOrder=-9;
+  const n=4+((Math.random()*4)|0);
+  for(let i=0;i<n;i++){
+    const b=buildGull();
+    // a loose V, never a tidy one
+    b.position.set((i-n/2)*(2.6+Math.random()*1.4), Math.abs(i-n/2)*(-1.1-Math.random()*0.7)+(Math.random()-0.5),
+                   (Math.random()-0.5)*3);
+    b.scale.setScalar(0.8+Math.random()*0.5);
+    flock.add(b);
+  }
+  flock.position.set((Math.random()-0.5)*CLOUD_SPAN, 52+Math.random()*62, -150-Math.random()*70);
+  flock.scale.setScalar(1.6+Math.random()*1.4);
+  flock.userData={v:(Math.random()<0.5?-1:1)*(5+Math.random()*5), bob:Math.random()*Math.PI*2};
+  skyLayer.add(flock); birds.push(flock);
+}
+function updateSkyLife(dt){
+  for(const c of clouds){
+    c.position.x+=c.userData.v*dt;
+    if(c.position.x>CLOUD_SPAN*0.5)c.position.x-=CLOUD_SPAN;
+    c.userData.bob+=dt*0.28;
+    c.position.y+=Math.sin(c.userData.bob)*dt*0.7;
+  }
+  for(const f of birds){
+    const u=f.userData;
+    f.position.x+=u.v*dt;
+    if(f.position.x> CLOUD_SPAN*0.5)f.position.x-=CLOUD_SPAN;
+    if(f.position.x<-CLOUD_SPAN*0.5)f.position.x+=CLOUD_SPAN;
+    u.bob+=dt;
+    f.position.y+=Math.sin(u.bob*0.7)*dt*1.4;
+    f.rotation.y=u.v>0?0:Math.PI;             // they face the way they are going
+    for(const b of f.children){
+      const d=b.userData;
+      // wings beat with a fast downstroke and a slower recovery, and no two birds
+      // in a flock are in step
+      const ph=tNow*d.f+d.p;
+      const beat=Math.sin(ph)*0.5+0.5;
+      const a=0.62*Math.pow(beat,0.65)-0.22;
+      d.L.rotation.z=a; d.Rw.rotation.z=-a;
+    }
+  }
+}
 
 // a real dorsal fin: swept-back curved blade with a trailing notch
 function makeDorsal(height,mtl){
@@ -2333,6 +2750,81 @@ function animateRig(dt,carve,grab,waterY){
   B.el.rotation.x=ease(B.el.rotation.x,elB[0]+Math.sin(tNow*2.6+1.4)*0.09,dt,10);
 }
 
+// Astro tips up onto his front paws. The rig turns over about the deck line, so the
+// arms have to be thrown overhead first — flipped, they then reach down to the deck
+// and take his weight with his head just above them. How far to lift him afterwards
+// is measured off the posed rig rather than guessed, so it lands on his paws exactly.
+const HAND_POSE=[
+  // [joint, axis, angle in the upright frame]
+  ['aF','sh','x',-2.62],['aF','el','x',-0.18],['aF','sh','z', 0.30],['aF','sh','y',0],
+  ['aB','sh','x',-2.62],['aB','el','x',-0.18],['aB','sh','z',-0.30],['aB','sh','y',0],
+  ['lF','hip','x', 0.16],['lF','knee','x',-0.12],['lF','ankle','x',0.34],['lF','hip','z',-0.15],['lF','hip','y',0],
+  ['lB','hip','x',-0.16],['lB','knee','x',-0.12],['lB','ankle','x',0.34],['lB','hip','z', 0.15],['lB','hip','y',0],
+  ['hd',null,'x',-0.92],
+];
+function _handJoint(tag,sub){
+  const g={aF:armFrontJ,aB:armBackJ,lF:legFrontJ,lB:legBackJ}[tag];
+  return tag==='hd'?headJ:g[sub];
+}
+function applyHandPose(k){
+  for(const [tag,sub,ax,to] of HAND_POSE){
+    const j=_handJoint(tag,sub);
+    j.rotation[ax]=j.rotation[ax]*(1-k)+to*k;
+  }
+}
+let HAND_LIFT=null;
+function measureHandLift(){
+  const keep=HAND_POSE.map(([t,sb,ax])=>_handJoint(t,sb).rotation[ax]);
+  const rx=pug.rotation.x, py=pug.position.y;
+  const box=o=>{
+    o.updateMatrixWorld(true);
+    const inv=new THREE.Matrix4().copy(o.matrixWorld).invert(), b=new THREE.Box3(), m=new THREE.Matrix4();
+    o.traverse(c=>{ if(!c.isMesh||!c.geometry.attributes.position)return;
+      const g=c.geometry.clone(); g.applyMatrix4(m.multiplyMatrices(inv,c.matrixWorld));
+      g.computeBoundingBox(); b.union(g.boundingBox); });
+    return b;
+  };
+  pug.rotation.x=0; pug.position.y=0;
+  const stand=box(pug).min.y;                 // where his feet rest when he is upright
+  applyHandPose(1);
+  const reach=box(pug).max.y;                 // how far the raised paws reach above the deck
+  pug.rotation.x=rx; pug.position.y=py;
+  HAND_POSE.forEach(([t,sb,ax],i)=>{_handJoint(t,sb).rotation[ax]=keep[i];});
+  // turning him over sends that reach the other way, so lifting by the two together
+  // puts his paws exactly where his feet were
+  return stand+reach+0.10;                    // a little daylight so his chin clears the deck
+}
+function updateHandstand(dt,carve){
+  const want=(handOn&&!hanging&&!wipe)?1:0;
+  handT+=(want-handT)*Math.min(1,dt*(want?7:9));
+  if(handT<0.002&&!want){
+    if(handT!==0){handT=0;pug.rotation.x=0;pug.position.y=0;}
+    return;
+  }
+  if(HAND_LIFT===null)HAND_LIFT=measureHandLift();
+  applyHandPose(handT);
+  pug.rotation.x=handT*Math.PI;
+  pug.position.y=handT*HAND_LIFT;
+  if(handT>0.55){
+    // it pays while it is held, and it pays better with a rotation going
+    const rate=(airborne?46:26)*(1+Math.min(1,Math.abs(carve))*0.4);
+    score+=rate*dt; handPts+=rate*dt;
+    // hands are not feet: lay it right over on the rail and he goes over the front
+    if(!airborne&&Math.abs(carve)>0.72){
+      handRisk+=dt;
+      if(handRisk>0.55){handRisk=0;startWipeout('foam');return;}
+    } else handRisk=Math.max(0,handRisk-dt*1.6);
+  }
+  if(!want&&handPts>0){
+    if(handPts>=30){
+      const p=Math.round(handPts);
+      score+=p*0.35; boost=Math.min(16,boost+3.5);
+      msg(`HANDSTAND! +${Math.round(p*1.35)}`);
+    }
+    handPts=0;
+  }
+}
+
 // ---------- update ----------
 function update(dt){
   tNow+=dt;
@@ -2528,6 +3020,7 @@ function update(dt){
   const grabRoll = grab ? grabSide*0.30 : 0;   // board tips toward the rail he's holding
   rig.rotation.set(boardPitch,boardYaw,boardLean+grabRoll);
   animateRig(dt,carve,grab,waterY);
+  updateHandstand(dt,carve);
 
   // whitewater under the board + wash trail behind it
   if(!airborne&&!hanging){
@@ -2779,6 +3272,7 @@ function update(dt){
   hDist.textContent=(dist|0)+' m';
   hSpeed.textContent=(eff*0.62)|0;
   hBest.textContent=best;
+  hCoins.textContent=coins;
 }
 
 function loop(now){
@@ -2789,7 +3283,8 @@ function loop(now){
     updateWorldDuringWipeout(dt);
   }
   if(running)update(dt);
-  else oceanUniforms.uT.value+=dt;
+  else {oceanUniforms.uT.value+=dt;tNow+=dt;}
+  updateSkyLife(dt);          // the sky keeps moving on the menu and through a wipeout
   renderer.render(scene,camera);
   if(splat3D.visible){
     // clear only depth, so it lands on top of the frame but still occludes itself
