@@ -6,6 +6,7 @@
 <title>Surf</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  button { font-family:inherit; }   /* buttons do not inherit it on their own */
   html,body { width:100%; height:100%; overflow:hidden; background:#7ec8f0; font-family:'Trebuchet MS',sans-serif; touch-action:none; }
   canvas { display:block; }
   #hud { position:fixed; top:0; left:0; right:0; display:flex; justify-content:space-between;
@@ -71,21 +72,48 @@
   .ges .dot { fill:#fff; stroke:none; }
   #jumpBtn .ges { width:30px; height:30px; stroke-width:2.4; margin-bottom:1px; }
   #jumpBtn { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; }
+  /* The menu no longer lays a flat panel over the game — the sea keeps rolling behind
+     it under a soft vignette that has no edge anywhere, and the type carries its own
+     legibility instead of borrowing it from a scrim. */
   #overlay {
     position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
-    background:rgba(10,40,70,.82); color:#fff; text-align:center; padding:20px;
+    color:#fff; text-align:center; padding:20px;
+    background:radial-gradient(150% 108% at 50% 46%,
+      rgba(4,22,42,.46) 0%, rgba(4,22,42,.38) 42%, rgba(4,22,42,.20) 74%, rgba(4,22,42,.05) 100%);
   }
-  #overlay h1 { font-size:min(11vw,54px); color:#ffdf2e; text-shadow:3px 3px 0 #b8641c; }
-  #overlay p { margin:12px 0; font-size:min(4.4vw,18px); line-height:1.55; max-width:540px; }
-  .go { padding:15px 46px; font-size:20px; font-weight:800;
-    letter-spacing:.6px; color:#fff; border:none; border-radius:40px; cursor:pointer;
-    background:linear-gradient(165deg,#ffa84e,#f2701a);
-    box-shadow:0 10px 24px rgba(120,55,0,.38), inset 0 1px 0 rgba(255,255,255,.5);
+  #overlay h1 { font-size:min(11vw,54px); color:#ffdf2e; letter-spacing:-.5px;
+    text-shadow:3px 3px 0 #b8641c, 0 6px 22px rgba(0,20,40,.6); }
+  #overlay p { margin:12px 0; font-size:min(4.4vw,18px); line-height:1.55; max-width:540px;
+    text-shadow:0 2px 8px rgba(0,20,40,.75); }
+  /* One button. Every menu button is this size and shape; only the colour changes, so
+     the stack reads as one control rather than three different ones. */
+  .go { width:min(300px,80vw); padding:15px 20px; font-size:18px; font-weight:800;
+    font-family:inherit; letter-spacing:.4px; color:#fff; border:none; border-radius:999px;
+    cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:7px;
+    background:linear-gradient(165deg,#ffb45e,#f0731a);
+    box-shadow:0 10px 24px rgba(120,55,0,.38), inset 0 1px 0 rgba(255,255,255,.42);
     transition:transform .08s ease, box-shadow .08s ease, filter .12s ease; }
-  .go:active { transform:translateY(3px) scale(.985);
-    box-shadow:0 4px 12px rgba(120,55,0,.4), inset 0 1px 0 rgba(255,255,255,.4); }
-  #overlay .go { margin-top:13px; }
+  .go:active { transform:translateY(2px) scale(.987); filter:saturate(1.08);
+    box-shadow:0 4px 12px rgba(0,20,40,.34), inset 0 1px 0 rgba(255,255,255,.34); }
+  .go.alt { background:linear-gradient(165deg,#57cbec,#1585ad);
+    box-shadow:0 10px 24px rgba(0,70,100,.36), inset 0 1px 0 rgba(255,255,255,.4); }
+  .go.calm { background:linear-gradient(165deg,#5d7286,#334457);
+    box-shadow:0 10px 24px rgba(0,20,40,.4), inset 0 1px 0 rgba(255,255,255,.22); }
+  .go.teal { background:linear-gradient(165deg,#43ddc9,#0f9e90);
+    box-shadow:0 10px 24px rgba(0,90,80,.36), inset 0 1px 0 rgba(255,255,255,.42); }
+  #overlay .go { margin-top:10px; }
   #overlay .hint { opacity:.85; font-size:min(3.8vw,15px); }
+  /* the run summary: the block sits in the middle of the screen, but every line inside
+     it starts on the same left edge instead of each being centred on its own length */
+  #ovText { width:min(300px,80vw); max-width:none; margin:14px auto 4px;
+    font-size:min(4.2vw,17px); text-align:left; }
+  #ovText .tr { display:flex; justify-content:space-between; align-items:baseline; gap:14px;
+    padding:6px 2px; border-bottom:1px solid rgba(255,255,255,.14); }
+  #ovText .tr:last-child { border-bottom:none; }
+  #ovText .tr span { opacity:.86; }
+  #ovText .tr b { font-weight:800; white-space:nowrap; }
+  #ovText .tr.hi b { color:#ffdf2e; }
+  #ovText .lead { text-align:center; opacity:.9; margin-bottom:10px; }
   #zap { position:fixed; inset:0; z-index:6; pointer-events:none; opacity:0;
     background:radial-gradient(circle at 50% 46%, rgba(190,250,255,.95) 0%, rgba(120,220,255,.55) 26%, rgba(60,140,255,.18) 52%, rgba(0,0,0,0) 74%);
     transition:opacity .28s ease-out; }
@@ -93,16 +121,12 @@
   #ver { position:fixed; bottom:8px; left:50%; transform:translateX(-50%); z-index:10;
     color:#fff; opacity:.55; font-size:13px; font-weight:bold; letter-spacing:.5px;
     text-shadow:0 1px 3px rgba(0,40,80,.6); pointer-events:none; }
-  #overlay .go.alt { margin-top:9px; padding:12px 30px; font-size:16px;
-    background:linear-gradient(165deg,#3fc0e6,#1585ad);
-    box-shadow:0 9px 22px rgba(0,70,100,.34), inset 0 1px 0 rgba(255,255,255,.45); }
+
   #shop { position:fixed; inset:0; z-index:12; background:rgba(6,26,46,.94); color:#fff;
     display:flex; align-items:center; justify-content:center; padding:16px; }
   #shop .shopwrap { width:min(620px,100%); max-height:100%; display:flex; flex-direction:column; }
-  #shop .go { align-self:center; margin-top:12px; padding:13px 44px; font-size:18px;
-    background:linear-gradient(165deg,#5b7186,#33455a); }
-  #overlay #reviveBtn { background:linear-gradient(165deg,#2fd3c2,#0f9e90);
-    box-shadow:0 10px 24px rgba(0,90,80,.36), inset 0 1px 0 rgba(255,255,255,.5); margin-bottom:2px; }
+  #shop .go { align-self:center; margin-top:12px; }
+
   #clip { position:fixed; inset:0; z-index:14; background:rgba(4,18,34,.96); color:#fff;
     display:flex; align-items:center; justify-content:center; padding:18px; }
   #clip .clipbox { width:min(520px,100%); text-align:center; }
@@ -128,7 +152,7 @@
   #shopTabs { display:flex; gap:8px; margin-bottom:11px; }
   #shopTabs .tab { flex:1 1 0; padding:10px 0; font-size:15px; font-weight:800; letter-spacing:.6px;
     color:#cfe2f0; background:rgba(255,255,255,.07); border:1.5px solid rgba(255,255,255,.14);
-    border-radius:13px; cursor:pointer; transition:background .12s, color .12s, border-color .12s; }
+    border-radius:999px; cursor:pointer; transition:background .12s, color .12s, border-color .12s; }
   #shopTabs .tab.on { color:#08222f; border-color:#7fe6dc;
     background:linear-gradient(165deg,#8ff0e4,#3fc7b8); }
   .card { display:flex; flex-direction:column; text-align:left; overflow:hidden;
@@ -144,8 +168,8 @@
   .card .bl { font-size:11.5px; opacity:.76; line-height:1.34; flex:1; }
   .card .act { margin-top:7px; }
   .card button { width:100%; padding:11px 0; font-size:14px; font-weight:800; color:#fff;
-    letter-spacing:.3px; background:linear-gradient(165deg,#ffb257,#ef6d16); border:none;
-    border-radius:12px; cursor:pointer;
+    letter-spacing:.3px; background:linear-gradient(165deg,#ffb45e,#f0731a); border:none;
+    border-radius:999px; cursor:pointer;
     box-shadow:0 6px 14px rgba(120,55,0,.36), inset 0 1px 0 rgba(255,255,255,.42);
     transition:transform .08s ease, filter .12s ease; }
   .card button:active { transform:translateY(2px) scale(.985); filter:brightness(1.06); }
@@ -153,13 +177,13 @@
     box-shadow:0 6px 14px rgba(0,80,72,.36), inset 0 1px 0 rgba(255,255,255,.42); }
   .card button:disabled { background:linear-gradient(180deg,#4a6076,#37485a);
     color:#a9bcce; box-shadow:inset 0 1px 0 rgba(255,255,255,.10); cursor:default; transform:none; }
-  .card .tag { display:block; text-align:center; padding:11px 0; border-radius:12px;
+  .card .tag { display:block; text-align:center; padding:11px 0; border-radius:999px;
     font-size:14px; font-weight:800; letter-spacing:.6px; color:#08222f;
     background:linear-gradient(165deg,#ffe886,#f5c518); }
   /* a puka shell: the cone-shell slice with the natural hole through it that the
      currency is named after — puka is Hawaiian for hole */
   .pk { display:inline-block; width:1em; height:1em; vertical-align:-0.14em; margin:0 .1em 0 .14em;
-    background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3CradialGradient id='g' cx='36%25' cy='29%25' r='80%25'%3E%3Cstop offset='0' stop-color='%23fffdf5'/%3E%3Cstop offset='.55' stop-color='%23f5e6c6'/%3E%3Cstop offset='1' stop-color='%23c9a87c'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='14.2' fill='url(%23g)'/%3E%3Ccircle cx='16' cy='16' r='4.5' fill='%230a1f30' opacity='.6'/%3E%3Ccircle cx='16' cy='16' r='4.5' fill='none' stroke='%23a98a63' stroke-opacity='.55' stroke-width='1'/%3E%3Cpath d='M6.4 9.8a11.8 11.8 0 0 1 8.8-5.4' fill='none' stroke='%23ffffff' stroke-opacity='.9' stroke-width='2.1' stroke-linecap='round'/%3E%3Cpath d='M27.4 19.2a11.9 11.9 0 0 1-7.9 8' fill='none' stroke='%238d6c46' stroke-opacity='.45' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat;
+    background:url("data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><defs><linearGradient id=%22a%22 x1=%2216%25%22 y1=%222%25%22 x2=%2280%25%22 y2=%2298%25%22><stop offset=%220%22 stop-color=%22%23ffffff%22/><stop offset=%22.30%22 stop-color=%22%23fff3e2%22/><stop offset=%22.55%22 stop-color=%22%23ffdcee%22/><stop offset=%22.78%22 stop-color=%22%23c8ecf6%22/><stop offset=%221%22 stop-color=%22%2379c3d8%22/></linearGradient><radialGradient id=%22b%22 cx=%2250%25%22 cy=%2242%25%22 r=%2262%25%22><stop offset=%220%22 stop-color=%22%23123047%22/><stop offset=%221%22 stop-color=%22%232b5b76%22/></radialGradient></defs><circle cx=%2216%22 cy=%2216%22 r=%2214.4%22 fill=%22url(%23a)%22/><circle cx=%2216%22 cy=%2216%22 r=%2214.4%22 fill=%22none%22 stroke=%22%235f9cb0%22 stroke-opacity=%22.5%22 stroke-width=%22.9%22/><circle cx=%2216%22 cy=%2216%22 r=%224.9%22 fill=%22url(%23b)%22/><circle cx=%2216%22 cy=%2216%22 r=%224.9%22 fill=%22none%22 stroke=%22%23ffffff%22 stroke-opacity=%22.62%22 stroke-width=%221.1%22/><path d=%22M6.3 11.2A11 11 0 0 1 14.2 4.3%22 fill=%22none%22 stroke=%22%23ffffff%22 stroke-opacity=%22.95%22 stroke-width=%222.6%22 stroke-linecap=%22round%22/><path d=%22M27.1 18.7a11 11 0 0 1-6.6 7.6%22 fill=%22none%22 stroke=%22%234e93aa%22 stroke-opacity=%22.42%22 stroke-width=%221.8%22 stroke-linecap=%22round%22/><path d=%22M20.6 7.1a10.4 10.4 0 0 1 3.6 3.6%22 fill=%22none%22 stroke=%22%23ffffff%22 stroke-opacity=%22.5%22 stroke-width=%221.3%22 stroke-linecap=%22round%22/></svg>") center/contain no-repeat;
     filter:drop-shadow(0 1px 1px rgba(0,20,40,.35)); }
   #hud .pk { width:.86em; height:.86em; }
   .hidden { display:none !important; }
@@ -187,8 +211,10 @@
   #stats .bar i { display:block; height:100%; border-radius:3px; min-width:2px;
     background:linear-gradient(90deg,#3fc0e6,#7ee896); }
   #stats .none { opacity:.45; font-size:13px; padding:5px 1px; }
-  #stats .acts { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:12px; }
-  #stats .acts .go { margin:0; padding:11px 22px; font-size:14px; }
+  #stats .acts { display:flex; gap:8px; justify-content:center; margin-top:12px; }
+  /* three across one row, sharing the width rather than wrapping */
+  #stats .acts .go { margin:0; flex:1 1 0; width:auto; min-width:0; max-width:160px;
+    padding:12px 8px; font-size:14.5px; }
   #fatal { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
     background:#0a2846; color:#fff; text-align:center; padding:24px; font-size:18px; line-height:1.6; z-index:20; }
 </style>
@@ -229,24 +255,24 @@
   <h2>Telemetry <small id="stTag"></small></h2>
   <div id="stBody"></div>
   <div class="acts">
-    <button class="go alt" id="stCopy">Copy</button>
-    <button class="go alt" id="stWipe">Reset</button>
-    <button class="go" id="stClose">Close</button>
+    <button class="go alt sm" id="stCopy">Copy</button>
+    <button class="go calm sm" id="stWipe">Reset</button>
+    <button class="go sm" id="stClose">Close</button>
   </div>
 </div></div>
 <div id="overlay">
   <h1>🏄 Surf</h1>
   <p id="ovText"></p>
-  <button class="go" id="reviveBtn" style="display:none">Watch a clip · get back up</button>
+  <button class="go teal" id="reviveBtn" style="display:none">Watch a clip</button>
   <button class="go" id="startBtn">Surf</button>
-  <button class="go alt" id="shopBtn">Beach shop · <span id="ovCoins">0</span><i class="pk"></i></button>
+  <button class="go alt" id="shopBtn">Beach shop <span id="ovCoins">0</span><i class="pk"></i></button>
 </div>
 <div id="shop" class="hidden">
   <div class="shopwrap">
     <h2>Beach shop <span id="shopCoins">0 puka</span></h2>
     <div id="shopTabs"><button class="tab on" data-tab="boards">Boards</button><button class="tab" data-tab="riders">Riders</button></div>
     <div id="shopList"></div>
-    <button class="go" id="shopClose">Back</button>
+    <button class="go calm" id="shopClose">Back</button>
   </div>
 </div>
 <div id="clip" class="hidden">
@@ -289,7 +315,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.43.0';
+const VERSION='1.44.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -3365,12 +3391,15 @@ function gameOver(){
   bump(stats,'earned',earned); bump(stats,'score',s); saveStats();
   jumpBtn.classList.add('hidden');ropeBtn.style.display='none';trickBar.classList.add('hidden');
   overlay.querySelector('h1').textContent='Wipeout!';
+  // one row per line, all sharing a left edge, the whole block centred on the screen
+  const tr=(k,v,hi)=>`<div class="tr${hi?' hi':''}"><span>${k}</span><b>${v}</b></div>`;
   document.getElementById('ovText').innerHTML=
-    `Astro went under...<br><br>`+
-    `Distance <b>${dist|0} m</b> &nbsp;→&nbsp; <b>${pukaFromDist(dist)}</b><i class="pk"></i><br>`+
-    `Score <b>${s}</b> &nbsp;→&nbsp; <b>${pukaFromScore(s)}</b><i class="pk"></i><br>`+
-    `<b>${earned}</b><i class="pk"></i> this run &nbsp;·&nbsp; purse <b>${coins}</b><i class="pk"></i><br><br>`+
-    `Best <b>${best}</b>`;
+    `<div class="lead">Astro went under…</div>`+
+    tr('Distance',`${dist|0} m &nbsp;→&nbsp; ${pukaFromDist(dist)}<i class="pk"></i>`)+
+    tr('Score',`${s} &nbsp;→&nbsp; ${pukaFromScore(s)}<i class="pk"></i>`)+
+    tr('This run',`${earned}<i class="pk"></i>`,true)+
+    tr('Purse',`${coins}<i class="pk"></i>`)+
+    tr('Best',best);
   shopBtn.classList.remove('hidden');
   startBtn.textContent='Surf again';
   reviveBtn.style.display=revivesLeft>0?'':'none';
@@ -3896,20 +3925,20 @@ scene.add(jetSki);
 // A hard flash off its screen, sized to be visible from a hundred units out. It is
 // what makes you look up in time — the wake it leaves is on its way long before it
 // is anywhere near you.
+// A haze of low sun sitting behind the ski, not a star. The drawn rays read as a
+// sticker pasted on the water — sunlight on a hull is a soft bloom, so this is a wide
+// falloff with no hard edge anywhere in it and no spikes at all.
 function glintTexture(){
-  const S=128,c=document.createElement('canvas');c.width=c.height=S;
+  const S=160,c=document.createElement('canvas');c.width=c.height=S;
   const x=c.getContext('2d');x.translate(S/2,S/2);
-  let g=x.createRadialGradient(0,0,0,0,0,S*0.5);
-  g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(0.14,'rgba(255,245,210,0.72)');
-  g.addColorStop(0.45,'rgba(255,220,150,0.16)');g.addColorStop(1,'rgba(255,200,120,0)');
+  const g=x.createRadialGradient(0,0,0,0,0,S*0.5);
+  g.addColorStop(0.00,'rgba(255,252,238,0.80)');
+  g.addColorStop(0.16,'rgba(255,238,196,0.46)');
+  g.addColorStop(0.36,'rgba(255,214,148,0.20)');
+  g.addColorStop(0.62,'rgba(255,196,120,0.070)');
+  g.addColorStop(0.84,'rgba(255,184,110,0.018)');
+  g.addColorStop(1.00,'rgba(255,180,105,0)');
   x.fillStyle=g;x.fillRect(-S/2,-S/2,S,S);
-  x.strokeStyle='rgba(255,255,255,0.85)';x.lineCap='round';
-  for(let i=0;i<4;i++){
-    x.save();x.rotate(i*Math.PI/4);
-    x.lineWidth=i%2?2.5:5;
-    x.beginPath();x.moveTo(-S*(i%2?0.28:0.46),0);x.lineTo(S*(i%2?0.28:0.46),0);x.stroke();
-    x.restore();
-  }
   const t=new THREE.CanvasTexture(c);
   if(THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding;
   return t;
@@ -3951,15 +3980,18 @@ function updateJetSki(dt,eff){
     for(let i=0;i<jetSki.userData.sparkles.length;i++)
       jetSki.userData.sparkles[i].material.opacity=
         0.30+0.70*Math.pow(Math.max(0,Math.sin(tNow*3.1+i*1.7)),3);
-    // the flash rides on its cowl, square to the camera, breathing so it catches the eye
+    // the glow sits behind the ski and swells slowly, so it reads as light coming off
+    // the water around it rather than a twinkle stuck to the hull
     skiGlint.visible=true;
-    skiGlint.position.set(jetSki.position.x,sy+1.5,jetSki.position.z-1.2);
+    // set behind the hull, so with depth testing on the ski occludes the middle of it
+    // and what is left is a halo around its silhouette
+    skiGlint.position.set(jetSki.position.x,sy+0.95,jetSki.position.z-1.8);
     skiGlint.quaternion.copy(camera.quaternion);
     // sized off how far away it is, so it holds the same size on screen whether the
     // ski is a hundred units out or going past — a fixed world size vanishes at range
     const gd=camera.position.distanceTo(jetSki.position);
-    skiGlint.scale.setScalar(gd*0.105*(0.82+0.30*Math.sin(tNow*5.5)+0.10*Math.sin(tNow*2.1)));
-    skiGlint.material.opacity=0.72+0.26*Math.sin(tNow*5.5);
+    skiGlint.scale.setScalar(gd*0.30*(0.94+0.10*Math.sin(tNow*1.5)+0.045*Math.sin(tNow*2.6)));
+    skiGlint.material.opacity=0.58+0.14*Math.sin(tNow*1.5);
     // rooster tail of spray behind it
     for(let i=0;i<4;i++){
       const m=takeDrop(); if(!m)break;

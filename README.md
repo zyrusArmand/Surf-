@@ -52,6 +52,16 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.44.0** — A pass over the whole interface. The menu no longer lays a flat panel
+  over the game — the sea keeps rolling behind it under a vignette with no edge anywhere —
+  and the run summary is one block in the middle of the screen whose lines all start on the
+  same left edge instead of each being centred on its own length. Every menu button is now
+  the same width, height and shape, and only its colour changes; buttons were also falling
+  back to the system font because they do not inherit one, so the shop's read differently
+  from everything else. The puka is a proper shell: a pearl-to-aqua iridescent disc with a
+  real hole and a specular highlight, rather than a flat beige coin. And the jet ski's
+  glimmer is a slow warm bloom sitting behind the hull rather than drawn rays, which read
+  as a sticker pasted on the water.
 - **v1.43.0** — The trick buttons are back, and each one wears the finger movement that
   does the same thing: a vertical arrow on ROLL, a horizontal one on FLIP, a loop on SPIN,
   a dot in a dashed ring on HOLD, two dots on HAND. A button is not a second way of doing
