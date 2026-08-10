@@ -231,7 +231,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.41.0';
+const VERSION='1.41.1';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -966,9 +966,18 @@ function buildBoardMesh(S){
   const a=S.noseA, b=S.tailA, up=a/(a+b);
   const peak=Math.pow(up,a)*Math.pow(1-up,b);
   const beta=u=>Math.pow(Math.max(0,u),a)*Math.pow(Math.max(0,1-u),b)/peak;
+  // Both ends have to close. The thickness envelope below already runs to nothing at
+  // the tips, so if the plan outline still finished at its full nose width the last
+  // ring would be a flat, zero-thickness flange the width of the nose — a lens of
+  // board sticking out past the shape. Each end is rounded off over a span equal to
+  // its own half-width, which is exactly a semicircle in plan: a wide nose finishes in
+  // a broad curve, a narrow one comes to a point, and both close on the thickness.
+  const tipR=(wid)=>Math.min(0.14,Math.max(0.004,W*wid/L*(S.tipK||1)));
+  const tN=tipR(S.noseW), tT=tipR(S.tailW);
+  const round=(d,r)=>d>=r?1:Math.sqrt(Math.max(0,1-(1-d/r)*(1-d/r)));
   const hw=u=>{
     const kn=1-_sm(0,0.16,u), kt=_sm(0.82,1,u);
-    return W*(beta(u)*(1-kn)*(1-kt) + S.noseW*kn + S.tailW*kt);
+    return W*(beta(u)*(1-kn)*(1-kt) + S.noseW*kn + S.tailW*kt)*round(u,tN)*round(1-u,tT);
   };
   // thickness runs to nothing at both tips, so the loft closes on a thin edge the
   // way a real board does, with its fullest point just ahead of centre

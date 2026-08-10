@@ -52,6 +52,13 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.41.1** — Every lofted board finishes properly. The thickness envelope already ran
+  to nothing at both tips, but the plan outline still finished at its full nose width, so
+  the last ring of every board was a flat, zero-thickness flange the width of the nose —
+  a lens of board hanging off each end. Both ends now round off over a span equal to their
+  own half-width, which is a semicircle in plan: a wide nose finishes in a broad curve, a
+  narrow one comes to a point, and either way the outline closes on the thickness instead
+  of past it. Lengths and widths are unchanged, so nothing rides differently.
 - **v1.41.0** — Seven more riders and ten more boards. The cast gains a frog with domed
   eyes standing off its skull, a sloth, a crested lizard, a T. rex with a hinged jaw and a
   spined tail that trails behind it as a counterweight, plus an otter, a masked raccoon and
