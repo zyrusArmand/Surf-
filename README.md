@@ -52,6 +52,11 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.50.0** — The menu is three buttons: Play, Beach shop and Records. Surfers were a
+  door of their own onto a room they already had a tab in, so they live inside the shop
+  where the boards do. The title keeps the place it has always sat and the buttons drop to
+  the bottom of the screen — out of the flow, so neither pushes the other around. The
+  wipeout card keeps them together under the summary.
 - **v1.49.0** — The buttons get their colours back. Glassing them meant a wash of white
   with a hint of tint in it, which in a game this bright read as a different, greyer game.
   Each one now keeps the shade it always had and is simply let down in opacity, with the

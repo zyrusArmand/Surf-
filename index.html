@@ -122,7 +122,14 @@
     box-shadow:0 12px 28px rgba(0,20,40,.28), inset 0 1px 0 rgba(255,255,255,.42),
                inset 0 -12px 22px rgba(0,18,36,.16); }
   .go.calm:active { background:linear-gradient(160deg, rgba(150,176,200,.88), rgba(44,62,84,.74)); }
-  #overlay .go { margin-top:10px; }
+  #ovBtns { display:flex; flex-direction:column; align-items:center; width:100%; }
+  #ovBtns .go { margin-top:10px; }
+  /* On the menu the title stays where it has always sat and the buttons go to the
+     bottom of the screen, out of the flow, so the two do not push each other around.
+     The wipeout card keeps them together under the summary. */
+  #overlay.main { justify-content:flex-start; padding-top:30vh; }
+  #overlay.main #ovBtns { position:absolute; left:50%; transform:translateX(-50%);
+    bottom:calc(9vh + env(safe-area-inset-bottom,0px)); }
   #overlay .hint { opacity:.85; font-size:min(3.8vw,15px); }
   #ovPurse { margin-top:6px; font-size:min(4.6vw,19px); font-weight:800; letter-spacing:.4px;
     color:#ffe9a8; text-shadow:0 2px 8px rgba(0,20,40,.7); }
@@ -300,12 +307,13 @@
   <h1 id="ovTitle">Surf</h1>
   <div id="ovPurse"><span id="ovCoins">0</span><i class="pk"></i></div>
   <p id="ovText"></p>
-  <button class="go teal" id="reviveBtn">Watch a clip</button>
-  <button class="go" id="startBtn">Play</button>
-  <button class="go alt" id="ridersBtn">Surfers</button>
-  <button class="go alt" id="shopBtn">Beach shop</button>
-  <button class="go calm" id="recordsBtn">Records</button>
-  <button class="go calm" id="menuBtn">Main menu</button>
+  <div id="ovBtns">
+    <button class="go teal" id="reviveBtn">Watch a clip</button>
+    <button class="go" id="startBtn">Play</button>
+    <button class="go alt" id="shopBtn">Beach shop</button>
+    <button class="go calm" id="recordsBtn">Records</button>
+    <button class="go calm" id="menuBtn">Main menu</button>
+  </div>
 </div>
 <div id="shop" class="hidden">
   <div class="shopwrap">
@@ -355,7 +363,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.49.0';
+const VERSION='1.50.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1685,7 +1693,7 @@ function charPreview(id){
 }
 let shopTab='boards';
 // the cast is declared with the rig, further down the file than the shop is, so this
-// cannot be built here — it is sorted the first time the Riders tab is actually opened
+// cannot be built here — it is sorted the first time the Surfers tab is actually opened
 let CHAR_ORDER=null;
 function charOrder(){ if(!CHAR_ORDER)CHAR_ORDER=CHARS.slice().sort((a,b)=>a.price-b.price); return CHAR_ORDER; }
 function shopCard(item,have,on,buy,use,thumb){
@@ -3332,17 +3340,17 @@ reviveBtn.onclick=()=>{
 // The overlay is two screens, not one: a menu you come back to, and the card you get
 // when a run ends. Both are built here so neither can drift out of step with the other.
 const ovTitle=document.getElementById('ovTitle'), ovPurse=document.getElementById('ovPurse');
-const ridersBtn=document.getElementById('ridersBtn'), recordsBtn=document.getElementById('recordsBtn');
+const recordsBtn=document.getElementById('recordsBtn');
 const menuBtn=document.getElementById('menuBtn');
 function showMenu(mode){
   const over = mode==='over';
   overlay.classList.toggle('over',over);
+  overlay.classList.toggle('main',!over);
   ovTitle.textContent = over ? 'Wipeout!' : 'Surf';
   ovPurse.style.display = over ? 'none' : '';
   document.getElementById('ovText').style.display = over ? '' : 'none';
   reviveBtn.style.display  = over&&revivesLeft>0 ? '' : 'none';
   startBtn.textContent     = over ? 'Surf again' : 'Play';
-  ridersBtn.style.display  = over ? 'none' : '';
   shopBtn.style.display    = over ? 'none' : '';
   recordsBtn.style.display = over ? 'none' : '';
   menuBtn.style.display    = over ? '' : 'none';
@@ -3362,7 +3370,6 @@ function beginRun(){
 }
 startBtn.addEventListener('click',beginRun);
 menuBtn.addEventListener('click',()=>showMenu('main'));
-ridersBtn.addEventListener('click',()=>{shopTab='riders';drawShop();shop.classList.remove('hidden');});
 recordsBtn.addEventListener('click',()=>openStats());
 showMenu('main');
 
