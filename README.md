@@ -22,7 +22,6 @@ npx http-server -p 8080 .   # then open http://localhost:8080
 | Action | Touch | Keyboard | Mouse |
 | --- | --- | --- | --- |
 | Carve left / right | swipe left / right | `A` / `D` or `←` / `→` | drag left / right |
-| Shift weight (nose / tail) | swipe up / down | `W` / `S` or `↑` / `↓` | drag up / down |
 | Jump | JUMP button | `Space` | — |
 | Spin | SPIN button | `J` (hold) | — |
 | Flip | FLIP button | `K` (hold) | — |
@@ -36,7 +35,7 @@ it is cosmetic; every board and every rider handles identically. Go under once a
 get one chance to get back up.
 
 Land your rotations square or you'll eat it. Hitting a ramp launches you, jellyfish
-bounce you, and buoys, logs and shark fins end the run. Every so often a whirlpool
+always bounce you — they can never end a run — and buoys, logs and shark fins do. Every so often a whirlpool
 opens ahead: it drags everything afloat round and down, and pulls at you too. There is
 always a ramp and a jellyfish held on its near rim — that is your way out.
 
@@ -54,6 +53,13 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.36.0** — Steering is side to side and nothing else: shifting weight fore and aft is
+  gone from the swipe, the mouse drag and the keyboard, and everything that consulted it —
+  trim, the board's pitch, how deep the rail digs, where the rider stands — now reads as
+  neutral. Pearling went with it, since without a way to put your weight over the nose
+  there is nothing left to bury it with. Jellyfish never end a run any more: hit one from
+  above and it throws you as it always did, clip one on the water and it shoves you off
+  instead of stinging.
 - **v1.35.0** — The sea appeared to run backwards at speed. Every foam layer was drifting
   with the full water motion, and the finest one is nearly four cycles a unit — past about
   40 mph it was stepping more than a whole cycle between frames, which is exactly what

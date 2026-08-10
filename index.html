@@ -216,7 +216,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.35.0';
+const VERSION='1.36.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2123,7 +2123,7 @@ let steer=0;
 // swipe steering: swipe the way you want him to go — the swipe keeps steering, and
 // the anchor drifts back so you can keep swiping in the same direction.
 let touchId=null,touchX0=0,touchY0=0;
-let weight=0;   // -1 = leaning back over the tail, +1 = leaning forward over the nose
+let weight=0;   // vestigial: the ride is side to side only now
 function dropSteerTouch(){touchId=null;steer=0;weight=0;}
 addEventListener('touchstart',e=>{
   // If the steering finger disappeared without a touchend — iOS cancels touches for
@@ -2146,16 +2146,7 @@ addEventListener('touchmove',e=>{
       let v=(t.clientX-touchX0)/range;
       if(v>1){touchX0=t.clientX-range;v=1;}       // let the swipe keep going
       if(v<-1){touchX0=t.clientX+range;v=-1;}
-      steer=v;
-      // Up/down shifts weight, but only once you move deliberately: a dead zone
-      // keeps the wobble in a sideways carve from nudging the nose or tail.
-      const vr=innerHeight*0.17, dead=innerHeight*0.05;
-      const dy=t.clientY-touchY0;
-      let w=0;
-      if(Math.abs(dy)>dead)w=(dy-Math.sign(dy)*dead)/vr;
-      if(w>1){touchY0=t.clientY-vr-dead;w=1;}
-      if(w<-1){touchY0=t.clientY+vr+dead;w=-1;}
-      weight=w;
+      steer=v;    // side to side and nothing else: up and down do not steer him
     }
   }
 },{passive:true});
@@ -2180,13 +2171,6 @@ addEventListener('mousemove',e=>{
   if(v>1){mouseX0=e.clientX-range;v=1;}
   if(v<-1){mouseX0=e.clientX+range;v=-1;}
   steer=v;
-  const vr=innerHeight*0.17, dead=innerHeight*0.05;
-  const dy=e.clientY-mouseY0;
-  let w=0;
-  if(Math.abs(dy)>dead)w=(dy-Math.sign(dy)*dead)/vr;
-  if(w>1){mouseY0=e.clientY-vr-dead;w=1;}
-  if(w<-1){mouseY0=e.clientY+vr+dead;w=-1;}
-  weight=w;
 });
 function endMouseDrag(){ if(mouseDrag){mouseDrag=false;steer=0;weight=0;} }
 addEventListener('mouseleave',endMouseDrag);
@@ -3707,8 +3691,10 @@ function update(dt){
   speed=Math.min(100,16.2+dist/210);
 
   // momentum carving
-  let wt=weight+(keys.KeyW||keys.ArrowUp?-1:0)+(keys.KeyS||keys.ArrowDown?1:0);
-  wt=Math.max(-1,Math.min(1,wt));
+  // Fore and aft is gone. leanW is kept at rest so everything that consulted it —
+  // trim, the board's pitch, how deep the rail digs, where he stands — simply reads
+  // as neutral, and the ride is steered left and right alone.
+  const wt=0;
   let sx=steer+(keys.KeyA||keys.ArrowLeft?-1:0)+(keys.KeyD||keys.ArrowRight?1:0);
   sx=Math.max(-1,Math.min(1,sx));
   vx+=sx*55*dt;
@@ -3851,11 +3837,8 @@ function update(dt){
   trickBar.classList.toggle('hidden',!(trickReady||(!airborne&&!hanging)));
   jumpBtn.style.opacity=trickReady?'0.25':'1';
 
-  // bury the nose too long and you pearl
-  if(!airborne&&!hanging&&leanW>0.80){pearlT+=dt;} else {pearlT=Math.max(0,pearlT-dt*1.6);}
-  if(pearlT>1.55){
-    startWipeout('pearl');return;
-  }
+  // Pearling went with the fore-and-aft weight it depended on: without a way to put
+  // your weight over the nose there is nothing left to bury it with.
 
   // cutback + carve spray
   if(!airborne&&!hanging){
@@ -4095,16 +4078,17 @@ function update(dt){
     if(contact){
       if(o.userData.ramp){
         /* handled as a surface above, not as something to hit */
-      } else if(o.userData.kind==='jelly' && airborne && py>o.position.y+0.10){
-        // in the air and above the bell — bounce, whether rising or falling.
-        // Only a rider still on the water gets stung.
-        vy=Math.max(12.5,-vy*0.85+9.0);
+      } else if(o.userData.kind==='jelly'){
+        // A jellyfish never ends a run. Hit it however you like and the bell throws
+        // you off it — hard from above, more of a shove if you clip it on the water.
+        const over=airborne&&py>o.position.y+0.10;
+        vy=over?Math.max(12.5,-vy*0.85+9.0):Math.max(9.0,vy+8.0);
         airborne=true;
-        py=o.position.y+0.9;
+        py=Math.max(py,o.position.y+0.9);
         score+=60;boost=Math.min(16,boost+3);
         msg('JELLY BOUNCE! +60');
-        shake=0.7;
-        splash(o.position.x,o.position.y+0.5,o.position.z,14);
+        shake=over?0.7:1.0;
+        splash(o.position.x,o.position.y+0.5,o.position.z,over?14:20);
         if(o.userData.bell)o.userData.squash=1.0;      // the bell flattens under you
       } else if(py<waterY+o.userData.h&&!hanging){
         // it takes the impact too: shoved aside, lifted and set spinning
