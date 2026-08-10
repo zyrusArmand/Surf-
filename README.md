@@ -52,6 +52,15 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.48.0** — The menu is open water and nothing else; the surfer is put on it when you
+  press Play. Riders are surfers everywhere they are named. And there is an ant: Pili,
+  glossy red, a narrow thorax with a heavy gaster slung behind it on a two-node waist,
+  stick legs and jointed antennae that flick with the ride. Every character before her
+  shared one body and that body is a fat pug, so the shared limbs and torso are now
+  rescaled per character rather than fixed at the pug's proportions.
+  The tail also throws a constant wash now, carving or not. A board going straight still
+  shoves a wall of water out behind it — that is most of what you see in a real wake shot —
+  and without it the sea read as glass under a board floating on top of it.
 - **v1.47.0** — A main menu with departments — Play, Surfers, Beach shop, Records — and a
   way back to it from the wipeout card, which now also drops the purse line and the arrows.
   What each figure paid out is set beside it in gold rather than pointed at.
