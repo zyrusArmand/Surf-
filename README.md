@@ -52,6 +52,11 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.49.0** — The buttons get their colours back. Glassing them meant a wash of white
+  with a hint of tint in it, which in a game this bright read as a different, greyer game.
+  Each one now keeps the shade it always had and is simply let down in opacity, with the
+  blur behind doing the work — so the water moves through an orange button that is still
+  orange.
 - **v1.48.0** — The menu is open water and nothing else; the surfer is put on it when you
   press Play. Riders are surfers everywhere they are named. And there is an ant: Pili,
   glossy red, a narrow thorax with a heavy gaster slung behind it on a two-node waist,
