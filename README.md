@@ -53,6 +53,15 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.33.0** — Faster off the line and busier early: 10 mph is now the floor and it can
+  never drop below it, 70 the ceiling, obstacles start 24 units apart rather than 30, and
+  the whole cast is in play by 780 m instead of 1,500 — octopuses from 780, sharks from
+  560, jellyfish from 340. The ramp is a curved kicker now rather than a wedge, and the
+  jump comes out of its shape: the board runs up the surface you can see and the vertical
+  speed it gains is simply how fast that surface is rising underneath it, so a fast
+  approach launches harder, the lip angle sets the arc, and there is no scripted jump
+  anywhere in it. Traced from a real run: nothing on the water, then 2.4, 3.8, 5.4, 6.9,
+  8.5 up the face, and away off the lip carrying it.
 - **v1.32.0** — Ten more boards, fifteen in the rack. Not only surfboards: a symmetrical
   twin-tip wakeboard, a finless skimboard, a finless koa alaia, a soft-top foamie, a tow
   board, plus a performance shortboard, a mid-length egg, a mini-mal, an electric twin and

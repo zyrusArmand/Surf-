@@ -200,7 +200,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.32.0';
+const VERSION='1.33.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1718,31 +1718,69 @@ function buildObstacle(kind){
     m.add(fin);
     r=1.70;h=4.2;                      // as tall as the blade really is, so you cannot clip it
   } else {
-    // clean solid wooden wedge — low edge toward the rider
+    // A modern kicker: a curved transition, not a wedge. The same curve is used by the
+    // physics, so the board runs up the shape you can see and leaves on the angle the
+    // lip actually has rather than being handed a fixed jump.
     m=new THREE.Group();
-    const wedge=new THREE.BufferGeometry();
-    const W2=1.6,L=2.4,Hh=1.85;
-    const v=new Float32Array([
-      -W2,0,L,  W2,0,L,  W2,0,-L,  -W2,0,-L,        // bottom
-      -W2,Hh,-L, W2,Hh,-L,                            // top back edge
-    ]);
-    wedge.setAttribute('position',new THREE.BufferAttribute(v,3));
-    wedge.setIndex([0,1,2, 0,2,3, 0,1,5, 0,5,4, 3,2,5, 3,5,4, 1,2,5, 0,4,3]);
-    wedge.computeVertexNormals();
-    const body=new THREE.Mesh(wedge,PBR({color:0xd98c33,roughness:0.58,vivid:1.5}));
-    m.add(body);
-    // plank seams on the ramp face
-    for(let i=1;i<6;i++){
-      const t=i/6;
-      const plank=new THREE.Mesh(new THREE.BoxGeometry(W2*2-0.1,0.04,0.06),PBR({color:0x74401c,roughness:0.64,vivid:1.5}));
-      plank.position.set(0,Hh*t,L-2*L*t+0.02);
-      plank.rotation.x=Math.atan2(Hh,2*L);
-      m.add(plank);
+    const RW=1.62, RL=2.55, RH=2.15, RP=1.85;
+    const surfY=t=>RH*Math.pow(Math.max(0,Math.min(1,t)),RP);
+    const NU=30, NV=16;
+    const pos=[],col=[],idx=[];
+    // the deck goes teal rather than grey: at the angle you approach it the sheen is
+    // nearly all reflection, and a neutral deck just reads as white
+    const cDeck=vivid(0x11333d,1.2), cRail=vivid(0xf5f8fb,1.0),
+          cLip=vivid(0x19d7c8,1.5), cSkirt=vivid(0x0b1a20,1.0), cGrip=vivid(0x1b4a55,1.2);
+    const push=(x,y,z,c)=>{pos.push(x,y,z);col.push(c.r,c.g,c.b);};
+    // deck: crowned across, drawn in slightly toward the lip, rails rolled over
+    for(let i=0;i<=NU;i++){
+      const t=i/NU, y0=surfY(t), z=RL-2*RL*t, w=RW*(1-0.09*t);
+      for(let j=0;j<=NV;j++){
+        const v=-1+2*j/NV, av=Math.abs(v);
+        const roll=Math.pow(av,4)*0.16;                    // the rail turns down at the edge
+        const c=av>0.86?cRail:(t>0.90?cLip:(t>0.30&&av<0.62?cGrip:cDeck));
+        push(v*w, y0+0.05*(1-av*av)-roll, z, c);
+      }
     }
-    const lip=new THREE.Mesh(new THREE.BoxGeometry(W2*2+0.1,0.14,0.2),mat(0xff8c2e,50));
-    lip.position.set(0,Hh,-L);
+    for(let i=0;i<NU;i++)for(let j=0;j<NV;j++){
+      // wound so the deck faces the sky — the other way round its normals point into
+      // the water and the whole surface lights from underneath
+      const A=i*(NV+1)+j,B=A+1,C=A+NV+1,D=C+1;
+      idx.push(A,B,C, B,D,C);
+    }
+    // side skirts down to the water, and the face under the lip
+    for(const sgn of [-1,1]){
+      const base=pos.length/3;
+      for(let i=0;i<=NU;i++){
+        const t=i/NU, y0=surfY(t), z=RL-2*RL*t, w=RW*(1-0.09*t);
+        push(sgn*w, y0-0.16, z, cRail);
+        push(sgn*w*0.94, -0.30, z, cSkirt);
+      }
+      for(let i=0;i<NU;i++){
+        const A=base+i*2, B=A+1, C=A+2, D=A+3;
+        if(sgn>0)idx.push(A,C,B, B,C,D); else idx.push(A,B,C, B,D,C);
+      }
+    }
+    {
+      const base=pos.length/3, w=RW*0.91;
+      push(-w,RH-0.16,-RL,cLip); push(w,RH-0.16,-RL,cLip);
+      push(-w,-0.30,-RL,cSkirt); push(w,-0.30,-RL,cSkirt);
+      idx.push(base,base+2,base+1, base+1,base+2,base+3);
+    }
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+    g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+    g.setIndex(idx); g.computeVertexNormals();
+    const body=new THREE.Mesh(g,new THREE.MeshStandardMaterial({vertexColors:true,color:0xffffff,
+      roughness:0.42,metalness:0.05,side:THREE.DoubleSide}));
+    body.material.envMapIntensity=0.5;
+    m.add(body);
+    // a lit bar along the lip so you can read where it ends from a long way out
+    const lip=new THREE.Mesh(new THREE.BoxGeometry(RW*1.86,0.10,0.16),
+      new THREE.MeshBasicMaterial({color:vivid(0x2fffe8,1.5)}));
+    lip.position.set(0,RH+0.05,-RL+0.06);
     m.add(lip);
-    ramp=true;r=1.8;h=99;
+    m.userData.rampL=RL;m.userData.rampH=RH;m.userData.rampW=RW;m.userData.rampP=RP;
+    ramp=true;r=2.4;h=99;
   }
   m.userData={...m.userData,kind,r,h,ramp,used:false};
   return m;
@@ -1810,6 +1848,8 @@ let spinHeld=false,flipHeld=false,spinRot=0,flipRot=0;
 // air off the jet ski's wake is its own thing: launched softer but falling slower, so
 // there is time up there to actually throw something
 let wakeAir=false;
+// riding a kicker: he follows its surface and leaves on whatever angle the lip has
+let onRampO=null, rampPitchT=0;
 // the height the hull is riding at this frame. update() owns it, but the jet ski's
 // wake needs it too, and a const inside update() is not visible from there — reading
 // it from the wrong scope is what stopped the wake launch firing at all.
@@ -2021,7 +2061,8 @@ function reset(){
     player.remove(pug); rig.add(pug);
     pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}}); rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null;
-  handOn=false;handT=0;handPts=0;handRisk=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false; }
+  handOn=false;handT=0;handPts=0;handRisk=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;
+  onRampO=null;rampPitchT=0; }
   player.rotation.set(0,0,0);
   for(const o of obstacles)scene.remove(o);obstacles.length=0;
   dist=0;speed=13.5;score=0;px=0;py=0;pz=0;vy=0;vx=0;cutCd=0;airborne=false;trick=null;
@@ -2037,7 +2078,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   planeT=34+Math.random()*26;planeActive=false;plane.visible=false;hanging=false;rope.visible=false;
   ropeBtn.style.display='none';ropeBtn.textContent='ROPE!';
   player.rotation.set(0,0,0);
-  spawnT=3.2;lastKind='';sameRun=0;bigFinCd=6;laneSlot=(Math.random()*5)|0;   // open water first
+  spawnT=2.0;lastKind='';sameRun=0;bigFinCd=6;laneSlot=(Math.random()*5)|0;   // a little open water first
   revivesLeft=1;
 }
 // One second chance a run. He is put back on the board where he went in, with the
@@ -2837,7 +2878,7 @@ function spawnJetSki(){
 function updateJetSki(dt,eff){
   if(!skiOn){
     skiT-=dt;
-    if(skiT<=0&&dist>620){skiT=40+Math.random()*24;spawnJetSki();}
+    if(skiT<=0&&dist>480){skiT=40+Math.random()*24;spawnJetSki();}
   } else {
     // rips across the field
     jetSki.position.x+=skiDir*15*dt;      // slower, so it is on screen long enough to see
@@ -3012,7 +3053,7 @@ function spawnWhirl(){
 function updateWhirl(dt,eff){
   if(!whirl){
     whirlT-=dt;
-    if(whirlT<=0&&dist>900){whirlT=45+Math.random()*30;spawnWhirl();}
+    if(whirlT<=0&&dist>700){whirlT=45+Math.random()*30;spawnWhirl();}
     if(whA>0){whA=Math.max(0,whA-dt*5);whirlArt.scale.y=Math.max(0.001,whA);}
     if(whA<=0)whirlArt.visible=false;
     return;
@@ -3421,11 +3462,10 @@ function updateHandstand(dt,carve){
 // ---------- update ----------
 function update(dt){
   tNow+=dt;
-  // Paddling pace to start — the HUD reads mph as eff*0.62, so 8.2 is 5 — and it
-  // climbs the whole way out rather than being most of the way there by the first
-  // kilometre. The ceiling is where 60 mph lives, once leaning and trick boost are on
-  // top of it.
-  speed=Math.min(84,8.2+dist/210);
+  // The HUD reads mph as eff*0.62, so 16.2 is 10 and 113 is 70. It never drops below
+  // the first and never passes the second, and climbs the whole way between rather
+  // than being most of the way there inside the first kilometre.
+  speed=Math.min(100,16.2+dist/210);
 
   // momentum carving
   let wt=weight+(keys.KeyW||keys.ArrowUp?-1:0)+(keys.KeyS||keys.ArrowDown?1:0);
@@ -3456,7 +3496,7 @@ function update(dt){
   // leaning is a real throttle now: forward drives hard, back scrubs hard
   const trim=(leanW>=0 ? leanW*16.0 : leanW*19.0) + faceDrive;
   boost=Math.max(0,boost-dt*3.0);            // speed carried out of a trick, bleeding off
-  const eff=Math.max(8,Math.min(97,speed+Math.abs(vx)*0.3+trim+boost));   // 97 reads as 60 mph
+  const eff=Math.max(16.2,Math.min(113,speed+Math.abs(vx)*0.3+trim+boost));   // 10 mph floor, 70 ceiling
   lastEff=eff;
   dist+=eff*dt;
   score+=eff*dt*0.6;
@@ -3531,6 +3571,43 @@ function update(dt){
     if(py<waterY-1.20){py=waterY-1.20;vy=Math.max(vy,0);}     // it never goes right under
     if(vy<-5.5&&Math.random()<dt*26)splash(px+(Math.random()-0.5)*0.8,py+0.15,-0.6,2);
   }
+  // Run up the kicker rather than being teleported off it. His height is taken from
+  // the ramp's own curve, and the speed that gives him vertically is simply how fast
+  // that surface is rising underneath him — so a fast approach launches him harder,
+  // the lip angle decides the arc, and there is no scripted jump anywhere in it.
+  let ramped=null;
+  if(!hanging&&!wipe){
+    for(const o of obstacles){
+      if(!o.userData.ramp)continue;
+      const local=pz-o.position.z, RL=o.userData.rampL;
+      const t=(RL-local)/(2*RL);
+      if(t<0||t>1)continue;
+      if(Math.abs(px-o.position.x)>o.userData.rampW+BOARD_HALF_W*0.6)continue;
+      const sy=o.position.y+o.userData.rampH*Math.pow(t,o.userData.rampP);
+      if(py>sy+1.4)continue;                       // clearing it in the air
+      ramped={o,t,sy};
+    }
+  }
+  if(ramped){
+    const prev=py;
+    // it can only ever lift him. The foot of a kicker floats a little under the
+    // waterline, and taking his height from it outright dropped him into it as he
+    // arrived — a step down before the climb.
+    py=Math.max(py,ramped.sy);
+    const lifted=ramped.sy>prev-0.05;
+    vy=Math.min(30,Math.max(vy,(py-prev)/Math.max(1e-3,dt)));
+    airborne=false;wakeAir=false;
+    const P=ramped.o.userData.rampP, H=ramped.o.userData.rampH, RL=ramped.o.userData.rampL;
+    rampPitchT=lifted?Math.atan(H*P*Math.pow(Math.max(1e-3,ramped.t),P-1)/(2*RL)):0;
+    if(!ramped.o.userData.used&&ramped.t>0.72){
+      ramped.o.userData.used=true;
+      score+=50;boost=Math.min(16,boost+4);msg('RAMP! +50');
+      splash(px,py-0.2,pz+1.2,10,0x9ff3ea);
+    }
+    onRampO=ramped.o;
+  } else if(onRampO){
+    onRampO=null;airborne=true;                    // off the lip with what it gave him
+  } else rampPitchT=0;
   trickReady=(airborne&&py>waterY+0.8)||hanging;   // you can trick while being towed
   trickBar.classList.toggle('hidden',!(trickReady||(!airborne&&!hanging)));
   jumpBtn.style.opacity=trickReady?'0.25':'1';
@@ -3625,7 +3702,8 @@ function update(dt){
   pz+=(pzT-pz)*Math.min(1,dt*2.2);
   player.position.set(px,py,pz);
   // it lies along the water it is resting on, plus whatever the rider's weight adds
-  const pitchT=airborne?-0.22:Math.max(-0.62,Math.min(0.68,hullPitch*1.50)) + leanW*0.62;
+  const pitchT=onRampO?rampPitchT
+              :(airborne?-0.22:Math.max(-0.62,Math.min(0.68,hullPitch*1.50)) + leanW*0.62);
   boardYaw+=(yawT-boardYaw)*Math.min(1,dt*7);
   boardLean+=(leanT-boardLean)*Math.min(1,dt*8.5);
   boardPitch+=(pitchT-boardPitch)*Math.min(1,dt*13);
@@ -3653,15 +3731,15 @@ function update(dt){
     // metres it only ever opens or closes the way it is meant to: thirty units apart
     // to start, closing to sixteen over about three kilometres, after which the speed
     // alone keeps taking the reaction time away.
-    const wantGap=Math.max(16,30-dist/230);
+    const wantGap=Math.max(15,24-dist/300);
     // ...with a floor on the clock as well, so that once the speed is silly it stays
     // merely hard rather than becoming a wall nothing could be threaded
-    spawnT=Math.max(0.42,wantGap/Math.max(8,eff))*(0.75+Math.random()*0.5);
+    spawnT=Math.max(0.40,wantGap/Math.max(16,eff))*(0.75+Math.random()*0.5);
     // ...and the cast arrives a piece at a time. Buoys and logs are the whole game to
     // begin with; ramps, then jellyfish, then sharks, then the octopuses that throw
     // things at you, each one introduced with room to get used to it.
-    const WEIGHTS=[['buoy',24,0],['log',18,0],['ramp',17,220],['jelly',21,520],
-                   ['bigfin',11,950],['octopus',14,1500]].filter(w=>dist>=w[2]);
+    const WEIGHTS=[['buoy',24,0],['log',18,0],['ramp',17,150],['jelly',21,340],
+                   ['bigfin',11,560],['octopus',14,780]].filter(w=>dist>=w[2]);
     let pick=null;
     for(let tries=0;tries<8;tries++){
       let total=0;for(const w of WEIGHTS)total+=w[1];
@@ -3683,7 +3761,7 @@ function update(dt){
     makeObstacle(pick,Math.max(-17,Math.min(17,px*0.55+laneX)),-170);
     // and every so often drop an extra one right against an edge
     // the second one out by the edge only starts once you are well into a run
-    if(dist>800&&Math.random()<0.30){
+    if(dist>600&&Math.random()<0.30){
       const edge=(Math.random()<0.5?-1:1)*(11.5+Math.random()*4.5);
       makeObstacle(Math.random()<0.5?'buoy':'log',edge,-176);
     }
@@ -3777,11 +3855,7 @@ function update(dt){
     }
     if(contact){
       if(o.userData.ramp){
-        // launch if you're anywhere near deck height, even mid-swell or slightly airborne
-        if(!o.userData.used && py < o.position.y+3.0 && vy<=1.5){
-          o.userData.used=true;vy=18.5;airborne=true;py=Math.max(py,o.position.y+0.6);score+=50;boost=Math.min(16,boost+4);msg('RAMP! +50');
-          splash(px,waterY,0,8,0xffc23e);
-        }
+        /* handled as a surface above, not as something to hit */
       } else if(o.userData.kind==='jelly' && airborne && py>o.position.y+0.10){
         // in the air and above the bell — bounce, whether rising or falling.
         // Only a rider still on the water gets stung.
