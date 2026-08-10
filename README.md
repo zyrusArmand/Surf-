@@ -52,6 +52,15 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.61.0** — A half turn is a landing. Yaw only has to finish on a multiple of 180 now,
+  not 360 — the board is just as square under him either way, he is simply facing the other
+  way afterwards — and the window is wider than the trick's own timing window, which is the
+  leniency. Land one and he rides switch: turned round to face you, waving, craning back
+  over his shoulder to see where he is going, and he stays there until another 180 puts him
+  back. Flip and roll still have to come all the way round; you cannot land upside down.
+  The shell gets real relief too. Each rib is shaded across as well as along it, so it reads
+  as a tube rather than a stripe, with dome shading turning the far side away and a cast
+  shadow under the hinge.
 - **v1.60.0** — The puka is a proper piece of nacre. Eleven ribs, each its own facet with
   its own gradient — near black where it meets the hinge, full colour at three quarters,
   blown to white at the rim — which is what makes a shell look lit from inside rather than
