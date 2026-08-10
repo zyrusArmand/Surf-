@@ -52,6 +52,10 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.58.0** — A brighter palette. Play is a hot tangerine rather than a burnt one, the
+  shop went from navy blue to teal, Stats is yellow with dark type on it because white on
+  yellow cannot be read, and Watch a clip moved to spring green so it is not a second teal.
+  The round buttons follow: ROLL teal, FLIP orange, SPIN yellow, HAND violet, JUMP gold.
 - **v1.57.0** — The ant's antennae no longer cross. A positive turn about Z tips the local
   up-axis toward negative X, so each one was leaning across to the far side of the head;
   they splay outward now.
