@@ -52,6 +52,14 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.64.0** — Soft-bodied, the way Party Animals and Fall Guys are. A limb that halves
+  in width from hip to ankle reads as a carrot, so the taper is nearly gone: thigh 0.150 to
+  0.140, shin 0.140 to 0.130, and both are a third shorter than they were. Hands are one
+  mitten and feet are one stub — the moment a foot has separate toes it looks mechanical.
+  The hips drop with the legs, or he floats above his own board.
+  The per-character numbers were retuned against the new shapes rather than carried over:
+  the old ones were set against thin limbs and gave either wires or clown feet. Nothing is
+  thinner than 0.66 now, and that is an ant.
 - **v1.63.0** — Arms and legs rebuilt, and every animal built to its own proportions.
   Each segment is a tapered tube capped by spheres of exactly the radius the tube has
   where they sit, so two segments meet without a seam — the old caps were a shade smaller
