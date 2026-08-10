@@ -52,6 +52,19 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.63.0** — Arms and legs rebuilt, and every animal built to its own proportions.
+  Each segment is a tapered tube capped by spheres of exactly the radius the tube has
+  where they sit, so two segments meet without a seam — the old caps were a shade smaller
+  than the tubes, which left the tube's cut edge showing as a ring at every joint and is
+  what made them read as pipes threaded with beads. Feet have a heel and a toe now instead
+  of a ball on a stick.
+  The skeleton is still one skeleton and still drives every movement; what changes per
+  character is how thick a limb is, how big a foot is and how long an arm is. A cat is slim
+  with long limbs, a corgi is low and long, a bunny and a frog stand on enormous feet, a
+  sloth's arms reach a third further than anyone's, a penguin's barely reach at all, and a
+  T. rex's are less than half length — which is the entire joke of a T. rex. Shoulders now
+  follow the body's width automatically, because a narrow animal wearing the pug's shoulder
+  sockets has its arms hanging in the air beside it.
 - **v1.62.0** — Twelve boards with real graphics on them, in four sets of three. Designer:
   a gold monogram lattice, a houndstooth check, a gold-stitched quilt. Street: a weathered
   boxcar stencil, a two-colour throw-up with drips, and a five-can wildstyle. Livery: a
