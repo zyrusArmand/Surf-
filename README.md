@@ -50,6 +50,15 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.26.0** — The board banked the wrong way. Carving right tipped its right rail up,
+  leaning out of the turn rather than into it the way a board — or a bike — actually
+  does; the direction you travelled was right all along, only the roll was inverted.
+  The rider's counter-lean flips with it, so he stays stacked over the rail he is on.
+  The wake launch no longer snaps: it fired once the crest had already passed, by which
+  point the wave was falling away and the rider was dropping, so setting an upward speed
+  reversed him mid-fall and read as two separate events. It now goes off the face while
+  the water is still lifting him, and the kick is added to the speed he already carries
+  rather than replacing it.
 - **v1.25.0** — Three fixes from playtesting. The board floats: v1.23 gave it weight but
   sank it too far, so water washed over the deck on a straight line. It now rides about a
   third of a unit higher and only a genuine turn drives the inside rail under — there is a
