@@ -31,8 +31,9 @@ npx http-server -p 8080 .   # then open http://localhost:8080
 | Grab the seaplane's rope | ROPE! button | — | click ROPE! |
 
 Runs pay **puka shells** — distance pays the steady part, score pays for how you rode
-it — and the board rack on the menu spends them. Every board is cosmetic; they all ride
-the same. Go under once and you get one chance to get back up.
+it — and the beach shop on the menu spends them on boards and on who rides them. All of
+it is cosmetic; every board and every rider handles identically. Go under once and you
+get one chance to get back up.
 
 Land your rotations square or you'll eat it. Hitting a ramp launches you, jellyfish
 bounce you, and buoys, logs and shark fins end the run. Every so often a whirlpool
@@ -53,6 +54,14 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.34.0** — Six riders, not just the pug: a grey cat with whiskers and a long tail, a
+  pink pig with a snout and a curl, a corgi with enormous ears, a lop-eared bunny, and a
+  panda. They share one skeleton — everything that moves belongs to the rig, and a
+  character is only its colours and the pieces hanging off the head and tail joint — so
+  every animal rides exactly as well as the pug and none of the animation is written
+  twice. The shop is now two tabs, boards and riders, and every item is shown: each one is
+  photographed once through the renderer that is already running, alone in a small scene
+  and read back off an off-screen target, so the thumbnails are lit the way the game is.
 - **v1.33.0** — Faster off the line and busier early: 10 mph is now the floor and it can
   never drop below it, 70 the ceiling, obstacles start 24 units apart rather than 30, and
   the whole cast is in play by 780 m instead of 1,500 — octopuses from 780, sharks from
