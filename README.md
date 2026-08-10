@@ -52,6 +52,19 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.47.0** — A main menu with departments — Play, Surfers, Beach shop, Records — and a
+  way back to it from the wipeout card, which now also drops the purse line and the arrows.
+  What each figure paid out is set beside it in gold rather than pointed at.
+  Buttons are properly glass: the fill is a wash of white with the colour carried in a low
+  tint, an edge and a soft glow, so the sea genuinely reads through them.
+  The contact disc under the board is gone — open water has nothing for a shadow to fall on
+  and it only ever read as a sticker tracking him about.
+  The jet ski's swell now stands up a little from the instant he goes past instead of
+  appearing out of flat water some way behind him; the build to the same wave is unchanged.
+  And the whirlpool is nearly twice as wide. At its old size it sat inside the water you
+  were already using and could be steered round without ever committing to it, which made
+  it scenery: it now spans the whole lane, and the ramp and the jelly on its rim are the
+  way out.
 - **v1.46.0** — Both launches rebuilt, and the rider now looks like he means it.
   A kicker's exit speed comes from the ramp's own curve rather than from how far he
   happened to move between two frames — that measurement was frame-rate noise as much as
