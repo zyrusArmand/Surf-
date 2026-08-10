@@ -34,7 +34,9 @@ Runs pay coins — from how far you get and how well you score getting there —
 board rack on the menu spends them. Every board is cosmetic; they all ride the same.
 
 Land your rotations square or you'll eat it. Hitting a ramp launches you, jellyfish
-bounce you, and buoys, logs and shark fins end the run.
+bounce you, and buoys, logs and shark fins end the run. Every so often a whirlpool
+opens ahead: it drags everything afloat round and down, and pulls at you too. There is
+always a ramp and a jellyfish held on its near rim — that is your way out.
 
 ## Files
 
@@ -50,6 +52,18 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.27.0** — A whirlpool. It opens ahead of you, dished into the ocean's own height
+  field so the water genuinely falls into it, with foam laid on the surface every frame
+  and a swirl that turns. Everything afloat inside it is carried round and drawn in,
+  turning to face the way it is being taken instead of sliding round sideways, and goes
+  over the edge if it reaches the middle; you get pulled off your line too, and the
+  centre ends the run. A ramp and a jellyfish are dropped on the near rim as it forms
+  and held there rather than swallowed, so there is always a way out if you take it
+  early enough. The octopus is calmer: arm motion is roughly a third of the speed, the
+  sweep stops short of its own mantle instead of folding arms over its head, some arms
+  curl under and some away, and the banded suckers are gone — the underside just runs a
+  shade darker. Starfish come about a third less often, and the seaplane now takes 40 to
+  78 seconds rather than 18 to 28.
 - **v1.26.0** — The board banked the wrong way. Carving right tipped its right rail up,
   leaning out of the turn rather than into it the way a board — or a bike — actually
   does; the direction you travelled was right all along, only the roll was inverted.
