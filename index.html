@@ -110,30 +110,42 @@
   #shop h2 { font-size:min(6.5vw,26px); color:#ffdf2e; text-shadow:2px 2px 0 #b8641c; margin-bottom:12px;
     display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
   #shop h2 span { color:#ffe9a8; font-size:min(4.6vw,19px); text-shadow:none; }
-  #shopList { overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  #shopList { overflow-y:auto; -webkit-overflow-scrolling:touch; padding:2px 2px 4px;
+    display:grid; gap:10px; grid-template-columns:repeat(auto-fill,minmax(148px,1fr));
+    /* let every row take the height its tile needs — stretched rows squash the
+       preview and clip the name and the button straight off the bottom */
+    align-content:start; grid-auto-rows:max-content; }
   #shopTabs { display:flex; gap:8px; margin-bottom:11px; }
   #shopTabs .tab { flex:1 1 0; padding:10px 0; font-size:15px; font-weight:800; letter-spacing:.6px;
     color:#cfe2f0; background:rgba(255,255,255,.07); border:1.5px solid rgba(255,255,255,.14);
     border-radius:13px; cursor:pointer; transition:background .12s, color .12s, border-color .12s; }
   #shopTabs .tab.on { color:#08222f; border-color:#7fe6dc;
     background:linear-gradient(165deg,#8ff0e4,#3fc7b8); }
-  .card .thumb { width:96px; height:72px; flex:none; border-radius:10px;
-    background:radial-gradient(circle at 50% 42%, rgba(255,255,255,.16), rgba(255,255,255,.03));
-    object-fit:contain; }
-  .card { display:flex; align-items:center; gap:11px; text-align:left; padding:10px 12px; margin-bottom:9px;
-    background:rgba(255,255,255,.09); border:2px solid rgba(255,255,255,.16); border-radius:14px; }
-  .card.on { border-color:#ffdf2e; background:rgba(255,223,46,.14); }
-  .card .nm { font-weight:bold; font-size:17px; }
-  .card .bl { font-size:13px; opacity:.82; line-height:1.4; margin-top:2px; }
-  .card .act { margin-left:auto; flex:none; }
-  .card button { padding:10px 16px; font-size:14px; font-weight:800; color:#fff;
-    background:linear-gradient(165deg,#ffa84e,#f2701a); border:none; border-radius:22px;
-    box-shadow:0 6px 16px rgba(120,55,0,.34), inset 0 1px 0 rgba(255,255,255,.45); cursor:pointer;
-    transition:transform .08s ease; }
-  .card button:active { transform:translateY(2px) scale(.98); }
-  .card button:disabled { background:linear-gradient(165deg,#63798d,#44586a);
-    box-shadow:none; cursor:default; opacity:.7; transform:none; }
-  .card .tag { font-size:13px; font-weight:bold; color:#ffdf2e; }
+  .card { display:flex; flex-direction:column; text-align:left; overflow:hidden;
+    border-radius:16px; border:1.5px solid rgba(255,255,255,.13);
+    background:linear-gradient(180deg, rgba(255,255,255,.11), rgba(255,255,255,.035));
+    box-shadow:0 8px 20px rgba(0,18,34,.28); }
+  .card.on { border-color:#ffdf2e;
+    box-shadow:0 0 0 1px rgba(255,223,46,.45), 0 10px 24px rgba(90,70,0,.34); }
+  .card .thumb { width:100%; aspect-ratio:4/3; object-fit:contain; display:block;
+    background:radial-gradient(circle at 50% 36%, rgba(126,200,236,.22), rgba(6,24,42,.34)); }
+  .card .info { padding:9px 11px 11px; display:flex; flex-direction:column; gap:5px; flex:1; }
+  .card .nm { font-weight:800; font-size:15px; letter-spacing:.2px; }
+  .card .bl { font-size:11.5px; opacity:.76; line-height:1.34; flex:1; }
+  .card .act { margin-top:7px; }
+  .card button { width:100%; padding:11px 0; font-size:14px; font-weight:800; color:#fff;
+    letter-spacing:.3px; background:linear-gradient(165deg,#ffb257,#ef6d16); border:none;
+    border-radius:12px; cursor:pointer;
+    box-shadow:0 6px 14px rgba(120,55,0,.36), inset 0 1px 0 rgba(255,255,255,.42);
+    transition:transform .08s ease, filter .12s ease; }
+  .card button:active { transform:translateY(2px) scale(.985); filter:brightness(1.06); }
+  .card button.own { background:linear-gradient(165deg,#43d6c6,#12988c);
+    box-shadow:0 6px 14px rgba(0,80,72,.36), inset 0 1px 0 rgba(255,255,255,.42); }
+  .card button:disabled { background:linear-gradient(180deg,#4a6076,#37485a);
+    color:#a9bcce; box-shadow:inset 0 1px 0 rgba(255,255,255,.10); cursor:default; transform:none; }
+  .card .tag { display:block; text-align:center; padding:11px 0; border-radius:12px;
+    font-size:14px; font-weight:800; letter-spacing:.6px; color:#08222f;
+    background:linear-gradient(165deg,#ffe886,#f5c518); }
   /* a puka shell: the cone-shell slice with the natural hole through it that the
      currency is named after — puka is Hawaiian for hole */
   .pk { display:inline-block; width:1em; height:1em; vertical-align:-0.14em; margin:0 .1em 0 .14em;
@@ -219,7 +231,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.39.0';
+const VERSION='1.40.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1263,7 +1275,7 @@ const RACK_ORDER=BOARDS.slice().sort((a,b)=>a.price-b.price);
 // alone in a small scene, render into an off-screen target, read the pixels back and
 // keep the picture. Cheaper than a second canvas and it lights everything exactly the
 // way the game does.
-const PREV_W=176, PREV_H=132;
+const PREV_W=248, PREV_H=186;
 let prevTarget=null, prevScene=null, prevCam=null;
 const prevCache={};
 function previewSetup(){
@@ -1322,7 +1334,7 @@ function charPreview(id){
   if(prevCache['c:'+id])return prevCache['c:'+id];
   try{
     buildChar(id);
-    prevCache['c:'+id]=snapshot(pug,0.55,0.24,1.12);
+    prevCache['c:'+id]=snapshot(pug,2.72,0.20,1.10);   // three-quarters on, so you see a face
     buildChar(rider);
   }catch(e){ prevCache['c:'+id]=''; buildChar(rider); }
   return prevCache['c:'+id];
@@ -1335,18 +1347,24 @@ function charOrder(){ if(!CHAR_ORDER)CHAR_ORDER=CHARS.slice().sort((a,b)=>a.pric
 function shopCard(item,have,on,buy,use,thumb){
   const card=document.createElement('div');
   card.className='card'+(on?' on':'');
-  if(thumb){ const im=document.createElement('img'); im.className='thumb'; im.src=thumb; card.appendChild(im); }
-  const txt=document.createElement('div');
-  txt.innerHTML='<div class="nm">'+item.name+'</div><div class="bl">'+item.blurb+'</div>';
+  const im=document.createElement('img');
+  im.className='thumb'; im.alt=item.name; if(thumb)im.src=thumb;
+  card.appendChild(im);
+  const info=document.createElement('div'); info.className='info';
+  info.innerHTML='<div class="nm">'+item.name+'</div><div class="bl">'+item.blurb+'</div>';
   const act=document.createElement('div'); act.className='act';
-  if(on){ act.innerHTML='<span class="tag">Riding</span>'; }
+  if(on){ act.innerHTML='<span class="tag">RIDING</span>'; }
   else {
     const btn=document.createElement('button');
-    if(have){ btn.textContent='Use'; btn.onclick=use; }
-    else { btn.innerHTML=item.price+'<i class="pk"></i>'; btn.disabled=coins<item.price; btn.onclick=buy; }
+    if(have){ btn.className='own'; btn.textContent='Ride it'; btn.onclick=use; }
+    else {
+      btn.innerHTML=item.price+'<i class="pk"></i>';
+      if(coins<item.price){ btn.disabled=true; btn.innerHTML=(item.price-coins)+'<i class="pk"></i> to go'; }
+      btn.onclick=buy;
+    }
     act.appendChild(btn);
   }
-  card.appendChild(txt); card.appendChild(act);
+  info.appendChild(act); card.appendChild(info);
   return card;
 }
 function drawShop(){

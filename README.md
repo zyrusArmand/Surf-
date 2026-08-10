@@ -52,6 +52,11 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.40.0** — The shop is a grid of tiles rather than a list with a stamp beside each
+  line: previews are twice the size and rendered at half again the resolution, riders are
+  turned three-quarters on so you see a face, and every tile carries its own button —
+  amber to buy, teal to equip, a gold plate on whatever you are riding, and anything you
+  cannot afford yet says how much is still to go.
 - **v1.39.0** — Gestures remapped and a third axis added. Swipe up or down for a barrel
   roll, swipe left or right in the air for a real front or back flip — rotation about the
   board's length was all there ever was, so an end-over-end flip needed an axis of its own
