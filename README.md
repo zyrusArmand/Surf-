@@ -52,6 +52,18 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.45.0** — The square is gone, and it was never a square. The menu never called the
+  per-frame update, so its camera had never been placed and sat at the world origin — which
+  is sea level. You were looking straight through the wave field edge-on: a slab of water
+  across the middle of the screen with sky above it and more water below. It now gets the
+  ride's own framing with a slow drift, and the sky work runs on the menu too, so the dome
+  and the sun follow the camera instead of being left where they were built. Measured: a
+  full-width edge one fifth of the way down the screen, a luminance step of 123 out of 255,
+  and after the fix no full-width edge anywhere.
+  Buttons are glass now — the colour is still theirs, but the water moves behind them, and
+  the shop's buttons and tabs are the same material as the menu's. The surfer emoji is off
+  the title. And the puka is a ribbed mother-of-pearl scallop rather than a holed disc,
+  which at small sizes read as a CD.
 - **v1.44.0** — A pass over the whole interface. The menu no longer lays a flat panel
   over the game — the sea keeps rolling behind it under a vignette with no edge anywhere —
   and the run summary is one block in the middle of the screen whose lines all start on the
