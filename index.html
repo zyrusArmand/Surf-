@@ -399,7 +399,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.65.0';
+const VERSION='1.66.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2024,8 +2024,8 @@ function portraitPose(){
   for(const g of [legFrontJ,legBackJ]){
     g.hip.rotation.x=-0.05; g.knee.rotation.x=0.13; g.ankle.rotation.x=-0.08;
   }
-  armFrontJ.sh.rotation.set(0.06,0,-0.52); armFrontJ.el.rotation.x=0.20;
-  armBackJ.sh.rotation.set(0.06,0, 0.52);  armBackJ.el.rotation.x=0.20;
+  armFrontJ.sh.rotation.set(0.10,0,-0.36); armFrontJ.el.rotation.x=0.26;
+  armBackJ.sh.rotation.set(0.10,0, 0.36);  armBackJ.el.rotation.x=0.26;
   for(const e of charEars)e.rotation.x=e.userData.baseX;
   return ()=>{
     for(const [j,p,r] of keep){ j.position.copy(p); j.rotation.copy(r); }
@@ -2320,6 +2320,13 @@ const PELVIS_Y=0.475;
 let legS=1;
 const hipDrop=g=>0.185*Math.cos(g.hip.rotation.x)+0.155*Math.cos(g.hip.rotation.x+g.knee.rotation.x);
 const pelvis=joint(pug,0,PELVIS_Y,0.02);
+// The seat. Party Animals and Gang Beasts bodies are ONE mass all the way down —
+// the trunk carries on between the legs and is notched, rather than a belly with two
+// pipes hanging under it. This is that carry-on: a rounded block laid along the line
+// between the two hip sockets, overlapping the belly above and both haunches below, so
+// the silhouette closes up into a single shape with a crotch notch instead of a gap.
+const hipMass=new THREE.Mesh(new THREE.SphereGeometry(1,26,20),furMat);
+pelvis.add(hipMass);
 const spine=joint(pelvis,0,0.16,0);
 const chestJ=joint(spine,0,0.30,-0.04);
 const neck=joint(chestJ,0,0.30,-0.06);
@@ -2452,7 +2459,7 @@ const CHARS=[
   {id:'sloth', name:'Chill the Sloth', price:4200,
    blurb:'Takes the whole wave to make one turn and somehow still makes it.',
    fur:0xa9977c, dark:0x574734, nose:0x2a211a, face:'long',  ears:'tuft',    tail:'stub', eyes:'patch',
-   build:[0.96,1.00,0.98], limb:0.88, arm:0.86, armLen:1.32, foot:1.02, hand:1.28},
+   build:[0.96,1.00,0.98], limb:0.88, arm:0.86, armLen:1.32, foot:1.02, hand:1.08},
   {id:'lizard',name:'Basil the Lizard',price:6200,
    blurb:'Crested, long-tailed and entirely unbothered. Runs across the flat bits.',
    fur:0x2fb37e, dark:0x18704e, nose:0x0f3a29, iris:0xf2c72a, crest:0xf2a71b, drum:0x1f8a5e,
@@ -2529,6 +2536,15 @@ function buildChar(id){
   for(const j of limbJoints){
     const q=j.userData.socket, k=armRoot.indexOf(j)>=0?KA:K;
     j.position.set(q[0]*k,q[1],q[2]*k);
+  }
+  // the seat is laid along the hip line, which runs nose-to-tail across the body rather
+  // than straight across it, so it is placed from where the sockets actually ended up
+  {
+    const hf=legFrontJ.hip.position, hb=legBackJ.hip.position;
+    const dx=hb.x-hf.x, dz=hb.z-hf.z, span=Math.hypot(dx,dz);
+    hipMass.position.set((hf.x+hb.x)*0.5,(hf.y+hb.y)*0.5+0.045,(hf.z+hb.z)*0.5);
+    hipMass.rotation.y=Math.atan2(dx,dz);
+    hipMass.scale.set(0.245*B[0],0.235*B[1],span*0.5+0.225*B[2]);
   }
   torso.scale.set(B[0],B[1],B[2]);
   collar.scale.set(1.15*B[0],1.0*B[1],1.1*B[2]);
@@ -2817,8 +2833,13 @@ const legTube=[], legCap=[], armTube=[], armCap=[], footMesh=[], handMesh=[], ar
 // sit, so two segments meet without a seam — the old build used caps a shade smaller
 // than the tube, which left the tube's cut edge showing as a ring at every joint and is
 // what made these read as pipes threaded with beads.
+// CylinderGeometry takes (radiusTop, radiusBottom) and the tube hangs DOWN from the
+// joint, so rTop belongs in the first slot. It was in the second, which put the wide end
+// at the ankle and left the tube's rim standing a full centimetre proud of the cap
+// sphere at every knee and elbow — a hard bright ring at each joint, which is most of
+// what was reading as blocky and bolted together rather than as one soft body.
 function capsule(parent,rTop,rBot,len,tube,cap,stretch){
-  const m=new THREE.Mesh(new THREE.CylinderGeometry(rBot,rTop,len,18),furMat);
+  const m=new THREE.Mesh(new THREE.CylinderGeometry(rTop,rBot,len,18),furMat);
   m.position.y=-len/2; parent.add(m); limbMeshes.push(m); tube.push(m);
   const a=new THREE.Mesh(new THREE.SphereGeometry(rTop,16,13),furMat);
   parent.add(a); limbMeshes.push(a); cap.push(a);
@@ -2837,19 +2858,19 @@ function makeLeg(zoff,xoff){
   // for the size of the body.
   // a haunch, wider than the thigh, that sinks into the body — without it the leg is a
   // pipe that stops at the belly with a seam around it instead of growing out of it
-  const haunch=new THREE.Mesh(new THREE.SphereGeometry(0.182,18,15),furMat);
-  haunch.scale.set(1,0.94,1);hip.add(haunch);limbMeshes.push(haunch);legCap.push(haunch);
-  capsule(hip,0.150,0.140,0.185,legTube,legCap,legStretch);     // thigh
+  const haunch=new THREE.Mesh(new THREE.SphereGeometry(0.198,18,15),furMat);
+  haunch.scale.set(1.04,0.98,1.04);hip.add(haunch);limbMeshes.push(haunch);legCap.push(haunch);
+  capsule(hip,0.174,0.156,0.185,legTube,legCap,legStretch);     // thigh
   const knee=joint(hip,0,-0.185,0);
   knee.rotation.order='YXZ';
-  capsule(knee,0.140,0.130,0.155,legTube,legCap,legStretch);    // shin
+  capsule(knee,0.156,0.146,0.155,legTube,legCap,legStretch);    // shin
   const ankle=joint(knee,0,-0.155,0);
   ankle.rotation.order='YXZ';
   // a stumpy-legged animal moves these down the chain; each remembers where it started
   for(const j of [knee,ankle]){ j.userData.baseY=j.position.y; legStretch.push(j); }
   // one soft stub, no toes — the moment a foot has parts it looks mechanical
-  const foot=new THREE.Mesh(new THREE.SphereGeometry(0.138,20,15),furMat);
-  foot.scale.set(0.96,0.60,1.30);foot.position.set(0,-0.048,-0.030);
+  const foot=new THREE.Mesh(new THREE.SphereGeometry(0.152,20,15),furMat);
+  foot.scale.set(0.94,0.62,1.24);foot.position.set(0,-0.040,-0.028);
   ankle.add(foot);limbMeshes.push(foot);footMesh.push(foot);
   return {hip,knee,ankle,zoff};
 }
@@ -2874,14 +2895,14 @@ function makeArm(xoff,zoff){
   // a deltoid that overlaps into the chest. It hangs off the shoulder joint but is sized
   // in buildChar against the arm's THICKNESS, not its length, so a T. rex with stubby
   // arms still has a shoulder rather than two floating sausages
-  const delt=new THREE.Mesh(new THREE.SphereGeometry(0.152,18,15),furMat);
-  delt.scale.set(1,0.94,1);sh.add(delt);limbMeshes.push(delt);shoulderBall.push(delt);
-  capsule(sh,0.122,0.113,0.235,armTube,armCap);                 // upper arm
-  const el=joint(sh,0,-0.235,0);
-  capsule(el,0.113,0.106,0.205,armTube,armCap);                 // forearm
+  const delt=new THREE.Mesh(new THREE.SphereGeometry(0.176,18,15),furMat);
+  delt.scale.set(1.04,0.98,1.04);sh.add(delt);limbMeshes.push(delt);shoulderBall.push(delt);
+  capsule(sh,0.158,0.148,0.225,armTube,armCap);                 // upper arm
+  const el=joint(sh,0,-0.225,0);
+  capsule(el,0.148,0.140,0.200,armTube,armCap);                 // forearm
   // a mitten: one rounded lump, no fingers
-  const paw=new THREE.Mesh(new THREE.SphereGeometry(0.118,18,14),furMat);
-  paw.position.y=-0.225;paw.scale.set(1.0,0.94,1.06);
+  const paw=new THREE.Mesh(new THREE.SphereGeometry(0.148,18,14),furMat);
+  paw.position.y=-0.205;paw.scale.set(1.0,0.94,1.06);
   el.add(paw);limbMeshes.push(paw);handMesh.push(paw);
   return {sh,el};
 }

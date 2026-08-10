@@ -52,6 +52,18 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.66.0** — One body, not a pile of parts, the way Gang Beasts and Party Animals do
+  it. The tube of every limb segment was built with its taper upside down against its own
+  end caps: `CylinderGeometry` takes (radiusTop, radiusBottom) and the tube hangs down
+  from the joint, so the wide end was landing at the ankle and the rim stood a full
+  centimetre proud of the cap sphere — a hard bright ring at every knee, elbow and ankle.
+  That one transposition is most of what was reading as blocky and bolted together.
+  Then the trunk carries on: a rounded seat laid along the line between the hip sockets,
+  overlapping the belly above and both haunches below, so the silhouette closes into a
+  single shape with a crotch notch instead of a belly with two pipes hanging under it.
+  Arms are now as heavy as the legs — in the references an arm and a leg are the same
+  girth — and hang closer to the body with a softer elbow. Feet stay planted: measured
+  across the cast, front feet now sit within 0.010 of each other relative to the board.
 - **v1.65.0** — Stood up straight, welded together, and each animal built more like the
   animal. The shop portraits were photographing whatever pose the rig happened to be left
   in — and the rig is always mid-ride, hunched over the nose with its feet crossed along
