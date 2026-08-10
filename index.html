@@ -231,7 +231,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.40.0';
+const VERSION='1.41.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -976,7 +976,12 @@ function buildBoardMesh(S){
   const rock=u=>S.rockN*Math.pow(Math.max(0,(S.noseR-u)/S.noseR),2.2)
                 +S.rockT*Math.pow(Math.max(0,(u-1+S.tailR)/S.tailR),2.2);
   // a swallow tail is the middle of the tail cut forward, so it is a shift in z
-  const notch=(u,v)=>S.swallow?-S.swallow*_sm(0.80,1,u)*(1-Math.pow(Math.abs(v),1.7)):0;
+  const swal=S.swallow?(u,v)=>-S.swallow*_sm(0.80,1,u)*(1-Math.pow(Math.abs(v),1.7)):null;
+  // an asymmetric board is genuinely two different halves: the heel side can run
+  // wider and its tail can be cut forward of the toe side's
+  const asW=(v)=>v<0?(S.asymW||1):1;
+  const notch=(u,v)=>(swal?swal(u,v):0)
+    +(S.asymZ&&v<0?-S.asymZ*_sm(0.62,1,u)*Math.abs(v):0);
 
   const pos=[],col=[],idx=[];
   const c=new THREE.Color();
@@ -986,7 +991,7 @@ function buildBoardMesh(S){
       const phi=j/NR*Math.PI*2;
       const v=Math.sin(phi), sAbs=Math.abs(v), top=Math.cos(phi)>=0;
       const prof=Math.pow(Math.max(0,1-sAbs*sAbs), top?(S.deckPow||0.56):(S.hullPow||0.42));
-      pos.push(w*v, r+(top?T*t*prof:-T*(S.hullK||0.62)*t*prof), (u-0.5)*L+notch(u,v));
+      pos.push(w*v*asW(v), r+(top?T*t*prof:-T*(S.hullK||0.62)*t*prof), (u-0.5)*L+notch(u,v));
       S.paint(c,u,v,top);
       col.push(c.r,c.g,c.b);
     }
@@ -1019,17 +1024,20 @@ function buildBoardMesh(S){
 
   const grp=new THREE.Group(); grp.add(mesh);
   // grip pad: a thin skin lying on the deck over the back third
-  if(S.pad!==false){
-    const P0=S.padU0||0.735, P1=S.padU1||0.945, PU=34, PV=18, pp=[], pi=[];
+  // a twin-tip carries two of them, one under each binding, rather than one long strip
+  const padRanges=S.pads||[[S.padU0||0.735,S.padU1||0.945]];
+  if(S.pad!==false)for(const [P0,P1] of padRanges){
+    const PU=34, PV=18, pp=[], pi=[];
+    const wide=S.padW||0.56;
     for(let i=0;i<=PU;i++){
       // a pad covers the back foot, not the back half: narrower than the outline and
       // rounded off at both ends so it reads as a pad rather than a paint job
       const e=Math.sin(Math.PI*Math.min(1,Math.max(0,i/PU)))*0.5+0.5;
-      const u=P0+(P1-P0)*i/PU, w=hw(u)*0.56*Math.pow(e,0.35), t=th(u), r=rock(u);
+      const u=P0+(P1-P0)*i/PU, w=hw(u)*wide*Math.pow(e,0.35), t=th(u), r=rock(u);
       for(let j=0;j<=PV;j++){
         const v=-1+2*j/PV;
         const prof=Math.pow(Math.max(0,1-v*v*0.64),S.deckPow||0.56);
-        pp.push(w*v, r+T*t*prof+0.006, (u-0.5)*L+notch(u,v*0.8));
+        pp.push(w*v*asW(v), r+T*t*prof+0.006, (u-0.5)*L+notch(u,v*0.8));
       }
     }
     for(let i=0;i<PU;i++)for(let j=0;j<PV;j++){
@@ -1129,7 +1137,7 @@ const BOARDS=[
    blurb:'Wakeboard. Symmetrical twin-tip with a continuous rocker — rides either way out of a landing.',
    spec:{L:3.95,W:0.86,T:0.095,noseA:0.86,tailA:0.86,noseW:0.44,tailW:0.44,
      rockN:0.30,noseR:0.46,rockT:0.30,tailR:0.46,deckPow:0.62,hullPow:0.62,hullK:1.0,
-     padCol:0x1b1020,finCol:0x8bff4a,padU0:0.13,padU1:0.87,
+     padCol:0x1b1020,finCol:0x8bff4a,padW:0.72,pads:[[0.16,0.36],[0.64,0.84]],
      paint:deckScheme({deck:0x2a1240,hull:0x160a24,rail:0x8bff4a,pin:0x8bff4a,stringer:0xbf6bff,
        sw:0.05,railAt:0.84,vivid:1.5,
        bands:[[0.28,0.13,0x8bff4a],[0.72,0.13,0xbf6bff]]}),
@@ -1207,7 +1215,7 @@ const BOARDS=[
    blurb:'Soft-top. Thick, blunt and shameless — it floats absolutely anything.',
    spec:{L:5.70,W:0.88,T:0.225,noseA:0.62,tailA:0.78,noseW:0.42,tailW:0.42,
      rockN:0.26,noseR:0.40,rockT:0.10,tailR:0.30,deckPow:0.72,hullPow:0.56,hullK:0.56,
-     padCol:0x3aa8d8,finCol:0x2c7fb8,padU0:0.16,padU1:0.90,
+     padCol:0x3aa8d8,finCol:0x2c7fb8,padW:0.62,pads:[[0.30,0.50],[0.72,0.93]],
      paint:deckScheme({deck:0xff7ec2,hull:0x7fd8f2,rail:0xffffff,pin:0xffffff,stringer:0xffffff,
        sw:0.07,railAt:0.80,vivid:1.6,
        vstripes:[[0.42,0.06,0xffffff],[0.68,0.05,0xffffff]]}),
@@ -1233,6 +1241,125 @@ const BOARDS=[
      paint:deckScheme({deck:0xffd23a,hull:0xfff0c4,rail:0xd6360d,stringer:0x7a3b12,pin:0xd6360d,
        bands:[[0.20,0.20,0xff4d16],[0.50,0.16,0xff8c19],[0.80,0.20,0xd6360d]]}),
      fins:[{x:0,z:2.10,c:0.66,d:0.62,t:0.036,rake:0.22}]}},
+
+  {id:'grom', name:'Grom Rocket', price:450,
+   blurb:'A 4ft 8 kid\'s board. Almost no volume, turns on the spot, forgives nothing.',
+   spec:{L:4.45,W:0.56,T:0.115,noseA:1.00,tailA:0.88,noseW:0.08,tailW:0.30,
+     rockN:0.30,noseR:0.34,rockT:0.10,tailR:0.26,deckPow:0.52,hullPow:0.40,hullK:0.64,
+     padCol:0x1c2430,finCol:0xff4d4d,padU0:0.70,padU1:0.945,
+     paint:deckScheme({deck:0x18d1e0,hull:0xeafcff,rail:0xff4d4d,pin:0xff4d4d,stringer:0xfff0a0,
+       sw:0.03,railAt:0.86,vivid:1.6,
+       bands:[[0.30,0.10,0x0e7fd6]]}),
+     fins:[{x:0,z:1.68,c:0.36,d:0.34,t:0.024,rake:0.10},
+           {x:-0.26,z:1.48,c:0.30,d:0.28,t:0.022,rake:0.08,cant:0.22},
+           {x: 0.26,z:1.48,c:0.30,d:0.28,t:0.022,rake:0.08,cant:-0.22}]}},
+
+  {id:'sandbar', name:'Sandbar Skim', price:650,
+   blurb:'Skimboard. Marine ply, one coat of varnish and a stripe. Runs the shore break flat out.',
+   spec:{L:3.75,W:0.80,T:0.048,noseA:0.78,tailA:0.92,noseW:0.44,tailW:0.36,
+     rockN:0.26,noseR:0.46,rockT:0.09,tailR:0.32,deckPow:0.74,hullPow:0.74,hullK:1.0,
+     pad:false,
+     paint:deckScheme({deck:0xc98d47,hull:0xdba75f,rail:0x5e3213,pin:0x8a5124,stringer:0xf7f2e4,
+       sw:0.055,railAt:0.86,vivid:1.35,
+       vstripes:[[0.34,0.05,0x2f6f8f],[0.60,0.04,0xf2f0e6]]}),
+     fins:[]}},
+
+  {id:'boogie', name:'Foam Bullet', price:800,
+   blurb:'Bodyboard. Blunt nose, crescent tail, no fins — you go where the foam goes.',
+   spec:{L:3.40,W:0.92,T:0.105,noseA:0.60,tailA:0.72,noseW:0.66,tailW:0.60,
+     rockN:0.20,noseR:0.40,rockT:0.05,tailR:0.30,swallow:0.30,
+     deckPow:0.78,hullPow:0.72,hullK:0.90,
+     pad:false,
+     paint:deckScheme({deck:0x131820,hull:0xf2f4f6,rail:0x00e07a,pin:0x00e07a,stringer:0x00e07a,
+       sw:0.10,railAt:0.78,vivid:1.6,
+       bands:[[0.24,0.12,0x00e07a],[0.52,0.09,0xff2f6e]]}),
+     fins:[]}},
+
+  {id:'paipo', name:'Paipo Slider', price:1100,
+   blurb:'Hawaiian belly board. Four foot of finless plank you ride lying down, going very fast.',
+   spec:{L:3.95,W:0.66,T:0.062,noseA:0.84,tailA:0.98,noseW:0.34,tailW:0.44,
+     rockN:0.26,noseR:0.40,rockT:0.05,tailR:0.26,deckPow:0.72,hullPow:0.72,hullK:1.0,
+     pad:false,
+     paint:deckScheme({deck:0x6e2f1c,hull:0x8a4127,rail:0x2a1008,pin:0xd6360d,stringer:0xf0d8a8,
+       sw:0.075,railAt:0.84,vivid:1.35,
+       vstripes:[[0.42,0.05,0xd6360d]]}),
+     fins:[]}},
+
+  {id:'riptide', name:'Riptide Wake', price:1700,
+   blurb:'Wakeboard. Twin-tip with a hard three-stage rocker — it pops off the lip and lands switch.',
+   spec:{L:4.05,W:0.88,T:0.092,noseA:0.88,tailA:0.88,noseW:0.46,tailW:0.46,
+     rockN:0.34,noseR:0.48,rockT:0.34,tailR:0.48,deckPow:0.64,hullPow:0.64,hullK:1.0,
+     padCol:0x1a2a34,finCol:0xffffff,padW:0.72,pads:[[0.17,0.37],[0.63,0.83]],
+     paint:deckScheme({deck:0xff6a1a,hull:0x10323f,rail:0x08c6d6,pin:0x08c6d6,stringer:0xfff2d0,
+       sw:0.045,railAt:0.84,vivid:1.6,
+       bands:[[0.20,0.12,0x08c6d6],[0.50,0.10,0xfff2d0],[0.80,0.12,0x08c6d6]]}),
+     fins:[{x:-0.44,z:1.50,c:0.26,d:0.15,t:0.020,rake:0.04,cant:0.10},
+           {x: 0.44,z:1.50,c:0.26,d:0.15,t:0.020,rake:0.04,cant:-0.10},
+           {x:-0.44,z:-1.50,c:0.26,d:0.15,t:0.020,rake:-0.04,cant:0.10},
+           {x: 0.44,z:-1.50,c:0.26,d:0.15,t:0.020,rake:-0.04,cant:-0.10},
+           {x:0,z:1.72,c:0.22,d:0.12,t:0.018,rake:0.03},
+           {x:0,z:-1.72,c:0.22,d:0.12,t:0.018,rake:-0.03}]}},
+
+  {id:'noserider', name:'Nose Rider', price:2600,
+   blurb:'Ten foot of wide-nosed log. Walk to the tip, hang ten, take all afternoon about it.',
+   spec:{L:6.70,W:0.86,T:0.180,noseA:0.54,tailA:0.92,noseW:0.44,tailW:0.26,
+     rockN:0.22,noseR:0.34,rockT:0.06,tailR:0.24,deckPow:0.64,hullPow:0.46,hullK:0.58,
+     pad:false,finCol:0x1d3a2a,
+     paint:deckScheme({deck:0xf4f0e2,hull:0xfffaf0,rail:0x1d6b4a,pin:0x1d6b4a,stringer:0x7a4a20,
+       sw:0.09,railAt:0.82,vivid:1.4,
+       bands:[[0.50,0.09,0x1d6b4a]]}),
+     fins:[{x:0,z:2.25,c:0.74,d:0.70,t:0.038,rake:0.24}]}},
+
+  {id:'carbonskim', name:'Carbon Skim', price:3100,
+   blurb:'Carbon skimboard. Two kilos, mirror gloss, and it will out-spin anything on the sand.',
+   spec:{L:3.85,W:0.82,T:0.046,noseA:0.82,tailA:0.94,noseW:0.42,tailW:0.34,
+     rockN:0.30,noseR:0.48,rockT:0.11,tailR:0.34,deckPow:0.76,hullPow:0.76,hullK:1.0,
+     pad:false,rough:0.14,
+     paint:deckScheme({deck:0x14161b,hull:0x1c1f26,rail:0xd9a625,pin:0xd9a625,stringer:0x2c313a,
+       sw:0.20,railAt:0.90,vivid:1.1,
+       vstripes:[[0.30,0.10,0x22262e],[0.58,0.08,0x22262e]]}),
+     fins:[]}},
+
+  {id:'asym', name:'Asymmetric', price:4600,
+   blurb:'Different board on each side: long rail for the forehand, short one for the backhand.',
+   spec:{L:5.30,W:0.72,T:0.145,noseA:0.94,tailA:0.84,noseW:0.10,tailW:0.34,
+     rockN:0.30,noseR:0.34,rockT:0.10,tailR:0.26,asymW:1.14,asymZ:0.34,
+     deckPow:0.52,hullPow:0.40,hullK:0.64,
+     padCol:0x201828,finCol:0xff3d81,padU0:0.70,padU1:0.93,
+     paint:deckScheme({deck:0xf6f2ff,hull:0xffffff,rail:0x6a2bd9,pin:0xff3d81,stringer:0x6a2bd9,
+       sw:0.02,railAt:0.86,vivid:1.4,
+       bands:[[0.72,0.16,0xff3d81]]}),
+     fins:[{x:-0.40,z:1.66,c:0.46,d:0.42,t:0.028,rake:0.14,cant:0.18},
+           {x:-0.20,z:1.94,c:0.32,d:0.28,t:0.024,rake:0.09,cant:0.20},
+           {x: 0.34,z:1.86,c:0.40,d:0.38,t:0.026,rake:0.11,cant:-0.20}]}},
+
+  {id:'chrome', name:'Chrome Wake Pro', price:6000,
+   blurb:'Competition wakeboard. Moulded channels, six fins, and a finish you can see the sky in.',
+   spec:{L:4.15,W:0.90,T:0.088,noseA:0.90,tailA:0.90,noseW:0.48,tailW:0.48,
+     rockN:0.32,noseR:0.50,rockT:0.32,tailR:0.50,deckPow:0.66,hullPow:0.66,hullK:1.0,
+     padCol:0x0d1218,finCol:0xc9d4e2,padW:0.74,pads:[[0.16,0.36],[0.64,0.84]],rough:0.12,
+     paint:deckScheme({deck:0xb8c6d8,hull:0x6f7d8f,rail:0x0d1218,pin:0x2fe0ff,stringer:0x2fe0ff,
+       sw:0.035,railAt:0.86,vivid:1.15,
+       bands:[[0.16,0.10,0x2fe0ff],[0.84,0.10,0x2fe0ff]]}),
+     fins:[{x:-0.46,z:1.58,c:0.24,d:0.14,t:0.020,rake:0.04,cant:0.10},
+           {x: 0.46,z:1.58,c:0.24,d:0.14,t:0.020,rake:0.04,cant:-0.10},
+           {x:-0.46,z:-1.58,c:0.24,d:0.14,t:0.020,rake:-0.04,cant:0.10},
+           {x: 0.46,z:-1.58,c:0.24,d:0.14,t:0.020,rake:-0.04,cant:-0.10},
+           {x:-0.16,z:1.80,c:0.20,d:0.11,t:0.018,rake:0.03},
+           {x: 0.16,z:-1.80,c:0.20,d:0.11,t:0.018,rake:-0.03}]}},
+
+  {id:'koi', name:'Koi Kiteboard', price:7800,
+   blurb:'Kite twin-tip. Four foot, stiff as a plank and painted like a carp pond.',
+   spec:{L:3.70,W:0.74,T:0.062,noseA:0.94,tailA:0.94,noseW:0.52,tailW:0.52,
+     rockN:0.20,noseR:0.44,rockT:0.20,tailR:0.44,deckPow:0.74,hullPow:0.74,hullK:1.0,
+     padCol:0x2a1014,finCol:0xf2f0e6,padW:0.70,pads:[[0.17,0.36],[0.64,0.83]],rough:0.18,
+     paint:deckScheme({deck:0xf7f3e8,hull:0xfaf6ec,rail:0xd6360d,pin:0x14161b,stringer:0xf2a71b,
+       sw:0.04,railAt:0.88,vivid:1.5,
+       bands:[[0.26,0.11,0xd6360d],[0.46,0.07,0x14161b],[0.70,0.10,0xf2a71b]]}),
+     fins:[{x:-0.36,z:1.38,c:0.22,d:0.12,t:0.018,rake:0.03,cant:0.10},
+           {x: 0.36,z:1.38,c:0.22,d:0.12,t:0.018,rake:0.03,cant:-0.10},
+           {x:-0.36,z:-1.38,c:0.22,d:0.12,t:0.018,rake:-0.03,cant:0.10},
+           {x: 0.36,z:-1.38,c:0.22,d:0.12,t:0.018,rake:-0.03,cant:-0.10}]}},
 ];
 const BOARD_BY_ID={}; for(const b of BOARDS)BOARD_BY_ID[b.id]=b;
 const _rack={};
@@ -1327,7 +1454,9 @@ function snapshot(obj,swing,lift,zoom){
 }
 function boardPreview(id){
   if(prevCache['b:'+id])return prevCache['b:'+id];
-  try{ prevCache['b:'+id]=snapshot(boardArtFor(id),0.90,0.92,1.22); }catch(e){ prevCache['b:'+id]=''; }
+  // framed tight: at zoom 1 the longest board exactly fills the height, so a shortboard
+  // is not left as a speck in the middle of the card
+  try{ prevCache['b:'+id]=snapshot(boardArtFor(id),0.92,0.74,1.02); }catch(e){ prevCache['b:'+id]=''; }
   return prevCache['b:'+id];
 }
 function charPreview(id){
@@ -1348,7 +1477,9 @@ function shopCard(item,have,on,buy,use,thumb){
   const card=document.createElement('div');
   card.className='card'+(on?' on':'');
   const im=document.createElement('img');
-  im.className='thumb'; im.alt=item.name; if(thumb)im.src=thumb;
+  im.className='thumb'; im.alt=item.name;
+  // a transparent pixel until the real shot is taken, so no broken-image glyph flashes
+  im.src=thumb||'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   card.appendChild(im);
   const info=document.createElement('div'); info.className='info';
   info.innerHTML='<div class="nm">'+item.name+'</div><div class="bl">'+item.blurb+'</div>';
@@ -1367,26 +1498,49 @@ function shopCard(item,have,on,buy,use,thumb){
   info.appendChild(act); card.appendChild(info);
   return card;
 }
+// Lofting twenty-five boards and photographing each one takes long enough that doing
+// it all before the shop appears reads as a hang. The cards go up straight away and
+// the pictures are taken one per frame afterwards, so the list is scrollable while
+// they arrive and an already-cached shot fills in immediately.
+let shopFillId=0;
+function fillThumbs(jobs){
+  const mine=++shopFillId;
+  const step=()=>{
+    if(mine!==shopFillId)return;                 // a redraw superseded this pass
+    const t0=performance.now();
+    while(jobs.length&&performance.now()-t0<9){
+      const [im,make]=jobs.shift();
+      const src=make(); if(src)im.src=src;
+    }
+    if(jobs.length)requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
 function drawShop(){
   shopList.innerHTML='';
   for(const t of document.querySelectorAll('#shopTabs .tab'))
     t.classList.toggle('on',t.dataset.tab===shopTab);
+  const jobs=[];
   if(shopTab==='riders'){
     for(const c of charOrder()){
-      shopList.appendChild(shopCard(c,!!ownedChars[c.id],rider===c.id,
+      const card=shopCard(c,!!ownedChars[c.id],rider===c.id,
         ()=>{ if(coins<c.price)return; coins-=c.price; ownedChars[c.id]=1; equipChar(c.id); saveGame(); showCoins(); drawShop(); },
         ()=>{ equipChar(c.id); saveGame(); drawShop(); },
-        charPreview(c.id)));
+        prevCache['c:'+c.id]);
+      if(!prevCache['c:'+c.id])jobs.push([card.querySelector('.thumb'),()=>charPreview(c.id)]);
+      shopList.appendChild(card);
     }
-    showCoins();
-    return;
+  } else {
+    for(const b of RACK_ORDER){
+      const card=shopCard(b,!!owned[b.id],equipped===b.id,
+        ()=>{ if(coins<b.price)return; coins-=b.price; owned[b.id]=1; equipBoard(b.id); saveGame(); showCoins(); drawShop(); },
+        ()=>{ equipBoard(b.id); saveGame(); drawShop(); },
+        prevCache['b:'+b.id]);
+      if(!prevCache['b:'+b.id])jobs.push([card.querySelector('.thumb'),()=>boardPreview(b.id)]);
+      shopList.appendChild(card);
+    }
   }
-  for(const b of RACK_ORDER){
-    shopList.appendChild(shopCard(b,!!owned[b.id],equipped===b.id,
-      ()=>{ if(coins<b.price)return; coins-=b.price; owned[b.id]=1; equipBoard(b.id); saveGame(); showCoins(); drawShop(); },
-      ()=>{ equipBoard(b.id); saveGame(); drawShop(); },
-      boardPreview(b.id)));
-  }
+  if(jobs.length)fillThumbs(jobs);
   showCoins();
 }
 for(const t of document.querySelectorAll('#shopTabs .tab'))
@@ -1434,9 +1588,6 @@ const collar=new THREE.Mesh(new THREE.SphereGeometry(0.22,16,14),furMat);
 collar.position.y=-0.16;collar.scale.set(1.15,1.0,1.1);headJ.add(collar);
 const head=new THREE.Mesh(new THREE.SphereGeometry(0.40,24,20),furMat);
 headJ.add(head);
-const eyeL=new THREE.Mesh(new THREE.SphereGeometry(0.072,12,10),mat(0x111111,90));
-eyeL.position.set(-0.16,0.06,-0.35);headJ.add(eyeL);
-const eyeR=eyeL.clone();eyeR.position.x=0.16;headJ.add(eyeR);
 const tailJ=joint(pelvis,0,0.22,0.30);
 tailJ.rotation.y=-1.16;
 
@@ -1448,6 +1599,39 @@ tailJ.rotation.y=-1.16;
 let kitParts=[], charEars=[];
 function kit(parent,mesh){ parent.add(mesh); kitParts.push(mesh); return mesh; }
 function clearKit(){ for(const m of kitParts) if(m.parent)m.parent.remove(m); kitParts.length=0; charEars.length=0; }
+// eyes are part of the kit: where they sit and how big they are is most of what
+// tells one animal from another at a glance
+function kitEyes(C,inner){
+  const dark=mat(0x0d0d10,90), white=mat(0xf8f8f4,60);
+  const E=C.eyes||'side';
+  for(const sx of [-1,1]){
+    if(E==='bulge'){                                    // frog: domes standing off the skull
+      const dome=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.145,20,16),furMat));
+      dome.position.set(sx*0.215,0.325,-0.10);
+      const ball=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.105,18,14),white));
+      ball.position.set(sx*0.235,0.355,-0.175);
+      const pup=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.056,14,12),dark));
+      pup.position.set(sx*0.245,0.355,-0.255);pup.scale.set(0.75,1.25,1);
+    } else if(E==='patch'){                             // sloth: dark bands around them
+      const pa=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.145,16,14),darkMat));
+      pa.position.set(sx*0.175,0.055,-0.315);pa.scale.set(1.05,0.85,0.45);pa.rotation.z=sx*0.30;
+      const e=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.055,14,12),dark));
+      e.position.set(sx*0.175,0.055,-0.365);
+    } else if(E==='reptile'){                           // slit pupils in a gold ring
+      const b=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.085,16,14),
+        PBR({color:C.iris||0xe8c33a,roughness:0.28,metalness:0.1,vivid:1.4})));
+      b.position.set(sx*0.20,0.115,-0.30);
+      const p=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.052,12,12),dark));
+      p.position.set(sx*0.215,0.115,-0.355);p.scale.set(0.34,1.25,1);
+    } else if(E==='beady'){                             // small, high and close: bird-like
+      const e=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.056,14,12),dark));
+      e.position.set(sx*0.135,0.135,-0.345);
+    } else {
+      const e=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.072,14,12),dark));
+      e.position.set(sx*0.16,0.06,-0.35);
+    }
+  }
+}
 const CHARS=[
   {id:'pug',   name:'Astro the Pug',  price:0,
    blurb:'The original. Flat face, curled tail, absolutely no quit.',
@@ -1466,7 +1650,33 @@ const CHARS=[
    fur:0xf3e9d6, dark:0xdcc7a8, nose:0xe08c9a, face:'bunny', ears:'long',    tail:'puff'},
   {id:'panda', name:'Bao the Panda',  price:5500,
    blurb:'Sits very low, turns very slowly, absolutely immovable once committed.',
-   fur:0xf6f3ea, dark:0x1b1b20, nose:0x14141a, face:'long',  ears:'round',   tail:'puff', patches:true},
+   fur:0xf6f3ea, dark:0x1b1b20, nose:0x14141a, face:'long',  ears:'round',   tail:'puff', eyes:'patch'},
+  {id:'frog',  name:'Lily the Frog',  price:900,
+   blurb:'Born for this. Wide mouth, wider eyes, sticks every landing wetly.',
+   fur:0x62c247, dark:0x39872b, nose:0x2a5c1f, inner:0xe8a0b0, drum:0x3f8a2a,
+   face:'frog',  ears:'hole',   tail:'none',  eyes:'bulge'},
+  {id:'otter', name:'Nori the Otter', price:1900,
+   blurb:'Never off the water in the first place. Rolls for the fun of it.',
+   fur:0x8a5f3c, dark:0xd8c39a, nose:0x241812, bib:0xd9c39c,
+   face:'long',  ears:'round',   tail:'flat', whiskers:true},
+  {id:'raccoon',name:'Bandit the Raccoon',price:3000,
+   blurb:'Turned up uninvited with somebody else\'s board. Extremely good on it.',
+   fur:0x9aa2ad, dark:0x25272e, nose:0x141418, face:'long',  ears:'round',   tail:'ringed', eyes:'patch', whiskers:true},
+  {id:'sloth', name:'Chill the Sloth', price:4200,
+   blurb:'Takes the whole wave to make one turn and somehow still makes it.',
+   fur:0xa9977c, dark:0x574734, nose:0x2a211a, face:'long',  ears:'tuft',    tail:'stub', eyes:'patch'},
+  {id:'lizard',name:'Basil the Lizard',price:6200,
+   blurb:'Crested, long-tailed and entirely unbothered. Runs across the flat bits.',
+   fur:0x2fb37e, dark:0x18704e, nose:0x0f3a29, iris:0xf2c72a, crest:0xf2a71b, drum:0x1f8a5e,
+   face:'lizard',ears:'hole',  tail:'long',   eyes:'reptile', tailTilt:1.05},
+  {id:'penguin',name:'Tux the Penguin',price:7500,
+   blurb:'Overdressed for the beach. Still the fastest thing off the line.',
+   fur:0x20242c, dark:0xf6f6f2, nose:0xf2a01b, beak:0xf2a01b, bib:0xf7f5ee,
+   face:'beak',  ears:'none',   tail:'stub',   eyes:'beady'},
+  {id:'rex',   name:'Rexy the T. rex',price:11000,
+   blurb:'Tiny arms, enormous everything else. The wave gets out of the way.',
+   fur:0x4c7a3a, dark:0x2f5226, nose:0x1c3418, crest:0xd8892a,
+   face:'rex',   ears:'none',   tail:'thick',  eyes:'reptile', iris:0xe0532a, spines:true},
 ];
 const CHAR_BY_ID={}; for(const c of CHARS)CHAR_BY_ID[c.id]=c;
 function buildChar(id){
@@ -1475,7 +1685,17 @@ function buildChar(id){
   furMat.color.copy(vivid(C.fur,1.5));
   darkMat.color.copy(vivid(C.dark,1.0));
   const noseMat=mat(C.nose,90);
-  const inner=PBR({color:C.face==='snout'?0xd4708a:0xe79aa6,roughness:0.6});
+  const inner=PBR({color:C.inner||(C.face==='snout'?0xd4708a:0xe79aa6),roughness:0.6});
+  kitEyes(C,inner);
+
+  // ---- chest bib: the pale front a penguin or an otter wears ----
+  if(C.bib){
+    const bm=PBR({color:C.bib,roughness:0.62,vivid:1.2});
+    const b=kit(spine,new THREE.Mesh(new THREE.SphereGeometry(0.30,22,18),bm));
+    b.position.set(0,0.30,-0.16);b.scale.set(0.98,1.55,0.98);
+    const t=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.30,20,16),bm));
+    t.position.set(0,-0.15,-0.16);t.scale.set(0.80,0.58,0.94);   // carries up under the chin
+  }
 
   // ---- muzzle ----
   if(C.face==='pug'){
@@ -1504,6 +1724,59 @@ function buildChar(id){
       const t=kit(headJ,new THREE.Mesh(new THREE.BoxGeometry(0.045,0.07,0.03),mat(0xfffdf6)));
       t.position.set(sx*0.028,-0.155,-0.42);
     }
+  } else if(C.face==='frog'){
+    // a wide flat mouth cut right across the head, and a broad soft jaw under it
+    const j=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.33,24,18),furMat));
+    j.position.set(0,-0.12,-0.13);j.scale.set(1.12,0.62,1.05);
+    const mouth=kit(headJ,new THREE.Mesh(new THREE.TorusGeometry(0.235,0.030,10,26,Math.PI*0.95),
+      PBR({color:0x2a1d22,roughness:0.5})));
+    mouth.position.set(0,-0.10,-0.30);mouth.rotation.set(1.62,0,Math.PI);
+    for(const sx of [-1,1]){
+      const n=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.028,10,8),mat(0x1d2a1a,60)));
+      n.position.set(sx*0.075,0.055,-0.40);
+    }
+  } else if(C.face==='lizard'){
+    const m=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.20,20,16),furMat));
+    m.position.set(0,-0.06,-0.42);m.scale.set(0.86,0.72,1.65);
+    const jaw=kit(headJ,new THREE.Mesh(new THREE.BoxGeometry(0.26,0.045,0.44),
+      PBR({color:0x2c2118,roughness:0.55})));
+    jaw.position.set(0,-0.135,-0.46);
+    for(const sx of [-1,1]){
+      const n=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.024,10,8),mat(0x1a2418,60)));
+      n.position.set(sx*0.05,-0.02,-0.66);
+    }
+    for(let i=0;i<7;i++){                              // a crest down the skull
+      const t=i/6;
+      const sp=kit(headJ,new THREE.Mesh(new THREE.ConeGeometry(0.038-0.018*t,0.11-0.04*t,6),
+        PBR({color:C.crest||0xf2a71b,roughness:0.5,vivid:1.5})));
+      sp.position.set(0,0.34-t*0.10,-0.02-t*0.30);sp.rotation.x=-0.35-t*0.25;
+    }
+  } else if(C.face==='rex'){
+    // a long heavy skull with a jaw that opens, and a row of teeth in it
+    const sk=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.24,22,18),furMat));
+    sk.position.set(0,0.02,-0.44);sk.scale.set(0.92,0.86,1.75);
+    const jaw=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.19,18,14),furMat));
+    jaw.position.set(0,-0.16,-0.46);jaw.scale.set(0.86,0.5,1.6);jaw.rotation.x=0.13;
+    const gum=kit(headJ,new THREE.Mesh(new THREE.BoxGeometry(0.30,0.05,0.60),
+      PBR({color:0x6d2a34,roughness:0.55})));
+    gum.position.set(0,-0.085,-0.52);
+    for(let i=0;i<7;i++){
+      const z=-0.28-i*0.075;
+      for(const sx of [-1,1]){
+        const up=kit(headJ,new THREE.Mesh(new THREE.ConeGeometry(0.026,0.075,6),mat(0xfdfaf0,70)));
+        up.position.set(sx*0.13,-0.115,z);up.rotation.x=Math.PI;
+        const lo=kit(headJ,new THREE.Mesh(new THREE.ConeGeometry(0.022,0.062,6),mat(0xfdfaf0,70)));
+        lo.position.set(sx*0.12,-0.145,z);
+      }
+    }
+    const brow=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.10,14,12),darkMat));
+    brow.position.set(0,0.19,-0.30);brow.scale.set(1.8,0.5,0.9);
+  } else if(C.face==='beak'){
+    const b=kit(headJ,new THREE.Mesh(new THREE.ConeGeometry(0.10,0.32,10),
+      PBR({color:C.beak||0xf2a01b,roughness:0.35,vivid:1.6})));
+    b.rotation.x=-Math.PI/2;b.position.set(0,-0.04,-0.50);
+    const c2=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.17,18,14),darkMat));
+    c2.position.set(0,0.06,-0.28);c2.scale.set(1.25,1.05,0.55);
   } else {                                   // a proper snout: corgi, panda
     const m=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.19,18,14),furMat));
     m.position.set(0,-0.09,-0.36);m.scale.set(1.0,0.82,1.25);
@@ -1540,7 +1813,14 @@ function buildChar(id){
         e.position.set(0.15,0.60,0.0);e.scale.set(0.75,3.5,0.55);e.rotation.z=-0.13;return e;});
       earAt(sx,()=>{const e=new THREE.Mesh(new THREE.SphereGeometry(0.055,10,12),inner);
         e.position.set(0.15,0.60,-0.048);e.scale.set(0.75,3.2,0.35);e.rotation.z=-0.13;return e;});
-    } else {                                  // round
+    } else if(C.ears==='tuft'){               // sloth: a scruff of fur, no real ear
+      earAt(sx,()=>{const e=new THREE.Mesh(new THREE.SphereGeometry(0.10,14,12),furMat);
+        e.position.set(0.30,0.20,0.06);e.scale.set(0.75,1.15,0.75);return e;});
+    } else if(C.ears==='hole'){                // frogs and lizards: a disc on the skull
+      earAt(sx,()=>{const e=new THREE.Mesh(new THREE.CircleGeometry(0.075,16),
+        PBR({color:C.drum||0x3f6a2a,roughness:0.45}));
+        e.position.set(0.30,0.10,-0.05);e.rotation.y=Math.PI/2;return e;});
+    } else if(C.ears!=='none'){               // round
       earAt(sx,()=>{const e=new THREE.Mesh(new THREE.SphereGeometry(0.135,14,12),darkMat);
         e.position.set(0.29,0.33,0.03);e.scale.set(1,1,0.55);return e;});
     }
@@ -1556,13 +1836,17 @@ function buildChar(id){
   }
 
   // ---- tail ----
+  // chain tails hang off a base that can be pitched: a cat carries one up, a rex
+  // holds its out behind as a counterweight
+  const tailRoot=(tilt)=>{ if(!tilt)return tailJ;
+    const g=new THREE.Group(); g.rotation.x=tilt; tailJ.add(g); kitParts.push(g); return g; };
   if(C.tail==='curl'){
     const t=kit(tailJ,new THREE.Mesh(new THREE.TorusGeometry(0.115,0.055,12,22,5.4),furMat));
     t.rotation.set(0.35,Math.PI/2,0);
     const b=kit(tailJ,new THREE.Mesh(new THREE.SphereGeometry(0.075,12,10),furMat));
     b.position.set(0,-0.10,0.02);b.scale.set(1,1.5,1);
   } else if(C.tail==='long'){
-    let par=tailJ;
+    let par=tailRoot(C.tailTilt||0);
     for(let i=0;i<7;i++){
       const seg=kit(par,new THREE.Mesh(new THREE.CylinderGeometry(0.055-i*0.005,0.062-i*0.005,0.15,10),furMat));
       seg.position.y=0.075; seg.rotation.x=0;
@@ -1572,7 +1856,36 @@ function buildChar(id){
   } else if(C.tail==='puff'){
     const t=kit(tailJ,new THREE.Mesh(new THREE.SphereGeometry(0.125,14,12),furMat));
     t.position.set(0,0.02,0.05);
-  } else {                                    // bushy
+  } else if(C.tail==='thick'){                // a counterweight: heavy at the root
+    let par=tailRoot(C.tailTilt!==undefined?C.tailTilt:1.35);
+    for(let i=0;i<8;i++){
+      const r0=0.165-i*0.018, r1=0.158-i*0.018;
+      const seg=kit(par,new THREE.Mesh(new THREE.CylinderGeometry(Math.max(0.012,r1),Math.max(0.016,r0),0.20,14),furMat));
+      seg.position.y=0.10;
+      const nx=new THREE.Group(); nx.position.y=0.20; nx.rotation.x=-0.09+i*0.012; par.add(nx);
+      kitParts.push(nx); par=nx;
+      if(C.spines&&i<6){
+        const sp=kit(seg,new THREE.Mesh(new THREE.ConeGeometry(0.035,0.09,6),
+          PBR({color:C.crest||0xd8892a,roughness:0.5,vivid:1.4})));
+        sp.position.set(0,0.02,-r0-0.02);sp.rotation.x=-Math.PI/2;
+      }
+    }
+  } else if(C.tail==='flat'){                 // an otter's rudder
+    const t=kit(tailJ,new THREE.Mesh(new THREE.SphereGeometry(0.13,16,12),furMat));
+    t.position.set(0,0.16,0.02);t.scale.set(0.9,2.1,0.42);t.rotation.x=-0.55;
+  } else if(C.tail==='stub'){
+    const t=kit(tailJ,new THREE.Mesh(new THREE.SphereGeometry(0.085,14,12),furMat));
+    t.position.set(0,0.03,0.03);t.scale.set(1,1.2,0.8);
+  } else if(C.tail==='ringed'){
+    let par=tailRoot(C.tailTilt||0);
+    for(let i=0;i<7;i++){
+      const seg=kit(par,new THREE.Mesh(new THREE.CylinderGeometry(0.058-i*0.004,0.066-i*0.004,0.16,12),
+        i%2?darkMat:furMat));
+      seg.position.y=0.08;
+      const nx=new THREE.Group(); nx.position.y=0.16; nx.rotation.x=-0.34+i*0.10; par.add(nx);
+      kitParts.push(nx); par=nx;
+    }
+  } else if(C.tail!=='none'){                 // bushy
     const t=kit(tailJ,new THREE.Mesh(new THREE.SphereGeometry(0.11,14,12),furMat));
     t.position.set(0,0.13,0.02);t.scale.set(1,1.9,1);t.rotation.x=-0.4;
   }

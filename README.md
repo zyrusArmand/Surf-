@@ -52,6 +52,16 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.41.0** — Seven more riders and ten more boards. The cast gains a frog with domed
+  eyes standing off its skull, a sloth, a crested lizard, a T. rex with a hinged jaw and a
+  spined tail that trails behind it as a counterweight, plus an otter, a masked raccoon and
+  a penguin in a white bib — eyes, faces, ears and tails are all swappable kit on the one
+  shared rig, so every one of them surfs exactly as well as Astro does. The rack gains two
+  more wakeboards, two more skimboards, a bodyboard, a Hawaiian paipo, a kiteboard, a grom
+  shortboard, a ten-foot noserider and a genuinely asymmetric board whose two halves are
+  different widths with the tail cut forward on one side. Twin-tips now carry two bindings
+  rather than one long strip, and the shop no longer stops to photograph twenty-five boards
+  before it opens: the tiles go up at once and the pictures fill in a frame at a time.
 - **v1.40.0** — The shop is a grid of tiles rather than a list with a stamp beside each
   line: previews are twice the size and rendered at half again the resolution, riders are
   turned three-quarters on so you see a face, and every tile carries its own button —
