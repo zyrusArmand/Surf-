@@ -105,7 +105,7 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.22.1';
+const VERSION='1.23.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2373,7 +2373,15 @@ function update(dt){
   score+=eff*dt*0.6;
   cutCd=Math.max(0,cutCd-dt);
 
-  const waterY=Math.max(hC,hN,hT,(hL+hR)*0.5)+0.16;   // rides the highest water under the hull
+  // Where the hull wants to float. It leans on the highest water beneath it so a
+  // crest cannot slice through the ends, but it answers to the mean under the whole
+  // length as well, and it displaces water rather than resting on top of it — a
+  // loaded board sits down in the surface, and harder you carve, the deeper the
+  // inside rail is driven in.
+  const hHigh=Math.max(hC,hN,hT,(hL+hR)*0.5);
+  const hMean=hC*0.34+hN*0.20+hT*0.20+hL*0.13+hR*0.13;
+  const railDig=Math.min(0.40,Math.abs(carve)*0.40+Math.abs(leanW)*0.13);
+  const waterY=hHigh*0.75+hMean*0.25-0.11-railDig;
 
   if(hanging){
     py+=(5.4-py)*Math.min(1,dt*2.4);   // towed above the water, high enough to throw tricks
@@ -2381,13 +2389,14 @@ function update(dt){
     score+=60*dt;
     speed=Math.min(60,speed+14*dt);
     if(!planeActive||plane.position.z>2)releaseRope(false);
-  } else if(airborne||py>waterY+0.05){
+  } else if(airborne||py>waterY+0.55){    // clear of the water — the swell fell away under it
     vy-=20*dt;py+=vy*dt;
     if(py<=waterY){
-      py=waterY;
+      const impact=Math.min(1.6,Math.max(0,-vy)/15);
       if(airborne){
-        splash(px,waterY,0,22);
-        pushTrail(px,waterY,0.5,1.4);
+        splash(px,waterY,0,20+impact*40);
+        pushTrail(px,waterY,0.5,1.4+impact*1.6);
+        shake=Math.max(shake,impact*0.55);
         const anySpin=spinRot>0.4||flipRot>0.4;
         if(grabOn&&(spinRot>0.4||flipRot>0.4||grabPts>40)){
           // still holding the rail when you touch down
@@ -2405,11 +2414,21 @@ function update(dt){
           }
         } else if(grabOn){ settleTricks(false,true); startWipeout('foam'); return; }
       }
-      airborne=false;vy=0;
+      airborne=false;
+      // it does not stop dead on the surface: it keeps driving down, buries itself,
+      // and the water throws it back — the harder the landing, the deeper it goes
+      vy*=0.34;
       player.rotation.set(0,0,0);
     }
   } else {
-    py+=(waterY-py)*Math.min(1,dt*14);
+    // Buoyancy as a spring the hull works against, not a rail it slides along. It
+    // lags a fast-building face, plunges when the water drops away and rebounds when
+    // it comes back, so the board has weight instead of hovering on the surface.
+    vy+=((waterY-py)*46 - vy*8.6)*dt;
+    vy=Math.max(-24,Math.min(24,vy));
+    py+=vy*dt;
+    if(py<waterY-1.20){py=waterY-1.20;vy=Math.max(vy,0);}     // it never goes right under
+    if(vy<-5.5&&Math.random()<dt*26)splash(px+(Math.random()-0.5)*0.8,py+0.15,-0.6,2);
   }
   trickReady=(airborne&&py>waterY+0.8)||hanging;   // you can trick while being towed
   trickBar.classList.toggle('hidden',!(trickReady||(!airborne&&!hanging)));
@@ -2493,7 +2512,7 @@ function update(dt){
   // board rig: damped yaw/lean/pitch — eases onto the rail like a real board
   const grab=grabOn&&(airborne||hanging);
   // the hull banks with the water across its rails as well as leaning into the turn
-  const yawT=-carve*0.30, leanT=carve*0.55 + (airborne?0:hullRoll*0.85);
+  const yawT=-carve*0.30, leanT=carve*0.55 + (airborne?0:hullRoll*1.20);
   const faceSlope=hT-hN;                     // downhill when the tail is higher
   // Ride fore and aft rather than sitting on one spot. Leaning drives him up the
   // board, leaning back settles him toward the tail of the shot, and dropping down
@@ -2502,10 +2521,10 @@ function update(dt){
   pz+=(pzT-pz)*Math.min(1,dt*2.2);
   player.position.set(px,py,pz);
   // it lies along the water it is resting on, plus whatever the rider's weight adds
-  const pitchT=airborne?-0.22:Math.max(-0.55,Math.min(0.60,hullPitch*1.15)) + leanW*0.62;
+  const pitchT=airborne?-0.22:Math.max(-0.62,Math.min(0.68,hullPitch*1.50)) + leanW*0.62;
   boardYaw+=(yawT-boardYaw)*Math.min(1,dt*7);
-  boardLean+=(leanT-boardLean)*Math.min(1,dt*7);
-  boardPitch+=(pitchT-boardPitch)*Math.min(1,dt*11);
+  boardLean+=(leanT-boardLean)*Math.min(1,dt*8.5);
+  boardPitch+=(pitchT-boardPitch)*Math.min(1,dt*13);
   const grabRoll = grab ? grabSide*0.30 : 0;   // board tips toward the rail he's holding
   rig.rotation.set(boardPitch,boardYaw,boardLean+grabRoll);
   animateRig(dt,carve,grab,waterY);

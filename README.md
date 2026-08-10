@@ -46,6 +46,17 @@ bounce you, and buoys, logs and shark fins end the run.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.23.0** — The board has weight in the water. It was hovering: it floated on the
+  highest point under the hull, a touch above it, and snapped to that line every frame,
+  which left it gliding over the sea rather than through it. It now displaces water —
+  it sits about a third of a unit lower, answers to the mean depth under its whole
+  length as well as the high point, and rides on a spring it has to work against
+  instead of a rail it slides along. So it lags a fast-building face, plunges when the
+  water falls away and rebounds when it comes back. A landing no longer stops dead on
+  the surface: it keeps driving down about a third of a unit, buries itself and gets
+  thrown back out, with spray and a camera kick scaled to how hard it hit. Carving
+  buries the inside rail up to 0.4 deeper, and the hull banks and pitches further with
+  the water it is lying on.
 - **v1.22.1** — Half a surfboard. The export carried an unapplied Mirror modifier, so
   the file genuinely only held the left side. Models are now checked for it — all the
   geometry on one side of the origin with a clean edge sitting on it — and the missing
