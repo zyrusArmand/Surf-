@@ -52,6 +52,11 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.51.0** — Glass with the colour still in it. The fill is let a long way down so the
+  sea genuinely comes through, the blur behind is pushed harder so what comes through stays
+  readable, and a sheen is laid across the top half — that highlight is what makes a
+  surface look like glass rather than like a flat panel at low opacity. The round in-game
+  buttons get the same treatment, so the whole game reads as one material.
 - **v1.50.0** — The menu is three buttons: Play, Beach shop and Records. Surfers were a
   door of their own onto a room they already had a tab in, so they live inside the shop
   where the boards do. The title keeps the place it has always sat and the buttons drop to
