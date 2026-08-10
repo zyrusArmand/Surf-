@@ -53,6 +53,16 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.31.0** — Paced properly. It used to throw all six obstacle types at you 17 units
+  apart from the first metre at 9.7 mph, which is a lot to meet at once. Now you start at
+  5 mph on open water with nothing but buoys and logs 30 units apart, and the cast arrives
+  a piece at a time — ramps at 220 m, jellyfish at 520, sharks at 950, the octopuses that
+  throw things at 1,500 — while the gap closes to 16 units over about three kilometres.
+  Spacing is held in metres rather than on a clock: timing the spawns meant that as the
+  interval tightened while the speed was still low, things actually bunched up tighter
+  mid-run than at the end, so difficulty went up, down, then up again. Speed starts at
+  5 mph and climbs the whole way out to a 60 mph ceiling instead of being most of the way
+  there by the first kilometre. The jet ski waits until 620 m and the whirlpool until 900.
 - **v1.30.0** — Dawn, sunrise, sunset and dusk are four different things now rather than
   one long orange smear. Dawn is soft and pale with the sun still under the water and no
   gold in it; sunrise is the hot low disc that follows; sunset goes deep orange into red;

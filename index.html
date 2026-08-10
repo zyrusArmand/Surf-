@@ -165,7 +165,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.30.0';
+const VERSION='1.31.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1890,7 +1890,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   planeT=34+Math.random()*26;planeActive=false;plane.visible=false;hanging=false;rope.visible=false;
   ropeBtn.style.display='none';ropeBtn.textContent='ROPE!';
   player.rotation.set(0,0,0);
-  spawnT=0.4;lastKind='';sameRun=0;bigFinCd=6;laneSlot=(Math.random()*5)|0;
+  spawnT=3.2;lastKind='';sameRun=0;bigFinCd=6;laneSlot=(Math.random()*5)|0;   // open water first
   revivesLeft=1;
 }
 // One second chance a run. He is put back on the board where he went in, with the
@@ -2690,7 +2690,7 @@ function spawnJetSki(){
 function updateJetSki(dt,eff){
   if(!skiOn){
     skiT-=dt;
-    if(skiT<=0){skiT=40+Math.random()*24;spawnJetSki();}
+    if(skiT<=0&&dist>620){skiT=40+Math.random()*24;spawnJetSki();}
   } else {
     // rips across the field
     jetSki.position.x+=skiDir*15*dt;      // slower, so it is on screen long enough to see
@@ -2865,7 +2865,7 @@ function spawnWhirl(){
 function updateWhirl(dt,eff){
   if(!whirl){
     whirlT-=dt;
-    if(whirlT<=0&&dist>240){whirlT=45+Math.random()*30;spawnWhirl();}
+    if(whirlT<=0&&dist>900){whirlT=45+Math.random()*30;spawnWhirl();}
     if(whA>0){whA=Math.max(0,whA-dt*5);whirlArt.scale.y=Math.max(0.001,whA);}
     if(whA<=0)whirlArt.visible=false;
     return;
@@ -3274,7 +3274,11 @@ function updateHandstand(dt,carve){
 // ---------- update ----------
 function update(dt){
   tNow+=dt;
-  speed=Math.min(50,13.5+dist/230);
+  // Paddling pace to start — the HUD reads mph as eff*0.62, so 8.2 is 5 — and it
+  // climbs the whole way out rather than being most of the way there by the first
+  // kilometre. The ceiling is where 60 mph lives, once leaning and trick boost are on
+  // top of it.
+  speed=Math.min(84,8.2+dist/210);
 
   // momentum carving
   let wt=weight+(keys.KeyW||keys.ArrowUp?-1:0)+(keys.KeyS||keys.ArrowDown?1:0);
@@ -3305,7 +3309,7 @@ function update(dt){
   // leaning is a real throttle now: forward drives hard, back scrubs hard
   const trim=(leanW>=0 ? leanW*16.0 : leanW*19.0) + faceDrive;
   boost=Math.max(0,boost-dt*3.0);            // speed carried out of a trick, bleeding off
-  const eff=Math.max(8,speed+Math.abs(vx)*0.3+trim+boost);
+  const eff=Math.max(8,Math.min(97,speed+Math.abs(vx)*0.3+trim+boost));   // 97 reads as 60 mph
   lastEff=eff;
   dist+=eff*dt;
   score+=eff*dt*0.6;
@@ -3496,9 +3500,21 @@ function update(dt){
   bigFinCd=Math.max(0,bigFinCd-dt);
   spawnT-=dt;
   if(spawnT<=0){
-    spawnT=Math.max(0.35,1.1-dist/900)*(0.6+Math.random()*0.8);
-    // weighted bag with anti-repeat: same type can't appear more than twice in a row
-    const WEIGHTS=[['buoy',24],['jelly',21],['log',18],['ramp',17],['octopus',14],['bigfin',11]];
+    // Space them by the gap on the water, not by the clock. Timing the spawns meant
+    // that as the ramp pulled the interval down while the speed was still low, the
+    // obstacles bunched up tighter mid-run than they ever are at the end. Held in
+    // metres it only ever opens or closes the way it is meant to: thirty units apart
+    // to start, closing to sixteen over about three kilometres, after which the speed
+    // alone keeps taking the reaction time away.
+    const wantGap=Math.max(16,30-dist/230);
+    // ...with a floor on the clock as well, so that once the speed is silly it stays
+    // merely hard rather than becoming a wall nothing could be threaded
+    spawnT=Math.max(0.42,wantGap/Math.max(8,eff))*(0.75+Math.random()*0.5);
+    // ...and the cast arrives a piece at a time. Buoys and logs are the whole game to
+    // begin with; ramps, then jellyfish, then sharks, then the octopuses that throw
+    // things at you, each one introduced with room to get used to it.
+    const WEIGHTS=[['buoy',24,0],['log',18,0],['ramp',17,220],['jelly',21,520],
+                   ['bigfin',11,950],['octopus',14,1500]].filter(w=>dist>=w[2]);
     let pick=null;
     for(let tries=0;tries<8;tries++){
       let total=0;for(const w of WEIGHTS)total+=w[1];
@@ -3519,7 +3535,8 @@ function update(dt){
     const laneX=(-3+laneSlot)*4.9+(Math.random()-0.5)*3.0;
     makeObstacle(pick,Math.max(-17,Math.min(17,px*0.55+laneX)),-170);
     // and every so often drop an extra one right against an edge
-    if(Math.random()<0.34){
+    // the second one out by the edge only starts once you are well into a run
+    if(dist>800&&Math.random()<0.30){
       const edge=(Math.random()<0.5?-1:1)*(11.5+Math.random()*4.5);
       makeObstacle(Math.random()<0.5?'buoy':'log',edge,-176);
     }
