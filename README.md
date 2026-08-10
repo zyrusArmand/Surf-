@@ -53,6 +53,11 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.29.1** — Whirlpools come round in about a third of the time. The first was on a
+  55-95 second timer, which on the speed curve put it 840 to 1,590 m out — far enough
+  that an ordinary run never met one. It is 26 to 42 seconds now, roughly 470 to 800 m,
+  and the repeat drops from 75-130 seconds to 45-75. The 240 m floor stays, so one can
+  never open in the first few seconds.
 - **v1.29.0** — Two more things behind the wake launch, both found by measuring it.
   The wave was dying before it arrived: its lifetime dated from when the ski crossed
   forty units out, and over the new hundred-unit approach it faded on the way in and
