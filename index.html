@@ -68,6 +68,8 @@
                inset 0 -7px 14px rgba(0,40,80,.16);
     transition:transform .09s ease, box-shadow .09s ease;
   }
+  .tbtn.ready { box-shadow:0 0 0 3px rgba(255,246,150,.92), 0 0 26px rgba(255,224,60,.75),
+    inset 0 1px 0 rgba(255,255,255,.7); border-color:#fff8c0; }
   .tbtn:active { transform:scale(.9);
     box-shadow:0 2px 8px rgba(0,25,50,.28), inset 0 1px 0 rgba(255,255,255,.45); }
   #rollBtn { background:linear-gradient(160deg, rgba(50,176,255,.86), rgba(0,110,226,.66)); }
@@ -389,7 +391,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.55.0';
+const VERSION='1.56.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -3019,7 +3021,7 @@ let px=0,py=0,pz=0,vy=0,vx=0,cutCd=0,airborne=false,trickReady=false;
 const BOARD_HALF_L=2.45, BOARD_HALF_W=0.55;   // the hull's own footprint
 let boardYaw=0,boardLean=0,boardPitch=0,camX=0,camY=5.0,camZ=11.0,lookX=0,sprayAcc=0,leanW=0,pearlT=0;
 let tailAcc=0;    // the wash the tail throws just from moving
-let spinHeld=false,flipHeld=false,spinRot=0,flipRot=0;
+let spinHeld=false,flipHeld=false,pitchHeld=false,spinRot=0,flipRot=0;
 // Tapped tricks queue whole turns rather than spinning for as long as a button is
 // held. Committing a full revolution at a time is what makes tapping land square:
 // you only eat it if you asked for more rotation than you had air for. The counters
@@ -3262,9 +3264,24 @@ function holdBtn(el,down,up){
   el.addEventListener('touchcancel',e=>{up();});
   el.addEventListener('mousedown',e=>{e.preventDefault();down();});
 }
-pressBtn(rollBtn,()=>addRoll(1,'button'));
-pressBtn(flipBtn,()=>addFlip(1,'button'));
-pressBtn(spinBtn,()=>addSpin(1,'button'));
+// Hold to turn, let go to stop. A trick is now a thing you time rather than a thing
+// you trigger: he keeps rotating for as long as the button is down, and where he is
+// pointing when you release is the attitude he lands in. Come down square and it
+// scores; come down crooked and he goes in crooked.
+function spinBtnDown(set){
+  return ()=>{
+    if(!running||wipe)return;
+    if(!airborne&&!hanging)doJump();
+    set(true);
+    noteTrick(set.trick,'button');
+  };
+}
+const holdRoll =s2=>{flipHeld =s2;}; holdRoll.trick='roll';
+const holdFlip =s2=>{pitchHeld=s2;}; holdFlip.trick='flip';
+const holdSpin =s2=>{spinHeld =s2;}; holdSpin.trick='spin';
+holdBtn(rollBtn, spinBtnDown(holdRoll), ()=>{flipHeld=false;});
+holdBtn(flipBtn, spinBtnDown(holdFlip), ()=>{pitchHeld=false;});
+holdBtn(spinBtn, spinBtnDown(holdSpin), ()=>{spinHeld=false;});
 holdBtn(handBtn,()=>{handOn=true;handSrc='button';},()=>{handOn=false;});
 addEventListener('mouseup',()=>{
   if(touchMode){endGrab();endDrag();releaseSpin();endMouseDrag();handOn=false;return;}
@@ -3316,7 +3333,7 @@ function releaseTrick(type){
   if(type==='spin')spinHeld=false;
   else if(type==='flip')flipHeld=false;
 }
-function releaseSpin(){ spinHeld=false; flipHeld=false; }
+function releaseSpin(){ spinHeld=false; flipHeld=false; pitchHeld=false; }
 function startDrag(src){
   if(!running||airborne||hanging||dragOn)return;
   dragOn=true;dragPts=0;dragSide=vx>=0?1:-1;dragSrc=src||'gesture';
@@ -3336,31 +3353,26 @@ function endGrab(){
   }
 }
 // everything you're doing in the air, scored and judged together
-// A trick thrown over and over is worth less each time; the count decays back as you
-// do other things. Spamming one button was the cheapest score in the game.
-const trickFade={};
-function fade(k){
-  const n=trickFade[k]||0; trickFade[k]=n+1;
-  return Math.max(0.25, Math.pow(0.72,n));
-}
-function coolTricks(dt){
-  for(const k in trickFade){ trickFade[k]=Math.max(0,trickFade[k]-dt*0.34);
-    if(trickFade[k]<=0)delete trickFade[k]; }
-}
 function settleTricks(landed,keepPose){
   let pts=0,names=[];
   const spinRevs=spinRot/(Math.PI*2), flipRevs=flipRot/(Math.PI*2), pitchRevs=pitchRot/(Math.PI*2);
-  if(spinRot>0.4){pts+=Math.round(Math.floor(spinRevs*4)*90*fade('spin'));names.push(Math.round(spinRevs*360)+'° SPIN');}
-  if(flipRot>0.4){pts+=Math.round(Math.floor(flipRevs*4)*110*fade('roll'));names.push(Math.round(flipRevs*360)+'° ROLL');}
-  if(pitchRot>0.4){pts+=Math.round(Math.floor(pitchRevs*4)*130*fade('flip'));names.push(Math.round(pitchRevs*360)+'° FLIP');}
+  if(spinRot>0.4){pts+=Math.floor(spinRevs*4)*90;names.push(Math.round(spinRevs*360)+'° SPIN');}
+  if(flipRot>0.4){pts+=Math.floor(flipRevs*4)*110;names.push(Math.round(flipRevs*360)+'° ROLL');}
+  if(pitchRot>0.4){pts+=Math.floor(pitchRevs*4)*130;names.push(Math.round(pitchRevs*360)+'° FLIP');}
   if(grabOn&&grabPts>=30){pts+=Math.round(grabPts);names.push(grabSide>0?'INDY':'MELON');}
   if(landed&&pts>0){
     if(names.length>1)pts=Math.round(pts*1.5);          // combo bonus
+    // How square he came down. Releasing on the beat is the whole skill now, so it is
+    // what the score is actually paying for.
+    const sq=a2=>Math.abs(((a2+Math.PI)%(Math.PI*2))-Math.PI);
+    const off=Math.max(sq(spinRot),sq(flipRot),sq(pitchRot));
+    if(off<0.16){ pts=Math.round(pts*2.0); names.push('PERFECT'); }
+    else if(off<0.45){ pts=Math.round(pts*1.4); names.push('CLEAN'); }
     score+=pts;
     boost=Math.min(16,boost+5+Math.min(7,pts/110));   // ride out of it with speed
     msg(names.join(' + ')+(names.length>1?' COMBO':'')+`! +${pts}`);
   }
-  spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;spinHeld=false;flipHeld=false;
+  spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;spinHeld=false;flipHeld=false;pitchHeld=false;
   grabOn=false;grabPts=0;
   spinQ=0;flipQ=0;pitchQ=0;pitchRot=0;   // anything still owed dies with the landing
   if(!keepPose)player.rotation.set(0,0,0);
@@ -3393,7 +3405,6 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   for(const o of obstacles)scene.remove(o);obstacles.length=0;
   dist=0;speed=13.5;score=0;px=0;py=0;pz=0;vy=0;vx=0;cutCd=0;airborne=false;trick=null;
   boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;
-  for(const k in trickFade)delete trickFade[k];
   trail.length=0;trailT=0;
   skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;skiGlint.visible=false;wkA=0;
   splatT=0;splatCd=0;if(zapEl)zapEl.classList.remove('on');
@@ -3429,7 +3440,7 @@ function respawn(){
   splatT=0;splat3D.visible=false;
   while(stars.length){const st=stars.pop();st.m.visible=false;STAR_POOL.push(st.m);}
   px=0;py=0;pz=0;vy=0;vx=0;airborne=false;trick=null;spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;
-  spinHeld=false;flipHeld=false;grabOn=false;grabPts=0;spinQ=0;flipQ=0;spinSign=1;flipSign=1;
+  spinHeld=false;flipHeld=false;pitchHeld=false;grabOn=false;grabPts=0;spinQ=0;flipQ=0;spinSign=1;flipSign=1;
   pitchRot=0;pitchQ=0;pitchSign=1;
   boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;cutCd=0;
   spawnT=1.8;
@@ -3553,7 +3564,7 @@ function startWipeout(kind){
   pug.position.set(0,0.12,0);
   rig.position.set(px,py,0);
   rig.rotation.set(keep.x+player.rotation.x,keep.y+player.rotation.y,keep.z+player.rotation.z);
-  spinHeld=false;flipHeld=false;spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;grabOn=false;dragOn=false;
+  spinHeld=false;flipHeld=false;pitchHeld=false;spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;grabOn=false;dragOn=false;
 }
 function updateWipeout(dt){
   const w=wipe; w.t+=dt;
@@ -4936,7 +4947,6 @@ function update(dt){
   // stuck to the face instead: a much harder spring, and far more daylight needed
   // under the board before it counts as air. The crest is then the only way off.
   wakeGrace=Math.max(0,wakeGrace-dt);
-  coolTricks(dt);
   const onWake=wkA>2.5&&skiWake&&skiWake.z<pz+1.0;
   // Riding UP the face, before the crest reaches him. He used to come off the rising
   // water here, go ballistic under full gravity, and be falling hard by the time the
@@ -5043,6 +5053,11 @@ function update(dt){
   // water and reaching trick height, which on every small jump read as a glitch.
   // Every trick jumps for you off the water anyway, so all five are always live.
   trickBar.classList.remove('hidden');
+  // the button lights while that axis is squared up — this is what teaches the timing
+  const sqr=a2=>Math.abs(((a2+Math.PI)%(Math.PI*2))-Math.PI)<0.45;
+  rollBtn.classList.toggle('ready',flipHeld &&flipRot >0.5&&sqr(flipRot));
+  flipBtn.classList.toggle('ready',pitchHeld&&pitchRot>0.5&&sqr(pitchRot));
+  spinBtn.classList.toggle('ready',spinHeld &&spinRot >0.5&&sqr(spinRot));
   jumpBtn.style.opacity=trickReady?'0.25':'1';
 
   // Pearling went with the fore-and-aft weight it depended on: without a way to put
@@ -5122,7 +5137,8 @@ function update(dt){
     else if(spinQ>0){const d=Math.min(dt*SPIN_RATE,spinQ);spinRot+=d;spinQ-=d;}
     if(flipHeld)flipRot+=dt*FLIP_RATE;
     else if(flipQ>0){const d=Math.min(dt*FLIP_RATE,flipQ);flipRot+=d;flipQ-=d;}
-    if(pitchQ>0){const d=Math.min(dt*FLIP_RATE,pitchQ);pitchRot+=d;pitchQ-=d;}
+    if(pitchHeld)pitchRot+=dt*FLIP_RATE;
+    else if(pitchQ>0){const d=Math.min(dt*FLIP_RATE,pitchQ);pitchRot+=d;pitchQ-=d;}
     if(grabOn)grabPts+=95*dt;
     player.rotation.set(pitchRot*pitchSign,spinRot*spinSign,flipRot*flipSign);
     // rope tricks bank as soon as you square up
@@ -5132,7 +5148,7 @@ function update(dt){
                           Math.abs(((pitchRot+Math.PI)%(Math.PI*2))-Math.PI));
       if(offS<0.7&&offF<0.7)settleTricks(true);
     }
-  } else { spinHeld=false; flipHeld=false; }
+  } else { spinHeld=false; flipHeld=false; pitchHeld=false; }
   if(trick&&trick.type==='back'){
     trick.t+=dt;
     const prog=Math.min(1,trick.t/trick.dur);

@@ -52,6 +52,12 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.56.0** — Tricks are timed. Hold ROLL, FLIP or SPIN and he keeps turning for as long
+  as the button is down; where he is pointing when you let go is the attitude he lands in.
+  The button lights while that axis is squared up, which is what teaches the window: 115 ms
+  either side of a whole turn to land CLEAN and take 1.4x, 41 ms for PERFECT and double.
+  Come down outside it and he goes in crooked, as he always did. The per-trick payout decay
+  goes with it — with a window to hit there is nothing left to spam.
 - **v1.55.0** — Stats replaces Records on the menu: hero tiles for your bests, how far you
   have surfed measured in swimming pools, your favourite trick, the thing that ends most of
   your runs. Records — every count, every death, the whole difficulty curve — is a workshop
