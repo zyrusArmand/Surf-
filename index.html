@@ -219,7 +219,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.38.0';
+const VERSION='1.39.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2178,11 +2178,19 @@ let spinHeld=false,flipHeld=false,spinRot=0,flipRot=0;
 // stay positive so the landing check is unchanged; the direction is a sign applied
 // when the pose is set.
 let spinQ=0, flipQ=0, spinSign=1, flipSign=1;
+// rotation.z was always a roll about the board's long axis — a barrel roll — so a
+// front or back flip needs its own axis. pitchRot turns him end over end.
+let pitchRot=0, pitchQ=0, pitchSign=1;
 const TURN=Math.PI*2;
-function addFlip(dir){
+function addRoll(dir){                      // barrel roll, about the length of the board
   if(!running||wipe)return;
   if(!airborne&&!hanging)doJump();
   flipSign=dir||1; flipQ=Math.min(flipQ+TURN,TURN*4);
+}
+function addFlip(dir){                      // front or back flip, end over end
+  if(!running||wipe)return;
+  if(!airborne&&!hanging)doJump();
+  pitchSign=dir||1; pitchQ=Math.min(pitchQ+TURN,TURN*4);
 }
 function addSpin(dir){
   if(!running||wipe)return;
@@ -2238,6 +2246,44 @@ function dropSteerTouch(){touchId=null;steer=0;weight=0;}
 // carve can keep going, and classifying a gesture against a moving origin would
 // never work.
 let gT0=0, gX0=0, gY0=0, gMove=0, gSwiped=false, gGrab=false, gHoldT=null;
+// A circle drawn with one finger is a spin. The swept angle is accumulated around a
+// rolling centre of the recent path, so it does not matter where on the screen the
+// circle is drawn or how big it is — only that the finger has actually gone round.
+let cPts=[], cAng=0, cLast=0, cCirc=false, gFireT=0;
+function circleReset(){ cPts.length=0; cAng=0; cCirc=false; }
+// one gesture per flick: without this the origin keeps rearming and a single swipe
+// throws three rotations before the finger has stopped
+function canFire(){ return performance.now()-gFireT>250; }
+function fired(x,y){ gFireT=performance.now(); gX0=x; gY0=y; }
+function circleFeed(x,y){
+  cPts.push(x,y);
+  if(cPts.length>24)cPts.splice(0,2);
+  if(cPts.length<8)return 0;      // four points is enough to know it is turning
+  let mx=0,my=0;
+  for(let i=0;i<cPts.length;i+=2){mx+=cPts[i];my+=cPts[i+1];}
+  mx/=cPts.length/2; my/=cPts.length/2;
+  const r=Math.hypot(x-mx,y-my);
+  if(r<innerWidth*0.045){cLast=0;return 0;}       // too tight to be a deliberate loop
+  const a=Math.atan2(y-my,x-mx);
+  if(cLast!==0){
+    let d=a-cLast;
+    while(d>Math.PI)d-=Math.PI*2;
+    while(d<-Math.PI)d+=Math.PI*2;
+    if(Math.abs(d)<1.2)cAng+=d;                   // ignore jumps: those are not sweep
+    // Flag a loop early — before the finger has travelled far enough for the swipe
+    // thresholds — or the first quarter of a circle reads as a straight flick and
+    // rolls him before the loop is recognised. A flick is too short to get here:
+    // the sweep is only measured once there are several points to measure it from.
+    if(Math.abs(cAng)>0.55)cCirc=true;
+  }
+  cLast=a;
+  if(Math.abs(cAng)>Math.PI*1.5){                 // three quarters of a turn is enough
+    const dir=cAng>0?-1:1;
+    cAng=0; cPts.length=0;
+    return dir;
+  }
+  return 0;
+}
 // A phone fires a synthetic mouse click after every touch, so the mouse path would
 // run the gesture a second time — a tap would jump and then immediately flip. Once
 // a real touch has been seen, the mouse handlers stand down for good.
@@ -2260,6 +2306,7 @@ addEventListener('touchstart',e=>{
     if(touchId===null){
       touchId=t.identifier;touchX0=t.clientX;touchY0=t.clientY;
       gT0=performance.now();gX0=t.clientX;gY0=t.clientY;gMove=0;gSwiped=false;gGrab=false;
+      circleReset();cLast=0;gFireT=0;
       clearTimeout(gHoldT);
       gHoldT=setTimeout(()=>{                       // held still: take hold of the rail
         if(touchId===null||gMove>TAP_SLOP||gSwiped)return;
@@ -2283,10 +2330,13 @@ addEventListener('touchmove',e=>{
       steer=v;    // side to side and nothing else: up and down do not steer him
       const dx=t.clientX-gX0, dy=t.clientY-gY0;
       gMove=Math.max(gMove,Math.hypot(dx,dy));
-      if(!gSwiped&&!gGrab&&Math.abs(dy)>innerHeight*0.085&&Math.abs(dy)>Math.abs(dx)*1.45){
-        gSwiped=true; clearTimeout(gHoldT);
-        addFlip(dy<0?1:-1);                        // up is a front flip, down a back one
-      }
+      // Loops fire as they are drawn, so you can keep circling. A straight swipe is
+      // settled when the finger comes off instead: judged on the way past, the first
+      // quarter of a circle is indistinguishable from a flick and throws a roll before
+      // the loop has had a chance to declare itself.
+      const loop=circleFeed(t.clientX,t.clientY);
+      if(loop&&canFire()){ gSwiped=true; clearTimeout(gHoldT); addSpin(loop); fired(t.clientX,t.clientY); }
+      else if(!gGrab&&(Math.abs(dx)>TAP_SLOP||Math.abs(dy)>TAP_SLOP))clearTimeout(gHoldT);
     }
   }
 },{passive:true});
@@ -2294,17 +2344,22 @@ function endTouch(e){
   for(const t of e.changedTouches){
     if(t.identifier===auxId){
       clearAux();
-      if(auxHand)handOn=false;
-      else if(performance.now()-auxT0<TAP_MS+60)addSpin(vx>=0?1:-1);
+      if(auxHand)handOn=false;                 // spin moved to a one-finger circle
       auxId=null;
     }
   }
   for(const t of e.changedTouches)if(t.identifier===touchId){
     clearTimeout(gHoldT);
+    const dx=t.clientX-gX0, dy=t.clientY-gY0;
     if(gGrab){ endGrab(); endDrag(); }
     else if(!gSwiped&&performance.now()-gT0<TAP_MS&&gMove<TAP_SLOP){
-      if(airborne||hanging)addFlip(flipSign);    // keep tapping, keep flipping
+      if(airborne||hanging)addRoll(flipSign);    // keep tapping, keep rolling
       else doJump();
+    }
+    else if(!cCirc&&!gSwiped){
+      if(Math.abs(dy)>innerHeight*0.09&&Math.abs(dy)>Math.abs(dx)*1.3)addRoll(dy<0?1:-1);
+      else if((airborne||hanging)&&Math.abs(dx)>innerWidth*0.19&&Math.abs(dx)>Math.abs(dy)*1.3)
+        addFlip(dx>0?1:-1);
     }
     dropSteerTouch();return;
   }
@@ -2315,12 +2370,12 @@ addEventListener('touchend',endTouch);
 addEventListener('touchcancel',endTouch);       // without this, a cancelled touch froze steering
 addEventListener('blur',()=>{dropSteerTouch();endMouseDrag();});
 // mouse steering for desktop: drag anywhere on the water, same feel as a swipe
-let mouseDrag=false,mouseX0=0,mouseY0=0;
+let mouseDrag=false,mouseX0=0,mouseY0=0,lastMouseX=0,lastMouseY=0;
 addEventListener('mousedown',e=>{
   if(touchMode||!running)return;
   if(e.target.closest&&(e.target.closest('.btn')||e.target.closest('.tbtn')))return;
   mouseDrag=true;mouseX0=e.clientX;mouseY0=e.clientY;
-  gT0=performance.now();gX0=e.clientX;gY0=e.clientY;gMove=0;gSwiped=false;
+  gT0=performance.now();gX0=e.clientX;gY0=e.clientY;gMove=0;gSwiped=false;circleReset();cLast=0;gFireT=0;
 });
 addEventListener('mousemove',e=>{
   if(touchMode||!mouseDrag)return;
@@ -2330,10 +2385,9 @@ addEventListener('mousemove',e=>{
   if(v<-1){mouseX0=e.clientX+range;v=-1;}
   steer=v;
   const dxg=e.clientX-gX0, dyg=e.clientY-gY0;
-  gMove=Math.max(gMove,Math.hypot(dxg,dyg));
-  if(!gSwiped&&Math.abs(dyg)>innerHeight*0.085&&Math.abs(dyg)>Math.abs(dxg)*1.45){
-    gSwiped=true; addFlip(dyg<0?1:-1);
-  }
+  gMove=Math.max(gMove,Math.hypot(dxg,dyg));lastMouseX=e.clientX;lastMouseY=e.clientY;
+  const loopM=circleFeed(e.clientX,e.clientY);
+  if(loopM&&canFire()){ gSwiped=true; addSpin(loopM); fired(e.clientX,e.clientY); }
 });
 function endMouseDrag(){ if(mouseDrag){mouseDrag=false;steer=0;weight=0;} }
 addEventListener('mouseleave',endMouseDrag);
@@ -2355,8 +2409,15 @@ handBtn.addEventListener('touchend',e=>{e.preventDefault();handOn=false;});
 handBtn.addEventListener('mousedown',()=>{handOn=true;});
 addEventListener('mouseup',()=>{
   if(touchMode){endGrab();endDrag();releaseSpin();endMouseDrag();handOn=false;return;}
-  if(running&&mouseDrag&&!gSwiped&&performance.now()-gT0<TAP_MS&&gMove<TAP_SLOP){
-    if(airborne||hanging)addFlip(flipSign); else doJump();
+  if(running&&mouseDrag){
+    const dxg=lastMouseX-gX0, dyg=lastMouseY-gY0;
+    if(!gSwiped&&performance.now()-gT0<TAP_MS&&gMove<TAP_SLOP){
+      if(airborne||hanging)addRoll(flipSign); else doJump();
+    } else if(!cCirc&&!gSwiped){
+      if(Math.abs(dyg)>innerHeight*0.09&&Math.abs(dyg)>Math.abs(dxg)*1.3)addRoll(dyg<0?1:-1);
+      else if((airborne||hanging)&&Math.abs(dxg)>innerWidth*0.19&&Math.abs(dxg)>Math.abs(dyg)*1.3)
+        addFlip(dxg>0?1:-1);
+    }
   }
   endGrab();endDrag();releaseSpin();endMouseDrag();handOn=false;
 });
@@ -2418,9 +2479,10 @@ function endGrab(){
 // everything you're doing in the air, scored and judged together
 function settleTricks(landed,keepPose){
   let pts=0,names=[];
-  const spinRevs=spinRot/(Math.PI*2), flipRevs=flipRot/(Math.PI*2);
+  const spinRevs=spinRot/(Math.PI*2), flipRevs=flipRot/(Math.PI*2), pitchRevs=pitchRot/(Math.PI*2);
   if(spinRot>0.4){pts+=Math.floor(spinRevs*4)*90;names.push(Math.round(spinRevs*360)+'° SPIN');}
-  if(flipRot>0.4){pts+=Math.floor(flipRevs*4)*110;names.push(Math.round(flipRevs*360)+'° FLIP');}
+  if(flipRot>0.4){pts+=Math.floor(flipRevs*4)*110;names.push(Math.round(flipRevs*360)+'° ROLL');}
+  if(pitchRot>0.4){pts+=Math.floor(pitchRevs*4)*130;names.push(Math.round(pitchRevs*360)+'° FLIP');}
   if(grabOn&&grabPts>=30){pts+=Math.round(grabPts);names.push(grabSide>0?'INDY':'MELON');}
   if(landed&&pts>0){
     if(names.length>1)pts=Math.round(pts*1.5);          // combo bonus
@@ -2428,9 +2490,9 @@ function settleTricks(landed,keepPose){
     boost=Math.min(16,boost+5+Math.min(7,pts/110));   // ride out of it with speed
     msg(names.join(' + ')+(names.length>1?' COMBO':'')+`! +${pts}`);
   }
-  spinRot=0;flipRot=0;spinHeld=false;flipHeld=false;
+  spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;spinHeld=false;flipHeld=false;
   grabOn=false;grabPts=0;
-  spinQ=0;flipQ=0;                      // anything still owed dies with the landing
+  spinQ=0;flipQ=0;pitchQ=0;pitchRot=0;   // anything still owed dies with the landing
   if(!keepPose)player.rotation.set(0,0,0);
   return pts;
 }
@@ -2494,8 +2556,9 @@ function respawn(){
   planeActive=false;plane.visible=false;planeT=30+Math.random()*24;
   splatT=0;splat3D.visible=false;
   while(stars.length){const st=stars.pop();st.m.visible=false;STAR_POOL.push(st.m);}
-  px=0;py=0;pz=0;vy=0;vx=0;airborne=false;trick=null;spinRot=0;flipRot=0;
+  px=0;py=0;pz=0;vy=0;vx=0;airborne=false;trick=null;spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;
   spinHeld=false;flipHeld=false;grabOn=false;grabPts=0;spinQ=0;flipQ=0;spinSign=1;flipSign=1;
+  pitchRot=0;pitchQ=0;pitchSign=1;
   boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;cutCd=0;
   spawnT=1.8;
   overlayUp=false;running=true;last=performance.now();
@@ -2584,7 +2647,7 @@ function startWipeout(kind){
   pug.position.set(0,0.12,0);
   rig.position.set(px,py,0);
   rig.rotation.set(keep.x+player.rotation.x,keep.y+player.rotation.y,keep.z+player.rotation.z);
-  spinHeld=false;flipHeld=false;spinRot=0;flipRot=0;grabOn=false;dragOn=false;
+  spinHeld=false;flipHeld=false;spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;grabOn=false;dragOn=false;
 }
 function updateWipeout(dt){
   const w=wipe; w.t+=dt;
@@ -3933,7 +3996,7 @@ function update(dt){
         splash(px,waterY,0,20+impact*40);
         pushTrail(px,waterY,0.5,1.4+impact*1.6);
         shake=Math.max(shake,impact*0.55);
-        const anySpin=spinRot>0.4||flipRot>0.4;
+        const anySpin=spinRot>0.4||flipRot>0.4||pitchRot>0.4;
         if(grabOn&&(spinRot>0.4||flipRot>0.4||grabPts>40)){
           // still holding the rail when you touch down
           carrySpin=spinHeld?SPIN_RATE:0; carryFlip=flipHeld?FLIP_RATE:0;
@@ -3941,7 +4004,8 @@ function update(dt){
         }
         if(anySpin){
           const offS=Math.abs(((spinRot+Math.PI)%(Math.PI*2))-Math.PI);
-          const offF=Math.abs(((flipRot+Math.PI)%(Math.PI*2))-Math.PI);
+          const offF=Math.max(Math.abs(((flipRot+Math.PI)%(Math.PI*2))-Math.PI),
+                              Math.abs(((pitchRot+Math.PI)%(Math.PI*2))-Math.PI));
           if(offS<0.62&&offF<0.62){ settleTricks(true); }
           else {
             // he goes in exactly as he was: same attitude, still turning the same way
@@ -4065,12 +4129,14 @@ function update(dt){
     else if(spinQ>0){const d=Math.min(dt*SPIN_RATE,spinQ);spinRot+=d;spinQ-=d;}
     if(flipHeld)flipRot+=dt*FLIP_RATE;
     else if(flipQ>0){const d=Math.min(dt*FLIP_RATE,flipQ);flipRot+=d;flipQ-=d;}
+    if(pitchQ>0){const d=Math.min(dt*FLIP_RATE,pitchQ);pitchRot+=d;pitchQ-=d;}
     if(grabOn)grabPts+=95*dt;
-    player.rotation.set(0,spinRot*spinSign,flipRot*flipSign);
+    player.rotation.set(pitchRot*pitchSign,spinRot*spinSign,flipRot*flipSign);
     // rope tricks bank as soon as you square up
     if(hanging&&!spinHeld&&!flipHeld&&(spinRot>0.4||flipRot>0.4)){
       const offS=Math.abs(((spinRot+Math.PI)%(Math.PI*2))-Math.PI);
-      const offF=Math.abs(((flipRot+Math.PI)%(Math.PI*2))-Math.PI);
+      const offF=Math.max(Math.abs(((flipRot+Math.PI)%(Math.PI*2))-Math.PI),
+                          Math.abs(((pitchRot+Math.PI)%(Math.PI*2))-Math.PI));
       if(offS<0.7&&offF<0.7)settleTricks(true);
     }
   } else { spinHeld=false; flipHeld=false; }

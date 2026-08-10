@@ -21,11 +21,11 @@ npx http-server -p 8080 .   # then open http://localhost:8080
 
 | Action | Touch | Keyboard |
 | --- | --- | --- |
-| Carve left / right | swipe left / right | `A` / `D` or `←` / `→` |
+| Carve left / right | swipe left / right on the water | `A` / `D` or `←` / `→` |
 | Jump | tap | `Space` |
-| Flip | tap again in the air — keep tapping for more | `K` (hold) |
-| Front / back flip | swipe up / swipe down | — |
-| Spin | tap with a second finger | `J` (hold) |
+| Barrel roll | swipe up or down — or tap again in the air | `K` (hold) |
+| Front / back flip | swipe right / left while airborne | — |
+| Spin | draw a circle with one finger | `J` (hold) |
 | Grab (air) / hand drag (water) | press and hold | `L` (hold) |
 | Handstand (water or air) | hold a second finger | `H` (hold) |
 | Grab the seaplane's rope | ROPE! button | — |
@@ -52,6 +52,13 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.39.0** — Gestures remapped and a third axis added. Swipe up or down for a barrel
+  roll, swipe left or right in the air for a real front or back flip — rotation about the
+  board's length was all there ever was, so an end-over-end flip needed an axis of its own
+  — and draw a circle with one finger to spin, which no longer needs a second finger.
+  Straight swipes are settled when the finger comes off rather than as it passes: judged
+  on the way past, the first quarter of a circle is indistinguishable from a flick and was
+  throwing a roll before the loop had declared itself.
 - **v1.38.0** — Astro's own board gets its livery: black rails and hull, a turquoise deck,
   turquoise fins and 17 laid across the tail in black with a white outline. The model
   arrives with its own colours and those are normally left alone, so this one board is
