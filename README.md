@@ -52,6 +52,24 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.65.0** — Stood up straight, welded together, and each animal built more like the
+  animal. The shop portraits were photographing whatever pose the rig happened to be left
+  in — and the rig is always mid-ride, hunched over the nose with its feet crossed along
+  the board — which is why every character looked like it was falling forward. Portraits
+  now take a neutral standing pose and put the riding one back afterwards, and they frame
+  on height rather than on the bounding sphere, so a sloth's arms and a T. rex's tail stop
+  shrinking the animal and the whole cast lines up at one size. Arms had daylight behind
+  them because the shoulder sat on the silhouette edge: the sockets moved inside the chest
+  and every limb grew a deltoid and a haunch that sink into the body, sized against the
+  arm's thickness rather than its length so a T. rex's stubs still have shoulders. Leg
+  LENGTH is now separate from leg thickness — a corgi is the same dog on a third less leg
+  — and the pelvis drop that keeps the feet on the deck is measured from the actual hip
+  and knee angles each frame rather than guessed, because how much height a short leg
+  costs depends on how bent it is. Measured across the cast, feet sit within 1.4 cm of
+  each other relative to the board. Then the animals themselves: a corgi is a long low
+  barrel on stumps, an otter is narrow and long with a pale throat and muzzle instead of
+  a bear's cream belly, a raccoon has a proper bandit mask with a pale brow over it, a
+  penguin has flat flippers and orange feet, and a cat is the slimmest thing out there.
 - **v1.64.0** — Soft-bodied, the way Party Animals and Fall Guys are. A limb that halves
   in width from hip to ankle reads as a carrot, so the taper is nearly gone: thigh 0.150 to
   0.140, shin 0.140 to 0.130, and both are a third shorter than they were. Hands are one
