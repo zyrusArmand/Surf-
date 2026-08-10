@@ -219,7 +219,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.37.0';
+const VERSION='1.38.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -828,6 +828,88 @@ function loadModel(file,onReady){
 // may not arrive until the rider is already carving
 const BOARD_BOX=boxOf(stockBoard);
 const BOARD_SLAB=slabY(stockBoard);
+// ---------- Astro's own livery ----------
+// Black rails and hull, a turquoise panel down the middle of the deck with 17 laid
+// over it, and turquoise fins. The model arrives with its own colours, which is
+// normally left alone — this one board is deliberately repainted, and by position
+// rather than by material, because the export has three material groups and the
+// scheme needs five regions out of them.
+const AS_BLACK=vivid(0x0a0c10,1.0), AS_TEAL=vivid(0x1fc9bd,1.55), AS_FIN=vivid(0x17b8ae,1.6);
+function astroNumber(){
+  const W=256,H=256,c=document.createElement('canvas');c.width=W;c.height=H;
+  const x=c.getContext('2d');
+  x.translate(W/2,H/2);
+  x.font='bold 168px system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif';
+  x.textAlign='center';x.textBaseline='middle';
+  x.lineJoin='round';
+  x.lineWidth=22; x.strokeStyle='#ffffff'; x.strokeText('17',0,4);   // white outline
+  x.lineWidth=7;  x.strokeStyle='#05070a'; x.strokeText('17',0,4);   // thin dark keyline
+  x.fillStyle='#05070a'; x.fillText('17',0,4);                       // black numerals
+  const t=new THREE.CanvasTexture(c);
+  if(THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding;
+  t.anisotropy=4;
+  return t;
+}
+function astroDecal(box){
+  const sz=box.getSize(new THREE.Vector3()), c=box.getCenter(new THREE.Vector3());
+  const w=Math.min(sz.x*0.74,1.15);
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(w,w),
+    new THREE.MeshBasicMaterial({map:astroNumber(),transparent:true,depthWrite:false,
+      polygonOffset:true,polygonOffsetFactor:-3,polygonOffsetUnits:-3}));
+  m.rotation.x=-Math.PI/2;                       // lying on the deck, reading up the board
+  // behind where the rider stands, so the chase camera actually sees it
+  m.position.set(c.x, box.max.y+0.014, c.z+sz.z*0.20);
+  m.renderOrder=2;
+  return m;
+}
+function astroLivery(root){
+  root.updateMatrixWorld(true);
+  // measured in the board's own frame, not the world: the decal is parented to the
+  // board, so a world-space box would place it wherever the rig happened to be
+  const inv=new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const box=new THREE.Box3(), tmp=new THREE.Box3(), m0=new THREE.Matrix4();
+  root.traverse(o=>{
+    if(!o.isMesh||!o.geometry)return;
+    if(!o.geometry.boundingBox)o.geometry.computeBoundingBox();
+    tmp.copy(o.geometry.boundingBox).applyMatrix4(m0.multiplyMatrices(inv,o.matrixWorld));
+    box.union(tmp);
+  });
+  const c=box.getCenter(new THREE.Vector3()), sz=box.getSize(new THREE.Vector3());
+  const body=new THREE.MeshStandardMaterial({vertexColors:true,color:0xffffff,
+    roughness:0.31,metalness:0.02});
+  body.envMapIntensity=0.38;      // glassed, but not so glassed the paint disappears
+  const fin=new THREE.MeshStandardMaterial({color:AS_FIN.clone(),roughness:0.18,metalness:0.05});
+  fin.envMapIntensity=0.55;
+  const v=new THREE.Vector3(), m4=new THREE.Matrix4();
+  root.traverse(o=>{
+    if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+    const lum=o.material&&o.material.color
+      ? o.material.color.r*0.3+o.material.color.g*0.6+o.material.color.b*0.1 : 1;
+    if(lum<0.04){ o.material=fin; return; }      // the export's black group is the fins
+    m4.multiplyMatrices(inv,o.matrixWorld);
+    // Paint by which way the surface faces rather than by how far across it is. A
+    // board narrows toward both ends, so a fraction of the overall width only lands
+    // on the rail at the widest point; the rail is wherever the surface turns over,
+    // and that reads as an even outline the whole way round.
+    const nm=new THREE.Matrix3().getNormalMatrix(m4);
+    const p=o.geometry.attributes.position, nrm=o.geometry.attributes.normal;
+    const col=new Float32Array(p.count*3), n=new THREE.Vector3();
+    for(let i=0;i<p.count;i++){
+      v.fromBufferAttribute(p,i).applyMatrix4(m4);
+      let t;
+      if(nrm){
+        n.fromBufferAttribute(nrm,i).applyMatrix3(nm).normalize();
+        t=(n.y<-0.12||Math.abs(n.x)>0.45)?AS_BLACK:AS_TEAL;
+      } else {
+        t=(v.y<c.y)?AS_BLACK:AS_TEAL;
+      }
+      col[i*3]=t.r;col[i*3+1]=t.g;col[i*3+2]=t.b;
+    }
+    o.geometry.setAttribute('color',new THREE.BufferAttribute(col,3));
+    o.material=body;
+  });
+  return box;
+}
 loadModel('board.glb',s=>{
   const fitted=skinAndFit('board',s,BOARD_BOX,orientBoard);
   // Match deck to deck rather than box to box. A thin model has nothing like the
@@ -837,6 +919,9 @@ loadModel('board.glb',s=>{
   fitted.userData.frame.position.y+=(BOARD_SLAB-slabY(fitted))/fitted.userData.k;
   stockBoard.clear ? stockBoard.clear() : (stockBoard.children.length=0);
   stockBoard.add(fitted);
+  fitted.add(astroDecal(astroLivery(fitted)));
+  // its shop picture, if one was already taken, was of the unpainted model
+  try{ prevCache['b:astro']=''; }catch(e){}
 });
 
 // ---------- what carries between runs ----------

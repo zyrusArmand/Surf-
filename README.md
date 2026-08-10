@@ -52,6 +52,13 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.38.0** — Astro's own board gets its livery: black rails and hull, a turquoise deck,
+  turquoise fins and 17 laid across the tail in black with a white outline. The model
+  arrives with its own colours and those are normally left alone, so this one board is
+  deliberately repainted — and painted by which way each surface faces rather than by how
+  far across it is, because a board narrows toward both ends and a fraction of the overall
+  width only lands on the rail at the widest point. The number sits behind where the rider
+  stands, which is the only place the chase camera can actually see it.
 - **v1.37.0** — Tricks are gestures on the water instead of buttons. Tap to jump, tap
   again in the air to flip and keep tapping for more, swipe up or down for a front or back
   flip, press and hold to grab, tap with a second finger to spin and hold it for a
