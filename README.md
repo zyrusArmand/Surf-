@@ -19,20 +19,19 @@ npx http-server -p 8080 .   # then open http://localhost:8080
 
 ## Controls
 
-| Action | Touch | Keyboard | Mouse |
-| --- | --- | --- | --- |
-| Carve left / right | swipe left / right | `A` / `D` or `←` / `→` | drag left / right |
-| Jump | JUMP button | `Space` | — |
-| Spin | SPIN button | `J` (hold) | — |
-| Flip | FLIP button | `K` (hold) | — |
-| Grab (in air) / hand drag (on water) | GRAB button | `L` (hold) | — |
-| Handstand (water or air) | HAND button | `H` (hold) | — |
-| Grab the seaplane's rope | ROPE! button | — | click ROPE! |
+| Action | Touch | Keyboard |
+| --- | --- | --- |
+| Carve left / right | swipe left / right | `A` / `D` or `←` / `→` |
+| Jump | tap | `Space` |
+| Flip | tap again in the air — keep tapping for more | `K` (hold) |
+| Front / back flip | swipe up / swipe down | — |
+| Spin | tap with a second finger | `J` (hold) |
+| Grab (air) / hand drag (water) | press and hold | `L` (hold) |
+| Handstand (water or air) | hold a second finger | `H` (hold) |
+| Grab the seaplane's rope | ROPE! button | — |
 
-Runs pay **puka shells** — distance pays the steady part, score pays for how you rode
-it — and the beach shop on the menu spends them on boards and on who rides them. All of
-it is cosmetic; every board and every rider handles identically. Go under once and you
-get one chance to get back up.
+Every tapped rotation is a whole turn, so tapping lands you square — you only eat it if
+you asked for more spin than you had air for.
 
 Land your rotations square or you'll eat it. Hitting a ramp launches you, jellyfish
 always bounce you — they can never end a run — and buoys, logs and shark fins do. Every so often a whirlpool
@@ -53,6 +52,14 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.37.0** — Tricks are gestures on the water instead of buttons. Tap to jump, tap
+  again in the air to flip and keep tapping for more, swipe up or down for a front or back
+  flip, press and hold to grab, tap with a second finger to spin and hold it for a
+  handstand. Tapped rotations queue whole turns rather than spinning for as long as a
+  button is down, which is what makes tapping land square. The trick bar and the jump
+  button are gone. One thing that had to be handled: a phone fires a synthetic mouse click
+  after every touch, so a single tap was jumping and then immediately flipping — once a
+  real touch is seen the mouse path stands down.
 - **v1.36.0** — Steering is side to side and nothing else: shifting weight fore and aft is
   gone from the swipe, the mouse drag and the keyboard, and everything that consulted it —
   trim, the board's pitch, how deep the rail digs, where the rider stands — now reads as

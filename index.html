@@ -140,6 +140,9 @@
     background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3CradialGradient id='g' cx='36%25' cy='29%25' r='80%25'%3E%3Cstop offset='0' stop-color='%23fffdf5'/%3E%3Cstop offset='.55' stop-color='%23f5e6c6'/%3E%3Cstop offset='1' stop-color='%23c9a87c'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='14.2' fill='url(%23g)'/%3E%3Ccircle cx='16' cy='16' r='4.5' fill='%230a1f30' opacity='.6'/%3E%3Ccircle cx='16' cy='16' r='4.5' fill='none' stroke='%23a98a63' stroke-opacity='.55' stroke-width='1'/%3E%3Cpath d='M6.4 9.8a11.8 11.8 0 0 1 8.8-5.4' fill='none' stroke='%23ffffff' stroke-opacity='.9' stroke-width='2.1' stroke-linecap='round'/%3E%3Cpath d='M27.4 19.2a11.9 11.9 0 0 1-7.9 8' fill='none' stroke='%238d6c46' stroke-opacity='.45' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat;
     filter:drop-shadow(0 1px 1px rgba(0,20,40,.35)); }
   #hud .pk { width:.86em; height:.86em; }
+  /* tricks are gestures on the water now — these stay in the document so the code
+     that shows and hides them still works, they are just never drawn */
+  #trickBar, #jumpBtn { display:none !important; }
   .hidden { display:none !important; }
   #fatal { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
     background:#0a2846; color:#fff; text-align:center; padding:24px; font-size:18px; line-height:1.6; z-index:20; }
@@ -216,7 +219,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.36.0';
+const VERSION='1.37.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2084,6 +2087,23 @@ let px=0,py=0,pz=0,vy=0,vx=0,cutCd=0,airborne=false,trickReady=false;
 const BOARD_HALF_L=2.45, BOARD_HALF_W=0.55;   // the hull's own footprint
 let boardYaw=0,boardLean=0,boardPitch=0,camX=0,camY=5.0,camZ=11.0,lookX=0,sprayAcc=0,leanW=0,pearlT=0;
 let spinHeld=false,flipHeld=false,spinRot=0,flipRot=0;
+// Tapped tricks queue whole turns rather than spinning for as long as a button is
+// held. Committing a full revolution at a time is what makes tapping land square:
+// you only eat it if you asked for more rotation than you had air for. The counters
+// stay positive so the landing check is unchanged; the direction is a sign applied
+// when the pose is set.
+let spinQ=0, flipQ=0, spinSign=1, flipSign=1;
+const TURN=Math.PI*2;
+function addFlip(dir){
+  if(!running||wipe)return;
+  if(!airborne&&!hanging)doJump();
+  flipSign=dir||1; flipQ=Math.min(flipQ+TURN,TURN*4);
+}
+function addSpin(dir){
+  if(!running||wipe)return;
+  if(!airborne&&!hanging)doJump();
+  spinSign=dir||1; spinQ=Math.min(spinQ+TURN,TURN*4);
+}
 // air off the jet ski's wake is its own thing: launched softer but falling slower, so
 // there is time up there to actually throw something
 let wakeAir=false;
@@ -2125,7 +2145,23 @@ let steer=0;
 let touchId=null,touchX0=0,touchY0=0;
 let weight=0;   // vestigial: the ride is side to side only now
 function dropSteerTouch(){touchId=null;steer=0;weight=0;}
+// Tricks are gestures on the water itself rather than buttons. Tap to jump, tap
+// again in the air for a flip and keep tapping for more; swipe up or down for a
+// front or back flip; hold to grab; a second finger tapped is a spin, held is a
+// handstand. All of it is measured from where the finger went down, which is kept
+// separate from the steering origin — that one gets rebased as you swipe so a long
+// carve can keep going, and classifying a gesture against a moving origin would
+// never work.
+let gT0=0, gX0=0, gY0=0, gMove=0, gSwiped=false, gGrab=false, gHoldT=null;
+// A phone fires a synthetic mouse click after every touch, so the mouse path would
+// run the gesture a second time — a tap would jump and then immediately flip. Once
+// a real touch has been seen, the mouse handlers stand down for good.
+let touchMode=false;
+let auxId=null, auxT0=0, auxHand=false, auxHoldT=null;
+const TAP_MS=270, TAP_SLOP=24, HOLD_MS=235;
+function clearAux(){ clearTimeout(auxHoldT); auxHoldT=null; }
 addEventListener('touchstart',e=>{
+  touchMode=true;
   // If the steering finger disappeared without a touchend — iOS cancels touches for
   // notifications, Control Centre swipes and other system gestures — the slot would
   // stay claimed by a dead id and steering would never come back. Reclaim it.
@@ -2136,7 +2172,20 @@ addEventListener('touchstart',e=>{
   }
   for(const t of e.changedTouches){
     if(t.target.closest&&(t.target.closest('.btn')||t.target.closest('.tbtn')))continue;
-    if(touchId===null){touchId=t.identifier;touchX0=t.clientX;touchY0=t.clientY;}
+    if(touchId===null){
+      touchId=t.identifier;touchX0=t.clientX;touchY0=t.clientY;
+      gT0=performance.now();gX0=t.clientX;gY0=t.clientY;gMove=0;gSwiped=false;gGrab=false;
+      clearTimeout(gHoldT);
+      gHoldT=setTimeout(()=>{                       // held still: take hold of the rail
+        if(touchId===null||gMove>TAP_SLOP||gSwiped)return;
+        gGrab=true;
+        if(airborne||hanging)startTrick('grab'); else startDrag();
+      },HOLD_MS);
+    } else if(auxId===null&&running){
+      auxId=t.identifier;auxT0=performance.now();auxHand=false;
+      clearAux();
+      auxHoldT=setTimeout(()=>{ if(auxId!==null){auxHand=true;handOn=true;} },HOLD_MS+15);
+    }
   }
 },{passive:true});
 addEventListener('touchmove',e=>{
@@ -2147,12 +2196,35 @@ addEventListener('touchmove',e=>{
       if(v>1){touchX0=t.clientX-range;v=1;}       // let the swipe keep going
       if(v<-1){touchX0=t.clientX+range;v=-1;}
       steer=v;    // side to side and nothing else: up and down do not steer him
+      const dx=t.clientX-gX0, dy=t.clientY-gY0;
+      gMove=Math.max(gMove,Math.hypot(dx,dy));
+      if(!gSwiped&&!gGrab&&Math.abs(dy)>innerHeight*0.085&&Math.abs(dy)>Math.abs(dx)*1.45){
+        gSwiped=true; clearTimeout(gHoldT);
+        addFlip(dy<0?1:-1);                        // up is a front flip, down a back one
+      }
     }
   }
 },{passive:true});
 function endTouch(e){
-  for(const t of e.changedTouches)if(t.identifier===touchId){dropSteerTouch();return;}
-  if(e.touches.length===0)dropSteerTouch();     // belt and braces: nothing is down
+  for(const t of e.changedTouches){
+    if(t.identifier===auxId){
+      clearAux();
+      if(auxHand)handOn=false;
+      else if(performance.now()-auxT0<TAP_MS+60)addSpin(vx>=0?1:-1);
+      auxId=null;
+    }
+  }
+  for(const t of e.changedTouches)if(t.identifier===touchId){
+    clearTimeout(gHoldT);
+    if(gGrab){ endGrab(); endDrag(); }
+    else if(!gSwiped&&performance.now()-gT0<TAP_MS&&gMove<TAP_SLOP){
+      if(airborne||hanging)addFlip(flipSign);    // keep tapping, keep flipping
+      else doJump();
+    }
+    dropSteerTouch();return;
+  }
+  if(e.touches.length===0){clearTimeout(gHoldT);dropSteerTouch();clearAux();auxId=null;
+    if(auxHand){handOn=false;auxHand=false;}}
 }
 addEventListener('touchend',endTouch);
 addEventListener('touchcancel',endTouch);       // without this, a cancelled touch froze steering
@@ -2160,17 +2232,23 @@ addEventListener('blur',()=>{dropSteerTouch();endMouseDrag();});
 // mouse steering for desktop: drag anywhere on the water, same feel as a swipe
 let mouseDrag=false,mouseX0=0,mouseY0=0;
 addEventListener('mousedown',e=>{
-  if(!running)return;
+  if(touchMode||!running)return;
   if(e.target.closest&&(e.target.closest('.btn')||e.target.closest('.tbtn')))return;
   mouseDrag=true;mouseX0=e.clientX;mouseY0=e.clientY;
+  gT0=performance.now();gX0=e.clientX;gY0=e.clientY;gMove=0;gSwiped=false;
 });
 addEventListener('mousemove',e=>{
-  if(!mouseDrag)return;
+  if(touchMode||!mouseDrag)return;
   const range=innerWidth*0.16;
   let v=(e.clientX-mouseX0)/range;
   if(v>1){mouseX0=e.clientX-range;v=1;}
   if(v<-1){mouseX0=e.clientX+range;v=-1;}
   steer=v;
+  const dxg=e.clientX-gX0, dyg=e.clientY-gY0;
+  gMove=Math.max(gMove,Math.hypot(dxg,dyg));
+  if(!gSwiped&&Math.abs(dyg)>innerHeight*0.085&&Math.abs(dyg)>Math.abs(dxg)*1.45){
+    gSwiped=true; addFlip(dyg<0?1:-1);
+  }
 });
 function endMouseDrag(){ if(mouseDrag){mouseDrag=false;steer=0;weight=0;} }
 addEventListener('mouseleave',endMouseDrag);
@@ -2190,7 +2268,13 @@ grabBtn.addEventListener('mousedown',()=>{if(airborne||hanging)startTrick('grab'
 handBtn.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();handOn=true;});
 handBtn.addEventListener('touchend',e=>{e.preventDefault();handOn=false;});
 handBtn.addEventListener('mousedown',()=>{handOn=true;});
-addEventListener('mouseup',()=>{endGrab();endDrag();releaseSpin();endMouseDrag();handOn=false;});
+addEventListener('mouseup',()=>{
+  if(touchMode){endGrab();endDrag();releaseSpin();endMouseDrag();handOn=false;return;}
+  if(running&&mouseDrag&&!gSwiped&&performance.now()-gT0<TAP_MS&&gMove<TAP_SLOP){
+    if(airborne||hanging)addFlip(flipSign); else doJump();
+  }
+  endGrab();endDrag();releaseSpin();endMouseDrag();handOn=false;
+});
 
 const BEST_KEY='pug-surf-best';
 function loadBest(){
@@ -2261,6 +2345,7 @@ function settleTricks(landed,keepPose){
   }
   spinRot=0;flipRot=0;spinHeld=false;flipHeld=false;
   grabOn=false;grabPts=0;
+  spinQ=0;flipQ=0;                      // anything still owed dies with the landing
   if(!keepPose)player.rotation.set(0,0,0);
   return pts;
 }
@@ -2325,7 +2410,7 @@ function respawn(){
   splatT=0;splat3D.visible=false;
   while(stars.length){const st=stars.pop();st.m.visible=false;STAR_POOL.push(st.m);}
   px=0;py=0;pz=0;vy=0;vx=0;airborne=false;trick=null;spinRot=0;flipRot=0;
-  spinHeld=false;flipHeld=false;grabOn=false;grabPts=0;
+  spinHeld=false;flipHeld=false;grabOn=false;grabPts=0;spinQ=0;flipQ=0;spinSign=1;flipSign=1;
   boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;cutCd=0;
   spawnT=1.8;
   overlayUp=false;running=true;last=performance.now();
@@ -3892,9 +3977,11 @@ function update(dt){
   // spin / flip / grab all run at once while you're off the water
   if(airborne||hanging){
     if(spinHeld)spinRot+=dt*SPIN_RATE;
+    else if(spinQ>0){const d=Math.min(dt*SPIN_RATE,spinQ);spinRot+=d;spinQ-=d;}
     if(flipHeld)flipRot+=dt*FLIP_RATE;
+    else if(flipQ>0){const d=Math.min(dt*FLIP_RATE,flipQ);flipRot+=d;flipQ-=d;}
     if(grabOn)grabPts+=95*dt;
-    player.rotation.set(0,spinRot,flipRot);
+    player.rotation.set(0,spinRot*spinSign,flipRot*flipSign);
     // rope tricks bank as soon as you square up
     if(hanging&&!spinHeld&&!flipHeld&&(spinRot>0.4||flipRot>0.4)){
       const offS=Math.abs(((spinRot+Math.PI)%(Math.PI*2))-Math.PI);
