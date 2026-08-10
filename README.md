@@ -52,6 +52,20 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.62.0** — Twelve boards with real graphics on them, in four sets of three. Designer:
+  a gold monogram lattice, a houndstooth check, a gold-stitched quilt. Street: a weathered
+  boxcar stencil, a two-colour throw-up with drips, and a five-can wildstyle. Livery: a
+  sponsor-plastered pit board, a hazard-yellow 44 with a checkered flash, and a matte works
+  team in fluoro. Abstract: poured marble, a datamoshed glitch, and an aurora with a sky of
+  stars behind it. All of it comes out of the same per-vertex paint callback the plain
+  boards use — a monogram and a spray blob are both just functions of where you are on the
+  deck — with value noise, fbm and a patch helper added for the job.
+  Two things had to be got right. Patterns need square cells, and u spans the whole length
+  of the board while v spans only its width, so equal frequencies gave cells two and a half
+  times longer than they were wide; the check and the quilt both had to be re-proportioned.
+  And a houndstooth's teeth have to push out of each dark cell into its pale neighbour —
+  flipping whole corners instead joins the cells along the diagonal and the check collapses
+  into stripes.
 - **v1.61.0** — A half turn is a landing. Yaw only has to finish on a multiple of 180 now,
   not 360 — the board is just as square under him either way, he is simply facing the other
   way afterwards — and the window is wider than the trick's own timing window, which is the

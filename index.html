@@ -399,7 +399,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.61.0';
+const VERSION='1.62.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1353,6 +1353,33 @@ function deckScheme(o){
     }
   };
 }
+// ---------- pattern paint ----------
+// The lofted boards get their graphics from the same per-vertex paint callback the
+// plain ones use, so a monogram, a spray blob and a race livery are all just a
+// function of where you are on the deck. u runs nose to tail, v across the rails.
+const _hash=(x,y)=>{const n=Math.sin(x*127.1+y*311.7)*43758.5453;return n-Math.floor(n);};
+function _noise(x,y){
+  const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi;
+  const a=xf*xf*(3-2*xf), b=yf*yf*(3-2*yf);
+  return (_hash(xi,yi)*(1-a)+_hash(xi+1,yi)*a)*(1-b)
+       + (_hash(xi,yi+1)*(1-a)+_hash(xi+1,yi+1)*a)*b;
+}
+function _fbm(x,y){let s=0,m=0.5,f=1;for(let i=0;i<4;i++){s+=_noise(x*f,y*f)*m;f*=2.07;m*=0.5;}return s;}
+const _rep=x=>((x%1)+1)%1;                       // wrap into 0..1 whatever the sign
+// lay a graphic over a normal paint scheme rather than replacing it, so every one of
+// these still gets its rails, hull and stringer for free
+function artScheme(o){
+  const base=deckScheme(o);
+  return (c,u,v,top)=>{
+    base(c,u,v,top);
+    if(o.art&&(top||o.both))o.art(c,u,v,top);
+    if(top&&o.sw&&Math.abs(v)<(o.sw||0)&&o.stringer)c.copy(vivid(o.stringer,1.3));
+  };
+}
+// a rectangle of colour on the deck — a sponsor patch, a number plate, a label
+function _patch(c,u,v,pu,pv,h,w,hex,k){
+  if(Math.abs(u-pu)<h&&Math.abs(v-pv)<w)_mix(c,hex,k===undefined?1:k);
+}
 const BOARDS=[
   {id:'astro', name:'Astro Original', price:0,
    blurb:'The board Astro learned on. Yours from the start.'},
@@ -1606,6 +1633,260 @@ const BOARDS=[
            {x: 0.46,z:-1.58,c:0.24,d:0.14,t:0.020,rake:-0.04,cant:-0.10},
            {x:-0.16,z:1.80,c:0.20,d:0.11,t:0.018,rake:0.03},
            {x: 0.16,z:-1.80,c:0.20,d:0.11,t:0.018,rake:-0.03}]}},
+
+  // ---------- house of ---------- designer boards
+  {id:'monarch', name:'Maison Monarch', price:5500,
+   blurb:'Monogrammed to the rails in gold leaf. Absurd on a wave, and it knows.',
+   spec:{nu:240,nr:62,L:5.55,W:0.72,T:0.155,noseA:0.86,tailA:0.88,noseW:0.14,tailW:0.24,
+     rockN:0.28,noseR:0.35,rockT:0.09,tailR:0.26,deckPow:0.56,hullPow:0.42,hullK:0.62,
+     padCol:0x241a10,finCol:0xc9a227,
+     paint:artScheme({deck:0x2a2018,hull:0x3a2c20,rail:0x120c08,pin:0xc9a227,stringer:0xc9a227,
+       sw:0.02,railAt:0.88,vivid:1.2,
+       // a diamond lattice with a mark set in each cell
+       art:(c,u,v)=>{
+         const gx=Math.abs(_rep(v*3.1)-0.5), gy=Math.abs(_rep(u*10.5)-0.5);
+         const d=gx+gy;
+         if(d<0.10)_mix(c,0xe8c65a,1);
+         else if(d<0.145)_mix(c,0xa8822a,0.85);
+         else if(Math.abs(d-0.36)<0.022)_mix(c,0xc9a227,0.7);
+       }}),
+     fins:[{x:0,z:1.86,c:0.46,d:0.44,t:0.028,rake:0.13},
+           {x:-0.30,z:1.62,c:0.38,d:0.34,t:0.024,rake:0.10,cant:0.2},
+           {x: 0.30,z:1.62,c:0.38,d:0.34,t:0.024,rake:0.10,cant:-0.2}]}},
+
+  {id:'hound', name:'Houndstooth', price:6400,
+   blurb:'Tailored. The check is cut on the bias and it will not be discussed further.',
+   spec:{nu:240,nr:62,L:5.40,W:0.66,T:0.145,noseA:0.98,tailA:0.90,noseW:0.10,tailW:0.28,
+     rockN:0.30,noseR:0.35,rockT:0.10,tailR:0.26,deckPow:0.54,hullPow:0.40,hullK:0.64,
+     padCol:0x15151a,finCol:0xd63a2a,
+     paint:artScheme({deck:0xf4f2ee,hull:0xfbfaf7,rail:0xd63a2a,pin:0xd63a2a,stringer:0x14141a,
+       sw:0.016,railAt:0.88,vivid:1.1,
+       art:(c,u,v)=>{
+         // square cells, and big enough that the spurs read as teeth rather than
+         // merging into diagonal stripes
+         const X=v*3.2, Y=u*25.0;
+         const cx=Math.floor(X), cy=Math.floor(Y), fx=X-cx, fy=Y-cy;
+         let on=((cx+cy)&1)===0;
+         // Teeth push OUT of each dark cell into its pale neighbour. Flipping whole
+         // corners instead, which is what this did before, joins the cells up along
+         // the diagonal and the check collapses into stripes.
+         if(!on){
+           if(fx+fy<0.44)on=true;
+           if(fx+fy>1.56)on=true;
+         }
+         if(on)_mix(c,0x14141a,1);
+       }}),
+     fins:[{x:0,z:2.05,c:0.44,d:0.42,t:0.026,rake:0.12},
+           {x:-0.30,z:1.80,c:0.38,d:0.36,t:0.024,rake:0.10,cant:0.22},
+           {x: 0.30,z:1.80,c:0.38,d:0.36,t:0.024,rake:0.10,cant:-0.22}]}},
+
+  {id:'quilt', name:'Quilted Noir', price:7600,
+   blurb:'Padded, stitched and chained. Rides like it costs more than the wave.',
+   spec:{nu:240,nr:62,L:5.80,W:0.74,T:0.165,noseA:0.80,tailA:0.86,noseW:0.18,tailW:0.26,
+     rockN:0.26,noseR:0.35,rockT:0.09,tailR:0.26,deckPow:0.58,hullPow:0.44,hullK:0.62,
+     padCol:0x0b0b0e,finCol:0xd8b24a,
+     paint:artScheme({deck:0x14141a,hull:0x1c1c24,rail:0xd8b24a,pin:0xd8b24a,stringer:0xd8b24a,
+       sw:0.014,railAt:0.90,vivid:1.15,
+       art:(c,u,v)=>{
+         const X=v*2.6, Y=u*20.0;      // same again: a quilt is a grid of squares
+         const s=Math.min(Math.abs(_rep(X+Y)-0.5),Math.abs(_rep(X-Y)-0.5));
+         if(s<0.055)_mix(c,0xd8b24a,0.95);                 // the stitching
+         else _mix(c,0x46465a,(0.5-s)*0.62);               // and the puff between it
+         if(Math.abs(u-0.5)<0.012)_mix(c,0xe8c86a,0.9);    // a chain down the centre
+         if(Math.abs(u-0.5)<0.030&&Math.abs(_rep(v*7.5)-0.5)<0.18)_mix(c,0xe8c86a,0.9);
+       }}),
+     fins:[{x:0,z:2.10,c:0.48,d:0.46,t:0.030,rake:0.14},
+           {x:-0.31,z:1.84,c:0.38,d:0.34,t:0.024,rake:0.10,cant:0.2},
+           {x: 0.31,z:1.84,c:0.38,d:0.34,t:0.024,rake:0.10,cant:-0.2}]}},
+
+  // ---------- painted in a yard at 3am ---------- street boards
+  {id:'boxcar', name:'Boxcar', price:3600,
+   blurb:'Steel grey, one fat stencil and a lot of overspray. Freight-train energy.',
+   spec:{nu:240,nr:62,L:5.60,W:0.70,T:0.150,noseA:0.88,tailA:0.90,noseW:0.14,tailW:0.28,
+     rockN:0.28,noseR:0.35,rockT:0.09,tailR:0.26,deckPow:0.56,hullPow:0.42,hullK:0.62,
+     padCol:0x1a1c1e,finCol:0xe0522a,
+     paint:artScheme({deck:0x8b9094,hull:0xa2a7ab,rail:0x33383c,pin:0xe0522a,stringer:0x33383c,
+       sw:0.03,railAt:0.86,vivid:1.15,
+       art:(c,u,v)=>{
+         if(_fbm(v*3.4+9,u*7)>0.60)_mix(c,0x6e7478,0.5);   // weathering
+         const band=Math.abs(u-0.44);
+         if(band<0.085)_mix(c,0xe0522a,1);
+         if(band>0.085&&band<0.105)_mix(c,0x1a1c1e,0.9);
+         // stencil blocks along the tail
+         for(let i=0;i<4;i++)_patch(c,u,v,0.70+i*0.055,0,0.020,0.16,0xf2f0ea,0.9);
+         if(_hash(Math.floor(v*44),Math.floor(u*70))>0.975)_mix(c,0xf2f0ea,0.8);
+       }}),
+     fins:[{x:0,z:2.05,c:0.46,d:0.44,t:0.028,rake:0.13},
+           {x:-0.30,z:1.80,c:0.38,d:0.34,t:0.024,rake:0.10,cant:0.2},
+           {x: 0.30,z:1.80,c:0.38,d:0.34,t:0.024,rake:0.10,cant:-0.2}]}},
+
+  {id:'throwup', name:'Throw-Up', price:4400,
+   blurb:'Two colours, one outline, done in ninety seconds. Drips still wet.',
+   spec:{nu:240,nr:62,L:5.25,W:0.78,T:0.155,noseA:0.84,tailA:0.80,noseW:0.18,tailW:0.42,
+     rockN:0.24,noseR:0.33,rockT:0.08,tailR:0.25,swallow:0.26,
+     deckPow:0.54,hullPow:0.40,hullK:0.64,
+     padCol:0x141418,finCol:0x18e0d0,
+     paint:artScheme({deck:0xd8d4cc,hull:0xe6e2da,rail:0x141418,pin:0x141418,stringer:0x141418,
+       sw:0.02,railAt:0.86,vivid:1.35,
+       art:(c,u,v)=>{
+         const a=_fbm(v*1.7+3.1,u*4.0), b=_fbm(v*2.0-7.4,u*4.6+11);
+         if(b>0.50)_mix(c,0x18e0d0,1);
+         if(a>0.46)_mix(c,0xff2f9e,1);
+         if(Math.abs(b-0.50)<0.030)_mix(c,0x141418,1);      // the outline round each blob
+         if(Math.abs(a-0.46)<0.030)_mix(c,0x141418,1);
+         // drips: the fill sampled from higher up the board, in narrow columns
+         if(_hash(Math.floor(v*34),1)>0.70&&_fbm(v*1.7+3.1,u*4.0-0.75)>0.46)_mix(c,0xff2f9e,0.9);
+       }}),
+     fins:[{x:-0.48,z:1.72,c:0.68,d:0.42,t:0.034,rake:0.24,cant:0.16},
+           {x: 0.48,z:1.72,c:0.68,d:0.42,t:0.034,rake:0.24,cant:-0.16}]}},
+
+  {id:'wildstyle', name:'Wildstyle', price:5200,
+   blurb:'Illegible on purpose. Four cans, no plan, and it absolutely goes.',
+   spec:{nu:240,nr:62,L:5.35,W:0.68,T:0.145,noseA:0.96,tailA:0.90,noseW:0.10,tailW:0.30,
+     rockN:0.30,noseR:0.35,rockT:0.10,tailR:0.26,deckPow:0.54,hullPow:0.40,hullK:0.64,
+     padCol:0x101014,finCol:0xffe814,
+     paint:artScheme({deck:0x14141c,hull:0x1c1c26,rail:0xffe814,pin:0xffe814,stringer:0x14141c,
+       sw:0.02,railAt:0.88,vivid:1.5,
+       art:(c,u,v)=>{
+         const CAN=[0xff2f6e,0xffe814,0x18e0d0,0x8b3bff,0x2fff7a];
+         for(let i=0;i<5;i++){
+           const n=_fbm(v*(1.8+i*0.5)+i*13.7, u*(4.2+i*1.1)+i*7.3);
+           if(n>0.585)_mix(c,CAN[i],1);
+           if(Math.abs(n-0.585)<0.020)_mix(c,0x08080c,1);   // hard black keyline on every layer
+         }
+         if(_hash(Math.floor(v*50),Math.floor(u*96))>0.982)_mix(c,0xf6f6ff,0.9);
+       }}),
+     fins:[{x:0,z:2.05,c:0.44,d:0.42,t:0.026,rake:0.12},
+           {x:-0.30,z:1.80,c:0.38,d:0.36,t:0.024,rake:0.10,cant:0.22},
+           {x: 0.30,z:1.80,c:0.38,d:0.36,t:0.024,rake:0.10,cant:-0.22}]}},
+
+  // ---------- paid for by ---------- livery boards
+  {id:'pitcrew', name:'Pit Crew', price:5800,
+   blurb:'Every inch sold twice. Somehow still the fastest thing in the heat.',
+   spec:{nu:240,nr:62,L:5.30,W:0.64,T:0.140,noseA:1.02,tailA:0.92,noseW:0.08,tailW:0.28,
+     rockN:0.32,noseR:0.36,rockT:0.10,tailR:0.26,deckPow:0.52,hullPow:0.40,hullK:0.64,
+     padCol:0x14161a,finCol:0xd11a2a,
+     paint:artScheme({deck:0xf6f7f9,hull:0xffffff,rail:0xd11a2a,pin:0x1a3fd1,stringer:0xd11a2a,
+       sw:0.018,railAt:0.88,vivid:1.35,
+       art:(c,u,v)=>{
+         const k=_rep(u*2.6+v*0.5);
+         if(k<0.16)_mix(c,0xd11a2a,1);
+         else if(k<0.24)_mix(c,0x1a3fd1,1);
+         _patch(c,u,v,0.30,0,0.045,0.34,0x14161a,1);       // sponsor bar
+         _patch(c,u,v,0.30,0,0.026,0.30,0xffd21a,1);
+         _patch(c,u,v,0.58,-0.42,0.030,0.20,0x1a3fd1,1);
+         _patch(c,u,v,0.58, 0.42,0.030,0.20,0xd11a2a,1);
+         _patch(c,u,v,0.80,0,0.034,0.26,0x14161a,1);
+       }}),
+     fins:[{x:0,z:2.02,c:0.44,d:0.42,t:0.026,rake:0.12},
+           {x:-0.30,z:1.78,c:0.38,d:0.36,t:0.024,rake:0.10,cant:0.22},
+           {x: 0.30,z:1.78,c:0.38,d:0.36,t:0.024,rake:0.10,cant:-0.22}]}},
+
+  {id:'turbo', name:'Turbo 44', price:6600,
+   blurb:'Hazard yellow, a number on the nose and a checkered flash at the tail.',
+   spec:{nu:240,nr:62,L:5.20,W:0.66,T:0.140,noseA:1.00,tailA:0.88,noseW:0.09,tailW:0.32,
+     rockN:0.30,noseR:0.35,rockT:0.10,tailR:0.26,deckPow:0.52,hullPow:0.40,hullK:0.64,
+     padCol:0x101010,finCol:0x101010,
+     paint:artScheme({deck:0xffd400,hull:0xfff0a0,rail:0x101010,pin:0x101010,stringer:0x101010,
+       sw:0.018,railAt:0.88,vivid:1.6,
+       art:(c,u,v)=>{
+         const k=_rep(u*2.2-v*0.62);
+         if(k<0.13)_mix(c,0x101010,1);
+         // roundel on the nose
+         const dn=Math.hypot((u-0.24)*2.6,v*0.9);
+         if(dn<0.30)_mix(c,0xf6f6f6,1);
+         if(dn<0.30&&dn>0.255)_mix(c,0x101010,1);
+         if(dn<0.20&&Math.abs(Math.abs(v)-0.22)<0.10)_mix(c,0x101010,1);   // a rough 44
+         // checkered flash across the tail
+         if(u>0.66&&u<0.80){
+           const cx=Math.floor(u*44), cy=Math.floor(v*7);
+           _mix(c,((cx+cy)&1)?0x101010:0xf6f6f6,1);
+         }
+       }}),
+     fins:[{x:0,z:2.00,c:0.44,d:0.42,t:0.026,rake:0.12},
+           {x:-0.30,z:1.76,c:0.38,d:0.36,t:0.024,rake:0.10,cant:0.22},
+           {x: 0.30,z:1.76,c:0.38,d:0.36,t:0.024,rake:0.10,cant:-0.22}]}},
+
+  {id:'nitro', name:'Nitro Works', price:7200,
+   blurb:'Matte black, fluoro decals and a works team that does not officially exist.',
+   spec:{nu:240,nr:62,L:5.45,W:0.62,T:0.142,noseA:1.06,tailA:0.94,noseW:0.07,tailW:0.24,
+     rockN:0.34,noseR:0.36,rockT:0.11,tailR:0.26,deckPow:0.52,hullPow:0.40,hullK:0.66,
+     padCol:0x0a0a0c,finCol:0xaaff00,rough:0.52,
+     paint:artScheme({deck:0x101216,hull:0x181b20,rail:0xaaff00,pin:0xaaff00,stringer:0x2a2e36,
+       sw:0.02,railAt:0.90,vivid:1.4,
+       art:(c,u,v)=>{
+         const k=_rep(u*1.9+v*0.35);
+         if(k<0.055)_mix(c,0xaaff00,1);
+         else if(k<0.085)_mix(c,0x00e5ff,1);
+         _patch(c,u,v,0.36,0,0.024,0.30,0xaaff00,1);
+         _patch(c,u,v,0.36,0,0.012,0.26,0x101216,1);
+         _patch(c,u,v,0.62,-0.40,0.026,0.18,0x00e5ff,1);
+         _patch(c,u,v,0.62, 0.40,0.026,0.18,0xff2f6e,1);
+         _patch(c,u,v,0.84,0,0.030,0.22,0xaaff00,0.9);
+       }}),
+     fins:[{x:0,z:2.08,c:0.44,d:0.44,t:0.026,rake:0.12},
+           {x:-0.30,z:1.84,c:0.38,d:0.36,t:0.024,rake:0.10,cant:0.22},
+           {x: 0.30,z:1.84,c:0.38,d:0.36,t:0.024,rake:0.10,cant:-0.22}]}},
+
+  // ---------- one-offs ---------- abstract boards
+  {id:'marble', name:'Liquid Marble', price:8200,
+   blurb:'Poured, not painted. No two are the same and this one is yours.',
+   spec:{nu:240,nr:62,L:5.70,W:0.72,T:0.155,noseA:0.86,tailA:0.86,noseW:0.16,tailW:0.26,
+     rockN:0.27,noseR:0.35,rockT:0.09,tailR:0.26,deckPow:0.58,hullPow:0.44,hullK:0.62,
+     padCol:0x1a1430,finCol:0xf2eef8,rough:0.16,
+     paint:artScheme({deck:0x120e22,hull:0x1a1430,rail:0xf2eef8,pin:0xf2eef8,stringer:0xf2eef8,
+       sw:0.012,railAt:0.90,vivid:1.3,both:true,
+       // the field is warped by another field, which is what makes marble swirl
+       art:(c,u,v)=>{
+         const w=_fbm(v*1.3+2.0,u*3.2);
+         const q=_fbm(v*1.7+w*2.4, u*4.0+w*2.8);
+         c.lerp(vivid(0x6a2fd6,1.3), Math.max(0,Math.min(1,(q-0.34)/0.24)));
+         c.lerp(vivid(0x18d0c0,1.3), Math.max(0,Math.min(1,(q-0.56)/0.22)));
+         if(Math.abs(q-0.50)<0.016)_mix(c,0xfdfbff,0.95);   // the white vein
+         if(Math.abs(q-0.66)<0.010)_mix(c,0xfdfbff,0.7);
+       }}),
+     fins:[{x:0,z:2.10,c:0.46,d:0.44,t:0.028,rake:0.13},
+           {x:-0.30,z:1.86,c:0.38,d:0.34,t:0.024,rake:0.10,cant:0.2},
+           {x: 0.30,z:1.86,c:0.38,d:0.34,t:0.024,rake:0.10,cant:-0.2}]}},
+
+  {id:'glitch', name:'Glitch', price:8800,
+   blurb:'Datamoshed mid-render and shipped anyway. The artist calls it finished.',
+   spec:{nu:240,nr:62,L:5.35,W:0.70,T:0.148,noseA:0.92,tailA:0.88,noseW:0.12,tailW:0.30,
+     rockN:0.29,noseR:0.35,rockT:0.10,tailR:0.26,deckPow:0.54,hullPow:0.42,hullK:0.64,
+     padCol:0x0c0c12,finCol:0xff2f9e,
+     paint:artScheme({deck:0x0e0e16,hull:0x16161f,rail:0x00e5ff,pin:0xff2f9e,stringer:0x0e0e16,
+       sw:0.02,railAt:0.90,vivid:1.5,both:true,
+       art:(c,u,v)=>{
+         const P=[0x00e5ff,0xff2f9e,0x1a1a24,0xaaff00,0xf2f2ff,0x6a2fd6];
+         const b=Math.floor(u*26), r=_hash(b,3);
+         const vv=v+(r-0.5)*0.9;                            // the band slips sideways
+         const seg=Math.floor(_rep(vv*0.5+r)*P.length);
+         _mix(c,P[seg%P.length],0.92);
+         if(_hash(b,9)>0.86)_mix(c,0xffffff,0.55);          // a blown-out scanline
+         if(_hash(b,17)>0.92)_mix(c,0x08080c,0.75);         // and a dropped one
+       }}),
+     fins:[{x:0,z:2.05,c:0.44,d:0.42,t:0.026,rake:0.12},
+           {x:-0.30,z:1.80,c:0.38,d:0.36,t:0.024,rake:0.10,cant:0.22},
+           {x: 0.30,z:1.80,c:0.38,d:0.36,t:0.024,rake:0.10,cant:-0.22}]}},
+
+  {id:'aurora', name:'Aurora', price:9600,
+   blurb:'Northern lights under the glass, with a whole sky of stars behind them.',
+   spec:{nu:240,nr:62,L:5.90,W:0.70,T:0.152,noseA:0.90,tailA:0.90,noseW:0.14,tailW:0.22,
+     rockN:0.28,noseR:0.35,rockT:0.09,tailR:0.26,deckPow:0.58,hullPow:0.44,hullK:0.62,
+     padCol:0x070a16,finCol:0x2fffc0,rough:0.14,
+     paint:artScheme({deck:0x060812,hull:0x0a0e1c,rail:0x2fffc0,pin:0x8b5bff,stringer:0x060812,
+       sw:0.012,railAt:0.90,vivid:1.5,both:true,
+       art:(c,u,v)=>{
+         const n=_fbm(v*0.8+1.0,u*2.2);
+         const a=Math.sin(u*6.6+n*3.6)*0.5+0.5;
+         c.lerp(vivid(0x2fffc0,1.6),Math.pow(a,2.4)*0.92);
+         const b=Math.sin(u*4.6-n*4.2+2.1)*0.5+0.5;
+         c.lerp(vivid(0x8b5bff,1.6),Math.pow(b,3.0)*0.72);
+         if(_hash(Math.floor(v*46),Math.floor(u*104))>0.986)_mix(c,0xffffff,1);
+       }}),
+     fins:[{x:0,z:2.16,c:0.46,d:0.44,t:0.028,rake:0.13},
+           {x:-0.30,z:1.92,c:0.38,d:0.34,t:0.024,rake:0.10,cant:0.2},
+           {x: 0.30,z:1.92,c:0.38,d:0.34,t:0.024,rake:0.10,cant:-0.2}]}},
 
   {id:'koi', name:'Koi Kiteboard', price:7800,
    blurb:'Kite twin-tip. Four foot, stiff as a plank and painted like a carp pond.',
