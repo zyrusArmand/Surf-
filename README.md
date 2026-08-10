@@ -53,6 +53,14 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.32.0** — Ten more boards, fifteen in the rack. Not only surfboards: a symmetrical
+  twin-tip wakeboard, a finless skimboard, a finless koa alaia, a soft-top foamie, a tow
+  board, plus a performance shortboard, a mid-length egg, a mini-mal, an electric twin and
+  a step-up pintail. All lofted from the same spec, all around fifteen thousand triangles,
+  and the rack now lists them cheapest first. Controls rebuilt: frosted glass with a
+  gradient, an inner highlight and a press that actually presses, JUMP given its own amber
+  so the main action reads at a glance. The instruction walls are gone from the menu and
+  the wipeout screen.
 - **v1.31.0** — Paced properly. It used to throw all six obstacle types at you 17 units
   apart from the first metre at 9.7 mph, which is a lot to meet at once. Now you start at
   5 mph on open water with nothing but buoys and logs 30 units apart, and the cast arrives
