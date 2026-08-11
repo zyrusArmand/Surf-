@@ -52,6 +52,22 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.69.0** — Lily is Allen the Frog, and he is built like Kermit rather than like a
+  round animal with a frog's face. Lanky is the whole read: a small oval body carried
+  high on legs two and three-quarter times everyone else's, arms nearly twice as long and
+  just as thin, and limb profiles that are deliberately near-uniform because a frog's arm
+  has no bicep and no calf — it is the same thin all the way down. Big wide head sat
+  straight on the shoulders with the eyes ON TOP of it, a wide dark-red mouth, flat feet
+  with three toes and flat hands with four fingers. No collar.
+  Two general things fell out of it. The frog's mouth is a child of the head JOINT, so
+  head size never reached it and a widened skull kept a narrow little mouth — it scales
+  with the head now. And the pelvis correction that keeps feet on the deck was computed
+  from the knee angle, ignoring the hip's Y turn; that error is multiplied by the leg
+  length, which is exactly zero error at the pug's proportions and a visible sink at the
+  frog's. It is measured off the posed skeleton now, averaged over both legs. Feet across
+  the whole cast sit within 0.021 of each other, measured in the rider's own space —
+  which is also the fix to the measurement, since the old probe compared world heights
+  while the board was rolled and reported differences that were not there.
 - **v1.68.0** — The limbs are one mesh now, and the body is built per character.
 
   A limb made of a cylinder for the upper, a cylinder for the lower and a ball at the

@@ -399,7 +399,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.68.0';
+const VERSION='1.69.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2014,7 +2014,7 @@ function portraitPose(){
   const keep=js.map(j=>[j,j.position.clone(),j.rotation.clone()]);
   const ears=charEars.map(e=>[e,e.rotation.x]);
   for(const j of js)j.rotation.set(0,0,0);
-  pelvis.position.set(0,PELVIS_Y-(0.185+0.155)*(1-legS),0.02);
+  pelvis.position.set(0,pelvisHeight(),0.02);
   // the hip sockets sit where the feet go on the board — one ahead of the other. For a
   // portrait they want to be side by side, scaled by whatever the build pulled them in by
   const k=legFrontJ.hip.userData.socket[0]?legFrontJ.hip.position.x/legFrontJ.hip.userData.socket[0]:1;
@@ -2029,6 +2029,8 @@ function portraitPose(){
   armFrontJ.sh.rotation.set(0.10,0,-0.36); armFrontJ.el.rotation.x=0.26;
   armBackJ.sh.rotation.set(0.10,0, 0.36);  armBackJ.el.rotation.x=0.26;
   for(const e of charEars)e.rotation.x=e.userData.baseX;
+  updateLimbs();                       // measures legDrop for the pose just set...
+  pelvis.position.y=pelvisHeight();    // ...which is what the hips should sit at
   updateLimbs();
   return ()=>{
     for(const [j,p,r] of keep){ j.position.copy(p); j.rotation.copy(r); }
@@ -2326,8 +2328,15 @@ const PELVIS_Y=0.475;
 // how long this character's legs are as a fraction of the pug's. Guessing a fixed pelvis
 // drop from it does not work — how much height a shorter leg costs depends on how bent
 // the leg is — so the drop is measured from the actual knee and hip angles every frame.
-let legS=1;
-const hipDrop=g=>0.185*Math.cos(g.hip.rotation.x)+0.155*Math.cos(g.hip.rotation.x+g.knee.rotation.x);
+let legS=1, legDrop=0.34;
+// How far the ankle hangs below the hip, MEASURED off the posed skeleton rather than
+// worked out from the knee angle. The closed form ignored the hip's Y turn, which is
+// harmless at the pug's leg length because the error is multiplied by (legS-1) — and
+// exactly zero there — but a frog on two-and-three-quarter-length legs multiplied that
+// same error by 1.75 and stood with its front foot sunk into the deck.
+// Everything below the hip scales with legS, so the drop at normal length is legDrop/legS
+// and the pelvis has to rise by the difference.
+function pelvisHeight(){ return PELVIS_Y+legDrop*(1-1/legS); }
 const pelvis=joint(pug,0,PELVIS_Y,0.02);
 // The seat. Party Animals and Gang Beasts bodies are ONE mass all the way down —
 // the trunk carries on between the legs and is notched, rather than a belly with two
@@ -2405,13 +2414,13 @@ function kitEyes(C,inner){
   const dark=mat(0x0d0d10,90), white=mat(0xf8f8f4,60);
   const E=C.eyes||'side';
   for(const sx of [-1,1]){
-    if(E==='bulge'){                                    // frog: domes standing off the skull
-      const dome=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.145,20,16),furMat));
-      dome.position.set(sx*0.215,0.325,-0.10);
-      const ball=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.105,18,14),white));
-      ball.position.set(sx*0.235,0.355,-0.175);
-      const pup=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.056,14,12),dark));
-      pup.position.set(sx*0.245,0.355,-0.255);pup.scale.set(0.75,1.25,1);
+    if(E==='bulge'){                                    // frog: two balls sitting on the skull
+      const dome=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.135,20,16),furMat));
+      dome.position.set(sx*0.195,0.335,-0.06);
+      const ball=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.138,20,16),white));
+      ball.position.set(sx*0.205,0.425,-0.095);
+      const pup=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.064,14,12),dark));
+      pup.position.set(sx*0.212,0.415,-0.205);pup.scale.set(0.72,1.30,1);
     } else if(E==='mask'){                              // raccoon: one band right across
       const ba=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.155,18,14),darkMat));
       ba.position.set(sx*0.115,0.075,-0.305);ba.scale.set(1.15,0.62,0.55);ba.rotation.z=sx*0.14;
@@ -2496,14 +2505,21 @@ const CHARS=[
    shape:[1.10,1.12,1.06,0.86], tall:1.30, wide:1.14, deep:1.04, neckLen:1.06,
    build:[1.10,1.00,1.10], limb:1.10, arm:1.06, armLen:0.90, foot:1.04, limbCol:0x1b1b20, headS:[1.10,1.08,1.04]},
 
-  {id:'frog',  name:'Lily the Frog',  price:900,
+  {id:'frog',  name:'Allen the Frog',  price:900,
    blurb:'Born for this. Wide mouth, wider eyes, sticks every landing wetly.',
-   fur:0x62c247, dark:0x39872b, nose:0x2a5c1f, inner:0xe8a0b0, drum:0x3f8a2a,
-   face:'frog',  ears:'hole',   tail:'none',  eyes:'bulge', gloss:0.34,
-   // wide across the shoulders, narrow at the hip, low to the ground, on webbed feet
-   shape:[0.92,1.06,1.12,0.88], tall:1.08, wide:1.22, deep:0.90, neckLen:0.86,
-   build:[1.00,0.86,1.02], limb:0.92, arm:0.84, armLen:0.92, foot:1.20, footShape:[1.40,0.68,1.16], headS:[1.06,0.92,1.02]},
-
+   fur:0x74c043, dark:0x3f8f28, nose:0x2a5c1f, inner:0xc4204a, drum:0x4f9a30,
+   face:'frog',  ears:'hole',   tail:'none',  eyes:'bulge', gloss:0.38,
+   // Lanky, not squat. A slim oval body carried high on very long thin legs, arms just
+   // as thin and just as long, and a big wide head sat straight on the shoulders with
+   // the eyes on top of it. The limb profiles are near-uniform on purpose: a frog's arm
+   // has no bicep and no calf, it is the same thin all the way down.
+   shape:[0.86,0.98,0.92,0.72], tall:1.02, wide:0.82, deep:0.76, neckLen:0.60,
+   headS:[1.05,0.88,1.00],
+   build:[0.90,0.94,0.90], limb:1.0, arm:1.0, limbLen:2.75, armLen:1.95, lip:0x8e1c34,
+   legProf:[0.130,0.100,0.088,0.092,0.078,0.066],
+   armProf:[0.112,0.090,0.082,0.085,0.072,0.060],
+   foot:1.00, footShape:[0.92,0.42,2.05], hand:0.82, handShape:[0.88,0.46,1.30],
+   toes:3, fingers:4},
   {id:'otter', name:'Nori the Otter', price:1900,
    blurb:'Never off the water in the first place. Rolls for the fun of it.',
    fur:0x8a5f3c, dark:0xd8c39a, nose:0x241812, bib:0xd9c39c, bibS:0.60, muzzle:0xd6c199,
@@ -2603,7 +2619,8 @@ function buildChar(id){
     m.material=C.footCol?footMat:lm;}
   if(C.footCol)footMat.color.copy(vivid(C.footCol,1.5));
   if(C.handCol)handMat.color.copy(vivid(C.handCol,1.5));
-  for(const m of handMesh){const q=base(m);m.scale.set(q.x*H*FL,q.y*H,q.z*H*FT);
+  const HS=C.handShape||[1,1,1];
+  for(const m of handMesh){const q=base(m);m.scale.set(q.x*H*FL*HS[0],q.y*H*HS[1],q.z*H*FT*HS[2]);
     m.material=C.handCol?handMat:lm;}
   // the whole arm can be shortened — a rex's are a fraction of the length, and unlike a
   // leg an arm is not standing on anything, so scaling it whole is safe
@@ -2693,6 +2710,20 @@ function buildChar(id){
     t.position.set(0,-0.15,-0.16);t.scale.set(0.80*bs,0.58*bs,0.94);   // carries up under the chin
   }
 
+  // ---- toes and fingers ----
+  // Hung off the foot and hand meshes so they inherit whatever shape those ended up —
+  // a long narrow foot gets long narrow toes without a second set of numbers.
+  if(C.toes)for(const f of footMesh)for(let i=0;i<C.toes;i++){
+    const u=(i-(C.toes-1)/2);
+    const t=kit(f,new THREE.Mesh(new THREE.SphereGeometry(0.062,12,10),f.material));
+    t.position.set(u*0.105,0.01,-0.125);t.scale.set(0.85,1.0,1.5);
+  }
+  if(C.fingers)for(const h of handMesh)for(let i=0;i<C.fingers;i++){
+    const u=(i-(C.fingers-1)/2);
+    const t=kit(h,new THREE.Mesh(new THREE.SphereGeometry(0.052,12,10),h.material));
+    t.position.set(u*0.086,0.0,-0.100);t.scale.set(0.80,0.95,1.15);
+  }
+
   // ---- claws ----
   // A sloth's whole silhouette is the hooks on the end of it, and a lizard and a rex have
   // toes. They hang off the hand mesh so they inherit whatever size that character's
@@ -2738,11 +2769,13 @@ function buildChar(id){
     }
   } else if(C.face==='frog'){
     // a wide flat mouth cut right across the head, and a broad soft jaw under it
+    const HD=C.headS||[1,1,1];
     const j=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.33,24,18),furMat));
-    j.position.set(0,-0.12,-0.13);j.scale.set(1.12,0.62,1.05);
-    const mouth=kit(headJ,new THREE.Mesh(new THREE.TorusGeometry(0.235,0.030,10,26,Math.PI*0.95),
-      PBR({color:0x2a1d22,roughness:0.5})));
-    mouth.position.set(0,-0.10,-0.30);mouth.rotation.set(1.62,0,Math.PI);
+    j.position.set(0,-0.12,-0.13);j.scale.set(1.12*HD[0],0.62*HD[1],1.05*HD[2]);
+    const mouth=kit(headJ,new THREE.Mesh(new THREE.TorusGeometry(0.255,0.034,10,28,Math.PI*1.02),
+      PBR({color:C.lip||0x8e1c34,roughness:0.42,vivid:1.2})));
+    mouth.position.set(0,-0.085,-0.27);mouth.rotation.set(1.62,0,Math.PI);
+    mouth.scale.set(HD[0],1,HD[2]);
     for(const sx of [-1,1]){
       const n=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.028,10,8),mat(0x1d2a1a,60)));
       n.position.set(sx*0.075,0.055,-0.40);
@@ -3012,6 +3045,14 @@ function limbMesh(){
 let legThick=1, armThick=1, legProf=LEG_PROFILE, armProf=ARM_PROFILE, armFlat=[1,1];
 function updateLimbs(){
   pug.updateMatrixWorld(true);
+  // averaged over both legs: they sit at different angles on the board, so correcting off
+  // one alone leaves the other foot high
+  let d2=0;
+  for(const g of [legFrontJ,legBackJ]){
+    g.hip.getWorldPosition(_w); pug.worldToLocal(_w); const hy=_w.y;
+    g.ankle.getWorldPosition(_w); pug.worldToLocal(_w); d2+=hy-_w.y;
+  }
+  legDrop=d2*0.5;
   sweepLimb(legFrontJ.tube,legFrontJ.chain,legProf,legThick,[1,1]);
   sweepLimb(legBackJ.tube ,legBackJ.chain ,legProf,legThick,[1,1]);
   sweepLimb(armFrontJ.tube,armFrontJ.chain,armProf,armThick,armFlat);
@@ -5314,7 +5355,7 @@ function animateRig(dt,carve,grab,waterY){
   rigCrouch=ease(rigCrouch,compress-releaseKick*0.55,dt,9);   // pops upright out of a grab
   rigAir=ease(rigAir,airborne?1:0,dt,8);
 
-  pelvis.position.y=PELVIS_Y-hipDrop(legFrontJ)*(1-legS)-Math.max(0,Math.min(0.24,rigCrouch))*0.14;
+  pelvis.position.y=pelvisHeight()-Math.max(0,Math.min(0.24,rigCrouch))*0.14;
   pelvis.rotation.z=carve*0.10;
   pelvis.rotation.x=heave*0.22;
 
