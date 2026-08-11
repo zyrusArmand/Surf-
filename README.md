@@ -52,6 +52,16 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.97.0** — **The preview arrows are neon now.** Hollow chevrons with a warm wash
+  inside them, drawn the way a neon tube is drawn rather than with a glow filter bolted
+  on: the *same closed outline* stroked three times, widest and deepest underneath, then
+  the saturated tube, then a thin near-white filament on top. The falloff from a hot core
+  out through orange happens across the width of the stroke itself, so it survives being
+  scaled and never bands the way a blur does. The bloom breathes, and the filament
+  breathes a beat out of step with it, so it reads as something powered rather than as a
+  shape with a glow on it. Same proportion as before — 5.54 high to wide, symmetric, 6px
+  in from each edge, mirrored exactly — and the same behaviour: still absent at the two
+  ends, still walking the shop's order.
 - **v1.96.0** — **The fins were still wrong, in three separate ways, and all three were
   measurable.**
   **Cant was never cant.** It is meant to lean a fin's tip out toward its rail, and it was
