@@ -299,7 +299,10 @@
   #stats .hero .hk { display:block; font-size:10.5px; font-weight:800; letter-spacing:1.3px;
     text-transform:uppercase; opacity:.62; margin-top:3px; }
   #stats .hero .hs { display:block; font-size:11px; opacity:.55; margin-top:2px; }
-  #stats .acts { display:flex; gap:8px; justify-content:center; margin-top:12px; }
+  #stats .acts { display:flex; gap:8px; justify-content:center; margin-top:12px; flex-wrap:wrap; }
+  /* the owner's key gets its own line: it is the odd one out in that row and squeezing a
+     fourth button in beside the others wrapped its label onto two lines */
+  #stats .acts #stClaim { flex:1 0 100%; max-width:none; order:-1; }
   /* three across one row, sharing the width rather than wrapping */
   #stats .acts .go { margin:0; flex:1 1 0; width:auto; min-width:0; max-width:160px;
     padding:12px 8px; font-size:14.5px; }
@@ -348,6 +351,7 @@
   <div id="stBody"></div>
   <div class="acts">
     <button class="go alt sm" id="stCopy">Copy</button>
+    <button class="go alt sm" id="stClaim">Claim boards</button>
     <button class="go calm sm" id="stWipe">Reset</button>
     <button class="go sm" id="stClose">Close</button>
   </div>
@@ -413,7 +417,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.75.0';
+const VERSION='1.76.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2398,6 +2402,16 @@ function openStats(full){
   document.querySelector('#stats h2').firstChild.nodeValue = full ? 'Records ' : 'Stats ';
   document.getElementById('stWipe').style.display = full ? '' : 'none';
   document.getElementById('stCopy').style.display = full ? '' : 'none';
+  // Owner's key. It lives behind the version-tap because that is already the door
+  // nobody finds by accident, and it is the only thing in the game that hands you
+  // something you did not ride for — so it stays out of the shop entirely.
+  const cl=document.getElementById('stClaim');
+  cl.style.display = full ? '' : 'none';
+  if(full){
+    const left=BOARDS.filter(b=>!owned[b.id]).length;
+    cl.textContent = left ? 'Claim '+left+' boards' : 'All boards owned';
+    cl.disabled = !left;
+  }
   if(!full){ stBody.innerHTML=funStats(); statsPanel.classList.remove('hidden'); return; }
   const S=stats;
   const nB=Object.keys(owned).length, nC=Object.keys(ownedChars).length;
@@ -2459,6 +2473,17 @@ document.getElementById('stCopy').onclick=e=>{
   const done=()=>{ e.target.textContent='Copied'; setTimeout(()=>e.target.textContent='Copy',1400); };
   if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(blob).then(done,done);
   else done();
+};
+document.getElementById('stClaim').onclick=e=>{
+  // two presses, same as Reset: this one is harmless but it changes your save, and a
+  // stray tap in the panel should not quietly rewrite what you have earned
+  if(e.target.dataset.armed){
+    for(const b of BOARDS)owned[b.id]=1;
+    saveGame(); openStats(true); if(!document.getElementById('shop').classList.contains('hidden'))drawShop();
+    delete e.target.dataset.armed; return;
+  }
+  e.target.dataset.armed='1'; e.target.textContent='Sure?';
+  setTimeout(()=>{ if(e.target.dataset.armed){delete e.target.dataset.armed; openStats(true);} },3000);
 };
 document.getElementById('stWipe').onclick=e=>{
   // two presses: the first arms it, so a stray tap cannot erase months of history

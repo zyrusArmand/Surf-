@@ -52,6 +52,14 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.76.0** — An owner's key in the Records panel: one press unlocks every board.
+  It lives behind the five-tap version door because that is already the entrance nobody
+  finds by accident, and it stays out of the shop entirely — it is the only thing in the
+  game that hands you something you did not ride for. It counts what is left ("Claim 37
+  boards"), takes two presses like Reset does so a stray tap cannot quietly rewrite a
+  save, greys out once everything is owned, and redraws the shop underneath if it happens
+  to be open. It gets its own line in the button row; squeezed in as a fourth button its
+  label wrapped onto two lines.
 - **v1.75.0** — Less wash, a new trick, and an electric board.
   **The water round the board is calmer.** It was reading as a wall of white either side
   of the hull rather than a rail throwing spray — less of it, thrown less far, and gone
