@@ -52,6 +52,29 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.10.0** — **The ocean was being tessellated flat.** The swell is carried in the
+  vertex shader and its shortest component has a wavelength of about two and a half units,
+  so the mesh has to be fine enough to hold it — the game's own ocean runs three quarters
+  of a unit per segment. The preview's was at **six units a segment, eight times coarser**,
+  which is why it read as a slab of blue that moved slightly rather than as water. But the
+  water also has to run two thousand units to the horizon, and at three quarters of a unit
+  that is a million vertices. So it is built row by row with the rows spaced
+  **geometrically** — 0.85 apart at the shore, growing three quarters of a per cent each
+  row until they are seventeen apart at the far edge. Four hundred rows cover the whole
+  distance with the density where the waves are legible, at about the same vertex count as
+  the game's own ocean. Colours were already the game's; the amplitude was already 1.35.
+  Neither was ever the problem.
+  **The sand was aliased too** — 230 x 210 over 760 x 460 is three units a vertex against
+  a seven-unit ripple, two vertices per ripple. Finer mesh, longer ripples, and the grain
+  is now colour rather than shape, because no mesh is ever fine enough for grains. Wet sand
+  in the wash zone is much darker, so it stops reading as a dry stripe between wave lines.
+  **The Back button is centred** — auto margins do nothing on an inline-level box, which is
+  why setting them last time did not move it. It has to be block-level first.
+  **Arrows are blue** with a deep navy underneath to hold an edge over pale sand, a cyan
+  tube and a near-white filament. **A soft wash is back behind the name** — not the hard
+  bar from before, and the bottom still has none. **Palm trunks curve properly**: a cubic
+  term gives the reverse bend under the crown that a sine and a quadratic cannot.
+  **Nugget has proper eyes**, white with a dark pupil, per the reference.
 - **v2.9.0** — **Nugget the Chicken**, the twentieth rider, at 8,200 puka.
   A deep round body carried high on scaly yellow legs with almost no waist, and a small
   head on a *real* neck — the neck is the whole reason a chicken reads as a bird rather

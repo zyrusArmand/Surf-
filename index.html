@@ -259,12 +259,14 @@
   #viewer #vDrag { position:absolute; inset:0; pointer-events:auto; touch-action:none; }
   #viewer .vtop, #viewer .vbot { position:relative; z-index:1; }
   #viewer .varr { z-index:2; }
-  /* No scrim behind either block. Over a beach it read as a dark bar laid across the top
-     and a grey wash across the bottom, both of them fighting the picture they were meant to
-     be helping. The type carries its own legibility instead — a hard shadow rather than a
-     panel — and the stat bars have a plate of their own to sit on. */
+  /* A light wash behind the name, fading out completely before it reaches the object — not
+     the hard bar that was here before. The bottom has no scrim at all: the stat bars carry
+     their own plate and the button carries its own fill, so there is nothing down there
+     that needs a background. */
   #viewer .vtop { text-align:center; pointer-events:none;
-    margin:-14px -16px 0; padding:16px 16px 30px; }
+    background:linear-gradient(180deg, rgba(2,10,22,.58) 0%, rgba(2,10,22,.34) 46%,
+      rgba(2,10,22,.10) 78%, rgba(2,10,22,0) 100%);
+    margin:-14px -16px 0; padding:16px 16px 44px; }
   #viewer .vname { font-size:26px; font-weight:800; letter-spacing:.3px;
     text-shadow:0 2px 3px rgba(0,22,48,.95), 0 0 16px rgba(0,22,48,.75), 0 6px 20px rgba(0,22,48,.6); }
   #viewer .vsub { font-size:13px; opacity:.92; margin-top:4px; line-height:1.4;
@@ -275,9 +277,10 @@
      behind the name did the same to the type. */
   #viewer .vbot { pointer-events:auto; width:min(520px,100%); margin:0 auto;
     padding:40px 14px 4px; margin-bottom:-4px; }
-  /* the Back button is an inline-flex box in a block container, so it sat hard against the
-     left edge with a hundred pixels of air on its right */
-  #viewer .vbot .go { margin-left:auto; margin-right:auto; }
+  /* The Back button is an INLINE-flex box, and auto margins do nothing on an inline-level
+     element — which is why setting them last time did not move it. It has to be block-level
+     first, then the margins centre it. */
+  #viewer .vbot .go { display:flex; margin-left:auto; margin-right:auto; }
   /* Long thick arrows down each side, to walk the rack without going back to the grid.
      No plate behind them: at this size the shape carries on its own, and a button would
      compete with the very thing it is there to let you look at. */
@@ -304,21 +307,21 @@
      kinking — and turns tightly, because those controls sit close to it. Seven times as
      tall as it is wide, and the hollow is a slot rather than a gap. */
   #viewer .varr svg path { fill:none; stroke-linejoin:round; stroke-linecap:round; }
-  /* Darker, because the background changed underneath them. A bright orange neon works
-     over a dark sea and disappears over white sand and a pale sky — there is nothing for it
-     to be brighter THAN. A deep burnt orange reads as a line on both. */
-  #viewer .varr .a { stroke:#7a2600; stroke-width:3.4; opacity:.62; fill:rgba(120,44,0,.14); }
-  #viewer .varr .b { stroke:#c2410c; stroke-width:1.5;
+  /* Blue, and dark enough at the outside to hold an edge against pale sand. The deep navy
+     underneath is what makes it read on a bright background; the cyan tube and the near
+     white filament are what make it glow. */
+  #viewer .varr .a { stroke:#062a4d; stroke-width:3.4; opacity:.66; fill:rgba(12,64,110,.16); }
+  #viewer .varr .b { stroke:#2fa8e0; stroke-width:1.55;
     animation:varrTube 2.6s ease-in-out infinite; }
-  @keyframes varrTube { 0%,100% { stroke:#a8360a; } 45% { stroke:#e8621f; } }
+  @keyframes varrTube { 0%,100% { stroke:#1d7fb8; } 45% { stroke:#63d2f7; } }
   /* the hot core breathes a beat out of step with the bloom, so it reads as something
      powered rather than as a shape someone put a glow filter on */
-  #viewer .varr .c { stroke:#ffd9a8; stroke-width:0.44; opacity:.8;
+  #viewer .varr .c { stroke:#e8fbff; stroke-width:0.46; opacity:.9;
     animation:varrCore 2.6s ease-in-out infinite; }
   @keyframes varrCore { 0%,100% { opacity:.62; } 42% { opacity:1; } }
   @keyframes varrGlow {
-    0%,100% { filter:drop-shadow(0 0 2px rgba(90,30,0,.55)) drop-shadow(0 0 7px rgba(60,20,0,.30)); }
-    50%     { filter:drop-shadow(0 0 7px rgba(232,98,31,.85)) drop-shadow(0 0 20px rgba(120,40,0,.45)); } }
+    0%,100% { filter:drop-shadow(0 0 3px rgba(6,42,77,.60)) drop-shadow(0 0 9px rgba(20,90,150,.30)); }
+    50%     { filter:drop-shadow(0 0 9px rgba(99,210,247,.95)) drop-shadow(0 0 26px rgba(40,150,220,.55)); } }
   #viewer .varr:active { transform:translateY(-50%) scale(.9); }
   #viewer .varr:active .c { opacity:1; stroke-width:0.75; }
   #viewer .varr:active .a { opacity:.8; }
@@ -611,7 +614,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.9.0';
+const VERSION='2.10.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2748,9 +2751,15 @@ function buildPalm(seed){
 
   // --- trunk: a curve that leans out over the water and straightens near the crown,
   // lofted as tapered rings with the ring-scars a palm actually has cut into the radius
-  const H=10.6+R()*2.0, lean=0.30+R()*0.16, TS=52, TR=18;
+  const H=10.6+R()*2.0, lean=0.40+R()*0.20, TS=58, TR=18;
+  // More curve than a lean: a coconut palm's trunk is a long C that leaves the sand at an
+  // angle, straightens through the middle and comes back upright under the crown. A single
+  // sine plus a quadratic reads as a stick propped over; the cubic gives it the reverse
+  // bend near the top.
   const bend=t=>new THREE.Vector3(
-    Math.sin(t*1.35)*lean*H*0.42 + t*t*lean*H*0.30, t*H, -Math.sin(t*0.7)*lean*H*0.13);
+    Math.sin(t*1.62)*lean*H*0.62 + t*t*lean*H*0.46 - t*t*t*lean*H*0.30,
+    t*H,
+    -Math.sin(t*0.85)*lean*H*0.20);
   // A coconut palm's trunk is not a smooth pole: the old leaf bases leave hard rings that
   // spiral slowly up it, with fibre running between them. Three tones with real distance
   // between them, so the rings read as cut in rather than as a faint stripe.
@@ -2909,14 +2918,39 @@ function buildBeach(){
   const _ss=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
   const sandH=wz=>9.0*_ss(-180,10,wz)-4.6;      // under water past about -84, dry in front
   beachSand0=sandH(0);                           // how high the sand is where the object goes
-  const sea=new THREE.Mesh(new THREE.PlaneGeometry(1600,1000,240,190),prevOcean);
-  sea.rotation.x=-Math.PI/2; sea.position.set(0,0,-470); g.add(sea);
+  // The sea is built row by row rather than as a PlaneGeometry, because a uniform grid
+  // cannot do both jobs at once. The swell is carried in the vertex shader and its shortest
+  // component has a wavelength of about two and a half units, so it needs sub-unit rows to
+  // survive — the game's own ocean runs three quarters of a unit per segment. The preview
+  // had one sheet at SIX units a segment, eight times coarser, which tessellated every wave
+  // flat: that is why it read as a slab of blue that moved slightly rather than as water.
+  // But the water also has to run two thousand units out to the horizon, and at three
+  // quarters of a unit that is a million vertices.
+  // So the rows are spaced geometrically: 0.85 apart at the shore, growing three quarters of
+  // a per cent each row until they are seventeen apart at the far edge. Four hundred rows
+  // cover the whole distance with the density where the waves are actually legible, and the
+  // count comes out about the same as the game's own ocean.
+  const SEA_W=250, SEA_NX=280, SEA_NZ=400;
+  const zs=[]; { let zz=0, step=0.85;
+    for(let i=0;i<=SEA_NZ;i++){ zs.push(zz); zz+=step; step*=1.0075; } }
+  const spos=[], sidx=[];
+  for(let j=0;j<=SEA_NZ;j++)for(let i=0;i<=SEA_NX;i++)
+    spos.push((i/SEA_NX-0.5)*SEA_W, zs[j], 0);     // local +y runs away once it is laid down
+  for(let j=0;j<SEA_NZ;j++)for(let i=0;i<SEA_NX;i++){
+    const a2=j*(SEA_NX+1)+i, b2=a2+1, c2=a2+SEA_NX+1, d2=c2+1;
+    sidx.push(a2,c2,b2, b2,c2,d2);
+  }
+  const seaGeo=new THREE.BufferGeometry();
+  seaGeo.setAttribute('position',new THREE.Float32BufferAttribute(spos,3));
+  seaGeo.setIndex(sidx);
+  const sea=new THREE.Mesh(seaGeo,prevOcean);
+  sea.rotation.x=-Math.PI/2; sea.position.set(0,0,40); sea.frustumCulled=false; g.add(sea);
 
-  const SW=760, SD=460, SC=0, SNU=230, SNV=210;
+  const SW=760, SD=460, SC=0, SNU=380, SNV=330;
   const sg=new THREE.PlaneGeometry(SW,SD,SNU,SNV);
   const sp=sg.attributes.position, scol=[];
   const C1=new THREE.Color(0xf0c880), C2=new THREE.Color(0xc9ac74), C3=new THREE.Color(0xffe4b0);
-  const _c=new THREE.Color(), _WET=new THREE.Color(0x9c8a6a);
+  const _c=new THREE.Color(), _WET=new THREE.Color(0x5f5237);
   // Height as a plain function of position, so the surface can be sampled either side of a
   // point to get its slope. That is what the shading below needs, and it is the only reason
   // the dunes read at all: white sand lit from a hemisphere has almost no shading of its
@@ -2937,8 +2971,8 @@ function buildBeach(){
     // at a grazing angle and anything square-ish flattens into nothing — but ripples running
     // ACROSS the view present their profile over and over, which is exactly why wind and
     // tide ripples on a real beach are the thing you see from a deck chair.
-    const fine  =(_fbm(x*0.020+23,wz*0.290+3)-0.5)*1.15;
-    const ripple=(_fbm(x*0.055+3, wz*0.85+5)-0.5)*0.38;
+    const fine  =(_fbm(x*0.018+23,wz*0.185+3)-0.5)*1.25;
+    const ripple=(_fbm(x*0.048+3, wz*0.44+5)-0.5)*0.42;
     return sandH(wz) + ((swell*dry+dune+fine)*dry + ripple + dry*dry*1.4)*flat;
   };
   const EPS=1.1;
@@ -2948,7 +2982,7 @@ function buildBeach(){
     sp.setZ(i,h);
     // white sand: pale and dry up the beach, darker where the water has been over it
     const dry=_ss(-46,40,wz);
-    const t=_ss(-74,-30,wz)*0.9 + (_fbm(x*0.9+31,wz*0.9+17)-0.5)*0.34;
+    const t=_ss(-104,-34,wz)*0.92 + (_fbm(x*0.9+31,wz*0.9+17)-0.5)*0.34;
     _c.copy(_WET).lerp(C1,Math.max(0,Math.min(1,t)));
     if(dry>0.55)_c.lerp(C3,(dry-0.55)*0.9);
     // Shading painted in by hand, from the slope, because the material will not give it to
@@ -2958,7 +2992,10 @@ function buildBeach(){
     const dhx=(hAt(x+EPS,wz)-hAt(x-EPS,wz))/(2*EPS);
     const dhz=(hAt(x,wz+EPS)-hAt(x,wz-EPS))/(2*EPS);
     const sh=Math.max(-1,Math.min(1,-dhx*0.60+dhz*1.05));
-    const gr=(_fbm(x*2.4+7,wz*2.4+19)-0.5)*0.075;
+    // Sand is grains, and no mesh is ever fine enough for those, so the last scale is
+    // colour only — a speckle at about a third of a unit, under a pixel out at the back
+    // and a visible sparkle in the foreground.
+    const gr=(_fbm(x*19.0+7,wz*19.0+19)-0.5)*0.085 + (_fbm(x*3.1+41,wz*3.1+5)-0.5)*0.075;
     // A LOT of shading, and deliberately so. At 0.80 luminance the sand was sitting right
     // at the top of the tone curve, where ACES compresses everything together — the dunes
     // were geometrically present and completely invisible. Dropping the level so the sand
@@ -3983,7 +4020,7 @@ const CHARS=[
    blurb:'Cannot fly. Has never let that stop her. Surfs like she means it.',
    fur:0xf6efe2, dark:0xd8c4a4, nose:0xf0a51c, beak:0xf0a51c, comb:0xd8342c,
    face:'beak',  beakLen:0.19, beakR:0.095, headPatch:false, ears:'none',
-   tail:'fan',   tailCol:0xcfa871, eyes:'beady',
+   tail:'fan',   tailCol:0xcfa871, eyes:'wide',
    // A chicken is a deep round body carried high on scaly legs with almost no waist, and
    // a small head on a real neck — the neck is the whole reason a chicken reads as a bird
    // and not as a ball. Wings use the penguin's flat arms; folded against the body that is
