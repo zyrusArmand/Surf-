@@ -52,7 +52,13 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
-- **v1.94.0** — **Arrows down each side of the preview.** Long thick orange chevrons that
+- **v1.95.0** — **The side arrows are chevrons now**, reshaped to the drawing: one long
+  slender V about five and a half times as high as it is wide, running a quarter of the
+  screen's height, rather than the stubby shaft-and-head arrow that was there. Symmetric
+  about its own point, so the two arms are the same length, and mirrored exactly across
+  the screen — measured, both sit 6px in from their edge and the apex is dead level with
+  the middle. Round joins, or the point of a stroke this thick comes out as a spike.
+- **v1.94.0** — **Arrows down each side of the preview.** Long thick orange arrows that
   pulse, one to a side, stepping to the previous or next item without going back to the
   grid — and they walk the *shop's* order, so what is next here is what was next in the
   list. There is nothing before the first or after the last, so at either end the arrow
