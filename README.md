@@ -52,6 +52,25 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.8.0** — Nine things on the preview.
+  **The sea is the game's sea again** — same colours, and its swell, drift and foam
+  thresholds are copied over live each frame, so it moves exactly as the one you surf on.
+  The preview had grown its own turquoise, which was a different ocean. Only the light
+  level stays pinned, so it is a bright day rather than following the ride into dusk.
+  **Darker sand with the dunes actually showing** — deeper relief, harder slope shading,
+  and the base tone dropped again so none of it crushes at the top of the tone curve.
+  **The palms are darker, shorter, closer and fully in frame**, with more rings on the
+  trunk and warmth back in the bark. **More gulls**, smaller and lower, so there is
+  something living in it.
+  **Both scrims are gone.** Over a beach they read as a dark bar across the top and a grey
+  wash across the bottom, fighting the picture they were meant to help. The type carries
+  its own legibility now — a hard shadow rather than a panel.
+  **The board and the Back button are centred.** A 0.06 camera lift tips the view down and
+  pushes the object low: measured, its centre sat at 58% of the screen. And the button is
+  an inline-flex box in a block container, so it was hard against the left edge with a
+  hundred pixels of air on its right.
+  **The arrows are a deep burnt orange.** A bright neon works over a dark sea and
+  disappears over white sand and a pale sky — there is nothing for it to be brighter than.
 - **v2.7.0** — **Two palms were standing in the sea.** The waterline is wherever the beach
   profile crosses zero — about −69 — and they were at −88 and −116, well past it, so their
   trunks came up out of the water. Placement is checked against the profile in code now
