@@ -603,7 +603,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.4.0';
+const VERSION='2.5.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -3322,7 +3322,7 @@ function shopCard(item,have,on,buy,use,thumb,stats,kind){
 // it all before the shop appears reads as a hang. The cards go up straight away and
 // the pictures are taken one per frame afterwards, so the list is scrollable while
 // they arrive and an already-cached shot fills in immediately.
-let shopFillId=0;
+let shopFillId=0, shopMenuWasUp=false;
 function fillThumbs(jobs){
   const mine=++shopFillId;
   const step=()=>{
@@ -3367,9 +3367,22 @@ function drawShop(){
 }
 for(const t of document.querySelectorAll('#shopTabs .tab'))
   t.onclick=()=>{ shopTab=t.dataset.tab; drawShop(); };
-shopBtn.onclick=()=>{shopTab='boards';drawShop();shop.classList.remove('hidden');};
+// The shop panel is 94% opaque, which is what lets the sea move behind it — but the MENU
+// was behind it too, and six per cent of a 54px title is perfectly readable. "Surf", the
+// purse, "Play", "Beach shop" and "Stats" were all ghosted through the cards. The menu goes
+// away while the shop is up and comes back with it, the same as the full-screen viewer
+// already does; the sea is still there behind both.
+shopBtn.onclick=()=>{
+  shopTab='boards'; drawShop();
+  shopMenuWasUp=!overlay.classList.contains('hidden');
+  if(shopMenuWasUp)overlay.classList.add('hidden');
+  shop.classList.remove('hidden');
+};
 document.getElementById('vClose').onclick=closeViewer;
-document.getElementById('shopClose').onclick=()=>shop.classList.add('hidden');
+document.getElementById('shopClose').onclick=()=>{
+  shop.classList.add('hidden');
+  if(shopMenuWasUp)overlay.classList.remove('hidden');
+};
 
 // ---------- the panel behind the version number ----------
 // Five taps on the version opens it. It is only listening while the menu is up, so a

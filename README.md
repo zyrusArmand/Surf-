@@ -52,6 +52,13 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.5.0** — **The menu was bleeding through the shop.** The shop panel is 94% opaque,
+  which is what lets the sea move behind it — but the MENU was behind it too, and six per
+  cent of a 54px title is perfectly readable: *Surf*, the purse, *Play*, *Beach shop* and
+  *Stats* were all ghosted through the cards. The menu is put away while the shop is up
+  and brought back with it, the same as the full-screen viewer already did. The sea is
+  still there behind both. Checked the whole round trip — menu → shop → preview → shop →
+  menu — at every step.
 - **v2.4.0** — **The beach to the reference.** White sand, turquoise water, deep blue sky
   with cumulus, palms to the sides, and the board **hovering** clear of the sand with a
   shadow under it rather than planted in it.
