@@ -52,6 +52,36 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.90.0** — Three things, all of them found by measuring rather than by looking.
+  **He waves at you after a 180.** The head used to crane 2.30 radians back over his
+  shoulder when he landed one, which screwed his neck away from the camera at the one
+  moment you want to see his face — his body has already come round to face you, so the
+  extra yaw was fighting it. That is gone. Instead he puts a hand up and waves for three
+  seconds, eased up and eased back down, then goes back to surfing. There *was* a wave
+  before, but it ran for as long as he rode switch, so it started on the landing and
+  never stopped. Traced: four cycles at 1.4 Hz over 3.00 s, then the arm settles back to
+  the planted stance exactly.
+  **Fins sit on the board now.** Two separate faults, both on every board with more than
+  one fin. Each fin was hung at the depth of the hull's *centreline* while standing out
+  near the rail, where the hull is much shallower — on Razorline that left the root 0.017
+  below the surface it is supposed to grow out of, about a quarter of the board's
+  thickness there, and you could see daylight through the gap. And the sideways placement
+  ignored both the fin's own thickness and its cant, which leans the tip outward again:
+  seven boards had fins standing clear of the outline, Midnight Gun's by 13%. Fin roots
+  now follow the hull's actual curve at their own offset, bases are held a tenth of the
+  half-width in from the rail and tips are held at it. Audited across all 36 boards that
+  carry fins: worst overhang 0.0000, worst root gap 0.0000.
+  **And the clusters are laid out to a rule** — one fin exactly on the stringer if there
+  is an odd one, the rest in mirrored pairs. Asymmetric had three fins at three different
+  offsets with nothing in the middle, and Chrome Wake Pro's two centre fins were each a
+  sixteenth off the stringer, one to either side.
+  **Board ends are rounded, not pointed.** The closing arc was applied to the plan
+  outline only, while the thickness ran out over a far longer span — so a narrow-nosed
+  board finished as a thin flat blade: full width within 0.03 of the tip but only a
+  third of its thickness, which face-on reads as a spike. The arc now takes the
+  thickness with it, so the section scales down in proportion and the tip is a small
+  round end rather than a point, and its radius will not go below the board's own
+  thickness. On Midnight Gun the nose arc went from 0.030 to 0.123 board units.
 - **v1.89.0** — **Boards stand up in the full-screen preview** and turn on their tail,
   which is how a board is looked at in a shop. Two details made it work. The Euler order
   matters: with the default XYZ the spin would be applied first and the stand-up second,

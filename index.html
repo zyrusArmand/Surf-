@@ -479,7 +479,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.89.0';
+const VERSION='1.90.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1302,16 +1302,25 @@ function buildBoardMesh(S){
   // board sticking out past the shape. Each end is rounded off over a span equal to
   // its own half-width, which is exactly a semicircle in plan: a wide nose finishes in
   // a broad curve, a narrow one comes to a point, and both close on the thickness.
-  const tipR=(wid)=>Math.min(0.14,Math.max(0.004,W*wid/L*(S.tipK||1)));
+  // Both ends have to close, and they have to close in BOTH dimensions at once. This
+  // arc used to be applied to the plan outline only, while the thickness ran out over a
+  // much longer span of the board — so a narrow-nosed board finished as a thin vertical
+  // blade: no width left but still most of its foam standing up, which face-on reads as
+  // a spike rather than a nose. The closing arc now takes the thickness with it, and its
+  // radius will not go below the board's own thickness, because that is about the
+  // tightest a real tip is ever rolled. A wide nose still finishes in a broad curve, a
+  // narrow one in a small round tip, and neither comes to a point.
+  const tipR=(wid)=>Math.min(0.14,Math.max(T*0.85/L, W*wid/L*(S.tipK||1)));
   const tN=tipR(S.noseW), tT=tipR(S.tailW);
   const round=(d,r)=>d>=r?1:Math.sqrt(Math.max(0,1-(1-d/r)*(1-d/r)));
+  const close=u=>round(u,tN)*round(1-u,tT);
   const hw=u=>{
     const kn=1-_sm(0,0.16,u), kt=_sm(0.82,1,u);
-    return W*(beta(u)*(1-kn)*(1-kt) + S.noseW*kn + S.tailW*kt)*round(u,tN)*round(1-u,tT);
+    return W*(beta(u)*(1-kn)*(1-kt) + S.noseW*kn + S.tailW*kt)*close(u);
   };
   // thickness runs to nothing at both tips, so the loft closes on a thin edge the
   // way a real board does, with its fullest point just ahead of centre
-  const th=u=>Math.pow(Math.sin(Math.PI*Math.pow(Math.max(0,Math.min(1,u)),S.thSkew||1.0)),S.thPow||0.5);
+  const th=u=>Math.pow(Math.sin(Math.PI*Math.pow(Math.max(0,Math.min(1,u)),S.thSkew||1.0)),S.thPow||0.5)*close(u);
   const rock=u=>S.rockN*Math.pow(Math.max(0,(S.noseR-u)/S.noseR),2.2)
                 +S.rockT*Math.pow(Math.max(0,(u-1+S.tailR)/S.tailR),2.2);
   // a swallow tail is the middle of the tail cut forward, so it is a shift in z
@@ -1402,8 +1411,23 @@ function buildBoardMesh(S){
     fg.translate(0,0,-(f.t||0.030)/2);
     const m=new THREE.Mesh(fg,finMat);
     m.rotation.y=Math.PI/2;                      // thickness now runs across the board
-    const u=0.5+f.z/L;
-    m.position.set(f.x, rock(u)-T*(S.hullK||0.62)*th(u)*0.92, f.z);
+    const u=0.5+f.z/L, half=hw(u);
+    // A fin is bolted to the hull, so it has to sit ON the hull and INSIDE the rail.
+    // Neither was true. Every fin was hung at the depth of the hull's CENTRELINE while
+    // standing out near the rail, where the hull is a good deal shallower — measured on
+    // Razorline that left the root 0.017 below the surface it is supposed to be growing
+    // out of, about a quarter of the board's thickness there, and you could see daylight
+    // through the gap. And the sideways placement ignored both the fin's own thickness
+    // (the extrusion straddles x) and its cant, which leans the tip further out again:
+    // seven boards had fins standing clear of the outline, Midnight Gun's by 13%.
+    // So: the base is held a tenth of the half-width in from the rail, the tip is held
+    // at the rail, and the root follows the hull's actual curve at that offset.
+    const lean=Math.abs(Math.sin(f.cant||0))*d, halfT=(f.t||0.030)*0.5;
+    const room=Math.max(0.01,Math.min(half*0.90-halfT, half-lean));
+    const x=f.x===0?0:(f.x<0?-1:1)*Math.min(Math.abs(f.x),room);
+    const vv=half>1e-5?Math.min(0.999,Math.abs(x)/half):0;
+    const prof=Math.pow(Math.max(0,1-vv*vv),S.hullPow||0.42);
+    m.position.set(x, rock(u)-T*(S.hullK||0.62)*th(u)*prof+0.004, f.z);
     m.rotation.z=f.cant||0;
     grp.add(m);
   }
@@ -1775,9 +1799,12 @@ const BOARDS=[
      paint:deckScheme({deck:0xf6f2ff,hull:0xffffff,rail:0x6a2bd9,pin:0xff3d81,stringer:0x6a2bd9,
        sw:0.02,railAt:0.86,vivid:1.4,
        bands:[[0.72,0.16,0xff3d81]]}),
-     fins:[{x:-0.40,z:1.66,c:0.46,d:0.42,t:0.028,rake:0.14,cant:0.18},
-           {x:-0.20,z:1.94,c:0.32,d:0.28,t:0.024,rake:0.09,cant:0.20},
-           {x: 0.34,z:1.86,c:0.40,d:0.38,t:0.026,rake:0.11,cant:-0.20}]}},
+     // The outline is asymmetric; the fin cluster is not. It was three fins at three
+     // different offsets with nothing in the middle, which read as scattered rather than
+     // designed. A real asym still runs a square thruster — the asymmetry is in the rail.
+     fins:[{x:0,z:1.94,c:0.40,d:0.38,t:0.026,rake:0.11},
+           {x:-0.36,z:1.70,c:0.42,d:0.40,t:0.028,rake:0.13,cant:0.18},
+           {x: 0.36,z:1.70,c:0.42,d:0.40,t:0.028,rake:0.13,cant:-0.18}]}},
 
   {id:'chrome', name:'Chrome Wake Pro', price:6000,
    blurb:'Competition wakeboard. Moulded channels, six fins, and a finish you can see the sky in.',
@@ -1791,8 +1818,10 @@ const BOARDS=[
            {x: 0.46,z:1.58,c:0.24,d:0.14,t:0.020,rake:0.04,cant:-0.10},
            {x:-0.46,z:-1.58,c:0.24,d:0.14,t:0.020,rake:-0.04,cant:0.10},
            {x: 0.46,z:-1.58,c:0.24,d:0.14,t:0.020,rake:-0.04,cant:-0.10},
-           {x:-0.16,z:1.80,c:0.20,d:0.11,t:0.018,rake:0.03},
-           {x: 0.16,z:-1.80,c:0.20,d:0.11,t:0.018,rake:-0.03}]}},
+           // the two centre fins were offset a sixteenth off the stringer, one to each
+           // side — a twin-tip is symmetric about both axes, so they belong on it
+           {x:0,z:1.80,c:0.20,d:0.11,t:0.018,rake:0.03},
+           {x:0,z:-1.80,c:0.20,d:0.11,t:0.018,rake:-0.03}]}},
 
   // ---------- house of ---------- designer boards
   {id:'monarch', name:'Maison Monarch', price:5500,
@@ -4529,6 +4558,7 @@ let handOn=false,handT=0,handPts=0,handRisk=0,handSrc='gesture',handHold=0;
 // A half turn is a legal landing: the board carries on nose-first and he simply rides
 // it backwards from then on, until another half turn puts him round again.
 let switchRide=false, waveT=0;
+const WAVE_DUR=3.0;                   // he waves at the camera for this long after a 180
 function applyStance(){ pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0); }
 let grabOn=false,grabPts=0,grabSide=1,grabSrc='gesture';
 let dragOn=false,dragPts=0,dragSide=1,dragSrc='gesture';
@@ -6543,9 +6573,10 @@ function animateRig(dt,carve,grab,waterY){
   // head keeps looking down the line, level with the horizon
   // chin tucks to the chest through the rotation, then comes up to find the water
   neck.rotation.x=ease(neck.rotation.x,-spine.rotation.x*0.8+(airborne?0.12:0)+rigTuck*0.46,dt,9);
-  // Turned round, he cannot see where he is going without craning back over his
-  // shoulder — so that is what he does, and it is how you read which way he is facing.
-  headJ.rotation.y=ease(headJ.rotation.y,0.90+carve*0.34-(switchRide?2.30:0),dt,6);
+  // The head no longer cranes back when he lands the 180. His whole body has already
+  // come round to face us, and adding a 2.30 yaw on top of that screwed his neck away
+  // from the camera at the one moment you actually want to see his face.
+  headJ.rotation.y=ease(headJ.rotation.y,0.90+carve*0.34,dt,6);
   headJ.rotation.z=ease(headJ.rotation.z,-carve*0.10,dt,6);
   // ears and tail flap with speed and motion
   const flap=Math.sin(tNow*11)*(0.18+g*0.35);
@@ -6583,11 +6614,18 @@ function animateRig(dt,carve,grab,waterY){
     shB=[0.30+drag2*0.55,-0.18,-1.38-drag2*0.30];
     elB=[0.28-drag2*0.18,0,0];
     armSpread=Math.sin(tNow*2.4)*0.16 + heave*0.55;   // arms sway with the swell and the ride
-    if(switchRide){
-      // facing the camera with nothing to do about it, he waves
-      waveT+=dt;
-      const w=Math.sin(waveT*5.4);
-      shF=[0.10, 0.10, 2.48+w*0.42]; elF=[0.60+w*0.46,0,0];
+    if(waveT>0){
+      // He has just come round to face us, so he puts a hand up and waves — for three
+      // seconds, then back to surfing. It used to run for as long as he rode switch,
+      // which meant a wave that started on the landing and never stopped.
+      waveT=Math.max(0,waveT-dt);
+      const el=WAVE_DUR-waveT;                            // time since the landing
+      // eased up and eased back down, so the arm rises into it rather than snapping
+      const k=Math.min(1,el/0.26)*Math.min(1,waveT/0.36), w=Math.sin(el*8.6);
+      const mx=(a2,b2)=>a2*(1-k)+b2*k;
+      shF=[mx(shF[0],0.06), mx(shF[1],0.10), mx(shF[2],2.52+w*0.46)];
+      elF=[mx(elF[0],0.52+w*0.32),0,0];
+      armSpread*=1-k;
     }
   }
   if(heliPose>0.02){
@@ -6832,6 +6870,7 @@ function update(dt){
                               Math.abs(((pitchRot+Math.PI)%(Math.PI*2))-Math.PI));
           if(offS<0.78&&offF<0.62){
             if(Math.round(spinRot/Math.PI)%2!==0){ switchRide=!switchRide; applyStance();
+              waveT=WAVE_DUR;                       // half a turn: he ends up facing us
               msg(switchRide?'SWITCH!':'BACK TO REGULAR!'); }
             settleTricks(true); }
           else {
