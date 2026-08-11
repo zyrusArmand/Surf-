@@ -52,6 +52,22 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.0.0** — **The wipeout buttons are slimmer, lower, and in the menu's own colours.**
+  They were green and blue-grey, two colours that appear nowhere on the main menu. The
+  menu's palette is orange, cyan and yellow, so: *Surf again* keeps its orange (it is
+  literally the Play button), *Watch a clip* takes the yellow off Stats, and *Main menu*
+  takes the cyan off Beach shop. Pills are 40px tall instead of 52 — only on the wipeout
+  card, which carries a five-line summary as well; the menu has the room and its buttons
+  are the first thing you see, so they are untouched at 52.
+  Getting them lower needed a layout change rather than a nudge. With a centred column
+  the gap below is (screen − content)/2, so the only way down is to make the block
+  TALLER — and thinning the buttons had made it shorter, which measured as the stack
+  rising 48px. Padding it back out would have pushed the title up by half of whatever I
+  added, into the notch. So the stack takes `margin-top:auto` instead: all the free space
+  goes above it, pinning it to the bottom padding on a tall screen and collapsing to
+  nothing on a short one. Checked at 430×930, 430×1100 and 375×667 — buttons 91px lower
+  than they were, title within 17px of where it sat, and on the smallest screen the
+  summary still clears them by 45px rather than being overlapped or clipped.
 - **v1.99.0** — **The arrows are a drawn line rather than a bent bar.** Every segment is
   a bezier now, so there is no mitre at the point and no blunt cut at the ends: the band
   is widest where it turns and runs out to a sharp tip at either end. The two control
