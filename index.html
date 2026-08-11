@@ -603,7 +603,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.6.0';
+const VERSION='2.7.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2726,7 +2726,7 @@ function previewSetup(){
 // rolls rather than standing still.
 // ---------------------------------------------------------------------------
 let prevOcean=null, prevSky=null, beachLife=null;
-let SAND_LIT=0x8a8a8a, PALM_LIT=0x585858, beachShadow=null, beachSand0=0;   // set by measurement, see the note on the sand
+let SAND_LIT=0x5f5f5f, PALM_LIT=0x585858, beachShadow=null, beachSand0=0;   // set by measurement, see the note on the sand
 // ---- one palm, built as a single buffer geometry ----
 // Trunk, frond spines and every leaflet go into one set of arrays and come out as one
 // mesh: a palm is a few hundred separate blades, and a few hundred draw calls for a piece
@@ -2743,7 +2743,10 @@ function buildPalm(seed){
   const H=15.2+R()*2.6, lean=0.30+R()*0.16, TS=34, TR=12;
   const bend=t=>new THREE.Vector3(
     Math.sin(t*1.35)*lean*H*0.42 + t*t*lean*H*0.30, t*H, -Math.sin(t*0.7)*lean*H*0.13);
-  const BARK1=new THREE.Color(0x8a7154), BARK2=new THREE.Color(0x5f4b34), BARK3=new THREE.Color(0xa8906d);
+  // A coconut palm's trunk is not a smooth pole: the old leaf bases leave hard rings that
+  // spiral slowly up it, with fibre running between them. Three tones with real distance
+  // between them, so the rings read as cut in rather than as a faint stripe.
+  const BARK1=new THREE.Color(0xb09772), BARK2=new THREE.Color(0x2e2417), BARK3=new THREE.Color(0xe6d3ac);
   const ringsIdx=[];
   for(let i=0;i<=TS;i++){
     const t=i/TS, c0=bend(t), c1=bend(Math.min(1,t+0.01));
@@ -2752,15 +2755,19 @@ function buildPalm(seed){
     const sideB=dir.clone().cross(sideA).normalize();
     // taper, with a slight swell at the foot the way a palm flares into the sand
     const rad=(0.72-0.40*t)*(1+Math.pow(1-t,4)*1.5)*0.5;
-    // scars: a shallow groove every few rings, deeper low down where they are older
-    const scar=Math.sin(t*Math.PI*2*15)*0.5+0.5;
-    const rr=rad*(1-scar*0.075*(1-t*0.4));
     const row=[];
     for(let j=0;j<TR;j++){
       const a=j/TR*Math.PI*2;
       const w=sideA.clone().multiplyScalar(Math.cos(a)).add(sideB.clone().multiplyScalar(Math.sin(a)));
-      col.copy(BARK1).lerp(BARK2,scar*0.55+ (_noise(t*22,a*2)-0.5)*0.5);
-      if(Math.cos(a)>0.3)col.lerp(BARK3,0.30);        // a lit side, so it is not a tube
+      // the rings climb in a slow spiral rather than stacking level, which is what stops
+      // them looking like a machined thread
+      const sp2=t*19.0 + a/(Math.PI*2)*0.6;
+      const ring=Math.abs(((sp2%1)+1)%1-0.5)*2;       // 1 on the ridge, 0 in the groove
+      const groove=Math.pow(1-ring,2.0);
+      const fibre=_noise(a*7.0,t*95);                  // vertical fibre between the rings
+      const rr=rad*(1-groove*0.13*(1-t*0.3));
+      col.copy(BARK2).lerp(BARK1,0.30+ring*0.62+(fibre-0.5)*0.34);
+      if(Math.cos(a)>0.1)col.lerp(BARK3,0.42*Math.cos(a)*(0.45+ring*0.55));
       row.push(push(c0.x+w.x*rr, c0.y+w.y*rr, c0.z+w.z*rr, col));
     }
     ringsIdx.push(row);
@@ -2773,7 +2780,10 @@ function buildPalm(seed){
   // --- crown: the fronds
   const top=bend(1), topDir=bend(1).sub(bend(0.97)).normalize();
   const NF=15+((R()*4)|0);
-  const G1=new THREE.Color(0x3f8f34), G2=new THREE.Color(0x71c04a), G3=new THREE.Color(0x27632c);
+  // Much further apart than before. The crown was three greens within a few per cent of
+  // each other, so every frond came out the same flat sheet and the whole thing read as one
+  // shape. With a deep shadow green and a sunlit one there is depth between the fronds.
+  const G1=new THREE.Color(0x2f7a26), G2=new THREE.Color(0xa8e85c), G3=new THREE.Color(0x0d3312);
   for(let f=0;f<NF;f++){
     const az=f/NF*Math.PI*2+R()*0.22;
     // how far the frond starts out horizontal before it droops: the outer ones hang, the
@@ -2781,6 +2791,7 @@ function buildPalm(seed){
     const rise=0.30+R()*0.85;
     const len=5.4+R()*2.6;
     const SEG=22;
+    const fTint=(R()-0.5)*0.34;                      // this frond's own share of the light
     const dirH=new THREE.Vector3(Math.cos(az),0,Math.sin(az));
     const spine=k=>{
       const t=k/SEG;
@@ -2798,7 +2809,7 @@ function buildPalm(seed){
       const up=side.clone().cross(tan).normalize();
       // the spine itself: a thin tapered rib so the frond has a stem, not just leaves
       const rib=0.085*(1-t*0.82);
-      col.copy(G3).lerp(G1,0.55);
+      col.copy(G3).lerp(G1,0.42);                    // the spine stays in shadow
       const cL=push(p.x-side.x*rib,p.y-side.y*rib,p.z-side.z*rib,col);
       const cR=push(p.x+side.x*rib,p.y+side.y*rib,p.z+side.z*rib,col);
       if(prevL!==null)I.push(prevL,cL,prevR, prevR,cL,cR);
@@ -2812,10 +2823,12 @@ function buildPalm(seed){
           const outv=side.clone().multiplyScalar(sg).multiplyScalar(lw)
             .add(tan.clone().multiplyScalar(lw*0.62))
             .add(up.clone().multiplyScalar(-droop*lw*0.9));
-          col.copy(G1).lerp(G2,R()*0.75).lerp(G3,t*0.35);
+          // leaflets that hang further down are further into the crown's own shade, and
+          // each frond carries its own tint so they do not merge into one canopy
+          col.copy(G1).lerp(G2,R()*0.95*Math.max(0,1-droop*0.55)+fTint).lerp(G3,t*0.45+droop*0.30);
           const a0=push(p.x,p.y,p.z,col);
           const a1=push(p.x+tan.x*0.30,p.y+tan.y*0.30,p.z+tan.z*0.30,col);
-          col.lerp(G3,0.28);
+          col.lerp(G3,0.42);                            // dark toward the tip, for depth
           const a2=push(p.x+outv.x,p.y+outv.y,p.z+outv.z,col);
           I.push(a0,a1,a2, a0,a2,a1);            // both faces: a leaf is seen from under
         }
@@ -2884,33 +2897,63 @@ function buildBeach(){
   // sand. It runs from under the sea at the back up to dry sand at the front, the sea
   // carries over the submerged part, and the shoreline is simply where they cross.
   const _ss=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
-  const sandH=wz=>9.0*_ss(-150,10,wz)-4.6;      // under water past about -69, dry in front
+  const sandH=wz=>9.0*_ss(-180,10,wz)-4.6;      // under water past about -84, dry in front
   beachSand0=sandH(0);                           // how high the sand is where the object goes
   const sea=new THREE.Mesh(new THREE.PlaneGeometry(1600,1000,240,190),prevOcean);
   sea.rotation.x=-Math.PI/2; sea.position.set(0,0,-470); g.add(sea);
 
-  const SW=760, SD=420, SC=0, SNU=210, SNV=190;
+  const SW=760, SD=460, SC=0, SNU=230, SNV=210;
   const sg=new THREE.PlaneGeometry(SW,SD,SNU,SNV);
   const sp=sg.attributes.position, scol=[];
-  const C1=new THREE.Color(0xfff0d2), C2=new THREE.Color(0xdcc39a), C3=new THREE.Color(0xfffaf0);
-  const _c=new THREE.Color(), _WET=new THREE.Color(0xb8ae9a);
+  const C1=new THREE.Color(0xffdfa2), C2=new THREE.Color(0xdcc39a), C3=new THREE.Color(0xfff0cf);
+  const _c=new THREE.Color(), _WET=new THREE.Color(0x9c8a6a);
+  // Height as a plain function of position, so the surface can be sampled either side of a
+  // point to get its slope. That is what the shading below needs, and it is the only reason
+  // the dunes read at all: white sand lit from a hemisphere has almost no shading of its
+  // own, so relief on it is invisible however much of it there is.
+  const hAt=(x,wz)=>{
+    const dry=_ss(-46,40,wz);
+    // Flat only for the object's own footprint, so its shadow lands on sand rather than in
+    // a dune. It used to be flat for twenty-six units — and since the near field IS about
+    // thirty units deep, that flattened everything you could actually see.
+    const flat=_ss(4,13,Math.hypot(x,wz));
+    // Three scales, because one is not a landscape. The long swell shapes the beach, the
+    // dunes are what you read the surface by at this distance, the ripples catch the light.
+    // The long one alone has a wavelength of ninety units — nothing visible in a thirty-unit
+    // foreground, which is why the beach used to look like a sheet of paper.
+    const swell =(_fbm(x*0.011,wz*0.009)-0.5)*5.2;
+    const dune  =(_fbm(x*0.058+11,wz*0.049+7)-0.5)*2.4;
+    // Stretched along the shore rather than round. The camera is low, so the beach is seen
+    // at a grazing angle and anything square-ish flattens into nothing — but ripples running
+    // ACROSS the view present their profile over and over, which is exactly why wind and
+    // tide ripples on a real beach are the thing you see from a deck chair.
+    const fine  =(_fbm(x*0.020+23,wz*0.290+3)-0.5)*0.80;
+    const ripple=(_fbm(x*0.055+3, wz*0.85+5)-0.5)*0.26;
+    return sandH(wz) + ((swell*dry+dune+fine)*dry + ripple + dry*dry*1.4)*flat;
+  };
+  const EPS=1.1;
   for(let i=0;i<sp.count;i++){
     const x=sp.getX(i), wz=SC-sp.getY(i);        // plane +y runs to -z once it is laid down
-    const base=sandH(wz);
-    // Dunes only where the sand is properly clear of the water, and faded out again as it
-    // approaches it. A dune that dips below sea level out on the dry beach is exactly the
-    // hole the sea was showing through.
-    const dry=_ss(-46,40,wz);
-    // flat for twenty units around where the object stands, so the ground under it is a
-    // known height and its shadow lands on sand rather than inside a dune
-    const flat=_ss(9,26,Math.hypot(x,wz));
-    const dune=(_fbm(x*0.011,wz*0.009)-0.5)*5.6 + (_fbm(x*0.038+11,wz*0.031+7)-0.5)*1.5;
-    const ripple=(_fbm(x*0.30+3,wz*0.24+5)-0.5)*0.26;
-    sp.setZ(i, base + ((dune*dry+ripple)*dry + dry*dry*1.4)*flat);
+    const h=hAt(x,wz);
+    sp.setZ(i,h);
     // white sand: pale and dry up the beach, darker where the water has been over it
+    const dry=_ss(-46,40,wz);
     const t=_ss(-74,-30,wz)*0.9 + (_fbm(x*0.9+31,wz*0.9+17)-0.5)*0.34;
     _c.copy(_WET).lerp(C1,Math.max(0,Math.min(1,t)));
     if(dry>0.55)_c.lerp(C3,(dry-0.55)*0.9);
+    // Shading painted in by hand, from the slope, because the material will not give it to
+    // us: a low sun raking across from the left lights the faces turned toward it and drops
+    // the far side of every ridge into shade. Without this the dunes are geometrically
+    // there and completely invisible.
+    const dhx=(hAt(x+EPS,wz)-hAt(x-EPS,wz))/(2*EPS);
+    const dhz=(hAt(x,wz+EPS)-hAt(x,wz-EPS))/(2*EPS);
+    const sh=Math.max(-1,Math.min(1,-dhx*0.60+dhz*1.05));
+    const gr=(_fbm(x*2.4+7,wz*2.4+19)-0.5)*0.075;
+    // A LOT of shading, and deliberately so. At 0.80 luminance the sand was sitting right
+    // at the top of the tone curve, where ACES compresses everything together — the dunes
+    // were geometrically present and completely invisible. Dropping the level so the sand
+    // renders in the middle of the curve is what gives this room to show.
+    _c.offsetHSL(0,0,sh*0.26+gr);
     scol.push(_c.r,_c.g,_c.b);
   }
   sg.setAttribute('color',new THREE.Float32BufferAttribute(scol,3));
@@ -2927,12 +2970,18 @@ function buildBeach(){
   beachShadow.rotation.x=-Math.PI/2; g.add(beachShadow);
 
   // ---- palms out to the right, standing well back on dry sand ----
-  // Inside the frame, which at this field of view is narrower than it looks: the visible
-  // half-width sixty units back is about ten, so a palm at sixteen is off the side of the
-  // screen with only the tips of its fronds showing.
-  for(const [px,pz,ry,sc,sd] of [[8.2,-54,0.6,1.0,1],[15,-116,-1.9,1.25,5],[-9.5,-88,2.2,0.85,9]]){
+  // Two of these used to stand in the sea. The waterline is wherever sandH crosses zero —
+  // about -69 — and they were at -88 and -116, well past it, so their trunks came up out of
+  // the water. Placement is checked against the profile now rather than picked by eye: a
+  // palm is pushed forward until there is at least half a unit of dry sand under it.
+  // They also have to be inside the frame, which at this field of view is narrower than it
+  // looks: the visible half-width sixty units back is about ten, so a palm at sixteen is off
+  // the side of the screen with only its frond tips showing.
+  for(const [px0,pz0,ry,sc,sd] of [[8.4,-62,0.6,1.0,1],[12,-78,-1.9,1.15,5],[-8.6,-70,2.2,0.85,9]]){
+    let pz=pz0;
+    while(pz<10&&sandH(pz)<0.5)pz+=1;             // walk it up the beach until it is dry
     const palm=buildPalm(sd);
-    palm.position.set(px,sandH(pz)-0.25,pz);
+    palm.position.set(px0,sandH(pz)-0.25,pz);
     palm.rotation.y=ry; palm.scale.setScalar(sc);
     g.add(palm);
   }

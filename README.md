@@ -52,6 +52,29 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.7.0** — **Two palms were standing in the sea.** The waterline is wherever the beach
+  profile crosses zero — about −69 — and they were at −88 and −116, well past it, so their
+  trunks came up out of the water. Placement is checked against the profile in code now
+  rather than picked by eye: a palm is walked up the beach until there is at least half a
+  unit of dry sand under it. The shoreline also moved back, so there is a deep enough beach
+  to stand one on and still have it land inside the frame.
+  **The sand has dunes you can see**, which took two fixes rather than one. The flat pad
+  around the object was twenty-six units across and the near field IS about thirty units
+  deep, so it was flattening everything visible — that is now four. And the dunes were
+  there all along but *invisible*: at 0.80 luminance the sand sat right at the top of the
+  tone curve where ACES compresses everything together, so no amount of relief could show.
+  It renders in the middle of the curve now, with shading painted in from the surface slope
+  because a white, near-Lambertian material under a hemisphere gives almost none of its
+  own. The ripples are stretched along the shore rather than round: the camera is low, so
+  anything square-ish flattens to nothing at that angle, while ripples running across the
+  view present their profile over and over — which is why wind and tide ripples are the
+  thing you actually see on a beach from a deck chair.
+  **Palm bark and crowns.** The trunk carries the hard ring scars a coconut palm's old leaf
+  bases leave, climbing in a slow spiral rather than stacking level, with fibre between them
+  and three tones far enough apart to read as cut in. The crown was three greens within a
+  few per cent of each other, so every frond was the same flat sheet; there is a deep shadow
+  green and a sunlit one now, each frond carries its own tint, and leaflets darken as they
+  droop into the crown's shade.
 - **v2.6.0** — **Turning hard no longer ends the run, and cutbacks are gone as a trick.**
   Throwing the board back harder than 10.4 sideways used to blow the tail out and end the
   run — the reward and the wipeout were the same move a little further apart, which is a
