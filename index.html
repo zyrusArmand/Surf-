@@ -250,6 +250,15 @@
     justify-content:space-between; pointer-events:none; color:#fff;
     padding:calc(14px + env(safe-area-inset-top,0px)) 16px
             calc(18px + env(safe-area-inset-bottom,0px)); }
+  /* #viewer is pointer-events:none with its children opting back in, so there was nothing
+     for a drag to land on. This is that surface. It is the FIRST child, and the name block,
+     the arrows and the bottom bar all come after it — a positioned element paints over a
+     static one regardless of order, so those three are given a stacking context of their
+     own to keep them above it and still tappable. The name block stays pointer-events:none,
+     so a drag started over the title falls through to here rather than dying on the text. */
+  #viewer #vDrag { position:absolute; inset:0; pointer-events:auto; touch-action:none; }
+  #viewer .vtop, #viewer .vbot { position:relative; z-index:1; }
+  #viewer .varr { z-index:2; }
   #viewer .vtop { text-align:center; pointer-events:none;
     background:linear-gradient(180deg, rgba(4,16,30,.72), rgba(4,16,30,0));
     margin:-14px -16px 0; padding:16px 16px 30px; }
@@ -516,6 +525,8 @@
 <!-- A full-screen look at one thing, turning slowly, rendered live rather than
      photographed. The canvas behind it is doing the work; this is only the furniture. -->
 <div id="viewer" class="hidden">
+  <!-- the surface the turn gesture is caught on; everything after it paints on top -->
+  <div id="vDrag"></div>
   <div class="vtop"><div class="vname" id="vName"></div><div class="vsub" id="vSub"></div></div>
   <!-- one outline, stroked three times: bloom, tube, hot core -->
   <button class="varr prev" id="vPrev" type="button" aria-label="Previous"><svg viewBox="0 0 40 200" aria-hidden="true">
@@ -580,7 +591,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.0.0';
+const VERSION='2.1.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2770,6 +2781,7 @@ function statBars(id){
 // wherever it lives, put in that scene for the duration, and put back on the way out.
 // ---------------------------------------------------------------------------
 let viewer=null, viewCam=null;
+const VIEW_START=-Math.PI/2;          // rail toward the camera: deck left, fins right
 function openViewer(kind,id){
   if(viewer)return;
   // Kill any thumbnail pass still running. It photographs one card per frame and each
@@ -2801,13 +2813,30 @@ function openViewer(kind,id){
   // not of the flat one it was lofted as
   obj.updateMatrixWorld(true);
   const box=new THREE.Box3().setFromObject(obj);
-  const c=box.getCenter(new THREE.Vector3()), sz=box.getSize(new THREE.Vector3());
+  const sz=box.getSize(new THREE.Vector3());
+  // It turns about the world's vertical through its own ORIGIN, so the framing has to be
+  // taken about that axis and not about the middle of the box. A posed character does not
+  // sit centred on its origin, and aiming at the box centre meant it swung off to one side
+  // as it came round — obvious the moment everything started opening at a quarter turn.
+  // Vertical centre still comes from the box; the horizontal reach is the distance from
+  // the axis out to the furthest corner, which holds at every yaw.
+  const cy=(box.min.y+box.max.y)*0.5;
+  let hr=0;
+  for(const bx of [box.min.x,box.max.x])for(const bz of [box.min.z,box.max.z])
+    hr=Math.max(hr,Math.hypot(bx,bz));
+  const c=new THREE.Vector3(0,cy,0);
   // Height and width are measured separately, because which one binds depends on the
   // object AND the screen: a board stood on its tail is limited by the height, the same
-  // board lying flat is limited by the width, and a phone held upright changes the answer
-  // again. The horizontal half-width is the DIAGONAL, so it still fits at every yaw.
-  const hy=sz.y*0.5, hr=Math.hypot(sz.x,sz.z)*0.5;
-  viewer={kind,id,obj,par,kp,kr,undo,c,hy,hr,spin:kind==='board'?0.8:2.7};
+  // board lying flat is limited by the width, and a phone held upright changes the answer.
+  const hy=sz.y*0.5;
+  // Start side-on. Standing a board up maps its deck normal (local +y) onto world +z, so
+  // at a yaw of zero you are looking straight at the deck. A quarter turn the other way
+  // swings that normal onto -x: the deck faces screen-left, the hull and its fins face
+  // screen-right, and what you see is the rail — the profile that shows the rocker and the
+  // foil, which the flat-on view cannot. Turning from there is a reveal rather than a
+  // rotation of something already fully visible, and the same angle suits a character:
+  // they start in profile and come round to face you.
+  viewer={kind,id,obj,par,kp,kr,undo,c,hy,hr,spin:VIEW_START,grab:null};
   document.getElementById('vName').textContent=name;
   document.getElementById('vSub').textContent=sub||'';
   document.getElementById('vStats').innerHTML=kind==='board'?statBars(id):'';
@@ -2837,6 +2866,26 @@ function viewerStep(dir){
 const vPrev=document.getElementById('vPrev'), vNext=document.getElementById('vNext');
 vPrev.onclick=e=>{ e.stopPropagation(); viewerStep(-1); };
 vNext.onclick=e=>{ e.stopPropagation(); viewerStep(1); };
+// ---- turn it by hand ----
+// Drag across and the object follows the finger; let go and it carries on turning from
+// exactly where it was left rather than snapping back or easing to some home angle. The
+// auto-turn is simply suspended while a finger is down, so there is no second angle to
+// reconcile — the gesture writes the same number the idle rotation reads.
+const vDrag=document.getElementById('vDrag');
+vDrag.addEventListener('pointerdown',e=>{
+  if(!viewer)return;
+  viewer.grab={id:e.pointerId, x:e.clientX, spin:viewer.spin};
+  try{ vDrag.setPointerCapture(e.pointerId); }catch(err){}   // so a release off-surface still lands
+});
+vDrag.addEventListener('pointermove',e=>{
+  const v=viewer; if(!v||!v.grab||v.grab.id!==e.pointerId)return;
+  // a drag the full width of the phone is about three quarters of a turn: enough that the
+  // object keeps up with the finger, little enough that a twitch does not spin it round
+  v.spin=v.grab.spin+(e.clientX-v.grab.x)*(4.6/Math.max(1,innerWidth));
+});
+const vLetGo=e=>{ if(viewer&&viewer.grab&&viewer.grab.id===e.pointerId)viewer.grab=null; };
+vDrag.addEventListener('pointerup',vLetGo);
+vDrag.addEventListener('pointercancel',vLetGo);
 function closeViewer(){
   if(!viewer)return;
   const v=viewer; viewer=null;
@@ -2853,7 +2902,7 @@ function closeViewer(){
 }
 function renderViewer(dt){
   const v=viewer;
-  v.spin+=dt*0.42;                                   // one turn every fifteen seconds
+  if(!v.grab)v.spin+=dt*0.42;                        // one turn every fifteen seconds
   v.obj.rotation.y=v.spin;
   const aspect=Math.max(0.35,innerWidth/innerHeight);
   viewCam.aspect=aspect;

@@ -52,6 +52,27 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.1.0** — **The preview opens side-on, and you can turn it with a finger.**
+  Standing a board up maps its deck normal onto world +z, so at a yaw of zero you were
+  looking straight at the deck. A quarter turn the other way puts that normal on −x: deck
+  to screen-left, hull and fins to screen-right, and what you see is the **rail** — the
+  profile that shows the rocker and the foil, which the flat-on view cannot. Turning from
+  there is a reveal rather than a rotation of something already fully visible. Characters
+  start at the same angle, in profile, and come round to face you.
+  **Drag across and it follows your finger; let go and it carries on from exactly where
+  you left it** — no snap back, no easing to a home angle. The idle turn is simply
+  suspended while a finger is down, so there is no second angle to reconcile: the gesture
+  writes the same number the idle rotation reads. A drag the full width of the phone is
+  about three quarters of a turn. `#viewer` is `pointer-events:none` with its children
+  opting back in, so there was nothing for a drag to land on; there is a surface for it
+  now, under the arrows and the bottom bar but over the sea.
+  **And it stays in the middle while it turns.** It rotates about the vertical through its
+  own ORIGIN, but the framing was taken about the middle of its bounding box — fine for a
+  board, wrong for a posed character, which does not sit centred on its origin and swung
+  off to one side as it came round. That was invisible until everything started opening at
+  a quarter turn. The camera now aims at the axis, and the horizontal reach is measured
+  from the axis out to the furthest corner, which holds at every yaw. Measured across a
+  full turn at eight angles: the silhouette's centre now wanders 0.076 at worst.
 - **v2.0.0** — **The wipeout buttons are slimmer, lower, and in the menu's own colours.**
   They were green and blue-grey, two colours that appear nowhere on the main menu. The
   menu's palette is orange, cyan and yellow, so: *Surf again* keeps its orange (it is
