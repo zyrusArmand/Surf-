@@ -479,7 +479,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.88.0';
+const VERSION='1.89.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2599,13 +2599,26 @@ function openViewer(kind,id){
   }
   const par=obj.parent, kp=obj.position.clone(), kr=obj.rotation.clone();
   prevScene.add(obj);
-  obj.position.set(0,0,0); obj.rotation.set(0,0,0); obj.updateMatrixWorld(true);
+  obj.position.set(0,0,0); obj.rotation.set(0,0,0);
+  if(kind==='board'){
+    // Stand it on its tail, the way a board is shown in a shop rather than the way it
+    // floats. Euler order matters here: the default XYZ would apply the spin FIRST and
+    // then stand the result up, so it would turn about an axis that is lying down. YXZ
+    // stands it up and then spins that about the world's vertical.
+    obj.rotation.order='YXZ';
+    obj.rotation.x=Math.PI/2;                      // nose up: the nose is at -z
+  }
+  // the box is measured AFTER it is stood up, so the framing is of the upright board and
+  // not of the flat one it was lofted as
+  obj.updateMatrixWorld(true);
   const box=new THREE.Box3().setFromObject(obj);
   const c=box.getCenter(new THREE.Vector3()), sz=box.getSize(new THREE.Vector3());
-  // it has to fit at EVERY yaw, so the radius comes off the horizontal diagonal rather
-  // than off whichever axis happens to face the camera when it opens
-  const R=Math.max(Math.hypot(sz.x,sz.z),sz.y)*0.5;
-  viewer={kind,id,obj,par,kp,kr,undo,c,R,spin:kind==='board'?0.8:2.7};
+  // Height and width are measured separately, because which one binds depends on the
+  // object AND the screen: a board stood on its tail is limited by the height, the same
+  // board lying flat is limited by the width, and a phone held upright changes the answer
+  // again. The horizontal half-width is the DIAGONAL, so it still fits at every yaw.
+  const hy=sz.y*0.5, hr=Math.hypot(sz.x,sz.z)*0.5;
+  viewer={kind,id,obj,par,kp,kr,undo,c,hy,hr,spin:kind==='board'?0.8:2.7};
   document.getElementById('vName').textContent=name;
   document.getElementById('vSub').textContent=sub||'';
   document.getElementById('vStats').innerHTML=kind==='board'?statBars(id):'';
@@ -2626,22 +2639,25 @@ function closeViewer(){
   if(v.menuWasUp)overlay.classList.remove('hidden');
   if(v.undo)v.undo();
   if(v.par)v.par.add(v.obj); else prevScene.remove(v.obj);
-  v.obj.position.copy(v.kp); v.obj.rotation.copy(v.kr);
+  v.obj.position.copy(v.kp); v.obj.rotation.order='XYZ'; v.obj.rotation.copy(v.kr);
   if(v.kind!=='board')buildChar(rider);
 }
 function renderViewer(dt){
   const v=viewer;
   v.spin+=dt*0.42;                                   // one turn every fifteen seconds
-  v.obj.rotation.set(0,v.spin,0);
+  v.obj.rotation.y=v.spin;
   const aspect=Math.max(0.35,innerWidth/innerHeight);
   viewCam.aspect=aspect;
   // pad harder on a narrow phone, where the limit is the width and not the height
-  // On a phone the limit is the WIDTH, not the height, so the fit is taken against the
-  // horizontal field of view — 1.55x of padding on top of that had a five-foot board
-  // sitting in the middle of the screen like a thumbnail.
-  const fit=v.R/Math.min(1,aspect*0.95);
-  const d=fit/Math.tan(viewCam.fov*Math.PI/360)*1.06;
-  viewCam.position.set(v.c.x, v.c.y+d*0.16, v.c.z+d);
+  // Whichever of the two actually binds. Fitting on one alone is what left an upright
+  // board hanging in the middle of the screen: it is four and a half feet tall and eight
+  // inches wide, so a width fit pushes the camera miles back.
+  // The screen is not all available: the name block takes the top and the stats and the
+  // button take the bottom. Fit into the band between them rather than into the viewport,
+  // or an upright board runs behind the title at one end and through the bars at the other.
+  const t=Math.tan(viewCam.fov*Math.PI/360);
+  const d=Math.max(v.hy/(t*0.60), v.hr/(aspect*t*0.88));
+  viewCam.position.set(v.c.x, v.c.y+d*0.06, v.c.z+d);
   viewCam.lookAt(v.c);
   viewCam.updateProjectionMatrix();
   renderer.setClearColor(0x0a1d33,1);

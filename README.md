@@ -52,6 +52,15 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.89.0** — **Boards stand up in the full-screen preview** and turn on their tail,
+  which is how a board is looked at in a shop. Two details made it work. The Euler order
+  matters: with the default XYZ the spin would be applied first and the stand-up second,
+  so the board would tumble corner-over-corner instead of turning — YXZ stands it upright
+  and then turns that about the world's vertical. And the fit is now taken against
+  whichever axis binds, not the width, because an upright board is limited by its height;
+  it fits the band BETWEEN the name block and the stat bars rather than the whole
+  viewport, or the nose runs behind the title at one end and the tail through the bars at
+  the other. Characters are unchanged — they still stand as they stand.
 - **v1.88.0** — Four fixes.
   **Wick's tail fin** hung off the end of the tail joint like a paddle on a stick. A tail
   fin does not start somewhere behind an animal, it grows off the back of it — so it sits
@@ -66,9 +75,7 @@ The running version is shown at the bottom of the screen. Bump `VERSION` in
   a board — its stat bars. It is rendered live rather than photographed, borrowing the
   scene the shop already photographs into and the renderer already running, so there is no
   second canvas and no second set of lights.
-  Two things it needed. The fit is taken against the HORIZONTAL field of view, because on
-  a phone the limit is the width — with vertical fitting a five-foot board sat in the
-  middle of the screen like a thumbnail. And opening it cancels any thumbnail pass still
+  One thing it needed: opening it cancels any thumbnail pass still
   running: that pass photographs one card per frame and every character shot rebuilds the
   shared rig, so a job landing a frame later would swap the model out underneath and leave
   you looking at your own surfer under somebody else's name.
