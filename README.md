@@ -52,6 +52,13 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.13.1** — **Astro's board is pinned back to five across.** Giving it a hull to be
+  measured from also gave it *derived* stats, and it came out 7/2/2/7 like any other board
+  — which quietly moved the yardstick. It is the one you start on and the one every other
+  board in the shop is read against: a bar longer than Astro's means "better than what you
+  have", and that only means anything if Astro's sits in the middle. Pinned through the
+  same `spec.stat` mechanism the electric boards use, so the price budgeting cannot walk it
+  back. It rides as the neutral reference again too — every multiplier at 1.0.
 - **v2.13.0** — **Astro's board is a board now.** It was the one board in the rack that was
   not lofted — a flat model with no rocker, no rail and no foil, which is exactly why it
   read as a plank next to everything else. It has a spec like the rest of them: a 5'10 egg,
