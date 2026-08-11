@@ -52,6 +52,34 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.72.0** — Board stats, and three fixes to the damage system.
+
+  **Stats are derived from the hull, not typed in.** Every board already carries its real
+  shape — length, width, thickness, rocker — and that IS the physics, so a 9'6" log comes
+  out fast, tough and unwilling to turn and a skimboard comes out loose and poppy,
+  automatically, with no table to keep in sync with the art. Four of them, each wired to
+  something the game already does: SPEED (top speed), TURN (carve response), AIR (pop off
+  ramps and how fast you rotate) and TOUGH (cracks survived, 2 to 4, plus the spin-out
+  threshold). Every board is then held to a budget set by its price — 18 points at the
+  cheap end, 22 at the top — because without that the totals land wherever the geometry
+  happens to put them and some cheap board is simply better than a dear one, which makes
+  the shop a lottery instead of a choice. The shape decides the character; the price buys
+  a small edge. Astro's board stays 5/5/5/5: the reference everything is read against.
+  Shown in the shop GTA-style — label left, ten segments right, filled to level, one
+  colour per stat — so a difference of one is countable rather than judged by eye.
+
+  **Cracks are on both faces now.** They were on the deck only, which is under the rider
+  from the one camera angle anybody actually plays from. Both surfaces come off a single
+  raycast — hits arrive sorted, so the first is the deck and the last is the hull — and a
+  crack goes through a board anyway. Also bolder and longer.
+
+  **The board breaks where it was hit.** The third crack's position sets the split plane
+  instead of it always parting down the middle, clamped off the very ends so neither half
+  is a sliver.
+
+  **The crash is worth watching again.** The shot used to cut straight to a wide hold on
+  empty water while he was still in the air. It now rides in close for the first beat,
+  framing him and the board together, and only then pulls back to the held shot.
 - **v1.71.0** — The board takes damage. Coming down ON a hazard used to be the same as
   driving into its side, because the collision test only asked whether you were below its
   height — a landing you survived by a hair and one you missed by a hair were both instant

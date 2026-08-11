@@ -230,6 +230,22 @@
   .card .nm { font-weight:800; font-size:15px; letter-spacing:.2px; }
   .card .bl { font-size:11.5px; opacity:.76; line-height:1.34; flex:1; }
   .card .act { margin-top:7px; }
+  /* GTA-style: label on the left, a track of ten segments on the right, filled to the
+     board's level. Segments rather than a smooth bar so a difference of one is countable
+     at a glance instead of being judged by eye. */
+  .card .stats { display:flex; flex-direction:column; gap:4px; margin:3px 0 1px; }
+  .card .st { display:flex; align-items:center; gap:7px; }
+  .card .st span { font-size:9px; font-weight:800; letter-spacing:.1em; opacity:.62;
+    width:42px; text-align:right; flex:none; }
+  .card .seg { display:flex; gap:2px; flex:1; }
+  .card .seg i { flex:1; height:7px; border-radius:1.5px; background:rgba(255,255,255,.11);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.06); }
+  .card .seg i.on { box-shadow:inset 0 1px 0 rgba(255,255,255,.5), 0 0 6px currentColor;
+    background:currentColor; }
+  .card .st.speed .seg { color:#ff9a3c; }
+  .card .st.turn  .seg { color:#4fd8e8; }
+  .card .st.air   .seg { color:#ffd83c; }
+  .card .st.tough .seg { color:#6ee88a; }
   .card button { width:100%; padding:11px 0; font-size:14px; font-weight:800; color:#fff;
     letter-spacing:.3px; border-radius:999px; cursor:pointer;
     text-shadow:0 1px 3px rgba(0,20,40,.5);
@@ -399,7 +415,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.71.0';
+const VERSION='1.72.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1902,6 +1918,82 @@ const BOARDS=[
            {x: 0.36,z:-1.38,c:0.22,d:0.12,t:0.018,rake:-0.03,cant:-0.10}]}},
 ];
 const BOARD_BY_ID={}; for(const b of BOARDS)BOARD_BY_ID[b.id]=b;
+// ---------------------------------------------------------------------------
+// Board stats, derived from the hull rather than typed in by hand.
+//
+// Every board already carries its real shape — length, width, thickness, rocker — and
+// that IS the physics. Deriving the numbers from it means a 9'6" log comes out stable,
+// tough and slow to turn, and a little fish comes out loose and poppy, automatically and
+// consistently, with no table to keep in sync with the art. The bars in the shop then
+// explain the shape you are looking at instead of being invented next to it.
+//
+// The trade-off is the point: size buys speed and toughness, smallness buys turn and
+// pop. Price moves the total only a little — enough that a grind is worth something
+// without making the board you start on junk.
+// ---------------------------------------------------------------------------
+const STAT_KEYS=['speed','turn','air','tough'];
+const STAT_LABEL={speed:'SPEED',turn:'TURN',air:'AIR',tough:'TOUGH'};
+let _statCache=null;
+function computeStats(){
+  const raw={}, lo={}, hi={};
+  for(const b of BOARDS){
+    const S=b.spec; if(!S)continue;
+    const L=S.L, W=S.W, T=S.T, rock=(S.rockN||0)+(S.rockT||0), vol=L*W*T;
+    raw[b.id]={
+      speed: L*0.90 + T*7.0 - rock*2.2,        // length and foam hold speed, rocker scrubs it
+      turn : rock*4.0 + W*2.2 - L*0.75,        // rocker and width turn, length resists
+      air  : 1/vol + rock*1.5,                 // a small light board pops and spins
+      tough: vol*3.0 + T*5.0                   // foam is what survives a hit
+    };
+  }
+  for(const k of STAT_KEYS){
+    lo[k]=Infinity; hi[k]=-Infinity;
+    for(const id in raw){ lo[k]=Math.min(lo[k],raw[id][k]); hi[k]=Math.max(hi[k],raw[id][k]); }
+  }
+  const out={astro:{speed:5,turn:5,air:5,tough:5}};   // the board you start on is the reference
+  for(const b of BOARDS){
+    if(!raw[b.id])continue;
+    const v={};
+    for(const k of STAT_KEYS){
+      const n=(raw[b.id][k]-lo[k])/Math.max(1e-6,hi[k]-lo[k]);
+      v[k]=Math.round(2+n*7);                        // 2..9, so nothing is empty or full yet
+    }
+    // Every board is then held to a budget set by its price. Without this the totals come
+    // out wherever the geometry happens to land, and some board is simply better than a
+    // dearer one — which makes the shop a lottery instead of a choice. The budget grows
+    // only a little across the fleet, so the shape still decides the character and the
+    // grind buys a small edge rather than a strictly better board.
+    const target=18+Math.round(b.price/11000*4);      // 18 at the cheap end, 22 at the top
+    let tot=STAT_KEYS.reduce((a2,k)=>a2+v[k],0);
+    // give and take at the extremes, so a board keeps whatever it was already good at
+    while(tot>target){
+      const k=STAT_KEYS.filter(k2=>v[k2]>2).sort((a2,b2)=>v[b2]-v[a2])[0];
+      if(!k)break; v[k]--; tot--;
+    }
+    while(tot<target){
+      const k=STAT_KEYS.filter(k2=>v[k2]<10).sort((a2,b2)=>v[a2]-v[b2])[0];
+      if(!k)break; v[k]++; tot++;
+    }
+    out[b.id]=v;
+  }
+  return out;
+}
+function boardStats(id){
+  if(!_statCache)_statCache=computeStats();
+  return _statCache[id]||_statCache.astro;
+}
+// what the ridden board is worth, as multipliers the game actually uses
+let BS={speed:1,turn:1,air:1,lives:3,blow:10.4};
+function applyBoardStats(id){
+  const v=boardStats(id);
+  BS={
+    speed: 1+(v.speed-5)*0.020,     // +-10% top speed across the fleet
+    turn : 1+(v.turn -5)*0.050,     // +-25% carve response
+    air  : 1+(v.air  -5)*0.045,     // +-22% pop and rotation
+    lives: Math.max(2,Math.min(4,Math.round(2+(v.tough-2)/4))),
+    blow : 10.4*(1+(v.tough-5)*0.040)
+  };
+}
 const _rack={};
 function boardArtFor(id){
   if(id==='astro')return stockBoard;
@@ -1917,6 +2009,7 @@ function equipBoard(id){
   equipped=id;
   boardArt.clear ? boardArt.clear() : (boardArt.children.length=0);
   boardArt.add(boardArtFor(id));
+  applyBoardStats(id);
 }
 
 loadSave(); loadStats(); noteOpen(); equipBoard(equipped);
@@ -2056,7 +2149,14 @@ let shopTab='boards';
 // cannot be built here — it is sorted the first time the Surfers tab is actually opened
 let CHAR_ORDER=null;
 function charOrder(){ if(!CHAR_ORDER)CHAR_ORDER=CHARS.slice().sort((a,b)=>a.price-b.price); return CHAR_ORDER; }
-function shopCard(item,have,on,buy,use,thumb){
+function statBars(id){
+  const v=boardStats(id);
+  return '<div class="stats">'+STAT_KEYS.map(k=>
+    '<div class="st '+k+'"><span>'+STAT_LABEL[k]+'</span><div class="seg">'+
+    Array.from({length:10},(_,i)=>'<i'+(i<v[k]?' class="on"':'')+'></i>').join('')+
+    '</div></div>').join('')+'</div>';
+}
+function shopCard(item,have,on,buy,use,thumb,stats){
   const card=document.createElement('div');
   card.className='card'+(on?' on':'');
   const im=document.createElement('img');
@@ -2065,7 +2165,8 @@ function shopCard(item,have,on,buy,use,thumb){
   im.src=thumb||'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   card.appendChild(im);
   const info=document.createElement('div'); info.className='info';
-  info.innerHTML='<div class="nm">'+item.name+'</div><div class="bl">'+item.blurb+'</div>';
+  info.innerHTML='<div class="nm">'+item.name+'</div><div class="bl">'+item.blurb+'</div>'+
+    (stats?statBars(item.id):'');
   const act=document.createElement('div'); act.className='act';
   if(on){ act.innerHTML='<span class="tag">RIDING</span>'; }
   else {
@@ -2120,7 +2221,7 @@ function drawShop(){
         ()=>{ if(coins<b.price)return; coins-=b.price; owned[b.id]=1; noteBuy('board',b.id,b.price);
           equipBoard(b.id); saveGame(); showCoins(); drawShop(); },
         ()=>{ equipBoard(b.id); saveGame(); drawShop(); },
-        prevCache['b:'+b.id]);
+        prevCache['b:'+b.id], true);
       if(!prevCache['b:'+b.id])jobs.push([card.querySelector('.thumb'),()=>boardPreview(b.id)]);
       shopList.appendChild(card);
     }
@@ -3961,7 +4062,7 @@ function msg(t){trickmsg.textContent=t;trickmsg.style.opacity=1;setTimeout(()=>t
 
 function doJump(){
   if(!running||airborne)return;
-  vy=10.8;airborne=true;splash(px,0.4,0,10);
+  vy=10.8*BS.air;airborne=true;splash(px,0.4,0,10);
 }
 function startTrick(type,src){
   if(!running||!trickReady)return;
@@ -4175,37 +4276,46 @@ const WIPE={
 // nobody should have to pay to repair a board they already bought.
 // ---------------------------------------------------------------------------
 const BOARD_LIVES=3;
-let cracks=0, wobT=0, crackMarks=[], snapHalves=null, snapHidden=[];
+let cracks=0, wobT=0, crackMarks=[], snapHalves=null, snapHidden=[], snapZ=0;
 const crackMat=new THREE.MeshBasicMaterial({color:0x14100d,transparent:true,opacity:0.9,
   side:THREE.DoubleSide,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-3,polygonOffsetUnits:-3});
 const _crc=new THREE.Raycaster();
-const _cro=new THREE.Vector3(), _crd=new THREE.Vector3(), _crp=new THREE.Vector3();
+const _cro=new THREE.Vector3(), _crd=new THREE.Vector3(), _crp=new THREE.Vector3(), _crq=new THREE.Vector3();
 // the deck point under a spot on the board, in the board's own space. Raycast rather
 // than maths: it is exact for any hull, including a rocker, and it works just as well
 // on an imported model as on the lofted ones.
-function deckAt(lx,lz,out){
+// Both faces, from one ray. Hits come back sorted by distance, so the first is the deck
+// and the last is the hull — a crack goes THROUGH a board, and on the deck alone it was
+// hidden under the rider from the only camera angle anybody actually plays from.
+function deckAt(lx,lz,top,bot){
   _cro.set(lx,3.0,lz); boardArt.localToWorld(_cro);
   _crd.set(0,-1,0).transformDirection(boardArt.matrixWorld).normalize();
   _crc.set(_cro,_crd);
-  const hit=_crc.intersectObject(boardArt,true)[0];
-  if(!hit)return false;
-  out.copy(hit.point); boardArt.worldToLocal(out); return true;
+  const h=_crc.intersectObject(boardArt,true);
+  if(!h.length)return false;
+  top.copy(h[0].point); boardArt.worldToLocal(top);
+  bot.copy(h[h.length-1].point); boardArt.worldToLocal(bot);
+  return true;
 }
 // a fissure that starts where it was hit and forks outward, laid ON the deck so it
 // follows the rocker instead of floating over it
 function addCrack(lx,lz){
   boardArt.updateWorldMatrix(true,false);
   const v=[];
-  for(let s=0;s<3;s++){
-    let a=Math.random()*Math.PI*2, x=lx, z=lz, prev=null;
-    const segs=4+Math.floor(Math.random()*3), step=0.26+Math.random()*0.20;
+  for(let s=0;s<4;s++){
+    let a=Math.random()*Math.PI*2, x=lx, z=lz;
+    const prev=[null,null];
+    const segs=5+Math.floor(Math.random()*3), step=0.28+Math.random()*0.22;
     for(let i=0;i<=segs;i++){
-      if(!deckAt(x,z,_crp))break;
-      const y=_crp.y+0.010, t=i/segs, w=0.052*(1-t)+0.006;
+      if(!deckAt(x,z,_crp,_crq))break;
+      const t=i/segs, w=0.070*(1-t)+0.008;
       const nx=Math.cos(a+Math.PI/2)*w, nz=Math.sin(a+Math.PI/2)*w;
-      const A=[_crp.x-nx,y,_crp.z-nz], B=[_crp.x+nx,y,_crp.z+nz];
-      if(prev)v.push(...prev[0],...prev[1],...A, ...prev[1],...B,...A);
-      prev=[A,B];
+      for(let f=0;f<2;f++){
+        const P=f?_crq:_crp, y=P.y+(f?-0.010:0.010);
+        const A=[P.x-nx,y,P.z-nz], B=[P.x+nx,y,P.z+nz];
+        if(prev[f])v.push(...prev[f][0],...prev[f][1],...A, ...prev[f][1],...B,...A);
+        prev[f]=[A,B];
+      }
       a+=(Math.random()-0.5)*1.2;
       x+=Math.cos(a)*step; z+=Math.sin(a)*step;
     }
@@ -4230,7 +4340,7 @@ function clearCracks(){
     for(const o of snapHidden)o.visible=true;
     snapHidden.length=0;
   }
-  cracks=0; wobT=0;
+  cracks=0; wobT=0; snapZ=0;
 }
 // Split the board in two down the middle. Every triangle is moved into the board's own
 // space first, so a fin sitting under the tail with its own transform is cut by the
@@ -4269,10 +4379,10 @@ function snapBoard(){
     // Most of a board does not straddle the middle — the fins and the decal are all at
     // one end — so those move across whole. That skips rebuilding twelve thousand fin
     // triangles and, more importantly, keeps them exactly as they were.
-    if(bb.min.z>=0||bb.max.z<=0){
+    if(bb.min.z>=snapZ||bb.max.z<=snapZ){
       const c=m.clone();
       c.matrix.copy(M); c.matrix.decompose(c.position,c.quaternion,c.scale);
-      c.visible=true; halves[bb.min.z>=0?1:0].add(c);
+      c.visible=true; halves[bb.min.z>=snapZ?1:0].add(c);
       m.visible=false; snapHidden.push(m); continue;
     }
     // Everything the geometry carries is copied, not just position and colour. Rebuilding
@@ -4289,7 +4399,7 @@ function snapBoard(){
         tp[j].set(attrRead(pos,i2+j,0),attrRead(pos,i2+j,1),attrRead(pos,i2+j,2)).applyMatrix4(M);
         cz+=tp[j].z;
       }
-      const k=cz/3<0?0:1;
+      const k=cz/3<snapZ?0:1;
       for(let j=0;j<3;j++)for(const key of keys){
         const at=g.attributes[key], sz=at.itemSize;
         if(key==='position')out[k][key].push(tp[j].x,tp[j].y,tp[j].z);
@@ -4326,10 +4436,14 @@ function boardHit(o,topY){
   o.userData.knock={vx:(o.position.x-px)*0.7+(Math.random()-0.5)*2.0,
     vy:1.4+Math.random()*1.6, vz:1.8+lastEff*0.05,
     sx:(Math.random()-0.5)*5, sz:(Math.random()-0.5)*5};
-  addCrack(Math.max(-0.42,Math.min(0.42,o.position.x-px)),
-           Math.max(-2.15,Math.min(2.15,o.position.z-pz)));
-  if(cracks>=BOARD_LIVES){ startWipeout('snap'); return; }
-  msg(cracks===1?'CRACKED! 2 LEFT':'CRACKED! 1 LEFT');
+  const hx=Math.max(-0.42,Math.min(0.42,o.position.x-px));
+  const hz=Math.max(-2.15,Math.min(2.15,o.position.z-pz));
+  addCrack(hx,hz);
+  // it breaks where the last one landed. Pulled off the very ends, or one "half" is a
+  // sliver and the break reads as a chip rather than a snap.
+  snapZ=Math.max(-1.5,Math.min(1.5,hz));
+  if(cracks>=BS.lives){ startWipeout('snap'); return; }
+  msg('CRACKED! '+(BS.lives-cracks)+' LEFT');
 }
 let wipe=null,overlayUp=false,revivesLeft=1;
 function startWipeout(kind){
@@ -4452,16 +4566,23 @@ function updateWipeout(dt){
   } else {
     rig.rotation.x+=w.bsx*dt; rig.rotation.z+=w.bsz*dt;
   }
-  // camera holds the crash spot — it does not chase him or drift away
+  // The crash is the best thing that happens in a run and it was being thrown away: the
+  // shot cut straight to a wide hold on empty water while he was still in the air. Now it
+  // rides in close on him and the board for the first beat, framing both, and only then
+  // pulls back to the held wide shot it used to snap to.
   w.camY+=((sea+4.6)-w.camY)*Math.min(1,dt*2.5);
   camera.up.set(0,1,0);
-  camera.position.set(w.camX,w.camY,w.camZ);
+  const k=Math.min(1,Math.max(0,(w.t-0.85)/0.85));          // 0 = following, 1 = held wide
+  const mz=(Math.max(-9,Math.min(2,w.vz*w.t*0.70))+w.bz)*0.5;
+  const mx=(px+w.bx)*0.5, my=(py+w.by)*0.5;
+  const nx=mx+2.4, ny=Math.max(sea+1.2,my+1.5), nz=mz+6.6;
+  camera.position.set(nx+(w.camX-nx)*k, ny+(w.camY-ny)*k, nz+(w.camZ-nz)*k);
   // aim gently toward where he ended up, but clamped so the shot never leaves the area
   const tx=Math.max(w.atX-5,Math.min(w.atX+5,px));
   const ty=Math.max(sea+0.4,Math.min(w.atY+3,py+0.3));
   const tz=Math.max(-7,Math.min(1,w.vz*w.t*0.35));
-  camera.lookAt(tx,ty,tz);
-  if(w.t>2.4)gameOver();
+  camera.lookAt(mx+(tx-mx)*k, my+(ty-my)*k, mz+(tz-mz)*k);
+  if(w.t>2.9)gameOver();
 }
 function updateWorldDuringWipeout(dt){
   tNow+=dt;
@@ -5720,7 +5841,7 @@ function update(dt){
   // The HUD reads mph as eff*0.62, so 16.2 is 10 and 113 is 70. It never drops below
   // the first and never passes the second, and climbs the whole way between rather
   // than being most of the way there inside the first kilometre.
-  speed=Math.min(100,16.2+dist/210);
+  speed=Math.min(100,(16.2+dist/210)*BS.speed);
 
   // momentum carving
   // Fore and aft is gone. leanW is kept at rest so everything that consulted it —
@@ -5729,7 +5850,7 @@ function update(dt){
   const wt=0;
   let sx=steer+(keys.KeyA||keys.ArrowLeft?-1:0)+(keys.KeyD||keys.ArrowRight?1:0);
   sx=Math.max(-1,Math.min(1,sx));
-  vx+=sx*55*dt;
+  vx+=sx*55*BS.turn*dt;
   vx-=vx*3.4*dt;
   px+=vx*dt;
   if(px<-17){px=-17;vx=0;}      // slide out to the far lanes and stop there
@@ -5910,7 +6031,7 @@ function update(dt){
       // Throw it back harder than the fins can hold and they let go. This is what
       // stops a cutback being farmed by swinging side to side: the reward and the
       // wipeout are the same move, a little further apart.
-      if(Math.abs(vx)>10.4){ startWipeout('foam'); msg('BLEW THE TAIL OUT!'); return; }
+      if(Math.abs(vx)>BS.blow){ startWipeout('foam'); msg('BLEW THE TAIL OUT!'); return; }
       cutCd=1.2;score+=75;boost=Math.min(16,boost+3.5);msg('CUTBACK! +75');
       const bside=-Math.sign(vx);
       for(let i=0;i<26;i++){
@@ -5974,12 +6095,13 @@ function update(dt){
   }
   // spin / flip / grab all run at once while you're off the water
   if(airborne||hanging){
-    if(spinHeld)spinRot+=dt*SPIN_RATE;
-    else if(spinQ>0){const d=Math.min(dt*SPIN_RATE,spinQ);spinRot+=d;spinQ-=d;}
-    if(flipHeld)flipRot+=dt*FLIP_RATE;
-    else if(flipQ>0){const d=Math.min(dt*FLIP_RATE,flipQ);flipRot+=d;flipQ-=d;}
-    if(pitchHeld)pitchRot+=dt*FLIP_RATE;
-    else if(pitchQ>0){const d=Math.min(dt*FLIP_RATE,pitchQ);pitchRot+=d;pitchQ-=d;}
+    const SR=SPIN_RATE*BS.air, FR=FLIP_RATE*BS.air;   // a poppy board spins faster too
+    if(spinHeld)spinRot+=dt*SR;
+    else if(spinQ>0){const d=Math.min(dt*SR,spinQ);spinRot+=d;spinQ-=d;}
+    if(flipHeld)flipRot+=dt*FR;
+    else if(flipQ>0){const d=Math.min(dt*FR,flipQ);flipRot+=d;flipQ-=d;}
+    if(pitchHeld)pitchRot+=dt*FR;
+    else if(pitchQ>0){const d=Math.min(dt*FR,pitchQ);pitchRot+=d;pitchQ-=d;}
     if(grabOn)grabPts+=95*dt;
     player.rotation.set(pitchRot*pitchSign,spinRot*spinSign,flipRot*flipSign);
     // rope tricks bank as soon as you square up
