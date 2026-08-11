@@ -52,6 +52,23 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.77.0** — Three new surfers, and the kit pieces each needed.
+  **Hazel the Squirrel** (1,600) — light and quick with the back legs of something that
+  lives by jumping. Her tail is the whole animal, so it got its own type: a big plume
+  built as a chain like the long tails but with a fat lobe on every link, arcing up off
+  the rump and coming over her own back rather than curling into itself. New rodent face
+  with the two front teeth a rodent never stops showing.
+  **Quill the Porcupine** (3,900) — heavy and low, because everything he does he does
+  slowly and on purpose. The quills are laid on the body using the same numbers the torso
+  is built from rather than a guessed radius, so they sit ON a wide animal instead of
+  floating off it, and each stands along its own outward normal raked back. Dark paws,
+  pale tips.
+  **Zorp the Alien** (13,500) — an enormous head on almost nothing, carried on the longest
+  thinnest limbs in the game, with huge slanted black almonds for eyes and barely any face
+  under them. Three fingers, three toes.
+  One general fix came with him: kit parts hang off the head JOINT, so head size never
+  reached them — his head is a third bigger than anyone's and his whole face was left
+  buried inside it. The alien's eyes and mouth are placed against his head scale now.
 - **v1.76.0** — An owner's key in the Records panel: one press unlocks every board.
   It lives behind the five-tap version door because that is already the entrance nobody
   finds by accident, and it stays out of the shop entirely — it is the only thing in the

@@ -417,7 +417,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.76.0';
+const VERSION='1.77.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2612,6 +2612,15 @@ function kitEyes(C,inner){
       ball.position.set(sx*0.205,0.425,-0.095);
       const pup=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.064,14,12),dark));
       pup.position.set(sx*0.212,0.415,-0.205);pup.scale.set(0.72,1.30,1);
+    } else if(E==='alien'){                             // huge slanted almonds, no white
+      const D=C.headS||[1,1,1];
+      const e=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.155,22,18),
+        PBR({color:0x07080c,roughness:0.06,metalness:0.25,envMapIntensity:2.2})));
+      e.position.set(sx*0.205*D[0],0.075*D[1],-0.300*D[2]);
+      e.scale.set(0.80*D[0],1.30*D[1],0.55*D[2]);
+      e.rotation.set(0.10,sx*-0.30,sx*0.44);
+      const gl=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.030,10,8),mat(0xffffff,90)));
+      gl.position.set(sx*0.235*D[0],0.185*D[1],-0.375*D[2]);gl.scale.set(1,1.5,0.5);
     } else if(E==='mask'){                              // raccoon: one band right across
       const ba=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.155,18,14),darkMat));
       ba.position.set(sx*0.115,0.075,-0.305);ba.scale.set(1.15,0.62,0.55);ba.rotation.z=sx*0.14;
@@ -2763,6 +2772,37 @@ const CHARS=[
    shape:[0.86,0.78,0.88,0.80], tall:1.16, wide:0.96, deep:0.94, neckLen:0.94,
    build:[0.50,0.74,0.52], socket:0.58, limb:0.66, limbLen:1.10, headS:[0.80,0.76,0.82],
    arm:0.6, armLen:0.92, foot:0.86},
+  {id:'squirrel',name:'Hazel the Squirrel',price:1600,
+   blurb:'Small, twitchy and completely fearless. The tail arrives a second after she does.',
+   fur:0xc06a2e, dark:0xf0dcbe, nose:0x2a1a12, muzzle:0xf2e2c6, bib:0xf4e6cd, bibS:0.66,
+   face:'rodent', ears:'pointed', tail:'plume', tailTilt:0.30, whiskers:true, eyes:'wide',
+   // light and quick, with the back legs of something that lives by jumping
+   shape:[1.02,0.94,0.86,0.72], tall:1.24, wide:0.92, deep:0.84, neckLen:1.02,
+   headS:[0.94,0.92,0.96],
+   build:[0.84,0.94,0.86], limb:0.86, arm:0.76, armLen:0.94, foot:1.16,
+   footShape:[0.90,0.92,1.24], hand:0.82, claws:3, clawCol:0x3a2a1c},
+  {id:'porcupine',name:'Quill the Porcupine',price:3900,
+   blurb:'Nobody has ever asked him to move over. He has never had to ask either.',
+   fur:0x4a3a28, dark:0x2b2118, nose:0x1a120c, muzzle:0x6b5540,
+   face:'long', ears:'small', tail:'stub', eyes:'beady', whiskers:true,
+   quills:true, quillCol:0x241d14, quillTip:0xf4e8ca,
+   // heavy and low, because everything he does he does slowly and on purpose
+   shape:[1.14,1.16,1.02,0.78], tall:1.24, wide:1.10, deep:1.04, neckLen:0.82,
+   headS:[0.94,0.92,1.06],
+   build:[1.06,0.94,1.06], limb:1.00, limbLen:0.76, arm:0.92, armLen:0.78, foot:1.02,
+   footCol:0x241d14, handCol:0x241d14, claws:3, clawCol:0x1c150e},
+  {id:'alien', name:'Zorp the Alien',   price:13500,
+   blurb:'Came a very long way for this. Has not said why, and the board suits him.',
+   fur:0x86d46a, dark:0x4e8f3c, nose:0x2b4a22, lip:0x24381f,
+   face:'alien', ears:'none', tail:'none', eyes:'alien', gloss:0.30, metal:0.06,
+   // an enormous head on almost nothing, carried on long thin limbs
+   shape:[0.74,0.82,0.86,0.66], tall:1.02, wide:0.78, deep:0.72, neckLen:0.74,
+   headS:[1.34,1.30,1.16],
+   build:[0.86,0.90,0.86], limb:1.0, arm:1.0, limbLen:1.62, armLen:1.52,
+   legProf:[0.150,0.108,0.090,0.094,0.076,0.062],
+   armProf:[0.124,0.092,0.080,0.083,0.068,0.056],
+   foot:0.92, footShape:[0.90,0.60,1.35], hand:0.86, handShape:[0.90,0.55,1.30],
+   toes:3, fingers:3},
   {id:'rex',   name:'Rexy the T. rex',price:11000,
    blurb:'Tiny arms, enormous everything else. The wave gets out of the way.',
    fur:0x4c7a3a, dark:0x2f5226, nose:0x1c3418, crest:0xd8892a,
@@ -2902,6 +2942,39 @@ function buildChar(id){
     t.position.set(0,-0.15,-0.16);t.scale.set(0.80*bs,0.58*bs,0.94);   // carries up under the chin
   }
 
+  // ---- quills ----
+  // Laid over the upper half of the body in rings, each one pushed out along the surface
+  // normal so they fan the way a porcupine's do instead of all pointing the same way.
+  if(C.quills){
+    const qm=PBR({color:C.quillCol||0x2b2419,roughness:0.42,vivid:1.1});
+    const tm=PBR({color:C.quillTip||0xf2e6c8,roughness:0.5,vivid:1.2});
+    // Put them ON the body by using the same numbers the torso is built from, rather
+    // than guessing a radius — otherwise they float off a wide animal and sink into a
+    // narrow one. Each stands along its own outward normal, raked back.
+    const W=C.shape||TORSO_DEF, TL=C.tall||1.32, DZ=C.deep||0.86, WX=C.wide||1.14, B2=C.build||[1,1,1];
+    const sm2=u=>u*u*(3-2*u);
+    const prof=t2=>{const g2=Math.min(2.999,t2*3),i2=Math.floor(g2),f2=sm2(g2-i2);return W[i2]*(1-f2)+W[i2+1]*f2;};
+    const up=new THREE.Vector3(0,1,0), dir=new THREE.Vector3();
+    for(let ring=0;ring<6;ring++){
+      const t2=0.20+ring*0.135;
+      const y0=t2*0.92-0.46, r0=Math.sqrt(Math.max(0.02,0.46*0.46-y0*y0)), w=prof(t2);
+      const y=y0*TL+0.258*TL;
+      const n=7+ring*2;
+      for(let i=0;i<n;i++){
+        const a3=(i/(n-1)-0.5)*Math.PI*1.45;          // across the back, never the belly
+        const x=Math.sin(a3)*r0*w*WX*B2[0], z=Math.cos(a3)*r0*w*DZ*B2[2];
+        const L2=0.26+Math.sin(t2*Math.PI)*0.26;
+        dir.set(x,0.30,z).normalize();                // out from the spine and raked back
+        const q=kit(spine,new THREE.Mesh(new THREE.ConeGeometry(0.030,L2,6),qm));
+        q.position.set(x*0.94,y,z*0.94);
+        q.quaternion.setFromUnitVectors(up,dir);
+        const tip=kit(spine,new THREE.Mesh(new THREE.ConeGeometry(0.021,L2*0.36,6),tm));
+        tip.position.set(x*0.94,y,z*0.94).addScaledVector(dir,L2*0.44);
+        tip.quaternion.copy(q.quaternion);
+      }
+    }
+  }
+
   // ---- toes and fingers ----
   // Hung off the foot and hand meshes so they inherit whatever shape those ended up —
   // a long narrow foot gets long narrow toes without a second set of numbers.
@@ -2958,6 +3031,27 @@ function buildChar(id){
     for(const sx of [-1,1]){
       const t=kit(headJ,new THREE.Mesh(new THREE.BoxGeometry(0.045,0.07,0.03),mat(0xfffdf6)));
       t.position.set(sx*0.028,-0.155,-0.42);
+    }
+  } else if(C.face==='rodent'){
+    // a short muzzle with the two front teeth a rodent never stops showing
+    const m=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.155,16,13),
+      C.muzzle?PBR({color:C.muzzle,roughness:0.64,vivid:1.15}):furMat));
+    m.position.set(0,-0.10,-0.335);m.scale.set(1.05,0.82,1.15);
+    kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.048,12,10),noseMat)).position.set(0,-0.055,-0.475);
+    for(const sx of [-1,1]){
+      const t=kit(headJ,new THREE.Mesh(new THREE.BoxGeometry(0.046,0.085,0.028),mat(0xfffbe8)));
+      t.position.set(sx*0.028,-0.165,-0.425);t.rotation.x=0.10;
+    }
+  } else if(C.face==='alien'){
+    // barely a face at all: no muzzle, no nose, a thin mouth and two pin-prick nostrils
+    const D=C.headS||[1,1,1];
+    const mo=kit(headJ,new THREE.Mesh(new THREE.TorusGeometry(0.085,0.015,8,20,Math.PI*0.9),
+      PBR({color:C.lip||0x2b3a2c,roughness:0.5})));
+    mo.position.set(0,-0.215*D[1],-0.320*D[2]);mo.rotation.set(1.62,0,Math.PI);
+    mo.scale.set(D[0],1,1);
+    for(const sx of [-1,1]){
+      const n=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.020,8,8),mat(0x24331f,50)));
+      n.position.set(sx*0.048*D[0],-0.075*D[1],-0.395*D[2]);
     }
   } else if(C.face==='frog'){
     // a wide flat mouth cut right across the head, and a broad soft jaw under it
@@ -3132,6 +3226,21 @@ function buildChar(id){
         i%2?darkMat:furMat));
       seg.position.y=0.08;
       const nx=new THREE.Group(); nx.position.y=0.16; nx.rotation.x=-0.34+i*0.10; par.add(nx);
+      kitParts.push(nx); par=nx;
+    }
+  } else if(C.tail==='plume'){
+    // A squirrel IS its tail: a big S-curved plume that leaves the rump, sweeps up
+    // behind and folds forward over its own back. Built as a chain like the other long
+    // tails, but every link is a fat lobe rather than a segment of rope.
+    let par=tailRoot(C.tailTilt===undefined?0.35:C.tailTilt);
+    for(let i=0;i<8;i++){
+      const t2=i/7;
+      const r=0.105+Math.sin(t2*Math.PI)*0.215;
+      const seg=kit(par,new THREE.Mesh(new THREE.SphereGeometry(r,16,13),furMat));
+      seg.position.y=0.11; seg.scale.set(0.82,1.22,0.82);
+      // a long gentle arc, not a curl: it has to stand clear of the back and come over
+      // the top, or it reads as a lump of fur stuck to him
+      const nx=new THREE.Group(); nx.position.y=0.215; nx.rotation.x=-0.16-i*0.072; par.add(nx);
       kitParts.push(nx); par=nx;
     }
   } else if(C.tail!=='none'){                 // bushy
