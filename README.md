@@ -52,6 +52,27 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.93.0** — **Distance and tricks are two scores, each with its own record.** They
+  were one: the score counted 0.6 a metre, which came to six hundred points over a
+  kilometre — several times what the tricks themselves were worth — so the score was
+  mostly a second, worse distance readout, and the single BEST was really a distance
+  record wearing a trick score's name. Ground covered pays nothing into the score now.
+  Distance still pays puka on its own, exactly as before, so the change costs about a
+  seventh of a run's earnings rather than gutting them.
+  Best distance was already kept (in `stats.bestDist`) and is untouched — distance is
+  scored exactly as it always was, so that record still stands. Best *tricks* starts
+  fresh under a new storage key, because every figure under the old one was banked when
+  the score also counted distance and would have sat on the screen unbeatable.
+  **The readout is off the top edge and rearranged.** It sat hard against the top, under
+  the notch. It is 15px further down now, on a scrim that fades out rather than a bar
+  with a line under it, with hairline dividers between the columns and tabular figures so
+  the numbers stop jittering sideways as they change. BEST is no longer a column of its
+  own — a best score means nothing sitting next to a distance — so each column carries
+  its own record underneath, counting the run in progress and lighting up the moment you
+  pass it rather than telling you on the wipeout screen. Four columns instead of five.
+  **PUKA is this run's take, not the wallet.** It said "this run" and showed your whole
+  balance. Verified with 4,321 in the bank: the readout showed 2. The wipeout screen
+  banks it and the shop is where the balance lives.
 - **v1.92.0** — **The nose you circled was not a board.** Every outline held its nose's
   own width for the first sixth of the board and only then blended out to the shape
   curve, which left a parallel-sided neck at each tip with a shoulder where it flared —

@@ -9,12 +9,32 @@
   button { font-family:inherit; }   /* buttons do not inherit it on their own */
   html,body { width:100%; height:100%; overflow:hidden; background:#7ec8f0; font-family:'Trebuchet MS',sans-serif; touch-action:none; }
   canvas { display:block; }
+  /* The readout sat hard against the top edge, under the notch on a phone. It is off the
+     edge now, on a scrim that fades out rather than a bar with a line under it, and each
+     column carries its own record underneath instead of BEST being a column of its own —
+     a best score means nothing next to a distance and vice versa. Digits are tabular so
+     the numbers stop jittering sideways every time a figure changes. */
   #hud { position:fixed; top:0; left:0; right:0; display:flex; justify-content:space-between;
-    padding:calc(6px + env(safe-area-inset-top,0px)) 4px 0; color:#fff; font-weight:bold;
-    text-shadow:0 2px 4px rgba(0,40,80,.55); pointer-events:none; }
-  #hud .cell { flex:1 1 0; text-align:center; }
-  #hud .lab { display:block; font-size:min(2.9vw,11px); letter-spacing:1.4px; opacity:.72; }
-  #hud .val { display:block; font-size:min(5.4vw,21px); line-height:1.15; }
+    padding:calc(15px + env(safe-area-inset-top,0px)) 8px 10px; color:#fff; pointer-events:none;
+    background:linear-gradient(180deg, rgba(3,20,40,.34), rgba(3,20,40,.11) 62%, rgba(3,20,40,0));
+    font-variant-numeric:tabular-nums; -webkit-font-feature-settings:"tnum"; }
+  #hud .cell { flex:1 1 0; text-align:center; position:relative; padding:0 2px; }
+  /* hairlines between the columns, faded at both ends so they read as a divider rather
+     than a table rule */
+  #hud .cell + .cell::before { content:''; position:absolute; left:0; top:14%; bottom:20%;
+    width:1px; background:linear-gradient(180deg, rgba(255,255,255,0),
+      rgba(255,255,255,.24) 42%, rgba(255,255,255,0)); }
+  #hud .lab { display:block; font-size:min(2.7vw,10px); font-weight:700; letter-spacing:1.7px;
+    text-transform:uppercase; opacity:.60; text-shadow:0 1px 3px rgba(0,30,60,.6); }
+  #hud .val { display:block; font-size:min(5.6vw,22px); font-weight:800; line-height:1.2;
+    letter-spacing:.2px; text-shadow:0 2px 5px rgba(0,35,70,.6); }
+  #hud .rec { display:block; font-size:min(2.6vw,9.5px); font-weight:700; letter-spacing:.7px;
+    text-transform:uppercase; opacity:.52; line-height:1.5; min-height:1.5em;
+    text-shadow:0 1px 3px rgba(0,30,60,.6); }
+  /* the record lights up for the rest of the run once you pass it */
+  /* a tint and a lift, not a glow — an 8px halo at this size fills the gaps between the
+     letters and reads as a highlighter pen drawn over the line */
+  #hud .rec.new { opacity:.95; color:#ffe25e; text-shadow:0 1px 3px rgba(0,30,60,.75); }
   #trickmsg { position:fixed; top:22%; width:100%; text-align:center; color:#ffdf2e; font-weight:bold; font-size:30px; text-shadow:0 3px 6px rgba(0,40,80,.6); pointer-events:none; opacity:0; transition:opacity .2s; }
   /* Real glass, not an outline. From the references, what makes a pane read as glass is
      four things at once: a bright specular streak sitting across the top, an edge that is
@@ -379,11 +399,10 @@
 </head>
 <body>
 <div id="hud">
-  <div class="cell"><span class="lab">SCORE</span><span class="val" id="hScore">0</span></div>
-  <div class="cell"><span class="lab">DIST</span><span class="val" id="hDist">0 m</span></div>
-  <div class="cell"><span class="lab">MPH</span><span class="val" id="hSpeed">0</span></div>
-  <div class="cell"><span class="lab">BEST</span><span class="val" id="hBest">0</span></div>
-  <div class="cell"><span class="lab">PUKA</span><span class="val"><i class="pk"></i><span id="hCoins">0</span></span></div>
+  <div class="cell"><span class="lab">Tricks</span><span class="val" id="hScore">0</span><span class="rec" id="hBest">best 0</span></div>
+  <div class="cell"><span class="lab">Dist</span><span class="val" id="hDist">0 m</span><span class="rec" id="hBestD">best 0 m</span></div>
+  <div class="cell"><span class="lab">Mph</span><span class="val" id="hSpeed">0</span><span class="rec"></span></div>
+  <div class="cell"><span class="lab">Puka</span><span class="val"><i class="pk"></i><span id="hCoins">0</span></span><span class="rec">this run</span></div>
 </div>
 <div id="trickmsg"></div>
 <div id="jumpBtn" class="btn glass hidden">
@@ -478,6 +497,7 @@ if(typeof THREE!=='undefined')(() => {
 const hud=document.getElementById('hud'), trickmsg=document.getElementById('trickmsg');
 const hScore=document.getElementById('hScore'), hDist=document.getElementById('hDist');
 const hSpeed=document.getElementById('hSpeed'), hBest=document.getElementById('hBest');
+const hBestD=document.getElementById('hBestD');
 const jumpBtn=document.getElementById('jumpBtn'), ropeBtn=document.getElementById('ropeBtn');
 const trickBar=document.getElementById('trickBar');
 const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementById('flipBtn');
@@ -492,7 +512,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.92.0';
+const VERSION='1.93.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1283,7 +1303,7 @@ function noteBuy(kind,id,price){
 }
 // a run ends at every wipeout, revived or not — the distance is banked as a delta so a
 // revived run does not count the ground it already covered a second time
-let runDist0=0, runSecs=0;
+let runDist0=0, runSecs=0, bestDistBeat=false;
 function noteWipe(kind){
   const d=Math.max(0,dist-runDist0);
   bump(stats,'runs');
@@ -1291,7 +1311,12 @@ function noteWipe(kind){
   bump(stats.where,String(Math.floor(dist/BUCKET)*BUCKET));
   bump(stats,'dist',Math.round(d));
   bump(stats,'secs',Math.round(runSecs));
-  stats.bestDist=Math.max(stats.bestDist,Math.round(dist));
+  // Whether this run set a distance record has to be decided HERE, not on the wipeout
+  // screen: noteWipe runs from startWipeout, so by the time that screen is built the run
+  // has already been folded into stats.bestDist and every run would look like a tie.
+  const dRun=Math.round(dist);
+  bestDistBeat=dRun>(stats.bestDist||0);
+  stats.bestDist=Math.max(stats.bestDist,dRun);
   runDist0=dist; runSecs=0;
   saveStats();
 }
@@ -2878,7 +2903,7 @@ function funStats(){
               : S.dist>=100 ? (S.dist/50).toFixed(0)+' Olympic pools'
               : 'just getting started';
   return `<div class="heroes">`+
-      HERO('Best score',(best||0).toLocaleString())+
+      HERO('Best tricks',(best||0).toLocaleString())+
       HERO('Furthest',(S.bestDist||0).toLocaleString()+' m')+
       HERO('Runs',(S.runs||0).toLocaleString())+
       HERO('Day streak',(S.streak||0)+(S.streak===1?' day':' days'))+
@@ -2955,7 +2980,7 @@ function openStats(full){
       row('Best distance',S.bestDist+' m')+
       row('Average run',avg+' m')+
       row('Total distance',S.dist.toLocaleString()+' m')+
-      row('Best score',best)+
+      row('Best trick score',best.toLocaleString())+
       row('Total score',S.score.toLocaleString())+
       row('Time on the water',hhmm(S.secs))+
       row('Revives watched',S.revives)+
@@ -4913,7 +4938,13 @@ addEventListener('mouseup',()=>{
   endGrab();endDrag();releaseSpin();endMouseDrag();handOn=false;
 });
 
-const BEST_KEY='pug-surf-best';
+// A new key, because the old one holds a number that can no longer be scored. Every best
+// under it was banked when the score also counted 0.6 a metre, so it is several hundred
+// points of distance wearing a trick score's name — leaving it in place would put a
+// permanently unbeatable figure on the screen. Best DISTANCE is untouched: that record
+// lives in stats.bestDist, distance is scored exactly as it always was, and noteWipe
+// keeps it current on every wipeout, revived or not.
+const BEST_KEY='pug-surf-trickbest';
 function loadBest(){
   try{const v=localStorage.getItem(BEST_KEY);if(v)best=parseInt(v,10)||0;}catch(e){}
 }
@@ -5534,8 +5565,11 @@ function gameOver(){
   overlayUp=true;
   running=false;
   splatT=0;splat3D.visible=false;         // never leave the splat stuck over the menu
-  const s=score|0;
-  if(s>best){best=s;saveBest();}
+  // Math.round, not |0: noteWipe banks the record with Math.round, and truncating here
+  // instead showed a run of 3,485 m setting a record of 3,486 m.
+  const s=score|0, d=Math.round(dist);
+  const newScore=s>best, newDist=bestDistBeat;
+  if(newScore){best=s;saveBest();}
   const earned=coinsFor(dist,s);
   coins+=earned; saveGame(); showCoins();
   bump(stats,'earned',earned); bump(stats,'score',s); saveStats();
@@ -5545,10 +5579,12 @@ function gameOver(){
   const tr=(k,v,hi)=>`<div class="tr${hi?' hi':''}"><span>${k}</span><b>${v}</b></div>`;
   document.getElementById('ovText').innerHTML=
     `<div class="lead">Astro went under…</div>`+
-    tr('Distance',`${dist|0} m <em>${pukaFromDist(dist)}</em><i class="pk"></i>`)+
-    tr('Score',`${s} <em>${pukaFromScore(s)}</em><i class="pk"></i>`)+
+    tr('Distance',`${d.toLocaleString()} m <em>${pukaFromDist(dist)}</em><i class="pk"></i>`)+
+    tr('Tricks',`${s.toLocaleString()} <em>${pukaFromScore(s)}</em><i class="pk"></i>`)+
     tr('This run',`${earned}<i class="pk"></i>`,true)+
-    tr('Best',best);
+    // one record per column, and the one you just beat says so
+    tr('Best distance',`${(stats.bestDist||0).toLocaleString()} m${newDist?' <em>NEW!</em>':''}`)+
+    tr('Best tricks',`${best.toLocaleString()}${newScore?' <em>NEW!</em>':''}`);
   showMenu('over');
 }
 
@@ -6851,7 +6887,10 @@ function update(dt){
   const eff=Math.max(16.2,Math.min(113+BS.top,speed+Math.abs(vx)*0.3+trim+boost));   // 10 mph floor, 70 ceiling
   lastEff=eff;
   dist+=eff*dt;
-  score+=eff*dt*0.6;
+  // No score for covering ground. Distance is its own number with its own record, and
+  // paying it into the trick score too meant the score was mostly a second, worse
+  // distance readout: 0.6 a metre came to six hundred points over a kilometre, several
+  // times what the tricks themselves were worth. Distance still pays puka on its own.
   cutCd=Math.max(0,cutCd-dt);
 
   // Where the hull wants to float. It leans on the highest water beneath it so a
@@ -7439,11 +7478,19 @@ function update(dt){
   camera.position.set(camX,camY,camZ);
   camera.lookAt(lookX,waterY+1.05+airH*0.62,-14);
 
-  hScore.textContent=score|0;
-  hDist.textContent=(dist|0)+' m';
+  const sc=score|0, ds=Math.round(dist);
+  hScore.textContent=sc.toLocaleString();
+  hDist.textContent=ds.toLocaleString()+' m';
   hSpeed.textContent=(eff*0.62)|0;
-  hBest.textContent=best;
-  hCoins.textContent=coins+coinsFor(dist,score);
+  // each record counts the run in progress, so passing it lights the line up there and
+  // then rather than only being told about it on the wipeout screen
+  hBest.textContent='best '+Math.max(best,sc).toLocaleString();
+  hBest.classList.toggle('new',sc>best);
+  const bd=stats.bestDist||0;
+  hBestD.textContent='best '+Math.max(bd,ds).toLocaleString()+' m';
+  hBestD.classList.toggle('new',ds>bd);
+  // this run's take, not the wallet — the wallet is what the shop is for
+  hCoins.textContent=coinsFor(dist,score);
 }
 
 function loop(now){
