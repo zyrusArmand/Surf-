@@ -52,6 +52,15 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.91.0** — **An eye button on every shop tile.** The full-screen preview was only
+  reachable by tapping the picture or the name, and nothing on the tile said so — you
+  had to already know. There is now a small orange eye in the top-right corner of every
+  card, boards and surfers alike, and tapping it opens the same preview. Tapping the
+  picture still works; the eye is an addition, not a replacement. It sits over the
+  picture rather than in the row of buttons so it never competes with **Ride it** or the
+  price, and it stops the tap from reaching the picture underneath so one tap is one
+  action. Checked on both tabs: 44 board tiles and 19 surfer tiles, every one with an
+  eye, each opening its own card's preview.
 - **v1.90.0** — Three things, all of them found by measuring rather than by looking.
   **He waves at you after a 180.** The head used to crane 2.30 radians back over his
   shoulder when he landed one, which screwed his neck away from the camera at the one

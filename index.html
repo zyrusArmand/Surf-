@@ -266,7 +266,7 @@
     border-radius:999px; cursor:pointer; transition:background .12s, color .12s, border-color .12s; }
   #shopTabs .tab.on { color:#052a2a; border-color:rgba(160,244,232,.75);
     background:linear-gradient(165deg, rgba(143,240,228,.68), rgba(63,199,184,.40)); }
-  .card { display:flex; flex-direction:column; text-align:left; overflow:hidden;
+  .card { position:relative; display:flex; flex-direction:column; text-align:left; overflow:hidden;
     border-radius:16px; border:1.5px solid rgba(255,255,255,.13);
     background:linear-gradient(180deg, rgba(255,255,255,.11), rgba(255,255,255,.035));
     box-shadow:0 8px 20px rgba(0,18,34,.28); }
@@ -274,6 +274,19 @@
     box-shadow:0 0 0 1px rgba(255,223,46,.45), 0 10px 24px rgba(90,70,0,.34); }
   .card .thumb { width:100%; aspect-ratio:4/3; object-fit:contain; display:block;
     background:radial-gradient(circle at 50% 36%, rgba(126,200,236,.22), rgba(6,24,42,.34)); }
+  /* The full-screen preview was only reachable by tapping the picture or the name, and
+     nothing on the tile said so. This is the same thing with a handle on it — an eye in
+     the corner of every tile. It sits over the picture rather than in the row of
+     buttons, so it never competes with Ride it or the price. Specificity beats the
+     .card button rule below it, so none of that full-width pill styling lands here. */
+  .card .eye { position:absolute; top:8px; right:8px; width:32px; height:32px; padding:0;
+    border-radius:50%; display:grid; place-items:center; cursor:pointer; z-index:2;
+    border:1.5px solid rgba(255,238,200,.80);
+    background:linear-gradient(165deg, #ffb845, #ef7a0e);
+    box-shadow:0 4px 12px rgba(58,22,0,.44), inset 0 1px 0 rgba(255,255,255,.62);
+    transition:transform .09s ease, filter .12s ease; }
+  .card .eye svg { width:19px; height:19px; display:block; }
+  .card .eye:active { transform:scale(.88); filter:brightness(1.12); }
   .card .info { padding:9px 11px 11px; display:flex; flex-direction:column; gap:5px; flex:1; }
   .card .nm { font-weight:800; font-size:15px; letter-spacing:.2px; }
   .card .bl { font-size:11.5px; opacity:.76; line-height:1.34; flex:1; }
@@ -479,7 +492,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.90.0';
+const VERSION='1.91.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2701,6 +2714,19 @@ function shopCard(item,have,on,buy,use,thumb,stats,kind){
   im.src=thumb||'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   if(kind){ im.style.cursor='pointer'; im.onclick=()=>openViewer(kind,item.id); }
   card.appendChild(im);
+  if(kind){
+    // an eye in the corner that opens the full-screen preview; tapping the picture or
+    // the name still does the same thing, this just says so out loud
+    const eye=document.createElement('button');
+    eye.className='eye'; eye.type='button';
+    eye.setAttribute('aria-label','Preview '+item.name);
+    eye.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true">'+
+      '<path d="M1.7 12S5.5 5.5 12 5.5 22.3 12 22.3 12 18.5 18.5 12 18.5 1.7 12 1.7 12z"'+
+      ' fill="none" stroke="#4a2200" stroke-width="2.2" stroke-linejoin="round"/>'+
+      '<circle cx="12" cy="12" r="3.2" fill="#4a2200"/></svg>';
+    eye.onclick=e=>{ e.stopPropagation(); openViewer(kind,item.id); };
+    card.appendChild(eye);
+  }
   const info=document.createElement('div'); info.className='info';
   info.innerHTML='<div class="nm">'+item.name+'</div><div class="bl">'+item.blurb+'</div>'+
     (stats?statBars(item.id):'');
