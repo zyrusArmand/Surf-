@@ -263,10 +263,13 @@
      the hard bar that was here before. The bottom has no scrim at all: the stat bars carry
      their own plate and the button carries its own fill, so there is nothing down there
      that needs a background. */
+  /* Heavier, and it runs a long way past the last line before it lets go — a wash that
+     has faded out by the time it reaches the bottom of the type leaves the type sitting on
+     nothing, which is what it was doing. */
   #viewer .vtop { text-align:center; pointer-events:none;
-    background:linear-gradient(180deg, rgba(2,10,22,.58) 0%, rgba(2,10,22,.34) 46%,
-      rgba(2,10,22,.10) 78%, rgba(2,10,22,0) 100%);
-    margin:-14px -16px 0; padding:16px 16px 44px; }
+    background:linear-gradient(180deg, rgba(2,10,22,.82) 0%, rgba(2,10,22,.72) 40%,
+      rgba(2,10,22,.46) 66%, rgba(2,10,22,.16) 86%, rgba(2,10,22,0) 100%);
+    margin:-14px -16px 0; padding:16px 16px 64px; }
   #viewer .vname { font-size:26px; font-weight:800; letter-spacing:.3px;
     text-shadow:0 2px 3px rgba(0,22,48,.95), 0 0 16px rgba(0,22,48,.75), 0 6px 20px rgba(0,22,48,.6); }
   #viewer .vsub { font-size:13px; opacity:.92; margin-top:4px; line-height:1.4;
@@ -391,7 +394,7 @@
   /* the picture is a rendered beach now, edge to edge, so it fills the tile rather than
      floating on a gradient of its own */
   .card .thumb { width:100%; aspect-ratio:4/3; object-fit:cover; display:block;
-    background:#9fd0ee; }
+    background:#7cc6ee; }
   /* The full-screen preview was only reachable by tapping the picture or the name, and
      nothing on the tile said so. This is the same thing with a handle on it — an eye in
      the corner of every tile. It sits over the picture rather than in the row of
@@ -622,7 +625,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.11.0';
+const VERSION='2.12.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2732,6 +2735,53 @@ function previewSetup(){
   const f=new THREE.DirectionalLight(0xbfd8ff,0.55); f.position.set(2.0,0.7,-1.8); prevScene.add(f);
   prevCam=new THREE.PerspectiveCamera(32,PREV_W/PREV_H,0.05,90);
   beachSet=buildBeach(); prevScene.add(beachSet);
+  // ---- the backdrop the shop's cards are shot against ----
+  // A card had the WHOLE beach in it — palms, surf, horizon — and forty-four of those in a
+  // grid is forty-four competing horizons. Every tile fought the board it was meant to be
+  // showing, and the one thing you actually came to look at was the smallest thing in it.
+  // A card gets a backdrop instead: the beach's own colours, sky down to sand, with the
+  // board standing on it and its shadow underneath. Same world, same light, one subject.
+  // It is far cheaper too, which matters when the shop photographs sixty-three of them.
+  cardSet=new THREE.Group(); cardSet.visible=false;
+  {
+    // A cyclorama, the way a product is actually photographed: the ground sweeps up into
+    // the backdrop with no seam and no horizon line, so there is nothing behind the board
+    // competing to be looked at. The colours are the beach's own — warm sand underfoot
+    // running up into sky — so it still belongs to this game and not to a catalogue.
+    // The backdrop sits CLOSE, because the ground line's height in the frame is set by how
+    // far away the ground stops: far away it lands halfway up the tile and splits it in
+    // two, near it sits low where a ground line belongs.
+    const SAND=new THREE.Color(0xd9bd8e), PALE=new THREE.Color(0xe8dcc2),
+          HZ=new THREE.Color(0xd6ecf8), SKY=new THREE.Color(0x7cc6ee);
+    const _b=new THREE.Color();
+    // The gradient has to be laid out over the part of the backdrop that is actually IN
+    // frame. On a 40-tall plane the sky sat above t=0.2 and the visible band only reached
+    // 0.2, so every card came out a uniform beige with the blue off the top of the tile.
+    const BW=46, BH=26, BZ=-15;
+    const bg=new THREE.PlaneGeometry(BW,BH,1,10), bp=bg.attributes.position, bc=[];
+    for(let i=0;i<bp.count;i++){
+      const t2=(bp.getY(i)/BH)+0.5;
+      _b.copy(PALE).lerp(HZ,_ss2(0.00,0.13,t2)).lerp(SKY,_ss2(0.10,0.34,t2));
+      bc.push(_b.r,_b.g,_b.b);
+    }
+    bg.setAttribute('color',new THREE.Float32BufferAttribute(bc,3));
+    const back=new THREE.Mesh(bg,new THREE.MeshBasicMaterial({vertexColors:true}));
+    back.position.set(0,BH*0.5-1.2,BZ); cardSet.add(back);
+    // the floor, meeting the backdrop in exactly its own colour so the join disappears
+    const gd=new THREE.PlaneGeometry(BW,34,1,10), gp=gd.attributes.position, gc=[];
+    for(let i=0;i<gp.count;i++){
+      const t2=(gp.getY(i)/34)+0.5;              // 1 at the far edge, where it meets PALE
+      _b.copy(SAND).lerp(PALE,_ss2(0.35,1.0,t2));
+      gc.push(_b.r,_b.g,_b.b);
+    }
+    gd.setAttribute('color',new THREE.Float32BufferAttribute(gc,3));
+    const floor=new THREE.Mesh(gd,new THREE.MeshBasicMaterial({vertexColors:true}));
+    floor.rotation.x=-Math.PI/2; floor.position.set(0,-1.2,BZ+17); cardSet.add(floor);
+    cardShadow=new THREE.Mesh(new THREE.CircleGeometry(1,36),
+      new THREE.MeshBasicMaterial({color:0x9a825c,transparent:true,opacity:0.40}));
+    cardShadow.rotation.x=-Math.PI/2; cardShadow.position.y=-1.17; cardSet.add(cardShadow);
+  }
+  prevScene.add(cardSet);
 }
 // ---------------------------------------------------------------------------
 // The beach the full-screen look stands on. Hidden for the shop's thumbnail pass —
@@ -2744,7 +2794,8 @@ function previewSetup(){
 // afternoon and stay there. Only the wave clock is copied across, so the swell still
 // rolls rather than standing still.
 // ---------------------------------------------------------------------------
-let prevOcean=null, prevSky=null, beachLife=null;
+let prevOcean=null, prevSky=null, beachLife=null, cardSet=null, cardShadow=null;
+const _ss2=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
 let SAND_LIT=0x484848, PALM_LIT=0x3c3c3c, beachShadow=null, beachSand0=0;   // set by measurement, see the note on the sand
 // ---- one palm, built as a single buffer geometry ----
 // Trunk, frond spines and every leaflet go into one set of arrays and come out as one
@@ -2959,6 +3010,7 @@ function buildBeach(){
   const sp=sg.attributes.position, scol=[];
   const C1=new THREE.Color(0xf0c880), C2=new THREE.Color(0xc9ac74), C3=new THREE.Color(0xffe4b0);
   const _c=new THREE.Color(), _WET=new THREE.Color(0x5f5237);
+  const _SHALLOW=oceanUniforms.uShallow.value.clone().lerp(new THREE.Color(0x0d3f66),0.45);
   // Height as a plain function of position, so the surface can be sampled either side of a
   // point to get its slope. That is what the shading below needs, and it is the only reason
   // the dunes read at all: white sand lit from a hemisphere has almost no shading of its
@@ -2993,6 +3045,13 @@ function buildBeach(){
     const t=_ss(-104,-34,wz)*0.92 + (_fbm(x*0.9+31,wz*0.9+17)-0.5)*0.34;
     _c.copy(_WET).lerp(C1,Math.max(0,Math.min(1,t)));
     if(dry>0.55)_c.lerp(C3,(dry-0.55)*0.9);
+    // Sand that is UNDER the water has to look like it is under water. The swell runs a
+    // unit and a third either side of the surface, so its troughs bare the seabed twice a
+    // wave — and a seabed painted the colour of dry beach came through as brown water
+    // washing in and out. Below the waterline it is pulled toward the sea's own colour,
+    // hard at first and then all the way, so what shows through a trough is shallows.
+    const sub=_ss(0.4,-3.2,sandH(wz));
+    if(sub>0.001)_c.lerp(_SHALLOW,sub*0.92);
     // Shading painted in by hand, from the slope, because the material will not give it to
     // us: a low sun raking across from the left lights the faces turned toward it and drops
     // the far side of every ridge into shade. Without this the dunes are geometrically
@@ -3107,20 +3166,19 @@ function snapshot(obj,kind){
   obj.updateMatrixWorld(true);
   const aspect=PREV_W/PREV_H, t=Math.tan(prevCam.fov*Math.PI/360);
   const d=Math.max(f.hy/(t*0.90), f.hr/(aspect*t*0.84));
-  const k=d/9;
-  beachSet.visible=true;
-  beachSet.scale.setScalar(k);
-  beachSet.position.y=f.bottom-(beachSand0+0.55)*k;
-  if(beachShadow){
-    beachShadow.scale.setScalar(Math.min(2.4,Math.max(0.95,f.hr*1.7/k)));
-    beachShadow.position.set(0,beachSand0+0.05,0);
-  }
-  prevCam.position.set(0,f.c.y+d*0.10,d);
-  prevCam.lookAt(f.c);
+  cardSet.visible=true;
+  cardSet.scale.setScalar(d/9);
+  cardSet.position.y=f.bottom+1.2*(d/9);
+  if(cardShadow)cardShadow.scale.setScalar(Math.min(2.6,Math.max(0.9,f.hr*1.6/(d/9))));
+  // level, and lifted so the object sits a little above the middle of the tile with the
+  // ground line under it rather than centred on nothing
+  const lift=d*t*0.10;
+  prevCam.position.set(0,f.c.y+lift,d);
+  prevCam.lookAt(0,f.c.y+lift,0);
   prevCam.updateProjectionMatrix();
   const oldT=renderer.getRenderTarget(), oldAC=renderer.autoClear;
   renderer.autoClear=true;
-  renderer.setClearColor(0x9fd0ee,1);
+  renderer.setClearColor(0x7cc6ee,1);
   renderer.setRenderTarget(prevTarget);
   renderer.clear();
   renderer.render(prevScene,prevCam);
@@ -3129,7 +3187,7 @@ function snapshot(obj,kind){
   renderer.setRenderTarget(oldT);
   renderer.setClearColor(0x000000,1);
   renderer.autoClear=oldAC;
-  beachSet.visible=false;
+  cardSet.visible=false;
   prevScene.remove(obj);
   obj.position.copy(keepP); obj.rotation.order=keepO; obj.rotation.copy(keepR);
   if(par)par.add(obj);
@@ -3419,10 +3477,13 @@ function renderViewer(dt){
       beachShadow.material.opacity=0.28;
     }
   }
-  // Raising the camera pushes the object DOWN the frame, so this is the lift that puts it in
-  // the middle of that band rather than in the middle of the screen.
-  viewCam.position.set(v.c.x, v.c.y+(mid-0.5)*2*d*t, v.c.z+d);
-  viewCam.lookAt(v.c);
+  // The lift has to move the camera AND the point it looks at, together. Raising the camera
+  // and then aiming it back at the object re-centres the very thing the lift was meant to
+  // shift — which is why the object stayed dead centre however the band moved. Looking level
+  // from the raised position is what actually puts it where the band is.
+  const lift=(mid-0.5)*2*d*t;
+  viewCam.position.set(v.c.x, v.c.y+lift, v.c.z+d);
+  viewCam.lookAt(v.c.x, v.c.y+lift, v.c.z);
   viewCam.updateProjectionMatrix();
   renderer.setClearColor(0x9fd0ee,1);
   renderer.render(prevScene,viewCam);

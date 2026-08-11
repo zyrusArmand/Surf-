@@ -52,6 +52,24 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.12.0** — **The camera lift was a no-op.** It moved the camera up and then aimed it
+  back at the object — which re-centres the very thing the lift was meant to shift, so the
+  object stayed dead centre however the measured band moved, and a tail kept touching the
+  stat plate. Looking *level* from the raised position is what actually puts it where the
+  band is. It clears with margin now.
+  **The header wash is heavier and carries past the type.** One that has faded out by the
+  time it reaches the last line leaves the type sitting on nothing, which is what it was
+  doing.
+  **The brown water is gone.** The swell runs a unit and a third either side of the
+  surface, so its troughs bare the seabed twice a wave — and a seabed painted the colour of
+  dry beach came through as brown water washing in and out. Below the waterline the sand is
+  pulled toward the sea's own colour, so what shows through a trough is shallows.
+  **The shop is a rack, not forty-four beach photographs.** Every card had the whole beach
+  in it — palms, surf, horizon — and a grid of those is forty-four competing horizons, with
+  the one thing you came to look at the smallest object in the tile. Cards are shot against
+  a cyclorama instead: the ground sweeps up into the backdrop with no seam and no horizon
+  line, in the beach's own colours, so the board is the subject. It is far cheaper to
+  render too, which matters when the shop photographs sixty-three of them.
 - **v2.11.0** — **A surfer opens facing the other way.** Measured: at the old start angle
   the snout pointed screen RIGHT, and the position in the reference has it facing LEFT — so
   the opening angle was half a turn out. Characters now open in profile facing left and the
