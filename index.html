@@ -421,7 +421,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.79.0';
+const VERSION='1.80.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1973,7 +1973,7 @@ const BOARDS=[
    spec:{L:4.10,W:0.76,T:0.105,noseA:0.80,tailA:0.72,noseW:0.24,tailW:0.40,
      rockN:0.20,noseR:0.30,rockT:0.05,tailR:0.16,deckPow:0.62,hullPow:0.50,hullK:0.56,
      pad:true,padCol:0x16181c,padW:0.74,pads:[[0.30,0.86]],finCol:0x1a1e24,
-     top:34, wake:0.22, stat:{speed:10,tough:2},
+     top:34, wake:0.22, lift:0.62, stat:{speed:10,tough:2},
      foil:{h:1.34,z:0.42,fus:1.42,span:1.34,wc:0.36,chord:0.44,t:0.058,col:0x1c2027},
      paint:deckScheme({deck:0xe8edf2,hull:0xf6f8fa,rail:0x1b1f26,stringer:0x2ec8e0,
        pin:0x2ec8e0,sw:0.10,railAt:0.70,vstripes:[[0.20,0.030,0x2ec8e0],[0.26,0.016,0x1b1f26]]}),
@@ -2052,7 +2052,8 @@ function boardStats(id){
   return _statCache[id]||_statCache.astro;
 }
 // what the ridden board is worth, as multipliers the game actually uses
-let BS={speed:1,turn:1,air:1,lives:3,blow:10.4,top:0,wake:1};
+let BS={speed:1,turn:1,air:1,lives:3,blow:10.4,top:0,wake:1,lift:0};
+let foilBob=0;
 function applyBoardStats(id){
   const v=boardStats(id);
   BS={
@@ -2064,7 +2065,8 @@ function applyBoardStats(id){
     // straight off the spec, not out of the budget: an electric board is simply faster
     // than a board you paddle, and a foil leaves next to no wake
     top  : (BOARD_BY_ID[id]&&BOARD_BY_ID[id].spec&&BOARD_BY_ID[id].spec.top)||0,
-    wake : (BOARD_BY_ID[id]&&BOARD_BY_ID[id].spec&&BOARD_BY_ID[id].spec.wake)||1
+    wake : (BOARD_BY_ID[id]&&BOARD_BY_ID[id].spec&&BOARD_BY_ID[id].spec.wake)||1,
+    lift : (BOARD_BY_ID[id]&&BOARD_BY_ID[id].spec&&BOARD_BY_ID[id].spec.lift)||0
   };
 }
 const _rack={};
@@ -4031,16 +4033,14 @@ function applyStance(){ pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0); }
 let grabOn=false,grabPts=0,grabSide=1,grabSrc='gesture';
 let dragOn=false,dragPts=0,dragSide=1,dragSrc='gesture';
 let shake=0,boost=0,carrySpin=0,carryFlip=0,wobRoll=0,wobYaw=0;
-// The helicopter: he goes flat on the deck, takes hold of the nose and pulls himself up
-// on it while the whole board spins three turns underneath him. Unlike the others it is
-// not a hold — you commit to it and it plays out, so it is the one trick that has a
-// fixed shape and a fixed reward, and the only one that can be spoiled by running out of
-// air rather than by releasing at the wrong moment.
-// Three turns at this rate takes 1.15s, and a normal jump only buys 1.08s of air — so
-// the helicopter launches itself higher rather than borrowing the jump, with just enough
-// margin left over to come down square.
-const HELI_TURNS=3, HELI_RATE=Math.PI*2*2.6, HELI_POP=14.2;
-let heliOn=false, heliRot=0, heliPose=0;
+// The helicopter: he goes flat on the nose of the board, takes hold of it and BARREL
+// ROLLS — the board turning over about the way it is travelling, not spinning flat. It
+// is held and released like the other three, and what it buys you is rate: rolling this
+// way is a bit over twice as fast as the ROLL button, so it is the move for getting a
+// lot of rotation into a short piece of air. Same rule as the rest — where he is
+// pointing when you let go is the attitude he lands in.
+const HELI_RATE=Math.PI*2*2.6;
+let heliHeld=false, heliPose=0, heliUsed=false;
 const SPIN_RATE=Math.PI*2*1.35, FLIP_RATE=Math.PI*2*1.25;
 let trick=null; // rope backflip only
 let planeT=34+Math.random()*26,planeActive=false,hanging=false,spawnT=0.4;
@@ -4255,15 +4255,8 @@ holdBtn(rollBtn, spinBtnDown(holdRoll), ()=>{flipHeld=false;});
 holdBtn(flipBtn, spinBtnDown(holdFlip), ()=>{pitchHeld=false;});
 holdBtn(spinBtn, spinBtnDown(holdSpin), ()=>{spinHeld=false;});
 holdBtn(handBtn,()=>{handOn=true;handSrc='button';},()=>{handOn=false;});
-function startHeli(src){
-  if(!running||wipe||heliOn||hanging)return;
-  if(!airborne)splash(px,0.4,0,10);
-  vy=Math.max(vy,HELI_POP*BS.air); airborne=true;
-  heliOn=true; heliRot=0;
-  noteTrick('heli',src||'button');
-  msg('HELICOPTER!');
-}
-holdBtn(heliBtn,()=>startHeli('button'),()=>{});
+const holdHeli=s2=>{heliHeld=s2; if(s2)heliUsed=true;}; holdHeli.trick='heli';
+holdBtn(heliBtn, spinBtnDown(holdHeli), ()=>{heliHeld=false;});
 addEventListener('mouseup',()=>{
   if(touchMode){endGrab();endDrag();releaseSpin();endMouseDrag();handOn=false;return;}
   if(running&&mouseDrag){
@@ -4341,13 +4334,15 @@ function settleTricks(landed,keepPose){
   if(flipRot>0.4){pts+=Math.floor(flipRevs*4)*110;names.push(Math.round(flipRevs*360)+'° ROLL');}
   if(pitchRot>0.4){pts+=Math.floor(pitchRevs*4)*130;names.push(Math.round(pitchRevs*360)+'° FLIP');}
   if(grabOn&&grabPts>=30){pts+=Math.round(grabPts);names.push(grabSide>0?'INDY':'MELON');}
-  // the helicopter pays for the whole move, and only if he got all three turns round
-  if(heliOn){
-    const done=heliRot>=Math.PI*2*HELI_TURNS-0.05;
-    if(done){ pts+=620; names.push('HELICOPTER'); }
-    else if(heliRot>Math.PI){ pts+=Math.round(heliRot/(Math.PI*2)*180); names.push('HALF HELI'); }
-    heliOn=false; heliRot=0;
+  // it scores as the roll it is, and takes the name when it was rolled that way
+  if(heliUsed&&flipRot>0.4){
+    pts=Math.round(pts*1.35);
+    // rename the ROLL entry wherever it landed — a grab or a flip in the same air would
+    // otherwise leave the name on the wrong trick
+    const ri=names.findIndex(n=>n.endsWith('\u00b0 ROLL'));
+    if(ri>=0)names[ri]=names[ri].replace('ROLL','HELICOPTER');
   }
+  heliUsed=false; heliHeld=false;
   if(landed&&pts>0){
     if(names.length>1)pts=Math.round(pts*1.5);          // combo bonus
     // How square he came down. Releasing on the beat is the whole skill now, so it is
@@ -4396,7 +4391,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   player.rotation.set(0,0,0);
   for(const o of obstacles)scene.remove(o);obstacles.length=0;
   dist=0;speed=13.5;score=0;px=0;py=0;pz=0;vy=0;vx=0;cutCd=0;airborne=false;trick=null;
-  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;clearCracks();heliOn=false;heliRot=0;heliPose=0;
+  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;clearCracks();heliHeld=false;heliPose=0;heliUsed=false;
   trail.length=0;trailT=0;
   skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;skiGlint.visible=false;wkA=0;
   splatT=0;splatCd=0;if(zapEl)zapEl.classList.remove('on');
@@ -4435,7 +4430,7 @@ function respawn(){
   px=0;py=0;pz=0;vy=0;vx=0;airborne=false;trick=null;spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;
   spinHeld=false;flipHeld=false;pitchHeld=false;grabOn=false;grabPts=0;spinQ=0;flipQ=0;spinSign=1;flipSign=1;
   pitchRot=0;pitchQ=0;pitchSign=1;
-  boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;cutCd=0;clearCracks();heliOn=false;heliRot=0;heliPose=0;
+  boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;cutCd=0;clearCracks();heliHeld=false;heliPose=0;heliUsed=false;
   spawnT=1.8;
   overlayUp=false;running=true;last=performance.now();
   player.visible=true; rig.visible=true; hud.style.display='';
@@ -5967,7 +5962,7 @@ function animateRig(dt,carve,grab,waterY){
   // spine/chest counter-rotate against the board like a real surfer
   // He turns to face down the board, goes flat over the deck and pulls himself up on the
   // nose — elbows bent, head up past the tip — and holds that while it spins under him.
-  heliPose=ease(heliPose,heliOn?1:0,dt,heliOn?11:6);
+  heliPose=ease(heliPose,heliHeld?1:0,dt,heliHeld?12:7);
   const gSide = grab ? grabSide : 0;
   const dragLean = dragging ? dragSide*0.42 : 0;
   spine.rotation.z=ease(spine.rotation.z,carve*0.16+gSide*0.58+dragLean,dt,8);   // stays stacked over the rail he is on
@@ -6030,7 +6025,7 @@ function animateRig(dt,carve,grab,waterY){
     // Both arms straight out over the nose first, then hauling in until the elbows fold
     // and his face is at the tip. The pull tracks the spin, so the effort and the rotation
     // are visibly the same motion rather than two things happening at once.
-    const pull=Math.min(1,heliRot/(Math.PI*2*HELI_TURNS)*1.9);
+    const pull=heliPose;
     const h=heliPose, mx=(a2,b2)=>a2*(1-h)+b2*h;
     const tF=[2.12+pull*0.26, 0.15, 0.30], tB=[2.12+pull*0.26,-0.15,-0.30];
     const teF=0.28+pull*1.42, teB=0.28+pull*1.42;
@@ -6057,8 +6052,8 @@ function animateRig(dt,carve,grab,waterY){
     pelvis.position.y+=0.26*h;
     // and he hauls himself UP the board as he pulls, so his face finishes at the tip
     // rather than over the middle of it
-    const pull2=Math.min(1,heliRot/(Math.PI*2*HELI_TURNS)*1.9);
-    pug.position.z=PUG_Z0-(0.62+pull2*0.46)*h;
+    // right up on the nose, not over the middle of the board
+    pug.position.z=PUG_Z0-1.28*h;
     pug.position.x=PUG_X0;
     const straight=(j,base)=>{ j.rotation.x=j.rotation.x*(1-h)+base*h; };
     straight(legFrontJ.hip,-0.30); straight(legFrontJ.knee,0.34); straight(legFrontJ.ankle,-0.20);
@@ -6336,6 +6331,7 @@ function update(dt){
   rollBtn.classList.toggle('ready',flipHeld &&flipRot >0.5&&sqr(flipRot));
   flipBtn.classList.toggle('ready',pitchHeld&&pitchRot>0.5&&sqr(pitchRot));
   spinBtn.classList.toggle('ready',spinHeld &&spinRot >0.5&&sqr(spinRot));
+  heliBtn.classList.toggle('ready',heliHeld &&flipRot >0.5&&sqr(flipRot));   // it rolls, so it cues on the roll
   jumpBtn.style.opacity=trickReady?'0.25':'1';
 
   // Pearling went with the fore-and-aft weight it depended on: without a way to put
@@ -6415,22 +6411,20 @@ function update(dt){
   // spin / flip / grab all run at once while you're off the water
   if(airborne||hanging){
     const SR=SPIN_RATE*BS.air, FR=FLIP_RATE*BS.air;   // a poppy board spins faster too
-    if(heliOn){
-      const full=Math.PI*2*HELI_TURNS;
-      if(heliRot<full){
-        const d=Math.min(dt*HELI_RATE*BS.air,full-heliRot);
-        heliRot+=d; spinRot+=d;
-        // a corkscrew of spray thrown off the rail, climbing and turning with him
-        for(let i=0;i<2;i++){
-          const m=takeDrop(); if(!m)break;
-          m.material=SPLASH_MAT;
-          const sc=0.42+Math.random()*0.5; m.scale.setScalar(sc);
-          const a2=heliRot*1.6+i*Math.PI, r=0.95+Math.random()*0.35;
-          m.position.set(px+Math.cos(a2)*r, py+0.10+Math.random()*0.5, Math.sin(a2)*r*0.8);
-          m.userData={vx:Math.cos(a2+1.4)*3.2, vy:1.4+Math.random()*1.4,
-                      vz:Math.sin(a2+1.4)*2.4, t:0.34+Math.random()*0.22, s:sc};
-          splashes.push(m);
-        }
+    if(heliHeld){
+      // flipRot is the roll axis — the board turning over the way it is going. spinRot
+      // would have been a flat spin, which is a different trick entirely.
+      flipRot+=dt*HELI_RATE*BS.air;
+      // a corkscrew of spray thrown off the rail, turning with him
+      for(let i=0;i<2;i++){
+        const m=takeDrop(); if(!m)break;
+        m.material=SPLASH_MAT;
+        const sc=0.42+Math.random()*0.5; m.scale.setScalar(sc);
+        const a2=flipRot*1.6+i*Math.PI, r=0.95+Math.random()*0.35;
+        m.position.set(px+Math.cos(a2)*r, py+0.10+Math.random()*0.5, Math.sin(a2)*r*0.8);
+        m.userData={vx:Math.cos(a2+1.4)*3.2, vy:1.4+Math.random()*1.4,
+                    vz:Math.sin(a2+1.4)*2.4, t:0.34+Math.random()*0.22, s:sc};
+        splashes.push(m);
       }
     }
     if(spinHeld)spinRot+=dt*SR;
@@ -6469,7 +6463,15 @@ function update(dt){
   // a face lunges him forward a little. Forward travel is kept short on purpose.
   const pzT=Math.max(-3.0,Math.min(2.2, -leanW*2.3 - Math.max(-1,Math.min(1,faceSlope))*0.8));
   pz+=(pzT-pz)*Math.min(1,dt*2.2);
-  player.position.set(px,py,pz);
+  // A foil rides ON its mast, with the hull clear of the surface and only the wing in
+  // the water — which is the whole look of the thing. The lift is VISUAL: py still drives
+  // the collisions, because the mast and the wing are down there in the water whatever
+  // the hull is doing, and a board that floated over hazards would be a different game.
+  // The bob is slow on purpose: a foil rises and settles as it finds its trim, it does
+  // not bounce.
+  foilBob += dt*(1.45+lastEff*0.010);      // ~4s to rise and settle: breathing, not bouncing
+  const lift = BS.lift ? BS.lift + Math.sin(foilBob)*0.085 + Math.sin(foilBob*1.63+1.1)*0.035 : 0;
+  player.position.set(px,py+lift,pz);
   // it lies along the water it is resting on, plus whatever the rider's weight adds
   const pitchT=onRampO?rampPitchT
               :(airborne?-0.22:Math.max(-0.62,Math.min(0.68,hullPitch*1.50)) + leanW*0.62);

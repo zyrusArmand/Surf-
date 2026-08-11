@@ -52,6 +52,22 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.80.0** — The foil flies, and the helicopter is a barrel roll.
+  **The Mako rides up on its mast**, hull clear of the surface with only the wing in the
+  water, the way the real thing does. The lift is VISUAL: the collision height is
+  unchanged, because the mast and the wing are down there whatever the hull is doing, and
+  a board that floated over hazards would be a different game. On top of it a slow bob —
+  about four seconds to rise and settle, two sine terms slightly out of step so it never
+  repeats cleanly. Measured: 0.62 of lift on the Mako and exactly zero on every other
+  board.
+  **HELICOPTER is a barrel roll now, not a flat spin**, and it is held and released like
+  the other three rather than a committed move that plays itself out. It drives the roll
+  axis, so the board turns over the way it is travelling. What it buys you is rate: a bit
+  over twice the ROLL button's, for getting a lot of rotation into a short piece of air.
+  Same rule as the rest — where he is pointing when you let go is the attitude he lands
+  in, so it cues when it is square, and it takes the ROLL entry's name on the scoreboard
+  with a 1.35x multiplier. He also lies right up on the nose now rather than over the
+  middle of the board.
 - **v1.79.0** — The version label sits clear of the iPhone home indicator. It was pinned
   at a flat `bottom:8px`, which put it right on the bar; it is 24px now, plus a
   `safe-area-inset-bottom` term so it tracks the indicator on any device that reports one.
