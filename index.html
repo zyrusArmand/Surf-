@@ -492,7 +492,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.91.0';
+const VERSION='1.92.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1304,17 +1304,10 @@ function noteWipe(kind){
 const _sm=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
 function buildBoardMesh(S){
   const NU=S.nu||160, NR=S.nr||46, L=S.L, W=S.W, T=S.T;
-  // outline: a single-peaked curve whose wide point moves with the two exponents,
-  // then blended into whatever width the nose and tail actually finish at
+  // outline: a single-peaked curve whose wide point moves with the two exponents
   const a=S.noseA, b=S.tailA, up=a/(a+b);
   const peak=Math.pow(up,a)*Math.pow(1-up,b);
   const beta=u=>Math.pow(Math.max(0,u),a)*Math.pow(Math.max(0,1-u),b)/peak;
-  // Both ends have to close. The thickness envelope below already runs to nothing at
-  // the tips, so if the plan outline still finished at its full nose width the last
-  // ring would be a flat, zero-thickness flange the width of the nose — a lens of
-  // board sticking out past the shape. Each end is rounded off over a span equal to
-  // its own half-width, which is exactly a semicircle in plan: a wide nose finishes in
-  // a broad curve, a narrow one comes to a point, and both close on the thickness.
   // Both ends have to close, and they have to close in BOTH dimensions at once. This
   // arc used to be applied to the plan outline only, while the thickness ran out over a
   // much longer span of the board — so a narrow-nosed board finished as a thin vertical
@@ -1327,10 +1320,22 @@ function buildBoardMesh(S){
   const tN=tipR(S.noseW), tT=tipR(S.tailW);
   const round=(d,r)=>d>=r?1:Math.sqrt(Math.max(0,1-(1-d/r)*(1-d/r)));
   const close=u=>round(u,tN)*round(1-u,tT);
-  const hw=u=>{
-    const kn=1-_sm(0,0.16,u), kt=_sm(0.82,1,u);
-    return W*(beta(u)*(1-kn)*(1-kt) + S.noseW*kn + S.tailW*kt)*close(u);
-  };
+  // A board's plan outline is ONE curve running from the nose to the tail. The nose
+  // width is where you stop that curve; it is not a separate shape bolted onto the end.
+  // It used to be the latter — the outline held the nose's own width for the first sixth
+  // of the board and only then blended out to the curve, which left a parallel-sided
+  // neck at each tip with a shoulder where it flared. Measured on Tiki Mal, the rate at
+  // which the outline widened fell from 19 at the tip to 1.2 a quarter-metre back, then
+  // climbed again to 4.9: it stops widening, holds, and flares. That dip-and-peak is the
+  // nipple on the end of the board. A real outline widens fastest at the tip and slows
+  // monotonically all the way to the wide point, and never speeds up again.
+  // So the curve is trimmed instead of blended: find the u at which it is already as
+  // wide as the nose, likewise for the tail, and stretch that span over the board. The
+  // widest point, the waist and the tail curve are unchanged; only the necks are gone.
+  const invBeta=(t,lo,hi)=>{ for(let k=0;k<44;k++){ const m=(lo+hi)*0.5;
+    if(beta(m)<t) lo=m; else hi=m; } return (lo+hi)*0.5; };
+  const uN=S.noseW>0?invBeta(S.noseW,0,up):0, uT=S.tailW>0?invBeta(S.tailW,1,up):1;
+  const hw=u=>W*beta(uN+(uT-uN)*u)*close(u);
   // thickness runs to nothing at both tips, so the loft closes on a thin edge the
   // way a real board does, with its fullest point just ahead of centre
   const th=u=>Math.pow(Math.sin(Math.PI*Math.pow(Math.max(0,Math.min(1,u)),S.thSkew||1.0)),S.thPow||0.5)*close(u);
@@ -1412,16 +1417,29 @@ function buildBoardMesh(S){
   }
   // fins
   const finMat=PBR({color:S.finCol||0x14181d,roughness:0.14,metalness:0.05,envMapIntensity:1.2});
+  // Every fin on a board is now the SAME fin — one template, taken from the largest in
+  // the cluster and given to the rest. Thirty of the thirty-six finned boards were
+  // mixing sizes: Tiki Mal ran a 0.58-deep centre fin between two 0.26-deep side bites,
+  // less than half its size, and Fathom's sides were under a third of its centre. A real
+  // 2+1 longboard does run exactly that — a big centre fin with small side bites is a
+  // genuine setup — but at this scale it reads as three fins that do not belong to each
+  // other rather than as a design. Only the size and profile are shared: which way a fin
+  // rakes still belongs to the fin, so a twin-tip's back pair still trails backwards,
+  // and so does cant.
+  let master=S.fins[0];                 // undefined on the finless boards; the loop below
+  for(const f of S.fins)if(f.c*f.d>master.c*master.d)master=f;   // then never runs either
+  const mRake=!master||master.rake===undefined?0.10:master.rake;
   for(const f of S.fins){
     const sh=new THREE.Shape();
-    const cL=f.c, d=f.d, rk=f.rake===undefined?0.10:f.rake;
+    const cL=master.c, d=master.d, ft=master.t||0.030,
+          rk=((f.rake===undefined?0.10:f.rake)<0?-1:1)*Math.abs(mRake);
     sh.moveTo(-cL*0.5,0);
     sh.bezierCurveTo(-cL*0.30,-d*0.44, -cL*0.02+rk,-d*0.82, cL*0.14+rk,-d);
     sh.bezierCurveTo(cL*0.30+rk*0.5,-d*0.66, cL*0.42,-d*0.30, cL*0.5,0);
     sh.lineTo(-cL*0.5,0);
-    const fg=new THREE.ExtrudeGeometry(sh,{depth:f.t||0.030,bevelEnabled:true,
-      bevelSize:(f.t||0.030)*0.45,bevelThickness:(f.t||0.030)*0.40,bevelSegments:3,curveSegments:26});
-    fg.translate(0,0,-(f.t||0.030)/2);
+    const fg=new THREE.ExtrudeGeometry(sh,{depth:ft,bevelEnabled:true,
+      bevelSize:ft*0.45,bevelThickness:ft*0.40,bevelSegments:3,curveSegments:26});
+    fg.translate(0,0,-ft/2);
     const m=new THREE.Mesh(fg,finMat);
     m.rotation.y=Math.PI/2;                      // thickness now runs across the board
     const u=0.5+f.z/L, half=hw(u);
@@ -1435,7 +1453,7 @@ function buildBoardMesh(S){
     // seven boards had fins standing clear of the outline, Midnight Gun's by 13%.
     // So: the base is held a tenth of the half-width in from the rail, the tip is held
     // at the rail, and the root follows the hull's actual curve at that offset.
-    const lean=Math.abs(Math.sin(f.cant||0))*d, halfT=(f.t||0.030)*0.5;
+    const lean=Math.abs(Math.sin(f.cant||0))*d, halfT=ft*0.5;
     const room=Math.max(0.01,Math.min(half*0.90-halfT, half-lean));
     const x=f.x===0?0:(f.x<0?-1:1)*Math.min(Math.abs(f.x),room);
     const vv=half>1e-5?Math.min(0.999,Math.abs(x)/half):0;

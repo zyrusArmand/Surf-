@@ -52,6 +52,27 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.92.0** — **The nose you circled was not a board.** Every outline held its nose's
+  own width for the first sixth of the board and only then blended out to the shape
+  curve, which left a parallel-sided neck at each tip with a shoulder where it flared —
+  a nipple on the end of a mini-mal. Measured on Tiki Mal, the rate at which the outline
+  widened ran 19 → 5.6 → 2.8 → **1.2** a quarter-metre back, then climbed again to
+  **4.9**: it stops widening, holds, and flares. A real plan outline widens fastest at
+  the tip and slows all the way to the wide point; it never speeds up again. So the
+  curve is now trimmed rather than blended — find the point at which it is already as
+  wide as the nose, likewise the tail, and stretch that span over the board. Same widest
+  point, same waist, no necks. Checked on all 43 boards by sampling the built mesh one
+  ring at a time: **43 had the fault, none do now.**
+  **And every fin on a board is the same fin.** Thirty of the thirty-six finned boards
+  were mixing sizes — Tiki Mal ran a 0.58-deep centre fin between two 0.26-deep side
+  bites, less than half its size, and Fathom's sides were under a third of its centre.
+  One template now, taken from the largest in the cluster. Worst size spread within a
+  cluster went from 68% to 0.8%. Only size and profile are shared: which way a fin rakes
+  still belongs to the fin, so a twin-tip's back pair still trails backwards, and so
+  does cant. Worth knowing: a big centre fin between small side bites is a *real* setup —
+  that is what a 2+1 longboard runs — but at this scale it read as three fins that did
+  not belong to each other rather than as a design.
+  Board stats are computed from the spec numbers, not the loft, so no bar moved.
 - **v1.91.0** — **An eye button on every shop tile.** The full-screen preview was only
   reachable by tapping the picture or the name, and nothing on the tile said so — you
   had to already know. There is now a small orange eye in the top-right corner of every
