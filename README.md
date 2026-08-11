@@ -52,6 +52,37 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.3.0** — **A proper beach.** Bright afternoon rather than dusk, with the game's own
+  clouds and gulls in it, palms, and sand that reads as sand.
+  The sky and sea are still the game's shaders but now on their **own** uniforms rather
+  than the shared ones — sharing meant the preview inherited whatever hour the last run had
+  wandered into, which is how it kept coming out at sunset. Only the wave clock is copied
+  across, so the swell still rolls.
+  **The band of sky under the water is gone**, and the fix was to stop pretending a beach
+  is a floor. The sand was a flat sheet at the water's own level ending in a straight edge
+  short of it: where they overlapped they fought for the same depth and tore into stripes,
+  and where they did not the sky showed through the gap. It has a *profile* now — from well
+  under the sea at the back, up through the waterline, to dunes inland — and the sea sheet
+  carries over the submerged part. Above water you see sand, below it you see sea, and the
+  shoreline is simply where they cross. And it runs **diagonally**: a shore square to the
+  camera gives you either open water with nowhere to stand a palm or a beach that hides the
+  sea, so the sand is a wedge coming in from the right and narrowing to a point.
+  **Palms** are one buffer geometry each — trunk, frond spines and every leaflet in one set
+  of arrays — because a palm is a few hundred blades and a few hundred draw calls for
+  scenery is not worth it. Lofted trunk with the ring scars a palm actually has, fronds that
+  stand up at the crown and droop as they run out, leaflets tapering along each spine, and
+  coconuts tucked underneath.
+  **The whole set scales with the framing distance.** At this field of view the frame is
+  barely three units wide where the object stands, so a beach built once looked completely
+  different depending on how far back the camera had gone — a longboard put the palms in a
+  corner, a character had a dune filling half the screen. Scaled, it composes the same for
+  everything.
+  Sand colour was measured, not guessed: a plausible 0xbb9c66 rendered as **(152,150,140)**,
+  all but neutral, because the scene's blue hemisphere and blue fill lift the blue channel
+  nearly twice as hard as the red and ACES desaturates what is left. The chroma is put back
+  in at the source.
+  **Stat bars sit on a plate of their own now**, lifted clear of the button instead of
+  sharing one dark slab with it, and **Back is cyan** — the menu's own colour.
 - **v2.2.0** — **The preview stands on a beach**, and the fin faults I said were fixed
   were not.
   **Both of the earlier "0.0000" fin results were measuring the wrong thing.** The gap

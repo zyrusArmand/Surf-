@@ -271,8 +271,8 @@
      flat navy: pale sand under the stat bars washed the segments out, and a sunset sky
      behind the name did the same to the type. */
   #viewer .vbot { pointer-events:auto; width:min(520px,100%); margin:0 auto;
-    background:linear-gradient(0deg, rgba(3,13,26,.94) 22%, rgba(3,13,26,.72) 62%, rgba(3,13,26,0));
-    padding:34px 14px 4px; margin-bottom:-4px; }
+    background:linear-gradient(0deg, rgba(3,13,26,.62) 34%, rgba(3,13,26,.26) 72%, rgba(3,13,26,0));
+    padding:40px 14px 4px; margin-bottom:-4px; }
   /* Long thick arrows down each side, to walk the rack without going back to the grid.
      No plate behind them: at this size the shape carries on its own, and a button would
      compete with the very thing it is there to let you look at. */
@@ -317,7 +317,12 @@
   /* there is nothing before the first or after the last, so the arrow goes rather than
      sitting there greyed out inviting a tap that does nothing */
   #viewer .varr.off { opacity:0; pointer-events:none; }
-  #viewer #vStats { margin-bottom:12px; }
+  /* The bars sit on a plate of their own, lifted clear of the button rather than sharing
+     one dark block with it. Against a beach they need something solid behind them, and the
+     button is easier to find when it is not embedded in the same slab. */
+  #viewer #vStats:not(:empty) { margin:0 0 16px; padding:13px 15px 11px; border-radius:18px;
+    background:rgba(4,15,28,.80); border:1px solid rgba(255,255,255,.13);
+    box-shadow:0 10px 26px rgba(0,14,28,.42); }
   #viewer #vStats .st { display:flex; align-items:center; gap:8px; margin:5px 0; }
   #viewer #vStats .st span { font-size:10px; font-weight:800; letter-spacing:.1em;
     opacity:.7; width:48px; text-align:right; flex:none; }
@@ -544,7 +549,7 @@
     <path class="a" d="M6 6 C14 36 34 88 34 100 C34 112 14 164 6 194 C13 164 29.5 112 29.5 100 C29.5 88 13 36 6 6 Z"/>
     <path class="b" d="M6 6 C14 36 34 88 34 100 C34 112 14 164 6 194 C13 164 29.5 112 29.5 100 C29.5 88 13 36 6 6 Z"/>
     <path class="c" d="M6 6 C14 36 34 88 34 100 C34 112 14 164 6 194 C13 164 29.5 112 29.5 100 C29.5 88 13 36 6 6 Z"/></svg></button>
-  <div class="vbot"><div id="vStats"></div><button class="go calm" id="vClose">Back</button></div>
+  <div class="vbot"><div id="vStats"></div><button class="go alt" id="vClose">Back</button></div>
 </div>
 <div id="shop" class="hidden">
   <div class="shopwrap">
@@ -598,7 +603,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.2.0';
+const VERSION='2.3.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2708,30 +2713,267 @@ function previewSetup(){
   const k=new THREE.DirectionalLight(0xfff3e0,1.8); k.position.set(-1.4,2.2,2.6); prevScene.add(k);
   const f=new THREE.DirectionalLight(0xbfd8ff,0.55); f.position.set(2.0,0.7,-1.8); prevScene.add(f);
   prevCam=new THREE.PerspectiveCamera(32,PREV_W/PREV_H,0.05,90);
-  // ---- the beach the full-screen look stands on ----
-  // The sky and the sea are the GAME'S sky and sea: the same shader instances on the same
-  // uniforms, so the preview is at whatever time of day the last run reached and the swell
-  // rolls through it rather than sitting still. Only the sand is new.
-  // It stays hidden for the shop's thumbnail pass — those are photographed onto
-  // transparency and laid on the card's own gradient, and a beach baked into a 148px tile
-  // fights the board's graphics instead of setting them off.
-  beachSet=new THREE.Group(); beachSet.visible=false;
-  const sky=new THREE.Mesh(new THREE.SphereGeometry(320,32,24),skyDome.material);
-  sky.renderOrder=-20; beachSet.add(sky);
-  // The object stands ON the sand with the water BEHIND it, not the other way round. With
-  // the shoreline between the camera and the object, how much beach you saw depended on
-  // how far back the camera had been pushed to frame that particular object — a tall board
-  // put the shore in the distance, a short character filled the bottom third of the screen
-  // with it. Behind the object it is a backdrop, and it looks the same for everything.
-  const sea=new THREE.Mesh(new THREE.PlaneGeometry(460,440,200,200),oceanMat);
-  sea.rotation.x=-Math.PI/2; sea.position.set(0,0,-228); beachSet.add(sea);
-  // No separate strip of wet sand: seen almost edge-on from a camera this low it stretched
-  // into a wide band right across the frame and took the sunset full on the face, which
-  // read as a pink stripe rather than a shoreline. The sea's own foam does the job.
-  const sand=new THREE.Mesh(new THREE.PlaneGeometry(460,220,1,1),
-    PBR({color:0xcfb489,roughness:0.98,metalness:0.0,envMapIntensity:0.28}));
-  sand.rotation.x=-Math.PI/2; sand.position.set(0,0.02,104); beachSet.add(sand);
-  prevScene.add(beachSet);
+  beachSet=buildBeach(); prevScene.add(beachSet);
+}
+// ---------------------------------------------------------------------------
+// The beach the full-screen look stands on. Hidden for the shop's thumbnail pass —
+// those are photographed onto transparency and laid on the card's own gradient, and a
+// beach baked into a 148px tile fights the board's graphics instead of setting them off.
+//
+// The sky and the sea are the game's own shaders, but on their OWN uniforms rather than
+// the shared ones. Sharing meant the preview inherited whatever hour the last run had
+// wandered into — which is how it came out at dusk. These are pinned to a bright
+// afternoon and stay there. Only the wave clock is copied across, so the swell still
+// rolls rather than standing still.
+// ---------------------------------------------------------------------------
+let prevOcean=null, prevSky=null, beachLife=null;
+let SAND_LIT=0x4a4a4a, PALM_LIT=0x585858;   // set by measurement, see the note on the sand
+// ---- one palm, built as a single buffer geometry ----
+// Trunk, frond spines and every leaflet go into one set of arrays and come out as one
+// mesh: a palm is a few hundred separate blades, and a few hundred draw calls for a piece
+// of scenery is not worth it. Colour is per-vertex, so the whole tree is one material.
+function buildPalm(seed){
+  const P=[],N=[],C=[],I=[];
+  let rs=seed*9301+49297;
+  const R=()=>{rs=(rs*9301+49297)%233280; return rs/233280;};
+  const col=new THREE.Color();
+  const push=(x,y,z,c)=>{ P.push(x,y,z); C.push(c.r,c.g,c.b); return P.length/3-1; };
+
+  // --- trunk: a curve that leans out over the water and straightens near the crown,
+  // lofted as tapered rings with the ring-scars a palm actually has cut into the radius
+  const H=15.2+R()*2.6, lean=0.30+R()*0.16, TS=34, TR=12;
+  const bend=t=>new THREE.Vector3(
+    Math.sin(t*1.35)*lean*H*0.42 + t*t*lean*H*0.30, t*H, -Math.sin(t*0.7)*lean*H*0.13);
+  const BARK1=new THREE.Color(0x8a7154), BARK2=new THREE.Color(0x5f4b34), BARK3=new THREE.Color(0xa8906d);
+  const ringsIdx=[];
+  for(let i=0;i<=TS;i++){
+    const t=i/TS, c0=bend(t), c1=bend(Math.min(1,t+0.01));
+    const dir=c1.clone().sub(c0).normalize();
+    const sideA=new THREE.Vector3(0,1,0).cross(dir).normalize();
+    const sideB=dir.clone().cross(sideA).normalize();
+    // taper, with a slight swell at the foot the way a palm flares into the sand
+    const rad=(0.72-0.40*t)*(1+Math.pow(1-t,4)*1.5)*0.5;
+    // scars: a shallow groove every few rings, deeper low down where they are older
+    const scar=Math.sin(t*Math.PI*2*15)*0.5+0.5;
+    const rr=rad*(1-scar*0.075*(1-t*0.4));
+    const row=[];
+    for(let j=0;j<TR;j++){
+      const a=j/TR*Math.PI*2;
+      const w=sideA.clone().multiplyScalar(Math.cos(a)).add(sideB.clone().multiplyScalar(Math.sin(a)));
+      col.copy(BARK1).lerp(BARK2,scar*0.55+ (_noise(t*22,a*2)-0.5)*0.5);
+      if(Math.cos(a)>0.3)col.lerp(BARK3,0.30);        // a lit side, so it is not a tube
+      row.push(push(c0.x+w.x*rr, c0.y+w.y*rr, c0.z+w.z*rr, col));
+    }
+    ringsIdx.push(row);
+  }
+  for(let i=0;i<TS;i++)for(let j=0;j<TR;j++){
+    const a=ringsIdx[i][j], b=ringsIdx[i][(j+1)%TR], c=ringsIdx[i+1][j], d=ringsIdx[i+1][(j+1)%TR];
+    I.push(a,c,b, b,c,d);
+  }
+
+  // --- crown: the fronds
+  const top=bend(1), topDir=bend(1).sub(bend(0.97)).normalize();
+  const NF=11+((R()*3)|0);
+  const G1=new THREE.Color(0x3f8f34), G2=new THREE.Color(0x71c04a), G3=new THREE.Color(0x27632c);
+  for(let f=0;f<NF;f++){
+    const az=f/NF*Math.PI*2+R()*0.22;
+    // how far the frond starts out horizontal before it droops: the outer ones hang, the
+    // inner ones stand up, which is what gives a palm crown its shape rather than a mop
+    const rise=0.30+R()*0.85;
+    const len=5.4+R()*2.6;
+    const SEG=16;
+    const dirH=new THREE.Vector3(Math.cos(az),0,Math.sin(az));
+    const spine=k=>{
+      const t=k/SEG;
+      // out and up, then over and down — a quadratic arc with gravity on the tail
+      const y=rise*len*Math.sin(t*1.35)-len*0.62*t*t*t;
+      return new THREE.Vector3(dirH.x*len*t*0.96, y, dirH.z*len*t*0.96)
+        .add(topDir.clone().multiplyScalar(0.35)).add(top);
+    };
+    let prevL=null,prevR=null,prevC=null;
+    for(let k=0;k<=SEG;k++){
+      const t=k/SEG, p=spine(k), p2=spine(Math.min(SEG,k+1));
+      const tan=p2.clone().sub(p).normalize();
+      const side=tan.clone().cross(new THREE.Vector3(0,1,0)).normalize();
+      if(side.lengthSq()<0.01)side.set(1,0,0);
+      const up=side.clone().cross(tan).normalize();
+      // the spine itself: a thin tapered rib so the frond has a stem, not just leaves
+      const rib=0.085*(1-t*0.82);
+      col.copy(G3).lerp(G1,0.55);
+      const cL=push(p.x-side.x*rib,p.y-side.y*rib,p.z-side.z*rib,col);
+      const cR=push(p.x+side.x*rib,p.y+side.y*rib,p.z+side.z*rib,col);
+      if(prevL!==null)I.push(prevL,cL,prevR, prevR,cL,cR);
+      prevL=cL; prevR=cR;
+      // leaflets: one either side, angled back along the frond and drooping more as the
+      // frond runs out. Tapered to a point, and every one a slightly different green.
+      if(k>0&&k<SEG){
+        const lw=(1.30-Math.abs(t-0.42)*1.25)*(0.72+R()*0.5);
+        if(lw>0.06)for(const sg of [-1,1]){
+          const droop=0.30+t*0.95+R()*0.22;
+          const outv=side.clone().multiplyScalar(sg).multiplyScalar(lw)
+            .add(tan.clone().multiplyScalar(lw*0.62))
+            .add(up.clone().multiplyScalar(-droop*lw*0.9));
+          col.copy(G1).lerp(G2,R()*0.75).lerp(G3,t*0.35);
+          const a0=push(p.x,p.y,p.z,col);
+          const a1=push(p.x+tan.x*0.30,p.y+tan.y*0.30,p.z+tan.z*0.30,col);
+          col.lerp(G3,0.28);
+          const a2=push(p.x+outv.x,p.y+outv.y,p.z+outv.z,col);
+          I.push(a0,a1,a2, a0,a2,a1);            // both faces: a leaf is seen from under
+        }
+      }
+      prevC=p;
+    }
+  }
+  // --- a few coconuts tucked under the crown
+  for(let n=0;n<4;n++){
+    const a=R()*Math.PI*2, r=0.42+R()*0.30;
+    const cx=top.x+Math.cos(a)*r, cy=top.y-0.45-R()*0.4, cz=top.z+Math.sin(a)*r;
+    const base=P.length/3, RS=7;
+    col.set(0x6b5433);
+    for(let i2=0;i2<=RS;i2++)for(let j2=0;j2<=RS;j2++){
+      const th=i2/RS*Math.PI, ph=j2/RS*Math.PI*2, rr=0.30;
+      push(cx+Math.sin(th)*Math.cos(ph)*rr, cy+Math.cos(th)*rr, cz+Math.sin(th)*Math.sin(ph)*rr,
+           col.clone().multiplyScalar(0.78+0.28*Math.sin(th)*Math.cos(ph)));
+    }
+    for(let i2=0;i2<RS;i2++)for(let j2=0;j2<RS;j2++){
+      const a0=base+i2*(RS+1)+j2;
+      I.push(a0,a0+RS+1,a0+1, a0+1,a0+RS+1,a0+RS+2);
+    }
+  }
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(P,3));
+  geo.setAttribute('color',new THREE.Float32BufferAttribute(C,3));
+  geo.setIndex(I);
+  geo.computeVertexNormals();
+  const m=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({
+    vertexColors:true,color:PALM_LIT,roughness:0.82,metalness:0.0,side:THREE.DoubleSide}));
+  m.material.envMapIntensity=0.55;
+  return m;
+}
+function buildBeach(){
+  const g=new THREE.Group(); g.visible=false;
+
+  prevSky=skyDome.material.clone();
+  prevSky.uniforms.uTop.value=new THREE.Color(0x2f7fd4);
+  prevSky.uniforms.uMid.value=new THREE.Color(0x86cdf4);
+  prevSky.uniforms.uHorizon.value=new THREE.Color(0xdcf1fc);
+  prevSky.uniforms.uGlow.value=new THREE.Color(0xfff6de);
+  prevSky.uniforms.uSunX.value=0.42;
+  prevSky.uniforms.uGlowAmt.value=0.20;
+  const sky=new THREE.Mesh(new THREE.SphereGeometry(600,40,28),prevSky);
+  sky.renderOrder=-20; g.add(sky);
+
+  prevOcean=oceanMat.clone();
+  prevOcean.uniforms.uSky.value=new THREE.Color(0x9fd9f7);
+  prevOcean.uniforms.uDeep.value=new THREE.Color(0x0c6bb4);
+  prevOcean.uniforms.uShallow.value=new THREE.Color(0x3fc0e8);
+  prevOcean.uniforms.uLight.value=1.0;
+  prevOcean.uniforms.uAmp.value=0.42;            // a calm day for looking at things
+  prevOcean.uniforms.uPeak.value=0.72;
+
+  // ---- the beach has a PROFILE, and a shoreline that runs across the view ----
+  // The sand used to be a flat sheet at the water's own level, ending in a straight edge
+  // short of it. Two things went wrong with that: where they overlapped they fought for
+  // the same depth and tore into stripes, and where they did not the sky showed through
+  // the gap as a band of its own colour under the sea. A beach is not a floor — it slopes.
+  // The sand runs from well UNDER the sea out at the back, up through the waterline, to
+  // dunes inland, and the sea sheet carries right over the submerged part. Where the sand
+  // is above the water you see sand, where it is below you see sea, and the shoreline is
+  // simply where the two cross. Nothing to line up, nothing to show through.
+  //
+  // And it runs DIAGONALLY. A shoreline square to the camera gives you either open water
+  // to the horizon with nowhere to stand a palm, or a beach that fills the view and hides
+  // the sea. Angled, the sand is a wedge coming in from the right and narrowing away to a
+  // point, the water is open to the left and to the horizon, and there is dry land in the
+  // middle distance to plant something on.
+  const _ss=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
+  const shore=(x,wz)=>x*0.90+wz*0.10+5;         // how far up the beach a point is
+  const sandH=(x,wz)=>5.0*_ss(-14.5,15.5,shore(x,wz))-3.2;
+  const sea=new THREE.Mesh(new THREE.PlaneGeometry(1400,900,260,200),prevOcean);
+  sea.rotation.x=-Math.PI/2; sea.position.set(0,0,-390); g.add(sea);
+
+  const SW=620, SD=460, SC=60, SNU=210, SNV=190;
+  const sg=new THREE.PlaneGeometry(SW,SD,SNU,SNV);
+  const sp=sg.attributes.position, scol=[];
+  // Far more saturated than sand "is", and that is deliberate. Measured off the render: a
+  // plausible 0xbb9c66 came back as (152,150,140) — all but neutral. The scene's blue
+  // hemisphere ground and blue fill lift the blue channel nearly twice as hard as the red,
+  // and ACES then desaturates what is left as it compresses the highlights. Putting the
+  // chroma back in at the source is what makes it land as sand rather than as grey.
+  const C1=new THREE.Color(0xffbe4c), C2=new THREE.Color(0xd88f30), C3=new THREE.Color(0xffe09a);
+  const _c=new THREE.Color(), _FOAM=new THREE.Color(0xdfe7e4);
+  for(let i=0;i<sp.count;i++){
+    const x=sp.getX(i), wz=SC-sp.getY(i);        // plane +y runs to -z once it is laid down
+    const q=shore(x,wz);
+    // dunes only once the sand is properly dry, so the shore itself stays a clean slope
+    const dry=_ss(8,64,q);
+    const dune=(_fbm(x*0.014,wz*0.011)-0.5)*8.6 + (_fbm(x*0.045+11,wz*0.038+7)-0.5)*2.2;
+    const ripple=(_fbm(x*0.36+3,wz*0.28+5)-0.5)*0.32;
+    sp.setZ(i, sandH(x,wz) + dune*dry*dry + ripple*_ss(-2,22,q) + dry*dry*5.0);
+    // grain: pale and dry up on the dunes, darker and damp down at the water
+    const t=_ss(-2,34,q)*0.80 + (_fbm(x*0.95+31,wz*0.95+17)-0.5)*0.44;
+    _c.copy(C2).lerp(C1,Math.max(0,Math.min(1,t)));
+    if(dry>0.5)_c.lerp(C3,(dry-0.5)*0.5);
+    // a band of foam and soaked sand right at the waterline, so the two meet in a shore
+    // rather than in a cut edge
+    const surf=_ss(1.2,3.1,q)*_ss(7.5,4.0,q);
+    if(surf>0.01)_c.lerp(_FOAM,surf*0.85);
+    scol.push(_c.r,_c.g,_c.b);
+  }
+  sg.setAttribute('color',new THREE.Float32BufferAttribute(scol,3));
+  sg.computeVertexNormals();
+  // prevScene runs a 1.8 key light, a 0.55 fill and a 1.05 hemisphere on top of that —
+  // three and a half units of light, tuned for lifting a board off a transparent
+  // background. A plausible sand colour under it renders as snow. Vertex colours are
+  // multiplied by material.color, so this one number pulls the whole palette down at once
+  // rather than every hex being hand-darkened and re-guessed.
+  const sand=new THREE.Mesh(sg,new THREE.MeshStandardMaterial({
+    vertexColors:true,color:SAND_LIT,roughness:0.99,metalness:0.0}));
+  sand.material.envMapIntensity=0.16;
+  sand.rotation.x=-Math.PI/2; sand.position.set(0,0,SC); g.add(sand);
+
+  // ---- palms out on the wedge, where there is dry sand and room in the frame ----
+  // well back: at this field of view a palm at forty units is half the height of the screen
+  // and its crown is off the top of it
+  for(const [px,pz,ry,sc,sd] of [[10.5,-88,0.7,1.05,1],[15.5,-134,-1.9,1.2,5],[9,-62,2.3,0.8,9]]){
+    const palm=buildPalm(sd);
+    palm.position.set(px,sandH(px,pz)-0.25,pz);
+    palm.rotation.y=ry; palm.scale.setScalar(sc);
+    g.add(palm);
+  }
+
+  // ---- sky furniture: the game's own clouds and gulls, with depth on ----
+  // In the ride these draw with depth testing OFF, ahead of the world, because there they
+  // ride with the camera. Here they are objects at a distance like anything else, so the
+  // palm and the board have to be able to occlude them.
+  beachLife={clouds:[],birds:[]};
+  for(let i=0;i<11;i++){
+    const w=52+Math.random()*104;
+    const m=new THREE.Mesh(new THREE.PlaneGeometry(w,w*0.5),
+      new THREE.MeshBasicMaterial({map:CLOUD_TEX[(Math.random()*3)|0],transparent:true,
+        opacity:0.42+Math.random()*0.40,depthWrite:false}));
+    m.position.set((Math.random()-0.5)*620, 54+Math.random()*96, -230-Math.random()*180);
+    m.userData.v=0.9+Math.random()*2.1;
+    g.add(m); beachLife.clouds.push(m);
+  }
+  for(let f=0;f<2;f++){
+    const flock=new THREE.Group();
+    const n=3+((Math.random()*3)|0);
+    for(let i=0;i<n;i++){
+      const b=buildGull();
+      b.traverse(o=>{ if(o.material){ o.material=o.material.clone();
+        o.material.depthTest=true; o.material.opacity=0.62; } });
+      b.position.set((i-n/2)*(2.6+Math.random()*1.4),
+        Math.abs(i-n/2)*(-1.1-Math.random()*0.7)+(Math.random()-0.5),(Math.random()-0.5)*3);
+      b.scale.setScalar(0.8+Math.random()*0.5);
+      flock.add(b);
+    }
+    flock.position.set((Math.random()-0.5)*300, 46+Math.random()*46, -150-Math.random()*90);
+    flock.scale.setScalar(1.5+Math.random()*1.2);
+    flock.userData={v:(Math.random()<0.5?-1:1)*(4+Math.random()*4),bob:Math.random()*Math.PI*2};
+    g.add(flock); beachLife.birds.push(flock);
+  }
+  return g;
 }
 function snapshot(obj,swing,lift,zoom,byHeight){
   previewSetup();
@@ -2924,11 +3166,7 @@ function openViewer(kind,id){
   // stand it on the beach: the set drops to just under whatever the object's lowest point
   // is, so a board stands in the shallows rather than floating over them or sunk in them
   beachSet.visible=true;
-  beachSet.position.y=box.min.y-0.30;
-  // a calm day for looking at things. uAmp is only written by the two update paths, and
-  // neither runs while this is open, so setting it here holds until it is put back.
-  viewer.keepAmp=oceanUniforms.uAmp.value;
-  oceanUniforms.uAmp.value=Math.min(viewer.keepAmp,0.50);
+  viewer.bottom=box.min.y;
   shopEl.classList.add('hidden');
   viewerEl.classList.remove('hidden');
 }
@@ -2975,7 +3213,6 @@ function closeViewer(){
   // all, and putting the model back used to throw on that and leave the shop hidden
   renderer.setClearColor(0x000000,1);
   if(beachSet)beachSet.visible=false;
-  if(v.keepAmp!==undefined)oceanUniforms.uAmp.value=v.keepAmp;
   viewerEl.classList.add('hidden');
   shopEl.classList.remove('hidden');
   if(v.menuWasUp)overlay.classList.remove('hidden');
@@ -2988,6 +3225,25 @@ function renderViewer(dt){
   const v=viewer;
   if(!v.grab)v.spin+=dt*0.42;                        // one turn every fifteen seconds
   v.obj.rotation.y=v.spin;
+  // the preview's sea runs on its own uniforms, so it needs the wave clock handing over;
+  // everything else about it is pinned to a bright afternoon and never moves
+  if(prevOcean)prevOcean.uniforms.uT.value=oceanUniforms.uT.value;
+  if(beachLife){
+    for(const c2 of beachLife.clouds){
+      c2.position.x+=c2.userData.v*dt;
+      if(c2.position.x>340)c2.position.x-=680; else if(c2.position.x<-340)c2.position.x+=680;
+    }
+    for(const fl of beachLife.birds){
+      fl.position.x+=fl.userData.v*dt;
+      if(fl.position.x>190)fl.position.x-=380; else if(fl.position.x<-190)fl.position.x+=380;
+      fl.position.y+=Math.sin(tNow*0.7+fl.userData.bob)*dt*1.5;
+      for(const b2 of fl.children){
+        const u2=b2.userData, beat=Math.sin(tNow*u2.f+u2.p);
+        const a2=beat>0?beat*0.85:beat*0.42;
+        u2.L.rotation.z=a2; u2.Rw.rotation.z=-a2;
+      }
+    }
+  }
   const aspect=Math.max(0.35,innerWidth/innerHeight);
   viewCam.aspect=aspect;
   // pad harder on a narrow phone, where the limit is the width and not the height
@@ -2999,10 +3255,22 @@ function renderViewer(dt){
   // or an upright board runs behind the title at one end and through the bars at the other.
   const t=Math.tan(viewCam.fov*Math.PI/360);
   const d=Math.max(v.hy/(t*0.60), v.hr/(aspect*t*0.88));
+  // The beach is scaled to the framing distance rather than left at a fixed size. At this
+  // field of view the frame is barely three units wide where the object stands, so a beach
+  // built once looked completely different depending on how far back the camera had gone
+  // for that particular thing — a longboard put the palms miles off in a corner, a small
+  // character had a dune filling half the screen. Scaled, everything sits in the same place
+  // in the frame whatever is being looked at. The set then drops so its sand meets the
+  // object's own base, so nothing floats and nothing is buried.
+  if(beachSet&&beachSet.visible){
+    const k=d/9;
+    beachSet.scale.setScalar(k);
+    beachSet.position.y=v.bottom-0.5*k;
+  }
   viewCam.position.set(v.c.x, v.c.y+d*0.06, v.c.z+d);
   viewCam.lookAt(v.c);
   viewCam.updateProjectionMatrix();
-  renderer.setClearColor(0x0a1d33,1);
+  renderer.setClearColor(0x9fd0ee,1);
   renderer.render(prevScene,viewCam);
 }
 function shopCard(item,have,on,buy,use,thumb,stats,kind){
