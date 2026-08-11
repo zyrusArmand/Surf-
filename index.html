@@ -415,7 +415,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.72.0';
+const VERSION='1.73.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -4287,32 +4287,43 @@ const _cro=new THREE.Vector3(), _crd=new THREE.Vector3(), _crp=new THREE.Vector3
 // Both faces, from one ray. Hits come back sorted by distance, so the first is the deck
 // and the last is the hull — a crack goes THROUGH a board, and on the deck alone it was
 // hidden under the rider from the only camera angle anybody actually plays from.
-function deckAt(lx,lz,top,bot){
+function deckAt(lx,lz,top,bot,lock){
   _cro.set(lx,3.0,lz); boardArt.localToWorld(_cro);
   _crd.set(0,-1,0).transformDirection(boardArt.matrixWorld).normalize();
   _crc.set(_cro,_crd);
   const h=_crc.intersectObject(boardArt,true);
-  if(!h.length)return false;
-  top.copy(h[0].point); boardArt.worldToLocal(top);
-  bot.copy(h[h.length-1].point); boardArt.worldToLocal(bot);
-  return true;
+  if(!h.length)return null;
+  // A strand has to stay on the ONE surface it started on. Walking outward it can pass
+  // over a deck pad or a fin, and taking whatever the ray hit next put a segment at a
+  // different height with the ribbon spanning up to it — which is the crack that looked
+  // like it was hovering above the board rather than cut into it.
+  const t=lock&&lock.top?h.find(q=>q.object===lock.top):h[0];
+  const b=lock&&lock.bot?h.slice().reverse().find(q=>q.object===lock.bot):h[h.length-1];
+  if(!t||!b)return null;
+  // lifted along the face's own normal, so it stays proud of a curved hull everywhere
+  top.copy(t.point).addScaledVector(t.face?t.face.normal.clone().transformDirection(t.object.matrixWorld):_crd,-0.012);
+  bot.copy(b.point).addScaledVector(b.face?b.face.normal.clone().transformDirection(b.object.matrixWorld):_crd,-0.012);
+  boardArt.worldToLocal(top); boardArt.worldToLocal(bot);
+  return {top:t.object,bot:b.object};
 }
 // a fissure that starts where it was hit and forks outward, laid ON the deck so it
 // follows the rocker instead of floating over it
 function addCrack(lx,lz){
   boardArt.updateWorldMatrix(true,false);
   const v=[];
+  const lock0=deckAt(lx,lz,_crp,_crq,null);
+  if(!lock0)return;                       // the hit missed the hull entirely
   for(let s=0;s<4;s++){
     let a=Math.random()*Math.PI*2, x=lx, z=lz;
     const prev=[null,null];
     const segs=5+Math.floor(Math.random()*3), step=0.28+Math.random()*0.22;
     for(let i=0;i<=segs;i++){
-      if(!deckAt(x,z,_crp,_crq))break;
+      if(!deckAt(x,z,_crp,_crq,lock0))break;
       const t=i/segs, w=0.070*(1-t)+0.008;
       const nx=Math.cos(a+Math.PI/2)*w, nz=Math.sin(a+Math.PI/2)*w;
       for(let f=0;f<2;f++){
-        const P=f?_crq:_crp, y=P.y+(f?-0.010:0.010);
-        const A=[P.x-nx,y,P.z-nz], B=[P.x+nx,y,P.z+nz];
+        const P=f?_crq:_crp;
+        const A=[P.x-nx,P.y,P.z-nz], B=[P.x+nx,P.y,P.z+nz];
         if(prev[f])v.push(...prev[f][0],...prev[f][1],...A, ...prev[f][1],...B,...A);
         prev[f]=[A,B];
       }
@@ -4515,30 +4526,38 @@ function updateWipeout(dt){
     py=sea;
   }
   if(w.splashed){
-    // he floats at the surface, not under it — bobbing with the swell
-    py+=((sea-0.06)-py)*Math.min(1,dt*5);
+    // In the water he is upright and mostly under it — head out, everything else below —
+    // treading and thrashing, not floating peacefully on his side.
+    // low enough that only his head and shoulders are out — he is drowning, not paddling
+    py+=((sea-1.02)-py)*Math.min(1,dt*3.4);
     w.vy=0;
-    w.rx+=((Math.PI*0.45)-w.rx)*Math.min(1,dt*2.2);   // settles onto his side in the water
-    w.rz*=0.90; w.sx*=0.86; w.sy*=0.86; w.sz*=0.86;
-    if(Math.random()<dt*6)splash(px+(Math.random()-0.5)*1.2,sea,w.vz*w.t,1);
+    w.rx+=(0.16-w.rx)*Math.min(1,dt*3.0);             // comes upright rather than lying flat
+    w.rz*=0.86; w.sx*=0.80; w.sy*=0.92; w.sz*=0.80;
+    w.ry+=dt*0.9;                                     // turning on the spot as he flounders
+    py+=Math.sin(w.t*4.6)*0.055;                      // going under and coming back up
+    // spray thrown off the hands, not off him generally
+    for(const sx of [-1,1])if(Math.random()<dt*13)
+      splash(px+sx*(0.45+Math.random()*0.3),sea,w.vz*w.t+(Math.random()-0.5)*0.7,1);
   }
   // He is a body, not a prop: arms windmill for balance while he is in the air and
   // wash limp once he is in the water, legs kick out from under him.
   {
     const air=w.splashed?0:1;
-    const f=w.t*11.0;
-    const amp=air?1.0:0.25;
+    const f=w.t*(air?11.0:15.0);                      // faster once he is in it
+    const amp=air?1.0:0.92;                           // thrashing, not limp
     armFrontJ.sh.rotation.x=0.6+Math.sin(f)*1.5*amp;
     armFrontJ.sh.rotation.z=1.2+Math.cos(f*0.8)*0.7*amp;
     armFrontJ.el.rotation.x=0.5+Math.sin(f*1.3)*0.6*amp;
     armBackJ.sh.rotation.x=0.6+Math.sin(f+2.2)*1.5*amp;
     armBackJ.sh.rotation.z=-1.2+Math.cos(f*0.8+1.1)*0.7*amp;
     armBackJ.el.rotation.x=0.5+Math.sin(f*1.3+1.7)*0.6*amp;
-    legFrontJ.hip.rotation.x=-0.5+Math.sin(f*0.7+0.6)*0.9*amp;
-    legFrontJ.knee.rotation.x=0.9+Math.sin(f*0.9)*0.5*amp;
-    legBackJ.hip.rotation.x=0.5+Math.sin(f*0.7+2.6)*0.9*amp;
-    legBackJ.knee.rotation.x=-0.9+Math.sin(f*0.9+1.4)*0.5*amp;
+    const kick=air?1:0.55;
+    legFrontJ.hip.rotation.x=(air?-0.5:0.35)+Math.sin(f*0.7+0.6)*0.9*amp*kick;
+    legFrontJ.knee.rotation.x=0.9+Math.sin(f*0.9)*0.5*amp*kick;
+    legBackJ.hip.rotation.x=(air?0.5:0.35)+Math.sin(f*0.7+2.6)*0.9*amp*kick;
+    legBackJ.knee.rotation.x=-0.9+Math.sin(f*0.9+1.4)*0.5*amp*kick;
     headJ.rotation.z=Math.sin(f*0.6)*0.4*amp;
+    headJ.rotation.x=air?0:-0.42;                     // chin up, keeping his face out of it
   }
   // board: cartwheels away and slaps down
   w.bvy-=20*dt;
@@ -4550,11 +4569,22 @@ function updateWipeout(dt){
     w.landed=true;
   }
   if(snapHalves){
-    const t=Math.min(2.2,w.t);
-    snapHalves[0].position.set(-0.10*t,0,-0.85*t);
-    snapHalves[0].rotation.set(0.7*t,0,-1.05*t);
-    snapHalves[1].position.set( 0.10*t,0, 0.85*t);
-    snapHalves[1].rotation.set(-0.7*t,0, 1.05*t);
+    // They part while they are in the air, and once they hit the water they stop turning
+    // and lie down. A half standing on its end in open water is the one thing the sea
+    // would never let happen.
+    if(!w.landed)w.snapT=Math.min(2.2,w.t);
+    const t=w.snapT||0;
+    for(let i=0;i<2;i++){
+      const sgn=i?1:-1, h=snapHalves[i];
+      h.position.set(sgn*0.10*t,0,sgn*0.85*t);
+      if(w.landed){
+        h.rotation.x+=(0-h.rotation.x)*Math.min(1,dt*2.6);
+        h.rotation.z+=(0-h.rotation.z)*Math.min(1,dt*2.6);
+        h.rotation.y+=(sgn*0.35-h.rotation.y)*Math.min(1,dt*1.6);
+      } else {
+        h.rotation.set(sgn*-0.7*t,0,sgn*1.05*t);
+      }
+    }
   }
   rig.position.set(w.bx,w.by,w.bz);
   if(w.landed){
@@ -4572,17 +4602,23 @@ function updateWipeout(dt){
   // pulls back to the held wide shot it used to snap to.
   w.camY+=((sea+4.6)-w.camY)*Math.min(1,dt*2.5);
   camera.up.set(0,1,0);
-  const k=Math.min(1,Math.max(0,(w.t-0.85)/0.85));          // 0 = following, 1 = held wide
-  const mz=(Math.max(-9,Math.min(2,w.vz*w.t*0.70))+w.bz)*0.5;
-  const mx=(px+w.bx)*0.5, my=(py+w.by)*0.5;
-  const nx=mx+2.4, ny=Math.max(sea+1.2,my+1.5), nz=mz+6.6;
-  camera.position.set(nx+(w.camX-nx)*k, ny+(w.camY-ny)*k, nz+(w.camZ-nz)*k);
-  // aim gently toward where he ended up, but clamped so the shot never leaves the area
-  const tx=Math.max(w.atX-5,Math.min(w.atX+5,px));
-  const ty=Math.max(sea+0.4,Math.min(w.atY+3,py+0.3));
-  const tz=Math.max(-7,Math.min(1,w.vz*w.t*0.35));
-  camera.lookAt(mx+(tx-mx)*k, my+(ty-my)*k, mz+(tz-mz)*k);
-  if(w.t>2.9)gameOver();
+  // Frame BOTH of them for the whole crash, and pull back far enough that neither can
+  // leave the shot — the held wide version lost him out of frame whenever he was thrown
+  // far, which is exactly the throw worth watching. It settles by damping, not by cutting
+  // to a fixed spot: the camera chases hard at first and barely moves by the end.
+  const rz=Math.max(-9,Math.min(2,w.vz*w.t*0.70));
+  const mx=(px+w.bx)*0.5, my=(py+w.by)*0.5, mz=(rz+w.bz)*0.5;
+  const spread=Math.max(Math.abs(px-w.bx),Math.abs(py-w.by),Math.abs(rz-w.bz));
+  const back=Math.max(7.0,spread*1.45+5.2);
+  const ease=Math.min(1,dt*(w.t<1.0?5.0:1.4));           // chases, then holds
+  w.camX+=(mx+back*0.34-w.camX)*ease;
+  w.camY+=(Math.max(sea+2.0,my+back*0.20)-w.camY)*ease;
+  w.camZ+=(mz+back-w.camZ)*ease;
+  camera.position.set(w.camX,w.camY,w.camZ);
+  w.atX+=(mx-w.atX)*ease; w.atY+=(my-w.atY)*ease;
+  w.atZ=(w.atZ===undefined?mz:w.atZ+(mz-w.atZ)*ease);
+  camera.lookAt(w.atX,w.atY,w.atZ);
+  if(w.t>3.2)gameOver();
 }
 function updateWorldDuringWipeout(dt){
   tNow+=dt;

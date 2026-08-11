@@ -52,6 +52,24 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.73.0** — Four fixes to the crash, from playtest screenshots.
+  **He no longer leaves the shot.** The camera followed him for the first beat and then
+  cut to a held wide position — and whenever the crash threw him far, which is exactly the
+  throw worth watching, that held shot did not contain him. It now frames him and the
+  board together for the whole crash, pulling back as they separate, and settles by
+  damping rather than by cutting: it chases hard at first and barely moves by the end.
+  **He drowns instead of lying down.** He used to settle onto his side and float on the
+  surface. Now he comes upright, sinks to where only his head and shoulders are out,
+  turns on the spot, bobs under and back up, kicks, keeps his chin up, and throws spray
+  off both hands.
+  **The board halves lie down.** They kept the rotation the break animation gave them and
+  stayed there, so a half could stand on its end in open water — the one thing the sea
+  would never allow. They stop turning when they hit and settle flat.
+  **A crack could hover above the board.** A strand walking outward from the impact took
+  whatever surface the ray hit next, so a segment that passed over a deck pad or a fin sat
+  at a different height with the ribbon spanning up to it. Each strand is now locked to
+  the one surface it started on and lifted along that face's own normal, so it stays cut
+  into the hull however the hull curves.
 - **v1.72.0** — Board stats, and three fixes to the damage system.
 
   **Stats are derived from the hull, not typed in.** Every board already carries its real
