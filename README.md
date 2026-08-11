@@ -52,6 +52,34 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.96.0** — **The fins were still wrong, in three separate ways, and all three were
+  measurable.**
+  **Cant was never cant.** It is meant to lean a fin's tip out toward its rail, and it was
+  applied as `rotation.z` under three.js's default XYZ order — which builds Rx·Ry·Rz, so
+  it ran BEFORE the quarter turn that lays the fin across the board. That spun the fin
+  inside its own plane, and the quarter turn then converted the spin into a fore-and-aft
+  tilt. With opposite signs on the two rails, one fin leaned forward and the other back.
+  Every one of the 33 boards carrying a side pair failed a mirror test, by up to 0.13 on
+  Coco Egg, all of it in z. `ZYX` builds Rz·Ry·Rx, so the turn goes first and the cant then
+  leans the tip outward. **All 33 mirror exactly now.**
+  **The fins raked forward.** Rake sweeps a fin's tip toward the shape's +x, and a positive
+  quarter turn put that at the nose. Measured on Razorline: tip at z 1.863 against a root
+  at 2.055, so the tip LED the base by 0.18 where a real fin trails it. Turning the other
+  way fixes it and is a rotation rather than a mirror, so winding and normals are untouched.
+  **There was no toe-in.** A side fin is not set square to the stringer — its leading edge
+  angles a couple of degrees in toward the nose, and that is half of why a cluster reads as
+  a cluster instead of three fins that happen to be near each other. 2.73° now, mirrored.
+  Cant is capped at 7.5°, the top of the range a shaper sets; the specs ran to nearly 15°,
+  which nobody had ever calibrated because the number was never visible.
+  **And the cluster is generated rather than typed.** Fins are grouped by station, and
+  within a station every fin off the stringer is built from the first of them: same size,
+  same profile, same rake, same distance out, mirrored. Three hand-typed numbers are no
+  longer trusted to agree. A fin ON the stringer keeps its own size, so a big centre fin
+  between smaller side bites — a real 2+1 — is still possible, it just has to be deliberate.
+  That restores the 2+1s that v1.92 had flattened. Two setups that were not true to type
+  are fixed: Fathom's side bites were under a third of its centre fin (now a little under
+  half, which is the real ratio) and Asymmetric's sides were LARGER than its centre, which
+  no thruster runs.
 - **v1.95.0** — **The side arrows are chevrons now**, reshaped to the drawing: one long
   slender V about five and a half times as high as it is wide, running a quarter of the
   screen's height, rather than the stubby shaft-and-head arrow that was there. Symmetric

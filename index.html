@@ -539,7 +539,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.95.0';
+const VERSION='1.96.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1354,6 +1354,8 @@ function noteWipe(kind){
 // makes them dense — a little over ten thousand triangles each — and it means a new
 // shape is a dozen numbers rather than a new mesh.
 const _sm=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
+const FIN_TOE=0.048;                  // ~2.75°, about what a shaper sets a side fin at
+const FIN_CANT_MAX=0.132;             // ~7.5°, the top of the range a side fin is canted to
 function buildBoardMesh(S){
   const NU=S.nu||160, NR=S.nr||46, L=S.L, W=S.W, T=S.T;
   // outline: a single-peaked curve whose wide point moves with the two exponents
@@ -1469,22 +1471,33 @@ function buildBoardMesh(S){
   }
   // fins
   const finMat=PBR({color:S.finCol||0x14181d,roughness:0.14,metalness:0.05,envMapIntensity:1.2});
-  // Every fin on a board is now the SAME fin — one template, taken from the largest in
-  // the cluster and given to the rest. Thirty of the thirty-six finned boards were
-  // mixing sizes: Tiki Mal ran a 0.58-deep centre fin between two 0.26-deep side bites,
-  // less than half its size, and Fathom's sides were under a third of its centre. A real
-  // 2+1 longboard does run exactly that — a big centre fin with small side bites is a
-  // genuine setup — but at this scale it reads as three fins that do not belong to each
-  // other rather than as a design. Only the size and profile are shared: which way a fin
-  // rakes still belongs to the fin, so a twin-tip's back pair still trails backwards,
-  // and so does cant.
-  let master=S.fins[0];                 // undefined on the finless boards; the loop below
-  for(const f of S.fins)if(f.c*f.d>master.c*master.d)master=f;   // then never runs either
-  const mRake=!master||master.rake===undefined?0.10:master.rake;
-  for(const f of S.fins){
+  // The cluster is normalised before anything is built. Fins are grouped by station — by
+  // their z — and within a station every fin off the stringer is GENERATED from the first
+  // of them: same size, same profile, same rake, same distance out, mirrored. Three
+  // hand-typed numbers are not trusted to agree with each other.
+  // A fin ON the stringer keeps its own size. A big centre fin between smaller side bites
+  // is a real 2+1 setup and worth having; it just has to be deliberate rather than three
+  // fins that happen to differ.
+  const stations=new Map();
+  for(const f of S.fins){ const k=f.z.toFixed(4);
+    if(!stations.has(k))stations.set(k,[]); stations.get(k).push(f); }
+  const FINS=[];
+  for(const grp of stations.values()){
+    for(const f of grp)if(f.x===0)FINS.push(f);
+    const side=grp.filter(f=>f.x!==0);
+    if(side.length){
+      // Cant is capped at about seven and a half degrees, which is the top of the range a
+      // shaper actually sets. The spec numbers run as high as 0.26 — near fifteen degrees —
+      // but nothing had ever been calibrated against them, because until now cant was being
+      // turned into a fore-and-aft tilt rather than a lean, so the figure was never seen.
+      const m0=side[0], ax=Math.abs(m0.x), ct=Math.min(Math.abs(m0.cant||0),FIN_CANT_MAX);
+      // cant leans a fin's TIP outward toward its own rail, so its sign follows the rail
+      for(const f of side)FINS.push({...m0, x:f.x<0?-ax:ax, cant:f.x<0?-ct:ct});
+    }
+  }
+  for(const f of FINS){
     const sh=new THREE.Shape();
-    const cL=master.c, d=master.d, ft=master.t||0.030,
-          rk=((f.rake===undefined?0.10:f.rake)<0?-1:1)*Math.abs(mRake);
+    const cL=f.c, d=f.d, ft=f.t||0.030, rk=f.rake===undefined?0.10:f.rake;
     sh.moveTo(-cL*0.5,0);
     sh.bezierCurveTo(-cL*0.30,-d*0.44, -cL*0.02+rk,-d*0.82, cL*0.14+rk,-d);
     sh.bezierCurveTo(cL*0.30+rk*0.5,-d*0.66, cL*0.42,-d*0.30, cL*0.5,0);
@@ -1493,7 +1506,27 @@ function buildBoardMesh(S){
       bevelSize:ft*0.45,bevelThickness:ft*0.40,bevelSegments:3,curveSegments:26});
     fg.translate(0,0,-ft/2);
     const m=new THREE.Mesh(fg,finMat);
-    m.rotation.y=Math.PI/2;                      // thickness now runs across the board
+    // Cant has to happen about the board's fore-aft axis, and AFTER the quarter turn that
+    // lays the fin across the board. Under the default XYZ order three.js builds Rx·Ry·Rz,
+    // so rotation.z ran FIRST — spinning the fin inside its own plane, which the quarter
+    // turn then converted into a fore-and-aft tilt. Opposite signs on the two rails meant
+    // one fin leaned forwards and the other backwards: measured, every one of the 33
+    // boards carrying a side pair failed a mirror test, by up to 0.13 on Coco Egg, all of
+    // it in z. ZYX builds Rz·Ry·Rx, so the quarter turn goes first and the cant then leans
+    // the tip out toward the rail, which is what cant is.
+    m.rotation.order='ZYX';
+    // MINUS a quarter turn, not plus. Rake sweeps the fin's tip toward the shape's +x, and
+    // a positive quarter turn put that at world -z — the nose. Every fin on every board was
+    // raking FORWARD: measured on Razorline, tip at z 1.863 against a root at 2.045, so the
+    // tip led the base by 0.18 instead of trailing it. Turning the other way is a rotation
+    // rather than a mirror, so the winding and the normals are untouched.
+    // The extra angle is toe-in: a side fin is not set square to the stringer, its leading
+    // edge is angled a couple of degrees in toward the nose, and that is half of why a fin
+    // cluster reads as a cluster rather than as three fins near each other. Turning further
+    // about +y carries the trailing edge outboard and the leading edge in, which is toe-in
+    // for the fin on the +x rail and mirrors for the other. A fin on the stringer has
+    // nothing to toe toward, so it stays square.
+    m.rotation.y=-Math.PI/2+(f.x===0?0:(f.x>0?1:-1)*FIN_TOE);
     const u=0.5+f.z/L, half=hw(u);
     // A fin is bolted to the hull, so it has to sit ON the hull and INSIDE the rail.
     // Neither was true. Every fin was hung at the depth of the hull's CENTRELINE while
@@ -1885,9 +1918,10 @@ const BOARDS=[
      // The outline is asymmetric; the fin cluster is not. It was three fins at three
      // different offsets with nothing in the middle, which read as scattered rather than
      // designed. A real asym still runs a square thruster — the asymmetry is in the rail.
-     fins:[{x:0,z:1.94,c:0.40,d:0.38,t:0.026,rake:0.11},
-           {x:-0.36,z:1.70,c:0.42,d:0.40,t:0.028,rake:0.13,cant:0.18},
-           {x: 0.36,z:1.70,c:0.42,d:0.40,t:0.028,rake:0.13,cant:-0.18}]}},
+     // a thruster runs its centre fin at least as big as the sides, never smaller
+     fins:[{x:0,z:1.94,c:0.44,d:0.42,t:0.026,rake:0.12},
+           {x:-0.36,z:1.70,c:0.38,d:0.36,t:0.024,rake:0.10,cant:0.18},
+           {x: 0.36,z:1.70,c:0.38,d:0.36,t:0.024,rake:0.10,cant:-0.18}]}},
 
   {id:'chrome', name:'Chrome Wake Pro', price:6000,
    blurb:'Competition wakeboard. Moulded channels, six fins, and a finish you can see the sky in.',
@@ -2414,9 +2448,11 @@ const BOARDS=[
            }
          };
        })()}),
+     // 2+1: side bites a little under half the centre fin, which is the real ratio for
+     // one. They were under a third — small enough to read as specks rather than fins.
      fins:[{x:0,z:1.72,c:0.50,d:0.50,t:0.030,rake:0.20},
-           {x:-0.30,z:1.20,c:0.20,d:0.15,t:0.018,rake:0.05,cant:0.16},
-           {x: 0.30,z:1.20,c:0.20,d:0.15,t:0.018,rake:0.05,cant:-0.16}]}},
+           {x:-0.30,z:1.24,c:0.27,d:0.22,t:0.020,rake:0.07,cant:0.16},
+           {x: 0.30,z:1.24,c:0.27,d:0.22,t:0.020,rake:0.07,cant:-0.16}]}},
   {id:'mako', name:'Mako eFoil', price:15000,
    blurb:'Electric hydrofoil. Flies on a wing, leaves almost no wake, and is 21 mph faster than anything else out here.',
    // the halo board: deliberately outside the balance curve on speed, and paid for with
