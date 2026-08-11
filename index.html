@@ -399,7 +399,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.70.0';
+const VERSION='1.71.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -3710,7 +3710,7 @@ let switchRide=false, waveT=0;
 function applyStance(){ pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0); }
 let grabOn=false,grabPts=0,grabSide=1,grabSrc='gesture';
 let dragOn=false,dragPts=0,dragSide=1,dragSrc='gesture';
-let shake=0,boost=0,carrySpin=0,carryFlip=0;
+let shake=0,boost=0,carrySpin=0,carryFlip=0,wobRoll=0,wobYaw=0;
 const SPIN_RATE=Math.PI*2*1.35, FLIP_RATE=Math.PI*2*1.25;
 let trick=null; // rope backflip only
 let planeT=34+Math.random()*26,planeActive=false,hanging=false,spawnT=0.4;
@@ -4009,8 +4009,10 @@ function settleTricks(landed,keepPose){
     const sq=a2=>Math.abs(((a2+Math.PI)%(Math.PI*2))-Math.PI);
     const half=a2=>Math.abs(((a2+Math.PI/2)%Math.PI)-Math.PI/2);
     const off=Math.max(half(spinRot),sq(flipRot),sq(pitchRot));
-    if(off<0.16){ pts=Math.round(pts*2.0); names.push('PERFECT'); }
-    else if(off<0.45){ pts=Math.round(pts*1.4); names.push('CLEAN'); }
+    // the window narrows with every crack: damage costs you style, not just health
+    const tight=1-cracks*0.20;
+    if(off<0.16*tight){ pts=Math.round(pts*2.0); names.push('PERFECT'); }
+    else if(off<0.45*tight){ pts=Math.round(pts*1.4); names.push('CLEAN'); }
     score+=pts;
     boost=Math.min(16,boost+5+Math.min(7,pts/110));   // ride out of it with speed
     msg(names.join(' + ')+(names.length>1?' COMBO':'')+`! +${pts}`);
@@ -4048,7 +4050,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   player.rotation.set(0,0,0);
   for(const o of obstacles)scene.remove(o);obstacles.length=0;
   dist=0;speed=13.5;score=0;px=0;py=0;pz=0;vy=0;vx=0;cutCd=0;airborne=false;trick=null;
-  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;
+  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;clearCracks();
   trail.length=0;trailT=0;
   skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;skiGlint.visible=false;wkA=0;
   splatT=0;splatCd=0;if(zapEl)zapEl.classList.remove('on');
@@ -4087,7 +4089,7 @@ function respawn(){
   px=0;py=0;pz=0;vy=0;vx=0;airborne=false;trick=null;spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;
   spinHeld=false;flipHeld=false;pitchHeld=false;grabOn=false;grabPts=0;spinQ=0;flipQ=0;spinSign=1;flipSign=1;
   pitchRot=0;pitchQ=0;pitchSign=1;
-  boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;cutCd=0;
+  boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;cutCd=0;clearCracks();
   spawnT=1.8;
   overlayUp=false;running=true;last=performance.now();
   player.visible=true; rig.visible=true; hud.style.display='';
@@ -4159,11 +4161,181 @@ const WIPE={
   land:  {vy: 6.0, vz: 1.5, spin:[ 5, 6, 9], msg:'SKETCHY LANDING!', kick:1.6},
   under: {vy: 4.5, vz: 0.5, spin:[11, 4, 5], msg:'UNDER-ROTATED!',   kick:1.5},
   foam:  {vy: 2.5, vz:-1.0, spin:[ 6, 2, 8], msg:'ATE IT!',      kick:1.2},
+  snap:  {vy: 4.0, vz:-1.0, spin:[13, 3, 4], msg:'BOARD SNAPPED!', kick:2.8},
 };
+// ---------------------------------------------------------------------------
+// Board damage. Coming down ON something used to be the same as driving into it —
+// the collision test only asked whether you were below its height, so a landing you
+// survived by a hair and one you missed by a hair were both instant death, and the
+// "I was on top of it!" case did not exist at all. It does now: land on a hazard and
+// the board cracks instead of ending the run. Three cracks and it snaps in half.
+// The damage is worn, not read off a bar — each crack makes the board wobble under
+// you and narrows the window for a clean trick, and every hit dumps your speed boost
+// so a mistake costs something immediately as well as slowly. It resets every run:
+// nobody should have to pay to repair a board they already bought.
+// ---------------------------------------------------------------------------
+const BOARD_LIVES=3;
+let cracks=0, wobT=0, crackMarks=[], snapHalves=null, snapHidden=[];
+const crackMat=new THREE.MeshBasicMaterial({color:0x14100d,transparent:true,opacity:0.9,
+  side:THREE.DoubleSide,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-3,polygonOffsetUnits:-3});
+const _crc=new THREE.Raycaster();
+const _cro=new THREE.Vector3(), _crd=new THREE.Vector3(), _crp=new THREE.Vector3();
+// the deck point under a spot on the board, in the board's own space. Raycast rather
+// than maths: it is exact for any hull, including a rocker, and it works just as well
+// on an imported model as on the lofted ones.
+function deckAt(lx,lz,out){
+  _cro.set(lx,3.0,lz); boardArt.localToWorld(_cro);
+  _crd.set(0,-1,0).transformDirection(boardArt.matrixWorld).normalize();
+  _crc.set(_cro,_crd);
+  const hit=_crc.intersectObject(boardArt,true)[0];
+  if(!hit)return false;
+  out.copy(hit.point); boardArt.worldToLocal(out); return true;
+}
+// a fissure that starts where it was hit and forks outward, laid ON the deck so it
+// follows the rocker instead of floating over it
+function addCrack(lx,lz){
+  boardArt.updateWorldMatrix(true,false);
+  const v=[];
+  for(let s=0;s<3;s++){
+    let a=Math.random()*Math.PI*2, x=lx, z=lz, prev=null;
+    const segs=4+Math.floor(Math.random()*3), step=0.26+Math.random()*0.20;
+    for(let i=0;i<=segs;i++){
+      if(!deckAt(x,z,_crp))break;
+      const y=_crp.y+0.010, t=i/segs, w=0.052*(1-t)+0.006;
+      const nx=Math.cos(a+Math.PI/2)*w, nz=Math.sin(a+Math.PI/2)*w;
+      const A=[_crp.x-nx,y,_crp.z-nz], B=[_crp.x+nx,y,_crp.z+nz];
+      if(prev)v.push(...prev[0],...prev[1],...A, ...prev[1],...B,...A);
+      prev=[A,B];
+      a+=(Math.random()-0.5)*1.2;
+      x+=Math.cos(a)*step; z+=Math.sin(a)*step;
+    }
+  }
+  if(v.length<9)return;
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(v,3));
+  const m=new THREE.Mesh(g,crackMat);
+  m.renderOrder=3;
+  m.raycast=()=>{};                    // later cracks must not land on earlier ones
+  boardArt.add(m); crackMarks.push(m);
+}
+function clearCracks(){
+  for(const m of crackMarks){ boardArt.remove(m); m.geometry.dispose(); }
+  crackMarks.length=0;
+  if(snapHalves){
+    for(const h of snapHalves){ boardArt.remove(h);
+      h.traverse(o=>{if(o.isMesh)o.geometry.dispose();}); }
+    snapHalves=null;
+    // only what snapBoard actually hid — blanket-restoring visibility across the whole
+    // board would also un-hide anything a board variant deliberately turned off
+    for(const o of snapHidden)o.visible=true;
+    snapHidden.length=0;
+  }
+  cracks=0; wobT=0;
+}
+// Split the board in two down the middle. Every triangle is moved into the board's own
+// space first, so a fin sitting under the tail with its own transform is cut by the
+// same plane the hull is, and each half then rides the tumble the wipeout already runs.
+// Reading one component of one vertex, safely. A model loaded from a GLB usually has
+// its attributes INTERLEAVED in a single buffer, where .array is the whole shared buffer
+// and indexing it by itemSize walks straight off into the neighbouring attribute — which
+// is what turned a split hull half black. Byte-packed attributes are normalized too.
+function attrRead(at,idx,c){
+  let v = at.isInterleavedBufferAttribute
+    ? at.data.array[idx*at.data.stride+at.offset+c]
+    : at.array[idx*at.itemSize+c];
+  if(at.normalized){
+    const A=at.isInterleavedBufferAttribute?at.data.array:at.array;
+    if(A instanceof Int8Array)v=Math.max(v/127,-1);
+    else if(A instanceof Uint8Array||A instanceof Uint8ClampedArray)v/=255;
+    else if(A instanceof Int16Array)v=Math.max(v/32767,-1);
+    else if(A instanceof Uint16Array)v/=65535;
+  }
+  return v;
+}
+function snapBoard(){
+  boardArt.updateWorldMatrix(true,true);
+  const inv=new THREE.Matrix4().copy(boardArt.matrixWorld).invert(), M=new THREE.Matrix4();
+  const nm=new THREE.Matrix3(), p=new THREE.Vector3(), bb=new THREE.Box3();
+  const A=new THREE.Group(), B=new THREE.Group(), halves=[A,B];
+  const src=[];
+  boardArt.traverse(o=>{ if(o.isMesh&&crackMarks.indexOf(o)<0)src.push(o); });
+  for(const m of src){
+    M.copy(inv).multiply(m.matrixWorld);
+    const g=m.geometry.index?m.geometry.toNonIndexed():m.geometry;
+    const pos=g.attributes.position;
+    bb.makeEmpty();
+    for(let i2=0;i2<pos.count;i2++)bb.expandByPoint(p.set(attrRead(pos,i2,0),attrRead(pos,i2,1),attrRead(pos,i2,2)));
+    bb.applyMatrix4(M);
+    // Most of a board does not straddle the middle — the fins and the decal are all at
+    // one end — so those move across whole. That skips rebuilding twelve thousand fin
+    // triangles and, more importantly, keeps them exactly as they were.
+    if(bb.min.z>=0||bb.max.z<=0){
+      const c=m.clone();
+      c.matrix.copy(M); c.matrix.decompose(c.position,c.quaternion,c.scale);
+      c.visible=true; halves[bb.min.z>=0?1:0].add(c);
+      m.visible=false; snapHidden.push(m); continue;
+    }
+    // Everything the geometry carries is copied, not just position and colour. Rebuilding
+    // with only those is what turned the board's decal — a textured quad — into a solid
+    // black slab, because its UVs went missing and it lost its texture.
+    const keys=Object.keys(g.attributes);
+    const out=[{},{}];
+    for(const k of keys){ out[0][k]=[]; out[1][k]=[]; }
+    nm.getNormalMatrix(M);
+    const tp=[new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3()];
+    for(let i2=0;i2<pos.count;i2+=3){
+      let cz=0;
+      for(let j=0;j<3;j++){
+        tp[j].set(attrRead(pos,i2+j,0),attrRead(pos,i2+j,1),attrRead(pos,i2+j,2)).applyMatrix4(M);
+        cz+=tp[j].z;
+      }
+      const k=cz/3<0?0:1;
+      for(let j=0;j<3;j++)for(const key of keys){
+        const at=g.attributes[key], sz=at.itemSize;
+        if(key==='position')out[k][key].push(tp[j].x,tp[j].y,tp[j].z);
+        else if(key==='normal'){
+          p.set(attrRead(at,i2+j,0),attrRead(at,i2+j,1),attrRead(at,i2+j,2)).applyMatrix3(nm).normalize();
+          out[k][key].push(p.x,p.y,p.z);
+        }
+        else for(let c2=0;c2<sz;c2++)out[k][key].push(attrRead(at,i2+j,c2));
+      }
+    }
+    for(let k=0;k<2;k++){
+      if(!out[k].position.length)continue;
+      const ng=new THREE.BufferGeometry();
+      for(const key of keys)ng.setAttribute(key,new THREE.Float32BufferAttribute(out[k][key],g.attributes[key].itemSize));
+      if(!ng.attributes.normal)ng.computeVertexNormals();
+      halves[k].add(new THREE.Mesh(ng,m.material));
+    }
+    m.visible=false; snapHidden.push(m);
+  }
+  for(const c of crackMarks){c.visible=false;snapHidden.push(c);}
+  boardArt.add(A,B);
+  snapHalves=halves;
+}
+// landing on a hazard: it cracks rather than kills, until the third one
+function boardHit(o,topY){
+  if(wipe)return;
+  cracks++;
+  boost=0;                                       // the run's momentum is gone with it
+  shake=Math.max(shake,1.1);
+  vy=Math.max(6.4,-vy*0.35+5.2);                 // it kicks you up off the thing
+  airborne=true; wakeAir=false;
+  py=Math.max(py,topY+0.28);
+  splash(o.position.x,topY,o.position.z,18);
+  o.userData.knock={vx:(o.position.x-px)*0.7+(Math.random()-0.5)*2.0,
+    vy:1.4+Math.random()*1.6, vz:1.8+lastEff*0.05,
+    sx:(Math.random()-0.5)*5, sz:(Math.random()-0.5)*5};
+  addCrack(Math.max(-0.42,Math.min(0.42,o.position.x-px)),
+           Math.max(-2.15,Math.min(2.15,o.position.z-pz)));
+  if(cracks>=BOARD_LIVES){ startWipeout('snap'); return; }
+  msg(cracks===1?'CRACKED! 2 LEFT':'CRACKED! 1 LEFT');
+}
 let wipe=null,overlayUp=false,revivesLeft=1;
 function startWipeout(kind){
   if(wipe)return;
   noteWipe(kind);
+  if(kind==='snap')snapBoard();
   const W=WIPE[kind]||WIPE.foam;
   running=false;                       // controls stop, but the world keeps running
   endMouseDrag();steer=0;weight=0;
@@ -4262,6 +4434,13 @@ function updateWipeout(dt){
     w.by=bsea; w.bvy*=-0.30; w.bvx*=0.7; w.bvz*=0.7;
     if(Math.abs(w.bvy)>1.2)splash(w.bx,bsea,w.bz,12);
     w.landed=true;
+  }
+  if(snapHalves){
+    const t=Math.min(2.2,w.t);
+    snapHalves[0].position.set(-0.10*t,0,-0.85*t);
+    snapHalves[0].rotation.set(0.7*t,0,-1.05*t);
+    snapHalves[1].position.set( 0.10*t,0, 0.85*t);
+    snapHalves[1].rotation.set(-0.7*t,0, 1.05*t);
   }
   rig.position.set(w.bx,w.by,w.bz);
   if(w.landed){
@@ -5836,10 +6015,21 @@ function update(dt){
   const pitchT=onRampO?rampPitchT
               :(airborne?-0.22:Math.max(-0.62,Math.min(0.68,hullPitch*1.50)) + leanW*0.62);
   boardYaw+=(yawT-boardYaw)*Math.min(1,dt*7);
+  // A cracked board is unsteady under you. This is deliberately a slow, readable
+  // oscillation rather than random jitter — it pushes you off your line and you steer
+  // back, so a damaged board is harder to ride without ever being unfair. Nursing one
+  // to a big score is meant to be a story you can tell.
+  wobT+=dt;
+  if(cracks){
+    const k=cracks*(airborne?0.35:1);
+    wobRoll=Math.sin(wobT*4.3)*0.045*k+Math.sin(wobT*2.17+1.3)*0.030*k;
+    wobYaw =Math.sin(wobT*1.71+1.1)*0.032*k;
+    vx+=Math.sin(wobT*1.45)*k*2.1*dt;
+  } else { wobRoll=0; wobYaw=0; }
   boardLean+=(leanT-boardLean)*Math.min(1,dt*8.5);
   boardPitch+=(pitchT-boardPitch)*Math.min(1,dt*13);
   const grabRoll = grab ? grabSide*0.30 : 0;   // board tips toward the rail he's holding
-  rig.rotation.set(boardPitch,boardYaw,boardLean+grabRoll);
+  rig.rotation.set(boardPitch,boardYaw+wobYaw,boardLean+grabRoll+wobRoll);
   animateRig(dt,carve,grab,waterY);
   updateHandstand(dt,carve);
 
@@ -6000,11 +6190,18 @@ function update(dt){
         splash(o.position.x,o.position.y+0.5,o.position.z,over?14:20);
         if(o.userData.bell)o.userData.squash=1.0;      // the bell flattens under you
       } else if(py<waterY+o.userData.h&&!hanging){
-        // it takes the impact too: shoved aside, lifted and set spinning
-        o.userData.knock={vx:(o.position.x-px)*0.9+(Math.random()-0.5)*2.4,
-          vy:2.0+Math.random()*2.4, vz:2.2+lastEff*0.06,
-          sx:(Math.random()-0.5)*6, sz:(Math.random()-0.5)*6};
-        startWipeout(o.userData.kind);return;
+        const topY=waterY+o.userData.h;
+        // Dropping onto the top of it is not the same as driving into its side, and
+        // until now the code could not tell the difference — both were instant death.
+        // Coming down on it costs the board a crack and throws you back up.
+        if(vy<-0.5&&py>topY-0.55){ boardHit(o,topY); }
+        else{
+          // it takes the impact too: shoved aside, lifted and set spinning
+          o.userData.knock={vx:(o.position.x-px)*0.9+(Math.random()-0.5)*2.4,
+            vy:2.0+Math.random()*2.4, vz:2.2+lastEff*0.06,
+            sx:(Math.random()-0.5)*6, sz:(Math.random()-0.5)*6};
+          startWipeout(o.userData.kind);return;
+        }
       }
     }
   }

@@ -52,6 +52,24 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.71.0** — The board takes damage. Coming down ON a hazard used to be the same as
+  driving into its side, because the collision test only asked whether you were below its
+  height — a landing you survived by a hair and one you missed by a hair were both instant
+  death, and the "I was on top of it!" case did not exist at all. It does now: land on one
+  and the board cracks instead of ending the run. Three cracks and it snaps in half.
+  Head-on is unchanged and still kills, so reading the water still matters.
+  The damage is worn rather than read off a bar. Each crack is a real fissure laid on the
+  deck at the point of impact — raycast onto the hull so it follows the rocker, which also
+  means it works on an imported model as well as on the lofted boards. Each crack makes
+  the board wobble under you: a slow readable oscillation you counter-steer, never random
+  jitter, so a damaged board is harder without being unfair. Each crack narrows the
+  window for a CLEAN or PERFECT trick by a fifth. And every hit dumps your speed boost, so
+  a mistake costs something immediately as well as slowly. Nothing carries between runs —
+  nobody should have to pay to repair a board they already bought.
+  The break splits the board down the middle and both halves ride the tumble the wipeout
+  already runs. Anything that does not straddle the middle — the fins, the decal — moves
+  across whole rather than being rebuilt, and what is rebuilt keeps every attribute it
+  had, not just position and colour.
 - **v1.70.0** — Allen is one body, hips and legs and all. A limb sweep starts at a control
   point pushed up inside the torso; how far up is now per character, and paired with a
   thick-topped leg profile it makes the thighs merge with the body and with each other
