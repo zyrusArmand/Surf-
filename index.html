@@ -344,7 +344,12 @@
   #viewer #vStats .st.turn  .seg { color:#4fd8e8; }
   #viewer #vStats .st.air   .seg { color:#ffd83c; }
   #viewer #vStats .st.tough .seg { color:#6ee88a; }
-  #shop { position:fixed; inset:0; z-index:12; background:rgba(6,26,46,.94); color:#fff;
+  /* The shop was a flat navy slab, which is the one screen in the game that does not look
+     like the game: everything else is sea and sun. Warmed and lifted into a sky-to-water
+     wash, with the cards as light glass on top of it instead of darker holes cut into it. */
+  #shop { position:fixed; inset:0; z-index:12; color:#fff;
+    background:linear-gradient(180deg, rgba(18,86,150,.96) 0%, rgba(12,62,116,.96) 46%,
+      rgba(7,38,74,.97) 100%);
     display:flex; align-items:center; justify-content:center; padding:16px; }
   #shop .shopwrap { width:min(620px,100%); max-height:100%; display:flex; flex-direction:column; }
   #shop .go { align-self:center; margin-top:12px; }
@@ -373,18 +378,20 @@
     align-content:start; grid-auto-rows:max-content; }
   #shopTabs { display:flex; gap:8px; margin-bottom:11px; }
   #shopTabs .tab { flex:1 1 0; padding:10px 0; font-size:15px; font-weight:800; letter-spacing:.6px;
-    color:#cfe2f0; background:rgba(255,255,255,.07); border:1.5px solid rgba(255,255,255,.14);
+    color:#eaf6ff; background:rgba(255,255,255,.14); border:1.5px solid rgba(255,255,255,.26);
     border-radius:999px; cursor:pointer; transition:background .12s, color .12s, border-color .12s; }
   #shopTabs .tab.on { color:#052a2a; border-color:rgba(160,244,232,.75);
     background:linear-gradient(165deg, rgba(143,240,228,.68), rgba(63,199,184,.40)); }
   .card { position:relative; display:flex; flex-direction:column; text-align:left; overflow:hidden;
-    border-radius:16px; border:1.5px solid rgba(255,255,255,.13);
-    background:linear-gradient(180deg, rgba(255,255,255,.11), rgba(255,255,255,.035));
-    box-shadow:0 8px 20px rgba(0,18,34,.28); }
+    border-radius:16px; border:1.5px solid rgba(255,255,255,.26);
+    background:linear-gradient(180deg, rgba(255,255,255,.24), rgba(255,255,255,.10));
+    box-shadow:0 10px 24px rgba(0,20,44,.30), inset 0 1px 0 rgba(255,255,255,.34); }
   .card.on { border-color:#ffdf2e;
     box-shadow:0 0 0 1px rgba(255,223,46,.45), 0 10px 24px rgba(90,70,0,.34); }
-  .card .thumb { width:100%; aspect-ratio:4/3; object-fit:contain; display:block;
-    background:radial-gradient(circle at 50% 36%, rgba(126,200,236,.22), rgba(6,24,42,.34)); }
+  /* the picture is a rendered beach now, edge to edge, so it fills the tile rather than
+     floating on a gradient of its own */
+  .card .thumb { width:100%; aspect-ratio:4/3; object-fit:cover; display:block;
+    background:#9fd0ee; }
   /* The full-screen preview was only reachable by tapping the picture or the name, and
      nothing on the tile said so. This is the same thing with a handle on it — an eye in
      the corner of every tile. It sits over the picture rather than in the row of
@@ -607,6 +614,7 @@ const rollBtn=document.getElementById('rollBtn');
 const handBtn=document.getElementById('handBtn');
 const heliBtn=document.getElementById('heliBtn');
 const viewerEl=document.getElementById('viewer');
+const vTopEl=document.querySelector('#viewer .vtop');
 const shopEl=document.getElementById('shop');
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 const hCoins=document.getElementById('hCoins'), ovCoins=document.getElementById('ovCoins');
@@ -614,7 +622,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.10.0';
+const VERSION='2.11.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -3066,25 +3074,53 @@ function buildBeach(){
   }
   return g;
 }
-function snapshot(obj,swing,lift,zoom,byHeight){
+// A card's picture is a MINI VERSION OF THE PREVIEW, not a separate photograph. It used to
+// be its own thing — a three-quarter view on transparency at its own zoom — so the shop and
+// the full-screen look showed the same object two different ways, and nothing you saw on a
+// card told you what you would get when you opened it. Same standing-up, same opening
+// angle, same beach, same framing maths; only the aspect and the padding differ, because a
+// card is landscape and has no chrome to work around.
+function frameObj(obj){
+  obj.updateMatrixWorld(true);
+  const box=new THREE.Box3().setFromObject(obj), sz=box.getSize(new THREE.Vector3());
+  // about the axis it turns on, not about the middle of the box — see the note in openViewer
+  let hr=0;
+  for(const bx of [box.min.x,box.max.x])for(const bz of [box.min.z,box.max.z])
+    hr=Math.max(hr,Math.hypot(bx,bz));
+  return {c:new THREE.Vector3(0,(box.min.y+box.max.y)*0.5,0), hy:sz.y*0.5, hr, bottom:box.min.y};
+}
+function snapshot(obj,kind){
   previewSetup();
   const par=obj.parent;
-  const keepP=obj.position.clone(), keepR=obj.rotation.clone();
+  const keepP=obj.position.clone(), keepR=obj.rotation.clone(), keepO=obj.rotation.order;
   prevScene.add(obj);
   obj.position.set(0,0,0); obj.rotation.set(0,0,0);
+  if(kind==='board'){ obj.rotation.order='YXZ'; obj.rotation.x=Math.PI/2; }
+  const f=frameObj(obj);
+  // A card is a STILL, and the preview's opening angle is the one angle a still should not
+  // use: rail-on, a board is eight inches wide and comes out as a sliver on a landscape
+  // tile. Three-quarters instead — mostly deck with enough rail to read the rocker, and for
+  // a surfer mostly face with enough flank to read the shape. Same scene, same standing-up,
+  // same everything else; only the angle is chosen for a photograph rather than for the
+  // start of a turn.
+  obj.rotation.y=kind==='board'?-0.78:2.24;
   obj.updateMatrixWorld(true);
-  const box=new THREE.Box3().setFromObject(obj);
-  const c=box.getCenter(new THREE.Vector3()), sz=box.getSize(new THREE.Vector3());
-  // Fitting a character to its bounding sphere means the sloth's arms and the rex's tail
-  // shrink the animal itself, and the line-up comes out at a dozen different scales.
-  // Framing on height instead puts them all shoulder to shoulder at one size.
-  const R=byHeight?Math.max(sz.y*0.5,sz.x*0.38):Math.max(sz.x,sz.y,sz.z)*0.5;
-  const d=R/Math.tan(prevCam.fov*Math.PI/360)*(zoom||1.5);
-  prevCam.position.set(c.x+d*Math.sin(swing), c.y+d*lift, c.z+d*Math.cos(swing));
-  prevCam.lookAt(c);
+  const aspect=PREV_W/PREV_H, t=Math.tan(prevCam.fov*Math.PI/360);
+  const d=Math.max(f.hy/(t*0.90), f.hr/(aspect*t*0.84));
+  const k=d/9;
+  beachSet.visible=true;
+  beachSet.scale.setScalar(k);
+  beachSet.position.y=f.bottom-(beachSand0+0.55)*k;
+  if(beachShadow){
+    beachShadow.scale.setScalar(Math.min(2.4,Math.max(0.95,f.hr*1.7/k)));
+    beachShadow.position.set(0,beachSand0+0.05,0);
+  }
+  prevCam.position.set(0,f.c.y+d*0.10,d);
+  prevCam.lookAt(f.c);
+  prevCam.updateProjectionMatrix();
   const oldT=renderer.getRenderTarget(), oldAC=renderer.autoClear;
   renderer.autoClear=true;
-  renderer.setClearColor(0x000000,0);
+  renderer.setClearColor(0x9fd0ee,1);
   renderer.setRenderTarget(prevTarget);
   renderer.clear();
   renderer.render(prevScene,prevCam);
@@ -3093,8 +3129,9 @@ function snapshot(obj,swing,lift,zoom,byHeight){
   renderer.setRenderTarget(oldT);
   renderer.setClearColor(0x000000,1);
   renderer.autoClear=oldAC;
+  beachSet.visible=false;
   prevScene.remove(obj);
-  obj.position.copy(keepP); obj.rotation.copy(keepR);
+  obj.position.copy(keepP); obj.rotation.order=keepO; obj.rotation.copy(keepR);
   if(par)par.add(obj);
   const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
   const cx=cv.getContext('2d'), img=cx.createImageData(W,H);
@@ -3107,9 +3144,7 @@ function snapshot(obj,swing,lift,zoom,byHeight){
 }
 function boardPreview(id){
   if(prevCache['b:'+id])return prevCache['b:'+id];
-  // framed tight: at zoom 1 the longest board exactly fills the height, so a shortboard
-  // is not left as a speck in the middle of the card
-  try{ prevCache['b:'+id]=snapshot(boardArtFor(id),0.92,0.74,1.02); }catch(e){ prevCache['b:'+id]=''; }
+  try{ prevCache['b:'+id]=snapshot(boardArtFor(id),'board'); }catch(e){ prevCache['b:'+id]=''; }
   return prevCache['b:'+id];
 }
 // A portrait was capturing whatever pose the rig happened to be left in, and the rig is
@@ -3155,7 +3190,7 @@ function charPreview(id){
   try{
     buildChar(id);
     undo=portraitPose();
-    prevCache['c:'+id]=snapshot(pug,2.72,0.20,1.14,true);   // three-quarters on, so you see a face
+    prevCache['c:'+id]=snapshot(pug,'char');
   }catch(e){ prevCache['c:'+id]=''; }
   if(undo)undo();
   buildChar(rider);
@@ -3184,7 +3219,11 @@ function statBars(id){
 // wherever it lives, put in that scene for the duration, and put back on the way out.
 // ---------------------------------------------------------------------------
 let viewer=null, viewCam=null;
-const VIEW_START=-Math.PI/2;          // rail toward the camera: deck left, fins right
+// A board opens rail-on with its deck to the left and its fins to the right. A character
+// opens in profile too, but the other way round — facing screen LEFT, so that as the turn
+// advances it comes round to meet you rather than turning its back first.
+const VIEW_START_BOARD=-Math.PI/2, VIEW_START_CHAR=Math.PI/2;
+const viewStart=kind=>kind==='board'?VIEW_START_BOARD:VIEW_START_CHAR;
 function openViewer(kind,id){
   if(viewer)return;
   // Kill any thumbnail pass still running. It photographs one card per frame and each
@@ -3243,7 +3282,7 @@ function openViewer(kind,id){
   // foil, which the flat-on view cannot. Turning from there is a reveal rather than a
   // rotation of something already fully visible, and the same angle suits a character:
   // they start in profile and come round to face you.
-  viewer={kind,id,obj,par,kp,kr,undo,c,hy,hr,spin:VIEW_START,grab:null};
+  viewer={kind,id,obj,par,kp,kr,undo,c,hy,hr,spin:viewStart(kind),grab:null};
   document.getElementById('vName').textContent=name;
   document.getElementById('vSub').textContent=sub||'';
   document.getElementById('vStats').innerHTML=kind==='board'?statBars(id):'';
@@ -3349,7 +3388,17 @@ function renderViewer(dt){
   // button take the bottom. Fit into the band between them rather than into the viewport,
   // or an upright board runs behind the title at one end and through the bars at the other.
   const t=Math.tan(viewCam.fov*Math.PI/360);
-  const d=Math.max(v.hy/(t*0.55), v.hr/(aspect*t*0.88));
+  // The band is MEASURED off the chrome rather than guessed at with a magic fraction. The
+  // name block is one line for some boards and three for others, and the stat plate is
+  // there for a board and absent for a surfer — a fixed 0.55 could not be right for all
+  // four combinations, which is how a tail ended up behind the bars.
+  const H=Math.max(1,innerHeight);
+  const topPx=vTopEl.getBoundingClientRect().bottom;
+  const stEl=document.getElementById('vStats');
+  const botPx=(stEl&&stEl.offsetHeight?stEl:document.querySelector('#viewer .vbot')).getBoundingClientRect().top;
+  const band=Math.max(0.25,(botPx-topPx)/H);          // the clear height, as a fraction
+  const mid=((topPx+botPx)*0.5)/H;                    // and where its middle sits
+  const d=Math.max(v.hy/(t*0.86*band), v.hr/(aspect*t*0.86));
   // The beach is scaled to the framing distance rather than left at a fixed size. At this
   // field of view the frame is barely three units wide where the object stands, so a beach
   // built once looked completely different depending on how far back the camera had gone
@@ -3370,10 +3419,9 @@ function renderViewer(dt){
       beachShadow.material.opacity=0.28;
     }
   }
-  // A 0.06 lift tips the camera down and pushes the object low: measured, its centre sat at
-  // 58% of the screen instead of the middle. This is the lift that lands it in the middle of
-  // the band between the name block and the stat plate rather than in the middle of nothing.
-  viewCam.position.set(v.c.x, v.c.y+d*0.014, v.c.z+d);
+  // Raising the camera pushes the object DOWN the frame, so this is the lift that puts it in
+  // the middle of that band rather than in the middle of the screen.
+  viewCam.position.set(v.c.x, v.c.y+(mid-0.5)*2*d*t, v.c.z+d);
   viewCam.lookAt(v.c);
   viewCam.updateProjectionMatrix();
   renderer.setClearColor(0x9fd0ee,1);

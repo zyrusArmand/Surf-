@@ -52,6 +52,26 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.11.0** — **A surfer opens facing the other way.** Measured: at the old start angle
+  the snout pointed screen RIGHT, and the position in the reference has it facing LEFT — so
+  the opening angle was half a turn out. Characters now open in profile facing left and the
+  snout swings toward you as the turn advances, which is the direction the arrow shows.
+  Boards are unchanged: rail-on, deck to the left, fins to the right.
+  **Nothing is covered by the stat plate.** The band is MEASURED off the chrome now rather
+  than guessed at with a magic fraction — the name block is one line for some boards and
+  three for others, and the plate is there for a board and absent for a surfer, so no fixed
+  number could be right for all four combinations. That is how a tail ended up behind the
+  bars. The object is fitted into the measured gap with margin, and centred in it.
+  **The shop's pictures are mini versions of the preview.** They used to be their own thing
+  — a three-quarter shot on transparency at its own zoom — so a card and the full-screen
+  look showed the same object two different ways and nothing on a card told you what you
+  would get when you opened it. Same standing-up, same beach, same framing maths. The one
+  thing that differs is the angle: a card is a *still*, and rail-on a board is eight inches
+  wide and comes out as a sliver on a landscape tile, so cards use three-quarters — mostly
+  deck with enough rail to read the rocker.
+  **And the shop is brighter.** It was a flat navy slab, the one screen in the game that did
+  not look like the game; everything else is sea and sun. Now a sky-to-water wash with the
+  cards as light glass on top of it rather than darker holes cut into it.
 - **v2.10.0** — **The ocean was being tessellated flat.** The swell is carried in the
   vertex shader and its shortest component has a wavelength of about two and a half units,
   so the mesh has to be fine enough to hold it — the game's own ocean runs three quarters
