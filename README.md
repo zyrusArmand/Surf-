@@ -52,6 +52,35 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.14.0** — **The boards ride differently now, because they *are* different boards.**
+  Two problems, one cause. The rack had twelve near-identical shortboards in it — a dozen
+  paint jobs over the same 5'2"–5'4" outline — and the physics only ever read three numbers
+  off a board, all of them *magnitude*: top speed, carve rate, pop. Magnitude is the hardest
+  kind of difference to feel. Nobody notices ten per cent more top end without a second
+  board to hold it against.
+  - **Character, not magnitude.** Two constants used to be identical for every board in the
+    game: how hard it resists sliding sideways (`vx -= vx*3.4*dt`) and how long it carries
+    speed it earned off a trick (`boost -= dt*3.0`). Those are **grip** and **glide**, and
+    they now come off the hull — length, width, tail width, thickness, rocker — rather than
+    off the price. A third, **float**, sets how high the board sits in the water. Measured
+    in-game: holding full lock for the same window runs a wakeboard 11.1 units across the
+    face and a race board 4.7. Boost carry ranges from about three seconds to over seven.
+  - **A soft limit, not a clamp.** The first cut clamped a linear fit, which put *twenty of
+    the forty-four boards* flat on the same rail — the original problem, moved to the ends.
+    `tanh` is monotone and never quite reaches its limit, so every board keeps its own
+    number and the extremes merely crowd instead of merging.
+  - **Still dodgeable.** The worry with a slower board is that it stops being able to get out
+    of the way. It doesn't: damping barely bites in the first moments, so a 4-unit dodge from
+    a standstill spans 0.55 s to 0.89 s across the whole fleet. The board's character shows
+    up in sustained carving and line-holding, not in emergency reaction.
+  - **Sixteen boards reshaped into real archetypes**, each with fins to match — shortboard
+    (Razorline, Pit Crew), groveller (Hydro GT), retro fish on twin keels (Wildstyle),
+    modern fish (Acid R), Mini Simmons (Turbo 44), hybrid egg (Houndstooth, Liquid Marble),
+    funboard (Cup 22, Glitch), mini-mal (Boxcar), longboard (Quilted Noir), gun (Nitro Works,
+    Laurel 11), race board (Aurora) and SUP (Bubblegum Foamie). The eFoil, Astro Original,
+    Tiki Mal, Carbon Skim, Reef Runner, Maison Monarch and every wakeboard are untouched.
+  - All 44 boards re-lofted and checked for degenerate geometry: no NaN in any position or
+    colour buffer.
 - **v2.13.1** — **Astro's board is pinned back to five across.** Giving it a hull to be
   measured from also gave it *derived* stats, and it came out 7/2/2/7 like any other board
   — which quietly moved the yardstick. It is the one you start on and the one every other
