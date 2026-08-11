@@ -52,6 +52,26 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.88.0** — Four fixes.
+  **Wick's tail fin** hung off the end of the tail joint like a paddle on a stick. A tail
+  fin does not start somewhere behind an animal, it grows off the back of it — so it sits
+  on the joint now with a peduncle filling the gap, swept back rather than standing square.
+  **The helicopter can be worked.** heliAir is no longer a latch on the rotation: the roll
+  is simply *airborne AND held*, so letting go stops it where it is and taking hold again
+  starts it turning from there. Measured — roll froze at 4.90 on release and resumed to
+  7.58 on the second press. You can work the button as many times as the air lasts.
+  **ROLL and FLIP glyphs are swapped**, buttons unmoved.
+  **A full-screen look at anything in the shop.** Tap a thumbnail or a name and the object
+  fills the phone, turning once every fifteen seconds, with its name, its blurb and — for
+  a board — its stat bars. It is rendered live rather than photographed, borrowing the
+  scene the shop already photographs into and the renderer already running, so there is no
+  second canvas and no second set of lights.
+  Two things it needed. The fit is taken against the HORIZONTAL field of view, because on
+  a phone the limit is the width — with vertical fitting a five-foot board sat in the
+  middle of the screen like a thumbnail. And opening it cancels any thumbnail pass still
+  running: that pass photographs one card per frame and every character shot rebuilds the
+  shared rig, so a job landing a frame later would swap the model out underneath and leave
+  you looking at your own surfer under somebody else's name.
 - **v1.87.0** — The racing set is covered in sponsor decals, because a real GT car is not
   a paint job — it is a paint job under two hundred stickers, and the density of them is
   most of what makes one read as a race car rather than a coloured car.

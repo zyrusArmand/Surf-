@@ -204,6 +204,35 @@
     color:#fff; opacity:.55; font-size:13px; font-weight:bold; letter-spacing:.5px;
     text-shadow:0 1px 3px rgba(0,40,80,.6); pointer-events:none; }
 
+  /* No panel: the model is rendered onto the page's own canvas and this sits over it,
+     with a scrim top and bottom so the type has something to be legible against and the
+     middle of the screen stays completely clear. */
+  #viewer { position:fixed; inset:0; z-index:14; display:flex; flex-direction:column;
+    justify-content:space-between; pointer-events:none; color:#fff;
+    padding:calc(14px + env(safe-area-inset-top,0px)) 16px
+            calc(18px + env(safe-area-inset-bottom,0px)); }
+  #viewer .vtop { text-align:center; pointer-events:none;
+    background:linear-gradient(180deg, rgba(4,16,30,.72), rgba(4,16,30,0));
+    margin:-14px -16px 0; padding:16px 16px 30px; }
+  #viewer .vname { font-size:26px; font-weight:800; letter-spacing:.3px;
+    text-shadow:0 2px 8px rgba(0,15,35,.8); }
+  #viewer .vsub { font-size:13px; opacity:.82; margin-top:4px; line-height:1.4;
+    max-width:520px; margin-left:auto; margin-right:auto;
+    text-shadow:0 1px 6px rgba(0,15,35,.9); }
+  #viewer .vbot { pointer-events:auto; width:min(520px,100%); margin:0 auto;
+    background:linear-gradient(0deg, rgba(4,16,30,.80), rgba(4,16,30,0));
+    padding:26px 14px 4px; margin-bottom:-4px; }
+  #viewer #vStats { margin-bottom:12px; }
+  #viewer #vStats .st { display:flex; align-items:center; gap:8px; margin:5px 0; }
+  #viewer #vStats .st span { font-size:10px; font-weight:800; letter-spacing:.1em;
+    opacity:.7; width:48px; text-align:right; flex:none; }
+  #viewer #vStats .seg { display:flex; gap:3px; flex:1; }
+  #viewer #vStats .seg i { flex:1; height:9px; border-radius:2px; background:rgba(255,255,255,.14); }
+  #viewer #vStats .seg i.on { background:currentColor; box-shadow:0 0 8px currentColor; }
+  #viewer #vStats .st.speed .seg { color:#ff9a3c; }
+  #viewer #vStats .st.turn  .seg { color:#4fd8e8; }
+  #viewer #vStats .st.air   .seg { color:#ffd83c; }
+  #viewer #vStats .st.tough .seg { color:#6ee88a; }
   #shop { position:fixed; inset:0; z-index:12; background:rgba(6,26,46,.94); color:#fff;
     display:flex; align-items:center; justify-content:center; padding:16px; }
   #shop .shopwrap { width:min(620px,100%); max-height:100%; display:flex; flex-direction:column; }
@@ -352,12 +381,12 @@
      finger movement on it, so one teaches the other. -->
 <div id="trickBar" class="hidden">
   <div class="tbtn glass" id="rollBtn" aria-label="Barrel roll — swipe up or down">
-    <svg class="ges" viewBox="0 0 24 24"><path d="M12 3.5v17M12 3.5l-3.3 3.5M12 3.5l3.3 3.5M12 20.5l-3.3-3.5M12 20.5l3.3-3.5"/></svg>
+    <svg class="ges" viewBox="0 0 24 24"><path d="M17.9 7.4A6.7 6.7 0 1 1 12 4.3"/><path d="M9.4 1.6 12.2 4.4 9.4 7.2"/><path d="M4 10.3 2.1 11.9 4 13.5M20 10.3l1.9 1.6-1.9 1.6"/></svg>
     ROLL</div>
   <div class="tbtn glass" id="flipBtn" aria-label="Front or back flip — swipe left or right">
     <!-- end over end, so it is drawn as a loop, with the sideways swipe marked either
          side of it. The plain left-right arrows it replaces read as a spin. -->
-    <svg class="ges" viewBox="0 0 24 24"><path d="M17.9 7.4A6.7 6.7 0 1 1 12 4.3"/><path d="M9.4 1.6 12.2 4.4 9.4 7.2"/><path d="M4 10.3 2.1 11.9 4 13.5M20 10.3l1.9 1.6-1.9 1.6"/></svg>
+    <svg class="ges" viewBox="0 0 24 24"><path d="M12 3.5v17M12 3.5l-3.3 3.5M12 3.5l3.3 3.5M12 20.5l-3.3-3.5M12 20.5l3.3-3.5"/></svg>
     FLIP</div>
   <div class="tbtn glass" id="spinBtn" aria-label="Spin — draw a circle with one finger">
     <!-- a spin turns about the up axis, so the loop is flattened into a horizontal
@@ -392,6 +421,12 @@
     <button class="go sun" id="recordsBtn">Stats</button>
     <button class="go calm" id="menuBtn">Main menu</button>
   </div>
+</div>
+<!-- A full-screen look at one thing, turning slowly, rendered live rather than
+     photographed. The canvas behind it is doing the work; this is only the furniture. -->
+<div id="viewer" class="hidden">
+  <div class="vtop"><div class="vname" id="vName"></div><div class="vsub" id="vSub"></div></div>
+  <div class="vbot"><div id="vStats"></div><button class="go calm" id="vClose">Back</button></div>
 </div>
 <div id="shop" class="hidden">
   <div class="shopwrap">
@@ -436,13 +471,15 @@ const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementByI
 const rollBtn=document.getElementById('rollBtn');
 const handBtn=document.getElementById('handBtn');
 const heliBtn=document.getElementById('heliBtn');
+const viewerEl=document.getElementById('viewer');
+const shopEl=document.getElementById('shop');
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 const hCoins=document.getElementById('hCoins'), ovCoins=document.getElementById('ovCoins');
 const shop=document.getElementById('shop'), shopBtn=document.getElementById('shopBtn');
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.87.0';
+const VERSION='1.88.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2533,17 +2570,96 @@ function statBars(id){
     Array.from({length:10},(_,i)=>'<i'+(i<v[k]?' class="on"':'')+'></i>').join('')+
     '</div></div>').join('')+'</div>';
 }
-function shopCard(item,have,on,buy,use,thumb,stats){
+// ---------------------------------------------------------------------------
+// The full-screen look. The shop photographs everything once and shows a still; this puts
+// the actual object on screen, turning, at whatever size the phone is — which is the only
+// way to see what a board's graphics are doing across its whole length, or that a sloth's
+// arms really are that long.
+//
+// It borrows the scene the shop photographs into and the renderer that is already running,
+// so there is no second canvas and no second set of lights: the object is lifted out of
+// wherever it lives, put in that scene for the duration, and put back on the way out.
+// ---------------------------------------------------------------------------
+let viewer=null, viewCam=null;
+function openViewer(kind,id){
+  if(viewer)return;
+  // Kill any thumbnail pass still running. It photographs one card per frame and each
+  // character shot rebuilds the shared rig and then puts the ridden one back — so a job
+  // landing a frame after this opens would quietly swap the model out from under the
+  // viewer, and you would be looking at your own surfer under somebody else's name.
+  shopFillId++;
+  previewSetup();
+  if(!viewCam)viewCam=new THREE.PerspectiveCamera(36,1,0.1,300);
+  let obj,undo=null,name,sub;
+  if(kind==='board'){
+    const b=BOARD_BY_ID[id]; obj=boardArtFor(id); name=b.name; sub=b.blurb;
+  } else {
+    const ch=CHAR_BY_ID[id]; buildChar(id); undo=portraitPose(); obj=pug;
+    name=ch.name; sub=ch.blurb;
+  }
+  const par=obj.parent, kp=obj.position.clone(), kr=obj.rotation.clone();
+  prevScene.add(obj);
+  obj.position.set(0,0,0); obj.rotation.set(0,0,0); obj.updateMatrixWorld(true);
+  const box=new THREE.Box3().setFromObject(obj);
+  const c=box.getCenter(new THREE.Vector3()), sz=box.getSize(new THREE.Vector3());
+  // it has to fit at EVERY yaw, so the radius comes off the horizontal diagonal rather
+  // than off whichever axis happens to face the camera when it opens
+  const R=Math.max(Math.hypot(sz.x,sz.z),sz.y)*0.5;
+  viewer={kind,id,obj,par,kp,kr,undo,c,R,spin:kind==='board'?0.8:2.7};
+  document.getElementById('vName').textContent=name;
+  document.getElementById('vSub').textContent=sub||'';
+  document.getElementById('vStats').innerHTML=kind==='board'?statBars(id):'';
+  // the menu sits under the shop and was reading straight through the transparent viewer
+  viewer.menuWasUp=!overlay.classList.contains('hidden');
+  if(viewer.menuWasUp)overlay.classList.add('hidden');
+  shopEl.classList.add('hidden');
+  viewerEl.classList.remove('hidden');
+}
+function closeViewer(){
+  if(!viewer)return;
+  const v=viewer; viewer=null;
+  // the overlay goes back first: a board sitting in the rack unequipped has no parent at
+  // all, and putting the model back used to throw on that and leave the shop hidden
+  renderer.setClearColor(0x000000,1);
+  viewerEl.classList.add('hidden');
+  shopEl.classList.remove('hidden');
+  if(v.menuWasUp)overlay.classList.remove('hidden');
+  if(v.undo)v.undo();
+  if(v.par)v.par.add(v.obj); else prevScene.remove(v.obj);
+  v.obj.position.copy(v.kp); v.obj.rotation.copy(v.kr);
+  if(v.kind!=='board')buildChar(rider);
+}
+function renderViewer(dt){
+  const v=viewer;
+  v.spin+=dt*0.42;                                   // one turn every fifteen seconds
+  v.obj.rotation.set(0,v.spin,0);
+  const aspect=Math.max(0.35,innerWidth/innerHeight);
+  viewCam.aspect=aspect;
+  // pad harder on a narrow phone, where the limit is the width and not the height
+  // On a phone the limit is the WIDTH, not the height, so the fit is taken against the
+  // horizontal field of view — 1.55x of padding on top of that had a five-foot board
+  // sitting in the middle of the screen like a thumbnail.
+  const fit=v.R/Math.min(1,aspect*0.95);
+  const d=fit/Math.tan(viewCam.fov*Math.PI/360)*1.06;
+  viewCam.position.set(v.c.x, v.c.y+d*0.16, v.c.z+d);
+  viewCam.lookAt(v.c);
+  viewCam.updateProjectionMatrix();
+  renderer.setClearColor(0x0a1d33,1);
+  renderer.render(prevScene,viewCam);
+}
+function shopCard(item,have,on,buy,use,thumb,stats,kind){
   const card=document.createElement('div');
   card.className='card'+(on?' on':'');
   const im=document.createElement('img');
   im.className='thumb'; im.alt=item.name;
   // a transparent pixel until the real shot is taken, so no broken-image glyph flashes
   im.src=thumb||'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+  if(kind){ im.style.cursor='pointer'; im.onclick=()=>openViewer(kind,item.id); }
   card.appendChild(im);
   const info=document.createElement('div'); info.className='info';
   info.innerHTML='<div class="nm">'+item.name+'</div><div class="bl">'+item.blurb+'</div>'+
     (stats?statBars(item.id):'');
+  if(kind)info.querySelector('.nm').onclick=()=>openViewer(kind,item.id);
   const act=document.createElement('div'); act.className='act';
   if(on){ act.innerHTML='<span class="tag">RIDING</span>'; }
   else {
@@ -2588,7 +2704,7 @@ function drawShop(){
         ()=>{ if(coins<c.price)return; coins-=c.price; ownedChars[c.id]=1; noteBuy('rider',c.id,c.price);
           equipChar(c.id); saveGame(); showCoins(); drawShop(); },
         ()=>{ equipChar(c.id); saveGame(); drawShop(); },
-        prevCache['c:'+c.id]);
+        prevCache['c:'+c.id],false,'char');
       if(!prevCache['c:'+c.id])jobs.push([card.querySelector('.thumb'),()=>charPreview(c.id)]);
       shopList.appendChild(card);
     }
@@ -2598,7 +2714,7 @@ function drawShop(){
         ()=>{ if(coins<b.price)return; coins-=b.price; owned[b.id]=1; noteBuy('board',b.id,b.price);
           equipBoard(b.id); saveGame(); showCoins(); drawShop(); },
         ()=>{ equipBoard(b.id); saveGame(); drawShop(); },
-        prevCache['b:'+b.id], true);
+        prevCache['b:'+b.id], true, 'board');
       if(!prevCache['b:'+b.id])jobs.push([card.querySelector('.thumb'),()=>boardPreview(b.id)]);
       shopList.appendChild(card);
     }
@@ -2609,6 +2725,7 @@ function drawShop(){
 for(const t of document.querySelectorAll('#shopTabs .tab'))
   t.onclick=()=>{ shopTab=t.dataset.tab; drawShop(); };
 shopBtn.onclick=()=>{shopTab='boards';drawShop();shop.classList.remove('hidden');};
+document.getElementById('vClose').onclick=closeViewer;
 document.getElementById('shopClose').onclick=()=>shop.classList.add('hidden');
 
 // ---------- the panel behind the version number ----------
@@ -3607,11 +3724,15 @@ function buildChar(id){
       kitParts.push(nx); par=nx;
     }
   } else if(C.tail==='fin'){                  // a caudal fan, flat and upright
-    const t=kit(tailRoot(C.tailTilt===undefined?1.30:C.tailTilt),
-      new THREE.Mesh(new THREE.SphereGeometry(0.30,18,14),furMat));
-    // no ray spines: the fan is scaled hard in one axis, and anything parented to it gets
-    // sheared into a spike sticking out of the animal
-    t.position.y=0.22;t.scale.set(0.15,1.15,0.95);
+    // It hung off the end of the tail joint like a paddle on a stick. A tail fin does not
+    // start somewhere behind the animal — it grows straight off the back of it, so this
+    // sits ON the joint with a peduncle filling the gap, and it is swept back rather than
+    // standing square.
+    const root=tailRoot(C.tailTilt===undefined?1.05:C.tailTilt);
+    const ped=kit(root,new THREE.Mesh(new THREE.SphereGeometry(0.13,14,12),furMat));
+    ped.position.y=0.04;ped.scale.set(0.72,1.15,0.86);
+    const t=kit(root,new THREE.Mesh(new THREE.SphereGeometry(0.26,18,14),furMat));
+    t.position.y=0.15;t.scale.set(0.13,1.05,0.80);t.rotation.x=-0.22;
   } else if(C.tail==='plume'){
     // A squirrel IS its tail: a big S-curved plume that leaves the rump, sweeps up
     // behind and folds forward over its own back. Built as a chain like the other long
@@ -4420,7 +4541,11 @@ let shake=0,boost=0,carrySpin=0,carryFlip=0,wobRoll=0,wobYaw=0,dayT=0;
 const HELI_RATE=Math.PI*2*2.15, HELI_POP=17.2;
 const HELI_CROUCH=0.34, HELI_PULL=0.34, HELI_HOP=0.26, HELI_DIVE=0.62, HELI_SURF=0.26;
 const HELI_PHASE=[HELI_CROUCH,HELI_PULL,HELI_HOP,HELI_DIVE,HELI_SURF];
-let heliPh=-1, heliT=0, heliPose=0, heliUsed=false, heliRolling=false, heliHeld=false, heliIncline=0;
+// heliAir means the launch has happened and he is still up there. It is NOT a latch on
+// the rotation — the rotation is simply heliAir AND held, so letting go stops the roll and
+// taking hold again starts it turning from wherever it stopped. You can work the button as
+// many times as the air lasts.
+let heliPh=-1, heliT=0, heliPose=0, heliUsed=false, heliAir=false, heliHeld=false, heliIncline=0;
 const SPIN_RATE=Math.PI*2*1.35, FLIP_RATE=Math.PI*2*1.25;
 let trick=null; // rope backflip only
 let planeT=34+Math.random()*26,planeActive=false,hanging=false,spawnT=0.4;
@@ -4636,9 +4761,10 @@ holdBtn(flipBtn, spinBtnDown(holdFlip), ()=>{pitchHeld=false;});
 holdBtn(spinBtn, spinBtnDown(holdSpin), ()=>{spinHeld=false;});
 holdBtn(handBtn,()=>{handOn=true;handSrc='button';},()=>{handOn=false;});
 function startHeli(src){
-  if(!running||wipe||hanging||airborne)return;
+  if(!running||wipe||hanging)return;
+  if(heliAir||heliPh>=0){ heliHeld=true; return; }  // already in it — just take hold again
+  if(airborne)return;                               // but it can only be STARTED off the water
   heliHeld=true;
-  if(heliPh>=0||heliRolling)return;                 // already under way; just keep holding
   heliPh=0; heliT=0; heliUsed=true;
   noteTrick('heli',src||'button');
   msg('HELICOPTER!');
@@ -4675,7 +4801,7 @@ function heliStep(dt2,waterY){
   if(k>=1){
     heliPh++; heliT=0;
     if(heliPh>=HELI_PHASE.length){                  // hand over to the launch
-      heliPh=-1; heliRolling=true;
+      heliPh=-1; heliAir=true;
       vy=HELI_POP*BS.air; airborne=true;
       splash(px,waterY,0,34);
       shake=Math.max(shake,0.7);
@@ -4767,7 +4893,7 @@ function settleTricks(landed,keepPose){
     const ri=names.findIndex(n=>n.endsWith('\u00b0 ROLL'));
     if(ri>=0)names[ri]=names[ri].replace('ROLL','HELICOPTER');
   }
-  heliUsed=false; heliRolling=false; heliPh=-1;
+  heliUsed=false; heliAir=false; heliPh=-1; heliHeld=false;
   if(landed&&pts>0){
     if(names.length>1)pts=Math.round(pts*1.5);          // combo bonus
     // How square he came down. Releasing on the beat is the whole skill now, so it is
@@ -4816,7 +4942,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   player.rotation.set(0,0,0);
   for(const o of obstacles)scene.remove(o);obstacles.length=0;
   dist=0;speed=13.5;score=0;px=0;py=0;pz=0;vy=0;vx=0;cutCd=0;airborne=false;trick=null;
-  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;clearCracks();heliPh=-1;heliT=0;heliPose=0;heliUsed=false;heliRolling=false;heliHeld=false;heliIncline=0;
+  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;clearCracks();heliPh=-1;heliT=0;heliPose=0;heliUsed=false;heliAir=false;heliHeld=false;heliIncline=0;
   trail.length=0;trailT=0;
   skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;skiGlint.visible=false;wkA=0;
   splatT=0;splatCd=0;if(zapEl)zapEl.classList.remove('on');
@@ -4855,7 +4981,7 @@ function respawn(){
   px=0;py=0;pz=0;vy=0;vx=0;airborne=false;trick=null;spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;
   spinHeld=false;flipHeld=false;pitchHeld=false;grabOn=false;grabPts=0;spinQ=0;flipQ=0;spinSign=1;flipSign=1;
   pitchRot=0;pitchQ=0;pitchSign=1;
-  boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;cutCd=0;clearCracks();heliPh=-1;heliT=0;heliPose=0;heliUsed=false;heliRolling=false;heliHeld=false;heliIncline=0;
+  boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;cutCd=0;clearCracks();heliPh=-1;heliT=0;heliPose=0;heliUsed=false;heliAir=false;heliHeld=false;heliIncline=0;
   spawnT=1.8;
   overlayUp=false;running=true;last=performance.now();
   player.visible=true; rig.visible=true; hud.style.display='';
@@ -6388,7 +6514,7 @@ function animateRig(dt,carve,grab,waterY){
   // spine/chest counter-rotate against the board like a real surfer
   // He turns to face down the board, goes flat over the deck and pulls himself up on the
   // nose — elbows bent, head up past the tip — and holds that while it spins under him.
-  const heliOnNow=heliRolling||heliPh>=1;
+  const heliOnNow=heliAir||heliPh>=1;
   heliPose=ease(heliPose,heliOnNow?1:0,dt,heliOnNow?12:6);
   const gSide = grab ? grabSide : 0;
   const dragLean = dragging ? dragSide*0.42 : 0;
@@ -6771,7 +6897,7 @@ function update(dt){
   rollBtn.classList.toggle('ready',flipHeld &&flipRot >0.5&&sqr(flipRot));
   flipBtn.classList.toggle('ready',pitchHeld&&pitchRot>0.5&&sqr(pitchRot));
   spinBtn.classList.toggle('ready',spinHeld &&spinRot >0.5&&sqr(spinRot));
-  heliBtn.classList.toggle('ready',heliRolling&&flipRot>0.5&&sqr(flipRot));
+  heliBtn.classList.toggle('ready',heliAir&&flipRot>0.5&&sqr(flipRot));
   jumpBtn.style.opacity=trickReady?'0.25':'1';
 
   // Pearling went with the fore-and-aft weight it depended on: without a way to put
@@ -6851,13 +6977,12 @@ function update(dt){
   // spin / flip / grab all run at once while you're off the water
   if(airborne||hanging){
     const SR=SPIN_RATE*BS.air, FR=FLIP_RATE*BS.air;   // a poppy board spins faster too
-    if(heliRolling){
+    if(heliAir){
       // flipRot is the roll axis — the board turning over the way it is going. spinRot
       // would have been a flat spin, which is a different trick entirely. The wind-up is
       // scripted, but the rotation is yours: it turns for as long as you hold, and where
       // it is pointing when you let go is the attitude he lands in.
       if(heliHeld)flipRot+=dt*HELI_RATE*BS.air;
-      else heliRolling=false;
       // Dead level through the rolls. Tipping it forward looked right in principle and
       // wrong on screen: the camera sits behind him, so any pitch turns the roll into a
       // view of the board's underside swinging past instead of a clean turn. Level, it
@@ -6938,7 +7063,7 @@ function update(dt){
   boardLean+=(leanT-boardLean)*Math.min(1,dt*8.5);
   boardPitch+=(pitchT-boardPitch)*Math.min(1,dt*13);
   const grabRoll = grab ? grabSide*0.30 : 0;   // board tips toward the rail he's holding
-  if(heliPh<0&&!heliRolling)heliIncline=ease(heliIncline,0,dt,4);
+  if(heliPh<0&&!heliAir)heliIncline=ease(heliIncline,0,dt,4);
   rig.rotation.set(boardPitch+heliIncline,boardYaw+wobYaw,boardLean+grabRoll+wobRoll);
   animateRig(dt,carve,grab,waterY);
   updateHandstand(dt,carve);
@@ -7233,6 +7358,7 @@ function loop(now){
   // the menu gets the same sky work the ride does: without it the dome and the sun
   // never follow the camera and the colours never track the time of day
   else {oceanUniforms.uT.value+=dt;tNow+=dt;menuCamera(dt);updateDayCycle();}
+  if(viewer){ renderViewer(dt); return; }   // the look takes the whole screen and the frame
   updateSkyLife(dt);          // the sky keeps moving on the menu and through a wipeout
   renderer.render(scene,camera);
   if(splat3D.visible){
