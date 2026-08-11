@@ -52,6 +52,20 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.78.0** — **Bongo the Monkey** (2,100), and the reason the site was stuck on v1.74.
+  The arms are the animal: longer than his legs and thin, so he looks built to hang off
+  things. Long tail, long hands and feet, pale muzzle, and a new ear type — big flat
+  discs low on the sides of the head, which is half of reading as a monkey at thumbnail
+  size.
+  **The deploy had dammed itself.** Three versions were sitting on main undeployed. The
+  Pages workflow uses a concurrency group with `cancel-in-progress: false`, set a while
+  back on the reasoning that queueing rather than cancelling meant two quick pushes would
+  both land. That is wrong for a deploy: pushes to main are fast-forwards, so a later
+  commit already contains the earlier one and publishing only the newest is exactly
+  right. What the setting actually bought was a dam — the v1.75 run was never picked up
+  by a runner and sat queued for twenty minutes, holding v1.76 and v1.77 behind it. The
+  stuck run is cancelled and the group cancels in progress now, so a run nobody picks up
+  can no longer hold the site three versions stale.
 - **v1.77.0** — Three new surfers, and the kit pieces each needed.
   **Hazel the Squirrel** (1,600) — light and quick with the back legs of something that
   lives by jumping. Her tail is the whole animal, so it got its own type: a big plume

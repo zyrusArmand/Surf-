@@ -15,10 +15,17 @@ permissions:
 # this concurrency group the one that started a second later cancelled the other — so
 # whether a push actually shipped came down to which run GitHub queued last. When the
 # branch won that race it then failed anyway, because Pages only publishes from the
-# default branch. Queue rather than cancel, so two quick pushes both land.
+# default branch.
+#
+# cancel-in-progress was false for a while, on the reasoning that queueing rather than
+# cancelling meant two quick pushes would both land. That was wrong for a DEPLOY: pushes
+# to main are fast-forwards, so a later commit already contains the earlier one and
+# publishing only the newest is exactly right. What it actually bought was a dam — one
+# run that no runner ever picked up sat queued for twenty minutes and held three later
+# deploys behind it, leaving the site three versions stale.
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
