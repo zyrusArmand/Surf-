@@ -421,7 +421,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.80.0';
+const VERSION='1.81.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -4039,8 +4039,23 @@ let shake=0,boost=0,carrySpin=0,carryFlip=0,wobRoll=0,wobYaw=0;
 // way is a bit over twice as fast as the ROLL button, so it is the move for getting a
 // lot of rotation into a short piece of air. Same rule as the rest — where he is
 // pointing when you let go is the attitude he lands in.
-const HELI_RATE=Math.PI*2*2.6;
-let heliHeld=false, heliPose=0, heliUsed=false;
+// The helicopter is choreographed rather than held. Pressing it commits you to a run of
+// beats and each one has to finish before the next starts, so it reads as one move he is
+// performing instead of a rotation you are steering:
+//   crouch  — he sinks down over the board and takes hold of it
+//   pull    — hauls himself forward until he is prone on the nose
+//   hop     — a small pop off the deck
+//   dive    — nose goes down and he goes under
+//   surface — and comes back up out of it
+//   launch  — thrown up and slightly forward, rolling three times over
+//   fall    — normal gravity again, with enough left after the rolls to see him drop
+// The roll rate is set so three turns take most of the air but not all of it: the last
+// stretch is a plain fall, which is what makes the landing feel like the end of
+// something rather than the moment the animation runs out.
+const HELI_RATE=Math.PI*2*2.15, HELI_POP=20.5;
+const HELI_CROUCH=0.34, HELI_PULL=0.34, HELI_HOP=0.26, HELI_DIVE=0.42, HELI_SURF=0.36;
+const HELI_PHASE=[HELI_CROUCH,HELI_PULL,HELI_HOP,HELI_DIVE,HELI_SURF];
+let heliPh=-1, heliT=0, heliPose=0, heliUsed=false, heliRolling=false, heliY0=0, heliIncline=0;
 const SPIN_RATE=Math.PI*2*1.35, FLIP_RATE=Math.PI*2*1.25;
 let trick=null; // rope backflip only
 let planeT=34+Math.random()*26,planeActive=false,hanging=false,spawnT=0.4;
@@ -4255,8 +4270,47 @@ holdBtn(rollBtn, spinBtnDown(holdRoll), ()=>{flipHeld=false;});
 holdBtn(flipBtn, spinBtnDown(holdFlip), ()=>{pitchHeld=false;});
 holdBtn(spinBtn, spinBtnDown(holdSpin), ()=>{spinHeld=false;});
 holdBtn(handBtn,()=>{handOn=true;handSrc='button';},()=>{handOn=false;});
-const holdHeli=s2=>{heliHeld=s2; if(s2)heliUsed=true;}; holdHeli.trick='heli';
-holdBtn(heliBtn, spinBtnDown(holdHeli), ()=>{heliHeld=false;});
+function startHeli(src){
+  if(!running||wipe||heliPh>=0||heliRolling||hanging||airborne)return;
+  heliPh=0; heliT=0; heliUsed=true;
+  noteTrick('heli',src||'button');
+  msg('HELICOPTER!');
+}
+holdBtn(heliBtn,()=>startHeli('button'),()=>{});
+// Runs the beats. It owns py outright while it is going, which is the only way he can
+// go UNDER the water and come back up — the ordinary ride physics exist to keep a board
+// on the surface and would fight it the whole way down.
+function heliStep(dt2,waterY){
+  heliT+=dt2;
+  const dur=HELI_PHASE[heliPh], k=Math.min(1,heliT/dur);
+  const smooth=k*k*(3-2*k);
+  if(heliPh===0){                                   // crouch
+    rigCrouch=Math.max(rigCrouch,0.30+smooth*0.55);
+    py=waterY;
+  } else if(heliPh===1){                            // pull himself onto the nose
+    py=waterY;
+  } else if(heliPh===2){                            // a small hop off the deck
+    py=waterY+Math.sin(k*Math.PI)*0.62;
+    heliIncline=-smooth*0.18;
+  } else if(heliPh===3){                            // nose down, and under
+    py=waterY-smooth*1.05;
+    heliIncline=-0.18-smooth*0.62;                  // nose pitched down into it
+    if(heliT-dt2<=0)splash(px,waterY,0,26);
+  } else if(heliPh===4){                            // and back up out of it
+    py=waterY-1.05+smooth*1.45;
+    heliIncline=-0.80+smooth*0.80;
+    if(k>0.55&&Math.random()<dt2*30)splash(px+(Math.random()-0.5)*1.1,waterY,0.3,2);
+  }
+  if(k>=1){
+    heliPh++; heliT=0;
+    if(heliPh>=HELI_PHASE.length){                  // hand over to the launch
+      heliPh=-1; heliRolling=true; heliY0=flipRot;
+      vy=HELI_POP*BS.air; airborne=true;
+      splash(px,waterY,0,34);
+      shake=Math.max(shake,0.7);
+    }
+  }
+}
 addEventListener('mouseup',()=>{
   if(touchMode){endGrab();endDrag();releaseSpin();endMouseDrag();handOn=false;return;}
   if(running&&mouseDrag){
@@ -4342,7 +4396,7 @@ function settleTricks(landed,keepPose){
     const ri=names.findIndex(n=>n.endsWith('\u00b0 ROLL'));
     if(ri>=0)names[ri]=names[ri].replace('ROLL','HELICOPTER');
   }
-  heliUsed=false; heliHeld=false;
+  heliUsed=false; heliRolling=false; heliPh=-1;
   if(landed&&pts>0){
     if(names.length>1)pts=Math.round(pts*1.5);          // combo bonus
     // How square he came down. Releasing on the beat is the whole skill now, so it is
@@ -4391,7 +4445,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   player.rotation.set(0,0,0);
   for(const o of obstacles)scene.remove(o);obstacles.length=0;
   dist=0;speed=13.5;score=0;px=0;py=0;pz=0;vy=0;vx=0;cutCd=0;airborne=false;trick=null;
-  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;clearCracks();heliHeld=false;heliPose=0;heliUsed=false;
+  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;clearCracks();heliPh=-1;heliT=0;heliPose=0;heliUsed=false;heliRolling=false;heliIncline=0;
   trail.length=0;trailT=0;
   skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;skiGlint.visible=false;wkA=0;
   splatT=0;splatCd=0;if(zapEl)zapEl.classList.remove('on');
@@ -4430,7 +4484,7 @@ function respawn(){
   px=0;py=0;pz=0;vy=0;vx=0;airborne=false;trick=null;spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;
   spinHeld=false;flipHeld=false;pitchHeld=false;grabOn=false;grabPts=0;spinQ=0;flipQ=0;spinSign=1;flipSign=1;
   pitchRot=0;pitchQ=0;pitchSign=1;
-  boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;cutCd=0;clearCracks();heliHeld=false;heliPose=0;heliUsed=false;
+  boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;cutCd=0;clearCracks();heliPh=-1;heliT=0;heliPose=0;heliUsed=false;heliRolling=false;heliIncline=0;
   spawnT=1.8;
   overlayUp=false;running=true;last=performance.now();
   player.visible=true; rig.visible=true; hud.style.display='';
@@ -5962,7 +6016,8 @@ function animateRig(dt,carve,grab,waterY){
   // spine/chest counter-rotate against the board like a real surfer
   // He turns to face down the board, goes flat over the deck and pulls himself up on the
   // nose — elbows bent, head up past the tip — and holds that while it spins under him.
-  heliPose=ease(heliPose,heliHeld?1:0,dt,heliHeld?12:7);
+  const heliOnNow=heliRolling||heliPh>=1;
+  heliPose=ease(heliPose,heliOnNow?1:0,dt,heliOnNow?12:6);
   const gSide = grab ? grabSide : 0;
   const dragLean = dragging ? dragSide*0.42 : 0;
   spine.rotation.z=ease(spine.rotation.z,carve*0.16+gSide*0.58+dragLean,dt,8);   // stays stacked over the rail he is on
@@ -6225,6 +6280,7 @@ function update(dt){
     score+=60*dt;
     speed=Math.min(60,speed+14*dt);
     if(!planeActive||plane.position.z>2)releaseRope(false);
+  } else if(heliPh>=0){ heliStep(dt,waterY);           // the helicopter drives him itself
   } else if(airborne||(!wakeRide&&py>waterY+0.55)){    // clear of the water
     vy-=(wakeAir?6.0:20)*dt;py+=vy*dt;      // off a wave that size, the way down is long
     if(py<=waterY&&wakeGrace<=0){
@@ -6331,7 +6387,6 @@ function update(dt){
   rollBtn.classList.toggle('ready',flipHeld &&flipRot >0.5&&sqr(flipRot));
   flipBtn.classList.toggle('ready',pitchHeld&&pitchRot>0.5&&sqr(pitchRot));
   spinBtn.classList.toggle('ready',spinHeld &&spinRot >0.5&&sqr(spinRot));
-  heliBtn.classList.toggle('ready',heliHeld &&flipRot >0.5&&sqr(flipRot));   // it rolls, so it cues on the roll
   jumpBtn.style.opacity=trickReady?'0.25':'1';
 
   // Pearling went with the fore-and-aft weight it depended on: without a way to put
@@ -6411,10 +6466,14 @@ function update(dt){
   // spin / flip / grab all run at once while you're off the water
   if(airborne||hanging){
     const SR=SPIN_RATE*BS.air, FR=FLIP_RATE*BS.air;   // a poppy board spins faster too
-    if(heliHeld){
+    if(heliRolling){
       // flipRot is the roll axis — the board turning over the way it is going. spinRot
       // would have been a flat spin, which is a different trick entirely.
-      flipRot+=dt*HELI_RATE*BS.air;
+      const full=heliY0+Math.PI*2*3;
+      flipRot=Math.min(full,flipRot+dt*HELI_RATE*BS.air);
+      if(flipRot>=full)heliRolling=false;            // three over, then it is just a fall
+      // tipped forward and rising, rather than rolling on the spot
+      heliIncline=ease(heliIncline,-0.26,dt,5);
       // a corkscrew of spray thrown off the rail, turning with him
       for(let i=0;i<2;i++){
         const m=takeDrop(); if(!m)break;
@@ -6490,7 +6549,8 @@ function update(dt){
   boardLean+=(leanT-boardLean)*Math.min(1,dt*8.5);
   boardPitch+=(pitchT-boardPitch)*Math.min(1,dt*13);
   const grabRoll = grab ? grabSide*0.30 : 0;   // board tips toward the rail he's holding
-  rig.rotation.set(boardPitch,boardYaw+wobYaw,boardLean+grabRoll+wobRoll);
+  if(heliPh<0&&!heliRolling)heliIncline=ease(heliIncline,0,dt,4);
+  rig.rotation.set(boardPitch+heliIncline,boardYaw+wobYaw,boardLean+grabRoll+wobRoll);
   animateRig(dt,carve,grab,waterY);
   updateHandstand(dt,carve);
 

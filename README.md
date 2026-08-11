@@ -52,6 +52,22 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.81.0** — The helicopter is choreographed. Pressing it commits you to a run of
+  beats, each finishing before the next starts, so it reads as one move he is performing
+  rather than a rotation you are steering: he sinks down over the board and takes hold of
+  it, hauls himself forward until he is prone on the nose, hops off the deck, puts the
+  nose down and goes under, comes back up out of it, and is thrown up and slightly
+  forward rolling three times over.
+  The sequence owns his height outright while it runs, which is the only way he can go
+  UNDER the water and come back — the ordinary ride physics exist to keep a board on the
+  surface and would fight it the whole way down. He goes about a metre under at the
+  bottom of the dive, with only the tail and the fins left showing.
+  Roll rate eased from 2.6 to 2.15 turns a second and the launch raised to 20.5, which
+  buys 2.05s of air against 1.40s of rolling — so the last two thirds of a second is a
+  plain fall. That gap is deliberate: it makes the landing feel like the end of something
+  rather than the moment the animation runs out. Three whole turns also finish square, so
+  a helicopter lands itself. Measured end to end: it completes, lands clean, keeps the
+  run going, and scored 3,612.
 - **v1.80.0** — The foil flies, and the helicopter is a barrel roll.
   **The Mako rides up on its mast**, hull clear of the surface with only the wing in the
   water, the way the real thing does. The lift is VISUAL: the collision height is
