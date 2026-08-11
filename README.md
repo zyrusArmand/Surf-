@@ -52,6 +52,16 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.82.0** — The controls are actual glass rather than an outline. From the
+  references, four things together are what make a pane read as glass: a specular streak
+  sitting across the top, an edge lit unevenly instead of a uniform ring, a cool bounce
+  caught along the bottom inside, and enough blur behind it that you can tell there is
+  thickness. All four, as one reusable `.glass` surface shared by every in-play control.
+  The body stays almost clear — the first attempt had a broad bright cap and read as
+  glossy plastic bubbles, so the streak came down to a thin sliver and the interior to
+  almost nothing, leaving the crisp rim to do the work. That is what the references
+  actually do. Pressing one lights the whole pane rather than filling it.
+  White word and white glyph as before, and the sea still shows through all of it.
 - **v1.81.0** — The helicopter is choreographed. Pressing it commits you to a run of
   beats, each finishing before the next starts, so it reads as one move he is performing
   rather than a rotation you are steering: he sinks down over the board and takes hold of
