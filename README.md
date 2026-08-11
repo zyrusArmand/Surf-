@@ -52,6 +52,23 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.15.0** — **De Soto's Leaf.** A board for the ant, and an actual leaf rather than a leaf
+  painted onto a surfboard: the outline *is* the leaf. The nose is the point, so it closes on
+  a fine tip; the widest part sits at 55% because a leaf carries its width low toward the
+  stem; the tail is the rounded base with a stub of petiole painted on it; and there is one
+  small fin the colour of the stem, because a leaf has no business with a thruster. Thin,
+  wide and nearly flat — which makes it the loosest thing in the rack that still carries its
+  speed (grip 0.77, glide 1.00). Blade colour runs yellow at the point into deep green at the
+  base, with a tapering midrib, lateral veins that leave the rib steeply and bend toward the
+  tip, a soft mottle, sun-bleaching along the margin, a painted serration, and a few of the
+  dead spots every real leaf has.
+  - **The veins came out as dashed stitching first, and the reason was not the one I
+    assumed.** It is not resolution along the board — it is *across* it. The vein family is
+    `u + k·|v|`, so travelling from midrib to rail crosses two whole vein cycles; the ring
+    count, not the length count, is what decides whether a vein is a line or a row of dots.
+    At `nr:84` each vein was about one vertex wide. Fewer veins, wider, and `nr:124` fixed
+    it, and every feature on the board now fades in with `_sm` rather than switching on a
+    threshold, so it is sampled correctly at any resolution.
 - **v2.14.0** — **The boards ride differently now, because they *are* different boards.**
   Two problems, one cause. The rack had twelve near-identical shortboards in it — a dozen
   paint jobs over the same 5'2"–5'4" outline — and the physics only ever read three numbers

@@ -625,7 +625,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.14.0';
+const VERSION='2.15.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1820,6 +1820,12 @@ function _patch(c,u,v,pu,pv,h,w,hex,k){
 // lighting and the tone curve as pastel, which turns a sunrise into cream and lilac.
 const ASTRO_DAWN=[[0.00,0xffd046],[0.20,0xff9016],[0.40,0xf83a1c],[0.62,0xd0117a],
                   [0.82,0x5c1a96],[1.00,0x120c4e]].map(p=>[p[0],vivid(p[1],1.75)]);
+// A leaf is never one green. It runs yellow at the point, where it is newest and thinnest
+// and the light comes through it, into the working green of the blade, and down to a deeper
+// shade at the base where it meets the stem. Same reason as the dawn ramp above: the tone
+// curve flattens all of it unless the stops go in already pushed.
+const LEAF_BLADE=[[0.00,0x9cbe33],[0.30,0x63a627],[0.62,0x38801f],[1.00,0x1f5417]]
+                 .map(p=>[p[0],vivid(p[1],1.30)]);
 const BOARDS=[
   {id:'astro', name:'Astro Original', price:0,
    blurb:'The board Astro learned on. Thick, soft-railed, and poured like a sunrise.',
@@ -1967,6 +1973,60 @@ const BOARDS=[
        sw:0.10,railAt:0.86,vivid:1.3,
        vstripes:[[0.30,0.05,0x5c3315],[0.62,0.045,0x4a280f]]}),
      fins:[]}},
+
+  {id:'leaf', name:"De Soto's Leaf", price:3000,
+   blurb:'One leaf off a beach almond, dried flat and waxed. An ant needs nothing bigger.',
+   // The outline IS the leaf, rather than a leaf painted onto a surfboard. The nose is the
+   // point, so noseW is almost nothing and the closing arc brings it to a fine tip; the
+   // widest part sits at 0.55 because a leaf carries its width low, toward the stem; and
+   // the tail is the rounded base. Thin and wide and nearly flat, because that is what a
+   // leaf is — which also makes it the loosest thing in the rack that still holds a line.
+   // nr is the number that matters here, not nu. The veins sweep across the rings, not
+   // along them: from midrib to rail a vertex crosses two whole vein cycles, so the ring
+   // count is what decides whether a vein is a line or a row of dots. 84 rings put barely
+   // one vertex inside each vein and it came out as stitching.
+   spec:{nu:190,nr:124,L:5.20,W:0.90,T:0.100,noseA:1.10,tailA:0.90,noseW:0.03,tailW:0.30,
+     rockN:0.18,noseR:0.34,rockT:0.045,tailR:0.30,deckPow:0.78,hullPow:0.70,hullK:0.92,
+     pad:false,finCol:0x6f7d2a,
+     paint:artScheme({deck:0x4d9c2c,hull:0xa8cc7a,rail:0x2c6b20,pin:0x2c6b20,
+       sw:0,railAt:0.94,vivid:1.4,both:true,
+       // Everything here fades in and out with _sm rather than switching on a threshold.
+       // A hard test against a vertex grid is what turned the first cut of these veins into
+       // dashed stitching: the band only lights the vertices that happen to land inside it,
+       // and between them the interpolation drops back to the blade. A smooth falloff is
+       // sampled correctly at any resolution, which is the same lesson the ocean taught.
+       art:(c,u,v,top)=>{
+         const a=Math.abs(v);
+         _ramp(c,LEAF_BLADE,u);                     // point to base
+         if(!top)_mix(c,0xa9c977,0.55);             // the underside of a leaf is always paler
+         // A soft mottle, the unevenness of a real blade. Deliberately much coarser than
+         // the vein spacing — at a similar frequency the two beat against each other and
+         // chop the veins into segments.
+         const mott=_fbm(u*4.5,v*3.0);
+         _mix(c,mott>0.5?0x74b333:0x2c6b1a,Math.abs(mott-0.5)*0.5);
+         // Lateral veins. They leave the midrib steeply and bend toward the point as they
+         // run out, so the family is u + k*|v| — the fractional power puts the bend near
+         // the rib, which is where a leaf actually bends it.
+         const q=u+0.30*Math.pow(a,0.78);
+         const vw=0.150*(1-0.40*a);                 // and they thin out toward the margin
+         const vd=Math.abs(_rep(q*7.0)-0.5);
+         _mix(c,top?0x8ec13f:0xcfe0a0,_sm(0.5-vw,0.5,vd)*(top?0.55:0.72));
+         // sun-bleaching along the margin and a browning at the very point
+         _mix(c,0xa8bd45,_sm(0.66,0.97,a)*0.28);
+         _mix(c,0x8a6a24,_sm(0.09,0.0,u)*0.45);
+         // a few of the small dead spots every real leaf has
+         if(_hash(Math.floor(u*26),Math.floor(v*14))>0.977)_mix(c,0x6d4f1c,0.5);
+         // The margin, finely toothed. The teeth are painted rather than cut, because the
+         // outline curve has no way to make a serration that would read at this size.
+         _mix(c,0x1d4a12,_sm(0.93,0.985,a+0.014*Math.abs(Math.sin(u*Math.PI*30)))*0.9);
+         // The midrib last, over everything, tapering out as it reaches the point — and
+         // paler than the blade, the way a rib always is, but not white.
+         const mid=0.075*(0.35+0.65*u);
+         _mix(c,top?0xa9c65a:0xc3d488,_sm(mid,mid*0.55,a)*0.85);
+         if(u>0.945&&a<0.11)_mix(c,0x7d5f22,0.9);   // the stub of the stem at the base
+       }}),
+     // One small fin, the colour of the stem. A leaf has no business with a thruster.
+     fins:[{x:0,z:1.94,c:0.34,d:0.28,t:0.024,rake:0.20}]}},
 
   {id:'reefrunner', name:'Reef Runner', price:4200,
    blurb:'Step-up pintail for the days the reef is showing. Built to hold, not to skate.',
