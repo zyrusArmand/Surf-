@@ -52,6 +52,16 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.74.0** — The in-play controls are glass and nothing else: a white ring, a white
+  word, a white glyph, and the sea showing through. No fill, no colour, no sheen. They sit
+  on top of the one thing you are trying to watch, so the less of it they cover the
+  better — and colour was doing no work there anyway, since you learn which button is
+  which by position within one run. The menus keep their colour; they do not have a wave
+  behind them to keep an eye on. The one exception is the release cue on a trick button,
+  which stays warm: it has to be caught out of the corner of an eye mid-rotation, and a
+  white ring going slightly whiter would not be. Checked across the day cycle — dusk,
+  night, deep red and full daylight — and against foam directly behind a button, which is
+  the case white type is most at risk from.
 - **v1.73.0** — Four fixes to the crash, from playtest screenshots.
   **He no longer leaves the shot.** The camera followed him for the first beat and then
   cut to a held wide position — and whenever the crash threw him far, which is exactly the
