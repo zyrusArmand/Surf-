@@ -442,7 +442,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.86.0';
+const VERSION='1.87.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1463,6 +1463,42 @@ function artScheme(o){
     if(top&&o.sw&&Math.abs(v)<(o.sw||0)&&o.stringer)c.copy(vivid(o.stringer,1.3));
   };
 }
+// ---------- sponsor decals ----------
+// A real GT car is not a paint job. It is a paint job under two hundred stickers, and the
+// density of them is most of what makes one read as a race car rather than a coloured car.
+// None of these say anything: at the size a board is ever actually seen, lettering IS a
+// row of bars, so that is what they are — a panel, a margin, and bars inside it. No real
+// marks and no real names anywhere.
+function _sticker(c,u,v,pu,pv,h,w,bg,fg,bars){
+  if(Math.abs(u-pu)>h||Math.abs(v-pv)>w)return;
+  _mix(c,bg,1);
+  if(Math.abs(u-pu)<h*0.82&&Math.abs(v-pv)<w*0.56){
+    const t=_rep((u-pu+h)/(h*2)*(bars||8));
+    if(t<0.52)_mix(c,fg,1);
+  }
+}
+// A scattered field of them. Deterministic, so a board is the same board every time it is
+// lofted and the photograph in the shop matches the one you ride.
+function _decals(c,u,v,seed,n,u0,u1,vLo,vHi,pal){
+  for(let i=0;i<n;i++){
+    const a2=_hash(seed+i*7.3,i*3.1), b2=_hash(i*5.7,seed-i*2.9), d2=_hash(seed*1.7+i,i*11.3);
+    const pu=u0+(u1-u0)*a2;
+    const pv=(vLo+(vHi-vLo)*b2)*(_hash(i*1.9,seed)<0.5?1:-1);
+    const p=pal[Math.floor(_hash(i*13.1,seed*0.7)*pal.length)%pal.length];
+    _sticker(c,u,v,pu,pv,0.009+d2*0.015,0.020+_hash(i*2.3,seed)*0.028,
+             p[0],p[1],3+Math.floor(d2*5));
+  }
+}
+// the number roundel every car carries on its door
+function _roundel(c,u,v,pu,pv,r,bg,fg,ring){
+  const du=(u-pu)/r, dv=(v-pv)/(r*2.1), d=Math.hypot(du,dv);
+  if(d>1.08)return;
+  _mix(c, d>0.88?(ring===undefined?fg:ring) : bg, 1);
+  if(d<0.84&&Math.abs(dv)<0.60){
+    const t=_rep((u-pu+r*0.62)/(r*1.24)*3);
+    if(t<0.44)_mix(c,fg,1);
+  }
+}
 // a rectangle of colour on the deck — a sponsor patch, a number plate, a label
 function _patch(c,u,v,pu,pv,h,w,hex,k){
   if(Math.abs(u-pu)<h&&Math.abs(v-pv)<w)_mix(c,hex,k===undefined?1:k);
@@ -2062,8 +2098,18 @@ const BOARDS=[
          const edge=Math.abs(u*1.35-s2*0.55-0.72);
          if(edge<0.30&&_hash(cell,3)<0.55-edge)_mix(c,u*1.35-s2*0.55<0.72?0xf2f4f7:0x1d4fa8,0.85);
          if(edge<0.16&&_hash(cell,11)<0.40)_mix(c,0x0e2f6b,0.7);
-         if(top)_patch(c,u,v,0.50,0.0,0.055,0.30,0xffffff,0.9);
-         if(top)_patch(c,u,v,0.50,0.0,0.030,0.10,0x11294f,1);
+         if(!top)return;
+         // a title bar down the deck, the way a car carries its team name along the door
+         _sticker(c,u,v,0.50,0.0,0.052,0.115,0xffffff,0x11294f,6);
+         // contingency strips: the dense rows that run along a car's flanks
+         for(let i=0;i<9;i++)for(const sx of [-1,1])
+           _sticker(c,u,v,0.16+i*0.075,sx*0.50,0.024,0.026,
+                    i%3===0?0xe8eef6:(i%3===1?0xe23c2e:0x0e2f6b),
+                    i%3===0?0x11294f:0xffffff,4);
+         _decals(c,u,v,17,26,0.10,0.94,0.16,0.60,
+                 [[0xffffff,0x11294f],[0xe23c2e,0xffffff],[0x0e2f6b,0xf0d21e],
+                  [0xf0d21e,0x11294f],[0xe8eef6,0xe23c2e]]);
+         _roundel(c,u,v,0.72,0.0,0.062,0xffffff,0x11294f,0xe23c2e);
        }}),
      fins:[{x:0,z:1.30,c:0.30,d:0.30,t:0.024,rake:0.12},
            {x:-0.40,z:1.02,c:0.28,d:0.26,t:0.020,rake:0.08,cant:0.18},
@@ -2083,7 +2129,15 @@ const BOARDS=[
          if(w2>1.15&&w2<1.42)_mix(c,0xd8f230,0.95);
          if(w1>1.62&&w1<1.78)_mix(c,0x9ab41c,0.9);
          if(s2>0.70&&s2<0.80&&u>0.12&&u<0.90)_mix(c,0xd8f230,0.8);
-         if(top)_patch(c,u,v,0.62,0.0,0.045,0.16,0xd8f230,1);
+         if(!top)return;
+         _sticker(c,u,v,0.38,0.0,0.048,0.120,0xd8f230,0x101114,6);
+         for(let i=0;i<10;i++)for(const sx of [-1,1])
+           _sticker(c,u,v,0.14+i*0.072,sx*0.54,0.022,0.024,
+                    i%2?0x1a1c20:0xd8f230, i%2?0xd8f230:0x101114,4);
+         _decals(c,u,v,41,28,0.10,0.94,0.14,0.62,
+                 [[0xd8f230,0x101114],[0xffffff,0x101114],[0x101114,0xd8f230],
+                  [0xe23c2e,0xffffff],[0x9ab41c,0x101114]]);
+         _roundel(c,u,v,0.70,0.0,0.060,0xffffff,0x101114,0xd8f230);
        }}),
      fins:[{x:0,z:1.24,c:0.28,d:0.28,t:0.022,rake:0.10},
            {x:-0.40,z:0.96,c:0.26,d:0.24,t:0.020,rake:0.06,cant:0.18},
@@ -2110,7 +2164,16 @@ const BOARDS=[
            for(const sx of [-1,1])
              _patch(c,u,v,0.56+Math.sin(a2)*0.075,sx*(0.14+Math.cos(a2)*0.055),0.016,0.020,0xd8b45c,0.9);
          }
-         if(top)_patch(c,u,v,0.56,0.0,0.052,0.075,0xd8b45c,1);
+         if(!top)return;
+         // a privateer runs fewer stickers, and better ones
+         _sticker(c,u,v,0.34,0.0,0.044,0.100,0xd8b45c,0x0b0a09,5);
+         for(let i=0;i<7;i++)for(const sx of [-1,1])
+           _sticker(c,u,v,0.20+i*0.095,sx*0.52,0.019,0.022,
+                    i%2?0xf0f0ec:0xd8b45c,0x0b0a09,3);
+         _decals(c,u,v,73,16,0.14,0.92,0.18,0.58,
+                 [[0xd8b45c,0x0b0a09],[0xf0f0ec,0x0b0a09],[0x0b0a09,0xd8b45c],
+                  [0xc9a244,0x131110]]);
+         _roundel(c,u,v,0.56,0.0,0.058,0xf4f2ec,0x0b0a09,0xd8b45c);
        }}),
      fins:[{x:0,z:1.36,c:0.30,d:0.30,t:0.024,rake:0.12},
            {x:-0.38,z:1.06,c:0.26,d:0.24,t:0.020,rake:0.06,cant:0.16},
@@ -2129,11 +2192,16 @@ const BOARDS=[
            if(Math.abs(u-at)<wd)_mix(c,0xc4232a,0.95);
          // a thin red line following the rail the whole way down
          if(Math.abs(s2-0.66)<0.012)_mix(c,0xc4232a,0.9);
-         if(top){
-           _patch(c,u,v,0.58,0.0,0.070,0.135,0xffffff,1);
-           _patch(c,u,v,0.58,0.0,0.055,0.115,0xc4232a,1);
-           _patch(c,u,v,0.58,0.0,0.040,0.085,0xffffff,1);
-         }
+         if(!top)return;
+         _sticker(c,u,v,0.40,0.0,0.050,0.118,0xc4232a,0xffffff,6);
+         for(let i=0;i<9;i++)for(const sx of [-1,1])
+           _sticker(c,u,v,0.16+i*0.076,sx*0.50,0.021,0.024,
+                    i%3===0?0xc4232a:(i%3===1?0x1b1b1f:0xf6f6f4),
+                    i%3===2?0xc4232a:0xf6f6f4,4);
+         _decals(c,u,v,29,22,0.12,0.94,0.16,0.58,
+                 [[0xc4232a,0xf6f6f4],[0x1b1b1f,0xf6f6f4],[0xf6f6f4,0xc4232a],
+                  [0xf0c419,0x1b1b1f]]);
+         _roundel(c,u,v,0.66,0.0,0.064,0xf6f6f4,0x1b1b1f,0xc4232a);
        }}),
      fins:[{x:0,z:1.28,c:0.30,d:0.30,t:0.024,rake:0.12},
            {x:-0.40,z:1.00,c:0.27,d:0.25,t:0.020,rake:0.07,cant:0.18},

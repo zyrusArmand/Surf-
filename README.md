@@ -52,6 +52,16 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.87.0** — The racing set is covered in sponsor decals, because a real GT car is not
+  a paint job — it is a paint job under two hundred stickers, and the density of them is
+  most of what makes one read as a race car rather than a coloured car.
+  None of them say anything. At the size a board is ever actually seen, lettering IS a row
+  of bars, so that is what they are: a panel, a margin, and bars inside it. No real marks
+  and no real names anywhere. Each board gets a title bar down the deck, contingency
+  strips running the flanks the way they do above a rear wheel arch, a scattered field of
+  small decals placed off a hash so the board is the same board every time it is lofted,
+  and a number roundel. Hydro and Acid carry a full grid car's worth; Laurel runs fewer
+  and finer, because a privateer does.
 - **v1.86.0** — A character of my own, a porcelain board, and a second racing set.
   **Wick the Anglerfish** (8,800). The whole cast is shapes; nothing in it *does*
   anything. She does: the bulb on the end of her stalk is dim in the afternoon and burns
