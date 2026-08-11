@@ -442,7 +442,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.85.0';
+const VERSION='1.86.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2005,6 +2005,139 @@ const BOARDS=[
   // carries the board and nothing competes with it. And there are depth graduations
   // ticked down the rail, because a chart has a scale on it.
   // ---------------------------------------------------------------------------
+  // ---- blue and white porcelain ----
+  {id:'qinghua', name:'Qinghua', price:10500,
+   blurb:'Cobalt under a white glaze. Sea-and-cliff waves, a key-fret border, and a craze in the finish.',
+   spec:{L:5.05,W:0.80,T:0.132,noseA:0.80,tailA:0.84,noseW:0.26,tailW:0.28,
+     rockN:0.24,noseR:0.32,rockT:0.07,tailR:0.20,deckPow:0.62,hullPow:0.48,hullK:0.60,
+     nu:300,nr:96,
+     pad:false,finCol:0x2a4f96,
+     paint:artScheme({deck:0xf4f2ea,hull:0xf7f5ef,rail:0x2a4f96,stringer:0x24468a,
+       pin:0x24468a,sw:0.008,railAt:0.90,both:true,
+       art:(c,u,v,top)=>{
+         const s2=Math.abs(v);
+         // cobalt is a wash, not a flat ink: it pools and thins across a stroke, so every
+         // blue here is laid down through a noise field rather than at one strength
+         const wash=(k)=>0.55+_fbm(u*9,v*5)*0.75*k;
+         // sea-and-cliff: rows of scallops climbing the board, each row offset
+         const rows=5;
+         for(let r=0;r<rows;r++){
+           const at=0.10+r*0.185, sp=0.052+r*0.004, off=(r%2)*0.5;
+           const d=Math.abs(u-at);
+           if(d<0.070){
+             const arc=_rep(s2/sp+off);
+             const lip=Math.abs(arc-0.5);
+             if(lip<0.30-d*2.2)_mix(c,0x2e5aa8,(1-d/0.070)*wash(1)*0.85);
+             if(lip<0.09)_mix(c,0x16336e,(1-d/0.070)*0.85);
+           }
+         }
+         // a key-fret meander running down each rail
+         if(s2>0.62&&s2<0.74){
+           const t2=_rep(u*23), w2=(s2-0.62)/0.12;
+           const bar=(t2<0.16)||(t2>0.30&&t2<0.46&&w2>0.55)||(t2>0.60&&t2<0.76)||(w2<0.14)||(w2>0.86);
+           if(bar)_mix(c,0x24468a,0.88);
+         }
+         // the craze: hairline crackle through the glaze, everywhere and very faint
+         const cz=_fbm(u*26+3.1,v*17-1.4);
+         if(Math.abs(cz-0.5)<0.018)_mix(c,0x8fa7c4,0.55);
+       }}),
+     fins:[{x:0,z:1.86,c:0.46,d:0.44,t:0.028,rake:0.16},
+           {x:-0.34,z:1.42,c:0.26,d:0.22,t:0.020,rake:0.06,cant:0.14},
+           {x: 0.34,z:1.42,c:0.26,d:0.22,t:0.020,rake:0.06,cant:-0.14}]}},
+  // ---- a second racing set: real GT liveries rather than invented ones ----
+  {id:'hydro', name:'Hydro GT', price:4800,
+   blurb:'Works blue over white, dissolving into pixels down the rail. Endurance car, wrong element.',
+   spec:{L:4.55,W:0.79,T:0.122,noseA:0.86,tailA:0.80,noseW:0.24,tailW:0.34,
+     rockN:0.28,noseR:0.34,rockT:0.09,tailR:0.24,deckPow:0.60,hullPow:0.46,hullK:0.58,
+     nu:260,nr:70,pad:true,padCol:0x11294f,padW:0.66,pads:[[0.30,0.47],[0.60,0.82]],finCol:0x123064,
+     paint:artScheme({deck:0xf2f4f7,hull:0xeef1f5,rail:0x11294f,stringer:0x1d4fa8,
+       pin:0x1d4fa8,sw:0.012,railAt:0.86,both:true,
+       art:(c,u,v,top)=>{
+         const s2=Math.abs(v);
+         // the sweep: a broad blue field cut by a hard diagonal, the way a wrap is laid on
+         if(u*1.35-s2*0.55<0.72)_mix(c,0x1d4fa8,0.92);
+         // and it breaks up into a dither block by block, coarse at the edge and finer in
+         const g=22;
+         const cell=Math.floor(u*g)+Math.floor(s2*g*0.5)*97;
+         const edge=Math.abs(u*1.35-s2*0.55-0.72);
+         if(edge<0.30&&_hash(cell,3)<0.55-edge)_mix(c,u*1.35-s2*0.55<0.72?0xf2f4f7:0x1d4fa8,0.85);
+         if(edge<0.16&&_hash(cell,11)<0.40)_mix(c,0x0e2f6b,0.7);
+         if(top)_patch(c,u,v,0.50,0.0,0.055,0.30,0xffffff,0.9);
+         if(top)_patch(c,u,v,0.50,0.0,0.030,0.10,0x11294f,1);
+       }}),
+     fins:[{x:0,z:1.30,c:0.30,d:0.30,t:0.024,rake:0.12},
+           {x:-0.40,z:1.02,c:0.28,d:0.26,t:0.020,rake:0.08,cant:0.18},
+           {x: 0.40,z:1.02,c:0.28,d:0.26,t:0.020,rake:0.08,cant:-0.18}]}},
+  {id:'acid', name:'Acid R', price:5400,
+   blurb:'Matte black and a yellow that hurts. Every panel line drawn with a straight edge.',
+   spec:{L:4.42,W:0.77,T:0.118,noseA:0.88,tailA:0.78,noseW:0.22,tailW:0.36,
+     rockN:0.30,noseR:0.34,rockT:0.10,tailR:0.26,deckPow:0.58,hullPow:0.46,hullK:0.58,
+     nu:260,nr:68,pad:true,padCol:0x0b0b0c,padW:0.66,pads:[[0.28,0.46],[0.60,0.82]],finCol:0xd8f230,
+     paint:artScheme({deck:0x131417,hull:0x101114,rail:0x0a0a0b,stringer:0xd8f230,
+       pin:0xd8f230,sw:0.010,railAt:0.86,vivid:1.1,both:true,
+       art:(c,u,v,top)=>{
+         const s2=Math.abs(v);
+         // hard-edged wedges, no curves anywhere — the whole livery is straight cuts
+         const w1=u*2.1+s2*1.1, w2=u*2.1-s2*1.4;
+         if(w1>0.55&&w1<0.95)_mix(c,0xd8f230,0.95);
+         if(w2>1.15&&w2<1.42)_mix(c,0xd8f230,0.95);
+         if(w1>1.62&&w1<1.78)_mix(c,0x9ab41c,0.9);
+         if(s2>0.70&&s2<0.80&&u>0.12&&u<0.90)_mix(c,0xd8f230,0.8);
+         if(top)_patch(c,u,v,0.62,0.0,0.045,0.16,0xd8f230,1);
+       }}),
+     fins:[{x:0,z:1.24,c:0.28,d:0.28,t:0.022,rake:0.10},
+           {x:-0.40,z:0.96,c:0.26,d:0.24,t:0.020,rake:0.06,cant:0.18},
+           {x: 0.40,z:0.96,c:0.26,d:0.24,t:0.020,rake:0.06,cant:-0.18}]}},
+  {id:'laurel', name:'Laurel 11', price:8400,
+   blurb:'Black lacquer and hand-laid gold. A privateer car with more history than sponsors.',
+   spec:{L:4.70,W:0.75,T:0.120,noseA:0.84,tailA:0.80,noseW:0.22,tailW:0.30,
+     rockN:0.27,noseR:0.33,rockT:0.08,tailR:0.22,deckPow:0.60,hullPow:0.46,hullK:0.58,
+     nu:280,nr:72,pad:true,padCol:0x0a0908,padW:0.64,pads:[[0.30,0.47],[0.61,0.82]],finCol:0xc9a244,
+     paint:artScheme({deck:0x0d0c0b,hull:0x0b0a09,rail:0x080706,stringer:0xd8b45c,
+       pin:0xd8b45c,sw:0.009,railAt:0.88,vivid:1.1,both:true,
+       art:(c,u,v,top)=>{
+         const s2=Math.abs(v);
+         // coachlining: fine gold pinstripes laid in pairs, the way they are painted by hand
+         for(const at of [0.30,0.345,0.62,0.665]){
+           if(Math.abs(s2-at)<0.009)_mix(c,0xd8b45c,0.95);
+         }
+         // and a long tapering flash down the centre of the deck
+         const fl=Math.abs(s2-0.0)-(0.06+Math.sin(u*3.0)*0.035);
+         if(fl<0&&u>0.14&&u<0.92)_mix(c,0xc9a244,0.55);
+         // a laurel wreath of small leaves either side of the number
+         if(top)for(let i=0;i<7;i++){
+           const a2=(i/6-0.5)*1.5;
+           for(const sx of [-1,1])
+             _patch(c,u,v,0.56+Math.sin(a2)*0.075,sx*(0.14+Math.cos(a2)*0.055),0.016,0.020,0xd8b45c,0.9);
+         }
+         if(top)_patch(c,u,v,0.56,0.0,0.052,0.075,0xd8b45c,1);
+       }}),
+     fins:[{x:0,z:1.36,c:0.30,d:0.30,t:0.024,rake:0.12},
+           {x:-0.38,z:1.06,c:0.26,d:0.24,t:0.020,rake:0.06,cant:0.16},
+           {x: 0.38,z:1.06,c:0.26,d:0.24,t:0.020,rake:0.06,cant:-0.16}]}},
+  {id:'cup', name:'Cup 22', price:3900,
+   blurb:'White, red script, one number. A one-make car that never needed anything else.',
+   spec:{L:4.50,W:0.78,T:0.120,noseA:0.86,tailA:0.80,noseW:0.24,tailW:0.32,
+     rockN:0.28,noseR:0.33,rockT:0.09,tailR:0.24,deckPow:0.60,hullPow:0.46,hullK:0.58,
+     nu:260,nr:68,pad:true,padCol:0xb81f24,padW:0.66,pads:[[0.30,0.47],[0.60,0.82]],finCol:0xc4232a,
+     paint:artScheme({deck:0xf6f6f4,hull:0xf2f2f0,rail:0xc4232a,stringer:0xc4232a,
+       pin:0xc4232a,sw:0.010,railAt:0.90,both:true,
+       art:(c,u,v,top)=>{
+         const s2=Math.abs(v);
+         // three red bands over the nose, wide-narrow-wide, and nothing else but a number
+         for(const [at,wd] of [[0.14,0.030],[0.20,0.014],[0.25,0.030]])
+           if(Math.abs(u-at)<wd)_mix(c,0xc4232a,0.95);
+         // a thin red line following the rail the whole way down
+         if(Math.abs(s2-0.66)<0.012)_mix(c,0xc4232a,0.9);
+         if(top){
+           _patch(c,u,v,0.58,0.0,0.070,0.135,0xffffff,1);
+           _patch(c,u,v,0.58,0.0,0.055,0.115,0xc4232a,1);
+           _patch(c,u,v,0.58,0.0,0.040,0.085,0xffffff,1);
+         }
+       }}),
+     fins:[{x:0,z:1.28,c:0.30,d:0.30,t:0.024,rake:0.12},
+           {x:-0.40,z:1.00,c:0.27,d:0.25,t:0.020,rake:0.07,cant:0.18},
+           {x: 0.40,z:1.00,c:0.27,d:0.25,t:0.020,rake:0.07,cant:-0.18}]}},
   {id:'fathom', name:'Fathom', price:6800,
    blurb:'The deck is a chart of the sea it rides. Same sines, same crossings, printed cold.',
    spec:{L:5.30,W:0.78,T:0.128,noseA:0.74,tailA:0.80,noseW:0.24,tailW:0.26,
@@ -2703,7 +2836,7 @@ tailJ.rotation.y=-1.16;
 // animation — belongs to the rig and is shared; a character is only its colours and
 // the pieces that hang off the head and the tail joint. So a cat rides exactly as
 // well as the pug does, and none of the animation has to be written twice.
-let kitParts=[], charEars=[];
+let kitParts=[], charEars=[], lureMat=null, lureGlow=null;
 function kit(parent,mesh){ parent.add(mesh); kitParts.push(mesh); return mesh; }
 function clearKit(){ for(const m of kitParts) if(m.parent)m.parent.remove(m); kitParts.length=0; charEars.length=0; }
 // eyes are part of the kit: where they sit and how big they are is most of what
@@ -2879,6 +3012,16 @@ const CHARS=[
    shape:[0.86,0.78,0.88,0.80], tall:1.16, wide:0.96, deep:0.94, neckLen:0.94,
    build:[0.50,0.74,0.52], socket:0.58, limb:0.66, limbLen:1.10, headS:[0.80,0.76,0.82],
    arm:0.6, armLen:0.92, foot:0.86},
+  {id:'angler',name:'Wick the Anglerfish',price:8800,
+   blurb:'Spent her whole life a mile down with the only light for miles. Brought it up with her.',
+   fur:0x2c3a42, dark:0x161f26, nose:0x0d1418, lureCol:0x9ff6dc,
+   face:'angler', ears:'none', tail:'fin', tailTilt:1.30, eyes:'beady',
+   lure:true, flipper:true, gloss:0.30,
+   // all head and jaw on almost no body, and the little of her that is not mouth is fin
+   shape:[0.86,0.96,1.06,0.80], tall:1.04, wide:0.94, deep:0.88, neckLen:0.58,
+   headS:[1.22,1.16,1.18],
+   build:[0.88,0.90,0.90], limb:0.82, limbLen:0.72, arm:0.88, armLen:0.86,
+   foot:1.06, footShape:[1.30,0.50,1.10], hand:1.0},
   {id:'monkey',name:'Bongo the Monkey',price:2100,
    blurb:'Arms longer than his legs and a tail with opinions of its own. Never once sat still.',
    fur:0x8a5a34, dark:0xd8a978, nose:0x2a1a12, muzzle:0xe0b489, inner:0xe8b79a,
@@ -3092,6 +3235,32 @@ function buildChar(id){
     }
   }
 
+  // ---- an angler's lure ----
+  // The one thing in the cast that is not just a shape: the bulb on the end of the stalk
+  // is dim in the afternoon and burns at dusk, off the same time-of-day figure the sky
+  // is lerped from. A deep-sea fish carrying its own light out into the sunset.
+  if(C.lure){
+    const stalk=PBR({color:C.dark,roughness:0.55,vivid:1.1});
+    let par=headJ;
+    for(let i=0;i<5;i++){
+      const seg=kit(par,new THREE.Mesh(new THREE.CylinderGeometry(0.030-i*0.004,0.038-i*0.004,0.16,8),stalk));
+      seg.position.y=0.08;
+      const nx=new THREE.Group();
+      nx.position.y=0.16;
+      nx.rotation.x=i===0?-0.30:-0.34;              // up off the skull, then over the brow
+      if(i===0)nx.position.set(0,0.30,-0.06);
+      par.add(nx); kitParts.push(nx); par=nx;
+    }
+    lureMat=new THREE.MeshStandardMaterial({color:0x1d3a30,emissive:new THREE.Color(C.lureCol||0x8ff2d8),
+      emissiveIntensity:1.0,roughness:0.30});
+    const bulb=kit(par,new THREE.Mesh(new THREE.SphereGeometry(0.085,18,14),lureMat));
+    bulb.position.y=0.06;
+    lureGlow=kit(par,new THREE.Mesh(new THREE.SphereGeometry(0.24,16,12),
+      new THREE.MeshBasicMaterial({color:C.lureCol||0x8ff2d8,transparent:true,opacity:0.18,
+        blending:THREE.AdditiveBlending,depthWrite:false})));
+    lureGlow.position.y=0.06; lureGlow.renderOrder=2;
+  } else { lureMat=null; lureGlow=null; }
+
   // ---- toes and fingers ----
   // Hung off the foot and hand meshes so they inherit whatever shape those ended up —
   // a long narrow foot gets long narrow toes without a second set of numbers.
@@ -3158,6 +3327,25 @@ function buildChar(id){
     for(const sx of [-1,1]){
       const t=kit(headJ,new THREE.Mesh(new THREE.BoxGeometry(0.046,0.085,0.028),mat(0xfffbe8)));
       t.position.set(sx*0.028,-0.165,-0.425);t.rotation.x=0.10;
+    }
+  } else if(C.face==='angler'){
+    const D=C.headS||[1,1,1];
+    // The jaw IS the fish. A wide hinged mouth carried low and forward, a gum line, and
+    // needle teeth that cross past each other because they are too long to close over.
+    const jaw=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.34,22,16),furMat));
+    jaw.position.set(0,-0.20*D[1],-0.16*D[2]);jaw.scale.set(1.12*D[0],0.56,1.10*D[2]);
+    const gum=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.30,20,14),
+      PBR({color:0x5d2130,roughness:0.5})));
+    gum.position.set(0,-0.11*D[1],-0.22*D[2]);gum.scale.set(1.02*D[0],0.30,0.98*D[2]);
+    const tooth=mat(0xf4efe0,60);
+    for(let i=0;i<9;i++){
+      const t2=(i/8-0.5), z=-0.30-Math.cos(t2*2.1)*0.10;
+      for(const up of [1,-1]){
+        const c2=kit(headJ,new THREE.Mesh(new THREE.ConeGeometry(0.020,0.115+Math.cos(t2*2.4)*0.05,6),tooth));
+        c2.position.set(t2*0.46*D[0],(up>0?-0.055:-0.175)*D[1],z*D[2]);
+        c2.rotation.x=up>0?Math.PI:0;
+        c2.rotation.z=t2*0.5;
+      }
     }
   } else if(C.face==='alien'){
     // barely a face at all: no muzzle, no nose, a thin mouth and two pin-prick nostrils
@@ -3350,6 +3538,12 @@ function buildChar(id){
       const nx=new THREE.Group(); nx.position.y=0.16; nx.rotation.x=-0.34+i*0.10; par.add(nx);
       kitParts.push(nx); par=nx;
     }
+  } else if(C.tail==='fin'){                  // a caudal fan, flat and upright
+    const t=kit(tailRoot(C.tailTilt===undefined?1.30:C.tailTilt),
+      new THREE.Mesh(new THREE.SphereGeometry(0.30,18,14),furMat));
+    // no ray spines: the fan is scaled hard in one axis, and anything parented to it gets
+    // sheared into a spike sticking out of the animal
+    t.position.y=0.22;t.scale.set(0.15,1.15,0.95);
   } else if(C.tail==='plume'){
     // A squirrel IS its tail: a big S-curved plume that leaves the rump, sweeps up
     // behind and folds forward over its own back. Built as a chain like the other long
@@ -4133,7 +4327,7 @@ let switchRide=false, waveT=0;
 function applyStance(){ pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0); }
 let grabOn=false,grabPts=0,grabSide=1,grabSrc='gesture';
 let dragOn=false,dragPts=0,dragSide=1,dragSrc='gesture';
-let shake=0,boost=0,carrySpin=0,carryFlip=0,wobRoll=0,wobYaw=0;
+let shake=0,boost=0,carrySpin=0,carryFlip=0,wobRoll=0,wobYaw=0,dayT=0;
 // The helicopter: he goes flat on the nose of the board, takes hold of it and BARREL
 // ROLLS — the board turning over about the way it is travelling, not spinning flat. It
 // is held and released like the other three, and what it buys you is rate: rolling this
@@ -5187,6 +5381,7 @@ function updateDayCycle(){
   // paced so a normal run actually gets there: warm by a few hundred metres,
   // golden around a kilometre, full sunset beyond that
   const tod=1-Math.exp(-dist/1250);
+  dayT=tod;                         // how far into the evening it is, for anything that cares
   let i=0;while(i<SKY_KEYS.length-2&&tod>SKY_KEYS[i+1].t)i++;
   const A=SKY_KEYS[i],B=SKY_KEYS[i+1];
   const k=Math.max(0,Math.min(1,(tod-A.t)/(B.t-A.t)));
@@ -6231,6 +6426,12 @@ function animateRig(dt,carve,grab,waterY){
     headJ.rotation.x=headJ.rotation.x*(1-h)+0.66*h;    // chin up off the deck, eyes past the tip
     headJ.rotation.y*=1-h;
   } else if(pug.rotation.x!==0){ pug.rotation.x=0; pug.position.set(PUG_X0,0,PUG_Z0); applyStance(); }
+  if(lureMat){
+    const flick=0.86+Math.sin(tNow*3.1)*0.08+Math.sin(tNow*7.9)*0.06;
+    lureMat.emissiveIntensity=(0.30+dayT*3.1)*flick;
+    lureGlow.material.opacity=(0.06+dayT*0.42)*flick;
+    lureGlow.scale.setScalar(0.85+dayT*0.5);
+  }
   updateLimbs();      // the visible limb is swept from wherever the joints ended up
 }
 

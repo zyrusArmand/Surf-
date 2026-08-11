@@ -52,6 +52,27 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.86.0** — A character of my own, a porcelain board, and a second racing set.
+  **Wick the Anglerfish** (8,800). The whole cast is shapes; nothing in it *does*
+  anything. She does: the bulb on the end of her stalk is dim in the afternoon and burns
+  at dusk, driven off the same time-of-day figure the sky is lerped from, so a deep-sea
+  fish carries her own light out into the sunset as the run goes long. All head and hinged
+  jaw on almost no body, needle teeth too long to close over, pectoral flippers, a caudal
+  fan. Least likely animal in the ocean to be on top of it.
+  **Qinghua** (10,500) — blue-and-white porcelain. Sea-and-cliff scallops climbing the
+  deck in rows, a key-fret meander down each rail, and a craze through the glaze. Cobalt
+  is a wash rather than a flat ink, so every blue is laid down through a noise field: it
+  pools and thins across a stroke the way a loaded brush does.
+  **Hydro GT, Acid R, Laurel 11, Cup 22** — a second racing set off real GT liveries
+  rather than invented ones. Works blue over white dissolving into pixels; matte black and
+  a yellow that hurts, every panel line drawn with a straight edge; black lacquer with
+  hand-laid gold coachlining and a laurel; and a one-make car in white with red bands and
+  a number, which never needed anything else.
+  All four of those came out blank white at first: `_patch` takes the VERTEX u and v as
+  its second and third arguments, and every call was passing the patch's own centre into
+  those slots, so the colour landed as undefined and painted the whole deck. Caught by
+  probing the paint rather than staring at renders — the deck measured a flat 1.00
+  luminance from nose to tail.
 - **v1.85.0** — **Fathom** (6,800). Every other board in the rack imitates a style — a
   log, a fish, a spray job, a race livery. Not one of them is a READOUT. This one is: the
   deck carries a contour chart of the sea, built the way the sea in this game is actually
