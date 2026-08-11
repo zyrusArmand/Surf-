@@ -52,6 +52,13 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.70.0** — Allen is one body, hips and legs and all. A limb sweep starts at a control
+  point pushed up inside the torso; how far up is now per character, and paired with a
+  thick-topped leg profile it makes the thighs merge with the body and with each other
+  inside the trunk. Allen's hips were narrowed so the belly no longer overhangs them, and
+  his thighs flare to meet it: the trunk carries on down into the legs as one mass with a
+  notch cut in it, rather than an oval with two sticks under it. The shoulders got the
+  same treatment. Everyone else keeps the old blend, so nothing else moved.
 - **v1.69.0** — Lily is Allen the Frog, and he is built like Kermit rather than like a
   round animal with a frog's face. Lanky is the whole read: a small oval body carried
   high on legs two and three-quarter times everyone else's, arms nearly twice as long and

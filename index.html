@@ -399,7 +399,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.69.0';
+const VERSION='1.70.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2513,11 +2513,11 @@ const CHARS=[
    // as thin and just as long, and a big wide head sat straight on the shoulders with
    // the eyes on top of it. The limb profiles are near-uniform on purpose: a frog's arm
    // has no bicep and no calf, it is the same thin all the way down.
-   shape:[0.86,0.98,0.92,0.72], tall:1.02, wide:0.82, deep:0.76, neckLen:0.60,
+   shape:[0.72,0.94,0.92,0.72], tall:1.02, wide:0.82, deep:0.76, neckLen:0.60,
    headS:[1.05,0.88,1.00],
    build:[0.90,0.94,0.90], limb:1.0, arm:1.0, limbLen:2.75, armLen:1.95, lip:0x8e1c34,
-   legProf:[0.130,0.100,0.088,0.092,0.078,0.066],
-   armProf:[0.112,0.090,0.082,0.085,0.072,0.060],
+   legProf:[0.225,0.150,0.098,0.098,0.080,0.066], legBlend:0.34,
+   armProf:[0.150,0.104,0.084,0.086,0.072,0.060], armBlend:0.24,
    foot:1.00, footShape:[0.92,0.42,2.05], hand:0.82, handShape:[0.88,0.46,1.30],
    toes:3, fingers:4},
   {id:'otter', name:'Nori the Otter', price:1900,
@@ -2609,6 +2609,7 @@ function buildChar(id){
   // sloth's arms are thin and even, a rex's legs are heavy at the thigh
   legThick=L; armThick=A;
   legProf=C.legProf||LEG_PROFILE; armProf=C.armProf||ARM_PROFILE;
+  legBlend=C.legBlend||0.16; armBlend=C.armBlend||0.16;
   // a penguin's arm is a paddle: same bones, pressed flat and spread wide
   const FL=C.flipper?1.55:1, FT=C.flipper?0.42:1;
   armFlat=C.flipper?[0.44,1.50]:[1,1];
@@ -3000,12 +3001,16 @@ const LEG_PROFILE=[0.205,0.190,0.152,0.163,0.126,0.104];
 const ARM_PROFILE=[0.180,0.152,0.122,0.133,0.104,0.088];
 const _p=[new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3()];
 const _t=new THREE.Vector3(), _n=new THREE.Vector3(), _b=new THREE.Vector3(), _w=new THREE.Vector3();
-function sweepLimb(mesh,chain,prof,thick,flat){
+function sweepLimb(mesh,chain,prof,thick,flat,blend){
   const g=mesh.geometry, pos=g.attributes.position.array;
   // the chain in the mesh's own space, with a control point pushed up inside the body so
   // the limb grows out of the torso instead of starting at its surface
   for(let i=0;i<4;i++){ chain[i].getWorldPosition(_w); pug.worldToLocal(_w); _p[i+1].copy(_w); }
-  _p[0].copy(_p[1]).sub(_p[2]).setLength(0.16).add(_p[1]);
+  // how far up INSIDE the torso the limb starts. Push it far enough and a thick-topped
+  // profile merges with the body and with its opposite number, so the trunk carries on
+  // into the legs as one mass with a notch in it rather than a belly with two pipes
+  // hanging off it — which is the whole silhouette of a Gang Beasts body.
+  _p[0].copy(_p[1]).sub(_p[2]).setLength(blend).add(_p[1]);
   const curve=mesh.userData.curve;
   curve.points=_p;
   _n.set(1,0,0);
@@ -3043,6 +3048,7 @@ function limbMesh(){
   return m;
 }
 let legThick=1, armThick=1, legProf=LEG_PROFILE, armProf=ARM_PROFILE, armFlat=[1,1];
+let legBlend=0.16, armBlend=0.16;
 function updateLimbs(){
   pug.updateMatrixWorld(true);
   // averaged over both legs: they sit at different angles on the board, so correcting off
@@ -3053,10 +3059,10 @@ function updateLimbs(){
     g.ankle.getWorldPosition(_w); pug.worldToLocal(_w); d2+=hy-_w.y;
   }
   legDrop=d2*0.5;
-  sweepLimb(legFrontJ.tube,legFrontJ.chain,legProf,legThick,[1,1]);
-  sweepLimb(legBackJ.tube ,legBackJ.chain ,legProf,legThick,[1,1]);
-  sweepLimb(armFrontJ.tube,armFrontJ.chain,armProf,armThick,armFlat);
-  sweepLimb(armBackJ.tube ,armBackJ.chain ,armProf,armThick,armFlat);
+  sweepLimb(legFrontJ.tube,legFrontJ.chain,legProf,legThick,[1,1],legBlend);
+  sweepLimb(legBackJ.tube ,legBackJ.chain ,legProf,legThick,[1,1],legBlend);
+  sweepLimb(armFrontJ.tube,armFrontJ.chain,armProf,armThick,armFlat,armBlend);
+  sweepLimb(armBackJ.tube ,armBackJ.chain ,armProf,armThick,armFlat,armBlend);
 }
 function makeLeg(zoff,xoff){
   const hip=joint(pelvis,xoff,0.02,zoff);
