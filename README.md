@@ -52,6 +52,15 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.79.0** — The version label sits clear of the iPhone home indicator. It was pinned
+  at a flat `bottom:8px`, which put it right on the bar; it is 24px now, plus a
+  `safe-area-inset-bottom` term so it tracks the indicator on any device that reports one.
+  Worth noting for later: that env() term is inert until the viewport meta carries
+  `viewport-fit=cover`, which this page does not set — so are the two safe-area rules
+  already in the stylesheet, for the HUD's top inset and the menu buttons' bottom inset.
+  Adding it would make all three work properly, but it also lets the canvas run under the
+  notch and the indicator, so it wants testing on a real handset rather than being turned
+  on blind.
 - **v1.78.0** — **Bongo the Monkey** (2,100), and the reason the site was stuck on v1.74.
   The arms are the animal: longer than his legs and thin, so he looks built to hang off
   things. Long tail, long hands and feet, pale muzzle, and a new ear type — big flat
