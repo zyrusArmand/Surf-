@@ -260,16 +260,19 @@
   #viewer .vtop, #viewer .vbot { position:relative; z-index:1; }
   #viewer .varr { z-index:2; }
   #viewer .vtop { text-align:center; pointer-events:none;
-    background:linear-gradient(180deg, rgba(4,16,30,.72), rgba(4,16,30,0));
-    margin:-14px -16px 0; padding:16px 16px 30px; }
+    background:linear-gradient(180deg, rgba(3,13,26,.88) 30%, rgba(3,13,26,.52) 70%, rgba(3,13,26,0));
+    margin:-14px -16px 0; padding:16px 16px 38px; }
   #viewer .vname { font-size:26px; font-weight:800; letter-spacing:.3px;
     text-shadow:0 2px 8px rgba(0,15,35,.8); }
   #viewer .vsub { font-size:13px; opacity:.82; margin-top:4px; line-height:1.4;
     max-width:520px; margin-left:auto; margin-right:auto;
     text-shadow:0 1px 6px rgba(0,15,35,.9); }
+  /* The scrims carry more weight now there is a sky and a beach behind them instead of a
+     flat navy: pale sand under the stat bars washed the segments out, and a sunset sky
+     behind the name did the same to the type. */
   #viewer .vbot { pointer-events:auto; width:min(520px,100%); margin:0 auto;
-    background:linear-gradient(0deg, rgba(4,16,30,.80), rgba(4,16,30,0));
-    padding:26px 14px 4px; margin-bottom:-4px; }
+    background:linear-gradient(0deg, rgba(3,13,26,.94) 22%, rgba(3,13,26,.72) 62%, rgba(3,13,26,0));
+    padding:34px 14px 4px; margin-bottom:-4px; }
   /* Long thick arrows down each side, to walk the rack without going back to the grid.
      No plate behind them: at this size the shape carries on its own, and a button would
      compete with the very thing it is there to let you look at. */
@@ -277,8 +280,10 @@
     width:46px; height:clamp(168px,28vh,240px); padding:0; border:0; background:none;
     cursor:pointer; pointer-events:auto; -webkit-tap-highlight-color:transparent;
     transition:opacity .18s ease, transform .09s ease; }
-  #viewer .varr.prev { left:6px; }
-  #viewer .varr.next { right:6px; }
+  /* in off the bezel: hard against the edge they read as part of the phone rather than
+     part of the page, and on a curved screen the tip falls away down the shoulder */
+  #viewer .varr.prev { left:18px; }
+  #viewer .varr.next { right:18px; }
   #viewer .varr svg { width:100%; height:100%; display:block; overflow:visible;
     animation:varrGlow 2.6s ease-in-out infinite; }
   /* Drawn the way a neon tube is drawn: the SAME closed outline stroked three times,
@@ -295,15 +300,17 @@
      tall as it is wide, and the hollow is a slot rather than a gap. */
   #viewer .varr svg path { fill:none; stroke-linejoin:round; stroke-linecap:round; }
   #viewer .varr .a { stroke:#ff6a00; stroke-width:3.0; opacity:.5; fill:rgba(255,150,40,.09); }
-  #viewer .varr .b { stroke:#ffab42; stroke-width:1.35; }
+  #viewer .varr .b { stroke:#ffab42; stroke-width:1.35;
+    animation:varrTube 2.6s ease-in-out infinite; }
+  @keyframes varrTube { 0%,100% { stroke:#ff9327; } 45% { stroke:#ffc978; } }
   /* the hot core breathes a beat out of step with the bloom, so it reads as something
      powered rather than as a shape someone put a glow filter on */
   #viewer .varr .c { stroke:#fff6e2; stroke-width:0.44; opacity:.85;
     animation:varrCore 2.6s ease-in-out infinite; }
   @keyframes varrCore { 0%,100% { opacity:.62; } 42% { opacity:1; } }
   @keyframes varrGlow {
-    0%,100% { filter:drop-shadow(0 0 3px rgba(255,140,20,.52)) drop-shadow(0 0 10px rgba(255,105,0,.20)); }
-    50%     { filter:drop-shadow(0 0 6px rgba(255,180,80,.78)) drop-shadow(0 0 19px rgba(255,105,0,.34)); } }
+    0%,100% { filter:drop-shadow(0 0 2px rgba(255,140,20,.42)) drop-shadow(0 0 7px rgba(255,105,0,.14)); }
+    50%     { filter:drop-shadow(0 0 8px rgba(255,190,95,.95)) drop-shadow(0 0 24px rgba(255,110,0,.46)); } }
   #viewer .varr:active { transform:translateY(-50%) scale(.9); }
   #viewer .varr:active .c { opacity:1; stroke-width:0.75; }
   #viewer .varr:active .a { opacity:.8; }
@@ -591,7 +598,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.1.0';
+const VERSION='2.2.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1579,23 +1586,62 @@ function buildBoardMesh(S){
     // for the fin on the +x rail and mirrors for the other. A fin on the stringer has
     // nothing to toe toward, so it stays square.
     m.rotation.y=-Math.PI/2+(f.x===0?0:(f.x>0?1:-1)*FIN_TOE);
-    const u=0.5+f.z/L, half=hw(u);
-    // A fin is bolted to the hull, so it has to sit ON the hull and INSIDE the rail.
-    // Neither was true. Every fin was hung at the depth of the hull's CENTRELINE while
-    // standing out near the rail, where the hull is a good deal shallower — measured on
-    // Razorline that left the root 0.017 below the surface it is supposed to be growing
-    // out of, about a quarter of the board's thickness there, and you could see daylight
-    // through the gap. And the sideways placement ignored both the fin's own thickness
-    // (the extrusion straddles x) and its cant, which leans the tip further out again:
-    // seven boards had fins standing clear of the outline, Midnight Gun's by 13%.
-    // So: the base is held a tenth of the half-width in from the rail, the tip is held
-    // at the rail, and the root follows the hull's actual curve at that offset.
-    const lean=Math.abs(Math.sin(f.cant||0))*d, halfT=ft*0.5;
-    const room=Math.max(0.01,Math.min(half*0.90-halfT, half-lean));
+    // A fin is bolted to the hull, so it has to sit ON the hull and INSIDE the rail. Both
+    // were checked at the fin's CENTRE only, which is the one place the arithmetic put it
+    // — so both checks passed and both were wrong. A fin is not a point: its root is a
+    // straight chord up to two thirds of a metre long, and over that length the hull
+    // curves away underneath it and the outline narrows around it.
+    //
+    // The hull curves fore-and-aft under the root — rocker plus the thickness running out
+    // toward the tail — so a root set to the hull's depth at its middle lifts clear of it
+    // at the ends. Sampled along the chord instead of at the middle, roots stood as much
+    // as 0.049 below the surface on Riptide Wake, which is the daylight you can see.
+    // The root now goes to the HIGHEST the hull reaches anywhere along the chord: every
+    // other point is then buried in foam, which shows as nothing at all.
+    //
+    // And the outline narrows toward the tail across the same span, so a fin held inside
+    // the half-width at its middle still hangs out at its aft end. Clamped against the
+    // NARROWEST the board gets along the chord, Midnight Gun was reaching 1.086 of it.
+    const halfT=ft*0.5, lean=Math.abs(Math.sin(f.cant||0))*d;
+    const SAMP=8, zAt=k=>f.z+(-0.5+k/SAMP)*cL;
+    // An asymmetric board's two rails are genuinely different — one runs wider, and its
+    // tail is cut forward of the other's — so a fin placed against the hull it actually
+    // sits on lands at a different depth on each side, and the pair stops mirroring. Both
+    // sides are therefore worked out for EVERY fin and the safe one is taken: the narrower
+    // half-width to clamp against, the higher hull to seat on. On the roomier rail the fin
+    // ends up a little further in and a little deeper into the foam, which shows as
+    // nothing, and the pair mirrors exactly.
+    const SIDES=(S.asymW||S.asymZ)?[-1,1]:[f.x<0?-1:1];
+    let halfMin=Infinity;
+    for(const sg of SIDES){
+      const aw=sg<0?(S.asymW||1):1;
+      for(let k=0;k<=SAMP;k++)
+        halfMin=Math.min(halfMin,hw(Math.max(0,Math.min(1,0.5+zAt(k)/L)))*aw);
+    }
+    // a base a fifth of the half-width in from the rail, and a tip that still clears it
+    const room=Math.max(0.01,Math.min(halfMin*0.80-halfT, halfMin*0.92-lean));
     const x=f.x===0?0:(f.x<0?-1:1)*Math.min(Math.abs(f.x),room);
-    const vv=half>1e-5?Math.min(0.999,Math.abs(x)/half):0;
-    const prof=Math.pow(Math.max(0,1-vv*vv),S.hullPow||0.42);
-    m.position.set(x, rock(u)-T*(S.hullK||0.62)*th(u)*prof+0.004, f.z);
+    // A swallow tail or an asymmetric cut moves the surface FORWARD of its own station, so
+    // the hull under a given z is not at u = 0.5 + z/L but at some larger u. Solving for it
+    // is what closed the last of the gaps: on the notched boards — Asymmetric, Tangerine
+    // Fish, Volt, Throw-Up — sampling the plain station left up to 0.017 of daylight.
+    let rootY=-Infinity;
+    for(const sg of SIDES){
+      const aw=sg<0?(S.asymW||1):1;
+      const uAt=zz=>{ let uu=Math.max(0,Math.min(1,0.5+zz/L));
+        for(let it=0;it<3;it++){
+          const hh=hw(uu)*aw, vv=hh>1e-5?Math.min(0.999,Math.abs(x)/hh)*sg:0;
+          uu=Math.max(0,Math.min(1,0.5+(zz-notch(uu,vv))/L));
+        }
+        return uu; };
+      for(let k=0;k<=SAMP;k++){
+        const uu=uAt(zAt(k)), hh=hw(uu)*aw;
+        const vv=hh>1e-5?Math.min(0.999,Math.abs(x)/hh):0;
+        const pf=Math.pow(Math.max(0,1-vv*vv),S.hullPow||0.42);
+        rootY=Math.max(rootY, rock(uu)-T*(S.hullK||0.62)*th(uu)*pf);
+      }
+    }
+    m.position.set(x, rootY+0.004, f.z);
     m.rotation.z=f.cant||0;
     grp.add(m);
   }
@@ -2650,7 +2696,7 @@ const RACK_ORDER=BOARDS.slice().sort((a,b)=>a.price-b.price);
 // keep the picture. Cheaper than a second canvas and it lights everything exactly the
 // way the game does.
 const PREV_W=248, PREV_H=186;
-let prevTarget=null, prevScene=null, prevCam=null;
+let prevTarget=null, prevScene=null, prevCam=null, beachSet=null;
 const prevCache={};
 function previewSetup(){
   if(prevScene)return;
@@ -2662,6 +2708,30 @@ function previewSetup(){
   const k=new THREE.DirectionalLight(0xfff3e0,1.8); k.position.set(-1.4,2.2,2.6); prevScene.add(k);
   const f=new THREE.DirectionalLight(0xbfd8ff,0.55); f.position.set(2.0,0.7,-1.8); prevScene.add(f);
   prevCam=new THREE.PerspectiveCamera(32,PREV_W/PREV_H,0.05,90);
+  // ---- the beach the full-screen look stands on ----
+  // The sky and the sea are the GAME'S sky and sea: the same shader instances on the same
+  // uniforms, so the preview is at whatever time of day the last run reached and the swell
+  // rolls through it rather than sitting still. Only the sand is new.
+  // It stays hidden for the shop's thumbnail pass — those are photographed onto
+  // transparency and laid on the card's own gradient, and a beach baked into a 148px tile
+  // fights the board's graphics instead of setting them off.
+  beachSet=new THREE.Group(); beachSet.visible=false;
+  const sky=new THREE.Mesh(new THREE.SphereGeometry(320,32,24),skyDome.material);
+  sky.renderOrder=-20; beachSet.add(sky);
+  // The object stands ON the sand with the water BEHIND it, not the other way round. With
+  // the shoreline between the camera and the object, how much beach you saw depended on
+  // how far back the camera had been pushed to frame that particular object — a tall board
+  // put the shore in the distance, a short character filled the bottom third of the screen
+  // with it. Behind the object it is a backdrop, and it looks the same for everything.
+  const sea=new THREE.Mesh(new THREE.PlaneGeometry(460,440,200,200),oceanMat);
+  sea.rotation.x=-Math.PI/2; sea.position.set(0,0,-228); beachSet.add(sea);
+  // No separate strip of wet sand: seen almost edge-on from a camera this low it stretched
+  // into a wide band right across the frame and took the sunset full on the face, which
+  // read as a pink stripe rather than a shoreline. The sea's own foam does the job.
+  const sand=new THREE.Mesh(new THREE.PlaneGeometry(460,220,1,1),
+    PBR({color:0xcfb489,roughness:0.98,metalness:0.0,envMapIntensity:0.28}));
+  sand.rotation.x=-Math.PI/2; sand.position.set(0,0.02,104); beachSet.add(sand);
+  prevScene.add(beachSet);
 }
 function snapshot(obj,swing,lift,zoom,byHeight){
   previewSetup();
@@ -2790,7 +2860,11 @@ function openViewer(kind,id){
   // viewer, and you would be looking at your own surfer under somebody else's name.
   shopFillId++;
   previewSetup();
-  if(!viewCam)viewCam=new THREE.PerspectiveCamera(36,1,0.1,300);
+  // far enough to hold the sky. It was 300 against a dome of radius 320, so the dome fell
+  // outside the frustum entirely and never drew — what looked like a dark sky was the clear
+  // colour showing through, and what looked like a horizon was the far plane cutting the
+  // sea off in a straight line.
+  if(!viewCam)viewCam=new THREE.PerspectiveCamera(36,1,0.1,1400);
   let obj,undo=null,name,sub;
   if(kind==='board'){
     const b=BOARD_BY_ID[id]; obj=boardArtFor(id); name=b.name; sub=b.blurb;
@@ -2847,6 +2921,14 @@ function openViewer(kind,id){
   const list=viewerList(kind), i=list.findIndex(o=>o.id===id);
   vPrev.classList.toggle('off',i<=0);
   vNext.classList.toggle('off',i<0||i>=list.length-1);
+  // stand it on the beach: the set drops to just under whatever the object's lowest point
+  // is, so a board stands in the shallows rather than floating over them or sunk in them
+  beachSet.visible=true;
+  beachSet.position.y=box.min.y-0.30;
+  // a calm day for looking at things. uAmp is only written by the two update paths, and
+  // neither runs while this is open, so setting it here holds until it is put back.
+  viewer.keepAmp=oceanUniforms.uAmp.value;
+  oceanUniforms.uAmp.value=Math.min(viewer.keepAmp,0.50);
   shopEl.classList.add('hidden');
   viewerEl.classList.remove('hidden');
 }
@@ -2892,6 +2974,8 @@ function closeViewer(){
   // the overlay goes back first: a board sitting in the rack unequipped has no parent at
   // all, and putting the model back used to throw on that and leave the shop hidden
   renderer.setClearColor(0x000000,1);
+  if(beachSet)beachSet.visible=false;
+  if(v.keepAmp!==undefined)oceanUniforms.uAmp.value=v.keepAmp;
   viewerEl.classList.add('hidden');
   shopEl.classList.remove('hidden');
   if(v.menuWasUp)overlay.classList.remove('hidden');

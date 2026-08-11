@@ -52,6 +52,32 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.2.0** — **The preview stands on a beach**, and the fin faults I said were fixed
+  were not.
+  **Both of the earlier "0.0000" fin results were measuring the wrong thing.** The gap
+  check probed the fin's centre — the one point the arithmetic puts it at — and the reach
+  check compared against the board's widest point rather than its width at the fin's own
+  station. A fin is not a point: its root is a straight chord up to two thirds of a metre
+  long, and over that length the hull curves away underneath it and the outline narrows
+  around it. Sampled properly: **roots standing up to 0.049 clear of the hull** on Riptide
+  Wake, which is the daylight you could see, and **fins reaching 1.086 of the local
+  half-width** on Midnight Gun. The root now goes to the highest the hull reaches anywhere
+  along the chord, so every other point is buried in foam; the clamp is against the
+  narrowest the board gets along the same span, base a fifth in from the rail. A swallow
+  tail or an asymmetric cut also moves the surface forward of its own station, so the
+  station is solved for rather than assumed — that closed the last 0.017. Now: **worst gap
+  0.0008** (mesh faceting), **worst reach 0.885**, all 33 pairs still exact mirrors.
+  **The full-screen look is on a beach** — the game's own sky and sea, the same shader
+  instances on the same uniforms, so it sits at whatever time of day the last run reached
+  and the swell keeps rolling; the swell is calmed while you are looking. The object stands
+  ON the sand with the water behind it, because with the shoreline between camera and
+  object how much beach you saw depended on how far back the camera had gone to frame that
+  particular thing. `viewCam`'s far plane was 300 against a sky dome of radius 320, so the
+  dome never drew at all: the "dark sky" was the clear colour and the "horizon" was the far
+  plane cutting the sea off straight. Shop thumbnails are unchanged — they are photographed
+  onto transparency and a beach baked into a 148px tile fights the board's graphics.
+  **Arrows moved 12px in off the bezel** and the pulse has more range, in the tube as well
+  as the halo.
 - **v2.1.0** — **The preview opens side-on, and you can turn it with a finger.**
   Standing a board up maps its deck normal onto world +z, so at a yaw of zero you were
   looking straight at the deck. A quarter turn the other way puts that normal on −x: deck
