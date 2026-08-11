@@ -52,6 +52,15 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.99.0** — **The arrows are a drawn line rather than a bent bar.** Every segment is
+  a bezier now, so there is no mitre at the point and no blunt cut at the ends: the band
+  is widest where it turns and runs out to a sharp tip at either end. The two control
+  points either side of the apex share the apex's own x, which makes the tangents through
+  it collinear — so the curve genuinely *turns* instead of kinking, and turns tightly
+  because those controls sit close to it. My first pass at this still had a 17° kink at
+  the point, which is exactly the blockiness that was meant to go.
+  Thinner again — strokes 3.0/1.35/0.44 against the previous 4.6/2.1/0.66 — and taller,
+  46×240 at a 6.7:1 proportion where it was 5.5:1. The hollow is a slot rather than a gap.
 - **v1.98.0** — **Thinner arrows.** The neon reads better as a fine line than as a fat
   tube: the three strokes come down from 10/4.8/1.05 to 4.6/2.1/0.66, the bloom behind
   them is pulled in to match, and the whole chevron is about 12% smaller — 54×189 rather
