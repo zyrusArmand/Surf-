@@ -52,6 +52,19 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.6.0** — **Turning hard no longer ends the run, and cutbacks are gone as a trick.**
+  Throwing the board back harder than 10.4 sideways used to blow the tail out and end the
+  run — the reward and the wipeout were the same move a little further apart, which is a
+  fine idea and a miserable one to be on the wrong side of. Both halves are gone: no
+  points, no speed boost, no message, no wipeout. You can throw it about as much as you
+  like and the only thing that comes of it is water. The spray stays, as feedback rather
+  than as a trick; its timer is a rate limit on the particles now, not a cooldown on
+  scoring, and it is named for what it does.
+  `BS.blow` went with it — the per-board blowout threshold existed only to feed that one
+  wipeout, so it is no longer computed or carried.
+  Both halves verified against the previous build. Forcing sideways speed to 14.5 against
+  the steer, ten times: **v2.5.0 dies, this does not.** Forcing it to 8.2 — inside the old
+  cutback band — twelve times: **v2.5.0 scores 75, this scores 0.**
 - **v2.5.0** — **The menu was bleeding through the shop.** The shop panel is 94% opaque,
   which is what lets the sea move behind it — but the MENU was behind it too, and six per
   cent of a 54px title is perfectly readable: *Surf*, the purse, *Play*, *Beach shop* and

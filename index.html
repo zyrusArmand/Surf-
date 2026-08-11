@@ -603,7 +603,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.5.0';
+const VERSION='2.6.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2642,7 +2642,7 @@ function boardStats(id){
   return _statCache[id]||_statCache.astro;
 }
 // what the ridden board is worth, as multipliers the game actually uses
-let BS={speed:1,turn:1,air:1,lives:3,blow:10.4,top:0,wake:1,lift:0};
+let BS={speed:1,turn:1,air:1,lives:3,top:0,wake:1,lift:0};
 let foilBob=0;
 function applyBoardStats(id){
   const v=boardStats(id);
@@ -2651,7 +2651,6 @@ function applyBoardStats(id){
     turn : 1+(v.turn -5)*0.050,     // +-25% carve response
     air  : 1+(v.air  -5)*0.045,     // +-22% pop and rotation
     lives: Math.max(2,Math.min(4,Math.round(2+(v.tough-2)/4))),
-    blow : 10.4*(1+(v.tough-5)*0.040),
     // straight off the spec, not out of the budget: an electric board is simply faster
     // than a board you paddle, and a foil leaves next to no wake
     top  : (BOARD_BY_ID[id]&&BOARD_BY_ID[id].spec&&BOARD_BY_ID[id].spec.top)||0,
@@ -5117,7 +5116,7 @@ for(const kind of ['buoy','jelly','log','bigfin','ramp','octopus'])(k=>{
 
 // ---------- state ----------
 let running=false,tNow=0,last=0,speed=22,score=0,best=0,waveClock=0,lastEff=22;
-let px=0,py=0,pz=0,vy=0,vx=0,cutCd=0,airborne=false,trickReady=false;
+let px=0,py=0,pz=0,vy=0,vx=0,sprayCd=0,airborne=false,trickReady=false;
 const BOARD_HALF_L=2.45, BOARD_HALF_W=0.55;   // the hull's own footprint
 let boardYaw=0,boardLean=0,boardPitch=0,camX=0,camY=5.0,camZ=11.0,lookX=0,sprayAcc=0,leanW=0,pearlT=0;
 let tailAcc=0;    // the wash the tail throws just from moving
@@ -5604,7 +5603,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   onRampO=null;rampPitchT=0; }
   player.rotation.set(0,0,0);
   for(const o of obstacles)scene.remove(o);obstacles.length=0;
-  dist=0;speed=13.5;score=0;px=0;py=0;pz=0;vy=0;vx=0;cutCd=0;airborne=false;trick=null;
+  dist=0;speed=13.5;score=0;px=0;py=0;pz=0;vy=0;vx=0;sprayCd=0;airborne=false;trick=null;
   boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;clearCracks();heliPh=-1;heliT=0;heliPose=0;heliUsed=false;heliAir=false;heliHeld=false;heliIncline=0;
   trail.length=0;trailT=0;
   skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;skiGlint.visible=false;wkA=0;
@@ -5644,7 +5643,7 @@ function respawn(){
   px=0;py=0;pz=0;vy=0;vx=0;airborne=false;trick=null;spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;
   spinHeld=false;flipHeld=false;pitchHeld=false;grabOn=false;grabPts=0;spinQ=0;flipQ=0;spinSign=1;flipSign=1;
   pitchRot=0;pitchQ=0;pitchSign=1;
-  boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;cutCd=0;clearCracks();heliPh=-1;heliT=0;heliPose=0;heliUsed=false;heliAir=false;heliHeld=false;heliIncline=0;
+  boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;sprayCd=0;clearCracks();heliPh=-1;heliT=0;heliPose=0;heliUsed=false;heliAir=false;heliHeld=false;heliIncline=0;
   spawnT=1.8;
   overlayUp=false;running=true;last=performance.now();
   player.visible=true; rig.visible=true; hud.style.display='';
@@ -7433,7 +7432,7 @@ function update(dt){
   // paying it into the trick score too meant the score was mostly a second, worse
   // distance readout: 0.6 a metre came to six hundred points over a kilometre, several
   // times what the tricks themselves were worth. Distance still pays puka on its own.
-  cutCd=Math.max(0,cutCd-dt);
+  sprayCd=Math.max(0,sprayCd-dt);
 
   // Where the hull wants to float. It leans on the highest water beneath it so a
   // crest cannot slice through the ends, but it answers to the mean under the whole
@@ -7583,14 +7582,17 @@ function update(dt){
   // Pearling went with the fore-and-aft weight it depended on: without a way to put
   // your weight over the nose there is nothing left to bury it with.
 
-  // cutback + carve spray
+  // carve spray
   if(!airborne&&!hanging){
-    if(cutCd<=0&&Math.abs(vx)>5.5&&sx!==0&&Math.sign(sx)!==Math.sign(vx)){
-      // Throw it back harder than the fins can hold and they let go. This is what
-      // stops a cutback being farmed by swinging side to side: the reward and the
-      // wipeout are the same move, a little further apart.
-      if(Math.abs(vx)>BS.blow){ startWipeout('foam'); msg('BLEW THE TAIL OUT!'); return; }
-      cutCd=1.2;score+=75;boost=Math.min(16,boost+3.5);msg('CUTBACK! +75');
+    // A hard change of direction throws a sheet of water off the tail. It used to be a
+    // CUTBACK worth 75 and a speed boost — and swinging back harder than the fins could
+    // hold ended the run, reward and wipeout being the same move a little further apart.
+    // Both are gone. There is nothing to farm by rocking side to side, and nothing
+    // punishing you for turning hard, so you can throw the board about as much as you
+    // like and the only thing that comes of it is water. sprayCd is a rate limit on the
+    // particles, not a cooldown on a trick.
+    if(sprayCd<=0&&Math.abs(vx)>5.5&&sx!==0&&Math.sign(sx)!==Math.sign(vx)){
+      sprayCd=0.5;
       const bside=-Math.sign(vx);
       for(let i=0;i<26;i++){
         const m=takeDrop();if(!m)break;
