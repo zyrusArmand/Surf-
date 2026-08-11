@@ -62,6 +62,10 @@
   }
   /* the release cue is the one thing that is allowed colour: it has to be caught out of
      the corner of an eye mid-trick, and a white ring going slightly whiter would not be */
+  /* the helicopter is one committed move rather than a hold, so it gets its own shape */
+  .tbtn.wide { grid-column:span 2; aspect-ratio:auto; height:38px; flex-direction:row; gap:7px;
+    border-radius:20px; font-size:10.5px; letter-spacing:1.1px; }
+  .tbtn.wide .ges { width:20px; height:20px; }
   .tbtn.ready { box-shadow:0 0 0 3px rgba(255,246,150,.92), 0 0 26px rgba(255,224,60,.75);
     border-color:#fff8c0; background:rgba(255,244,180,.20); }
   .tbtn:active { transform:scale(.9); background:rgba(255,255,255,.22);
@@ -335,6 +339,9 @@
   <div class="tbtn" id="handBtn" aria-label="Handstand — hold a second finger down">
     <svg class="ges" viewBox="0 0 24 24"><circle class="dot" cx="8.2" cy="12" r="2.9"/><circle class="dot" cx="15.8" cy="12" r="2.9"/><path d="M19.8 6.7a8.1 8.1 0 0 1 0 10.6"/></svg>
     HAND</div>
+  <div class="tbtn wide" id="heliBtn" aria-label="Helicopter — grab the nose and spin the board three times">
+    <svg class="ges" viewBox="0 0 24 24"><path d="M12 4.6c4.2 0 7.4 3.1 7.4 7.2s-3.2 7.6-7.4 7.6-7.4-3.3-7.4-7.1c0-3 2-5.3 4.5-5.3"/><path class="dot" d="M8.4 3.7 12.6 6.1 8.7 8.6Z" stroke="none"/></svg>
+    HELI</div>
 </div>
 <div id="stats" class="hidden"><div class="wrap">
   <h2>Stats <small id="stTag"></small></h2>
@@ -399,13 +406,14 @@ const trickBar=document.getElementById('trickBar');
 const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementById('flipBtn');
 const rollBtn=document.getElementById('rollBtn');
 const handBtn=document.getElementById('handBtn');
+const heliBtn=document.getElementById('heliBtn');
 const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 const hCoins=document.getElementById('hCoins'), ovCoins=document.getElementById('ovCoins');
 const shop=document.getElementById('shop'), shopBtn=document.getElementById('shopBtn');
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.74.0';
+const VERSION='1.75.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1333,6 +1341,50 @@ function buildBoardMesh(S){
     m.rotation.z=f.cant||0;
     grp.add(m);
   }
+  // ---- hydrofoil: a mast hanging under the hull with a wing and a stabiliser on it ----
+  if(S.foil){
+    const F=S.foil;
+    const fm=PBR({color:F.col||0x1a1e24,roughness:0.18,metalness:0.42,envMapIntensity:1.5});
+    const FZ=F.z===undefined?0.35:F.z, H=F.h||1.30, FUS=F.fus||1.35;
+    const u0=0.5+FZ/L;
+    const yTop=rock(u0)-T*(S.hullK||0.62)*th(u0)*0.92;
+    // the mast is a very tall, very thin aerofoil — the same section as a fin, stretched
+    const mc=F.chord||0.42, mt=F.t||0.055;
+    const ms=new THREE.Shape();
+    ms.moveTo(-mc*0.5,0);
+    ms.bezierCurveTo(-mc*0.34,-H*0.34,-mc*0.24,-H*0.72,-mc*0.30,-H);
+    ms.lineTo(mc*0.24,-H);
+    ms.bezierCurveTo(mc*0.34,-H*0.70,mc*0.44,-H*0.34,mc*0.5,0);
+    ms.lineTo(-mc*0.5,0);
+    const mg=new THREE.ExtrudeGeometry(ms,{depth:mt,bevelEnabled:true,bevelSize:mt*0.40,
+      bevelThickness:mt*0.35,bevelSegments:3,curveSegments:22});
+    mg.translate(0,0,-mt/2);
+    const mast=new THREE.Mesh(mg,fm);
+    mast.rotation.y=Math.PI/2; mast.position.set(0,yTop,FZ);
+    grp.add(mast);
+    const fus=new THREE.Mesh(new THREE.CylinderGeometry(0.046,0.032,FUS,14),fm);
+    fus.rotation.x=Math.PI/2; fus.position.set(0,yTop-H+0.04,FZ-0.04);
+    grp.add(fus);
+    // a wing planform lying flat: the shape's own Y becomes fore-and-aft, the extrusion
+    // becomes thickness, so a swept crescent comes out as a wing rather than a fin
+    const wing=(span,chord,sweep,thick)=>{
+      const w=new THREE.Shape();
+      w.moveTo(-span/2,sweep);
+      w.bezierCurveTo(-span*0.24,-chord*0.42, span*0.24,-chord*0.42, span/2,sweep);
+      w.bezierCurveTo(span*0.24,sweep+chord*0.62, -span*0.24,sweep+chord*0.62, -span/2,sweep);
+      const g2=new THREE.ExtrudeGeometry(w,{depth:thick,bevelEnabled:true,bevelSize:thick*0.45,
+        bevelThickness:thick*0.40,bevelSegments:2,curveSegments:24});
+      g2.translate(0,0,-thick/2);
+      return g2;
+    };
+    const SP=F.span||1.30, WC=F.wc||0.34;
+    const fw=new THREE.Mesh(wing(SP,WC,0.10,0.044),fm);
+    fw.rotation.x=-Math.PI/2; fw.position.set(0,yTop-H+0.02,FZ-FUS*0.42);
+    grp.add(fw);
+    const rw=new THREE.Mesh(wing(SP*0.46,WC*0.60,0.05,0.032),fm);
+    rw.rotation.x=-Math.PI/2; rw.position.set(0,yTop-H+0.08,FZ+FUS*0.46);
+    grp.add(rw);
+  }
   grp.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
   return grp;
 }
@@ -1906,6 +1958,18 @@ const BOARDS=[
            {x: 0.36,z:1.38,c:0.22,d:0.12,t:0.018,rake:0.03,cant:-0.10},
            {x:-0.36,z:-1.38,c:0.22,d:0.12,t:0.018,rake:-0.03,cant:0.10},
            {x: 0.36,z:-1.38,c:0.22,d:0.12,t:0.018,rake:-0.03,cant:-0.10}]}},
+  {id:'mako', name:'Mako eFoil', price:15000,
+   blurb:'Electric hydrofoil. Flies on a wing, leaves almost no wake, and is 21 mph faster than anything else out here.',
+   // the halo board: deliberately outside the balance curve on speed, and paid for with
+   // the thinnest hull in the game — it cracks in two hits, not three
+   spec:{L:4.10,W:0.76,T:0.105,noseA:0.80,tailA:0.72,noseW:0.24,tailW:0.40,
+     rockN:0.20,noseR:0.30,rockT:0.05,tailR:0.16,deckPow:0.62,hullPow:0.50,hullK:0.56,
+     pad:true,padCol:0x16181c,padW:0.74,pads:[[0.30,0.86]],finCol:0x1a1e24,
+     top:34, wake:0.22, stat:{speed:10,tough:2},
+     foil:{h:1.34,z:0.42,fus:1.42,span:1.34,wc:0.36,chord:0.44,t:0.058,col:0x1c2027},
+     paint:deckScheme({deck:0xe8edf2,hull:0xf6f8fa,rail:0x1b1f26,stringer:0x2ec8e0,
+       pin:0x2ec8e0,sw:0.10,railAt:0.70,vstripes:[[0.20,0.030,0x2ec8e0],[0.26,0.016,0x1b1f26]]}),
+     fins:[]}},
 ];
 const BOARD_BY_ID={}; for(const b of BOARDS)BOARD_BY_ID[b.id]=b;
 // ---------------------------------------------------------------------------
@@ -1948,20 +2012,27 @@ function computeStats(){
       const n=(raw[b.id][k]-lo[k])/Math.max(1e-6,hi[k]-lo[k]);
       v[k]=Math.round(2+n*7);                        // 2..9, so nothing is empty or full yet
     }
+    // A hull cannot tell you everything. An electric board's speed is in its motor, not
+    // its outline, so a spec may state a stat outright — and a stated one is pinned, so
+    // the balancing below never quietly walks it back.
+    const pin={};
+    if(b.spec.stat)for(const k in b.spec.stat){ v[k]=b.spec.stat[k]; pin[k]=1; }
     // Every board is then held to a budget set by its price. Without this the totals come
     // out wherever the geometry happens to land, and some board is simply better than a
-    // dearer one — which makes the shop a lottery instead of a choice. The budget grows
-    // only a little across the fleet, so the shape still decides the character and the
-    // grind buys a small edge rather than a strictly better board.
-    const target=18+Math.round(b.price/11000*4);      // 18 at the cheap end, 22 at the top
+    // dearer one — which makes the shop a lottery instead of a choice.
+    const target=18+Math.round(b.price/11000*4);      // 18 at the cheap end, 23 at the top
     let tot=STAT_KEYS.reduce((a2,k)=>a2+v[k],0);
-    // give and take at the extremes, so a board keeps whatever it was already good at
+    // Price buys SPECIALISATION, not a flat lift: spare points go to whatever the board
+    // is already best at and cuts come off what it is already worst at. Spreading them
+    // evenly instead turned the dearest board in the game into four middling bars, which
+    // told you nothing about what riding it is like.
+    const free=k2=>!pin[k2];
     while(tot>target){
-      const k=STAT_KEYS.filter(k2=>v[k2]>2).sort((a2,b2)=>v[b2]-v[a2])[0];
+      const k=STAT_KEYS.filter(k2=>free(k2)&&v[k2]>2).sort((a2,b2)=>v[a2]-v[b2])[0];
       if(!k)break; v[k]--; tot--;
     }
     while(tot<target){
-      const k=STAT_KEYS.filter(k2=>v[k2]<10).sort((a2,b2)=>v[a2]-v[b2])[0];
+      const k=STAT_KEYS.filter(k2=>free(k2)&&v[k2]<10).sort((a2,b2)=>v[b2]-v[a2])[0];
       if(!k)break; v[k]++; tot++;
     }
     out[b.id]=v;
@@ -1973,7 +2044,7 @@ function boardStats(id){
   return _statCache[id]||_statCache.astro;
 }
 // what the ridden board is worth, as multipliers the game actually uses
-let BS={speed:1,turn:1,air:1,lives:3,blow:10.4};
+let BS={speed:1,turn:1,air:1,lives:3,blow:10.4,top:0,wake:1};
 function applyBoardStats(id){
   const v=boardStats(id);
   BS={
@@ -1981,7 +2052,11 @@ function applyBoardStats(id){
     turn : 1+(v.turn -5)*0.050,     // +-25% carve response
     air  : 1+(v.air  -5)*0.045,     // +-22% pop and rotation
     lives: Math.max(2,Math.min(4,Math.round(2+(v.tough-2)/4))),
-    blow : 10.4*(1+(v.tough-5)*0.040)
+    blow : 10.4*(1+(v.tough-5)*0.040),
+    // straight off the spec, not out of the budget: an electric board is simply faster
+    // than a board you paddle, and a foil leaves next to no wake
+    top  : (BOARD_BY_ID[id]&&BOARD_BY_ID[id].spec&&BOARD_BY_ID[id].spec.top)||0,
+    wake : (BOARD_BY_ID[id]&&BOARD_BY_ID[id].spec&&BOARD_BY_ID[id].spec.wake)||1
   };
 }
 const _rack={};
@@ -3206,6 +3281,7 @@ const armBackJ=makeArm(0.44,0.06);
 equipChar(rider);
 
 pug.position.set(pgx,0,pgz);   // centred over the board's balance point
+const PUG_X0=pgx, PUG_Z0=pgz;
 pug.rotation.y=STANCE_ROT;   // side-on to the board, angled slightly toward the nose
 rig.add(pug);
 // A pug model replaces the built-in one wholesale; the joint chain above it is
@@ -3802,6 +3878,16 @@ function applyStance(){ pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0); }
 let grabOn=false,grabPts=0,grabSide=1,grabSrc='gesture';
 let dragOn=false,dragPts=0,dragSide=1,dragSrc='gesture';
 let shake=0,boost=0,carrySpin=0,carryFlip=0,wobRoll=0,wobYaw=0;
+// The helicopter: he goes flat on the deck, takes hold of the nose and pulls himself up
+// on it while the whole board spins three turns underneath him. Unlike the others it is
+// not a hold — you commit to it and it plays out, so it is the one trick that has a
+// fixed shape and a fixed reward, and the only one that can be spoiled by running out of
+// air rather than by releasing at the wrong moment.
+// Three turns at this rate takes 1.15s, and a normal jump only buys 1.08s of air — so
+// the helicopter launches itself higher rather than borrowing the jump, with just enough
+// margin left over to come down square.
+const HELI_TURNS=3, HELI_RATE=Math.PI*2*2.6, HELI_POP=14.2;
+let heliOn=false, heliRot=0, heliPose=0;
 const SPIN_RATE=Math.PI*2*1.35, FLIP_RATE=Math.PI*2*1.25;
 let trick=null; // rope backflip only
 let planeT=34+Math.random()*26,planeActive=false,hanging=false,spawnT=0.4;
@@ -4016,6 +4102,15 @@ holdBtn(rollBtn, spinBtnDown(holdRoll), ()=>{flipHeld=false;});
 holdBtn(flipBtn, spinBtnDown(holdFlip), ()=>{pitchHeld=false;});
 holdBtn(spinBtn, spinBtnDown(holdSpin), ()=>{spinHeld=false;});
 holdBtn(handBtn,()=>{handOn=true;handSrc='button';},()=>{handOn=false;});
+function startHeli(src){
+  if(!running||wipe||heliOn||hanging)return;
+  if(!airborne)splash(px,0.4,0,10);
+  vy=Math.max(vy,HELI_POP*BS.air); airborne=true;
+  heliOn=true; heliRot=0;
+  noteTrick('heli',src||'button');
+  msg('HELICOPTER!');
+}
+holdBtn(heliBtn,()=>startHeli('button'),()=>{});
 addEventListener('mouseup',()=>{
   if(touchMode){endGrab();endDrag();releaseSpin();endMouseDrag();handOn=false;return;}
   if(running&&mouseDrag){
@@ -4093,6 +4188,13 @@ function settleTricks(landed,keepPose){
   if(flipRot>0.4){pts+=Math.floor(flipRevs*4)*110;names.push(Math.round(flipRevs*360)+'° ROLL');}
   if(pitchRot>0.4){pts+=Math.floor(pitchRevs*4)*130;names.push(Math.round(pitchRevs*360)+'° FLIP');}
   if(grabOn&&grabPts>=30){pts+=Math.round(grabPts);names.push(grabSide>0?'INDY':'MELON');}
+  // the helicopter pays for the whole move, and only if he got all three turns round
+  if(heliOn){
+    const done=heliRot>=Math.PI*2*HELI_TURNS-0.05;
+    if(done){ pts+=620; names.push('HELICOPTER'); }
+    else if(heliRot>Math.PI){ pts+=Math.round(heliRot/(Math.PI*2)*180); names.push('HALF HELI'); }
+    heliOn=false; heliRot=0;
+  }
   if(landed&&pts>0){
     if(names.length>1)pts=Math.round(pts*1.5);          // combo bonus
     // How square he came down. Releasing on the beat is the whole skill now, so it is
@@ -4141,7 +4243,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   player.rotation.set(0,0,0);
   for(const o of obstacles)scene.remove(o);obstacles.length=0;
   dist=0;speed=13.5;score=0;px=0;py=0;pz=0;vy=0;vx=0;cutCd=0;airborne=false;trick=null;
-  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;clearCracks();
+  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;clearCracks();heliOn=false;heliRot=0;heliPose=0;
   trail.length=0;trailT=0;
   skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;skiGlint.visible=false;wkA=0;
   splatT=0;splatCd=0;if(zapEl)zapEl.classList.remove('on');
@@ -4180,7 +4282,7 @@ function respawn(){
   px=0;py=0;pz=0;vy=0;vx=0;airborne=false;trick=null;spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;
   spinHeld=false;flipHeld=false;pitchHeld=false;grabOn=false;grabPts=0;spinQ=0;flipQ=0;spinSign=1;flipSign=1;
   pitchRot=0;pitchQ=0;pitchSign=1;
-  boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;cutCd=0;clearCracks();
+  boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;cutCd=0;clearCracks();heliOn=false;heliRot=0;heliPose=0;
   spawnT=1.8;
   overlayUp=false;running=true;last=performance.now();
   player.visible=true; rig.visible=true; hud.style.display='';
@@ -5710,11 +5812,15 @@ function animateRig(dt,carve,grab,waterY){
   legBackJ.hip.rotation.z=carve*0.08;
 
   // spine/chest counter-rotate against the board like a real surfer
+  // He turns to face down the board, goes flat over the deck and pulls himself up on the
+  // nose — elbows bent, head up past the tip — and holds that while it spins under him.
+  heliPose=ease(heliPose,heliOn?1:0,dt,heliOn?11:6);
   const gSide = grab ? grabSide : 0;
   const dragLean = dragging ? dragSide*0.42 : 0;
   spine.rotation.z=ease(spine.rotation.z,carve*0.16+gSide*0.58+dragLean,dt,8);   // stays stacked over the rail he is on
   const crouchLean = grab ? 0.62 : rigCrouch*0.30 + Math.max(0,boardPitch)*0.55;   // leans forward as the nose drops
-  spine.rotation.x=ease(spine.rotation.x,0.18+crouchLean+(airborne?-0.32:0)+leanW*0.80+rigTuck*0.85,dt,8);
+  spine.rotation.x=ease(spine.rotation.x,
+    (0.18+crouchLean+(airborne?-0.32:0)+leanW*0.80+rigTuck*0.85)*(1-heliPose)+0.62*heliPose,dt,8);
   chestJ.rotation.y=ease(chestJ.rotation.y,0.30+carve*0.55,dt,7);   // shoulders swing with the turn
   chestJ.rotation.z=ease(chestJ.rotation.z,carve*0.14,dt,7);
   // head keeps looking down the line, level with the horizon
@@ -5767,6 +5873,19 @@ function animateRig(dt,carve,grab,waterY){
       shF=[0.10, 0.10, 2.48+w*0.42]; elF=[0.60+w*0.46,0,0];
     }
   }
+  if(heliPose>0.02){
+    // Both arms straight out over the nose first, then hauling in until the elbows fold
+    // and his face is at the tip. The pull tracks the spin, so the effort and the rotation
+    // are visibly the same motion rather than two things happening at once.
+    const pull=Math.min(1,heliRot/(Math.PI*2*HELI_TURNS)*1.9);
+    const h=heliPose, mx=(a2,b2)=>a2*(1-h)+b2*h;
+    const tF=[2.12+pull*0.26, 0.15, 0.30], tB=[2.12+pull*0.26,-0.15,-0.30];
+    const teF=0.28+pull*1.42, teB=0.28+pull*1.42;
+    shF=[mx(shF[0],tF[0]),mx(shF[1],tF[1]),mx(shF[2],tF[2])];
+    shB=[mx(shB[0],tB[0]),mx(shB[1],tB[1]),mx(shB[2],tB[2])];
+    elF=[mx(elF[0],teF),0,0]; elB=[mx(elB[0],teB),0,0];
+    armSpread*=1-h;
+  }
   const A=armFrontJ,B=armBackJ;
   A.sh.rotation.x=ease(A.sh.rotation.x,shF[0]+armSpread,dt,10);
   A.sh.rotation.y=ease(A.sh.rotation.y,shF[1]+Math.sin(tNow*1.9)*0.10,dt,10);
@@ -5776,6 +5895,24 @@ function animateRig(dt,carve,grab,waterY){
   B.sh.rotation.y=ease(B.sh.rotation.y,shB[1]-Math.sin(tNow*1.9+0.8)*0.10,dt,10);
   B.sh.rotation.z=ease(B.sh.rotation.z,shB[2],dt,10);
   B.el.rotation.x=ease(B.el.rotation.x,elB[0]+Math.sin(tNow*2.6+1.4)*0.09,dt,10);
+  if(heliPose>0.02){
+    const h=heliPose;
+    // turn to face the nose and go flat over it — his stance is side-on to the board the
+    // rest of the time, so the turn is most of what sells him lying along it
+    pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0)+(-STANCE_ROT)*h;
+    pug.rotation.x=1.12*h;
+    pelvis.position.y+=0.26*h;
+    // and he hauls himself UP the board as he pulls, so his face finishes at the tip
+    // rather than over the middle of it
+    const pull2=Math.min(1,heliRot/(Math.PI*2*HELI_TURNS)*1.9);
+    pug.position.z=PUG_Z0-(0.62+pull2*0.46)*h;
+    pug.position.x=PUG_X0;
+    const straight=(j,base)=>{ j.rotation.x=j.rotation.x*(1-h)+base*h; };
+    straight(legFrontJ.hip,-0.30); straight(legFrontJ.knee,0.34); straight(legFrontJ.ankle,-0.20);
+    straight(legBackJ.hip ,-0.30); straight(legBackJ.knee ,0.34); straight(legBackJ.ankle ,-0.20);
+    headJ.rotation.x=headJ.rotation.x*(1-h)-0.85*h;    // chin up, looking past the tip
+    headJ.rotation.y*=1-h;
+  } else if(pug.rotation.x!==0){ pug.rotation.x=0; pug.position.set(PUG_X0,0,PUG_Z0); applyStance(); }
   updateLimbs();      // the visible limb is swept from wherever the joints ended up
 }
 
@@ -5867,7 +6004,7 @@ function update(dt){
   // The HUD reads mph as eff*0.62, so 16.2 is 10 and 113 is 70. It never drops below
   // the first and never passes the second, and climbs the whole way between rather
   // than being most of the way there inside the first kilometre.
-  speed=Math.min(100,(16.2+dist/210)*BS.speed);
+  speed=Math.min(100+BS.top,(16.2+dist/210)*BS.speed+BS.top);
 
   // momentum carving
   // Fore and aft is gone. leanW is kept at rest so everything that consulted it —
@@ -5900,7 +6037,7 @@ function update(dt){
   // leaning is a real throttle now: forward drives hard, back scrubs hard
   const trim=(leanW>=0 ? leanW*16.0 : leanW*19.0) + faceDrive;
   boost=Math.max(0,boost-dt*3.0);            // speed carried out of a trick, bleeding off
-  const eff=Math.max(16.2,Math.min(113,speed+Math.abs(vx)*0.3+trim+boost));   // 10 mph floor, 70 ceiling
+  const eff=Math.max(16.2,Math.min(113+BS.top,speed+Math.abs(vx)*0.3+trim+boost));   // 10 mph floor, 70 ceiling
   lastEff=eff;
   dist+=eff*dt;
   score+=eff*dt*0.6;
@@ -5946,7 +6083,7 @@ function update(dt){
       const impact=Math.min(1.6,Math.max(0,-vy)/15);
       if(airborne){
         splash(px,waterY,0,20+impact*40);
-        pushTrail(px,waterY,0.5,1.4+impact*1.6);
+        pushTrail(px,waterY,0.5,0.95+impact*1.0);
         shake=Math.max(shake,impact*0.55);
         const anySpin=spinRot>0.4||flipRot>0.4||pitchRot>0.4;
         if(grabOn&&(spinRot>0.4||flipRot>0.4||grabPts>40)){
@@ -6077,15 +6214,18 @@ function update(dt){
       tailAcc-=1;
       const m=takeDrop();if(!m)break;
       m.material=SPLASH_MAT;
-      const sc=0.75+Math.random()*1.5;m.scale.setScalar(sc);
-      const off=(Math.random()-0.5)*1.5;
+      const sc=0.62+Math.random()*1.05;m.scale.setScalar(sc);
+      const off=(Math.random()-0.5)*1.05;
       m.position.set(px+off, waterY-0.16+Math.random()*0.2, 1.0+Math.random()*1.1);
-      m.userData={vx:off*2.4+(Math.random()-0.5)*2.2, vy:1.0+Math.random()*2.6,
-                  vz:2.4+Math.random()*3.4, t:0.45+Math.random()*0.4, s:sc};
+      m.userData={vx:off*1.6+(Math.random()-0.5)*1.4, vy:0.8+Math.random()*1.8,
+                  vz:1.7+Math.random()*2.3, t:0.32+Math.random()*0.26, s:sc};
       splashes.push(m);
     }
     // continuous rail spray while carving — the white fan off the outside rail
-    const sprayRate=(Math.abs(carve)*170+14)*(eff/40);
+    // It was reading as a wall of white either side of the board rather than a rail
+    // throwing spray. Less of it, thrown less far, and gone sooner — the board should be
+    // the thing you are looking at, not the wash.
+    const sprayRate=(Math.abs(carve)*104+8)*(eff/40)*BS.wake;
     sprayAcc+=dt*sprayRate;
     const side=-Math.sign(vx||1);
     while(sprayAcc>1){
@@ -6093,9 +6233,9 @@ function update(dt){
       if(Math.abs(carve)<0.10)continue;
       const m=takeDrop();if(!m)break;
       m.material=SPLASH_MAT;
-      const sc=0.7+Math.random()*1.1;m.scale.setScalar(sc);
-      m.position.set(px+side*(0.5+Math.abs(carve)*0.6),waterY-0.10,0.2+Math.random()*0.9);
-      m.userData={vx:side*(3.0+Math.abs(carve)*11+Math.random()*3),vy:1.2+Math.random()*Math.abs(carve)*9,vz:1.5+Math.random()*3,t:0.45+Math.random()*0.35,s:sc};
+      const sc=0.58+Math.random()*0.82;m.scale.setScalar(sc);
+      m.position.set(px+side*(0.46+Math.abs(carve)*0.42),waterY-0.10,0.2+Math.random()*0.9);
+      m.userData={vx:side*(1.9+Math.abs(carve)*6.2+Math.random()*1.8),vy:0.9+Math.random()*Math.abs(carve)*5.6,vz:1.0+Math.random()*2.0,t:0.30+Math.random()*0.24,s:sc};
       splashes.push(m);
     }
   }
@@ -6122,6 +6262,24 @@ function update(dt){
   // spin / flip / grab all run at once while you're off the water
   if(airborne||hanging){
     const SR=SPIN_RATE*BS.air, FR=FLIP_RATE*BS.air;   // a poppy board spins faster too
+    if(heliOn){
+      const full=Math.PI*2*HELI_TURNS;
+      if(heliRot<full){
+        const d=Math.min(dt*HELI_RATE*BS.air,full-heliRot);
+        heliRot+=d; spinRot+=d;
+        // a corkscrew of spray thrown off the rail, climbing and turning with him
+        for(let i=0;i<2;i++){
+          const m=takeDrop(); if(!m)break;
+          m.material=SPLASH_MAT;
+          const sc=0.42+Math.random()*0.5; m.scale.setScalar(sc);
+          const a2=heliRot*1.6+i*Math.PI, r=0.95+Math.random()*0.35;
+          m.position.set(px+Math.cos(a2)*r, py+0.10+Math.random()*0.5, Math.sin(a2)*r*0.8);
+          m.userData={vx:Math.cos(a2+1.4)*3.2, vy:1.4+Math.random()*1.4,
+                      vz:Math.sin(a2+1.4)*2.4, t:0.34+Math.random()*0.22, s:sc};
+          splashes.push(m);
+        }
+      }
+    }
     if(spinHeld)spinRot+=dt*SR;
     else if(spinQ>0){const d=Math.min(dt*SR,spinQ);spinRot+=d;spinQ-=d;}
     if(flipHeld)flipRot+=dt*FR;
@@ -6185,7 +6343,7 @@ function update(dt){
   if(!airborne&&!hanging){
     // water piles up on the inside rail of the turn and peels off the outside — no discs
     trailT-=dt;
-    if(trailT<=0){trailT=0.026;pushTrail(px,waterY,0.9,0.42+Math.abs(carve)*0.85);}
+    if(trailT<=0){trailT=0.026;pushTrail(px,waterY,0.9,(0.30+Math.abs(carve)*0.52)*BS.wake);}
   }
 
   if(!airborne&&Math.random()<dt*14)splash(px+(Math.random()-0.5),waterY-0.1,1.4,1);

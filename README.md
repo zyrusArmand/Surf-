@@ -52,6 +52,29 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.75.0** — Less wash, a new trick, and an electric board.
+  **The water round the board is calmer.** It was reading as a wall of white either side
+  of the hull rather than a rail throwing spray — less of it, thrown less far, and gone
+  sooner, on the carve fan, the bow spray and the wake ribbon alike. The board should be
+  the thing you are looking at, not the wash.
+  **HELICOPTER.** A fifth trick, on its own wide button under the four round ones because
+  it is not a hold — you commit and it plays out. He turns to face down the board, goes
+  flat over the deck, takes hold of the nose and hauls himself up it until his elbows fold
+  and his face is at the tip, while the whole board spins three full turns underneath him
+  and throws a corkscrew of spray. It launches itself higher than a normal jump rather
+  than borrowing one: three turns at that rate needs 1.15 s and a jump only buys 1.08 s of
+  air, so without its own pop it could never finish. Land it round and it pays 620.
+  **Mako eFoil, 15,000.** An electric hydrofoil — a mast under the hull with a front wing
+  and a rear stabiliser on a fuselage — and the halo board of the shop. 21 mph faster than
+  anything else out there, and it leaves almost no wake, which is what a foil actually
+  does. It is deliberately outside the balance curve on speed and pays for it with the
+  thinnest hull in the game: it cracks in two hits, not three.
+  Stats also learned two things while it was being added. A spec can now state a stat
+  outright, because an electric board's speed is in its motor and not in its outline, and
+  a stated stat is pinned so the balancing cannot quietly walk it back. And price now buys
+  SPECIALISATION rather than a flat lift — spare points go to whatever a board is already
+  best at — because spreading them evenly turned the dearest board in the game into four
+  middling bars that told you nothing about riding it.
 - **v1.74.0** — The in-play controls are glass and nothing else: a white ring, a white
   word, a white glyph, and the sea showing through. No fill, no colour, no sheen. They sit
   on top of the one thing you are trying to watch, so the less of it they cover the
