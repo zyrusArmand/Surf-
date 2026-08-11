@@ -52,6 +52,23 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.13.0** — **Astro's board is a board now.** It was the one board in the rack that was
+  not lofted — a flat model with no rocker, no rail and no foil, which is exactly why it
+  read as a plank next to everything else. It has a spec like the rest of them: a 5'10 egg,
+  wide through the middle and thick, with a rounded pin and a domed deck. Everything about
+  the shape forgives, which is what a first board is for.
+  Painted **DAWN PATROL** — gold at the nose falling through orange and coral into hot pink,
+  violet and the last of the night at the tail, with a cream stringer, twin pinlines inside
+  the rail, and the 17 he learned on over the back foot. Poured rather than sprayed: the
+  bands wander with the resin instead of ruling straight across, which is most of what
+  separates a hand-made board from a decal. Fins are a 2+1 — a big centre doing the holding
+  and two small bites keeping it honest.
+  Three things it took. The ramp colours have to go through `vivid()` like every other paint
+  helper — set straight they come out of the lighting and the tone curve as pastel, which
+  turned a sunrise into cream and lilac. A seven's diagonal falls from the far end of its
+  top bar back toward the near one; run the other way it makes an L. And screen-left is
+  NEGATIVE v with the deck toward you, so laid out the other way it came out as a
+  seventy-one.
 - **v2.12.0** — **The camera lift was a no-op.** It moved the camera up and then aimed it
   back at the object — which re-centres the very thing the lift was meant to shift, so the
   object stayed dead centre however the measured band moved, and a tail kept touching the

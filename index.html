@@ -625,7 +625,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.12.0';
+const VERSION='2.13.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1721,6 +1721,16 @@ function buildBoardMesh(S){
 }
 // paint helpers: everything is authored in sRGB and moved into linear by vivid()
 function _mix(c,hex,k){const t=vivid(hex,1.25);c.lerp(t,k);return c;}
+// A multi-stop fade. The stops are pre-built Colors rather than hex, because this runs
+// once per vertex on a board with fourteen thousand of them and converting in here is not
+// free — and because they have to be pushed through vivid() first, the way _mix does it.
+function _ramp(c,stops,t){
+  t=Math.max(0,Math.min(1,t));
+  let i=0; while(i<stops.length-2&&t>stops[i+1][0])i++;
+  const a=stops[i], b=stops[i+1];
+  c.copy(a[1]).lerp(b[1],(t-a[0])/(b[0]-a[0]||1));
+  return c;
+}
 function deckScheme(o){
   const sw=o.sw||0.022, ra=o.railAt||0.88;
   return (c,u,v,top)=>{
@@ -1805,9 +1815,50 @@ function _roundel(c,u,v,pu,pv,r,bg,fg,ring){
 function _patch(c,u,v,pu,pv,h,w,hex,k){
   if(Math.abs(u-pu)<h&&Math.abs(v-pv)<w)_mix(c,hex,k===undefined?1:k);
 }
+// Nose to tail: sunrise gold, orange, coral, hot pink, violet, and the last of the night.
+// Through vivid() once, like every other paint helper — set straight they come out of the
+// lighting and the tone curve as pastel, which turns a sunrise into cream and lilac.
+const ASTRO_DAWN=[[0.00,0xffd046],[0.20,0xff9016],[0.40,0xf83a1c],[0.62,0xd0117a],
+                  [0.82,0x5c1a96],[1.00,0x120c4e]].map(p=>[p[0],vivid(p[1],1.75)]);
 const BOARDS=[
   {id:'astro', name:'Astro Original', price:0,
-   blurb:'The board Astro learned on. Yours from the start.'},
+   blurb:'The board Astro learned on. Thick, soft-railed, and poured like a sunrise.',
+   // A 5'10 egg: wide through the middle, thick, with a rounded pin. Everything about it
+   // forgives, which is what a first board is for — and it means the shape reads as a
+   // shape, with a domed deck and a full rail rather than the flat plank it was.
+   spec:{nu:230,nr:62,L:5.80,W:0.78,T:0.182,noseA:0.76,tailA:0.84,noseW:0.22,tailW:0.28,
+     rockN:0.26,noseR:0.36,rockT:0.09,tailR:0.28,deckPow:0.66,hullPow:0.46,hullK:0.60,
+     padCol:0x2a1d38,finCol:0xf7ead0,padU0:0.735,padU1:0.945,
+     paint:artScheme({deck:0xff8a3d,hull:0xfff0dc,rail:0xf7ead0,pin:0xf7ead0,stringer:0xf7ead0,
+       sw:0.030,railAt:0.86,vivid:1.35,both:true,
+       art:(c,u,v,top)=>{
+         // DAWN PATROL. Gold at the nose falling through coral and magenta into deep
+         // indigo at the tail — the sky he would have been paddling out under. Poured
+         // rather than sprayed: the bands wander with the resin instead of ruling straight
+         // across, which is most of what separates a hand-made board from a decal.
+         const wob=(_fbm(u*3.2,v*1.8+4)-0.5)*0.09;
+         _ramp(c,ASTRO_DAWN,u+wob);
+         if(!top)_mix(c,0xfff3e0,0.60);          // the hull keeps the fade, much paler
+         // a fine cream pinline just inside the rail, the whole way round
+         const a=Math.abs(v);
+         if(a>0.79&&a<0.845)_mix(c,0xf7ead0,0.88);
+         // and the 17 he learned on, sitting over the back foot
+         if(top){
+           // Screen-left is NEGATIVE v with the deck toward you, so the one goes on the
+           // minus side — laid out the other way it comes out as a seventy-one. And a
+           // seven's diagonal falls from the far end of its top bar back toward the near
+           // one; run the other way it makes an L.
+           _patch(c,u,v,0.662,-0.250,0.070,0.050,0xf7ead0,1);      // the 1
+           _patch(c,u,v,0.600,-0.312,0.017,0.038,0xf7ead0,1);      // its flag
+           _patch(c,u,v,0.598, 0.150,0.017,0.160,0xf7ead0,1);      // the 7's top bar
+           if(u>0.598&&u<0.732&&Math.abs(v-(0.300-(u-0.598)*2.05))<0.050)_mix(c,0xf7ead0,1);
+         }
+       }}),
+     // 2+1, the way a learner's mid-length is set up: a big centre fin doing the holding
+     // and two small bites keeping it honest
+     fins:[{x:0,z:2.05,c:0.56,d:0.52,t:0.031,rake:0.17},
+           {x:-0.32,z:1.78,c:0.30,d:0.25,t:0.022,rake:0.08,cant:0.16},
+           {x: 0.32,z:1.78,c:0.30,d:0.25,t:0.022,rake:0.08,cant:-0.16}]}},
   {id:'driftwood', name:'Driftwood', price:350,
    blurb:'9ft 6 log. Endless glide, one big fin, no hurry.',
    spec:{L:6.30,W:0.82,T:0.165,noseA:0.62,tailA:0.88,noseW:0.30,tailW:0.30,
@@ -2682,7 +2733,10 @@ function applyBoardStats(id){
 }
 const _rack={};
 function boardArtFor(id){
-  if(id==='astro')return stockBoard;
+  // Astro's board used to be the one board in the rack that was not lofted — a flat model
+  // with no rocker, no rail and no foil, which is exactly why it read as a plank next to
+  // everything else. It has a spec like the rest of them now. stockBoard stays, because the
+  // deck height every other board lines up to is measured off it.
   if(!_rack[id]){
     const g=buildBoardMesh(BOARD_BY_ID[id].spec);
     g.position.y+=BOARD_SLAB-slabY(g);        // decks line up, so every board rides the same
