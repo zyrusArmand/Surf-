@@ -611,7 +611,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.8.0';
+const VERSION='2.9.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -3978,6 +3978,20 @@ const CHARS=[
    shape:[1.06,1.10,1.04,0.84], tall:1.26, wide:1.02, deep:1.10, neckLen:1.02,
    build:[1.02,0.98,1.04], limb:1.12, arm:0.62, armLen:0.46, foot:1.06,
    footShape:[1.10,0.90,1.22], claws:3, clawCol:0xe8e0cc, headS:[0.98,0.96,1.02]},
+
+  {id:'chicken',name:'Nugget the Chicken',price:8200,
+   blurb:'Cannot fly. Has never let that stop her. Surfs like she means it.',
+   fur:0xf6efe2, dark:0xd8c4a4, nose:0xf0a51c, beak:0xf0a51c, comb:0xd8342c,
+   face:'beak',  beakLen:0.19, beakR:0.095, headPatch:false, ears:'none',
+   tail:'fan',   tailCol:0xcfa871, eyes:'beady',
+   // A chicken is a deep round body carried high on scaly legs with almost no waist, and
+   // a small head on a real neck — the neck is the whole reason a chicken reads as a bird
+   // and not as a ball. Wings use the penguin's flat arms; folded against the body that is
+   // exactly what a chicken's look like.
+   shape:[0.84,1.04,1.00,0.68], tall:1.26, wide:0.94, deep:1.06, neckLen:1.46,
+   build:[1.00,1.00,1.00], limb:0.84, limbLen:0.96, arm:0.92, armLen:0.80, foot:1.14, hand:1.0,
+   footShape:[1.22,0.55,1.34], flipper:true, footCol:0xf0a51c, claws:3, clawCol:0xf0a51c,
+   headS:[0.84,0.86,0.86]},
 ];
 const CHAR_BY_ID={}; for(const c of CHARS)CHAR_BY_ID[c.id]=c;
 function buildChar(id){
@@ -4320,16 +4334,40 @@ function buildChar(id){
     mouth.position.set(0,-0.06,-0.31);
     mouth.rotation.set(0.16,0,Math.PI+0.43);
   } else if(C.face==='beak'){
-    const b=kit(headJ,new THREE.Mesh(new THREE.ConeGeometry(0.10,0.32,10),
+    // beakLen/beakR because a penguin's bill is a long spike and a chicken's is a short
+    // stubby wedge, and they are the same part
+    const bl=C.beakLen||0.32, br=C.beakR||0.10;
+    const b=kit(headJ,new THREE.Mesh(new THREE.ConeGeometry(br,bl,10),
       PBR({color:C.beak||0xf2a01b,roughness:0.35,vivid:1.6})));
-    b.rotation.x=-Math.PI/2;b.position.set(0,-0.04,-0.50);
-    const c2=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.17,18,14),darkMat));
-    c2.position.set(0,0.06,-0.28);c2.scale.set(1.25,1.05,0.55);
+    b.rotation.x=-Math.PI/2;b.position.set(0,-0.04,-0.34-bl*0.5);
+    if(C.headPatch!==false){                   // the penguin's black mask, not everyone's
+      const c2=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.17,18,14),darkMat));
+      c2.position.set(0,0.06,-0.28);c2.scale.set(1.25,1.05,0.55);
+    }
   } else {                                   // a proper snout: corgi, panda
     const m=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.19,18,14),
       C.muzzle?PBR({color:C.muzzle,roughness:0.64,vivid:1.15}):furMat));
     m.position.set(0,-0.09,-0.36);m.scale.set(1.0,0.82,1.25);
     kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.062,12,10),noseMat)).position.set(0,-0.045,-0.56);
+  }
+
+  // ---- comb and wattles ----
+  // A row of soft lobes standing along the crown, tallest in the middle, and a pair
+  // hanging under the chin. Nothing else in the roster has them, and without them a
+  // chicken is just a small round bird.
+  if(C.comb){
+    const cm=PBR({color:C.comb,roughness:0.50,vivid:1.4});
+    for(let i=0;i<5;i++){
+      const t2=i/4, rise=Math.sin(t2*Math.PI);
+      const p=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.048+rise*0.052,14,12),cm));
+      p.position.set(0, 0.355+rise*0.070, -0.30+t2*0.46);
+      p.scale.set(0.40,1.30,0.95);
+    }
+    for(const sx of [-1,1]){                   // wattles, one either side of the chin
+      const w=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.062,14,12),cm));
+      w.position.set(sx*0.052,-0.215,-0.325);
+      w.scale.set(0.52,1.40,0.72);
+    }
   }
 
   // ---- ears ----
@@ -4468,6 +4506,30 @@ function buildChar(id){
       // the top, or it reads as a lump of fur stuck to him
       const nx=new THREE.Group(); nx.position.y=0.215; nx.rotation.x=-0.16-i*0.072; par.add(nx);
       kitParts.push(nx); par=nx;
+    }
+  } else if(C.tail==='fan'){
+    // A cock's tail: a spray of long feathers leaving the rump together and splaying up
+    // and back, each one a flattened blade rather than a lobe. Built as a fan about the
+    // root instead of a chain, because they all start from the same place.
+    // tailJ carries a yaw of its own that the curled and roped tails are built around, so
+    // the fan undoes it first — splayed about a turned axis it comes out lopsided.
+    const yaw=new THREE.Group(); yaw.rotation.y=1.16; tailJ.add(yaw); kitParts.push(yaw);
+    const root=new THREE.Group();
+    root.rotation.x=C.tailTilt===undefined?-0.62:C.tailTilt; yaw.add(root); kitParts.push(root);
+    // and the whole spray stands clear of the rump before it splays: started at the joint
+    // the feathers begin inside the body and only their tips ever come out of it
+    const base=new THREE.Group(); base.position.set(0,0.11,0.05); root.add(base); kitParts.push(base);
+    const fm=C.tailCol?PBR({color:C.tailCol,roughness:0.58,vivid:1.15}):furMat;
+    for(let i=0;i<7;i++){
+      const t2=i/6, off=(t2-0.5)*2;            // -1 on one side, +1 on the other
+      const len=0.40-Math.abs(off)*0.12;
+      const g2=new THREE.Group();
+      g2.rotation.z=off*0.46;                  // splayed sideways
+      g2.rotation.x=-0.10-Math.abs(off)*0.30;  // and the outer ones swept further back
+      base.add(g2); kitParts.push(g2);
+      const f=kit(g2,new THREE.Mesh(new THREE.SphereGeometry(len,16,12),fm));
+      f.position.y=len*0.94;
+      f.scale.set(0.155,1.0,0.42);
     }
   } else if(C.tail!=='none'){                 // bushy
     const t=kit(tailJ,new THREE.Mesh(new THREE.SphereGeometry(0.11,14,12),furMat));

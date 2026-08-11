@@ -52,6 +52,23 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.9.0** — **Nugget the Chicken**, the twentieth rider, at 8,200 puka.
+  A deep round body carried high on scaly yellow legs with almost no waist, and a small
+  head on a *real* neck — the neck is the whole reason a chicken reads as a bird rather
+  than as a ball. She uses the penguin's flat arms for wings, which folded against the
+  body is exactly what a chicken's look like.
+  Three new pieces of kit came with her. A **comb and wattles**: a row of soft lobes
+  standing along the crown, tallest in the middle, and a pair hanging under the chin —
+  nothing else in the roster has them, and without them a chicken is just a small round
+  bird. A **fan tail**: a spray of flattened blades leaving the rump together and splaying
+  up and back. And the **beak takes a length now**, because a penguin's bill is a long
+  spike and a chicken's is a short stubby wedge and they are the same part; the black head
+  patch that came with it is opt-out, since that is a penguin's mask and not a beak's.
+  Two things the tail needed. `tailJ` carries a yaw of its own that the curled and roped
+  tails are built around, so the fan undoes it first — splayed about a turned axis it comes
+  out lopsided. And the whole spray stands clear of the rump before it splays: started at
+  the joint, the feathers begin *inside* the body and only their tips ever emerge.
+  All twenty riders rebuilt and checked after the beak change.
 - **v2.8.0** — Nine things on the preview.
   **The sea is the game's sea again** — same colours, and its swell, drift and foam
   thresholds are copied over live each frame, so it moves exactly as the one you surf on.
