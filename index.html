@@ -442,7 +442,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.83.0';
+const VERSION='1.84.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -6135,17 +6135,20 @@ function animateRig(dt,carve,grab,waterY){
     // the sky and travelling tail-first. Negative puts his chest on the deck and his face
     // over the nose, which is the whole pose.
     pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0)+(-STANCE_ROT)*h;
-    pug.rotation.x=-0.95*h;                          // down the board, not straight into it
-    pelvis.position.y+=0.26*h;
+    // Flat ALONG the deck. At 0.95 he was still half upright, which read as perched on
+    // the nose leaning over it rather than lying on the board; the body goes down to the
+    // deck and the head comes up instead, which is how anyone actually lies on one.
+    pug.rotation.x=-1.36*h;
+    pelvis.position.y+=0.13*h;                       // down on the deck, not hovering over it
     // and he hauls himself UP the board as he pulls, so his face finishes at the tip
     // rather than over the middle of it
-    // right up on the nose, not over the middle of the board
-    pug.position.z=PUG_Z0-1.28*h;
+    // forward on the board without hanging off the end of it
+    pug.position.z=PUG_Z0-0.92*h;
     pug.position.x=PUG_X0;
     const straight=(j,base)=>{ j.rotation.x=j.rotation.x*(1-h)+base*h; };
     straight(legFrontJ.hip,-0.30); straight(legFrontJ.knee,0.34); straight(legFrontJ.ankle,-0.20);
     straight(legBackJ.hip ,-0.30); straight(legBackJ.knee ,0.34); straight(legBackJ.ankle ,-0.20);
-    headJ.rotation.x=headJ.rotation.x*(1-h)+0.30*h;    // chin up off the deck, eyes past the tip
+    headJ.rotation.x=headJ.rotation.x*(1-h)+0.66*h;    // chin up off the deck, eyes past the tip
     headJ.rotation.y*=1-h;
   } else if(pug.rotation.x!==0){ pug.rotation.x=0; pug.position.set(PUG_X0,0,PUG_Z0); applyStance(); }
   updateLimbs();      // the visible limb is swept from wherever the joints ended up
@@ -6506,8 +6509,11 @@ function update(dt){
       // it is pointing when you let go is the attitude he lands in.
       if(heliHeld)flipRot+=dt*HELI_RATE*BS.air;
       else heliRolling=false;
-      // tipped forward and rising, rather than rolling on the spot
-      heliIncline=ease(heliIncline,-0.26,dt,5);
+      // Dead level through the rolls. Tipping it forward looked right in principle and
+      // wrong on screen: the camera sits behind him, so any pitch turns the roll into a
+      // view of the board's underside swinging past instead of a clean turn. Level, it
+      // reads as exactly what it is — the board going over and over.
+      heliIncline=ease(heliIncline,0,dt,6);
       // a corkscrew of spray thrown off the rail, turning with him
       for(let i=0;i<2;i++){
         const m=takeDrop(); if(!m)break;

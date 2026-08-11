@@ -52,6 +52,18 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.84.0** — Two more on the helicopter, both about how it reads from where the camera
+  actually is.
+  **Dead level through the rolls.** Tipping it forward and up was right in principle and
+  wrong on screen: the camera sits behind him, so any pitch turns the roll into a view of
+  the board's underside swinging past rather than a turn. Level, the silhouette is exactly
+  what the move is — the board going over and over.
+  **He lies flat on the deck instead of perched on the nose.** At a body pitch of 0.95 he
+  was still half upright, which read as leaning over the front of the board rather than
+  lying on it. The body goes down flat (1.36) and the head comes up instead (0.66), which
+  is how anyone actually lies on a board, and he sits forward without hanging off the end.
+  Measured: body facing y -0.98, head facing z -0.72 and y -0.66 — chest on the deck, eyes
+  over the nose.
 - **v1.83.0** — Five corrections to the helicopter.
   **He was face-up and travelling tail-first.** A positive turn about X tips his top
   BACKWARDS, so he was lying on his back staring at the sky and going backwards up the
