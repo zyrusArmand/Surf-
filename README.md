@@ -52,7 +52,13 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
-- **v1.97.0** — **The preview arrows are neon now.** Hollow chevrons with a warm wash
+- **v1.98.0** — **Thinner arrows.** The neon reads better as a fine line than as a fat
+  tube: the three strokes come down from 10/4.8/1.05 to 4.6/2.1/0.66, the bloom behind
+  them is pulled in to match, and the whole chevron is about 12% smaller — 54×189 rather
+  than 62×224, still a comfortable tap. The hollow is untouched, so thinning the lines
+  actually opens it up: more air inside, less ink around it. Same 5.54 proportion, same
+  6px inset, still mirrored.
+- **v1.97.0** — **The preview arrows are neon.** Hollow chevrons with a warm wash
   inside them, drawn the way a neon tube is drawn rather than with a glow filter bolted
   on: the *same closed outline* stroked three times, widest and deepest underneath, then
   the saturated tube, then a thin near-white filament on top. The falloff from a hot core
