@@ -52,6 +52,21 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.83.0** — Five corrections to the helicopter.
+  **He was face-up and travelling tail-first.** A positive turn about X tips his top
+  BACKWARDS, so he was lying on his back staring at the sky and going backwards up the
+  board. Negative puts his chest on the deck. Measured rather than eyeballed: his facing
+  vector was y +0.02 riding and is now y -0.91, z -0.38 prone — down, and down the board.
+  Pitch is 0.95 rather than 1.22 so he looks over the nose instead of straight into it,
+  and his chin comes up off the deck.
+  **The dive is shallower in angle but far deeper.** He no longer spears in nose-first; he
+  slides under at a gentler pitch and keeps going to 2.30 below the surface, board and
+  all, then is fired back out on an eased-in curve — slow to leave, then all at once.
+  **The rotation is yours again.** The wind-up is still scripted, but the rolling turns
+  for as long as you hold and stops when you let go, so where it is pointing at release is
+  the attitude he lands in. The release cue comes back with it.
+  **The launch is lower** — 17.2 rather than 20.5, which is 1.72s of air against the 1.40s
+  three turns take, so three is comfortably on and a fourth is not.
 - **v1.82.0** — The controls are actual glass rather than an outline. From the
   references, four things together are what make a pane read as glass: a specular streak
   sitting across the top, an edge lit unevenly instead of a uniform ring, a cool bounce
