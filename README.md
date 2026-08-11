@@ -52,6 +52,22 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.4.0** — **The beach to the reference.** White sand, turquoise water, deep blue sky
+  with cumulus, palms to the sides, and the board **hovering** clear of the sand with a
+  shadow under it rather than planted in it.
+  **The shore runs square now**, not angled. The diagonal was a compromise to get dry land
+  into a narrow frame and it read as a spit cutting across the view. Straight — sand in
+  front, water behind, horizon above — is what standing on a beach looks like; the room
+  for a palm comes from making the beach DEEP instead, with the waterline a long way back,
+  so there is sand either side of the object that still lands inside the frame.
+  **The bleed-through is gone.** That patch of water appearing out on the dry sand was the
+  dune displacement dipping below sea level, so the sea plane came up through the beach.
+  Dunes are now faded out as the sand approaches the water, and flattened entirely for
+  twenty units around the object — which also means the ground under it is a known height,
+  so its shadow lands on sand instead of inside a dune.
+  Palms are placed against the frame rather than the world: the visible half-width sixty
+  units back is about ten, so a palm at sixteen is off the side of the screen with only
+  its frond tips showing. Fronds are denser and the crowns fuller.
 - **v2.3.0** — **A proper beach.** Bright afternoon rather than dusk, with the game's own
   clouds and gulls in it, palms, and sand that reads as sand.
   The sky and sea are still the game's shaders but now on their **own** uniforms rather
