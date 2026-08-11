@@ -242,6 +242,26 @@
   #viewer .vbot { pointer-events:auto; width:min(520px,100%); margin:0 auto;
     background:linear-gradient(0deg, rgba(4,16,30,.80), rgba(4,16,30,0));
     padding:26px 14px 4px; margin-bottom:-4px; }
+  /* Long thick arrows down each side, to walk the rack without going back to the grid.
+     No plate behind them: at this size the shape carries on its own, and a button would
+     compete with the very thing it is there to let you look at. */
+  #viewer .varr { position:absolute; top:50%; transform:translateY(-50%);
+    width:58px; height:110px; padding:0; border:0; background:none; cursor:pointer;
+    pointer-events:auto; -webkit-tap-highlight-color:transparent;
+    transition:opacity .18s ease, transform .09s ease; }
+  #viewer .varr.prev { left:1px; }
+  #viewer .varr.next { right:1px; }
+  #viewer .varr svg { width:100%; height:100%; display:block;
+    animation:varrGlow 2.4s ease-in-out infinite; }
+  #viewer .varr svg path { fill:none; stroke:#ffa53c; stroke-width:6.5;
+    stroke-linecap:round; stroke-linejoin:round; }
+  @keyframes varrGlow {
+    0%,100% { filter:drop-shadow(0 0 5px rgba(255,142,20,.70)) drop-shadow(0 0 15px rgba(255,110,0,.30)); }
+    50%     { filter:drop-shadow(0 0 10px rgba(255,178,72,.95)) drop-shadow(0 0 26px rgba(255,110,0,.50)); } }
+  #viewer .varr:active { transform:translateY(-50%) scale(.88); }
+  /* there is nothing before the first or after the last, so the arrow goes rather than
+     sitting there greyed out inviting a tap that does nothing */
+  #viewer .varr.off { opacity:0; pointer-events:none; }
   #viewer #vStats { margin-bottom:12px; }
   #viewer #vStats .st { display:flex; align-items:center; gap:8px; margin:5px 0; }
   #viewer #vStats .st span { font-size:10px; font-weight:800; letter-spacing:.1em;
@@ -458,6 +478,10 @@
      photographed. The canvas behind it is doing the work; this is only the furniture. -->
 <div id="viewer" class="hidden">
   <div class="vtop"><div class="vname" id="vName"></div><div class="vsub" id="vSub"></div></div>
+  <button class="varr prev" id="vPrev" type="button" aria-label="Previous">
+    <svg viewBox="0 0 44 84" aria-hidden="true"><path d="M37 42 H13 M27 27 L12 42 L27 57"/></svg></button>
+  <button class="varr next" id="vNext" type="button" aria-label="Next">
+    <svg viewBox="0 0 44 84" aria-hidden="true"><path d="M7 42 H31 M17 27 L32 42 L17 57"/></svg></button>
   <div class="vbot"><div id="vStats"></div><button class="go calm" id="vClose">Back</button></div>
 </div>
 <div id="shop" class="hidden">
@@ -512,7 +536,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.93.0';
+const VERSION='1.94.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2710,9 +2734,29 @@ function openViewer(kind,id){
   // the menu sits under the shop and was reading straight through the transparent viewer
   viewer.menuWasUp=!overlay.classList.contains('hidden');
   if(viewer.menuWasUp)overlay.classList.add('hidden');
+  // the arrows walk the SHOP's order, so what is next here is what was next in the grid
+  const list=viewerList(kind), i=list.findIndex(o=>o.id===id);
+  vPrev.classList.toggle('off',i<=0);
+  vNext.classList.toggle('off',i<0||i>=list.length-1);
   shopEl.classList.add('hidden');
   viewerEl.classList.remove('hidden');
 }
+function viewerList(kind){ return kind==='board'?RACK_ORDER:charOrder(); }
+function viewerStep(dir){
+  if(!viewer)return;
+  const kind=viewer.kind, list=viewerList(kind), i=list.findIndex(o=>o.id===viewer.id);
+  const j=i+dir;
+  if(i<0||j<0||j>=list.length)return;
+  // Close and reopen rather than swapping the model in place: opening does a good deal
+  // more than load a mesh — it stands boards on their tail, measures the box it has just
+  // stood up to frame it, poses a character and files away what to put back afterwards.
+  // Both halves run inside this one turn, so the browser never paints the shop in between.
+  closeViewer();
+  openViewer(kind,list[j].id);
+}
+const vPrev=document.getElementById('vPrev'), vNext=document.getElementById('vNext');
+vPrev.onclick=e=>{ e.stopPropagation(); viewerStep(-1); };
+vNext.onclick=e=>{ e.stopPropagation(); viewerStep(1); };
 function closeViewer(){
   if(!viewer)return;
   const v=viewer; viewer=null;

@@ -52,6 +52,19 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.94.0** — **Arrows down each side of the preview.** Long thick orange chevrons that
+  pulse, one to a side, stepping to the previous or next item without going back to the
+  grid — and they walk the *shop's* order, so what is next here is what was next in the
+  list. There is nothing before the first or after the last, so at either end the arrow
+  goes rather than sitting there greyed out inviting a tap that does nothing. No plate
+  behind them: at this size the shape carries on its own, and a button would compete with
+  the very thing it is there to let you look at.
+  Stepping closes and reopens rather than swapping the model, because opening does a good
+  deal more than load a mesh — it stands boards on their tail, measures the box it has
+  just stood up in order to frame it, poses a character, and files away what to put back
+  afterwards. Both halves run in one turn, so the shop never flashes up in between.
+  Walked the whole board rack forward and back and both ends of both tabs: 58×110 hit
+  areas, centred vertically, correct neighbour every time.
 - **v1.93.0** — **Distance and tricks are two scores, each with its own record.** They
   were one: the score counted 0.6 a metre, which came to six hundred points over a
   kilometre — several times what the tricks themselves were worth — so the score was
