@@ -442,7 +442,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='1.84.0';
+const VERSION='1.85.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1987,6 +1987,86 @@ const BOARDS=[
            {x: 0.36,z:1.38,c:0.22,d:0.12,t:0.018,rake:0.03,cant:-0.10},
            {x:-0.36,z:-1.38,c:0.22,d:0.12,t:0.018,rake:-0.03,cant:0.10},
            {x: 0.36,z:-1.38,c:0.22,d:0.12,t:0.018,rake:-0.03,cant:-0.10}]}},
+  // ---------------------------------------------------------------------------
+  // FATHOM. Every other board in this rack imitates a style — a log, a fish, a spray
+  // job, a race livery. Not one of them is a READOUT. This one is: the deck carries a
+  // contour chart of the sea, built the way the sea in this game is actually built, out
+  // of a handful of sines crossing at angles. It is sampled across the board instead of
+  // across the water and quantised into depth bands, so what you are standing on is a
+  // slice of the swell you are riding, printed cold.
+  //
+  // It samples its own field rather than calling waveH: the ocean's is tuned to metres
+  // of open water and would come out flat across two units of foam. Same construction,
+  // scaled to the object.
+  //
+  // Everything else follows from that. The shape is a mid-length displacement hull —
+  // long, narrow, pulled-in nose, rounded pin — because it should look like an instrument
+  // and not a toy. The palette is ink and bone with one cold accent, so the pattern
+  // carries the board and nothing competes with it. And there are depth graduations
+  // ticked down the rail, because a chart has a scale on it.
+  // ---------------------------------------------------------------------------
+  {id:'fathom', name:'Fathom', price:6800,
+   blurb:'The deck is a chart of the sea it rides. Same sines, same crossings, printed cold.',
+   spec:{L:5.30,W:0.78,T:0.128,noseA:0.74,tailA:0.80,noseW:0.24,tailW:0.26,
+     rockN:0.26,noseR:0.34,rockT:0.07,tailR:0.20,deckPow:0.60,hullPow:0.46,hullK:0.60,
+     // The weave is much finer ACROSS than the other boards need. Contours mostly run
+     // across the hull, and at the usual 60-odd divisions of width a hairline falls
+     // between two rings and comes out as a dashed line.
+     nu:300,nr:124,
+     // only a traction strip at the tail: a pad across the deck would cover the chart,
+     // which is the entire board
+     // no pad: a black rectangle in the middle of a chart is a hole in the chart
+     pad:false,finCol:0x0f202b,
+     paint:artScheme({deck:0x12293a,hull:0x0e2130,rail:0x081520,stringer:0x46e6d6,
+       pin:0x46e6d6,sw:0.010,railAt:0.84,both:true,
+       art:(function(){
+         // The field: three sines crossing, the way the ocean in this game is put
+         // together, sampled across the board instead of across the water. Deliberately
+         // low frequency — the first attempt ran to about thirty cycles down the board and
+         // fell straight through the mesh into speckle.
+         const fld=(uu,vv)=>{
+           const x=uu*3.1, y=vv*1.35;
+           return Math.sin(x*1.00+y*0.40)*0.55
+                 +Math.sin(x*1.63-y*0.88+1.7)*0.30
+                 +Math.sin(x*2.55+y*1.35+0.4)*0.15;
+         };
+         const B=9;
+         // Gain. Three sines rarely align, so the raw field lives around +-0.45 and a
+         // straight *0.5+0.5 mapping only ever visits the middle third of the bands —
+         // measured: the whole deck came out between 0.24 and 0.41 luminance, no deeps
+         // and no shallows. Opened up so it reaches both ends and clips a little at each,
+         // which is what gives a chart its flat deep water and its bare sandbars.
+         const bandAt=(uu,vv)=>Math.max(0,Math.min(1,fld(uu,vv)*1.05+0.5))*B;
+         return (c,u,v,top)=>{
+           const b0=bandAt(u,v);
+           // Contour width has to be normalised by the local gradient, or it is measured
+           // in band units and the line thins to nothing wherever the field steepens —
+           // which is why the first lines came out as dashes. Divide by how fast the band
+           // is changing and every contour is the same width on the actual surface.
+           const d=0.004;
+           const gu=(bandAt(u+d,v)-b0)/d, gv=(bandAt(u,v+d)-b0)/d;
+           const g=Math.hypot(gu,gv*0.30)+1e-3;     // v weighted for the board's aspect
+           const step=Math.min(B-1,Math.floor(b0)), t2=step/(B-1);
+           // depth as tone: it has to STEP, because a smooth ramp is a gradient and a
+           // gradient is not a chart
+           // Ink and bone. The tone stays down in the dark half of the range and the
+           // LINES carry the brightness — pushing the fill up to pale made the whole board
+           // read as a sheet of ice under this lighting, whatever the numbers said.
+           _mix(c, top?0x04141f:0x040f18, 1);
+           _mix(c, top?0x4e8798:0x24505f, t2*(top?0.66:0.40));
+           const edge=Math.abs(b0-Math.round(b0));
+           const line=1-Math.min(1,edge/(0.021*g));
+           if(line>0)_mix(c, b0/B>0.80?0x6cf6e8:0xe8f4f7, line*(top?0.95:0.38));
+           // and the scale down the rail, because a chart has one
+           if(top&&Math.abs(Math.abs(v)-0.70)<0.032){
+             const t3=_rep(u*17);
+             _mix(c, t3<0.42?0xa8ede4:0x08202c, 0.88);
+           }
+         };
+       })()}),
+     fins:[{x:0,z:1.72,c:0.50,d:0.50,t:0.030,rake:0.20},
+           {x:-0.30,z:1.20,c:0.20,d:0.15,t:0.018,rake:0.05,cant:0.16},
+           {x: 0.30,z:1.20,c:0.20,d:0.15,t:0.018,rake:0.05,cant:-0.16}]}},
   {id:'mako', name:'Mako eFoil', price:15000,
    blurb:'Electric hydrofoil. Flies on a wing, leaves almost no wake, and is 21 mph faster than anything else out here.',
    // the halo board: deliberately outside the balance curve on speed, and paid for with

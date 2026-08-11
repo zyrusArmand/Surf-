@@ -52,6 +52,26 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v1.85.0** — **Fathom** (6,800). Every other board in the rack imitates a style — a
+  log, a fish, a spray job, a race livery. Not one of them is a READOUT. This one is: the
+  deck carries a contour chart of the sea, built the way the sea in this game is actually
+  built, out of a handful of sines crossing at angles, sampled across the board instead of
+  across the water and quantised into depth bands. It samples its own field rather than
+  calling waveH — the ocean's is tuned to metres of open water and would come out flat
+  across two units of foam — but it is the same construction, scaled to the object.
+  Everything else follows from that. Mid-length displacement hull, long and narrow with a
+  pulled-in nose and a rounded pin, because it should look like an instrument and not a
+  toy. Ink and bone with one cold accent, so nothing competes with the pattern. No deck
+  pad, because a black rectangle in the middle of a chart is a hole in the chart. And
+  depth graduations ticked down the rail, because a chart has a scale on it.
+  Four things had to be measured rather than eyeballed to get there. The field was thirty
+  cycles down the board and fell through the mesh into speckle — dropped to nine. Contour
+  width was in band units, so lines thinned to dashes wherever the field steepened —
+  normalised by the local gradient. The field only ever visited the middle third of its
+  range, so nothing deep or shallow was ever painted: measured at 0.24–0.41 luminance
+  across the whole deck, now 0.04–0.82. And the weave is far finer across the width than
+  any other board needs, because contours mostly run that way and at the usual sixty
+  divisions a hairline falls between two rings.
 - **v1.84.0** — Two more on the helicopter, both about how it reads from where the camera
   actually is.
   **Dead level through the rolls.** Tipping it forward and up was right in principle and
