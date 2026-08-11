@@ -27,12 +27,16 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+# Build and deploy are two jobs, which is how GitHub's own Pages workflow is laid out and
+# not a stylistic choice. With both in one job, deploy-pages queries the artifact API
+# moments after upload-pages-artifact finalises, and it kept coming back "Found 0
+# artifact(s)" for an artifact whose upload had just reported success — the metadata had
+# not propagated yet, so the deploy failed on an artifact that plainly existed. A job
+# boundary makes the runner wait for the artifact to be genuinely available before the
+# deploy starts, which removes the race rather than retrying through it.
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       # Pages must be enabled once under Settings -> Pages -> Source: GitHub Actions.
@@ -41,5 +45,13 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - id: deployment
         uses: actions/deploy-pages@v4
