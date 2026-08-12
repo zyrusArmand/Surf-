@@ -52,6 +52,22 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.20.0** — **The barrel roof is water now.** It was reading as a stack of concentric
+  glass rings hanging in the air, and there were two reasons.
+  - **`depthWrite:false`** was the real one. With depth writing off, the shell's fifty-odd
+    rings never occlude each other, so every slice of the tube blends into the frame at once
+    — which is precisely a stack of rings. Writing depth means the near wall hides the far
+    wall and it reads as one continuous surface.
+  - **It was not lit like the sea.** It had a flat gradient and two sine streaks. It now uses
+    the ocean's *own* `hash21`/`vnoise`/`fbm`, its own deep/shallow colour pair, and layered
+    lace-and-fleck foam dragged around the curl and along its length, so the roof is visibly
+    the same substance as the face under the board. It takes the day cycle's light and sky
+    colour from the same place the ocean does.
+  - **Transmission, deliberately not gated on the diffuse term.** The inside of a tube faces
+    away from the sun, so the direct light is zero everywhere in there — which is exactly why
+    a real barrel is lit *through* its wall rather than on its surface. Gate the glow on
+    `diff` and the green room comes out as a dark hole instead of the brightest thing in the
+    game.
 - **v2.19.0** — **The set wave was pitched so late almost nobody would ever meet it.** Reported
   from a real run: four kilometres, no barrel. That was not bad luck, it was arithmetic I
   should have done when I set the pacing.
