@@ -625,7 +625,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.15.0';
+const VERSION='2.16.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -735,8 +735,29 @@ function whirlDip(x,z){
   if(d2>=WH_R*WH_R)return 0;
   return -whA*whirlProfile(1-Math.sqrt(d2)/WH_R);
 }
-let waveAmp=0.78;                       // current swell height (varies set to set)
-// smooth pseudo-random drift so wave size wanders between small and extra-large
+// ---------- the set wave ----------
+// A plane goes down off to one side and the swell it throws walks across the lane at you,
+// growing the whole way. Same trick as the wake and the whirlpool, for the same reason:
+// it is not an object floating on the sea, it IS the sea — one more additive term in the
+// shared height field. So the ocean shader lights it, foams it and fogs it for free, the
+// board floats on it without knowing it exists, and steering into the face climbs you up
+// it because the water under you is genuinely higher there.
+//
+// The overhang is the one thing a height field cannot do — a surface that is single-valued
+// in y can make a wall but never a roof. The curling lip is a separate shell, built below.
+const SW_FACE=10.0;                     // how far the steep front face runs
+const SW_BACK=34.0;                     // and the long shoulder behind the crest
+let swA=0, swX=0, swS=1;                // crest height, crest position in x, side it came from
+// d>0 is behind the crest (the wave's own water), d<0 is the trough you ride in
+function setWaveH(x){
+  if(swA<=0.0015)return 0;
+  const d=(x-swX)*swS;
+  let f;
+  if(d<=0){ const k=Math.max(0,1+d/SW_FACE); f=k*k*(3-2*k); }
+  else    { const k=Math.max(0,1-d/SW_BACK); f=0.34+0.66*k*k*(3-2*k); }
+  return swA*f;
+}
+let waveAmp=0.78;                       // current swell height (varies set to set)// smooth pseudo-random drift so wave size wanders between small and extra-large
 function setNoise(t){
   return 0.45*Math.sin(t*0.055)+0.30*Math.sin(t*0.021+2.1)+0.25*Math.sin(t*0.009+4.7);
 }
@@ -750,7 +771,7 @@ function waveComp(W,x,z,t){
 function waveH(x,z,t){
   let h=0;
   for(const W of WAVES)h+=waveComp(W,x,z,t);
-  return h*waveAmp+wakeBump(x,z)+whirlDip(x,z);
+  return h*waveAmp+wakeBump(x,z)+whirlDip(x,z)+setWaveH(x);
 }
 // the long-period part of the sea only — what a floating object actually rides.
 // Short chop is filtered out, so buoys glide over the swell instead of vibrating,
@@ -758,7 +779,7 @@ function waveH(x,z,t){
 function swellH(x,z,t){
   let h=0;
   for(let i=0;i<2;i++)h+=waveComp(WAVES[i],x,z,t);
-  return h*waveAmp*1.06+wakeBump(x,z)+whirlDip(x,z);
+  return h*waveAmp*1.06+wakeBump(x,z)+whirlDip(x,z)+setWaveH(x);
 }
 const OCEAN_Z=-90;
 let dist=0;
@@ -780,6 +801,7 @@ const oceanUniforms={
   uT:{value:0}, uDist:{value:0}, uAmp:{value:1.35}, uPeak:{value:2.85},
   uWakeZ:{value:0}, uWakeA:{value:0}, uWakeX:{value:0},
   uWhX:{value:0}, uWhZ:{value:0}, uWhA:{value:0},
+  uSwA:{value:0}, uSwX:{value:0}, uSwS:{value:1},
   uSun:{value:sunDir}, uLight:{value:1.0},
   uSky:{value:new THREE.Color(0x8fd2f5)},
   uDeep:{value:new THREE.Color(0x0a5e9c)},
@@ -791,6 +813,7 @@ const oceanMat=new THREE.ShaderMaterial({
     uniform float uT; uniform float uDist; uniform float uAmp; uniform float uPeak;
     uniform float uWakeZ; uniform float uWakeA; uniform float uWakeX;
     uniform float uWhX; uniform float uWhZ; uniform float uWhA;
+    uniform float uSwA; uniform float uSwX; uniform float uSwS;
     varying vec3 vN; varying vec3 vW; varying float vH; varying vec2 vPh;
     void main(){
       vec2 p = vec2(position.x, (-position.y + (${OCEAN_Z.toFixed(1)})) + uDist);
@@ -826,6 +849,25 @@ const oceanMat=new THREE.ShaderMaterial({
             dhz -= uWhA*dfdr*(wd.y/r);
           }
         }
+      }
+      // The set wave: a wall standing across the lane, steep on the front face and
+      // running out to a long shoulder behind the crest. Same analytic-derivative
+      // treatment as the others, so the normal is exact and the shader's own foam and
+      // specular find the face without being told anything about it.
+      if(uSwA>0.0015){
+        float d=(p.x-uSwX)*uSwS;
+        float f, dfdd;
+        if(d<=0.0){
+          float k=clamp(1.0+d/10.0,0.0,1.0);
+          f=k*k*(3.0-2.0*k);
+          dfdd=(k>0.0&&k<1.0)?(6.0*k*(1.0-k)/10.0):0.0;
+        } else {
+          float k=clamp(1.0-d/34.0,0.0,1.0);
+          f=0.34+0.66*k*k*(3.0-2.0*k);
+          dfdd=(k>0.0&&k<1.0)?(-0.66*6.0*k*(1.0-k)/34.0):0.0;
+        }
+        h   += uSwA*f;
+        dhx += uSwA*dfdd*uSwS;
       }
       // phase of the two main swells — constant along a moving crest
       vPh = vec2( (0.00*p.x + 1.00*p.y)*0.190 + uT*0.013,
@@ -907,6 +949,77 @@ const ocean=new THREE.Mesh(oceanGeo,oceanMat);
 ocean.rotation.x=-Math.PI/2;
 ocean.position.z=OCEAN_Z;
 scene.add(ocean);
+
+// ---------- the curling lip ----------
+// The one part of a barrel a height field can never give you: a roof. A surface that is
+// single-valued in y can build a wall of any steepness but it cannot overhang itself, so
+// the curl is its own shell — a tube lying along the lane with a slice taken out of the
+// bottom-front, which is exactly what you are looking out through when you are inside one.
+// Built once at unit radius and scaled per frame; the taper along its length is baked in,
+// so the far end is already closing down while the near end is open over your head.
+function buildCurlGeom(){
+  const NZ=52, NA=34, Z0=-124, Z1=34;
+  const P0=-0.40, P1=Math.PI*1.22;          // from where it leaves the face, over, and down
+  const pos=[],uv=[],idx=[];
+  for(let i=0;i<=NZ;i++){
+    const zt=i/NZ, z=Z0+(Z1-Z0)*zt;
+    const rad=0.58+0.42*Math.pow(zt,0.75);  // the tube opens up as it reaches you
+    for(let j=0;j<=NA;j++){
+      const t=j/NA, ph=P0+(P1-P0)*t;
+      pos.push(Math.cos(ph)*rad, Math.sin(ph)*rad, z);
+      uv.push(t,zt);
+    }
+  }
+  for(let i=0;i<NZ;i++)for(let j=0;j<NA;j++){
+    const a=i*(NA+1)+j, b=a+NA+1;
+    idx.push(a,b,a+1, a+1,b,b+1);
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
+  g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+const curlUniforms={
+  uFade:{value:0}, uT:{value:0}, uLight:{value:1},
+  uThick:{value:new THREE.Color(0x0a5a72)},   // where the water is deep, looking through it
+  uThin :{value:new THREE.Color(0x53e8c4)},   // and where it thins out near the lip
+  uFoam :{value:new THREE.Color(0xf2fdff)},
+};
+const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
+  uniforms:curlUniforms, transparent:true, depthWrite:false, side:THREE.DoubleSide,
+  vertexShader:`
+    varying vec2 vUv;
+    void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }
+  `,
+  fragmentShader:`
+    uniform float uFade; uniform float uT; uniform float uLight;
+    uniform vec3 uThick; uniform vec3 uThin; uniform vec3 uFoam;
+    varying vec2 vUv;
+    void main(){
+      // t runs from the base of the curl to the tip of the falling curtain. A wave is lit
+      // THROUGH, not on: the thin water out at the lip is the bright part, and that glow is
+      // the whole reason a barrel looks like a barrel.
+      float t=vUv.x;
+      vec3 col=mix(uThick,uThin,smoothstep(0.06,0.88,t));
+      col=mix(col,uFoam,smoothstep(0.74,1.0,t)*0.92);          // the throwing edge itself
+      // Aerated water running around the curl and stretched down its length. Heavy on
+      // purpose: without it the shell reads as coloured glass rather than as a moving
+      // wall of water, which was the first thing wrong with it.
+      float streak=sin(vUv.y*96.0+uT*0.9)*0.5+0.5;
+      float fine  =sin(vUv.y*231.0-uT*1.7+t*7.0)*0.5+0.5;
+      col=mix(col,uFoam,smoothstep(0.55,1.0,streak)*(0.24+t*0.44));
+      col=mix(col,uFoam,smoothstep(0.72,1.0,fine)*t*0.30);
+      // Nearly solid. It has to occlude, or you see straight through fifty slices of it
+      // at once and the tube turns into a stack of rings hanging in the air.
+      float a=uFade*(0.99-0.20*t);
+      a*=smoothstep(0.0,0.30,vUv.y);                            // opens out at the far end
+      col=pow(clamp(col,0.0,1.0),vec3(2.2));
+      gl_FragColor=vec4(col*uLight,clamp(a,0.0,1.0));
+    }
+  `,
+}));
+curl.visible=false; curl.renderOrder=3; scene.add(curl);
 
 // ---------- pug in surfer stance + board ----------
 // every surface now uses a physically-based material, so it responds to the environment
@@ -5401,6 +5514,27 @@ function buildObstacle(kind){
     stub.position.set(0.8,0.45,0.1);stub.rotation.z=0.4;
     m.add(trunk,endA,endB,stub);
     r=2.35;h=1.1;
+  } else if(kind==='debris'){
+    // Wreckage off the plane that started all this, being carried round inside the tube.
+    // It only ever appears in the barrel, so it is painted for that: hazard orange and
+    // white against green-blue water in a place where the light is going strange, because
+    // in there the one thing that must never be in doubt is what will hit you.
+    m=new THREE.Group();
+    const steel=PBR({color:0xe2622a,roughness:0.52,metalness:0.24,vivid:1.7});
+    const pale =PBR({color:0xf4f6f7,roughness:0.44,metalness:0.16,vivid:1.2});
+    const drum=new THREE.Mesh(new THREE.CylinderGeometry(0.62,0.62,1.7,20),steel);
+    drum.rotation.z=Math.PI/2;
+    for(const dx of [-0.44,0.44]){                 // the rolling hoops on a fuel drum
+      const hoop=new THREE.Mesh(new THREE.TorusGeometry(0.635,0.055,8,22),pale);
+      hoop.rotation.y=Math.PI/2; hoop.position.x=dx; m.add(hoop);
+    }
+    const cap=new THREE.Mesh(new THREE.CylinderGeometry(0.63,0.63,0.07,20),pale);
+    cap.rotation.z=Math.PI/2; cap.position.x=0.87;
+    // a bent length of wing strut still bolted to it, so the silhouette is not just a can
+    const strut=new THREE.Mesh(new THREE.BoxGeometry(2.4,0.13,0.34),pale);
+    strut.position.set(-0.5,0.42,0.2); strut.rotation.z=0.30; strut.rotation.y=0.22;
+    m.add(drum,cap,strut);
+    r=1.15;h=1.3;
   } else if(kind==='bigfin'){
     // one very large dorsal fin cutting across your line — no body, just the fin
     m=new THREE.Group();
@@ -6052,6 +6186,8 @@ function respawn(){
   for(let i=obstacles.length-1;i>=0;i--)
     if(obstacles[i].position.z>-48){scene.remove(obstacles[i]);obstacles.splice(i,1);}
   skiOn=false;skiWake=null;skiT=26;jetSki.visible=false;skiGlint.visible=false;wkA=0;
+  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=64+Math.random()*46;
+  curl.visible=false;swSplash.visible=false;
   whirl=null;whA=0;whirlArt.visible=false;whirlT=30+Math.random()*20;
   hanging=false;rope.visible=false;ropeBtn.style.display='none';ropeBtn.textContent='ROPE!';
   planeActive=false;plane.visible=false;planeT=30+Math.random()*24;
@@ -6498,6 +6634,8 @@ function updateWorldDuringWipeout(dt){
   oceanUniforms.uDist.value=dist*WAVE_DRIFT;
   oceanUniforms.uWakeZ.value=wkZ;oceanUniforms.uWakeA.value=wkA;oceanUniforms.uWakeX.value=wkX;
   oceanUniforms.uWhX.value=whX;oceanUniforms.uWhZ.value=whZ;oceanUniforms.uWhA.value=whA;
+  oceanUniforms.uSwA.value=swA;oceanUniforms.uSwX.value=swX;oceanUniforms.uSwS.value=swS;
+  placeCurl();
   if(shake>0)shake-=dt*8;
   for(let i=splashes.length-1;i>=0;i--){
     const s2=splashes[i],u=s2.userData;
@@ -7196,6 +7334,135 @@ function updateJetSki(dt,eff){
   } else if(wkA>0){ wkA=Math.max(0,wkA-dt*3); }
 }
 
+// ---------- the set wave: a plane goes down, and what it throws you can ride ----------
+const SWP={IDLE:-1,FLY:0,IMPACT:1,SWELL:2,RIDE:3,EXIT:4};
+const SW_CRASH_X=46, SW_HOLD_X=9.0, SW_TUBE=4.6, SW_PEAK=7.0, SW_R=5.8;
+const SW_FLY=5.2, SW_IMP=1.3, SW_SWELL=5.0, SW_OUT=2.6;
+let swPh=SWP.IDLE, swT=0, swRide=0, swRideMax=0, swPts=0, swDeep=0;
+let swCurlA=0, swCam=0, swDebT=0, swSweep=0, swNext=64+Math.random()*46;
+// the centre of the tube: the pocket you want to be sitting in
+function swTubeC(){ return swX - swS*SW_TUBE; }
+function swAxisY(){ return setWaveH(swTubeC())+2.55; }
+const swSplash=new THREE.Group(); swSplash.visible=false; scene.add(swSplash);
+(function buildSplash(){
+  const w=PBR({color:0xf4fdff,roughness:0.30,vivid:1.3});
+  const col=new THREE.Mesh(new THREE.CylinderGeometry(1.5,3.4,17,20,1,true),w);
+  col.position.y=8.5; col.material.transparent=true; col.material.opacity=0.9;
+  col.material.side=THREE.DoubleSide;
+  swSplash.add(col);
+  for(let i=0;i<7;i++){                          // gouts thrown out around the impact
+    const g=new THREE.Mesh(new THREE.SphereGeometry(1.5,10,8),w);
+    const a=i/7*Math.PI*2;
+    g.position.set(Math.cos(a)*4.2,1.6,Math.sin(a)*4.2);
+    g.userData.a=a; swSplash.add(g);
+  }
+})();
+function startSetWave(){
+  swPh=SWP.FLY; swT=0;
+  swS=Math.random()<0.5?1:-1;                    // which side it comes down on
+  swRideMax=6+Math.random()*10;                  // six to sixteen seconds of tube
+  swRide=0; swPts=0; swDeep=0; swSweep=0; swCurlA=0; swDebT=1.2;
+  swA=0; swX=swS*SW_CRASH_X;
+  if(hanging)releaseRope(false);
+  planeActive=false; plane.visible=true; planeT=SW_FLY+SW_IMP+SW_SWELL+40;
+  msg(swS>0?'PLANE GOING DOWN — STARBOARD!':'PLANE GOING DOWN — PORT!');
+}
+function endSetWave(){
+  swPh=SWP.IDLE; swA=0; swCurlA=0; swCam=0; swSweep=0;
+  curl.visible=false; swSplash.visible=false;
+  swNext=88+Math.random()*54;
+}
+function updateSetWave(dt,eff){
+  if(swPh===SWP.IDLE){
+    // Rare and late on purpose. It is the biggest thing in the game and it wants to feel
+    // like weather, not like a spawn on a timer you can count.
+    if(dist>900&&!skiOn&&!whirl&&!hanging){ swNext-=dt; if(swNext<=0)startSetWave(); }
+    return;
+  }
+  swT+=dt;
+  if(swPh===SWP.FLY){
+    const k=Math.min(1,swT/SW_FLY), e=k*k*(3-2*k);
+    const x0=px+swS*6, x1=swS*SW_CRASH_X;
+    plane.position.set(x0+(x1-x0)*e, 26-24.2*k*k, -230+206*k);
+    plane.rotation.y=Math.PI-swS*1.02*Math.min(1,k*1.6);   // hauling away from your line
+    plane.rotation.z=-swS*0.95*Math.min(1,k*1.4);          // hard bank
+    plane.rotation.x=-0.58*k;                              // nose down
+    plane.userData.prop.rotation.z+=dt*(40-32*k);          // the engine giving up
+    if(swT>=SW_FLY){
+      swPh=SWP.IMPACT; swT=0; plane.visible=false; swSweep=1;
+      swSplash.visible=true; swSplash.position.set(swS*SW_CRASH_X,0,-70);
+      msg('IMPACT!');
+    }
+    return;
+  }
+  if(swPh===SWP.IMPACT){
+    const k=Math.min(1,swT/SW_IMP);
+    const rise=Math.sin(Math.min(1,k*1.5)*Math.PI*0.5);
+    swSplash.children[0].scale.set(0.4+rise*1.1,0.35+rise*0.95,0.4+rise*1.1);
+    swSplash.children[0].material.opacity=0.92*(1-k*k);
+    for(let i=1;i<swSplash.children.length;i++){
+      const g=swSplash.children[i], a=g.userData.a;
+      const s=1+k*5.5;
+      g.position.set(Math.cos(a)*4.2*s,1.6+rise*7.5-k*k*9,Math.sin(a)*4.2*s);
+      g.scale.setScalar(Math.max(0.05,1-k*0.6));
+    }
+    if(swT>=SW_IMP){ swPh=SWP.SWELL; swT=0; swSplash.visible=false; }
+    return;
+  }
+  if(swPh===SWP.SWELL){
+    // small to large the whole way in, and closing on you as it grows
+    const k=Math.min(1,swT/SW_SWELL), e=k*k*(3-2*k);
+    swA=SW_PEAK*(0.05+0.95*e);
+    swX=swS*(SW_CRASH_X+(SW_HOLD_X-SW_CRASH_X)*e);
+    swCurlA=Math.max(0,Math.min(1,(k-0.52)/0.40));
+    swCam=e*0.75;
+    if(k>0.55&&swSweep===1){ swSweep=2; msg('SET WAVE — GET IN THE POCKET!'); }
+    if(swT>=SW_SWELL){ swPh=SWP.RIDE; swT=0; swRide=0; msg('IN THE BARREL! 🌊'); }
+    return;
+  }
+  if(swPh===SWP.RIDE){
+    swA=SW_PEAK; swX=swS*SW_HOLD_X; swCurlA=1; swCam=Math.min(1,swCam+dt*1.6);
+    swRide+=dt;
+    const c=swTubeC();
+    // Where you are across the tube. Positive is deeper, up the face toward the curtain;
+    // negative is out toward the shoulder and the daylight.
+    const dp=(px-c)*swS;
+    // Sitting deep pays, and it pays steeply, because deep is where it can end you.
+    const sweet=Math.max(0,1-Math.abs(dp-1.2)/3.2);
+    swDeep=Math.max(swDeep,sweet);
+    const rate=240+960*sweet*sweet;
+    score+=rate*dt; swPts+=rate*dt;
+    if(swRide>swRideMax){ swPh=SWP.EXIT; swT=0; swSpit(); return; }
+    if(dp>3.05){ startWipeout('foam'); msg('PITCHED!'); endSetWave(); return; }
+    if(py>swAxisY()+SW_R*0.80){ startWipeout('foam'); msg('INTO THE LIP!'); endSetWave(); return; }
+    if(dp<-5.25){ swPh=SWP.EXIT; swT=0; swSpit(); return; }   // ran out onto the shoulder
+    swDebT-=dt;
+    if(swDebT<=0){
+      swDebT=0.80+Math.random()*1.15;
+      makeObstacle('debris', c+swS*(-3.4+Math.random()*5.4), -150);
+    }
+    return;
+  }
+  // EXIT
+  const k=Math.min(1,swT/SW_OUT);
+  swA=SW_PEAK*(1-k*k); swCurlA=Math.max(0,1-k*1.4); swCam=Math.max(0,0.9-k);
+  if(swT>=SW_OUT)endSetWave();
+}
+function swSpit(){
+  const bonus=Math.round(600+swPts*0.35+swDeep*1400);
+  score+=bonus;
+  msg(swRide>11?`SPAT OUT! DEEP BARREL +${bonus}`:`OUT CLEAN! +${bonus}`);
+  noteTrick&&noteTrick('barrel','wave');
+}
+function placeCurl(){
+  if(swCurlA<=0.004){ curl.visible=false; return; }
+  curl.visible=true;
+  curl.position.set(swTubeC(), swAxisY(), 0);
+  curl.scale.set(SW_R*swS, SW_R, 1);      // mirrored when it breaks the other way
+  curlUniforms.uFade.value=swCurlA;
+  curlUniforms.uT.value=tNow;
+}
+
 // ---------- whirlpool ----------
 // It spins up ahead of you and drags the sea into it. Everything afloat inside its
 // reach is carried round and drawn in, turning to face the way it is being taken
@@ -7806,6 +8073,10 @@ function updateHandstand(dt,carve){
 // ---------- update ----------
 function update(dt){
   tNow+=dt;
+  // Before anything asks how high the water is. The whole set piece is a term in the
+  // height field, so it has to be current for this frame or the board floats on last
+  // frame's wave — which on a face that climbs seven units in five seconds is visible.
+  updateSetWave(dt,speed);
   // The HUD reads mph as eff*0.62, so 16.2 is 10 and 113 is 70. It never drops below
   // the first and never passes the second, and climbs the whole way between rather
   // than being most of the way there inside the first kilometre.
@@ -7826,6 +8097,14 @@ function update(dt){
   px+=vx*dt;
   if(px<-17){px=-17;vx=0;}      // slide out to the far lanes and stop there
   if(px>17){px=17;vx=0;}
+  // Inside the barrel the lane is the tube, not the field. Steering toward the wave
+  // climbs the face because the water there is genuinely higher; steering away drops
+  // you toward the shoulder and the way out.
+  if(swPh===SWP.RIDE){
+    const c=swTubeC(), a=c-swS*7.0, b=c+swS*3.4;
+    const lo=Math.min(a,b), hi=Math.max(a,b);
+    if(px<lo){px=lo;vx=0;} if(px>hi){px=hi;vx=0;}
+  }
   const carve=Math.max(-1,Math.min(1,vx/9));
   leanW+=(wt-leanW)*Math.min(1,dt*6);
   // A rigid 5m hull does not follow one point on the water. Sample it under the
@@ -8184,8 +8463,12 @@ function update(dt){
 
   // obstacles
   bigFinCd=Math.max(0,bigFinCd-dt);
+  // Nothing else spawns from the moment the plane is in trouble. The lane has to be
+  // swept and empty by the time the face arrives, or you are threading buoys inside a
+  // barrel, which reads as a bug rather than as surfing.
+  if(swPh!==SWP.IDLE)spawnT=Math.max(spawnT,0.6);
   spawnT-=dt;
-  if(spawnT<=0){
+  if(swPh===SWP.IDLE&&spawnT<=0){
     // Space them by the gap on the water, not by the clock. Timing the spawns meant
     // that as the ramp pulled the interval down while the speed was still low, the
     // obstacles bunched up tighter mid-run than they ever are at the end. Held in
@@ -8293,6 +8576,9 @@ function update(dt){
     }
     if(o.userData.wash){const w=1+Math.sin(tNow*3+o.position.x)*0.12;o.userData.wash.scale.set(w,w,1);o.userData.wash.material.opacity=0.4+Math.sin(tNow*3+o.position.x)*0.15;}
 
+    // Everything already on the water gets run over by the swell rather than vanishing:
+    // it is pushed past you and culled by the normal rule.
+    if(swSweep&&o.userData.kind!=='debris')o.position.z+=42*dt;
     if(o.position.z>18){scene.remove(o);obstacles.splice(i,1);continue;}
     // the jelly closes fast and is only "at" you for a couple of frames, so its
     // window grows with speed — otherwise a jump can pass clean over the contact
@@ -8346,14 +8632,14 @@ function update(dt){
     }
   }
 
-  // plane
-  planeT-=dt;
-  if(planeT<=0&&!planeActive){
+  // plane — the tow only runs when the set piece is not flying the same aircraft
+  if(swPh===SWP.IDLE)planeT-=dt;
+  if(swPh===SWP.IDLE&&planeT<=0&&!planeActive){
     planeActive=true;plane.visible=true;
     plane.position.set(Math.random()*16-8,11,-190);
     planeT=40+Math.random()*38;
   }
-  if(planeActive){
+  if(planeActive&&swPh===SWP.IDLE){
     plane.position.z+=(eff*0.45+12)*dt;
     plane.position.y=11+Math.sin(tNow*1.5)*0.6;
     plane.userData.prop.rotation.z+=dt*40;
@@ -8422,6 +8708,8 @@ function update(dt){
   oceanUniforms.uDist.value=dist*WAVE_DRIFT;
   oceanUniforms.uWakeZ.value=wkZ;oceanUniforms.uWakeA.value=wkA;oceanUniforms.uWakeX.value=wkX;
   oceanUniforms.uWhX.value=whX;oceanUniforms.uWhZ.value=whZ;oceanUniforms.uWhA.value=whA;
+  oceanUniforms.uSwA.value=swA;oceanUniforms.uSwX.value=swX;oceanUniforms.uSwS.value=swS;
+  placeCurl();
 
   // camera: level horizon, smoothed follow, pulls back with speed
   camX+=(px-camX)*Math.min(1,dt*7);     // camera sits directly behind him
@@ -8437,13 +8725,16 @@ function update(dt){
   // Height is measured from the water under the rider, not from zero. On a big
   // swell the sea itself rises many units, and a camera anchored to zero ends up
   // underneath it looking out through the inside of the wave.
-  camY+=((waterY+4.9+airH*0.80)-camY)*Math.min(1,dt*(flying?4.6:1.6));
+  // Inside the barrel the camera drops and sits back: the whole point of the shot is the
+  // roof over your head and the light coming through the opening, and the normal chase
+  // height puts both of those above the top of the screen.
+  camY+=((waterY+4.9-swCam*2.15+airH*0.80)-camY)*Math.min(1,dt*(flying?4.6:1.6));
   camY=Math.max(camY,waterY+2.3);            // never let a fast-building face swallow it
   // follow his fore/aft travel only partly, so it reads on screen instead of the
   // camera cancelling it out and pinning him to one spot again
-  camZ+=((11.0+eff*0.05+airH*0.22+pz*0.42)-camZ)*Math.min(1,dt*2.4);
+  camZ+=((11.0+swCam*4.6+eff*0.05+airH*0.22+pz*0.42)-camZ)*Math.min(1,dt*2.4);
   camera.position.set(camX,camY,camZ);
-  camera.lookAt(lookX,waterY+1.05+airH*0.62,-14);
+  camera.lookAt(lookX,waterY+1.05+swCam*1.5+airH*0.62,-14-swCam*10);
 
   const sc=score|0, ds=Math.round(dist);
   hScore.textContent=sc.toLocaleString();

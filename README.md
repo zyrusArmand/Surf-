@@ -52,6 +52,32 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.16.0** — **The set wave.** A seaplane crosses in front of you, banks hard away, drops
+  a wing and goes into the water off to one side. What it throws up walks back across the
+  lane at you, growing the whole way, and you ride the barrel it forms.
+  - **The wave is not an object on the sea, it IS the sea.** Same trick the jet-ski wake and
+    the whirlpool already use: one more additive term in the shared height field, mirrored
+    in the ocean shader with an analytic derivative. So the shader lights it, foams its crest
+    and fogs it with no new code, the board floats on it without knowing it exists, and
+    steering into the face genuinely climbs you up it — the water there really is higher.
+    The rider sits at about 5.2 units up the face against 0.5 on flat water.
+  - **The curling lip is the one thing a height field can't do.** A surface single-valued in
+    y can build a wall of any steepness but it can never overhang itself, so the curl is its
+    own shell: a tube lying along the lane with a slice taken out of the bottom front, which
+    is exactly what you're looking out through from the inside.
+  - **Riding it.** Steering toward the wave climbs the face and takes you deeper; steering
+    away drops you toward the shoulder and the daylight. Sitting deep pays, and it pays
+    steeply, because deep is where it can end you — too far and the lip lands on you
+    (PITCHED), too far the other way and you run out onto the shoulder and the ride is over.
+    Jumping into the roof ends it too. 6–16 seconds, with a spit-out bonus scaled by how
+    deep you got.
+  - **New obstacle: wreckage.** Fuel drums and torn wing struts off the plane, tumbling round
+    inside the tube. Hazard orange and white on purpose — inside a barrel the light goes
+    strange, and the one thing that must never be in doubt is what will hit you.
+  - Everything already on the water is swept past you by the swell rather than vanishing, and
+    nothing new spawns from the moment the plane is in trouble, so the lane is empty by the
+    time the face arrives.
+  - Fires past 900 m and then rarely — it should feel like weather, not like a timer.
 - **v2.15.0** — **De Soto's Leaf.** A board for the ant, and an actual leaf rather than a leaf
   painted onto a surfboard: the outline *is* the leaf. The nose is the point, so it closes on
   a fine tip; the widest part sits at 55% because a leaf carries its width low toward the
