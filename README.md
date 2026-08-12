@@ -52,6 +52,29 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.28.0** — **The ocean was shading its biggest wave with thresholds meant for ripples.**
+  The set wave's face rendered as one flat white sheet with a knife edge along its foot, and
+  the obvious suspect — the lip mesh — turned out to be innocent: hiding the lip left the
+  white wall exactly where it was. `uPeak` sits near 1.2, tuned to a swell about a metre
+  tall, and the set wave stands at seven, so in `vH` it drove the colour ramp and every foam
+  term against their limits at once. `clamp(7*0.28+0.5)` is 1, so the whole face took the
+  shallow colour; `crest` and `lip` both saturated, so foam came out at a flat 0.85 white
+  everywhere, with the knife edge falling on the contour where it crossed.
+  - **The sea is now shaded by its own height**, with the set wave subtracted back out, and
+    the set wave carries its own treatment: thick and dark out of the trough, lit through
+    where it thins toward the lip — the tube roof's transmission colour, so face and roof
+    read as one body of water — and foam only in a band along the crest, where it is
+    actually tearing. Measured over the wave region: near-white 6.3% → 3.8%, contrast
+    (sd) 56.3 → 61.2, mean 170 → 122.
+  - **The tube's rings were the leaf's veins again.** The curl's foam ran 46 cycles along the
+    length against 7 around the arc, so the noise formed forty-odd bands stacked down the
+    tube — and bands seen down a tube are rings. It read as ribbed pipe. The fast axis is the
+    one around the arc now. Swapping it wholesale (26 against 9) traded rings for a
+    starburst, since streaks that long all converge on the vanishing point and read as drawn
+    speed lines; near-square is what breaks it up.
+  - **The weld shows in colour, not just geometry.** With the ocean's crest no longer white,
+    the lip's own white leading edge drew the very line it exists to hide. The join is
+    narrower and dimmer, and the wave's crest foam reaches up to meet it.
 - **v2.27.0** — **A play button beside Play that summons the set wave.** The wave was the
   hardest thing in the game to look at: it is only eligible past 600 m, then waits out its own
   30–45 s clock, and a wipeout on the way means starting the whole approach again. The green

@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.27.0';
+const VERSION='2.28.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -839,7 +839,9 @@ const oceanMat=new THREE.ShaderMaterial({
     uniform float uWhX; uniform float uWhZ; uniform float uWhA;
     uniform float uSwA; uniform float uSwX; uniform float uSwS;
     varying vec3 vN; varying vec3 vW; varying float vH; varying vec2 vPh;
+    varying float vSw;
     void main(){
+      vSw=0.0;
       vec2 p = vec2(position.x, (-position.y + (${OCEAN_Z.toFixed(1)})) + uDist);
       float h=0.0, dhx=0.0, dhz=0.0, e=1.0;
       ${glslWaves}
@@ -892,6 +894,7 @@ const oceanMat=new THREE.ShaderMaterial({
         }
         h   += uSwA*f;
         dhx += uSwA*dfdd*uSwS;
+        vSw  = f;                  // 0 at the foot of the face, 1 along the crest
       }
       // phase of the two main swells — constant along a moving crest
       vPh = vec2( (0.00*p.x + 1.00*p.y)*0.190 + uT*0.013,
@@ -907,8 +910,9 @@ const oceanMat=new THREE.ShaderMaterial({
   fragmentShader:`
     uniform vec3 uSun; uniform vec3 uSky; uniform vec3 uDeep; uniform vec3 uShallow;
     uniform float uT; uniform float uDist; uniform float uAmp; uniform float uPeak;
-    uniform float uLight;
+    uniform float uLight; uniform float uSwA;
     varying vec3 vN; varying vec3 vW; varying float vH; varying vec2 vPh;
+    varying float vSw;
     // Value noise with a rotation between octaves. The rotation is the point: it
     // stops every octave lining up with the same two axes, which is what made the
     // old sine-product foam tile into a visible net.
@@ -938,7 +942,19 @@ const oceanMat=new THREE.ShaderMaterial({
       vec3 H = normalize(L+V);
       float spec = pow(max(dot(N,H),0.0),140.0)*0.9;
       float fres = pow(1.0-max(dot(N,V),0.0),3.0);
-      vec3 base = mix(uDeep,uShallow,clamp(vH*0.28+0.5,0.0,1.0));
+      // The sea's own height, with the set wave taken back out of it.
+      //
+      // Everything below this line was tuned against a swell about a metre tall — uPeak sits
+      // near 1.2 — and the set wave stands at seven. Left in vH it drove the colour ramp and
+      // every foam term hard against their limits at once: clamp(7*0.28+0.5) is 1, so the
+      // whole face took the shallow colour, and crest and lip both saturated, so foam came
+      // out at a flat 0.85 white over the entire wall with a knife edge along the contour
+      // where it crossed. Measured: the face rendered as one untextured sheet. It was not the
+      // lip mesh doing it, which is where the eye goes first — it was the ocean shading its
+      // biggest wave with thresholds meant for ripples. The set wave gets its own treatment
+      // below instead of borrowing the swell's.
+      float hS = vH - vSw*uSwA;
+      vec3 base = mix(uDeep,uShallow,clamp(hS*0.28+0.5,0.0,1.0));
       vec3 col = base*(0.38+0.72*diff) + uSky*fres*0.5 + vec3(spec);
       // Foam: crest caps, torn patches and fine flecks, all from drifting noise. Each
       // layer is anchored in a slower-moving frame than the one below it, because they
@@ -950,13 +966,32 @@ const oceanMat=new THREE.ShaderMaterial({
       vec2 fpM = vec2(vW.x, vW.z + uDist*0.30);
       vec2 fpF = vec2(vW.x, vW.z + uDist*0.12);
       float shimmer = fbm(fpC*0.55 + vec2(uT*0.05,-uT*0.04))*2.0 - 1.0;
-      float crest = smoothstep(0.42*uPeak, 0.71*uPeak, vH+shimmer*0.10);
-      float lace  = smoothstep(0.40,0.84, fbm(fpM*1.45 + vec2(-uT*0.07, uT*0.06))) * crest;
-      float fleck = smoothstep(0.56,0.93, fbm(fpF*3.90 + vec2( uT*0.11, uT*0.09))) * crest;
+      float crest = smoothstep(0.42*uPeak, 0.71*uPeak, hS+shimmer*0.10);
+      // Raw first, then gated. The set wave's own foam needs the texture without the swell's
+      // crest mask on it — that mask is near zero all over the big face, so borrowing the
+      // gated version would have laid down a perfectly flat stripe.
+      float laceR  = smoothstep(0.40,0.84, fbm(fpM*1.45 + vec2(-uT*0.07, uT*0.06)));
+      float fleckR = smoothstep(0.56,0.93, fbm(fpF*3.90 + vec2( uT*0.11, uT*0.09)));
+      float lace  = laceR  * crest;
+      float fleck = fleckR * crest;
       float slope = 1.0-clamp(N.y,0.0,1.0);
-      float lip = smoothstep(0.16,0.34,slope)*smoothstep(0.25*uPeak,0.55*uPeak,vH);
+      float lip = smoothstep(0.16,0.34,slope)*smoothstep(0.25*uPeak,0.55*uPeak,hS);
       float foam = clamp(crest*0.50 + lace*0.68 + fleck*0.34 + lip*0.60, 0.0, 1.0);
       col = mix(col, vec3(0.96,0.99,1.0), foam*0.85);
+      // The set wave, on its own terms. It is a wall of water rather than a tall ripple, so
+      // it is shaded the way a wall is: thick and dark where it stands out of the trough,
+      // lit THROUGH where it thins toward the lip — the same transmission colour the tube
+      // roof uses, so the face and the roof read as one body of water instead of two — and
+      // foaming only in a band along the crest, where it is actually tearing.
+      if(uSwA>0.0015){
+        col = mix(col, uDeep*0.86, smoothstep(0.05,0.42,vSw)*0.55);
+        col += vec3(0.16,0.62,0.48)*smoothstep(0.46,0.98,vSw)*0.85;
+        // Wide enough to meet the lip. The lip's own leading edge is welded to this crest,
+        // so wherever the two disagree in brightness they draw a line along the weld — the
+        // geometry being continuous does not help if the colour is not.
+        float swFoam = smoothstep(0.76,1.0,vSw)*(0.45+0.55*laceR+0.35*fleckR);
+        col = mix(col, vec3(0.96,0.99,1.0), clamp(swFoam,0.0,1.0)*0.80);
+      }
       col += vec3(1.0)*pow(max(dot(N,H),0.0),480.0)*0.6;
       float fog = smoothstep(70.0,230.0,length(cameraPosition-vW));
       col = mix(col,uSky,fog);
@@ -1136,20 +1171,38 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // from the sun, so the direct term is zero everywhere in here — which is exactly why
       // a barrel is lit through its wall rather than on its surface. Without this the green
       // room comes out as a dark hole instead of the brightest thing in the game.
-      col+=vec3(0.16,0.62,0.48)*smoothstep(0.12,1.0,t)*1.25;
+      col+=vec3(0.16,0.62,0.48)*smoothstep(0.12,1.0,t)*1.02;
       // Foam, in the same three layers the ocean uses and driven by the same noise, so the
       // roof matches the face. It is dragged around the curl and along its length at once.
-      vec2 fp=vec2(vUv.y*46.0, t*7.0);
+      // The axes were the wrong way round, and that is the whole reason the tube looked
+      // corrugated. vUv.y runs ALONG the tube and it was scaled by 46 while t, which runs
+      // around the arc, got 7 — so the noise formed forty-odd bands stacked down the length,
+      // each one constant around the circumference. Bands like that, seen down a tube, are
+      // rings; it read as ribbed pipe rather than water. This is the leaf's veins again:
+      // the detail was sweeping across the rings instead of along them.
+      //
+      // Water going round the inside of a barrel draws streaks that lie ALONG the flow, so
+      // the fast axis has to be the one around the arc and the slow one the length.
+      // 26 against 9 traded the rings for a starburst: streaks that long, running the whole
+      // length of a tube, all converge on the vanishing point and read as drawn speed lines.
+      // Close to square is what breaks it up — the noise then makes patches that happen to
+      // be drawn out along the flow, rather than lines that survive all the way down.
+      vec2 fp=vec2(t*13.0, vUv.y*15.0);
       float lace =smoothstep(0.38,0.86, fbm(fp*1.25+vec2(-uT*0.28, uT*0.10)));
       float fleck=smoothstep(0.54,0.94, fbm(fp*3.30+vec2( uT*0.44, uT*0.16)));
       float sheet=smoothstep(0.30,1.0,t);        // the lip is mostly aerated water
       float foam=clamp(lace*(0.34+sheet*0.62)+fleck*(0.20+sheet*0.44),0.0,1.0);
-      col=mix(col,uFoam,foam*0.86);
+      col=mix(col,uFoam,foam*0.62);
       col=mix(col,uFoam,smoothstep(0.78,1.0,t)*0.92);   // the throwing edge, feathering
       // And the join. The height field's own crest is a band of white foam, so the shell has
       // to leave it white too — otherwise the geometry is continuous but the colour still
       // draws a line exactly where the two surfaces meet, which is just as visible.
-      col=mix(col,uFoam,(1.0-smoothstep(0.0,0.22,t))*0.88);
+      // The join has to match whatever the ocean is doing at the crest, and the ocean has
+      // just stopped painting its whole face white — its crest foam is a narrow band now.
+      // At 0.88 over a fifth of the arc this edge stayed a broad white sheet, which both
+      // flattened the near wall and drew the very line it exists to hide: white lip against
+      // a face that had gone dark right underneath it.
+      col=mix(col,uFoam,(1.0-smoothstep(0.0,0.15,t))*0.72);
       // Closing out: the whole section goes to whitewater rather than politely fading.
       col=mix(col,uFoam,uClose*0.92);
       float a=uFade*(0.99-0.14*t);
@@ -7743,6 +7796,20 @@ if(location.hash.includes('debug')){
     sampleWave:(x,z)=>({set:setWaveH(x),sea:waveH(x,z,tNow)}),
     // The roof the player can actually hit, measured off the curl mesh itself rather than
     // recomputed — the whole point is to catch the physics and the geometry disagreeing.
+    // Hide the lip to find out which surface a pixel belongs to. The tube and the wave face
+    // are different meshes with different shaders and they look alike in a still.
+    setCurl(v){ curl.userData.forceHide=!v; curl.visible=v; },
+    // Where the rider lands on screen, and whether anything is drawn in front of him. Being
+    // in frame is not the same as being visible: in the barrel he is behind a wall of lip.
+    riderOnScreen(){
+      const v=new THREE.Vector3();
+      player.getWorldPosition(v);
+      const d=v.distanceTo(camera.position);
+      v.project(camera);
+      return {x:+((v.x*0.5+0.5).toFixed(3)), y:+((0.5-v.y*0.5).toFixed(3)),
+              inFrame:Math.abs(v.x)<=1&&Math.abs(v.y)<=1&&v.z<1, dist:+d.toFixed(2),
+              visible:player.visible};
+    },
     // One cross-section of the lip, in the local frame the geometry is built in, with the
     // rider mapped into that same frame — so "what is directly above the board" can be
     // read off the mesh instead of inferred from the constants.
@@ -7775,7 +7842,7 @@ function swSpit(){
 }
 function placeCurl(){
   if(swCurlA<=0.004){ curl.visible=false; return; }
-  curl.visible=true;
+  curl.visible=!curl.userData.forceHide;      // the debug hook can hold it down
   // Sat on the crest itself. Local +x is "forward off the crest", so the sign flips with
   // the side the wave breaks from; the radius is already baked into the geometry.
   curl.position.set(swX, swA, 0);
