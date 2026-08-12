@@ -52,6 +52,25 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.26.0** — **The test harness is back, and it can reach the set wave.** `test.mjs` had
+  been lost with an old container, so nothing was checked before shipping. It is rebuilt and
+  self-contained — it serves the repo itself rather than assuming a server is already up,
+  and it drives the pre-installed Chromium rather than downloading one.
+  - **A door for the tests.** The game is wrapped in an IIFE, so a harness could not ask it
+    anything, and the set wave only fires past 600 m and runs ~25 s of simulated time — which
+    under swiftshader is four minutes of wall clock per attempt, with no way to see what state
+    it reached. Loading with `#debug` now exposes `window.__surf`: read the state, arm the
+    wave, warp into SWELL/RIDE/EXIT, sample the height field, and measure the lip mesh
+    directly. A normal page never defines it.
+  - **A guard on the wave's two copies.** The wave exists twice — `setWaveH()` in JS, which
+    the board rides, and the block in the ocean's vertex shader, which is what you see — and
+    only discipline keeps them equal. The suite now fails if the shader's literals drift from
+    `SW_FACE`, `SW_BACK` or the face exponent.
+  - The eight absent `models/*.glb` 404s are the documented fallback path, not faults, so the
+    harness whitelists exactly those and treats any other missing asset as a failure.
+  - No game behaviour changed. `swRoofY()` was measured against the lip mesh on suspicion that
+    v2.25.0's taper had left it stale, and it is correct where the rider actually sits — 11.41
+    against a measured 11.43.
 - **v2.25.0** — **The tube narrows to an almond down the line.** A wave only barrels for a
   stretch of its length; past that it runs out into an unbroken shoulder, and from inside that
   reads as the mouth closing to an almond. It is in every reference photo of a barrel and it

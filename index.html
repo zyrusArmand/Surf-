@@ -625,7 +625,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.25.0';
+const VERSION='2.26.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -7654,6 +7654,77 @@ function updateSetWave(dt,eff){
   const k=Math.min(1,swT/SW_OUT);
   swClose=k; swA=SW_PEAK*(1-k*k*0.85); swCurlA=Math.max(0,1-k*1.15); swCam=Math.max(0,0.9-k);
   if(swT>=SW_OUT)endSetWave();
+}
+// A door for the tests, and only for them. The game is wrapped in an IIFE on purpose —
+// nothing leaks to window — which also means a test harness has no way to ask it anything.
+// The set wave is the system that suffers most from that: it only fires past 600 m, runs
+// ~25 s of simulated time, and headless Chromium under swiftshader advances the sim at
+// roughly a tenth of wall clock, so watching one honestly costs four minutes per attempt
+// and still leaves you guessing at what state it was in. Loading with #debug opens this;
+// a normal player's page never defines it.
+if(location.hash.includes('debug')){
+  window.__surf={
+    version:VERSION,
+    state:()=>({dist,speed,score,running,wipe:!!wipe,airborne,px,py,pz,
+                swPh,swT,swA,swX,swS,swRide,swCurlA,swClose,
+                curlVisible:curl.visible,roofY:swRoofY(),tubeC:swTubeC()}),
+    // Skip the wait rather than the wave: the clock is emptied and the lane cleared, so
+    // the wave still starts through startSetWave() and runs its real phases from FLY.
+    // Clearing the lane means putting the ski and the whirlpool away the same way a run
+    // reset does — not just falsifying the flags the guard reads, which would leave a jet
+    // ski parked visibly in the water while the wave decided the lane was empty.
+    armSetWave(){
+      dist=Math.max(dist,700); swNext=0;
+      skiOn=false; skiWake=null; skiT=26; jetSki.visible=false; skiGlint.visible=false; wkA=0;
+      whirl=null; whA=0; whirlArt.visible=false; whirlT=30;
+      return true;
+    },
+    // Warping is a jump to a phase's entry state, matching what the phase before it would
+    // have left behind — not a fast-forward, because running the phases at a huge dt would
+    // step the physics through the wave rather than into it.
+    warpSetWave(phase){
+      if(swPh===SWP.IDLE)startSetWave();
+      plane.visible=false; swSplash.visible=false; swT=0;
+      if(phase==='SWELL'){ swPh=SWP.SWELL; swSweep=1; return true; }
+      if(phase==='RIDE'){
+        swPh=SWP.RIDE; swA=SW_PEAK; swX=swS*SW_HOLD_X; swCurlA=1; swCam=0.75;
+        swRide=0; swClose=0; swSweep=2;
+        px=swTubeC()+swS*1.2;                  // dropped into the sweet spot, not the lip
+        return true;
+      }
+      if(phase==='EXIT'){
+        swPh=SWP.EXIT; swA=SW_PEAK; swX=swS*SW_HOLD_X; swCurlA=1; swClose=0;
+        return true;
+      }
+      return false;
+    },
+    // The wave's shape at a point, for checking the height field and the lip agree.
+    sampleWave:(x,z)=>({set:setWaveH(x),sea:waveH(x,z,tNow)}),
+    // The roof the player can actually hit, measured off the curl mesh itself rather than
+    // recomputed — the whole point is to catch the physics and the geometry disagreeing.
+    // One cross-section of the lip, in the local frame the geometry is built in, with the
+    // rider mapped into that same frame — so "what is directly above the board" can be
+    // read off the mesh instead of inferred from the constants.
+    curlSlice(z){
+      const p=curl.geometry.attributes.position, uv=curl.geometry.attributes.uv;
+      let near=Infinity;
+      for(let i=0;i<p.count;i++)near=Math.min(near,Math.abs(p.getZ(i)-z));
+      const pts=[];
+      for(let i=0;i<p.count;i++)
+        if(Math.abs(Math.abs(p.getZ(i)-z)-near)<1e-6)pts.push({f:p.getX(i),y:p.getY(i),q:uv.getX(i)});
+      return {pts, riderF:(px-curl.position.x)/(curl.scale.x||1),
+              scaleY:curl.scale.y, baseY:curl.position.y};
+    },
+    curlRoof(z,band=3){
+      const p=curl.geometry.attributes.position, sy=curl.scale.y;
+      let top=-Infinity;
+      for(let i=0;i<p.count;i++){
+        if(Math.abs(p.getZ(i)-z)>band)continue;
+        top=Math.max(top,curl.position.y+p.getY(i)*sy);
+      }
+      return top;
+    },
+  };
 }
 function swSpit(){
   const bonus=Math.round(600+swPts*0.35+swDeep*1400);

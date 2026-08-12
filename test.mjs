@@ -1,0 +1,197 @@
+// Smoke test: load the game, start a run, confirm nothing throws and the run advances.
+//
+// Self-contained on purpose — it serves the repo root itself rather than assuming a
+// python http.server is already up on :8767, because the one thing worse than a failing
+// test is a test that fails because nobody started the server.
+//
+// Chromium is the pre-installed build at PLAYWRIGHT_BROWSERS_PATH; the bundled version
+// playwright expects is NOT downloaded here, so the executable is passed explicitly.
+// WebGL runs on swiftshader, which is ~3 fps, and the game clamps dt — so simulated time
+// runs at roughly a tenth of wall clock. Budget accordingly; don't tighten these waits.
+import { chromium } from 'playwright';
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { extname, join, normalize } from 'node:path';
+
+const ROOT = new URL('.', import.meta.url).pathname;
+const PORT = 8767;
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
+               '.css': 'text/css', '.glb': 'model/gltf-binary', '.png': 'image/png',
+               '.json': 'application/json' };
+
+const server = createServer(async (req, res) => {
+  const path = decodeURIComponent(req.url.split('?')[0]);
+  const file = join(ROOT, normalize(path === '/' ? '/index.html' : path).replace(/^(\.\.[/\\])+/, ''));
+  try {
+    const body = await readFile(file);
+    res.writeHead(200, { 'Content-Type': MIME[extname(file)] || 'application/octet-stream' });
+    res.end(body);
+  } catch {
+    res.writeHead(404).end('not found');
+  }
+});
+await new Promise(r => server.listen(PORT, '127.0.0.1', r));
+
+const browser = await chromium.launch({
+  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
+         '--disable-gpu-sandbox', '--no-sandbox'],
+});
+const page = await browser.newPage({ viewport: { width: 1024, height: 640 } });
+
+// models/*.glb are OPTIONAL overrides — drop one in and it replaces the built-in shape,
+// leave it out and the procedural version stands (models/README.md). Eight of the nine
+// are absent by design, so their 404s are the documented path, not a fault. Anything
+// else that 404s is a genuinely missing asset.
+const EXPECTED_404 = /\/models\/[a-z]+\.glb$/;
+
+const errors = [];
+page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
+page.on('console', m => {
+  // The bare "Failed to load resource" line carries no URL, so it cannot be told apart
+  // from a real failure here; the response handler below is what judges those.
+  if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(`console: ${m.text()}`);
+});
+page.on('requestfailed', r => errors.push(`request failed: ${r.url()} (${r.failure()?.errorText})`));
+// A 404 is not a "failed request" as far as playwright is concerned — it is a perfectly
+// successful response that happens to be nothing. Catch those separately or a missing
+// asset shows up only as an anonymous console line with no URL attached.
+page.on('response', r => {
+  if (r.status() >= 400 && !EXPECTED_404.test(new URL(r.url()).pathname)) errors.push(`HTTP ${r.status()}: ${r.url()}`);
+});
+
+let failed = 0;
+const check = (ok, label, detail = '') => {
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${detail ? ` — ${detail}` : ''}`);
+  if (!ok) failed++;
+};
+
+await page.goto(`http://127.0.0.1:${PORT}/index.html#debug`, { waitUntil: 'load' });
+await page.waitForFunction(() => typeof window.VERSION === 'string' || document.querySelector('#startBtn'), null, { timeout: 30000 });
+
+const version = await page.evaluate(() => {
+  const el = [...document.querySelectorAll('*')].find(e => /^v\d+\.\d+\.\d+$/.test(e.textContent.trim()));
+  return el ? el.textContent.trim() : null;
+});
+console.log(`version on page: ${version ?? '(not found)'}`);
+
+// The renderer is the thing most likely to be silently dead: a WebGL context that never
+// came up still leaves the DOM looking perfectly healthy.
+const canvas = await page.evaluate(() => {
+  const c = document.querySelector('canvas');
+  return c ? { w: c.width, h: c.height } : null;
+});
+check(!!canvas && canvas.w > 0 && canvas.h > 0, 'canvas present and sized', canvas ? `${canvas.w}x${canvas.h}` : 'no canvas');
+
+// ---------- the menus ----------
+// Cheap, but this is the part a player meets first, and a shop that will not open is as
+// broken as a wave that will not break.
+for (const [openSel, panelSel, closeSel, label] of [
+  ['#shopBtn', '#shop', '#shopClose', 'beach shop'],
+  ['#recordsBtn', '#stats', '#stClose', 'stats'],
+]) {
+  await page.click(openSel);
+  await page.waitForTimeout(400);
+  const opened = await page.$eval(panelSel, e => !e.classList.contains('hidden'));
+  await page.click(closeSel);
+  await page.waitForTimeout(400);
+  const closed = await page.$eval(panelSel, e => e.classList.contains('hidden'));
+  check(opened && closed, `${label} opens and closes`, `opened=${opened} closed=${closed}`);
+}
+
+await page.click('#startBtn');
+await page.waitForTimeout(3000);
+const d0 = await page.textContent('#hDist');
+await page.waitForTimeout(12000);
+const d1 = await page.textContent('#hDist');
+const m = s => parseFloat(String(s).replace(/[^\d.]/g, '')) || 0;
+check(m(d1) > m(d0), 'HUD distance advancing', `${d0} -> ${d1}`);
+
+const speed = await page.textContent('#hSpeed');
+check(m(speed) > 0, 'speed non-zero', speed);
+
+// Frames actually being drawn, not just state being ticked.
+const frames = await page.evaluate(() => new Promise(res => {
+  let n = 0; const t0 = performance.now();
+  const tick = () => { n++; performance.now() - t0 < 3000 ? requestAnimationFrame(tick) : res(n); };
+  requestAnimationFrame(tick);
+}));
+check(frames > 3, 'frames rendering', `${frames} in 3s`);
+
+// ---------- the set wave ----------
+// It fires past 600 m and runs ~25 s of sim time, which is minutes of wall clock here, so
+// the debug hook arms it and warps into the phase under test.
+const hasHook = await page.evaluate(() => typeof window.__surf === 'object');
+check(hasHook, 'debug hook present under #debug');
+
+if (hasHook) {
+  const ph = await page.evaluate(async () => {
+    window.__surf.armSetWave();
+    window.__surf.warpSetWave('RIDE');
+    await new Promise(r => setTimeout(r, 1200));
+    return window.__surf.state();
+  });
+  check(ph.swPh === 3, 'set wave reaches RIDE', `swPh=${ph.swPh}`);
+  check(ph.swA > 6, 'wave stands to full height in the barrel', `swA=${ph.swA?.toFixed(2)}`);
+  check(ph.curlVisible === true, 'curl mesh visible during the ride');
+  check(Number.isFinite(ph.roofY) && Number.isFinite(ph.tubeC) && Number.isFinite(ph.px),
+        'wave geometry and rider position finite',
+        `roofY=${ph.roofY} tubeC=${ph.tubeC} px=${ph.px}`);
+
+  // Riding in the pocket has to pay, and the wave has to end rather than hang.
+  const rode = await page.evaluate(async () => {
+    const s0 = window.__surf.state();
+    await new Promise(r => setTimeout(r, 4000));
+    return { s0, s1: window.__surf.state() };
+  });
+  check(rode.s1.score > rode.s0.score || rode.s1.wipe, 'ride scores (or ends in a wipeout)',
+        `${Math.round(rode.s0.score)} -> ${Math.round(rode.s1.score)} wipe=${rode.s1.wipe}`);
+
+  const out = await page.evaluate(async () => {
+    window.__surf.warpSetWave('EXIT');
+    await new Promise(r => setTimeout(r, 6000));
+    return window.__surf.state();
+  });
+  check(out.swPh === -1 || out.swPh === 4, 'wave closes out and returns to idle', `swPh=${out.swPh}`);
+
+  // The height field is the wave the board actually rides; the shader mirrors it. If this
+  // ever returns NaN the physics and the visuals are both wrong and nothing looks amiss.
+  const samples = await page.evaluate(() => {
+    window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
+    const s = window.__surf.state(), out = [];
+    for (let dz = -120; dz <= 30; dz += 30)
+      for (let dx = -20; dx <= 20; dx += 10) out.push(window.__surf.sampleWave(s.swX + dx, dz));
+    return out;
+  });
+  check(samples.every(s => Number.isFinite(s.set) && Number.isFinite(s.sea)),
+        'wave height finite across the face', `${samples.length} samples`);
+}
+
+// ---------- the two copies of the wave ----------
+// The set wave lives twice: setWaveH() in JS, which the board rides, and the matching
+// block in the ocean's GLSL vertex shader, which is what you see. They are separate code
+// and nothing but discipline keeps them equal — so drift here is silent, and shows up as
+// the board riding a wave that is not the one on screen. The shader spells the constants
+// as literals, so this checks the literals are still the numbers JS is using.
+{
+  const src = await readFile(join(ROOT, 'index.html'), 'utf8');
+  const num = re => { const m = src.match(re); return m ? m[1] : null; };
+  const face = num(/const SW_FACE=([\d.]+)/);
+  const back = num(/const SW_BACK=([\d.]+)/);
+  const glsl = src.slice(src.indexOf('if(uSwA>0.0015){'), src.indexOf('// phase of the two main swells'));
+  const has = n => n && new RegExp(`[^\\d.]${n.replace('.', '\\.')}[^\\d]`).test(glsl);
+  check(!!face && !!back, 'wave constants found in JS', `SW_FACE=${face} SW_BACK=${back}`);
+  check(has(face), 'shader face width matches SW_FACE', `looking for ${face} in the GLSL block`);
+  check(has(back), 'shader shoulder width matches SW_BACK', `looking for ${back} in the GLSL block`);
+  // The face exponent is the shape itself; the shader repeats it in both the height and
+  // its derivative, so it appears twice.
+  const expo = num(/f=Math\.pow\(k,([\d.]+)\)/);
+  check(expo && glsl.includes(`pow(k,${expo})`), 'shader face exponent matches JS', `${expo}`);
+}
+
+check(errors.length === 0, 'no page errors', errors.length ? `\n    ${errors.slice(0, 10).join('\n    ')}` : '');
+
+await browser.close();
+server.close();
+console.log(failed ? `\n${failed} check(s) failed` : '\nall checks passed');
+process.exit(failed ? 1 : 0);
