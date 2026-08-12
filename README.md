@@ -52,6 +52,27 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.38.0** — **The sun was shining through a hole, and the foil was lifting the wrong way.**
+  - **The gap was still there, one factor short.** v2.35.0 dropped each lip slice onto the
+    crest the peel leaves, but that offset is a LOCAL one and the shell's y scale multiplies it
+    again afterwards — so the correction came out short by exactly the fold factor. Computed:
+    0.07 m at z=+12, 0.45 at +18, 1.09 at +24, **1.46 by +30**. That is the daylight between
+    lip and water, and at the right time of day the sun itself. Dividing the offset by fold
+    before baking it takes the gap to **0.000 at every station**.
+  - **The camera inside the barrel is fixed.** Not damped, not eased — set once when he joins
+    the ring and not moved again until he leaves it. It sits a little further back than the
+    chase camera, because a five-metre ring does not fit a 31° lane from where the chase camera
+    stands; measured round a full turn, he now stays in frame the whole way (x 0.02 → 0.84).
+    Outside the barrel nothing changes.
+  - **The foil lifts along the wave, not along the sky.** On a foil the hull stands off the
+    water on its mast, and that lift was being added to world +y — right in the pocket and
+    wrong everywhere else on the ring. At the top of the tube it drove the board a mast's
+    length further INTO the roof rather than hanging it beneath, which is the board floating
+    free of the wave. It now lifts toward the tube's axis, which is what "up" means to someone
+    riding the inside of one.
+  - Worth recording: the camera framing experiments in v2.37.0 were run while the lip's shader
+    was failing to compile, so "pulling back loses the barrel" was never actually tested
+    against a barrel. It was retested here against one that renders.
 - **v2.37.0** — **The camera stops chasing you round the barrel, the lip comes alive, and the
   board lies on the wall it is riding.**
   - **A near-still shot inside the tube.** The camera no longer slides sideways to keep you

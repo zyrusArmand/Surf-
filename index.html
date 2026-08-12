@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.37.0';
+const VERSION='2.38.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1141,7 +1141,11 @@ function buildCurlGeom(){
     // wrong everywhere behind the break, because the peel drops the crest there while the
     // lip stayed up at the old level. Computed, that opened to 3.85 m of daylight between
     // the lip and the water by z=+30: a hole along the weld, not a colour mismatch.
-    const drop=-SW_PEAK*0.55*pb;
+    // Divided by fold, because this is a LOCAL offset and the shell's y scale multiplies it
+    // again afterwards. Baking the world-space drop straight in left it short by exactly the
+    // fold factor — a residual hole that grew to 1.46 m by z=+30, which is the daylight, and
+    // at the right time of day the sun itself, showing through between lip and water.
+    const drop=-SW_PEAK*0.55*pb/Math.max(0.05,fold);
     for(let j=0;j<=NA;j++){
       const s=j/NA;
       let q,f,y;
@@ -9205,7 +9209,16 @@ function update(dt){
   // not bounce.
   foilBob += dt*(1.45+lastEff*0.010);      // ~4s to rise and settle: breathing, not bouncing
   const lift = BS.lift ? BS.lift + Math.sin(foilBob)*0.085 + Math.sin(foilBob*1.63+1.1)*0.035 : 0;
-  player.position.set(px,py+lift,pz);
+  // The lift is along the surface he is riding, not along the world's up. On a foil the hull
+  // stands off the water on its mast, and adding that to world +y is right in the pocket and
+  // wrong everywhere else on the ring: at the top of the tube it drove the board a mast's
+  // length further into the roof instead of hanging it beneath, which is the board floating
+  // free of the wave. Inward here means toward the tube's axis, which IS the way up for
+  // someone riding the inside of it.
+  if(swTubeRide){
+    const inX=-swS*Math.sin(swAng), inY=Math.cos(swAng);
+    player.position.set(px+inX*lift,py+inY*lift,pz);
+  } else player.position.set(px,py+lift,pz);
   // it lies along the water it is resting on, plus whatever the rider's weight adds
   // On the ring the board lies on the wall it is riding, not on the height field: the hull
   // samples that gave it its pitch are all taken from the flat sea underneath, which up in
@@ -9518,25 +9531,23 @@ function update(dt){
   // follow his fore/aft travel only partly, so it reads on screen instead of the
   // camera cancelling it out and pinning him to one spot again
   camZ+=((11.0+swCam*4.6+eff*0.05+airH*0.22+pz*0.42)-camZ)*Math.min(1,dt*2.4);
-  // Inside the barrel the camera all but stops. It no longer slides sideways to keep him
-  // centred and it barely rises as he climbs, so he travels through a near-still frame
-  // instead of hanging in the middle of one while the world turns around him.
+  // Inside the barrel the camera is FIXED. Not damped, not eased toward him — fixed. It is
+  // set once when he joins the ring and then does not move again until he leaves it, so what
+  // you watch is a still shot of a tube with a rider going round the inside of it.
   //
-  // Not welded, though, and that is deliberate: a fully locked shot was tried both ways and
-  // both lost the barrel. Locked where it stood, he leaves the side of the screen a third of
-  // the way round — measured, x=-0.26. Moved onto the tube's axis to centre the orbit, the
-  // camera ends up INSIDE a five-metre tube with the lip too close to read, and the shot
-  // becomes an ordinary swell with a rider above it. The barrel is only legible from outside
-  // its mouth and slightly below, which is where the chase camera naturally sits — so what
-  // is removed is the chasing, not the position.
+  // It is placed a little further back than the chase camera sits, because a ring five metres
+  // across does not fit a lane 31 degrees wide from where the chase camera stands: he would
+  // leave the side of the frame a third of the way round. Set once, at ring entry, from the
+  // ring's own geometry — that is framing, not chasing.
   if(swTubeRide){
-    if(!swCamLock)swCamLock={x:camX,y:camY,lx:lookX};
-    camX+=(swCamLock.x-camX)*Math.min(1,dt*2.4);
-    lookX+=(swCamLock.lx-lookX)*Math.min(1,dt*2.4);
-    camY+=(swCamLock.y+airH*0.22-camY)*Math.min(1,dt*1.5);
+    if(!swCamLock){
+      const G=swTubeGeom();
+      swCamLock={x:G.cx+swS*G.r*0.30, y:G.cy-G.r*0.30, z:G.r*3.6+4.0, lx:G.cx, at:G.cy};
+    }
+    camX=swCamLock.x; camY=swCamLock.y; camZ=swCamLock.z; lookX=swCamLock.lx;
   } else swCamLock=null;
   camera.position.set(camX,camY,camZ);
-  camera.lookAt(lookX,waterY+1.05+swCam*1.5+airH*(swTubeRide?0.20:0.62),-14-swCam*10);
+  camera.lookAt(lookX, swCamLock?swCamLock.at:(waterY+1.05+swCam*1.5+airH*0.62), -14-swCam*10);
   // The camera does NOT roll with the ring. A loop camera was tried and taken back out: it
   // keeps the tube wrapped around the view, but the whole shot turning over is disorienting
   // and it throws away the one stable reference — the horizon — that tells you where you are
