@@ -250,7 +250,9 @@ if (hasHook) {
     const out = { start: window.__surf.state(), at: {} };
     for (const [name, a] of [['pocket', 0], ['face', Math.PI / 2], ['roof', Math.PI], ['curtain', Math.PI * 1.5]]) {
       window.__surf.setTubeAngle(a);
-      await new Promise(r => setTimeout(r, 900));
+      // He is eased onto the ring rather than snapped to it, and this browser runs the sim
+      // at about a tenth of wall clock, so settling takes seconds of real time here.
+      await new Promise(r => setTimeout(r, 2600));
       out.at[name] = window.__surf.state();
     }
     return out;

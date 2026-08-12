@@ -52,6 +52,33 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.34.0** — **The lip was measured against the wrong thing, and four other fixes.**
+  - **The tube read as lit plastic stuck on the ocean.** v2.33.0 matched the lip to the wave's
+    *crest* and passed its own test — but the crest is the brightest line on the whole wave, so
+    everything got dragged up to it, and from outside the barrel the lip was a bright cyan slab
+    against a navy sea. `water.mjs` measures the comparison that actually matters: it hides and
+    shows the lip, so the pixels that change are exactly the lip and the untouched ones are
+    sea. It came in **120.8 luminance** brighter than the water it grows out of. Now **+42**.
+  - **The lighting was the real problem, not the palette.** The lip and the sea were lit by two
+    different formulas — the lip's ambient floor was 0.72 against the ocean's 0.38, and inside
+    a tube the direct term is zero everywhere, so that one number nearly doubled its brightness
+    before anything else was added. Tuning constants to match at one place kept breaking
+    another. The lip now uses the ocean's own colours, floor, diffuse weight and sky term, and
+    transmission — looking *through* the water rather than at it — is the only term that
+    departs from the sea's recipe. The weld is continuous by construction rather than by tuning.
+  - **Joining the ring no longer jumps.** The angle is read back out of the rider's current
+    position on the first frame, so the ring takes over exactly where he already is, and he is
+    eased onto it rather than pinned — the ring's floor is sampled from the moving sea, so hard
+    placement was passing every ripple straight into the board as a shake.
+  - **The plane crash is in frame.** It went in at z=-24, which in portrait is off the side of
+    the screen: the crash that starts the whole event happened where you could not see it. The
+    lane is only about 31° wide, so something 46 across has to be ~166 away to be in shot. It
+    comes down at -168 now, with the splash scaled to stay readable at that range.
+  - **And it flies the way it is pointing.** The model's nose is its -z, so the yaw matching a
+    velocity is `atan2(-dx,-dz)`; the old fixed expression turned the wrong way, subtracting the
+    side-slip the flight path was adding, so it crabbed across the sky pointing off its own line
+    of travel. Heading now comes from where it is actually going, and a smoke trail hangs on the
+    line it came down — at that distance the airframe is a few pixels, the smoke is not.
 - **v2.33.0** — **The roof and the face are the same water now, measured rather than eyeballed.**
   `seam.mjs` projects the crest line — where the lip is welded to the sea — to screen
   coordinates from the wave's own numbers and samples the capture either side of it, so the
