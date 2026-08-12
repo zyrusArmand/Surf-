@@ -52,6 +52,17 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.23.0** — **The face and the lip are one surface now, not a slab and a spiral.** The
+  join was still reading as separate, and the cause was in the height field rather than in
+  the curl: the front face used a **smoothstep, whose slope is zero at its top**. So the wave
+  arrived at the crest as a rounded hump with a flat summit, and the lip then left that
+  summit at nearly a hundred degrees. A ~100° crease, exactly where the seam looked wrong.
+  - The face is a concave power curve now — `k^3.2` instead of `smoothstep(k)`. Flat water,
+    then a wall that is **still steepening as it reaches the lip** (about 66° at the crest,
+    against 0° before), which is what a wave about to barrel actually does. Mirrored in the
+    ocean shader with the matching analytic derivative.
+  - The lip's launch angle came down from 1.75 rad to 1.42 to continue that sweep rather than
+    kink off a flat top.
 - **v2.22.0** — **The lip is a solid now, not a membrane.** It still read as a flat circle
   going round, and the reason was simple once named: it was a **zero-thickness sheet**. A
   surface with no volume has no depth to see, and the one place you look straight at its edge

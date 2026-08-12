@@ -625,7 +625,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.22.0';
+const VERSION='2.23.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -753,7 +753,12 @@ function setWaveH(x){
   if(swA<=0.0015)return 0;
   const d=(x-swX)*swS;
   let f;
-  if(d<=0){ const k=Math.max(0,1+d/SW_FACE); f=k*k*(3-2*k); }
+  // A smoothstep flattens out at its top, so the face arrived at the crest with ZERO slope
+  // — a rounded hump — and then the lip left it at nearly a hundred degrees. That crease is
+  // what read as "a flat slab and then a separate spiral". A concave power curve instead:
+  // flat water, then a wall that is still steepening as it reaches the lip, which is what a
+  // wave about to barrel actually does.
+  if(d<=0){ const k=Math.max(0,1+d/SW_FACE); f=Math.pow(k,3.2); }
   else    { const k=Math.max(0,1-d/SW_BACK); f=0.34+0.66*k*k*(3-2*k); }
   return swA*f;
 }
@@ -859,8 +864,8 @@ const oceanMat=new THREE.ShaderMaterial({
         float f, dfdd;
         if(d<=0.0){
           float k=clamp(1.0+d/10.0,0.0,1.0);
-          f=k*k*(3.0-2.0*k);
-          dfdd=(k>0.0&&k<1.0)?(6.0*k*(1.0-k)/10.0):0.0;
+          f=pow(k,3.2);
+          dfdd=(k>0.0)?(3.2*pow(k,2.2)/10.0):0.0;
         } else {
           float k=clamp(1.0-d/34.0,0.0,1.0);
           f=0.34+0.66*k*k*(3.0-2.0*k);
@@ -967,8 +972,8 @@ scene.add(ocean);
 // same straight line the height field peaks along — and the two surfaces are continuous by
 // construction rather than by tuning.
 const SW_R=7.0;                          // the radius the lip throws through
-const SW_ALPHA=1.75;                     // how steeply the lip is thrown off the crest
-const SW_SWEEP=4.20;                     // and how far it carries over before it falls
+const SW_ALPHA=1.42;                     // matched to the face's own slope at the crest
+const SW_SWEEP=4.05;                     // and how far it carries over before it falls
 const SW_LIPT=0.22;                      // slab thickness, as a FRACTION of the throw radius
 // (absolute would be wrong: the tube tapers along its length, and a lip that stayed one
 //  thickness while the arc shrank would read as thicker and thicker toward the far end)
