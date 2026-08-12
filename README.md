@@ -52,6 +52,32 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.29.0** — **The set wave breaks along its length instead of everywhere at once.** It
+  presented the same cross-section down its entire length — a tunnel, not a wave that is
+  breaking. Now the throw is a function of position along the wave: far down the line the lip
+  has barely left the crest and the section is unbroken green wall, it pitches out as it comes
+  toward the break, stands fully over your head at the break itself, and collapses behind.
+  Measured along the wave at full height: lip reach 0.94 m at z=-120, 9.89 m at z=-30, 15.0 m
+  at z=0, back to 6.79 m at z=+30, with the crest falling 6.95 m to 3.13 m behind the break.
+  - **The break line does not move, and does not need to.** The rider sits at z~0 while the
+    world scrolls past him, so a break fixed in this frame *is* a break travelling along the
+    water — which makes the whole peel a spatial pattern and lets it be baked into the
+    geometry rather than rebuilt every frame.
+  - **A whitewater trail behind it**, where the crest has already dropped out of the height
+    field: a churned sheet over the whole standing section rather than a line along its top.
+  - **The wave contributes to `dhz` for the first time.** Every earlier version was constant
+    along z, so its normal never tilted down the line at all; without this the collapse would
+    light as though it were flat.
+  - **The trap, recorded because it will be back:** `waveH`'s `z` is the *swell's* scrolling
+    frame — `dist*WAVE_DRIFT + worldZ` — not world z. The shader takes true world z. Feeding
+    the scrolled one to the peel put the rider permanently past the break by 700 m, so the
+    wave rendered perfectly while the water under the board collapsed to 45% and the rider
+    sank through his own board. The scroll is taken back off inside `setWaveH` now, and a
+    test asserts the crest under the rider stands at full height.
+  - `swRoofY()` takes the z it is asked about and derives the radius from the same peel the
+    geometry uses. The note left on it last version predicted exactly this.
+  - The lip's slices are doubled to 104: the wall-to-barrel transition spanned about three
+    slices at 52, which is where features in this codebase start rendering as facets.
 - **v2.28.0** — **The ocean was shading its biggest wave with thresholds meant for ripples.**
   The set wave's face rendered as one flat white sheet with a knife edge along its foot, and
   the obvious suspect — the lip mesh — turned out to be innocent: hiding the lip left the

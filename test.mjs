@@ -202,6 +202,43 @@ if (hasHook) {
   check(oneShot, 'wave still running after the flag is cleared');
 }
 
+// ---------- the peel ----------
+// The wave must present a different section along its length: unbroken wall ahead of the
+// break, a barrel at it, collapse behind. Before this it showed the same section everywhere
+// at once, which is a tunnel rather than a wave that is breaking.
+{
+  const peel = await page.evaluate(async () => {
+    window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
+    await new Promise(r => setTimeout(r, 1200));
+    const s = window.__surf.state(), out = {};
+    for (const z of [-120, -30, 0, 30]) {
+      const w = window.__surf.sampleWave(s.swX - 2, z);
+      const sl = window.__surf.curlSlice(z);
+      out[z] = { setH: w.set, peelB: w.peelB, reach: Math.max(...sl.pts.map(p => p.f)) };
+    }
+    // At the CREST line, at the rider's own z. Sampling at the rider's x instead reads a
+    // couple of metres down the face — a small number by design, not a collapsed wave.
+    return { out, swA: s.swA, riderH: window.__surf.sampleWave(s.swX, s.pz).set };
+  });
+  const at = z => peel.out[z];
+  check(at(-120).reach < 2 && at(0).reach > 10,
+        'lip is unbroken wall down the line and thrown at the break',
+        `reach ${at(-120).reach.toFixed(2)} at z=-120 vs ${at(0).reach.toFixed(2)} at z=0`);
+  check(at(-30).reach > at(-120).reach && at(-30).reach < at(0).reach,
+        'and pitches out progressively between the two', `${at(-30).reach.toFixed(2)} at z=-30`);
+  check(at(30).setH < at(0).setH * 0.65, 'the section collapses behind the break',
+        `${at(0).setH.toFixed(2)} -> ${at(30).setH.toFixed(2)}`);
+  check(at(-120).setH > at(0).setH * 0.9, 'but stands at full height ahead of it — an unbroken wave is not a small one',
+        `${at(-120).setH.toFixed(2)} vs ${at(0).setH.toFixed(2)}`);
+  // The trap this cost a session to find: waveH's z is the SWELL's scrolling frame
+  // (dist*WAVE_DRIFT + worldZ), not world z. Feed that straight to the peel and the rider
+  // is permanently past the break — the wave looks right and the water under the board
+  // collapses. The rider sits at z~0, so the water beneath him must be at full height.
+  check(peel.riderH > peel.swA * 0.9,
+        'the water under the rider is the wave that is drawn, not a collapsed one',
+        `${peel.riderH.toFixed(2)} against swA ${peel.swA.toFixed(2)}`);
+}
+
 // ---------- the two copies of the wave ----------
 // The set wave lives twice: setWaveH() in JS, which the board rides, and the matching
 // block in the ocean's GLSL vertex shader, which is what you see. They are separate code
@@ -214,14 +251,27 @@ if (hasHook) {
   const face = num(/const SW_FACE=([\d.]+)/);
   const back = num(/const SW_BACK=([\d.]+)/);
   const glsl = src.slice(src.indexOf('if(uSwA>0.0015){'), src.indexOf('// phase of the two main swells'));
-  const has = n => n && new RegExp(`[^\\d.]${n.replace('.', '\\.')}[^\\d]`).test(glsl);
+  // Either spelling counts: the number itself, or — better — the constant interpolated in,
+  // which cannot drift at all. This check exists to catch the copies diverging, so a change
+  // that makes divergence impossible should pass it, not fail it.
+  const agrees = (n, name) => n && (new RegExp(`[^\\d.]${n.replace('.', '\\.')}[^\\d]`).test(glsl)
+                                    || glsl.includes(`\${${name}.toFixed(1)}`));
   check(!!face && !!back, 'wave constants found in JS', `SW_FACE=${face} SW_BACK=${back}`);
-  check(has(face), 'shader face width matches SW_FACE', `looking for ${face} in the GLSL block`);
-  check(has(back), 'shader shoulder width matches SW_BACK', `looking for ${back} in the GLSL block`);
+  check(agrees(face, 'SW_FACE'), 'shader face width matches SW_FACE', `${face}`);
+  check(agrees(back, 'SW_BACK'), 'shader shoulder width matches SW_BACK', `${back}`);
   // The face exponent is the shape itself; the shader repeats it in both the height and
   // its derivative, so it appears twice.
   const expo = num(/f=Math\.pow\(k,([\d.]+)\)/);
   check(expo && glsl.includes(`pow(k,${expo})`), 'shader face exponent matches JS', `${expo}`);
+  // The peel's constants are interpolated into the shader rather than repeated, which is the
+  // real fix for drift — but the collapse curve is still written out twice, once in
+  // swPeelB() and once as GLSL, so the shape itself still needs watching.
+  check(/\$\{SW_BRK\.toFixed\(1\)\}/.test(glsl) && /\$\{SW_COLL\.toFixed\(1\)\}/.test(glsl),
+        'shader interpolates the peel constants instead of copying them');
+  check(/0\.55\*b/.test(glsl) && /1-0\.55\*swPeelB/.test(src),
+        'the collapse depth is the same in both copies of the wave');
+  check(/dhz \+= uSwA/.test(glsl),
+        'the wave contributes to dhz — without it the peel lights as though it were flat');
 }
 
 check(errors.length === 0, 'no page errors', errors.length ? `\n    ${errors.slice(0, 10).join('\n    ')}` : '');

@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.28.0';
+const VERSION='2.29.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -766,9 +766,30 @@ function whirlDip(x,z){
 // in y can make a wall but never a roof. The curling lip is a separate shell, built below.
 const SW_FACE=10.0;                     // how far the steep front face runs
 const SW_BACK=34.0;                     // and the long shoulder behind the crest
+// ---- the peel ----
+// A wave does not present the same cross-section along its whole length: the break travels
+// along it, so at any instant there is unbroken green wall ahead of you, a barrel at you,
+// and collapsed whitewater behind. Until now every z presented the same section at once,
+// which is a tunnel, not a wave that is breaking.
+//
+// The break line does not need to move. The rider sits at z~0 and the world scrolls past
+// him, so a break fixed in this frame IS a break travelling along the water — which means
+// the whole peel is a spatial pattern in z and can be baked into the geometry instead of
+// rebuilt every frame.
+//
+// These live up here, above the ocean's shader, so the shader can interpolate them rather
+// than repeat them as literals. The wave's shape has to be identical in both places and the
+// surest way to keep two copies equal is to not have two copies.
+const SW_BRK=4.0;                       // world z of the break — just behind the rider
+const SW_PEEL=78.0;                     // how far ahead of it the wall is still unbroken
+const SW_COLL=26.0;                     // and how far behind it takes to fall to whitewater
+// 0 far ahead of the break (green wall), 1 at it (barrelling)
+function swPeelA(z){ const u=Math.min(1,Math.max(0,(z-(SW_BRK-SW_PEEL))/SW_PEEL)); return u*u*(3-2*u); }
+// 0 at the break, 1 well behind it (collapsed)
+function swPeelB(z){ const u=Math.min(1,Math.max(0,(z-SW_BRK)/SW_COLL)); return u*u*(3-2*u); }
 let swA=0, swX=0, swS=1;                // crest height, crest position in x, side it came from
 // d>0 is behind the crest (the wave's own water), d<0 is the trough you ride in
-function setWaveH(x){
+function setWaveH(x,z){
   if(swA<=0.0015)return 0;
   const d=(x-swX)*swS;
   let f;
@@ -779,7 +800,22 @@ function setWaveH(x){
   // wave about to barrel actually does.
   if(d<=0){ const k=Math.max(0,1+d/SW_FACE); f=Math.pow(k,3.2); }
   else    { const k=Math.max(0,1-d/SW_BACK); f=0.34+0.66*k*k*(3-2*k); }
-  return swA*f;
+  // z does NOT arrive in world coordinates. Every caller passes dist*WAVE_DRIFT + worldZ,
+  // because that is the frame the swell is written in — it has to scroll past as you travel.
+  // The set wave does not scroll: it stands still in the world while you ride along it. So
+  // the scroll comes back off before the peel is evaluated.
+  //
+  // This cost a rendering that looked perfect and a board that sank. The shader takes true
+  // world z (p.y - uDist, and uDist IS dist*WAVE_DRIFT); the physics was handed the scrolled
+  // one, which by 700 m had reached 322 and put the rider permanently past the break — so
+  // the visible wave stood at full height while the water the board actually rides had
+  // collapsed to 45% underneath it. Exactly the disagreement the two copies are warned about.
+  const wz=z-dist*WAVE_DRIFT;
+  // Ahead of the break and at it the wall stands at full height — an unbroken wave is not a
+  // smaller wave. Behind it the crest drops away as the section turns to whitewater. Only
+  // the amplitude varies along z, deliberately: the cross-section keeps one shape, so the
+  // shader's derivative stays a couple of terms instead of a page of chain rule.
+  return swA*(1-0.55*swPeelB(wz))*f;
 }
 let waveAmp=0.78;                       // current swell height (varies set to set)// smooth pseudo-random drift so wave size wanders between small and extra-large
 function setNoise(t){
@@ -795,7 +831,7 @@ function waveComp(W,x,z,t){
 function waveH(x,z,t){
   let h=0;
   for(const W of WAVES)h+=waveComp(W,x,z,t);
-  return h*waveAmp+wakeBump(x,z)+whirlDip(x,z)+setWaveH(x);
+  return h*waveAmp+wakeBump(x,z)+whirlDip(x,z)+setWaveH(x,z);
 }
 // the long-period part of the sea only — what a floating object actually rides.
 // Short chop is filtered out, so buoys glide over the swell instead of vibrating,
@@ -803,7 +839,7 @@ function waveH(x,z,t){
 function swellH(x,z,t){
   let h=0;
   for(let i=0;i<2;i++)h+=waveComp(WAVES[i],x,z,t);
-  return h*waveAmp*1.06+wakeBump(x,z)+whirlDip(x,z)+setWaveH(x);
+  return h*waveAmp*1.06+wakeBump(x,z)+whirlDip(x,z)+setWaveH(x,z);
 }
 const OCEAN_Z=-90;
 let dist=0;
@@ -839,9 +875,9 @@ const oceanMat=new THREE.ShaderMaterial({
     uniform float uWhX; uniform float uWhZ; uniform float uWhA;
     uniform float uSwA; uniform float uSwX; uniform float uSwS;
     varying vec3 vN; varying vec3 vW; varying float vH; varying vec2 vPh;
-    varying float vSw;
+    varying float vSw; varying float vBrk;
     void main(){
-      vSw=0.0;
+      vSw=0.0; vBrk=0.0;
       vec2 p = vec2(position.x, (-position.y + (${OCEAN_Z.toFixed(1)})) + uDist);
       float h=0.0, dhx=0.0, dhz=0.0, e=1.0;
       ${glslWaves}
@@ -884,17 +920,29 @@ const oceanMat=new THREE.ShaderMaterial({
         float d=(p.x-uSwX)*uSwS;
         float f, dfdd;
         if(d<=0.0){
-          float k=clamp(1.0+d/10.0,0.0,1.0);
+          float k=clamp(1.0+d/${SW_FACE.toFixed(1)},0.0,1.0);
           f=pow(k,3.2);
-          dfdd=(k>0.0)?(3.2*pow(k,2.2)/10.0):0.0;
+          dfdd=(k>0.0)?(3.2*pow(k,2.2)/${SW_FACE.toFixed(1)}):0.0;
         } else {
-          float k=clamp(1.0-d/34.0,0.0,1.0);
+          float k=clamp(1.0-d/${SW_BACK.toFixed(1)},0.0,1.0);
           f=0.34+0.66*k*k*(3.0-2.0*k);
-          dfdd=(k>0.0&&k<1.0)?(-0.66*6.0*k*(1.0-k)/34.0):0.0;
+          dfdd=(k>0.0&&k<1.0)?(-0.66*6.0*k*(1.0-k)/${SW_BACK.toFixed(1)}):0.0;
         }
-        h   += uSwA*f;
-        dhx += uSwA*dfdd*uSwS;
+        // The peel, mirroring swPeelB(). p.y carries the scroll so the swell rolls past;
+        // the set wave stands still in the world, so its z is p.y with the scroll removed.
+        // This is the first term the set wave has ever contributed to dhz — every earlier
+        // version was constant along z, so the wave's normal never tilted down the line at
+        // all. Without it the collapse behind the break would light as though it were flat.
+        float wz=p.y-uDist;
+        float ub=clamp((wz-${SW_BRK.toFixed(1)})/${SW_COLL.toFixed(1)},0.0,1.0);
+        float b=ub*ub*(3.0-2.0*ub);
+        float dbdz=(ub>0.0&&ub<1.0)?(6.0*ub*(1.0-ub)/${SW_COLL.toFixed(1)}):0.0;
+        float m=1.0-0.55*b;
+        h   += uSwA*m*f;
+        dhx += uSwA*m*dfdd*uSwS;
+        dhz += uSwA*(-0.55*dbdz)*f;
         vSw  = f;                  // 0 at the foot of the face, 1 along the crest
+        vBrk = b;                  // 0 ahead of the break, 1 in the whitewater behind it
       }
       // phase of the two main swells — constant along a moving crest
       vPh = vec2( (0.00*p.x + 1.00*p.y)*0.190 + uT*0.013,
@@ -912,7 +960,7 @@ const oceanMat=new THREE.ShaderMaterial({
     uniform float uT; uniform float uDist; uniform float uAmp; uniform float uPeak;
     uniform float uLight; uniform float uSwA;
     varying vec3 vN; varying vec3 vW; varying float vH; varying vec2 vPh;
-    varying float vSw;
+    varying float vSw; varying float vBrk;
     // Value noise with a rotation between octaves. The rotation is the point: it
     // stops every octave lining up with the same two axes, which is what made the
     // old sine-product foam tile into a visible net.
@@ -991,6 +1039,12 @@ const oceanMat=new THREE.ShaderMaterial({
         // geometry being continuous does not help if the colour is not.
         float swFoam = smoothstep(0.76,1.0,vSw)*(0.45+0.55*laceR+0.35*fleckR);
         col = mix(col, vec3(0.96,0.99,1.0), clamp(swFoam,0.0,1.0)*0.80);
+        // And behind the break it stops being a wave at all. The crest has already dropped
+        // out of the height field by now; this is what that collapse looks like — a churned
+        // sheet that covers the whole standing part of the section rather than a line along
+        // its top, dirtier than crest foam because it is aerated all the way through.
+        float ww = vBrk*smoothstep(0.04,0.34,vSw);
+        col = mix(col, vec3(0.90,0.95,0.97), clamp(ww*(0.52+0.34*laceR+0.30*fleckR),0.0,1.0)*0.88);
       }
       col += vec3(1.0)*pow(max(dot(N,H),0.0),480.0)*0.6;
       float fog = smoothstep(70.0,230.0,length(cameraPosition-vW));
@@ -1043,7 +1097,11 @@ const SW_LIPT=0.22;                      // slab thickness, as a FRACTION of the
 // starting as a step — swells immediately, and is still substantial at the tip, because that
 // thickness silhouetted against the sky is the whole 3D read.
 function buildCurlGeom(){
-  const NZ=52, NA=64, Z0=-124, Z1=34;
+  // Slices doubled. The peel now changes the section's whole character over its length —
+  // wall, to barrel, to collapse — and at 52 the transition from unbroken to thrown spanned
+  // about three slices, which is the width at which a feature in this codebase starts
+  // rendering as facets instead of a shape.
+  const NZ=104, NA=64, Z0=-124, Z1=34;
   const sa=Math.sin(SW_ALPHA), ca=Math.cos(SW_ALPHA);
   const SPAN=0.44, CAP=0.12;             // outer face, tip cap, inner face
   const arc=(th)=>{
@@ -1056,29 +1114,34 @@ function buildCurlGeom(){
   const pos=[],uv=[],idx=[];
   for(let i=0;i<=NZ;i++){
     const zt=i/NZ, z=Z0+(Z1-Z0)*zt;
-    // A wave only barrels for a stretch of its length. Down the line it runs out into an
-    // unbroken shoulder, and from inside that reads as the mouth narrowing to an almond —
-    // it is in every reference photo of a barrel and it was the thing most obviously absent.
-    // 0.58 at the far end held a near-constant bore the whole way, which is a pipe, not a
-    // wave. Closing to 0.24 gives the taper, and the exponent keeps it open around you
-    // rather than pinching in immediately.
-    const rad=SW_R*(0.24+0.76*Math.pow(zt,1.45));
+    // The peel, in the shape of the lip itself. The old taper closed the bore down the line
+    // with a power curve, which gave the almond mouth but left every slice fully thrown —
+    // a tube of varying width, breaking everywhere at once.
+    //
+    // Now the THROW is what varies. Far down the line the lip has barely left the crest, so
+    // there is no roof at all and the section reads as unbroken green wall. It pitches out
+    // as it comes toward the break, is fully over your head at the break itself, and behind
+    // it the radius collapses and the whole thing folds down onto the face.
+    const pa=swPeelA(z), pb=swPeelB(z);
+    const rad=SW_R*(0.16+0.84*pa)*(1-0.55*pb);
+    const swp=SW_SWEEP*(0.30+0.70*pa);
+    const fold=1-0.38*pb;                            // the collapsed section dropping
     for(let j=0;j<=NA;j++){
       const s=j/NA;
       let q,f,y;
       if(s<=SPAN){                                   // the outer face, welded to the crest
-        q=s/SPAN; const a=arc(SW_SWEEP*q);
-        f=a.f*rad; y=a.y*rad;
+        q=s/SPAN; const a=arc(swp*q);
+        f=a.f*rad; y=a.y*rad*fold;
       } else if(s<SPAN+CAP){                         // round the thrown tip
         q=1;
-        const a=arc(SW_SWEEP), T=thick(1)*rad, ph=Math.PI*(s-SPAN)/CAP;
+        const a=arc(swp), T=thick(1)*rad, ph=Math.PI*(s-SPAN)/CAP;
         const cf=a.f*rad-a.nf*T*0.5, cy=a.y*rad-a.ny*T*0.5;
         f=cf+(T*0.5)*(Math.cos(ph)*a.nf+Math.sin(ph)*a.tf);
-        y=cy+(T*0.5)*(Math.cos(ph)*a.ny+Math.sin(ph)*a.ty);
+        y=(cy+(T*0.5)*(Math.cos(ph)*a.ny+Math.sin(ph)*a.ty))*fold;
       } else {                                       // and back along the inner face, the roof
         q=1-(s-SPAN-CAP)/SPAN;
-        const a=arc(SW_SWEEP*q), T=thick(q)*rad;
-        f=a.f*rad-a.nf*T; y=a.y*rad-a.ny*T;
+        const a=arc(swp*q), T=thick(q)*rad;
+        f=a.f*rad-a.nf*T; y=(a.y*rad-a.ny*T)*fold;
       }
       pos.push(f,y,z); uv.push(q,zt);
     }
@@ -7626,15 +7689,17 @@ let swTest=false;
 function swTubeC(){ return swX - swS*SW_TUBE; }
 // the top of the thrown lip: how much daylight there is over your head in the tube
 //
-// This is one number for the whole wave, and the mesh is not: since v2.25.0 tapered the
-// tube, the measured roof runs from y=8.8 at the far end to y=14.1 at the near one. It
-// agrees with the mesh to within 2 cm (11.41 against 11.43) at z~0, which is the only
-// place it is ever asked about, because the rider sits there and the world scrolls past.
-// That agreement is what makes it safe, NOT the formula — the SW_R here is the untapered
-// radius and only lands right by cancellation. When the break starts travelling along the
-// wave, the tube at the rider's z will change with time, and this has to be measured off
-// the geometry at that z instead of assumed. __surf.curlSlice() is what to check it with.
-function swRoofY(){ return swA+SW_R*(1-Math.cos(SW_ALPHA)-SW_LIPT); }
+// This used to be one number for the whole wave, which was safe only by accident: the
+// untapered SW_R in it cancelled against the thickness term to land within 2 cm of the
+// real roof at z~0, and z~0 was the only place it was ever asked about. The peel is
+// exactly the change that breaks that, as the note here predicted — the section over your
+// head is now a function of where along the wave you are, so the radius has to come from
+// the same peel the geometry is built from rather than from a constant.
+function swRoofY(z){
+  const zz=(z===undefined)?pz:z;
+  const rad=SW_R*(0.16+0.84*swPeelA(zz))*(1-0.55*swPeelB(zz));
+  return swA+rad*(1-Math.cos(SW_ALPHA)-SW_LIPT)*(1-0.38*swPeelB(zz));
+}
 const swSplash=new THREE.Group(); swSplash.visible=false; scene.add(swSplash);
 (function buildSplash(){
   const w=PBR({color:0xf4fdff,roughness:0.30,vivid:1.3});
@@ -7776,9 +7841,11 @@ if(location.hash.includes('debug')){
     // Warping is a jump to a phase's entry state, matching what the phase before it would
     // have left behind — not a fast-forward, because running the phases at a huge dt would
     // step the physics through the wave rather than into it.
-    warpSetWave(phase){
+    // t skips into the middle of a phase: SWELL computes the wave's height from swT every
+    // frame, so setting it lands you part-way up the rise without waiting out the seconds.
+    warpSetWave(phase,t){
       if(swPh===SWP.IDLE)startSetWave();
-      plane.visible=false; swSplash.visible=false; swT=0;
+      plane.visible=false; swSplash.visible=false; swT=t||0;
       if(phase==='SWELL'){ swPh=SWP.SWELL; swSweep=1; return true; }
       if(phase==='RIDE'){
         swPh=SWP.RIDE; swA=SW_PEAK; swX=swS*SW_HOLD_X; swCurlA=1; swCam=0.75;
@@ -7793,7 +7860,10 @@ if(location.hash.includes('debug')){
       return false;
     },
     // The wave's shape at a point, for checking the height field and the lip agree.
-    sampleWave:(x,z)=>({set:setWaveH(x),sea:waveH(x,z,tNow)}),
+    // x and z here are WORLD coordinates — the scroll is added on the way in, so a test can
+    // ask about a fixed point on the wave without knowing how far the run has travelled.
+    sampleWave:(x,z)=>({set:setWaveH(x,z+dist*WAVE_DRIFT),sea:waveH(x,z+dist*WAVE_DRIFT,tNow),
+                        peelA:swPeelA(z),peelB:swPeelB(z),roof:swRoofY(z)}),
     // The roof the player can actually hit, measured off the curl mesh itself rather than
     // recomputed — the whole point is to catch the physics and the geometry disagreeing.
     // Hide the lip to find out which surface a pixel belongs to. The tube and the wave face

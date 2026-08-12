@@ -55,7 +55,10 @@ const stats = async (label, box) => await page.evaluate(async ([label, box]) => 
 }, [label, box]);
 
 for (const phase of process.env.PHASES ? process.env.PHASES.split(',') : ['SWELL', 'RIDE']) {
-  await page.evaluate(p => { window.__surf.armSetWave(); window.__surf.warpSetWave(p); }, phase);
+  // "SWELL@4.4" means: that phase, 4.4 seconds into it — the wave nearly full height and
+  // still out in front of you, which is the only view that shows the peel from outside.
+  const [ph, at] = phase.split('@');
+  await page.evaluate(([p, t]) => { window.__surf.armSetWave(); window.__surf.warpSetWave(p, t ? +t : 0); }, [ph, at]);
   await page.waitForTimeout(6000);
   await page.screenshot({ path: join(ROOT, `shot_${TAG}_${phase}.png`) });
   if (process.env.SPLIT) {          // same frame with the lip held down, to tell the two apart
