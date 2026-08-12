@@ -52,6 +52,17 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.18.0** — **Sunday Best**, replacing Ice Crackle. "China" meant *crockery*, not the
+  country — so the board is now a dinner service rather than a kiln glaze. Warm ivory body,
+  a **scalloped gilt rim** (the inner edge of the gilding waves, which is the single detail
+  that makes it read as crockery instead of a cream surfboard), two fine bands inside it, a
+  bouquet where the well of the plate would be, a chain of small blue flowers as the nod to
+  the blue-and-white half of the shelf, and hand-painted sprigs scattered over the rest.
+  Qinghua stays the cobalt piece; this is the polychrome one. Same 6'5" glider underneath —
+  grip 1.26, glide 1.32.
+  - New paint helpers `_bloom` and `_sprigLeaf`. Both take an aspect correction, because `u`
+    spans six feet of board and `v` only the seventy centimetres across it: draw a circle
+    without correcting and every flower comes out as a long smear down the deck.
 - **v2.17.0** — **Ice Crackle.** A white Chinese board, and deliberately the opposite of the
   one already in the rack: Qinghua is cobalt *on* white, this one is white on white. It comes
   off Ru- and Ge-kiln ware, which was fired to craze on purpose — the two networks it cracks

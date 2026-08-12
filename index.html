@@ -625,7 +625,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.17.0';
+const VERSION='2.18.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1928,6 +1928,28 @@ function _roundel(c,u,v,pu,pv,r,bg,fg,ring){
 function _patch(c,u,v,pu,pv,h,w,hex,k){
   if(Math.abs(u-pu)<h&&Math.abs(v-pv)<w)_mix(c,hex,k===undefined?1:k);
 }
+// Hand-painted china sprigs. u and v are on wildly different scales — u spans six feet of
+// board, v only the seventy centimetres across it — so every one of these has to correct
+// for the aspect or the bloom comes out as a long smear down the deck instead of a flower.
+// ASP is roughly (length / half-width), and it is passed rather than assumed because the
+// boards are not all the same shape.
+function _bloom(c,u,v,pu,pv,r,petal,heart,np,asp){
+  const dx=(u-pu)*(asp||18), dy=v-pv;
+  const d=Math.hypot(dx,dy);
+  if(d>r*1.2)return;
+  const a=Math.atan2(dy,dx);
+  const pr=r*(0.58+0.42*Math.abs(Math.cos(a*(np||5)*0.5)));   // scalloped petal edge
+  if(d<pr)_mix(c,petal,0.92);
+  if(d<r*0.27)_mix(c,heart,0.95);
+}
+function _sprigLeaf(c,u,v,pu,pv,r,col,ang,asp){
+  const A=ang||0, ca=Math.cos(A), sa=Math.sin(A);
+  const dx=(u-pu)*(asp||18), dy=v-pv;
+  const X=dx*ca+dy*sa, Y=-dx*sa+dy*ca;
+  if(Math.abs(X)>r)return;
+  const w=r*0.40*Math.sqrt(Math.max(0,1-(X/r)*(X/r)));     // a pointed oval, not a blob
+  if(Math.abs(Y)<w)_mix(c,col,0.88);
+}
 // Nose to tail: sunrise gold, orange, coral, hot pink, violet, and the last of the night.
 // Through vivid() once, like every other paint helper — set straight they come out of the
 // lighting and the tone curve as pastel, which turns a sunrise into cream and lilac.
@@ -2610,50 +2632,55 @@ const BOARDS=[
      fins:[{x:0,z:1.86,c:0.46,d:0.44,t:0.028,rake:0.16},
            {x:-0.34,z:1.42,c:0.26,d:0.22,t:0.020,rake:0.06,cant:0.14},
            {x: 0.34,z:1.42,c:0.26,d:0.22,t:0.020,rake:0.06,cant:-0.14}]}},
-  {id:'icecrackle', name:'Ice Crackle', price:11000,
-   blurb:'Ru-kiln white. No colour at all — the whole pattern is the crackle in the glaze.',
-   // Qinghua is the other half of this pair and it is cobalt ON white; this one is white on
-   // white. The ware it comes from was fired to crack on purpose, and the two networks it
-   // cracks into even have names — 金丝铁线, golden threads and iron wires, a coarse dark web
-   // with a finer warm one laid through it. That is the entire graphic. A long, narrow,
-   // low-rockered glider to carry it: the thing holds a line like it is on rails.
+  {id:'sundaybest', name:'Sunday Best', price:11000,
+   blurb:"The good china. Gilt scalloped rim, hand-painted sprigs, and normally it stays in the cabinet.",
+   // Straight off a dinner service: warm ivory body, a scalloped gilt rim, two fine bands
+   // inside it, a bouquet in the middle where the plate's well would be, and little painted
+   // sprigs scattered over the rest. Qinghua is the cobalt half of the china shelf; this is
+   // the polychrome half, so the flowers are coral and green with a few blue ones rather
+   // than blue throughout. A long, narrow, low-rockered glider carries it.
    spec:{L:6.45,W:0.72,T:0.158,noseA:0.86,tailA:0.94,noseW:0.16,tailW:0.20,
      rockN:0.22,noseR:0.34,rockT:0.06,tailR:0.24,deckPow:0.64,hullPow:0.50,hullK:0.62,
-     nu:320,nr:100,
-     pad:false,finCol:0x8fada2,rough:0.16,
-     paint:artScheme({deck:0xe9e6d6,hull:0xefecde,rail:0xcdc6b3,stringer:0xd2c298,
-       pin:0xc9a24e,sw:0.006,railAt:0.92,vivid:1.05,both:true,
+     nu:340,nr:104,
+     pad:false,finCol:0xc09230,rough:0.14,
+     paint:artScheme({deck:0xece8da,hull:0xf1eee2,rail:0xc08f26,stringer:0xd4c290,
+       pin:0x9c7618,sw:0.006,railAt:0.90,vivid:1.35,both:true,
        art:(c,u,v,top)=>{
          const s=Math.abs(v);
-         // Glaze is thicker where the surface turns away, and thick glaze reads green.
-         // This is what stops a white board from looking like bare white plastic.
-         _mix(c,0x7d9c92,_sm(0.50,0.99,s)*0.60);
-         // 铁线 — iron wires. Contours of a noise field rather than a threshold on one:
-         // a threshold gives you blotches, contours give you a connected web, which is
-         // what a crackle actually is. Smooth-edged so it survives the mesh at any density.
-         // The multiplier is not a style choice: _fbm only ever spans about 0.3, so the
-         // number of contours you get is 0.3x this number. At 8 the whole board carried
-         // two and a half cracks. Thirty gives about nine, which is a crackle.
-         const fa=_fbm(u*4.6+3.1,v*3.0);
-         const wa=Math.abs(_rep(fa*30.0)-0.5);
-         _mix(c,0x47534f,_sm(0.451,0.500,wa)*0.84);
-         // 金丝 — golden threads: finer, warmer, laid through the coarse web
-         const fb=_fbm(u*9.4-1.7,v*6.2+2.2);
-         const wb=Math.abs(_rep(fb*46.0)-0.5);
-         _mix(c,0xa07d33,_sm(0.458,0.500,wb)*0.56);
-         if(!top)return;                      // the underside is plain glaze and crackle
-         // 如意 ruyi cloud scrolls running the length of the deck, as a scalloped pair
-         const rw=0.055*Math.sin(u*Math.PI*11.0);
-         _mix(c,0x5f7a73,_sm(0.062,0.0,Math.abs(s-(0.42+rw)))*0.72);
-         _mix(c,0x8ba49d,_sm(0.046,0.0,Math.abs(s-(0.30+rw)))*0.55);
-         // 莲瓣 a lotus-petal panel standing up out of the tail
-         const fade=_sm(0.775,0.840,u)*(1-_sm(0.915,0.960,u));
-         if(fade>0.001){
-           const pet=Math.abs(_rep(s*3.0)-0.5);
-           _mix(c,0x63807a,_sm(0.28,0.50,pet)*0.70*fade);
+         const ASP=17.9;                       // length over half-width, so blooms are round
+         // the fine craze every old piece of china has, very faint
+         const fz=_fbm(u*5.0+3.1,v*3.2);
+         _mix(c,0x9d968a,_sm(0.454,0.500,Math.abs(_rep(fz*26.0)-0.5))*0.34);
+         // THE GILT RIM. A plate's edge is scalloped, so the inner edge of the gilding
+         // waves rather than running straight, and it is the single thing that makes this
+         // read as crockery instead of as a cream surfboard.
+         const scal=0.700+0.052*Math.sin(u*Math.PI*24.0);
+         _mix(c,0xc08f26,_sm(scal-0.055,scal+0.055,s)*0.96);
+         _mix(c,0x7a5a10,_sm(0.050,0.0,Math.abs(s-scal))*0.62);   // the edge of the gilding
+         // two fine bands inboard of it, the way a rim is banded
+         _mix(c,0xb08a30,_sm(0.048,0.0,Math.abs(s-0.575))*0.60);
+         _mix(c,0xc0a86e,_sm(0.040,0.0,Math.abs(s-0.505))*0.40);
+         if(!top)return;                        // the underside is plain glaze and rim
+         // A chain of small blue flowers just inside the bands — the nod to the blue-and-
+         // white half of the shelf, kept small so it never competes with the bouquet.
+         const bx=_rep(u*13.0);
+         if(s>0.34&&s<0.46)_bloom(c,bx,v,0.5,(v>0?1:-1)*0.40,0.055,0x3f6bb0,0xdfe8f6,5,1.0);
+         // THE BOUQUET, where the well of the plate would be
+         _sprigLeaf(c,u,v,0.470,-0.16,0.30,0x6f8f52,0.7,ASP);
+         _sprigLeaf(c,u,v,0.530, 0.17,0.30,0x5f8148,-0.7,ASP);
+         _sprigLeaf(c,u,v,0.500, 0.00,0.34,0x6f8f52,1.9,ASP);
+         _bloom(c,u,v,0.500, 0.00,0.38,0xd85f2c,0xe8b53a,5,ASP);
+         _bloom(c,u,v,0.470,-0.26,0.26,0x3560ad,0xe8b53a,5,ASP);
+         _bloom(c,u,v,0.530, 0.27,0.26,0xcf4a72,0xe8b53a,5,ASP);
+         // and the scattered sprigs over the rest of the ivory
+         const SPRIG=[[0.155,0.24,0xdd6a38],[0.235,-0.27,0x3f6bb0],[0.315,0.20,0xd4557a],
+                      [0.385,-0.22,0xdd6a38],[0.630,0.23,0x3f6bb0],[0.700,-0.20,0xdd6a38],
+                      [0.775,0.25,0xd4557a],[0.850,-0.18,0xdd6a38]];
+         for(const [pu,pv,col] of SPRIG){
+           _sprigLeaf(c,u,v,pu-0.010,pv-0.13,0.20,0x6f8f52,0.8,ASP);
+           _sprigLeaf(c,u,v,pu+0.010,pv+0.13,0.20,0x5f8148,-0.8,ASP);
+           _bloom(c,u,v,pu,pv,0.175,col,0xe8b53a,5,ASP);
          }
-         // and a single gold hairline just inside the rail, the whole way round
-         _mix(c,0xb08a30,_sm(0.058,0.0,Math.abs(s-0.855))*0.92);
        }}),
      fins:[{x:0,z:2.32,c:0.58,d:0.60,t:0.032,rake:0.20}]}},
   // ---- a second racing set: real GT liveries rather than invented ones ----
