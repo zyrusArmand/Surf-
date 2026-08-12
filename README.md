@@ -52,6 +52,33 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.35.0** — **The gap along the weld was a hole, not a colour.**
+  - **The lip was welded to a crest the peel had already lowered.** Every slice started at
+    local y=0 — the shell's origin at `swA`, which is right where the wave stands full height
+    and wrong everywhere behind the break, because the peel drops the crest there while the
+    lip stayed up at the old level. Computed along the wave: 0.06 m of daylight at z=+6,
+    0.87 m at +12, **3.85 m by +30**. Each slice now sits on the crest the peel actually
+    leaves.
+  - **The top wears the sea's own surface texture.** The lip carried a texture of its own in
+    (arc, length) space, which is why it never quite passed as the same water however well the
+    colour matched — the grain was a different size and ran in a different direction on the two
+    sides of the join. It uses the ocean's exact noise layers now: same world coordinates, same
+    frequencies, same thresholds, same drift. The one thing deliberately left out is the
+    forward travel — the ocean scrolls its noise by `uDist` so the swell rolls past you, and
+    this water is standing still while you ride along it.
+  - **The smoke is a string, not beads.** One puff per frame leaves a dotted line whose gaps
+    grow as the frame rate drops. Puffs are laid ALONG the segment the plane covered since the
+    last frame, spaced by distance rather than by time, so the trail is continuous at any frame
+    rate and comes out the same on a fast phone and a slow one. Smaller, and it hangs for about
+    nine seconds instead of three.
+  - **The plane grew to suit its new distance.** Moving the crash to z=-168 so it fits a
+    portrait frame left it three pixels across: in shot, and unreadable. The distance is what
+    the framing needs, so the aeroplane is 2.6× instead — nothing sits beside it out there to
+    give away the scale, and a legible crash beats a correct wingspan.
+  - Two load-order bugs found on the way: `SW_PEAK` was declared below the lip's geometry,
+    which is built at load time, so the whole page died in the temporal dead zone; and warping
+    a test straight into RIDE skipped the transition that locks the pocket onto the rider, so
+    every warped capture was of a wave standing at x=0.
 - **v2.34.0** — **The lip was measured against the wrong thing, and four other fixes.**
   - **The tube read as lit plastic stuck on the ocean.** v2.33.0 matched the lip to the wave's
     *crest* and passed its own test — but the crest is the brightest line on the whole wave, so

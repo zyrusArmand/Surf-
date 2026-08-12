@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.34.0';
+const VERSION='2.35.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -780,6 +780,10 @@ const SW_BACK=34.0;                     // and the long shoulder behind the cres
 // These live up here, above the ocean's shader, so the shader can interpolate them rather
 // than repeat them as literals. The wave's shape has to be identical in both places and the
 // surest way to keep two copies equal is to not have two copies.
+// The height the wave stands at once it is up. It lives here, above the lip's geometry,
+// because the lip is built at load time and needs it — declared down with the phase
+// constants it was in the temporal dead zone, and the whole page died on the first frame.
+const SW_PEAK=7.0;
 const SW_BRK=4.0;                       // world z of the break — just behind the rider
 const SW_PEEL=78.0;                     // how far ahead of it the wall is still unbroken
 const SW_COLL=26.0;                     // and how far behind it takes to fall to whitewater
@@ -1132,6 +1136,12 @@ function buildCurlGeom(){
     const rad=SW_R*(0.16+0.84*pa)*(1-0.55*pb);
     const swp=SW_SWEEP*(0.30+0.70*pa);
     const fold=1-0.38*pb;                            // the collapsed section dropping
+    // Sit on the crest the peel actually leaves. Every slice used to start at local y=0,
+    // which is the shell's origin at swA — right where the wave stands at full height, and
+    // wrong everywhere behind the break, because the peel drops the crest there while the
+    // lip stayed up at the old level. Computed, that opened to 3.85 m of daylight between
+    // the lip and the water by z=+30: a hole along the weld, not a colour mismatch.
+    const drop=-SW_PEAK*0.55*pb;
     for(let j=0;j<=NA;j++){
       const s=j/NA;
       let q,f,y;
@@ -1149,7 +1159,7 @@ function buildCurlGeom(){
         const a=arc(swp*q), T=thick(q)*rad;
         f=a.f*rad-a.nf*T; y=(a.y*rad-a.ny*T)*fold;
       }
-      pos.push(f,y,z); uv.push(q,zt);
+      pos.push(f,y+drop,z); uv.push(q,zt);
     }
   }
   for(let i=0;i<NZ;i++)for(let j=0;j<NA;j++){
@@ -1303,9 +1313,22 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // length of a tube, all converge on the vanishing point and read as drawn speed lines.
       // Close to square is what breaks it up — the noise then makes patches that happen to
       // be drawn out along the flow, rather than lines that survive all the way down.
-      vec2 fp=vec2(t*13.0, vUv.y*15.0);
-      float lace =smoothstep(0.38,0.86, fbm(fp*1.25+vec2(-uT*0.28, uT*0.10)));
-      float fleck=smoothstep(0.54,0.94, fbm(fp*3.30+vec2( uT*0.44, uT*0.16)));
+      //
+      // Superseded: what follows is the SEA's own surface texture, at the sea's own scale and
+      // in its own frame. The lip used to carry a texture of its own in (arc, length) space,
+      // which is why it never passed as the same water however well the colour was matched —
+      // the grain was a different size and ran in a different direction on the two sides of
+      // the weld. These are the ocean's exact layers: same world coordinates, same
+      // frequencies, same thresholds, same drift speeds. The one thing deliberately NOT
+      // carried over is the forward travel: the ocean scrolls its noise by uDist so the
+      // swell rolls past you, and this water is standing still while you ride along it.
+      //
+      // A little of the arc is mixed in because world xz alone is constant straight up a
+      // vertical wall, which would smear the overhanging part into vertical streaks.
+      vec2 fpM=vec2(vW.x, vW.z)+vec2(t*2.4,0.0);
+      vec2 fpF=vec2(vW.x, vW.z)+vec2(t*1.1,0.0);
+      float lace =smoothstep(0.40,0.84, fbm(fpM*1.45+vec2(-uT*0.07, uT*0.06)));
+      float fleck=smoothstep(0.56,0.93, fbm(fpF*3.90+vec2( uT*0.11, uT*0.09)));
       float sheet=smoothstep(0.30,1.0,t);        // the lip is mostly aerated water
       float foam=clamp(lace*(0.34+sheet*0.62)+fleck*(0.20+sheet*0.44),0.0,1.0);
       col=mix(col,uFoam,foam*0.30);
@@ -6577,7 +6600,7 @@ function respawn(){
     if(obstacles[i].position.z>-48){scene.remove(obstacles[i]);obstacles.splice(i,1);}
   skiOn=false;skiWake=null;skiT=26;jetSki.visible=false;skiGlint.visible=false;wkA=0;
   swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=30+Math.random()*15;swTest=false;swAng=0;swAngV=0;swLoops=0;swTubeRide=false;
-  for(const p of SMOKE){p.t=0;p.m.visible=false;} smokeCd=0; plane.userData.prev=null;
+  for(const p of SMOKE){p.t=0;p.m.visible=false;} _smkHas=false; plane.userData.prev=null;
   curl.visible=false;swSplash.visible=false;
   whirl=null;whA=0;whirlArt.visible=false;whirlT=30+Math.random()*20;
   hanging=false;rope.visible=false;ropeBtn.style.display='none';ropeBtn.textContent='ROPE!';
@@ -7753,7 +7776,7 @@ function updateJetSki(dt,eff){
 
 // ---------- the set wave: a plane goes down, and what it throws you can ride ----------
 const SWP={IDLE:-1,FLY:0,IMPACT:1,SWELL:2,RIDE:3,EXIT:4};
-const SW_CRASH_X=46, SW_HOLD_X=9.0, SW_TUBE=4.6, SW_PEAK=7.0;
+const SW_CRASH_X=46, SW_HOLD_X=9.0, SW_TUBE=4.6;   // SW_PEAK is up with the peel
 const SW_FLY=5.2, SW_IMP=1.3, SW_SWELL=5.0, SW_OUT=2.6;
 let swPh=SWP.IDLE, swT=0, swRide=0, swRideMax=0, swPts=0, swDeep=0;
 let swCurlA=0, swCam=0, swClose=0, swDebT=0, swSweep=0, swNext=30+Math.random()*15;
@@ -7801,29 +7824,42 @@ function swRoofY(z){
 const SMOKE=[];
 {
   const g=new THREE.SphereGeometry(1,9,7);
-  for(let i=0;i<34;i++){
+  for(let i=0;i<150;i++){
     const m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:0x9aa0a8,transparent:true,
       opacity:0,depthWrite:false}));
     m.visible=false; m.renderOrder=2; scene.add(m);
     SMOKE.push({m,t:0,r:1});
   }
 }
-let smokeCd=0;
 function puffSmoke(x,y,z,r){
   const p=SMOKE.find(q=>q.t<=0); if(!p)return;
   p.t=1; p.r=r;
   p.m.position.set(x+(Math.random()-0.5)*1.2,y+(Math.random()-0.5)*1.2,z+(Math.random()-0.5)*1.2);
   p.m.visible=true;
 }
+// One puff per frame leaves a dotted line, and the gaps grow the worse the frame rate is —
+// the trail was beads rather than smoke. This lays puffs ALONG the segment the plane covered
+// since the last frame, spaced by DISTANCE rather than by time, so the string is continuous
+// at any frame rate and comes out the same density on a fast phone and a slow one.
+const _smkPrev=new THREE.Vector3(); let _smkHas=false;
+function trailSmoke(x,y,z,r){
+  if(_smkHas){
+    const dx=x-_smkPrev.x, dy=y-_smkPrev.y, dz=z-_smkPrev.z;
+    const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
+    const n=Math.max(1,Math.min(26,Math.round(d/1.6)));
+    for(let i=1;i<=n;i++)puffSmoke(x-dx*(1-i/n), y-dy*(1-i/n), z-dz*(1-i/n), r);
+  } else puffSmoke(x,y,z,r);
+  _smkPrev.set(x,y,z); _smkHas=true;
+}
 function stepSmoke(dt){
   for(const p of SMOKE){
     if(p.t<=0)continue;
-    p.t-=dt*0.34;                       // lingers a few seconds, long enough to read as a trail
+    p.t-=dt*0.11;                       // hangs for nine seconds or so, fading the whole way
     if(p.t<=0){ p.m.visible=false; p.m.material.opacity=0; continue; }
     const age=1-p.t;
-    p.m.scale.setScalar(p.r*(0.9+age*3.4));
-    p.m.position.y+=dt*1.5;             // it rises and spreads as it cools
-    p.m.material.opacity=0.42*p.t*Math.min(1,age*5.0);
+    p.m.scale.setScalar(p.r*(0.55+age*1.9));   // small, and swelling only gently
+    p.m.position.y+=dt*1.1;             // it rises and spreads as it cools
+    p.m.material.opacity=0.40*p.t*Math.min(1,age*6.0);
   }
 }
 const swSplash=new THREE.Group(); swSplash.visible=false; scene.add(swSplash);
@@ -7848,6 +7884,11 @@ function startSetWave(){
   swA=0; swX=swS*SW_CRASH_X;
   if(hanging)releaseRope(false);
   planeActive=false; plane.visible=true; planeT=SW_FLY+SW_IMP+SW_SWELL+40;
+  // Moving the crash out to 168 so it fits in a portrait frame made it three pixels across:
+  // in shot, and unreadable. The distance is what the framing needs, so the aeroplane grows
+  // instead — it is the only thing out there, nothing sits beside it to give away the scale,
+  // and a legible crash matters more than a correct wingspan.
+  plane.scale.setScalar(2.6);
   msg(swS>0?'PLANE GOING DOWN — STARBOARD!':'PLANE GOING DOWN — PORT!');
 }
 function endSetWave(){
@@ -7897,8 +7938,7 @@ function updateSetWave(dt,eff){
     plane.userData.prop.rotation.z+=dt*(40-32*k);          // the engine giving up
     // An engine that is failing says so. The trail is what makes it readable at this
     // distance — the airframe is only a few pixels across out there, the smoke is not.
-    smokeCd-=dt;
-    if(smokeCd<=0){ smokeCd=0.055; puffSmoke(nx,ny,nz,0.6+k*1.5); }
+    trailSmoke(nx,ny,nz,1.7+k*2.4);
     if(swT>=SW_FLY){
       swPh=SWP.IMPACT; swT=0; plane.visible=false; swSweep=1;
       swSplash.visible=true; swSplash.position.set(swS*SW_CRASH_X,0,-168);
@@ -7992,6 +8032,11 @@ if(location.hash.includes('debug')){
     // Drive the ring directly, so a test can put him anywhere round the tube — including
     // upside down in the roof — without steering him there in real time.
     setTubeAngle(a){ swAng=a; swAngV=0; return swAng; },
+    plane:()=>({pos:plane.position.toArray().map(v=>+v.toFixed(2)),
+                yaw:+plane.rotation.y.toFixed(3), visible:plane.visible,
+                screen:(()=>{const v=plane.position.clone().project(camera);
+                  return {x:+(v.x*0.5+0.5).toFixed(3), y:+(0.5-v.y*0.5).toFixed(3)};})(),
+                puffs:SMOKE.filter(q=>q.t>0).length}),
     // Where a world point lands on screen, in 0..1. Used to find the crest line in a capture
     // so the colour either side of the join can be sampled rather than judged by eye.
     project(x,y,z){
@@ -8022,7 +8067,12 @@ if(location.hash.includes('debug')){
       plane.visible=false;
       if(phase==='SWELL'){ swPh=SWP.SWELL; swSweep=1; return true; }
       if(phase==='RIDE'){
-        swPh=SWP.RIDE; swA=SW_PEAK; swX=swS*SW_HOLD_X; swCurlA=1; swCam=0.75;
+        // The real SWELL->RIDE transition locks the pocket onto the rider; warping in
+        // skipped that, so swHoldX stayed at whatever the last reset left and the wave
+        // stood at x=0. Same rule here, or every warped capture is of a wave in the
+        // wrong place.
+        swHoldX=px+swS*SW_TUBE;
+        swPh=SWP.RIDE; swA=SW_PEAK; swX=swHoldX; swCurlA=1; swCam=0.75;
         swRide=0; swClose=0; swSweep=2;
         px=swTubeC()+swS*1.2;                  // dropped into the sweet spot, not the lip
         return true;
@@ -9319,6 +9369,7 @@ function update(dt){
   if(swPh===SWP.IDLE)planeT-=dt;
   if(swPh===SWP.IDLE&&planeT<=0&&!planeActive){
     planeActive=true;plane.visible=true;
+    plane.scale.setScalar(1);          // the banner tow passes close; it needs no help
     plane.position.set(Math.random()*16-8,11,-190);
     planeT=40+Math.random()*38;
   }
