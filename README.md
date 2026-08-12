@@ -52,6 +52,25 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.17.0** — **Ice Crackle.** A white Chinese board, and deliberately the opposite of the
+  one already in the rack: Qinghua is cobalt *on* white, this one is white on white. It comes
+  off Ru- and Ge-kiln ware, which was fired to craze on purpose — the two networks it cracks
+  into even have names, 金丝铁线, *golden threads and iron wires*: a coarse dark web with a
+  finer warm one laid through it. That, a pair of ruyi cloud scrolls, a lotus-petal panel
+  standing out of the tail and one gold hairline inside the rail are the whole graphic. A
+  6'5" narrow, low-rockered single-fin glider to carry it — grip 1.26 and glide 1.32, the
+  most locked-in board in the shop, against Qinghua's loose 0.82/0.93.
+  - **The crackle came out as two and a half cracks across the entire board**, and the reason
+    is worth writing down: `_fbm` only ever spans about 0.3, so contouring it with
+    `_rep(f*8.0)` gives 0.3 × 8 ≈ 2 lines, not 8. Thirty gives about nine, which is a
+    crackle. The line *width* is then bounded the other way by the mesh — same rule as the
+    leaf's veins — so the count and the width have to be solved together.
+  - **And every band across `v` was one vertex wide.** At `nr:100` there are ~25 rings from
+    stringer to rail, so `dv` is 0.04 and the 0.02-wide ruyi and pinline bands rendered as
+    nothing at all. Anything drawn across the width has to be at least 0.06.
+  - Near-white also sits at the top of the ACES curve where variation crushes — the same
+    thing that made the beach sand unreadable — so the ground had to come down off pure
+    white before any of the greys could show at all.
 - **v2.16.0** — **The set wave.** A seaplane crosses in front of you, banks hard away, drops
   a wing and goes into the water off to one side. What it throws up walks back across the
   lane at you, growing the whole way, and you ride the barrel it forms.

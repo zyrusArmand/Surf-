@@ -625,7 +625,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.16.0';
+const VERSION='2.17.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2610,6 +2610,52 @@ const BOARDS=[
      fins:[{x:0,z:1.86,c:0.46,d:0.44,t:0.028,rake:0.16},
            {x:-0.34,z:1.42,c:0.26,d:0.22,t:0.020,rake:0.06,cant:0.14},
            {x: 0.34,z:1.42,c:0.26,d:0.22,t:0.020,rake:0.06,cant:-0.14}]}},
+  {id:'icecrackle', name:'Ice Crackle', price:11000,
+   blurb:'Ru-kiln white. No colour at all — the whole pattern is the crackle in the glaze.',
+   // Qinghua is the other half of this pair and it is cobalt ON white; this one is white on
+   // white. The ware it comes from was fired to crack on purpose, and the two networks it
+   // cracks into even have names — 金丝铁线, golden threads and iron wires, a coarse dark web
+   // with a finer warm one laid through it. That is the entire graphic. A long, narrow,
+   // low-rockered glider to carry it: the thing holds a line like it is on rails.
+   spec:{L:6.45,W:0.72,T:0.158,noseA:0.86,tailA:0.94,noseW:0.16,tailW:0.20,
+     rockN:0.22,noseR:0.34,rockT:0.06,tailR:0.24,deckPow:0.64,hullPow:0.50,hullK:0.62,
+     nu:320,nr:100,
+     pad:false,finCol:0x8fada2,rough:0.16,
+     paint:artScheme({deck:0xe9e6d6,hull:0xefecde,rail:0xcdc6b3,stringer:0xd2c298,
+       pin:0xc9a24e,sw:0.006,railAt:0.92,vivid:1.05,both:true,
+       art:(c,u,v,top)=>{
+         const s=Math.abs(v);
+         // Glaze is thicker where the surface turns away, and thick glaze reads green.
+         // This is what stops a white board from looking like bare white plastic.
+         _mix(c,0x7d9c92,_sm(0.50,0.99,s)*0.60);
+         // 铁线 — iron wires. Contours of a noise field rather than a threshold on one:
+         // a threshold gives you blotches, contours give you a connected web, which is
+         // what a crackle actually is. Smooth-edged so it survives the mesh at any density.
+         // The multiplier is not a style choice: _fbm only ever spans about 0.3, so the
+         // number of contours you get is 0.3x this number. At 8 the whole board carried
+         // two and a half cracks. Thirty gives about nine, which is a crackle.
+         const fa=_fbm(u*4.6+3.1,v*3.0);
+         const wa=Math.abs(_rep(fa*30.0)-0.5);
+         _mix(c,0x47534f,_sm(0.451,0.500,wa)*0.84);
+         // 金丝 — golden threads: finer, warmer, laid through the coarse web
+         const fb=_fbm(u*9.4-1.7,v*6.2+2.2);
+         const wb=Math.abs(_rep(fb*46.0)-0.5);
+         _mix(c,0xa07d33,_sm(0.458,0.500,wb)*0.56);
+         if(!top)return;                      // the underside is plain glaze and crackle
+         // 如意 ruyi cloud scrolls running the length of the deck, as a scalloped pair
+         const rw=0.055*Math.sin(u*Math.PI*11.0);
+         _mix(c,0x5f7a73,_sm(0.062,0.0,Math.abs(s-(0.42+rw)))*0.72);
+         _mix(c,0x8ba49d,_sm(0.046,0.0,Math.abs(s-(0.30+rw)))*0.55);
+         // 莲瓣 a lotus-petal panel standing up out of the tail
+         const fade=_sm(0.775,0.840,u)*(1-_sm(0.915,0.960,u));
+         if(fade>0.001){
+           const pet=Math.abs(_rep(s*3.0)-0.5);
+           _mix(c,0x63807a,_sm(0.28,0.50,pet)*0.70*fade);
+         }
+         // and a single gold hairline just inside the rail, the whole way round
+         _mix(c,0xb08a30,_sm(0.058,0.0,Math.abs(s-0.855))*0.92);
+       }}),
+     fins:[{x:0,z:2.32,c:0.58,d:0.60,t:0.032,rake:0.20}]}},
   // ---- a second racing set: real GT liveries rather than invented ones ----
   {id:'hydro', name:'Hydro GT', price:4800,
    blurb:'Groveller. Wide square tail, low rocker — works blue over white, and works on nothing.',
