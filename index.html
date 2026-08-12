@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.29.0';
+const VERSION='2.30.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -7094,6 +7094,18 @@ function sunShell(size,opacity,order,falloff){
 }
 const sunGlowOuter=sunShell(300,0.55,-14,2.6);
 const sunGlowInner=sunShell(120,0.70,-13,2.0);
+// tight enough to sit on the disc's own edge rather than around it, which is what turns
+// the cut into a falloff — the two shells above are far too wide to touch the limb
+const sunGlowRim=sunShell(30,0.85,-12.5,1.3);
+// The disc has a hard cut at its limb — a flat-shaded sphere ends exactly where its
+// silhouette does — and against the sky that reads as a sticker rather than something
+// giving off light. It is worst seen down the barrel, where the mouth frames it small and
+// the cut is the only edge in view.
+//
+// A shader with a soft rim was the obvious fix and it is the wrong one: this material
+// carries a clipping plane at the horizon, and a raw ShaderMaterial in r128 does not get
+// the clipping chunks, so the sun would stop sinking into the sea. A third glow shell
+// hugging the disc feathers the same edge and leaves the clip alone.
 const sunDisc=new THREE.Mesh(new THREE.SphereGeometry(10.5,30,22),
   new THREE.MeshBasicMaterial({color:0xfff3cf,depthTest:false,depthWrite:false,transparent:true}));
 sunDisc.renderOrder=-12;skyLayer.add(sunDisc);
@@ -7161,12 +7173,14 @@ function updateDayCycle(){
   if(_cSun.convertSRGBToLinear)_cSun.convertSRGBToLinear();
   sunDisc.material.color.copy(_cSun);
   sunDisc.scale.setScalar(1+gAmt*0.35);            // swells a little as it sits low
-  for(const sh of [sunGlowInner,sunGlowOuter]){
+  for(const sh of [sunGlowInner,sunGlowOuter,sunGlowRim]){
     sh.position.set(sunDisc.position.x,sunDisc.position.y,sunDisc.position.z-4);
     sh.material.uniforms.uColor.value.copy(skyUniforms.uGlow.value);
     if(sh.material.uniforms.uColor.value.convertSRGBToLinear)
       sh.material.uniforms.uColor.value.convertSRGBToLinear();
   }
+  sunGlowRim.material.uniforms.uOpacity.value=0.55+gAmt*0.30;
+  sunGlowRim.scale.setScalar(sunDisc.scale.x);      // grows with the disc as it sits low
   sunGlowInner.material.uniforms.uOpacity.value=0.30+gAmt*0.55;
   sunGlowOuter.material.uniforms.uOpacity.value=0.16+gAmt*0.42;
   // NOTE: the scene lights are deliberately left alone. Moving or warming them

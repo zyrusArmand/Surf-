@@ -52,6 +52,14 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.30.0** — **The sun stops being a sticker.** A flat-shaded sphere ends exactly where its
+  silhouette does, and against the sky that hard cut reads as pasted on — worst seen down the
+  barrel, where the mouth frames it small and the cut is the only edge in view. The obvious
+  fix, a shader with a soft rim, is the wrong one: that material carries the horizon clipping
+  plane, and a raw `ShaderMaterial` in r128 never receives the clipping chunks, so the sun
+  would stop sinking into the sea. A third glow shell hugging the disc feathers the same edge
+  and leaves the clip alone. Over the barrel frame, measured against v2.27.0: near-white
+  6.3% → 2.7%, contrast (sd) 56.3 → 62.2, local detail 3.43 → 3.84, mean 170 → 110.
 - **v2.29.0** — **The set wave breaks along its length instead of everywhere at once.** It
   presented the same cross-section down its entire length — a tunnel, not a wave that is
   breaking. Now the throw is a function of position along the wave: far down the line the lip
