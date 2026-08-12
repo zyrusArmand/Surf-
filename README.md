@@ -52,6 +52,21 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.40.0** — **The ring is not a full circle, and pretending it was left him hanging in
+  mid-air.** The lip's arc leaves the crest and sweeps **232° at the break — and as little as
+  102° down the line**, where the wave has not thrown yet. Everything outside that is the
+  barrel's open mouth: no lip, no water at that radius, just the hole you look out of. A ring
+  point in there is a point in nothing, which is exactly the board floating in the middle of
+  the tube touching no surface at all.
+  - The arc's ring angle is `π − SW_ALPHA + th`, so the covered sector is known exactly. Inside
+    it the ring IS the surface; outside it the surface is the sea, and that is where he goes —
+    which is also the honest answer, since you cannot ride an opening.
+  - The board stops banking to a wall the moment there is no wall: out in the mouth the roll
+    comes off and the hull lies on the water like anywhere else.
+  - **`contact.mjs` measures it**, because "floating" is a number: height above the sea at each
+    angle, against whether the lip covers that angle. Round the ring now — on the water through
+    the open sector (0.04–0.26 m above it), on the lip through its span. **Nothing in mid-air**,
+    and the suite fails if any angle is both off the lip and off the water.
 - **v2.39.0** — **The gap was the swell, not the peel.** Two attempts fixed the wrong thing
   because both were reasoned rather than measured. `holes.mjs` settles it: the sky and
   everything in it is hidden, the background set to a colour water cannot produce, and every

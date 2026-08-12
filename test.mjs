@@ -275,6 +275,25 @@ if (hasHook) {
   check(Object.values(A).every(s => !s.wipe && s.swPh === 3 && !s.airborne),
         'nothing round the ring wipes you out or counts as air');
 
+  // Nowhere on the ring may he be in mid-air. The lip is only an arc — 232 degrees at the
+  // break, as little as 102 down the line — and the rest of the circle is the barrel's open
+  // mouth. Treating the ring as a full circle hung him in the middle of the tube touching
+  // nothing; off the lip he has to be on the water.
+  const contact = await page.evaluate(async () => {
+    const out = [];
+    for (let i = 0; i < 8; i++) {
+      window.__surf.setTubeAngle(i * Math.PI * 2 / 8);
+      await new Promise(r => setTimeout(r, 1400));
+      const s = window.__surf.state();
+      out.push({ onLip: s.swOnLip, over: s.py - window.__surf.sampleWave(s.px, s.pz).sea });
+    }
+    return out;
+  });
+  const midAir = contact.filter(c => !c.onLip && c.over > 1.2);
+  check(midAir.length === 0, 'never in mid-air on the ring',
+        midAir.length ? `${midAir.length} of ${contact.length} angles off the lip AND off the water`
+                      : `${contact.filter(c => c.onLip).length} of ${contact.length} angles on the lip, rest on the water`);
+
   // A whole turn pays, and the ride survives it.
   const looped = await page.evaluate(async () => {
     const s0 = window.__surf.state();

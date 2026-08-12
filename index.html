@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.39.0';
+const VERSION='2.40.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -7825,6 +7825,7 @@ let swCurlA=0, swCam=0, swClose=0, swDebT=0, swSweep=0, swNext=30+Math.random()*
 // down the falling curtain and back to the water.
 let swAng=0, swAngV=0, swLoops=0, swHoldX=0, swTubeRide=false;
 let swCamLock=null;                     // the fixed shot held while he is on the ring
+let swOnLip=false;                      // is he on the thrown lip, or out in the open mouth?
 // Set by the play-icon button only: it lets the countdown run before 600 m, so a wave can
 // be summoned from a standing start. One shot — startSetWave() clears it, so the run goes
 // back to its normal rhythm afterwards rather than spawning waves forever.
@@ -8084,7 +8085,7 @@ if(location.hash.includes('debug')){
     version:VERSION,
     state:()=>({dist,speed,score,running,wipe:!!wipe,airborne,px,py,pz,
                 swPh,swT,swA,swX,swS,swRide,swCurlA,swClose,
-                swAng,swLoops,swTubeRide,ring:swTubeGeom(),
+                swAng,swLoops,swTubeRide,swOnLip,ring:swTubeGeom(),
                 curlVisible:curl.visible,roofY:swRoofY(),tubeC:swTubeC()}),
     // Drive the ring directly, so a test can put him anywhere round the tube — including
     // upside down in the roof — without steering him there in real time.
@@ -8862,7 +8863,7 @@ function update(dt){
   // welded to it the whole way round, upside down included, at any speed — so hanging in the
   // roof is a thing you can just do rather than something you have to earn and can lose.
   const wasTube=swTubeRide;
-  swTubeRide=false;
+  swTubeRide=false; swOnLip=false;
   if(swPh===SWP.RIDE&&swCurlA>0.55){
     const G=swTubeGeom();
     if(G.r>1.1){                                  // only where the wave is actually hollow
@@ -8889,6 +8890,21 @@ function update(dt){
       // the ring's floor is sampled from the moving sea, so its radius breathes with the
       // swell, and hard placement passed that straight into the board as a shake. Chasing it
       // keeps him in contact with the wall without inheriting every ripple of it.
+      // The lip is not a full circle, and treating the ring as one is what left him hanging
+      // in the middle of the tube touching nothing.
+      //
+      // The arc leaves the crest and sweeps 232 degrees at the break — and as little as 102
+      // down the line, where the wave has not thrown yet. Everything outside that is the
+      // barrel's OPEN MOUTH: no lip, no water at that radius, just the hole you look out of.
+      // A ring point in there is a point in mid-air.
+      //
+      // The arc's ring angle is pi - SW_ALPHA + th, so the covered sector is known exactly.
+      // Inside it the ring IS the surface. Outside it, the surface is the sea, and that is
+      // where he goes — which is also the honest answer: you cannot ride the opening.
+      const lipStart=Math.PI-SW_ALPHA;
+      const lipSpan=SW_SWEEP*(0.30+0.70*swPeelA(pz));
+      const rel=((swAng-lipStart)%(Math.PI*2)+Math.PI*2)%(Math.PI*2);
+      const onLip=rel<=lipSpan; swOnLip=onLip;
       let tx=G.cx+swS*G.r*Math.sin(swAng), ty=G.cy-G.r*Math.cos(swAng);
       // Round the top the ring IS the lip's inner face, so the circle is the surface. Round
       // the bottom it is only an approximation of a face the height field defines exactly —
@@ -8896,7 +8912,7 @@ function update(dt){
       // it or above it. Contact is not something the ring can be trusted to get right on its
       // own; it is something the sea is asked about every frame.
       const wy=waveH(tx,dist*WAVE_DRIFT+pz,waveClock)+0.30;
-      if(ty<wy)ty=wy;
+      ty = onLip ? Math.max(ty,wy) : wy;
       const k=Math.min(1,dt*(wasTube?15:5));
       px+=(tx-px)*k; py+=(ty-py)*k;
       vx=0; vy=0; airborne=false;
@@ -9221,7 +9237,9 @@ function update(dt){
   // Travel on the ring is around the tube as well as down the line, so the board turns into
   // the direction it is actually going rather than sitting square to the lane.
   const yawT=swTubeRide?Math.max(-0.55,Math.min(0.55,-swS*swAngV*0.26)):-carve*0.30;
-  const leanT=swTubeRide ? -swS*swAng - carve*0.22
+  // Banked to the wall only while he is ON the wall. Out in the mouth he is on open water
+  // again, so the roll comes off and the hull lies on the surface like anywhere else.
+  const leanT=(swTubeRide&&swOnLip) ? -swS*swAng - carve*0.22
                          : -carve*0.55 + (airborne?0:hullRoll*1.20);
   const faceSlope=hT-hN;                     // downhill when the tail is higher
   // Ride fore and aft rather than sitting on one spot. Leaning drives him up the
