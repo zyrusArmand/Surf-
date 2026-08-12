@@ -52,6 +52,24 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.39.0** — **The gap was the swell, not the peel.** Two attempts fixed the wrong thing
+  because both were reasoned rather than measured. `holes.mjs` settles it: the sky and
+  everything in it is hidden, the background set to a colour water cannot produce, and every
+  pixel of that colour inside the wave is somewhere you can see straight through it.
+  - At the distance the reports came from — **sunset, around 1400 m — 5461 see-through
+    pixels**, with the sun behind them. At 710 m, where every earlier test ran: zero. That is
+    why it looked intermittent and why nothing geometric ever matched it.
+  - **The lip is welded to the set wave's crest, and the water is the set wave PLUS the swell.**
+    The swell scrolls as you travel, so wherever it dips below the crest line the water falls
+    away from the lip's edge and daylight comes through. Chasing it exactly would mean
+    rebuilding the shell every frame against a surface it otherwise ignores; a skirt hanging
+    3.2 m below the weld costs nothing and cannot be got wrong — buried in the water where the
+    swell is high, covering the gap where it is low.
+  - Swept across eight distances from 900 m to 2 km: **zero see-through pixels at seven of
+    them**, and the eighth is sky at the frame's edge above the wave, outside it.
+  - Recorded for next time: a single sample of this returned both 5461 and 0 at the same
+    odometer. Anything that depends on where the swell happens to be has to be swept, not
+    sampled.
 - **v2.38.0** — **The sun was shining through a hole, and the foil was lifting the wrong way.**
   - **The gap was still there, one factor short.** v2.35.0 dropped each lip slice onto the
     crest the peel leaves, but that offset is a LOCAL one and the shell's y scale multiplies it

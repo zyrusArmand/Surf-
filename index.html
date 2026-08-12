@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.38.0';
+const VERSION='2.39.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1113,7 +1113,21 @@ function buildCurlGeom(){
   // rendering as facets instead of a shape.
   const NZ=104, NA=64, Z0=-124, Z1=34;
   const sa=Math.sin(SW_ALPHA), ca=Math.cos(SW_ALPHA);
-  const SPAN=0.44, CAP=0.12;             // outer face, tip cap, inner face
+  // A skirt at each end of the cross-section, hanging straight down from the weld.
+  //
+  // The lip is welded to the SET WAVE's crest — but the water is the set wave PLUS the
+  // swell, and the swell scrolls as you travel. Wherever it dips below the crest line the
+  // water falls away from the lip's edge and you see straight through the wave; measured at
+  // sunset distance, 5461 pixels of open sky, and at that hour the sun is behind it. It came
+  // and went with distance, which is why it looked intermittent and why two attempts to fix
+  // it geometrically hit nothing.
+  //
+  // Chasing the swell exactly would mean rebuilding the shell every frame against a surface
+  // it does not otherwise care about. A skirt costs nothing and cannot be got wrong: the lip
+  // simply continues a few metres below the crest, buried in the water where the swell is
+  // high and covering the gap where it is low.
+  const SKIRT=3.2, SK=0.05;
+  const SPAN=(1.0-0.12-2.0*SK)/2.0, CAP=0.12;
   const arc=(th)=>{
     const p=SW_ALPHA-th;
     return {f:sa-Math.sin(p), y:Math.cos(p)-ca,
@@ -1149,19 +1163,23 @@ function buildCurlGeom(){
     for(let j=0;j<=NA;j++){
       const s=j/NA;
       let q,f,y;
-      if(s<=SPAN){                                   // the outer face, welded to the crest
-        q=s/SPAN; const a=arc(swp*q);
+      if(s<SK){                                      // skirt, hanging below the weld
+        q=0; f=0; y=-SKIRT*(1-s/SK)*fold;
+      } else if(s<=SK+SPAN){                         // the outer face, welded to the crest
+        q=(s-SK)/SPAN; const a=arc(swp*q);
         f=a.f*rad; y=a.y*rad*fold;
-      } else if(s<SPAN+CAP){                         // round the thrown tip
+      } else if(s<SK+SPAN+CAP){                      // round the thrown tip
         q=1;
-        const a=arc(swp), T=thick(1)*rad, ph=Math.PI*(s-SPAN)/CAP;
+        const a=arc(swp), T=thick(1)*rad, ph=Math.PI*(s-SK-SPAN)/CAP;
         const cf=a.f*rad-a.nf*T*0.5, cy=a.y*rad-a.ny*T*0.5;
         f=cf+(T*0.5)*(Math.cos(ph)*a.nf+Math.sin(ph)*a.tf);
         y=(cy+(T*0.5)*(Math.cos(ph)*a.ny+Math.sin(ph)*a.ty))*fold;
-      } else {                                       // and back along the inner face, the roof
-        q=1-(s-SPAN-CAP)/SPAN;
+      } else if(s<=SK+SPAN+CAP+SPAN){                // back along the inner face, the roof
+        q=1-(s-SK-SPAN-CAP)/SPAN;
         const a=arc(swp*q), T=thick(q)*rad;
         f=a.f*rad-a.nf*T; y=(a.y*rad-a.ny*T)*fold;
+      } else {                                       // and the skirt on the inner side
+        q=0; f=0; y=-SKIRT*((s-SK-SPAN-CAP-SPAN)/SK)*fold;
       }
       pos.push(f,y+drop,z); uv.push(q,zt);
     }
@@ -8129,6 +8147,16 @@ if(location.hash.includes('debug')){
                         peelA:swPeelA(z),peelB:swPeelB(z),roof:swRoofY(z)}),
     // The roof the player can actually hit, measured off the curl mesh itself rather than
     // recomputed — the whole point is to catch the physics and the geometry disagreeing.
+    // Paint everything behind the world a colour that cannot occur in it. Any pixel of that
+    // colour inside the wave is a HOLE — somewhere you can see straight through the water to
+    // the sky. Guessing where the gap was has now failed twice; this finds it.
+    // The sky's colour and the sun's height are driven by distance, so reproducing a
+    // particular time of day means setting the odometer. Sunset lands around 1200-1500 m.
+    setDist(d){ dist=d; return dist; },
+    setSky(v){
+      skyDome.visible=v; skyLayer.visible=v;
+      scene.background=new THREE.Color(v?0x8fd2f5:0xff00ff);
+    },
     // Hide the lip to find out which surface a pixel belongs to. The tube and the wave face
     // are different meshes with different shaders and they look alike in a still.
     setCurl(v){ curl.userData.forceHide=!v; curl.visible=v; },
