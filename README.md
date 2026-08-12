@@ -52,6 +52,21 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.22.0** — **The lip is a solid now, not a membrane.** It still read as a flat circle
+  going round, and the reason was simple once named: it was a **zero-thickness sheet**. A
+  surface with no volume has no depth to see, and the one place you look straight at its edge
+  — the mouth of the tube — is exactly where that gives it away.
+  - The cross-section now runs out along the **outer** face (still welded to the crest, so
+    that join is unchanged), wraps a rounded tip, and comes back along the **inner** face,
+    which is the roof you ride under. Thickness is zero where it leaves the crest, so the
+    water still grows out of the wave rather than starting as a step; it swells immediately,
+    and stays substantial at the tip, because that silhouetted thickness is the whole 3D read.
+  - Radius up from 5.8 to 7.0 to keep the interior roomy once the walls have thickness.
+  - **Thickness is a fraction of the radius, not an absolute.** The first pass multiplied an
+    absolute 1.5 by the radius and produced a slab ~10 units thick that self-intersected —
+    caught from the bounding box, not the render. It also has to scale with the radius on
+    principle: the tube tapers along its length, and a lip that held one thickness while the
+    arc shrank would read as thicker and thicker toward the far end.
 - **v2.21.0** — **The curl grows out of the crest instead of hovering behind it.** It read as
   "water wave, then flat circle" because that is literally what it was: a cylinder with its
   own centre and its own radius, parked near the wave. Wherever it happened to cut the height

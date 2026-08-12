@@ -625,7 +625,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.21.0';
+const VERSION='2.22.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -966,23 +966,56 @@ scene.add(ocean);
 // at (0,0) in local space, so the shell's whole leading edge lies exactly on the crest — the
 // same straight line the height field peaks along — and the two surfaces are continuous by
 // construction rather than by tuning.
-const SW_R=5.8;                          // the radius the lip throws through
+const SW_R=7.0;                          // the radius the lip throws through
 const SW_ALPHA=1.75;                     // how steeply the lip is thrown off the crest
 const SW_SWEEP=4.20;                     // and how far it carries over before it falls
+const SW_LIPT=0.22;                      // slab thickness, as a FRACTION of the throw radius
+// (absolute would be wrong: the tube tapers along its length, and a lip that stayed one
+//  thickness while the arc shrank would read as thicker and thicker toward the far end)
+// A lip is not a membrane. The last version was a single surface with no thickness at all,
+// which is exactly why it read as a flat circle going round: a zero-volume sheet has no depth
+// to see, and the one place you look straight at its edge — the mouth of the tube — is the
+// place that gives it away.
+//
+// This builds the lip as a closed solid instead. The cross-section runs out along the OUTER
+// face (the one welded to the crest, so the join is unchanged), wraps round a rounded tip,
+// and comes back along the INNER face, which is the roof you actually ride under. Thickness
+// is zero where it leaves the crest — so the water still grows out of the wave rather than
+// starting as a step — swells immediately, and is still substantial at the tip, because that
+// thickness silhouetted against the sky is the whole 3D read.
 function buildCurlGeom(){
-  const NZ=52, NA=36, Z0=-124, Z1=34;
+  const NZ=52, NA=64, Z0=-124, Z1=34;
   const sa=Math.sin(SW_ALPHA), ca=Math.cos(SW_ALPHA);
+  const SPAN=0.44, CAP=0.12;             // outer face, tip cap, inner face
+  const arc=(th)=>{
+    const p=SW_ALPHA-th;
+    return {f:sa-Math.sin(p), y:Math.cos(p)-ca,
+            nf:Math.sin(p),  ny:-Math.cos(p),        // unit, points back toward the axis
+            tf:Math.cos(p),  ty:Math.sin(p)};        // unit, points along the throw
+  };
+  const thick=(q)=>SW_LIPT*Math.min(1,q/0.26)*(1-0.34*q);
   const pos=[],uv=[],idx=[];
   for(let i=0;i<=NZ;i++){
     const zt=i/NZ, z=Z0+(Z1-Z0)*zt;
     const rad=SW_R*(0.58+0.42*Math.pow(zt,0.75));   // the tube opens up as it reaches you
     for(let j=0;j<=NA;j++){
-      const t=j/NA, th=SW_SWEEP*t;
-      // f runs forward off the crest, y up then over. At th=0 both are exactly zero, which
-      // is what welds the leading edge to the crest at every station along the wave.
-      const f=rad*(sa-Math.sin(SW_ALPHA-th));
-      const y=rad*(Math.cos(SW_ALPHA-th)-ca);
-      pos.push(f,y,z); uv.push(t,zt);
+      const s=j/NA;
+      let q,f,y;
+      if(s<=SPAN){                                   // the outer face, welded to the crest
+        q=s/SPAN; const a=arc(SW_SWEEP*q);
+        f=a.f*rad; y=a.y*rad;
+      } else if(s<SPAN+CAP){                         // round the thrown tip
+        q=1;
+        const a=arc(SW_SWEEP), T=thick(1)*rad, ph=Math.PI*(s-SPAN)/CAP;
+        const cf=a.f*rad-a.nf*T*0.5, cy=a.y*rad-a.ny*T*0.5;
+        f=cf+(T*0.5)*(Math.cos(ph)*a.nf+Math.sin(ph)*a.tf);
+        y=cy+(T*0.5)*(Math.cos(ph)*a.ny+Math.sin(ph)*a.ty);
+      } else {                                       // and back along the inner face, the roof
+        q=1-(s-SPAN-CAP)/SPAN;
+        const a=arc(SW_SWEEP*q), T=thick(q)*rad;
+        f=a.f*rad-a.nf*T; y=a.y*rad-a.ny*T;
+      }
+      pos.push(f,y,z); uv.push(q,zt);
     }
   }
   for(let i=0;i<NZ;i++)for(let j=0;j<NA;j++){
@@ -7490,7 +7523,7 @@ let swCurlA=0, swCam=0, swDebT=0, swSweep=0, swNext=30+Math.random()*15;
 // the centre of the tube: the pocket you want to be sitting in
 function swTubeC(){ return swX - swS*SW_TUBE; }
 // the top of the thrown lip: how much daylight there is over your head in the tube
-function swRoofY(){ return swA+SW_R*(1-Math.cos(SW_ALPHA)); }
+function swRoofY(){ return swA+SW_R*(1-Math.cos(SW_ALPHA)-SW_LIPT); }
 const swSplash=new THREE.Group(); swSplash.visible=false; scene.add(swSplash);
 (function buildSplash(){
   const w=PBR({color:0xf4fdff,roughness:0.30,vivid:1.3});
