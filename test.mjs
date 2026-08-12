@@ -167,6 +167,41 @@ if (hasHook) {
         'wave height finite across the face', `${samples.length} samples`);
 }
 
+// ---------- the wave button ----------
+// It has to summon a wave from a standing start, without the 600 m the wave normally
+// needs, and it has to be a one-off: the run goes back to its own rhythm afterwards.
+{
+  await page.evaluate(() => location.reload());
+  await page.waitForSelector('#waveBtn', { timeout: 30000 });
+  const beside = await page.evaluate(() => {
+    const a = document.querySelector('#startBtn').getBoundingClientRect();
+    const b = document.querySelector('#waveBtn').getBoundingClientRect();
+    return { sameRow: Math.abs((a.top + a.height / 2) - (b.top + b.height / 2)) < 4,
+             rightOf: b.left >= a.right - 1, square: Math.abs(b.width - b.height) < 3, w: b.width };
+  });
+  check(beside.sameRow && beside.rightOf, 'wave button sits beside Play',
+        `sameRow=${beside.sameRow} rightOf=${beside.rightOf}`);
+  check(beside.square && beside.w > 20, 'wave button is a square icon', `${Math.round(beside.w)}px`);
+
+  await page.click('#waveBtn');
+  // Two seconds of SIM time, and headless runs the sim at ~10% of wall clock.
+  const fired = await page.evaluate(async () => {
+    const t0 = Date.now(); let seen = null, dist = null;
+    while (Date.now() - t0 < 60000) {
+      const s = window.__surf.state();
+      if (s.swPh !== -1) { seen = s.swPh; dist = s.dist; break; }
+      await new Promise(r => setTimeout(r, 250));
+    }
+    return { seen, dist };
+  });
+  check(fired.seen !== null, 'wave button fires a wave from a standing start',
+        `phase=${fired.seen} at ${Math.round(fired.dist)} m`);
+  check(fired.dist !== null && fired.dist < 600, 'and does it well short of the usual 600 m',
+        `${Math.round(fired.dist)} m`);
+  const oneShot = await page.evaluate(() => window.__surf.state().swPh !== -1);
+  check(oneShot, 'wave still running after the flag is cleared');
+}
+
 // ---------- the two copies of the wave ----------
 // The set wave lives twice: setWaveH() in JS, which the board rides, and the matching
 // block in the ocean's GLSL vertex shader, which is what you see. They are separate code

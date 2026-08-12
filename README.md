@@ -52,6 +52,15 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.27.0** — **A play button beside Play that summons the set wave.** The wave was the
+  hardest thing in the game to look at: it is only eligible past 600 m, then waits out its own
+  30–45 s clock, and a wipeout on the way means starting the whole approach again. The green
+  play icon next to **Play** starts a run with the wave already on a two-second fuse — two
+  seconds to the plane going down, and the barrel reaches you about twelve seconds later once
+  the crash and the swell have run. It is a one-off: the wave clears the flag as it starts, so
+  the run goes back to its normal rhythm rather than becoming a wave machine. The row is
+  exactly as wide as a lone button was, so Play gives up the width the icon takes and the
+  stack below it does not move.
 - **v2.26.0** — **The test harness is back, and it can reach the set wave.** `test.mjs` had
   been lost with an old container, so nothing was checked before shipping. It is rebuilt and
   self-contained — it serves the repo itself rather than assuming a server is already up,
