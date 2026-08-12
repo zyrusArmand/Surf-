@@ -52,6 +52,22 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.21.0** — **The curl grows out of the crest instead of hovering behind it.** It read as
+  "water wave, then flat circle" because that is literally what it was: a cylinder with its
+  own centre and its own radius, parked near the wave. Wherever it happened to cut the height
+  field you got a hard seam between two unrelated surfaces.
+  - It is built off the crest now. The arc **starts at the wave's own crest line**, leaves it
+    along the water's own tangent, and only then throws forward and over. Every z slice starts
+    at local (0,0), so the shell's entire leading edge lies exactly on the crest — the same
+    straight line the height field peaks along. The two surfaces are continuous *by
+    construction* rather than by tuning.
+  - **The first arc was far too flat and buried the camera.** Apex height off the crest is
+    `R·(1−cos α)`, and at α=1.0 that is only 2.7 units — a roof at y 9.7 with the camera at
+    8.8, so the shell filled the screen and the rider vanished. At α=1.75 the apex is 6.8, the
+    roof sits at 13.8, and there is 5.1 units of clearance over the camera.
+  - **Geometry alone was not enough.** The height field's crest is a band of white foam, so
+    the shell had to leave it white too — otherwise the surfaces join perfectly and the
+    *colour* still draws a line exactly where they meet.
 - **v2.20.0** — **The barrel roof is water now.** It was reading as a stack of concentric
   glass rings hanging in the air, and there were two reasons.
   - **`depthWrite:false`** was the real one. With depth writing off, the shell's fifty-odd

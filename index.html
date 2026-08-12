@@ -625,7 +625,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.20.0';
+const VERSION='2.21.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -957,17 +957,32 @@ scene.add(ocean);
 // bottom-front, which is exactly what you are looking out through when you are inside one.
 // Built once at unit radius and scaled per frame; the taper along its length is baked in,
 // so the far end is already closing down while the near end is open over your head.
+// The curl was a cylinder parked behind the crest, and that is why it read as "water wave,
+// then flat circle": the shell had its own position and its own radius, so wherever it
+// happened to cut the height field you got a hard seam between two unrelated surfaces.
+//
+// It is built off the crest now. The arc STARTS at the wave's own crest line, leaves it
+// along the water's own tangent, and only then throws forward and over. Every z slice starts
+// at (0,0) in local space, so the shell's whole leading edge lies exactly on the crest — the
+// same straight line the height field peaks along — and the two surfaces are continuous by
+// construction rather than by tuning.
+const SW_R=5.8;                          // the radius the lip throws through
+const SW_ALPHA=1.75;                     // how steeply the lip is thrown off the crest
+const SW_SWEEP=4.20;                     // and how far it carries over before it falls
 function buildCurlGeom(){
-  const NZ=52, NA=34, Z0=-124, Z1=34;
-  const P0=-0.40, P1=Math.PI*1.22;          // from where it leaves the face, over, and down
+  const NZ=52, NA=36, Z0=-124, Z1=34;
+  const sa=Math.sin(SW_ALPHA), ca=Math.cos(SW_ALPHA);
   const pos=[],uv=[],idx=[];
   for(let i=0;i<=NZ;i++){
     const zt=i/NZ, z=Z0+(Z1-Z0)*zt;
-    const rad=0.58+0.42*Math.pow(zt,0.75);  // the tube opens up as it reaches you
+    const rad=SW_R*(0.58+0.42*Math.pow(zt,0.75));   // the tube opens up as it reaches you
     for(let j=0;j<=NA;j++){
-      const t=j/NA, ph=P0+(P1-P0)*t;
-      pos.push(Math.cos(ph)*rad, Math.sin(ph)*rad, z);
-      uv.push(t,zt);
+      const t=j/NA, th=SW_SWEEP*t;
+      // f runs forward off the crest, y up then over. At th=0 both are exactly zero, which
+      // is what welds the leading edge to the crest at every station along the wave.
+      const f=rad*(sa-Math.sin(SW_ALPHA-th));
+      const y=rad*(Math.cos(SW_ALPHA-th)-ca);
+      pos.push(f,y,z); uv.push(t,zt);
     }
   }
   for(let i=0;i<NZ;i++)for(let j=0;j<NA;j++){
@@ -1048,7 +1063,7 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       float spec=pow(max(dot(N,H),0.0),120.0)*0.85;
       float fres=pow(1.0-max(dot(N,V),0.0),3.0);
       // the sea's own colour pair, deep at the base of the curl and shallow up in the lip
-      vec3 base=mix(uDeep,uShallow,clamp(t*1.15,0.0,1.0));
+      vec3 base=mix(uDeep,uShallow,clamp(0.25+t*0.95,0.0,1.0));
       vec3 col=base*(0.54+0.62*diff)+uSky*fres*0.45+vec3(spec);
       // Transmission, and it must NOT be gated on diff. The inside of a tube faces away
       // from the sun, so the direct term is zero everywhere in here — which is exactly why
@@ -1064,6 +1079,10 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       float foam=clamp(lace*(0.34+sheet*0.62)+fleck*(0.20+sheet*0.44),0.0,1.0);
       col=mix(col,uFoam,foam*0.86);
       col=mix(col,uFoam,smoothstep(0.86,1.0,t)*0.80);   // the throwing edge itself
+      // And the join. The height field's own crest is a band of white foam, so the shell has
+      // to leave it white too — otherwise the geometry is continuous but the colour still
+      // draws a line exactly where the two surfaces meet, which is just as visible.
+      col=mix(col,uFoam,(1.0-smoothstep(0.0,0.22,t))*0.88);
       float a=uFade*(0.99-0.14*t);
       a*=smoothstep(0.0,0.30,vUv.y);             // opens out at the far end
       col=pow(clamp(col,0.0,1.0),vec3(2.2));
@@ -7464,13 +7483,14 @@ function updateJetSki(dt,eff){
 
 // ---------- the set wave: a plane goes down, and what it throws you can ride ----------
 const SWP={IDLE:-1,FLY:0,IMPACT:1,SWELL:2,RIDE:3,EXIT:4};
-const SW_CRASH_X=46, SW_HOLD_X=9.0, SW_TUBE=4.6, SW_PEAK=7.0, SW_R=5.8;
+const SW_CRASH_X=46, SW_HOLD_X=9.0, SW_TUBE=4.6, SW_PEAK=7.0;
 const SW_FLY=5.2, SW_IMP=1.3, SW_SWELL=5.0, SW_OUT=2.6;
 let swPh=SWP.IDLE, swT=0, swRide=0, swRideMax=0, swPts=0, swDeep=0;
 let swCurlA=0, swCam=0, swDebT=0, swSweep=0, swNext=30+Math.random()*15;
 // the centre of the tube: the pocket you want to be sitting in
 function swTubeC(){ return swX - swS*SW_TUBE; }
-function swAxisY(){ return setWaveH(swTubeC())+2.55; }
+// the top of the thrown lip: how much daylight there is over your head in the tube
+function swRoofY(){ return swA+SW_R*(1-Math.cos(SW_ALPHA)); }
 const swSplash=new THREE.Group(); swSplash.visible=false; scene.add(swSplash);
 (function buildSplash(){
   const w=PBR({color:0xf4fdff,roughness:0.30,vivid:1.3});
@@ -7569,7 +7589,7 @@ function updateSetWave(dt,eff){
     score+=rate*dt; swPts+=rate*dt;
     if(swRide>swRideMax){ swPh=SWP.EXIT; swT=0; swSpit(); return; }
     if(dp>3.05){ startWipeout('foam'); msg('PITCHED!'); endSetWave(); return; }
-    if(py>swAxisY()+SW_R*0.80){ startWipeout('foam'); msg('INTO THE LIP!'); endSetWave(); return; }
+    if(py>swRoofY()){ startWipeout('foam'); msg('INTO THE LIP!'); endSetWave(); return; }
     if(dp<-5.25){ swPh=SWP.EXIT; swT=0; swSpit(); return; }   // ran out onto the shoulder
     swDebT-=dt;
     if(swDebT<=0){
@@ -7592,8 +7612,10 @@ function swSpit(){
 function placeCurl(){
   if(swCurlA<=0.004){ curl.visible=false; return; }
   curl.visible=true;
-  curl.position.set(swTubeC(), swAxisY(), 0);
-  curl.scale.set(SW_R*swS, SW_R, 1);      // mirrored when it breaks the other way
+  // Sat on the crest itself. Local +x is "forward off the crest", so the sign flips with
+  // the side the wave breaks from; the radius is already baked into the geometry.
+  curl.position.set(swX, swA, 0);
+  curl.scale.set(-swS, 1, 1);
   curlUniforms.uFade.value=swCurlA;
   curlUniforms.uT.value=tNow;
 }
