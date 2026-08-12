@@ -52,6 +52,27 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.33.0** — **The roof and the face are the same water now, measured rather than eyeballed.**
+  `seam.mjs` projects the crest line — where the lip is welded to the sea — to screen
+  coordinates from the wave's own numbers and samples the capture either side of it, so the
+  join is a number instead of an opinion. It reports the *bias* (a systematic step) separately
+  from the spread, because the foam texture alone swings a single reading by twenty.
+  - Start: the tube came in duller and redder (108,202,203) than the sea directly beneath it
+    (76,254,255) — biases of about R +44, G −40, B −40. End: **R −10.3, G +1.6, B −0.8**, all
+    inside the texture's own noise.
+  - **The seam was structural, not a palette choice.** The lip's lit-through glow is keyed on
+    `t`, the distance around the arc, and fell to ZERO at `t=0` — exactly where the water's
+    own glow, keyed on height up the face, is at its maximum. The two are welded along that
+    line, so the wave shone brightest precisely where the lip growing out of it went dark. No
+    recolouring fixes a discontinuity built into the parameterisation; the lip now starts at
+    the value the face has at the crest.
+  - **And the thickness ramp was inverted.** The face's "thick water" darkening rose all the
+    way with height, so it was heaviest at the crest — where the water is thinnest and about
+    to throw. That was the last systematic step across the weld, worth 33 in green alone.
+  - **A clipping guard came out of it.** Matching the two sides is only half the job: a channel
+    sitting at its ceiling matches everything and shows nothing. The first version that matched
+    perfectly did it by pinning green and blue at 255 across the whole tube — the old white-out
+    in cyan. The suite now measures that too: 47.7% → **21.6%** of the wave at the ceiling.
 - **v2.32.0** — **The camera stays at the ride angle all the way round the tube.** v2.31.0 rolled
   it with the ring; that kept the tube wrapped around the view, but the whole picture turning
   over is disorienting and it throws away the horizon — the one stable reference telling you

@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.32.0';
+const VERSION='2.33.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1032,12 +1032,18 @@ const oceanMat=new THREE.ShaderMaterial({
       // roof uses, so the face and the roof read as one body of water instead of two — and
       // foaming only in a band along the crest, where it is actually tearing.
       if(uSwA>0.0015){
-        col = mix(col, uDeep*0.86, smoothstep(0.05,0.42,vSw)*0.55);
-        col += vec3(0.16,0.62,0.48)*smoothstep(0.46,0.98,vSw)*0.85;
+        // Thick where it stands out of the trough, and thinning again as it draws up to
+        // the lip. This darkening used to rise all the way with vSw, so it was heaviest at
+        // the crest — where the water is at its thinnest and about to throw, the one place
+        // it should not apply. Measured, that was the last systematic step across the weld:
+        // green sat 33 lower on the water than on the lip growing out of it, while red and
+        // blue already matched to within 5.
+        col = mix(col, uDeep*0.86, smoothstep(0.05,0.42,vSw)*(1.0-smoothstep(0.52,0.95,vSw))*0.62);
+        col += vec3(0.10,0.60,0.62)*smoothstep(0.46,0.98,vSw)*0.42;
         // Wide enough to meet the lip. The lip's own leading edge is welded to this crest,
         // so wherever the two disagree in brightness they draw a line along the weld — the
         // geometry being continuous does not help if the colour is not.
-        float swFoam = smoothstep(0.76,1.0,vSw)*(0.45+0.55*laceR+0.35*fleckR);
+        float swFoam = smoothstep(0.62,1.0,vSw)*(0.45+0.55*laceR+0.35*fleckR);
         col = mix(col, vec3(0.96,0.99,1.0), clamp(swFoam,0.0,1.0)*0.80);
         // And behind the break it stops being a wave at all. The crest has already dropped
         // out of the height field by now; this is what that collapse looks like — a churned
@@ -1163,8 +1169,15 @@ const curlUniforms={
   // Lit through, a barrel is not the colour of the sea around it. Every reference photo of
   // one is the same: bottle green where the water is thick, turquoise glass where it thins,
   // and a brilliant white lip. Taking uDeep straight off the ocean made a navy tunnel.
-  uDeep:{value:new THREE.Color(0x0d7a6e)},
-  uShallow:{value:new THREE.Color(0x46e0c8)},
+  // Measured across the crest, where the lip is welded to the water, the two sides were out
+  // by up to 56 of 255 in a channel: the tube came in duller and redder (108,202,203) than
+  // the sea directly under it (76,254,255). Bottle green is right for water lit through its
+  // thickness, but this wave's own sea is a cyan one, and a tube in a different hue family
+  // from the face it grows out of reads as two materials meeting rather than one bending
+  // over. Same idea, moved onto the ocean's axis: less red, and green and blue level with
+  // each other instead of green leading.
+  uDeep:{value:new THREE.Color(0x0a6f8e)},
+  uShallow:{value:new THREE.Color(0x3ce2ea)},
   uFoam:{value:new THREE.Color(0xf5fdff)},
   uClose:{value:0},
   // How much of the lip to see through, and where the rider is, so the near wall can be
@@ -1237,7 +1250,20 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // from the sun, so the direct term is zero everywhere in here — which is exactly why
       // a barrel is lit through its wall rather than on its surface. Without this the green
       // room comes out as a dark hole instead of the brightest thing in the game.
-      col+=vec3(0.16,0.62,0.48)*smoothstep(0.12,1.0,t)*1.02;
+      // This was the join's real problem, and it was structural rather than a palette
+      // choice. The lip's transmission is keyed on t, the distance around the arc, and went
+      // to ZERO at t=0 — precisely where the water's own transmission, keyed on height up
+      // the face, is at its maximum. The two surfaces are welded along that line, so the
+      // wave glowed brightest exactly where the lip growing out of it went dark. No amount
+      // of recolouring fixes a discontinuity that is built into the parameterisation.
+      // It starts at the value the face has at the crest and climbs from there instead.
+      // Held DOWN as well as up. Starting the glow at 0.80 to meet the face matched the two
+      // sides perfectly and pinned green and blue at 255 across the whole tube — the same
+      // clipping that made the old white-out, just in cyan. A channel at its ceiling carries
+      // no detail, so the barrel lost its depth. These two coefficients are set so the lip at
+      // t=0 and the face at the crest arrive at the same value (0.58) without either one
+      // reaching the top of its range.
+      col+=vec3(0.10,0.60,0.62)*(0.68+0.32*smoothstep(0.10,1.0,t))*0.62;
       // Foam, in the same three layers the ocean uses and driven by the same noise, so the
       // roof matches the face. It is dragged around the curl and along its length at once.
       // The axes were the wrong way round, and that is the whole reason the tube looked
@@ -1268,7 +1294,7 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // At 0.88 over a fifth of the arc this edge stayed a broad white sheet, which both
       // flattened the near wall and drew the very line it exists to hide: white lip against
       // a face that had gone dark right underneath it.
-      col=mix(col,uFoam,(1.0-smoothstep(0.0,0.15,t))*0.72);
+      col=mix(col,uFoam,(1.0-smoothstep(0.0,0.15,t))*0.26);
       // Closing out: the whole section goes to whitewater rather than politely fading.
       col=mix(col,uFoam,uClose*0.92);
       float a=uFade*(0.99-0.14*t);
@@ -7888,6 +7914,12 @@ if(location.hash.includes('debug')){
     // Drive the ring directly, so a test can put him anywhere round the tube — including
     // upside down in the roof — without steering him there in real time.
     setTubeAngle(a){ swAng=a; swAngV=0; return swAng; },
+    // Where a world point lands on screen, in 0..1. Used to find the crest line in a capture
+    // so the colour either side of the join can be sampled rather than judged by eye.
+    project(x,y,z){
+      const v=new THREE.Vector3(x,y,z).project(camera);
+      return {x:v.x*0.5+0.5, y:0.5-v.y*0.5, front:v.z<1};
+    },
     // Skip the wait rather than the wave: the clock is emptied and the lane cleared, so
     // the wave still starts through startSetWave() and runs its real phases from FLY.
     // Clearing the lane means putting the ski and the whirlpool away the same way a run
