@@ -45,8 +45,15 @@ const page = await browser.newPage({ viewport: { width: 1024, height: 640 } });
 // else that 404s is a genuinely missing asset.
 const EXPECTED_404 = /\/models\/[a-z]+\.glb$/;
 
+// Shader compile failures do NOT throw. The program fails, three.js writes it to
+// console.error, and the mesh simply stops being drawn — state still says it is visible,
+// the geometry is still right, and there is nothing on screen. That cost a long detour
+// chasing a camera bug that was a missing uniform declaration, so it gets its own check.
+const shaderErrors = [];
 const errors = [];
 page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
+page.on('console', m => { if (/shader error|not compiled|undeclared identifier/i.test(m.text()))
+  shaderErrors.push(m.text().split('\n').slice(0, 3).join(' | ').slice(0, 220)); });
 page.on('console', m => {
   // The bare "Failed to load resource" line carries no URL, so it cannot be told apart
   // from a real failure here; the response handler below is what judges those.
@@ -326,6 +333,9 @@ if (hasHook) {
   check(/dhz \+= uSwA/.test(glsl),
         'the wave contributes to dhz — without it the peel lights as though it were flat');
 }
+
+check(shaderErrors.length === 0, 'every shader compiles',
+      shaderErrors.length ? `\n    ${shaderErrors.slice(0, 3).join('\n    ')}` : '');
 
 check(errors.length === 0, 'no page errors', errors.length ? `\n    ${errors.slice(0, 10).join('\n    ')}` : '');
 

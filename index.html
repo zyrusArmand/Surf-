@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.36.0';
+const VERSION='2.37.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1218,9 +1218,27 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
   uniforms:curlUniforms, transparent:true, depthWrite:true, side:THREE.DoubleSide,
   vertexShader:`
     varying vec2 vUv; varying vec3 vW; varying vec3 vN;
+    // uT is declared in BOTH stages. It was only in the fragment shader, and the moment the
+    // vertex shader used it the program failed to compile — which does not throw, it just
+    // silently drops the mesh. The barrel disappeared and everything still "worked": the
+    // state said the curl was visible, the geometry was correct, and there was nothing on
+    // screen. Shader errors go to console.error, not to window.onerror.
+    uniform float uT;
     void main(){
       vUv=uv;
-      vec4 wp=modelMatrix*vec4(position,1.0);
+      // The sea below is alive and the lip was not: a rigid shell with moving paint on it,
+      // which is most of why the top read as scenery while the bottom read as water. It
+      // breathes now — a couple of travelling waves along its length and around its arc, at
+      // the scale of the swell rather than of chop.
+      //
+      // The amplitude is faded out at uv.x=0, which is the crest on BOTH faces (q runs 0->1
+      // out along the outer face and 1->0 back along the inner), so the weld cannot be
+      // shaken loose by it: the leading edge stays exactly where the water is.
+      float ripple = sin(position.z*0.20 + uT*1.55)*0.42
+                   + sin(position.z*0.41 - uT*2.10 + uv.x*4.2)*0.20
+                   + sin(uv.x*7.0 - uT*1.15)*0.13;
+      vec3 disp = position + normal*ripple*smoothstep(0.0,0.20,uv.x);
+      vec4 wp=modelMatrix*vec4(disp,1.0);
       vW=wp.xyz;
       vN=normalize(mat3(modelMatrix)*normal);
       gl_Position=projectionMatrix*viewMatrix*wp;
@@ -6599,7 +6617,7 @@ function respawn(){
   for(let i=obstacles.length-1;i>=0;i--)
     if(obstacles[i].position.z>-48){scene.remove(obstacles[i]);obstacles.splice(i,1);}
   skiOn=false;skiWake=null;skiT=26;jetSki.visible=false;skiGlint.visible=false;wkA=0;
-  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=30+Math.random()*15;swTest=false;swAng=0;swAngV=0;swLoops=0;swTubeRide=false;
+  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=30+Math.random()*15;swTest=false;swAng=0;swAngV=0;swLoops=0;swTubeRide=false;swCamLock=null;
   for(const p of SMOKE){p.t=0;p.m.visible=false;} _smkHas=false; plane.userData.prev=null;
   curl.visible=false;swSplash.visible=false;
   whirl=null;whA=0;whirlArt.visible=false;whirlT=30+Math.random()*20;
@@ -7784,6 +7802,7 @@ let swCurlA=0, swCam=0, swClose=0, swDebT=0, swSweep=0, swNext=30+Math.random()*
 // the pocket at the bottom; a whole turn takes you up the face, over the roof upside down,
 // down the falling curtain and back to the water.
 let swAng=0, swAngV=0, swLoops=0, swHoldX=0, swTubeRide=false;
+let swCamLock=null;                     // the fixed shot held while he is on the ring
 // Set by the play-icon button only: it lets the countdown run before 600 m, so a wave can
 // be summoned from a standing start. One shot — startSetWave() clears it, so the run goes
 // back to its normal rhythm afterwards rather than spawning waves forever.
@@ -9167,7 +9186,9 @@ function update(dt){
   // upright in the pocket, on its rail up the face, inverted across the roof. The water's
   // own roll is meaningless in there (the height field has no roof to be tilted by), so the
   // ring's angle replaces it rather than adding to it.
-  const yawT=-carve*0.30;
+  // Travel on the ring is around the tube as well as down the line, so the board turns into
+  // the direction it is actually going rather than sitting square to the lane.
+  const yawT=swTubeRide?Math.max(-0.55,Math.min(0.55,-swS*swAngV*0.26)):-carve*0.30;
   const leanT=swTubeRide ? -swS*swAng - carve*0.22
                          : -carve*0.55 + (airborne?0:hullRoll*1.20);
   const faceSlope=hT-hN;                     // downhill when the tail is higher
@@ -9186,7 +9207,14 @@ function update(dt){
   const lift = BS.lift ? BS.lift + Math.sin(foilBob)*0.085 + Math.sin(foilBob*1.63+1.1)*0.035 : 0;
   player.position.set(px,py+lift,pz);
   // it lies along the water it is resting on, plus whatever the rider's weight adds
+  // On the ring the board lies on the wall it is riding, not on the height field: the hull
+  // samples that gave it its pitch are all taken from the flat sea underneath, which up in
+  // the tube is metres below and says nothing about the surface he is actually on. Reading
+  // them there is what made it look like it was floating over the wave instead of carving
+  // it. The nose lifts as he climbs and drops as he comes down the far side, straight from
+  // how fast he is going round.
   const pitchT=onRampO?rampPitchT
+              :swTubeRide?Math.max(-0.55,Math.min(0.55,-swAngV*0.20))
               :(airborne?-0.22:Math.max(-0.62,Math.min(0.68,hullPitch*1.50)) + leanW*0.62);
   boardYaw+=(yawT-boardYaw)*Math.min(1,dt*7);
   // A cracked board is unsteady under you. This is deliberately a slow, readable
@@ -9490,8 +9518,25 @@ function update(dt){
   // follow his fore/aft travel only partly, so it reads on screen instead of the
   // camera cancelling it out and pinning him to one spot again
   camZ+=((11.0+swCam*4.6+eff*0.05+airH*0.22+pz*0.42)-camZ)*Math.min(1,dt*2.4);
+  // Inside the barrel the camera all but stops. It no longer slides sideways to keep him
+  // centred and it barely rises as he climbs, so he travels through a near-still frame
+  // instead of hanging in the middle of one while the world turns around him.
+  //
+  // Not welded, though, and that is deliberate: a fully locked shot was tried both ways and
+  // both lost the barrel. Locked where it stood, he leaves the side of the screen a third of
+  // the way round — measured, x=-0.26. Moved onto the tube's axis to centre the orbit, the
+  // camera ends up INSIDE a five-metre tube with the lip too close to read, and the shot
+  // becomes an ordinary swell with a rider above it. The barrel is only legible from outside
+  // its mouth and slightly below, which is where the chase camera naturally sits — so what
+  // is removed is the chasing, not the position.
+  if(swTubeRide){
+    if(!swCamLock)swCamLock={x:camX,y:camY,lx:lookX};
+    camX+=(swCamLock.x-camX)*Math.min(1,dt*2.4);
+    lookX+=(swCamLock.lx-lookX)*Math.min(1,dt*2.4);
+    camY+=(swCamLock.y+airH*0.22-camY)*Math.min(1,dt*1.5);
+  } else swCamLock=null;
   camera.position.set(camX,camY,camZ);
-  camera.lookAt(lookX,waterY+1.05+swCam*1.5+airH*0.62,-14-swCam*10);
+  camera.lookAt(lookX,waterY+1.05+swCam*1.5+airH*(swTubeRide?0.20:0.62),-14-swCam*10);
   // The camera does NOT roll with the ring. A loop camera was tried and taken back out: it
   // keeps the tube wrapped around the view, but the whole shot turning over is disorienting
   // and it throws away the one stable reference — the horizon — that tells you where you are

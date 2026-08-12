@@ -52,6 +52,31 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.37.0** — **The camera stops chasing you round the barrel, the lip comes alive, and the
+  board lies on the wall it is riding.**
+  - **A near-still shot inside the tube.** The camera no longer slides sideways to keep you
+    centred and barely rises as you climb, so you travel through the frame instead of hanging
+    in the middle of it while the world turns. It is not welded, and that is deliberate: both
+    fully locked versions were tried and both lost the barrel. Locked where it stood, the rider
+    leaves the side of the screen a third of the way round (measured, x=−0.26). Moved onto the
+    tube's axis to centre the orbit, the camera ends up *inside* a five-metre tube with the lip
+    too close to read. A barrel is only legible from outside its mouth and a little below,
+    which is where the chase camera already sits — so what is removed is the chasing.
+  - **The lip breathes.** It was a rigid shell with moving paint on it, which is most of why
+    the top read as scenery while the bottom read as water. Travelling waves now run along its
+    length and around its arc, faded to nothing at the crest on both faces so the weld cannot
+    be shaken loose.
+  - **The board lies on the ring, not on the sea beneath it.** Its pitch was still coming from
+    hull samples taken off the flat water underneath — which, up in the tube, is metres below
+    and says nothing about the surface being ridden. That is what made it look like it was
+    floating over the wave rather than carving it. The nose now lifts as he climbs and drops
+    coming down the far side, and the board turns into the direction it is actually travelling.
+  - **A guard for the failure that hides.** A shader compile error does not throw: the program
+    fails, three.js writes it to `console.error`, and the mesh simply stops being drawn — state
+    still reports it visible, the geometry is still right, and there is nothing on screen. The
+    lip's new ripple used `uT` in the vertex shader where it was only declared in the fragment
+    one, the whole barrel vanished, and it read as a camera bug for several rounds. The suite
+    now fails on any shader that does not compile.
 - **v2.36.0** — **The ring was a circle around the wrong point.** It was centred on the pocket
   plus a metre, and the tube's real axis — the centre of the arc the lip is built on — is
   **3.47 m** away from that. A circle around the wrong centre cannot lie on the wave: it
