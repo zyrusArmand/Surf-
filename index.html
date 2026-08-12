@@ -625,7 +625,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.18.0';
+const VERSION='2.19.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -6259,7 +6259,7 @@ function respawn(){
   for(let i=obstacles.length-1;i>=0;i--)
     if(obstacles[i].position.z>-48){scene.remove(obstacles[i]);obstacles.splice(i,1);}
   skiOn=false;skiWake=null;skiT=26;jetSki.visible=false;skiGlint.visible=false;wkA=0;
-  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=64+Math.random()*46;
+  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=30+Math.random()*15;
   curl.visible=false;swSplash.visible=false;
   whirl=null;whA=0;whirlArt.visible=false;whirlT=30+Math.random()*20;
   hanging=false;rope.visible=false;ropeBtn.style.display='none';ropeBtn.textContent='ROPE!';
@@ -7412,7 +7412,7 @@ const SWP={IDLE:-1,FLY:0,IMPACT:1,SWELL:2,RIDE:3,EXIT:4};
 const SW_CRASH_X=46, SW_HOLD_X=9.0, SW_TUBE=4.6, SW_PEAK=7.0, SW_R=5.8;
 const SW_FLY=5.2, SW_IMP=1.3, SW_SWELL=5.0, SW_OUT=2.6;
 let swPh=SWP.IDLE, swT=0, swRide=0, swRideMax=0, swPts=0, swDeep=0;
-let swCurlA=0, swCam=0, swDebT=0, swSweep=0, swNext=64+Math.random()*46;
+let swCurlA=0, swCam=0, swDebT=0, swSweep=0, swNext=30+Math.random()*15;
 // the centre of the tube: the pocket you want to be sitting in
 function swTubeC(){ return swX - swS*SW_TUBE; }
 function swAxisY(){ return setWaveH(swTubeC())+2.55; }
@@ -7443,13 +7443,20 @@ function startSetWave(){
 function endSetWave(){
   swPh=SWP.IDLE; swA=0; swCurlA=0; swCam=0; swSweep=0;
   curl.visible=false; swSplash.visible=false;
-  swNext=88+Math.random()*54;
+  swNext=45+Math.random()*30;
 }
 function updateSetWave(dt,eff){
   if(swPh===SWP.IDLE){
-    // Rare and late on purpose. It is the biggest thing in the game and it wants to feel
-    // like weather, not like a spawn on a timer you can count.
-    if(dist>900&&!skiOn&&!whirl&&!hanging){ swNext-=dt; if(swNext<=0)startSetWave(); }
+    // Rare, but not so rare you never meet it. The first cut opened the clock at 900 m and
+    // then wanted another 64-110 s -- and the whole run from 900 m to 4 km is only 114 s of
+    // riding, so a four-kilometre run could genuinely end without ever seeing the biggest
+    // thing in the game. Worse, the clear-lane test froze the countdown rather than delaying
+    // the start, so a jet ski or a whirlpool stopped it dead instead of nudging it.
+    // Now the clock always runs; only the moment it fires waits for a clear lane.
+    if(dist>600){
+      swNext-=dt;
+      if(swNext<=0&&!skiOn&&!whirl&&!hanging)startSetWave();
+    }
     return;
   }
   swT+=dt;

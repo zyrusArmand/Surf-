@@ -52,6 +52,21 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.19.0** — **The set wave was pitched so late almost nobody would ever meet it.** Reported
+  from a real run: four kilometres, no barrel. That was not bad luck, it was arithmetic I
+  should have done when I set the pacing.
+  - The clock opened at 900 m and then wanted a further 64–110 s. But because speed
+    compounds, **the whole stretch from 900 m to 4 km is only 114 seconds of riding** — so
+    the worst-case roll had barely expired by 4 km, and a run could easily end first.
+  - Worse, the clear-lane test `!skiOn && !whirl && !hanging` sat on the *countdown* rather
+    than on the *firing*, so a jet ski or a whirlpool stopped the clock dead instead of
+    nudging it along. Now the clock always runs and only the moment it fires waits for a
+    clear lane.
+  - Retuned: opens at **600 m**, countdown **30–45 s**, repeat gap **45–75 s**. First barrel
+    lands about **1,200–1,550 m**, then roughly one every **1,100–2,100 m** — two or three in
+    a 4 km run. Still special, no longer hypothetical.
+  - The trigger path itself was never broken: verified IDLE → FLY → IMPACT → SWELL → RIDE
+    end to end with no errors. Every deploy had shipped, too. The pacing was the whole bug.
 - **v2.18.0** — **Sunday Best**, replacing Ice Crackle. "China" meant *crockery*, not the
   country — so the board is now a dinner service rather than a kiln glaze. Warm ivory body,
   a **scalloped gilt rim** (the inner edge of the gilding waves, which is the single detail
