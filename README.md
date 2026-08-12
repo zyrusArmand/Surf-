@@ -52,6 +52,15 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.25.0** — **The tube narrows to an almond down the line.** A wave only barrels for a
+  stretch of its length; past that it runs out into an unbroken shoulder, and from inside that
+  reads as the mouth closing to an almond. It is in every reference photo of a barrel and it
+  was the thing most obviously absent. The far-end radius went from 0.58 of full — a
+  near-constant bore, which is a pipe rather than a wave — down to 0.24, with the exponent
+  raised so it stays open around you instead of pinching in immediately. The lip also feathers
+  white earlier and harder, the way it does in the photos.
+  - **Still outstanding:** the wave does not *peel*. The break does not travel along its
+    length, and there is no whitewater trailing behind it.
 - **v2.24.0** — **Barrel colour off the reference photos, and an exit that breaks instead of
   fading.** Two things, both from real surf photography.
   - **A barrel is not the colour of the sea around it.** `uDeep`/`uShallow` were taken
