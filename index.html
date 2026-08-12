@@ -625,7 +625,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.23.0';
+const VERSION='2.24.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1037,9 +1037,13 @@ const curlUniforms={
   uFade:{value:0}, uT:{value:0}, uLight:{value:1},
   uSun:{value:sunDir},
   uSky:{value:new THREE.Color(0x8fd2f5)},
-  uDeep:{value:new THREE.Color(0x0a5e9c)},      // the ocean's own two colours, not new ones
-  uShallow:{value:new THREE.Color(0x33aede)},
+  // Lit through, a barrel is not the colour of the sea around it. Every reference photo of
+  // one is the same: bottle green where the water is thick, turquoise glass where it thins,
+  // and a brilliant white lip. Taking uDeep straight off the ocean made a navy tunnel.
+  uDeep:{value:new THREE.Color(0x0d7a6e)},
+  uShallow:{value:new THREE.Color(0x46e0c8)},
   uFoam:{value:new THREE.Color(0xf5fdff)},
+  uClose:{value:0},
 };
 // The curl used to be shaded as coloured glass: a flat gradient with a couple of sine
 // streaks over it, drawn with depthWrite off. Both of those were wrong.
@@ -1067,7 +1071,7 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
   fragmentShader:`
     uniform float uFade; uniform float uT; uniform float uLight;
     uniform vec3 uSun; uniform vec3 uSky; uniform vec3 uDeep; uniform vec3 uShallow;
-    uniform vec3 uFoam;
+    uniform vec3 uFoam; uniform float uClose;
     varying vec2 vUv; varying vec3 vW; varying vec3 vN;
     float hash21(vec2 p){
       p=fract(p*vec2(123.34,345.45));
@@ -1102,12 +1106,12 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       float fres=pow(1.0-max(dot(N,V),0.0),3.0);
       // the sea's own colour pair, deep at the base of the curl and shallow up in the lip
       vec3 base=mix(uDeep,uShallow,clamp(0.25+t*0.95,0.0,1.0));
-      vec3 col=base*(0.54+0.62*diff)+uSky*fres*0.45+vec3(spec);
+      vec3 col=base*(0.72+0.55*diff)+uSky*fres*0.40+vec3(spec);
       // Transmission, and it must NOT be gated on diff. The inside of a tube faces away
       // from the sun, so the direct term is zero everywhere in here — which is exactly why
       // a barrel is lit through its wall rather than on its surface. Without this the green
       // room comes out as a dark hole instead of the brightest thing in the game.
-      col+=vec3(0.13,0.48,0.35)*smoothstep(0.18,1.0,t)*0.95;
+      col+=vec3(0.16,0.62,0.48)*smoothstep(0.12,1.0,t)*1.25;
       // Foam, in the same three layers the ocean uses and driven by the same noise, so the
       // roof matches the face. It is dragged around the curl and along its length at once.
       vec2 fp=vec2(vUv.y*46.0, t*7.0);
@@ -1121,6 +1125,8 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // to leave it white too — otherwise the geometry is continuous but the colour still
       // draws a line exactly where the two surfaces meet, which is just as visible.
       col=mix(col,uFoam,(1.0-smoothstep(0.0,0.22,t))*0.88);
+      // Closing out: the whole section goes to whitewater rather than politely fading.
+      col=mix(col,uFoam,uClose*0.92);
       float a=uFade*(0.99-0.14*t);
       a*=smoothstep(0.0,0.30,vUv.y);             // opens out at the far end
       col=pow(clamp(col,0.0,1.0),vec3(2.2));
@@ -7524,7 +7530,7 @@ const SWP={IDLE:-1,FLY:0,IMPACT:1,SWELL:2,RIDE:3,EXIT:4};
 const SW_CRASH_X=46, SW_HOLD_X=9.0, SW_TUBE=4.6, SW_PEAK=7.0;
 const SW_FLY=5.2, SW_IMP=1.3, SW_SWELL=5.0, SW_OUT=2.6;
 let swPh=SWP.IDLE, swT=0, swRide=0, swRideMax=0, swPts=0, swDeep=0;
-let swCurlA=0, swCam=0, swDebT=0, swSweep=0, swNext=30+Math.random()*15;
+let swCurlA=0, swCam=0, swClose=0, swDebT=0, swSweep=0, swNext=30+Math.random()*15;
 // the centre of the tube: the pocket you want to be sitting in
 function swTubeC(){ return swX - swS*SW_TUBE; }
 // the top of the thrown lip: how much daylight there is over your head in the tube
@@ -7554,7 +7560,7 @@ function startSetWave(){
   msg(swS>0?'PLANE GOING DOWN — STARBOARD!':'PLANE GOING DOWN — PORT!');
 }
 function endSetWave(){
-  swPh=SWP.IDLE; swA=0; swCurlA=0; swCam=0; swSweep=0;
+  swPh=SWP.IDLE; swA=0; swCurlA=0; swCam=0; swSweep=0; swClose=0;
   curl.visible=false; swSplash.visible=false;
   swNext=45+Math.random()*30;
 }
@@ -7610,7 +7616,7 @@ function updateSetWave(dt,eff){
     swCurlA=Math.max(0,Math.min(1,(k-0.52)/0.40));
     swCam=e*0.75;
     if(k>0.55&&swSweep===1){ swSweep=2; msg('SET WAVE — GET IN THE POCKET!'); }
-    if(swT>=SW_SWELL){ swPh=SWP.RIDE; swT=0; swRide=0; msg('IN THE BARREL! 🌊'); }
+    if(swT>=SW_SWELL){ swPh=SWP.RIDE; swT=0; swRide=0; swClose=0; msg('IN THE BARREL! 🌊'); }
     return;
   }
   if(swPh===SWP.RIDE){
@@ -7637,8 +7643,10 @@ function updateSetWave(dt,eff){
     return;
   }
   // EXIT
+  // A wave does not dissolve, it closes out: the lip collapses onto the face and the whole
+  // section turns to whitewater. The curl folds back down toward the crest as it goes.
   const k=Math.min(1,swT/SW_OUT);
-  swA=SW_PEAK*(1-k*k); swCurlA=Math.max(0,1-k*1.4); swCam=Math.max(0,0.9-k);
+  swClose=k; swA=SW_PEAK*(1-k*k*0.85); swCurlA=Math.max(0,1-k*1.15); swCam=Math.max(0,0.9-k);
   if(swT>=SW_OUT)endSetWave();
 }
 function swSpit(){
@@ -7653,9 +7661,11 @@ function placeCurl(){
   // Sat on the crest itself. Local +x is "forward off the crest", so the sign flips with
   // the side the wave breaks from; the radius is already baked into the geometry.
   curl.position.set(swX, swA, 0);
-  curl.scale.set(-swS, 1, 1);
+  const fold=1-0.72*swClose;                 // the lip folding down onto the face
+  curl.scale.set(-swS*fold, fold, 1);
   curlUniforms.uFade.value=swCurlA;
   curlUniforms.uT.value=tNow;
+  curlUniforms.uClose.value=swClose;
 }
 
 // ---------- whirlpool ----------

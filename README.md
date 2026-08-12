@@ -52,6 +52,20 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.24.0** — **Barrel colour off the reference photos, and an exit that breaks instead of
+  fading.** Two things, both from real surf photography.
+  - **A barrel is not the colour of the sea around it.** `uDeep`/`uShallow` were taken
+    straight off the ocean, which made a navy tunnel. Lit *through*, every reference is the
+    same: bottle green where the water is thick, turquoise glass where it thins, brilliant
+    white at the lip. Repalletted to `0x0d7a6e`/`0x46e0c8`, with the through-light term up
+    about 30% and the ambient floor lifted, because the inside of a tube is bright, not dim.
+  - **A wave does not dissolve, it closes out.** The exit used to fade the amplitude to zero.
+    It now drives a `uClose` term: the lip folds back down onto the face and the whole section
+    goes to whitewater.
+  - **Still outstanding**, and honestly the larger half of "behaves like a real wave": the
+    wave does not *peel*. A real one breaks progressively along its length — unbroken wall
+    ahead of you, barrel at you, whitewater behind — where this one presents the same
+    cross-section down its whole length at once, and leaves no foam trail behind the break.
 - **v2.23.0** — **The face and the lip are one surface now, not a slab and a spiral.** The
   join was still reading as separate, and the cause was in the height field rather than in
   the curl: the front face used a **smoothstep, whose slope is zero at its top**. So the wave
