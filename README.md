@@ -52,6 +52,22 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.36.0** — **The ring was a circle around the wrong point.** It was centred on the pocket
+  plus a metre, and the tube's real axis — the centre of the arc the lip is built on — is
+  **3.47 m** away from that. A circle around the wrong centre cannot lie on the wave: it
+  crossed the surface twice and spent the rest of the way either through the water or out in
+  the air beside it, which is exactly the board floating clear of the face instead of carving
+  it.
+  - The axis is now read out of the lip's own geometry. The arc is a circle centred at
+    `(sin α, −cos α)·rad` in the shell's frame, so the ring is that same circle put through the
+    shell's transform and pulled in by the lip's thickness — the rider travels the *inner*
+    face, the surface actually there to touch.
+  - **And the sea gets the last word on contact.** Round the top the ring IS the lip's inner
+    face, so the circle is the surface; round the bottom it only approximates a face the height
+    field defines exactly, so down there the water wins and the board rides on it. Measured
+    around the ring: 0.13–0.17 m of clearance through the lower quarter, reaching 11.11 at the
+    roof against a lip underside of 11.37. Contact is asked of the sea every frame rather than
+    trusted to the circle.
 - **v2.35.0** — **The gap along the weld was a hole, not a colour.**
   - **The lip was welded to a crest the peel had already lowered.** Every slice started at
     local y=0 — the shell's origin at `swA`, which is right where the wave stands full height

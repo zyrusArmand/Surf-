@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.35.0';
+const VERSION='2.36.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -7800,10 +7800,26 @@ function swTubeC(){ return swX - swS*SW_TUBE; }
 // water, and the ring closes to nothing. You can only circle where the wave is genuinely
 // hollow, which is what makes the loop a place rather than a move.
 function swTubeGeom(){
-  const cx=swTubeC()+swS*1.2;
-  const floor=Math.max(0.5,waveH(cx,dist*WAVE_DRIFT+pz,waveClock)+0.32);
-  const r=Math.max(0.5,(swRoofY(pz)-floor)*0.5);
-  return {cx,cy:floor+r,r};
+  // The tube's OWN axis, read out of the lip's geometry instead of guessed at.
+  //
+  // The arc the lip is built on is a circle: local (f,y) = (sa,-ca)*rad + rad*(-sin p,cos p),
+  // so its centre is at (sa,-ca)*rad in the shell's frame, and the shell's transform puts
+  // that in the world. The ring the rider travels is that same circle pulled in by the lip's
+  // thickness, so he rides the INNER face — the surface actually there to touch.
+  //
+  // The old ring was centred on the pocket plus a metre, which is 3.47 m off the real axis.
+  // A circle around the wrong centre cannot lie on the wave: it crossed the surface twice
+  // and spent the rest of the way through the water or out in the air beside it, which is
+  // exactly the board floating clear of the face.
+  const pa=swPeelA(pz), pb=swPeelB(pz);
+  const rad=SW_R*(0.16+0.84*pa)*(1-0.55*pb);
+  const fold=(1-0.38*pb)*(1-0.72*swClose);
+  const drop=-SW_PEAK*0.55*pb;
+  const cx=swX-swS*Math.sin(SW_ALPHA)*rad*fold;
+  const cy=swA+(-Math.cos(SW_ALPHA)*rad+drop)*fold;
+  // inner face = outer arc less the slab's thickness, then the board's own draft
+  const r=Math.max(0.5,rad*fold*(1-SW_LIPT*0.88)-0.35);
+  return {cx,cy,r};
 }
 // the top of the thrown lip: how much daylight there is over your head in the tube
 //
@@ -8822,7 +8838,14 @@ function update(dt){
       // the ring's floor is sampled from the moving sea, so its radius breathes with the
       // swell, and hard placement passed that straight into the board as a shake. Chasing it
       // keeps him in contact with the wall without inheriting every ripple of it.
-      const tx=G.cx+swS*G.r*Math.sin(swAng), ty=G.cy-G.r*Math.cos(swAng);
+      let tx=G.cx+swS*G.r*Math.sin(swAng), ty=G.cy-G.r*Math.cos(swAng);
+      // Round the top the ring IS the lip's inner face, so the circle is the surface. Round
+      // the bottom it is only an approximation of a face the height field defines exactly —
+      // so down there the water wins, and the board rides on the water rather than through
+      // it or above it. Contact is not something the ring can be trusted to get right on its
+      // own; it is something the sea is asked about every frame.
+      const wy=waveH(tx,dist*WAVE_DRIFT+pz,waveClock)+0.30;
+      if(ty<wy)ty=wy;
       const k=Math.min(1,dt*(wasTube?15:5));
       px+=(tx-px)*k; py+=(ty-py)*k;
       vx=0; vy=0; airborne=false;
