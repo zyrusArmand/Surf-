@@ -52,6 +52,30 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.31.0** — **The barrel is a place you ride around, not a lane you sit in.** Three changes
+  that only make sense together.
+  - **The wave forms around you.** It used to stand up at a fixed x and leave you to go and
+    find the pocket, which meant the biggest thing in the game could arrive and pass you by.
+    The pocket now tracks the rider as the swell comes in, so by the time it stands up it has
+    closed around him. It locks where it landed at the moment the ride starts — left tracking,
+    it would follow him round the ring for ever and he could never move inside his own barrel.
+  - **Steering carries you around the tube.** Inside, the lane is the tube's circumference:
+    up the face, across the roof upside down, down the falling curtain and back to the water.
+    The ring is derived from the wave rather than tuned — its floor is the height field in the
+    pocket, its roof is `swRoofY()` at the rider's own z — so it inherits the peel for free.
+    Out along the unbroken wall there is no thrown lip, the ring closes to nothing, and there
+    is nothing to circle. You can only loop where the wave is genuinely hollow. A full turn
+    pays 450, counted on the crossing so rocking over the top cannot farm it.
+  - **Nothing in the ring can throw you off.** Being pitched, hitting the lip and running out
+    onto the shoulder all ended the ride before; all three are gone. The clock is the only way
+    out and debris is the only thing that still bites, which is what keeps the ring worth
+    steering rather than a place to park.
+  - **The camera belongs to the loop.** The chase camera stays upright and level, so at the
+    roof it ended up outside the wave looking at the back of the lip with the rider nowhere on
+    screen. Inside the ring it now sits inboard on the same radius and rolls with him, so the
+    tube stays wrapped around the view and it is the world that turns over.
+  - The float test is skipped while on the ring: up in the roof he genuinely *is* above the
+    water, and the ordinary code would call that air and drop him out of the wave.
 - **v2.30.0** — **The sun stops being a sticker.** A flat-shaded sphere ends exactly where its
   silhouette does, and against the sky that hard cut reads as pasted on — worst seen down the
   barrel, where the mouth frames it small and the cut is the only edge in view. The obvious

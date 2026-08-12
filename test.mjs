@@ -239,6 +239,57 @@ if (hasHook) {
         `${peel.riderH.toFixed(2)} against swA ${peel.swA.toFixed(2)}`);
 }
 
+// ---------- riding the ring ----------
+// Inside the barrel the lane is the tube's circumference, not a line across the water. You
+// can go all the way round — up the face, across the roof upside down, down the curtain —
+// and nothing in there can throw you off.
+{
+  const ring = await page.evaluate(async () => {
+    window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
+    await new Promise(r => setTimeout(r, 1500));
+    const out = { start: window.__surf.state(), at: {} };
+    for (const [name, a] of [['pocket', 0], ['face', Math.PI / 2], ['roof', Math.PI], ['curtain', Math.PI * 1.5]]) {
+      window.__surf.setTubeAngle(a);
+      await new Promise(r => setTimeout(r, 900));
+      out.at[name] = window.__surf.state();
+    }
+    return out;
+  });
+  const A = ring.at;
+  check(A.pocket.swTubeRide === true, 'the ring is live inside the barrel');
+  check(A.roof.py > A.pocket.py + 4, 'riding round takes you up to the roof',
+        `${A.pocket.py.toFixed(2)} in the pocket -> ${A.roof.py.toFixed(2)} at the top`);
+  check(Math.abs(A.roof.py - A.roof.roofY) < 1.2, 'and the top of the ring IS the underside of the lip',
+        `${A.roof.py.toFixed(2)} against a roof at ${A.roof.roofY.toFixed(2)}`);
+  check(Math.abs(A.face.px - A.curtain.px) > 4, 'the ring carries you across the tube, not just up it',
+        `${A.face.px.toFixed(2)} vs ${A.curtain.px.toFixed(2)}`);
+  check(Object.values(A).every(s => !s.wipe && s.swPh === 3 && !s.airborne),
+        'nothing round the ring wipes you out or counts as air');
+
+  // A whole turn pays, and the ride survives it.
+  const looped = await page.evaluate(async () => {
+    const s0 = window.__surf.state();
+    for (let i = 1; i <= 8; i++) { window.__surf.setTubeAngle(i * Math.PI / 4); await new Promise(r => setTimeout(r, 260)); }
+    return { s0, s1: window.__surf.state() };
+  });
+  check(looped.s1.swPh === 3 && !looped.s1.wipe, 'a full loop does not end the ride');
+}
+
+// ---------- the wave comes to you ----------
+// It used to stand up in a fixed lane and leave you to go and find the pocket, so the
+// biggest thing in the game could arrive and pass you by. It forms around the rider now.
+{
+  const formed = await page.evaluate(async () => {
+    window.__surf.armSetWave(); window.__surf.warpSetWave('SWELL', 4.9);
+    await new Promise(r => setTimeout(r, 2500));
+    const s = window.__surf.state();
+    return { pocket: s.tubeC, px: s.px, phase: s.swPh };
+  });
+  check(Math.abs(formed.pocket - formed.px) < 4.0,
+        'the pocket closes on wherever the rider actually is',
+        `pocket at ${formed.pocket.toFixed(2)}, rider at ${formed.px.toFixed(2)}`);
+}
+
 // ---------- the two copies of the wave ----------
 // The set wave lives twice: setWaveH() in JS, which the board rides, and the matching
 // block in the ocean's GLSL vertex shader, which is what you see. They are separate code
