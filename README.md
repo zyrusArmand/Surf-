@@ -52,6 +52,16 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.32.0** — **The camera stays at the ride angle all the way round the tube.** v2.31.0 rolled
+  it with the ring; that kept the tube wrapped around the view, but the whole picture turning
+  over is disorienting and it throws away the horizon — the one stable reference telling you
+  where you are on the wave. The rider turns upside down now; the shot does not.
+  - **The lip gets out of the way instead.** Measured with the plain camera: at the top of the
+    ring the rider projects into frame and is drawn *completely hidden* behind the back of his
+    own barrel, which is why the loop camera existed. So the water gives way rather than the
+    camera moving — only the part of the lip nearer the camera than the rider fades, and only
+    while he is up out of the pocket. The far wall, which is the tube you look down, is
+    untouched, and in the pocket nothing fades at all: that shot is unchanged.
 - **v2.31.0** — **The barrel is a place you ride around, not a lane you sit in.** Three changes
   that only make sense together.
   - **The wave forms around you.** It used to stand up at a fixed x and leave you to go and

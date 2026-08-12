@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.31.0';
+const VERSION='2.32.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1167,6 +1167,9 @@ const curlUniforms={
   uShallow:{value:new THREE.Color(0x46e0c8)},
   uFoam:{value:new THREE.Color(0xf5fdff)},
   uClose:{value:0},
+  // How much of the lip to see through, and where the rider is, so the near wall can be
+  // taken out from in front of him without touching the far wall that makes the tube.
+  uCut:{value:0}, uRiderD:{value:1e9},
 };
 // The curl used to be shaded as coloured glass: a flat gradient with a couple of sine
 // streaks over it, drawn with depthWrite off. Both of those were wrong.
@@ -1194,7 +1197,7 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
   fragmentShader:`
     uniform float uFade; uniform float uT; uniform float uLight;
     uniform vec3 uSun; uniform vec3 uSky; uniform vec3 uDeep; uniform vec3 uShallow;
-    uniform vec3 uFoam; uniform float uClose;
+    uniform vec3 uFoam; uniform float uClose; uniform float uCut; uniform float uRiderD;
     varying vec2 vUv; varying vec3 vW; varying vec3 vN;
     float hash21(vec2 p){
       p=fract(p*vec2(123.34,345.45));
@@ -1270,6 +1273,14 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       col=mix(col,uFoam,uClose*0.92);
       float a=uFade*(0.99-0.14*t);
       a*=smoothstep(0.0,0.30,vUv.y);             // opens out at the far end
+      // Ride round to the roof and the wall between you and the camera is the near side of
+      // your own barrel, so you vanish behind it — measured: at the top of the ring the
+      // rider projects into frame and is drawn completely hidden by the back of the lip.
+      // The camera stays where it is, so the water gives way instead: only the part nearer
+      // the camera than the rider fades, and only while he is up out of the pocket. The far
+      // wall, which is the tube you are looking down, is untouched.
+      float dcam=length(cameraPosition-vW);
+      a*=1.0-(1.0-smoothstep(uRiderD-3.5,uRiderD-0.4,dcam))*uCut*0.94;
       col=pow(clamp(col,0.0,1.0),vec3(2.2));
       gl_FragColor=vec4(col*uLight,clamp(a,0.0,1.0));
     }
@@ -7961,6 +7972,7 @@ function swSpit(){
               :(swRide>11?`SPAT OUT! DEEP BARREL +${bonus}`:`OUT CLEAN! +${bonus}`));
   noteTrick&&noteTrick('barrel','wave');
 }
+const _cutP=new THREE.Vector3();
 function placeCurl(){
   if(swCurlA<=0.004){ curl.visible=false; return; }
   curl.visible=!curl.userData.forceHide;      // the debug hook can hold it down
@@ -7972,6 +7984,9 @@ function placeCurl(){
   curlUniforms.uFade.value=swCurlA;
   curlUniforms.uT.value=tNow;
   curlUniforms.uClose.value=swClose;
+  // Nothing to see through in the pocket — that is the shot. It opens up as he climbs.
+  curlUniforms.uCut.value=swTubeRide?Math.max(0,Math.min(1,(py-swA*0.6)/(swA*0.5))):0;
+  curlUniforms.uRiderD.value=camera.position.distanceTo(_cutP.set(px,py,pz));
 }
 
 // ---------- whirlpool ----------
@@ -9275,21 +9290,11 @@ function update(dt){
   camZ+=((11.0+swCam*4.6+eff*0.05+airH*0.22+pz*0.42)-camZ)*Math.min(1,dt*2.4);
   camera.position.set(camX,camY,camZ);
   camera.lookAt(lookX,waterY+1.05+swCam*1.5+airH*0.62,-14-swCam*10);
-  // Riding the ring, the chase camera is no use: it stays upright and level while he goes
-  // over the top, so at the roof it ends up outside the wave looking at the back of the lip
-  // with the rider nowhere on screen. Inside a loop the camera has to belong to the loop.
-  // It sits inboard of him on the same radius and rolls with him, so the tube stays wrapped
-  // around the view and it is the world that turns over, which is how it feels to be in one.
-  if(swTubeRide){
-    const G=swTubeGeom();
-    const s=Math.sin(swAng), c=Math.cos(swAng);
-    const inX=-swS*s, inY=c;                      // unit vector from him toward the ring's axis
-    const back=G.r*0.52;                          // pulled in off the wall, not planted on it
-    camera.up.set(inX,inY,0);
-    camera.position.set(px+inX*back, py+inY*back, camZ*0.62+2.2);
-    camera.lookAt(px+inX*back*0.4-  (px-G.cx)*0.15,
-                  py+inY*back*0.4, -15-swCam*10);
-  }
+  // The camera does NOT roll with the ring. A loop camera was tried and taken back out: it
+  // keeps the tube wrapped around the view, but the whole shot turning over is disorienting
+  // and it throws away the one stable reference — the horizon — that tells you where you are
+  // on the wave. The ride angle stays the ride angle however far round the tube he goes; it
+  // is the rider that turns upside down, not the picture.
 
   const sc=score|0, ds=Math.round(dist);
   hScore.textContent=sc.toLocaleString();
