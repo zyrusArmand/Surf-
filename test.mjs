@@ -283,9 +283,18 @@ if (hasHook) {
     const out = [];
     for (let i = 0; i < 8; i++) {
       window.__surf.setTubeAngle(i * Math.PI * 2 / 8);
-      await new Promise(r => setTimeout(r, 1400));
+      // He is EASED onto the ring, and this browser runs the sim at about a tenth of wall
+      // clock, so settling takes a couple of real seconds. At 1400 ms the reading was 0.95 m
+      // — mid-ease, not a gap. Measure where he ends up, not where he is on the way.
+      await new Promise(r => setTimeout(r, 2400));
       const s = window.__surf.state();
-      out.push({ onLip: s.swOnLip, over: s.py - window.__surf.sampleWave(s.px, s.pz).sea });
+      const sl = window.__surf.curlSlice(s.pz);
+      const rf = sl.riderF, ry = (s.py - sl.baseY) / (sl.scaleY || 1);
+      let lip = 1e9;
+      for (const p of sl.pts) lip = Math.min(lip, Math.hypot(p.f - rf, p.y - ry));
+      lip *= Math.abs(sl.scaleY || 1);
+      const over = s.py - window.__surf.sampleWave(s.px, s.pz).sea;
+      out.push({ onLip: s.swOnLip, over, toSurface: Math.min(lip, Math.abs(over)) });
     }
     return out;
   });
@@ -293,6 +302,13 @@ if (hasHook) {
   check(midAir.length === 0, 'never in mid-air on the ring',
         midAir.length ? `${midAir.length} of ${contact.length} angles off the lip AND off the water`
                       : `${contact.filter(c => c.onLip).length} of ${contact.length} angles on the lip, rest on the water`);
+  // And "on the lip" has to mean TOUCHING it. The previous version of this check only proved
+  // that off the lip he was on the water, and assumed the ring's radius matched the lip's
+  // surface — it did not, by a constant 1.7 m, so he rode a circle through open air inside
+  // the tube and every test passed. Distance to the actual mesh is the thing to assert.
+  const far = contact.filter(c => c.toSurface > 0.85);
+  check(far.length === 0, 'the board is touching whatever it is riding',
+        `worst ${Math.max(...contact.map(c => c.toSurface)).toFixed(2)} m from any surface`);
 
   // A whole turn pays, and the ride survives it.
   const looped = await page.evaluate(async () => {

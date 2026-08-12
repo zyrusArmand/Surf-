@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.40.0';
+const VERSION='2.41.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -7859,8 +7859,18 @@ function swTubeGeom(){
   const drop=-SW_PEAK*0.55*pb;
   const cx=swX-swS*Math.sin(SW_ALPHA)*rad*fold;
   const cy=swA+(-Math.cos(SW_ALPHA)*rad+drop)*fold;
-  // inner face = outer arc less the slab's thickness, then the board's own draft
-  const r=Math.max(0.5,rad*fold*(1-SW_LIPT*0.88)-0.35);
+  // The rideable surface is the ARC ITSELF, at radius rad — not the arc pulled in by the
+  // slab's thickness.
+  //
+  // The shell is built by running out along the arc and coming back offset by `thick`, and
+  // that offset goes AWAY from the axis: measured on the cross-section, the return face
+  // reaches y=5.68 where the arc reaches 4.63. So the face bounding the tube's interior is
+  // the one welded to the crest, and pulling the ring in by the thickness put the board a
+  // constant 1.67-1.78 m off the mesh at every angle it was supposedly riding — which is the
+  // board hanging in the middle of the tube touching nothing.
+  //
+  // Only the board's own draft comes off now, so it sits ON the surface rather than inside it.
+  const r=Math.max(0.5,rad*fold-0.35);
   return {cx,cy,r};
 }
 // the top of the thrown lip: how much daylight there is over your head in the tube

@@ -52,6 +52,22 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.41.0** — **The board was riding a circle 1.7 m inside the lip, and every test passed.**
+  The shell is built by running out along the arc and coming back offset by its thickness —
+  and that offset goes AWAY from the axis: measured on the cross-section, the return face
+  reaches y=5.68 where the arc reaches 4.63. So the face bounding the tube's interior is the
+  arc itself, welded to the crest, and pulling the ring in by the slab's thickness put the
+  board a constant **1.67–1.78 m off the mesh at every angle it was supposedly riding**. That
+  is the board hanging in the middle of the tube, touching nothing. Only the board's own draft
+  comes off now: **worst distance to any surface 1.78 m → 0.66 m**.
+  - **The test was the real failure.** `contact.mjs` proved that OFF the lip he was on the
+    water, and simply assumed the ring's radius matched the lip's surface. It never measured
+    the distance to the mesh, so a board riding open air inside the tube passed cleanly. The
+    suite now measures distance to the actual geometry and fails past 0.85 m — the check that
+    would have caught this three versions ago.
+  - The settle time matters and cost a false failure: the rider is EASED onto the ring, and at
+    a tenth of wall clock that takes a couple of real seconds. At 1400 ms the reading was 0.95
+    m — mid-ease, not a gap.
 - **v2.40.0** — **The ring is not a full circle, and pretending it was left him hanging in
   mid-air.** The lip's arc leaves the crest and sweeps **232° at the break — and as little as
   102° down the line**, where the wave has not thrown yet. Everything outside that is the
