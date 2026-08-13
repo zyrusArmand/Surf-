@@ -52,6 +52,36 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.53.0** — **Tricks turn about the board, the barrel stops zooming, no plane flash, and
+  the tube plays by the same rules as everywhere else.**
+  - **Tricks were scrambled once you were banked.** `player` is the parent and `rig` the
+    child, so a trick rotation is applied in **world** axes to a board the ring has already
+    banked. Out on the flat that is the same thing — a level board's axes *are* the world's.
+    Round the tube it is not: banked ninety degrees, the board's transverse axis is world y,
+    so a front flip came out as a flat spin and a spin came out as a flip; upside down in the
+    roof they swap back. Conjugating the trick by the bank fixes it without moving anything
+    in the hierarchy — the total becomes bank × trick × pose, i.e. pose the board, turn it
+    about its own axes, then bank the result onto the wall. The barrel roll is about z, which
+    the bank leaves alone, which is why that one always felt right and the other two didn't.
+  - **Dropping into the barrel is no longer a zoom.** The barrel shot was pinned at z=25.5,
+    well back from where the chase camera stands, to fit the ring into a 31-degree lane. It
+    does fit — and arriving in the tube read as the picture pulling away, which is the one
+    thing that announces a different camera has taken over. It holds the ride's own distance
+    and height now. It fits anyway since the break moved: there is barrel around the lens
+    wherever it stands.
+  - **The plane flash on pressing play.** `startSetWave` made the aeroplane visible and left
+    the FLY phase to move it — a frame later. So for one frame it was drawn wherever it had
+    last been, which after the banner tow is close overhead, at the 2.6 scale set for the
+    distant crash. It is placed at its k=0 pose before it is shown.
+  - **The tube plays by the same rules as the rest of the game.** Both of these were softened
+    for the barrel and both were worse for it: a drum to the chest cracked the board instead
+    of ending the run, and a blown landing scored nothing and let you carry on. The result was
+    that nothing in there ever ended a ride except a board quietly snapping several drums
+    later, with nothing to connect it to. A blown landing now wipes you out on the same
+    windows and with the same names as anywhere else, and wreckage ends the run and says
+    WRECKAGE. *This reverses the softening added in v2.51.0, at the owner's request.* The ring
+    itself still cannot throw you off — hanging in the roof is still free.
+
 - **v2.52.0** — **No see-through patch following the rider, and the shot really does not move
   — through the crash included.**
   - **The near wall thins by depth alone.** Three versions of this now: removed outright,

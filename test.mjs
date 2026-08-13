@@ -710,35 +710,107 @@ if (hasHook) {
 // Placed after every other check that needs a live run. This one can snap the board and
 // end the ride, and when it ran earlier the blocks after it were quietly measuring a
 // game that was already over — the wave clock reported zero seconds of everything.
-// ---------- wreckage in the tube costs the board, not the run ----------
-// The ring owns your position while you are going round, so a drum sitting in the pocket is
-// not something you can steer away from. It used to end the run outright, with no warning and
-// no explanation — a wipeout on a wave the game tells you that you cannot fall out of.
+// ---------- entering the barrel is not a zoom ----------
+// The barrel shot used to be pinned at z=25.5, well back from where the chase camera stands,
+// so arriving in the tube read as the picture pulling away — the one thing that announces a
+// different camera has taken over. It holds the ride's own distance now.
+{
+  const z = await page.evaluate(async () => {
+    window.__surf.restart();
+    await new Promise(r => setTimeout(r, 4000));
+    const open = window.__surf.cam().z;                    // the ordinary chase camera
+    window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 200));
+      if (window.__surf.state().swTubeRide) break;
+    }
+    await new Promise(r => setTimeout(r, 1500));
+    return { open, tube: window.__surf.cam().z, inTube: window.__surf.state().swTubeRide };
+  });
+  check(z.inTube && Math.abs(z.tube - z.open) < 3.0, 'dropping into the barrel does not pull the camera back',
+        `${z.open.toFixed(1)} m out on the face vs ${z.tube.toFixed(1)} m in the tube`);
+}
+
+// ---------- a trick in the tube turns about the board ----------
+// player is the parent and rig the child, so a trick rotation is applied in WORLD axes to a
+// board the ring has already banked. Banked ninety degrees the board's transverse axis IS
+// world y, so a spin came out as a flip. A pure spin turns the board about its own up, which
+// means its up must not move at all — that is what this measures, at the bank where the two
+// axes have fully swapped.
+{
+  const spun = await page.evaluate(async () => {
+    window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
+    await new Promise(r => setTimeout(r, 2500));
+    window.__surf.setTubeAngle(Math.PI / 2);               // on the wall, banked right over
+    await new Promise(r => setTimeout(r, 1500));
+    const before = window.__surf.riderUp().dot;
+    window.__surf.trick('spin');
+    let worst = before;
+    for (let i = 0; i < 25; i++) {
+      await new Promise(r => setTimeout(r, 120));
+      const s = window.__surf.state();
+      if (!s.swTubeRide || s.wipe) break;
+      worst = Math.min(worst, window.__surf.riderUp().dot);
+    }
+    return { before, worst };
+  });
+  check(spun.worst > 0.85, 'a spin in the tube turns the board about its own axis, not the world\'s',
+        `board stayed on the wall through it — worst up·inward ${spun.worst.toFixed(3)}`);
+}
+
+// ---------- a blown landing in the tube ends the run ----------
+// It used to score nothing and let you carry on, which is neither of the two honest rules.
+{
+  const blown = await page.evaluate(async () => {
+    window.__surf.restart();
+    await new Promise(r => setTimeout(r, 2000));
+    window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
+    await new Promise(r => setTimeout(r, 2500));
+    window.__surf.setTubeAngle(0);
+    await new Promise(r => setTimeout(r, 1200));
+    // Held all the way down, so he is still turning when he arrives back at the wall.
+    window.__surf.trick('flip');
+    for (let i = 0; i < 200; i++) {
+      await new Promise(r => setTimeout(r, 100));
+      const s = window.__surf.state();
+      if (s.wipe) return { ended: true, kind: s.lastWipe && s.lastWipe.kind, tube: s.lastWipe && s.lastWipe.tube };
+      if (!s.swPipeAir && i > 6) return { ended: false, landed: true };
+    }
+    return { ended: false };
+  });
+  // Landing it squarely is a legitimate outcome of this: the point is that the tube stops
+  // being a place where the question is not asked at all.
+  check(blown.ended ? (blown.kind === 'land' || blown.kind === 'under') && blown.tube : blown.landed,
+        'a trick in the tube is landed or blown, the same as anywhere else',
+        blown.ended ? `blown, ended as ${blown.kind}` : 'landed it square');
+}
+
+// ---------- the tube plays by the same rules as the rest of the game ----------
+// Both of these were softened for the barrel and both were worse for it: a drum to the chest
+// cracked the board instead of ending the run, and a blown landing scored nothing and let you
+// carry on. The result was that nothing in there ever ended a ride except a board snapping
+// several drums later, with nothing to connect it to.
 {
   const hit = await page.evaluate(async () => {
+    window.__surf.restart();
+    await new Promise(r => setTimeout(r, 2000));
     window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
     await new Promise(r => setTimeout(r, 2000));
     window.__surf.setTubeAngle(0);
     await new Promise(r => setTimeout(r, 1200));
-    const s0 = window.__surf.state();
     for (let i = 0; i < 400; i++) {
       window.__surf.spawn('debris', 0, -14);
       for (let k = 0; k < 12; k++) {
         await new Promise(r => setTimeout(r, 50));
         const s = window.__surf.state();
-        if (s.cracks > s0.cracks) return { cracked: true, wiped: s.wipe, kind: s.lastWipe && s.lastWipe.kind };
-        if (s.wipe) return { cracked: false, wiped: true, kind: s.lastWipe && s.lastWipe.kind };
+        if (s.wipe) return { ended: true, kind: s.lastWipe && s.lastWipe.kind, tube: s.lastWipe && s.lastWipe.tube };
       }
     }
-    return { cracked: false, wiped: false, timedOut: true };
+    return { ended: false };
   });
-  // The claim is about the CAUSE, not about surviving: the suite has been riding for
-  // minutes by now and the board may already be one crack from gone, in which case this hit
-  // legitimately snaps it. What must never happen again is the run ending as 'debris' — an
-  // instant, unexplained wipeout on a wave you are told you cannot fall out of.
-  check(hit.cracked && hit.kind !== 'debris', 'wreckage in the tube cracks the board instead of ending the run',
-        hit.cracked ? (hit.wiped ? 'CRACKED, and that one was the last of the board' : 'CRACKED, still riding')
-                    : (hit.timedOut ? 'never connected' : `ended the run as ${hit.kind}`));
+  check(hit.ended && hit.kind === 'debris' && hit.tube,
+        'wreckage in the tube ends the run, and says so',
+        hit.ended ? `ended as ${hit.kind}` : 'never connected');
 }
 
 // ---------- the shot does not pull back when you die ----------
@@ -748,6 +820,8 @@ if (hasHook) {
   // Crash in the barrel and the shot stays put. It used to cut to a wide chase on the crash,
   // which is the "camera zooms out when you die".
   const dead = await page.evaluate(async () => {
+    window.__surf.restart();
+    await new Promise(r => setTimeout(r, 2000));
     window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
     await new Promise(r => setTimeout(r, 2500));
     const before = window.__surf.cam();
@@ -779,6 +853,15 @@ if (hasHook) {
   check(!/uRiderP/.test(src) && /a\*=1\.0-\(1\.0-smoothstep\(uRiderD/.test(curlFrag),
         'the near wall thins by depth alone, with nothing tracking the rider',
         'no rider position in the curl shader');
+  // The aeroplane is PLACED before it is shown. The FLY phase moves it, and that first move
+  // is a frame away — so it used to be drawn for one frame wherever it had been left, which
+  // after the banner tow is close overhead at 2.6 scale. That is the plane flashing across
+  // the screen the instant you press play.
+  const startWave = src.slice(src.indexOf('function startSetWave()'),
+                              src.indexOf('function startSetWave()') + 1600);
+  check(startWave.indexOf('plane.position.set(') < startWave.indexOf('plane.visible=true'),
+        'the aeroplane is put where it belongs before it is made visible',
+        'no one-frame flash on starting a wave');
   check(!/depthTest:false/.test(skyBlock), 'nothing in the sky skips the depth test',
         `${(skyBlock.match(/depthTest:(true|false)/g) || []).length} sky materials checked`);
   const order = +(/sunDisc\.renderOrder=(-?[\d.]+)/.exec(src)?.[1] ?? -1);

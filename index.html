@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.52.0';
+const VERSION='2.53.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -8000,16 +8000,27 @@ let swHold=false;                        // debug only: stop the wave ever spitt
 // has its own gravity and it should feel like it: a metre and a half of air, held for about
 // a second, which is enough to throw a trick without ever leaving the wall behind.
 const SW_PIPE_G=9.5, SW_PIPE_POP=5.2;
-// Back on the wall. Nothing in the tube wipes you out, so a crooked landing simply scores
-// nothing instead of ending the run — same judgement, no punishment.
+// Back on the wall, and judged exactly as a landing anywhere else in the game is. A crooked
+// one ends the run — same windows, same names, same wipeout. It used to score nothing and
+// let you carry on, which is worse than either rule on its own: a trick you plainly blew
+// simply evaporated, and the only thing that ever punished you in there was a board quietly
+// snapping several drums later, with nothing to connect it to.
 function swPipeLand(){
   const spun=spinRot>0.4||flipRot>0.4||pitchRot>0.4;
-  if(spun||grabOn){
+  if(spun){
     const offS=Math.abs(((spinRot+Math.PI/2)%Math.PI)-Math.PI/2);
     const offF=Math.max(Math.abs(((flipRot+Math.PI)%(Math.PI*2))-Math.PI),
                         Math.abs(((pitchRot+Math.PI)%(Math.PI*2))-Math.PI));
-    settleTricks(offS<0.78&&offF<0.62);
-  } else settleTricks(false);
+    if(offS<0.78&&offF<0.62){
+      settleTricks(true);
+    } else {
+      carrySpin=spinHeld?SPIN_RATE:0; carryFlip=flipHeld?FLIP_RATE:0;
+      settleTricks(false,true);
+      startWipeout(offF>=0.62?'under':'land');
+      return;
+    }
+  } else if(grabOn){ settleTricks(false,true); startWipeout('foam'); return; }
+  else settleTricks(false);
   splash(px,py,pz,14);
 }
 let swCamLock=null;                     // the fixed shot held while he is on the ring
@@ -8145,7 +8156,15 @@ function startSetWave(){
   swRide=0; swPts=0; swDeep=0; swSweep=0; swCurlA=0; swDebT=1.2;
   swA=0; swX=swS*SW_CRASH_X;
   if(hanging)releaseRope(false);
-  planeActive=false; plane.visible=true; planeT=SW_FLY+SW_IMP+SW_SWELL+40;
+  planeActive=false; planeT=SW_FLY+SW_IMP+SW_SWELL+40;
+  // PLACED before it is shown. The FLY phase moves it, and that first move does not happen
+  // until the next frame — so for one frame the aeroplane was drawn wherever it had been
+  // left, which after the banner tow is close overhead, at the 2.6 scale set below. That is
+  // the plane flashing across the screen the instant you press play. This is the k=0 pose.
+  plane.position.set(px+swS*6, 26, -330);
+  plane.rotation.set(0,0,0);
+  plane.userData.prev=null;
+  plane.visible=true;
   // Moving the crash out to 168 so it fits in a portrait frame made it three pixels across:
   // in shot, and unreadable. The distance is what the framing needs, so the aeroplane grows
   // instead — it is the only thing out there, nothing sits beside it to give away the scale,
@@ -8373,6 +8392,9 @@ if(location.hash.includes('debug')){
     // End the run on demand. Reaching a wipeout by playing badly takes minutes here and
     // lands on a random cause; this asks for one directly.
     wipeNow(kind){ startWipeout(kind||'foam'); return {wiped:!!wipe, held:!!(wipe&&wipe.lockCam)}; },
+    // Start a fresh run. Several checks legitimately END the run — that is what they are
+    // checking — and everything after them was measuring a dead game.
+    restart(){ beginRun(); window.__surf.holdWave(true); window.__surf.setDebris(false); return true; },
     // The peel's own constants, so a test can sample "behind the break" without hard-coding a
     // z that quietly stops meaning that the moment one of them moves.
     consts:()=>({SW_PEAK,SW_BRK,SW_PEEL,SW_COLL,SW_HOLD,SW_R,SW_SWEEP}),
@@ -8499,6 +8521,9 @@ function swSpit(){
   noteTrick&&noteTrick('barrel','wave');
 }
 const _cutP=new THREE.Vector3();
+// Scratch for turning a trick into the board's own frame while he is banked on the ring.
+const _eTrick=new THREE.Euler(), _qTrick=new THREE.Quaternion(), _qBank=new THREE.Quaternion();
+const _zAxis=new THREE.Vector3(0,0,1);
 let swCut=0;                                  // how far the near wall has been cut away
 function placeCurl(dt){
   if(swCurlA<=0.004){ curl.visible=false; return; }
@@ -9168,9 +9193,13 @@ function update(dt){
   // own circumference. Steering no longer slides you left and right along a face — it
   // carries you round the ring: up the face, over the roof, down the curtain and back.
   //
-  // Nothing in here can throw you off. The ring is a closed loop of water and the board is
-  // welded to it the whole way round, upside down included, at any speed — so hanging in the
+  // The RING itself cannot throw you off: it is a closed loop of water and the board is
+  // welded to it the whole way round, upside down included, at any speed, so hanging in the
   // roof is a thing you can just do rather than something you have to earn and can lose.
+  // Everything else in the game still applies in here — a blown landing and a drum to the
+  // chest end the run the same as they do anywhere else. Softening those for the tube alone
+  // was worse than either rule: a trick you plainly blew simply evaporated, and the only
+  // thing that ever punished you was a board quietly snapping several drums later.
   const wasTube=swTubeRide;
   swTubeRide=false; swOnLip=false;
   if(swPh===SWP.RIDE&&swCurlA>0.55){
@@ -9585,7 +9614,25 @@ function update(dt){
     if(pitchHeld)pitchRot+=dt*FR;
     else if(pitchQ>0){const d=Math.min(dt*FR,pitchQ);pitchRot+=d;pitchQ-=d;}
     if(grabOn)grabPts+=95*dt;
-    player.rotation.set(pitchRot*pitchSign,spinRot*spinSign,flipRot*flipSign);
+    // In the tube the trick turns about the BOARD's axes, not the world's.
+    //
+    // player is the parent and rig the child, so a rotation on player is applied in world
+    // axes to a board that has already been banked by the ring. Out on the flat that is the
+    // same thing — the board is level, its axes are the world's. Round the tube it is not:
+    // banked ninety degrees the board's transverse axis IS world y, so a front flip came out
+    // as a flat spin and a spin came out as a flip. Upside down in the roof they swap back
+    // and the whole thing reads as the controls being scrambled, which is what it was.
+    //
+    // Conjugating by the bank fixes it without moving anything in the hierarchy: the total
+    // becomes bank * trick * pose, i.e. pose the board, turn it about its own axes, then bank
+    // the result onto the wall. The barrel roll is about z, which the bank leaves alone, so
+    // that one was always right — it is the other two that were swapping.
+    if(swTubeRide){
+      _eTrick.set(pitchRot*pitchSign,spinRot*spinSign,flipRot*flipSign,'YZX');
+      _qTrick.setFromEuler(_eTrick);
+      _qBank.setFromAxisAngle(_zAxis,boardLean);
+      player.quaternion.copy(_qBank).multiply(_qTrick).multiply(_qBank.clone().invert());
+    } else player.rotation.set(pitchRot*pitchSign,spinRot*spinSign,flipRot*flipSign);
     // rope tricks bank as soon as you square up
     if(hanging&&!spinHeld&&!flipHeld&&(spinRot>0.4||flipRot>0.4)){
       const offS=Math.abs(((spinRot+Math.PI/2)%Math.PI)-Math.PI/2);
@@ -9880,15 +9927,6 @@ function update(dt){
         shake=over?0.7:1.0;
         splash(o.position.x,o.position.y+0.5,o.position.z,over?14:20);
         if(o.userData.bell)o.userData.squash=1.0;      // the bell flattens under you
-      } else if(o.userData.kind==='debris'&&swTubeRide){
-        // Wreckage in the tube costs you the board, not the run. The ring owns your position
-        // while you are going round it, so a drum sitting in the pocket is not something you
-        // can steer away from — and an instant, unexplained end to a ride you are told you
-        // cannot fall out of is the worst kind of death there is. It cracks the board and
-        // knocks you off the wall instead, which says CRACKED! and leaves you a count. Three
-        // of them still snap the board and end it, the same as anywhere else.
-        boardHit(o,py);
-        if(!wipe&&!swPipeAir){ swPipeAir=true; swRadV=-SW_PIPE_POP*0.75; airborne=true; }
       } else if(py<waterY+o.userData.h&&!hanging){
         const topY=waterY+o.userData.h;
         // Dropping onto the top of it is not the same as driving into its side, and
@@ -10049,7 +10087,13 @@ function update(dt){
     // Locked at the settled value rather than at whatever it happened to be on the frame he
     // joined the ring, so the shot cuts to its final framing at entry and then holds. The
     // position already cuts at that instant, so this is the same cut, not a second one.
-    if(!swCamLock)swCamLock={x:swTubeGeom().cx,y:camY,z:25.5,lx:swTubeGeom().cx,
+    // Locked at the CHASE camera's own distance and height, not pulled back to 25.5. Sitting
+    // further back was meant to fit the ring in a lane 31 degrees wide, and it does — but
+    // entering the barrel then reads as the picture zooming out, which is the one thing that
+    // announces "a different camera has taken over". The shot the rest of the game uses is
+    // the shot. It fits now anyway: the tube runs full bore all the way back past the lens
+    // since the break moved, so there is barrel around the camera wherever it stands.
+    if(!swCamLock)swCamLock={x:swTubeGeom().cx,y:camY,z:camZ,lx:swTubeGeom().cx,
                              at:waterY+1.05+1.5, atZ:-24.0};
     camX=swCamLock.x; lookX=swCamLock.lx; camZ=swCamLock.z;
     camY=swCamLock.y;
