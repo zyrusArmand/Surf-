@@ -319,6 +319,39 @@ if (hasHook) {
   check(looped.s1.swPh === 3 && !looped.s1.wipe, 'a full loop does not end the ride');
 }
 
+// ---------- an actual ride, not a warped snapshot ----------
+// Every static check above sets an angle by hand and lets it settle. That is exactly the
+// state in which the worst bug of this whole run was invisible: easing the position toward a
+// point travelling round a circle cuts inward, and a settled angle has no angular velocity to
+// cut against. Static tests read 0.6 m while real play was 3.5 m out. So the suite rides.
+{
+  const ride = await page.evaluate(async () => {
+    window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
+    await new Promise(r => setTimeout(r, 1500));
+    const seen = [];
+    for (let i = 0; i < 22; i++) {
+      // keep him moving round the ring the way a held turn would
+      window.__surf.setTubeAngle(window.__surf.state().swAng - 0.55);
+      await new Promise(r => setTimeout(r, 260));
+      const s = window.__surf.state();
+      if (s.swPh !== 3 || !s.swTubeRide) continue;
+      const sl = window.__surf.curlSlice(s.pz);
+      const rf = sl.riderF, ry = (s.py - sl.baseY) / (sl.scaleY || 1);
+      let lip = 1e9;
+      for (const p of sl.pts) lip = Math.min(lip, Math.hypot(p.f - rf, p.y - ry));
+      lip *= Math.abs(sl.scaleY || 1);
+      const over = Math.abs(s.py - window.__surf.sampleWave(s.px, s.pz).sea);
+      seen.push(Math.min(lip, over));
+    }
+    return seen;
+  });
+  const worstMoving = ride.length ? Math.max(...ride) : 0;
+  const adrift = ride.filter(d => d > 1.6).length;
+  check(ride.length > 8, 'the ring stays engaged while turning', `${ride.length} moving samples`);
+  check(adrift === 0, 'and stays on the wave while MOVING, not just when parked',
+        `worst ${worstMoving.toFixed(2)} m over ${ride.length} samples`);
+}
+
 // ---------- the wave comes to you ----------
 // It used to stand up in a fixed lane and leave you to go and find the pocket, so the
 // biggest thing in the game could arrive and pass you by. It forms around the rider now.

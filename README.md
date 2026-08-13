@@ -52,6 +52,26 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.42.0** — **The floating was the easing, and only a moving ride could show it.**
+  - Easing the position toward a target that is travelling round a circle is a **first-order
+    lag**, and a follower chasing a point around a circle always cuts inward — the faster the
+    point goes, the more it cuts. Measured mid-ride: the ring's radius was 6.60, the lip sat at
+    6.9–7.2, and the rider was orbiting at **3.4–4.7** — three metres inside the wall, in open
+    air. That is every "floating in the middle of the tube" report, and it survived four rounds
+    of fixes because **an angle you set and let settle has no angular velocity to cut against**.
+    Static checks read 0.6 m while real play was 3.5 m out.
+  - The angle is his input now and is applied exactly. Only the RADIUS is smoothed, which is
+    all the smoothing was ever for — the surface is sampled from a moving sea and breathes with
+    the swell, and that should not reach the board as a shake.
+  - **The radius is measured to whatever is actually out there**, by firing a ray from the
+    tube's axis and stopping at the first surface: the lip inside its arc, the sea outside it.
+    One rule, continuous across the boundary, so there is no step to ease across.
+  - The sea is asked about the point he ENDS UP at rather than the one the ray aimed for —
+    while the radius catches up those are different places, and the wrong one left him a metre
+    and a half over the water at the bottom of the ring.
+  - **Over a real ride: frames more than a metre from any surface 24% → 2%, worst 3.50 m →
+    1.12 m.** The suite now includes a moving check as well as the parked ones, because the
+    parked ones passed throughout.
 - **v2.41.0** — **The board was riding a circle 1.7 m inside the lip, and every test passed.**
   The shell is built by running out along the arc and coming back offset by its thickness —
   and that offset goes AWAY from the axis: measured on the cross-section, the return face

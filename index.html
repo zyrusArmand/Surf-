@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.41.0';
+const VERSION='2.42.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -6639,7 +6639,7 @@ function respawn(){
   for(let i=obstacles.length-1;i>=0;i--)
     if(obstacles[i].position.z>-48){scene.remove(obstacles[i]);obstacles.splice(i,1);}
   skiOn=false;skiWake=null;skiT=26;jetSki.visible=false;skiGlint.visible=false;wkA=0;
-  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=30+Math.random()*15;swTest=false;swAng=0;swAngV=0;swLoops=0;swTubeRide=false;swCamLock=null;
+  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=30+Math.random()*15;swTest=false;swAng=0;swAngV=0;swLoops=0;swTubeRide=false;swCamLock=null;swRad=NaN;
   for(const p of SMOKE){p.t=0;p.m.visible=false;} _smkHas=false; plane.userData.prev=null;
   curl.visible=false;swSplash.visible=false;
   whirl=null;whA=0;whirlArt.visible=false;whirlT=30+Math.random()*20;
@@ -7825,6 +7825,7 @@ let swCurlA=0, swCam=0, swClose=0, swDebT=0, swSweep=0, swNext=30+Math.random()*
 // down the falling curtain and back to the water.
 let swAng=0, swAngV=0, swLoops=0, swHoldX=0, swTubeRide=false;
 let swCamLock=null;                     // the fixed shot held while he is on the ring
+let swRad=NaN;                          // smoothed distance from the tube's axis
 let swOnLip=false;                      // is he on the thrown lip, or out in the open mouth?
 // Set by the play-icon button only: it lets the countdown run before 600 m, so a wave can
 // be summoned from a standing start. One shot — startSetWave() clears it, so the run goes
@@ -8097,6 +8098,26 @@ if(location.hash.includes('debug')){
                 swPh,swT,swA,swX,swS,swRide,swCurlA,swClose,
                 swAng,swLoops,swTubeRide,swOnLip,ring:swTubeGeom(),
                 curlVisible:curl.visible,roofY:swRoofY(),tubeC:swTubeC()}),
+    // The ring's own numbers at this instant, so a failure can be attributed to a component
+    // instead of guessed at: where the axis is, what radius the rider is at, and what radius
+    // the lip mesh actually sits at for the same z and angle.
+    ringDebug(){
+      const G=swTubeGeom();
+      const dx=(px-G.cx), dy=(py-G.cy);
+      const rRider=Math.sqrt(dx*dx+dy*dy);
+      const p=curl.geometry.attributes.position;
+      let near=Infinity, rMesh=NaN;
+      for(let i=0;i<p.count;i++){
+        if(Math.abs(p.getZ(i)-pz)>2.0)continue;
+        const wx=curl.position.x+p.getX(i)*curl.scale.x;
+        const wy=curl.position.y+p.getY(i)*curl.scale.y;
+        const d=Math.hypot(wx-px,wy-py);
+        if(d<near){ near=d; rMesh=Math.hypot(wx-G.cx,wy-G.cy); }
+      }
+      return {cx:+G.cx.toFixed(2),cy:+G.cy.toFixed(2),ringR:+G.r.toFixed(2),
+              rRider:+rRider.toFixed(2),rMesh:+rMesh.toFixed(2),toMesh:+near.toFixed(2),
+              pz:+pz.toFixed(2),ang:+swAng.toFixed(2),onLip:swOnLip};
+    },
     // Drive the ring directly, so a test can put him anywhere round the tube — including
     // upside down in the roof — without steering him there in real time.
     setTubeAngle(a){ swAng=a; swAngV=0; return swAng; },
@@ -8908,23 +8929,64 @@ function update(dt){
       // barrel's OPEN MOUTH: no lip, no water at that radius, just the hole you look out of.
       // A ring point in there is a point in mid-air.
       //
-      // The arc's ring angle is pi - SW_ALPHA + th, so the covered sector is known exactly.
-      // Inside it the ring IS the surface. Outside it, the surface is the sea, and that is
-      // where he goes — which is also the honest answer: you cannot ride the opening.
+      // The ring's RADIUS is measured to whatever is actually out there, angle by angle.
+      //
+      // Treating the lip's sector and the open sector as two different rules was still wrong,
+      // and this is the failure only a real ride shows: at the boundary the target jumps
+      // several metres — off the roof, down to the water — and the board eases across that
+      // jump through open air. Sampled over an actual ride, 24% of frames sat more than a
+      // metre from any surface, worst 3.50 m. Every warped test passed, because setting an
+      // angle and letting it settle never crosses the boundary at speed.
+      //
+      // One rule now: fire a ray out from the tube's axis and stop at the first surface it
+      // meets. Inside the lip's arc that is the lip; outside it, the sea, found by marching.
+      // The radius varies continuously instead of switching, so there is no jump to ease
+      // across and nowhere to hang in between.
       const lipStart=Math.PI-SW_ALPHA;
       const lipSpan=SW_SWEEP*(0.30+0.70*swPeelA(pz));
       const rel=((swAng-lipStart)%(Math.PI*2)+Math.PI*2)%(Math.PI*2);
       const onLip=rel<=lipSpan; swOnLip=onLip;
-      let tx=G.cx+swS*G.r*Math.sin(swAng), ty=G.cy-G.r*Math.cos(swAng);
-      // Round the top the ring IS the lip's inner face, so the circle is the surface. Round
-      // the bottom it is only an approximation of a face the height field defines exactly —
-      // so down there the water wins, and the board rides on the water rather than through
-      // it or above it. Contact is not something the ring can be trusted to get right on its
-      // own; it is something the sea is asked about every frame.
-      const wy=waveH(tx,dist*WAVE_DRIFT+pz,waveClock)+0.30;
-      ty = onLip ? Math.max(ty,wy) : wy;
-      const k=Math.min(1,dt*(wasTube?15:5));
-      px+=(tx-px)*k; py+=(ty-py)*k;
+      const ux=swS*Math.sin(swAng), uy=-Math.cos(swAng);
+      const WZ2=dist*WAVE_DRIFT+pz;
+      let rHit=G.r;
+      if(!onLip){
+        let lo=0.4, hi=24.0, found=false;
+        for(let i=1;i<=26;i++){
+          const t=0.4+(24.0-0.4)*i/26;
+          if(G.cy+uy*t<=waveH(G.cx+ux*t,WZ2,waveClock)){ hi=t; lo=t-(24.0-0.4)/26; found=true; break; }
+        }
+        if(found){
+          for(let i=0;i<6;i++){
+            const mid=(lo+hi)*0.5;
+            if(G.cy+uy*mid<=waveH(G.cx+ux*mid,WZ2,waveClock))hi=mid; else lo=mid;
+          }
+          rHit=Math.max(0.5,hi-0.30);            // the board's draft off whatever it found
+        }
+      }
+      // Smooth the RADIUS, never the position.
+      //
+      // Easing the position toward a target that is travelling round a circle is the bug
+      // behind every "floating in the middle of the tube" report, and it is a property of
+      // first-order lag rather than an error in the geometry: a follower chasing a point
+      // around a circle always cuts inward, and the faster the point goes the more it cuts.
+      // Measured mid-ride, the ring's radius was 6.60 and the lip sat at 6.9-7.2 while the
+      // rider orbited at 3.4-4.7 — three metres inside the wall, in open air. Every static
+      // test passed, because an angle you set and let settle has no angular velocity to cut
+      // against, which is why this survived four rounds of fixes.
+      //
+      // The angle is his input and is applied exactly. Only the radius is smoothed, which is
+      // all the smoothing was ever for: the surface is sampled from a moving sea and breathes
+      // with the swell, and that breathing should not reach the board as a shake.
+      if(!wasTube||!isFinite(swRad))swRad=Math.hypot(px-G.cx,py-G.cy);
+      // Fast, because what it is smoothing is now the sea's own breathing rather than a
+      // target that leaps: at the edge of the lip's arc the surface really does step from
+      // the roof out to the water, and a slow radius crosses that step through the air.
+      swRad+=(rHit-swRad)*Math.min(1,dt*(wasTube?16:4));
+      px=G.cx+ux*swRad;
+      // The sea is asked about the point he ENDS UP at, not the one the ray aimed for. While
+      // the radius is still catching up those are different places, and asking at the wrong
+      // one left him riding a metre and a half over the water at the bottom of the ring.
+      py=Math.max(G.cy+uy*swRad, waveH(px,WZ2,waveClock)+0.30);
       vx=0; vy=0; airborne=false;
     }
   } else if(swPh!==SWP.RIDE){ swAng=0; swAngV=0; }
