@@ -52,6 +52,40 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.56.0** — **The lip falls into the water, and going round is paced by the wall rather
+  than by the clock.**
+  - **The corner where the barrel breaks is gone**, and it needed both halves of the fix.
+    Measured round the whole ring, it was one step: the radius went from 3.06 m straight to
+    8.13 m at a single angle, because the lip's arc stopped about three metres above the sea
+    and there was simply no water across that gap to ride. That is the "shoots you more to
+    the right and then up, almost like a ninety degree angle" — the geometry really was a
+    corner.
+    - *The lip now falls a curtain into the water.* A thrown lip does not stop in mid-air;
+      the water pours off it and lands in front, and that curtain is what closes a barrel's
+      section. It hangs from the tip, scales with how far the lip has actually thrown — so a
+      section down the line that has not broken yet still has an open mouth to see out of —
+      and the ride's own surface function knows about it, so what you ride is what is drawn.
+    - *And the weld at the other end is clamped.* The lip grows out of the crest, so that
+      boundary is continuous by construction — but a ray fired just below it runs nearly
+      tangent to the crest, and on a frame where the swell dips it passes clean over and
+      finds the back of the wave: one angle read 8.18 m against an arc at 5.41. Inside that
+      band the water cannot be further out than the lip welded to it.
+    - Worst step round the whole circle: **5.07 m → 0.79 m**, and contact while moving
+      **1.85 m → 0.82 m**. The suite walks all 64 angles now, so the cliff cannot come back
+      quietly.
+    - *And the angle is paced by distance along the wall.* This is the half that no amount of
+      reshaping the water could have fixed. A barrel's section is a tall almond, not a circle
+      — the roof is three metres from the axis and the trough under the mouth is five and a
+      half, because that is where the water is. Anywhere the radius climbs steeply, a constant
+      *angular* rate is a constant rate through a great deal more *wall*, and the rider is
+      fired along it. Dividing by the local stretch turns that into a steady speed over the
+      surface. Held-turn travel now measures ~0.5 m/s while the radius swings 6.4 → 7.5 →
+      5.4 m through the handover that used to throw him.
+  - **The surface march no longer skips grazing water.** Its step was 0.90 m, and a ray fired
+    nearly parallel to the face could step clean over the sea and report it metres further
+    out: single angles read 4.95 m between neighbours of 3.09 m. Those phantom spikes are why
+    "stays on the wave while moving" kept drifting between 1.0 m and 1.9 m run to run.
+
 - **v2.55.0** — **The lip pitches over instead of inflating, the ring is a circle, the near
   water is solid, and the shot really does not rise.**
   - **The camera no longer rises as you climb.** The lock was being re-clamped every frame to
@@ -65,8 +99,10 @@ The running version is shown at the bottom of the screen. Bump `VERSION` in
     against the face, feathers off the crest as a line, and comes round over your head. The
     ring's own centre is carried with it, so the water and the physics are the same tube for
     the whole formation.
-  - **The kink where the lip's arc meets the flat sea is NOT fixed.** Three ways of rounding
-    it were tried and all three measured worse than the corner they were removing, which is
+  - **The kink where the lip's arc meets the flat sea is NOT fixed.** *(Fixed in v2.56.0 —
+    the four attempts below all treated it as one problem, and it was two.)* Three ways of
+    rounding it were tried and all three measured worse than the corner they were removing,
+    which is
     recorded in the code so the next attempt does not repeat them: a pure circle at the arc's
     radius leaves the board a metre and a half over the water at the bottom of the open sector;
     a circle shrunk to meet "the water below the axis" collapses, because the height field at

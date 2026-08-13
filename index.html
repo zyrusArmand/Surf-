@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.55.0';
+const VERSION='2.56.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1143,6 +1143,21 @@ const SW_R=7.0;                          // the radius the lip throws through
 const SW_ALPHA=1.42;                     // matched to the face's own slope at the crest
 const SW_SWEEP=4.05;                     // and how far it carries over before it falls
 const SW_LIPT=0.22;                      // slab thickness, as a FRACTION of the throw radius
+// And how far the curtain falls off the tip, in the same radii, once the lip has thrown.
+//
+// A thrown lip does not stop in mid-air: the water pours off it and lands in front, and that
+// falling curtain is what closes a barrel's cross-section into a circle. Without it the arc
+// ended about three metres above the sea, and the ring the rider travels round jumped from
+// 3.06 m to 8.13 m at that one angle — measured, not guessed. That five-metre step IS the
+// "shoots you right and then up, almost like a ninety degree angle": the geometry genuinely
+// was a corner, because there was nothing between the tip and the water to ride.
+//
+// 1.30 covers a gap that measures 0.87 radii, and the excess simply goes under the water the
+// way the weld's skirt does. Straight down on purpose. A curtain that leaned would have to be
+// mirrored curve-for-curve by the ride's own surface function, and one leaning far enough to
+// pass under the tube's axis would start catching rays fired straight down at the trough,
+// which would put the floor of the ring on the curtain instead of on the sea.
+const SW_FALL=1.30;
 // (absolute would be wrong: the tube tapers along its length, and a lip that stayed one
 //  thickness while the arc shrank would read as thicker and thicker toward the far end)
 // A lip is not a membrane. The last version was a single surface with no thickness at all,
@@ -1190,6 +1205,8 @@ function buildCurlGeom(){
             tf:Math.cos(p),  ty:Math.sin(p)};        // unit, points along the throw
   };
   const thick=(q)=>SW_LIPT*Math.min(1,q/0.26)*(1-0.34*q);
+  // How far the curtain falls off the tip, in radii. See SW_FALL.
+  const fallOf=(pa)=>SW_FALL*pa;
   const pos=[],uv=[],idx=[];
   for(let i=0;i<=NZ;i++){
     const zt=i/NZ, z=Z0+(Z1-Z0)*zt;
@@ -1215,23 +1232,36 @@ function buildCurlGeom(){
     // fold factor — a residual hole that grew to 1.46 m by z=+30, which is the daylight, and
     // at the right time of day the sun itself, showing through between lip and water.
     const drop=-SW_PEAK*0.55*pb/Math.max(0.05,fold);
+    // The face, end to end: out along the arc, then straight down the curtain falling off its
+    // tip. QA is how much of the parameter the arc keeps, so an unthrown section (FALL 0) is
+    // exactly the arc it always was and a fully thrown one spends the last stretch falling.
+    // The normal swings from the arc's to horizontal over the first third of the fall rather
+    // than switching at the joint, which would step the inner face by the slab's thickness.
+    const FALL=fallOf(pa), QA=1/(1+FALL*0.85);
+    const seg=(q)=>{
+      if(FALL<=1e-4||q<=QA)return arc(swp*Math.min(1,q/QA));
+      const a=arc(swp), v=(q-QA)/(1-QA), w=Math.min(1,v/0.35);
+      const nf=a.nf*(1-w)-w, ny=a.ny*(1-w), nl=Math.hypot(nf,ny)||1;
+      const tf=a.tf*(1-w), ty=a.ty*(1-w)-w, tl=Math.hypot(tf,ty)||1;
+      return {f:a.f, y:a.y-FALL*v, nf:nf/nl, ny:ny/nl, tf:tf/tl, ty:ty/tl};
+    };
     for(let j=0;j<=NA;j++){
       const s=j/NA;
       let q,f,y;
       if(s<SK){                                      // skirt, hanging below the weld
         q=0; f=0; y=-SKIRT*(1-s/SK)*fold;
       } else if(s<=SK+SPAN){                         // the outer face, welded to the crest
-        q=(s-SK)/SPAN; const a=arc(swp*q);
+        q=(s-SK)/SPAN; const a=seg(q);
         f=a.f*rad; y=a.y*rad*fold;
-      } else if(s<SK+SPAN+CAP){                      // round the thrown tip
+      } else if(s<SK+SPAN+CAP){                      // round the foot of the fall
         q=1;
-        const a=arc(swp), T=thick(1)*rad, ph=Math.PI*(s-SK-SPAN)/CAP;
+        const a=seg(1), T=thick(1)*rad, ph=Math.PI*(s-SK-SPAN)/CAP;
         const cf=a.f*rad-a.nf*T*0.5, cy=a.y*rad-a.ny*T*0.5;
         f=cf+(T*0.5)*(Math.cos(ph)*a.nf+Math.sin(ph)*a.tf);
         y=(cy+(T*0.5)*(Math.cos(ph)*a.ny+Math.sin(ph)*a.ty))*fold;
       } else if(s<=SK+SPAN+CAP+SPAN){                // back along the inner face, the roof
         q=1-(s-SK-SPAN-CAP)/SPAN;
-        const a=arc(swp*q), T=thick(q)*rad;
+        const a=seg(q), T=thick(q)*rad;
         f=a.f*rad-a.nf*T; y=(a.y*rad-a.ny*T)*fold;
       } else {                                       // and the skirt on the inner side
         q=0; f=0; y=-SKIRT*((s-SK-SPAN-CAP-SPAN)/SK)*fold;
@@ -8040,6 +8070,9 @@ let swRad=NaN;                          // smoothed distance from the tube's axi
 let jellyHits=0;
 let lastWipe=null;                      // {kind, phase, on the ring?} of the last wipeout
 let swOnLip=false;                      // is he on the thrown lip, or out in the open mouth?
+// The live ring surface, kept so a probe can walk the whole circle with the SAME maths the
+// ride uses rather than a reimplementation of it that can drift out of step.
+let swSurfAt=null, swRingInfo=null;
 // Set by the play-icon button only: it lets the countdown run before 600 m, so a wave can
 // be summoned from a standing start. One shot — startSetWave() clears it, so the run goes
 // back to its normal rhythm afterwards rather than spawning waves forever.
@@ -8395,6 +8428,9 @@ if(location.hash.includes('debug')){
     // Drive the ring directly, so a test can put him anywhere round the tube — including
     // upside down in the roof — without steering him there in real time.
     setTubeAngle(a){ swAng=a; swAngV=0; return swAng; },
+    // Hold a turn the way a finger does. Setting the angle directly skips the pacing, which
+    // is exactly the part that decides whether going round FEELS like a circle.
+    setSteer(v){ steer=Math.max(-1,Math.min(1,v)); return steer; },
     // Which side the wave breaks from is a coin toss per wave, and the steering sign depends
     // on it — so a test that does not pin it only ever checks one of the two.
     setSide(s){ swS=s<0?-1:1; return swS; },
@@ -8416,6 +8452,19 @@ if(location.hash.includes('debug')){
     // The peel's own constants, so a test can sample "behind the break" without hard-coding a
     // z that quietly stops meaning that the moment one of them moves.
     consts:()=>({SW_PEAK,SW_BRK,SW_PEEL,SW_COLL,SW_HOLD,SW_R,SW_SWEEP}),
+    // The ring's radius all the way round, from the ride's own surface function. A corner in
+    // the path is a step in this list, and this is the only way to see where it is and how big.
+    ringProfile(){
+      if(!swSurfAt||!swRingInfo)return{error:'ring not live'};
+      const rows=[];
+      for(let i=0;i<64;i++){ const th=i/64*Math.PI*2;
+        const rel=((th-swRingInfo.lipStart)%(Math.PI*2)+Math.PI*2)%(Math.PI*2);
+        const d=swSurfAt(th,true);
+        rows.push({th:+th.toFixed(3),onLip:rel<=swRingInfo.lipSpan,r:+swSurfAt(th).toFixed(3),
+                   sea:isFinite(d.sea)?+d.sea.toFixed(3):null,
+                   curt:isFinite(d.curt)?+d.curt.toFixed(3):null}); }
+      return{...swRingInfo,seaAtBottom:+waveH(swRingInfo.cx,swRingInfo.WZ2,waveClock).toFixed(3),rows};
+    },
     jump(){ doJump(); return airborne; },
     // Where the camera is and where it is pointing. "Fixed" is a claim about both, and the
     // aim was the half that was still drifting.
@@ -9255,80 +9304,131 @@ function update(dt){
       swAngV-=swAngV*1.7*dt;
       swAngV=Math.max(-3.6,Math.min(3.6,swAngV));
       const was=swAng;
-      swAng+=swAngV*dt;
+      const lipStart=Math.PI-SW_ALPHA;
+      const lipSpan=SW_SWEEP*(0.30+0.70*swPeelA(pz));
+      const WZ2=dist*WAVE_DRIFT+pz;
+      // The ring's RADIUS, angle by angle: fire a ray out from the tube's axis and stop at the
+      // first water it meets — the lip inside its own arc, the curtain falling off its tip,
+      // the sea under both. One rule for the whole circle. Treating the lip's sector and the
+      // open sector as two different rules was the failure only a real ride shows: at the
+      // boundary the target jumped several metres and the board eased across it through open
+      // air, 24% of frames more than a metre off any surface, worst 3.50 m. Every warped test
+      // passed, because an angle you set and let settle never crosses a boundary at speed.
+      //
+      // Two attempts at replacing this with a pure circle are recorded because both looked
+      // obviously right and both measured badly: a circle at the arc's radius leaves him a
+      // metre and a half over the flat water at the bottom of the open sector, and one shrunk
+      // to meet "the water below the axis" collapses to nothing, because the height field at
+      // the axis's own x is the WAVE, seven metres of it, not the trough. The section of a
+      // barrel is a tall almond, not a circle, and the surface has to be found, not assumed.
+      //
+      // Reach is 40 m — at 24 a ray fired toward the shoulder could leave over flat water
+      // without ever dipping below it, report nothing found, and drop the board out into the
+      // air at that one angle.
+      // The curtain falling off the tip, mirrored from the shell (SW_FALL). It hangs straight
+      // down in the shell's frame, so in the world it is tilted by the same pitch the mesh is
+      // given while the lip is still throwing over. Anchored at the ring's own tip — radius
+      // G.r at the end of the arc — so the radius coming off the lip onto the fall is
+      // continuous by construction rather than by tuning.
+      const thEnd=lipStart+lipSpan;
+      const tipX=G.cx+swS*Math.sin(thEnd)*G.r, tipY=G.cy-Math.cos(thEnd)*G.r;
+      const fz=swPitch(), fdx=Math.sin(fz), fdy=-Math.cos(fz);
+      const fallL=SW_FALL*swPeelA(pz)*(G.r+0.35);
+      const surfAt=(th,detail)=>{
+        const rl=((th-lipStart)%(Math.PI*2)+Math.PI*2)%(Math.PI*2);
+        const onArc=rl<=lipSpan;                            // on the lip: the arc itself
+        const sx=swS*Math.sin(th), sy=-Math.cos(th);
+        // Where this ray crosses the falling curtain, if it does at all. Solved rather than
+        // marched: it is one straight segment, and a march would round the very corner this
+        // exists to remove.
+        let curt=Infinity;
+        if(fallL>0.01){
+          const det=sx*(-fdy)-sy*(-fdx);
+          if(Math.abs(det)>1e-6){
+            const rx=tipX-G.cx, ry=tipY-G.cy;
+            const t=(rx*(-fdy)-ry*(-fdx))/det, s=(sx*ry-sy*rx)/det;
+            if(t>0.4&&s>=0&&s<=fallL)curt=t;
+          }
+        }
+        // 132 steps, not 44. At 44 the step was 0.90 m, and a ray fired nearly parallel to
+        // the face could step clean over the water and report it metres further out: sampled
+        // round the ring, single angles read 4.95 m between neighbours of 3.09 m. Those spikes
+        // are a phantom corner in themselves, and they feed straight into the pacing below.
+        let sea=Infinity, lo=0.4, hi=40.0, found=false;
+        const ST=(40.0-0.4)/132;
+        for(let i=1;i<=132;i++){
+          const t=0.4+ST*i;
+          if(G.cy+sy*t<=waveH(G.cx+sx*t,WZ2,waveClock)){ hi=t; lo=t-ST; found=true; break; }
+        }
+        if(found){
+          for(let i=0;i<6;i++){
+            const mid=(lo+hi)*0.5;
+            if(G.cy+sy*mid<=waveH(G.cx+sx*mid,WZ2,waveClock))hi=mid; else lo=mid;
+          }
+          sea=hi-0.30;                           // less the board's draft off whatever it found
+        }
+        // The weld. The lip grows OUT of the crest — SW_ALPHA is matched to the face's own
+        // slope there — so at the arc's start the water and the arc are the same surface, and
+        // that boundary is continuous by construction. A ray fired just below it runs almost
+        // tangent to the crest, though, and on a frame where the swell dips it passes clean
+        // over and finds the back of the wave instead: measured, one angle read 8.18 m against
+        // an arc at 5.41, a 2.77 m phantom cliff at the one join that cannot actually have one.
+        // Inside that band the water cannot be further out than the lip welded to it.
+        const below=((lipStart-th)%(Math.PI*2)+Math.PI*2)%(Math.PI*2);
+        if(below<0.45)sea=Math.min(sea,G.r);
+        if(detail)return{arc:onArc?G.r:Infinity,curt,sea};
+        if(onArc)return G.r;
+        // Whichever comes first out from the axis — the falling curtain, or the sea under it.
+        // Both are real water and the ride is on the nearer one, which is also what makes the
+        // handover between them continuous: they agree exactly where they cross.
+        const v=Math.min(sea,curt);
+        return Math.max(0.5,isFinite(v)?v:G.r);
+      };
+      // Paced by DISTANCE ALONG THE WALL, not by angle.
+      //
+      // This is the other half of the corner, and the half that no amount of reshaping the
+      // water could have fixed. The tube's section is not a circle and cannot be made into
+      // one: the roof is three metres from the axis and the trough under the mouth is five
+      // and a half, because that is where the water actually is. Anywhere the radius climbs
+      // steeply — the curtain most of all, which falls almost straight out from the axis and
+      // so covers four metres of wall in a tenth of a radian — a constant angular rate is a
+      // constant rate through a LOT of wall, and the rider is fired along it. That is the
+      // "shoots you right and then up, like a ninety degree angle": not a corner in the
+      // geometry so much as a corner in the clock.
+      //
+      // |dP/dth| is hypot(r, dr/dth); dividing by it turns the angular rate into a steady
+      // speed over the surface, so a steep stretch takes the time its length deserves. The
+      // stretch is capped so a bad sample can slow him but never park him.
+      const _e=0.06;
+      const _dr=(surfAt(swAng+_e)-surfAt(swAng-_e))/(2*_e);
+      const _rN=Math.max(1.5,surfAt(swAng));
+      const stretch=Math.max(1,Math.min(5,Math.hypot(_rN,_dr)/_rN));
+      swAng+=swAngV*dt/stretch;
       // A whole turn pays, and it is counted on the crossing rather than by rounding, so
       // rocking back and forth over the top does not farm it.
       if(Math.floor(swAng/(Math.PI*2))!==Math.floor(was/(Math.PI*2))){
         swLoops++; score+=450; swPts+=450; msg('LOOP THE TUBE! +450');
       }
-      // Eased onto the ring rather than pinned to it. Snapping every frame was the jitter:
-      // the ring's floor is sampled from the moving sea, so its radius breathes with the
-      // swell, and hard placement passed that straight into the board as a shake. Chasing it
-      // keeps him in contact with the wall without inheriting every ripple of it.
-      // The lip is not a full circle, and treating the ring as one is what left him hanging
-      // in the middle of the tube touching nothing.
-      //
-      // The arc leaves the crest and sweeps 232 degrees at the break — and as little as 102
-      // down the line, where the wave has not thrown yet. Everything outside that is the
-      // barrel's OPEN MOUTH: no lip, no water at that radius, just the hole you look out of.
-      // A ring point in there is a point in mid-air.
-      //
-      // The ring's RADIUS is measured to whatever is actually out there, angle by angle.
-      //
-      // Treating the lip's sector and the open sector as two different rules was still wrong,
-      // and this is the failure only a real ride shows: at the boundary the target jumps
-      // several metres — off the roof, down to the water — and the board eases across that
-      // jump through open air. Sampled over an actual ride, 24% of frames sat more than a
-      // metre from any surface, worst 3.50 m. Every warped test passed, because setting an
-      // angle and letting it settle never crosses the boundary at speed.
-      //
-      // One rule now: fire a ray out from the tube's axis and stop at the first surface it
-      // meets. Inside the lip's arc that is the lip; outside it, the sea, found by marching.
-      // The radius varies continuously instead of switching, so there is no jump to ease
-      // across and nowhere to hang in between.
-      const lipStart=Math.PI-SW_ALPHA;
-      const lipSpan=SW_SWEEP*(0.30+0.70*swPeelA(pz));
       const rel=((swAng-lipStart)%(Math.PI*2)+Math.PI*2)%(Math.PI*2);
       const onLip=rel<=lipSpan; swOnLip=onLip;
       const ux=swS*Math.sin(swAng), uy=-Math.cos(swAng);
-      const WZ2=dist*WAVE_DRIFT+pz;
-      // Ray-marched to whatever surface is actually out there at this angle — the lip inside
-      // its arc, the sea outside it. Two attempts at replacing this with a pure circle are
-      // recorded here because both looked obviously right and both measured badly: a circle
-      // at the arc's radius leaves him a metre and a half over the flat water at the bottom
-      // of the open sector, and one shrunk to meet "the water below the axis" collapses to
-      // nothing, because the height field at the axis's own x is the WAVE, seven metres of
-      // it, not the trough. The surface has to be found, not assumed.
-      // The surface at an angle, found by firing a ray out from the axis and stopping at the
-      // first water it meets: the lip inside its own arc, the sea outside it. Reach is 40 m —
-      // at 24 a ray fired toward the shoulder could leave over flat water without ever dipping
-      // below it, report nothing found, and drop the board out into the air at that one angle.
-      const surfAt=(th)=>{
-        const rl=((th-lipStart)%(Math.PI*2)+Math.PI*2)%(Math.PI*2);
-        if(rl<=lipSpan)return G.r;                          // on the lip: the arc itself
-        const sx=swS*Math.sin(th), sy=-Math.cos(th);
-        let lo=0.4, hi=40.0, found=false;
-        for(let i=1;i<=44;i++){
-          const t=0.4+(40.0-0.4)*i/44;
-          if(G.cy+sy*t<=waveH(G.cx+sx*t,WZ2,waveClock)){ hi=t; lo=t-(40.0-0.4)/44; found=true; break; }
-        }
-        if(!found)return G.r;
-        for(let i=0;i<6;i++){
-          const mid=(lo+hi)*0.5;
-          if(G.cy+sy*mid<=waveH(G.cx+sx*mid,WZ2,waveClock))hi=mid; else lo=mid;
-        }
-        return Math.max(0.5,hi-0.30);            // the board's draft off whatever it found
-      };
+      swSurfAt=surfAt; swRingInfo={cx:G.cx,cy:G.cy,r:G.r,lipStart,lipSpan,ang:swAng,WZ2,
+                                   tipX,tipY,fallL,swS,pz,pa:swPeelA(pz),fz};
       // Straight off the surface at his own angle.
       //
-      // Two attempts at rounding the corner where the lip's arc ends and the flat sea begins
-      // are recorded here, because both are plausible and both measured worse:
+      // The corner where the lip's arc ended and the sea began is gone, and it took two
+      // changes rather than one: the lip now falls a curtain into the water so there IS a
+      // surface across that gap, and the angle is paced by distance so the steep part of it
+      // is not crossed at ten times the speed of the rest. Four attempts that treated it as
+      // one problem are recorded because all four are plausible and all four measured worse:
       //   damped in time    rounds it, and lags — the board then rides up to a metre off the
       //                     surface whenever he is MOVING, which is the thing the ring exists
       //                     to prevent (0.56 m worst -> 1.58 m)
       //   averaged in angle rounds it without lag, and smears the lip's own radius toward the
       //                     sea's for a third of a radian either side of the boundary, which
       //                     puts him a metre off the mesh he is supposedly riding (1.18 m)
+      //   a pure circle     at the arc's radius: 1.5 m over the water at the bottom
+      //   a shrunk circle   to "the water below the axis": collapses, see above
       // The kink is real and worth fixing; neither of these is the fix, and shipping either
       // trades a corner you can see for a board that is not on the water.
       const rHit=surfAt(swAng);

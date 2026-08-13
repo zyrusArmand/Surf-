@@ -318,10 +318,17 @@ if (hasHook) {
     }
     return out;
   });
-  const midAir = contact.filter(c => !c.onLip && c.over > 1.2);
+  // Measured to the nearest surface, not to the sea. Off the lip's ARC he is no longer
+  // necessarily on the water: since v2.56.0 the lip falls a curtain into it, and the curtain
+  // is a perfectly good thing to be riding several metres above the sea. It is part of the
+  // shell, so the distance to the mesh already covers it — what "mid-air" has to mean is
+  // "near nothing", which is what it meant all along.
+  const midAir = contact.filter(c => !c.onLip && c.toSurface > 1.2);
   check(midAir.length === 0, 'never in mid-air on the ring',
-        midAir.length ? `${midAir.length} of ${contact.length} angles off the lip AND off the water`
-                      : `${contact.filter(c => c.onLip).length} of ${contact.length} angles on the lip, rest on the water`);
+        midAir.length ? `${midAir.length} of ${contact.length} angles near NO surface`
+                      + ` (worst ${Math.max(...midAir.map(c => c.toSurface)).toFixed(2)} m)`
+                      : `${contact.filter(c => c.onLip).length} of ${contact.length} angles on the lip,`
+                      + ` rest on the curtain or the water`);
   // And "on the lip" has to mean TOUCHING it. The previous version of this check only proved
   // that off the lip he was on the water, and assumed the ring's radius matched the lip's
   // surface — it did not, by a constant 1.7 m, so he rode a circle through open air inside
@@ -394,6 +401,42 @@ if (hasHook) {
   check(ride.length > 8, 'the ring stays engaged while turning', `${ride.length} moving samples`);
   check(adrift === 0, 'and stays on the wave while MOVING, not just when parked',
         `worst ${worstMoving.toFixed(2)} m over ${ride.length} samples`);
+}
+
+// ---------- the ring is a closed curve, not a curve with a cliff in it ----------
+// "When turning to where the barrel breaks it shoots you more to the right and then up,
+// almost like a ninety degree angle." Measured round the whole circle, that was one step of
+// 5.07 m: the lip's arc ended three metres above the sea and the ring's radius jumped from
+// 3.06 m straight to 8.13 m at that single angle, because there was no water in between to
+// ride. The lip falls a curtain into the water now, so the radius ramps instead of jumping.
+// Sampled from the ride's OWN surface function, so it cannot drift away from what is ridden.
+{
+  const prof = await page.evaluate(async () => {
+    window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
+    for (let i = 0; i < 250; i++) {
+      await new Promise(r => setTimeout(r, 200));
+      const s = window.__surf.state();
+      if (s.swTubeRide && (s.swForm ?? 0) > 0.9) break;
+      if (s.wipe || s.swPh !== 3) break;
+    }
+    return window.__surf.ringProfile();
+  });
+  const rows = prof.rows || [];
+  let worstStep = 0, atTh = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const step = Math.abs(rows[i].r - rows[(i + rows.length - 1) % rows.length].r);
+    if (step > worstStep) { worstStep = step; atTh = rows[i].th; }
+  }
+  check(rows.length > 32 && worstStep < 2.5,
+        'the ring has no cliff in it — going round is a ride, not a corner',
+        rows.length ? `worst step ${worstStep.toFixed(2)} m at ${atTh.toFixed(2)} rad over ${rows.length} angles`
+                    : (prof.error || 'no profile'));
+  // And the curtain is what closed it: without a surface across that gap the step comes back.
+  const openSector = rows.filter(r => !r.onLip);
+  check(openSector.length > 4 && Math.max(...openSector.map(r => r.r)) > Math.min(...openSector.map(r => r.r)),
+        'and the open sector is a graded ramp between the lip and the sea',
+        openSector.length ? `${openSector.length} angles, ${Math.min(...openSector.map(r => r.r)).toFixed(2)}`
+                          + `-${Math.max(...openSector.map(r => r.r)).toFixed(2)} m` : 'no open sector');
 }
 
 // ---------- the wave comes to you ----------
@@ -726,10 +769,15 @@ if (hasHook) {
     window.__surf.restart();
     await new Promise(r => setTimeout(r, 4000));
     window.__surf.armSetWave(); window.__surf.warpSetWave('SWELL', 4.6);
-    let before = window.__surf.cam();
-    for (let i = 0; i < 120; i++) {
+    // Getting to the takeover is slow under swiftshader: the swell runs, then the lip has to
+    // form (swForm climbs at 0.26/s of SIMULATED time) before the ring will engage at all.
+    // Measured at 18.2 s of wall clock on a good run, so the old 24 s bound failed on a slow
+    // one and reported it as the tube letting go at phase 2 — which is SWELL, i.e. it had
+    // never taken over in the first place. Budget 80 s and say so when it never gets there.
+    let before = window.__surf.cam(), entered = false, enteredAt = 'never';
+    for (let i = 0; i < 400; i++) {
       await new Promise(r => setTimeout(r, 200));
-      if (window.__surf.state().swTubeRide) break;
+      if (window.__surf.state().swTubeRide) { entered = true; enteredAt = `phase ${window.__surf.state().swPh} after ${i * 0.2}s`; break; }
       before = window.__surf.cam();          // the last frame before the ring had it
     }
     const after = window.__surf.cam();
@@ -750,14 +798,15 @@ if (hasHook) {
       settled = window.__surf.cam();
     }
     const s2 = window.__surf.state();
-    return { before, after, settled, held, why, ended: !!s2.wipe };
+    if (!entered) why = `the ring never took over — still at phase ${s2.swPh}`;
+    return { before, after, settled, held, why, entered, enteredAt, ended: !!s2.wipe };
   });
   const jump = Math.max(...['x','y','z','dx','dy','dz'].map(k => Math.abs(across.before[k] - across.after[k])));
   const drift = Math.max(...['x','y','z','dx','dy','dz'].map(k => Math.abs(across.after[k] - across.settled[k])));
-  check((across.held || across.ended) && jump < 0.35 && drift < 0.02,
+  check(across.entered && (across.held || across.ended) && jump < 0.35 && drift < 0.02,
         'the ring taking over does not move the camera',
         `${jump.toFixed(3)} across the takeover, ${drift.toFixed(4)} while it holds`
-        + (across.held ? '' : ` (${across.why})`));
+        + (across.held ? '' : ` (${across.why}; took over at ${across.enteredAt})`));
 }
 
 // ---------- the barrel builds, it does not arrive finished ----------
