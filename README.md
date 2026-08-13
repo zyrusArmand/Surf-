@@ -52,6 +52,21 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.43.0** — **He was standing on the wall with the board on the inside of him.** A
+  skateboarder in a full pipe has the BOARD against the wall and his head toward the middle.
+  The sign of the bank was inverted, so it was the other way round — which is exactly what the
+  reports of "the board is in the middle" were describing, and it was a minus sign.
+  - A roll of φ about +z carries local up to `(−sin φ, cos φ)`, and inward is
+    `(−swS·sin θ, cos θ)`, so φ is **swS·θ — not minus**. Measured off the rig's real world
+    quaternion rather than the Euler angles meant to produce it, the rider's up ran between
+    **−0.23 and +0.09** against the inward direction: anywhere but at the axis. It is **1.000**
+    all the way round the arc now.
+  - **And the bank was damped**, which is the same bug as the position easing one version ago
+    in a second place: on the wall the bank is not a response to anything, it IS where he is —
+    the same angle that places him on the ring. Damping lagged it behind the turn and dropped
+    alignment from 1.00 to **0.61 while actually moving**. Applied straight now, like the angle.
+  - Both checks are in the suite, taken from the transform rather than from the inputs, and
+    both sample while turning rather than parked.
 - **v2.42.0** — **The floating was the easing, and only a moving ride could show it.**
   - Easing the position toward a target that is travelling round a circle is a **first-order
     lag**, and a follower chasing a point around a circle always cuts inward — the faster the

@@ -310,6 +310,25 @@ if (hasHook) {
   check(far.length === 0, 'the board is touching whatever it is riding',
         `worst ${Math.max(...contact.map(c => c.toSurface)).toFixed(2)} m from any surface`);
 
+  // A skateboarder in a full pipe stands on his board with the board against the wall and
+  // his head toward the middle. The sign of the bank was inverted, which put his head on the
+  // wall and the board on the inside of him — measured off the rig's real world quaternion,
+  // his up ran between -0.23 and +0.09 against the inward direction, i.e. anywhere but at
+  // the axis. Taken from the transform, not from the Euler angles meant to produce it.
+  const upright = await page.evaluate(async () => {
+    const out = [];
+    for (let i = 0; i < 6; i++) {
+      window.__surf.setTubeAngle(2.0 + i * 0.55);
+      await new Promise(r => setTimeout(r, 1600));
+      const u = window.__surf.riderUp();
+      if (u.onLip) out.push(u.dot);
+    }
+    return out;
+  });
+  check(upright.length > 0 && Math.min(...upright) > 0.9,
+        'the rider stands on his board against the wall, not on the wall himself',
+        `worst up·inward ${upright.length ? Math.min(...upright).toFixed(3) : 'n/a'} over ${upright.length} samples`);
+
   // A whole turn pays, and the ride survives it.
   const looped = await page.evaluate(async () => {
     const s0 = window.__surf.state();

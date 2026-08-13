@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.42.0';
+const VERSION='2.43.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -8098,6 +8098,15 @@ if(location.hash.includes('debug')){
                 swPh,swT,swA,swX,swS,swRide,swCurlA,swClose,
                 swAng,swLoops,swTubeRide,swOnLip,ring:swTubeGeom(),
                 curlVisible:curl.visible,roofY:swRoofY(),tubeC:swTubeC()}),
+    // Where the rider's own up actually points, taken from the rig's world matrix rather
+    // than from the Euler angles that were supposed to produce it. In a pipe it must point
+    // at the axis: 1 is upright on the wall, -1 is standing on the outside of it.
+    riderUp(){
+      const up=new THREE.Vector3(0,1,0).applyQuaternion(rig.getWorldQuaternion(new THREE.Quaternion()));
+      const inX=-swS*Math.sin(swAng), inY=Math.cos(swAng);
+      return {dot:+(up.x*inX+up.y*inY).toFixed(3), upX:+up.x.toFixed(3), upY:+up.y.toFixed(3),
+              inX:+inX.toFixed(3), inY:+inY.toFixed(3), onLip:swOnLip, ang:+swAng.toFixed(2)};
+    },
     // The ring's own numbers at this instant, so a failure can be attributed to a component
     // instead of guessed at: where the axis is, what radius the rider is at, and what radius
     // the lip mesh actually sits at for the same z and angle.
@@ -9309,9 +9318,16 @@ function update(dt){
   // Travel on the ring is around the tube as well as down the line, so the board turns into
   // the direction it is actually going rather than sitting square to the lane.
   const yawT=swTubeRide?Math.max(-0.55,Math.min(0.55,-swS*swAngV*0.26)):-carve*0.30;
-  // Banked to the wall only while he is ON the wall. Out in the mouth he is on open water
-  // again, so the roll comes off and the hull lies on the surface like anywhere else.
-  const leanT=(swTubeRide&&swOnLip) ? -swS*swAng - carve*0.22
+  // Banked to the wall, the way a skateboarder stands in a full pipe: the BOARD is against
+  // the wall and the rider stands on it with his head toward the middle of the pipe. What it
+  // was doing was the exact opposite — the sign here was inverted, so his up pointed OUT of
+  // the tube and the board ended up on the inside of him, toward the axis. Checked against
+  // the rig's actual world transform rather than by eye: rider-up dotted with the inward
+  // direction was running between -0.23 and +0.09, i.e. anywhere but at the axis.
+  //
+  // A roll of phi about +z carries local up to (-sin phi, cos phi), and inward is
+  // (-swS*sin th, cos th), so phi is swS*th. Not minus.
+  const leanT=(swTubeRide&&swOnLip) ? swS*swAng - carve*0.22
                          : -carve*0.55 + (airborne?0:hullRoll*1.20);
   const faceSlope=hT-hN;                     // downhill when the tail is higher
   // Ride fore and aft rather than sitting on one spot. Leaning drives him up the
@@ -9359,7 +9375,12 @@ function update(dt){
     wobYaw =Math.sin(wobT*1.71+1.1)*0.032*k;
     vx+=Math.sin(wobT*1.45)*k*2.1*dt;
   } else { wobRoll=0; wobYaw=0; }
-  boardLean+=(leanT-boardLean)*Math.min(1,dt*8.5);
+  // On the wall the bank is not a response, it is where he IS: the same angle that places
+  // him on the ring. Damping it lags the bank behind the position exactly the way damping
+  // the position lagged it behind the ring — measured, up-against-inward fell from 1.00 to
+  // 0.61 while turning. Applied straight, like the angle itself.
+  if(swTubeRide&&swOnLip)boardLean=leanT;
+  else boardLean+=(leanT-boardLean)*Math.min(1,dt*8.5);
   boardPitch+=(pitchT-boardPitch)*Math.min(1,dt*13);
   const grabRoll = grab ? grabSide*0.30 : 0;   // board tips toward the rail he's holding
   if(heliPh<0&&!heliAir)heliIncline=ease(heliIncline,0,dt,4);
