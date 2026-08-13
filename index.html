@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.44.0';
+const VERSION='2.45.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -7837,6 +7837,10 @@ let swCurlA=0, swCam=0, swClose=0, swDebT=0, swSweep=0, swNext=30+Math.random()*
 let swAng=0, swAngV=0, swLoops=0, swHoldX=0, swTubeRide=false;
 let swCamLock=null;                     // the fixed shot held while he is on the ring
 let swRad=NaN;                          // smoothed distance from the tube's axis
+// Counted rather than inferred. A test watching the score for a bounce also catches the
+// barrel paying out 240 a second, which is how "flying over it does nothing" came back a
+// pass when it was still throwing him.
+let jellyHits=0;
 let swOnLip=false;                      // is he on the thrown lip, or out in the open mouth?
 // Set by the play-icon button only: it lets the countdown run before 600 m, so a wave can
 // be summoned from a standing start. One shot — startSetWave() clears it, so the run goes
@@ -8109,6 +8113,7 @@ if(location.hash.includes('debug')){
     state:()=>({dist,speed,score,running,wipe:!!wipe,airborne,px,py,pz,
                 swPh,swT,swA,swX,swS,swRide,swCurlA,swClose,
                 swAng,swLoops,swTubeRide,swOnLip,ring:swTubeGeom(),
+                jellyHits,
                 curlVisible:curl.visible,roofY:swRoofY(),tubeC:swTubeC()}),
     // Where the rider's own up actually points, taken from the rig's world matrix rather
     // than from the Euler angles that were supposed to produce it. In a pipe it must point
@@ -8139,6 +8144,10 @@ if(location.hash.includes('debug')){
               rRider:+rRider.toFixed(2),rMesh:+rMesh.toFixed(2),toMesh:+near.toFixed(2),
               pz:+pz.toFixed(2),ang:+swAng.toFixed(2),onLip:swOnLip};
     },
+    // Put an obstacle exactly where a test wants it, and place the rider at a chosen height
+    // over it — the only way to ask "does flying over this thing still set it off?"
+    spawn(kind,dx,dz){ const o=makeObstacle(kind,px+dx,pz+dz); return {x:o.position.x,y:o.position.y,z:o.position.z,h:o.userData.h}; },
+    setRiderY(y){ py=y; vy=0; airborne=true; return py; },
     // Drive the ring directly, so a test can put him anywhere round the tube — including
     // upside down in the roof — without steering him there in real time.
     setTubeAngle(a){ swAng=a; swAngV=0; return swAng; },
@@ -9554,14 +9563,24 @@ function update(dt){
     if(contact){
       if(o.userData.ramp){
         /* handled as a surface above, not as something to hit */
-      } else if(o.userData.kind==='jelly'){
+      } else if(o.userData.kind==='jelly'&&py<o.position.y+o.userData.h+0.35){
+        // You have to actually reach it. `contact` above is a footprint on the water — x and
+        // z only — and every other obstacle here pays for that with a height test of its own
+        // (py<waterY+h). The jellyfish never had one, so its footprint alone fired: pass six
+        // metres over the top of one at the peak of a jump and it still threw you, a bounce
+        // arriving out of clear air. The gate is its own top plus a board's thickness, so
+        // landing ON it still counts and flying over it no longer does.
+        //
+        // It sits above the generic obstacle gate below (waterY+h), so a jelly that is out of
+        // reach here cannot fall through and be treated as something lethal instead.
+        //
         // A jellyfish never ends a run. Hit it however you like and the bell throws
         // you off it — hard from above, more of a shove if you clip it on the water.
         const over=airborne&&py>o.position.y+0.10;
         vy=over?Math.max(12.5,-vy*0.85+9.0):Math.max(9.0,vy+8.0);
         airborne=true;
         py=Math.max(py,o.position.y+0.9);
-        score+=60;boost=Math.min(16,boost+3);
+        score+=60;boost=Math.min(16,boost+3);jellyHits++;
         msg('JELLY BOUNCE! +60');
         shake=over?0.7:1.0;
         splash(o.position.x,o.position.y+0.5,o.position.z,over?14:20);

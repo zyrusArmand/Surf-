@@ -52,6 +52,18 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.45.0** — **You have to actually reach the jellyfish now.** The obstacle test is a
+  footprint on the water — x and z only — and every other obstacle pays for that with a height
+  gate of its own (`py < waterY + h`). The jellyfish never had one, so its footprint alone
+  fired: pass metres above one at the top of a jump and it still threw you, a bounce arriving
+  out of clear air. It is gated on its own top plus a board's thickness, so landing ON it still
+  counts and flying over it no longer does. Measured over a spawned jelly: **1 m over it
+  bounces, 4 m and 8 m pass clean**, where before every height bounced.
+  - The gate deliberately sits above the generic obstacle gate below it, so a jellyfish out of
+    reach cannot fall through the chain and be treated as something lethal instead.
+  - The first version of the test watched the score for the bounce's +60 and passed a broken
+    build, because it ran while a barrel was paying out 240 a second. Bounces are counted now
+    rather than inferred from a number that has other contributors.
 - **v2.44.0** — **The barrel's inside goes glassy, and the camera stops sliding sideways.**
   - **Chop no longer rolls through the tube.** A swell running through the barrel was picking
     the rider off the wall and throwing him at the roof, which is the crash that had nothing to

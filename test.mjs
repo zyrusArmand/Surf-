@@ -386,6 +386,39 @@ if (hasHook) {
         `pocket at ${formed.pocket.toFixed(2)}, rider at ${formed.px.toFixed(2)}`);
 }
 
+// ---------- you have to actually reach the jellyfish ----------
+// The obstacle test upstream is a footprint on the water, x and z only. Every other obstacle
+// pays for that with its own height gate; the jelly had none, so passing metres above one
+// still threw you — a bounce out of clear air at the top of a jump.
+{
+  const heights = await page.evaluate(async () => {
+    const out = [];
+    // any set wave still running would keep the ring physics in charge of py
+    window.__surf.warpSetWave('EXIT');
+    await new Promise(r => setTimeout(r, 3000));
+    for (const h of [1.0, 4.0, 8.0]) {
+      const s0 = window.__surf.state();
+      const j = window.__surf.spawn('jelly', 0, -26);
+      let bounced = false;
+      for (let i = 0; i < 70; i++) {
+        window.__surf.setRiderY(j.y + h);
+        await new Promise(r => setTimeout(r, 45));
+        const s = window.__surf.state();
+        if (s.jellyHits > s0.jellyHits) { bounced = true; break; }   // counted, not inferred
+        if (s.wipe) break;
+      }
+      out.push({ h, bounced });
+    }
+    return out;
+  });
+  const low = heights.find(r => r.h === 1.0), mid = heights.find(r => r.h === 4.0),
+        high = heights.find(r => r.h === 8.0);
+  check(low?.bounced === true, 'a jellyfish you actually touch still bounces you',
+        `at 1 m over it: ${low?.bounced ? 'bounced' : 'nothing'}`);
+  check(mid?.bounced === false && high?.bounced === false,
+        'and one you fly over does not', `4 m: ${mid?.bounced ? 'BOUNCED' : 'clean'}, 8 m: ${high?.bounced ? 'BOUNCED' : 'clean'}`);
+}
+
 // ---------- the two copies of the wave ----------
 // The set wave lives twice: setWaveH() in JS, which the board rides, and the matching
 // block in the ocean's GLSL vertex shader, which is what you see. They are separate code
