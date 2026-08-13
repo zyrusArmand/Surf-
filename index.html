@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.60.0';
+const VERSION='2.61.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -8295,7 +8295,7 @@ const swSplash=new THREE.Group(); swSplash.visible=false; scene.add(swSplash);
 function startSetWave(){
   swPh=SWP.FLY; swT=0; swTest=false;      // a summoned wave is a one-off, not a mode
   swS=Math.random()<0.5?1:-1;                    // which side it comes down on
-  swRideMax=6+Math.random()*10;                  // six to sixteen seconds of tube
+  swRideMax=10+Math.random()*8;                  // ten to eighteen seconds of FORMED tube
   swRide=0; swPts=0; swDeep=0; swSweep=0; swCurlA=0; swDebT=1.2;
   swA=0; swX=swS*SW_CRASH_X;
   if(hanging)releaseRope(false);
@@ -8424,8 +8424,15 @@ function updateSetWave(dt,eff){
     // turning and it waits. 0.7 rad/s is a full loop in nine seconds — a drift will not
     // hold the wave open, a ride will.
     const circling = Math.abs(swAngV) > 0.7;
-    if(!circling) swRide+=dt;
-    else swOver+=dt;
+    // The clock waits for the barrel to exist. swRideMax was tuned when the tube arrived
+    // already formed; once v2.54 made it FORM during this phase — four seconds at 0.26/s —
+    // formation was quietly eating most of a 6-16 s window, and on a short draw the tube
+    // finished forming and closed out two seconds later. From the player's side: "the wave
+    // shows up and goes, then another one shows up" — a parade of waves none of which stays
+    // long enough to be ridden. The clock now measures FORMED barrel, which is what it was
+    // always meant to be counting.
+    if(!circling && swForm>=0.95) swRide+=dt;
+    else if(circling) swOver+=dt;
     const c=swTubeC();
     // Where you are across the tube. Positive is deeper, up the face toward the curtain;
     // negative is out toward the shoulder and the daylight.

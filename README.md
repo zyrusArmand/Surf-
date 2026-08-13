@@ -52,6 +52,16 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.61.0** — **The wave stays.** "The wave shows up and goes, then another one shows up" —
+  measured, that was real and structural: the ride window (`swRideMax`, 6–16 s) was tuned when
+  the barrel arrived already formed, and v2.54 made it *form* during the ride phase — four
+  seconds at 0.26/s. Formation was quietly eating most of the window, so on a short draw the
+  tube finished forming and closed out **two seconds later**, re-armed, and sent the next wave
+  45–75 s on: a parade of barrels none of which stayed long enough to ride. The spit clock now
+  waits for the barrel to exist (`swForm ≥ 0.95`) and the window is 10–18 s of *formed* tube —
+  and circling still stops the clock entirely, so going round and round holds the wave open as
+  long as you keep turning.
+
 - **v2.60.0** — **The whole interior churns.** The user composited the 360-degree reference
   photo into the game frame, which settled what "like this" means: the entire inside of the
   barrel is textured whitewater — roof included — not glass with foam at the crash foot. The

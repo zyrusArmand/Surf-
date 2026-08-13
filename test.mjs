@@ -1009,6 +1009,33 @@ if (hasHook) {
         `${spray.off.toFixed(1)} m out from the crest, y ${spray.y.toFixed(2)}`);
 }
 
+// ---------- forming does not count against the ride ----------
+// swRideMax was tuned when the barrel arrived finished; once it started FORMING during the
+// ride phase, the ~4 s of formation quietly ate most of a 6-16 s window and short draws
+// closed out two seconds after the tube finished forming — "the wave shows up and goes,
+// then another one shows up". The spit clock must not run until the barrel exists.
+{
+  const clock = await page.evaluate(async () => {
+    window.__surf.restart(); window.__surf.invuln(true); window.__surf.tick(1);
+    window.__surf.armSetWave(); window.__surf.warpSetWave('SWELL', 4.6);
+    let during = null;
+    for (let i = 0; i < 80; i++) { window.__surf.tick(0.5);
+      const s = window.__surf.state();
+      if (during === null && s.swTubeRide && (s.swForm ?? 0) > 0.5 && (s.swForm ?? 0) < 0.9)
+        during = s.swRide;
+      if ((s.swForm ?? 0) >= 0.97) break; }
+    window.__surf.tick(2);                       // formed and parked: now it may run
+    const after = window.__surf.state();
+    return { during, after: after.swRide, max: after.swRideMax };
+  });
+  check(clock.during !== null && clock.during < 0.2,
+        'the spit clock waits for the barrel to form',
+        `${clock.during === null ? 'never sampled mid-formation' : clock.during.toFixed(2) + ' s on the clock at mid-formation'}`);
+  check(clock.after > 1 && clock.max >= 10,
+        'and runs once it has formed, against a window worth having',
+        `${clock.after.toFixed(1)} s after 2 s parked, window ${clock.max.toFixed(1)} s`);
+}
+
 // ---------- the ruler reads the same water the game draws ----------
 // sampleWave is what every "how far off the surface is he" check in this file measures
 // against, and it was sampling at tNow while the ocean is drawn from waveClock — a clock that
