@@ -52,6 +52,18 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.71.0** — **The foam becomes whipped cream.** The user supplied three stylised
+  references — rounded cauliflower puffs, bright white tops, soft blue-grey crevices, crisp
+  round silhouettes — and a mesh can't be that from every angle: three attempts rendered as
+  shards, exposed polygons, or intersection creases, each a different failure of the same
+  idea. The bank is **camera-facing puff sprites** now, the classic stylised-cloud
+  technique: round by construction, fake-sphere shaded per puff, slightly irregular
+  hand-drawn rims, each breathing on its own beat. Placement keeps the v2.69 circle logic
+  but the arc **stops at the foot corner** — run through the circle's bottom, the puffs sat
+  in the trough and the rider vanished into them with only his ears out; in every reference
+  the surfer's own water is clear. Puffs also melt as they near the lens, so a close one is
+  never a white screen.
+
 - **v2.70.0** — **The foam stops being shards.** The phone showed the bank as jagged white
   triangles, and there were three separate causes, each invisible at the test rig's blurry
   3 fps: **per-vertex random lumps** (adjacent ring vertices with wildly different radii make

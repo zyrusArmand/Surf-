@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.70.0';
+const VERSION='2.71.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1648,136 +1648,99 @@ curl.visible=false; curl.renderOrder=3; scene.add(curl);
 // closeout, so the bank grows out of nothing as the lip starts to land, swings with the
 // throw, and collapses with the section — with no per-frame geometry work at all.
 function buildFoamGeom(){
-  // "Should create a perfect circle once the foam clouds are there." That is the spec, and
-  // it is better than any amount of foam-where-it-looks-nice: the barrel's cross-section IS
-  // a circle wherever there is water — face, roof, falling curtain — and the one segment
-  // that breaks the O is the open sector between the curtain's tip and the flat. The bank
-  // is that missing arc. The lip's arc lives on a circle of radius rad centred at local
-  // (sin(SW_ALPHA), -cos(SW_ALPHA))·rad — buildCurlGeom's own construction — so the lobes
-  // are simply placed ON that circle, from the tip round the bottom, and the tube closes
-  // into the full ring the rider is already riding.
-  const NZ=96, NA=22, M=6, Z0=-124, Z1=34;
+  // PUFF SPRITES, not mesh. Three attempts at a mesh bank are recorded in the history:
+  // noise-lumped tubes rendered as shards, smoothed tubes with a crisp rim exposed their
+  // polygons, and near-opaque overlapping strips drew their own intersection creases as
+  // icy ridges. The reference images are rounded cream-puffs from EVERY angle — which is
+  // precisely what a camera-facing sprite with fake sphere shading is: round by
+  // construction, soft-edged in the fragment, no silhouette to expose and no intersections
+  // to crease. The classic stylised-cloud technique, and the right one.
+  //
+  // Placement is unchanged: on the tube's own cross-section circle, filling the open
+  // sector from the curtain's tip round the bottom, climbing as the section nears the
+  // break so the O closes beside the rider and the far mouth stays open.
+  const M=5, NZ=110, Z0=-124, Z1=34;
   const sa=Math.sin(SW_ALPHA), ca=Math.cos(SW_ALPHA);
   const h=(a,b)=>{ const x=Math.sin(a*127.1+b*311.7)*43758.5453; return x-Math.floor(x); };
-  const pos=[],nrm=[],rr=[],idx=[];
-  for(let k=0;k<M;k++){
-    const base=pos.length/3;
-    // Starting a little way down the gap: a strip at the tip itself lies embedded in the
-    // curtain, and every lobe that pokes through the water gets clipped along the
-    // triangles of whichever surface wins the depth test — a row of hard white sails
-    // leaning up the boot, which is exactly what the phone showed.
-    const tt=0.16+0.84*k/(M-1);
-    for(let i=0;i<=NZ;i++){
-      const zt=i/NZ, z=Z0+(Z1-Z0)*zt;
-      const pa=swPeelA(z), pb=swPeelB(z);
-      const rad=SW_R*(0.16+0.84*pa)*(1-0.55*pb);
-      const swp=SW_SWEEP*(0.30+0.70*pa);
-      const fold=1-0.38*pb;
-      const drop=-SW_PEAK*0.55*pb/Math.max(0.05,fold);
-      // the open sector: from just past the curtain's tip (th=swp) round the circle's
-      // bottom (th=SW_ALPHA+PI) and a shade beyond, into the corner where flat meets face
-      const thB=SW_ALPHA+Math.PI+0.25;
-      const th=swp+(thB-swp)*tt+Math.sin(z*0.24+k*2.1)*0.05;   // drifted off the rope grid, smoothly
+  const pos=[],asz=[],asd=[];
+  for(let i=0;i<=NZ;i++){                       // far first, so blending runs back-to-front
+    const zt=i/NZ, z=Z0+(Z1-Z0)*zt;
+    const pa=swPeelA(z), pb=swPeelB(z);
+    const rad=SW_R*(0.16+0.84*pa)*(1-0.55*pb);
+    const swp=SW_SWEEP*(0.30+0.70*pa);
+    const fold=1-0.38*pb;
+    const drop=-SW_PEAK*0.55*pb/Math.max(0.05,fold);
+    // The arc STOPS at the foot corner. Run all the way round the circle's bottom and the
+    // puffs sit in the trough — which is the rider's own lane, and he vanished into them
+    // with only his ears out. In every reference the foam hugs the curl and the base of
+    // the wall; the water the surfer rides is clear.
+    const thB=SW_ALPHA+Math.PI*0.80;
+    const gate=Math.min(1,Math.max(0,(pa-0.22)/0.30));
+    // The O closes just BEHIND the rider (his trim is around z=-7), not on top of him:
+    // at his z the foam is most of the way up the wall side, and the ring completes in
+    // the couple of metres between him and the camera — so it frames him instead of
+    // burying him.
+    const cu=Math.min(1,Math.max(0,(z+18)/20)), climb=cu*cu*(3-2*cu);
+    for(let k=0;k<M;k++){
+      const tt=0.16+0.84*k/(M-1);
+      const keep=Math.min(1,Math.max(0,(tt-(1-climb-0.20))/0.25));
+      const R0=rad*(0.16+0.20*pa)*(1+1.0*pb)*gate*keep*(0.55+0.45*Math.sin(Math.PI*tt));
+      if(R0<0.30)continue;
+      const th=swp+(thB-swp)*tt;
       const pp=SW_ALPHA-th;
       let cf=(sa-Math.sin(pp))*rad, cy=(Math.cos(pp)-ca)*rad;
-      const gate=Math.min(1,Math.max(0,(pa-0.22)/0.30));
-      // How far up the gap the foam climbs depends on WHERE ALONG THE TUBE you are. The
-      // first cut completed the circle at every z — which walls off the line of sight to
-      // the mouth, because the open sector at mid-distance IS the hole you look through.
-      // The reference completes the O near the camera and leaves the far mouth open: down
-      // the line the foam only hugs the corner where flat meets face, and it climbs the
-      // gap as the section approaches the break, closing the full circle beside and behind
-      // the rider.
-      const cu=Math.min(1,Math.max(0,(z+26)/26)), climb=cu*cu*(3-2*cu);
-      const keep=Math.min(1,Math.max(0,(tt-(1-climb-0.20))/0.25));
-      // fullest through the middle of the gap, tapering toward the tip it hangs from and
-      // the trough it lands in; swelling through the broken section behind the break
-      const R0=rad*(0.16+0.20*pa)*(1+1.0*pb)*gate*keep*(0.55+0.45*Math.sin(Math.PI*tt));
-      // And pulled a little way in off the circle toward the tube's middle, so the cloud
-      // sits IN FRONT of the water instead of interpenetrating it — intersection with the
-      // wall is what turns soft lobes into clipped shards.
-      {
-        const dx=sa*rad-cf, dy=-ca*rad-cy, L=Math.hypot(dx,dy)||1;
-        cf+=dx/L*R0*0.50; cy+=dy/L*R0*0.50;
-      }
-      // Lumps as SMOOTH low-order waves around the ring, never noise per vertex. The
-      // first version hashed every vertex independently, and adjacent ring vertices with
-      // wildly different radii make a spiky star — on a phone, at full frame rate, the
-      // whole bank rendered as jagged triangular shards. A cloud's silhouette is round:
-      // two low harmonics with phases that drift smoothly along the tube give billowy
-      // blobs with not a single hard vertex anywhere.
-      const ph1=h(k,1)*6.283+z*0.11, ph2=h(k,2)*6.283-z*0.07;
-      for(let j=0;j<=NA;j++){
-        const thr=j/NA*Math.PI*2;
-        const lump=0.80+0.16*Math.sin(thr*2+ph1)+0.10*Math.sin(thr*3+ph2);
-        const r=Math.max(0.03,R0*lump);
-        const nx=Math.cos(thr), ny=Math.sin(thr);
-        pos.push(cf+nx*r, cy+ny*r*0.62+drop, z);
-        nrm.push(nx,ny*0.62,0);
-        rr.push(r);
-      }
-    }
-    for(let i=0;i<NZ;i++)for(let j=0;j<NA;j++){
-      const a2=base+i*(NA+1)+j, b2=a2+NA+1;
-      idx.push(a2,b2,a2+1, a2+1,b2,b2+1);
+      const dx=sa*rad-cf, dy=-ca*rad-cy, L=Math.hypot(dx,dy)||1;
+      cf+=dx/L*R0*0.45; cy+=dy/L*R0*0.45;
+      pos.push(cf+(h(i,k)-0.5)*R0*0.8, cy+drop+(h(k,i)-0.5)*R0*0.5, z+(h(i*3,k*5)-0.5)*1.2);
+      asz.push(R0*(1.15+0.55*h(i*1.3,k*2.7)));
+      asd.push(h(i*7.1,k*9.3));
     }
   }
   const g=new THREE.BufferGeometry();
   g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
-  g.setAttribute('normal',new THREE.Float32BufferAttribute(nrm,3));
-  g.setAttribute('aR',new THREE.Float32BufferAttribute(rr,1));
-  g.setIndex(idx); g.computeVertexNormals();
+  g.setAttribute('aSize',new THREE.Float32BufferAttribute(asz,1));
+  g.setAttribute('aSeed',new THREE.Float32BufferAttribute(asd,1));
   return g;
 }
-const foamUniforms={ uT:{value:0}, uFade:{value:0}, uCut:{value:0}, uLight:{value:1} };
-const foamBank=new THREE.Mesh(buildFoamGeom(), new THREE.ShaderMaterial({
-  uniforms:foamUniforms, transparent:true, depthWrite:true,
+const foamUniforms={ uT:{value:0}, uFade:{value:0}, uCut:{value:0}, uLight:{value:1},
+                     uPx:{value:400} };
+const foamBank=new THREE.Points(buildFoamGeom(), new THREE.ShaderMaterial({
+  uniforms:foamUniforms, transparent:true, depthWrite:false,
   vertexShader:`
-    uniform float uT;
-    attribute float aR;
-    varying vec3 vN; varying vec3 vW; varying float vR;
+    uniform float uT; uniform float uPx;
+    attribute float aSize; attribute float aSeed;
+    varying float vSeed; varying float vD;
     void main(){
-      vR=aR;
-      // the billow: the whole surface breathes on two slow waves, scaled by each vertex's
-      // own lump radius so big lobes heave and small ones tremble
-      float b=sin(position.z*0.9+uT*1.7+position.x*1.3)*0.55
-             +sin(position.y*1.4-uT*1.15+position.z*0.31)*0.45;
-      vec3 disp=position+normal*b*aR*0.14;
-      vec4 wp=modelMatrix*vec4(disp,1.0);
-      vW=wp.xyz;
-      vN=normalize(mat3(modelMatrix)*normal);
-      gl_Position=projectionMatrix*viewMatrix*wp;
+      vSeed=aSeed;
+      vec4 mv=modelViewMatrix*vec4(position,1.0);
+      vD=length(mv.xyz);
+      // each puff breathes on its own beat — the whole bank works like slow boiling
+      float b=1.0+0.09*sin(uT*1.5+aSeed*39.0);
+      gl_PointSize=aSize*b*uPx/max(1.0,-mv.z);
+      gl_Position=projectionMatrix*mv;
     }
   `,
   fragmentShader:`
     uniform float uT; uniform float uFade; uniform float uCut; uniform float uLight;
-    varying vec3 vN; varying vec3 vW; varying float vR;
-    float hash21(vec2 p){ p=fract(p*vec2(123.34,345.45)); p+=dot(p,p+34.345); return fract(p.x*p.y); }
-    float vnoise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
-      float a=hash21(i), b=hash21(i+vec2(1.0,0.0));
-      float c=hash21(i+vec2(0.0,1.0)), d=hash21(i+vec2(1.0,1.0));
-      return mix(mix(a,b,f.x),mix(c,d,f.x),f.y); }
+    varying float vSeed; varying float vD;
     void main(){
-      vec3 N=normalize(vN);
-      vec3 V=normalize(cameraPosition-vW);
-      if(dot(N,V)<0.0)N=-N;
-      // aerated white: brighter on top, mottled by drifting noise, never pure flat
-      float mot=vnoise(vec2(vW.x*0.55+uT*0.35, vW.z*0.55-uT*0.22))*0.5
-               +vnoise(vec2(vW.z*1.30+uT*0.50, vW.y*1.10))*0.5;
-      vec3 col=mix(vec3(0.78,0.86,0.92), vec3(0.97,0.99,1.00), 0.35+0.65*clamp(N.y*0.5+0.5,0.0,1.0));
-      col=mix(col, vec3(1.0), mot*0.30);
-      // A cloud is OPAQUE through its body and soft only at the very rim — and the rim
-      // must be eaten by NOISE, not cut along the mesh. With a clean geometric rim every
-      // silhouette is a chain of straight polygon edges, and on a phone at full sharpness
-      // the bank read as angular white shards however round the rings were. Perturbing the
-      // rim threshold with the drifting mottle dissolves the boundary into an irregular
-      // cloudy edge that never traces the geometry.
-      float face=max(dot(N,V),0.0);
-      float rim=face+(mot-0.5)*0.55;
-      float a=uFade*0.94*smoothstep(0.05,0.42,rim)*(0.88+0.12*mot);
-      // the same fixed clearance the curl keeps in front of the lens
-      float dcam=length(cameraPosition-vW);
-      a*=1.0-(1.0-smoothstep(1.30,3.10,dcam))*uCut;
+      vec2 q=gl_PointCoord*2.0-1.0;
+      float d=length(q);
+      // a slightly irregular rim — two low harmonics round the disc, never noise —
+      // keeps the puff hand-drawn rather than compass-drawn
+      float at=atan(q.y,q.x);
+      float edge=0.84+0.10*sin(at*3.0+vSeed*40.0)+0.06*sin(at*5.0-vSeed*23.0);
+      if(d>edge)discard;
+      float dn=d/edge;
+      // fake sphere: bright dome up top, blue-grey shadow tucked under — the whipped-cream
+      // shading of the reference images, done per sprite
+      float shade=sqrt(max(0.0,1.0-dn*dn));
+      float lit=clamp(0.42+0.50*shade-0.34*q.y,0.0,1.0);
+      vec3 col=mix(vec3(0.70,0.79,0.90),vec3(1.0),lit);
+      float a=uFade*0.94*smoothstep(1.0,0.72,dn);
+      // puffs melt as they reach the lens — a giant near sprite is a white screen
+      a*=smoothstep(2.2,5.5,vD);
+      a*=1.0-(1.0-smoothstep(1.30,3.10,vD))*uCut;
       col=pow(clamp(col,0.0,1.0),vec3(2.2));
       gl_FragColor=vec4(col*uLight,clamp(a,0.0,1.0));
     }
@@ -8977,6 +8940,7 @@ function placeCurl(dt){
   foamUniforms.uFade.value=curlUniforms.uFade.value*_lf*_lf*(3-2*_lf);
   foamUniforms.uLight.value=curlUniforms.uLight.value;
   foamUniforms.uCut.value=curlUniforms.uCut.value;
+  foamUniforms.uPx.value=renderer.domElement.height*0.5*camera.projectionMatrix.elements[5];
   // Spray off the impact line. Small on purpose: the reference for this is texture, not a
   // plume — a phone GPU pays per particle, and a white cloud at the mouth would bury the
   // brightest, most readable part of the shot. The pool caps it absolutely (takeDrop
