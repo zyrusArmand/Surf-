@@ -52,6 +52,24 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.63.0** — **Frozen from the first barrel frame, no escaping, and the crash corner is a
+  mass.**
+  - **The camera no longer moves in the barrel at all — the centred view arrives before it.**
+    v2.62 eased the locked aim onto the tube's axis while the barrel formed, and it was
+    reported as the camera moving: it was — motion inside the barrel, where all motion is
+    banned. The settle now rides on the *chase* camera, which is live and already tilting
+    with the wave's rise, and it aims at where the axis *will be* at full form (predicted,
+    not current, so the lock never inherits a moving target). The lock captures that
+    finished pose: measured drift from the first locked frame, **0.0000**, aim included.
+  - **You cannot steer out of the barrel.** The ring only ever cared about the bore's radius,
+    not where the rider was — so before it engaged, the lane steering could carry him out
+    through the mouth. A daylight-side tether now holds him in the bore from the moment the
+    curl is up. Verified by steering hard away for the entire approach: still in the tube,
+    1.5 m off the axis.
+  - **The crash corner is as thick as the red circle.** Cloud over most of the fall at 0.78,
+    churn over most of it at 0.97, the sea's apron wider (19 m reach) and denser, spray a
+    third again heavier — a mass of white with glimpses of blue, not blue with white on it.
+
 - **v2.62.0** — **The barrel view looks down the tube, mouth centred.** The user's composite
   said exactly what the shot should be, and it was geometrically impossible with the old aim:
   the ride camera's look-at converges on the sea far ahead, and from inside a tube that ray

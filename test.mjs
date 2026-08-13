@@ -1046,6 +1046,36 @@ if (hasHook) {
         `${clock.after.toFixed(1)} s after 2 s parked, window ${clock.max.toFixed(1)} s`);
 }
 
+// ---------- the barrel does not let go, and the shot is frozen from its first frame ----------
+// Steering hard away from the wave for the whole approach is the escape attempt: before the
+// ring engages, the lane steering could carry him out through the mouth and leave him
+// watching his own barrel from the flat. A daylight-side tether holds him in the bore. And
+// the centred aim now arrives on the CHASE camera before the lock — so from the first frame
+// the barrel owns the shot, nothing moves, aim included.
+{
+  const esc = await page.evaluate(async () => {
+    window.__surf.restart(); window.__surf.invuln(true); window.__surf.tick(1);
+    window.__surf.armSetWave(); window.__surf.warpSetWave('SWELL', 4.6);
+    window.__surf.setSteer(-window.__surf.state().swS * 0.95);
+    let camAtLock = null;
+    for (let i = 0; i < 200; i++) { window.__surf.tick(0.1);
+      const s = window.__surf.state();
+      if (camAtLock === null && s.swTubeRide) camAtLock = window.__surf.cam();
+      if (s.swTubeRide && (s.swForm ?? 0) > 0.99) break; }
+    window.__surf.setSteer(0);
+    window.__surf.tick(2);
+    const c2 = window.__surf.cam(), st = window.__surf.state();
+    const drift = camAtLock ? Math.max(...['x','y','z','dx','dy','dz'].map(k => Math.abs(camAtLock[k] - c2[k]))) : 1e9;
+    return { inTube: st.swTubeRide, off: Math.abs(st.px - st.ring.cx), r: st.ring.r, drift };
+  });
+  check(esc.inTube && esc.off < esc.r + 1.5,
+        'steering away for the whole approach still ends inside the barrel',
+        `${esc.off.toFixed(2)} m off the axis against a bore of ${esc.r.toFixed(2)} m`);
+  check(esc.drift < 0.005,
+        'and the shot is frozen from the first barrel frame, aim included',
+        `${esc.drift.toFixed(4)} of drift between the first locked frame and two seconds on`);
+}
+
 // ---------- the ruler reads the same water the game draws ----------
 // sampleWave is what every "how far off the surface is he" check in this file measures
 // against, and it was sampling at tNow while the ocean is drawn from waveClock — a clock that

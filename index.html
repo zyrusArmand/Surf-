@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.62.0';
+const VERSION='2.63.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1102,11 +1102,11 @@ const oceanMat=new THREE.ShaderMaterial({
         // it came out as a sliver a few pixels wide, because the profile is a cubic.
         // Wider than it was: in the reference the whole visible flat inside the tube is
         // churned, not a band with clean water either side of it.
-        float land = smoothstep(-16.0,-11.0,vDx)*(1.0-smoothstep(-4.0,-0.6,vDx));
+        float land = smoothstep(-19.0,-13.0,vDx)*(1.0-smoothstep(-3.0,-0.2,vDx));
         // Only under a lip that has actually thrown, and thickening into the collapse.
         land *= vPa*(0.80+0.50*vBrk);
         col = mix(col, vec3(0.93,0.97,0.99),
-                  clamp(land*(0.58+0.60*laceR+0.45*fleckR),0.0,1.0)*0.94);
+                  clamp(land*(0.72+0.55*laceR+0.40*fleckR),0.0,1.0)*0.96);
       }
       col += vec3(1.0)*pow(max(dot(N,H),0.0),480.0)*0.6;
       float fog = smoothstep(70.0,230.0,length(cameraPosition-vW));
@@ -1541,12 +1541,17 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // fall — low frequency, low contrast, the "cloudy" mass — with the crisp boiling
       // churn inside it near the foot. One layer read as paint; the cloud around it is
       // what makes the corner read as water coming apart.
+      // "As thick as the red circle": the user drew the size of the crash corner they want
+      // over a screenshot, and it covers the lower third of the curtain plus the water at
+      // its foot. So the cloud reaches almost the whole fall and the churn most of it, both
+      // near their full weight — down here it is a mass of white with glimpses of blue, not
+      // blue with white on it.
       float boil=fbm(vec2(vW.z*0.60+uT*0.85, vFall*3.2-uT*1.55));
       float cloud=fbm(vec2(vW.z*0.30+uT*0.48, vFall*1.6-uT*0.85));
-      float mist=smoothstep(0.08,0.72,vFall)*clamp(0.20+0.95*cloud,0.0,1.0);
-      col=mix(col,vec3(0.90,0.95,0.97),mist*0.60);
-      float churn=smoothstep(0.30,0.85,vFall)*clamp(0.50+0.80*boil,0.0,1.0);
-      col=mix(col,vec3(0.93,0.97,0.99),churn*0.95);
+      float mist=smoothstep(0.02,0.55,vFall)*clamp(0.32+0.95*cloud,0.0,1.0);
+      col=mix(col,vec3(0.90,0.95,0.97),mist*0.78);
+      float churn=smoothstep(0.16,0.72,vFall)*clamp(0.62+0.75*boil,0.0,1.0);
+      col=mix(col,vec3(0.93,0.97,0.99),churn*0.97);
       // Depth down the tube. An evenly lit bore is the single biggest reason it reads as a
       // tunnel: a real barrel darkens away from you and the mouth is the bright thing in it.
       // vUv.y=0 is the far end.
@@ -1573,7 +1578,7 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // below, which removes the near wall outright. An earlier read of this had the two
       // confused and blamed the alpha for the frame going flat blue.
       float a=uFade*(0.99-0.14*t);
-      a=min(1.0,a+(churn*0.22+mist*0.12)*uFade); // aerated water is not glass-thin
+      a=min(1.0,a+(churn*0.26+mist*0.20)*uFade); // aerated water is not glass-thin
       a*=smoothstep(0.0,0.30,vUv.y);             // opens out at the far end
       // Ride round to the roof and the wall between you and the camera is the near side of
       // your own barrel, so you vanish behind it — measured: at the top of the ring the
@@ -8791,7 +8796,7 @@ function placeCurl(dt){
   // brightest, most readable part of the shot. The pool caps it absolutely (takeDrop
   // returns null when spent); this rate keeps it well under that on its own.
   if(swPh===SWP.RIDE&&swForm>0.5&&swCurlA>0.6&&!curl.userData.forceHide){
-    swFootEm+=(dt||0.016)*(6+18*swForm);
+    swFootEm+=(dt||0.016)*(8+24*swForm);
     while(swFootEm>1){
       swFootEm-=1;
       // the stretch of tube on screen, and only where the lip has actually thrown —
@@ -9459,6 +9464,18 @@ function update(dt){
   swTubeRide=false; swOnLip=false;
   if(swPh===SWP.RIDE&&swCurlA>0.55){
     const G=swTubeGeom();
+    // The barrel does not let go. Before the ring engages — and the ring only cares about
+    // the bore's radius, not about where he is — the lane steering could carry him out
+    // through the mouth toward the daylight and leave him watching his own wave from the
+    // flat. "You are already in it, and you can't get out" has been the rule since the
+    // pocket started forming around the rider; this is the half of it that was missing.
+    // A tether toward the axis, daylight side only: the deep side is the face itself and
+    // the water already stops him there.
+    {
+      const lim=Math.max(2.5,G.r+0.8);
+      const dpc=(px-G.cx)*swS;                 // negative is out toward the shoulder
+      if(dpc<-lim){ px+=((G.cx-swS*lim)-px)*Math.min(1,dt*10); vx-=vx*Math.min(1,dt*8); }
+    }
     // Hysteresis, for the same reason: engage on a bore worth riding, and hold on well below
     // that. A single threshold on a radius the rider's own position can move is a switch that
     // chatters.
@@ -10426,6 +10443,24 @@ function update(dt){
   // across does not fit a lane 31 degrees wide from where the chase camera stands: he would
   // leave the side of the frame a third of the way round. Set once, at ring entry, from the
   // ring's own geometry — that is framing, not chasing.
+  //
+  // The centred barrel view arrives BEFORE the lock, not after it. v2.62 eased the locked
+  // aim onto the tube's axis while the barrel formed, and it was reported as the camera
+  // moving — of course it was: it was motion inside the barrel, which is exactly where all
+  // motion is banned. So the settle now rides on the chase camera, which is still live and
+  // already tilting with swCam while the wave stands up: over the two seconds of formation
+  // before the ring engages, the chase aim blends to where the tube's axis WILL be at full
+  // form — predicted, not current, so the lock does not inherit a target that then moves.
+  // The lock captures that finished pose, and from the first barrel frame nothing changes.
+  let aimX=lookX, aimY=waterY+1.05+swCam*1.5+airH*0.62, aimZ=-14-swCam*10;
+  if(swPh===SWP.RIDE&&!swTubeRide&&swCurlA>0.05){
+    const pa1=swPeelA(pz), pb1=swPeelB(pz);
+    const rad1=SW_R*(0.16+0.84*pa1)*(1-0.55*pb1), fold1=1-0.38*pb1;
+    const cx1=swX-swS*Math.sin(SW_ALPHA)*rad1*fold1;
+    const cy1=swA+(-Math.cos(SW_ALPHA)*rad1-SW_PEAK*0.55*pb1)*fold1;
+    const u=Math.min(1,swForm/0.45), e=u*u*(3-2*u)*(1-swClose);
+    aimX+=(cx1-aimX)*e; aimY+=(cy1-aimY)*e; aimZ+=(-64-aimZ)*e;
+  }
   if(swTubeRide){
     // Only the SIDEWAYS chase is frozen — and that is the honest limit of this, arrived at
     // by measuring four fully fixed placements that all lost the barrel:
@@ -10469,30 +10504,7 @@ function update(dt){
     // wide, so an orbit centred off the camera's own line runs off the side. That is paid
     // for by moving the RIDER down the line instead — see pzT below — which is a thing the
     // water can do without the picture moving at all.
-    if(!swCamLock)swCamLock={x:camX,y:camY,z:camZ,lx:lookX,
-                             at:waterY+1.05+swCam*1.5+airH*0.62, atZ:-14-swCam*10};
-    // The barrel view is DOWN THE TUBE, mouth centred — the user composited the reference
-    // photograph into a game frame to say exactly this. The ride camera's aim converges on
-    // the sea far ahead, and from inside a tube that puts the mouth in the top of the frame
-    // with the roof cut off; no wave placement can centre it, because the aim ray reaches
-    // sea level right where the mouth is. So the POSITION never moves — same lock as ever —
-    // and the AIM settles onto the tube's own axis while the barrel is still forming,
-    // anchored so the first locked frame is exactly the chase pose (no snap), and frozen
-    // for good the moment the lip has fully thrown. After that it is as still as before:
-    // the checks measure zero across the orbit, the spit and the crash alike.
-    if(!swCamLock.aimSet){
-      const u=Math.min(1,Math.max(0,(swForm-0.15)/0.80)), e=u*u*(3-2*u);
-      if(swCamLock.e0===undefined){
-        swCamLock.e0=Math.min(e,0.999);
-        swCamLock.lx0=swCamLock.lx; swCamLock.at0=swCamLock.at; swCamLock.atZ0=swCamLock.atZ;
-      }
-      const w=(e-swCamLock.e0)/(1-swCamLock.e0);
-      const G=swTubeGeom();
-      swCamLock.lx =swCamLock.lx0 +(G.cx-swCamLock.lx0)*w;
-      swCamLock.at =swCamLock.at0 +(G.cy-swCamLock.at0)*w;
-      swCamLock.atZ=swCamLock.atZ0+((-64)-swCamLock.atZ0)*w;
-      if(swForm>=0.99)swCamLock.aimSet=true;   // frozen from here, for the rest of the ride
-    }
+    if(!swCamLock)swCamLock={x:camX,y:camY,z:camZ,lx:aimX,at:aimY,atZ:aimZ};
     camX=swCamLock.x; lookX=swCamLock.lx; camZ=swCamLock.z;
     camY=swCamLock.y;
     // Fixed, but not fixed UNDERWATER. This runs after the clamp that keeps the camera above
@@ -10517,8 +10529,9 @@ function update(dt){
   // reasoning that a rigidly held shot looks past him once he is up in the roof — but the
   // shell is wide enough that he stays in frame anyway, and a fifth of seven metres is a
   // visible drift of the whole picture every time he goes round. "Fixed" has to mean fixed.
-  camera.lookAt(lookX, swCamLock?swCamLock.at:(waterY+1.05+swCam*1.5+airH*0.62),
-                swCamLock?swCamLock.atZ:(-14-swCam*10));
+  camera.lookAt(swCamLock?swCamLock.lx:aimX,
+                swCamLock?swCamLock.at:aimY,
+                swCamLock?swCamLock.atZ:aimZ);
   // The camera does NOT roll with the ring. A loop camera was tried and taken back out: it
   // keeps the tube wrapped around the view, but the whole shot turning over is disorienting
   // and it throws away the one stable reference — the horizon — that tells you where you are
