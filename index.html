@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.71.0';
+const VERSION='2.72.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1659,7 +1659,7 @@ function buildFoamGeom(){
   // Placement is unchanged: on the tube's own cross-section circle, filling the open
   // sector from the curtain's tip round the bottom, climbing as the section nears the
   // break so the O closes beside the rider and the far mouth stays open.
-  const M=5, NZ=110, Z0=-124, Z1=34;
+  const M=7, NZ=110, Z0=-124, Z1=34;
   const sa=Math.sin(SW_ALPHA), ca=Math.cos(SW_ALPHA);
   const h=(a,b)=>{ const x=Math.sin(a*127.1+b*311.7)*43758.5453; return x-Math.floor(x); };
   const pos=[],asz=[],asd=[];
@@ -1683,7 +1683,7 @@ function buildFoamGeom(){
     const cu=Math.min(1,Math.max(0,(z+18)/20)), climb=cu*cu*(3-2*cu);
     for(let k=0;k<M;k++){
       const tt=0.16+0.84*k/(M-1);
-      const keep=Math.min(1,Math.max(0,(tt-(1-climb-0.20))/0.25));
+      const keep=Math.min(1,Math.max(0,(tt-(1-climb-0.24))/0.30));
       const R0=rad*(0.16+0.20*pa)*(1+1.0*pb)*gate*keep*(0.55+0.45*Math.sin(Math.PI*tt));
       if(R0<0.30)continue;
       const th=swp+(thB-swp)*tt;
@@ -1691,8 +1691,11 @@ function buildFoamGeom(){
       let cf=(sa-Math.sin(pp))*rad, cy=(Math.cos(pp)-ca)*rad;
       const dx=sa*rad-cf, dy=-ca*rad-cy, L=Math.hypot(dx,dy)||1;
       cf+=dx/L*R0*0.45; cy+=dy/L*R0*0.45;
-      pos.push(cf+(h(i,k)-0.5)*R0*0.8, cy+drop+(h(k,i)-0.5)*R0*0.5, z+(h(i*3,k*5)-0.5)*1.2);
-      asz.push(R0*(1.15+0.55*h(i*1.3,k*2.7)));
+      // and the broken stretch near the rider gets the mass the user keeps pointing at:
+      // wider scatter and fuller puffs as the section breaks, so the corridor between the
+      // foot chain and the near corner fills in instead of thinning to a dotted line
+      pos.push(cf+(h(i,k)-0.5)*R0*(0.8+1.1*climb), cy+drop+(h(k,i)-0.5)*R0*0.5, z+(h(i*3,k*5)-0.5)*1.2);
+      asz.push(R0*(1.15+0.55*h(i*1.3,k*2.7))*(1+0.35*climb));
       asd.push(h(i*7.1,k*9.3));
     }
   }
@@ -1703,15 +1706,25 @@ function buildFoamGeom(){
   return g;
 }
 const foamUniforms={ uT:{value:0}, uFade:{value:0}, uCut:{value:0}, uLight:{value:1},
-                     uPx:{value:400} };
+                     uPx:{value:400}, uRider:{value:new THREE.Vector3(0,0,0)} };
 const foamBank=new THREE.Points(buildFoamGeom(), new THREE.ShaderMaterial({
   uniforms:foamUniforms, transparent:true, depthWrite:false,
   vertexShader:`
     uniform float uT; uniform float uPx;
     attribute float aSize; attribute float aSeed;
-    varying float vSeed; varying float vD;
+    varying float vSeed; varying float vD; varying float vRd;
+    uniform vec3 uRider;
     void main(){
       vSeed=aSeed;
+      vec4 wp=modelMatrix*vec4(position,1.0);
+      // Distance to the camera->rider SIGHTLINE, not to the rider: the puffs that bury him
+      // are occluders metres away from him in space, sitting on the line between him and
+      // the lens. A spherical pocket around him cleared nothing.
+      vec3 cr=uRider-cameraPosition;
+      float len=max(0.001,length(cr));
+      vec3 dir=cr/len;
+      float t=clamp(dot(wp.xyz-cameraPosition,dir),0.0,len);
+      vRd=distance(wp.xyz,cameraPosition+dir*t);
       vec4 mv=modelViewMatrix*vec4(position,1.0);
       vD=length(mv.xyz);
       // each puff breathes on its own beat — the whole bank works like slow boiling
@@ -1722,7 +1735,7 @@ const foamBank=new THREE.Points(buildFoamGeom(), new THREE.ShaderMaterial({
   `,
   fragmentShader:`
     uniform float uT; uniform float uFade; uniform float uCut; uniform float uLight;
-    varying float vSeed; varying float vD;
+    varying float vSeed; varying float vD; varying float vRd;
     void main(){
       vec2 q=gl_PointCoord*2.0-1.0;
       float d=length(q);
@@ -1740,6 +1753,10 @@ const foamBank=new THREE.Points(buildFoamGeom(), new THREE.ShaderMaterial({
       float a=uFade*0.94*smoothstep(1.0,0.72,dn);
       // puffs melt as they reach the lens — a giant near sprite is a white screen
       a*=smoothstep(2.2,5.5,vD);
+      // and they yield around the RIDER: dense foam in his corridor is the ask, but a
+      // buried character is unplayable — measured at rider NDC (0.66,-0.29), completely
+      // hidden inside the bank on one break side. A pocket of clarity travels with him.
+      a*=0.10+0.90*smoothstep(1.3,2.8,vRd);
       a*=1.0-(1.0-smoothstep(1.30,3.10,vD))*uCut;
       col=pow(clamp(col,0.0,1.0),vec3(2.2));
       gl_FragColor=vec4(col*uLight,clamp(a,0.0,1.0));
@@ -8941,6 +8958,7 @@ function placeCurl(dt){
   foamUniforms.uLight.value=curlUniforms.uLight.value;
   foamUniforms.uCut.value=curlUniforms.uCut.value;
   foamUniforms.uPx.value=renderer.domElement.height*0.5*camera.projectionMatrix.elements[5];
+  foamUniforms.uRider.value.set(px,py,pz);
   // Spray off the impact line. Small on purpose: the reference for this is texture, not a
   // plume — a phone GPU pays per particle, and a white cloud at the mouth would bury the
   // brightest, most readable part of the shot. The pool caps it absolutely (takeDrop

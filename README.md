@@ -52,6 +52,15 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.72.0** — **More foam in the broken corridor, and the rider stays visible inside it.**
+  Density boost where the user pointed: seven strips instead of five, fuller puffs and wider
+  scatter as the section breaks, so the stretch between the foot chain and the near corner
+  fills in as one mass. That immediately buried the rider on one break side (measured at NDC
+  0.66,−0.29: completely hidden), so the puffs now yield along the **camera-to-rider
+  sightline** — not a spherical pocket around him, which cleared nothing, because the
+  occluders are metres away from him sitting on the line to the lens. Foam everywhere the
+  user asked, and a corridor of clarity that travels with the character.
+
 - **v2.71.0** — **The foam becomes whipped cream.** The user supplied three stylised
   references — rounded cauliflower puffs, bright white tops, soft blue-grey crevices, crisp
   round silhouettes — and a mesh can't be that from every angle: three attempts rendered as
