@@ -52,6 +52,15 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.69.0** — **The foam completes the circle.** "Should create a perfect circle once the
+  foam clouds are there" — the best spec of the whole barrel effort. The lobes now sit ON the
+  tube's own cross-section circle (the same one the lip's arc is built on), filling the open
+  sector from the curtain's tip round the bottom. And the fill is progressive along the tube,
+  because the first cut completed the circle at every z and thereby walled off the view — the
+  open sector at mid-distance *is* the hole you look through. Down the line the foam hugs the
+  corner where flat meets face; it climbs the gap as the section approaches the break; beside
+  and behind the rider the O is closed. Strips jittered off the parallel-rope grid.
+
 - **v2.68.0** — **The foam spreads onto the floor you can actually see.** The user circled
   the flat between the rider and the near wall — and both previous spreads missed it, because
   they went *outward* past the curtain, where the mass is hidden behind the very wall it grew
