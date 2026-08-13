@@ -52,6 +52,40 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.57.0** — **The barrel fills the screen, he rides closer to the lens, and a crash falls
+  down the wave.**
+  - **The wave covers the frame again.** The near wall was cut away to *the rider's own
+    distance* — twenty-odd metres — which did not clear a wall in front of you, it deleted the
+    entire tube around the camera, roof included. What showed through the hole was sky:
+    measured in portrait, the top fifth of the screen was open air where the barrel should be,
+    and the same frame with the cut switched off is water to every edge. It is a fixed three
+    metres of clearance in front of the lens now. The comment on the old version claimed "what
+    is behind the cut is more barrel" — it wasn't, and nothing had ever looked.
+  - **He rides closer.** The trim down the line was −11.5 m, which put him twenty-seven metres
+    from the lens and reading as a speck in the mouth of the wave. Most of what that bought is
+    paid for by the cut fix — the tube stands around the camera now — so it comes back to −7.
+    The trade is real and was measured rather than guessed: a phone in portrait is a
+    31-degree horizontal keyhole, and closer makes the same orbit subtend more of it. At −7 he
+    is a third bigger and stays in frame everywhere except the far side of a full loop.
+  - **A crash off the top falls, instead of flying sideways.** Two of the three launch terms
+    were wrong for a crash on the ring: `vx` is the *lane* velocity, which the ring overwrites
+    every frame while it goes on integrating the steering underneath it — metres a second of
+    something he is not doing — and the vertical term had a floor that threw him *upward* off
+    a wall he was already twelve metres up. On top of that came a random 2–4 m/s sideways
+    kick. He now leaves the wall with the ring's own tangential motion and gravity has the
+    rest: measured off the roof, 12.4 m of fall and 0.00 m of sideways drift.
+  - **The ruler was reading the wrong water.** `sampleWave`, which every "how far off the
+    surface is he" check measures against, sampled the sea at `tNow` — while the ocean is
+    *drawn* from `waveClock`, which advances at `1.0+0.55·sin+0.28·sin` and so drifts away
+    from `tNow` without bound. Every such reading was taken against water from some other
+    moment, out by as much as 1.4 m for reasons that had nothing to do with the rider. That is
+    a measurement bug rather than a game one, but it is the one that sent two investigations
+    the wrong way.
+  - **Still open: the board against the water on the upper face.** With the clock fixed the
+    hull measures 0.05–0.42 m *above* the surface everywhere it was checked, carving and
+    straight, so the burial that reading appeared to show was the broken ruler. Whatever is
+    being seen is not reproduced yet.
+
 - **v2.56.0** — **The lip falls into the water, and going round is paced by the wall rather
   than by the clock.**
   - **The corner where the barrel breaks is gone**, and it needed both halves of the fix.

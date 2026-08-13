@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.56.0';
+const VERSION='2.57.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1308,7 +1308,7 @@ const curlUniforms={
   uClose:{value:0},
   // How much of the lip to see through, and where the rider is, so the near wall can be
   // taken out from in front of him without touching the far wall that makes the tube.
-  uCut:{value:0}, uRiderD:{value:1e9},
+  uCut:{value:0},
 };
 // The curl used to be shaded as coloured glass: a flat gradient with a couple of sine
 // streaks over it, drawn with depthWrite off. Both of those were wrong.
@@ -1359,7 +1359,7 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
   fragmentShader:`
     uniform float uFade; uniform float uT; uniform float uLight;
     uniform vec3 uSun; uniform vec3 uSky; uniform vec3 uDeep; uniform vec3 uShallow;
-    uniform vec3 uFoam; uniform float uClose; uniform float uCut; uniform float uRiderD;
+    uniform vec3 uFoam; uniform float uClose; uniform float uCut;
     varying vec2 vUv; varying vec3 vW; varying vec3 vN;
     float hash21(vec2 p){
       p=fract(p*vec2(123.34,345.45));
@@ -1541,8 +1541,15 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       //                      half-transparent, so nothing reads as the wrong colour. The
       //                      edges hold because the tube now runs full bore for its whole
       //                      length: what is behind the cut is more barrel.
+      // Cut to a fixed clearance in front of the LENS, not to "everything nearer than the
+      // rider". That second thing reached however far away he happened to be — twenty-odd
+      // metres — so it deleted the entire tube around the camera, roof included, and the
+      // note above was simply wrong about what lay behind the hole: measured in portrait,
+      // the top fifth of the screen was open sky where the barrel should be. The same frame
+      // with the cut off is water to every edge. Three metres keeps a wall out of the lens
+      // and leaves the barrel standing.
       float dcam=length(cameraPosition-vW);
-      a*=1.0-(1.0-smoothstep(uRiderD-3.5,uRiderD-1.2,dcam))*uCut;
+      a*=1.0-(1.0-smoothstep(1.30,3.10,dcam))*uCut;
       col=pow(clamp(col,0.0,1.0),vec3(2.2));
       gl_FragColor=vec4(col*uLight,clamp(a,0.0,1.0));
     }
@@ -7127,6 +7134,22 @@ function startWipeout(kind){
     vz: W.vz*0.55 - fwd,
     vx: vx*0.80 + side*(2.0+Math.random()*1.8)
   };
+  // Crashing on the RING is a different thing and was being launched as though it were not.
+  // Two of the three terms above are wrong in there: vx is the lane velocity, and the ring
+  // writes px itself every frame while vx goes on integrating the steering underneath it, so
+  // it can be metres a second of something he is not doing; and the vy floor throws him
+  // UPWARD off a wall he is already twelve metres up. Between them he left sideways and kept
+  // going — "flew to the right bottom" — instead of coming off the wall and falling down it.
+  //
+  // What he is actually doing on the ring is going round it, so the launch is the ring's own
+  // tangential motion, halved, with no random kick and no upward floor. Gravity takes it from
+  // there, which is the whole of what a wipeout off the top of a wave should look like.
+  if(swTubeRide){
+    const sp=swAngV*Math.max(0.5,swRad)*0.5;
+    rider.vx=Math.max(-4,Math.min(4, swS*Math.cos(swAng)*sp));
+    rider.vy=Math.max(-6,Math.min(3, Math.sin(swAng)*sp));
+    rider.vz*=0.4;
+  }
   wipe={
     // Crash inside the barrel and the shot does not move. It is the same held frame he was
     // riding in — the wave carries on collapsing, the whitewater comes through, and you watch
@@ -8459,6 +8482,16 @@ if(location.hash.includes('debug')){
     // Ignore everything that would end the run, so a long unattended tick survives to the
     // thing under test. Off by default; the wipeout checks set it false explicitly.
     invuln(v){ swInvuln=v!==false; return swInvuln; },
+    // Hold the near-wall cut at a value so a probe can see exactly what it is removing.
+    // -1 hands it back to the ride.
+    setCut(v){ swCutHold=(v===undefined||v<0)?-1:v; return swCutHold; },
+    setTrim(v){ swTrimHold=(v===undefined||v===null)?null:v; return swTrimHold; },
+    buoy(){ return _buoy; },
+    // Where the rider actually lands on the glass, in normalised device coordinates: -1..1
+    // is on screen in both axes. A phone in portrait is a 31-degree horizontal keyhole, so
+    // "is he in frame" is a question about the projection, not about metres.
+    ndc(){ const v=_ndcP.set(px,py,pz).project(camera);
+           return {x:+v.x.toFixed(3),y:+v.y.toFixed(3)}; },
     restart(){ beginRun(); window.__surf.holdWave(true); window.__surf.setDebris(false); return true; },
     // Run the SIMULATION forward without drawing it.
     //
@@ -8473,12 +8506,15 @@ if(location.hash.includes('debug')){
     // many frames the machine happened to manage, which also takes the flake out of anything
     // measured across a fixed wait. Capped so a bad argument cannot hang the page.
     tick(secs,dt){
-      if(!running)return{ran:0,why:'not running'};
+      if(!running&&!wipe)return{ran:0,why:'not running'};
       const h=Math.max(0.004,Math.min(0.033,dt||0.016));
       const n=Math.min(20000,Math.max(1,Math.round((secs||1)/h)));
+      // A crash is not the end of the simulation — it is a second or two of the thing most
+      // worth watching, and stepping it is the only way to measure where a wipeout throws him.
       for(let i=0;i<n;i++){
-        if(!running){ if(wipe){updateWipeout(h);updateWorldDuringWipeout(h);} break; }
-        runSecs+=h; update(h);
+        if(running){ runSecs+=h; update(h); }
+        else if(wipe){ updateWipeout(h); updateWorldDuringWipeout(h); }
+        else break;
       }
       return{ran:+(n*h).toFixed(3),running,wipe:!!wipe};
     },
@@ -8563,7 +8599,13 @@ if(location.hash.includes('debug')){
     // The wave's shape at a point, for checking the height field and the lip agree.
     // x and z here are WORLD coordinates — the scroll is added on the way in, so a test can
     // ask about a fixed point on the wave without knowing how far the run has travelled.
-    sampleWave:(x,z)=>({set:setWaveH(x,z+dist*WAVE_DRIFT),sea:waveH(x,z+dist*WAVE_DRIFT,tNow),
+    // waveClock, NOT tNow. The swell runs on its own clock — waveClock advances at
+    // 1.0+0.55*sin+0.28*sin, so it drifts away from tNow without bound — and it is the one
+    // the ocean is DRAWN from. Sampling the sea at tNow answered "where was the water at
+    // some other moment", which is not a question anything wants the answer to: every
+    // "how far off the surface is he" reading in the suite was taken against the wrong
+    // water, and read as much as 1.4 m of error that had nothing to do with the rider.
+    sampleWave:(x,z)=>({set:setWaveH(x,z+dist*WAVE_DRIFT),sea:waveH(x,z+dist*WAVE_DRIFT,waveClock),
                         peelA:swPeelA(z),peelB:swPeelB(z),roof:swRoofY(z)}),
     // The roof the player can actually hit, measured off the curl mesh itself rather than
     // recomputed — the whole point is to catch the physics and the geometry disagreeing.
@@ -8622,11 +8664,16 @@ function swSpit(){
               :(swRide+swOver>11?`SPAT OUT! DEEP BARREL +${bonus}`:`OUT CLEAN! +${bonus}`));
   noteTrick&&noteTrick('barrel','wave');
 }
-const _cutP=new THREE.Vector3();
 // Scratch for turning a trick into the board's own frame while he is banked on the ring.
 const _eTrick=new THREE.Euler(), _qTrick=new THREE.Quaternion(), _qBank=new THREE.Quaternion();
 const _zAxis=new THREE.Vector3(0,0,1);
+const _ndcP=new THREE.Vector3();
+let _prevWaterY=NaN;                          // last frame's surface, for the buoyancy feed-forward
+let _buoy=null;                               // the terms that decide where the hull floats
+const SW_TRIM=-7.0;                           // how far down the line he trims in the barrel
+let swTrimHold=null;                          // tests only: try another one without a rebuild
 let swCut=0;                                  // how far the near wall has been cut away
+let swCutHold=-1;                             // tests only: pin it, -1 means the ride decides
 function placeCurl(dt){
   if(swCurlA<=0.004){ curl.visible=false; return; }
   curl.visible=!curl.userData.forceHide;      // the debug hook can hold it down
@@ -8658,8 +8705,7 @@ function placeCurl(dt){
   // the tube at all. Only the water nearer the camera than the rider goes; the far wall,
   // which is the barrel you are looking down, is untouched.
   swCut+=((swTubeRide?1:0)-swCut)*Math.min(1,(dt||0.016)*5);
-  curlUniforms.uCut.value=swCut;
-  curlUniforms.uRiderD.value=camera.position.distanceTo(_cutP.set(px,py,pz));
+  curlUniforms.uCut.value=swCutHold>=0?swCutHold:swCut;
 }
 
 // ---------- whirlpool ----------
@@ -9559,6 +9605,9 @@ function update(dt){
   const railDig=Math.min(0.17,dig*dig*0.17+Math.max(0,leanW)*0.055);
   // Float: a thick board rides up on the surface, a thin one sits down in it.
   const waterY=hHigh*0.88+hMean*0.12+0.05-railDig+(BS.float-1)*0.30;
+  const prevWaterY=_prevWaterY; _prevWaterY=waterY;
+  _buoy={waterY:+waterY.toFixed(3),railDig:+railDig.toFixed(3),hHigh:+hHigh.toFixed(3),
+         hMean:+hMean.toFixed(3),float:BS.float};
   rideY=waterY;
 
   // A wall this size falls away under the board fast enough to throw him off its
@@ -9631,12 +9680,21 @@ function update(dt){
     }
   } else {
     // Buoyancy as a spring the hull works against, not a rail it slides along. It
-    // lags a fast-building face, plunges when the water drops away and rebounds when
-    // it comes back, so the board has weight instead of hovering on the surface.
-    vy+=((waterY-py)*(onWake?110:56) - vy*(onWake?17:10.4))*dt;
+    // plunges when the water drops away and rebounds when it comes back, so the board has
+    // weight instead of hovering on the surface.
+    //
+    // Damped against the SURFACE's motion rather than against the world. A spring damped
+    // against the world always lags a face building underneath it, and the lag is not a
+    // wobble but a steady offset: measured climbing one, the board sat as much as 0.73 m
+    // UNDER the drawn water and rode 0.49 m above it on the way back down — "water and board
+    // interaction is weird, water shouldn't overlap too much". Feeding the surface's own rate
+    // of rise in means the spring only has to correct the DIFFERENCE between him and it, so
+    // every bit of the weight survives and the burial does not.
+    const wDot=isFinite(prevWaterY)?Math.max(-14,Math.min(14,(waterY-prevWaterY)/Math.max(1e-3,dt))):0;
+    vy+=((waterY-py)*(onWake?110:56) - (vy-wDot)*(onWake?17:10.4))*dt;
     vy=Math.max(-24,Math.min(24,vy));
     py+=vy*dt;
-    if(py<waterY-1.20){py=waterY-1.20;vy=Math.max(vy,0);}     // it never goes right under
+    if(py<waterY-0.45){py=waterY-0.45;vy=Math.max(vy,0);}     // and never buries itself
     if(vy<-5.5&&Math.random()<dt*26)splash(px+(Math.random()-0.5)*0.8,py+0.15,-0.6,2);
   }
   // Run up the kicker rather than being teleported off it. His height is taken from
@@ -9907,7 +9965,12 @@ function update(dt){
   // bore, which can drop it back under the engagement threshold, which stops the trim, which
   // grows it again. Measured as the camera unlocking and relocking over and over — 14 m of
   // drift in four seconds on a shot that had held perfectly through the takeover.
-  const pzT = (swTubeRide&&swForm>0.6) ? -11.5 : pzBase;
+  //
+  // -11.5 put him twenty-seven metres from the lens and he read as a speck in the mouth of
+  // the wave. Most of what that distance was buying has been paid for elsewhere: the near
+  // wall is no longer cut away to the rider's own distance, so the tube stands around the
+  // camera and the orbit has walls to run against instead of running off into open sky.
+  const pzT = (swTubeRide&&swForm>0.6) ? (swTrimHold!==null?swTrimHold:SW_TRIM) : pzBase;
   pz+=(pzT-pz)*Math.min(1,dt*(swTubeRide?1.3:2.2));
   // A foil rides ON its mast, with the hull clear of the surface and only the wing in
   // the water — which is the whole look of the thing. The lift is VISUAL: py still drives

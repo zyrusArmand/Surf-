@@ -947,6 +947,48 @@ if (hasHook) {
         + (dead.held ? '' : dead.tube ? ' — NO LOCK CAPTURED' : ' — WAS NOT IN THE TUBE'));
 }
 
+// ---------- and a crash off the top of the wave FALLS down it ----------
+// "When I crashed or under rotated, character flew to right bottom when he should just fall
+// from top of wave to bottom, kind of like real gravity." Two of the three launch terms were
+// wrong for a crash on the ring: vx is the LANE velocity, which the ring overwrites every
+// frame while it goes on integrating the steering underneath — metres a second of something
+// he is not doing — and the vy floor threw him upward off a wall he was already twelve metres
+// up. Plus a random sideways kick on top. He now leaves with the ring's own tangential motion
+// and gravity has the rest.
+{
+  const c = await page.evaluate(async () => {
+    window.__surf.restart(); window.__surf.invuln(true); window.__surf.tick(1);
+    window.__surf.armSetWave(); window.__surf.warpSetWave('SWELL', 4.6);
+    for (let i = 0; i < 60; i++) { window.__surf.tick(1);
+      const s = window.__surf.state(); if (s.swTubeRide && (s.swForm ?? 0) > 0.97) break; }
+    for (let i = 0; i < 40; i++) { window.__surf.setTubeAngle(3.0); window.__surf.tick(0.05); }
+    const a = window.__surf.state();
+    if (!a.swTubeRide) return { skipped: true };
+    window.__surf.invuln(false); window.__surf.wipeNow('foam');
+    let low = a.py, side = 0;
+    for (let i = 0; i < 16; i++) { window.__surf.tick(0.1); const s = window.__surf.state();
+      side = Math.max(side, Math.abs(s.px - a.px)); low = Math.min(low, s.py); }
+    return { fromY: a.py, fell: a.py - low, side };
+  });
+  check(!c.skipped && c.fell > 5 && c.side < c.fell * 0.35,
+        'a crash off the top of the wave falls down it instead of flying sideways',
+        c.skipped ? 'never got on the ring'
+                  : `fell ${c.fell.toFixed(1)} m from ${c.fromY.toFixed(1)}, drifted ${c.side.toFixed(2)} m sideways`);
+}
+
+// ---------- the ruler reads the same water the game draws ----------
+// sampleWave is what every "how far off the surface is he" check in this file measures
+// against, and it was sampling at tNow while the ocean is drawn from waveClock — a clock that
+// advances at 1.0+0.55*sin+0.28*sin and so drifts away without bound. Readings were against
+// water from some other moment, out by as much as 1.4 m for reasons that had nothing to do
+// with the rider.
+{
+  const src = await readFile(join(ROOT, 'index.html'), 'utf8');
+  const hook = src.slice(src.indexOf('sampleWave:(x,z)=>'), src.indexOf('sampleWave:(x,z)=>') + 220);
+  check(/sea:waveH\(x,z\+dist\*WAVE_DRIFT,waveClock\)/.test(hook),
+        'the test hook samples the sea on the clock the ocean is drawn from');
+}
+
 // ---------- the sky stays in the sky ----------
 // Sun, moon, stars, cloud and gulls are transparent materials, so three.js draws them after
 // the whole opaque pass. With the depth test off that put them ON TOP of the water: out on
@@ -961,8 +1003,12 @@ if (hasHook) {
   // thing water never does — so nothing in this fade may depend on where he is.
   const curlFrag = src.slice(src.indexOf('float dcam=length(cameraPosition-vW);') - 1400,
                              src.indexOf('float dcam=length(cameraPosition-vW);') + 400);
-  check(!/uRiderP/.test(src) && /a\*=1\.0-\(1\.0-smoothstep\(uRiderD/.test(curlFrag),
-        'the near wall thins by depth alone, with nothing tracking the rider',
+  // And it is a fixed clearance in front of the lens, not "everything nearer than the rider":
+  // that reached however far away he was and deleted the whole tube around the camera, roof
+  // included, leaving open sky across the top of the screen.
+  check(!/uRiderP/.test(src) && !/uRiderD/.test(src)
+        && /a\*=1\.0-\(1\.0-smoothstep\(1\.30,3\.10,dcam\)\)\*uCut/.test(curlFrag),
+        'the near wall is cut to a fixed clearance, with nothing tracking the rider',
         'no rider position in the curl shader');
   // The aeroplane is PLACED before it is shown. The FLY phase moves it, and that first move
   // is a frame away — so it used to be drawn for one frame wherever it had been left, which
