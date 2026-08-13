@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.53.0';
+const VERSION='2.54.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -6633,7 +6633,10 @@ function doJump(){
   // with the ring pinning airborne to false every frame, nothing ever left the water.
   if(swTubeRide){
     if(swPipeAir)return;
-    swPipeAir=true; swRadV=-SW_PIPE_POP*BS.air; airborne=true;
+    swPipeAir=true; swRadV=-SW_PIPE_POP*BS.air; airborne=true; swAirT=0;
+    // Lit here as well as in the frame loop. The loop sets it after the ring has run, which
+    // is a frame away, and a trick pressed in that gap found the buttons still dead.
+    trickReady=true;
     splash(px,py,pz,10);
     return;
   }
@@ -6767,7 +6770,7 @@ function respawn(){
   for(let i=obstacles.length-1;i>=0;i--)
     if(obstacles[i].position.z>-48){scene.remove(obstacles[i]);obstacles.splice(i,1);}
   skiOn=false;skiWake=null;skiT=26;jetSki.visible=false;skiGlint.visible=false;wkA=0;
-  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=30+Math.random()*15;swTest=false;swAng=0;swAngV=0;swLoops=0;swTubeRide=false;swCamLock=null;swRad=NaN;swCalm=1;swOver=0;swPipeAir=false;swRadV=0;
+  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=30+Math.random()*15;swTest=false;swAng=0;swAngV=0;swLoops=0;swTubeRide=false;swCamLock=null;swRad=NaN;swCalm=1;swOver=0;swPipeAir=false;swRadV=0;swForm=0;
   for(const p of SMOKE){p.t=0;p.m.visible=false;} _smkHas=false; plane.userData.prev=null;
   curl.visible=false;swSplash.visible=false;
   whirl=null;whA=0;whirlArt.visible=false;whirlT=30+Math.random()*20;
@@ -7991,9 +7994,10 @@ let swCurlA=0, swCam=0, swClose=0, swDebT=0, swSweep=0, swNext=30+Math.random()*
 let swAng=0, swAngV=0, swLoops=0, swHoldX=0, swTubeRide=false;
 // Air inside the pipe. swRadV is how fast he is moving toward or away from the axis; the
 // only "gravity" in a tube points outward, at the wall he came off.
-let swPipeAir=false, swRadV=0;
+let swPipeAir=false, swRadV=0, swAirT=0;
 let swNoDeb=false;                       // debug only: hold the wreckage off
 let swHold=false;                        // debug only: stop the wave ever spitting you out
+let swForm=0;                            // how far the lip has thrown over: 0 crest, 1 full bore
 // Gentle on purpose. At 9.0 against a gravity of 13 the pop carried three metres off a
 // wall six and a half from the axis — nearly half way across the tube, which from the
 // bottom of the ring is straight up and reads as being launched out of the wave. The tube
@@ -8060,7 +8064,7 @@ function swTubeGeom(){
   // exactly the board floating clear of the face.
   const pa=swPeelA(pz), pb=swPeelB(pz);
   const rad=SW_R*(0.16+0.84*pa)*(1-0.55*pb);
-  const fold=(1-0.38*pb)*(1-0.72*swClose);
+  const fold=(1-0.38*pb)*(1-0.72*swClose)*swForm;
   const drop=-SW_PEAK*0.55*pb;
   const cx=swX-swS*Math.sin(SW_ALPHA)*rad*fold;
   const cy=swA+(-Math.cos(SW_ALPHA)*rad+drop)*fold;
@@ -8259,13 +8263,20 @@ function updateSetWave(dt,eff){
       // Lock the pocket where it closed on him. Left tracking, it would follow him round
       // the ring for ever and he could never move relative to his own barrel.
       swHoldX=swX; swPh=SWP.RIDE; swT=0; swRide=0; swOver=0; swClose=0;
-      swAng=0; swAngV=0; swLoops=0;
-      msg('IN THE BARREL! 🌊');
+      swAng=0; swAngV=0; swLoops=0; swForm=0;
     }
     return;
   }
   if(swPh===SWP.RIDE){
-    swA=SW_PEAK; swX=swHoldX; swCurlA=1; swCam=Math.min(1,swCam+dt*1.6);
+    swA=SW_PEAK; swX=swHoldX; swCam=Math.min(1,swCam+dt*1.6);
+    // The barrel BUILDS. It used to exist the moment the ride phase began — you arrived at
+    // the wave and there was already a finished tube waiting, which is not how any wave has
+    // ever worked. The lip now grows out of the crest and arches over you across about four
+    // seconds: the shell is scaled from almost nothing up to full throw, so the roof reaches
+    // further over your head as you ride, and the ring only takes charge once there is
+    // actually a bore to ride round (swTubeGeom gates on its own radius).
+    swForm=Math.min(1,swForm+dt*0.26);
+    swCurlA=Math.min(1,swForm*2.2);
     swCalm+=(0.22-swCalm)*Math.min(1,dt*1.4);      // the sea goes glassy inside the tube
     // The clock stops while he is actually going round. "I should be able to go around in
     // circles all I want" is the rule the whole tube was built for, and a fixed 6-16 s was
@@ -8295,15 +8306,12 @@ function updateSetWave(dt,eff){
     // him and he rides it until it spits him out. Debris is the one thing left that bites,
     // which is what keeps the ring worth steering rather than a place to park.
     if(swRide>swRideMax&&!swHold){ swPh=SWP.EXIT; swT=0; swSpit(); return; }
-    swDebT-=dt;
-    if(swDebT<=0&&!swNoDeb){
-      // One every four seconds or so, not one a second. The ring owns your position while
-      // you are going round it, so a drum arriving in the pocket is not something you steer
-      // away from — it is something you have to be somewhere else for, and at the old rate
-      // there was no somewhere else.
-      swDebT=2.6+Math.random()*3.0;
-      makeObstacle('debris', c+swS*(-3.4+Math.random()*5.4), -150);
-    }
+    // No wreckage in the tube. It went in as the one thing that still bit in there, and it
+    // was never a hazard you could play against: the ring owns your position while you are
+    // going round it, the drum arrives out of a wall you cannot see through, and the whole
+    // event is over in a frame. Reported twice as a wipeout out of nowhere — "I didn't crash
+    // into anything" — which is exactly what it looked like, because it is what it was.
+    // Blown tricks still end a run in here, the same as anywhere else. That is the risk.
     return;
   }
   // EXIT
@@ -8326,7 +8334,7 @@ if(location.hash.includes('debug')){
     state:()=>({dist,speed,score,running,wipe:!!wipe,airborne,px,py,pz,
                 swPh,swT,swA,swX,swS,swRide,swRideMax,swOver,swCurlA,swClose,
                 swAng,swLoops,swTubeRide,swOnLip,ring:swTubeGeom(),
-                jellyHits,lastWipe,swCut,swPipeAir,trickReady,cracks,
+                jellyHits,lastWipe,swCut,swPipeAir,trickReady,cracks,swForm,
                 swRad:+swRad.toFixed(2),
                 boardYaw:+boardYaw.toFixed(3),boardPitch:+boardPitch.toFixed(3),
                 curlVisible:curl.visible,roofY:swRoofY(),tubeC:swTubeC()}),
@@ -8447,7 +8455,9 @@ if(location.hash.includes('debug')){
         // stood at x=0. Same rule here, or every warped capture is of a wave in the
         // wrong place.
         swHoldX=px+swS*SW_TUBE;
-        swPh=SWP.RIDE; swA=SW_PEAK; swX=swHoldX; swCurlA=1; swCam=0.75;
+        // Warped in fully formed: the checks below are about a barrel, not about it
+        // arriving. Its growth has a check of its own.
+        swPh=SWP.RIDE; swA=SW_PEAK; swX=swHoldX; swCurlA=1; swCam=0.75; swForm=1;
         swRide=0; swOver=0; swClose=0; swSweep=2;
         px=swTubeC()+swS*1.2;                  // dropped into the sweet spot, not the lip
         return true;
@@ -8531,7 +8541,9 @@ function placeCurl(dt){
   // Sat on the crest itself. Local +x is "forward off the crest", so the sign flips with
   // the side the wave breaks from; the radius is already baked into the geometry.
   curl.position.set(swX, swA, 0);
-  const fold=1-0.72*swClose;                 // the lip folding down onto the face
+  // The same factor swTubeGeom uses, so the mesh and the ring are the same tube: the fold
+  // as it closes out, times how far it has thrown over in the first place.
+  const fold=(1-0.72*swClose)*swForm;
   curl.scale.set(-swS*fold, fold, 1);
   curlUniforms.uFade.value=swCurlA;
   curlUniforms.uT.value=tNow;
@@ -9204,7 +9216,10 @@ function update(dt){
   swTubeRide=false; swOnLip=false;
   if(swPh===SWP.RIDE&&swCurlA>0.55){
     const G=swTubeGeom();
-    if(G.r>1.1){                                  // only where the wave is actually hollow
+    // Hysteresis, for the same reason: engage on a bore worth riding, and hold on well below
+    // that. A single threshold on a radius the rider's own position can move is a switch that
+    // chatters.
+    if(G.r>(wasTube?0.8:1.6)){                    // only where the wave is actually hollow
       swTubeRide=true;
       // Join the ring wherever he already is, rather than teleporting him to the bottom of
       // it. The angle is read back OUT of his current position on the first frame — the
@@ -9291,14 +9306,22 @@ function update(dt){
       // with the swell, and that breathing should not reach the board as a shake.
       if(!wasTube||!isFinite(swRad)){ swRad=Math.hypot(px-G.cx,py-G.cy); swRadV=0; swPipeAir=false; }
       if(swPipeAir){
-        // Off the wall and across the tube. A pipe has its own gravity: whichever way is
-        // out. Pop inward, coast, and get pulled back to the wall — at the roof that means
-        // dropping toward the axis and rising back into it, which is the air a skater gets
-        // at the top of a full pipe. He cannot leave the barrel doing it, because all that
-        // changes is his distance from the axis.
-        swRadV+=SW_PIPE_G*dt;
-        swRad+=swRadV*dt;
-        if(swRadV>0&&swRad>=rHit){ swRad=rHit; swRadV=0; swPipeAir=false; swPipeLand(); }
+        // A hard ceiling on the air. The landing test is "the radius has come back out to the
+        // surface", and the surface moves — round the arc, with the swell, with the peel — so
+        // a rider still turning while he is up there can chase it and never quite meet it.
+        // Measured stuck for seconds. Two seconds is already twice the arc's own flight time.
+        swAirT+=dt;
+        if(swAirT>2.0){ swRad=rHit; swRadV=0; swPipeAir=false; swPipeLand(); }
+        else {
+          // Off the wall and across the tube. A pipe has its own gravity: whichever way is
+          // out. Pop inward, coast, and get pulled back to the wall — at the roof that means
+          // dropping toward the axis and rising back into it, which is the air a skater gets
+          // at the top of a full pipe. He cannot leave the barrel doing it, because all that
+          // changes is his distance from the axis.
+          swRadV+=SW_PIPE_G*dt;
+          swRad+=swRadV*dt;
+          if(swRadV>0&&swRad>=rHit){ swRad=rHit; swRadV=0; swPipeAir=false; swPipeLand(); }
+        }
         airborne=true;
       } else {
         // Fast, because what it is smoothing is now the sea's own breathing rather than a
@@ -9696,8 +9719,20 @@ function update(dt){
   // Ride fore and aft rather than sitting on one spot. Leaning drives him up the
   // board, leaning back settles him toward the tail of the shot, and dropping down
   // a face lunges him forward a little. Forward travel is kept short on purpose.
-  const pzT=Math.max(-3.0,Math.min(2.2, -leanW*2.3 - Math.max(-1,Math.min(1,faceSlope))*0.8));
-  pz+=(pzT-pz)*Math.min(1,dt*2.2);
+  const pzBase=Math.max(-3.0,Math.min(2.2, -leanW*2.3 - Math.max(-1,Math.min(1,faceSlope))*0.8));
+  // Down the line in the barrel, so the CAMERA never has to move. A five-metre ring seen from
+  // where the chase camera stands subtends more than the lane is wide, and the orbit runs off
+  // the sides. The old answer was to pull the camera back, which reads as a zoom the moment
+  // the ring takes over. This is the same fix applied to the thing that is allowed to move:
+  // he trims further down the line, the orbit shrinks in frame, and the picture is untouched.
+  // Eased slower than the ordinary trim so it reads as him driving forward rather than a cut.
+  // Gated on the tube being FORMED, not merely engaged, because pz feeds back into the ring:
+  // swTubeGeom reads the peel at the rider's own z, so trimming down the line shrinks the
+  // bore, which can drop it back under the engagement threshold, which stops the trim, which
+  // grows it again. Measured as the camera unlocking and relocking over and over — 14 m of
+  // drift in four seconds on a shot that had held perfectly through the takeover.
+  const pzT = (swTubeRide&&swForm>0.6) ? -11.5 : pzBase;
+  pz+=(pzT-pz)*Math.min(1,dt*(swTubeRide?1.3:2.2));
   // A foil rides ON its mast, with the hull clear of the surface and only the wing in
   // the water — which is the whole look of the thing. The lift is VISUAL: py still drives
   // the collisions, because the mast and the wing are down there in the water whatever
@@ -10087,14 +10122,18 @@ function update(dt){
     // Locked at the settled value rather than at whatever it happened to be on the frame he
     // joined the ring, so the shot cuts to its final framing at entry and then holds. The
     // position already cuts at that instant, so this is the same cut, not a second one.
-    // Locked at the CHASE camera's own distance and height, not pulled back to 25.5. Sitting
-    // further back was meant to fit the ring in a lane 31 degrees wide, and it does — but
-    // entering the barrel then reads as the picture zooming out, which is the one thing that
-    // announces "a different camera has taken over". The shot the rest of the game uses is
-    // the shot. It fits now anyway: the tube runs full bore all the way back past the lens
-    // since the break moved, so there is barrel around the camera wherever it stands.
-    if(!swCamLock)swCamLock={x:swTubeGeom().cx,y:camY,z:camZ,lx:swTubeGeom().cx,
-                             at:waterY+1.05+1.5, atZ:-24.0};
+    // Locked EXACTLY WHERE IT ALREADY IS. Every previous version of this cut to a chosen
+    // placement — pulled back to 25.5, or re-centred on the tube's axis, or aimed at a
+    // settled value — and every one of them is a snap at the instant the ring takes over,
+    // which is the thing that keeps getting reported. There is no barrel camera any more.
+    // The ride camera simply stops following when the ring takes charge, and holds.
+    //
+    // The cost is framing: the ring is five metres across and the lane is about 31 degrees
+    // wide, so an orbit centred off the camera's own line runs off the side. That is paid
+    // for by moving the RIDER down the line instead — see pzT below — which is a thing the
+    // water can do without the picture moving at all.
+    if(!swCamLock)swCamLock={x:camX,y:camY,z:camZ,lx:lookX,
+                             at:waterY+1.05+swCam*1.5+airH*0.62, atZ:-14-swCam*10};
     camX=swCamLock.x; lookX=swCamLock.lx; camZ=swCamLock.z;
     camY=swCamLock.y;
     // Fixed, but not fixed UNDERWATER. This runs after the clamp that keeps the camera above

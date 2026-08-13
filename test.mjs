@@ -339,7 +339,12 @@ if (hasHook) {
     const out = [];
     for (let i = 0; i < 6; i++) {
       window.__surf.setTubeAngle(2.0 + i * 0.55);
+      // Read it SETTLED. The claim is about where the board ends up, and a single sample
+      // after a fixed wait is a frame-rate measurement in disguise — under swiftshader that
+      // has come back mid-step and been reported as a lagging bank more than once.
       await new Promise(r => setTimeout(r, 1600));
+      window.__surf.riderUp();
+      await new Promise(r => setTimeout(r, 1200));
       const u = window.__surf.riderUp();
       if (u.onLip) out.push(u.dot);
     }
@@ -710,25 +715,61 @@ if (hasHook) {
 // Placed after every other check that needs a live run. This one can snap the board and
 // end the ride, and when it ran earlier the blocks after it were quietly measuring a
 // game that was already over — the wave clock reported zero seconds of everything.
-// ---------- entering the barrel is not a zoom ----------
-// The barrel shot used to be pinned at z=25.5, well back from where the chase camera stands,
-// so arriving in the tube read as the picture pulling away — the one thing that announces a
-// different camera has taken over. It holds the ride's own distance now.
+// ---------- the ring taking over does not move the camera at all ----------
+// Every version of the barrel camera before this one cut to a chosen placement — pulled back
+// to 25.5, re-centred on the tube's axis, aimed at a settled value — and every one of them is
+// a snap at the instant the ring takes charge, which is what kept getting reported. There is
+// no barrel camera now: the ride camera stops following and holds exactly where it already
+// was. Measured ACROSS the takeover, which is the frame the snap lived in.
 {
-  const z = await page.evaluate(async () => {
+  const across = await page.evaluate(async () => {
     window.__surf.restart();
     await new Promise(r => setTimeout(r, 4000));
-    const open = window.__surf.cam().z;                    // the ordinary chase camera
-    window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
-    for (let i = 0; i < 60; i++) {
+    window.__surf.armSetWave(); window.__surf.warpSetWave('SWELL', 4.6);
+    let before = window.__surf.cam();
+    for (let i = 0; i < 120; i++) {
       await new Promise(r => setTimeout(r, 200));
       if (window.__surf.state().swTubeRide) break;
+      before = window.__surf.cam();          // the last frame before the ring had it
     }
-    await new Promise(r => setTimeout(r, 1500));
-    return { open, tube: window.__surf.cam().z, inTube: window.__surf.state().swTubeRide };
+    const after = window.__surf.cam();
+    await new Promise(r => setTimeout(r, 4000));
+    return { before, after, settled: window.__surf.cam(), tube: window.__surf.state().swTubeRide };
   });
-  check(z.inTube && Math.abs(z.tube - z.open) < 3.0, 'dropping into the barrel does not pull the camera back',
-        `${z.open.toFixed(1)} m out on the face vs ${z.tube.toFixed(1)} m in the tube`);
+  const jump = Math.max(...['x','y','z','dx','dy','dz'].map(k => Math.abs(across.before[k] - across.after[k])));
+  const drift = Math.max(...['x','y','z','dx','dy','dz'].map(k => Math.abs(across.after[k] - across.settled[k])));
+  check(across.tube && jump < 0.35 && drift < 0.02,
+        'the ring taking over does not move the camera',
+        `${jump.toFixed(3)} across the takeover, ${drift.toFixed(4)} after it`);
+}
+
+// ---------- the barrel builds, it does not arrive finished ----------
+// The tube used to exist the moment the ride phase began: you reached the wave and there was
+// already a completed barrel waiting for you, which is not how any wave has ever worked. The
+// lip grows out of the crest and arches over across about four seconds, and the ring only
+// takes charge once there is a bore worth riding round.
+{
+  const grew = await page.evaluate(async () => {
+    window.__surf.restart();
+    await new Promise(r => setTimeout(r, 3000));
+    window.__surf.armSetWave(); window.__surf.warpSetWave('SWELL', 4.6);
+    const seen = [];
+    // Four seconds of SIM to build, which is forty of wall clock here. Do not tighten.
+    for (let i = 0; i < 320; i++) {
+      await new Promise(r => setTimeout(r, 250));
+      const s = window.__surf.state();
+      if (s.swPh === 3) seen.push({ form: s.swForm, r: s.ring.r, tube: s.swTubeRide });
+      if (seen.length && seen[seen.length - 1].form >= 0.999) break;
+    }
+    return seen;
+  });
+  const first = grew[0] || {}, last = grew[grew.length - 1] || {};
+  const roseFirst = grew.findIndex(g => g.tube);
+  check(grew.length > 3 && first.form < 0.25 && first.r < 2.0 && last.form > 0.95 && last.r > 4.5,
+        'the barrel builds around you instead of arriving finished',
+        `bore ${(first.r ?? 0).toFixed(2)} m at the start of the ride, ${(last.r ?? 0).toFixed(2)} m once it is over you`);
+  check(roseFirst > 0, 'and the ring only takes charge once there is a tube to ride',
+        roseFirst > 0 ? `${roseFirst} samples of open face first` : 'the ring had him immediately');
 }
 
 // ---------- a trick in the tube turns about the board ----------
@@ -785,32 +826,27 @@ if (hasHook) {
         blown.ended ? `blown, ended as ${blown.kind}` : 'landed it square');
 }
 
-// ---------- the tube plays by the same rules as the rest of the game ----------
-// Both of these were softened for the barrel and both were worse for it: a drum to the chest
-// cracked the board instead of ending the run, and a blown landing scored nothing and let you
-// carry on. The result was that nothing in there ever ended a ride except a board snapping
-// several drums later, with nothing to connect it to.
+// ---------- nothing is put in the tube to crash into ----------
+// Wreckage went in as the one thing that still bit in there, and it was never a hazard you
+// could play against: the ring owns your position while you are going round it, the drum
+// arrives out of a wall you cannot see through, and the whole event is over in a frame. It
+// was reported twice as a wipeout out of nowhere. A blown trick is the risk in there now.
 {
-  const hit = await page.evaluate(async () => {
-    window.__surf.restart();
+  const drums = await page.evaluate(async () => {
+    window.__surf.restart(); window.__surf.setDebris(true);   // let the game place its own
     await new Promise(r => setTimeout(r, 2000));
     window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
-    await new Promise(r => setTimeout(r, 2000));
-    window.__surf.setTubeAngle(0);
-    await new Promise(r => setTimeout(r, 1200));
-    for (let i = 0; i < 400; i++) {
-      window.__surf.spawn('debris', 0, -14);
-      for (let k = 0; k < 12; k++) {
-        await new Promise(r => setTimeout(r, 50));
-        const s = window.__surf.state();
-        if (s.wipe) return { ended: true, kind: s.lastWipe && s.lastWipe.kind, tube: s.lastWipe && s.lastWipe.tube };
-      }
+    let worst = null;
+    for (let i = 0; i < 150; i++) {
+      await new Promise(r => setTimeout(r, 200));
+      const z = window.__surf.obstacleZ('debris');
+      if (z !== null) worst = z;
+      if (window.__surf.state().wipe) return { spawned: true, wiped: true };
     }
-    return { ended: false };
+    return { spawned: worst !== null, worst };
   });
-  check(hit.ended && hit.kind === 'debris' && hit.tube,
-        'wreckage in the tube ends the run, and says so',
-        hit.ended ? `ended as ${hit.kind}` : 'never connected');
+  check(!drums.spawned, 'the wave puts nothing in the tube to crash into',
+        drums.spawned ? `a drum turned up at ${drums.worst}` : 'a barrel is water, all the way round');
 }
 
 // ---------- the shot does not pull back when you die ----------

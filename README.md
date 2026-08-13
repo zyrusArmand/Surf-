@@ -52,6 +52,32 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.54.0** — **The barrel builds around you, and the camera does not move at all.**
+  - **The barrel forms instead of arriving finished.** The tube used to exist the moment the
+    ride phase began: you reached the wave and a completed barrel was already waiting, which
+    is not how any wave has ever worked. The lip grows out of the crest and arches over across
+    about four seconds — the shell is scaled from almost nothing to full throw — and the ring
+    only takes charge once there is a bore worth riding round, because it gates on its own
+    radius. Measured over a real swell→ride: bore **0.5 m at the start of the ride → 5.7 m**
+    once it is over you, with the open face to ride first.
+  - **There is no barrel camera any more.** Every version of it cut to a chosen placement —
+    pulled back to 25.5, re-centred on the tube's axis, aimed at a settled value — and every
+    one of those is a snap at the instant the ring takes charge. The ride camera simply stops
+    following and holds exactly where it already was. The new check measures *across the
+    takeover*, which is the frame the snap lived in.
+  - **The rider trims down the line instead.** That camera costs framing: a five-metre ring
+    seen from where the chase camera stands subtends more than the lane is wide, so the orbit
+    ran off the sides. Paid for by moving the thing that is allowed to move — he drives
+    forward down the line over about a second, the orbit shrinks in frame, and the picture is
+    untouched. Measured: in frame at every angle round the ring, x from 0.08 to 0.76.
+  - **"IN THE BARREL!" is gone.** Nothing announces it; you can see it happening.
+  - **Nothing is put in the tube to crash into.** Wreckage went in as the one thing that still
+    bit in there and it was never a hazard you could play against: the ring owns your position
+    while you are going round it, the drum arrives out of a wall you cannot see through, and
+    the whole event is over in a frame. Reported twice as a wipeout out of nowhere, which is
+    what it was. A blown trick is the risk in there now, judged exactly as it is everywhere
+    else.
+
 - **v2.53.0** — **Tricks turn about the board, the barrel stops zooming, no plane flash, and
   the tube plays by the same rules as everywhere else.**
   - **Tricks were scrambled once you were banked.** `player` is the parent and `rig` the
