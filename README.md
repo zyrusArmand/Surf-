@@ -52,6 +52,32 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.48.0** — **Right is right, the board stops flipping at the lip's edge, and the wave
+  waits while you keep going round.**
+  - **Steering in the tube was mirrored on half the waves.** Increasing the ring angle
+    carries you toward `+swS` in x, and the input was not multiplied by `swS` — so on a wave
+    breaking the other way, dragging right sent the rider left. The takeover a few lines
+    above already read the angular velocity out of `vx` *with* the `swS` factor, so the input
+    was the odd one out. Measured on both sides now: right moves you right either way.
+  - **Crossing off the lip flipped the board.** The ring's radius is ray-marched to whatever
+    is out there — lip or open sea — precisely so there is no seam, but the *roll* was still
+    switching between two unrelated targets at the edge of the lip's arc: the ring's angle on
+    one side, the flat sea's carve on the other. Easing across that gap unwound the board
+    through most of a revolution, which is the whole flip you see coming from the top of the
+    wave back down to the bottom. One expression covers the whole circle now. The roll is
+    also wrapped into (−π, π], so the three-times-round unwind when the wave finally lets go
+    is gone too.
+  - **The clock stops while you are going round.** "You can only go in circles around the
+    wave" was the rule the tube was built for, and a fixed 6–16 s ride was quietly overriding
+    it — mid-loop, with everything going right, the wave spat you out. Keep it turning and
+    the wave waits; park on one spot and the clock runs and it closes on you as before.
+    0.7 rad/s is the bar: a full loop in nine seconds, so a drift will not hold it open.
+  - Riding past the clock is free but does not pay forever — the tube's score rate tapers
+    over the first 45 s of held loops, so an endless barrel is not also an endless score.
+    Loops keep their 450 each.
+  - Four new checks: right goes right on both sides, the board stays welded to the wall
+    across the lip's edge, the clock freezes while circling, and it runs again when you stop.
+
 - **v2.47.0** — **The sun stops shining through the wave, and you can see out of the barrel
   from the bottom of the ring.**
   - **The sky is depth-tested.** The sun, its three glow shells, the moon, the stars, the

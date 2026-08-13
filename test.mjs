@@ -399,24 +399,120 @@ if (hasHook) {
     for (const h of [1.0, 4.0, 8.0]) {
       const s0 = window.__surf.state();
       const j = window.__surf.spawn('jelly', 0, -26);
-      let bounced = false;
-      for (let i = 0; i < 70; i++) {
+      let bounced = false, arrived = false;
+      // Run until the jellyfish has actually gone PAST the rider, not for a fixed number of
+      // frames. A fixed count is a frame-rate test in disguise: a slow run left it still short
+      // of him and reported that as "no bounce", which failed a build that was fine.
+      for (let i = 0; i < 900; i++) {
         window.__surf.setRiderY(j.y + h);
         await new Promise(r => setTimeout(r, 45));
         const s = window.__surf.state();
-        if (s.jellyHits > s0.jellyHits) { bounced = true; break; }   // counted, not inferred
+        if (s.jellyHits > s0.jellyHits) { bounced = true; arrived = true; break; }
         if (s.wipe) break;
+        const rel = window.__surf.obstacleZ('jelly');
+        if (rel === null || rel > 4) { arrived = true; break; }      // it has been and gone
       }
-      out.push({ h, bounced });
+      out.push({ h, bounced, arrived });
     }
     return out;
   });
   const low = heights.find(r => r.h === 1.0), mid = heights.find(r => r.h === 4.0),
         high = heights.find(r => r.h === 8.0);
   check(low?.bounced === true, 'a jellyfish you actually touch still bounces you',
-        `at 1 m over it: ${low?.bounced ? 'bounced' : 'nothing'}`);
+        `at 1 m over it: ${low?.bounced ? 'bounced' : (low?.arrived ? 'passed clean through it' : 'NEVER REACHED HIM')}`);
   check(mid?.bounced === false && high?.bounced === false,
         'and one you fly over does not', `4 m: ${mid?.bounced ? 'BOUNCED' : 'clean'}, 8 m: ${high?.bounced ? 'BOUNCED' : 'clean'}`);
+}
+
+// ---------- right is right, whichever way the wave breaks ----------
+// Increasing the ring angle carries the rider toward +swS in x, and the steering input was
+// not multiplied by swS — so on half the waves a drag to the right sent him left.
+{
+  const dirs = [];
+  for (const side of [1, -1]) {
+    await page.evaluate(s => {
+      window.__surf.armSetWave(); window.__surf.setSide(s); window.__surf.warpSetWave('RIDE');
+    }, side);
+    await page.waitForTimeout(4000);
+    // Parked at the bottom of the ring and left to settle first. Measured straight off the
+    // warp instead, the reading is the radius easing on to the wall, which is metres of
+    // sideways travel that has nothing to do with the input — it read backwards on both
+    // sides, which would have condemned a correct fix.
+    await page.evaluate(() => window.__surf.setTubeAngle(0));
+    await page.waitForTimeout(3000);
+    const before = await page.evaluate(() => window.__surf.state().px);
+    await page.keyboard.down('ArrowRight');
+    await page.waitForTimeout(6000);
+    await page.keyboard.up('ArrowRight');
+    const after = await page.evaluate(() => window.__surf.state());
+    dirs.push({ side, moved: +(after.px - before).toFixed(2), tube: after.swTubeRide });
+  }
+  check(dirs.every(d => d.tube && d.moved > 0.5), 'steering right moves the rider right on both sides of the wave',
+        dirs.map(d => `swS=${d.side}: ${d.moved > 0 ? '+' : ''}${d.moved} m${d.tube ? '' : ' (OUT OF THE TUBE)'}`).join(', '));
+}
+
+// ---------- crossing off the lip does not flip the board ----------
+// The roll target used to switch between the ring's angle and the flat sea's carve at the
+// edge of the lip's arc, and easing across that gap unwound the board through most of a
+// revolution — the "whole flip" going from the top of the wave back to the bottom.
+{
+  const rolls = await page.evaluate(async () => {
+    window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
+    await new Promise(r => setTimeout(r, 2000));
+    const out = [];
+    // Step round the whole circle in small increments and watch the board's roll. Crossing
+    // on to and off the lip has to be no more of a jump than any other step of the same size.
+    for (let a = 0; a <= Math.PI * 2 + 0.001; a += Math.PI / 24) {
+      window.__surf.setTubeAngle(a);
+      await new Promise(r => setTimeout(r, 260));
+      const u = window.__surf.riderUp();
+      out.push({ a: +a.toFixed(2), onLip: u.onLip, dot: u.dot });
+    }
+    return out;
+  });
+  // Rider-up against inward is the roll, read off the rig's real world transform. It should
+  // stay pinned at 1 the whole way round; a flip shows up as it falling away.
+  const worst = rolls.reduce((w, r) => r.dot < w.dot ? r : w, rolls[0]);
+  const crossings = rolls.filter((r, i) => i && r.onLip !== rolls[i - 1].onLip).length;
+  check(worst.dot > 0.9 && crossings >= 2, 'the board stays welded to the wall across the lip\'s edge',
+        `worst up·inward ${worst.dot} at ${worst.a} rad, ${crossings} lip crossings sampled`);
+}
+
+// ---------- keep circling and the wave waits ----------
+// A fixed 6-16 s clock was spitting the rider out mid-loop. The clock stops while he is
+// actually going round; park and it runs again.
+{
+  // Racing the wall clock would prove nothing here: swiftshader advances the sim at about a
+  // tenth of real time, so a wave that lasts 6-16 SIM seconds outlives any reasonable wait
+  // whether the fix is in or not. Measure the clock itself instead — swOver counts the time
+  // spent going round, swRide is what the spit is compared against.
+  await page.evaluate(() => { window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE'); });
+  await page.waitForTimeout(1500);
+  // Steered for real, not driven through setTubeAngle — that hook zeroes the angular
+  // velocity, which is the very thing the clock watches.
+  await page.keyboard.down('ArrowRight');
+  const held = await page.evaluate(async () => {
+    await new Promise(r => setTimeout(r, 2000));           // let the turn spin up
+    const a = window.__surf.state();
+    await new Promise(r => setTimeout(r, 30000));          // ~3 s of sim
+    const b = window.__surf.state();
+    return { ranOn: +(b.swRide - a.swRide).toFixed(2), circled: +(b.swOver - a.swOver).toFixed(2),
+             ride: +b.swRide.toFixed(1), max: +b.swRideMax.toFixed(1), ph: b.swPh };
+  });
+  await page.keyboard.up('ArrowRight');
+  check(held.circled > 1.0 && held.ranOn < 0.4 && held.ph === 3,
+        'the clock stops while you are going round, so the wave does not spit you out mid-loop',
+        `${held.circled}s circling advanced the spit clock by ${held.ranOn}s (${held.ride}/${held.max})`);
+  // And the other half of the rule: stop, and the wave closes on you as it always did.
+  const parked = await page.evaluate(async () => {
+    await new Promise(r => setTimeout(r, 8000));           // let the turn wind down
+    const a = window.__surf.state().swRide;
+    await new Promise(r => setTimeout(r, 15000));
+    const s = window.__surf.state();
+    return { ranOn: +(s.swRide - a).toFixed(2), ph: s.swPh };
+  });
+  check(parked.ph !== 3 || parked.ranOn > 0.4, 'and it still runs when you stop',
+        parked.ph !== 3 ? 'closed out while parked' : `clock advanced ${parked.ranOn}s`);
 }
 
 // ---------- you can see out of the barrel ----------

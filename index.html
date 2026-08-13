@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.47.0';
+const VERSION='2.48.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -6655,7 +6655,7 @@ function respawn(){
   for(let i=obstacles.length-1;i>=0;i--)
     if(obstacles[i].position.z>-48){scene.remove(obstacles[i]);obstacles.splice(i,1);}
   skiOn=false;skiWake=null;skiT=26;jetSki.visible=false;skiGlint.visible=false;wkA=0;
-  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=30+Math.random()*15;swTest=false;swAng=0;swAngV=0;swLoops=0;swTubeRide=false;swCamLock=null;swRad=NaN;swCalm=1;
+  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=30+Math.random()*15;swTest=false;swAng=0;swAngV=0;swLoops=0;swTubeRide=false;swCamLock=null;swRad=NaN;swCalm=1;swOver=0;
   for(const p of SMOKE){p.t=0;p.m.visible=false;} _smkHas=false; plane.userData.prev=null;
   curl.visible=false;swSplash.visible=false;
   whirl=null;whA=0;whirlArt.visible=false;whirlT=30+Math.random()*20;
@@ -7861,6 +7861,7 @@ const SWP={IDLE:-1,FLY:0,IMPACT:1,SWELL:2,RIDE:3,EXIT:4};
 const SW_CRASH_X=46, SW_HOLD_X=9.0, SW_TUBE=4.6;   // SW_PEAK is up with the peel
 const SW_FLY=5.2, SW_IMP=1.3, SW_SWELL=5.0, SW_OUT=2.6;
 let swPh=SWP.IDLE, swT=0, swRide=0, swRideMax=0, swPts=0, swDeep=0;
+let swOver=0;                           // seconds ridden past the clock, on held loops
 let swCurlA=0, swCam=0, swClose=0, swDebT=0, swSweep=0, swNext=30+Math.random()*15;
 // Where you are around the inside of the tube, rather than where you are across it. Zero is
 // the pocket at the bottom; a whole turn takes you up the face, over the roof upside down,
@@ -8093,7 +8094,7 @@ function updateSetWave(dt,eff){
     if(swT>=SW_SWELL){
       // Lock the pocket where it closed on him. Left tracking, it would follow him round
       // the ring for ever and he could never move relative to his own barrel.
-      swHoldX=swX; swPh=SWP.RIDE; swT=0; swRide=0; swClose=0;
+      swHoldX=swX; swPh=SWP.RIDE; swT=0; swRide=0; swOver=0; swClose=0;
       swAng=0; swAngV=0; swLoops=0;
       msg('IN THE BARREL! 🌊');
     }
@@ -8102,7 +8103,15 @@ function updateSetWave(dt,eff){
   if(swPh===SWP.RIDE){
     swA=SW_PEAK; swX=swHoldX; swCurlA=1; swCam=Math.min(1,swCam+dt*1.6);
     swCalm+=(0.22-swCalm)*Math.min(1,dt*1.4);      // the sea goes glassy inside the tube
-    swRide+=dt;
+    // The clock stops while he is actually going round. "I should be able to go around in
+    // circles all I want" is the rule the whole tube was built for, and a fixed 6-16 s was
+    // quietly overriding it: mid-loop, with everything going right, the wave spat him out.
+    // Park on one spot and the clock runs and the wave closes on you as before; keep it
+    // turning and it waits. 0.7 rad/s is a full loop in nine seconds — a drift will not
+    // hold the wave open, a ride will.
+    const circling = Math.abs(swAngV) > 0.7;
+    if(!circling) swRide+=dt;
+    else swOver+=dt;
     const c=swTubeC();
     // Where you are across the tube. Positive is deeper, up the face toward the curtain;
     // negative is out toward the shoulder and the daylight.
@@ -8111,7 +8120,11 @@ function updateSetWave(dt,eff){
     // in the ring is. It pays because deep is the part of the tube worth being in.
     const sweet=Math.max(0,1-Math.abs(dp-1.2)/3.2);
     swDeep=Math.max(swDeep,sweet);
-    const rate=240+960*sweet*sweet;
+    // Riding on past the clock is free, but it does not pay forever — an endless barrel at
+    // up to 1200 a second would be the only score in the game worth chasing. The rate tapers
+    // over the first 45 s of held loops and then the tube is just the tube. Loops keep their
+    // 450 each, so going round still counts for something the whole way.
+    const rate=(240+960*sweet*sweet)*Math.max(0,1-swOver/45);
     score+=rate*dt; swPts+=rate*dt;
     // The clock is the only way out. Being pitched, hitting the lip and running out onto
     // the shoulder all used to end it, and all three are gone: the wave has formed around
@@ -8143,7 +8156,7 @@ if(location.hash.includes('debug')){
   window.__surf={
     version:VERSION,
     state:()=>({dist,speed,score,running,wipe:!!wipe,airborne,px,py,pz,
-                swPh,swT,swA,swX,swS,swRide,swCurlA,swClose,
+                swPh,swT,swA,swX,swS,swRide,swRideMax,swOver,swCurlA,swClose,
                 swAng,swLoops,swTubeRide,swOnLip,ring:swTubeGeom(),
                 jellyHits,lastWipe,swCut,
                 curlVisible:curl.visible,roofY:swRoofY(),tubeC:swTubeC()}),
@@ -8180,9 +8193,23 @@ if(location.hash.includes('debug')){
     // over it — the only way to ask "does flying over this thing still set it off?"
     spawn(kind,dx,dz){ const o=makeObstacle(kind,px+dx,pz+dz); return {x:o.position.x,y:o.position.y,z:o.position.z,h:o.userData.h}; },
     setRiderY(y){ py=y; vy=0; airborne=true; return py; },
+    // How far ahead the nearest obstacle of a kind still is. A test that waits a fixed number
+    // of frames for one to arrive is really testing the frame rate: under swiftshader the sim
+    // advances about a tenth of the clock, and a slow run had the jellyfish still short of the
+    // rider when the loop gave up — reported as "it did not bounce".
+    obstacleZ(kind){
+      let best=null;
+      for(const o of obstacles) if(o.userData.kind===kind){
+        const d=o.position.z-pz; if(best===null||Math.abs(d)<Math.abs(best))best=d;
+      }
+      return best;
+    },
     // Drive the ring directly, so a test can put him anywhere round the tube — including
     // upside down in the roof — without steering him there in real time.
     setTubeAngle(a){ swAng=a; swAngV=0; return swAng; },
+    // Which side the wave breaks from is a coin toss per wave, and the steering sign depends
+    // on it — so a test that does not pin it only ever checks one of the two.
+    setSide(s){ swS=s<0?-1:1; return swS; },
     plane:()=>({pos:plane.position.toArray().map(v=>+v.toFixed(2)),
                 yaw:+plane.rotation.y.toFixed(3), visible:plane.visible,
                 screen:(()=>{const v=plane.position.clone().project(camera);
@@ -8224,7 +8251,7 @@ if(location.hash.includes('debug')){
         // wrong place.
         swHoldX=px+swS*SW_TUBE;
         swPh=SWP.RIDE; swA=SW_PEAK; swX=swHoldX; swCurlA=1; swCam=0.75;
-        swRide=0; swClose=0; swSweep=2;
+        swRide=0; swOver=0; swClose=0; swSweep=2;
         px=swTubeC()+swS*1.2;                  // dropped into the sweet spot, not the lip
         return true;
       }
@@ -8293,7 +8320,7 @@ function swSpit(){
   const bonus=Math.round(600+swPts*0.35+swDeep*1400+swLoops*300);
   score+=bonus;
   msg(swLoops>0?`SPAT OUT! ${swLoops} LOOP${swLoops>1?'S':''} +${bonus}`
-              :(swRide>11?`SPAT OUT! DEEP BARREL +${bonus}`:`OUT CLEAN! +${bonus}`));
+              :(swRide+swOver>11?`SPAT OUT! DEEP BARREL +${bonus}`:`OUT CLEAN! +${bonus}`));
   noteTrick&&noteTrick('barrel','wave');
 }
 const _cutP=new THREE.Vector3();
@@ -8983,7 +9010,12 @@ function update(dt){
         swAng=Math.atan2((px-G.cx)*swS, -(py-G.cy));
         swAngV=vx*swS/Math.max(1.5,G.r);          // and carries the speed he had across
       }
-      swAngV+=sx*3.4*BS.turn*dt;
+      // Times swS, and it was missing. Increasing swAng carries you round toward +swS in x,
+      // so on a wave breaking the other way a drag to the right sent the rider left — the
+      // takeover a few lines up already reads swAngV out of vx WITH the swS factor, which is
+      // the same convention, so the input was the odd one out. Right on the glass is right
+      // on the screen whichever way the wave is breaking.
+      swAngV+=sx*swS*3.4*BS.turn*dt;
       swAngV-=swAngV*1.7*dt;
       swAngV=Math.max(-3.6,Math.min(3.6,swAngV));
       const was=swAng;
@@ -9397,7 +9429,23 @@ function update(dt){
   //
   // A roll of phi about +z carries local up to (-sin phi, cos phi), and inward is
   // (-swS*sin th, cos th), so phi is swS*th. Not minus.
-  const leanT=(swTubeRide&&swOnLip) ? swS*swAng - carve*0.22
+  //
+  // Keyed on swTubeRide, NOT on swOnLip. The ring is one continuous loop of water — the
+  // radius is ray-marched to whatever is out there, lip or open sea, precisely so there is
+  // no seam — but the roll was still switching between two unrelated targets at the edge of
+  // the lip's arc: the ring's angle on one side, the flat sea's carve on the other. Crossing
+  // it unwound the board from several radians to nearly zero, which is the whole flip you
+  // see going from the top of the wave back down to the bottom. Around the bottom of the
+  // ring swS*swAng is already near zero, so one expression covers both and the crossing
+  // stops existing. swAng keeps counting past 2*pi and that is fine: it is an Euler angle.
+  //
+  // Wrapped into (-pi, pi]. swAng counts loops and never resets, so after three times round
+  // it is about 19 radians — and the moment the tube lets go, the eased branch below unwinds
+  // that to zero, spinning the board three times on the way out. Wrapping costs nothing
+  // while he is in there, because the roll is assigned outright and 19 rad draws the same as
+  // 0.4 rad, and it leaves at most half a turn to unwind when the wave spits him.
+  const ringRoll=swS*swAng - carve*0.22;
+  const leanT=swTubeRide ? Math.atan2(Math.sin(ringRoll),Math.cos(ringRoll))
                          : -carve*0.55 + (airborne?0:hullRoll*1.20);
   const faceSlope=hT-hN;                     // downhill when the tail is higher
   // Ride fore and aft rather than sitting on one spot. Leaning drives him up the
@@ -9449,7 +9497,7 @@ function update(dt){
   // him on the ring. Damping it lags the bank behind the position exactly the way damping
   // the position lagged it behind the ring — measured, up-against-inward fell from 1.00 to
   // 0.61 while turning. Applied straight, like the angle itself.
-  if(swTubeRide&&swOnLip)boardLean=leanT;
+  if(swTubeRide)boardLean=leanT;
   else boardLean+=(leanT-boardLean)*Math.min(1,dt*8.5);
   boardPitch+=(pitchT-boardPitch)*Math.min(1,dt*13);
   const grabRoll = grab ? grabSide*0.30 : 0;   // board tips toward the rail he's holding
