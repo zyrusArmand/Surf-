@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.58.0';
+const VERSION='2.59.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1104,7 +1104,7 @@ const oceanMat=new THREE.ShaderMaterial({
         // Only under a lip that has actually thrown, and thickening into the collapse.
         land *= vPa*(0.80+0.50*vBrk);
         col = mix(col, vec3(0.93,0.97,0.99),
-                  clamp(land*(0.45+0.60*laceR+0.45*fleckR),0.0,1.0)*0.90);
+                  clamp(land*(0.58+0.60*laceR+0.45*fleckR),0.0,1.0)*0.94);
       }
       col += vec3(1.0)*pow(max(dot(N,H),0.0),480.0)*0.6;
       float fog = smoothstep(70.0,230.0,length(cameraPosition-vW));
@@ -1525,9 +1525,16 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // mostly below the frame or behind the near-wall cut, and measured on the screen it
       // was 2% of the corridor it lives in. It climbs from a third of the way down now,
       // ragged at its top edge so the wrap reads as thrown spray rather than a waterline.
+      // Two layers, per the reference: a soft CLOUD of aerated water reaching well up the
+      // fall — low frequency, low contrast, the "cloudy" mass — with the crisp boiling
+      // churn inside it near the foot. One layer read as paint; the cloud around it is
+      // what makes the corner read as water coming apart.
       float boil=fbm(vec2(vW.z*0.60+uT*0.85, vFall*3.2-uT*1.55));
-      float churn=smoothstep(0.34,0.88,vFall)*clamp(0.44+0.80*boil,0.0,1.0);
-      col=mix(col,vec3(0.93,0.97,0.99),churn*0.92);
+      float cloud=fbm(vec2(vW.z*0.30+uT*0.48, vFall*1.6-uT*0.85));
+      float mist=smoothstep(0.08,0.72,vFall)*clamp(0.20+0.95*cloud,0.0,1.0);
+      col=mix(col,vec3(0.90,0.95,0.97),mist*0.60);
+      float churn=smoothstep(0.30,0.85,vFall)*clamp(0.50+0.80*boil,0.0,1.0);
+      col=mix(col,vec3(0.93,0.97,0.99),churn*0.95);
       // Depth down the tube. An evenly lit bore is the single biggest reason it reads as a
       // tunnel: a real barrel darkens away from you and the mouth is the bright thing in it.
       // vUv.y=0 is the far end.
@@ -1554,7 +1561,7 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // below, which removes the near wall outright. An earlier read of this had the two
       // confused and blamed the alpha for the frame going flat blue.
       float a=uFade*(0.99-0.14*t);
-      a=min(1.0,a+churn*0.20*uFade);             // aerated water is not glass-thin
+      a=min(1.0,a+(churn*0.22+mist*0.12)*uFade); // aerated water is not glass-thin
       a*=smoothstep(0.0,0.30,vUv.y);             // opens out at the far end
       // Ride round to the roof and the wall between you and the camera is the near side of
       // your own barrel, so you vanish behind it — measured: at the top of the ring the
@@ -8765,7 +8772,7 @@ function placeCurl(dt){
   // brightest, most readable part of the shot. The pool caps it absolutely (takeDrop
   // returns null when spent); this rate keeps it well under that on its own.
   if(swPh===SWP.RIDE&&swForm>0.5&&swCurlA>0.6&&!curl.userData.forceHide){
-    swFootEm+=(dt||0.016)*(4+12*swForm);
+    swFootEm+=(dt||0.016)*(6+18*swForm);
     while(swFootEm>1){
       swFootEm-=1;
       // the stretch of tube on screen, and only where the lip has actually thrown —
@@ -8774,7 +8781,7 @@ function placeCurl(dt){
       if(swPeelA(z)<0.35)continue;
       const f=swFootAt(z);
       if(f.r<1.2)continue;
-      splash(f.x+(Math.random()-0.5)*0.9, f.y+0.08, z, 2);
+      splash(f.x+(Math.random()-0.5)*1.3, f.y+0.08+Math.random()*0.9, z, 3);
       swFootSplash++;
     }
   }

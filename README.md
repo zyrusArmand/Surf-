@@ -52,6 +52,14 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.59.0** — **The crash corner goes cloudy.** Tuned against the 360-degree reference
+  shot: the crisp boiling band alone read as paint, so it now sits inside a soft, low-contrast
+  **cloud of aerated water** reaching well up the falling curtain — two noise layers at
+  different scales, the cloud slow and wide, the churn fast and tight at the foot. Spray is
+  half again denser and scatters taller, so it reads as splashing rather than fizz, and the
+  sea's own impact band thickens to meet it. Alpha rises with both layers — aerated water is
+  not glass-thin. (No sand: the reference's floor is a beach, ours stays water.)
+
 - **v2.58.0** — **The crash zone. Where the curtain lands, the water now reacts.**
   - The impact line — the falling curtain meeting the sea — was clean glass on one side of
     the seam and painted foam on the other. It now carries the three things the reference
