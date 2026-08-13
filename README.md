@@ -52,6 +52,27 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.46.0** — **No jet skis during the set wave, and the camera in the barrel is properly
+  fixed at last.**
+  - **The ski stays away while the wave is up**, at every stage of it, not just the ride. One
+    crossing the lane puts a wake through the one part of the game where the water is meant to
+    be glassy, and the launch fires while the ring owns the rider's position — throwing him out
+    of a wave the rules say he cannot fall out of. The wake cannot lift him off the ring
+    either. The clock keeps running, so waiting does not cost the encounter, and the interval
+    is **40–64 s → 62–100 s**: the old spacing was tight enough that two skis could bracket a
+    single set wave, one on the way in and one on the way out.
+  - **The camera holds still — height included.** This was tried in v2.44 and rejected, and
+    that rejection was worthless: every one of those attempts ran while `Z1=13` was ending the
+    shell in front of the camera, so the frame was filled by the tube's exterior no matter what
+    the camera did. Retested against a shell that renders, a held camera frames the barrel
+    fine. It is centred on the tube's **axis** rather than wherever he entered — he orbits that
+    axis, so a camera parked off it watches an orbit that runs off one side — and set back to
+    25.5, because a 6.6 m ring does not fit a 31° lane from closer. Measured round the ring:
+    **all four quarters in frame** (x 0.06–0.97), where at the chase distance two of four fell
+    outside it.
+  - Twice now a conclusion has been drawn from a test run while something else was broken. Both
+    times it was the shell. If the barrel looks wrong, check the curl renders BEFORE concluding
+    anything about the camera.
 - **v2.45.0** — **You have to actually reach the jellyfish now.** The obstacle test is a
   footprint on the water — x and z only — and every other obstacle pays for that with a height
   gate of its own (`py < waterY + h`). The jellyfish never had one, so its footprint alone

@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.45.0';
+const VERSION='2.46.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -7737,7 +7737,16 @@ function spawnJetSki(){
 function updateJetSki(dt,eff){
   if(!skiOn){
     skiT-=dt;
-    if(skiT<=0&&dist>480){skiT=40+Math.random()*24;spawnJetSki();}
+    // Not during the set wave, at any stage of it. A ski crossing the lane while the barrel
+    // is up puts a wake through the one part of the game where the water is supposed to be
+    // glassy, and the launch it gives fires while the ring owns the rider's position — so he
+    // is thrown out of a wave he cannot fall out of. The clock keeps running and it fires
+    // once the wave is done, so waiting does not cost you the encounter.
+    //
+    // And spread further apart besides: 40-64 s came round often enough that two could
+    // bracket a single set wave, one on the way in and one on the way out.
+    if(swPh!==SWP.IDLE)skiT=Math.max(skiT,8);
+    if(skiT<=0&&dist>480&&swPh===SWP.IDLE){skiT=62+Math.random()*38;spawnJetSki();}
   } else {
     // rips across the field
     jetSki.position.x+=skiDir*15*dt;      // slower, so it is on screen long enough to see
@@ -9075,7 +9084,10 @@ function update(dt){
   // stuck to the face instead: a much harder spring, and far more daylight needed
   // under the board before it counts as air. The crest is then the only way off.
   wakeGrace=Math.max(0,wakeGrace-dt);
-  const onWake=wkA>2.5&&skiWake&&skiWake.z<pz+1.0;
+  // A wake cannot pick him up off the wall of a barrel. The ring owns his position while he
+  // is on it, so a launch here would fight it and win only briefly — throwing him out of a
+  // wave the rules say he cannot leave.
+  const onWake=wkA>2.5&&skiWake&&skiWake.z<pz+1.0&&!swTubeRide;
   // Riding UP the face, before the crest reaches him. He used to come off the rising
   // water here, go ballistic under full gravity, and be falling hard by the time the
   // launch fired — which is why it read as a drop and then a bounce. He stays welded
@@ -9725,8 +9737,23 @@ function update(dt){
     // Height and aim have to keep following him, because what makes a barrel legible is
     // looking INTO it, and where that is depends on where he is in it. What is removed is
     // the part you actually notice: the camera sliding across to keep him centred.
-    if(!swCamLock)swCamLock={x:camX,lx:lookX};
-    camX=swCamLock.x; lookX=swCamLock.lx;
+    // Height held as well as the sideways chase. This was tried before and rejected, and the
+    // rejection was worthless: every one of those attempts ran while Z1=13 was ending the
+    // shell in front of the camera, so the frame was filled by the tube's exterior whatever
+    // the camera did. With the shell restored there is a barrel to frame again, so the
+    // height is held too — the whole point being that he moves through the shot rather than
+    // the shot moving with him.
+    //
+    // The aim still tracks a little, because a shot held rigidly at the entry height looks
+    // past him entirely once he is up in the roof; a fifth of the climb is enough to keep
+    // him in frame without the picture chasing.
+    // Centred on the tube's AXIS in x, not on wherever he happened to be when the ring took
+    // over: he orbits that axis, so a camera parked off it watches an orbit that runs off one
+    // side of the frame. Height and distance stay the chase camera's, which is the geometry
+    // that frames a barrel.
+    if(!swCamLock)swCamLock={x:swTubeGeom().cx,y:camY,z:25.5,lx:swTubeGeom().cx,at:waterY+1.05+swCam*1.5};
+    camX=swCamLock.x; lookX=swCamLock.lx; camZ=swCamLock.z;
+    camY=swCamLock.y;
     // Fixed, but not fixed UNDERWATER. This runs after the clamp that keeps the camera above
     // a rising face, so holding the height through it let the swell close over the lens —
     // the screen fills with flat blue and the barrel disappears. The shot holds still; the
@@ -9739,7 +9766,7 @@ function update(dt){
     camY=Math.max(camY,waterY+2.1);   // and never let the sea close over the lens
   } else swCamLock=null;
   camera.position.set(camX,camY,camZ);
-  camera.lookAt(lookX, waterY+1.05+swCam*1.5+airH*0.62, -14-swCam*10);
+  camera.lookAt(lookX, swCamLock?(swCamLock.at+airH*0.20):(waterY+1.05+swCam*1.5+airH*0.62), -14-swCam*10);
   // The camera does NOT roll with the ring. A loop camera was tried and taken back out: it
   // keeps the tube wrapped around the view, but the whole shot turning over is disorienting
   // and it throws away the one stable reference — the horizon — that tells you where you are
