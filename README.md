@@ -52,6 +52,13 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.68.0** — **The foam spreads onto the floor you can actually see.** The user circled
+  the flat between the rider and the near wall — and both previous spreads missed it, because
+  they went *outward* past the curtain, where the mass is hidden behind the very wall it grew
+  from. From the riding camera the visible flat is INBOARD of the foot line. A third strip of
+  lobes now rolls from the wall's boot across the tube's own floor toward the rider, lying
+  low on the water. Still one draw call, still arriving only when the lip lands.
+
 - **v2.67.0** — **The foam bank becomes a body.** v2.66's mass read as a faint veil from the
   riding camera, and the reason was exactly backwards alpha: it keyed opacity UP on facing
   the eye, and from inside the tube the bank is seen edge-on — so precisely the surfaces
