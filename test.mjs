@@ -6,15 +6,23 @@
 //
 // Chromium is the pre-installed build at PLAYWRIGHT_BROWSERS_PATH; the bundled version
 // playwright expects is NOT downloaded here, so the executable is passed explicitly.
-// WebGL runs on swiftshader, which is ~3 fps, and the game clamps dt — so simulated time
-// runs at roughly a tenth of wall clock. Budget accordingly; don't tighten these waits.
+// WebGL runs on swiftshader at about three frames a second and the game clamps dt, so waiting
+// on RENDERED frames buys roughly a tenth of a second of simulation per second of wall clock —
+// which is what made this suite take twenty minutes to answer questions that have nothing to do
+// with pixels. It steps the simulation directly instead: __surf.tick(seconds) runs update() in a
+// plain loop with no rendering, about thirty times real time, with the timestep exact and
+// identical every run. Waits here are therefore in SECONDS OF SIMULATION, not wall clock.
+// The few remaining waitForTimeout calls are waiting on the DOM, which does need real time.
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 
 const ROOT = new URL('.', import.meta.url).pathname;
-const PORT = 8767;
+// Port 0 means "whatever is free". A fixed one collided with a still-dying run from the
+// previous attempt often enough to cost several whole runs to EADDRINUSE, which looks
+// exactly like a broken test and is nothing of the kind.
+let PORT = 0;
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
                '.css': 'text/css', '.glb': 'model/gltf-binary', '.png': 'image/png',
                '.json': 'application/json' };
@@ -30,7 +38,8 @@ const server = createServer(async (req, res) => {
     res.writeHead(404).end('not found');
   }
 });
-await new Promise(r => server.listen(PORT, '127.0.0.1', r));
+await new Promise(r => server.listen(0, '127.0.0.1', r));
+PORT = server.address().port;
 
 const browser = await chromium.launch({
   executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
@@ -107,9 +116,9 @@ for (const [openSel, panelSel, closeSel, label] of [
 }
 
 await page.click('#startBtn');
-await page.waitForTimeout(3000);
+await page.evaluate(() => window.__surf.tick(0.3));
 const d0 = await page.textContent('#hDist');
-await page.waitForTimeout(12000);
+await page.evaluate(() => window.__surf.tick(1.2));
 const d1 = await page.textContent('#hDist');
 const m = s => parseFloat(String(s).replace(/[^\d.]/g, '')) || 0;
 check(m(d1) > m(d0), 'HUD distance advancing', `${d0} -> ${d1}`);
@@ -141,7 +150,7 @@ if (hasHook) {
   const ph = await page.evaluate(async () => {
     window.__surf.armSetWave();
     window.__surf.warpSetWave('RIDE');
-    await new Promise(r => setTimeout(r, 1200));
+    window.__surf.tick(0.12);
     return window.__surf.state();
   });
   check(ph.swPh === 3, 'set wave reaches RIDE', `swPh=${ph.swPh}`);
@@ -154,7 +163,7 @@ if (hasHook) {
   // Riding in the pocket has to pay, and the wave has to end rather than hang.
   const rode = await page.evaluate(async () => {
     const s0 = window.__surf.state();
-    await new Promise(r => setTimeout(r, 4000));
+    window.__surf.tick(0.4);
     return { s0, s1: window.__surf.state() };
   });
   check(rode.s1.score > rode.s0.score || rode.s1.wipe, 'ride scores (or ends in a wipeout)',
@@ -162,7 +171,7 @@ if (hasHook) {
 
   const out = await page.evaluate(async () => {
     window.__surf.warpSetWave('EXIT');
-    await new Promise(r => setTimeout(r, 6000));
+    window.__surf.tick(0.6);
     return window.__surf.state();
   });
   check(out.swPh === -1 || out.swPh === 4, 'wave closes out and returns to idle', `swPh=${out.swPh}`);
@@ -211,7 +220,7 @@ if (hasHook) {
     while (Date.now() - t0 < 60000) {
       const s = window.__surf.state();
       if (s.swPh !== -1) { seen = s.swPh; dist = s.dist; break; }
-      await new Promise(r => setTimeout(r, 250));
+      window.__surf.tick(0.03);
     }
     return { seen, dist };
   });
@@ -230,7 +239,7 @@ if (hasHook) {
 {
   const peel = await page.evaluate(async () => {
     window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
-    await new Promise(r => setTimeout(r, 1200));
+    window.__surf.tick(0.12);
     const s = window.__surf.state(), out = {};
     const C = window.__surf.consts();
     // Sampled RELATIVE to the break rather than at hard-coded z. When the break moved back
@@ -273,13 +282,13 @@ if (hasHook) {
 {
   const ring = await page.evaluate(async () => {
     window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
-    await new Promise(r => setTimeout(r, 1500));
+    window.__surf.tick(0.15);
     const out = { start: window.__surf.state(), at: {} };
     for (const [name, a] of [['pocket', 0], ['face', Math.PI / 2], ['roof', Math.PI], ['curtain', Math.PI * 1.5]]) {
       window.__surf.setTubeAngle(a);
       // He is eased onto the ring rather than snapped to it, and this browser runs the sim
       // at about a tenth of wall clock, so settling takes seconds of real time here.
-      await new Promise(r => setTimeout(r, 2600));
+      window.__surf.tick(0.26);
       out.at[name] = window.__surf.state();
     }
     return out;
@@ -306,7 +315,7 @@ if (hasHook) {
       // He is EASED onto the ring, and this browser runs the sim at about a tenth of wall
       // clock, so settling takes a couple of real seconds. At 1400 ms the reading was 0.95 m
       // — mid-ease, not a gap. Measure where he ends up, not where he is on the way.
-      await new Promise(r => setTimeout(r, 2400));
+      window.__surf.tick(0.24);
       const s = window.__surf.state();
       const sl = window.__surf.curlSlice(s.pz);
       const rf = sl.riderF, ry = (s.py - sl.baseY) / (sl.scaleY || 1);
@@ -349,9 +358,9 @@ if (hasHook) {
       // Read it SETTLED. The claim is about where the board ends up, and a single sample
       // after a fixed wait is a frame-rate measurement in disguise — under swiftshader that
       // has come back mid-step and been reported as a lagging bank more than once.
-      await new Promise(r => setTimeout(r, 1600));
+      window.__surf.tick(0.16);
       window.__surf.riderUp();
-      await new Promise(r => setTimeout(r, 1200));
+      window.__surf.tick(0.12);
       const u = window.__surf.riderUp();
       if (u.onLip) out.push(u.dot);
     }
@@ -364,7 +373,7 @@ if (hasHook) {
   // A whole turn pays, and the ride survives it.
   const looped = await page.evaluate(async () => {
     const s0 = window.__surf.state();
-    for (let i = 1; i <= 8; i++) { window.__surf.setTubeAngle(i * Math.PI / 4); await new Promise(r => setTimeout(r, 260)); }
+    for (let i = 1; i <= 8; i++) { window.__surf.setTubeAngle(i * Math.PI / 4); window.__surf.tick(0.03); }
     return { s0, s1: window.__surf.state() };
   });
   check(looped.s1.swPh === 3 && !looped.s1.wipe, 'a full loop does not end the ride');
@@ -378,12 +387,12 @@ if (hasHook) {
 {
   const ride = await page.evaluate(async () => {
     window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
-    await new Promise(r => setTimeout(r, 1500));
+    window.__surf.tick(0.15);
     const seen = [];
     for (let i = 0; i < 22; i++) {
       // keep him moving round the ring the way a held turn would
       window.__surf.setTubeAngle(window.__surf.state().swAng - 0.55);
-      await new Promise(r => setTimeout(r, 260));
+      window.__surf.tick(0.03);
       const s = window.__surf.state();
       if (s.swPh !== 3 || !s.swTubeRide) continue;
       const sl = window.__surf.curlSlice(s.pz);
@@ -414,7 +423,7 @@ if (hasHook) {
   const prof = await page.evaluate(async () => {
     window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
     for (let i = 0; i < 250; i++) {
-      await new Promise(r => setTimeout(r, 200));
+      window.__surf.tick(0.03);
       const s = window.__surf.state();
       if (s.swTubeRide && (s.swForm ?? 0) > 0.9) break;
       if (s.wipe || s.swPh !== 3) break;
@@ -445,7 +454,7 @@ if (hasHook) {
 {
   const formed = await page.evaluate(async () => {
     window.__surf.armSetWave(); window.__surf.warpSetWave('SWELL', 4.9);
-    await new Promise(r => setTimeout(r, 2500));
+    window.__surf.tick(0.25);
     const s = window.__surf.state();
     return { pocket: s.tubeC, px: s.px, phase: s.swPh };
   });
@@ -463,7 +472,7 @@ if (hasHook) {
     const out = [];
     // any set wave still running would keep the ring physics in charge of py
     window.__surf.warpSetWave('EXIT');
-    await new Promise(r => setTimeout(r, 3000));
+    window.__surf.tick(0.3);
     for (const h of [1.0, 4.0, 8.0]) {
       const s0 = window.__surf.state();
       const j = window.__surf.spawn('jelly', 0, -26);
@@ -473,7 +482,7 @@ if (hasHook) {
       // of him and reported that as "no bounce", which failed a build that was fine.
       for (let i = 0; i < 900; i++) {
         window.__surf.setRiderY(j.y + h);
-        await new Promise(r => setTimeout(r, 45));
+        window.__surf.tick(0.03);
         const s = window.__surf.state();
         if (s.jellyHits > s0.jellyHits) { bounced = true; arrived = true; break; }
         if (s.wipe) break;
@@ -501,7 +510,7 @@ if (hasHook) {
     await page.evaluate(s => {
       window.__surf.armSetWave(); window.__surf.setSide(s); window.__surf.warpSetWave('RIDE');
     }, side);
-    await page.waitForTimeout(4000);
+    await page.evaluate(() => window.__surf.tick(0.4));
     // Parked at the bottom of the ring and left to settle first. Measured straight off the
     // warp instead, the reading is the radius easing on to the wall, which is metres of
     // sideways travel that has nothing to do with the input — it read backwards on both
@@ -515,17 +524,17 @@ if (hasHook) {
     const parked = await page.evaluate(async () => {
       for (let i = 0; i < 40; i++) {
         window.__surf.setTubeAngle(0);
-        await new Promise(r => setTimeout(r, 400));
+        window.__surf.tick(0.04);
         const s = window.__surf.state();
         if (s.swTubeRide && Math.abs(s.swAng) < 0.2) return true;
       }
       return false;
     });
-    await page.waitForTimeout(2500);
+    await page.evaluate(() => window.__surf.tick(0.25));
     const before = await page.evaluate(() => window.__surf.state().px);
     void parked;
     await page.keyboard.down('ArrowRight');
-    await page.waitForTimeout(6000);
+    await page.evaluate(() => window.__surf.tick(0.6));
     await page.keyboard.up('ArrowRight');
     const after = await page.evaluate(() => window.__surf.state());
     dirs.push({ side, moved: +(after.px - before).toFixed(2), tube: after.swTubeRide, parked });
@@ -542,7 +551,7 @@ if (hasHook) {
 {
   const rolls = await page.evaluate(async () => {
     window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
-    await new Promise(r => setTimeout(r, 2000));
+    window.__surf.tick(0.2);
     const out = [];
     // Step round the whole circle in small increments and watch the board's roll. Crossing
     // on to and off the lip has to be no more of a jump than any other step of the same size.
@@ -552,16 +561,16 @@ if (hasHook) {
       // and the pose follows in the next physics tick, which under swiftshader is a third
       // of a second away — at 260 ms this was reading the board mid-step and calling it a
       // lag in the bank. Measured: the same angles settle to 1.000 given a second.
-      await new Promise(r => setTimeout(r, 900));
+      window.__surf.tick(0.09);
       // A sweep of forty-nine angles at nine hundred milliseconds is four-odd seconds of sim,
       // and the shortest wave is six — so the wave can end halfway through and every sample
       // after it reads a rider who is no longer on a ring at all. That came back as a bank of
       // zero and looked exactly like the bug this check exists to catch. Re-arm and skip.
       if (!window.__surf.state().swTubeRide) {
         window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
-        await new Promise(r => setTimeout(r, 2500));
+        window.__surf.tick(0.25);
         window.__surf.setTubeAngle(a);
-        await new Promise(r => setTimeout(r, 900));
+        window.__surf.tick(0.09);
       }
       const u = window.__surf.riderUp();
       out.push({ a: +a.toFixed(2), onLip: u.onLip, dot: u.dot });
@@ -585,10 +594,10 @@ if (hasHook) {
 {
   await page.evaluate(async () => {
     window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
-    await new Promise(r => setTimeout(r, 2500));
+    window.__surf.tick(0.25);
   });
   await page.keyboard.down('ArrowRight');
-  await page.waitForTimeout(4000);
+  await page.evaluate(() => window.__surf.tick(0.4));
   const flat = await page.evaluate(() => {
     const s = window.__surf.state();
     return { yaw: Math.abs(s.boardYaw), pitch: Math.abs(s.boardPitch), tube: s.swTubeRide };
@@ -600,7 +609,7 @@ if (hasHook) {
   const air = await page.evaluate(async () => {
     const before = window.__surf.state();
     window.__surf.jump();
-    await new Promise(r => setTimeout(r, 900));
+    window.__surf.tick(0.09);
     const mid = window.__surf.state();
     return { wasAir: before.swPipeAir, air: mid.swPipeAir, airborne: mid.airborne,
              ready: mid.trickReady, tube: mid.swTubeRide };
@@ -615,7 +624,7 @@ if (hasHook) {
     for (let i = 0; i < 200; i++) {
       const s = window.__surf.state();
       if (!s.swPipeAir) return { back: true, tube: s.swTubeRide, wipe: s.wipe };
-      await new Promise(r => setTimeout(r, 100));
+      window.__surf.tick(0.03);
     }
     return { back: false };
   });
@@ -631,11 +640,11 @@ if (hasHook) {
 {
   const cam = await page.evaluate(async () => {
     window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
-    await new Promise(r => setTimeout(r, 2500));
+    window.__surf.tick(0.25);
     const out = [];
     for (const a of [0, 1.6, 3.1, 4.7]) {
       window.__surf.setTubeAngle(a);
-      await new Promise(r => setTimeout(r, 900));
+      window.__surf.tick(0.09);
       out.push(window.__surf.cam());
     }
     return out;
@@ -651,9 +660,9 @@ if (hasHook) {
   // first second. Sampling only after everything has settled would never have caught it.
   const entry = await page.evaluate(async () => {
     window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
-    await new Promise(r => setTimeout(r, 700));
+    window.__surf.tick(0.07);
     const a = window.__surf.cam();
-    await new Promise(r => setTimeout(r, 6000));
+    window.__surf.tick(0.6);
     return { a, b: window.__surf.cam() };
   });
   const drift = Math.max(...['x','y','z','dx','dy','dz'].map(k => Math.abs(entry.a[k] - entry.b[k])));
@@ -669,12 +678,12 @@ if (hasHook) {
 {
   const hop = await page.evaluate(async () => {
     window.__surf.setTubeAngle(0);
-    await new Promise(r => setTimeout(r, 1200));
+    window.__surf.tick(0.12);
     const r0 = window.__surf.state().swRad;
     window.__surf.jump();
     let peak = r0;
     for (let i = 0; i < 120; i++) {
-      await new Promise(r => setTimeout(r, 60));
+      window.__surf.tick(0.03);
       const s = window.__surf.state();
       peak = Math.min(peak, s.swRad);
       if (!s.swPipeAir && i > 3) break;
@@ -694,14 +703,14 @@ if (hasHook) {
   // whether the fix is in or not. Measure the clock itself instead — swOver counts the time
   // spent going round, swRide is what the spit is compared against.
   await page.evaluate(() => { window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE'); });
-  await page.waitForTimeout(1500);
+  await page.evaluate(() => window.__surf.tick(0.15));
   // Steered for real, not driven through setTubeAngle — that hook zeroes the angular
   // velocity, which is the very thing the clock watches.
   await page.keyboard.down('ArrowRight');
   const held = await page.evaluate(async () => {
-    await new Promise(r => setTimeout(r, 2000));           // let the turn spin up
+    window.__surf.tick(0.2);           // let the turn spin up
     const a = window.__surf.state();
-    await new Promise(r => setTimeout(r, 30000));          // ~3 s of sim
+    window.__surf.tick(3.0);          // ~3 s of sim
     const b = window.__surf.state();
     return { ranOn: +(b.swRide - a.swRide).toFixed(2), circled: +(b.swOver - a.swOver).toFixed(2),
              ride: +b.swRide.toFixed(1), max: +b.swRideMax.toFixed(1), ph: b.swPh };
@@ -712,9 +721,9 @@ if (hasHook) {
         `${held.circled}s circling advanced the spit clock by ${held.ranOn}s (${held.ride}/${held.max})`);
   // And the other half of the rule: stop, and the wave closes on you as it always did.
   const parked = await page.evaluate(async () => {
-    await new Promise(r => setTimeout(r, 8000));           // let the turn wind down
+    window.__surf.tick(0.8);           // let the turn wind down
     const a = window.__surf.state().swRide;
-    await new Promise(r => setTimeout(r, 15000));
+    window.__surf.tick(1.5);
     const s = window.__surf.state();
     return { ranOn: +(s.swRide - a).toFixed(2), ph: s.swPh };
   });
@@ -735,7 +744,7 @@ if (hasHook) {
     // rather than assuming a fixed delay — the claim is where it ends up, not how fast.
     const settle = async () => {
       for (let i = 0; i < 120; i++) {
-        await new Promise(r => setTimeout(r, 250));
+        window.__surf.tick(0.03);
         if (window.__surf.state().swCut > 0.97) break;
       }
       return window.__surf.state();
@@ -744,7 +753,7 @@ if (hasHook) {
     const out = [];
     for (const a of [0, 1.2, 2.4, 3.6, 4.8]) {
       window.__surf.setTubeAngle(a);
-      await new Promise(r => setTimeout(r, 350));
+      window.__surf.tick(0.035);
       const s = window.__surf.state();
       out.push({ a, cut: +s.swCut.toFixed(2), tube: s.swTubeRide });
     }
@@ -767,7 +776,7 @@ if (hasHook) {
 {
   const across = await page.evaluate(async () => {
     window.__surf.restart();
-    await new Promise(r => setTimeout(r, 4000));
+    window.__surf.tick(0.4);
     window.__surf.armSetWave(); window.__surf.warpSetWave('SWELL', 4.6);
     // Getting to the takeover is slow under swiftshader: the swell runs, then the lip has to
     // form (swForm climbs at 0.26/s of SIMULATED time) before the ring will engage at all.
@@ -776,7 +785,7 @@ if (hasHook) {
     // never taken over in the first place. Budget 80 s and say so when it never gets there.
     let before = window.__surf.cam(), entered = false, enteredAt = 'never';
     for (let i = 0; i < 400; i++) {
-      await new Promise(r => setTimeout(r, 200));
+      window.__surf.tick(0.03);
       if (window.__surf.state().swTubeRide) { entered = true; enteredAt = `phase ${window.__surf.state().swPh} after ${i * 0.2}s`; break; }
       before = window.__surf.cam();          // the last frame before the ring had it
     }
@@ -786,7 +795,7 @@ if (hasHook) {
     // wrong thing — it is reported separately instead.
     let held = true, settled = after, why = '';
     for (let i = 0; i < 20; i++) {
-      await new Promise(r => setTimeout(r, 200));
+      window.__surf.tick(0.03);
       const s = window.__surf.state();
       if (!s.swTubeRide) {
         held = false;
@@ -817,12 +826,12 @@ if (hasHook) {
 {
   const grew = await page.evaluate(async () => {
     window.__surf.restart();
-    await new Promise(r => setTimeout(r, 3000));
+    window.__surf.tick(0.3);
     window.__surf.armSetWave(); window.__surf.warpSetWave('SWELL', 4.6);
     const seen = [];
     // Four seconds of SIM to build, which is forty of wall clock here. Do not tighten.
     for (let i = 0; i < 320; i++) {
-      await new Promise(r => setTimeout(r, 250));
+      window.__surf.tick(0.03);
       const s = window.__surf.state();
       if (s.swPh === 3) seen.push({ form: s.swForm, r: s.ring.r, tube: s.swTubeRide });
       if (seen.length && seen[seen.length - 1].form >= 0.999) break;
@@ -847,14 +856,14 @@ if (hasHook) {
 {
   const spun = await page.evaluate(async () => {
     window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
-    await new Promise(r => setTimeout(r, 2500));
+    window.__surf.tick(0.25);
     window.__surf.setTubeAngle(Math.PI / 2);               // on the wall, banked right over
-    await new Promise(r => setTimeout(r, 1500));
+    window.__surf.tick(0.15);
     const before = window.__surf.riderUp().dot;
     window.__surf.trick('spin');
     let worst = before;
     for (let i = 0; i < 25; i++) {
-      await new Promise(r => setTimeout(r, 120));
+      window.__surf.tick(0.03);
       const s = window.__surf.state();
       if (!s.swTubeRide || s.wipe) break;
       worst = Math.min(worst, window.__surf.riderUp().dot);
@@ -870,15 +879,15 @@ if (hasHook) {
 {
   const blown = await page.evaluate(async () => {
     window.__surf.restart();
-    await new Promise(r => setTimeout(r, 2000));
+    window.__surf.tick(0.2);
     window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
-    await new Promise(r => setTimeout(r, 2500));
+    window.__surf.tick(0.25);
     window.__surf.setTubeAngle(0);
-    await new Promise(r => setTimeout(r, 1200));
+    window.__surf.tick(0.12);
     // Held all the way down, so he is still turning when he arrives back at the wall.
     window.__surf.trick('flip');
     for (let i = 0; i < 200; i++) {
-      await new Promise(r => setTimeout(r, 100));
+      window.__surf.tick(0.03);
       const s = window.__surf.state();
       if (s.wipe) return { ended: true, kind: s.lastWipe && s.lastWipe.kind, tube: s.lastWipe && s.lastWipe.tube };
       if (!s.swPipeAir && i > 6) return { ended: false, landed: true };
@@ -900,11 +909,11 @@ if (hasHook) {
 {
   const drums = await page.evaluate(async () => {
     window.__surf.restart(); window.__surf.setDebris(true);   // let the game place its own
-    await new Promise(r => setTimeout(r, 2000));
+    window.__surf.tick(0.2);
     window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
     let worst = null;
     for (let i = 0; i < 150; i++) {
-      await new Promise(r => setTimeout(r, 200));
+      window.__surf.tick(0.03);
       const z = window.__surf.obstacleZ('debris');
       if (z !== null) worst = z;
       if (window.__surf.state().wipe) return { spawned: true, wiped: true };
@@ -923,13 +932,13 @@ if (hasHook) {
   // which is the "camera zooms out when you die".
   const dead = await page.evaluate(async () => {
     window.__surf.restart();
-    await new Promise(r => setTimeout(r, 2000));
+    window.__surf.tick(0.2);
     window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
-    await new Promise(r => setTimeout(r, 2500));
+    window.__surf.tick(0.25);
     const before = window.__surf.cam();
     const tube = window.__surf.state().swTubeRide;
     const w = window.__surf.wipeNow('foam');
-    await new Promise(r => setTimeout(r, 4000));
+    window.__surf.tick(0.4);
     return { before, after: window.__surf.cam(), wiped: w.wiped, held: w.held, tube };
   });
   const jumped = Math.max(...['x','y','z','dx','dy','dz'].map(k => Math.abs(dead.before[k] - dead.after[k])));

@@ -7094,8 +7094,14 @@ function boardHit(o,topY){
   msg('CRACKED! '+(BS.lives-cracks)+' LEFT');
 }
 let wipe=null,overlayUp=false,revivesLeft=1;
+let swInvuln=false;                     // tests only, and never on in a real run
 function startWipeout(kind){
   if(wipe)return;
+  // Held alive on purpose. Stepping the simulation without drawing it (see tick) means a
+  // test can run a minute of wave in a second — and an unattended minute ends in a wipeout
+  // long before the lip has finished throwing, so every question about the barrel would be
+  // asked of a dead run. The checks that are ABOUT wiping out turn this back off.
+  if(swInvuln)return;
   // What actually ended the run, kept for the tests. "It said ATE IT for no reason" is not
   // something that can be chased without knowing which of the eight call sites fired.
   lastWipe={kind,ph:swPh,tube:swTubeRide,py:+py.toFixed(2),ang:+swAng.toFixed(2),t:+tNow.toFixed(1)};
@@ -8445,10 +8451,37 @@ if(location.hash.includes('debug')){
     holdWave(v){ swHold=!!v; return swHold; },
     // End the run on demand. Reaching a wipeout by playing badly takes minutes here and
     // lands on a random cause; this asks for one directly.
-    wipeNow(kind){ startWipeout(kind||'foam'); return {wiped:!!wipe, held:!!(wipe&&wipe.lockCam)}; },
+    // Asked for explicitly, so it goes through however the run is being held alive.
+    wipeNow(kind){ const held=swInvuln; swInvuln=false; startWipeout(kind||'foam'); swInvuln=held;
+                   return {wiped:!!wipe, held:!!(wipe&&wipe.lockCam)}; },
     // Start a fresh run. Several checks legitimately END the run — that is what they are
     // checking — and everything after them was measuring a dead game.
+    // Ignore everything that would end the run, so a long unattended tick survives to the
+    // thing under test. Off by default; the wipeout checks set it false explicitly.
+    invuln(v){ swInvuln=v!==false; return swInvuln; },
     restart(){ beginRun(); window.__surf.holdWave(true); window.__surf.setDebris(false); return true; },
+    // Run the SIMULATION forward without drawing it.
+    //
+    // The loop is dt of physics followed by a frame of rendering, and only the first half
+    // decides where anything is. Headless this machine draws about three frames a second on
+    // swiftshader and the loop clamps dt to 33 ms, so simulated time crawls at a tenth of the
+    // wall clock: waiting out four seconds of a lip throwing over costs forty seconds of real
+    // time, and a suite that does that two dozen times takes twenty minutes to answer
+    // questions that have nothing to do with pixels.
+    //
+    // This steps update() directly. Time is exact and identical every run rather than however
+    // many frames the machine happened to manage, which also takes the flake out of anything
+    // measured across a fixed wait. Capped so a bad argument cannot hang the page.
+    tick(secs,dt){
+      if(!running)return{ran:0,why:'not running'};
+      const h=Math.max(0.004,Math.min(0.033,dt||0.016));
+      const n=Math.min(20000,Math.max(1,Math.round((secs||1)/h)));
+      for(let i=0;i<n;i++){
+        if(!running){ if(wipe){updateWipeout(h);updateWorldDuringWipeout(h);} break; }
+        runSecs+=h; update(h);
+      }
+      return{ran:+(n*h).toFixed(3),running,wipe:!!wipe};
+    },
     // The peel's own constants, so a test can sample "behind the break" without hard-coding a
     // z that quietly stops meaning that the moment one of them moves.
     consts:()=>({SW_PEAK,SW_BRK,SW_PEEL,SW_COLL,SW_HOLD,SW_R,SW_SWEEP}),
