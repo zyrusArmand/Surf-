@@ -26,7 +26,10 @@ await page.goto('http://127.0.0.1:8776/index.html#debug', { waitUntil: 'load' })
 await page.waitForTimeout(3500);
 await page.click('#startBtn');
 await page.waitForTimeout(2500);
-await page.evaluate(() => { window.__surf.armSetWave(); window.__surf.warpSetWave('SWELL', 3.2); });
+// PHASE=RIDE compares the two from INSIDE the barrel, which is the view most of the
+// complaints are about; the default looks at the wave from out in front of it.
+const [PH, AT] = (process.env.PHASE || 'SWELL@3.2').split('@');
+await page.evaluate(([p, t]) => { window.__surf.armSetWave(); window.__surf.warpSetWave(p, t ? +t : 0); }, [PH, AT]);
 await page.waitForTimeout(7000);
 await page.screenshot({ path: join(ROOT, 'shot_w_on.png') });
 await page.evaluate(() => window.__surf.setCurl(false));
@@ -43,8 +46,13 @@ for (let y = y0; y < y1; y++) for (let x = 0; x < on.width; x++) {
   const i = (on.width*y + x) << 2;
   const a = px(on, i), b = px(off, i);
   const diff = Math.max(...[0,1,2].map(k => Math.abs(a[k]-b[k])));
-  if (diff > 24) { for (const k of [0,1,2]) lip[k] += a[k]; nl++; }             // the lip itself
-  else if (diff < 4 && a[2] > a[0] + 18 && (a[0]+a[1]+a[2])/3 < 205) { for (const k of [0,1,2]) sea[k] += a[k]; ns++; }  // untouched water
+  // Glassy water only, on BOTH sides. Since the wave grew a proper band of whitewater at
+  // its foot the sea sample was quietly excluding every foamy pixel while the lip sample
+  // kept its own foam, so the two sets stopped being comparable and the reading moved
+  // twenty points on a change that had improved the seam. Same test either side.
+  const glassy = c => c[2] > c[0] + 18 && (c[0]+c[1]+c[2])/3 < 205;
+  if (diff > 24) { if (glassy(a)) { for (const k of [0,1,2]) lip[k] += a[k]; nl++; } }   // the lip itself
+  else if (diff < 4 && glassy(a)) { for (const k of [0,1,2]) sea[k] += a[k]; ns++; }  // untouched water
 }
 const m = (a, n) => a.map(v => Math.round(v/Math.max(1,n)));
 const L = m(lip, nl), S = m(sea, ns);

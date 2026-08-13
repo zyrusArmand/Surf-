@@ -52,6 +52,42 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.50.0** — **The lip and the sea are the same water, the break throws whitewater, and
+  the tube stops looking like a pipe.** Worked against surf photography rather than by eye.
+  - **The wave face is lit through, the way every photograph of one is.** A wall about to
+    barrel is the brightest, greenest water in the picture — you are looking at daylight
+    coming through several metres of it — and the flat sea in front is duller and bluer.
+    Ours had it exactly backwards: a navy wall against a bright sea, with a translucent teal
+    lip growing out of it. The face's transmission now covers the whole standing wall instead
+    of a band along the crest (`smoothstep(0.46,0.98)` → `smoothstep(0.14,0.86)`) and the
+    darkening that sat over it is nearly halved. The lip's own glow climbs more slowly into
+    the tube, because it was putting 27 more green on the roof than on the water underneath.
+    Both coefficients at the weld are untouched, so the join still meets exactly.
+    Measured across the crest line: channel biases **R +20 / G −30 / B −21 → R +3 / G −3 /
+    B −8**, worst single sample 43 → 26, and the green-over-blue artefact at the ceiling
+    is gone (3.1% → 0%). Lip against open water from inside the barrel: **+23 luminance → −3**.
+  - **The break now throws whitewater.** There was none — the lip landed on clean blue glass,
+    which no barrel has ever done. A churned band runs from about a metre and a half down the
+    face out to fourteen metres in *front* of the wave, only under a section whose lip has
+    actually thrown, thickening into the collapse. Keyed on metres from the crest, not on the
+    face profile: the profile is a cubic and crushes everything past seven metres into a
+    sliver of its range, so the first attempt rendered as a few pixels.
+  - **The corrugated tube.** The lip's grain came from world xz, which sounds right — same
+    grain as the sea — and is wrong on a cylinder about z, because world x barely changes
+    across the whole roof. The noise came out constant around the arc and varying down the
+    length, and constant-around-the-arc seen down a tube is a ring. Water in a barrel runs up
+    the face and over, so its grain lies along that path: long wandering streaks, about eight
+    across the visible length rather than dozens, domain-warped so they never close into
+    concentric circles. And the tube darkens away from you now, which is most of what stops
+    an evenly lit bore reading as a pipe.
+  - **It moves.** The whole streak field is dragged around the arc, and the geometry carries a
+    fourth wave — a surge travelling round the throw, weighted to the outer half of the arc
+    where the sheet has left the face. A lip being thrown should not hold still while paint
+    slides over it.
+  - `water.mjs` was comparing foam on one side against glass on the other once the wave grew
+    whitewater, which moved its reading twenty points on a change that improved the seam. It
+    tests both samples the same way now, and takes `PHASE=RIDE` to look from inside the barrel.
+
 - **v2.49.0** — **The board lies down the line in the tube, and tricks work in there.**
   - **The board sat across the barrel at an angle.** Going round the ring was yawing it up to
     0.55 rad *and* pitching it 0.55 rad, both driven by how fast he was travelling round —

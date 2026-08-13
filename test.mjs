@@ -464,7 +464,11 @@ if (hasHook) {
     // on to and off the lip has to be no more of a jump than any other step of the same size.
     for (let a = 0; a <= Math.PI * 2 + 0.001; a += Math.PI / 24) {
       window.__surf.setTubeAngle(a);
-      await new Promise(r => setTimeout(r, 260));
+      // Long enough for the frame to actually run. setTubeAngle moves the angle instantly
+      // and the pose follows in the next physics tick, which under swiftshader is a third
+      // of a second away — at 260 ms this was reading the board mid-step and calling it a
+      // lag in the bank. Measured: the same angles settle to 1.000 given a second.
+      await new Promise(r => setTimeout(r, 900));
       const u = window.__surf.riderUp();
       out.push({ a: +a.toFixed(2), onLip: u.onLip, dot: u.dot });
     }

@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.49.0';
+const VERSION='2.50.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -885,9 +885,9 @@ const oceanMat=new THREE.ShaderMaterial({
     uniform float uWhX; uniform float uWhZ; uniform float uWhA;
     uniform float uSwA; uniform float uSwX; uniform float uSwS;
     varying vec3 vN; varying vec3 vW; varying float vH; varying vec2 vPh;
-    varying float vSw; varying float vBrk;
+    varying float vSw; varying float vBrk; varying float vPa; varying float vDx;
     void main(){
-      vSw=0.0; vBrk=0.0;
+      vSw=0.0; vBrk=0.0; vPa=0.0; vDx=999.0;
       vec2 p = vec2(position.x, (-position.y + (${OCEAN_Z.toFixed(1)})) + uDist);
       float h=0.0, dhx=0.0, dhz=0.0, e=1.0;
       ${glslWaves}
@@ -951,6 +951,17 @@ const oceanMat=new THREE.ShaderMaterial({
         h   += uSwA*m*f;
         dhx += uSwA*m*dfdd*uSwS;
         dhz += uSwA*(-0.55*dbdz)*f;
+        // How far the lip has thrown at this z, mirroring swPeelA() — the same curve the
+        // curl's geometry is built from. The face needs it because the whitewater at the
+        // foot of the barrel is caused by the lip landing on it, so it can only exist where
+        // there IS a lip: none out on the unbroken wall, all of it under the thrown section.
+        float ua=clamp((wz-(${(SW_BRK-SW_PEEL).toFixed(1)}))/${SW_PEEL.toFixed(1)},0.0,1.0);
+        vPa=ua*ua*(3.0-2.0*ua);
+        // Metres out from the crest, negative on the face. The face profile f is a cubic,
+        // so it crushes everything past about seven metres out into a sliver of its range —
+        // useless for placing something that lives OUT IN FRONT of the wave, which the
+        // broken water does. This is the same quantity in metres.
+        vDx  = d;
         vSw  = f;                  // 0 at the foot of the face, 1 along the crest
         vBrk = b;                  // 0 ahead of the break, 1 in the whitewater behind it
       }
@@ -970,7 +981,7 @@ const oceanMat=new THREE.ShaderMaterial({
     uniform float uT; uniform float uDist; uniform float uAmp; uniform float uPeak;
     uniform float uLight; uniform float uSwA;
     varying vec3 vN; varying vec3 vW; varying float vH; varying vec2 vPh;
-    varying float vSw; varying float vBrk;
+    varying float vSw; varying float vBrk; varying float vPa; varying float vDx;
     // Value noise with a rotation between octaves. The rotation is the point: it
     // stops every octave lining up with the same two axes, which is what made the
     // old sine-product foam tile into a visible net.
@@ -1048,8 +1059,16 @@ const oceanMat=new THREE.ShaderMaterial({
         // it should not apply. Measured, that was the last systematic step across the weld:
         // green sat 33 lower on the water than on the lip growing out of it, while red and
         // blue already matched to within 5.
-        col = mix(col, uDeep*0.86, smoothstep(0.05,0.42,vSw)*(1.0-smoothstep(0.52,0.95,vSw))*0.62);
-        col += vec3(0.10,0.60,0.62)*smoothstep(0.46,0.98,vSw)*0.30;
+        col = mix(col, uDeep*0.86, smoothstep(0.05,0.42,vSw)*(1.0-smoothstep(0.52,0.95,vSw))*0.34);
+        // Lit through the WHOLE standing face, not just a band along the crest. Every
+        // photograph of a wave about to barrel shows the same thing: the wall is the
+        // brightest, greenest water in the picture, because you are looking at daylight
+        // coming through several metres of it, and the flat sea in front is duller and
+        // bluer by comparison. Ours had it the other way round — a navy wall against a
+        // bright sea — and that is most of why the lip growing out of it looked like a
+        // different substance. The lip carries this glow over its entire arc; now the face
+        // does too, so the two are the same water lit the same way.
+        col += vec3(0.10,0.60,0.62)*smoothstep(0.14,0.86,vSw)*0.30;
         // Wide enough to meet the lip. The lip's own leading edge is welded to this crest,
         // so wherever the two disagree in brightness they draw a line along the weld — the
         // geometry being continuous does not help if the colour is not.
@@ -1061,6 +1080,20 @@ const oceanMat=new THREE.ShaderMaterial({
         // its top, dirtier than crest foam because it is aerated all the way through.
         float ww = vBrk*smoothstep(0.04,0.34,vSw);
         col = mix(col, vec3(0.90,0.95,0.97), clamp(ww*(0.52+0.34*laceR+0.30*fleckR),0.0,1.0)*0.88);
+        // Where the curtain lands. Every photograph of a barrel has this and the game had
+        // none of it: the thrown lip comes down on the flat water at the foot of the face
+        // and piles up a churning white mass that runs the length of the section. It is a
+        // BAND low on the face, not a wash — above it the wall is clean green glass, which
+        // is the contrast that makes a barrel read as one.
+        // Measured in metres from the crest, not in face height: it reaches from about a
+        // metre and a half down the face out to sixteen metres in FRONT of the wave, which
+        // is where a thrown lip actually puts its water. Keyed on the face profile instead,
+        // it came out as a sliver a few pixels wide, because the profile is a cubic.
+        float land = smoothstep(-14.0,-9.5,vDx)*(1.0-smoothstep(-5.5,-1.5,vDx));
+        // Only under a lip that has actually thrown, and thickening into the collapse.
+        land *= vPa*(0.80+0.50*vBrk);
+        col = mix(col, vec3(0.93,0.97,0.99),
+                  clamp(land*(0.45+0.60*laceR+0.45*fleckR),0.0,1.0)*0.90);
       }
       col += vec3(1.0)*pow(max(dot(N,H),0.0),480.0)*0.6;
       float fog = smoothstep(70.0,230.0,length(cameraPosition-vW));
@@ -1269,7 +1302,12 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // shaken loose by it: the leading edge stays exactly where the water is.
       float ripple = sin(position.z*0.20 + uT*1.55)*0.42
                    + sin(position.z*0.41 - uT*2.10 + uv.x*4.2)*0.20
-                   + sin(uv.x*7.0 - uT*1.15)*0.13;
+                   + sin(uv.x*7.0 - uT*1.15)*0.13
+                   // The throw itself. A lip is not a standing shape with texture sliding
+                   // over it: the water is being flung round the arc, and the surge that
+                   // does the flinging travels with it. Weighted to the outer half of the
+                   // arc, where the sheet has left the face and is free to move.
+                   + sin(uv.x*2.3 - uT*2.60 + position.z*0.08)*0.34*smoothstep(0.25,1.0,uv.x);
       vec3 disp = position + normal*ripple*smoothstep(0.0,0.20,uv.x);
       vec4 wp=modelMatrix*vec4(disp,1.0);
       vW=wp.xyz;
@@ -1348,7 +1386,11 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // Equal to the face's value at the crest by construction, then growing into the tube.
       // Both coefficients are 0.30, and they are meant to stay equal: that is what makes the
       // weld continuous without anything being tuned to it.
-      col+=vec3(0.10,0.60,0.62)*(1.0+0.60*smoothstep(0.10,1.0,t))*0.30;
+      // The climb was 0.60 and it is 0.35. The coefficient at t=0 is what holds the weld —
+      // it has to equal what the face reaches at its crest, and it still does — but how fast
+      // it rises after that is free, and 0.60 was putting 27 more green on the roof than on
+      // the water it grows out of. Measured against open sea from inside the barrel.
+      col+=vec3(0.10,0.60,0.62)*(1.0+0.35*smoothstep(0.10,1.0,t))*0.30;
       // Foam, in the same three layers the ocean uses and driven by the same noise, so the
       // roof matches the face. It is dragged around the curl and along its length at once.
       // The axes were the wrong way round, and that is the whole reason the tube looked
@@ -1376,14 +1418,46 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       //
       // A little of the arc is mixed in because world xz alone is constant straight up a
       // vertical wall, which would smear the overhanging part into vertical streaks.
-      vec2 fpM=vec2(vW.x, vW.z)+vec2(t*2.4,0.0);
-      vec2 fpF=vec2(vW.x, vW.z)+vec2(t*1.1,0.0);
-      float lace =smoothstep(0.40,0.84, fbm(fpM*1.45+vec2(-uT*0.07, uT*0.06)));
-      float fleck=smoothstep(0.56,0.93, fbm(fpF*3.90+vec2( uT*0.11, uT*0.09)));
+      //
+      // Superseded again, and this time by what the photographs actually show. World xz was
+      // the right instinct — same grain as the sea — and the wrong result, because on a
+      // cylinder about z the world x barely changes across the whole roof, so the noise came
+      // out constant around the arc and varying only down the length. Constant around the
+      // arc, seen down a tube, is a ring. That is the corrugation.
+      //
+      // Water in a barrel runs UP the face and over the lip, so its grain lies along that
+      // path: long, wandering streaks that curve round with the tube, a handful of them
+      // rather than dozens, and broken up down the line. Long in t, short in z. And the
+      // whole field is dragged around the arc with the throw — a lip that is being thrown
+      // does not hold still while paint moves on it.
+      float za=vW.z;
+      float flow=uT*0.38;
+      // 0.27 per metre is about eight streaks across the length of barrel you can see at
+      // once. Any more and it is corrugation again.
+      // Warped along the length before it is sampled, so the streaks wander instead of
+      // closing into circles. Streaks that run around the arc are right — that is the way
+      // the water goes — but perfectly concentric ones are a drawn spiral, and the eye
+      // reads a spiral as machinery.
+      // One octave, not three. This is a warp, not a texture — nobody sees it directly, and
+      // the curl fills most of the screen during a barrel, so a third fbm here is twelve
+      // more hashes on every one of those pixels for no visible gain.
+      float warp=vnoise(vec2(za*0.07, t*0.60))*1.30;
+      float band =fbm(vec2(t*0.85-flow+warp*0.40, za*0.27));
+      float grain=fbm(vec2(t*2.40-flow*1.7+warp*0.70, za*0.86));
+      float lace =smoothstep(0.44,0.86, band);
+      float fleck=smoothstep(0.56,0.93, grain);
       float sheet=smoothstep(0.30,1.0,t);        // the lip is mostly aerated water
       float foam=clamp(lace*(0.34+sheet*0.62)+fleck*(0.20+sheet*0.44),0.0,1.0);
       col=mix(col,uFoam,foam*0.30);
-      col=mix(col,uFoam,smoothstep(0.78,1.0,t)*0.92);   // the throwing edge, feathering
+      // The throwing edge is not a clean white line — it is the part that has already come
+      // apart. Torn open with the same two layers so it reads as aerated water rather than
+      // as a painted rim, and carried a little further round the arc.
+      float edge=smoothstep(0.70,1.0,t);
+      col=mix(col,uFoam,clamp(edge*(0.42+0.62*band+0.48*grain),0.0,1.0)*0.95);
+      // Depth down the tube. An evenly lit bore is the single biggest reason it reads as a
+      // tunnel: a real barrel darkens away from you and the mouth is the bright thing in it.
+      // vUv.y=0 is the far end.
+      col=mix(col,uDeep*0.62,(1.0-smoothstep(0.10,0.80,vUv.y))*0.42);
       // And the join. The height field's own crest is a band of white foam, so the shell has
       // to leave it white too — otherwise the geometry is continuous but the colour still
       // draws a line exactly where the two surfaces meet, which is just as visible.
@@ -1392,7 +1466,13 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // At 0.88 over a fifth of the arc this edge stayed a broad white sheet, which both
       // flattened the near wall and drew the very line it exists to hide: white lip against
       // a face that had gone dark right underneath it.
-      col=mix(col,uFoam,(1.0-smoothstep(0.0,0.15,t))*0.40);
+      // Broken up by the same two noise layers the face uses on its crest, and to the same
+      // recipe. A flat 0.40 of white against a face whose white is modulated by noise
+      // averages brighter than the face does, and the difference lands entirely in red —
+      // measured at 21 across the weld while green and blue matched. Torn foam on one side
+      // of a join and a wash of paint on the other is visible however well the mean agrees.
+      col=mix(col,uFoam,(1.0-smoothstep(0.0,0.15,t))
+                        *clamp(0.45+0.55*lace+0.35*fleck,0.0,1.0)*0.40);
       // Closing out: the whole section goes to whitewater rather than politely fading.
       col=mix(col,uFoam,uClose*0.92);
       // Nearly opaque, thinning toward the throwing edge where a real lip goes to spray.
