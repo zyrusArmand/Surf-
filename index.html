@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.64.0';
+const VERSION='2.65.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1555,11 +1555,23 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // near their full weight — down here it is a mass of white with glimpses of blue, not
       // blue with white on it.
       float boil=fbm(vec2(vW.z*0.60+uT*0.85, vFall*3.2-uT*1.55));
+      // The section the user circled: the near wall's boot, between the mouth and the
+      // camera. By there the lip has already landed — the peel puts the break at the
+      // camera's own z — so that stretch of wall is not glass arriving at foam, it is
+      // whitewater ROLLING: the wave breaking, dropping and splashing. Keyed on the same
+      // peel the ocean interpolates, so "near the break" means exactly what it means
+      // everywhere else in the game.
+      float nearBrk=smoothstep(${(SW_BRK-SW_PEEL*0.55).toFixed(1)},${(SW_BRK-6.0).toFixed(1)},vW.z);
       float cloud=fbm(vec2(vW.z*0.30+uT*0.48, vFall*1.6-uT*0.85));
       float mist=smoothstep(0.02,0.55,vFall)*clamp(0.32+0.95*cloud,0.0,1.0);
       col=mix(col,vec3(0.90,0.95,0.97),mist*0.84);
       float churn=smoothstep(0.14,0.66,vFall)*clamp(0.66+0.72*boil,0.0,1.0);
       col=mix(col,vec3(0.93,0.97,0.99),churn*0.97);
+      // Rolling whitewater climbs the wall as the section nears the break — much higher up
+      // the fall than the standing churn, boiling on the same noise, so the boot of the
+      // near wall reads as actively breaking rather than as glass with a white floor.
+      float crash2=smoothstep(0.03,0.45,vFall)*nearBrk*clamp(0.45+0.75*boil,0.0,1.0);
+      col=mix(col,vec3(0.95,0.98,1.00),crash2*0.90);
       // Depth down the tube. An evenly lit bore is the single biggest reason it reads as a
       // tunnel: a real barrel darkens away from you and the mouth is the bright thing in it.
       // vUv.y=0 is the far end.
@@ -1586,7 +1598,7 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // below, which removes the near wall outright. An earlier read of this had the two
       // confused and blamed the alpha for the frame going flat blue.
       float a=uFade*(0.99-0.14*t);
-      a=min(1.0,a+(churn*0.26+mist*0.20)*uFade); // aerated water is not glass-thin
+      a=min(1.0,a+(churn*0.26+mist*0.20+crash2*0.22)*uFade); // aerated water is not glass-thin
       a*=smoothstep(0.0,0.30,vUv.y);             // opens out at the far end
       // Ride round to the roof and the wall between you and the camera is the near side of
       // your own barrel, so you vanish behind it — measured: at the top of the ring the
@@ -8809,7 +8821,7 @@ function placeCurl(dt){
       swFootEm-=1;
       // the stretch of tube on screen, and only where the lip has actually thrown —
       // no curtain, no impact, no splash
-      const z=-44+Math.random()*48;
+      const z=-44+Math.random()*62;              // right up past the camera, where the break is
       if(swPeelA(z)<0.35)continue;
       const f=swFootAt(z);
       if(f.r<1.2)continue;

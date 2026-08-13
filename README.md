@@ -52,6 +52,13 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.65.0** — **The near section breaks.** The circled stretch — the near wall's boot,
+  between the mouth and the camera — is past the break by the peel's own geometry, so it
+  should read as whitewater *rolling*, not glass meeting a white floor. A second boil layer
+  now climbs well up the fall there, keyed on the same interpolated peel constants the ocean
+  uses (so "near the break" means the same thing everywhere), and the impact-line spray's
+  range extends right up past the camera instead of stopping fourteen metres short of it.
+
 - **v2.64.0** — **The crash corner gets its pile.** Judged against the reference rather than
   the literal red circle: what the photo has at the impact line is not more coverage but a
   concentrated **mass** — brightest exactly where the curtain lands, dissolving soft in both
