@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.59.0';
+const VERSION='2.60.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1100,7 +1100,9 @@ const oceanMat=new THREE.ShaderMaterial({
         // metre and a half down the face out to sixteen metres in FRONT of the wave, which
         // is where a thrown lip actually puts its water. Keyed on the face profile instead,
         // it came out as a sliver a few pixels wide, because the profile is a cubic.
-        float land = smoothstep(-14.0,-9.5,vDx)*(1.0-smoothstep(-5.5,-1.5,vDx));
+        // Wider than it was: in the reference the whole visible flat inside the tube is
+        // churned, not a band with clean water either side of it.
+        float land = smoothstep(-16.0,-11.0,vDx)*(1.0-smoothstep(-4.0,-0.6,vDx));
         // Only under a lip that has actually thrown, and thickening into the collapse.
         land *= vPa*(0.80+0.50*vBrk);
         col = mix(col, vec3(0.93,0.97,0.99),
@@ -1498,11 +1500,21 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       float warp=vnoise(vec2(za*0.07, t*0.60))*1.30;
       float band =fbm(vec2(t*0.85-flow+warp*0.40, za*0.27));
       float grain=fbm(vec2(t*2.40-flow*1.7+warp*0.70, za*0.86));
-      float lace =smoothstep(0.44,0.86, band);
-      float fleck=smoothstep(0.56,0.93, grain);
+      // Retuned against the user's own composite of the 360-degree reference INTO the game
+      // frame, which settled what "like this" means: the whole interior is churned water —
+      // roof included — not glass with foam at the foot. Thresholds down so the streaks
+      // cover most of the surface, weight up so they read as whitewater rather than sheen.
+      float lace =smoothstep(0.34,0.80, band);
+      float fleck=smoothstep(0.46,0.88, grain);
       float sheet=smoothstep(0.30,1.0,t);        // the lip is mostly aerated water
-      float foam=clamp(lace*(0.34+sheet*0.62)+fleck*(0.20+sheet*0.44),0.0,1.0);
-      col=mix(col,uFoam,foam*0.30);
+      float foam=clamp(lace*(0.40+sheet*0.62)+fleck*(0.26+sheet*0.44),0.0,1.0);
+      col=mix(col,uFoam,foam*0.62);
+      // And the big soft mottling the photo has everywhere: cloud-scale patches of aerated
+      // water across the whole interior, slower and wider than the streaks, faded out at the
+      // weld so the crest line still matches the sea it grows from.
+      float cloudA=fbm(vec2(t*1.1-flow*0.5+warp*0.5, za*0.16));
+      float mottle=smoothstep(0.30,0.85,cloudA)*smoothstep(0.06,0.30,t);
+      col=mix(col,vec3(0.86,0.93,0.96),mottle*0.52);
       // The throwing edge is not a clean white line — it is the part that has already come
       // apart. Torn open with the same two layers so it reads as aerated water rather than
       // as a painted rim, and carried a little further round the arc.
@@ -1538,7 +1550,7 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // Depth down the tube. An evenly lit bore is the single biggest reason it reads as a
       // tunnel: a real barrel darkens away from you and the mouth is the bright thing in it.
       // vUv.y=0 is the far end.
-      col=mix(col,uDeep*0.62,(1.0-smoothstep(0.10,0.80,vUv.y))*0.42);
+      col=mix(col,uDeep*0.62,(1.0-smoothstep(0.10,0.80,vUv.y))*0.30);
       // And the join. The height field's own crest is a band of white foam, so the shell has
       // to leave it white too — otherwise the geometry is continuous but the colour still
       // draws a line exactly where the two surfaces meet, which is just as visible.

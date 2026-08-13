@@ -52,6 +52,14 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.60.0** — **The whole interior churns.** The user composited the 360-degree reference
+  photo into the game frame, which settled what "like this" means: the entire inside of the
+  barrel is textured whitewater — roof included — not glass with foam at the crash foot. The
+  streak layers' thresholds come down and their weight doubles, a cloud-scale mottling layer
+  covers the whole interior (faded at the weld so the crest still matches the sea), the sea's
+  impact apron widens across the visible flat, and the depth-darkening eases so the texture
+  survives into the deep tube. The mouth stays the brightest thing in frame.
+
 - **v2.59.0** — **The crash corner goes cloudy.** Tuned against the 360-degree reference
   shot: the crisp boiling band alone read as paint, so it now sits inside a soft, low-contrast
   **cloud of aerated water** reaching well up the falling curtain — two noise layers at
