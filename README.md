@@ -52,6 +52,18 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.66.0** — **A body of foam, not more paint.** The circled areas in the reference are a
+  thing no surface-whitening can be: a volumetric mass of whitewater billowing where the lip
+  lands. It is real geometry now — a lumpy bank laid along the curtain's foot, baked lumps
+  per vertex, breathing gently in the vertex shader, lit as aerated white with soft cloudy
+  edges. It lives in the shell's own local frame and copies the curl's transform each frame,
+  so formation, pitch-over and closeout come free, and it swells through the broken section
+  behind the break. It **arrives with the landing**: faded in over the last quarter of the
+  formation, because until then the curtain's tip is still in the air — the first cut of
+  this floated at the mouth like a cloud on nothing, and the second drowned six metres under
+  the swell margin before anyone saw it at all. One draw call; the same near-lens cut as the
+  wall.
+
 - **v2.65.0** — **The near section breaks.** The circled stretch — the near wall's boot,
   between the mouth and the camera — is past the break by the peel's own geometry, so it
   should read as whitewater *rolling*, not glass meeting a white floor. A second boil layer

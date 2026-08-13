@@ -1076,6 +1076,27 @@ if (hasHook) {
         `${esc.drift.toFixed(4)} of drift between the first locked frame and two seconds on`);
 }
 
+// ---------- the foam bank: a body of whitewater, and only where the lip has landed ----------
+// A volumetric mass on the impact line, in the shell's own frame. It must not exist before
+// the curtain reaches the water — the first version hung at the tip mid-formation, a cloud
+// sitting on nothing at the mouth.
+{
+  const bank = await page.evaluate(async () => {
+    window.__surf.restart(); window.__surf.invuln(true); window.__surf.tick(1);
+    window.__surf.armSetWave(); window.__surf.warpSetWave('SWELL', 4.6);
+    let mid = null;
+    for (let i = 0; i < 100; i++) { window.__surf.tick(0.5);
+      const s = window.__surf.state();
+      if (mid === null && (s.swForm ?? 0) > 0.3 && (s.swForm ?? 0) < 0.6) mid = s.foamFade;
+      if ((s.swForm ?? 0) >= 0.99) break; }
+    window.__surf.tick(1);
+    return { mid, full: window.__surf.state().foamFade };
+  });
+  check(bank.mid !== null && bank.mid < 0.05 && bank.full > 0.5,
+        'the foam bank arrives with the landing, not before it',
+        `fade ${bank.mid} mid-formation, ${bank.full} once the lip is down`);
+}
+
 // ---------- the ruler reads the same water the game draws ----------
 // sampleWave is what every "how far off the surface is he" check in this file measures
 // against, and it was sampling at tNow while the ocean is drawn from waveClock — a clock that
