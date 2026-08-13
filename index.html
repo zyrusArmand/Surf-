@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.43.0';
+const VERSION='2.44.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -821,7 +821,13 @@ function setWaveH(x,z){
   // shader's derivative stays a couple of terms instead of a page of chain rule.
   return swA*(1-0.55*swPeelB(wz))*f;
 }
-let waveAmp=0.78;                       // current swell height (varies set to set)// smooth pseudo-random drift so wave size wanders between small and extra-large
+let waveAmp=0.78;                       // current swell height (varies set to set)
+// How much of the ordinary swell survives inside the barrel. On the open sea this is 1 and
+// nothing changes; in the tube it falls away, because the inside of a barrel is glassy — and
+// because chop rolling through it was lifting the rider off the wall and throwing him at the
+// roof. It multiplies waveAmp, which is also what feeds the shader's uAmp, so the water you
+// see calms with the water you ride and the two cannot disagree.
+let swCalm=1;// smooth pseudo-random drift so wave size wanders between small and extra-large
 function setNoise(t){
   return 0.45*Math.sin(t*0.055)+0.30*Math.sin(t*0.021+2.1)+0.25*Math.sin(t*0.009+4.7);
 }
@@ -835,7 +841,7 @@ function waveComp(W,x,z,t){
 function waveH(x,z,t){
   let h=0;
   for(const W of WAVES)h+=waveComp(W,x,z,t);
-  return h*waveAmp+wakeBump(x,z)+whirlDip(x,z)+setWaveH(x,z);
+  return h*waveAmp*swCalm+wakeBump(x,z)+whirlDip(x,z)+setWaveH(x,z);
 }
 // the long-period part of the sea only — what a floating object actually rides.
 // Short chop is filtered out, so buoys glide over the swell instead of vibrating,
@@ -843,7 +849,7 @@ function waveH(x,z,t){
 function swellH(x,z,t){
   let h=0;
   for(let i=0;i<2;i++)h+=waveComp(WAVES[i],x,z,t);
-  return h*waveAmp*1.06+wakeBump(x,z)+whirlDip(x,z)+setWaveH(x,z);
+  return h*waveAmp*1.06*swCalm+wakeBump(x,z)+whirlDip(x,z)+setWaveH(x,z);
 }
 const OCEAN_Z=-90;
 let dist=0;
@@ -1111,6 +1117,11 @@ function buildCurlGeom(){
   // wall, to barrel, to collapse — and at 52 the transition from unbroken to thrown spanned
   // about three slices, which is the width at which a feature in this codebase starts
   // rendering as facets instead of a shape.
+  // Z1 runs BEHIND the camera on purpose, and shortening it to 13 was a mistake worth
+  // recording: the camera sits inside this shell, and that is exactly what makes the shot a
+  // barrel — tube wall above and around, mouth ahead. Ending the shell in front of the
+  // camera put it outside looking at the tube's exterior, and the screen filled with the
+  // back of a wave. The tail behind you is the near wall of the barrel you are inside.
   const NZ=104, NA=64, Z0=-124, Z1=34;
   const sa=Math.sin(SW_ALPHA), ca=Math.cos(SW_ALPHA);
   // A skirt at each end of the cross-section, hanging straight down from the weld.
@@ -6639,7 +6650,7 @@ function respawn(){
   for(let i=obstacles.length-1;i>=0;i--)
     if(obstacles[i].position.z>-48){scene.remove(obstacles[i]);obstacles.splice(i,1);}
   skiOn=false;skiWake=null;skiT=26;jetSki.visible=false;skiGlint.visible=false;wkA=0;
-  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=30+Math.random()*15;swTest=false;swAng=0;swAngV=0;swLoops=0;swTubeRide=false;swCamLock=null;swRad=NaN;
+  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=30+Math.random()*15;swTest=false;swAng=0;swAngV=0;swLoops=0;swTubeRide=false;swCamLock=null;swRad=NaN;swCalm=1;
   for(const p of SMOKE){p.t=0;p.m.visible=false;} _smkHas=false; plane.userData.prev=null;
   curl.visible=false;swSplash.visible=false;
   whirl=null;whA=0;whirlArt.visible=false;whirlT=30+Math.random()*20;
@@ -7093,7 +7104,7 @@ function updateWorldDuringWipeout(dt){
   tNow+=dt;
   waveClock += dt*(1.0 + 0.55*Math.sin(tNow*0.045) + 0.28*Math.sin(tNow*0.017+1.3));
   oceanUniforms.uT.value=waveClock;
-  oceanUniforms.uAmp.value=waveAmp;
+  oceanUniforms.uAmp.value=waveAmp*swCalm;
   oceanUniforms.uDist.value=dist*WAVE_DRIFT;
   oceanUniforms.uWakeZ.value=wkZ;oceanUniforms.uWakeA.value=wkA;oceanUniforms.uWakeX.value=wkX;
   oceanUniforms.uWhX.value=whX;oceanUniforms.uWhZ.value=whZ;oceanUniforms.uWhA.value=whA;
@@ -8054,6 +8065,7 @@ function updateSetWave(dt,eff){
   }
   if(swPh===SWP.RIDE){
     swA=SW_PEAK; swX=swHoldX; swCurlA=1; swCam=Math.min(1,swCam+dt*1.6);
+    swCalm+=(0.22-swCalm)*Math.min(1,dt*1.4);      // the sea goes glassy inside the tube
     swRide+=dt;
     const c=swTubeC();
     // Where you are across the tube. Positive is deeper, up the face toward the curtain;
@@ -8874,6 +8886,9 @@ function update(dt){
   // height field, so it has to be current for this frame or the board floats on last
   // frame's wave — which on a face that climbs seven units in five seconds is visible.
   updateSetWave(dt,speed);
+  // Outside the barrel the sea comes back, eased, so the calm arrives and leaves with the
+  // wave instead of the whole ocean snapping flat the instant the phase changes.
+  if(swPh!==SWP.RIDE)swCalm+=(1-swCalm)*Math.min(1,dt*0.9);
   stepSmoke(dt);
   // The HUD reads mph as eff*0.62, so 16.2 is 10 and 113 is 70. It never drops below
   // the first and never passes the second, and climbs the whole way between rather
@@ -9637,7 +9652,7 @@ function update(dt){
   const swing=0.34+stage*0.50;                // how much the sets vary
   waveAmp=Math.max(0.34, base+setNoise(waveClock)*swing);
   WAVE_DRIFT=0.46+stage*0.16;                 // rolls past a little quicker later on
-  oceanUniforms.uAmp.value=waveAmp;
+  oceanUniforms.uAmp.value=waveAmp*swCalm;
   oceanUniforms.uPeak.value=1.58*waveAmp+wkA*0.60;   // so only the wake's crest foams   // total wave height, so foam thresholds track the swell
   // sets: the swell surges and eases instead of ticking at one constant rate
   waveClock += dt*(1.0 + 0.55*Math.sin(tNow*0.045) + 0.28*Math.sin(tNow*0.017+1.3));
@@ -9679,14 +9694,33 @@ function update(dt){
   // leave the side of the frame a third of the way round. Set once, at ring entry, from the
   // ring's own geometry — that is framing, not chasing.
   if(swTubeRide){
-    if(!swCamLock){
-      const G=swTubeGeom();
-      swCamLock={x:G.cx+swS*G.r*0.30, y:G.cy-G.r*0.30, z:G.r*3.6+4.0, lx:G.cx, at:G.cy};
-    }
-    camX=swCamLock.x; camY=swCamLock.y; camZ=swCamLock.z; lookX=swCamLock.lx;
+    // Only the SIDEWAYS chase is frozen — and that is the honest limit of this, arrived at
+    // by measuring four fully fixed placements that all lost the barrel:
+    //   on the tube's axis   the lip is a metre away and unreadable
+    //   well back            you see the outside of the collapsed tail, not into the mouth
+    //   just past the shell  the camera sits inside the wave
+    //   frozen at entry      it holds at axis height aimed down, and the shell fills the frame
+    // Hiding the lip proved the last one: with the curl hidden the same frame renders
+    // perfectly, so it was the tube itself filling the screen, not the water.
+    //
+    // Height and aim have to keep following him, because what makes a barrel legible is
+    // looking INTO it, and where that is depends on where he is in it. What is removed is
+    // the part you actually notice: the camera sliding across to keep him centred.
+    if(!swCamLock)swCamLock={x:camX,lx:lookX};
+    camX=swCamLock.x; lookX=swCamLock.lx;
+    // Fixed, but not fixed UNDERWATER. This runs after the clamp that keeps the camera above
+    // a rising face, so holding the height through it let the swell close over the lens —
+    // the screen fills with flat blue and the barrel disappears. The shot holds still; the
+    // sea is still allowed to push it up out of itself.
+    // Against the rider's own water line, NOT a fresh waveH sample. Sampling the field at
+    // the camera's own x picks up the set wave itself, which near the crest is seven metres
+    // — so the clamp shoved the camera up to nine and it then looked steeply down into the
+    // face, filling the screen with water. waterY is the sea he is floating on, which is the
+    // thing the camera must stay above.
+    camY=Math.max(camY,waterY+2.1);   // and never let the sea close over the lens
   } else swCamLock=null;
   camera.position.set(camX,camY,camZ);
-  camera.lookAt(lookX, swCamLock?swCamLock.at:(waterY+1.05+swCam*1.5+airH*0.62), -14-swCam*10);
+  camera.lookAt(lookX, waterY+1.05+swCam*1.5+airH*0.62, -14-swCam*10);
   // The camera does NOT roll with the ring. A loop camera was tried and taken back out: it
   // keeps the tube wrapped around the view, but the whole shot turning over is disorienting
   // and it throws away the one stable reference — the horizon — that tells you where you are

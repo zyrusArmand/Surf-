@@ -52,6 +52,26 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.44.0** — **The barrel's inside goes glassy, and the camera stops sliding sideways.**
+  - **Chop no longer rolls through the tube.** A swell running through the barrel was picking
+    the rider off the wall and throwing him at the roof, which is the crash that had nothing to
+    do with riding. One factor, `swCalm`, eases the ordinary swell down to 22% while he is in
+    there and back up when he leaves. It multiplies `waveAmp`, which is also what feeds the
+    shader's `uAmp`, so **the water you see calms with the water you ride** and the two cannot
+    disagree.
+  - **Only the sideways chase is frozen** — and that is the honest limit, reached by measuring
+    four fully fixed placements that each lost the barrel: on the tube's axis the lip is a
+    metre away and unreadable; well back you see the outside of the collapsed tail; just past
+    the shell the camera is inside the wave; frozen at entry it holds at axis height aimed down
+    and the shell fills the frame. Hiding the lip proved that last one — the same frame renders
+    perfectly without the curl, so it was the tube filling the screen, not the water. Height
+    and aim must keep following, because what makes a barrel legible is looking *into* it.
+  - Two of my own mistakes, recorded because both looked like the reported bug: the anti-drown
+    clamp was sampling `waveH` at the camera, which near the crest is the seven-metre set wave,
+    so it shoved the camera to nine metres and aimed it down into the face. And shortening the
+    shell to `Z1=13` to "get the camera out of the tail" was backwards — **the camera sits
+    inside that shell on purpose**, and that is what makes the shot a barrel rather than a view
+    of the back of a wave.
 - **v2.43.0** — **He was standing on the wall with the board on the inside of him.** A
   skateboarder in a full pipe has the BOARD against the wall and his head toward the middle.
   The sign of the bank was inverted, so it was the other way round — which is exactly what the
