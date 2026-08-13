@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.61.0';
+const VERSION='2.62.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10471,6 +10471,28 @@ function update(dt){
     // water can do without the picture moving at all.
     if(!swCamLock)swCamLock={x:camX,y:camY,z:camZ,lx:lookX,
                              at:waterY+1.05+swCam*1.5+airH*0.62, atZ:-14-swCam*10};
+    // The barrel view is DOWN THE TUBE, mouth centred — the user composited the reference
+    // photograph into a game frame to say exactly this. The ride camera's aim converges on
+    // the sea far ahead, and from inside a tube that puts the mouth in the top of the frame
+    // with the roof cut off; no wave placement can centre it, because the aim ray reaches
+    // sea level right where the mouth is. So the POSITION never moves — same lock as ever —
+    // and the AIM settles onto the tube's own axis while the barrel is still forming,
+    // anchored so the first locked frame is exactly the chase pose (no snap), and frozen
+    // for good the moment the lip has fully thrown. After that it is as still as before:
+    // the checks measure zero across the orbit, the spit and the crash alike.
+    if(!swCamLock.aimSet){
+      const u=Math.min(1,Math.max(0,(swForm-0.15)/0.80)), e=u*u*(3-2*u);
+      if(swCamLock.e0===undefined){
+        swCamLock.e0=Math.min(e,0.999);
+        swCamLock.lx0=swCamLock.lx; swCamLock.at0=swCamLock.at; swCamLock.atZ0=swCamLock.atZ;
+      }
+      const w=(e-swCamLock.e0)/(1-swCamLock.e0);
+      const G=swTubeGeom();
+      swCamLock.lx =swCamLock.lx0 +(G.cx-swCamLock.lx0)*w;
+      swCamLock.at =swCamLock.at0 +(G.cy-swCamLock.at0)*w;
+      swCamLock.atZ=swCamLock.atZ0+((-64)-swCamLock.atZ0)*w;
+      if(swForm>=0.99)swCamLock.aimSet=true;   // frozen from here, for the rest of the ride
+    }
     camX=swCamLock.x; lookX=swCamLock.lx; camZ=swCamLock.z;
     camY=swCamLock.y;
     // Fixed, but not fixed UNDERWATER. This runs after the clamp that keeps the camera above

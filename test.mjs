@@ -789,6 +789,14 @@ if (hasHook) {
       if (window.__surf.state().swTubeRide) { entered = true; enteredAt = `phase ${window.__surf.state().swPh} after ${i * 0.2}s`; break; }
       before = window.__surf.cam();          // the last frame before the ring had it
     }
+    // The aim SETTLES onto the tube's axis while the barrel forms — that is the centred
+    // barrel view, by design since v2.62 — and is frozen at swForm 0.99. So the hold is
+    // measured from the formed frame on; what must never move at any point is the position.
+    for (let i = 0; i < 200 && entered; i++) {
+      if ((window.__surf.state().swForm ?? 0) >= 0.99) break;
+      window.__surf.tick(0.05);
+      if (!window.__surf.state().swTubeRide) break;
+    }
     const after = window.__surf.cam();
     // Sampled only while the ring is actually in charge. If the tube lets go the ride camera
     // is supposed to resume, so measuring across that and calling it camera drift blames the
@@ -810,11 +818,13 @@ if (hasHook) {
     if (!entered) why = `the ring never took over — still at phase ${s2.swPh}`;
     return { before, after, settled, held, why, entered, enteredAt, ended: !!s2.wipe };
   });
-  const jump = Math.max(...['x','y','z','dx','dy','dz'].map(k => Math.abs(across.before[k] - across.after[k])));
+  // Position across the whole takeover AND formation: zero. Aim: free to settle during
+  // formation (that is the centred view arriving), frozen once formed.
+  const jumpPos = Math.max(...['x','y','z'].map(k => Math.abs(across.before[k] - across.after[k])));
   const drift = Math.max(...['x','y','z','dx','dy','dz'].map(k => Math.abs(across.after[k] - across.settled[k])));
-  check(across.entered && (across.held || across.ended) && jump < 0.35 && drift < 0.02,
+  check(across.entered && (across.held || across.ended) && jumpPos < 0.02 && drift < 0.02,
         'the ring taking over does not move the camera',
-        `${jump.toFixed(3)} across the takeover, ${drift.toFixed(4)} while it holds`
+        `position ${jumpPos.toFixed(3)} across takeover and formation, ${drift.toFixed(4)} once formed`
         + (across.held ? '' : ` (${across.why}; took over at ${across.enteredAt})`));
 }
 

@@ -52,6 +52,17 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.62.0** — **The barrel view looks down the tube, mouth centred.** The user's composite
+  said exactly what the shot should be, and it was geometrically impossible with the old aim:
+  the ride camera's look-at converges on the sea far ahead, and from inside a tube that ray
+  reaches sea level right where the mouth is — so the mouth always sat in the top of the
+  frame with the roof cut off, whatever the wave did. The camera's **position** never moves
+  (same lock as ever); its **aim** now settles onto the tube's own axis while the barrel is
+  forming — anchored so the first locked frame is exactly the chase pose, no snap — and is
+  frozen for good the moment the lip has fully thrown. Measured: the axis projects to screen
+  centre within 0.002 on both break sides, and once formed the drift is 0.0000 through the
+  orbit, the spit and the crash alike.
+
 - **v2.61.0** — **The wave stays.** "The wave shows up and goes, then another one shows up" —
   measured, that was real and structural: the ride window (`swRideMax`, 6–16 s) was tuned when
   the barrel arrived already formed, and v2.54 made it *form* during the ride phase — four
