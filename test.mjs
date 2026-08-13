@@ -478,6 +478,54 @@ if (hasHook) {
         `worst up·inward ${worst.dot} at ${worst.a} rad, ${crossings} lip crossings sampled`);
 }
 
+// ---------- the board lies down the line, and you can still throw a trick ----------
+// Two things the ring was getting wrong at once. The board was yawed AND pitched by how fast
+// he was going round, which stood it up across the barrel — and the wall is a cylinder about
+// z, so the only heading that lies flat on it is along the tube. And every trick calls
+// doJump when you are not airborne, while the ring pinned airborne to false every frame, so
+// nothing ever left the water and no trick could start.
+{
+  const ride = await page.evaluate(async () => {
+    window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
+    await new Promise(r => setTimeout(r, 2500));
+    return null;
+  });
+  void ride;
+  await page.keyboard.down('ArrowRight');
+  await page.waitForTimeout(4000);
+  const flat = await page.evaluate(() => {
+    const s = window.__surf.state();
+    return { yaw: Math.abs(s.boardYaw), pitch: Math.abs(s.boardPitch), tube: s.swTubeRide };
+  });
+  check(flat.tube && flat.yaw < 0.2 && flat.pitch < 0.2, 'the board lies down the line while going round the ring',
+        `yaw ${flat.yaw.toFixed(2)}, pitch ${flat.pitch.toFixed(2)} rad`);
+  // Jump: in the tube that is a push off the wall toward the axis, and it is what makes the
+  // trick buttons live in there.
+  const air = await page.evaluate(async () => {
+    const before = window.__surf.state();
+    window.__surf.jump();
+    await new Promise(r => setTimeout(r, 900));
+    const mid = window.__surf.state();
+    return { wasAir: before.swPipeAir, air: mid.swPipeAir, airborne: mid.airborne,
+             ready: mid.trickReady, tube: mid.swTubeRide };
+  });
+  await page.keyboard.up('ArrowRight');
+  check(!air.wasAir && air.air && air.airborne && air.ready && air.tube,
+        'jumping in the tube takes you off the wall, so tricks are live in there',
+        `pipe air ${air.air}, airborne ${air.airborne}, trickReady ${air.ready}`);
+  // And it puts you back on the wall rather than out of the wave.
+  const landed = await page.evaluate(async () => {
+    for (let i = 0; i < 200; i++) {
+      const s = window.__surf.state();
+      if (!s.swPipeAir) return { back: true, tube: s.swTubeRide, wipe: s.wipe };
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return { back: false };
+  });
+  check(landed.back && landed.tube && !landed.wipe, 'and it drops you back on the ring, still in the wave',
+        landed.back ? 'landed on the wall' : 'never came back down');
+}
+
 // ---------- keep circling and the wave waits ----------
 // A fixed 6-16 s clock was spitting the rider out mid-loop. The clock stops while he is
 // actually going round; park and it runs again.

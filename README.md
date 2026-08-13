@@ -52,6 +52,25 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.49.0** — **The board lies down the line in the tube, and tricks work in there.**
+  - **The board sat across the barrel at an angle.** Going round the ring was yawing it up to
+    0.55 rad *and* pitching it 0.55 rad, both driven by how fast he was travelling round —
+    and the wall is a cylinder about z, so the only heading that lies flat on it is along the
+    tube. Turning the board into the direction of travel takes it off that line and stands it
+    on a corner. Both are now a token amount, so a hard turn still reads without cocking the
+    board: measured mid-turn at 0.05 rad of each, down from 0.55.
+  - **You can throw a trick inside the barrel.** Every trick calls `doJump` when you are not
+    already airborne, and the ring pinned `airborne` to false on every frame — so nothing
+    ever left the water and `trickReady` never came up. Jumping in the tube now pushes you
+    off the wall toward the axis instead of trying to jump "up", which in a barrel is not a
+    direction. A pipe has its own gravity — whichever way is out — so you coast across and
+    get pulled back to the wall, which at the roof means dropping toward the middle and
+    rising back into it. You cannot leave the wave doing it: all that changes is your
+    distance from the axis. Landing scores the trick the usual way, and because nothing in
+    the tube wipes you out, a crooked one simply scores nothing rather than ending the run.
+  - Three new checks: the board lies down the line while circling, jumping puts you in pipe
+    air with tricks live, and it drops you back on the ring still in the wave.
+
 - **v2.48.0** — **Right is right, the board stops flipping at the lip's edge, and the wave
   waits while you keep going round.**
   - **Steering in the tube was mirrored on half the waves.** Increasing the ring angle

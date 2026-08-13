@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.48.0';
+const VERSION='2.49.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -6525,7 +6525,18 @@ function zapFlash(){
 function msg(t){trickmsg.textContent=t;trickmsg.style.opacity=1;setTimeout(()=>trickmsg.style.opacity=0,900);}
 
 function doJump(){
-  if(!running||airborne)return;
+  if(!running)return;
+  // In the tube there is no "up" to jump into — the wall is all around you. Jumping pushes
+  // off it toward the axis instead, and the pipe pulls you back. This is also what makes
+  // tricks work in there: every trick calls doJump when you are not already airborne, and
+  // with the ring pinning airborne to false every frame, nothing ever left the water.
+  if(swTubeRide){
+    if(swPipeAir)return;
+    swPipeAir=true; swRadV=-SW_PIPE_POP*BS.air; airborne=true;
+    splash(px,py,pz,10);
+    return;
+  }
+  if(airborne)return;
   vy=10.8*BS.air;airborne=true;splash(px,0.4,0,10);
 }
 function startTrick(type,src){
@@ -6655,7 +6666,7 @@ function respawn(){
   for(let i=obstacles.length-1;i>=0;i--)
     if(obstacles[i].position.z>-48){scene.remove(obstacles[i]);obstacles.splice(i,1);}
   skiOn=false;skiWake=null;skiT=26;jetSki.visible=false;skiGlint.visible=false;wkA=0;
-  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=30+Math.random()*15;swTest=false;swAng=0;swAngV=0;swLoops=0;swTubeRide=false;swCamLock=null;swRad=NaN;swCalm=1;swOver=0;
+  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=30+Math.random()*15;swTest=false;swAng=0;swAngV=0;swLoops=0;swTubeRide=false;swCamLock=null;swRad=NaN;swCalm=1;swOver=0;swPipeAir=false;swRadV=0;
   for(const p of SMOKE){p.t=0;p.m.visible=false;} _smkHas=false; plane.userData.prev=null;
   curl.visible=false;swSplash.visible=false;
   whirl=null;whA=0;whirlArt.visible=false;whirlT=30+Math.random()*20;
@@ -7867,6 +7878,22 @@ let swCurlA=0, swCam=0, swClose=0, swDebT=0, swSweep=0, swNext=30+Math.random()*
 // the pocket at the bottom; a whole turn takes you up the face, over the roof upside down,
 // down the falling curtain and back to the water.
 let swAng=0, swAngV=0, swLoops=0, swHoldX=0, swTubeRide=false;
+// Air inside the pipe. swRadV is how fast he is moving toward or away from the axis; the
+// only "gravity" in a tube points outward, at the wall he came off.
+let swPipeAir=false, swRadV=0;
+const SW_PIPE_G=13.0, SW_PIPE_POP=9.0;
+// Back on the wall. Nothing in the tube wipes you out, so a crooked landing simply scores
+// nothing instead of ending the run — same judgement, no punishment.
+function swPipeLand(){
+  const spun=spinRot>0.4||flipRot>0.4||pitchRot>0.4;
+  if(spun||grabOn){
+    const offS=Math.abs(((spinRot+Math.PI/2)%Math.PI)-Math.PI/2);
+    const offF=Math.max(Math.abs(((flipRot+Math.PI)%(Math.PI*2))-Math.PI),
+                        Math.abs(((pitchRot+Math.PI)%(Math.PI*2))-Math.PI));
+    settleTricks(offS<0.78&&offF<0.62);
+  } else settleTricks(false);
+  splash(px,py,pz,14);
+}
 let swCamLock=null;                     // the fixed shot held while he is on the ring
 let swRad=NaN;                          // smoothed distance from the tube's axis
 // Counted rather than inferred. A test watching the score for a bounce also catches the
@@ -8158,7 +8185,8 @@ if(location.hash.includes('debug')){
     state:()=>({dist,speed,score,running,wipe:!!wipe,airborne,px,py,pz,
                 swPh,swT,swA,swX,swS,swRide,swRideMax,swOver,swCurlA,swClose,
                 swAng,swLoops,swTubeRide,swOnLip,ring:swTubeGeom(),
-                jellyHits,lastWipe,swCut,
+                jellyHits,lastWipe,swCut,swPipeAir,trickReady,
+                boardYaw:+boardYaw.toFixed(3),boardPitch:+boardPitch.toFixed(3),
                 curlVisible:curl.visible,roofY:swRoofY(),tubeC:swTubeC()}),
     // Where the rider's own up actually points, taken from the rig's world matrix rather
     // than from the Euler angles that were supposed to produce it. In a pipe it must point
@@ -8210,6 +8238,9 @@ if(location.hash.includes('debug')){
     // Which side the wave breaks from is a coin toss per wave, and the steering sign depends
     // on it — so a test that does not pin it only ever checks one of the two.
     setSide(s){ swS=s<0?-1:1; return swS; },
+    jump(){ doJump(); return airborne; },
+    trick(kind){ if(kind==='roll')addRoll(1,'test'); else if(kind==='flip')addFlip(1,'test');
+                 else addSpin(1,'test'); return window.__surf.state(); },
     plane:()=>({pos:plane.position.toArray().map(v=>+v.toFixed(2)),
                 yaw:+plane.rotation.y.toFixed(3), visible:plane.visible,
                 screen:(()=>{const v=plane.position.clone().project(camera);
@@ -9085,19 +9116,33 @@ function update(dt){
       // The angle is his input and is applied exactly. Only the radius is smoothed, which is
       // all the smoothing was ever for: the surface is sampled from a moving sea and breathes
       // with the swell, and that breathing should not reach the board as a shake.
-      if(!wasTube||!isFinite(swRad))swRad=Math.hypot(px-G.cx,py-G.cy);
-      // Fast, because what it is smoothing is now the sea's own breathing rather than a
-      // target that leaps: at the edge of the lip's arc the surface really does step from
-      // the roof out to the water, and a slow radius crosses that step through the air.
-      swRad+=(rHit-swRad)*Math.min(1,dt*(wasTube?16:4));
+      if(!wasTube||!isFinite(swRad)){ swRad=Math.hypot(px-G.cx,py-G.cy); swRadV=0; swPipeAir=false; }
+      if(swPipeAir){
+        // Off the wall and across the tube. A pipe has its own gravity: whichever way is
+        // out. Pop inward, coast, and get pulled back to the wall — at the roof that means
+        // dropping toward the axis and rising back into it, which is the air a skater gets
+        // at the top of a full pipe. He cannot leave the barrel doing it, because all that
+        // changes is his distance from the axis.
+        swRadV+=SW_PIPE_G*dt;
+        swRad+=swRadV*dt;
+        if(swRadV>0&&swRad>=rHit){ swRad=rHit; swRadV=0; swPipeAir=false; swPipeLand(); }
+        airborne=true;
+      } else {
+        // Fast, because what it is smoothing is now the sea's own breathing rather than a
+        // target that leaps: at the edge of the lip's arc the surface really does step from
+        // the roof out to the water, and a slow radius crosses that step through the air.
+        swRad+=(rHit-swRad)*Math.min(1,dt*(wasTube?16:4));
+        airborne=false;
+      }
       px=G.cx+ux*swRad;
       // The sea is asked about the point he ENDS UP at, not the one the ray aimed for. While
       // the radius is still catching up those are different places, and asking at the wrong
       // one left him riding a metre and a half over the water at the bottom of the ring.
       py=Math.max(G.cy+uy*swRad, waveH(px,WZ2,waveClock)+0.30);
-      vx=0; vy=0; airborne=false;
+      vx=0; vy=0;              // airborne is set by the pipe-air branch above
     }
   } else if(swPh!==SWP.RIDE){ swAng=0; swAngV=0; }
+  if(!swTubeRide&&swPipeAir){ swPipeAir=false; swRadV=0; }   // the wave ended mid-air
   const carve=Math.max(-1,Math.min(1,vx/9));
   leanW+=(wt-leanW)*Math.min(1,dt*6);
   // A rigid 5m hull does not follow one point on the water. Sample it under the
@@ -9417,9 +9462,13 @@ function update(dt){
   // upright in the pocket, on its rail up the face, inverted across the roof. The water's
   // own roll is meaningless in there (the height field has no roof to be tilted by), so the
   // ring's angle replaces it rather than adding to it.
-  // Travel on the ring is around the tube as well as down the line, so the board turns into
-  // the direction it is actually going rather than sitting square to the lane.
-  const yawT=swTubeRide?Math.max(-0.55,Math.min(0.55,-swS*swAngV*0.26)):-carve*0.30;
+  // Square down the line on the ring, and it has to be: the wall is a cylinder about z, so
+  // the only heading that lies flat on it is along the tube. Yawing into the way he is
+  // travelling — which is around the arc, not along it — takes the board off that line and
+  // stands it up on a corner, and with the pitch below doing the same thing at the same time
+  // the board sat across the barrel at an angle to everything. A small amount is left in so
+  // a hard turn still reads.
+  const yawT=swTubeRide?Math.max(-0.13,Math.min(0.13,-swS*swAngV*0.06)):-carve*0.30;
   // Banked to the wall, the way a skateboarder stands in a full pipe: the BOARD is against
   // the wall and the rider stands on it with his head toward the middle of the pipe. What it
   // was doing was the exact opposite — the sign here was inverted, so his up pointed OUT of
@@ -9478,8 +9527,11 @@ function update(dt){
   // them there is what made it look like it was floating over the wave instead of carving
   // it. The nose lifts as he climbs and drops as he comes down the far side, straight from
   // how fast he is going round.
+  // Level on the ring for the same reason as the yaw. Going round the arc is not going
+  // uphill: the nose was lifting a third of a radian off how fast he was travelling
+  // sideways, which is where most of the tilt came from.
   const pitchT=onRampO?rampPitchT
-              :swTubeRide?Math.max(-0.55,Math.min(0.55,-swAngV*0.20))
+              :swTubeRide?Math.max(-0.12,Math.min(0.12,-swAngV*0.05))
               :(airborne?-0.22:Math.max(-0.62,Math.min(0.68,hullPitch*1.50)) + leanW*0.62);
   boardYaw+=(yawT-boardYaw)*Math.min(1,dt*7);
   // A cracked board is unsteady under you. This is deliberately a slow, readable
