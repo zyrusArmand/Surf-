@@ -225,25 +225,13 @@
   #ovPurse { display:none !important; }
   #recordsBtn { display:none !important; }
   /* ---------- the treasure chest ceremony ---------- */
-  #crateOv { position:fixed; inset:0; z-index:120; background:rgba(4,15,27,.88);
-             display:flex; flex-direction:column; align-items:center; justify-content:center;
-             gap:20px; text-align:center; }
+  #crateOv { position:fixed; inset:0; z-index:120; background:rgba(4,15,27,.38);
+             display:flex; flex-direction:column; align-items:center; text-align:center;
+             justify-content:space-between; padding:12vh 5vw 7vh; }
   #crateOv.hidden { display:none; }
   #crateOv h2 { font-size:min(9vw,40px); color:#ffdf2e; margin:0;
                 text-shadow:0 3px 0 rgba(64,36,7,.55); }
   #crateOv .hint { color:#dff1fb; font-size:min(4.4vw,17px); opacity:.9; }
-  #crateBox { width:min(38vw,150px); height:min(38vw,150px); border-radius:10px; position:relative;
-              background:repeating-linear-gradient(0deg,#a97a4b 0 24px,#93643a 24px 27px);
-              border:9px solid #7a5230; box-shadow:0 14px 34px rgba(0,0,0,.45), inset 0 0 0 2px rgba(255,255,255,.08);
-              cursor:pointer; touch-action:manipulation; user-select:none; -webkit-user-select:none; }
-  #crateBox::before { content:''; position:absolute; inset:6px;
-              background:linear-gradient(45deg,transparent 45%,#7a5230 45% 55%,transparent 55%),
-                         linear-gradient(-45deg,transparent 45%,rgba(122,82,48,.55) 45% 55%,transparent 55%); }
-  #crateBox::after { content:''; position:absolute; left:50%; top:-7px; width:28px; height:22px;
-              transform:translateX(-50%); background:#c9b26a; border-radius:5px; border:3px solid #6e5a2c; }
-  #crateBox.burst { animation:crateBurst .38s ease-out forwards; }
-  @keyframes crateBurst { 60%{ transform:scale(1.45) rotate(6deg); opacity:1; }
-                          100%{ transform:scale(2.1) rotate(-4deg); opacity:0; } }
   #crateReward .big { font-size:min(11vw,44px); color:#ffdf2e; font-weight:800;
                       text-shadow:0 3px 0 rgba(64,36,7,.5); }
   #crateReward .sub { color:#eaf6ff; margin-top:6px; font-size:min(4.6vw,18px); }
@@ -578,7 +566,6 @@
 <div id="crateOv" class="hidden">
   <h2>Treasure chest!</h2>
   <div class="hint" id="crateHint">Tap it open!</div>
-  <div id="crateBox"></div>
   <div id="crateReward" class="hidden"></div>
   <div id="crateBtns" class="hidden">
     <button class="go" id="crateAgain">Surf again</button>
@@ -685,7 +672,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.74.0';
+const VERSION='2.75.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -6924,22 +6911,61 @@ function zapFlash(){
 // but only with a jump, which is what makes catching one a play rather than a pickup. It
 // is not an obstacle: nothing about it can hurt you, it has its own slow spawn clock, and
 // catching it banks it for the END of the run — the ceremony lives next to gameOver.
-const crateObj=new THREE.Group();
-{
-  const wood=new THREE.MeshLambertMaterial({color:0xa97a4b});
-  const dark=new THREE.MeshLambertMaterial({color:0x7a5230});
-  const body=new THREE.Mesh(new THREE.BoxGeometry(1.5,1.5,1.5),wood); crateObj.add(body);
-  for(const [w,h,d,x,y,z] of [
-    [1.62,0.22,1.62, 0, 0.72,0],[1.62,0.22,1.62, 0,-0.72,0],
-    [0.22,1.62,1.62, 0.72,0,0],[0.22,1.62,1.62,-0.72,0,0]]){
-    const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),dark); m.position.set(x,y,z); crateObj.add(m);
+// Built to the reference pictures: dark wood, a domed lid on a hinge, gold straps and a
+// gold lock — and a soft gold glow, because a treasure chest that does not glow is a box.
+// The lid is its own group hinged at the back edge, so opening it is one rotation.
+function buildChest(){
+  const g=new THREE.Group();
+  const wood=new THREE.MeshLambertMaterial({color:0x5f3d20});
+  const wood2=new THREE.MeshLambertMaterial({color:0x76512c});
+  const gold=new THREE.MeshLambertMaterial({color:0xd9a83c,emissive:0x3d2c08});
+  const base=new THREE.Mesh(new THREE.BoxGeometry(1.2,0.7,0.82),wood);
+  base.position.y=0.35; g.add(base);
+  const front=new THREE.Mesh(new THREE.BoxGeometry(1.14,0.6,0.05),wood2);
+  front.position.set(0,0.35,0.41); g.add(front);
+  for(const x of [-0.40,0.40]){
+    const st=new THREE.Mesh(new THREE.BoxGeometry(0.13,0.74,0.87),gold);
+    st.position.set(x,0.36,0); g.add(st);
   }
-  const plank=new THREE.Mesh(new THREE.BoxGeometry(2.0,0.24,0.06),dark);
-  plank.position.z=0.78; plank.rotation.z=0.75; crateObj.add(plank);
-  const latch=new THREE.Mesh(new THREE.BoxGeometry(0.3,0.26,0.1),
-    new THREE.MeshLambertMaterial({color:0xc9b26a}));
-  latch.position.set(0,0.35,0.80); crateObj.add(latch);
+  const rim=new THREE.Mesh(new THREE.BoxGeometry(1.26,0.09,0.88),gold);
+  rim.position.y=0.72; g.add(rim);
+  const lock=new THREE.Mesh(new THREE.BoxGeometry(0.20,0.24,0.09),gold);
+  lock.position.set(0,0.55,0.45); g.add(lock);
+  const lid=new THREE.Group(); lid.position.set(0,0.76,-0.41); g.add(lid);
+  const dome=new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.42,1.18,16,1,false,0,Math.PI),wood);
+  dome.rotation.z=Math.PI/2; dome.rotation.y=Math.PI/2;
+  dome.position.set(0,0,0.41); lid.add(dome);
+  for(const x of [-0.59,0.59]){
+    const cap=new THREE.Mesh(new THREE.CircleGeometry(0.42,14,0,Math.PI),wood2);
+    cap.rotation.y=x>0?Math.PI/2:-Math.PI/2;
+    cap.position.set(x,0,0.41); lid.add(cap);
+  }
+  for(const x of [-0.40,0.40]){
+    const band=new THREE.Mesh(new THREE.CylinderGeometry(0.44,0.44,0.13,14,1,true,0,Math.PI),gold);
+    band.rotation.z=Math.PI/2; band.rotation.y=Math.PI/2;
+    band.position.set(x,0,0.41); lid.add(band);
+  }
+  g.userData.lid=lid;
+  // the glow: a soft gold sprite behind the whole chest, and a brighter one down in the
+  // box that only comes up as the lid does — the light from inside, per the last reference
+  const cnv=document.createElement('canvas'); cnv.width=cnv.height=128;
+  const ctx=cnv.getContext('2d');
+  const grad=ctx.createRadialGradient(64,64,4,64,64,62);
+  grad.addColorStop(0,'rgba(255,222,130,0.95)');
+  grad.addColorStop(0.45,'rgba(255,196,80,0.38)');
+  grad.addColorStop(1,'rgba(255,180,60,0)');
+  ctx.fillStyle=grad; ctx.fillRect(0,0,128,128);
+  const gtex=new THREE.CanvasTexture(cnv);
+  const mkGlow=(sc,op)=>{ const sp=new THREE.Sprite(new THREE.SpriteMaterial(
+    {map:gtex,transparent:true,opacity:op,blending:THREE.AdditiveBlending,depthWrite:false}));
+    sp.scale.setScalar(sc); return sp; };
+  const halo=mkGlow(3.4,0.5); halo.position.y=0.6; g.add(halo);
+  const inner=mkGlow(1.6,0.0); inner.position.y=0.75; g.add(inner);
+  g.userData.halo=halo; g.userData.inner=inner;
+  return g;
 }
+const crateObj=buildChest();
+crateObj.scale.setScalar(0.72);                  // a bit smaller than the old crate
 crateObj.visible=false; scene.add(crateObj);
 let crateOn=false, crateHeld=false, crateT=999, crateBobT=0, cratePin=false;
 function crateReset(){
@@ -6962,8 +6988,9 @@ function updateCrate(dt,eff){
   const sea=swellH(crateObj.position.x,dist*WAVE_DRIFT+crateObj.position.z,waveClock);
   // two metres off the water: a flat ride passes under it, a jump reaches it
   crateObj.position.y=sea+1.9+Math.sin(crateBobT*1.7)*0.22;
-  crateObj.rotation.y+=dt*0.9;
-  crateObj.rotation.z=Math.sin(crateBobT*1.3)*0.08;
+  crateObj.rotation.y+=dt*1.7;                   // it SPINS — you see the chest, not a box
+  crateObj.rotation.z=Math.sin(crateBobT*1.3)*0.06;
+  crateObj.userData.halo.material.opacity=0.38+0.22*Math.sin(crateBobT*2.6);
   if(!cratePin&&crateObj.position.z>14){ crateOn=false; crateObj.visible=false; crateT=14+Math.random()*20; return; }
   // the catch: close in the lane, close along the water, and OFF the water — the height
   // gate is what makes it a jump-for-it rather than a drive-through
@@ -7198,7 +7225,7 @@ function beginRun(){
   player.visible=true; rig.visible=true; hud.style.display='';
   overlay.classList.add('hidden');jumpBtn.classList.remove('hidden');
   reviveBtn.style.display='none';
-  document.getElementById('crateOv').classList.add('hidden');
+  if(typeof crateCeremonyEnd==='function')crateCeremonyEnd();
   reset();running=true;overlayUp=false;last=performance.now();
 }
 startBtn.addEventListener('click',beginRun);
@@ -7212,33 +7239,68 @@ document.getElementById('waveBtn').addEventListener('click',()=>{
   swTest=true; swNext=2;          // has to be lit after it, not before
 });
 // ---------- opening the chest ----------
-// The chest is opened at the END of the run, on its own screen over the wipeout card:
-// tap it and tap it, it shakes harder and harder, and on the twelfth tap it bursts and
-// shows what was inside. Mostly puka — 25/50/100, occasionally 200-350 — and very, very
-// rarely a surfer you have not unlocked.
-const crateOv=document.getElementById('crateOv'), crateBoxEl=document.getElementById('crateBox');
+// The ceremony chest is REAL — the same 3D chest, placed in front of whatever camera the
+// crash left, spinning slowly behind a mostly-clear overlay. Taps shake it harder and
+// harder; on the twelfth the lid swings open on its hinge and the light comes up out of
+// the box, and only then does the DOM say what was inside. Mostly puka; rarely a board;
+// very, very rarely a surfer — the gear says "View the shop to equip".
+const crateOv=document.getElementById('crateOv');
 const crateRewardEl=document.getElementById('crateReward'), crateBtnsEl=document.getElementById('crateBtns');
 const crateHintEl=document.getElementById('crateHint');
-let crateTaps=0, crateOpened=false;
+const ceremonyChest=buildChest(); ceremonyChest.visible=false; scene.add(ceremonyChest);
+let crateTaps=0, crateOpened=false, crateShow=false, crateLid=0, crateShakeE=0, crateSpin=0;
 function crateCeremony(){
-  crateTaps=0; crateOpened=false;
-  crateBoxEl.classList.remove('burst'); crateBoxEl.style.display=''; crateBoxEl.style.transform='';
+  crateTaps=0; crateOpened=false; crateLid=0; crateShakeE=0; crateSpin=0;
   crateRewardEl.classList.add('hidden'); crateBtnsEl.classList.add('hidden');
   crateHintEl.style.display='';
+  overlay.classList.add('hidden');              // the wipeout card waits its turn
   crateOv.classList.remove('hidden');
-  crateHeld=false;                         // banked; the box on screen is it
+  crateShow=true; ceremonyChest.visible=true;
+  crateHeld=false;
+}
+function crateCeremonyEnd(){
+  crateShow=false; ceremonyChest.visible=false;
+  crateOv.classList.add('hidden');
+}
+// Runs every frame from the main loop, whatever state the game is in: the chest floats in
+// front of the camera, so the shot the crash held is the shot the ceremony plays in.
+const _chD=new THREE.Vector3();
+function placeCeremonyChest(dt){
+  if(!crateShow)return;
+  camera.getWorldDirection(_chD);
+  ceremonyChest.position.copy(camera.position).addScaledVector(_chD,4.9);
+  ceremonyChest.position.y-=1.3;
+  crateSpin+=dt*(0.9+crateShakeE*7);
+  crateShakeE=Math.max(0,crateShakeE-dt*2.2);
+  ceremonyChest.rotation.set(
+    (Math.random()-0.5)*0.16*crateShakeE,
+    crateSpin,
+    (Math.random()-0.5)*0.16*crateShakeE);
+  const sc=0.80*(1+0.06*crateShakeE);
+  ceremonyChest.scale.setScalar(sc);
+  if(crateOpened)crateLid=Math.min(1,crateLid+dt*1.5);
+  const e=crateLid*crateLid*(3-2*crateLid);
+  ceremonyChest.userData.lid.rotation.x=-1.85*e;
+  ceremonyChest.userData.inner.material.opacity=e*0.95;
+  ceremonyChest.userData.inner.scale.setScalar(1.6+e*1.6);
+  ceremonyChest.userData.halo.material.opacity=0.35+e*0.45;
 }
 function crateRoll(){
-  const locked=CHARS.filter(c=>!ownedChars[c.id]);
-  // the character is the super-super-rare pull, and only exists while there is one to give
-  if(locked.length&&Math.random()<0.012){
-    const c=locked[(Math.random()*locked.length)|0];
-    ownedChars[c.id]=1; saveGame();
-    bump(stats,'crateChars'); saveStats();
-    return {kind:'char',c};
+  const lockedC=CHARS.filter(c=>!ownedChars[c.id]);
+  const lockedB=BOARDS.filter(b=>!owned[b.id]);
+  const r=Math.random();
+  if(lockedC.length&&r<0.012){
+    const c=lockedC[(Math.random()*lockedC.length)|0];
+    ownedChars[c.id]=1; saveGame(); bump(stats,'crateChars'); saveStats();
+    return {kind:'char',name:c.name};
+  }
+  if(lockedB.length&&r<0.032){
+    const b=lockedB[(Math.random()*lockedB.length)|0];
+    owned[b.id]=1; saveGame(); bump(stats,'crateBoards'); saveStats();
+    return {kind:'board',name:b.name};
   }
   const q=Math.random();
-  const n = q<0.10 ? 200+25*((Math.random()*7)|0)   // 200-350, the rare one
+  const n = q<0.10 ? 200+25*((Math.random()*7)|0)
           : q<0.32 ? 100
           : q<0.64 ? 50
           : 25;
@@ -7246,34 +7308,29 @@ function crateRoll(){
   bump(stats,'cratePuka',n); saveStats();
   return {kind:'puka',n};
 }
-crateBoxEl.addEventListener('pointerdown',e=>{
+crateOv.addEventListener('pointerdown',e=>{
+  if(e.target.closest('button'))return;
   e.preventDefault();
-  if(crateOpened)return;
+  if(crateOpened||!crateShow)return;
   crateTaps++;
-  // shakes harder the more you tap — the growing wobble IS the progress bar
-  const k=Math.min(1,crateTaps/12);
-  const j=()=>(Math.random()-0.5)*26*k;
-  crateBoxEl.style.transform=`translate(${j()}px,${j()*0.6}px) rotate(${(Math.random()-0.5)*16*k}deg) scale(${1+0.08*k})`;
-  setTimeout(()=>{ if(!crateOpened)crateBoxEl.style.transform=''; },70);
+  crateShakeE=Math.min(1.6,crateShakeE+0.55*Math.min(1,crateTaps/6));
   if(crateTaps>=12){
     crateOpened=true;
     crateHintEl.style.display='none';
-    crateBoxEl.style.transform='';
-    crateBoxEl.classList.add('burst');
     const got=crateRoll();
+    // the lid takes about two thirds of a second to swing; the words wait for the light
     setTimeout(()=>{
-      crateBoxEl.style.display='none';
-      crateRewardEl.innerHTML = got.kind==='char'
-        ? `<div class="big">${got.c.name}</div><div class="sub">New surfer unlocked! Waiting in the Beach shop.</div>`
-        : `<div class="big">+${got.n}<i class="pk"></i></div><div class="sub">Puka shells, straight to your purse.</div>`;
+      crateRewardEl.innerHTML = got.kind==='puka'
+        ? `<div class="big">+${got.n}<i class="pk"></i></div><div class="sub">Puka shells, straight to your purse.</div>`
+        : `<div class="big">${got.name}</div><div class="sub">${got.kind==='char'?'New surfer unlocked!':'New board unlocked!'} View the shop to equip.</div>`;
       crateRewardEl.classList.remove('hidden');
       crateBtnsEl.classList.remove('hidden');
-    },380);
+    },750);
   }
 });
-document.getElementById('crateAgain').onclick=()=>{ crateOv.classList.add('hidden'); beginRun(); };
-document.getElementById('crateMenu').onclick=()=>{ crateOv.classList.add('hidden'); showMenu('main'); };
-document.getElementById('crateShop').onclick=()=>{ crateOv.classList.add('hidden'); showMenu('main'); shopBtn.onclick(); };
+document.getElementById('crateAgain').onclick=()=>{ crateCeremonyEnd(); beginRun(); };
+document.getElementById('crateMenu').onclick=()=>{ crateCeremonyEnd(); showMenu('main'); };
+document.getElementById('crateShop').onclick=()=>{ crateCeremonyEnd(); showMenu('main'); shopBtn.onclick(); };
 menuBtn.addEventListener('click',()=>showMenu('main'));
 recordsBtn.addEventListener('click',()=>openStats(false));
 showMenu('main');
@@ -10935,6 +10992,7 @@ function loop(now){
   // crash camera has therefore never been seen: what you actually get on every death is the
   // menu's slow drifting wide shot snapping in, which is the "camera zooms out when you die".
   else {oceanUniforms.uT.value+=dt;tNow+=dt;if(!wipe)menuCamera(dt);updateDayCycle();}
+  placeCeremonyChest(dt);
   if(viewer){ renderViewer(dt); return; }   // the look takes the whole screen and the frame
   updateSkyLife(dt);          // the sky keeps moving on the menu and through a wipeout
   renderer.render(scene,camera);

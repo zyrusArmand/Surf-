@@ -52,6 +52,15 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.75.0** — **The chest becomes a pirate chest, and the ceremony goes 3D.** Built to the
+  reference photos: dark wood, domed lid on a real hinge, gold straps and lock, smaller than
+  the old crate, spinning as it drifts, with a soft gold glow. The end-of-run ceremony now
+  shows the **actual 3D chest** — placed in front of whatever camera the crash held, spinning
+  slowly behind a mostly-clear overlay. Taps shake the real thing; on the twelfth the **lid
+  swings open on its hinge** and light comes up out of the box, and only then does the
+  preview say what you got. **Boards join the loot** (rare, ~3%), characters stay super-rare
+  (~1%), and gear rewards say "View the shop to equip."
+
 - **v2.74.0** — **The treasure chest, and a cleaner front door.**
   - A wooden crate drifts down the lane two metres off the water — riding flat passes under
     it, a jump catches it, which is what makes it a play rather than a pickup. Catching it

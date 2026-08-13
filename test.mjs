@@ -1189,11 +1189,15 @@ if (hasHook) {
     return !!ov && !ov.classList.contains('hidden');
   });
   check(shown, 'the chest ceremony comes up when the run ends');
-  // dispatched, not clicked: the box bursts to invisible on the twelfth tap, and a real
-  // click on an invisible element waits forever for it to come back
-  await page.evaluate(() => { const b = document.querySelector('#crateBox');
+  // The chest is 3D now; the whole overlay is the tap target, and the words wait ~0.75 s
+  // for the lid to swing before they appear.
+  await page.evaluate(() => { const b = document.querySelector('#crateOv');
     for (let i = 0; i < 15; i++) b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); });
-  await page.waitForTimeout(700);
+  // the lid animation runs on real frames and the reveal on a timer, and under swiftshader
+  // both can be slow — poll rather than guess
+  await page.waitForFunction(() =>
+    !document.querySelector('#crateReward').classList.contains('hidden'),
+    null, { timeout: 15000 }).catch(() => {});
   const opened = await page.evaluate(() => ({
     reward: !document.querySelector('#crateReward').classList.contains('hidden'),
     btns: !document.querySelector('#crateBtns').classList.contains('hidden'),
