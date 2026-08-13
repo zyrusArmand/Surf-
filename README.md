@@ -52,6 +52,38 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.55.0** — **The lip pitches over instead of inflating, the ring is a circle, the near
+  water is solid, and the shot really does not rise.**
+  - **The camera no longer rises as you climb.** The lock was being re-clamped every frame to
+    stay above the water under the *rider* — and the water under him rises the whole time he
+    is going up the wall, so the shot rose with him. That is the last of the "camera still
+    moves up". Inside the tube the sea is held glassy and the lock is taken at the chase
+    camera's own height, metres clear of it, so there was nothing left for the clamp to save.
+  - **A lip pitches, it does not inflate.** Scaling the shell alone grew the barrel like a
+    tunnel opening out, which is the one thing it is not: a wave throws a ledge off the crest
+    and that ledge swings over. The arc now rotates as well as grows — it starts laid back
+    against the face, feathers off the crest as a line, and comes round over your head. The
+    ring's own centre is carried with it, so the water and the physics are the same tube for
+    the whole formation.
+  - **The kink where the lip's arc meets the flat sea is NOT fixed.** Three ways of rounding
+    it were tried and all three measured worse than the corner they were removing, which is
+    recorded in the code so the next attempt does not repeat them: a pure circle at the arc's
+    radius leaves the board a metre and a half over the water at the bottom of the open sector;
+    a circle shrunk to meet "the water below the axis" collapses, because the height field at
+    the axis's own x is the *wave*, seven metres of it, not the trough; damping the radius in
+    time rounds the corner and lags, so the board rides up to a metre off the surface whenever
+    he is moving (worst contact 0.56 m → 1.58 m); and averaging the surface over a third of a
+    radian either side rounds it without lag but smears the lip's radius toward the sea's near
+    the boundary, which is a metre off the mesh he is supposedly riding (1.18 m). The ring is
+    back on the surface at his own angle, which is where it measures best. The corner is real
+    and still to do.
+  - **Nothing near the lens is half-transparent.** The near wall was being *thinned* to 20%,
+    which meant every foreground surface came out as a pale veil with the horizon showing
+    through it — water that is not the colour of the water beside it. It is cut outright now:
+    what is in the way simply is not drawn, and everything that is drawn is drawn at full
+    strength. The frame edges hold because the tube runs full bore for its whole length —
+    what is behind the cut is more barrel.
+
 - **v2.54.0** — **The barrel builds around you, and the camera does not move at all.**
   - **The barrel forms instead of arriving finished.** The tube used to exist the moment the
     ride phase began: you reached the wave and a completed barrel was already waiting, which

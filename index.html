@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.54.0';
+const VERSION='2.55.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1498,18 +1498,21 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // The camera stays where it is, so the water gives way instead: only the part nearer
       // the camera than the rider fades. The far wall, which is the tube you are looking
       // down, is untouched. uCut is on for the whole tube ride — see placeCurl.
-      // Thinned, not bored, and not aimed at anybody. Three versions of this now:
-      //   removed outright   opened the frame at its EDGES — out at the periphery the near
-      //                      wall is the only thing between you and the sky
-      //   bored toward him   fixed the edges and put a hole around the RIDER, which travels
-      //                      with him: a patch of see-through water following the board
-      //                      round the tube, which is the one thing water never does
-      //   thinned by depth   what this is. Everything nearer the lens than he is goes
-      //                      translucent by the same amount everywhere, so it reads as
-      //                      looking THROUGH the near wall — which is exactly what you are
-      //                      doing — and nothing about it tracks him.
+      // CUT, not thinned. Four versions of this now:
+      //   removed outright   opened the frame at its EDGES, back when the shell collapsed
+      //                      behind the break and there was nothing behind the near wall
+      //   bored toward him   fixed the edges and put a hole around the RIDER, travelling
+      //                      with him: see-through water following the board round the tube
+      //   thinned by depth   no hole and no tracking, but every near surface came out as a
+      //                      pale veil with the horizon showing through it — water that is
+      //                      not the colour of the water beside it
+      //   cut by depth       this. Water nearer the lens than he is simply is not there, and
+      //                      everything that IS drawn is drawn at full strength. Nothing is
+      //                      half-transparent, so nothing reads as the wrong colour. The
+      //                      edges hold because the tube now runs full bore for its whole
+      //                      length: what is behind the cut is more barrel.
       float dcam=length(cameraPosition-vW);
-      a*=1.0-(1.0-smoothstep(uRiderD-3.5,uRiderD-0.4,dcam))*uCut*0.80;
+      a*=1.0-(1.0-smoothstep(uRiderD-3.5,uRiderD-1.2,dcam))*uCut;
       col=pow(clamp(col,0.0,1.0),vec3(2.2));
       gl_FragColor=vec4(col*uLight,clamp(a,0.0,1.0));
     }
@@ -7998,6 +8001,8 @@ let swPipeAir=false, swRadV=0, swAirT=0;
 let swNoDeb=false;                       // debug only: hold the wreckage off
 let swHold=false;                        // debug only: stop the wave ever spitting you out
 let swForm=0;                            // how far the lip has thrown over: 0 crest, 1 full bore
+// How far the arc is still laid back against the face. Zero once it is fully thrown.
+function swPitch(){ return -swS*1.15*(1-swForm)*(1-swForm); }
 // Gentle on purpose. At 9.0 against a gravity of 13 the pop carried three metres off a
 // wall six and a half from the axis — nearly half way across the tube, which from the
 // bottom of the ring is straight up and reads as being launched out of the wave. The tube
@@ -8066,8 +8071,13 @@ function swTubeGeom(){
   const rad=SW_R*(0.16+0.84*pa)*(1-0.55*pb);
   const fold=(1-0.38*pb)*(1-0.72*swClose)*swForm;
   const drop=-SW_PEAK*0.55*pb;
-  const cx=swX-swS*Math.sin(SW_ALPHA)*rad*fold;
-  const cy=swA+(-Math.cos(SW_ALPHA)*rad+drop)*fold;
+  // Same pitch the mesh is given while the lip is throwing over, applied to the ring's own
+  // centre so the two stay the same tube the whole way through the formation.
+  const ox=-swS*Math.sin(SW_ALPHA)*rad*fold;
+  const oy=(-Math.cos(SW_ALPHA)*rad+drop)*fold;
+  const rz=swPitch(), cr=Math.cos(rz), sr=Math.sin(rz);
+  const cx=swX+ox*cr-oy*sr;
+  const cy=swA+ox*sr+oy*cr;
   // The rideable surface is the ARC ITSELF, at radius rad — not the arc pulled in by the
   // slab's thickness.
   //
@@ -8544,6 +8554,13 @@ function placeCurl(dt){
   // The same factor swTubeGeom uses, so the mesh and the ring are the same tube: the fold
   // as it closes out, times how far it has thrown over in the first place.
   const fold=(1-0.72*swClose)*swForm;
+  // A lip does not inflate, it PITCHES. Scaling the shell alone grew the barrel like a
+  // tunnel opening out, which is the one thing it is not: a wave throws a ledge off the
+  // crest and that ledge swings over, so the arc has to rotate as well as grow. It starts
+  // laid back against the face and comes round to its place, and the ring's own centre is
+  // carried with it (swTubeGeom applies the same angle) so the water and the physics are
+  // still the same tube while it is happening.
+  curl.rotation.z=swPitch();
   curl.scale.set(-swS*fold, fold, 1);
   curlUniforms.uFade.value=swCurlA;
   curlUniforms.uT.value=tNow;
@@ -9275,21 +9292,46 @@ function update(dt){
       const onLip=rel<=lipSpan; swOnLip=onLip;
       const ux=swS*Math.sin(swAng), uy=-Math.cos(swAng);
       const WZ2=dist*WAVE_DRIFT+pz;
-      let rHit=G.r;
-      if(!onLip){
-        let lo=0.4, hi=24.0, found=false;
-        for(let i=1;i<=26;i++){
-          const t=0.4+(24.0-0.4)*i/26;
-          if(G.cy+uy*t<=waveH(G.cx+ux*t,WZ2,waveClock)){ hi=t; lo=t-(24.0-0.4)/26; found=true; break; }
+      // Ray-marched to whatever surface is actually out there at this angle — the lip inside
+      // its arc, the sea outside it. Two attempts at replacing this with a pure circle are
+      // recorded here because both looked obviously right and both measured badly: a circle
+      // at the arc's radius leaves him a metre and a half over the flat water at the bottom
+      // of the open sector, and one shrunk to meet "the water below the axis" collapses to
+      // nothing, because the height field at the axis's own x is the WAVE, seven metres of
+      // it, not the trough. The surface has to be found, not assumed.
+      // The surface at an angle, found by firing a ray out from the axis and stopping at the
+      // first water it meets: the lip inside its own arc, the sea outside it. Reach is 40 m —
+      // at 24 a ray fired toward the shoulder could leave over flat water without ever dipping
+      // below it, report nothing found, and drop the board out into the air at that one angle.
+      const surfAt=(th)=>{
+        const rl=((th-lipStart)%(Math.PI*2)+Math.PI*2)%(Math.PI*2);
+        if(rl<=lipSpan)return G.r;                          // on the lip: the arc itself
+        const sx=swS*Math.sin(th), sy=-Math.cos(th);
+        let lo=0.4, hi=40.0, found=false;
+        for(let i=1;i<=44;i++){
+          const t=0.4+(40.0-0.4)*i/44;
+          if(G.cy+sy*t<=waveH(G.cx+sx*t,WZ2,waveClock)){ hi=t; lo=t-(40.0-0.4)/44; found=true; break; }
         }
-        if(found){
-          for(let i=0;i<6;i++){
-            const mid=(lo+hi)*0.5;
-            if(G.cy+uy*mid<=waveH(G.cx+ux*mid,WZ2,waveClock))hi=mid; else lo=mid;
-          }
-          rHit=Math.max(0.5,hi-0.30);            // the board's draft off whatever it found
+        if(!found)return G.r;
+        for(let i=0;i<6;i++){
+          const mid=(lo+hi)*0.5;
+          if(G.cy+sy*mid<=waveH(G.cx+sx*mid,WZ2,waveClock))hi=mid; else lo=mid;
         }
-      }
+        return Math.max(0.5,hi-0.30);            // the board's draft off whatever it found
+      };
+      // Straight off the surface at his own angle.
+      //
+      // Two attempts at rounding the corner where the lip's arc ends and the flat sea begins
+      // are recorded here, because both are plausible and both measured worse:
+      //   damped in time    rounds it, and lags — the board then rides up to a metre off the
+      //                     surface whenever he is MOVING, which is the thing the ring exists
+      //                     to prevent (0.56 m worst -> 1.58 m)
+      //   averaged in angle rounds it without lag, and smears the lip's own radius toward the
+      //                     sea's for a third of a radian either side of the boundary, which
+      //                     puts him a metre off the mesh he is supposedly riding (1.18 m)
+      // The kink is real and worth fixing; neither of these is the fix, and shipping either
+      // trades a corner you can see for a board that is not on the water.
+      const rHit=surfAt(swAng);
       // Smooth the RADIUS, never the position.
       //
       // Easing the position toward a target that is travelling round a circle is the bug
@@ -9309,9 +9351,10 @@ function update(dt){
         // A hard ceiling on the air. The landing test is "the radius has come back out to the
         // surface", and the surface moves — round the arc, with the swell, with the peel — so
         // a rider still turning while he is up there can chase it and never quite meet it.
-        // Measured stuck for seconds. Two seconds is already twice the arc's own flight time.
+        // Measured stuck for seconds. The arc's own flight is about 1.1 s, so 1.4 is already
+        // longer than any honest air and short enough that a stuck one is over quickly.
         swAirT+=dt;
-        if(swAirT>2.0){ swRad=rHit; swRadV=0; swPipeAir=false; swPipeLand(); }
+        if(swAirT>1.4){ swRad=rHit; swRadV=0; swPipeAir=false; swPipeLand(); }
         else {
           // Off the wall and across the tube. A pipe has its own gravity: whichever way is
           // out. Pop inward, coast, and get pulled back to the wall — at the roof that means
@@ -10145,11 +10188,12 @@ function update(dt){
     // — so the clamp shoved the camera up to nine and it then looked steeply down into the
     // face, filling the screen with water. waterY is the sea he is floating on, which is the
     // thing the camera must stay above.
-    // Folded INTO the lock rather than applied on top of it every frame. waterY moves with
-    // the swell, so re-clamping each frame passed that movement straight into a shot that is
-    // supposed to be nailed down — a slow rise and fall of the whole picture while he goes
-    // round. The lock only ever ratchets upward, and then holds.
-    swCamLock.y=Math.max(swCamLock.y,waterY+2.1);
+    // No ratchet. This used to lift the lock whenever the water under the rider rose, on the
+    // grounds that the sea must never close over the lens — but the water under him rises the
+    // whole time he is climbing the wall, so the shot rose with him. That is the camera
+    // "still moving up" while you ride up the barrel. Inside the tube the sea is held glassy
+    // and the lock is taken at the chase camera's own height, which is metres clear of it;
+    // there is nothing left for the clamp to save.
     camY=swCamLock.y;
   } else swCamLock=null;
   camera.position.set(camX,camY,camZ);
