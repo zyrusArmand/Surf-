@@ -52,6 +52,15 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.76.0** — **The chest gets its gloss and its stage manners.** Phong materials instead
+  of Lambert — lacquered wood and polished brass are specular highlights, which Lambert
+  cannot do — plus plank grooves, gold corner posts, brass rivet lines down every strap and
+  band, a lock plate with a hanging shackle, and a dark inlay so the open box has an inside.
+  At the end of the run it spins while you tap, and the moment it opens it **turns to face
+  the camera** — lock toward you, hinge behind — so the **lid swings away** and you look
+  straight into the lit box. The "purse" caption is gone; a puka payout is just the number,
+  and gear says only "View the shop to equip."
+
 - **v2.75.0** — **The chest becomes a pirate chest, and the ceremony goes 3D.** Built to the
   reference photos: dark wood, domed lid on a real hinge, gold straps and lock, smaller than
   the old crate, spinning as it drifts, with a soft gold glow. The end-of-run ceremony now

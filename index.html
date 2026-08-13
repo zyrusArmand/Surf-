@@ -672,7 +672,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.75.0';
+const VERSION='2.76.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -6916,38 +6916,67 @@ function zapFlash(){
 // The lid is its own group hinged at the back edge, so opening it is one rotation.
 function buildChest(){
   const g=new THREE.Group();
-  const wood=new THREE.MeshLambertMaterial({color:0x5f3d20});
-  const wood2=new THREE.MeshLambertMaterial({color:0x76512c});
-  const gold=new THREE.MeshLambertMaterial({color:0xd9a83c,emissive:0x3d2c08});
+  // Phong, not Lambert: the references are GLOSSY — lacquered wood and polished brass —
+  // and gloss is a specular highlight, which Lambert simply does not have.
+  const wood =new THREE.MeshPhongMaterial({color:0x6b4423,shininess:26,specular:0x554433});
+  const wood2=new THREE.MeshPhongMaterial({color:0x7d5330,shininess:26,specular:0x554433});
+  const woodD=new THREE.MeshPhongMaterial({color:0x452a13,shininess:12,specular:0x221108});
+  const gold =new THREE.MeshPhongMaterial({color:0xe0af45,shininess:90,specular:0xfff0c0,emissive:0x241804});
+  const goldB=new THREE.MeshPhongMaterial({color:0xf3cd6d,shininess:120,specular:0xffffff,emissive:0x2a1d06});
   const base=new THREE.Mesh(new THREE.BoxGeometry(1.2,0.7,0.82),wood);
   base.position.y=0.35; g.add(base);
-  const front=new THREE.Mesh(new THREE.BoxGeometry(1.14,0.6,0.05),wood2);
-  front.position.set(0,0.35,0.41); g.add(front);
-  for(const x of [-0.40,0.40]){
+  // plank grooves front and back — the cheap line that makes a slab read as boards
+  for(const zf of [0.415,-0.415])for(const yy of [0.20,0.40,0.58]){
+    const gr=new THREE.Mesh(new THREE.BoxGeometry(1.18,0.025,0.02),woodD);
+    gr.position.set(0,yy,zf); g.add(gr);
+  }
+  const front=new THREE.Mesh(new THREE.BoxGeometry(1.10,0.56,0.05),wood2);
+  front.position.set(0,0.35,0.405); g.add(front);
+  // corner posts, per the gold-framed reference
+  for(const x of [-0.585,0.585])for(const z of [-0.395,0.395]){
+    const post=new THREE.Mesh(new THREE.BoxGeometry(0.09,0.72,0.09),gold);
+    post.position.set(x,0.36,z); g.add(post);
+  }
+  for(const x of [-0.38,0.38]){
     const st=new THREE.Mesh(new THREE.BoxGeometry(0.13,0.74,0.87),gold);
     st.position.set(x,0.36,0); g.add(st);
+    // brass studs down each strap — the rivet line every reference has
+    for(const yy of [0.14,0.36,0.58]){
+      for(const zf of [0.45,-0.45]){
+        const stud=new THREE.Mesh(new THREE.SphereGeometry(0.035,6,5),goldB);
+        stud.position.set(x,yy,zf); g.add(stud);
+      }
+    }
   }
   const rim=new THREE.Mesh(new THREE.BoxGeometry(1.26,0.09,0.88),gold);
   rim.position.y=0.72; g.add(rim);
-  const lock=new THREE.Mesh(new THREE.BoxGeometry(0.20,0.24,0.09),gold);
-  lock.position.set(0,0.55,0.45); g.add(lock);
+  // the lock: a plate with a hanging shackle, not a cube
+  const plate=new THREE.Mesh(new THREE.BoxGeometry(0.22,0.26,0.06),goldB);
+  plate.position.set(0,0.56,0.45); g.add(plate);
+  const shackle=new THREE.Mesh(new THREE.TorusGeometry(0.07,0.022,6,12,Math.PI),goldB);
+  shackle.position.set(0,0.42,0.47); shackle.rotation.z=Math.PI; g.add(shackle);
   const lid=new THREE.Group(); lid.position.set(0,0.76,-0.41); g.add(lid);
-  const dome=new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.42,1.18,16,1,false,0,Math.PI),wood);
+  const dome=new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.42,1.18,18,1,false,0,Math.PI),wood);
   dome.rotation.z=Math.PI/2; dome.rotation.y=Math.PI/2;
   dome.position.set(0,0,0.41); lid.add(dome);
+  // a darker underside so the open box has an inside, not a hollow shell
+  const inlay=new THREE.Mesh(new THREE.BoxGeometry(1.1,0.05,0.72),woodD);
+  inlay.position.set(0,0.02,0.41); lid.add(inlay);
   for(const x of [-0.59,0.59]){
-    const cap=new THREE.Mesh(new THREE.CircleGeometry(0.42,14,0,Math.PI),wood2);
+    const cap=new THREE.Mesh(new THREE.CircleGeometry(0.42,16,0,Math.PI),wood2);
     cap.rotation.y=x>0?Math.PI/2:-Math.PI/2;
     cap.position.set(x,0,0.41); lid.add(cap);
   }
   for(const x of [-0.40,0.40]){
-    const band=new THREE.Mesh(new THREE.CylinderGeometry(0.44,0.44,0.13,14,1,true,0,Math.PI),gold);
+    const band=new THREE.Mesh(new THREE.CylinderGeometry(0.44,0.44,0.13,16,1,true,0,Math.PI),gold);
     band.rotation.z=Math.PI/2; band.rotation.y=Math.PI/2;
     band.position.set(x,0,0.41); lid.add(band);
+    for(const a of [0.5,1.1,1.7,2.3]){
+      const stud=new THREE.Mesh(new THREE.SphereGeometry(0.032,6,5),goldB);
+      stud.position.set(x,Math.sin(a)*0.45,0.41+Math.cos(a)*0.45); lid.add(stud);
+    }
   }
   g.userData.lid=lid;
-  // the glow: a soft gold sprite behind the whole chest, and a brighter one down in the
-  // box that only comes up as the lid does — the light from inside, per the last reference
   const cnv=document.createElement('canvas'); cnv.width=cnv.height=128;
   const ctx=cnv.getContext('2d');
   const grad=ctx.createRadialGradient(64,64,4,64,64,62);
@@ -7248,7 +7277,7 @@ const crateOv=document.getElementById('crateOv');
 const crateRewardEl=document.getElementById('crateReward'), crateBtnsEl=document.getElementById('crateBtns');
 const crateHintEl=document.getElementById('crateHint');
 const ceremonyChest=buildChest(); ceremonyChest.visible=false; scene.add(ceremonyChest);
-let crateTaps=0, crateOpened=false, crateShow=false, crateLid=0, crateShakeE=0, crateSpin=0;
+let crateTaps=0, crateOpened=false, crateShow=false, crateLid=0, crateShakeE=0, crateSpin=0, crateFace=null, crateFaceTo=0;
 function crateCeremony(){
   crateTaps=0; crateOpened=false; crateLid=0; crateShakeE=0; crateSpin=0;
   crateRewardEl.classList.add('hidden'); crateBtnsEl.classList.add('hidden');
@@ -7270,8 +7299,22 @@ function placeCeremonyChest(dt){
   camera.getWorldDirection(_chD);
   ceremonyChest.position.copy(camera.position).addScaledVector(_chD,4.9);
   ceremonyChest.position.y-=1.3;
-  crateSpin+=dt*(0.9+crateShakeE*7);
   crateShakeE=Math.max(0,crateShakeE-dt*2.2);
+  // Spins while it is being tapped; the moment it opens it turns TO FACE the camera —
+  // lock toward you, hinge behind — so the lid swings away and you look into the box.
+  if(!crateOpened){ crateSpin+=dt*(0.9+crateShakeE*7); crateFace=null; }
+  else {
+    const want=Math.atan2(camera.position.x-ceremonyChest.position.x,
+                          camera.position.z-ceremonyChest.position.z);
+    if(crateFace===null){
+      crateFace=crateSpin%(Math.PI*2);
+      let d=want-crateFace;
+      while(d>Math.PI)d-=Math.PI*2; while(d<-Math.PI)d+=Math.PI*2;
+      crateFaceTo=crateFace+d;
+    }
+    crateFace+=(crateFaceTo-crateFace)*Math.min(1,dt*5);
+    crateSpin=crateFace;
+  }
   ceremonyChest.rotation.set(
     (Math.random()-0.5)*0.16*crateShakeE,
     crateSpin,
@@ -7321,8 +7364,8 @@ crateOv.addEventListener('pointerdown',e=>{
     // the lid takes about two thirds of a second to swing; the words wait for the light
     setTimeout(()=>{
       crateRewardEl.innerHTML = got.kind==='puka'
-        ? `<div class="big">+${got.n}<i class="pk"></i></div><div class="sub">Puka shells, straight to your purse.</div>`
-        : `<div class="big">${got.name}</div><div class="sub">${got.kind==='char'?'New surfer unlocked!':'New board unlocked!'} View the shop to equip.</div>`;
+        ? `<div class="big">+${got.n}<i class="pk"></i></div>`
+        : `<div class="big">${got.name}</div><div class="sub">View the shop to equip.</div>`;
       crateRewardEl.classList.remove('hidden');
       crateBtnsEl.classList.remove('hidden');
     },750);
