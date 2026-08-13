@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.63.0';
+const VERSION='2.64.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1107,6 +1107,14 @@ const oceanMat=new THREE.ShaderMaterial({
         land *= vPa*(0.80+0.50*vBrk);
         col = mix(col, vec3(0.93,0.97,0.99),
                   clamp(land*(0.72+0.55*laceR+0.40*fleckR),0.0,1.0)*0.96);
+        // And the PILE. What the reference has at the impact line is not coverage but a
+        // concentrated mass — brightest right where the curtain lands, dissolving soft in
+        // both directions. Without it the corner reads as a painted floor however wide the
+        // apron gets; with it the apron reads as that mass spreading out.
+        float core = smoothstep(-11.0,-6.5,vDx)*(1.0-smoothstep(-5.0,-1.8,vDx));
+        core *= vPa;
+        col = mix(col, vec3(0.97,0.99,1.00),
+                  clamp(core*(0.80+0.40*laceR+0.30*fleckR),0.0,1.0)*0.92);
       }
       col += vec3(1.0)*pow(max(dot(N,H),0.0),480.0)*0.6;
       float fog = smoothstep(70.0,230.0,length(cameraPosition-vW));
@@ -1549,8 +1557,8 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       float boil=fbm(vec2(vW.z*0.60+uT*0.85, vFall*3.2-uT*1.55));
       float cloud=fbm(vec2(vW.z*0.30+uT*0.48, vFall*1.6-uT*0.85));
       float mist=smoothstep(0.02,0.55,vFall)*clamp(0.32+0.95*cloud,0.0,1.0);
-      col=mix(col,vec3(0.90,0.95,0.97),mist*0.78);
-      float churn=smoothstep(0.16,0.72,vFall)*clamp(0.62+0.75*boil,0.0,1.0);
+      col=mix(col,vec3(0.90,0.95,0.97),mist*0.84);
+      float churn=smoothstep(0.14,0.66,vFall)*clamp(0.66+0.72*boil,0.0,1.0);
       col=mix(col,vec3(0.93,0.97,0.99),churn*0.97);
       // Depth down the tube. An evenly lit bore is the single biggest reason it reads as a
       // tunnel: a real barrel darkens away from you and the mouth is the bright thing in it.

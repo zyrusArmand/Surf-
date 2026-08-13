@@ -52,6 +52,14 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.64.0** — **The crash corner gets its pile.** Judged against the reference rather than
+  the literal red circle: what the photo has at the impact line is not more coverage but a
+  concentrated **mass** — brightest exactly where the curtain lands, dissolving soft in both
+  directions. A near-white core band now sits on the sea at the landing line (only under a
+  thrown lip), the lower curtain carries a touch more weight, and the mass spreads into the
+  existing apron. Roughly a fifth of the frame in portrait, and the mouth stays the
+  brightest, most readable thing in the shot.
+
 - **v2.63.0** — **Frozen from the first barrel frame, no escaping, and the crash corner is a
   mass.**
   - **The camera no longer moves in the barrel at all — the centred view arrives before it.**
