@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.66.0';
+const VERSION='2.67.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1653,37 +1653,44 @@ function buildFoamGeom(){
   const arcF=(sw)=>({f:sa-Math.sin(SW_ALPHA-sw), y:Math.cos(SW_ALPHA-sw)-ca});
   const h=(a,b)=>{ const x=Math.sin(a*127.1+b*311.7)*43758.5453; return x-Math.floor(x); };
   const pos=[],nrm=[],rr=[],idx=[];
-  for(let i=0;i<=NZ;i++){
-    const zt=i/NZ, z=Z0+(Z1-Z0)*zt;
-    const pa=swPeelA(z), pb=swPeelB(z);
-    const rad=SW_R*(0.16+0.84*pa)*(1-0.55*pb);
-    const swp=SW_SWEEP*(0.30+0.70*pa);
-    const fold=1-0.38*pb;
-    const drop=-SW_PEAK*0.55*pb/Math.max(0.05,fold);
-    const a=arcF(swp), FALL=SW_FALL*pa;
-    // At the fall's START, not down it: the curtain's tip already reaches the sea at full
-    // form — everything below is the buried swell margin, which is where the first version
-    // of this bank quietly drowned (0.72 down the fall put it six metres underwater and
-    // nothing was ever visibly wrong, just absent). Just below the tip is the waterline.
-    const cf=a.f*rad, cy=(a.y-FALL*0.15)*rad;
-    // Only where the lip actually lands: gated on the peel like the curtain's own churn,
-    // swelling into the collapse — the broken section behind the break is the big bank.
-    const R=rad*(0.17+0.24*pa)*(1+1.0*pb)*Math.min(1,Math.max(0,(pa-0.22)/0.30));
-    for(let j=0;j<=NA;j++){
-      const th=j/NA*Math.PI*2;
-      // Lumps kept inside a narrow band: wide ones read as separate floating boulders —
-      // one detached lobe sat in the sky above the crest — and hard ones read as facets.
-      const lump=0.70+0.34*h(i*0.37,j)+0.14*h(j*1.7,i*0.11);
-      const r=Math.max(0.03,R*lump);
-      const nx=Math.cos(th), ny=Math.sin(th);
-      pos.push(cf+nx*r, cy+ny*r*0.60+drop, z);
-      nrm.push(nx,ny*0.60,0);
-      rr.push(r);
+  // TWO strips of lobes, because the mass the reference shows is not a rope lying along the
+  // foot — it is a spread: tall churn against the wall, and a wider, lower bank rolling out
+  // over the flat in front of it. The second strip is the shape of the red scribble.
+  for(let pass=0;pass<2;pass++){
+    const base=pos.length/3;
+    for(let i=0;i<=NZ;i++){
+      const zt=i/NZ, z=Z0+(Z1-Z0)*zt;
+      const pa=swPeelA(z), pb=swPeelB(z);
+      const rad=SW_R*(0.16+0.84*pa)*(1-0.55*pb);
+      const swp=SW_SWEEP*(0.30+0.70*pa);
+      const fold=1-0.38*pb;
+      const drop=-SW_PEAK*0.55*pb/Math.max(0.05,fold);
+      const a=arcF(swp), FALL=SW_FALL*pa;
+      // At the fall's START, not down it: the curtain's tip already reaches the sea at full
+      // form — everything below is the buried swell margin, which is where the first version
+      // of this bank quietly drowned. Just below the tip is the waterline.
+      const gate=Math.min(1,Math.max(0,(pa-0.22)/0.30));
+      const R0=rad*(0.20+0.26*pa)*(1+1.0*pb)*gate;
+      const cf=(pass===0)?a.f*rad:(a.f*rad+R0*1.55);
+      const cy=(a.y-FALL*0.15)*rad-(pass===1?R0*0.28:0);
+      const R=(pass===0)?R0:R0*0.70;
+      const sq=(pass===0)?0.60:0.42;             // the outer bank lies low on the water
+      for(let j=0;j<=NA;j++){
+        const th=j/NA*Math.PI*2;
+        // Lumps kept inside a narrow band: wide ones read as separate floating boulders —
+        // one detached lobe sat in the sky above the crest — and hard ones read as facets.
+        const lump=0.70+0.34*h(i*0.37+pass*7.7,j)+0.14*h(j*1.7,i*0.11+pass*3.1);
+        const r=Math.max(0.03,R*lump);
+        const nx=Math.cos(th), ny=Math.sin(th);
+        pos.push(cf+nx*r, cy+ny*r*sq+drop, z);
+        nrm.push(nx,ny*sq,0);
+        rr.push(r);
+      }
     }
-  }
-  for(let i=0;i<NZ;i++)for(let j=0;j<NA;j++){
-    const a2=i*(NA+1)+j, b2=a2+NA+1;
-    idx.push(a2,b2,a2+1, a2+1,b2,b2+1);
+    for(let i=0;i<NZ;i++)for(let j=0;j<NA;j++){
+      const a2=base+i*(NA+1)+j, b2=a2+NA+1;
+      idx.push(a2,b2,a2+1, a2+1,b2,b2+1);
+    }
   }
   const g=new THREE.BufferGeometry();
   g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
@@ -1729,9 +1736,11 @@ const foamBank=new THREE.Mesh(buildFoamGeom(), new THREE.ShaderMaterial({
                +vnoise(vec2(vW.z*1.30+uT*0.50, vW.y*1.10))*0.5;
       vec3 col=mix(vec3(0.78,0.86,0.92), vec3(0.97,0.99,1.00), 0.35+0.65*clamp(N.y*0.5+0.5,0.0,1.0));
       col=mix(col, vec3(1.0), mot*0.30);
-      // cloudy edges: alpha falls away where the surface turns from the eye
+      // A cloud is OPAQUE through its body and soft only at the very rim. The first cut
+      // keyed alpha up on facing the eye — and from the riding camera the bank is seen
+      // edge-on, so most of it went to glass and the whole mass read as a faint veil.
       float face=max(dot(N,V),0.0);
-      float a=uFade*(0.34+0.66*pow(face,1.25))*(0.78+0.22*mot);
+      float a=uFade*(0.06+0.90*smoothstep(0.0,0.20,face))*(0.86+0.14*mot);
       // the same fixed clearance the curl keeps in front of the lens
       float dcam=length(cameraPosition-vW);
       a*=1.0-(1.0-smoothstep(1.30,3.10,dcam))*uCut;

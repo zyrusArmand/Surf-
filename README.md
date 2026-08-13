@@ -52,6 +52,14 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.67.0** — **The foam bank becomes a body.** v2.66's mass read as a faint veil from the
+  riding camera, and the reason was exactly backwards alpha: it keyed opacity UP on facing
+  the eye, and from inside the tube the bank is seen edge-on — so precisely the surfaces
+  that form its silhouette went to glass. A cloud is opaque through its body and soft only
+  at the very rim; the alpha now says so. And the mass is the *shape the user drew*: a
+  second strip of lower, wider lobes rolls out over the flat in front of the tall churn at
+  the wall, so the bank spreads instead of lying along the foot like a rope.
+
 - **v2.66.0** — **A body of foam, not more paint.** The circled areas in the reference are a
   thing no surface-whitening can be: a volumetric mass of whitewater billowing where the lip
   lands. It is real geometry now — a lumpy bank laid along the curtain's foot, baked lumps
