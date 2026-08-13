@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.57.0';
+const VERSION='2.58.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1207,7 +1207,11 @@ function buildCurlGeom(){
   const thick=(q)=>SW_LIPT*Math.min(1,q/0.26)*(1-0.34*q);
   // How far the curtain falls off the tip, in radii. See SW_FALL.
   const fallOf=(pa)=>SW_FALL*pa;
-  const pos=[],uv=[],idx=[];
+  // aFall: how far down the falling curtain a vertex sits, 0 on the arc, 1 at the foot —
+  // and scaled by the peel, so the attribute is only ever large where the lip has actually
+  // thrown. That is what keeps the churn off the unbroken wall down the line without the
+  // fragment shader having to know the peel at all.
+  const pos=[],uv=[],fall=[],idx=[];
   for(let i=0;i<=NZ;i++){
     const zt=i/NZ, z=Z0+(Z1-Z0)*zt;
     // The peel, in the shape of the lip itself. The old taper closed the bore down the line
@@ -1245,16 +1249,18 @@ function buildCurlGeom(){
       const tf=a.tf*(1-w), ty=a.ty*(1-w)-w, tl=Math.hypot(tf,ty)||1;
       return {f:a.f, y:a.y-FALL*v, nf:nf/nl, ny:ny/nl, tf:tf/tl, ty:ty/tl};
     };
+    const fallFrac=(q)=>(FALL<=1e-4||q<=QA)?0:(q-QA)/(1-QA);
+    const gu=Math.min(1,Math.max(0,(pa-0.25)/0.30)), gate=gu*gu*(3-2*gu);
     for(let j=0;j<=NA;j++){
       const s=j/NA;
-      let q,f,y;
+      let q,f,y,fv=0;
       if(s<SK){                                      // skirt, hanging below the weld
         q=0; f=0; y=-SKIRT*(1-s/SK)*fold;
       } else if(s<=SK+SPAN){                         // the outer face, welded to the crest
         q=(s-SK)/SPAN; const a=seg(q);
-        f=a.f*rad; y=a.y*rad*fold;
+        f=a.f*rad; y=a.y*rad*fold; fv=fallFrac(q);
       } else if(s<SK+SPAN+CAP){                      // round the foot of the fall
-        q=1;
+        q=1; fv=1;
         const a=seg(1), T=thick(1)*rad, ph=Math.PI*(s-SK-SPAN)/CAP;
         const cf=a.f*rad-a.nf*T*0.5, cy=a.y*rad-a.ny*T*0.5;
         f=cf+(T*0.5)*(Math.cos(ph)*a.nf+Math.sin(ph)*a.tf);
@@ -1262,11 +1268,16 @@ function buildCurlGeom(){
       } else if(s<=SK+SPAN+CAP+SPAN){                // back along the inner face, the roof
         q=1-(s-SK-SPAN-CAP)/SPAN;
         const a=seg(q), T=thick(q)*rad;
-        f=a.f*rad-a.nf*T; y=(a.y*rad-a.ny*T)*fold;
+        f=a.f*rad-a.nf*T; y=(a.y*rad-a.ny*T)*fold; fv=fallFrac(q);
       } else {                                       // and the skirt on the inner side
         q=0; f=0; y=-SKIRT*((s-SK-SPAN-CAP-SPAN)/SK)*fold;
       }
-      pos.push(f,y+drop,z); uv.push(q,zt);
+      // Gated on the peel, not scaled by it. fv*pa read as nothing exactly where the
+      // impact line is on screen: the visible stretch of foot runs through the middle of
+      // the peel (pa 0.3-0.8), and a linear scale there cut the band to a third of its
+      // strength before the shader ever saw it. The curtain's LENGTH already grows with
+      // the peel, so all the gate has to do is hold the churn off the unbroken wall.
+      pos.push(f,y+drop,z); uv.push(q,zt); fall.push(fv*gate);
     }
   }
   for(let i=0;i<NZ;i++)for(let j=0;j<NA;j++){
@@ -1276,6 +1287,7 @@ function buildCurlGeom(){
   const g=new THREE.BufferGeometry();
   g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
   g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
+  g.setAttribute('aFall',new THREE.Float32BufferAttribute(fall,1));
   g.setIndex(idx); g.computeVertexNormals();
   return g;
 }
@@ -1324,15 +1336,16 @@ const curlUniforms={
 const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
   uniforms:curlUniforms, transparent:true, depthWrite:true, side:THREE.DoubleSide,
   vertexShader:`
-    varying vec2 vUv; varying vec3 vW; varying vec3 vN;
+    varying vec2 vUv; varying vec3 vW; varying vec3 vN; varying float vFall;
     // uT is declared in BOTH stages. It was only in the fragment shader, and the moment the
     // vertex shader used it the program failed to compile — which does not throw, it just
     // silently drops the mesh. The barrel disappeared and everything still "worked": the
     // state said the curl was visible, the geometry was correct, and there was nothing on
     // screen. Shader errors go to console.error, not to window.onerror.
     uniform float uT;
+    attribute float aFall;
     void main(){
-      vUv=uv;
+      vUv=uv; vFall=aFall;
       // The sea below is alive and the lip was not: a rigid shell with moving paint on it,
       // which is most of why the top read as scenery while the bottom read as water. It
       // breathes now — a couple of travelling waves along its length and around its arc, at
@@ -1360,7 +1373,7 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
     uniform float uFade; uniform float uT; uniform float uLight;
     uniform vec3 uSun; uniform vec3 uSky; uniform vec3 uDeep; uniform vec3 uShallow;
     uniform vec3 uFoam; uniform float uClose; uniform float uCut;
-    varying vec2 vUv; varying vec3 vW; varying vec3 vN;
+    varying vec2 vUv; varying vec3 vW; varying vec3 vN; varying float vFall;
     float hash21(vec2 p){
       p=fract(p*vec2(123.34,345.45));
       p+=dot(p,p+34.345);
@@ -1495,6 +1508,26 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // as a painted rim, and carried a little further round the arc.
       float edge=smoothstep(0.70,1.0,t);
       col=mix(col,uFoam,clamp(edge*(0.42+0.62*band+0.48*grain),0.0,1.0)*0.95);
+      // Where the curtain lands. The sea has painted this band since v2.50 — a churned
+      // white mass out in front of the wave — but the curtain itself arrived at it as
+      // clean glass, so the impact line was foam on one side of the seam and a pane on
+      // the other. The reference photographs all show the churn WRAPPING UP the falling
+      // water, not stopping at it.
+      //
+      // vFall is baked into the shell: 0 on the arc, 1 at the foot of the fall, and
+      // already scaled by the peel — so this cannot appear on the unbroken wall down the
+      // line, where there is no curtain to land. It boils rather than sits: the noise is
+      // driven down the fall with time, because this is the one piece of water in the
+      // whole wave that is genuinely moving fast in one known direction.
+      // The white is the sea's own impact-band white, so the two sides of the seam agree
+      // by construction rather than by tuning.
+      // Wider than the first cut of this: from halfway down the fall the visible band was
+      // mostly below the frame or behind the near-wall cut, and measured on the screen it
+      // was 2% of the corridor it lives in. It climbs from a third of the way down now,
+      // ragged at its top edge so the wrap reads as thrown spray rather than a waterline.
+      float boil=fbm(vec2(vW.z*0.60+uT*0.85, vFall*3.2-uT*1.55));
+      float churn=smoothstep(0.34,0.88,vFall)*clamp(0.44+0.80*boil,0.0,1.0);
+      col=mix(col,vec3(0.93,0.97,0.99),churn*0.92);
       // Depth down the tube. An evenly lit bore is the single biggest reason it reads as a
       // tunnel: a real barrel darkens away from you and the mouth is the bright thing in it.
       // vUv.y=0 is the far end.
@@ -1521,6 +1554,7 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // below, which removes the near wall outright. An earlier read of this had the two
       // confused and blamed the alpha for the frame going flat blue.
       float a=uFade*(0.99-0.14*t);
+      a=min(1.0,a+churn*0.20*uFade);             // aerated water is not glass-thin
       a*=smoothstep(0.0,0.30,vUv.y);             // opens out at the far end
       // Ride round to the roof and the wall between you and the camera is the near side of
       // your own barrel, so you vanish behind it — measured: at the top of the ring the
@@ -8117,7 +8151,8 @@ function swTubeC(){ return swX - swS*SW_TUBE; }
 // free — out along the unbroken wall there is no thrown lip, the roof sits barely above the
 // water, and the ring closes to nothing. You can only circle where the wave is genuinely
 // hollow, which is what makes the loop a place rather than a move.
-function swTubeGeom(){
+function swTubeGeom(zz){
+  if(zz===undefined)zz=pz;
   // The tube's OWN axis, read out of the lip's geometry instead of guessed at.
   //
   // The arc the lip is built on is a circle: local (f,y) = (sa,-ca)*rad + rad*(-sin p,cos p),
@@ -8129,7 +8164,7 @@ function swTubeGeom(){
   // A circle around the wrong centre cannot lie on the wave: it crossed the surface twice
   // and spent the rest of the way through the water or out in the air beside it, which is
   // exactly the board floating clear of the face.
-  const pa=swPeelA(pz), pb=swPeelB(pz);
+  const pa=swPeelA(zz), pb=swPeelB(zz);
   const rad=SW_R*(0.16+0.84*pa)*(1-0.55*pb);
   const fold=(1-0.38*pb)*(1-0.72*swClose)*swForm;
   const drop=-SW_PEAK*0.55*pb;
@@ -8153,6 +8188,19 @@ function swTubeGeom(){
   // Only the board's own draft comes off now, so it sits ON the surface rather than inside it.
   const r=Math.max(0.5,rad*fold-0.35);
   return {cx,cy,r};
+}
+// Where the falling curtain actually lands at this z: off the tip of the thrown arc,
+// straight down the curtain's own direction to the sea. This is the impact line — the one
+// place on the whole wave where water is hitting water — and both the splash emitter and
+// the tests read it from here so they cannot disagree about where that is.
+function swFootAt(z){
+  const G=swTubeGeom(z);
+  const pa=swPeelA(z);
+  const thEnd=(Math.PI-SW_ALPHA)+SW_SWEEP*(0.30+0.70*pa);
+  const tipX=G.cx+swS*Math.sin(thEnd)*G.r, tipY=G.cy-Math.cos(thEnd)*G.r;
+  const sy=waveH(tipX,dist*WAVE_DRIFT+z,waveClock);
+  const x=tipX+Math.sin(swPitch())*Math.max(0,tipY-sy);
+  return {x, y:waveH(x,dist*WAVE_DRIFT+z,waveClock), pa, r:G.r};
 }
 // the top of the thrown lip: how much daylight there is over your head in the tube
 //
@@ -8335,7 +8383,7 @@ function updateSetWave(dt,eff){
       // Lock the pocket where it closed on him. Left tracking, it would follow him round
       // the ring for ever and he could never move relative to his own barrel.
       swHoldX=swX; swPh=SWP.RIDE; swT=0; swRide=0; swOver=0; swClose=0;
-      swAng=0; swAngV=0; swLoops=0; swForm=0;
+      swAng=0; swAngV=0; swLoops=0; swForm=0; swFootEm=0; swFootSplash=0;
     }
     return;
   }
@@ -8407,7 +8455,7 @@ if(location.hash.includes('debug')){
                 swPh,swT,swA,swX,swS,swRide,swRideMax,swOver,swCurlA,swClose,
                 swAng,swLoops,swTubeRide,swOnLip,ring:swTubeGeom(),
                 jellyHits,lastWipe,swCut,swPipeAir,trickReady,cracks,swForm,
-                swRad:+swRad.toFixed(2),
+                swRad:+swRad.toFixed(2),footSplash:swFootSplash,
                 boardYaw:+boardYaw.toFixed(3),boardPitch:+boardPitch.toFixed(3),
                 curlVisible:curl.visible,roofY:swRoofY(),tubeC:swTubeC()}),
     // Where the rider's own up actually points, taken from the rig's world matrix rather
@@ -8487,6 +8535,11 @@ if(location.hash.includes('debug')){
     setCut(v){ swCutHold=(v===undefined||v<0)?-1:v; return swCutHold; },
     setTrim(v){ swTrimHold=(v===undefined||v===null)?null:v; return swTrimHold; },
     buoy(){ return _buoy; },
+    foot(z){ return swFootAt(z===undefined?pz:z); },
+    // Any world point onto the glass, -1..1 both axes. For finding out where a thing the
+    // shader is supposed to be drawing actually lands in the frame.
+    proj(x,y,z){ const v=_ndcP.set(x,y,z).project(camera);
+                 return {x:+v.x.toFixed(3),y:+v.y.toFixed(3),behind:v.z>1}; },
     // Where the rider actually lands on the glass, in normalised device coordinates: -1..1
     // is on screen in both axes. A phone in portrait is a 31-degree horizontal keyhole, so
     // "is he in frame" is a question about the projection, not about metres.
@@ -8674,6 +8727,7 @@ const SW_TRIM=-7.0;                           // how far down the line he trims 
 let swTrimHold=null;                          // tests only: try another one without a rebuild
 let swCut=0;                                  // how far the near wall has been cut away
 let swCutHold=-1;                             // tests only: pin it, -1 means the ride decides
+let swFootEm=0, swFootSplash=0;               // impact-line spray: budget, and a counter for the tests
 function placeCurl(dt){
   if(swCurlA<=0.004){ curl.visible=false; return; }
   curl.visible=!curl.userData.forceHide;      // the debug hook can hold it down
@@ -8706,6 +8760,24 @@ function placeCurl(dt){
   // which is the barrel you are looking down, is untouched.
   swCut+=((swTubeRide?1:0)-swCut)*Math.min(1,(dt||0.016)*5);
   curlUniforms.uCut.value=swCutHold>=0?swCutHold:swCut;
+  // Spray off the impact line. Small on purpose: the reference for this is texture, not a
+  // plume — a phone GPU pays per particle, and a white cloud at the mouth would bury the
+  // brightest, most readable part of the shot. The pool caps it absolutely (takeDrop
+  // returns null when spent); this rate keeps it well under that on its own.
+  if(swPh===SWP.RIDE&&swForm>0.5&&swCurlA>0.6&&!curl.userData.forceHide){
+    swFootEm+=(dt||0.016)*(4+12*swForm);
+    while(swFootEm>1){
+      swFootEm-=1;
+      // the stretch of tube on screen, and only where the lip has actually thrown —
+      // no curtain, no impact, no splash
+      const z=-44+Math.random()*48;
+      if(swPeelA(z)<0.35)continue;
+      const f=swFootAt(z);
+      if(f.r<1.2)continue;
+      splash(f.x+(Math.random()-0.5)*0.9, f.y+0.08, z, 2);
+      swFootSplash++;
+    }
+  }
 }
 
 // ---------- whirlpool ----------

@@ -976,6 +976,39 @@ if (hasHook) {
                   : `fell ${c.fell.toFixed(1)} m from ${c.fromY.toFixed(1)}, drifted ${c.side.toFixed(2)} m sideways`);
 }
 
+// ---------- the curtain lands on water, and the water reacts ----------
+// The impact line — where the falling curtain meets the sea — is the one place on the wave
+// where water is hitting water, and it was drawn as clean glass meeting painted foam. Three
+// things now live there: churn baked into the shell (aFall), spray off the line, and the
+// sea's own land band from v2.50. The churn is GATED on the peel rather than scaled by it —
+// scaled, it read as nothing precisely where the line is on screen, which is the mid-peel.
+{
+  const src = await readFile(join(ROOT, 'index.html'), 'utf8');
+  check(/aFall/.test(src) && /churn=smoothstep/.test(src) && /fall\.push\(fv\*gate\)/.test(src),
+        'the curtain carries churn at its foot, gated on the peel');
+  const spray = await page.evaluate(async () => {
+    window.__surf.restart(); window.__surf.invuln(true); window.__surf.tick(1);
+    window.__surf.armSetWave(); window.__surf.warpSetWave('SWELL', 4.6);
+    let mid = null;
+    for (let i = 0; i < 60; i++) { window.__surf.tick(1);
+      const s = window.__surf.state();
+      if (mid === null && (s.swForm ?? 0) > 0.30 && (s.swForm ?? 0) < 0.50) mid = s.footSplash;
+      if (s.swTubeRide && (s.swForm ?? 0) > 0.97) break; }
+    const c0 = window.__surf.state().footSplash;
+    window.__surf.tick(4);
+    const c1 = window.__surf.state().footSplash;
+    const f = window.__surf.foot(0), st = window.__surf.state();
+    return { mid, spawned: c1 - c0, off: Math.abs(f.x - st.swX), y: f.y };
+  });
+  check(spray.mid === 0, 'no spray before there is a curtain to land', `${spray.mid} splashes mid-formation`);
+  check(spray.spawned > 4 && spray.spawned < 200,
+        'the impact line spits, at a rate a phone can afford',
+        `${spray.spawned} splashes in 4 s of simulation`);
+  check(spray.off > 4 && spray.off < 16 && spray.y > -2 && spray.y < 3,
+        'and the spray lands where the curtain does — out in front, at sea level',
+        `${spray.off.toFixed(1)} m out from the crest, y ${spray.y.toFixed(2)}`);
+}
+
 // ---------- the ruler reads the same water the game draws ----------
 // sampleWave is what every "how far off the surface is he" check in this file measures
 // against, and it was sampling at tNow while the ocean is drawn from waveClock — a clock that

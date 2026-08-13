@@ -52,6 +52,25 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.58.0** — **The crash zone. Where the curtain lands, the water now reacts.**
+  - The impact line — the falling curtain meeting the sea — was clean glass on one side of
+    the seam and painted foam on the other. It now carries the three things the reference
+    photographs show: **churn wrapping up the falling water** (baked into the shell as a
+    ragged, boiling band in the sea's own impact-band white, so both sides of the seam agree
+    by construction), **spray off the line itself** (small on purpose — the pooled splash
+    emitter, a handful a second, because the reference's crash corner is texture, not a
+    plume, and a white cloud at the mouth would bury the brightest part of the shot), and
+    the sea's own land band from v2.50 underneath.
+  - It **forms with the wave**: the churn is keyed to the same fall geometry as the ring, so
+    there is none of it on the unbroken wall down the line — no curtain, no impact, no foam —
+    and it arrives as the lip throws. Verified mid-formation: zero splashes, zero band.
+  - One measured lesson in it: the band was first *scaled* by the peel to keep it off the
+    unbroken wall, and read as nothing — because the visible stretch of impact line runs
+    through the middle of the peel, where a linear scale cut it to a third strength before
+    the shader saw it. It is **gated, not scaled**; the curtain's own length already grows
+    with the peel. Found by projecting the foot line into screen space rather than staring at
+    coefficients.
+
 - **v2.57.0** — **The barrel fills the screen, he rides closer to the lens, and a crash falls
   down the wave.**
   - **The wave covers the frame again.** The near wall was cut away to *the rider's own
