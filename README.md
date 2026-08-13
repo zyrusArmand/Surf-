@@ -52,6 +52,35 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.52.0** — **No see-through patch following the rider, and the shot really does not move
+  — through the crash included.**
+  - **The near wall thins by depth alone.** Three versions of this now: removed outright,
+    which opened the frame at its *edges* — out at the periphery that wall is the only thing
+    between you and the sky. Bored toward the rider, which fixed the edges and put a hole
+    around *him*, travelling with the board round the tube, which is the one thing water never
+    does. And this: everything nearer the lens than he is goes translucent by the same amount
+    everywhere, so it reads as looking *through* the near wall — which is what you are doing —
+    and nothing about it tracks him. A source check now forbids the shader from referring to
+    his position at all.
+  - **The aim's depth was the last thing still moving.** Position, height and aim height were
+    all locked; the aim *point* still rode `swCam` as it ramps 0→1 over the first second of
+    the ride, sweeping from −14 to −24 in z and swinging the whole picture round while you go
+    up the wall. Locked at the settled value, so the shot cuts to its final framing at ring
+    entry and then holds. The new check samples from the first frame of the ride, not once
+    everything has settled — sampling late would never have caught this.
+  - **Crash in the barrel and the camera stays where it was.** Two things here, and the
+    second is the one that mattered. The wipeout was written to cut to a wide chase that
+    pulls back far enough to frame the rider and the board however far they are thrown — good
+    on the open face, and on a barrel it reads as zooming out the moment you die. It holds the
+    ride's own frame now instead: the wave still collapses, the whitewater still comes
+    through, you just watch it from where you were watching the ride.
+    But that crash camera has *never actually been seen*. `running` goes false the instant you
+    wipe out, so the loop's `else` branch — the menu's slow drifting wide shot — has been
+    running one line after `updateWipeout` placed the camera, every wipeout, overwriting it.
+    Measured: the camera was landing at z=11.67 whatever the crash code asked for. So the
+    real answer to "it zooms out when you die" was the menu camera snapping in. It is skipped
+    while a crash is playing. Across a wipeout in the barrel: **13.87 m of movement → 0.000**.
+
 - **v2.51.0** — **The barrel wraps the whole frame, the mystery wipeout is gone, tricks stay
   in the wave, and the shot really is fixed.**
   - **You could see out of the barrel at the edges, because the break was in the wrong

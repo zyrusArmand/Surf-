@@ -458,17 +458,33 @@ if (hasHook) {
     // warp instead, the reading is the radius easing on to the wall, which is metres of
     // sideways travel that has nothing to do with the input — it read backwards on both
     // sides, which would have condemned a correct fix.
-    await page.evaluate(() => window.__surf.setTubeAngle(0));
-    await page.waitForTimeout(3000);
+    // Parked at the bottom and CONFIRMED parked. setTubeAngle writes the angle, but the ring
+    // re-derives it from the rider's position on the frame it first takes over — so setting it
+    // before the takeover has happened is silently overwritten, and the previous check leaves
+    // him eight metres in the air. Measured from a starting angle near a quarter turn, holding
+    // right moves him LEFT, which is arithmetic rather than a bug: past that point the circle
+    // is coming back. Wait until he is on the ring at the bottom of it.
+    const parked = await page.evaluate(async () => {
+      for (let i = 0; i < 40; i++) {
+        window.__surf.setTubeAngle(0);
+        await new Promise(r => setTimeout(r, 400));
+        const s = window.__surf.state();
+        if (s.swTubeRide && Math.abs(s.swAng) < 0.2) return true;
+      }
+      return false;
+    });
+    await page.waitForTimeout(2500);
     const before = await page.evaluate(() => window.__surf.state().px);
+    void parked;
     await page.keyboard.down('ArrowRight');
     await page.waitForTimeout(6000);
     await page.keyboard.up('ArrowRight');
     const after = await page.evaluate(() => window.__surf.state());
-    dirs.push({ side, moved: +(after.px - before).toFixed(2), tube: after.swTubeRide });
+    dirs.push({ side, moved: +(after.px - before).toFixed(2), tube: after.swTubeRide, parked });
   }
-  check(dirs.every(d => d.tube && d.moved > 0.5), 'steering right moves the rider right on both sides of the wave',
-        dirs.map(d => `swS=${d.side}: ${d.moved > 0 ? '+' : ''}${d.moved} m${d.tube ? '' : ' (OUT OF THE TUBE)'}`).join(', '));
+  check(dirs.every(d => d.tube && d.parked && d.moved > 0.5), 'steering right moves the rider right on both sides of the wave',
+        dirs.map(d => `swS=${d.side}: ${d.moved > 0 ? '+' : ''}${d.moved} m`
+                      + (d.tube ? '' : ' (OUT OF THE TUBE)') + (d.parked ? '' : ' (NEVER PARKED)')).join(', '));
 }
 
 // ---------- crossing off the lip does not flip the board ----------
@@ -581,6 +597,21 @@ if (hasHook) {
   const turned = Math.max(span('dx'), span('dy'), span('dz'));
   check(moved < 0.05 && turned < 0.02, 'the barrel camera holds still, aim included, all the way round',
         `moved ${moved.toFixed(3)} m, aim shifted ${turned.toFixed(4)}`);
+
+  // And from the very first frame of the ride, which is where the last drift lived: the aim
+  // point's DEPTH rode swCam as it ramped 0 -> 1, swinging the whole picture round over the
+  // first second. Sampling only after everything has settled would never have caught it.
+  const entry = await page.evaluate(async () => {
+    window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
+    await new Promise(r => setTimeout(r, 700));
+    const a = window.__surf.cam();
+    await new Promise(r => setTimeout(r, 6000));
+    return { a, b: window.__surf.cam() };
+  });
+  const drift = Math.max(...['x','y','z','dx','dy','dz'].map(k => Math.abs(entry.a[k] - entry.b[k])));
+  check(drift < 0.02, 'and from the first frame of the ride, not just once it has settled',
+        `${drift.toFixed(4)} between entry and six seconds later`);
+
 }
 
 // ---------- a trick in the tube is a hop, not a launch ----------
@@ -710,6 +741,27 @@ if (hasHook) {
                     : (hit.timedOut ? 'never connected' : `ended the run as ${hit.kind}`));
 }
 
+// ---------- the shot does not pull back when you die ----------
+// Last of the live checks, because it ends the run: anything after it would be
+// measuring a dead game.
+{
+  // Crash in the barrel and the shot stays put. It used to cut to a wide chase on the crash,
+  // which is the "camera zooms out when you die".
+  const dead = await page.evaluate(async () => {
+    window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
+    await new Promise(r => setTimeout(r, 2500));
+    const before = window.__surf.cam();
+    const tube = window.__surf.state().swTubeRide;
+    const w = window.__surf.wipeNow('foam');
+    await new Promise(r => setTimeout(r, 4000));
+    return { before, after: window.__surf.cam(), wiped: w.wiped, held: w.held, tube };
+  });
+  const jumped = Math.max(...['x','y','z','dx','dy','dz'].map(k => Math.abs(dead.before[k] - dead.after[k])));
+  check(dead.wiped && dead.held && jumped < 0.02, 'and it does not pull back when the run ends in the barrel',
+        `${jumped.toFixed(4)} of camera movement across the wipeout`
+        + (dead.held ? '' : dead.tube ? ' — NO LOCK CAPTURED' : ' — WAS NOT IN THE TUBE'));
+}
+
 // ---------- the sky stays in the sky ----------
 // Sun, moon, stars, cloud and gulls are transparent materials, so three.js draws them after
 // the whole opaque pass. With the depth test off that put them ON TOP of the water: out on
@@ -719,6 +771,14 @@ if (hasHook) {
   const src = await readFile(join(ROOT, 'index.html'), 'utf8');
   const skyBlock = src.slice(src.indexOf('const skyLayer=new THREE.Group()'),
                              src.indexOf('// One gull:') + 900);
+  // The near wall is thinned by depth alone. Boring the hole toward the rider instead put a
+  // patch of see-through water travelling round the tube with the board, which is the one
+  // thing water never does — so nothing in this fade may depend on where he is.
+  const curlFrag = src.slice(src.indexOf('float dcam=length(cameraPosition-vW);') - 1400,
+                             src.indexOf('float dcam=length(cameraPosition-vW);') + 400);
+  check(!/uRiderP/.test(src) && /a\*=1\.0-\(1\.0-smoothstep\(uRiderD/.test(curlFrag),
+        'the near wall thins by depth alone, with nothing tracking the rider',
+        'no rider position in the curl shader');
   check(!/depthTest:false/.test(skyBlock), 'nothing in the sky skips the depth test',
         `${(skyBlock.match(/depthTest:(true|false)/g) || []).length} sky materials checked`);
   const order = +(/sunDisc\.renderOrder=(-?[\d.]+)/.exec(src)?.[1] ?? -1);

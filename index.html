@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.51.0';
+const VERSION='2.52.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1278,7 +1278,7 @@ const curlUniforms={
   uClose:{value:0},
   // How much of the lip to see through, and where the rider is, so the near wall can be
   // taken out from in front of him without touching the far wall that makes the tube.
-  uCut:{value:0}, uRiderD:{value:1e9}, uRiderP:{value:new THREE.Vector3()},
+  uCut:{value:0}, uRiderD:{value:1e9},
 };
 // The curl used to be shaded as coloured glass: a flat gradient with a couple of sine
 // streaks over it, drawn with depthWrite off. Both of those were wrong.
@@ -1330,7 +1330,6 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
     uniform float uFade; uniform float uT; uniform float uLight;
     uniform vec3 uSun; uniform vec3 uSky; uniform vec3 uDeep; uniform vec3 uShallow;
     uniform vec3 uFoam; uniform float uClose; uniform float uCut; uniform float uRiderD;
-    uniform vec3 uRiderP;
     varying vec2 vUv; varying vec3 vW; varying vec3 vN;
     float hash21(vec2 p){
       p=fract(p*vec2(123.34,345.45));
@@ -1499,20 +1498,18 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // The camera stays where it is, so the water gives way instead: only the part nearer
       // the camera than the rider fades. The far wall, which is the tube you are looking
       // down, is untouched. uCut is on for the whole tube ride — see placeCurl.
-      // Bored, not removed. Taking the whole near wall away opened the frame at its
-      // EDGES — out there the near wall is the only thing between you and the sky, and with
-      // it gone you were looking straight out of the barrel in every corner. What the shot
-      // needs is a window toward the rider, not a missing wall: this measures how far each
-      // point sits off the line from the camera to him, and only water near that line goes.
-      // Everything out at the periphery stays, so the tube wraps the frame the way being
-      // inside one does.
-      vec3 toP=vW-cameraPosition;
-      vec3 dir=normalize(uRiderP-cameraPosition);
-      float along=dot(toP,dir);
-      float perp=length(toP-dir*along);
-      float win=(1.0-smoothstep(uRiderD-3.5,uRiderD-0.4,along))
-                *(1.0-smoothstep(3.6,7.2,perp));
-      a*=1.0-win*uCut*0.94;
+      // Thinned, not bored, and not aimed at anybody. Three versions of this now:
+      //   removed outright   opened the frame at its EDGES — out at the periphery the near
+      //                      wall is the only thing between you and the sky
+      //   bored toward him   fixed the edges and put a hole around the RIDER, which travels
+      //                      with him: a patch of see-through water following the board
+      //                      round the tube, which is the one thing water never does
+      //   thinned by depth   what this is. Everything nearer the lens than he is goes
+      //                      translucent by the same amount everywhere, so it reads as
+      //                      looking THROUGH the near wall — which is exactly what you are
+      //                      doing — and nothing about it tracks him.
+      float dcam=length(cameraPosition-vW);
+      a*=1.0-(1.0-smoothstep(uRiderD-3.5,uRiderD-0.4,dcam))*uCut*0.80;
       col=pow(clamp(col,0.0,1.0),vec3(2.2));
       gl_FragColor=vec4(col*uLight,clamp(a,0.0,1.0));
     }
@@ -7089,6 +7086,11 @@ function startWipeout(kind){
     vx: vx*0.80 + side*(2.0+Math.random()*1.8)
   };
   wipe={
+    // Crash inside the barrel and the shot does not move. It is the same held frame he was
+    // riding in — the wave carries on collapsing, the whitewater comes through, and you watch
+    // all of it from where you were watching the ride. Cutting to a wide chase on the crash
+    // threw away the thing you were looking at and read as the camera zooming out on death.
+    lockCam: swCamLock ? {...swCamLock} : null,
     t:0, rx:player.rotation.x, ry:player.rotation.y, rz:player.rotation.z,
     camX:px, camY:camY, camZ:11.0,        // freeze the shot on the crash spot
     atX:px, atY:py,
@@ -7221,10 +7223,15 @@ function updateWipeout(dt){
   w.camX+=(mx+back*0.34-w.camX)*ease;
   w.camY+=(Math.max(sea+2.0,my+back*0.20)-w.camY)*ease;
   w.camZ+=(mz+back-w.camZ)*ease;
-  camera.position.set(w.camX,w.camY,w.camZ);
-  w.atX+=(mx-w.atX)*ease; w.atY+=(my-w.atY)*ease;
-  w.atZ=(w.atZ===undefined?mz:w.atZ+(mz-w.atZ)*ease);
-  camera.lookAt(w.atX,w.atY,w.atZ);
+  if(w.lockCam){
+    camera.position.set(w.lockCam.x,w.lockCam.y,w.lockCam.z);
+    camera.lookAt(w.lockCam.lx,w.lockCam.at,w.lockCam.atZ);
+  } else {
+    camera.position.set(w.camX,w.camY,w.camZ);
+    w.atX+=(mx-w.atX)*ease; w.atY+=(my-w.atY)*ease;
+    w.atZ=(w.atZ===undefined?mz:w.atZ+(mz-w.atZ)*ease);
+    camera.lookAt(w.atX,w.atY,w.atZ);
+  }
   if(w.t>3.2)gameOver();
 }
 function updateWorldDuringWipeout(dt){
@@ -8363,6 +8370,9 @@ if(location.hash.includes('debug')){
     // than that. Every one of them was quietly measuring a rider who had already been spat
     // out: a bank of zero, a jump that did nothing, a camera free to move again.
     holdWave(v){ swHold=!!v; return swHold; },
+    // End the run on demand. Reaching a wipeout by playing badly takes minutes here and
+    // lands on a random cause; this asks for one directly.
+    wipeNow(kind){ startWipeout(kind||'foam'); return {wiped:!!wipe, held:!!(wipe&&wipe.lockCam)}; },
     // The peel's own constants, so a test can sample "behind the break" without hard-coding a
     // z that quietly stops meaning that the moment one of them moves.
     consts:()=>({SW_PEAK,SW_BRK,SW_PEEL,SW_COLL,SW_HOLD,SW_R,SW_SWEEP}),
@@ -8514,7 +8524,6 @@ function placeCurl(dt){
   swCut+=((swTubeRide?1:0)-swCut)*Math.min(1,(dt||0.016)*5);
   curlUniforms.uCut.value=swCut;
   curlUniforms.uRiderD.value=camera.position.distanceTo(_cutP.set(px,py,pz));
-  curlUniforms.uRiderP.value.copy(_cutP);
 }
 
 // ---------- whirlpool ----------
@@ -10034,7 +10043,14 @@ function update(dt){
     // over: he orbits that axis, so a camera parked off it watches an orbit that runs off one
     // side of the frame. Height and distance stay the chase camera's, which is the geometry
     // that frames a barrel.
-    if(!swCamLock)swCamLock={x:swTubeGeom().cx,y:camY,z:25.5,lx:swTubeGeom().cx,at:waterY+1.05+swCam*1.5};
+    // The aim's DEPTH is part of the lock too, and it was the last thing still moving.
+    // swCam ramps from 0 to 1 over the first second of the ride, and the aim point rode it:
+    // -14 to -24 in z, which swings the whole picture round while he is going up the wall.
+    // Locked at the settled value rather than at whatever it happened to be on the frame he
+    // joined the ring, so the shot cuts to its final framing at entry and then holds. The
+    // position already cuts at that instant, so this is the same cut, not a second one.
+    if(!swCamLock)swCamLock={x:swTubeGeom().cx,y:camY,z:25.5,lx:swTubeGeom().cx,
+                             at:waterY+1.05+1.5, atZ:-24.0};
     camX=swCamLock.x; lookX=swCamLock.lx; camZ=swCamLock.z;
     camY=swCamLock.y;
     // Fixed, but not fixed UNDERWATER. This runs after the clamp that keeps the camera above
@@ -10058,7 +10074,8 @@ function update(dt){
   // reasoning that a rigidly held shot looks past him once he is up in the roof — but the
   // shell is wide enough that he stays in frame anyway, and a fifth of seven metres is a
   // visible drift of the whole picture every time he goes round. "Fixed" has to mean fixed.
-  camera.lookAt(lookX, swCamLock?swCamLock.at:(waterY+1.05+swCam*1.5+airH*0.62), -14-swCam*10);
+  camera.lookAt(lookX, swCamLock?swCamLock.at:(waterY+1.05+swCam*1.5+airH*0.62),
+                swCamLock?swCamLock.atZ:(-14-swCam*10));
   // The camera does NOT roll with the ring. A loop camera was tried and taken back out: it
   // keeps the tube wrapped around the view, but the whole shot turning over is disorienting
   // and it throws away the one stable reference — the horizon — that tells you where you are
@@ -10090,7 +10107,12 @@ function loop(now){
   if(running){runSecs+=dt;update(dt);}
   // the menu gets the same sky work the ride does: without it the dome and the sun
   // never follow the camera and the colours never track the time of day
-  else {oceanUniforms.uT.value+=dt;tNow+=dt;menuCamera(dt);updateDayCycle();}
+  // The MENU camera, and not while a crash is playing. running goes false the instant you
+  // wipe out and stays false until the overlay, so this branch has been running through every
+  // wipeout — one line after updateWipeout has placed the camera, and overwriting it. The
+  // crash camera has therefore never been seen: what you actually get on every death is the
+  // menu's slow drifting wide shot snapping in, which is the "camera zooms out when you die".
+  else {oceanUniforms.uT.value+=dt;tNow+=dt;if(!wipe)menuCamera(dt);updateDayCycle();}
   if(viewer){ renderViewer(dt); return; }   // the look takes the whole screen and the frame
   updateSkyLife(dt);          // the sky keeps moving on the menu and through a wipeout
   renderer.render(scene,camera);
