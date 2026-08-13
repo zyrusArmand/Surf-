@@ -52,6 +52,16 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.73.0** — **The foam is rideable, and the ride is a circle.** The puffs sit on the
+  lip's own circle; now, wherever they have climbed, the ring's surface blends from the
+  ray-marched water to that circle — so the rider surfs around and *up* the foam, and at
+  full coverage the orbit is genuinely circular. The pacing-by-wall-distance from v2.56 has
+  nothing left to smooth: dr/dθ goes to zero and going round is uniform. The whole history
+  of this radius, measured: a **5.07 m cliff** at one angle (v2.55), a **4.9–7.5 m bulge**
+  through the open sector (v2.56–v2.72), now **0.09 m of variation round the entire ring**,
+  and a held turn rides it within 0.10 m. The perfect circle, closed by the foam that
+  completes it visually.
+
 - **v2.72.0** — **More foam in the broken corridor, and the rider stays visible inside it.**
   Density boost where the user pointed: seven strips instead of five, fuller puffs and wider
   scatter as the section breaks, so the stretch between the foot chain and the near corner

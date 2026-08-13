@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.72.0';
+const VERSION='2.73.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -9696,6 +9696,17 @@ function update(dt){
       const tipX=G.cx+swS*Math.sin(thEnd)*G.r, tipY=G.cy-Math.cos(thEnd)*G.r;
       const fz=swPitch(), fdx=Math.sin(fz), fdy=-Math.cos(fz);
       const fallL=SW_FALL*swPeelA(pz)*(G.r+0.35);
+      // The foam is RIDEABLE. The puffs fill the open sector ON the lip's own circle, and
+      // the user's ask closes the loop: ride around and up them. Where the foam has climbed
+      // (same gates as the bank itself: the peel, and how far this section is past the
+      // break), the surface the ring hands back blends from the ray-marched water to the
+      // circle's own radius — and at full coverage the orbit is exactly circular, which is
+      // the "perfect circle movement" the whole barrel has been building toward. The pacing
+      // by wall distance then has nothing left to smooth: dr/dth goes to zero and going
+      // round is uniform.
+      const foamCov=Math.min(1,Math.max(0,(pz+30)/24))
+                   *Math.min(1,Math.max(0,(swPeelA(pz)-0.22)/0.30))
+                   *Math.min(1,swForm*1.6);
       const surfAt=(th,detail)=>{
         const rl=((th-lipStart)%(Math.PI*2)+Math.PI*2)%(Math.PI*2);
         const onArc=rl<=lipSpan;                            // on the lip: the arc itself
@@ -9740,11 +9751,11 @@ function update(dt){
         if(below<0.45)sea=Math.min(sea,G.r);
         if(detail)return{arc:onArc?G.r:Infinity,curt,sea};
         if(onArc)return G.r;
-        // Whichever comes first out from the axis — the falling curtain, or the sea under it.
-        // Both are real water and the ride is on the nearer one, which is also what makes the
-        // handover between them continuous: they agree exactly where they cross.
+        // Whichever comes first out from the axis — the falling curtain, or the sea under it —
+        // blended toward the circle itself by how much foam is standing in this sector.
         const v=Math.min(sea,curt);
-        return Math.max(0.5,isFinite(v)?v:G.r);
+        const rW=Math.max(0.5,isFinite(v)?v:G.r);
+        return Math.max(0.5,rW+(G.r-rW)*foamCov);
       };
       // Paced by DISTANCE ALONG THE WALL, not by angle.
       //

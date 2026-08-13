@@ -1097,6 +1097,36 @@ if (hasHook) {
         `fade ${bank.mid} mid-formation, ${bank.full} once the lip is down`);
 }
 
+// ---------- the foam is rideable, and riding it is a circle ----------
+// "Make it so the player surfs and moves around and up them, so he can go in perfect circle
+// movement." The puffs sit on the lip's own circle; where they have climbed, the ring's
+// surface blends from the ray-marched water to that circle — so at full coverage the orbit
+// is genuinely circular. History of this radius: a 5.07 m cliff at one angle, then a
+// 4.9-7.5 m bulge through the open sector, now a circle to within centimetres.
+{
+  const circ = await page.evaluate(async () => {
+    window.__surf.restart(); window.__surf.invuln(true); window.__surf.tick(1);
+    window.__surf.armSetWave(); window.__surf.warpSetWave('SWELL', 4.6);
+    for (let i = 0; i < 80; i++) { window.__surf.tick(0.5);
+      const s = window.__surf.state(); if (s.swTubeRide && (s.swForm ?? 0) > 0.99) break; }
+    window.__surf.tick(2);
+    const prof = window.__surf.ringProfile();
+    const rs = (prof.rows || []).map(r => r.r);
+    window.__surf.setSteer(0.9);
+    const seen = [];
+    for (let i = 0; i < 60; i++) { window.__surf.tick(0.15);
+      const s = window.__surf.state(); if (!s.swTubeRide) break; seen.push(s.swRad); }
+    window.__surf.setSteer(0);
+    return { spanProf: rs.length ? Math.max(...rs) - Math.min(...rs) : 1e9,
+             spanRide: seen.length > 30 ? Math.max(...seen) - Math.min(...seen) : 1e9,
+             n: seen.length };
+  });
+  check(circ.spanProf < 0.6, 'the formed ring is a circle, foam included',
+        `radius varies ${circ.spanProf.toFixed(2)} m round the whole ring`);
+  check(circ.spanRide < 0.6, 'and a held turn rides that circle',
+        `radius band ${circ.spanRide.toFixed(2)} m over ${circ.n} moving samples`);
+}
+
 // ---------- the ruler reads the same water the game draws ----------
 // sampleWave is what every "how far off the surface is he" check in this file measures
 // against, and it was sampling at tNow while the ocean is drawn from waveClock — a clock that
