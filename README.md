@@ -52,6 +52,21 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.74.0** — **The treasure chest, and a cleaner front door.**
+  - A wooden crate drifts down the lane two metres off the water — riding flat passes under
+    it, a jump catches it, which is what makes it a play rather than a pickup. Catching it
+    banks it for the end of the run: when you fall, the chest comes up over the wipeout
+    card. Tap it, tap it, tap it — it shakes harder with every tap — and on the twelfth it
+    bursts and pays out: mostly 25/50/100 puka, sometimes 200–350, and very, very rarely a
+    surfer you haven't unlocked (it lands in the Beach shop). Then Surf again, Beach shop,
+    or Main menu.
+  - The main screen loses the purse, the Stats button and the little wave-test icon. Stats
+    still opens on five quick taps of the version number, and the wave test now lives in
+    that secret panel with the other dev tools.
+  - **A real bug the chest test caught:** the set wave was only cleared by the *revive*
+    path, never by a normal reset — so Surf again after wiping out mid-wave started the new
+    run with the old wave still standing, phase and all. Cleared with the run now.
+
 - **v2.73.0** — **The foam is rideable, and the ride is a circle.** The puffs sit on the
   lip's own circle; now, wherever they have climbed, the ring's surface blends from the
   ray-marched water to that circle — so the rider surfs around and *up* the foam, and at

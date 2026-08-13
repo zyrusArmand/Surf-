@@ -220,6 +220,35 @@
      "#ovBtns .go { margin-top }" above — same specificity, so source order is what
      decides, and the row owns the spacing now instead of the buttons inside it. */
   #playRow { display:flex; align-items:center; gap:10px; width:min(302px,80vw); margin-top:10px; }
+  /* the wave test moved into the secret stats panel; the main screen stays clean */
+  #waveBtn { display:none !important; }
+  #ovPurse { display:none !important; }
+  #recordsBtn { display:none !important; }
+  /* ---------- the treasure chest ceremony ---------- */
+  #crateOv { position:fixed; inset:0; z-index:120; background:rgba(4,15,27,.88);
+             display:flex; flex-direction:column; align-items:center; justify-content:center;
+             gap:20px; text-align:center; }
+  #crateOv.hidden { display:none; }
+  #crateOv h2 { font-size:min(9vw,40px); color:#ffdf2e; margin:0;
+                text-shadow:0 3px 0 rgba(64,36,7,.55); }
+  #crateOv .hint { color:#dff1fb; font-size:min(4.4vw,17px); opacity:.9; }
+  #crateBox { width:min(38vw,150px); height:min(38vw,150px); border-radius:10px; position:relative;
+              background:repeating-linear-gradient(0deg,#a97a4b 0 24px,#93643a 24px 27px);
+              border:9px solid #7a5230; box-shadow:0 14px 34px rgba(0,0,0,.45), inset 0 0 0 2px rgba(255,255,255,.08);
+              cursor:pointer; touch-action:manipulation; user-select:none; -webkit-user-select:none; }
+  #crateBox::before { content:''; position:absolute; inset:6px;
+              background:linear-gradient(45deg,transparent 45%,#7a5230 45% 55%,transparent 55%),
+                         linear-gradient(-45deg,transparent 45%,rgba(122,82,48,.55) 45% 55%,transparent 55%); }
+  #crateBox::after { content:''; position:absolute; left:50%; top:-7px; width:28px; height:22px;
+              transform:translateX(-50%); background:#c9b26a; border-radius:5px; border:3px solid #6e5a2c; }
+  #crateBox.burst { animation:crateBurst .38s ease-out forwards; }
+  @keyframes crateBurst { 60%{ transform:scale(1.45) rotate(6deg); opacity:1; }
+                          100%{ transform:scale(2.1) rotate(-4deg); opacity:0; } }
+  #crateReward .big { font-size:min(11vw,44px); color:#ffdf2e; font-weight:800;
+                      text-shadow:0 3px 0 rgba(64,36,7,.5); }
+  #crateReward .sub { color:#eaf6ff; margin-top:6px; font-size:min(4.6vw,18px); }
+  #crateReward.hidden, #crateBtns.hidden { display:none; }
+  #crateBtns { display:flex; flex-direction:column; gap:10px; width:min(300px,78vw); }
   #playRow .go { margin-top:0; }
   #playRow #startBtn { width:auto; flex:1 1 auto; }
   #playRow #waveBtn { width:auto; flex:0 0 auto; padding:15px; aspect-ratio:1; }
@@ -546,6 +575,17 @@
     <svg class="ges" viewBox="0 0 24 24"><path d="M12 4.6c4.2 0 7.4 3.1 7.4 7.2s-3.2 7.6-7.4 7.6-7.4-3.3-7.4-7.1c0-3 2-5.3 4.5-5.3"/><path class="dot" d="M8.4 3.7 12.6 6.1 8.7 8.6Z" stroke="none"/></svg>
     HELI</div>
 </div>
+<div id="crateOv" class="hidden">
+  <h2>Treasure chest!</h2>
+  <div class="hint" id="crateHint">Tap it open!</div>
+  <div id="crateBox"></div>
+  <div id="crateReward" class="hidden"></div>
+  <div id="crateBtns" class="hidden">
+    <button class="go" id="crateAgain">Surf again</button>
+    <button class="go alt" id="crateShop">Beach shop</button>
+    <button class="go sun" id="crateMenu">Main menu</button>
+  </div>
+</div>
 <div id="stats" class="hidden"><div class="wrap">
   <h2>Stats <small id="stTag"></small></h2>
   <div id="stBody"></div>
@@ -553,6 +593,7 @@
     <button class="go alt sm" id="stCopy">Copy</button>
     <button class="go alt sm" id="stClaim">Claim boards</button>
     <button class="go calm sm" id="stWipe">Reset</button>
+    <button class="go teal sm" id="stWave">Test wave</button>
     <button class="go sm" id="stClose">Close</button>
   </div>
 </div></div>
@@ -644,7 +685,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.73.0';
+const VERSION='2.74.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -4767,6 +4808,8 @@ function openStats(full){
     ? 'v'+VERSION+' · on this device only' : 'your surfing so far';
   document.querySelector('#stats h2').firstChild.nodeValue = full ? 'Records ' : 'Stats ';
   document.getElementById('stWipe').style.display = full ? '' : 'none';
+  // the set-wave test rides in the secret panel too, off the main screen
+  document.getElementById('stWave').style.display = full ? '' : 'none';
   document.getElementById('stCopy').style.display = full ? '' : 'none';
   // Owner's key. It lives behind the version-tap because that is already the door
   // nobody finds by accident, and it is the only thing in the game that hands you
@@ -4850,6 +4893,11 @@ document.getElementById('stClaim').onclick=e=>{
   }
   e.target.dataset.armed='1'; e.target.textContent='Sure?';
   setTimeout(()=>{ if(e.target.dataset.armed){delete e.target.dataset.armed; openStats(true);} },3000);
+};
+document.getElementById('stWave').onclick=()=>{
+  document.getElementById('stats').classList.add('hidden');
+  beginRun();
+  swTest=true; swNext=2;
 };
 document.getElementById('stWipe').onclick=e=>{
   // two presses: the first arms it, so a stray tap cannot erase months of history
@@ -6871,6 +6919,62 @@ function zapFlash(){
     else zapEl.classList.toggle('on',i%2===0);
   },ms));
 }
+// ---------- the treasure chest ----------
+// A wooden crate that drifts down the lane a couple of metres off the water — reachable,
+// but only with a jump, which is what makes catching one a play rather than a pickup. It
+// is not an obstacle: nothing about it can hurt you, it has its own slow spawn clock, and
+// catching it banks it for the END of the run — the ceremony lives next to gameOver.
+const crateObj=new THREE.Group();
+{
+  const wood=new THREE.MeshLambertMaterial({color:0xa97a4b});
+  const dark=new THREE.MeshLambertMaterial({color:0x7a5230});
+  const body=new THREE.Mesh(new THREE.BoxGeometry(1.5,1.5,1.5),wood); crateObj.add(body);
+  for(const [w,h,d,x,y,z] of [
+    [1.62,0.22,1.62, 0, 0.72,0],[1.62,0.22,1.62, 0,-0.72,0],
+    [0.22,1.62,1.62, 0.72,0,0],[0.22,1.62,1.62,-0.72,0,0]]){
+    const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),dark); m.position.set(x,y,z); crateObj.add(m);
+  }
+  const plank=new THREE.Mesh(new THREE.BoxGeometry(2.0,0.24,0.06),dark);
+  plank.position.z=0.78; plank.rotation.z=0.75; crateObj.add(plank);
+  const latch=new THREE.Mesh(new THREE.BoxGeometry(0.3,0.26,0.1),
+    new THREE.MeshLambertMaterial({color:0xc9b26a}));
+  latch.position.set(0,0.35,0.80); crateObj.add(latch);
+}
+crateObj.visible=false; scene.add(crateObj);
+let crateOn=false, crateHeld=false, crateT=999, crateBobT=0, cratePin=false;
+function crateReset(){
+  crateOn=false; crateHeld=false; crateObj.visible=false; cratePin=false;
+  crateT=16+Math.random()*18;
+}
+function updateCrate(dt,eff){
+  crateBobT+=dt;
+  if(!crateOn){
+    if(!crateHeld&&running&&swPh===SWP.IDLE&&dist>120){
+      crateT-=dt;
+      if(crateT<=0){
+        crateOn=true; crateObj.visible=true;
+        crateObj.position.set(Math.max(-14,Math.min(14,px+(Math.random()-0.5)*16)),0,-170);
+      }
+    }
+    return;
+  }
+  if(!cratePin)crateObj.position.z+=eff*dt;
+  const sea=swellH(crateObj.position.x,dist*WAVE_DRIFT+crateObj.position.z,waveClock);
+  // two metres off the water: a flat ride passes under it, a jump reaches it
+  crateObj.position.y=sea+1.9+Math.sin(crateBobT*1.7)*0.22;
+  crateObj.rotation.y+=dt*0.9;
+  crateObj.rotation.z=Math.sin(crateBobT*1.3)*0.08;
+  if(!cratePin&&crateObj.position.z>14){ crateOn=false; crateObj.visible=false; crateT=14+Math.random()*20; return; }
+  // the catch: close in the lane, close along the water, and OFF the water — the height
+  // gate is what makes it a jump-for-it rather than a drive-through
+  if(Math.abs(crateObj.position.z-pz)<1.8 && Math.abs(crateObj.position.x-px)<1.8
+     && py>sea+0.85 && py<crateObj.position.y+1.8){
+    crateOn=false; crateHeld=true; crateObj.visible=false; cratePin=false;
+    msg('TREASURE CHEST!');
+    splash(px,py+0.3,pz,14,0xffc23e);
+    bump(stats,'crates'); saveStats();
+  }
+}
 function msg(t){trickmsg.textContent=t;trickmsg.style.opacity=1;setTimeout(()=>trickmsg.style.opacity=0,900);}
 
 function doJump(){
@@ -7000,6 +7104,17 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   ropeBtn.style.display='none';ropeBtn.textContent='ROPE!';
   player.rotation.set(0,0,0);
   spawnT=2.0;lastKind='';sameRun=0;bigFinCd=6;laneSlot=(Math.random()*5)|0;   // a little open water first
+  crateReset();
+  // The set wave dies with the run. This line lived only in respawn() — the revive path —
+  // so pressing Surf again after wiping out mid-wave started the NEW run with the old wave
+  // still standing, phase and all. Found by the crate test, which restarts under a held
+  // wave and then wondered why the rider was twelve metres up a ring.
+  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swClose=0;swNext=30+Math.random()*15;swTest=false;
+  swAng=0;swAngV=0;swLoops=0;swTubeRide=false;swCamLock=null;swRad=NaN;swCalm=1;swOver=0;
+  swPipeAir=false;swRadV=0;swForm=0;swFootEm=0;swFootSplash=0;
+  curl.visible=false;swSplash.visible=false;foamBank.visible=false;
+  plane.visible=false;planeActive=false;
+  for(const p2 of SMOKE){p2.t=0;p2.m.visible=false;} _smkHas=false; plane.userData.prev=null;
   revivesLeft=1;
 }
 // One second chance a run. He is put back on the board where he went in, with the
@@ -7063,12 +7178,12 @@ function showMenu(mode){
   overlay.classList.toggle('over',over);
   overlay.classList.toggle('main',!over);
   ovTitle.textContent = over ? 'Wipeout!' : 'Surf';
-  ovPurse.style.display = over ? 'none' : '';
+  ovPurse.style.display = 'none';           // the purse lives in the shop and the run card
   document.getElementById('ovText').style.display = over ? '' : 'none';
   reviveBtn.style.display  = over&&revivesLeft>0 ? '' : 'none';
   startBtn.textContent     = over ? 'Surf again' : 'Play';
   shopBtn.style.display    = over ? 'none' : '';
-  recordsBtn.style.display = over ? 'none' : '';
+  recordsBtn.style.display = 'none';        // stats moved behind the version 5-tap
   menuBtn.style.display    = over ? '' : 'none';
   // the menu is open water and nothing else; he is put on it when you press Play
   hud.style.display='none';
@@ -7083,6 +7198,7 @@ function beginRun(){
   player.visible=true; rig.visible=true; hud.style.display='';
   overlay.classList.add('hidden');jumpBtn.classList.remove('hidden');
   reviveBtn.style.display='none';
+  document.getElementById('crateOv').classList.add('hidden');
   reset();running=true;overlayUp=false;last=performance.now();
 }
 startBtn.addEventListener('click',beginRun);
@@ -7095,6 +7211,69 @@ document.getElementById('waveBtn').addEventListener('click',()=>{
   beginRun();                     // resets the run — and reset() sets swNext, so the fuse
   swTest=true; swNext=2;          // has to be lit after it, not before
 });
+// ---------- opening the chest ----------
+// The chest is opened at the END of the run, on its own screen over the wipeout card:
+// tap it and tap it, it shakes harder and harder, and on the twelfth tap it bursts and
+// shows what was inside. Mostly puka — 25/50/100, occasionally 200-350 — and very, very
+// rarely a surfer you have not unlocked.
+const crateOv=document.getElementById('crateOv'), crateBoxEl=document.getElementById('crateBox');
+const crateRewardEl=document.getElementById('crateReward'), crateBtnsEl=document.getElementById('crateBtns');
+const crateHintEl=document.getElementById('crateHint');
+let crateTaps=0, crateOpened=false;
+function crateCeremony(){
+  crateTaps=0; crateOpened=false;
+  crateBoxEl.classList.remove('burst'); crateBoxEl.style.display=''; crateBoxEl.style.transform='';
+  crateRewardEl.classList.add('hidden'); crateBtnsEl.classList.add('hidden');
+  crateHintEl.style.display='';
+  crateOv.classList.remove('hidden');
+  crateHeld=false;                         // banked; the box on screen is it
+}
+function crateRoll(){
+  const locked=CHARS.filter(c=>!ownedChars[c.id]);
+  // the character is the super-super-rare pull, and only exists while there is one to give
+  if(locked.length&&Math.random()<0.012){
+    const c=locked[(Math.random()*locked.length)|0];
+    ownedChars[c.id]=1; saveGame();
+    bump(stats,'crateChars'); saveStats();
+    return {kind:'char',c};
+  }
+  const q=Math.random();
+  const n = q<0.10 ? 200+25*((Math.random()*7)|0)   // 200-350, the rare one
+          : q<0.32 ? 100
+          : q<0.64 ? 50
+          : 25;
+  coins+=n; saveGame(); showCoins();
+  bump(stats,'cratePuka',n); saveStats();
+  return {kind:'puka',n};
+}
+crateBoxEl.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  if(crateOpened)return;
+  crateTaps++;
+  // shakes harder the more you tap — the growing wobble IS the progress bar
+  const k=Math.min(1,crateTaps/12);
+  const j=()=>(Math.random()-0.5)*26*k;
+  crateBoxEl.style.transform=`translate(${j()}px,${j()*0.6}px) rotate(${(Math.random()-0.5)*16*k}deg) scale(${1+0.08*k})`;
+  setTimeout(()=>{ if(!crateOpened)crateBoxEl.style.transform=''; },70);
+  if(crateTaps>=12){
+    crateOpened=true;
+    crateHintEl.style.display='none';
+    crateBoxEl.style.transform='';
+    crateBoxEl.classList.add('burst');
+    const got=crateRoll();
+    setTimeout(()=>{
+      crateBoxEl.style.display='none';
+      crateRewardEl.innerHTML = got.kind==='char'
+        ? `<div class="big">${got.c.name}</div><div class="sub">New surfer unlocked! Waiting in the Beach shop.</div>`
+        : `<div class="big">+${got.n}<i class="pk"></i></div><div class="sub">Puka shells, straight to your purse.</div>`;
+      crateRewardEl.classList.remove('hidden');
+      crateBtnsEl.classList.remove('hidden');
+    },380);
+  }
+});
+document.getElementById('crateAgain').onclick=()=>{ crateOv.classList.add('hidden'); beginRun(); };
+document.getElementById('crateMenu').onclick=()=>{ crateOv.classList.add('hidden'); showMenu('main'); };
+document.getElementById('crateShop').onclick=()=>{ crateOv.classList.add('hidden'); showMenu('main'); shopBtn.onclick(); };
 menuBtn.addEventListener('click',()=>showMenu('main'));
 recordsBtn.addEventListener('click',()=>openStats(false));
 showMenu('main');
@@ -7563,6 +7742,7 @@ function gameOver(){
     tr('Best distance',`${(stats.bestDist||0).toLocaleString()} m${newDist?' <em>NEW!</em>':''}`)+
     tr('Best tricks',`${best.toLocaleString()}${newScore?' <em>NEW!</em>':''}`);
   showMenu('over');
+  if(crateHeld)crateCeremony();
 }
 
 
@@ -8635,7 +8815,7 @@ if(location.hash.includes('debug')){
     state:()=>({dist,speed,score,running,wipe:!!wipe,airborne,px,py,pz,
                 swPh,swT,swA,swX,swS,swRide,swRideMax,swOver,swCurlA,swClose,
                 swAng,swLoops,swTubeRide,swOnLip,ring:swTubeGeom(),
-                jellyHits,lastWipe,swCut,swPipeAir,trickReady,cracks,swForm,
+                jellyHits,lastWipe,swCut,swPipeAir,trickReady,cracks,swForm,crateHeld,crateOn,
                 swRad:+swRad.toFixed(2),footSplash:swFootSplash,
                 boardYaw:+boardYaw.toFixed(3),boardPitch:+boardPitch.toFixed(3),
                 curlVisible:curl.visible,foamFade:+foamUniforms.uFade.value.toFixed(2),roofY:swRoofY(),tubeC:swTubeC()}),
@@ -8717,6 +8897,12 @@ if(location.hash.includes('debug')){
     setTrim(v){ swTrimHold=(v===undefined||v===null)?null:v; return swTrimHold; },
     buoy(){ return _buoy; },
     foot(z){ return swFootAt(z===undefined?pz:z); },
+    // Plant the chest right in front of the rider so a test can jump for it without
+    // riding out the spawn clock.
+    // Pinned in place over the rider's head, so the test's jump is a test of the catch
+    // rather than of racing the scroll.
+    plantCrate(){ crateOn=true; cratePin=true; crateObj.visible=true;
+                  crateObj.position.set(px,0,pz-0.4); return true; },
     // Any world point onto the glass, -1..1 both axes. For finding out where a thing the
     // shader is supposed to be drawing actually lands in the frame.
     proj(x,y,z){ const v=_ndcP.set(x,y,z).project(camera);
@@ -10569,6 +10755,7 @@ function update(dt){
 
   updateSeaLife(dt,eff);
   updateJetSki(dt,eff);
+  updateCrate(dt,eff);
   updateWhirl(dt,eff);
   updateStars(dt,eff);
   updateSplat(dt);

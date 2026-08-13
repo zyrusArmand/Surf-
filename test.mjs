@@ -99,14 +99,27 @@ const canvas = await page.evaluate(() => {
 });
 check(!!canvas && canvas.w > 0 && canvas.h > 0, 'canvas present and sized', canvas ? `${canvas.w}x${canvas.h}` : 'no canvas');
 
+// The secret panel opens on five taps ON the version number — but the handler lives on the
+// overlay and hit-tests coordinates itself, so a plain click on #ver is intercepted. The
+// taps are dispatched as the pointer events the handler actually listens for.
+const ver5tap = () => page.evaluate(() => {
+  const r = document.getElementById('ver').getBoundingClientRect();
+  for (let i = 0; i < 5; i++)
+    document.getElementById('overlay').dispatchEvent(new PointerEvent('pointerdown',
+      { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true }));
+});
+
 // ---------- the menus ----------
 // Cheap, but this is the part a player meets first, and a shop that will not open is as
 // broken as a wave that will not break.
 for (const [openSel, panelSel, closeSel, label] of [
   ['#shopBtn', '#shop', '#shopClose', 'beach shop'],
-  ['#recordsBtn', '#stats', '#stClose', 'stats'],
+  // Stats has no button any more: five quick taps on the version number open the secret
+  // panel, which is where the dev tools live now.
+  ['ver5tap', '#stats', '#stClose', 'secret stats (5 taps on the version)'],
 ]) {
-  await page.click(openSel);
+  if (openSel === 'ver5tap') await ver5tap();
+  else await page.click(openSel);
   await page.waitForTimeout(400);
   const opened = await page.$eval(panelSel, e => !e.classList.contains('hidden'));
   await page.click(closeSel);
@@ -202,18 +215,25 @@ if (hasHook) {
 // needs, and it has to be a one-off: the run goes back to its own rhythm afterwards.
 {
   await page.evaluate(() => location.reload());
-  await page.waitForSelector('#waveBtn', { timeout: 30000 });
-  const beside = await page.evaluate(() => {
-    const a = document.querySelector('#startBtn').getBoundingClientRect();
-    const b = document.querySelector('#waveBtn').getBoundingClientRect();
-    return { sameRow: Math.abs((a.top + a.height / 2) - (b.top + b.height / 2)) < 4,
-             rightOf: b.left >= a.right - 1, square: Math.abs(b.width - b.height) < 3, w: b.width };
+  await page.waitForSelector('#startBtn', { timeout: 30000 });
+  // The main screen is clean now: no wave test, no stats button, no purse. The wave test
+  // lives behind the version 5-tap, in the secret panel, next to the other dev tools.
+  const clean = await page.evaluate(() => {
+    const vis = sel => { const el = document.querySelector(sel);
+      return !!el && getComputedStyle(el).display !== 'none'; };
+    return { wave: vis('#waveBtn'), stats: vis('#recordsBtn'), purse: vis('#ovPurse') };
   });
-  check(beside.sameRow && beside.rightOf, 'wave button sits beside Play',
-        `sameRow=${beside.sameRow} rightOf=${beside.rightOf}`);
-  check(beside.square && beside.w > 20, 'wave button is a square icon', `${Math.round(beside.w)}px`);
-
-  await page.click('#waveBtn');
+  check(!clean.wave && !clean.stats && !clean.purse,
+        'the main screen is clean — no wave test, no stats button, no purse',
+        `waveBtn=${clean.wave} statsBtn=${clean.stats} purse=${clean.purse}`);
+  await ver5tap();
+  await page.waitForTimeout(300);
+  const secretWave = await page.evaluate(() => {
+    const el = document.querySelector('#stWave');
+    return !!el && getComputedStyle(el).display !== 'none';
+  });
+  check(secretWave, 'the wave test lives in the secret panel');
+  await page.click('#stWave');
   // Two seconds of SIM time, and headless runs the sim at ~10% of wall clock.
   const fired = await page.evaluate(async () => {
     const t0 = Date.now(); let seen = null, dist = null;
@@ -1125,6 +1145,66 @@ if (hasHook) {
         `radius varies ${circ.spanProf.toFixed(2)} m round the whole ring`);
   check(circ.spanRide < 0.6, 'and a held turn rides that circle',
         `radius band ${circ.spanRide.toFixed(2)} m over ${circ.n} moving samples`);
+}
+
+// ---------- the treasure chest ----------
+// Floats two metres off the water so it takes a jump to catch; banks for the end of the
+// run; and the end-of-run ceremony is tap-tap-tap until it bursts and pays out.
+{
+  const caught = await page.evaluate(async () => {
+    window.__surf.restart(); window.__surf.invuln(true); window.__surf.tick(1);
+    // riding flat THROUGH it must not collect it — the chest is a jump, not a drive-through
+    window.__surf.plantCrate();
+    window.__surf.tick(1.2);
+    const flat = window.__surf.state().crateHeld;
+    // now jump for it
+    let held = false, peak = -9, dbg = null;
+    for (let tries = 0; tries < 8 && !held; tries++) {
+      window.__surf.plantCrate();
+      window.__surf.tick(0.35);
+      const jumped = window.__surf.jump();
+      for (let i = 0; i < 30; i++) { window.__surf.tick(0.05);
+        const st = window.__surf.state();
+        const w = window.__surf.sampleWave(st.px, st.pz);
+        peak = Math.max(peak, st.py - w.sea);
+        if (st.crateHeld) { held = true; break; } }
+      if (!held && dbg === null) {
+        const st = window.__surf.state();
+        dbg = { jumped, on: st.crateOn, ph: st.swPh, wipe: st.wipe, air: st.airborne };
+      }
+    }
+    return { flat, held, peak, dbg };
+  });
+  check(!caught.flat, 'riding flat under the chest does not collect it');
+  check(caught.held, 'jumping for the chest catches it',
+        caught.held ? '' : `never held — peak ${caught.peak.toFixed(2)} m over the sea, ${JSON.stringify(caught.dbg)}`);
+
+  const coins0 = await page.evaluate(() => {
+    const t = document.querySelector('#ovCoins'); return t ? +t.textContent : 0; });
+  const shown = await page.evaluate(async () => {
+    window.__surf.invuln(false);
+    window.__surf.wipeNow('foam');
+    window.__surf.tick(5);
+    const ov = document.querySelector('#crateOv');
+    return !!ov && !ov.classList.contains('hidden');
+  });
+  check(shown, 'the chest ceremony comes up when the run ends');
+  // dispatched, not clicked: the box bursts to invisible on the twelfth tap, and a real
+  // click on an invisible element waits forever for it to come back
+  await page.evaluate(() => { const b = document.querySelector('#crateBox');
+    for (let i = 0; i < 15; i++) b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); });
+  await page.waitForTimeout(700);
+  const opened = await page.evaluate(() => ({
+    reward: !document.querySelector('#crateReward').classList.contains('hidden'),
+    btns: !document.querySelector('#crateBtns').classList.contains('hidden'),
+    text: document.querySelector('#crateReward').textContent,
+  }));
+  check(opened.reward && opened.btns, 'tapping it open pays out and offers the three ways on',
+        `reward: ${opened.text.trim().slice(0, 60)}`);
+  await page.click('#crateMenu');
+  const closed = await page.evaluate(() =>
+    document.querySelector('#crateOv').classList.contains('hidden'));
+  check(closed, 'and Main menu puts the ceremony away');
 }
 
 // ---------- the ruler reads the same water the game draws ----------
