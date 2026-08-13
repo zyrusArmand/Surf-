@@ -52,6 +52,17 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.70.0** — **The foam stops being shards.** The phone showed the bank as jagged white
+  triangles, and there were three separate causes, each invisible at the test rig's blurry
+  3 fps: **per-vertex random lumps** (adjacent ring vertices with wildly different radii make
+  a spiky star — replaced with two smooth harmonics whose phases drift along the tube);
+  **a clean geometric rim** (a straight-edged alpha cutoff traces the polygons — the rim
+  threshold is now eaten by the drifting mottle noise, so silhouettes dissolve like cloud);
+  and **lobes embedded in the curtain** (anything interpenetrating the wall gets clipped
+  along the depth test's triangles — a row of hard sails up the boot; the strips now start a
+  little way down the gap and are pulled in off the circle, so the cloud sits in front of
+  the water instead of inside it). Finer slicing along the tube as well.
+
 - **v2.69.0** — **The foam completes the circle.** "Should create a perfect circle once the
   foam clouds are there" — the best spec of the whole barrel effort. The lobes now sit ON the
   tube's own cross-section circle (the same one the lip's arc is built on), filling the open

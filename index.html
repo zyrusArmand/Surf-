@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.69.0';
+const VERSION='2.70.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1656,13 +1656,17 @@ function buildFoamGeom(){
   // (sin(SW_ALPHA), -cos(SW_ALPHA))·rad — buildCurlGeom's own construction — so the lobes
   // are simply placed ON that circle, from the tip round the bottom, and the tube closes
   // into the full ring the rider is already riding.
-  const NZ=64, NA=14, M=6, Z0=-124, Z1=34;
+  const NZ=96, NA=22, M=6, Z0=-124, Z1=34;
   const sa=Math.sin(SW_ALPHA), ca=Math.cos(SW_ALPHA);
   const h=(a,b)=>{ const x=Math.sin(a*127.1+b*311.7)*43758.5453; return x-Math.floor(x); };
   const pos=[],nrm=[],rr=[],idx=[];
   for(let k=0;k<M;k++){
     const base=pos.length/3;
-    const tt=k/(M-1);
+    // Starting a little way down the gap: a strip at the tip itself lies embedded in the
+    // curtain, and every lobe that pokes through the water gets clipped along the
+    // triangles of whichever surface wins the depth test — a row of hard white sails
+    // leaning up the boot, which is exactly what the phone showed.
+    const tt=0.16+0.84*k/(M-1);
     for(let i=0;i<=NZ;i++){
       const zt=i/NZ, z=Z0+(Z1-Z0)*zt;
       const pa=swPeelA(z), pb=swPeelB(z);
@@ -1673,9 +1677,9 @@ function buildFoamGeom(){
       // the open sector: from just past the curtain's tip (th=swp) round the circle's
       // bottom (th=SW_ALPHA+PI) and a shade beyond, into the corner where flat meets face
       const thB=SW_ALPHA+Math.PI+0.25;
-      const th=swp+(thB-swp)*tt+(h(i*0.7,k)-0.5)*0.10;   // jittered off the parallel-rope grid
+      const th=swp+(thB-swp)*tt+Math.sin(z*0.24+k*2.1)*0.05;   // drifted off the rope grid, smoothly
       const pp=SW_ALPHA-th;
-      const cf=(sa-Math.sin(pp))*rad, cy=(Math.cos(pp)-ca)*rad;
+      let cf=(sa-Math.sin(pp))*rad, cy=(Math.cos(pp)-ca)*rad;
       const gate=Math.min(1,Math.max(0,(pa-0.22)/0.30));
       // How far up the gap the foam climbs depends on WHERE ALONG THE TUBE you are. The
       // first cut completed the circle at every z — which walls off the line of sight to
@@ -1689,11 +1693,23 @@ function buildFoamGeom(){
       // fullest through the middle of the gap, tapering toward the tip it hangs from and
       // the trough it lands in; swelling through the broken section behind the break
       const R0=rad*(0.16+0.20*pa)*(1+1.0*pb)*gate*keep*(0.55+0.45*Math.sin(Math.PI*tt));
+      // And pulled a little way in off the circle toward the tube's middle, so the cloud
+      // sits IN FRONT of the water instead of interpenetrating it — intersection with the
+      // wall is what turns soft lobes into clipped shards.
+      {
+        const dx=sa*rad-cf, dy=-ca*rad-cy, L=Math.hypot(dx,dy)||1;
+        cf+=dx/L*R0*0.50; cy+=dy/L*R0*0.50;
+      }
+      // Lumps as SMOOTH low-order waves around the ring, never noise per vertex. The
+      // first version hashed every vertex independently, and adjacent ring vertices with
+      // wildly different radii make a spiky star — on a phone, at full frame rate, the
+      // whole bank rendered as jagged triangular shards. A cloud's silhouette is round:
+      // two low harmonics with phases that drift smoothly along the tube give billowy
+      // blobs with not a single hard vertex anywhere.
+      const ph1=h(k,1)*6.283+z*0.11, ph2=h(k,2)*6.283-z*0.07;
       for(let j=0;j<=NA;j++){
         const thr=j/NA*Math.PI*2;
-        // Lumps kept inside a narrow band: wide ones read as separate floating boulders,
-        // hard ones as facets.
-        const lump=0.70+0.34*h(i*0.37+k*7.7,j)+0.14*h(j*1.7,i*0.11+k*3.1);
+        const lump=0.80+0.16*Math.sin(thr*2+ph1)+0.10*Math.sin(thr*3+ph2);
         const r=Math.max(0.03,R0*lump);
         const nx=Math.cos(thr), ny=Math.sin(thr);
         pos.push(cf+nx*r, cy+ny*r*0.62+drop, z);
@@ -1726,7 +1742,7 @@ const foamBank=new THREE.Mesh(buildFoamGeom(), new THREE.ShaderMaterial({
       // own lump radius so big lobes heave and small ones tremble
       float b=sin(position.z*0.9+uT*1.7+position.x*1.3)*0.55
              +sin(position.y*1.4-uT*1.15+position.z*0.31)*0.45;
-      vec3 disp=position+normal*b*aR*0.22;
+      vec3 disp=position+normal*b*aR*0.14;
       vec4 wp=modelMatrix*vec4(disp,1.0);
       vW=wp.xyz;
       vN=normalize(mat3(modelMatrix)*normal);
@@ -1750,11 +1766,15 @@ const foamBank=new THREE.Mesh(buildFoamGeom(), new THREE.ShaderMaterial({
                +vnoise(vec2(vW.z*1.30+uT*0.50, vW.y*1.10))*0.5;
       vec3 col=mix(vec3(0.78,0.86,0.92), vec3(0.97,0.99,1.00), 0.35+0.65*clamp(N.y*0.5+0.5,0.0,1.0));
       col=mix(col, vec3(1.0), mot*0.30);
-      // A cloud is OPAQUE through its body and soft only at the very rim. The first cut
-      // keyed alpha up on facing the eye — and from the riding camera the bank is seen
-      // edge-on, so most of it went to glass and the whole mass read as a faint veil.
+      // A cloud is OPAQUE through its body and soft only at the very rim — and the rim
+      // must be eaten by NOISE, not cut along the mesh. With a clean geometric rim every
+      // silhouette is a chain of straight polygon edges, and on a phone at full sharpness
+      // the bank read as angular white shards however round the rings were. Perturbing the
+      // rim threshold with the drifting mottle dissolves the boundary into an irregular
+      // cloudy edge that never traces the geometry.
       float face=max(dot(N,V),0.0);
-      float a=uFade*(0.06+0.90*smoothstep(0.0,0.20,face))*(0.86+0.14*mot);
+      float rim=face+(mot-0.5)*0.55;
+      float a=uFade*0.94*smoothstep(0.05,0.42,rim)*(0.88+0.12*mot);
       // the same fixed clearance the curl keeps in front of the lens
       float dcam=length(cameraPosition-vW);
       a*=1.0-(1.0-smoothstep(1.30,3.10,dcam))*uCut;
