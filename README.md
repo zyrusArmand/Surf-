@@ -52,6 +52,41 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.51.0** — **The barrel wraps the whole frame, the mystery wipeout is gone, tricks stay
+  in the wave, and the shot really is fixed.**
+  - **You could see out of the barrel at the edges, because the break was in the wrong
+    place.** The camera rides at z=25.5 and the collapse started at z=4 — so every barrel shot
+    was taken from twenty metres *inside* the section that has already closed out, where the
+    shell has shrunk to half its bore and dropped three metres. Correct physics, useless
+    cinematography: the tube was not around the lens any more and the top of the frame was
+    open sky. The break moves back behind the camera, and a new `SW_HOLD` gives the wave a
+    26 m stretch of fully-thrown tube in front of it — previously the throw peaked *at* the
+    break and nowhere else, so nothing could be both fully barrelled and ahead of the
+    collapse, which is the one place the shot needs to be.
+  - **The near-wall cut is a window now, not a missing wall.** Taking the whole near wall away
+    is what opened the corners: out at the periphery that wall is the only thing between you
+    and the sky. It measures how far each point sits off the line from the camera to the
+    rider and only removes water near that line.
+  - **Wreckage in the tube costs you the board, not the run.** This was the mystery death: a
+    drum in the pocket at the bottom of the ring, `startWipeout` on contact, no warning. The
+    ring owns your position while you are going round it, so it was never something you could
+    steer away from — measured on a real ride, two loops in. It cracks the board and knocks
+    you off the wall instead, which says CRACKED! and leaves you a count; three still snap the
+    board and end it, the same as anywhere else. The spawn interval goes **0.8–2.0 s →
+    2.6–5.6 s**.
+  - **A trick is a hop, not a launch.** The pop off the wall carried three metres toward the
+    axis of a tube six and a half across — from the bottom of the ring that is straight up,
+    and it read as being fired out of the wave. Now about a metre and a half, held for a
+    second, which is enough to throw a trick without leaving the wall behind.
+  - **The camera's aim holds still too.** The position was locked and the aim was not — it
+    tracked a fifth of the climb, which on a seven-metre wave is the whole picture drifting
+    every time you go round. The anti-drowning clamp was also re-applied every frame against a
+    swell that moves, feeding that movement into a shot that is meant to be nailed down; it
+    ratchets into the lock once now.
+  - The peel checks sample **relative to the break** instead of at hard-coded z. When the break
+    moved, "z=30" quietly stopped meaning "behind the break" — the collapse check would have
+    passed on a wave that no longer collapsed anywhere in view.
+
 - **v2.50.0** — **The lip and the sea are the same water, the break throws whitewater, and
   the tube stops looking like a pipe.** Worked against surf photography rather than by eye.
   - **The wave face is lit through, the way every photograph of one is.** A wall about to

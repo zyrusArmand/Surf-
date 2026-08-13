@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.50.0';
+const VERSION='2.51.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -784,11 +784,22 @@ const SW_BACK=34.0;                     // and the long shoulder behind the cres
 // because the lip is built at load time and needs it — declared down with the phase
 // constants it was in the temporal dead zone, and the whole page died on the first frame.
 const SW_PEAK=7.0;
-const SW_BRK=4.0;                       // world z of the break — just behind the rider
+// The break sits behind the CAMERA, not behind the rider, and that is the whole reason the
+// barrel would not fill the frame. The camera rides at z=25.5 and the collapse used to start
+// at z=4 — so the shot was taken from twenty metres inside the section that has already
+// closed out, where the shell has shrunk to half its bore and dropped three metres. Correct
+// physics, useless cinematography: the tube simply was not around the lens any more, and the
+// top of the frame was open sky. A real barrel has a long thrown section with the rider well
+// inside it and the collapse a long way back, which is also what every photograph shows.
+const SW_BRK=30.0;                      // world z of the break — well behind the camera
 const SW_PEEL=78.0;                     // how far ahead of it the wall is still unbroken
 const SW_COLL=26.0;                     // and how far behind it takes to fall to whitewater
-// 0 far ahead of the break (green wall), 1 at it (barrelling)
-function swPeelA(z){ const u=Math.min(1,Math.max(0,(z-(SW_BRK-SW_PEEL))/SW_PEEL)); return u*u*(3-2*u); }
+// The length of fully-thrown tube standing in front of the break. Without it the throw
+// peaked exactly AT the break and nowhere else, so nothing could be both fully barrelled and
+// ahead of the collapse — which is the one place the shot needs to be.
+const SW_HOLD=26.0;
+// 0 far ahead of the break (green wall), 1 through the thrown section (barrelling)
+function swPeelA(z){ const u=Math.min(1,Math.max(0,(z-(SW_BRK-SW_PEEL))/(SW_PEEL-SW_HOLD))); return u*u*(3-2*u); }
 // 0 at the break, 1 well behind it (collapsed)
 function swPeelB(z){ const u=Math.min(1,Math.max(0,(z-SW_BRK)/SW_COLL)); return u*u*(3-2*u); }
 let swA=0, swX=0, swS=1;                // crest height, crest position in x, side it came from
@@ -955,7 +966,7 @@ const oceanMat=new THREE.ShaderMaterial({
         // curl's geometry is built from. The face needs it because the whitewater at the
         // foot of the barrel is caused by the lip landing on it, so it can only exist where
         // there IS a lip: none out on the unbroken wall, all of it under the thrown section.
-        float ua=clamp((wz-(${(SW_BRK-SW_PEEL).toFixed(1)}))/${SW_PEEL.toFixed(1)},0.0,1.0);
+        float ua=clamp((wz-(${(SW_BRK-SW_PEEL).toFixed(1)}))/${(SW_PEEL-SW_HOLD).toFixed(1)},0.0,1.0);
         vPa=ua*ua*(3.0-2.0*ua);
         // Metres out from the crest, negative on the face. The face profile f is a cubic,
         // so it crushes everything past about seven metres out into a sliver of its range —
@@ -1267,7 +1278,7 @@ const curlUniforms={
   uClose:{value:0},
   // How much of the lip to see through, and where the rider is, so the near wall can be
   // taken out from in front of him without touching the far wall that makes the tube.
-  uCut:{value:0}, uRiderD:{value:1e9},
+  uCut:{value:0}, uRiderD:{value:1e9}, uRiderP:{value:new THREE.Vector3()},
 };
 // The curl used to be shaded as coloured glass: a flat gradient with a couple of sine
 // streaks over it, drawn with depthWrite off. Both of those were wrong.
@@ -1319,6 +1330,7 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
     uniform float uFade; uniform float uT; uniform float uLight;
     uniform vec3 uSun; uniform vec3 uSky; uniform vec3 uDeep; uniform vec3 uShallow;
     uniform vec3 uFoam; uniform float uClose; uniform float uCut; uniform float uRiderD;
+    uniform vec3 uRiderP;
     varying vec2 vUv; varying vec3 vW; varying vec3 vN;
     float hash21(vec2 p){
       p=fract(p*vec2(123.34,345.45));
@@ -1487,8 +1499,20 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       // The camera stays where it is, so the water gives way instead: only the part nearer
       // the camera than the rider fades. The far wall, which is the tube you are looking
       // down, is untouched. uCut is on for the whole tube ride — see placeCurl.
-      float dcam=length(cameraPosition-vW);
-      a*=1.0-(1.0-smoothstep(uRiderD-3.5,uRiderD-0.4,dcam))*uCut*0.94;
+      // Bored, not removed. Taking the whole near wall away opened the frame at its
+      // EDGES — out there the near wall is the only thing between you and the sky, and with
+      // it gone you were looking straight out of the barrel in every corner. What the shot
+      // needs is a window toward the rider, not a missing wall: this measures how far each
+      // point sits off the line from the camera to him, and only water near that line goes.
+      // Everything out at the periphery stays, so the tube wraps the frame the way being
+      // inside one does.
+      vec3 toP=vW-cameraPosition;
+      vec3 dir=normalize(uRiderP-cameraPosition);
+      float along=dot(toP,dir);
+      float perp=length(toP-dir*along);
+      float win=(1.0-smoothstep(uRiderD-3.5,uRiderD-0.4,along))
+                *(1.0-smoothstep(3.6,7.2,perp));
+      a*=1.0-win*uCut*0.94;
       col=pow(clamp(col,0.0,1.0),vec3(2.2));
       gl_FragColor=vec4(col*uLight,clamp(a,0.0,1.0));
     }
@@ -7961,7 +7985,14 @@ let swAng=0, swAngV=0, swLoops=0, swHoldX=0, swTubeRide=false;
 // Air inside the pipe. swRadV is how fast he is moving toward or away from the axis; the
 // only "gravity" in a tube points outward, at the wall he came off.
 let swPipeAir=false, swRadV=0;
-const SW_PIPE_G=13.0, SW_PIPE_POP=9.0;
+let swNoDeb=false;                       // debug only: hold the wreckage off
+let swHold=false;                        // debug only: stop the wave ever spitting you out
+// Gentle on purpose. At 9.0 against a gravity of 13 the pop carried three metres off a
+// wall six and a half from the axis — nearly half way across the tube, which from the
+// bottom of the ring is straight up and reads as being launched out of the wave. The tube
+// has its own gravity and it should feel like it: a metre and a half of air, held for about
+// a second, which is enough to throw a trick without ever leaving the wall behind.
+const SW_PIPE_G=9.5, SW_PIPE_POP=5.2;
 // Back on the wall. Nothing in the tube wipes you out, so a crooked landing simply scores
 // nothing instead of ending the run — same judgement, no punishment.
 function swPipeLand(){
@@ -8237,10 +8268,14 @@ function updateSetWave(dt,eff){
     // the shoulder all used to end it, and all three are gone: the wave has formed around
     // him and he rides it until it spits him out. Debris is the one thing left that bites,
     // which is what keeps the ring worth steering rather than a place to park.
-    if(swRide>swRideMax){ swPh=SWP.EXIT; swT=0; swSpit(); return; }
+    if(swRide>swRideMax&&!swHold){ swPh=SWP.EXIT; swT=0; swSpit(); return; }
     swDebT-=dt;
-    if(swDebT<=0){
-      swDebT=0.80+Math.random()*1.15;
+    if(swDebT<=0&&!swNoDeb){
+      // One every four seconds or so, not one a second. The ring owns your position while
+      // you are going round it, so a drum arriving in the pocket is not something you steer
+      // away from — it is something you have to be somewhere else for, and at the old rate
+      // there was no somewhere else.
+      swDebT=2.6+Math.random()*3.0;
       makeObstacle('debris', c+swS*(-3.4+Math.random()*5.4), -150);
     }
     return;
@@ -8265,7 +8300,8 @@ if(location.hash.includes('debug')){
     state:()=>({dist,speed,score,running,wipe:!!wipe,airborne,px,py,pz,
                 swPh,swT,swA,swX,swS,swRide,swRideMax,swOver,swCurlA,swClose,
                 swAng,swLoops,swTubeRide,swOnLip,ring:swTubeGeom(),
-                jellyHits,lastWipe,swCut,swPipeAir,trickReady,
+                jellyHits,lastWipe,swCut,swPipeAir,trickReady,cracks,
+                swRad:+swRad.toFixed(2),
                 boardYaw:+boardYaw.toFixed(3),boardPitch:+boardPitch.toFixed(3),
                 curlVisible:curl.visible,roofY:swRoofY(),tubeC:swTubeC()}),
     // Where the rider's own up actually points, taken from the rig's world matrix rather
@@ -8318,7 +8354,25 @@ if(location.hash.includes('debug')){
     // Which side the wave breaks from is a coin toss per wave, and the steering sign depends
     // on it — so a test that does not pin it only ever checks one of the two.
     setSide(s){ swS=s<0?-1:1; return swS; },
+    // Hold the drums off. Debris spawns into the pocket on a timer, and anything measured at
+    // the bottom of the ring is otherwise measuring a drum hit: the pipe-air checks kept
+    // finding the rider already off the wall, knocked there by wreckage they never asked for.
+    setDebris(v){ swNoDeb=!v; return !swNoDeb; },
+    // Stop the wave expiring under a test. A warped barrel lasts 6-16 SIM seconds, which at a
+    // tenth of wall clock is a minute or two — and several checks legitimately take longer
+    // than that. Every one of them was quietly measuring a rider who had already been spat
+    // out: a bank of zero, a jump that did nothing, a camera free to move again.
+    holdWave(v){ swHold=!!v; return swHold; },
+    // The peel's own constants, so a test can sample "behind the break" without hard-coding a
+    // z that quietly stops meaning that the moment one of them moves.
+    consts:()=>({SW_PEAK,SW_BRK,SW_PEEL,SW_COLL,SW_HOLD,SW_R,SW_SWEEP}),
     jump(){ doJump(); return airborne; },
+    // Where the camera is and where it is pointing. "Fixed" is a claim about both, and the
+    // aim was the half that was still drifting.
+    cam(){ const d=camera.getWorldDirection(new THREE.Vector3());
+           return {x:+camera.position.x.toFixed(3),y:+camera.position.y.toFixed(3),
+                   z:+camera.position.z.toFixed(3),
+                   dx:+d.x.toFixed(4),dy:+d.y.toFixed(4),dz:+d.z.toFixed(4)}; },
     trick(kind){ if(kind==='roll')addRoll(1,'test'); else if(kind==='flip')addFlip(1,'test');
                  else addSpin(1,'test'); return window.__surf.state(); },
     plane:()=>({pos:plane.position.toArray().map(v=>+v.toFixed(2)),
@@ -8460,6 +8514,7 @@ function placeCurl(dt){
   swCut+=((swTubeRide?1:0)-swCut)*Math.min(1,(dt||0.016)*5);
   curlUniforms.uCut.value=swCut;
   curlUniforms.uRiderD.value=camera.position.distanceTo(_cutP.set(px,py,pz));
+  curlUniforms.uRiderP.value.copy(_cutP);
 }
 
 // ---------- whirlpool ----------
@@ -9393,7 +9448,12 @@ function update(dt){
     vy=Math.max(vy,Math.min(28,rampExitV),RAMP_MIN_VY);
     rampExitV=0;
   } else rampPitchT=0;
-  trickReady=(airborne&&py>waterY+0.8)||hanging;   // you can trick while being towed
+  // The height gate is meaningless on the ring, so pipe air stands in its own right. Out on
+  // the flat, "clear of the water" is a height above it; inside a tube it is a distance from
+  // a wall that might be over your head — at the roof he is twelve metres up and a foot off
+  // the water he is riding, and at the bottom of the ring a good pop is barely a metre. The
+  // gate as written let the trick buttons light only at the very top of the ring.
+  trickReady=(airborne&&(swPipeAir||py>waterY+0.8))||hanging;   // you can trick while being towed
   // the pad stays put for the whole run — it used to blink out between leaving the
   // water and reaching trick height, which on every small jump read as a glitch.
   // Every trick jumps for you off the water anyway, so all five are always live.
@@ -9811,6 +9871,15 @@ function update(dt){
         shake=over?0.7:1.0;
         splash(o.position.x,o.position.y+0.5,o.position.z,over?14:20);
         if(o.userData.bell)o.userData.squash=1.0;      // the bell flattens under you
+      } else if(o.userData.kind==='debris'&&swTubeRide){
+        // Wreckage in the tube costs you the board, not the run. The ring owns your position
+        // while you are going round it, so a drum sitting in the pocket is not something you
+        // can steer away from — and an instant, unexplained end to a ride you are told you
+        // cannot fall out of is the worst kind of death there is. It cracks the board and
+        // knocks you off the wall instead, which says CRACKED! and leaves you a count. Three
+        // of them still snap the board and end it, the same as anywhere else.
+        boardHit(o,py);
+        if(!wipe&&!swPipeAir){ swPipeAir=true; swRadV=-SW_PIPE_POP*0.75; airborne=true; }
       } else if(py<waterY+o.userData.h&&!hanging){
         const topY=waterY+o.userData.h;
         // Dropping onto the top of it is not the same as driving into its side, and
@@ -9977,10 +10046,19 @@ function update(dt){
     // — so the clamp shoved the camera up to nine and it then looked steeply down into the
     // face, filling the screen with water. waterY is the sea he is floating on, which is the
     // thing the camera must stay above.
-    camY=Math.max(camY,waterY+2.1);   // and never let the sea close over the lens
+    // Folded INTO the lock rather than applied on top of it every frame. waterY moves with
+    // the swell, so re-clamping each frame passed that movement straight into a shot that is
+    // supposed to be nailed down — a slow rise and fall of the whole picture while he goes
+    // round. The lock only ever ratchets upward, and then holds.
+    swCamLock.y=Math.max(swCamLock.y,waterY+2.1);
+    camY=swCamLock.y;
   } else swCamLock=null;
   camera.position.set(camX,camY,camZ);
-  camera.lookAt(lookX, swCamLock?(swCamLock.at+airH*0.20):(waterY+1.05+swCam*1.5+airH*0.62), -14-swCam*10);
+  // In the tube the aim is nailed down too. It used to track a fifth of the climb, on the
+  // reasoning that a rigidly held shot looks past him once he is up in the roof — but the
+  // shell is wide enough that he stays in frame anyway, and a fifth of seven metres is a
+  // visible drift of the whole picture every time he goes round. "Fixed" has to mean fixed.
+  camera.lookAt(lookX, swCamLock?swCamLock.at:(waterY+1.05+swCam*1.5+airH*0.62), -14-swCam*10);
   // The camera does NOT roll with the ring. A loop camera was tried and taken back out: it
   // keeps the tube wrapped around the view, but the whole shot turning over is disorienting
   // and it throws away the one stable reference — the horizon — that tells you where you are

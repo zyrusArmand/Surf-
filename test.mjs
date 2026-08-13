@@ -130,6 +130,12 @@ check(frames > 3, 'frames rendering', `${frames} in 3s`);
 // the debug hook arms it and warps into the phase under test.
 const hasHook = await page.evaluate(() => typeof window.__surf === 'object');
 check(hasHook, 'debug hook present under #debug');
+// Drums off for the whole suite. They spawn into the pocket on a timer, knock you off the
+// wall on contact and crack the board, and this suite spends twenty-odd minutes inside a
+// barrel — so left on they eventually snap it, and every check after that is quietly
+// measuring a run that has already ended: three checks in a row reported zero of everything.
+// The wreckage check at the bottom places its own drums explicitly.
+if (hasHook) await page.evaluate(() => window.__surf.setDebris(false));
 
 if (hasHook) {
   const ph = await page.evaluate(async () => {
@@ -160,6 +166,14 @@ if (hasHook) {
     return window.__surf.state();
   });
   check(out.swPh === -1 || out.swPh === 4, 'wave closes out and returns to idle', `swPh=${out.swPh}`);
+
+  // From here on the wave is held open. A warped barrel lasts 6-16 SIM seconds, which at a
+  // tenth of wall clock is a minute or two, and several checks below legitimately take longer
+  // than that — they were quietly measuring a rider who had already been spat out, which
+  // reads as a bank of zero, a jump that does nothing and a camera free to move again. The
+  // clock's own behaviour is still tested, above and in its own check further down, which
+  // watch swRide and swOver rather than waiting for the spit.
+  await page.evaluate(() => window.__surf.holdWave(true));
 
   // The height field is the wave the board actually rides; the shader mirrors it. If this
   // ever returns NaN the physics and the visuals are both wrong and nothing looks amiss.
@@ -218,25 +232,31 @@ if (hasHook) {
     window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
     await new Promise(r => setTimeout(r, 1200));
     const s = window.__surf.state(), out = {};
-    for (const z of [-120, -30, 0, 30]) {
-      const w = window.__surf.sampleWave(s.swX - 2, z);
-      const sl = window.__surf.curlSlice(z);
-      out[z] = { setH: w.set, peelB: w.peelB, reach: Math.max(...sl.pts.map(p => p.f)) };
+    const C = window.__surf.consts();
+    // Sampled RELATIVE to the break rather than at hard-coded z. When the break moved back
+    // behind the camera, "z=30" silently stopped meaning "behind the break", and the collapse
+    // check would have passed on a wave that no longer collapsed anywhere in view.
+    const zs = { wall: C.SW_BRK - C.SW_PEEL + 6, mid: C.SW_BRK - C.SW_PEEL * 0.55,
+                 tube: 0, dead: C.SW_BRK + C.SW_COLL * 0.85 };
+    for (const k of Object.keys(zs)) {
+      const w = window.__surf.sampleWave(s.swX - 2, zs[k]);
+      const sl = window.__surf.curlSlice(zs[k]);
+      out[k] = { z: zs[k], setH: w.set, peelB: w.peelB, reach: Math.max(...sl.pts.map(p => p.f)) };
     }
     // At the CREST line, at the rider's own z. Sampling at the rider's x instead reads a
     // couple of metres down the face — a small number by design, not a collapsed wave.
     return { out, swA: s.swA, riderH: window.__surf.sampleWave(s.swX, s.pz).set };
   });
-  const at = z => peel.out[z];
-  check(at(-120).reach < 2 && at(0).reach > 10,
+  const at = k => peel.out[k];
+  check(at('wall').reach < 2 && at('tube').reach > 10,
         'lip is unbroken wall down the line and thrown at the break',
-        `reach ${at(-120).reach.toFixed(2)} at z=-120 vs ${at(0).reach.toFixed(2)} at z=0`);
-  check(at(-30).reach > at(-120).reach && at(-30).reach < at(0).reach,
-        'and pitches out progressively between the two', `${at(-30).reach.toFixed(2)} at z=-30`);
-  check(at(30).setH < at(0).setH * 0.65, 'the section collapses behind the break',
-        `${at(0).setH.toFixed(2)} -> ${at(30).setH.toFixed(2)}`);
-  check(at(-120).setH > at(0).setH * 0.9, 'but stands at full height ahead of it — an unbroken wave is not a small one',
-        `${at(-120).setH.toFixed(2)} vs ${at(0).setH.toFixed(2)}`);
+        `reach ${at('wall').reach.toFixed(2)} at z=${at('wall').z.toFixed(0)} vs ${at('tube').reach.toFixed(2)} at z=0`);
+  check(at('mid').reach > at('wall').reach && at('mid').reach < at('tube').reach,
+        'and pitches out progressively between the two', `${at('mid').reach.toFixed(2)} at z=${at('mid').z.toFixed(0)}`);
+  check(at('dead').setH < at('tube').setH * 0.65, 'the section collapses behind the break',
+        `${at('tube').setH.toFixed(2)} -> ${at('dead').setH.toFixed(2)} at z=${at('dead').z.toFixed(0)}`);
+  check(at('wall').setH > at('tube').setH * 0.9, 'but stands at full height ahead of it — an unbroken wave is not a small one',
+        `${at('wall').setH.toFixed(2)} vs ${at('tube').setH.toFixed(2)}`);
   // The trap this cost a session to find: waveH's z is the SWELL's scrolling frame
   // (dist*WAVE_DRIFT + worldZ), not world z. Feed that straight to the peel and the rider
   // is permanently past the break — the wave looks right and the water under the board
@@ -469,6 +489,16 @@ if (hasHook) {
       // of a second away — at 260 ms this was reading the board mid-step and calling it a
       // lag in the bank. Measured: the same angles settle to 1.000 given a second.
       await new Promise(r => setTimeout(r, 900));
+      // A sweep of forty-nine angles at nine hundred milliseconds is four-odd seconds of sim,
+      // and the shortest wave is six — so the wave can end halfway through and every sample
+      // after it reads a rider who is no longer on a ring at all. That came back as a bank of
+      // zero and looked exactly like the bug this check exists to catch. Re-arm and skip.
+      if (!window.__surf.state().swTubeRide) {
+        window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
+        await new Promise(r => setTimeout(r, 2500));
+        window.__surf.setTubeAngle(a);
+        await new Promise(r => setTimeout(r, 900));
+      }
       const u = window.__surf.riderUp();
       out.push({ a: +a.toFixed(2), onLip: u.onLip, dot: u.dot });
     }
@@ -489,12 +519,10 @@ if (hasHook) {
 // doJump when you are not airborne, while the ring pinned airborne to false every frame, so
 // nothing ever left the water and no trick could start.
 {
-  const ride = await page.evaluate(async () => {
+  await page.evaluate(async () => {
     window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
     await new Promise(r => setTimeout(r, 2500));
-    return null;
   });
-  void ride;
   await page.keyboard.down('ArrowRight');
   await page.waitForTimeout(4000);
   const flat = await page.evaluate(() => {
@@ -516,7 +544,8 @@ if (hasHook) {
   await page.keyboard.up('ArrowRight');
   check(!air.wasAir && air.air && air.airborne && air.ready && air.tube,
         'jumping in the tube takes you off the wall, so tricks are live in there',
-        `pipe air ${air.air}, airborne ${air.airborne}, trickReady ${air.ready}`);
+        `pipe air ${air.air}, airborne ${air.airborne}, trickReady ${air.ready}, in the tube ${air.tube}`
+        + (air.wasAir ? ' — WAS ALREADY IN THE AIR' : ''));
   // And it puts you back on the wall rather than out of the wave.
   const landed = await page.evaluate(async () => {
     for (let i = 0; i < 200; i++) {
@@ -528,6 +557,53 @@ if (hasHook) {
   });
   check(landed.back && landed.tube && !landed.wipe, 'and it drops you back on the ring, still in the wave',
         landed.back ? 'landed on the wall' : 'never came back down');
+}
+
+// ---------- the shot holds still, aim included ----------
+// Position was locked and the AIM was not: it tracked a fifth of the climb, and a fifth of
+// seven metres is the whole picture drifting every time he goes round. The water clamp was
+// also being re-applied every frame against a swell that moves, which fed that movement into
+// a camera that is supposed to be nailed down.
+{
+  const cam = await page.evaluate(async () => {
+    window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
+    await new Promise(r => setTimeout(r, 2500));
+    const out = [];
+    for (const a of [0, 1.6, 3.1, 4.7]) {
+      window.__surf.setTubeAngle(a);
+      await new Promise(r => setTimeout(r, 900));
+      out.push(window.__surf.cam());
+    }
+    return out;
+  });
+  const span = k => Math.max(...cam.map(c => c[k])) - Math.min(...cam.map(c => c[k]));
+  const moved = Math.max(span('x'), span('y'), span('z'));
+  const turned = Math.max(span('dx'), span('dy'), span('dz'));
+  check(moved < 0.05 && turned < 0.02, 'the barrel camera holds still, aim included, all the way round',
+        `moved ${moved.toFixed(3)} m, aim shifted ${turned.toFixed(4)}`);
+}
+
+// ---------- a trick in the tube is a hop, not a launch ----------
+// The pop off the wall was carrying three metres toward the axis of a tube six and a half
+// across — from the bottom of the ring that is straight up, and it read as being fired out of
+// the wave rather than doing a trick in it.
+{
+  const hop = await page.evaluate(async () => {
+    window.__surf.setTubeAngle(0);
+    await new Promise(r => setTimeout(r, 1200));
+    const r0 = window.__surf.state().swRad;
+    window.__surf.jump();
+    let peak = r0;
+    for (let i = 0; i < 120; i++) {
+      await new Promise(r => setTimeout(r, 60));
+      const s = window.__surf.state();
+      peak = Math.min(peak, s.swRad);
+      if (!s.swPipeAir && i > 3) break;
+    }
+    return { off: +(r0 - peak).toFixed(2), tube: window.__surf.state().swTubeRide };
+  });
+  check(hop.tube && hop.off > 0.4 && hop.off < 2.6, 'jumping in the tube lifts you off the wall without firing you across it',
+        `${hop.off} m off the wall`);
 }
 
 // ---------- keep circling and the wave waits ----------
@@ -598,6 +674,40 @@ if (hasHook) {
   const worst = cut.reduce((w, r) => r.cut < w.cut ? r : w, cut[0]);
   check(cut.every(r => r.tube && r.cut > 0.9), 'the near wall is cut away all the way round the ring',
         `worst cut ${worst.cut} at ${worst.a} rad`);
+}
+
+// Placed after every other check that needs a live run. This one can snap the board and
+// end the ride, and when it ran earlier the blocks after it were quietly measuring a
+// game that was already over — the wave clock reported zero seconds of everything.
+// ---------- wreckage in the tube costs the board, not the run ----------
+// The ring owns your position while you are going round, so a drum sitting in the pocket is
+// not something you can steer away from. It used to end the run outright, with no warning and
+// no explanation — a wipeout on a wave the game tells you that you cannot fall out of.
+{
+  const hit = await page.evaluate(async () => {
+    window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
+    await new Promise(r => setTimeout(r, 2000));
+    window.__surf.setTubeAngle(0);
+    await new Promise(r => setTimeout(r, 1200));
+    const s0 = window.__surf.state();
+    for (let i = 0; i < 400; i++) {
+      window.__surf.spawn('debris', 0, -14);
+      for (let k = 0; k < 12; k++) {
+        await new Promise(r => setTimeout(r, 50));
+        const s = window.__surf.state();
+        if (s.cracks > s0.cracks) return { cracked: true, wiped: s.wipe, kind: s.lastWipe && s.lastWipe.kind };
+        if (s.wipe) return { cracked: false, wiped: true, kind: s.lastWipe && s.lastWipe.kind };
+      }
+    }
+    return { cracked: false, wiped: false, timedOut: true };
+  });
+  // The claim is about the CAUSE, not about surviving: the suite has been riding for
+  // minutes by now and the board may already be one crack from gone, in which case this hit
+  // legitimately snaps it. What must never happen again is the run ending as 'debris' — an
+  // instant, unexplained wipeout on a wave you are told you cannot fall out of.
+  check(hit.cracked && hit.kind !== 'debris', 'wreckage in the tube cracks the board instead of ending the run',
+        hit.cracked ? (hit.wiped ? 'CRACKED, and that one was the last of the board' : 'CRACKED, still riding')
+                    : (hit.timedOut ? 'never connected' : `ended the run as ${hit.kind}`));
 }
 
 // ---------- the sky stays in the sky ----------
