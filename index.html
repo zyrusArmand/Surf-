@@ -644,7 +644,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.46.0';
+const VERSION='2.47.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1395,14 +1395,18 @@ const curl=new THREE.Mesh(buildCurlGeom(),new THREE.ShaderMaterial({
       col=mix(col,uFoam,(1.0-smoothstep(0.0,0.15,t))*0.40);
       // Closing out: the whole section goes to whitewater rather than politely fading.
       col=mix(col,uFoam,uClose*0.92);
+      // Nearly opaque, thinning toward the throwing edge where a real lip goes to spray.
+      // It is NOT translucent in order to see the barrel — that job belongs to the cut
+      // below, which removes the near wall outright. An earlier read of this had the two
+      // confused and blamed the alpha for the frame going flat blue.
       float a=uFade*(0.99-0.14*t);
       a*=smoothstep(0.0,0.30,vUv.y);             // opens out at the far end
       // Ride round to the roof and the wall between you and the camera is the near side of
       // your own barrel, so you vanish behind it — measured: at the top of the ring the
       // rider projects into frame and is drawn completely hidden by the back of the lip.
       // The camera stays where it is, so the water gives way instead: only the part nearer
-      // the camera than the rider fades, and only while he is up out of the pocket. The far
-      // wall, which is the tube you are looking down, is untouched.
+      // the camera than the rider fades. The far wall, which is the tube you are looking
+      // down, is untouched. uCut is on for the whole tube ride — see placeCurl.
       float dcam=length(cameraPosition-vW);
       a*=1.0-(1.0-smoothstep(uRiderD-3.5,uRiderD-0.4,dcam))*uCut*0.94;
       col=pow(clamp(col,0.0,1.0),vec3(2.2));
@@ -4347,7 +4351,8 @@ function hhmm(sec){
 }
 // crashes read better by their in-game name than by the key the engine uses
 const DEATH_NAME={buoy:'Buoy',log:'Log',jelly:'Jellyfish',bigfin:'Shark',octopus:'Octopus',
-  pearl:'Pearled the nose',land:'Bad landing',under:'Under-rotated',foam:'Ate it'};
+  pearl:'Pearled the nose',land:'Bad landing',under:'Under-rotated',foam:'Ate it',
+  debris:'Wreckage'};
 const TRICK_NAME={roll:'Barrel rolls',flip:'Front / back flips',spin:'Spins',
   grab:'Grabs landed',drag:'Hand drags',handstand:'Handstands'};
 function tally(o,names){
@@ -6742,6 +6747,10 @@ const WIPE={
   land:  {vy: 6.0, vz: 1.5, spin:[ 5, 6, 9], msg:'SKETCHY LANDING!', kick:1.6},
   under: {vy: 4.5, vz: 0.5, spin:[11, 4, 5], msg:'UNDER-ROTATED!',   kick:1.5},
   foam:  {vy: 2.5, vz:-1.0, spin:[ 6, 2, 8], msg:'ATE IT!',      kick:1.2},
+  // Wreckage had no entry here, so it borrowed foam's — which is why a fuel drum to the
+  // chest inside the barrel announced itself as "ATE IT!" and the stats logged it as "Ate
+  // it". The one hazard left in the tube was the one that could not say what it was.
+  debris:{vy: 7.5, vz:-3.0, spin:[10, 4, 3], msg:'WRECKAGE!',    kick:2.1},
   snap:  {vy: 4.0, vz:-1.0, spin:[13, 3, 4], msg:'BOARD SNAPPED!', kick:2.8},
 };
 // ---------------------------------------------------------------------------
@@ -6939,6 +6948,9 @@ function boardHit(o,topY){
 let wipe=null,overlayUp=false,revivesLeft=1;
 function startWipeout(kind){
   if(wipe)return;
+  // What actually ended the run, kept for the tests. "It said ATE IT for no reason" is not
+  // something that can be chased without knowing which of the eight call sites fired.
+  lastWipe={kind,ph:swPh,tube:swTubeRide,py:+py.toFixed(2),ang:+swAng.toFixed(2),t:+tNow.toFixed(1)};
   noteWipe(kind);
   if(kind==='snap')snapBoard();
   const W=WIPE[kind]||WIPE.foam;
@@ -7109,7 +7121,7 @@ function updateWorldDuringWipeout(dt){
   oceanUniforms.uWakeZ.value=wkZ;oceanUniforms.uWakeA.value=wkA;oceanUniforms.uWakeX.value=wkX;
   oceanUniforms.uWhX.value=whX;oceanUniforms.uWhZ.value=whZ;oceanUniforms.uWhA.value=whA;
   oceanUniforms.uSwA.value=swA;oceanUniforms.uSwX.value=swX;oceanUniforms.uSwS.value=swS;
-  placeCurl();
+  placeCurl(dt);
   if(shake>0)shake-=dt*8;
   for(let i=splashes.length-1;i>=0;i--){
     const s2=splashes[i],u=s2.userData;
@@ -7213,13 +7225,21 @@ const SKY_KEYS=[
   {t:1.00, top:0x060a1c, mid:0x121a38, hz:0x33203f, glow:0x6a2418, gAmt:0.16, sunX: 0.68, sunY:-0.215},
 ];
 const skyLayer=new THREE.Group();scene.add(skyLayer);
-// The sun is a sky element only: three additive shells over a bright core, all with
-// depth testing off and negative render order, so they are painted before the world
-// and everything else draws straight over them. No light in the scene is touched.
+// The sun is a sky element only: three additive shells over a bright core. No light in
+// the scene is touched.
+//
+// They used to run with the depth test off and a negative render order, on the theory that
+// this painted them before the world. It does not. They are transparent materials, and
+// three.js draws the whole opaque pass first — so a negative render order only sorts them
+// against the other transparent things, and with no depth test they landed on top of the
+// ocean and the lip alike. Out on the flat that is invisible, because the sun sits in empty
+// sky; inside the barrel, where water fills the frame, it was a sunburst painted across the
+// inside of the wave. Depth test on and ordered after the lip (renderOrder 3), so the lip's
+// depth is already down when these draw, and the water hides the sun the way water does.
 function sunShell(size,opacity,order,falloff){
   const mat=new THREE.ShaderMaterial({
     uniforms:{uColor:{value:new THREE.Color(0xffd9a0)},uOpacity:{value:opacity},uPow:{value:falloff}},
-    transparent:true,depthTest:false,depthWrite:false,blending:THREE.AdditiveBlending,
+    transparent:true,depthTest:true,depthWrite:false,blending:THREE.AdditiveBlending,
     vertexShader:'varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
     fragmentShader:'varying vec2 vUv; uniform vec3 uColor; uniform float uOpacity; uniform float uPow;'+
       'void main(){ float d=length(vUv-0.5)*2.0; float a=pow(max(0.0,1.0-d),uPow);'+
@@ -7228,11 +7248,11 @@ function sunShell(size,opacity,order,falloff){
   const m=new THREE.Mesh(new THREE.PlaneGeometry(size,size),mat);
   m.renderOrder=order;skyLayer.add(m);return m;
 }
-const sunGlowOuter=sunShell(300,0.55,-14,2.6);
-const sunGlowInner=sunShell(120,0.70,-13,2.0);
+const sunGlowOuter=sunShell(300,0.55,5,2.6);
+const sunGlowInner=sunShell(120,0.70,6,2.0);
 // tight enough to sit on the disc's own edge rather than around it, which is what turns
 // the cut into a falloff — the two shells above are far too wide to touch the limb
-const sunGlowRim=sunShell(30,0.85,-12.5,1.3);
+const sunGlowRim=sunShell(30,0.85,7,1.3);
 // The disc has a hard cut at its limb — a flat-shaded sphere ends exactly where its
 // silhouette does — and against the sky that reads as a sticker rather than something
 // giving off light. It is worst seen down the barrel, where the mouth frames it small and
@@ -7243,8 +7263,8 @@ const sunGlowRim=sunShell(30,0.85,-12.5,1.3);
 // the clipping chunks, so the sun would stop sinking into the sea. A third glow shell
 // hugging the disc feathers the same edge and leaves the clip alone.
 const sunDisc=new THREE.Mesh(new THREE.SphereGeometry(10.5,30,22),
-  new THREE.MeshBasicMaterial({color:0xfff3cf,depthTest:false,depthWrite:false,transparent:true}));
-sunDisc.renderOrder=-12;skyLayer.add(sunDisc);
+  new THREE.MeshBasicMaterial({color:0xfff3cf,depthTest:true,depthWrite:false,transparent:true}));
+sunDisc.renderOrder=8;skyLayer.add(sunDisc);
 // Stars come out whenever the sun is at or under the horizon, so they are there for
 // the dark half of dawn as well as after sunset. Drawn just in front of the sky dome
 // and behind everything else in the sky.
@@ -7264,11 +7284,13 @@ const starGeo=new THREE.BufferGeometry();
 }
 const stars2=new THREE.Points(starGeo,new THREE.PointsMaterial({
   color:0xfdfbf0,size:2.1,sizeAttenuation:false,transparent:true,opacity:0,
-  depthTest:false,depthWrite:false}));
-stars2.renderOrder=-18;skyLayer.add(stars2);
+  depthTest:true,depthWrite:false}));
+// Same depth-test story as the sun, and the same fix: a starfield showing through the
+// inside of a night barrel is the identical bug, just dimmer. Behind the sun's glow.
+stars2.renderOrder=4;skyLayer.add(stars2);
 const moon=new THREE.Mesh(new THREE.SphereGeometry(3.4,18,14),
-  new THREE.MeshBasicMaterial({color:0xf6f4ea,transparent:true,opacity:0,depthTest:false,depthWrite:false}));
-moon.renderOrder=-11;skyLayer.add(moon);
+  new THREE.MeshBasicMaterial({color:0xf6f4ea,transparent:true,opacity:0,depthTest:true,depthWrite:false}));
+moon.renderOrder=8;skyLayer.add(moon);
 // The disc is painted beyond the far edge of the ocean, so there is no water out
 // there to hide it once it is down. Cut it at sea level instead: it then rises out
 // of the horizon and sinks back into it properly. The glow is deliberately not cut —
@@ -7388,8 +7410,8 @@ for(let i=0;i<16;i++){
   const w=48+Math.random()*92;
   const m=new THREE.Mesh(new THREE.PlaneGeometry(w,w*0.5),
     new THREE.MeshBasicMaterial({map:CLOUD_TEX[(Math.random()*3)|0],transparent:true,
-      opacity:0.30+Math.random()*0.42,depthTest:false,depthWrite:false}));
-  m.renderOrder=-10;                        // over the sun's glow, under the world
+      opacity:0.30+Math.random()*0.42,depthTest:true,depthWrite:false}));
+  m.renderOrder=9;                          // over the sun's glow, still behind the water
   m.position.set((Math.random()-0.5)*CLOUD_SPAN, 46+Math.random()*104, -175-Math.random()*95);
   m.userData.v=1.4+Math.random()*3.6;       // high cloud drifts faster than low
   m.userData.bob=Math.random()*Math.PI*2;
@@ -7400,7 +7422,7 @@ for(let i=0;i<16;i++){
 function buildGull(){
   const g=new THREE.Group();
   const mtl=new THREE.MeshBasicMaterial({color:0x101820,transparent:true,opacity:0.55,
-    side:THREE.DoubleSide,depthTest:false,depthWrite:false});
+    side:THREE.DoubleSide,depthTest:true,depthWrite:false});
   const wing=new THREE.Shape();
   wing.moveTo(0,0);
   wing.quadraticCurveTo(0.55,0.16, 1.15,0.06);     // leading edge
@@ -7419,7 +7441,7 @@ function buildGull(){
 const birds=[];
 for(let f=0;f<3;f++){
   const flock=new THREE.Group();
-  flock.renderOrder=-9;
+  flock.renderOrder=10;
   const n=4+((Math.random()*4)|0);
   for(let i=0;i<n;i++){
     const b=buildGull();
@@ -7850,6 +7872,7 @@ let swRad=NaN;                          // smoothed distance from the tube's axi
 // barrel paying out 240 a second, which is how "flying over it does nothing" came back a
 // pass when it was still throwing him.
 let jellyHits=0;
+let lastWipe=null;                      // {kind, phase, on the ring?} of the last wipeout
 let swOnLip=false;                      // is he on the thrown lip, or out in the open mouth?
 // Set by the play-icon button only: it lets the countdown run before 600 m, so a wave can
 // be summoned from a standing start. One shot — startSetWave() clears it, so the run goes
@@ -8122,7 +8145,7 @@ if(location.hash.includes('debug')){
     state:()=>({dist,speed,score,running,wipe:!!wipe,airborne,px,py,pz,
                 swPh,swT,swA,swX,swS,swRide,swCurlA,swClose,
                 swAng,swLoops,swTubeRide,swOnLip,ring:swTubeGeom(),
-                jellyHits,
+                jellyHits,lastWipe,swCut,
                 curlVisible:curl.visible,roofY:swRoofY(),tubeC:swTubeC()}),
     // Where the rider's own up actually points, taken from the rig's world matrix rather
     // than from the Euler angles that were supposed to produce it. In a pipe it must point
@@ -8274,7 +8297,8 @@ function swSpit(){
   noteTrick&&noteTrick('barrel','wave');
 }
 const _cutP=new THREE.Vector3();
-function placeCurl(){
+let swCut=0;                                  // how far the near wall has been cut away
+function placeCurl(dt){
   if(swCurlA<=0.004){ curl.visible=false; return; }
   curl.visible=!curl.userData.forceHide;      // the debug hook can hold it down
   // Sat on the crest itself. Local +x is "forward off the crest", so the sign flips with
@@ -8285,8 +8309,18 @@ function placeCurl(){
   curlUniforms.uFade.value=swCurlA;
   curlUniforms.uT.value=tNow;
   curlUniforms.uClose.value=swClose;
-  // Nothing to see through in the pocket — that is the shot. It opens up as he climbs.
-  curlUniforms.uCut.value=swTubeRide?Math.max(0,Math.min(1,(py-swA*0.6)/(swA*0.5))):0;
+  // The camera sits at z=25.5 and the shell runs out to z=34, so once the tube is up the
+  // camera is INSIDE it: the near wall wraps right around the lens. That wall is the one
+  // you are looking through, not at, and drawing it fills the frame with flat blue — which
+  // is the "vision is blocked" the barrel keeps coming back with.
+  //
+  // The cut used to be keyed on how high the rider had climbed, on the idea that the pocket
+  // has nothing to see through. That is wrong for the shot: at the bottom of the ring, where
+  // most of a ride is spent, it was zero and the near wall was solid. Cut whenever he is in
+  // the tube at all. Only the water nearer the camera than the rider goes; the far wall,
+  // which is the barrel you are looking down, is untouched.
+  swCut+=((swTubeRide?1:0)-swCut)*Math.min(1,(dt||0.016)*5);
+  curlUniforms.uCut.value=swCut;
   curlUniforms.uRiderD.value=camera.position.distanceTo(_cutP.set(px,py,pz));
 }
 
@@ -9692,7 +9726,7 @@ function update(dt){
   oceanUniforms.uWakeZ.value=wkZ;oceanUniforms.uWakeA.value=wkA;oceanUniforms.uWakeX.value=wkX;
   oceanUniforms.uWhX.value=whX;oceanUniforms.uWhZ.value=whZ;oceanUniforms.uWhA.value=whA;
   oceanUniforms.uSwA.value=swA;oceanUniforms.uSwX.value=swX;oceanUniforms.uSwS.value=swS;
-  placeCurl();
+  placeCurl(dt);
 
   // camera: level horizon, smoothed follow, pulls back with speed
   camX+=(px-camX)*Math.min(1,dt*7);     // camera sits directly behind him

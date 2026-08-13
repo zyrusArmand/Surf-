@@ -43,10 +43,12 @@ while (Date.now() - t0 < 260000) {
     for (const p of sl.pts) lip = Math.min(lip, Math.hypot(p.f - rf, p.y - ry));
     lip *= Math.abs(sl.scaleY || 1);
     const over = s.py - window.__surf.sampleWave(s.px, s.pz).sea;
+    if (s.wipe || s.lastWipe) return { ph: s.swPh, wiped: true, lastWipe: s.lastWipe };
     return { ph: s.swPh, tube: s.swTubeRide, onLip: s.swOnLip, air: s.airborne,
              ang: s.swAng, py: s.py, lip, over, toSurface: Math.min(lip, Math.abs(over)),
              dbg: window.__surf.ringDebug() };
   });
+  if (r.wiped) { console.log('WIPEOUT during the barrel:', JSON.stringify(r.lastWipe)); break; }
   if (r.ph === 3) rows.push(r);
   if (rows.length > 90) break;
   await page.waitForTimeout(700);

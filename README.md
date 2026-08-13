@@ -52,6 +52,29 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.47.0** — **The sun stops shining through the wave, and you can see out of the barrel
+  from the bottom of the ring.**
+  - **The sky is depth-tested.** The sun, its three glow shells, the moon, the stars, the
+    cloud and the gulls all ran with `depthTest:false` and a negative render order, on the
+    stated theory that this painted them *before* the world so the world would draw over
+    them. It does not. They are transparent materials, and three.js draws the entire opaque
+    pass first — a negative render order only sorts them against each other, and with no
+    depth test they landed on top of the ocean. Out on the flat that is invisible, because
+    the sun sits in empty sky with no water in front of it; inside a barrel, where water
+    fills the frame, the disc was painted straight across the inside of the wave, hard-edged
+    silhouette and all. They now test against depth and draw after the lip, so the water
+    hides them the way water does. The sun still rises, sets and clips into the horizon
+    exactly as before.
+  - **The near wall of the tube is cut away for the whole ride.** The camera sits at z=25.5
+    and the shell runs out to z=34, so once the wave is up the camera is *inside* the barrel
+    and its near wall wraps round the lens. That wall was being faded out only as the rider
+    climbed above 60% of the wave's height — which meant that at the bottom of the ring,
+    where most of a ride is spent, nothing was cut and the frame was a flat blue wall. It is
+    cut whenever he is in the tube. Only water nearer the camera than the rider goes; the far
+    wall, the barrel you are actually looking down, is untouched.
+  - Two new checks: the cut holds above 0.9 at every angle round the ring, and nothing in the
+    sky layer skips the depth test.
+
 - **v2.46.0** — **No jet skis during the set wave, and the camera in the barrel is properly
   fixed at last.**
   - **The ski stays away while the wave is up**, at every stage of it, not just the ride. One

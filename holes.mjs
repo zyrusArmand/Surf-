@@ -46,12 +46,27 @@ const p = PNG.sync.read(readFileSync(file));
 const isHole = (x, y) => { const i = (p.width * y + x) << 2;
   return p.data[i] > 200 && p.data[i+1] < 90 && p.data[i+2] > 200; };
 const y0 = Math.round(p.height * 0.09), y1 = Math.round(p.height * 0.78);
+// Magenta that reaches the TOP of the frame is sky above the wave, not a hole through it —
+// and with the camera pulled back there is a lot of sky. Flood from the top edge and discount
+// everything it reaches; what is left is magenta enclosed by water, which is a hole.
+const W = p.width, H = p.height, seen = new Uint8Array(W * H);
+const stack = [];
+for (let x = 0; x < W; x++) { const i = y0 * W + x; if (isHole(x, y0)) { seen[i] = 1; stack.push(i); } }
+while (stack.length) {
+  const i = stack.pop(), x = i % W, y = (i / W) | 0;
+  for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+    const nx = x + dx, ny = y + dy;
+    if (nx < 0 || nx >= W || ny < y0 || ny >= y1) continue;
+    const j = ny * W + nx;
+    if (!seen[j] && isHole(nx, ny)) { seen[j] = 1; stack.push(j); }
+  }
+}
 let n = 0, tot = 0, minx = 1e9, maxx = -1, miny = 1e9, maxy = -1;
 for (let y = y0; y < y1; y++) for (let x = 0; x < p.width; x++) {
   tot++;
-  if (isHole(x, y)) { n++; minx=Math.min(minx,x); maxx=Math.max(maxx,x); miny=Math.min(miny,y); maxy=Math.max(maxy,y); }
+  if (isHole(x, y) && !seen[y * W + x]) { n++; minx=Math.min(minx,x); maxx=Math.max(maxx,x); miny=Math.min(miny,y); maxy=Math.max(maxy,y); }
 }
-console.log(`${String(dist).padStart(5)} m : ${String(n).padStart(6)} see-through px (${(n/tot*100).toFixed(2)}%)` +
+console.log(`${String(dist).padStart(5)} m : ${String(n).padStart(6)} ENCLOSED see-through px (${(n/tot*100).toFixed(2)}%)` +
             (n ? `   box x ${minx}..${maxx} y ${miny}..${maxy}` : ''));
 totalN += n; if (n > worstN) { worstN = n; worstD = dist; }
 }

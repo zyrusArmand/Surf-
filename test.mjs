@@ -419,6 +419,73 @@ if (hasHook) {
         'and one you fly over does not', `4 m: ${mid?.bounced ? 'BOUNCED' : 'clean'}, 8 m: ${high?.bounced ? 'BOUNCED' : 'clean'}`);
 }
 
+// ---------- you can see out of the barrel ----------
+// The camera sits inside the shell, so the near wall wraps round the lens. It is cut away
+// while riding the tube; when the cut was keyed on how high the rider had climbed it sat at
+// zero for the whole bottom half of the ring and the frame was a flat blue wall.
+{
+  const cut = await page.evaluate(async () => {
+    window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
+    // The cut eases in at 5/s of SIM time, which is well under a second in the game and
+    // many wall seconds here: swiftshader manages about three frames a second and dt is
+    // clamped, so the sim runs at roughly a tenth of the clock. Wait for it to settle
+    // rather than assuming a fixed delay — the claim is where it ends up, not how fast.
+    const settle = async () => {
+      for (let i = 0; i < 120; i++) {
+        await new Promise(r => setTimeout(r, 250));
+        if (window.__surf.state().swCut > 0.97) break;
+      }
+      return window.__surf.state();
+    };
+    await settle();
+    const out = [];
+    for (const a of [0, 1.2, 2.4, 3.6, 4.8]) {
+      window.__surf.setTubeAngle(a);
+      await new Promise(r => setTimeout(r, 350));
+      const s = window.__surf.state();
+      out.push({ a, cut: +s.swCut.toFixed(2), tube: s.swTubeRide });
+    }
+    return out;
+  });
+  const worst = cut.reduce((w, r) => r.cut < w.cut ? r : w, cut[0]);
+  check(cut.every(r => r.tube && r.cut > 0.9), 'the near wall is cut away all the way round the ring',
+        `worst cut ${worst.cut} at ${worst.a} rad`);
+}
+
+// ---------- the sky stays in the sky ----------
+// Sun, moon, stars, cloud and gulls are transparent materials, so three.js draws them after
+// the whole opaque pass. With the depth test off that put them ON TOP of the water: out on
+// the flat nobody notices, but inside a barrel the sun was painted across the inside of the
+// wave. They are depth-tested and ordered after the lip instead.
+{
+  const src = await readFile(join(ROOT, 'index.html'), 'utf8');
+  const skyBlock = src.slice(src.indexOf('const skyLayer=new THREE.Group()'),
+                             src.indexOf('// One gull:') + 900);
+  check(!/depthTest:false/.test(skyBlock), 'nothing in the sky skips the depth test',
+        `${(skyBlock.match(/depthTest:(true|false)/g) || []).length} sky materials checked`);
+  const order = +(/sunDisc\.renderOrder=(-?[\d.]+)/.exec(src)?.[1] ?? -1);
+  const curlOrder = +(/curl\.renderOrder=(-?[\d.]+)/.exec(src)?.[1] ?? 1e9);
+  check(order > curlOrder, 'and the sun draws after the lip, so the lip\'s depth is down first',
+        `sun ${order} vs lip ${curlOrder}`);
+}
+
+// ---------- the barrel's one hazard says what it is ----------
+// Wreckage had no entry in the wipeout table, so it fell back to foam's — a fuel drum to the
+// chest announced itself as "ATE IT!" and the stats logged it as "Ate it". It is the only
+// thing left that can end a barrel ride, so it is the one that most needs to be legible.
+{
+  const named = await page.evaluate(() => ({
+    hasWipe: typeof window.__surf === 'object',
+  }));
+  const src = await readFile(join(ROOT, 'index.html'), 'utf8');
+  const wipeBlock = src.slice(src.indexOf('const WIPE={'), src.indexOf('const WIPE={') + 1400);
+  check(/debris:\s*\{/.test(wipeBlock), 'wreckage has its own wipeout, not foam\'s',
+        /debris:\s*\{[^}]*msg:'([^']+)'/.exec(wipeBlock)?.[1] ?? 'missing');
+  check(/debris:'[^']+'/.test(src.slice(src.indexOf('const DEATH_NAME='), src.indexOf('const DEATH_NAME=') + 400)),
+        'and its own name in the stats', 'so a run does not end as "Ate it"');
+  void named;
+}
+
 // ---------- the two copies of the wave ----------
 // The set wave lives twice: setWaveH() in JS, which the board rides, and the matching
 // block in the ocean's GLSL vertex shader, which is what you see. They are separate code
