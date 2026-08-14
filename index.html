@@ -681,7 +681,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.81.0';
+const VERSION='2.82.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5083,18 +5083,90 @@ const bodyGeo=new THREE.SphereGeometry(0.46,32,26);
 const bodyBase=bodyGeo.attributes.position.array.slice();
 // four widths, from hips to shoulders, smoothly joined
 const TORSO_DEF=[1.06,1.03,0.935,0.76];
+// How far a marking has to stand off the torso to be seen at all. The torso mesh is a
+// 26-row sphere, so its flat facets sag 0.73% INSIDE the true sphere between vertex rows,
+// while markings are cut from a 72-row copy that follows the true sphere exactly. Lifts
+// smaller than the sag put the marking underneath the very surface it is painted on: at
+// 1.004 the tabby's bars were literally inside the cat, surfacing only where the coarse
+// mesh happened to dip, which is what made them look dashed.
+const SKIN_SAG=1-Math.cos(Math.PI/26);
+// Any number of control points, smoothly joined. The old one was hard-wired to four.
+const _smt=u=>u*u*(3-2*u);
+function profAt(A,t){
+  const n=A.length-1, g=Math.min(n-1e-4,Math.max(0,t)*n), i=Math.floor(g), f=_smt(g-i);
+  return A[i]*(1-f)+A[i+1]*f;
+}
+// ---------------------------------------------------------------------------
+// THE BODY FORM — one definition, used by the torso mesh, by the markings cut from it,
+// and by the porcupine's quills. It used to be written out three times and they drifted.
+//
+// The old form had one width profile scaled by `wide` and `deep`, which means the section
+// is an ellipse of CONSTANT aspect the whole way up: a body could be fat or thin, tall or
+// short, but never deep-chested over a narrow waist, and never anything but a spindle
+// centred on one vertical line. That is the real reason twenty animals all read as the
+// same balloon in different colours, and no amount of paint on top of it was going to fix
+// that. Three things are new:
+//   wProf/dProf  half-width and half-depth SEPARATELY up the body, so a lean dog can have
+//                a deep narrow chest above a shallow waist
+//   zProf        the centre line itself, so the chest can sit forward of the hips instead
+//                of everything being threaded on one straight vertical axis
+//   keel         how far the lower FRONT jars forward of the sides — a brisket, a bird's
+//                keel, a pig's hanging belly. An ellipse cannot do this at all.
+// Five builds, because twenty bespoke sets of numbers is twenty chances to get one wrong.
+// Each is four control points from hips to shoulders. The one that matters most is the
+// second — the WAIST. Every animal used to be a spindle whose widest point was simply the
+// middle of the sphere, which is what a balloon is; a real body tucks in behind the ribs.
+const BODY={
+  // keel is deliberately small. At 0.12 it stopped reading as a brisket and started reading
+  // as a prow: a crease running from the chin to the belly, invisible head-on and obvious
+  // from three-quarters, which is the angle the game is actually played at.
+  barrel: {w:[1.30,1.16,1.34,0.86], d:[1.26,1.14,1.32,0.88], z:[0,0,-0.02,-0.03], keel:0.02},
+  deep:   {w:[1.06,0.84,1.06,0.72], d:[1.20,0.98,1.44,0.94], z:[0.05,0.01,-0.08,-0.12], keel:0.05},
+  lean:   {w:[1.00,0.76,1.06,0.66], d:[1.10,0.86,1.22,0.76], z:[0.03,0,-0.05,-0.08], keel:0.03},
+  squat:  {w:[1.22,1.06,1.32,0.92], d:[0.96,0.86,1.02,0.74], z:[0,0,-0.03,-0.04], keel:0.01},
+  upright:{w:[0.98,0.82,1.04,0.72], d:[1.04,0.90,1.18,0.82], z:[0.02,0,-0.05,-0.07], keel:0.03},
+};
+function torsoForm(C){
+  const TL=C.tall||1.32;
+  const A=BODY[C.body];
+  const base=C.shape||TORSO_DEF;
+  const W=C.wProf||(A?A.w.map(v=>v*(C.bodyW||1)):base.map(v=>v*(C.wide||1.14)));
+  const D=C.dProf||(A?A.d.map(v=>v*(C.bodyD||1)):base.map(v=>v*(C.deep||0.86)));
+  const Z=C.zProf||(A?A.z:[0,0]);
+  const K=C.keel!==undefined?C.keel:(A?A.keel:0);
+  return {
+    TL, w:t=>profAt(W,t), d:t=>profAt(D,t), zc:t=>profAt(Z,t),
+    y:t=>(t-0.5)*0.92*TL+0.258*TL+Math.pow(t,3)*0.06,
+    // the base sphere's own horizontal radius at height t — zero at both poles. THIS is
+    // the number every rig attachment needs, and every one of them was a constant instead.
+    r0:t=>0.92*Math.sqrt(Math.max(0,t*(1-t))),
+    hw(t){ return this.r0(t)*this.w(t); },     // torso half-WIDTH at t
+    hd(t){ return this.r0(t)*this.d(t); },     // torso half-DEPTH at t
+    // The height at which the torso has tapered to a given half-width. Where the shoulders
+    // are, in other words — and therefore where a head of that width belongs.
+    tAt(halfW){
+      for(let t=0.55;t<=1.0;t+=0.01) if(this.hw(t)<=halfW) return t;
+      return 1;
+    },
+    // x,y,z are a point on the unit-ish base sphere of radius 0.46
+    put(x,y,z,o){
+      const t=Math.max(0,Math.min(1,(y+0.46)/0.92));  // 0 hips, 1 shoulders (clamped: pow of a negative is NaN)
+      const front=Math.max(0,-z/0.46);                // 1 dead ahead, 0 at the flanks and behind
+      o.x=x*this.w(t);
+      o.z=z*this.d(t)+this.zc(t)-K*front*front*(1-t*0.55);
+      o.y=this.y(t);
+      o.t=t;
+      return o;
+    }
+  };
+}
+const _tp={x:0,y:0,z:0,t:0};
 function shapeTorso(C){
-  const W=C.shape||TORSO_DEF, TL=C.tall||1.32, DZ=C.deep||0.86, WX=C.wide||1.14;
-  const sm=u=>u*u*(3-2*u);
-  const prof=t=>{const g=Math.min(2.999,t*3),i=Math.floor(g),f=sm(g-i);return W[i]*(1-f)+W[i+1]*f;};
+  const F=torsoForm(C);
   const pos=bodyGeo.attributes.position, a=bodyBase;
   for(let i=0;i<pos.count;i++){
-    const x=a[i*3],y=a[i*3+1],z=a[i*3+2];
-    const t=Math.max(0,Math.min(1,(y+0.46)/0.92)); // 0 = hips, 1 = shoulders (clamped: pow() of a negative is NaN)
-    const w=prof(t);
-    pos.setX(i,x*w*WX);
-    pos.setZ(i,z*w*DZ);
-    pos.setY(i,y*TL+0.258*TL+Math.pow(t,3)*0.06);
+    F.put(a[i*3],a[i*3+1],a[i*3+2],_tp);
+    pos.setX(i,_tp.x); pos.setY(i,_tp.y); pos.setZ(i,_tp.z);
   }
   pos.needsUpdate=true;
   bodyGeo.computeVertexNormals();
@@ -5189,7 +5261,7 @@ const CHARS=[
   // bear was a white blob. Countershading (belly), species markings and honest proportions
   // are what separate them now, not just limb thickness.
 
-  {id:'pug',   name:'Astro the Pug',  price:0,
+  {id:'pug', body:'deep',   name:'Astro the Pug',  price:0,
    blurb:'The original. Flat face, curled tail, absolutely no quit.',
    // A fawn pug: sandy coat, a black mask over the muzzle and ears, a deep barrel chest on
    // short legs, and no neck at all. The skull is broad and FLAT — wider than it is deep,
@@ -5198,9 +5270,9 @@ const CHARS=[
    cheeks:true, belly:0xe6c78d,
    shape:[1.02,1.12,1.06,0.80], tall:1.18, wide:1.10, deep:1.04, neckLen:0.74,
    build:[1.02,0.92,1.04], limb:1.06, limbLen:0.82, arm:1.02, armLen:0.84, foot:1.02,
-   headS:[1.12,1.04,0.90]},
+   headS:[0.862,0.8,0.693]},
 
-  {id:'cat',   name:'Miso the Cat',   price:700,
+  {id:'cat', body:'lean',   name:'Miso the Cat',   price:700,
    blurb:'Grey tabby. Hates water, rides it anyway, will not discuss it.',
    // A tabby IS its markings: bars across the back, bars on the brow, a pale chin, chest
    // and belly. Lean and long through the body, small wedge head, ears set wide and high.
@@ -5208,9 +5280,9 @@ const CHARS=[
    face:'cat',   ears:'pointed', tail:'long', whiskers:true, cheeks:true, cheekCol:0xdedbd2,
    shape:[0.86,0.84,0.90,0.70], tall:1.46, wide:0.90, deep:0.84, neckLen:1.24,
    build:[0.82,1.02,0.86], limb:0.88, limbLen:1.06, arm:0.74, armLen:1.10, foot:0.84,
-   headS:[0.88,0.90,0.98]},
+   headS:[0.651,0.666,0.725]},
 
-  {id:'pig',   name:'Kiwi the Pig',   price:1400,
+  {id:'pig', body:'barrel',   name:'Kiwi the Pig',   price:1400,
    blurb:'Round, pink and unreasonably buoyant. Floats before the board does.',
    // A real pig is a BARREL on short legs with almost no neck, a blunt head, a flat disc
    // of a snout and big soft ears folded forward over the eyes. The colour is a dusty
@@ -5222,9 +5294,9 @@ const CHARS=[
    shape:[1.10,1.16,1.08,0.72], tall:1.18, wide:0.94, deep:1.10, neckLen:0.66,
    build:[1.06,0.90,1.10], limb:1.10, limbLen:0.68, arm:1.04, armLen:0.70,
    foot:0.86, footShape:[0.80,1.10,0.82], hand:0.86, handShape:[0.82,1.05,0.84],
-   headS:[1.16,1.02,1.14]},
+   headS:[1.135,0.998,1.115]},
 
-  {id:'corgi', name:'Waffle the Corgi',price:2400,
+  {id:'corgi', body:'deep', name:'Waffle the Corgi',price:2400,
    blurb:'Short legs, enormous ears, catches everything out of pure enthusiasm.',
    // A Pembroke: red-and-white, enormous upright rounded ears, a white blaze up the muzzle,
    // white chest and paws, a fox face — and legs so short the body nearly drags. DEEPER
@@ -5233,11 +5305,13 @@ const CHARS=[
    // no cheek patches: with a white muzzle and a white blaze already there they came out as
    // two extra white blobs stuck to the sides of the face
    muzzle:0xf6ecd8, bib:0xf9f2e2, bibS:0.84, blaze:0xf9f2e2,
-   shape:[0.96,1.00,0.98,0.76], tall:1.20, wide:0.90, deep:1.22, neckLen:0.80,
-   build:[0.98,0.82,1.12], limb:1.04, limbLen:0.52, arm:1.00, armLen:0.56, foot:1.02,
-   footCol:0xf9f2e2, handCol:0xf9f2e2, headS:[0.96,0.96,1.10]},
+   // Deeper than it is wide, on the shared 'deep' build — a corgi seen head-on is a slim
+   // dog. bodyD carries the ribcage a little further forward than the others.
+   bodyD:1.06, tall:1.16, neckLen:0.86,
+   build:[1.0,0.92,1.0], limb:1.04, limbLen:0.52, arm:1.00, armLen:0.56, foot:1.02,
+   footCol:0xf9f2e2, handCol:0xf9f2e2, headS:[0.90,0.88,1.00]},
 
-  {id:'bunny', name:'Pip the Bunny',  price:3600,
+  {id:'bunny', body:'upright', name:'Pip the Bunny',  price:3600,
    blurb:'All ears and hop. Lands everything, mostly by accident.',
    // A rabbit is hindquarters: heavy at the hips, light at the shoulders, tiny front paws
    // held up at the chest, enormous back feet, and no neck at all under those ears.
@@ -5245,9 +5319,9 @@ const CHARS=[
    face:'bunny', ears:'long',    tail:'puff', whiskers:true, cheeks:true, cheekCol:0xf7f1e4,
    shape:[1.22,1.06,0.84,0.66], tall:1.22, wide:0.96, deep:0.94, neckLen:0.70,
    build:[0.92,0.98,0.96], limb:0.94, limbLen:1.04, arm:0.70, armLen:0.72,
-   foot:1.30, footShape:[0.90,0.85,1.42], hand:0.76, headS:[0.90,0.94,0.98]},
+   foot:1.30, footShape:[0.90,0.85,1.42], hand:0.76, headS:[0.764,0.798,0.832]},
 
-  {id:'panda', name:'Bao the Panda',  price:5500,
+  {id:'panda', body:'barrel', name:'Bao the Panda',  price:5500,
    blurb:'Sits very low, turns very slowly, absolutely immovable once committed.',
    // The markings ARE the animal: black ears, black eye patches, black arms and legs, and
    // the black saddle band across the shoulders that joins them. Everything else white.
@@ -5255,9 +5329,9 @@ const CHARS=[
    eyes:'patch', band:0x191920, muzzle:0xf4f1e6,
    shape:[1.10,1.16,1.10,0.84], tall:1.24, wide:1.12, deep:1.10, neckLen:0.72,
    build:[1.10,0.98,1.12], limb:1.16, limbLen:0.84, arm:1.10, armLen:0.86, foot:1.06,
-   limbCol:0x191920, footCol:0x141419, handCol:0x141419, headS:[1.16,1.12,1.02]},
+   limbCol:0x191920, footCol:0x141419, handCol:0x141419, headS:[1.178,1.138,1.036]},
 
-  {id:'frog',  name:'Allen the Frog',  price:900,
+  {id:'frog', body:'squat',  name:'Allen the Frog',  price:900,
    blurb:'Born for this. Wide mouth, wider eyes, sticks every landing wetly.',
    // A frog is SQUAT: no neck, a body broader than it is tall, eyes up on TOP of the skull,
    // and hind legs far longer and far thicker than the arms. The old one stood like a green
@@ -5266,14 +5340,14 @@ const CHARS=[
    face:'frog',  ears:'hole',   tail:'none',  eyes:'bulge', gloss:0.38,
    belly:0xdae589,
    shape:[0.88,1.04,1.02,0.74], tall:0.80, wide:1.06, deep:0.92, neckLen:0.28,
-   headS:[1.14,0.86,1.02],
+   headS:[1.091,0.823,0.976],
    build:[1.04,0.86,1.00], limb:1.24, arm:0.84, limbLen:2.35, armLen:1.62, lip:0x8e1c34,
    legProf:[0.300,0.185,0.104,0.100,0.082,0.066], legBlend:0.34,
    armProf:[0.150,0.104,0.084,0.086,0.072,0.060], armBlend:0.24,
    foot:1.00, footShape:[0.92,0.42,2.05], hand:0.82, handShape:[0.88,0.46,1.30],
    toes:3, fingers:4},
 
-  {id:'otter', name:'Nori the Otter', price:1900,
+  {id:'otter', body:'lean', name:'Nori the Otter', price:1900,
    blurb:'Never off the water in the first place. Rolls for the fun of it.',
    // A sea otter: a long tube of a body, a pale grizzled face and throat against dark brown
    // fur, a blunt round head with tiny ears, heavy whiskers, and big webbed back feet.
@@ -5284,9 +5358,9 @@ const CHARS=[
    belly:0x9c7854,
    shape:[0.88,0.96,0.98,0.78], tall:1.50, wide:0.86, deep:0.92, neckLen:1.04,
    build:[0.80,1.08,0.88], limb:0.88, limbLen:0.80, arm:0.80, armLen:0.90, foot:1.30,
-   footShape:[1.34,0.72,1.16], hand:0.86, headS:[0.94,0.90,0.98]},
+   footShape:[1.34,0.72,1.16], hand:0.86, headS:[0.696,0.666,0.725]},
 
-  {id:'raccoon',name:'Bandit the Raccoon',price:3000,
+  {id:'raccoon', body:'lean',name:'Bandit the Raccoon',price:3000,
    blurb:'Turned up uninvited with somebody else\'s board. Extremely good on it.',
    // Grizzled grey, a black bandit mask, a pointed pale muzzle, a fat ringed tail and small
    // black hands. The white ruff either side of the mask is what frames it.
@@ -5296,9 +5370,9 @@ const CHARS=[
    cheeks:true, cheekCol:0xe8e2d6,
    shape:[1.04,1.06,0.98,0.76], tall:1.28, wide:1.00, deep:1.00, neckLen:0.92,
    build:[0.94,0.98,1.02], limb:0.92, limbLen:0.94, arm:0.88, armLen:1.02, foot:0.98,
-   footCol:0x26282f, handCol:0x26282f, headS:[1.00,0.94,1.08]},
+   footCol:0x26282f, handCol:0x26282f, headS:[0.74,0.696,0.799]},
 
-  {id:'sloth', name:'Chill the Sloth', price:4200,
+  {id:'sloth', body:'lean', name:'Chill the Sloth', price:4200,
    blurb:'Takes the whole wave to make one turn and somehow still makes it.',
    // Shaggy grey-brown, a flat pale face inside a darker mop, dark eye patches, and arms
    // half again longer than the legs, ending in three enormous hooks.
@@ -5308,9 +5382,9 @@ const CHARS=[
    face:'long',  ears:'tuft',    tail:'stub', eyes:'patch', cheeks:true, cheekCol:0xd6c4a2,
    shape:[1.02,1.10,1.02,0.76], tall:1.22, wide:1.02, deep:0.98, neckLen:0.64,
    build:[0.98,0.96,1.00], limb:0.80, limbLen:0.92, arm:0.78, armLen:1.62,
-   foot:0.94, hand:0.70, claws:3, clawCol:0x35291d, headS:[0.94,0.96,0.92]},
+   foot:0.94, hand:0.70, claws:3, clawCol:0x35291d, headS:[0.72,0.735,0.705]},
 
-  {id:'lizard',name:'Basil the Lizard',price:6200,
+  {id:'lizard', body:'deep',name:'Basil the Lizard',price:6200,
    blurb:'Crested, long-tailed and entirely unbothered. Runs across the flat bits.',
    // A green iguana: the dewlap hanging under the jaw, a spiny crest, a long deep head, a
    // pale belly and a whip tail. Deeper than it is wide, and low-slung.
@@ -5322,9 +5396,9 @@ const CHARS=[
    shape:[0.94,1.06,1.06,0.80], tall:1.08, wide:0.98, deep:1.10, neckLen:0.94,
    build:[0.90,0.84,1.10], limb:0.92, limbLen:0.86, arm:0.84, armLen:0.94, foot:1.14,
    footShape:[1.28,0.76,1.24], hand:1.06, handShape:[1.20,0.76,1.20],
-   claws:4, clawCol:0x123f2e, toes:4, fingers:4, headS:[0.90,0.88,1.14]},
+   claws:4, clawCol:0x123f2e, toes:4, fingers:4, headS:[0.764,0.747,0.967]},
 
-  {id:'penguin',name:'Tux the Penguin',price:7500,
+  {id:'penguin', body:'upright',name:'Tux the Penguin',price:7500,
    blurb:'Overdressed for the beach. Still the fastest thing off the line.',
    // A gentoo shape: pear-bodied — narrow at the shoulders, widest low down — standing
    // upright on short legs set right at the back of it.
@@ -5332,9 +5406,9 @@ const CHARS=[
    face:'beak',  ears:'none',   tail:'stub',   eyes:'beady',
    shape:[1.14,1.10,0.96,0.66], tall:1.46, wide:0.96, deep:1.00, neckLen:0.66,
    build:[0.98,1.08,1.00], limb:0.84, limbLen:0.58, arm:0.88, armLen:1.02, foot:1.32, hand:1.0,
-   footShape:[1.26,0.70,1.30], flipper:true, footCol:0xf2a01b, headS:[0.92,0.94,0.96]},
+   footShape:[1.26,0.70,1.30], flipper:true, footCol:0xf2a01b, headS:[0.807,0.825,0.842]},
 
-  {id:'ant',   name:'De Soto the Ant',price:2700,
+  {id:'ant', body:'lean',   name:'De Soto the Ant',price:2700,
    blurb:'Six legs, none of them needed. Carries three times his weight in puka.',
    // a fire ant is a deep red-BROWN with a near-black gaster, not traffic-cone orange —
    // and the source has to be desaturated to survive vivid()'s 45% saturation push
@@ -5345,7 +5419,7 @@ const CHARS=[
    build:[0.50,0.74,0.52], socket:0.58, limb:0.66, limbLen:1.10, headS:[0.80,0.76,0.82],
    arm:0.6, armLen:0.92, foot:0.86},
 
-  {id:'angler',name:'Wick the Anglerfish',price:8800,
+  {id:'angler', body:'squat',name:'Wick the Anglerfish',price:8800,
    blurb:'Spent her whole life a mile down with the only light for miles. Brought it up with her.',
    fur:0x2c3a42, dark:0x161f26, nose:0x0d1418, lureCol:0x9ff6dc,
    face:'angler', ears:'none', tail:'fin', tailTilt:1.30, eyes:'beady',
@@ -5355,7 +5429,7 @@ const CHARS=[
    build:[0.90,0.88,0.92], limb:0.82, limbLen:0.70, arm:0.88, armLen:0.86,
    foot:1.06, footShape:[1.30,0.50,1.10], hand:1.0},
 
-  {id:'monkey',name:'Bongo the Monkey',price:2100,
+  {id:'monkey', body:'lean',name:'Bongo the Monkey',price:2100,
    blurb:'Arms longer than his legs and a tail with opinions of its own. Never once sat still.',
    // A macaque build: light frame, long arms, a pale face and chest against darker fur, and
    // the round flat ears set low and wide on the skull.
@@ -5363,12 +5437,12 @@ const CHARS=[
    face:'long', ears:'disc', tail:'long', tailTilt:1.15, eyes:'wide',
    belly:0xd8b48c, cheeks:true, cheekCol:0xe0b489,
    shape:[0.92,0.94,0.98,0.74], tall:1.30, wide:0.88, deep:0.86, neckLen:0.84,
-   headS:[0.94,0.92,0.94],
+   headS:[0.696,0.681,0.696],
    build:[0.86,0.98,0.88], limb:0.84, limbLen:0.94, arm:0.76, armLen:1.55,
    foot:1.10, footShape:[0.92,0.80,1.28], hand:0.96, handShape:[0.94,0.72,1.30],
    toes:3, fingers:4},
 
-  {id:'squirrel',name:'Hazel the Squirrel',price:1600,
+  {id:'squirrel', body:'lean',name:'Hazel the Squirrel',price:1600,
    blurb:'Small, twitchy and completely fearless. The tail arrives a second after she does.',
    // Rust-red over a cream belly, a short muzzle with the two front teeth showing, tufted
    // ears, and a tail that is bigger than she is.
@@ -5380,11 +5454,11 @@ const CHARS=[
    face:'rodent', ears:'pointed', tail:'plume', tailTilt:0.30, whiskers:true, eyes:'wide',
    belly:0xf4e6cd, cheeks:true, cheekCol:0xf2e2c6,
    shape:[1.06,0.98,0.86,0.68], tall:1.18, wide:0.88, deep:0.86, neckLen:0.76,
-   headS:[0.92,0.92,1.00],
+   headS:[0.681,0.681,0.74],
    build:[0.82,0.94,0.86], limb:0.84, limbLen:1.00, arm:0.72, armLen:0.92, foot:1.18,
    footShape:[0.90,0.92,1.24], hand:0.82, claws:3, clawCol:0x3a2a1c},
 
-  {id:'porcupine',name:'Quill the Porcupine',price:3900,
+  {id:'porcupine', body:'barrel',name:'Quill the Porcupine',price:3900,
    blurb:'Nobody has ever asked him to move over. He has never had to ask either.',
    // Low, heavy and hunched, with the quills covering the whole back and no neck showing
    // between them and the skull.
@@ -5392,11 +5466,11 @@ const CHARS=[
    face:'long', ears:'small', tail:'stub', eyes:'beady', whiskers:true,
    quills:true, quillCol:0x241d14, quillTip:0xf4e8ca,
    shape:[1.16,1.20,1.04,0.74], tall:1.14, wide:1.08, deep:1.10, neckLen:0.58,
-   headS:[0.90,0.90,1.12],
+   headS:[1.098,1.098,1.366],
    build:[1.04,0.94,1.06], limb:1.00, limbLen:0.74, arm:0.92, armLen:0.76, foot:1.02,
    footCol:0x241d14, handCol:0x241d14, claws:3, clawCol:0x1c150e},
 
-  {id:'alien', name:'Zorp the Alien',   price:13500,
+  {id:'alien', body:'upright', name:'Zorp the Alien',   price:13500,
    blurb:'Came a very long way for this. Has not said why, and the board suits him.',
    fur:0x86d46a, dark:0x4e8f3c, nose:0x2b4a22, lip:0x24381f,
    face:'alien', ears:'none', tail:'none', eyes:'alien', gloss:0.30, metal:0.06,
@@ -5408,7 +5482,7 @@ const CHARS=[
    foot:0.92, footShape:[0.90,0.60,1.35], hand:0.86, handShape:[0.90,0.55,1.30],
    toes:3, fingers:3},
 
-  {id:'rex',   name:'Rexy the T. rex',price:11000,
+  {id:'rex', body:'deep',   name:'Rexy the T. rex',price:11000,
    blurb:'Tiny arms, enormous everything else. The wave gets out of the way.',
    // Deep-chested, heavy in the thigh, tiny arms held close to the chest, and a head that
    // is most of the animal. Belly paler than the back, the way every reconstruction has it.
@@ -5417,9 +5491,9 @@ const CHARS=[
    belly:0xa8bd7a,
    shape:[1.04,1.14,1.10,0.80], tall:1.20, wide:0.96, deep:1.20, neckLen:0.80,
    build:[0.96,0.98,1.10], limb:1.20, limbLen:0.94, arm:0.58, armLen:0.42, foot:1.10,
-   footShape:[1.14,0.88,1.30], claws:3, clawCol:0xe8e0cc, headS:[1.00,0.98,1.12]},
+   footShape:[1.14,0.88,1.30], claws:3, clawCol:0xe8e0cc, headS:[0.807,0.791,0.904]},
 
-  {id:'chicken',name:'Nugget the Chicken',price:8200,
+  {id:'chicken', body:'barrel',name:'Nugget the Chicken',price:8200,
    blurb:'Cannot fly. Has never let that stop her. Surfs like she means it.',
    // A hen is a teardrop on a long neck: full and round at the bottom, narrowing up to the
    // shoulders, with the comb and wattles doing the rest of the work.
@@ -5429,21 +5503,17 @@ const CHARS=[
    shape:[1.10,1.12,0.92,0.60], tall:1.14, wide:0.96, deep:1.08, neckLen:1.26,
    build:[0.98,1.00,1.00], limb:0.84, limbLen:0.96, arm:0.92, armLen:0.80, foot:1.14, hand:1.0,
    footShape:[1.22,0.55,1.34], flipper:true, footCol:0xf0a51c, claws:3, clawCol:0xf0a51c,
-   headS:[0.84,0.86,0.86]},
+   headS:[1.025,1.049,1.049]},
 ];
 const CHAR_BY_ID={}; for(const c of CHARS)CHAR_BY_ID[c.id]=c;
 function buildChar(id){
   const C=CHAR_BY_ID[id]||CHAR_BY_ID.pug;
   clearKit();
   // ---- where this character's body actually IS ----
-  // Declared first because every marking below needs it. The torso is a sphere of radius
-  // 0.46 pushed through a width profile, so its half-width at height t is the sphere's own
-  // radius there TIMES the profile TIMES `wide` — and it falls to nothing at the hips and
-  // the shoulders. Marking sizes written as constants were the single cause of every patch
-  // that floated off a lean animal or vanished inside a round one.
-  const _W=C.shape||TORSO_DEF, _WX=C.wide||1.14, _DZ=C.deep||0.86, _TL=C.tall||1.32;
-  const _sm=u=>u*u*(3-2*u);
-  const bodyProf=t=>{const g=Math.min(2.999,t*3),i=Math.floor(g),f=_sm(g-i);return _W[i]*(1-f)+_W[i+1]*f;};
+  // The one body form, shared with the torso mesh itself — declared first because every
+  // marking below needs to know where the body actually is. Sizes written as constants were
+  // the single cause of every patch that floated off a lean animal or sank into a round one.
+  const _F=torsoForm(C), _TL=_F.TL;
   // ...and then the whole mesh is scaled again by `build` (torso.scale). Leaving that out
   // put every marking about a fifth outside the body it was supposed to be lying on, which
   // is how the cat first came to wear its stripes as a rib cage in front of its chest.
@@ -5476,14 +5546,16 @@ function buildChar(id){
     const g=new THREE.SphereGeometry(0.46,48,72).toNonIndexed();
     const p=g.attributes.position, n=p.count;
     const P=new Float32Array(n*3), N=new Float32Array(n*3), T=new Float32Array(n), A=new Float32Array(n);
+    const o={x:0,y:0,z:0,t:0};
     for(let i=0;i<n;i++){
       const x=p.getX(i), y=p.getY(i), z=p.getZ(i);
-      const t=Math.max(0,Math.min(1,(y+0.46)/0.92)), w=bodyProf(t);
-      P[i*3]=x*w*_WX; P[i*3+1]=y*_TL+0.258*_TL+Math.pow(t,3)*0.06; P[i*3+2]=z*w*_DZ;
-      T[i]=t; A[i]=Math.abs(Math.atan2(x,-z));
+      _F.put(x,y,z,o);
+      P[i*3]=o.x; P[i*3+1]=o.y; P[i*3+2]=o.z;
+      T[i]=o.t; A[i]=Math.abs(Math.atan2(x,-z));
       // the sphere's own outward normal, squashed by the inverse of the axis scales — which
       // is what a smooth normal on a non-uniformly scaled sphere is
-      const nx=x/(w*_WX), ny=y/_TL, nz=z/(w*_DZ), L=Math.hypot(nx,ny,nz)||1;
+      const nx=x/Math.max(0.02,_F.w(o.t)), ny=y/_F.TL, nz=z/Math.max(0.02,_F.d(o.t));
+      const L=Math.hypot(nx,ny,nz)||1;
       N[i*3]=nx/L; N[i*3+1]=ny/L; N[i*3+2]=nz/L;
     }
     g.dispose();
@@ -5493,7 +5565,11 @@ function buildChar(id){
   // bands: [[t0,t1], ...]; a vertex takes the strongest alpha of any band it falls in, so a
   // whole set of tabby bars is ONE mesh and one draw rather than eight.
   const bodyBands=(bands,m,grow,halfAng,invert)=>{
-    const FA=0.34;
+    // Feather in PROPORTION to the patch, not a constant. Countershading has no hard edge on
+    // a real animal, but a fixed 0.60 rad ramp on the cat's 0.62 rad pale front meant the
+    // ramp was the whole patch: it never reached full opacity anywhere, so the tabby's bars
+    // showed straight through the white chest they are supposed to stop at.
+    const FA=halfAng!==undefined?Math.min(0.45,halfAng*0.55):0.34;
     const sm=u=>{const c=Math.max(0,Math.min(1,u));return c*c*(3-2*c);};
     const FT=bands.map(([a,b])=>Math.min(0.11,Math.max(0.014,(b-a)*0.55)));
     const S=bodySkin(), out=[], nout=[], cout=[];
@@ -5581,20 +5657,46 @@ function buildChar(id){
   // Shoulders follow the body's width automatically — a narrow animal with the pug's
   // shoulder sockets has its arms hanging in the air beside it. Hips do not: they are
   // placed so the feet land on the deck, and moving them slides him off his own board.
+  // ---- everything that hangs off the body, placed FROM the body ----
+  // These were constants tuned to one animal: shoulders at x=0.44, the head at a fixed
+  // height up a fixed neck. That is why widening a body swallowed its head and narrowing
+  // one left the arms hanging in daylight — the rig had no idea what shape it was wearing.
+  const _FF=torsoForm(C), _HS3=C.headS||[1,1,1];
+  const headHW=0.40*_HS3[0];
+  // the shoulder joint sits a little INSIDE the chest, so the arm grows out of the body
+  // instead of starting at the silhouette edge
+  const tSh=_FF.tAt(headHW*1.30);                 // roughly armpit height
+  const shX=Math.max(0.12,_FF.hw(tSh)*B[0]*0.86)*(C.socket||1);
   const KA=C.socket||B[0];
   for(const j of limbJoints){
-    const q=j.userData.socket, k=armRoot.indexOf(j)>=0?KA:K;
-    j.position.set(q[0]*k,q[1],q[2]*k);
+    const q=j.userData.socket;
+    if(armRoot.indexOf(j)>=0) j.position.set(Math.sign(q[0])*shX,q[1],q[2]*B[2]);
+    else j.position.set(q[0]*K,q[1],q[2]*K);     // hips are placed so the feet land on the deck
   }
   hipBuild=B;
   layHips();
   shapeTorso(C);
   if(typeof updateLimbs==='function')updateLimbs();
-  // some animals have a neck and some do not; a cat is mostly neck and a pug has none
-  neck.position.y=0.30*(C.neckLen||1);
+  // The head rests on the SHOULDER LINE — the height at which the torso has tapered to about
+  // a third of its chest width. Not the top of the mesh: that is the sphere's pole, a needle
+  // with no width, and measuring against it says every head is buried.
+  //
+  // The lift above that line is proportional to the head's own size, so a big head rides
+  // high and a small one settles in, and neckLen only ever ADDS. Written as
+  // `+0.34*(neckLen-1)` it went negative for every short-necked animal and dropped eight of
+  // the twenty bodily into their own shoulders.
+  let chestHW=0;
+  for(let t=0.30;t<=0.85;t+=0.02) chestHW=Math.max(chestHW,_FF.hw(t));
+  const tHead=_FF.tAt(chestHW*0.36);
+  const headY=_FF.y(tHead)*B[1]+0.40*_HS3[1]*(0.30+0.34*(C.neckLen||1));
+  neck.position.y=Math.max(0.06,headY-0.50);      // headJ = chestJ(+0.30) + neck + 0.20
   torso.scale.set(B[0],B[1],B[2]);
   collar.scale.set(1.15*B[0],1.0*B[1],1.1*B[2]);
-  head.scale.set(C.headS?C.headS[0]:1, C.headS?C.headS[1]:1, C.headS?C.headS[2]:1);
+  // The head's scale lives on the JOINT, not the mesh, so the ears, eyes, muzzle and
+  // whiskers hanging off it shrink with it. On the mesh alone, shrinking a head left its
+  // ears floating in the air where the old skull used to be.
+  headJ.scale.set(_HS3[0],_HS3[1],_HS3[2]);
+  head.scale.set(1,1,1);
   furMat.roughness=C.gloss!==undefined?C.gloss:0.62;
   furMat.metalness=C.metal||0.0;
   kitEyes(C,inner);
@@ -5665,7 +5767,7 @@ function buildChar(id){
     // Cut from the chest, like the pale underside. As an ellipsoid it met the torso at a
     // shallow angle and the intersection came out as a ragged sawtooth along the bottom
     // of the corgi's bib — two curved surfaces crossing at a few degrees on a 26-row mesh.
-    bodyPatch(bodyT(by-bh),bodyT(by+bh),bm,1.008,0.86);
+    bodyPatch(bodyT(by-bh),bodyT(by+bh),bm,1+SKIN_SAG+0.012,0.86);
     const t=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(1,20,16),bm));   // up under the chin
     const hz=headRZ(-0.15);
     t.position.set(0,-0.15,-hz*0.50);
@@ -5681,18 +5783,17 @@ function buildChar(id){
     // Put them ON the body by using the same numbers the torso is built from, rather
     // than guessing a radius — otherwise they float off a wide animal and sink into a
     // narrow one. Each stands along its own outward normal, raked back.
-    const W=C.shape||TORSO_DEF, TL=C.tall||1.32, DZ=C.deep||0.86, WX=C.wide||1.14, B2=C.build||[1,1,1];
-    const sm2=u=>u*u*(3-2*u);
-    const prof=t2=>{const g2=Math.min(2.999,t2*3),i2=Math.floor(g2),f2=sm2(g2-i2);return W[i2]*(1-f2)+W[i2+1]*f2;};
+    const B2=C.build||[1,1,1], q0={x:0,y:0,z:0,t:0};
     const up=new THREE.Vector3(0,1,0), dir=new THREE.Vector3();
     for(let ring=0;ring<6;ring++){
       const t2=0.20+ring*0.135;
-      const y0=t2*0.92-0.46, r0=Math.sqrt(Math.max(0.02,0.46*0.46-y0*y0)), w=prof(t2);
-      const y=y0*TL+0.258*TL;
+      const y0=t2*0.92-0.46, r0=Math.sqrt(Math.max(0.02,0.46*0.46-y0*y0));
+      const y=_F.y(t2)*B2[1];
       const n=7+ring*2;
       for(let i=0;i<n;i++){
         const a3=(i/(n-1)-0.5)*Math.PI*1.45;          // across the back, never the belly
-        const x=Math.sin(a3)*r0*w*WX*B2[0], z=Math.cos(a3)*r0*w*DZ*B2[2];
+        _F.put(Math.sin(a3)*r0,y0,Math.cos(a3)*r0,q0);
+        const x=q0.x*B2[0], z=q0.z*B2[2];
         const L2=0.26+Math.sin(t2*Math.PI)*0.26;
         dir.set(x,0.30,z).normalize();                // out from the spine and raked back
         const q=kit(spine,new THREE.Mesh(new THREE.ConeGeometry(0.030,L2,6),qm));
@@ -5971,7 +6072,7 @@ function buildChar(id){
       const t2=0.20+i*0.086, h=0.020+0.005*Math.sin(i*2.1);
       bands.push([t2-h,t2+h]);
     }
-    bodyBands(bands,sm,1.004,1.02,true);
+    bodyBands(bands,sm,1+SKIN_SAG+0.004,1.02,true);
     for(let i=0;i<3;i++){                            // and the bars on the forehead
       const b2=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.048,10,8),sm));
       b2.position.set((i-1)*0.078,0.305,-0.14);b2.scale.set(0.40,0.52,1.4);
@@ -5986,7 +6087,10 @@ function buildChar(id){
     // taper right but showed their seams as a row of scallops down the chest.
     // Just clear of the stripes (1.004), which are painted on the same skin — enough to win
     // the depth test where the two overlap, and far too little to see.
-    bodyPatch(0.05,0.92,bm,1.008,C.bellyW||0.80);
+    // Starts at 0.16, not 0.05. Below that the torso's radius is collapsing into the bottom
+    // pole, where a single quad spans a huge slice of angle — the patch's angular edge cut
+    // across those and came out as two triangular spikes on the cat's flank.
+    bodyPatch(0.16,0.90,bm,1+SKIN_SAG+0.012,C.bellyW||0.80);
   }
   // ---- a band across the shoulders ----
   // The panda's black saddle: it wraps the chest and runs into both arms, and it is the
@@ -5999,7 +6103,7 @@ function buildChar(id){
     // collar cover the torso and all that showed of a panda's defining marking was a thin
     // dark arc over one shoulder. Cut from the body so it wraps; a stack of tori wrapped
     // too, but the overlapping tubes ridged up and read as a car tyre.
-    bodyPatch(0.52,0.92,bm,1.007);
+    bodyPatch(0.52,0.92,bm,1+SKIN_SAG+0.012);
   }
   // ---- comb and wattles ----
   // A row of soft lobes standing along the crown, tallest in the middle, and a pair

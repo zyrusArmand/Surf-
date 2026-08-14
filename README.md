@@ -52,7 +52,34 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
-- **v2.81.0** — **Every character rebuilt against the real animal, and perks on the shop card.**
+- **v2.82.0** — **The bodies themselves, rebuilt.** v2.81 repainted twenty animals that were
+  all the same shape underneath, which is why they still read as one toy in twenty colours.
+  This changes the shape.
+  - **The torso can now be a body.** It was one width profile scaled by `wide` and `deep` —
+    an ellipse of *constant aspect* the whole way up, threaded on a single vertical axis. It
+    could be fat or thin, tall or short, and nothing else. Now: `wProf` and `dProf` vary
+    width and depth independently, `zProf` bends the centre line so a chest can sit forward
+    of the hips, and `keel` lets the lower front jut past the flanks. Five shared builds
+    (`barrel`, `deep`, `lean`, `squat`, `upright`) rather than twenty hand-written sets.
+  - **Every animal now has a waist.** Measured across the roster it was 0.93 for all twenty —
+    the widest point was simply the middle of the sphere, which is the definition of a
+    balloon. It is 0.69–0.82 now.
+  - **The rig follows the body it is wearing.** The shoulders were at a hard-coded x=0.44 and
+    the head at a fixed height up a fixed neck, so widening a body swallowed its head and
+    narrowing one left the arms hanging in daylight. Both are now derived from the torso's
+    own half-width, and the head's scale moved onto its JOINT so ears, eyes and whiskers
+    shrink with it instead of floating where the old skull used to be.
+  - **Heads came down.** Sixteen of twenty had a head wider than 0.72 of the chest, six had
+    heads wider than their whole chest. That ratio *is* the "two balls stacked up" look.
+    Every mammal is now between 0.63 and 0.77; the alien, the ant and the anglerfish keep
+    their big heads, because for those three it is the joke.
+  - **Markings stopped sinking into the body.** The torso mesh is a 26-row sphere whose facets
+    sag 0.73% inside the true sphere, while markings are cut from a 72-row copy that follows
+    it exactly. Lifts of 1.004 therefore put the tabby's stripes *underneath* the cat,
+    surfacing only where the coarse mesh happened to dip — which is what made them look
+    dashed. The lift is now derived from the mesh instead of guessed.
+
+- **v2.81.0** — **Every character repainted against the real animal, and perks on the shop card.**
   - **Markings are now measured, not guessed.** Every patch, stripe and band used to be
     sized with flat constants. Three things the constants ignored: the torso is a *sphere*
     pushed through a width profile, so its half-width falls to nothing at the hips and the
