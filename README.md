@@ -52,6 +52,11 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.78.0** — **The ramp's little wings clipped off.** The tabs sticking out of both top
+  corners were the lit lip bar: 6 cm wider than the deck it sits on, floating 20 cm proud of
+  the rails — which roll *down* at the edges — so its bright teal ends hung past the corners
+  in mid-air. It now sits inside the deck's width, settled into the crown.
+
 - **v2.77.0** — **Button polish.** "Watch a clip" becomes **Free life** (say what it gives,
   not what it costs), "Beach shop" becomes **Shop**, and the pills slim down (11px pad, 15px
   on the run card) with a brighter glass sheen. The uneven spacing was real and structural:
