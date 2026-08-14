@@ -1214,9 +1214,10 @@ if (hasHook) {
 // ---------- the feature batch: haptics, glitter, goals, perks, share, tube chest ----------
 {
   const src = await readFile(join(ROOT, 'index.html'), 'utf8');
-  check(/navigator\.vibrate/.test(src) && /CLOSE CALL/.test(src) && /step\(0\.982,gh\)/.test(src)
-        && /RIDER_PERK\[rider\]/.test(src) && /id="shareBtn"/.test(src),
-        'haptics, close calls, sun glitter, rider perks and share are all wired');
+  check(/navigator\.vibrate/.test(src) && /CLOSE CALL/.test(src)
+        && /RIDER_PERK\[rider\]/.test(src) && /id="shareBtn"/.test(src)
+        && !/step\(0\.982,gh\)/.test(src),
+        'haptics, close calls, rider perks and share are wired — and the sparkles are gone');
 
   // goals: three of them exist, and the run card shows them
   const goalsShown = await page.evaluate(async () => {

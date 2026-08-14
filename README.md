@@ -52,6 +52,9 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.80.0** — **Sparkles removed.** The v2.79 sun-glitter sparkles come back out, cleanly:
+  the ocean's own sun specular stays, the twinkle cells go.
+
 - **v2.79.0** — **The feature batch: eight at once.**
   - **Haptics** (Android): tricks, wipeouts, close calls, chest catches, every ceremony tap,
     and the burst.
