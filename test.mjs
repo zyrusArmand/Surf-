@@ -1211,6 +1211,50 @@ if (hasHook) {
   check(closed, 'and Main menu puts the ceremony away');
 }
 
+// ---------- the feature batch: haptics, glitter, goals, perks, share, tube chest ----------
+{
+  const src = await readFile(join(ROOT, 'index.html'), 'utf8');
+  check(/navigator\.vibrate/.test(src) && /CLOSE CALL/.test(src) && /step\(0\.982,gh\)/.test(src)
+        && /RIDER_PERK\[rider\]/.test(src) && /id="shareBtn"/.test(src),
+        'haptics, close calls, sun glitter, rider perks and share are all wired');
+
+  // goals: three of them exist, and the run card shows them
+  const goalsShown = await page.evaluate(async () => {
+    window.__surf.restart(); window.__surf.tick(1);
+    window.__surf.wipeNow('foam'); window.__surf.tick(5);
+    const txt = document.getElementById('ovText').textContent;
+    return { onCard: /Goals/.test(txt), rows: (txt.match(/\u2726|\u2736|✦/g) || []).length };
+  });
+  check(goalsShown.onCard && goalsShown.rows === 3,
+        'three session goals stand on the run card', `${goalsShown.rows} rows`);
+
+  // the chest in the barrel: hangs low over the pocket, a pipe jump reaches it
+  const tube = await page.evaluate(async () => {
+    window.__surf.restart(); window.__surf.invuln(true); window.__surf.tick(1);
+    window.__surf.armSetWave(); window.__surf.warpSetWave('RIDE');
+    for (let i = 0; i < 40; i++) { window.__surf.tick(0.2);
+      if (window.__surf.state().swTubeRide) break; }
+    if (!window.__surf.state().swTubeRide) return { skipped: true };
+    let held = false, before = null, planted = null, dbg = null;
+    for (let tries = 0; tries < 4 && !held; tries++) {
+      for (let i = 0; i < 30; i++) { window.__surf.setTubeAngle(0); window.__surf.tick(0.05); }
+      planted = window.__surf.tubeChest();
+      if (before === null) before = window.__surf.state().crateHeld;
+      window.__surf.jump();
+      for (let i = 0; i < 40; i++) { window.__surf.tick(0.05);
+        if (window.__surf.state().crateHeld) { held = true; break; } }
+      if (!held && dbg === null) { const st = window.__surf.state();
+        dbg = { planted, tube: st.swTubeRide, on: st.crateOn, pipe: st.swPipeAir,
+                px: +st.px.toFixed(1), c: +st.tubeC.toFixed(1) }; }
+    }
+    return { skipped: false, before, held, dbg };
+  });
+  check(!tube.skipped && !tube.before && tube.held,
+        'the barrel chest takes a pipe jump to grab',
+        tube.skipped ? 'never got on the ring'
+                     : `held=${tube.held}` + (tube.held ? '' : ` ${JSON.stringify(tube.dbg)}`));
+}
+
 // ---------- the ruler reads the same water the game draws ----------
 // sampleWave is what every "how far off the surface is he" check in this file measures
 // against, and it was sampling at tNow while the ocean is drawn from waveClock — a clock that

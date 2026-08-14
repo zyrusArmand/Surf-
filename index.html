@@ -228,6 +228,9 @@
   #ovPurse { display:none !important; }
   #recordsBtn { display:none !important; }
   /* ---------- the treasure chest ceremony ---------- */
+  #ovText .lead.goals { margin-top:14px; opacity:.85; font-size:min(4vw,15px); }
+  #ovText .tr.goal { font-size:min(3.9vw,14.5px); opacity:.92; }
+  #ovText .tr.goal span { text-align:left; }
   #crateOv { position:fixed; inset:0; z-index:120; background:rgba(4,15,27,.38);
              display:flex; flex-direction:column; align-items:center; text-align:center;
              justify-content:space-between; padding:12vh 5vw 7vh; }
@@ -603,6 +606,7 @@
     <button class="go alt" id="shopBtn">Shop</button>
     <button class="go sun" id="recordsBtn">Stats</button>
     <button class="go alt" id="menuBtn">Main menu</button>
+    <button class="go calm" id="shareBtn">Share</button>
   </div>
 </div>
 <!-- A full-screen look at one thing, turning slowly, rendered live rather than
@@ -675,7 +679,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.78.0';
+const VERSION='2.79.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1148,6 +1152,16 @@ const oceanMat=new THREE.ShaderMaterial({
                   clamp(core*(0.80+0.40*laceR+0.30*fleckR),0.0,1.0)*0.92);
       }
       col += vec3(1.0)*pow(max(dot(N,H),0.0),480.0)*0.6;
+      // the glitter path: pixel-sized sparkles inside the sun's wider specular lobe,
+      // twinkling on their own clocks, strongest when the sun sits low — the streak of
+      // broken light every real ocean sunset lays down the middle of the water
+      {
+        float glin=pow(max(dot(N,H),0.0),26.0);
+        vec2 gc=floor(vW.xz*vec2(3.1,2.3));
+        float gh=fract(sin(dot(gc,vec2(127.1,311.7))+floor(uT*6.0)*17.0)*43758.5453);
+        float low=1.0-clamp(uSun.y,0.0,1.0);
+        col+=vec3(1.0,0.93,0.78)*glin*step(0.982,gh)*(0.5+2.4*low);
+      }
       float fog = smoothstep(70.0,230.0,length(cameraPosition-vW));
       col = mix(col,uSky,fog);
       // hand-picked colours are sRGB — convert to linear so the renderer's single
@@ -2224,6 +2238,85 @@ loadModel('board.glb',s=>{
 // ---------- what carries between runs ----------
 const SAVE_KEY='pugSurfSave1';
 let coins=0, owned={astro:1}, equipped='astro', ownedChars={pug:1}, rider='pug';
+// ---------- rider perks ----------
+// One small, legible bonus per animal, so the chest's character drop is treasure rather
+// than a skin. Applied on top of the board's stats; the pug stays the honest baseline.
+const RIDER_PERK={
+  cat:      {trick:1.10, text:'+10% trick points'},
+  pig:      {float:1.12, text:'Floats higher'},
+  otter:    {speed:1.06, text:'A knot faster'},
+  penguin:  {grip:1.12,  text:'Rails that hold'},
+  frog:     {air:1.12,   text:'Extra pop'},
+  monkey:   {air:1.10,   text:'Springy legs'},
+  panda:    {lives:1,    text:'One extra life'},
+  bunny:    {air:1.12,   text:'Extra pop'},
+  chicken:  {luck:1.25,  text:'Chests come oftener'},
+  corgi:    {speed:1.05, text:'Low and fast'},
+  raccoon:  {luck:1.35,  text:'Treasure finder'},
+  squirrel: {trick:1.08, text:'+8% trick points'},
+  sloth:    {grip:1.15,  text:'Unhurried grip'},
+  lizard:   {grip:1.10,  text:'Sticky feet'},
+  alien:    {trick:1.12, text:'+12% trick points'},
+  angler:   {luck:1.20,  text:'A nose for gold'},
+  ant:      {float:1.08, text:'Impossibly buoyant'},
+  porcupine:{lives:1,    text:'One extra life'},
+  rex:      {air:1.08,   text:'Big push-off'},
+};
+// ---------- haptics ----------
+// One line per moment that deserves weight. iOS Safari ignores it; Android gets the feel.
+function buzz(p){ try{ navigator.vibrate&&navigator.vibrate(p); }catch(e){} }
+// ---------- session goals ----------
+// Three standing goals, persisted with the save, paid in puka. Event goals count across
+// runs; run goals (distance, tricks) are judged against a single run at the card.
+const GOAL_POOL=[
+  {id:'barrel1', text:'Ride a barrel',            target:1,    ev:'barrel'},
+  {id:'chest1',  text:'Catch a treasure chest',   target:1,    ev:'chest'},
+  {id:'close3',  text:'Shave 3 close calls',      target:3,    ev:'close'},
+  {id:'jelly3',  text:'Bounce 3 jellyfish',       target:3,    ev:'jelly'},
+  {id:'ramp3',   text:'Launch off 3 ramps',       target:3,    ev:'ramp'},
+  {id:'dist800', text:'Surf 800 m in one run',    target:800,  ev:'dist',  run:true},
+  {id:'dist1500',text:'Surf 1,500 m in one run',  target:1500, ev:'dist',  run:true},
+  {id:'trick1500',text:'1,500 trick points in a run', target:1500, ev:'score', run:true},
+];
+let goals=null;
+function freshGoal(){
+  const have=new Set((goals||[]).map(g=>g.id));
+  const cands=GOAL_POOL.filter(g=>!have.has(g.id));
+  const pick=cands[(Math.random()*cands.length)|0]||GOAL_POOL[0];
+  return {id:pick.id, n:0};
+}
+function ensureGoals(){ if(!Array.isArray(goals)||goals.length!==3){ goals=[]; while(goals.length<3)goals.push(freshGoal()); } }
+function goalDef(g){ return GOAL_POOL.find(d=>d.id===g.id)||GOAL_POOL[0]; }
+function goalEv(ev,n){
+  if(!goals)return;
+  let paid=false;
+  for(let i=0;i<goals.length;i++){
+    const g=goals[i], d=goalDef(g);
+    if(d.ev!==ev||d.run)continue;
+    g.n=Math.min(d.target,g.n+n);
+    if(g.n>=d.target){ coins+=100; paid=true; goals[i]=freshGoal(); }
+  }
+  if(paid){ msg('GOAL DONE! +100'); buzz(30); saveGame(); showCoins&&showCoins(); }
+}
+// run-scoped goals are settled once, on the card
+function goalRunEnd(distV,scoreV){
+  if(!goals)return 0;
+  let paid=0;
+  for(let i=0;i<goals.length;i++){
+    const g=goals[i], d=goalDef(g);
+    if(!d.run)continue;
+    const v=d.ev==='dist'?distV:scoreV;
+    g.n=Math.max(g.n,Math.min(d.target,Math.round(v)));
+    if(v>=d.target){ paid+=100; goals[i]=freshGoal(); }
+  }
+  return paid;                                   // the caller banks it with the run's pay
+}
+function goalRowsHTML(){
+  ensureGoals();
+  return goals.map(g=>{ const d=goalDef(g);
+    return `<div class="tr goal"><span>✦ ${d.text}</span><b>${Math.min(g.n,d.target).toLocaleString()} / ${d.target.toLocaleString()}</b></div>`;
+  }).join('');
+}
 function loadSave(){
   try{
     const v=JSON.parse(localStorage.getItem(SAVE_KEY)||'{}');
@@ -2232,10 +2325,11 @@ function loadSave(){
     equipped=v.equipped||'astro';
     ownedChars=Object.assign({pug:1},v.ownedChars||{});
     rider=v.rider||'pug';
+    goals=Array.isArray(v.goals)?v.goals:null;
   }catch(e){}
 }
 function saveGame(){
-  try{localStorage.setItem(SAVE_KEY,JSON.stringify({coins,owned,equipped,ownedChars,rider}));}catch(e){}
+  try{localStorage.setItem(SAVE_KEY,JSON.stringify({coins,owned,equipped,ownedChars,rider,goals}));}catch(e){}
 }
 
 // ---------- telemetry ----------
@@ -3780,6 +3874,15 @@ function applyBoardStats(id){
     wake : (BOARD_BY_ID[id]&&BOARD_BY_ID[id].spec&&BOARD_BY_ID[id].spec.wake)||1,
     lift : (BOARD_BY_ID[id]&&BOARD_BY_ID[id].spec&&BOARD_BY_ID[id].spec.lift)||0
   };
+  // the rider's perk rides on top of the board
+  const P=RIDER_PERK[rider]||null;
+  if(P){
+    if(P.speed)BS.speed*=P.speed;
+    if(P.air)BS.air*=P.air;
+    if(P.grip)BS.grip*=P.grip;
+    if(P.float)BS.float*=P.float;
+    if(P.lives)BS.lives=Math.min(5,BS.lives+P.lives);
+  }
 }
 const _rack={};
 function boardArtFor(id){
@@ -4658,7 +4761,8 @@ function drawShop(){
   const jobs=[];
   if(shopTab==='riders'){
     for(const c of charOrder()){
-      const card=shopCard(c,!!ownedChars[c.id],rider===c.id,
+      const cP=RIDER_PERK[c.id];
+      const card=shopCard(cP?{...c,blurb:c.blurb+' • Perk: '+cP.text}:c,!!ownedChars[c.id],rider===c.id,
         ()=>{ if(coins<c.price)return; coins-=c.price; ownedChars[c.id]=1; noteBuy('rider',c.id,c.price);
           equipChar(c.id); saveGame(); showCoins(); drawShop(); },
         ()=>{ equipChar(c.id); saveGame(); drawShop(); },
@@ -5797,7 +5901,7 @@ function buildChar(id){
 
 function equipChar(id){
   if(!CHAR_BY_ID[id])id='pug';
-  rider=id; buildChar(id);
+  rider=id; buildChar(id); applyBoardStats(equipped);
 }
 
 // legs: hip -> knee -> ankle -> foot (front foot toward board nose, back foot toward tail)
@@ -7003,10 +7107,10 @@ function buildChest(){
 const crateObj=buildChest();
 crateObj.scale.setScalar(0.72);                  // a bit smaller than the old crate
 crateObj.visible=false; scene.add(crateObj);
-let crateOn=false, crateHeld=false, crateT=999, crateBobT=0, cratePin=false;
+let crateOn=false, crateHeld=false, crateT=999, crateBobT=0, cratePin=false, crateInTube=false;
 function crateReset(){
-  crateOn=false; crateHeld=false; crateObj.visible=false; cratePin=false;
-  crateT=16+Math.random()*18;
+  crateOn=false; crateHeld=false; crateObj.visible=false; cratePin=false; crateInTube=false;
+  crateT=(16+Math.random()*18)/(RIDER_PERK[rider]&&RIDER_PERK[rider].luck||1);
 }
 function updateCrate(dt,eff){
   crateBobT+=dt;
@@ -7020,20 +7124,34 @@ function updateCrate(dt,eff){
     }
     return;
   }
+  // Inside the barrel the chest hangs low over the pocket instead of two metres up —
+  // a pipe jump lifts you 1.3 m off the wall, and that is exactly what has to reach it.
+  // It dies with the tube: no wave, no floating chest in open water where it was.
+  if(crateInTube&&(!swTubeRide||swPh!==SWP.RIDE)){
+    crateOn=false; crateInTube=false; cratePin=false; crateObj.visible=false;
+    crateT=10+Math.random()*14; return;
+  }
   if(!cratePin)crateObj.position.z+=eff*dt;
-  const sea=swellH(crateObj.position.x,dist*WAVE_DRIFT+crateObj.position.z,waveClock);
-  // two metres off the water: a flat ride passes under it, a jump reaches it
-  crateObj.position.y=sea+1.9+Math.sin(crateBobT*1.7)*0.22;
+  const sea=crateInTube
+    ? waveH(crateObj.position.x,dist*WAVE_DRIFT+crateObj.position.z,waveClock)
+    : swellH(crateObj.position.x,dist*WAVE_DRIFT+crateObj.position.z,waveClock);
+  crateObj.position.y=sea+(crateInTube?1.15:1.9)+Math.sin(crateBobT*1.7)*(crateInTube?0.12:0.22);
   crateObj.rotation.y+=dt*1.7;                   // it SPINS — you see the chest, not a box
   crateObj.rotation.z=Math.sin(crateBobT*1.3)*0.06;
   crateObj.userData.halo.material.opacity=0.38+0.22*Math.sin(crateBobT*2.6);
   if(!cratePin&&crateObj.position.z>14){ crateOn=false; crateObj.visible=false; crateT=14+Math.random()*20; return; }
-  // the catch: close in the lane, close along the water, and OFF the water — the height
-  // gate is what makes it a jump-for-it rather than a drive-through
+  // The catch: close to THE CHEST in all three axes, and off the rider's own water. The
+  // first gate measured height against the sea at the CRATE's x — and in the barrel the
+  // pocket slopes steeply, so on one break side that bar sat most of a metre above where
+  // the jump actually starts and the chest was uncatchable there. The chest's own position
+  // is the thing being reached; the rider's own waterline is what proves it was a jump.
+  const seaR=(crateInTube?waveH(px,dist*WAVE_DRIFT+pz,waveClock)
+                         :swellH(px,dist*WAVE_DRIFT+pz,waveClock));
   if(Math.abs(crateObj.position.z-pz)<1.8 && Math.abs(crateObj.position.x-px)<1.8
-     && py>sea+0.85 && py<crateObj.position.y+1.8){
+     && Math.abs(py-crateObj.position.y)<1.35 && py>seaR+0.60){
     crateOn=false; crateHeld=true; crateObj.visible=false; cratePin=false;
-    msg('TREASURE CHEST!');
+    if(crateInTube){ crateInTube=false; score+=150; }   // grabbing it mid-barrel pays extra
+    msg('TREASURE CHEST!'); buzz(25); goalEv('chest',1);
     splash(px,py+0.3,pz,14,0xffc23e);
     bump(stats,'crates'); saveStats();
   }
@@ -7117,9 +7235,12 @@ function settleTricks(landed,keepPose){
     const tight=1-cracks*0.20;
     if(off<0.16*tight){ pts=Math.round(pts*2.0); names.push('PERFECT'); }
     else if(off<0.45*tight){ pts=Math.round(pts*1.4); names.push('CLEAN'); }
+    const PT=(RIDER_PERK[rider]&&RIDER_PERK[rider].trick)||1;
+    pts=Math.round(pts*PT);
     score+=pts;
     boost=Math.min(16,boost+5+Math.min(7,pts/110));   // ride out of it with speed
     msg(names.join(' + ')+(names.length>1?' COMBO':'')+`! +${pts}`);
+    buzz(pts>=400?35:20);
   }
   spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;spinHeld=false;flipHeld=false;pitchHeld=false;
   grabOn=false;grabPts=0;
@@ -7248,6 +7369,8 @@ function showMenu(mode){
   shopBtn.style.display    = over ? 'none' : '';
   recordsBtn.style.display = 'none';        // stats moved behind the version 5-tap
   menuBtn.style.display    = over ? '' : 'none';
+  document.getElementById('shareBtn').style.display =
+    (over&&(navigator.share||navigator.clipboard)) ? '' : 'none';
   // the menu is open water and nothing else; he is put on it when you press Play
   hud.style.display='none';
   player.visible=over;
@@ -7363,9 +7486,11 @@ crateOv.addEventListener('pointerdown',e=>{
   e.preventDefault();
   if(crateOpened||!crateShow)return;
   crateTaps++;
+  buzz(10);
   crateShakeE=Math.min(1.6,crateShakeE+0.55*Math.min(1,crateTaps/6));
   if(crateTaps>=12){
     crateOpened=true;
+    buzz([25,35,90]);
     crateHintEl.style.display='none';
     const got=crateRoll();
     // the lid takes about two thirds of a second to swing; the words wait for the light
@@ -7382,6 +7507,23 @@ document.getElementById('crateAgain').onclick=()=>{ crateCeremonyEnd(); beginRun
 document.getElementById('crateMenu').onclick=()=>{ crateCeremonyEnd(); showMenu('main'); };
 document.getElementById('crateShop').onclick=()=>{ crateCeremonyEnd(); showMenu('main'); shopBtn.onclick(); };
 menuBtn.addEventListener('click',()=>showMenu('main'));
+// ---------- share ----------
+// The wipeout card is the shareable moment. One fresh render so the WebGL canvas is not
+// blank (no preserveDrawingBuffer here), then the native share sheet with the shot and the
+// line; clipboard text as the fallback. The button only exists where share exists.
+document.getElementById('shareBtn').addEventListener('click',()=>{
+  const line=`I surfed ${Math.round(dist).toLocaleString()} m with ${(score|0).toLocaleString()} trick points in Surf! ${location.origin+location.pathname}`;
+  try{
+    renderer.render(scene,camera);
+    renderer.domElement.toBlob(b=>{
+      const f=b?new File([b],'surf.png',{type:'image/png'}):null;
+      if(f&&navigator.canShare&&navigator.canShare({files:[f]}))
+        navigator.share({files:[f],text:line}).catch(()=>{});
+      else if(navigator.share)navigator.share({text:line}).catch(()=>{});
+      else if(navigator.clipboard)navigator.clipboard.writeText(line).then(()=>msg('COPIED!'));
+    });
+  }catch(e){ if(navigator.clipboard)navigator.clipboard.writeText(line); }
+});
 recordsBtn.addEventListener('click',()=>openStats(false));
 showMenu('main');
 
@@ -7606,6 +7748,7 @@ function startWipeout(kind){
   // What actually ended the run, kept for the tests. "It said ATE IT for no reason" is not
   // something that can be chased without knowing which of the eight call sites fired.
   lastWipe={kind,ph:swPh,tube:swTubeRide,py:+py.toFixed(2),ang:+swAng.toFixed(2),t:+tNow.toFixed(1)};
+  buzz([60,50,80]);
   noteWipe(kind);
   if(kind==='snap')snapBoard();
   const W=WIPE[kind]||WIPE.foam;
@@ -7833,7 +7976,7 @@ function gameOver(){
   const s=score|0, d=Math.round(dist);
   const newScore=s>best, newDist=bestDistBeat;
   if(newScore){best=s;saveBest();}
-  const earned=coinsFor(dist,s);
+  const earned=coinsFor(dist,s)+goalRunEnd(dist,s);
   coins+=earned; saveGame(); showCoins();
   bump(stats,'earned',earned); bump(stats,'score',s); saveStats();
   jumpBtn.classList.add('hidden');ropeBtn.style.display='none';trickBar.classList.add('hidden');
@@ -7847,7 +7990,8 @@ function gameOver(){
     tr('This run',`${earned}<i class="pk"></i>`,true)+
     // one record per column, and the one you just beat says so
     tr('Best distance',`${(stats.bestDist||0).toLocaleString()} m${newDist?' <em>NEW!</em>':''}`)+
-    tr('Best tricks',`${best.toLocaleString()}${newScore?' <em>NEW!</em>':''}`);
+    tr('Best tricks',`${best.toLocaleString()}${newScore?' <em>NEW!</em>':''}`)+
+    `<div class="lead goals">Goals</div>`+goalRowsHTML();
   showMenu('over');
   if(crateHeld)crateCeremony();
 }
@@ -9010,6 +9154,9 @@ if(location.hash.includes('debug')){
     // rather than of racing the scroll.
     plantCrate(){ crateOn=true; cratePin=true; crateObj.visible=true;
                   crateObj.position.set(px,0,pz-0.4); return true; },
+    tubeChest(){ if(!swTubeRide)return false;
+                 crateOn=true; cratePin=true; crateInTube=true; crateObj.visible=true;
+                 crateObj.position.set(swTubeC(),0,pz-1.0); return true; },
     // Any world point onto the glass, -1..1 both axes. For finding out where a thing the
     // shader is supposed to be drawing actually lands in the frame.
     proj(x,y,z){ const v=_ndcP.set(x,y,z).project(camera);
@@ -9187,6 +9334,7 @@ if(location.hash.includes('debug')){
 function swSpit(){
   const bonus=Math.round(600+swPts*0.35+swDeep*1400+swLoops*300);
   score+=bonus;
+  goalEv('barrel',1);
   msg(swLoops>0?`SPAT OUT! ${swLoops} LOOP${swLoops>1?'S':''} +${bonus}`
               :(swRide+swOver>11?`SPAT OUT! DEEP BARREL +${bonus}`:`OUT CLEAN! +${bonus}`));
   noteTrick&&noteTrick('barrel','wave');
@@ -9623,6 +9771,24 @@ function ease(cur,tgt,dt,k){return cur+(tgt-cur)*Math.min(1,dt*k);}
 // It gets the same framing the ride uses, plus a slow drift so the menu is not a
 // frozen photograph.
 let menuT=0;
+// The title screen is the storefront, and it was an empty ocean. Astro bobs on his board
+// in the swell now, and once in a while the treasure chest drifts across behind him —
+// staging, not new tech: the pieces all exist, this only places them.
+function menuIdle(dt){
+  if(running||wipe)return;
+  const over=overlay.classList.contains('over');
+  if(over)return;                                 // the run card stages the rider itself
+  player.visible=true; rig.visible=true;
+  const wy=waveH(-1.6,dist*WAVE_DRIFT-2.2,waveClock);
+  player.position.set(-1.6,wy+0.10,-2.2);
+  player.rotation.set(Math.sin(tNow*0.9)*0.05,0.35+Math.sin(tNow*0.23)*0.2,Math.sin(tNow*0.7)*0.06);
+  // the chest tease: drifts across the middle distance on a slow loop
+  const cx2=((tNow*0.55)%36)-18;
+  crateObj.visible=true;
+  crateObj.position.set(cx2,waveH(cx2,dist*WAVE_DRIFT-8,waveClock)+0.55,-8);
+  crateObj.rotation.y+=dt*0.8;
+  crateObj.userData.halo.material.opacity=0.35+0.2*Math.sin(tNow*2.2);
+}
 function menuCamera(dt){
   menuT+=dt;
   const wy=waveH(0,dist*WAVE_DRIFT,waveClock);
@@ -9942,6 +10108,12 @@ function update(dt){
     // chatters.
     if(G.r>(wasTube?0.8:1.6)){                    // only where the wave is actually hollow
       swTubeRide=true;
+      // The rare chest-in-the-barrel: the two best systems meeting. It hangs low over the
+      // pocket, so taking it means jumping off the wall mid-orbit.
+      if(!wasTube&&!crateHeld&&!crateOn&&Math.random()<0.30){
+        crateOn=true; cratePin=true; crateInTube=true; crateObj.visible=true;
+        crateObj.position.set(swTubeC(),0,pz-1.0);
+      }
       // Join the ring wherever he already is, rather than teleporting him to the bottom of
       // it. The angle is read back OUT of his current position on the first frame — the
       // inverse of the placement below — so the takeover is invisible: he is already on the
@@ -10320,7 +10492,7 @@ function update(dt){
     rampPitchT=lifted?Math.atan(H*P*Math.pow(Math.max(1e-3,ramped.t),P-1)/(2*RL)):0;
     if(!ramped.o.userData.used&&ramped.t>0.72){
       ramped.o.userData.used=true;
-      score+=50;boost=Math.min(16,boost+4);msg('RAMP! +50');
+      score+=50;boost=Math.min(16,boost+4);msg('RAMP! +50'); buzz(12); goalEv('ramp',1);
       splash(px,py-0.2,pz+1.2,10,0x9ff3ea);
     }
     onRampO=ramped.o;
@@ -10763,6 +10935,19 @@ function update(dt){
       const nose=pz-BOARD_HALF_L, tail=pz+BOARD_HALF_L;
       contact=(Math.min(z0,z1)-reach)<tail && (Math.max(z0,z1)+reach)>nose;
     }
+    // The near miss: the obstacle slides past the board's tail without ever having touched,
+    // and it went past CLOSE — a margin you could put a hand in. Fear converted to score.
+    // Footprint overlap (m<0) is excluded on purpose, so flying clean over something is not
+    // a "close call", and neither is anything two lanes away.
+    if(!o.userData.passed && o.position.z>pz+BOARD_HALF_L){
+      o.userData.passed=true;
+      const harmful=['buoy','log','jelly','bigfin','octopus'].includes(o.userData.kind);
+      const m=Math.abs(px-o.position.x)-(o.userData.r+BOARD_HALF_W);
+      if(harmful&&!o.userData.used&&m>0&&m<1.5&&running&&!hanging&&!swTubeRide){
+        score+=25; msg('CLOSE CALL! +25'); buzz(12); goalEv('close',1);
+        bump(stats,'closeCalls'); 
+      }
+    }
     if(contact){
       if(o.userData.ramp){
         /* handled as a surface above, not as something to hit */
@@ -10784,7 +10969,7 @@ function update(dt){
         airborne=true;
         py=Math.max(py,o.position.y+0.9);
         score+=60;boost=Math.min(16,boost+3);jellyHits++;
-        msg('JELLY BOUNCE! +60');
+        msg('JELLY BOUNCE! +60'); buzz(15); goalEv('jelly',1);
         shake=over?0.7:1.0;
         splash(o.position.x,o.position.y+0.5,o.position.z,over?14:20);
         if(o.userData.bell)o.userData.squash=1.0;      // the bell flattens under you
@@ -11041,7 +11226,14 @@ function loop(now){
   // wipeout — one line after updateWipeout has placed the camera, and overwriting it. The
   // crash camera has therefore never been seen: what you actually get on every death is the
   // menu's slow drifting wide shot snapping in, which is the "camera zooms out when you die".
-  else {oceanUniforms.uT.value+=dt;tNow+=dt;if(!wipe)menuCamera(dt);updateDayCycle();}
+  else {
+    // The menu sea runs on the SAME clock the game samples, so anything placed on the
+    // water can actually ride it — advancing uT alone animated pixels the height field
+    // knew nothing about (and made the sea jump the moment a run started).
+    waveClock+=dt; oceanUniforms.uT.value=waveClock; tNow+=dt;
+    if(!wipe){ menuCamera(dt); menuIdle(dt); }
+    updateDayCycle();
+  }
   placeCeremonyChest(dt);
   if(viewer){ renderViewer(dt); return; }   // the look takes the whole screen and the frame
   updateSkyLife(dt);          // the sky keeps moving on the menu and through a wipeout

@@ -52,6 +52,27 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.79.0** — **The feature batch: eight at once.**
+  - **Haptics** (Android): tricks, wipeouts, close calls, chest catches, every ceremony tap,
+    and the burst.
+  - **The title screen is staged**: Astro bobs on his board in the swell and the treasure
+    chest drifts across the middle distance — and the menu sea now runs on the same clock
+    the game samples, which also removes the water-jump when a run started.
+  - **Sun glitter**: pixel sparkles inside the sun's specular lobe, twinkling on their own
+    clocks, strongest at low sun.
+  - **Close calls**: shave past a buoy, log, jelly, shark or octopus inside a metre and a
+    half without touching — +25 and a buzz. Flying clean over something does not count.
+  - **Session goals**: three standing goals on the run card (barrels, chests, close calls,
+    jellies, ramps, single-run distance/tricks), 100 puka each, auto-replaced from the pool.
+  - **Chest in the barrel**: ~30% of tube rides hang the chest low over the pocket — a pipe
+    jump grabs it, +150 on top. Its catch gate measures against the chest itself now; the
+    old sea-height gate made it uncatchable on one break side, because the pocket slopes.
+  - **Rider perks**: every animal but the pug carries one small legible bonus (trick points,
+    pop, grip, float, speed, chest luck, an extra life), shown on the shop card, applied on
+    top of the board.
+  - **Share**: one button on the run card — fresh render, native share sheet with the
+    screenshot and the line; clipboard fallback.
+
 - **v2.78.0** — **The ramp's little wings clipped off.** The tabs sticking out of both top
   corners were the lit lip bar: 6 cm wider than the deck it sits on, floating 20 cm proud of
   the rails — which roll *down* at the edges — so its bright teal ends hung past the corners
