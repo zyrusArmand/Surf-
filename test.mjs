@@ -1196,9 +1196,12 @@ if (hasHook) {
     }
     return { flat, held, peak, dbg };
   });
-  check(!caught.flat, 'riding flat under the chest does not collect it');
-  check(caught.held, 'jumping for the chest catches it',
-        caught.held ? '' : `never held — peak ${caught.peak.toFixed(2)} m over the sea, ${JSON.stringify(caught.dbg)}`);
+  // v2.84: the jump requirement is gone. Riding straight through a chest has to take it —
+  // that was the whole complaint, and the old test asserted the opposite. The old second
+  // check ("jumping catches it") is dropped rather than kept: once the flat pass collects,
+  // crateHeld is already true when the jump loop starts, so it could no longer fail.
+  check(caught.flat, 'riding through the chest collects it, no jump needed',
+        caught.flat ? '' : `not collected — ${JSON.stringify(caught.dbg)}`);
 
   const coins0 = await page.evaluate(() => {
     const t = document.querySelector('#ovCoins'); return t ? +t.textContent : 0; });

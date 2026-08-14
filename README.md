@@ -52,6 +52,26 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.84.0** — **Three fairness fixes.**
+  - **Chests no longer need a jump.** The catch used to demand you were clear of your own
+    waterline, so every chest was a jump you had to spot and set up for — and riding straight
+    through one and having it ignore you reads as a broken pickup, not a skill gate. The
+    chest also floats lower out on the flat (1.9 → 1.25) and the catch box is wider in all
+    three axes. Jumping for it still works; it is just no longer the only way.
+  - **Session goals actually track now.** Two separate bugs. `goalEv()` opens with
+    `if(!goals)return`, and goals were only built lazily when the run card first drew them —
+    so on a fresh save every barrel, chest, close call, jelly and ramp of the *entire first
+    run* was counted against nothing. And completing a goal replaced it with a new one on the
+    spot, so the card that followed showed a brand new goal sitting at zero: finishing one
+    looked identical to never having touched it. Goals are now built at load, and a finished
+    goal stays on the card marked DONE, rolling over only when the next run starts.
+  - **Nothing unavoidable in a ramp's landing zone.** A ramp hides whatever sits behind it,
+    and once you are off the lip you cannot steer — so a buoy in the run-out was a death you
+    never had a chance to see. Leaving the lip now slides anything in the flight corridor out
+    to the side while it is still tens of metres away. Ramps and jellyfish are left where
+    they are, because both are a bounce rather than a wall, and so is the big fin, which
+    sweeps across your line in plain sight.
+
 - **v2.83.0** — **One thumb per side.** All five trick buttons stack in a single column down
   the left; JUMP keeps the right on its own. The two-by-two pad put SPIN and HAND under the
   left thumb but left ROLL and FLIP out at arm's reach. Everything is smaller with it: trick

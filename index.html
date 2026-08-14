@@ -234,6 +234,10 @@
   #ovText .lead.goals { margin-top:14px; opacity:.85; font-size:min(4vw,15px); }
   #ovText .tr.goal { font-size:min(3.9vw,14.5px); opacity:.92; }
   #ovText .tr.goal span { text-align:left; }
+  /* a finished goal is the one line on the card worth looking at, so it is the one that
+     gets colour — and it stays on the card for the run that earned it */
+  #ovText .tr.goal.done { opacity:1; color:#ffe98a; }
+  #ovText .tr.goal.done b { color:#ffe98a; }
   #shop .perkTx { grid-column:1 / -1; font-size:11px; opacity:.82; margin-top:2px; letter-spacing:.2px; }
   #shop .perkNone { font-size:11px; opacity:.7; font-weight:600; }
   #crateOv { position:fixed; inset:0; z-index:120; background:rgba(4,15,27,.38);
@@ -684,7 +688,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.83.0';
+const VERSION='2.84.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2287,9 +2291,13 @@ function goalEv(ev,n){
   let paid=false;
   for(let i=0;i<goals.length;i++){
     const g=goals[i], d=goalDef(g);
-    if(d.ev!==ev||d.run)continue;
+    if(d.ev!==ev||d.run||g.done)continue;
     g.n=Math.min(d.target,g.n+n);
-    if(g.n>=d.target){ coins+=100; paid=true; goals[i]=freshGoal(); }
+    // Marked done, NOT swapped for a new one. Replacing it here meant the run card drew a
+    // brand new goal sitting at zero, so finishing one looked exactly like never having
+    // touched it. The swap happens when the next run starts, by which time you have seen
+    // the tick against the thing you actually did.
+    if(g.n>=d.target){ coins+=100; paid=true; g.done=true; }
   }
   if(paid){ msg('GOAL DONE! +100'); buzz(30); saveGame(); showCoins&&showCoins(); }
 }
@@ -2299,16 +2307,23 @@ function goalRunEnd(distV,scoreV){
   let paid=0;
   for(let i=0;i<goals.length;i++){
     const g=goals[i], d=goalDef(g);
-    if(!d.run)continue;
+    if(!d.run||g.done)continue;
     const v=d.ev==='dist'?distV:scoreV;
     g.n=Math.max(g.n,Math.min(d.target,Math.round(v)));
-    if(v>=d.target){ paid+=100; goals[i]=freshGoal(); }
+    if(v>=d.target){ paid+=100; g.done=true; }
   }
   return paid;                                   // the caller banks it with the run's pay
+}
+// Finished goals are cleared at the START of the next run, so the card that follows the run
+// you finished them on still shows them ticked off.
+function goalRoll(){
+  ensureGoals();
+  for(let i=0;i<goals.length;i++) if(goals[i].done) goals[i]=freshGoal();
 }
 function goalRowsHTML(){
   ensureGoals();
   return goals.map(g=>{ const d=goalDef(g);
+    if(g.done)return `<div class="tr goal done"><span>✓ ${d.text}</span><b>DONE +100</b></div>`;
     return `<div class="tr goal"><span>✦ ${d.text}</span><b>${Math.min(g.n,d.target).toLocaleString()} / ${d.target.toLocaleString()}</b></div>`;
   }).join('');
 }
@@ -2322,6 +2337,11 @@ function loadSave(){
     rider=v.rider||'pug';
     goals=Array.isArray(v.goals)?v.goals:null;
   }catch(e){}
+  // Built RIGHT HERE, not lazily when the run card first draws one. goalEv() begins with
+  // `if(!goals)return`, so on a fresh save every barrel, chest, close call, jelly and ramp
+  // of the very first run was counted against nothing and thrown away — the goals only
+  // came into existence at the wipeout screen, already showing zero.
+  ensureGoals();
 }
 function saveGame(){
   try{localStorage.setItem(SAVE_KEY,JSON.stringify({coins,owned,equipped,ownedChars,rider,goals}));}catch(e){}
@@ -7033,6 +7053,26 @@ function makeObstacle(kind,x,z){
   scene.add(m);obstacles.push(m);
   return m;
 }
+// ---- nothing unavoidable in the landing zone ----
+// A ramp hides whatever is sitting behind it, and once you are off the lip you cannot steer
+// out of the way, so a buoy tucked into the run-out is not a hazard you failed to dodge —
+// it is a death you never had a chance to see. Anything in the corridor gets slid out to
+// the side while it is still tens of metres away, which is far enough that it is not seen
+// to move. Ramps and jellyfish are left alone: both are a bounce, not a wall.
+function clearLanding(vy0){
+  const air=Math.max(0.6,2*vy0/20);              // 20 is the gravity used out on the flat
+  const reach=air*Math.max(16,lastEff)+8;        // how much water passes under him up there
+  for(const o of obstacles){
+    const k=o.userData.kind;
+    if(k==='ramp'||k==='jelly'||k==='bigfin')continue;   // a fin sweeps across in plain sight
+    const ahead=pz-o.position.z;                 // they run from -170 up past the rider
+    if(ahead<2||ahead>reach)continue;
+    const dx=o.position.x-px;
+    if(Math.abs(dx)>5.0)continue;
+    const side=dx===0?(Math.random()<0.5?-1:1):Math.sign(dx);
+    o.position.x=Math.max(-17,Math.min(17,px+side*(6.4+Math.random()*2.6)));
+  }
+}
 // Each obstacle can be replaced the same way. The template is built first so the
 // model can be measured against it, then it becomes the thing every future spawn is
 // cloned from. Its collision size and float height carry over untouched; the
@@ -7554,20 +7594,22 @@ function updateCrate(dt,eff){
   const sea=crateInTube
     ? waveH(crateObj.position.x,dist*WAVE_DRIFT+crateObj.position.z,waveClock)
     : swellH(crateObj.position.x,dist*WAVE_DRIFT+crateObj.position.z,waveClock);
-  crateObj.position.y=sea+(crateInTube?1.15:1.9)+Math.sin(crateBobT*1.7)*(crateInTube?0.12:0.22);
+  // Sat low enough to take on the way past. It used to float at 1.9 out on the flat and the
+  // catch demanded you were clear of your own water, so the chest was a jump you had to
+  // spot and set up for; riding straight through one and watching it stay put is worse than
+  // no chest at all.
+  crateObj.position.y=sea+(crateInTube?1.15:1.25)+Math.sin(crateBobT*1.7)*(crateInTube?0.12:0.20);
   crateObj.rotation.y+=dt*1.7;                   // it SPINS — you see the chest, not a box
   crateObj.rotation.z=Math.sin(crateBobT*1.3)*0.06;
   crateObj.userData.halo.material.opacity=0.38+0.22*Math.sin(crateBobT*2.6);
   if(!cratePin&&crateObj.position.z>14){ crateOn=false; crateObj.visible=false; crateT=14+Math.random()*20; return; }
-  // The catch: close to THE CHEST in all three axes, and off the rider's own water. The
-  // first gate measured height against the sea at the CRATE's x — and in the barrel the
-  // pocket slopes steeply, so on one break side that bar sat most of a metre above where
-  // the jump actually starts and the chest was uncatchable there. The chest's own position
-  // is the thing being reached; the rider's own waterline is what proves it was a jump.
-  const seaR=(crateInTube?waveH(px,dist*WAVE_DRIFT+pz,waveClock)
-                         :swellH(px,dist*WAVE_DRIFT+pz,waveClock));
-  if(Math.abs(crateObj.position.z-pz)<1.8 && Math.abs(crateObj.position.x-px)<1.8
-     && Math.abs(py-crateObj.position.y)<1.35 && py>seaR+0.60){
+  // The catch: close to THE CHEST in all three axes, and that is all. There used to be a
+  // fourth condition — clear of your own waterline — which made every chest a jump you had
+  // to see coming and set up for. Riding through one and having it ignore you reads as a
+  // broken pickup, not as a skill gate, so the jump requirement is gone and the box is
+  // wider in every axis. Jumping for it still works; it just is not the only way.
+  if(Math.abs(crateObj.position.z-pz)<2.2 && Math.abs(crateObj.position.x-px)<2.2
+     && Math.abs(py-crateObj.position.y)<2.0){
     crateOn=false; crateHeld=true; crateObj.visible=false; cratePin=false;
     if(crateInTube){ crateInTube=false; score+=150; }   // grabbing it mid-barrel pays extra
     msg('TREASURE CHEST!'); buzz(25); goalEv('chest',1);
@@ -7804,6 +7846,7 @@ function beginRun(){
   overlay.classList.add('hidden');jumpBtn.classList.remove('hidden');
   reviveBtn.style.display='none';
   if(typeof crateCeremonyEnd==='function')crateCeremonyEnd();
+  goalRoll();                       // anything ticked off last run is replaced now, not then
   reset();running=true;overlayUp=false;last=performance.now();
 }
 startBtn.addEventListener('click',beginRun);
@@ -10924,6 +10967,7 @@ function update(dt){
     onRampO=null;airborne=true;
     vy=Math.max(vy,Math.min(28,rampExitV),RAMP_MIN_VY);
     rampExitV=0;
+    clearLanding(vy);                 // whatever the ramp was hiding, it is not a wall now
   } else rampPitchT=0;
   // The height gate is meaningless on the ring, so pipe air stands in its own right. Out on
   // the flat, "clear of the water" is a height above it; inside a tube it is a distance from
