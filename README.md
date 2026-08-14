@@ -52,6 +52,13 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.83.0** — **One thumb per side.** All five trick buttons stack in a single column down
+  the left; JUMP keeps the right on its own. The two-by-two pad put SPIN and HAND under the
+  left thumb but left ROLL and FLIP out at arm's reach. Everything is smaller with it: trick
+  buttons 64px to 54px, JUMP 94px to 84px — still clear of the 44pt minimum tap target. HELI
+  loses its wide-pill shape, which spanned two grid columns that no longer exist and would
+  have read as a different kind of control sitting alone under a column of circles.
+
 - **v2.82.0** — **The bodies themselves, rebuilt.** v2.81 repainted twenty animals that were
   all the same shape underneath, which is why they still read as one toy in twenty colours.
   This changes the shape.
