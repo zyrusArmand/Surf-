@@ -112,6 +112,7 @@ const ver5tap = () => page.evaluate(() => {
 // ---------- the menus ----------
 // Cheap, but this is the part a player meets first, and a shop that will not open is as
 // broken as a wave that will not break.
+let perkSeen = { found: false, filled: 0, text: '' };
 for (const [openSel, panelSel, closeSel, label] of [
   ['#shopBtn', '#shop', '#shopClose', 'beach shop'],
   // Stats has no button any more: five quick taps on the version number open the secret
@@ -122,11 +123,31 @@ for (const [openSel, panelSel, closeSel, label] of [
   else await page.click(openSel);
   await page.waitForTimeout(400);
   const opened = await page.$eval(panelSel, e => !e.classList.contains('hidden'));
+  // While the shop is already open, check the rider cards carry their perk. Done here rather
+  // than in a block of its own: a second open/close cycle left the menu in a state where the
+  // next five-tap did not open the secret panel, and took a passing check down with it.
+  if (panelSel === '#shop') perkSeen = await page.evaluate(() => {
+    const tab = document.querySelector('[data-tab="riders"]');
+    if (tab) tab.click();
+    // the first rider is the free pug, which HAS no perk and correctly says so — look for a
+    // card that actually claims one
+    const card = [...document.querySelectorAll('.stats')].find(s => s.querySelector('.perkTx'));
+    const out = card ? { found: true, filled: card.querySelectorAll('.seg i.on').length,
+                         text: card.querySelector('.perkTx').textContent.trim() }
+                     : { found: false, filled: 0, text: '' };
+    const back = document.querySelector('[data-tab="boards"]');   // leave it as we found it
+    if (back) back.click();
+    return out;
+  });
   await page.click(closeSel);
   await page.waitForTimeout(400);
   const closed = await page.$eval(panelSel, e => e.classList.contains('hidden'));
   check(opened && closed, `${label} opens and closes`, `opened=${opened} closed=${closed}`);
 }
+
+check(perkSeen.found && perkSeen.filled > 0 && perkSeen.text.length > 0,
+      'a rider card shows its perk on a stat bar',
+      `found=${perkSeen.found} filled=${perkSeen.filled} text=${JSON.stringify(perkSeen.text)}`);
 
 await page.click('#startBtn');
 await page.evaluate(() => window.__surf.tick(0.3));

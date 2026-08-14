@@ -231,6 +231,8 @@
   #ovText .lead.goals { margin-top:14px; opacity:.85; font-size:min(4vw,15px); }
   #ovText .tr.goal { font-size:min(3.9vw,14.5px); opacity:.92; }
   #ovText .tr.goal span { text-align:left; }
+  #shop .perkTx { grid-column:1 / -1; font-size:11px; opacity:.82; margin-top:2px; letter-spacing:.2px; }
+  #shop .perkNone { font-size:11px; opacity:.7; font-weight:600; }
   #crateOv { position:fixed; inset:0; z-index:120; background:rgba(4,15,27,.38);
              display:flex; flex-direction:column; align-items:center; text-align:center;
              justify-content:space-between; padding:12vh 5vw 7vh; }
@@ -679,7 +681,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.80.0';
+const VERSION='2.81.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -4463,6 +4465,25 @@ function statBars(id){
     Array.from({length:10},(_,i)=>'<i'+(i<v[k]?' class="on"':'')+'></i>').join('')+
     '</div></div>').join('')+'</div>';
 }
+// The rider's perk, shown the way a board's stats are — same black bar, same segments —
+// because a bonus you cannot see is a bonus nobody believes in. A perk is one number, so
+// it gets one row: the trait it lifts, and how far.
+const PERK_ROW={speed:['speed','Speed'],air:['air','Pop'],grip:['turn','Grip'],
+                float:['tough','Float'],trick:['air','Tricks'],luck:['speed','Luck'],
+                lives:['tough','Lives']};
+function perkBars(id){
+  const P=RIDER_PERK[id];
+  if(!P)return '<div class="stats"><div class="st"><span>Perk</span>'+
+    '<b class="perkNone">The honest baseline</b></div></div>';
+  const key=Object.keys(P).find(k=>k!=='text');
+  const [cls,label]=PERK_ROW[key]||['speed','Perk'];
+  // a perk of 1.10 is "ten percent", and ten percent of the bar is one segment — so the
+  // fill is the size of the bonus, which is the thing the row is claiming
+  const n=key==='lives'?3:Math.max(1,Math.min(10,Math.round((P[key]-1)*100/3.5)));
+  return '<div class="stats"><div class="st '+cls+'"><span>'+label+'</span><div class="seg">'+
+    Array.from({length:10},(_,i)=>'<i'+(i<n?' class="on"':'')+'></i>').join('')+
+    '</div></div><div class="perkTx">'+P.text+'</div></div>';
+}
 // ---------------------------------------------------------------------------
 // The full-screen look. The shop photographs everything once and shows a still; this puts
 // the actual object on screen, turning, at whatever size the phone is — which is the only
@@ -4709,7 +4730,7 @@ function shopCard(item,have,on,buy,use,thumb,stats,kind){
   }
   const info=document.createElement('div'); info.className='info';
   info.innerHTML='<div class="nm">'+item.name+'</div><div class="bl">'+item.blurb+'</div>'+
-    (stats?statBars(item.id):'');
+    (stats?(kind==='char'?perkBars(item.id):statBars(item.id)):'');
   if(kind)info.querySelector('.nm').onclick=()=>openViewer(kind,item.id);
   const act=document.createElement('div'); act.className='act';
   if(on){ act.innerHTML='<span class="tag">RIDING</span>'; }
@@ -4751,12 +4772,11 @@ function drawShop(){
   const jobs=[];
   if(shopTab==='riders'){
     for(const c of charOrder()){
-      const cP=RIDER_PERK[c.id];
-      const card=shopCard(cP?{...c,blurb:c.blurb+' • Perk: '+cP.text}:c,!!ownedChars[c.id],rider===c.id,
+      const card=shopCard(c,!!ownedChars[c.id],rider===c.id,
         ()=>{ if(coins<c.price)return; coins-=c.price; ownedChars[c.id]=1; noteBuy('rider',c.id,c.price);
           equipChar(c.id); saveGame(); showCoins(); drawShop(); },
         ()=>{ equipChar(c.id); saveGame(); drawShop(); },
-        prevCache['c:'+c.id],false,'char');
+        prevCache['c:'+c.id],true,'char');
       if(!prevCache['c:'+c.id])jobs.push([card.querySelector('.thumb'),()=>charPreview(c.id)]);
       shopList.appendChild(card);
     }
@@ -5121,7 +5141,9 @@ function kitEyes(C,inner){
       gl.position.set(sx*0.235*D[0],0.185*D[1],-0.375*D[2]);gl.scale.set(1,1.5,0.5);
     } else if(E==='mask'){                              // raccoon: one band right across
       const ba=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.155,18,14),darkMat));
-      ba.position.set(sx*0.115,0.075,-0.305);ba.scale.set(1.15,0.62,0.55);ba.rotation.z=sx*0.14;
+      // pulled in and widened so the two halves MEET over the bridge of the nose — a
+      // raccoon's mask is one continuous band, not a pair of separate eye patches
+      ba.position.set(sx*0.095,0.075,-0.305);ba.scale.set(1.30,0.60,0.55);ba.rotation.z=sx*0.14;
       const br=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.085,14,12),mat(0xe9e2d4,40)));
       br.position.set(sx*0.155,0.215,-0.300);br.scale.set(1.0,0.36,0.34);   // pale brow over the band
       const e=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.058,14,12),dark));
@@ -5160,160 +5182,224 @@ const CHARS=[
   // one animal from another: a pig is pear-shaped, an otter is a tube, a frog is wide at
   // the shoulder and narrow at the hip. tall/wide/deep are the box it lives in, neckLen
   // is how much neck there is between the shoulders and the head.
+  //
+  // v2.81 pass: every animal re-specified against the real one. The recurring faults were
+  // the same three everywhere — a torso rounder and wider than any real body, a neck where
+  // the animal has none, and no markings at all, so a grey cat was a grey blob and a white
+  // bear was a white blob. Countershading (belly), species markings and honest proportions
+  // are what separate them now, not just limb thickness.
+
   {id:'pug',   name:'Astro the Pug',  price:0,
    blurb:'The original. Flat face, curled tail, absolutely no quit.',
-   fur:0xdca85f, dark:0x2b1d12, nose:0x141416, face:'pug',   ears:'floppy',  tail:'curl',
-   // barrel-chested and neckless, which is the whole silhouette of a pug
-   shape:[1.00,1.06,1.02,0.82], tall:1.24, wide:1.12, deep:0.96, neckLen:0.92,
-   build:[1.00,0.94,1.00], limb:1.00, armLen:0.92, foot:1.00, headS:[1.02,1.00,0.98]},
+   // A fawn pug: sandy coat, a black mask over the muzzle and ears, a deep barrel chest on
+   // short legs, and no neck at all. The skull is broad and FLAT — wider than it is deep,
+   // which is the proportion that reads as "pug" before any of the details do.
+   fur:0xd7a75c, dark:0x2b2119, nose:0x121014, face:'pug',   ears:'floppy',  tail:'curl',
+   cheeks:true, belly:0xe6c78d,
+   shape:[1.02,1.12,1.06,0.80], tall:1.18, wide:1.10, deep:1.04, neckLen:0.74,
+   build:[1.02,0.92,1.04], limb:1.06, limbLen:0.82, arm:1.02, armLen:0.84, foot:1.02,
+   headS:[1.12,1.04,0.90]},
 
   {id:'cat',   name:'Miso the Cat',   price:700,
    blurb:'Grey tabby. Hates water, rides it anyway, will not discuss it.',
-   fur:0x9aa0aa, dark:0x474d57, nose:0xe8909c, face:'cat',   ears:'pointed', tail:'long', whiskers:true,
-   // a tucked waist, a real neck and long legs — nothing else here is built like this
-   shape:[0.92,0.86,0.90,0.76], tall:1.42, wide:0.98, deep:0.80, neckLen:1.26,
-   build:[0.86,1.00,0.88], limb:0.96, arm:0.80, armLen:1.06, foot:0.88, headS:[0.90,0.94,0.94]},
+   // A tabby IS its markings: bars across the back, bars on the brow, a pale chin, chest
+   // and belly. Lean and long through the body, small wedge head, ears set wide and high.
+   fur:0x8e939d, dark:0x3d424b, nose:0xe08a98, stripes:0x40465a, belly:0xdedbd2, bellyW:0.62,
+   face:'cat',   ears:'pointed', tail:'long', whiskers:true, cheeks:true, cheekCol:0xdedbd2,
+   shape:[0.86,0.84,0.90,0.70], tall:1.46, wide:0.90, deep:0.84, neckLen:1.24,
+   build:[0.82,1.02,0.86], limb:0.88, limbLen:1.06, arm:0.74, armLen:1.10, foot:0.84,
+   headS:[0.88,0.90,0.98]},
+
   {id:'pig',   name:'Kiwi the Pig',   price:1400,
    blurb:'Round, pink and unreasonably buoyant. Floats before the board does.',
-   fur:0xf3a6b6, dark:0xe07f96, nose:0xd4708a, face:'snout', ears:'small',   tail:'curl',
-   // all the weight low and almost no shoulder, on little trotters
-   shape:[1.24,1.16,0.90,0.64], tall:1.22, wide:1.14, deep:1.02, neckLen:0.90,
-   build:[1.06,0.96,1.06], limb:1.02, arm:0.94, armLen:0.80, foot:0.84, footShape:[0.86,1.05,0.84], headS:[1.00,0.96,1.00]},
+   // A real pig is a BARREL on short legs with almost no neck, a blunt head, a flat disc
+   // of a snout and big soft ears folded forward over the eyes. The colour is a dusty
+   // greyish pink, not bubblegum — that alone was most of why it read as a toy.
+   fur:0xe3a8a4, dark:0xcb8b8f, nose:0xc4808a, snout:0xd9979e, inner:0xdd9ea6,
+   face:'none',  ears:'pig',     tail:'curl', snoutDisc:true, belly:0xefc0bb,
+   // a pig has almost no neck, but at 0.46 the head sank into the shoulders and the animal
+   // read as one pink balloon with a snout stuck on it — it needs just enough to separate
+   shape:[1.10,1.16,1.08,0.72], tall:1.18, wide:0.94, deep:1.10, neckLen:0.66,
+   build:[1.06,0.90,1.10], limb:1.10, limbLen:0.68, arm:1.04, armLen:0.70,
+   foot:0.86, footShape:[0.80,1.10,0.82], hand:0.86, handShape:[0.82,1.05,0.84],
+   headS:[1.16,1.02,1.14]},
 
   {id:'corgi', name:'Waffle the Corgi',price:2400,
    blurb:'Short legs, enormous ears, catches everything out of pure enthusiasm.',
-   fur:0xe8a33d, dark:0xfaf0dc, nose:0x241a12, face:'long',  ears:'big',     tail:'bushy',
-   bib:0xfaf0dc, bibS:0.72,
-   // a loaf on stumps, in white socks
-   shape:[1.06,1.10,1.04,0.82], tall:1.20, wide:1.20, deep:0.96, neckLen:1.00,
-   build:[1.06,0.80,1.08], limb:1.02, limbLen:0.66, arm:1.0, armLen:0.62, foot:1.00,
-   footCol:0xfaf0dc, handCol:0xfaf0dc, headS:[0.98,0.98,1.02]},
+   // A Pembroke: red-and-white, enormous upright rounded ears, a white blaze up the muzzle,
+   // white chest and paws, a fox face — and legs so short the body nearly drags. DEEPER
+   // than it is wide, because a corgi is long, not round.
+   fur:0xd2842f, dark:0xf6ecd8, nose:0x201810, face:'long',  ears:'corgi',   tail:'bushy',
+   // no cheek patches: with a white muzzle and a white blaze already there they came out as
+   // two extra white blobs stuck to the sides of the face
+   muzzle:0xf6ecd8, bib:0xf9f2e2, bibS:0.84, blaze:0xf9f2e2,
+   shape:[0.96,1.00,0.98,0.76], tall:1.20, wide:0.90, deep:1.22, neckLen:0.80,
+   build:[0.98,0.82,1.12], limb:1.04, limbLen:0.52, arm:1.00, armLen:0.56, foot:1.02,
+   footCol:0xf9f2e2, handCol:0xf9f2e2, headS:[0.96,0.96,1.10]},
 
   {id:'bunny', name:'Pip the Bunny',  price:3600,
    blurb:'All ears and hop. Lands everything, mostly by accident.',
-   fur:0xf3e9d6, dark:0xdcc7a8, nose:0xe08c9a, face:'bunny', ears:'long',    tail:'puff',
-   // heavy in the haunch, light in the chest, and standing on two long back feet
-   shape:[1.12,1.00,0.86,0.72], tall:1.28, wide:1.00, deep:0.88, neckLen:1.04,
-   build:[0.92,0.98,0.92], limb:0.90, arm:0.80, armLen:0.86, foot:1.24, footShape:[0.94,0.90,1.28], headS:[0.92,0.96,0.94]},
+   // A rabbit is hindquarters: heavy at the hips, light at the shoulders, tiny front paws
+   // held up at the chest, enormous back feet, and no neck at all under those ears.
+   fur:0xeee3cf, dark:0xd5bfa0, nose:0xdd8794, muzzle:0xf7f1e4, belly:0xfaf6ec,
+   face:'bunny', ears:'long',    tail:'puff', whiskers:true, cheeks:true, cheekCol:0xf7f1e4,
+   shape:[1.22,1.06,0.84,0.66], tall:1.22, wide:0.96, deep:0.94, neckLen:0.70,
+   build:[0.92,0.98,0.96], limb:0.94, limbLen:1.04, arm:0.70, armLen:0.72,
+   foot:1.30, footShape:[0.90,0.85,1.42], hand:0.76, headS:[0.90,0.94,0.98]},
 
   {id:'panda', name:'Bao the Panda',  price:5500,
    blurb:'Sits very low, turns very slowly, absolutely immovable once committed.',
-   fur:0xf6f3ea, dark:0x1b1b20, nose:0x14141a, face:'long',  ears:'round',   tail:'puff', eyes:'patch',
-   // the arms and legs are black and the body is white, which is most of being a panda
-   shape:[1.10,1.12,1.06,0.86], tall:1.30, wide:1.14, deep:1.04, neckLen:1.06,
-   build:[1.10,1.00,1.10], limb:1.10, arm:1.06, armLen:0.90, foot:1.04, limbCol:0x1b1b20, headS:[1.10,1.08,1.04]},
+   // The markings ARE the animal: black ears, black eye patches, black arms and legs, and
+   // the black saddle band across the shoulders that joins them. Everything else white.
+   fur:0xf4f1e6, dark:0x191920, nose:0x121218, face:'long',  ears:'round',   tail:'puff',
+   eyes:'patch', band:0x191920, muzzle:0xf4f1e6,
+   shape:[1.10,1.16,1.10,0.84], tall:1.24, wide:1.12, deep:1.10, neckLen:0.72,
+   build:[1.10,0.98,1.12], limb:1.16, limbLen:0.84, arm:1.10, armLen:0.86, foot:1.06,
+   limbCol:0x191920, footCol:0x141419, handCol:0x141419, headS:[1.16,1.12,1.02]},
 
   {id:'frog',  name:'Allen the Frog',  price:900,
    blurb:'Born for this. Wide mouth, wider eyes, sticks every landing wetly.',
+   // A frog is SQUAT: no neck, a body broader than it is tall, eyes up on TOP of the skull,
+   // and hind legs far longer and far thicker than the arms. The old one stood like a green
+   // man because the torso was tall and the limbs were the same weight as each other.
    fur:0x74c043, dark:0x3f8f28, nose:0x2a5c1f, inner:0xc4204a, drum:0x4f9a30,
    face:'frog',  ears:'hole',   tail:'none',  eyes:'bulge', gloss:0.38,
-   // Lanky, not squat. A slim oval body carried high on very long thin legs, arms just
-   // as thin and just as long, and a big wide head sat straight on the shoulders with
-   // the eyes on top of it. The limb profiles are near-uniform on purpose: a frog's arm
-   // has no bicep and no calf, it is the same thin all the way down.
-   shape:[0.72,0.94,0.92,0.72], tall:1.02, wide:0.82, deep:0.76, neckLen:0.60,
-   headS:[1.05,0.88,1.00],
-   build:[0.90,0.94,0.90], limb:1.0, arm:1.0, limbLen:2.75, armLen:1.95, lip:0x8e1c34,
-   legProf:[0.225,0.150,0.098,0.098,0.080,0.066], legBlend:0.34,
+   belly:0xdae589,
+   shape:[0.88,1.04,1.02,0.74], tall:0.80, wide:1.06, deep:0.92, neckLen:0.28,
+   headS:[1.14,0.86,1.02],
+   build:[1.04,0.86,1.00], limb:1.24, arm:0.84, limbLen:2.35, armLen:1.62, lip:0x8e1c34,
+   legProf:[0.300,0.185,0.104,0.100,0.082,0.066], legBlend:0.34,
    armProf:[0.150,0.104,0.084,0.086,0.072,0.060], armBlend:0.24,
    foot:1.00, footShape:[0.92,0.42,2.05], hand:0.82, handShape:[0.88,0.46,1.30],
    toes:3, fingers:4},
+
   {id:'otter', name:'Nori the Otter', price:1900,
    blurb:'Never off the water in the first place. Rolls for the fun of it.',
-   fur:0x8a5f3c, dark:0xd8c39a, nose:0x241812, bib:0xd9c39c, bibS:0.60, muzzle:0xd6c199,
-   face:'long',  ears:'round',   tail:'flat', whiskers:true,
-   // one even tube from hip to shoulder with a long neck on it — a swimmer's body
-   shape:[0.92,0.96,0.94,0.80], tall:1.46, wide:0.94, deep:0.86, neckLen:1.18,
-   build:[0.82,1.06,0.86], limb:0.90, limbLen:0.82, arm:0.82, armLen:0.86, foot:1.24,
-   footShape:[1.28,0.80,1.10], headS:[0.90,0.88,1.04]},
+   // A sea otter: a long tube of a body, a pale grizzled face and throat against dark brown
+   // fur, a blunt round head with tiny ears, heavy whiskers, and big webbed back feet.
+   fur:0x6f4b2e, dark:0xd6c5a4, nose:0x1e1610, bib:0xd8c8a8, bibS:0.70, muzzle:0xd8c8a8,
+   // a sea otter's ears are tiny and the same brown as the rest of it
+   face:'long',  ears:'round', earCol:0x6a472b, earS:0.62,
+   tail:'flat', whiskers:true, cheeks:true, cheekCol:0xd8c8a8,
+   belly:0x9c7854,
+   shape:[0.88,0.96,0.98,0.78], tall:1.50, wide:0.86, deep:0.92, neckLen:1.04,
+   build:[0.80,1.08,0.88], limb:0.88, limbLen:0.80, arm:0.80, armLen:0.90, foot:1.30,
+   footShape:[1.34,0.72,1.16], hand:0.86, headS:[0.94,0.90,0.98]},
+
   {id:'raccoon',name:'Bandit the Raccoon',price:3000,
    blurb:'Turned up uninvited with somebody else\'s board. Extremely good on it.',
-   fur:0x9aa2ad, dark:0x25272e, nose:0x141418, muzzle:0xdfd8cb,
+   // Grizzled grey, a black bandit mask, a pointed pale muzzle, a fat ringed tail and small
+   // black hands. The white ruff either side of the mask is what frames it.
+   // grizzled means warm grey-BROWN, not blue: the first pass read as a small polar bear
+   fur:0x8b8375, dark:0x2a2620, nose:0x121216, muzzle:0xe4ddd0, belly:0xc8c0b0,
    face:'long',  ears:'round',   tail:'ringed', eyes:'mask', whiskers:true,
-   // stocky and low, with the dark hands it steals things with
-   shape:[1.08,1.04,0.96,0.78], tall:1.28, wide:1.08, deep:0.94, neckLen:1.06,
-   build:[0.98,0.96,1.00], limb:0.94, arm:0.90, armLen:1.00, foot:1.00,
-   footCol:0x2b2e36, handCol:0x2b2e36, headS:[1.02,0.96,1.00]},
+   cheeks:true, cheekCol:0xe8e2d6,
+   shape:[1.04,1.06,0.98,0.76], tall:1.28, wide:1.00, deep:1.00, neckLen:0.92,
+   build:[0.94,0.98,1.02], limb:0.92, limbLen:0.94, arm:0.88, armLen:1.02, foot:0.98,
+   footCol:0x26282f, handCol:0x26282f, headS:[1.00,0.94,1.08]},
+
   {id:'sloth', name:'Chill the Sloth', price:4200,
    blurb:'Takes the whole wave to make one turn and somehow still makes it.',
-   fur:0xa9977c, dark:0x574734, nose:0x2a211a, face:'long',  ears:'tuft',    tail:'stub', eyes:'patch',
-   // narrow shoulders, arms half again as long as anyone else's, and hooks on the end
-   shape:[1.00,1.06,0.98,0.74], tall:1.30, wide:1.02, deep:0.92, neckLen:1.02,
-   build:[0.98,1.00,0.98], limb:0.86, arm:0.84, armLen:1.34, foot:1.00, hand:1.06,
-   claws:3, clawCol:0x3b2f24, headS:[1.00,1.00,0.96]},
+   // Shaggy grey-brown, a flat pale face inside a darker mop, dark eye patches, and arms
+   // half again longer than the legs, ending in three enormous hooks.
+   // the first pass was one cream tone end to end — a sloth's whole read is a PALE face
+   // disc sitting inside distinctly darker, shaggier fur, so the two have to separate
+   fur:0x554836, dark:0x322818, nose:0x261e17, muzzle:0xdccaa6, belly:0x8e7a58,
+   face:'long',  ears:'tuft',    tail:'stub', eyes:'patch', cheeks:true, cheekCol:0xd6c4a2,
+   shape:[1.02,1.10,1.02,0.76], tall:1.22, wide:1.02, deep:0.98, neckLen:0.64,
+   build:[0.98,0.96,1.00], limb:0.80, limbLen:0.92, arm:0.78, armLen:1.62,
+   foot:0.94, hand:0.70, claws:3, clawCol:0x35291d, headS:[0.94,0.96,0.92]},
 
   {id:'lizard',name:'Basil the Lizard',price:6200,
    blurb:'Crested, long-tailed and entirely unbothered. Runs across the flat bits.',
-   fur:0x2fb37e, dark:0x18704e, nose:0x0f3a29, iris:0xf2c72a, crest:0xf2a71b, drum:0x1f8a5e,
-   face:'lizard',ears:'hole',  tail:'long',   eyes:'reptile', tailTilt:1.05, gloss:0.42,
-   // flat and wide and close to the ground, with splayed toes
-   shape:[0.96,1.04,1.04,0.84], tall:1.14, wide:1.10, deep:0.86, neckLen:1.04,
-   build:[0.94,0.86,1.04], limb:0.90, arm:0.84, armLen:0.90, foot:1.10,
-   footShape:[1.22,0.80,1.18], claws:3, clawCol:0x123f2e, headS:[0.94,0.90,1.00]},
+   // A green iguana: the dewlap hanging under the jaw, a spiny crest, a long deep head, a
+   // pale belly and a whip tail. Deeper than it is wide, and low-slung.
+   // the scene's light lifts a mid green into mint — an iguana has to start darker to land
+   // anywhere near olive, and the pale front has to be narrow or the whole animal is one tone
+   fur:0x2b7a4c, dark:0x155238, nose:0x0d3524, iris:0xe8bf28, crest:0xdc9a1e, drum:0x1c6446,
+   face:'lizard',ears:'hole',  tail:'long',   eyes:'reptile', tailTilt:1.05, gloss:0.44,
+   dewlap:true, dewlapCol:0x2c8a58, belly:0x63a86a, bellyW:0.44,
+   shape:[0.94,1.06,1.06,0.80], tall:1.08, wide:0.98, deep:1.10, neckLen:0.94,
+   build:[0.90,0.84,1.10], limb:0.92, limbLen:0.86, arm:0.84, armLen:0.94, foot:1.14,
+   footShape:[1.28,0.76,1.24], hand:1.06, handShape:[1.20,0.76,1.20],
+   claws:4, clawCol:0x123f2e, toes:4, fingers:4, headS:[0.90,0.88,1.14]},
 
   {id:'penguin',name:'Tux the Penguin',price:7500,
    blurb:'Overdressed for the beach. Still the fastest thing off the line.',
+   // A gentoo shape: pear-bodied — narrow at the shoulders, widest low down — standing
+   // upright on short legs set right at the back of it.
    fur:0x20242c, dark:0xf6f6f2, nose:0xf2a01b, beak:0xf2a01b, bib:0xf7f5ee,
    face:'beak',  ears:'none',   tail:'stub',   eyes:'beady',
-   // a teardrop standing on its heels: narrow at the shoulder, widest low down
-   shape:[1.02,1.12,1.06,0.72], tall:1.44, wide:1.00, deep:0.96, neckLen:0.96,
-   build:[1.00,1.06,0.98], limb:0.86, limbLen:0.70, arm:0.86, armLen:0.94, foot:1.28, hand:1.0,
-   footShape:[1.20,0.75,1.22], flipper:true, footCol:0xf2a01b, headS:[0.94,0.96,0.94]},
+   shape:[1.14,1.10,0.96,0.66], tall:1.46, wide:0.96, deep:1.00, neckLen:0.66,
+   build:[0.98,1.08,1.00], limb:0.84, limbLen:0.58, arm:0.88, armLen:1.02, foot:1.32, hand:1.0,
+   footShape:[1.26,0.70,1.30], flipper:true, footCol:0xf2a01b, headS:[0.92,0.94,0.96]},
 
   {id:'ant',   name:'De Soto the Ant',price:2700,
    blurb:'Six legs, none of them needed. Carries three times his weight in puka.',
-   fur:0xe23a1c, dark:0x8e1b08, nose:0x3a0c04, feelerCol:0xd0300f,
+   // a fire ant is a deep red-BROWN with a near-black gaster, not traffic-cone orange —
+   // and the source has to be desaturated to survive vivid()'s 45% saturation push
+   fur:0x9c5038, dark:0x5e1b0a, nose:0x2a0a03, feelerCol:0x8a4028, gasterCol:0x40200f,
    face:'ant',   ears:'none',   tail:'none',  eyes:'wide',
    segs:true, feelers:true, gloss:0.22, metal:0.15,
-   // the thorax and gaster carry the shape, so the shared body only has to get out of
-   // the way — narrow through the middle and the sockets pulled in with it
    shape:[0.86,0.78,0.88,0.80], tall:1.16, wide:0.96, deep:0.94, neckLen:0.94,
    build:[0.50,0.74,0.52], socket:0.58, limb:0.66, limbLen:1.10, headS:[0.80,0.76,0.82],
    arm:0.6, armLen:0.92, foot:0.86},
+
   {id:'angler',name:'Wick the Anglerfish',price:8800,
    blurb:'Spent her whole life a mile down with the only light for miles. Brought it up with her.',
    fur:0x2c3a42, dark:0x161f26, nose:0x0d1418, lureCol:0x9ff6dc,
    face:'angler', ears:'none', tail:'fin', tailTilt:1.30, eyes:'beady',
-   lure:true, flipper:true, gloss:0.30,
-   // all head and jaw on almost no body, and the little of her that is not mouth is fin
-   shape:[0.86,0.96,1.06,0.80], tall:1.04, wide:0.94, deep:0.88, neckLen:0.58,
-   headS:[1.22,1.16,1.18],
-   build:[0.88,0.90,0.90], limb:0.82, limbLen:0.72, arm:0.88, armLen:0.86,
+   lure:true, flipper:true, gloss:0.30, belly:0x46565f,
+   shape:[0.90,1.02,1.08,0.78], tall:0.98, wide:1.00, deep:0.90, neckLen:0.40,
+   headS:[1.26,1.18,1.20],
+   build:[0.90,0.88,0.92], limb:0.82, limbLen:0.70, arm:0.88, armLen:0.86,
    foot:1.06, footShape:[1.30,0.50,1.10], hand:1.0},
+
   {id:'monkey',name:'Bongo the Monkey',price:2100,
    blurb:'Arms longer than his legs and a tail with opinions of its own. Never once sat still.',
+   // A macaque build: light frame, long arms, a pale face and chest against darker fur, and
+   // the round flat ears set low and wide on the skull.
    fur:0x8a5a34, dark:0xd8a978, nose:0x2a1a12, muzzle:0xe0b489, inner:0xe8b79a,
    face:'long', ears:'disc', tail:'long', tailTilt:1.15, eyes:'wide',
-   // the whole animal is the arms: longer than the legs, and thin, so he hangs off things
-   shape:[0.94,0.92,0.96,0.78], tall:1.28, wide:0.92, deep:0.82, neckLen:1.00,
-   headS:[0.96,0.94,0.92],
-   build:[0.88,0.96,0.88], limb:0.86, limbLen:0.92, arm:0.80, armLen:1.42,
+   belly:0xd8b48c, cheeks:true, cheekCol:0xe0b489,
+   shape:[0.92,0.94,0.98,0.74], tall:1.30, wide:0.88, deep:0.86, neckLen:0.84,
+   headS:[0.94,0.92,0.94],
+   build:[0.86,0.98,0.88], limb:0.84, limbLen:0.94, arm:0.76, armLen:1.55,
    foot:1.10, footShape:[0.92,0.80,1.28], hand:0.96, handShape:[0.94,0.72,1.30],
    toes:3, fingers:4},
+
   {id:'squirrel',name:'Hazel the Squirrel',price:1600,
    blurb:'Small, twitchy and completely fearless. The tail arrives a second after she does.',
-   fur:0xc06a2e, dark:0xf0dcbe, nose:0x2a1a12, muzzle:0xf2e2c6, bib:0xf4e6cd, bibS:0.66,
+   // Rust-red over a cream belly, a short muzzle with the two front teeth showing, tufted
+   // ears, and a tail that is bigger than she is.
+   // Rust, not marigold. Darkening alone did not do it: every fur colour goes through
+   // vivid(_,1.5), which pushes each channel 45% further from its own average, so a
+   // saturated source lands on a traffic cone however dark it starts. The fix is a
+   // DESATURATED brown — the boost then arrives at rust.
+   fur:0x8a5c3a, dark:0xe8d2b0, nose:0x2a1a12, muzzle:0xf2e2c6, bib:0xf4e6cd, bibS:0.66,
    face:'rodent', ears:'pointed', tail:'plume', tailTilt:0.30, whiskers:true, eyes:'wide',
-   // light and quick, with the back legs of something that lives by jumping
-   shape:[1.02,0.94,0.86,0.72], tall:1.24, wide:0.92, deep:0.84, neckLen:1.02,
-   headS:[0.94,0.92,0.96],
-   build:[0.84,0.94,0.86], limb:0.86, arm:0.76, armLen:0.94, foot:1.16,
+   belly:0xf4e6cd, cheeks:true, cheekCol:0xf2e2c6,
+   shape:[1.06,0.98,0.86,0.68], tall:1.18, wide:0.88, deep:0.86, neckLen:0.76,
+   headS:[0.92,0.92,1.00],
+   build:[0.82,0.94,0.86], limb:0.84, limbLen:1.00, arm:0.72, armLen:0.92, foot:1.18,
    footShape:[0.90,0.92,1.24], hand:0.82, claws:3, clawCol:0x3a2a1c},
+
   {id:'porcupine',name:'Quill the Porcupine',price:3900,
    blurb:'Nobody has ever asked him to move over. He has never had to ask either.',
-   fur:0x4a3a28, dark:0x2b2118, nose:0x1a120c, muzzle:0x6b5540,
+   // Low, heavy and hunched, with the quills covering the whole back and no neck showing
+   // between them and the skull.
+   fur:0x4a3a28, dark:0x2b2118, nose:0x1a120c, muzzle:0x6b5540, belly:0x6d5742,
    face:'long', ears:'small', tail:'stub', eyes:'beady', whiskers:true,
    quills:true, quillCol:0x241d14, quillTip:0xf4e8ca,
-   // heavy and low, because everything he does he does slowly and on purpose
-   shape:[1.14,1.16,1.02,0.78], tall:1.24, wide:1.10, deep:1.04, neckLen:0.82,
-   headS:[0.94,0.92,1.06],
-   build:[1.06,0.94,1.06], limb:1.00, limbLen:0.76, arm:0.92, armLen:0.78, foot:1.02,
+   shape:[1.16,1.20,1.04,0.74], tall:1.14, wide:1.08, deep:1.10, neckLen:0.58,
+   headS:[0.90,0.90,1.12],
+   build:[1.04,0.94,1.06], limb:1.00, limbLen:0.74, arm:0.92, armLen:0.76, foot:1.02,
    footCol:0x241d14, handCol:0x241d14, claws:3, clawCol:0x1c150e},
+
   {id:'alien', name:'Zorp the Alien',   price:13500,
    blurb:'Came a very long way for this. Has not said why, and the board suits him.',
    fur:0x86d46a, dark:0x4e8f3c, nose:0x2b4a22, lip:0x24381f,
    face:'alien', ears:'none', tail:'none', eyes:'alien', gloss:0.30, metal:0.06,
-   // an enormous head on almost nothing, carried on long thin limbs
    shape:[0.74,0.82,0.86,0.66], tall:1.02, wide:0.78, deep:0.72, neckLen:0.74,
    headS:[1.34,1.30,1.16],
    build:[0.86,0.90,0.86], limb:1.0, arm:1.0, limbLen:1.62, armLen:1.52,
@@ -5321,27 +5407,27 @@ const CHARS=[
    armProf:[0.124,0.092,0.080,0.083,0.068,0.056],
    foot:0.92, footShape:[0.90,0.60,1.35], hand:0.86, handShape:[0.90,0.55,1.30],
    toes:3, fingers:3},
+
   {id:'rex',   name:'Rexy the T. rex',price:11000,
    blurb:'Tiny arms, enormous everything else. The wave gets out of the way.',
+   // Deep-chested, heavy in the thigh, tiny arms held close to the chest, and a head that
+   // is most of the animal. Belly paler than the back, the way every reconstruction has it.
    fur:0x4c7a3a, dark:0x2f5226, nose:0x1c3418, crest:0xd8892a,
    face:'rex',   ears:'none',   tail:'thick',  eyes:'reptile', iris:0xe0532a, spines:true,
-   // deep through the chest and heavy in the hip to carry the tail, and the whole joke
-   // of a T. rex is the arms, so they are less than half length
-   shape:[1.06,1.10,1.04,0.84], tall:1.26, wide:1.02, deep:1.10, neckLen:1.02,
-   build:[1.02,0.98,1.04], limb:1.12, arm:0.62, armLen:0.46, foot:1.06,
-   footShape:[1.10,0.90,1.22], claws:3, clawCol:0xe8e0cc, headS:[0.98,0.96,1.02]},
+   belly:0xa8bd7a,
+   shape:[1.04,1.14,1.10,0.80], tall:1.20, wide:0.96, deep:1.20, neckLen:0.80,
+   build:[0.96,0.98,1.10], limb:1.20, limbLen:0.94, arm:0.58, armLen:0.42, foot:1.10,
+   footShape:[1.14,0.88,1.30], claws:3, clawCol:0xe8e0cc, headS:[1.00,0.98,1.12]},
 
   {id:'chicken',name:'Nugget the Chicken',price:8200,
    blurb:'Cannot fly. Has never let that stop her. Surfs like she means it.',
+   // A hen is a teardrop on a long neck: full and round at the bottom, narrowing up to the
+   // shoulders, with the comb and wattles doing the rest of the work.
    fur:0xf6efe2, dark:0xd8c4a4, nose:0xf0a51c, beak:0xf0a51c, comb:0xd8342c,
    face:'beak',  beakLen:0.19, beakR:0.095, headPatch:false, ears:'none',
    tail:'fan',   tailCol:0xcfa871, eyes:'wide',
-   // A chicken is a deep round body carried high on scaly legs with almost no waist, and
-   // a small head on a real neck — the neck is the whole reason a chicken reads as a bird
-   // and not as a ball. Wings use the penguin's flat arms; folded against the body that is
-   // exactly what a chicken's look like.
-   shape:[0.84,1.04,1.00,0.68], tall:1.26, wide:0.94, deep:1.06, neckLen:1.46,
-   build:[1.00,1.00,1.00], limb:0.84, limbLen:0.96, arm:0.92, armLen:0.80, foot:1.14, hand:1.0,
+   shape:[1.10,1.12,0.92,0.60], tall:1.14, wide:0.96, deep:1.08, neckLen:1.26,
+   build:[0.98,1.00,1.00], limb:0.84, limbLen:0.96, arm:0.92, armLen:0.80, foot:1.14, hand:1.0,
    footShape:[1.22,0.55,1.34], flipper:true, footCol:0xf0a51c, claws:3, clawCol:0xf0a51c,
    headS:[0.84,0.86,0.86]},
 ];
@@ -5349,6 +5435,108 @@ const CHAR_BY_ID={}; for(const c of CHARS)CHAR_BY_ID[c.id]=c;
 function buildChar(id){
   const C=CHAR_BY_ID[id]||CHAR_BY_ID.pug;
   clearKit();
+  // ---- where this character's body actually IS ----
+  // Declared first because every marking below needs it. The torso is a sphere of radius
+  // 0.46 pushed through a width profile, so its half-width at height t is the sphere's own
+  // radius there TIMES the profile TIMES `wide` — and it falls to nothing at the hips and
+  // the shoulders. Marking sizes written as constants were the single cause of every patch
+  // that floated off a lean animal or vanished inside a round one.
+  const _W=C.shape||TORSO_DEF, _WX=C.wide||1.14, _DZ=C.deep||0.86, _TL=C.tall||1.32;
+  const _sm=u=>u*u*(3-2*u);
+  const bodyProf=t=>{const g=Math.min(2.999,t*3),i=Math.floor(g),f=_sm(g-i);return _W[i]*(1-f)+_W[i+1]*f;};
+  // ...and then the whole mesh is scaled again by `build` (torso.scale). Leaving that out
+  // put every marking about a fifth outside the body it was supposed to be lying on, which
+  // is how the cat first came to wear its stripes as a rib cage in front of its chest.
+  const _B=C.build||[1,1,1];
+  const bodyT=y=>Math.max(0,Math.min(1,(y/_B[1]-0.258*_TL)/(0.92*_TL)+0.5));
+  // and the head: a sphere of radius 0.40 scaled by headS, so a patch on the cheek or the
+  // throat can be laid ON it instead of hanging in front of the chin
+  const _HS=C.headS||[1,1,1];
+  const headRZ=y=>0.40*_HS[2]*Math.sqrt(Math.max(0.04,1-Math.pow(Math.min(0.99,Math.abs(y)/(0.40*_HS[1])),2)));
+  // ---- markings cut from the body's own skin ----
+  // The only way a patch fits a body exactly is to BE that body. This lifts the triangles
+  // of the already-shaped torso between two heights (and optionally only those facing the
+  // front), inflates them half a centimetre, and hands back a mesh — so a panda's saddle
+  // and an otter's pale front follow every taper instead of approximating it with stacked
+  // primitives. Rings of tori tried first and came out as a car tyre round the panda's
+  // chest; a single ellipsoid can only touch the body at one height and floats at the rest.
+  const geoT=y=>Math.max(0,Math.min(1,(y-0.258*_TL)/(0.92*_TL)+0.5));
+  // halfAng keeps the patch on the FRONT (|angle from the belly line| < halfAng); pass
+  // invert to keep the complement instead — the back and both flanks, which is where a
+  // tabby's bars live.
+  // The skin the patches are cut from. NOT the torso mesh: that is 32x26, and a 4 cm tabby
+  // bar lands on one row of its quads, which leaves the per-vertex feather nothing to work
+  // with. This is the same body — same width profile, same height mapping — at 48x72, built
+  // once per character and shared by every marking. Each vertex carries the (t, angle) it
+  // was generated FROM, so no marking has to invert the height mapping to find out where it
+  // is; recovering t from y ignored the small cubic lift at the shoulders.
+  let _skin=null;
+  const bodySkin=()=>{
+    if(_skin)return _skin;
+    const g=new THREE.SphereGeometry(0.46,48,72).toNonIndexed();
+    const p=g.attributes.position, n=p.count;
+    const P=new Float32Array(n*3), N=new Float32Array(n*3), T=new Float32Array(n), A=new Float32Array(n);
+    for(let i=0;i<n;i++){
+      const x=p.getX(i), y=p.getY(i), z=p.getZ(i);
+      const t=Math.max(0,Math.min(1,(y+0.46)/0.92)), w=bodyProf(t);
+      P[i*3]=x*w*_WX; P[i*3+1]=y*_TL+0.258*_TL+Math.pow(t,3)*0.06; P[i*3+2]=z*w*_DZ;
+      T[i]=t; A[i]=Math.abs(Math.atan2(x,-z));
+      // the sphere's own outward normal, squashed by the inverse of the axis scales — which
+      // is what a smooth normal on a non-uniformly scaled sphere is
+      const nx=x/(w*_WX), ny=y/_TL, nz=z/(w*_DZ), L=Math.hypot(nx,ny,nz)||1;
+      N[i*3]=nx/L; N[i*3+1]=ny/L; N[i*3+2]=nz/L;
+    }
+    g.dispose();
+    _skin={P,N,T,A,n};
+    return _skin;
+  };
+  // bands: [[t0,t1], ...]; a vertex takes the strongest alpha of any band it falls in, so a
+  // whole set of tabby bars is ONE mesh and one draw rather than eight.
+  const bodyBands=(bands,m,grow,halfAng,invert)=>{
+    const FA=0.34;
+    const sm=u=>{const c=Math.max(0,Math.min(1,u));return c*c*(3-2*c);};
+    const FT=bands.map(([a,b])=>Math.min(0.11,Math.max(0.014,(b-a)*0.55)));
+    const S=bodySkin(), out=[], nout=[], cout=[];
+    const alphaAt=(i)=>{
+      const t=S.T[i];
+      let a=0;
+      for(let b=0;b<bands.length;b++){
+        const f=FT[b];
+        a=Math.max(a,Math.min(sm((t-(bands[b][0]-f))/f), sm(((bands[b][1]+f)-t)/f)));
+      }
+      if(halfAng!==undefined){
+        const ang=S.A[i];
+        a=Math.min(a, invert ? sm((ang-(halfAng-FA))/FA) : sm(((halfAng+FA)-ang)/FA));
+      }
+      return a;
+    };
+    for(let f=0;f+2<S.n;f+=3){
+      // Kept while ANY corner still carries alpha, rather than on the centroid: dropping a
+      // triangle whose centroid had fallen out of range while a corner had not left the last
+      // row of quads with alpha and nothing to blend into, and that row's zigzag showed along
+      // the bottom of the panda's saddle as a row of grey teeth.
+      if(alphaAt(f)<=0 && alphaAt(f+1)<=0 && alphaAt(f+2)<=0)continue;
+      for(let k=0;k<3;k++){
+        const i=f+k;
+        out.push(S.P[i*3],S.P[i*3+1],S.P[i*3+2]);
+        nout.push(S.N[i*3],S.N[i*3+1],S.N[i*3+2]);
+        cout.push(1,1,1,alphaAt(i));
+      }
+    }
+    if(!out.length)return null;
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.Float32BufferAttribute(out,3));
+    // the torso's OWN smooth normals, carried across. Recomputing them on a non-indexed
+    // patch gives one normal per triangle, and the pug's chest came out faceted like a
+    // cut gem sat on an otherwise smooth body.
+    g.setAttribute('normal',new THREE.Float32BufferAttribute(nout,3));
+    g.setAttribute('color',new THREE.Float32BufferAttribute(cout,4));
+    m.vertexColors=true; m.transparent=true; m.depthWrite=false; m.needsUpdate=true;
+    const mesh=kit(spine,new THREE.Mesh(g,m));
+    mesh.scale.set(_B[0]*(grow||1.006),_B[1]*(grow||1.006),_B[2]*(grow||1.006));
+    return mesh;
+  };
+  const bodyPatch=(t0,t1,m,grow,halfAng,invert)=>bodyBands([[t0,t1]],m,grow,halfAng,invert);
   furMat.color.copy(vivid(C.fur,1.5));
   darkMat.color.copy(vivid(C.dark,1.0));
   const noseMat=mat(C.nose,90);
@@ -5417,7 +5605,8 @@ function buildChar(id){
   // first version looked like; a waist that physically bridges the two and a neck that
   // fills under the head are what make it one animal.
   if(C.segs){
-    const shell=PBR({color:C.fur,roughness:C.gloss!==undefined?C.gloss:0.26,
+    // an ant's gaster is the darkest part of it — the head and thorax are lighter
+    const shell=PBR({color:C.gasterCol||C.fur,roughness:C.gloss!==undefined?C.gloss:0.26,
                      metalness:C.metal||0.14,vivid:1.5});
     const band=PBR({color:C.dark,roughness:0.34,metalness:0.1,vivid:1.25});
     const GR=0.345, GZ=0.40, GL=0.50;            // gaster radius, centre, half length
@@ -5468,10 +5657,19 @@ function buildChar(id){
     // an otter wears a pale throat, a penguin wears a whole shirt front — same patch,
     // scaled, or every animal with one ends up looking like a bear with a belly
     const bs=C.bibS===undefined?1:C.bibS;
-    const b=kit(spine,new THREE.Mesh(new THREE.SphereGeometry(0.30,22,18),bm));
-    b.position.set(0,0.30+(1-bs)*0.22,-0.16);b.scale.set(0.98*bs,1.55*bs,0.98);
-    const t=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.30,20,16),bm));
-    t.position.set(0,-0.15,-0.16);t.scale.set(0.80*bs,0.58*bs,0.94);   // carries up under the chin
+    // Laid ON the chest rather than hung in front of it: the centre is pulled back inside
+    // the torso and the forward cap lands just proud of the real surface. Written as fixed
+    // offsets it sat 8 cm off an otter's chin and read, from three-quarters on, as a
+    // detached cream egg floating by the shoulder.
+    const by=0.30+(1-bs)*0.22, bh=0.30*1.55*bs;
+    // Cut from the chest, like the pale underside. As an ellipsoid it met the torso at a
+    // shallow angle and the intersection came out as a ragged sawtooth along the bottom
+    // of the corgi's bib — two curved surfaces crossing at a few degrees on a 26-row mesh.
+    bodyPatch(bodyT(by-bh),bodyT(by+bh),bm,1.008,0.86);
+    const t=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(1,20,16),bm));   // up under the chin
+    const hz=headRZ(-0.15);
+    t.position.set(0,-0.15,-hz*0.50);
+    t.scale.set(Math.min(0.30*0.80*bs,0.40*_HS[0]*0.70), 0.30*0.58*bs, hz*0.54);
   }
 
   // ---- quills ----
@@ -5557,9 +5755,11 @@ function buildChar(id){
       const a2=(i-(C.claws-1)/2)*0.62;
       // a cone points +Y, so a NEGATIVE turn about X swings it down and FORWARD; the
       // positive one had every claw raked backwards out of the back of the hand
-      const c=kit(h,new THREE.Mesh(new THREE.ConeGeometry(0.032,0.165,7),cm));
-      c.position.set(Math.sin(a2)*0.072,-0.070,-Math.cos(a2)*0.072);
-      c.rotation.set(-2.45,0,a2*0.35);
+      // A sloth's claws are HOOKS — as long as its hand and the first thing you see. At
+      // 0.165 against a 1.14-scale hand they were splinters lost in a beach ball.
+      const c=kit(h,new THREE.Mesh(new THREE.ConeGeometry(0.036,0.300,7),cm));
+      c.position.set(Math.sin(a2)*0.078,-0.080,-Math.cos(a2)*0.078);
+      c.rotation.set(-2.30,0,a2*0.35);
     }
   }
 
@@ -5703,6 +5903,104 @@ function buildChar(id){
     kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.062,12,10),noseMat)).position.set(0,-0.045,-0.56);
   }
 
+  // ---- the pig's snout ----
+  // A real pig's nose is a flat DISC on the end of a blunt cylinder, with two big round
+  // nostrils punched straight through it. The generic 'snout' was a soft cone with two
+  // beads on it, which reads as a dog. This is the single most identifying part of a pig.
+  if(C.snoutDisc){
+    const sm=PBR({color:C.snout||0xe28fa4,roughness:0.55,vivid:1.1});
+    const barrel=kit(headJ,new THREE.Mesh(new THREE.CylinderGeometry(0.165,0.150,0.22,20),sm));
+    barrel.rotation.x=Math.PI/2; barrel.position.set(0,-0.075,-0.44);
+    const disc=kit(headJ,new THREE.Mesh(new THREE.CylinderGeometry(0.170,0.170,0.045,20),sm));
+    disc.rotation.x=Math.PI/2; disc.position.set(0,-0.075,-0.555);
+    for(const sx of [-1,1]){
+      const n=kit(headJ,new THREE.Mesh(new THREE.CylinderGeometry(0.038,0.038,0.05,12),
+        PBR({color:0x8a4358,roughness:0.5})));
+      n.rotation.x=Math.PI/2; n.position.set(sx*0.062,-0.075,-0.572);
+    }
+    // the crease where the disc meets the face, and the heavy jowl behind it
+    for(const sx of [-1,1]){
+      const j=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.145,14,12),furMat));
+      j.position.set(sx*0.185,-0.145,-0.235);j.scale.set(0.9,0.86,1.0);
+    }
+  }
+  // ---- a blaze up the face ----
+  // The white stripe up the muzzle and between the eyes that most dogs carry, and which
+  // is half of why a corgi's face reads as a corgi.
+  if(C.blaze){
+    const bm=PBR({color:C.blaze,roughness:0.62,vivid:1.2});
+    const b=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.115,14,14),bm));
+    b.position.set(0,0.02,-0.375);b.scale.set(0.52,1.85,0.62);
+    const m2=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.10,14,12),bm));
+    m2.position.set(0,-0.135,-0.44);m2.scale.set(1.25,0.70,1.05);
+  }
+  // ---- cheek fur ----
+  // The ruff that stands out sideways under the ear: a corgi, a squirrel and a raccoon
+  // all have it, and without it the head is a ball with a face drawn on it.
+  if(C.cheeks)for(const sx of [-1,1]){
+    // Sunk INTO the cheek rather than stuck on the side of it. At a 0.275 offset with a
+    // 0.116 half-width the ball sat right on the skin of the skull, and once the head
+    // turned the far one swung clear of the silhouette and read as a white egg floating
+    // by the shoulder — on the cat, the corgi, the otter, the raccoon and the sloth alike.
+    const c2=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.145,14,12),
+      C.cheekCol?PBR({color:C.cheekCol,roughness:0.66,vivid:1.2}):furMat));
+    c2.position.set(sx*0.40*_HS[0]*0.76,-0.075,-headRZ(-0.075)*0.33);
+    c2.scale.set(0.74,1.00,0.86);
+  }
+  // ---- a lizard's dewlap ----
+  // The fan of skin under an iguana's chin. Nothing else says "iguana" so fast.
+  if(C.dewlap){
+    const dm=PBR({color:C.dewlapCol||C.dark,roughness:0.45,vivid:1.3});
+    const d=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.20,16,14),dm));
+    d.position.set(0,-0.30,-0.28);d.scale.set(0.30,1.05,0.85);d.rotation.x=-0.30;
+  }
+  // ---- tabby stripes ----
+  // A grey cat with no markings is a grey blob. Real tabby bars run ACROSS the back and
+  // down the flanks, thin, slightly irregular, and there is a set on the head between the
+  // ears. Thin rings around the torso are the cheapest honest version of that.
+  if(C.stripes){
+    const sm=PBR({color:C.stripes,roughness:0.64,vivid:1.05});
+    // Painted on the skin, all eight bars as one mesh: over the spine, dying out on the
+    // flank, never crossing the pale chest. Rings of torus were tried three times and each
+    // failure was the same failure — a tube has a silhouette and paint does not. Proud of
+    // the surface they read as a rib cage; sunk below it they came out dashed, surfacing
+    // only where the mesh bulged between segments; and an open torus arc is not capped by
+    // three.js, so every arc showed the tube's hollow interior at both ends.
+    const bands=[];
+    for(let i=0;i<8;i++){
+      const t2=0.20+i*0.086, h=0.020+0.005*Math.sin(i*2.1);
+      bands.push([t2-h,t2+h]);
+    }
+    bodyBands(bands,sm,1.004,1.02,true);
+    for(let i=0;i<3;i++){                            // and the bars on the forehead
+      const b2=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.048,10,8),sm));
+      b2.position.set((i-1)*0.078,0.305,-0.14);b2.scale.set(0.40,0.52,1.4);
+    }
+  }
+  // ---- a lighter underside ----
+  // Almost every mammal in this roster is pale under the chin, chest and belly and darker
+  // over the back. Countershading is what stops a body reading as one moulded colour.
+  if(C.belly){
+    const bm=PBR({color:C.belly,roughness:0.64,vivid:1.2});
+    // The front of the animal's own skin, lifted and repainted. Stacked lenses got the
+    // taper right but showed their seams as a row of scallops down the chest.
+    // Just clear of the stripes (1.004), which are painted on the same skin — enough to win
+    // the depth test where the two overlap, and far too little to see.
+    bodyPatch(0.05,0.92,bm,1.008,C.bellyW||0.80);
+  }
+  // ---- a band across the shoulders ----
+  // The panda's black saddle: it wraps the chest and runs into both arms, and it is the
+  // marking that makes a white bear a panda.
+  if(C.band){
+    const bm=PBR({color:C.band,roughness:0.60,vivid:1.0});
+    // A saddle that WRAPS, built the same way the stripes are — closed hoops this time,
+    // stacked until they read as one wide band across the shoulders and chest.
+    // Sat across the CHEST, not the very top of the trunk: higher up, the head and the
+    // collar cover the torso and all that showed of a panda's defining marking was a thin
+    // dark arc over one shoulder. Cut from the body so it wraps; a stack of tori wrapped
+    // too, but the overlapping tubes ridged up and read as a car tyre.
+    bodyPatch(0.52,0.92,bm,1.007);
+  }
   // ---- comb and wattles ----
   // A row of soft lobes standing along the crown, tallest in the middle, and a pair
   // hanging under the chin. Nothing else in the roster has them, and without them a
@@ -5739,6 +6037,24 @@ function buildChar(id){
         e.position.set(0.20,0.42,0.02);e.rotation.z=-0.22;return e;});
       earAt(sx,()=>{const e=new THREE.Mesh(new THREE.ConeGeometry(0.062,0.18,4),inner);
         e.position.set(0.20,0.42,-0.035);e.rotation.z=-0.22;return e;});
+    } else if(C.ears==='pig'){
+      // A pig's ear is a big soft triangle that leans FORWARD over the eye and folds at
+      // the tip — nothing like the little cones this used to borrow. It is most of what
+      // reads as "pig" from the front, after the snout.
+      // Set WIDE on the skull and tipped well out to the side, not up: two cones stood on
+      // end near the crown converge into one horn between them, which is exactly what the
+      // first pass produced. The lean is mostly -z (roll out) with a little +x (fold forward).
+      earAt(sx,()=>{const e=new THREE.Mesh(new THREE.ConeGeometry(0.165,0.34,5),furMat);
+        e.position.set(0.300,0.235,0.01);e.rotation.set(0.42,0,-1.02);e.scale.set(1,1,0.46);return e;});
+      earAt(sx,()=>{const e=new THREE.Mesh(new THREE.ConeGeometry(0.100,0.21,5),inner);
+        e.position.set(0.300,0.222,-0.045);e.rotation.set(0.42,0,-1.02);e.scale.set(1,1,0.40);return e;});
+    } else if(C.ears==='corgi'){
+      // Upright, broad at the base, ROUNDED at the tip — a corgi's ear is a spade, not a
+      // spike, and it is enormous relative to the skull.
+      earAt(sx,()=>{const e=new THREE.Mesh(new THREE.SphereGeometry(0.135,14,14),furMat);
+        e.position.set(0.230,0.455,-0.01);e.scale.set(1.26,1.46,0.42);e.rotation.z=-0.17;return e;});
+      earAt(sx,()=>{const e=new THREE.Mesh(new THREE.SphereGeometry(0.135,12,12),inner);
+        e.position.set(0.230,0.432,-0.050);e.scale.set(0.78,0.98,0.30);e.rotation.z=-0.17;return e;});
     } else if(C.ears==='small'){
       earAt(sx,()=>{const e=new THREE.Mesh(new THREE.ConeGeometry(0.10,0.18,4),darkMat);
         e.position.set(0.22,0.34,-0.02);e.rotation.set(0.55,0,-0.30);return e;});
@@ -5753,10 +6069,12 @@ function buildChar(id){
       earAt(sx,()=>{const e=new THREE.Mesh(new THREE.SphereGeometry(0.055,10,12),inner);
         e.position.set(0.15,0.60,-0.048);e.scale.set(0.75,3.2,0.35);e.rotation.z=-0.13;return e;});
     } else if(C.ears==='disc'){               // monkey: big flat rounds, low and wide
-      earAt(sx,()=>{const e=new THREE.Mesh(new THREE.SphereGeometry(0.155,18,14),furMat);
-        e.position.set(0.345,0.075,-0.03);e.scale.set(0.42,1.02,0.96);return e;});
-      earAt(sx,()=>{const e=new THREE.Mesh(new THREE.SphereGeometry(0.105,14,12),inner);
-        e.position.set(0.385,0.075,-0.03);e.scale.set(0.30,1.0,0.94);return e;});
+      // pushed clear of the skull: at 0.345 they were buried inside a head whose own
+      // half-width is 0.376, so the monkey came out with no ears at all
+      earAt(sx,()=>{const e=new THREE.Mesh(new THREE.SphereGeometry(0.165,18,14),furMat);
+        e.position.set(0.410,0.075,-0.03);e.scale.set(0.34,1.05,0.98);return e;});
+      earAt(sx,()=>{const e=new THREE.Mesh(new THREE.SphereGeometry(0.115,14,12),inner);
+        e.position.set(0.448,0.075,-0.03);e.scale.set(0.26,1.0,0.96);return e;});
     } else if(C.ears==='tuft'){               // sloth: a scruff of fur, no real ear
       earAt(sx,()=>{const e=new THREE.Mesh(new THREE.SphereGeometry(0.10,14,12),furMat);
         e.position.set(0.30,0.20,0.06);e.scale.set(0.75,1.15,0.75);return e;});
@@ -5765,7 +6083,11 @@ function buildChar(id){
         PBR({color:C.drum||0x3f6a2a,roughness:0.45}));
         e.position.set(0.30,0.10,-0.05);e.rotation.y=Math.PI/2;return e;});
     } else if(C.ears!=='none'){               // round
-      earAt(sx,()=>{const e=new THREE.Mesh(new THREE.SphereGeometry(0.135,14,12),darkMat);
+      // `dark` is the FACE colour on some animals — the otter's is cream, and borrowing it
+      // for the ears put two pale blobs on a brown head. earCol/earS override both.
+      const em=C.earCol!==undefined?PBR({color:C.earCol,roughness:0.70,vivid:1.4}):darkMat;
+      const es=C.earS||1;
+      earAt(sx,()=>{const e=new THREE.Mesh(new THREE.SphereGeometry(0.135*es,14,12),em);
         e.position.set(0.29,0.33,0.03);e.scale.set(1,1,0.55);return e;});
     }
   }
@@ -9144,6 +9466,10 @@ if(location.hash.includes('debug')){
     // rather than of racing the scroll.
     plantCrate(){ crateOn=true; cratePin=true; crateObj.visible=true;
                   crateObj.position.set(px,0,pz-0.4); return true; },
+    // The character gallery: put one on screen, full frame, for a look.
+    charIds(){ return CHARS.map(c=>c.id); },
+    showChar(id,spin){ closeViewer&&closeViewer(); openViewer('rider',id);
+                       if(viewer){ viewer.spin=spin===undefined?0:spin; viewer.grab=true; } return id; },
     tubeChest(){ if(!swTubeRide)return false;
                  crateOn=true; cratePin=true; crateInTube=true; crateObj.visible=true;
                  crateObj.position.set(swTubeC(),0,pz-1.0); return true; },

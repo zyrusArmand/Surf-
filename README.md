@@ -52,6 +52,36 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.81.0** — **Every character rebuilt against the real animal, and perks on the shop card.**
+  - **Markings are now measured, not guessed.** Every patch, stripe and band used to be
+    sized with flat constants. Three things the constants ignored: the torso is a *sphere*
+    pushed through a width profile, so its half-width falls to nothing at the hips and the
+    shoulders; the profile is then scaled again by `build`; and the head is scaled by
+    `headS`. Between them a marking could sit a fifth of the body outside the body. That is
+    why the cat wore its stripes as a rib cage hanging in front of its chest, why the otter's
+    throat patch floated by its shoulder as a detached cream egg, and why five animals had a
+    white blob apparently stuck to one shoulder. `bodyRX/bodyRZ/bodyY` and `headRZ` now
+    report where the mesh actually is, and every marking is placed off them.
+  - **Patches are cut from the animal's own skin.** `bodyPatch()` lifts the triangles of the
+    already-shaped torso between two heights (optionally only the front-facing ones),
+    inflates them 0.7%, and hands back a mesh — so the pale front and the panda's saddle fit
+    exactly and follow every taper. Stacked lenses got the taper right but seamed into a row
+    of scallops down the chest; stacked tori wrapped, but ridged up into a car tyre.
+  - **Tabby stripes lie flush.** The tube's centreline sits *on* the surface so half sinks in,
+    and the arc is centred on the spine — a bar comes over the back and dies out on the
+    flank, it never crosses the pale chest.
+  - **Per-animal fixes:** pig ears set wide and rolled out (two cones near the crown had been
+    converging into a single horn) with a longer neck and a bigger head so it stops reading
+    as one balloon; corgi ears widened into spades instead of rabbit ears, and the body made
+    long rather than round; monkey ears pushed clear of a skull they were buried inside;
+    raccoon recoloured from blue-grey to grizzled warm brown, with the mask joined across the
+    bridge of the nose; sloth given a face that separates from its fur and claws that are
+    hooks rather than splinters; ant taken from traffic-cone orange to fire-ant red-brown
+    with a near-black gaster.
+  - **Character perks are visible.** Shop cards for riders now carry the same black stat bar
+    the boards do — the trait the perk lifts, how far it lifts it, and the perk's own line
+    underneath. A bonus you cannot see is a bonus nobody believes in.
+
 - **v2.80.0** — **Sparkles removed.** The v2.79 sun-glitter sparkles come back out, cleanly:
   the ocean's own sun specular stays, the twinkle cells go.
 
