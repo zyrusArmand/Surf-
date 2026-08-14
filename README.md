@@ -52,6 +52,12 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.77.0** — **Button polish.** "Watch a clip" becomes **Free life** (say what it gives,
+  not what it costs), "Beach shop" becomes **Shop**, and the pills slim down (11px pad, 15px
+  on the run card) with a brighter glass sheen. The uneven spacing was real and structural:
+  per-button margin-tops of 9px in one rule and 10px in another, plus the play row's own
+  margin, all fighting — one flex `gap` owns the spacing now, measured equal on every screen.
+
 - **v2.76.0** — **The chest gets its gloss and its stage manners.** Phong materials instead
   of Lambert — lacquered wood and polished brass are specular highlights, which Lambert
   cannot do — plus plank grooves, gold corner posts, brass rivet lines down every strap and
