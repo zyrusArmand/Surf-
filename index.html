@@ -1021,7 +1021,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.9.3';
+const VERSION='3.10.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1038,10 +1038,123 @@ if(THREE.sRGBEncoding!==undefined)renderer.outputEncoding=THREE.sRGBEncoding;
 if(renderer.shadowMap){renderer.shadowMap.enabled=true;
   if(THREE.PCFSoftShadowMap!==undefined)renderer.shadowMap.type=THREE.PCFSoftShadowMap;}
 document.body.appendChild(renderer.domElement);
+
+// ---------- the composite ----------
+// Every frame that reaches the screen goes through here instead of straight to the canvas.
+// The reason is one thing the game could not do without it: BLOOM. A run is shot straight
+// into a sunset, and the sun was a flat disc with a hard edge — the single loudest "this is
+// a render" in the whole game, because a real lens spills light around anything that bright.
+// It is not only the sun. Foam crests, the glitter track on the water and the wet highlight
+// down a board's rail are all things that read as bright rather than as white, and bright is
+// something you can only show by letting them bleed.
+//
+// Only on WebGL2, and this is not caution for its own sake: a render target loses the
+// MSAA the default framebuffer gets from antialias:true, and trading the palm's edges for
+// the sun's glow is not a trade worth making. WebGL2 has multisampled targets; WebGL1 keeps
+// the old path exactly as it was.
+//
+// Colour: three.js applies tone mapping inside each material and the sRGB encode only when
+// drawing to the CANVAS. Rendering to a target therefore lands tone-mapped LINEAR values,
+// which is a perfectly good space to threshold and blur in — and the composite does the
+// sRGB encode itself at the end, so nothing else in the game had to change.
+let fxOn=false, fxRT=null, fxA=null, fxB=null, fxScene=null, fxCam=null, fxQuad=null,
+    fxBright=null, fxBlur=null, fxComp=null;
+const FX_DIV=4;                    // bloom runs at a quarter of each axis; it is a blur
+const _FX_VS=`varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }`;
+function fxInit(){
+  if(!renderer.capabilities||!renderer.capabilities.isWebGL2)return;
+  if(typeof THREE.WebGLMultisampleRenderTarget!=='function')return;
+  try{
+    const o={minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,
+             format:THREE.RGBAFormat,depthBuffer:true,stencilBuffer:false};
+    fxRT=new THREE.WebGLMultisampleRenderTarget(2,2,o); fxRT.samples=4;
+    fxA=new THREE.WebGLRenderTarget(2,2,{...o,depthBuffer:false});
+    fxB=new THREE.WebGLRenderTarget(2,2,{...o,depthBuffer:false});
+    fxScene=new THREE.Scene();
+    fxCam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+    // Bright pass. A soft knee rather than a hard cut: a hard threshold makes bloom appear
+    // and vanish as something crosses it, which flickers on water where every crest is
+    // hovering right at the line.
+    // These two numbers decide whether this reads as light or as a filter. The sky fills most
+    // of a frame and sits around 0.7 linear, so a threshold anywhere near that blooms the sky
+    // INTO ITSELF: the sunset goes to milk and the horizon disappears. It has to catch only
+    // what is genuinely at white — the sun's core, a foam crest, the glitter, the highlight
+    // down a rail — and leave everything else alone.
+    fxBright=new THREE.ShaderMaterial({uniforms:{tD:{value:null},uT:{value:0.90},uK:{value:0.10}},
+      vertexShader:_FX_VS, fragmentShader:`
+        varying vec2 vUv; uniform sampler2D tD; uniform float uT; uniform float uK;
+        void main(){
+          vec3 c=texture2D(tD,vUv).rgb;
+          float l=dot(c,vec3(0.2126,0.7152,0.0722));
+          float k=smoothstep(uT-uK,uT+uK,l);
+          gl_FragColor=vec4(c*k*k,1.0);
+        }`});
+    // Separable blur, nine taps, sampled between texels so the hardware's own filtering
+    // doubles the reach for free.
+    fxBlur=new THREE.ShaderMaterial({uniforms:{tD:{value:null},uStep:{value:new THREE.Vector2()}},
+      vertexShader:_FX_VS, fragmentShader:`
+        varying vec2 vUv; uniform sampler2D tD; uniform vec2 uStep;
+        void main(){
+          vec3 c=texture2D(tD,vUv).rgb*0.227027;
+          c+=texture2D(tD,vUv+uStep*1.3846).rgb*0.316216;
+          c+=texture2D(tD,vUv-uStep*1.3846).rgb*0.316216;
+          c+=texture2D(tD,vUv+uStep*3.2308).rgb*0.070270;
+          c+=texture2D(tD,vUv-uStep*3.2308).rgb*0.070270;
+          gl_FragColor=vec4(c,1.0);
+        }`});
+    // and the join: scene plus what bled off it, a whisper of vignette so the frame has
+    // corners, then the sRGB encode nobody else is doing any more.
+    fxComp=new THREE.ShaderMaterial({uniforms:{tD:{value:null},tB:{value:null},
+        uAmt:{value:0.55},uVig:{value:0.20}},
+      vertexShader:_FX_VS, fragmentShader:`
+        varying vec2 vUv; uniform sampler2D tD; uniform sampler2D tB;
+        uniform float uAmt; uniform float uVig;
+        void main(){
+          vec3 c=texture2D(tD,vUv).rgb + texture2D(tB,vUv).rgb*uAmt;
+          vec2 d=vUv-0.5;
+          c*=1.0-uVig*dot(d,d)*2.6;
+          gl_FragColor=vec4(pow(max(c,0.0),vec3(1.0/2.2)),1.0);
+        }`});
+    fxQuad=new THREE.Mesh(new THREE.PlaneGeometry(2,2),fxComp);
+    fxQuad.frustumCulled=false; fxScene.add(fxQuad);
+    fxOn=true; fxResize();
+  }catch(e){ fxOn=false; }
+}
+function fxResize(){
+  if(!fxOn)return;
+  const p=renderer.getPixelRatio(), w=Math.max(2,Math.round(innerWidth*p)), h=Math.max(2,Math.round(innerHeight*p));
+  fxRT.setSize(w,h);
+  fxA.setSize(Math.max(2,w/FX_DIV|0),Math.max(2,h/FX_DIV|0));
+  fxB.setSize(Math.max(2,w/FX_DIV|0),Math.max(2,h/FX_DIV|0));
+}
+function _fxPass(mat,target){
+  fxQuad.material=mat;
+  renderer.setRenderTarget(target);
+  renderer.render(fxScene,fxCam);
+}
+// The one entry point. `extra` draws into the SAME target after the scene — the trick
+// overlay needs to land on the frame and still occlude itself, and it has to bloom with
+// everything else rather than being pasted on afterwards.
+function present(scn,cam,extra){
+  if(!fxOn){ renderer.render(scn,cam); if(extra)extra(); return; }
+  renderer.setRenderTarget(fxRT);
+  renderer.render(scn,cam);
+  if(extra)extra();
+  fxBright.uniforms.tD.value=fxRT.texture;  _fxPass(fxBright,fxA);
+  fxBlur.uniforms.tD.value=fxA.texture;
+  fxBlur.uniforms.uStep.value.set(1/fxA.width,0);  _fxPass(fxBlur,fxB);
+  fxBlur.uniforms.tD.value=fxB.texture;
+  fxBlur.uniforms.uStep.value.set(0,1/fxA.height); _fxPass(fxBlur,fxA);
+  fxComp.uniforms.tD.value=fxRT.texture;
+  fxComp.uniforms.tB.value=fxA.texture;
+  _fxPass(fxComp,null);
+}
+fxInit();
 addEventListener('resize',()=>{
   camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
   if(typeof splatCam!=='undefined'){splatCam.aspect=camera.aspect;splatCam.updateProjectionMatrix();}
   renderer.setSize(innerWidth,innerHeight);
+  fxResize();
 });
 const hemi=new THREE.HemisphereLight(0xdfeeff,0x2a7ba8,0.62);scene.add(hemi);
 const HEMI_I=0.62;
@@ -1291,6 +1404,12 @@ const oceanUniforms={
   uSky:{value:new THREE.Color(0x8fd2f5)},
   uDeep:{value:new THREE.Color(0x0a5e9c)},
   uShallow:{value:new THREE.Color(0x33aede)},
+  // what colour the sun is right now, so the glitter track belongs to the same sky, and
+  // WHERE it is: the directional light that shades the water never moves, but the sun you
+  // can see crosses the sky over a run. A glitter path has to run from the sun in the
+  // picture, not from a constant somebody set at load.
+  uGlow:{value:new THREE.Color(0xfff2d6)},
+  uGlitL:{value:new THREE.Vector3(0,0.4,-1).normalize()},
 };
 const oceanMat=new THREE.ShaderMaterial({
   uniforms:oceanUniforms,
@@ -1393,6 +1512,7 @@ const oceanMat=new THREE.ShaderMaterial({
   `,
   fragmentShader:`
     uniform vec3 uSun; uniform vec3 uSky; uniform vec3 uDeep; uniform vec3 uShallow;
+    uniform vec3 uGlow; uniform vec3 uGlitL;
     uniform float uT; uniform float uDist; uniform float uAmp; uniform float uPeak;
     uniform float uLight; uniform float uSwA;
     varying vec3 vN; varying vec3 vW; varying float vH; varying vec2 vPh;
@@ -1426,6 +1546,30 @@ const oceanMat=new THREE.ShaderMaterial({
       vec3 H = normalize(L+V);
       float spec = pow(max(dot(N,H),0.0),140.0)*0.9;
       float fres = pow(1.0-max(dot(N,V),0.0),3.0);
+      // ---- the glitter track ----
+      // The one thing that says "sea" before anything else does, and the one thing this
+      // water did not have. A smooth specular gives a soft oval where the sun reflects; a
+      // real ocean gives a broken PATH of separate sparks running from the sun to your feet,
+      // because the surface is faceted at a scale far below the mesh and each facet is
+      // either pointing at the sun or it is not.
+      //
+      // So the normal is roughened for this term ONLY — three scales of drifting noise,
+      // fine enough that a single pixel covers several of them, which is what makes it
+      // shimmer rather than slide. Two lobes: a tight one for the individual sparks and a
+      // wide one for the sheen they sit in. Gated on the sun being low, because a glitter
+      // path is a grazing-angle phenomenon and at noon there is nothing to see.
+      vec2 gp = vec2(vW.x, vW.z + uDist*0.22);
+      vec2 wob = vec2(fbm(gp*1.85 + vec2(uT*0.21,-uT*0.17)) - 0.5,
+                      fbm(gp*2.30 + vec2(-uT*0.19, uT*0.23)) - 0.5)
+               + vec2(fbm(gp*6.40 + vec2(uT*0.44, uT*0.31)) - 0.5,
+                      fbm(gp*7.90 + vec2(-uT*0.37,uT*0.41)) - 0.5)*0.55;
+      vec3 Ng = normalize(N + vec3(wob.x, 0.0, wob.y)*0.44);
+      vec3 Hg = normalize(uGlitL + V);
+      float gl = pow(max(dot(Ng,Hg),0.0),300.0)*1.7     // the sparks
+               + pow(max(dot(Ng,Hg),0.0),30.0)*0.11;    // and the sheen under them
+      // a low sun lays the track down the water; a high one has nowhere to lay it, and one
+      // that has gone under has nothing to lay it with
+      gl *= smoothstep(0.46,0.04,uGlitL.y) * smoothstep(-0.10,0.05,uGlitL.y);
       // The sea's own height, with the set wave taken back out of it.
       //
       // Everything below this line was tuned against a swell about a metre tall — uPeak sits
@@ -1440,6 +1584,9 @@ const oceanMat=new THREE.ShaderMaterial({
       float hS = vH - vSw*uSwA;
       vec3 base = mix(uDeep,uShallow,clamp(hS*0.28+0.5,0.0,1.0));
       vec3 col = base*(0.38+0.72*diff) + uSky*fres*0.5 + vec3(spec);
+      // The glitter carries the SUN's colour, not white: at the end of the day the track is
+      // the same orange the sky is, and that is half of why it reads as one light source.
+      col += uGlow*gl;
       // Foam: crest caps, torn patches and fine flecks, all from drifting noise. Each
       // layer is anchored in a slower-moving frame than the one below it, because they
       // were all riding the full drift: at nearly four cycles a unit the flecks were
@@ -5380,7 +5527,7 @@ function renderViewer(dt){
   viewCam.lookAt(v.c.x, v.c.y+lift, v.c.z);
   viewCam.updateProjectionMatrix();
   renderer.setClearColor(0x9fd0ee,1);
-  renderer.render(prevScene,viewCam);
+  present(prevScene,viewCam);
 }
 function shopCard(item,have,on,buy,use,thumb,stats,kind){
   const card=document.createElement('div');
@@ -9118,7 +9265,7 @@ menuBtn.addEventListener('click',()=>showMenu('main'));
 document.getElementById('shareBtn').addEventListener('click',()=>{
   const line=`I surfed ${Math.round(dist).toLocaleString()} m with ${(score|0).toLocaleString()} trick points in Surf! ${location.origin+location.pathname}`;
   try{
-    renderer.render(scene,camera);
+    present(scene,camera);
     renderer.domElement.toBlob(b=>{
       const f=b?new File([b],'surf.png',{type:'image/png'}):null;
       if(f&&navigator.canShare&&navigator.canShare({files:[f]}))
@@ -9683,6 +9830,7 @@ function sunShell(size,opacity,order,falloff){
   const mat=new THREE.ShaderMaterial({
     uniforms:{uColor:{value:new THREE.Color(0xffd9a0)},uOpacity:{value:opacity},uPow:{value:falloff}},
     transparent:true,depthTest:true,depthWrite:false,blending:THREE.AdditiveBlending,
+    toneMapped:false,     // the halo belongs to the sun, and the sun is over white
     vertexShader:'varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
     fragmentShader:'varying vec2 vUv; uniform vec3 uColor; uniform float uOpacity; uniform float uPow;'+
       'void main(){ float d=length(vUv-0.5)*2.0; float a=pow(max(0.0,1.0-d),uPow);'+
@@ -9705,8 +9853,16 @@ const sunGlowRim=sunShell(30,0.85,7,1.3);
 // carries a clipping plane at the horizon, and a raw ShaderMaterial in r128 does not get
 // the clipping chunks, so the sun would stop sinking into the sea. A third glow shell
 // hugging the disc feathers the same edge and leaves the clip alone.
+const SUN_HOT=1.45;    // how far past white the disc sits, so the lens has something to bleed
+// The sun is the one thing in the frame that is genuinely brighter than white, and the
+// filmic curve does not know that: it maps a colour of 1.0 down to about 0.8, so the disc
+// arrived at the composite DARKER than paper and never crossed the bloom threshold. Taken
+// out of the tone map and pushed past white, it lands over the line and the lens does the
+// rest — which is the whole difference between a sun and a sticker of one.
 const sunDisc=new THREE.Mesh(new THREE.SphereGeometry(10.5,30,22),
-  new THREE.MeshBasicMaterial({color:0xfff3cf,depthTest:true,depthWrite:false,transparent:true}));
+  new THREE.MeshBasicMaterial({color:0xfff3cf,depthTest:true,depthWrite:false,transparent:true,
+                               toneMapped:false}));
+sunDisc.material.color.multiplyScalar(SUN_HOT);
 sunDisc.renderOrder=8;skyLayer.add(sunDisc);
 // Stars come out whenever the sun is at or under the horizon, so they are there for
 // the dark half of dawn as well as after sunset. Drawn just in front of the sky dome
@@ -9772,7 +9928,10 @@ function updateDayCycle(){
   // linear space by hand — the sky dome's shader does its own conversion
   _cSun.copy(skyUniforms.uGlow.value).lerp(_cA.setHex(0xffffff),0.42-gAmt*0.34);
   if(_cSun.convertSRGBToLinear)_cSun.convertSRGBToLinear();
-  sunDisc.material.color.copy(_cSun);
+  sunDisc.material.color.copy(_cSun).multiplyScalar(SUN_HOT);
+  // the water's glitter belongs to the sun you can SEE, so it follows the disc
+  oceanUniforms.uGlitL.value.set(sxn*130,sunY,-195).normalize();
+  oceanUniforms.uGlow.value.copy(skyUniforms.uGlow.value);
   sunDisc.scale.setScalar(1+gAmt*0.35);            // swells a little as it sits low
   for(const sh of [sunGlowInner,sunGlowOuter,sunGlowRim]){
     sh.position.set(sunDisc.position.x,sunDisc.position.y,sunDisc.position.z-4);
@@ -10893,6 +11052,14 @@ if(location.hash.includes('debug')){
     // What each surface actually carries. A normal map that silently failed to attach looks
     // exactly like one that is too subtle to see, and only one of those is a bug.
     boot:()=>Object.assign({},_bootMs),
+    // the composite chain: on, multisampled (or the render target would have cost the
+    // canvas its own antialiasing), and what the bloom is actually keyed to
+    fx:()=>({on:fxOn, samples:fxOn&&fxRT.samples||0,
+             thresh:fxOn?fxBright.uniforms.uT.value:null,
+             amount:fxOn?fxComp.uniforms.uAmt.value:null,
+             sunHot:SUN_HOT, sunToneMapped:sunDisc.material.toneMapped,
+             glitter:{y:+oceanUniforms.uGlitL.value.y.toFixed(3),
+                      glow:oceanUniforms.uGlow.value.getHex()}}),
     surfaces(){
       const board=boardArtFor(equipped); let bm=null;
       board.traverse(o=>{ if(o.isMesh&&!bm&&o.geometry.attributes.uv)bm=o.material; });
@@ -13693,7 +13860,7 @@ function renderMenuBeach(dt){
   const ex0=renderer.toneMappingExposure;
   renderer.toneMappingExposure=ex0*1.14;
   renderer.setClearColor(0x1a2540,1);
-  renderer.render(prevScene,menuCam);
+  present(prevScene,menuCam);
   renderer.setClearColor(0x000000,1);
   renderer.toneMappingExposure=ex0;
 }
@@ -13728,14 +13895,13 @@ function loop(now){
   if(viewer){ renderViewer(dt); return; }   // the look takes the whole screen and the frame
   if(menuBeachWanted()&&(menuBeach||menuBeachOn())){ renderMenuBeach(dt); return; }
   updateSkyLife(dt);          // the sky keeps moving on the menu and through a wipeout
-  renderer.render(scene,camera);
-  if(splat3D.visible){
+  present(scene,camera,splat3D.visible?()=>{
     // clear only depth, so it lands on top of the frame but still occludes itself
     renderer.autoClear=false;
     renderer.clearDepth();
     renderer.render(splatScene,splatCam);
     renderer.autoClear=true;
-  }
+  }:null);
 }
 requestAnimationFrame(loop);
 })();

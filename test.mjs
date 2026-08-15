@@ -1957,6 +1957,44 @@ check(shaderErrors.length === 0, 'every shader compiles',
   check(/hud\.style\.display\s*=\s*''/.test(src), 'and the run still turns the HUD on');
 }
 
+// ---------- the composite, and what it is for ----------
+// Every screen frame goes through a render target now, and two things about that are worth
+// pinning. One: the target has to be MULTISAMPLED, because the default framebuffer's own
+// antialiasing does not follow you into a target, and trading the palm's edges for the sun's
+// glow is not a trade worth making. Two: the sun has to be genuinely brighter than white, or
+// the filmic curve maps its 1.0 down to 0.8 and it never crosses the bloom threshold at all
+// — a disc darker than paper, which is exactly what it was.
+{
+  const fx = await page.evaluate(() => window.__surf.fx());
+  check(fx.on && fx.samples >= 4,
+        'the frame is composited, and not at the cost of the antialiasing',
+        `${fx.samples}x multisampled`);
+  check(fx.sunToneMapped === false && fx.sunHot > 1.0,
+        'and the sun is over white, so the lens has something to bleed',
+        `${fx.sunHot}x white, tone-mapped ${fx.sunToneMapped}`);
+  // The threshold decides whether this reads as light or as a filter: the sky fills most of
+  // a frame at around 0.7, and anything near that blooms the sky into itself and turns the
+  // sunset to milk. It has to sit above what a tone-mapped white surface comes out at.
+  check(fx.thresh >= 0.85 && fx.amount <= 0.8,
+        'and it catches only what is at white, not the whole sky',
+        `threshold ${fx.thresh}, amount ${fx.amount}`);
+  // The glitter track has to run from the sun you can SEE. The directional light that shades
+  // the water is a constant set at load; the sun crosses the sky over a run, and a track
+  // keyed to the light would have sat in the wrong place all day.
+  const glit = await page.evaluate(() => {
+    // on a fresh run, because the sun's height is a function of how far you have got and
+    // whatever the suite left behind may not be moving at all
+    window.__surf.restart(); window.__surf.invuln(true);
+    window.__surf.tick(6);
+    const a = window.__surf.fx().glitter;
+    window.__surf.tick(90);
+    return { a, b: window.__surf.fx().glitter };
+  });
+  check(glit.a.y !== glit.b.y,
+        'and the water glitters at the sun in the picture, not at a constant',
+        `sun height ${glit.a.y} -> ${glit.b.y} over the run`);
+}
+
 // ---------- the wipeout card fits the phone it is on ----------
 // v2.93: it did not. The buttons finished 16px above the version number on a big phone and
 // 130px BELOW the bottom of the glass on a small one, where "Surf again" simply was not
