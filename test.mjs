@@ -232,6 +232,55 @@ const cut = await page.evaluate(() => {
 });
 check(cut.length === 0, 'every board in the shop is cut to its type\'s spec sheet',
       cut.length ? cut.slice(0, 4).join('; ') : '46 boards, 8 spec sheets');
+// Not the numbers that went in — the board that came OUT. Every board is lofted and its
+// plan outline measured off the mesh, then held against the two widths its type's spec sheet
+// publishes: twelve inches from the nose and twelve from the tail. This is the check that
+// answers "is it actually the shape it says it is", as opposed to "does it carry the right
+// parameters", and the two are not the same question.
+const built = await page.evaluate(() => {
+  const rows = [];
+  for (const t of window.__surf.types()) {
+    const r = t.real, f = 12 / r.L;
+    for (const id of t.ids) {
+      // Bins coarse enough for the sparsest mesh in the shop — the boards are lofted at
+      // anywhere from 160 to 340 rings, and bins finer than the rings read as zero width.
+      const p = window.__surf.boardProfile(id, 100);
+      if (!p) { rows.push({ id, type: t.key, n: 0, t: 0, wantN: r.n12, wantT: r.t12 }); continue; }
+      const N = p.hw.length, max = Math.max.apply(null, p.hw);
+      const at = fr => { const x = fr * (N - 1), i = Math.max(0, Math.min(N - 2, Math.floor(x)));
+        return p.hw[i] * (1 - (x - i)) + p.hw[i + 1] * (x - i); };
+      rows.push({ id, type: t.key, wantN: r.n12, wantT: r.t12,
+                  n: +(at(f) / max * r.W).toFixed(2), t: +(at(1 - f) / max * r.W).toFixed(2) });
+    }
+  }
+  return rows;
+});
+{
+  // A board may be out by an inch and a bit. Two families genuinely are, and both were
+  // written down when the curve was fitted: a fish's rails run nearly parallel from the
+  // swallow tips to a foot up and this curve will not hold that, and an eFoil's outline is
+  // not really a surfboard's at all. Everything else lands inside half an inch. The bin
+  // width itself is worth a tenth or two on top.
+  const off = r => Math.max(Math.abs(r.n - r.wantN), Math.abs(r.t - r.wantT));
+  const worst = built.reduce((a, b) => off(b) > off(a) ? b : a, built[0]);
+  const bad = built.filter(r => off(r) > 1.5);
+  // and every board of a type must measure the SAME, because they are the same outline at
+  // different lengths — this is what caught a family reading thirteen inches apart
+  const byType = {};
+  for (const r of built) (byType[r.type] ||= []).push(r);
+  const ragged = Object.keys(byType).filter(k => {
+    const g = byType[k];
+    return Math.max(...g.map(r => r.n)) - Math.min(...g.map(r => r.n)) > 0.5 ||
+           Math.max(...g.map(r => r.t)) - Math.min(...g.map(r => r.t)) > 0.5;
+  });
+  check(bad.length === 0 && ragged.length === 0 && built.length === 46,
+        'every board, as built, measures its type\'s published nose and tail widths',
+        `${built.length} boards, worst ${worst.id} ${off(worst).toFixed(2)}" ` +
+        `(${worst.n}/${worst.wantN} nose, ${worst.t}/${worst.wantT} tail)` +
+        (bad.length ? ` — over 1.5": ${bad.map(r => r.id).join(', ')}` : '') +
+        (ragged.length ? ` — ragged families: ${ragged.join(', ')}` : ''));
+}
+
 const scale = await page.evaluate(() => {
   const types = window.__surf.types();
   return [...document.querySelectorAll('#gRail .gsil')].map(g => {
