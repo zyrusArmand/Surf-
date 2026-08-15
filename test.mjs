@@ -1813,6 +1813,24 @@ check(shaderErrors.length === 0, 'every shader compiles',
   check(visiblePills === 0, 'and none of the old pills are left on it', `${visiblePills} still showing`);
 }
 
+// ---------- the page boots on the menu, not on a half-dressed one ----------
+// The markup starts in whatever state it is written in, and the line that sorts it out is
+// eight thousand lines into a 700KB file — which on a phone is a real wait. It used to boot
+// with the HUD across the top and the run card's orange Play pill lying across the middle
+// of the menu, on top of the dial's own Play. Both of those are decided in the markup now,
+// so the first paint is the menu. Checked on the SOURCE, because by the time a browser has
+// finished with it the script has been and gone.
+{
+  const src = await (await fetch(`http://127.0.0.1:${PORT}/index.html`)).text();
+  const head = src.slice(0, src.indexOf('<div id="homeDial"'));
+  check(/<div id="overlay" class="[^"]*\bmain\b/.test(head),
+        'the page boots on the main menu, so the run card\'s pill is never on it');
+  check(/<div id="hud" style="display:\s*none/.test(head),
+        'and boots with no HUD, which is what a menu has');
+  // and the script must still be able to turn it back on when a run starts
+  check(/hud\.style\.display\s*=\s*''/.test(src), 'and the run still turns the HUD on');
+}
+
 // ---------- the wipeout card fits the phone it is on ----------
 // v2.93: it did not. The buttons finished 16px above the version number on a big phone and
 // 130px BELOW the bottom of the glass on a small one, where "Surf again" simply was not
