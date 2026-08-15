@@ -121,9 +121,11 @@ const ver5tap = () => page.evaluate(() => {
 // broken as a wave that will not break.
 let perkSeen = { found: false, filled: 0, text: '' };
 for (const [openSel, panelSel, closeSel, label] of [
-  // v2.88: the main menu is the home dial, so the Shop PILL is hidden there — Board is the
-  // button that opens the shop from the menu now.
-  ['#dBoard', '#shop', '#shopClose', 'shop, from the home dial'],
+  // v2.88: the main menu is the home dial, so the Shop PILL is hidden there — Shop on the
+  // dial is the button that opens the rack now.
+  // v2.91: Board opens board school instead, so it gets its own row below.
+  ['#dShop', '#shop', '#shopClose', 'shop, from the home dial'],
+  ['#dBoard', '#guide', '#gClose', 'board school, from the home dial'],
   // Stats has no button any more: five quick taps on the version number open the secret
   // panel, which is where the dev tools live now.
   ['ver5tap', '#stats', '#stClose', 'secret stats (5 taps on the version)'],
@@ -157,6 +159,69 @@ for (const [openSel, panelSel, closeSel, label] of [
 check(perkSeen.found && perkSeen.filled > 0 && perkSeen.text.length > 0,
       'a rider card shows its perk on a stat bar',
       `found=${perkSeen.found} filled=${perkSeen.filled} text=${JSON.stringify(perkSeen.text)}`);
+
+// ---------- board school ----------
+// The panel is a claim about the rack — that every board in the shop is one of twelve
+// shapes — so the check is that the claim holds: no board missed, none filed twice, and
+// tapping a silhouette really does swap the writing AND the board being offered.
+await page.click('#dBoard');
+await page.waitForTimeout(500);
+const school = await page.evaluate(async () => {
+  const rail = [...document.querySelectorAll('#gRail .gsil')];
+  const name = () => document.querySelector('#guide .gname b').textContent;
+  const pick = () => document.querySelector('#guide .card .nm').textContent;
+  const before = { type: name(), board: pick() };
+  // the last shape on the rail is the SUP, which shares no boards with the shortboard the
+  // panel opens on — so both halves of the card have to change
+  // an SVG <g> has no click() — the rack listens for the bubbled event instead
+  rail[rail.length - 1].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await new Promise(r => setTimeout(r, 250));
+  const after = { type: name(), board: pick() };
+  // and the families, against the rack itself
+  const ids = window.__surf ? window.__surf.boardIds() : null;
+  const filed = window.__surf ? window.__surf.typeIds() : null;
+  const seen = {}, dupes = [];
+  for (const id of filed || []) { if (seen[id]) dupes.push(id); seen[id] = 1; }
+  return {
+    shapes: rail.length,
+    before, after,
+    missing: (ids || []).filter(id => !seen[id]),
+    dupes,
+    stray: (filed || []).filter(id => !(ids || []).includes(id)),
+    bars: document.querySelectorAll('#guide .card .seg i.on').length,
+  };
+});
+// The picture is lofted and photographed one board per frame after the panel is up, and a
+// frame here is a third of a second — so this waits for it rather than guessing at a delay.
+const shot = await page.waitForFunction(() => {
+  const im = document.querySelector('#guide .card .thumb');
+  return im && im.src.slice(0, 15) === 'data:image/png;' ? im.src.length : false;
+}, null, { timeout: 60000 }).then(h => h.jsonValue()).catch(() => 0);
+check(school.shapes === 12, 'board school draws twelve shapes on one scale', `${school.shapes}`);
+check(school.before.type !== school.after.type && school.before.board !== school.after.board,
+      'tapping a shape swaps both the writing and the board on offer',
+      `${school.before.type}/${school.before.board} -> ${school.after.type}/${school.after.board}`);
+check(school.missing.length === 0 && school.dupes.length === 0 && school.stray.length === 0,
+      'every board in the rack is filed under exactly one shape',
+      `missing=${JSON.stringify(school.missing)} dupes=${JSON.stringify(school.dupes)} stray=${JSON.stringify(school.stray)}`);
+check(school.bars > 0 && shot > 1000,
+      'the shop pick carries its picture and its stat bars',
+      `bars=${school.bars} picture=${shot} bytes`);
+// the matcher: two taps, one shape named
+const matched = await page.evaluate(async () => {
+  document.getElementById('gMatch').click();
+  await new Promise(r => setTimeout(r, 120));
+  document.querySelector('#qWave button').click();
+  document.querySelector('#qSkill button').click();
+  await new Promise(r => setTimeout(r, 200));
+  return { out: document.getElementById('qOut').textContent,
+           type: document.querySelector('#guide .gname b').textContent };
+});
+check(matched.out.includes(matched.type) && matched.type.length > 0,
+      'the matcher names a shape and the panel jumps to it',
+      `${matched.type} :: ${matched.out.slice(0, 60)}`);
+await page.click('#gClose');
+await page.waitForTimeout(300);
 
 await startRun();
 await page.evaluate(() => window.__surf.tick(0.3));
