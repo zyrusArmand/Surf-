@@ -203,11 +203,32 @@ check(school.shapes === 8, 'board school draws the five surfboards and the three
 // shape's drawn height must BE its stated length — nothing added past the nose or tail for
 // a blunt end, and nothing that moves when it is selected. One scale for all eight is the
 // claim the whole rack rests on, so it is measured rather than eyeballed.
+// The rack is drawn from spec sheets and the shop's boards are cut to the same numbers, so
+// the two cannot be allowed to drift: every board in a family carries its family's outline
+// curve exactly, and its width is its own length divided by that type's real length-to-width
+// ratio. If a board is ever reshaped by hand, this is what catches it.
+const cut = await page.evaluate(() => {
+  const bad = [];
+  for (const t of window.__surf.types()) {
+    const r = t.real, ratio = r.L / r.W;
+    for (const id of t.ids) {
+      const s = window.__surf.boardOutline(id);
+      const off = k => Math.abs(s[k] - r[k]) > 0.002;
+      if (off('noseA') || off('tailA') || off('noseW') || off('tailW'))
+        bad.push(`${id} outline != ${t.key}`);
+      if (Math.abs(s.L / (2 * s.W) - ratio) > 0.02)
+        bad.push(`${id} ${(s.L / (2 * s.W)).toFixed(2)}:1 vs ${t.key} ${ratio.toFixed(2)}:1`);
+    }
+  }
+  return bad;
+});
+check(cut.length === 0, 'every board in the shop is cut to its type\'s spec sheet',
+      cut.length ? cut.slice(0, 4).join('; ') : '46 boards, 8 spec sheets');
 const scale = await page.evaluate(() => {
   const types = window.__surf.types();
   return [...document.querySelectorAll('#gRail .gsil')].map(g => {
     const t = types.find(t => t.key === g.dataset.k);
-    return { key: g.dataset.k, ft: t.ft,
+    return { key: g.dataset.k, ft: t.real.L / 12,
              px: +g.querySelector('path').getBBox().height.toFixed(1) };
   });
 });
