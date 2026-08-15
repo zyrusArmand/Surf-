@@ -391,6 +391,15 @@ await page.waitForTimeout(300);
   check(stood.length === 4 && stood.every(f => f.gap !== null && f.gap >= -0.01 && f.gap < 0.30),
         'and leans on the trunk without going through it',
         stood.map(f => `${f.id} gap ${f.gap} at ${f.standoff}ft out`).join(', '));
+  // in FRONT of the tree, which is where a board leaning on one is in every photograph of
+  // it. Smaller along the camera's forward axis is nearer the camera.
+  check(stood.length === 4 && stood.every(f => f.boardF < f.trunkF - 0.4),
+        'and stands in front of the tree, not behind it',
+        stood.map(f => `${f.id} ${(f.trunkF - f.boardF).toFixed(2)}ft clear`).join(', '));
+  // and the palm is a tree rather than the six foot shrub it was, which is what made a ten
+  // foot log leaning on it tower over the whole thing
+  check(stood.every(f => f.palmH > 13),
+        'and the palm it leans on is a tree', `${stood[0] && stood[0].palmH}ft tall`);
 
   const want = 5.2;
   check(sizes.length >= 2 && sizes.every(f => Math.abs(f.rider - want) < 0.10),

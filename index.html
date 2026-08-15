@@ -1016,7 +1016,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.4.2';
+const VERSION='3.5.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10661,7 +10661,8 @@ if(location.hash.includes('debug')){
       const rb=new THREE.Box3().setFromObject(pug), bb=new THREE.Box3().setFromObject(menuBeach.board);
       const rs=rb.getSize(new THREE.Vector3()), bs=bb.getSize(new THREE.Vector3());
       return {standoff:menuBeach.standoff, foot:menuBeach.foot, sand:menuBeach.sandAt,
-              gap:menuBeach.gap,
+              gap:menuBeach.gap, boardF:menuBeach.boardF, trunkF:menuBeach.trunkF,
+              palmH:+(new THREE.Box3().setFromObject(menuPalm).getSize(new THREE.Vector3()).y).toFixed(2),
               rider:+(menuBeach.riderH||rs.y).toFixed(2), boardH:+(menuBeach.boardH||bs.y).toFixed(2),
               live:+rs.y.toFixed(2), liveBoard:+bs.y.toFixed(2),
               boardL:+((BOARD_BY_ID[equipped]||{spec:{L:0}}).spec.L).toFixed(2), k:MB_K};
@@ -12838,7 +12839,7 @@ function menuBeachOn(){
     // propped against the underside of a palm, which is half of why anyone photographs one
     // Leaning out to the RIGHT and slightly toward the camera, so the board can be propped
     // into the crook of it from the left without the trunk crossing the whole picture.
-    palm.position.set(0,0,0); palm.rotation.y=0.34; palm.scale.setScalar(0.46);
+    palm.position.set(0,0,0); palm.rotation.y=0.34; palm.scale.setScalar(MB_PALM);
     menuProps.add(palm);
     const far=buildPalm(11);                       // and one well back on the other side
     far.position.set(-13.5,-0.9,-13); far.rotation.y=2.3; far.scale.setScalar(0.72);
@@ -12916,10 +12917,20 @@ function menuBeachOn(){
 // camera is at an angle, "put the board to the left of the palm" stops meaning anything in
 // x and z. So everything is placed along the camera's own two axes: forward, and right.
 const MB_YAW=1.24;                    // how far round from straight-out-to-sea the shot sits
-const MB_D=18.0;                      // how far back the camera stands from the palm
-const MB_BF=0.12;                     // how far in front of the palm the board's foot sits
+const MB_D=23.2;                      // how far back the camera stands from the palm
+// The palm. It was a shrub: eleven of its own units at 0.46 comes out barely six feet tall,
+// which is shorter than most of the rack — a ten foot log leaning on it towered over the
+// whole tree. At 1.35 it is a fourteen foot palm and everything in front of it reads as
+// standing under a tree instead of beside a pot plant. The camera walks back to keep the
+// crown in frame; that is the only thing this number costs.
+const MB_PALM=1.35;
+// How far in FRONT of the trunk the board stands — in front, because that is where a board
+// leaning on a tree is in every photograph of one, and because from behind the trunk cuts
+// across it. Worked out per frame rather than fixed: the trunk is a curve with a depth of
+// its own and the shot is turned, so how far forward "clear of it" is depends on the tree.
+const MB_BCLR=0.9;
 const MB_BD=0.30;                     // and the closest to the trunk it is allowed to stand
-const MB_RD=2.9;                      // and how far past the board's foot the rider stands
+const MB_RD=1.9;                      // and how far past the board's foot the rider stands
 // A world unit here is a FOOT — the boards measure 3.5 to 10.5 of them and their spec sheets
 // are in feet — so this is a height, not a fraction of whatever is leaning on the tree.
 // NOT multiplied by MB_K. That scales the SET — the sea, the sand and the palm — and the
@@ -12944,7 +12955,7 @@ function layoutMenuBeach(){
   const board=menuBeach.board;
   // the palm is the anchor; everything else is measured off it along the camera's axes
   _mbP.set(0,g,MB_Z*MB_K);
-  menuProps.position.set(_mbP.x,g-0.3*MB_K,_mbP.z);
+  menuProps.position.set(_mbP.x,g-0.3*MB_K*MB_PALM/0.46,_mbP.z);
   menuProps.scale.setScalar(MB_K);
   // Its trunk is a long C leaning out along its own +x, so turning the palm by minus the
   // camera's yaw plus half a turn points that lean along the camera's LEFT: the trunk comes
@@ -12985,8 +12996,20 @@ function layoutMenuBeach(){
     drop=Math.min(drop,_p.set(X,Y,Z).applyQuaternion(_mbQ).y);
   // the sand under wherever it is put, not under the palm — the shot is at an angle and the
   // beach runs downhill across it
+  // How far toward the camera the board has to stand to be clear of the whole trunk: the
+  // nearest the tree comes, its own thickness included, and then some daylight on top.
+  let fwd=MB_BCLR;
+  if(menuPalm&&menuPalm.userData.trunk){
+    menuPalm.updateWorldMatrix(true,false);
+    const base=_mbP.dot(_mbF); let near=Infinity;
+    for(const t of menuPalm.userData.trunk){
+      _p.copy(t.p).applyMatrix4(menuPalm.matrixWorld);
+      near=Math.min(near,_p.dot(_mbF)-t.r*MB_K*MB_PALM);
+    }
+    fwd=base-near+MB_BCLR;
+  }
   const stand=(d,out)=>{
-    const wx=_mbP.x-_mbR.x*d-_mbF.x*MB_BF, wz=_mbP.z-_mbR.z*d-_mbF.z*MB_BF;
+    const wx=_mbP.x-_mbR.x*d-_mbF.x*fwd, wz=_mbP.z-_mbR.z*d-_mbF.z*fwd;
     const sand=(beachSandH?beachSandH(wz/MB_K):beachSand0)*MB_K;
     return out.set(wx,sand-drop,wz);
   };
@@ -12996,54 +13019,66 @@ function layoutMenuBeach(){
   // whole palm and cannot: it rests its middle in the crook with the nose past the crown,
   // which is also what a ten foot log does. So the nose is tried first and the body second.
   //
-  // Either way it works because the board stands in the trunk's own plane, near enough. Set
-  // it a foot in front and the two can miss in 3-D while crossing in the picture, which is
-  // what "floating and intersecting the tree" was: a solve that was right about a scene the
-  // camera could not see.
+  // Both are measured IN THE PICTURE — the two positions with the camera's forward axis
+  // taken out of them — not in three dimensions. The board stands in front of the tree, the
+  // way every photograph of this has it, and in front means a foot or two of daylight
+  // between them that a 3-D solve counts as clearance. Solving in 3-D let the two miss each
+  // other while crossing in the frame, which is what "floating and intersecting the tree"
+  // was: a solve that was right about a scene the camera could not see.
   const trunk=menuPalm&&menuPalm.userData.trunk;
   if(trunk)menuPalm.updateWorldMatrix(true,false);
   const midY=(bx.min.y+bx.max.y)/2;
   const zUp=_p.set(0,midY,bx.min.z).applyQuaternion(_mbQ).y >
             _p.set(0,midY,bx.max.z).applyQuaternion(_mbQ).y ? bx.min.z : bx.max.z;
   const _tip=new THREE.Vector3(0,midY,zUp).applyQuaternion(_mbQ);
-  const _a=new THREE.Vector3(), _b=new THREE.Vector3(), _l=new THREE.Vector3(),
-        _ab=new THREE.Vector3(), _pos=new THREE.Vector3(), _tw=new THREE.Vector3();
-  const rAt=i=>trunk[i].r*MB_K*0.46;                 // the palm is scaled 0.46 inside the set
+  const _foot=new THREE.Vector3(0,midY,zUp===bx.min.z?bx.max.z:bx.min.z).applyQuaternion(_mbQ);
+  // its silhouette is its WIDTH: the deck faces the camera, so rail to rail is what the
+  // trunk has to clear
+  const hw=(bx.max.x-bx.min.x)*0.42;
+  const _a=new THREE.Vector3(), _b=new THREE.Vector3(), _ab=new THREE.Vector3(),
+        _pos=new THREE.Vector3(), _q=new THREE.Vector3();
+  const rAt=i=>trunk[i].r*MB_K*MB_PALM;
+  // flatten out of the camera's forward axis: what is left is what the frame shows
+  const flat=(v,out)=>out.copy(v).addScaledVector(_mbF,-v.dot(_mbF));
+  const _f1=new THREE.Vector3(), _f2=new THREE.Vector3(), _f3=new THREE.Vector3();
+  // distance from a flattened point to a flattened segment
+  const segD=(p,a,b)=>{
+    _ab.copy(b).sub(a);
+    const len2=_ab.lengthSq();
+    const u=len2>1e-9?Math.max(0,Math.min(1,_q.copy(p).sub(a).dot(_ab)/len2)):0;
+    return p.distanceTo(_q.copy(a).addScaledVector(_ab,u));
+  };
+  const trunkPt=(i,out)=>flat(out.copy(trunk[i].p).applyMatrix4(menuPalm.matrixWorld),out);
   // the nose against the pole, taken as a run of tapered cylinders rather than a line
   const tipGap=d=>{
-    stand(d,_pos); _tw.copy(_pos).add(_tip);
+    stand(d,_pos); flat(_q.copy(_pos).add(_tip),_f1);
+    const tip=_f1.clone();
     let gap=Infinity;
     for(let i=0;i<trunk.length-1;i++){
-      _a.copy(trunk[i].p).applyMatrix4(menuPalm.matrixWorld);
-      _b.copy(trunk[i+1].p).applyMatrix4(menuPalm.matrixWorld);
-      _ab.copy(_b).sub(_a);
-      const len2=_ab.lengthSq();
-      const u=len2>1e-9?Math.max(0,Math.min(1,_tw.clone().sub(_a).dot(_ab)/len2)):0;
-      gap=Math.min(gap,_tw.distanceTo(_a.addScaledVector(_ab,u))-(rAt(i)+(rAt(i+1)-rAt(i))*u));
+      trunkPt(i,_a); trunkPt(i+1,_b);
+      gap=Math.min(gap,segD(tip,_a,_b)-(rAt(i)+rAt(i+1))*0.5);
     }
     return gap;
   };
-  // and the whole board against it, as its own box turned the way it is turned
-  const boxGap=d=>{
+  // and the whole board against it, as the line between its ends plus its own width
+  const bodyGap=d=>{
     stand(d,_pos);
+    flat(_f2.copy(_pos).add(_tip),_f2); flat(_f3.copy(_pos).add(_foot),_f3);
+    const t=_f2.clone(), f=_f3.clone();
     let gap=Infinity;
     for(let i=0;i<trunk.length;i++){
-      _l.copy(trunk[i].p).applyMatrix4(menuPalm.matrixWorld).sub(_pos).applyQuaternion(qi);
-      const dx=Math.max(bx.min.x-_l.x,0,_l.x-bx.max.x),
-            dy=Math.max(bx.min.y-_l.y,0,_l.y-bx.max.y),
-            dz=Math.max(bx.min.z-_l.z,0,_l.z-bx.max.z);
-      gap=Math.min(gap,Math.hypot(dx,dy,dz)-rAt(i));
+      trunkPt(i,_a);
+      gap=Math.min(gap,segD(_a,f,t)-rAt(i)-hw);
     }
     return gap;
   };
   // Walk the foot out from the trunk. Standing at its base the nose points up and AWAY from
   // a trunk that leans the other way, so it starts clear; every step out slides the nose
   // back toward the pole until it meets it. Then halve the last step twenty times, and stop
-  // a hair outside contact rather than on it, which leaves a gap the eye cannot see and no
-  // z-fighting where the two surfaces meet.
+  // a hair outside contact rather than on it, which leaves a gap the eye cannot see.
   const solve=(f,want)=>{
     let prev=MB_BD, pg=f(MB_BD);
-    for(let x=MB_BD+0.1;x<9;x+=0.1){
+    for(let x=MB_BD+0.1;x<11;x+=0.1){
       const gp=f(x);
       if(pg>0===want>0&&gp>0!==want>0){          // it has just crossed contact
         let lo=prev, hi=x;
@@ -13058,24 +13093,30 @@ function layoutMenuBeach(){
   if(trunk){
     // nose-first: walk out until the tip reaches the pole, and stop there
     const byTip=tipGap(MB_BD)>0?solve(tipGap,1):null;
-    // too long to reach it that way — back it out of the tree instead
-    const byBox=byTip===null?(boxGap(MB_BD)<0?solve(boxGap,-1):null):null;
-    d=byTip!==null?byTip:(byBox!==null?byBox+0.1:MB_BD);
+    // too long to reach it that way — back its body out of the tree instead
+    const byBody=byTip===null?(bodyGap(MB_BD)<0?solve(bodyGap,-1):null):null;
+    d=byTip!==null?byTip:(byBody!==null?byBody+0.1:MB_BD);
   }
   stand(d,_pos); board.position.copy(_pos);
   // kept so the two conditions can be read back and checked: the foot against the sand it
   // is standing on, and the nearest the board comes to the trunk
   menuBeach.standoff=+d.toFixed(3);
+  menuBeach.spread=+(d+MB_RD).toFixed(3);
+  // how the board and the tree sit in depth, so "in front of it" can be read back rather
+  // than taken on trust. Smaller along the camera's forward axis is nearer the camera.
+  menuBeach.boardF=+_pos.dot(_mbF).toFixed(3);
+  menuBeach.trunkF=trunk?+(_mbP.dot(_mbF)-fwd+MB_BCLR).toFixed(3):null;
   menuBeach.foot=+(_pos.y+drop).toFixed(3);
   menuBeach.sandAt=+((beachSandH?beachSandH(_pos.z/MB_K):beachSand0)*MB_K).toFixed(3);
-  menuBeach.gap=trunk?+boxGap(d).toFixed(3):null;
+  menuBeach.gap=trunk?+tipGap(d).toFixed(3):null;
+  menuBeach.body=trunk?+bodyGap(d).toFixed(3):null;
   // and the rider on the sand off the board's shoulder, a little nearer the camera. He is
   // person-sized here, so he needs person-sized room: hard left of the palm, and barely
   // forward of it, because a step toward the camera at this scale is worth a foot of height.
-  const rd=d+MB_RD;
-  pug.position.set(_mbP.x - _mbR.x*rd - _mbF.x*0.3,
-                   (beachSandH?beachSandH((_mbP.z-_mbR.z*rd-_mbF.z*0.3)/MB_K):beachSand0)*MB_K,
-                   _mbP.z - _mbR.z*rd - _mbF.z*0.3);
+  const rd=d+MB_RD, rf=fwd+0.2;
+  pug.position.set(_mbP.x - _mbR.x*rd - _mbF.x*rf,
+                   (beachSandH?beachSandH((_mbP.z-_mbR.z*rd-_mbF.z*rf)/MB_K):beachSand0)*MB_K,
+                   _mbP.z - _mbR.z*rd - _mbF.z*rf);
   pug.rotation.set(0, Math.PI - MB_YAW + 0.22, 0);          // turned to face the camera
   // A world unit here is a FOOT: the boards measure 3.5 to 10.5 of them and their spec
   // sheets are in feet, which is what makes this a fixed number rather than a fraction of
@@ -13187,14 +13228,20 @@ function renderMenuBeach(dt){
   menuCam.aspect=Math.max(0.4,innerWidth/innerHeight);
   // a portrait phone sees a narrower slice, so the camera walks back to keep the crown of
   // the palm and the whole board inside it
-  const D=MB_D+Math.max(0,1-menuCam.aspect)*11.8+sw*0.5;
+  // The layout says how wide it came out — a ten foot log stands its foot twice as far from
+  // the trunk as a shortboard does, and the rider stands beyond that again. Frame THAT, not
+  // a fixed point beside the palm, or half of it walks out of the picture on a long board.
+  const spread=m.spread||5.5;
+  const D=MB_D+Math.max(0,1-menuCam.aspect)*18.0+spread*0.45+sw*0.5;
   const px=0, pz=MB_Z*MB_K;
   // Low, and aimed UP the beach rather than down onto it. Eye level over the sand puts a
   // third of the picture into empty foreground; from down here the sand is a strip the
   // board stands on and the sea and the sky get the rest, which is how the photograph is
-  // framed.
-  menuCam.position.set(px-_mbF.x*D, g+1.95+sw2*0.12, pz-_mbF.z*D);
-  menuCam.lookAt(px-_mbR.x*3.0+sw*0.15, g+4.6, pz-_mbR.z*3.0);
+  // framed. The aim is high because the palm is a fourteen foot tree now rather than a
+  // shrub, and the whole of it is meant to be in shot.
+  const aim=spread*0.66;
+  menuCam.position.set(px-_mbF.x*D, g+2.5+sw2*0.12, pz-_mbF.z*D);
+  menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+7.4, pz-_mbR.z*aim);
   menuCam.updateProjectionMatrix();
   renderer.setClearColor(0x1a2540,1);
   renderer.render(prevScene,menuCam);
