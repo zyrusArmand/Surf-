@@ -2774,12 +2774,13 @@ function buildBoardMesh(S){
   const invBeta=(t,lo,hi)=>{ for(let k=0;k<44;k++){ const m=(lo+hi)*0.5;
     if(beta(m)<t) lo=m; else hi=m; } return (lo+hi)*0.5; };
   const uN=S.noseW>0?invBeta(S.noseW,0,up):0, uT=S.tailW>0?invBeta(S.tailW,1,up):1;
-  // The closing arc takes the THICKNESS to nothing at both ends, and only the thickness.
-  // Taking the width with it was what stopped a swallow tail from existing: the outline had
-  // already run to a point by the time the notch was cut, so the notch moved a point around
-  // instead of cutting a V into fifteen inches of tail. Ending the outline at its real tail
-  // width and rolling the foam over at the edge is also simply what a board is — the end
-  // block of a squash tail is flat, and the fan that seals the mesh there is that block.
+  // The closing arc takes the THICKNESS to nothing at both ends and leaves the width alone.
+  // Applied to the width it pinches the last ring to a single point — and that point sits
+  // BEHIND the swallow, which is cut into the centreline just ahead of it, so the notch
+  // ends up buried inside the mesh and a fish comes out with a rounded squash tail. Measured
+  // on the mesh: the rails reached 0.06 SHORT of the centreline instead of a third of a foot
+  // past it. The corners are rounded instead — see below — which is the part of the closing
+  // arc that was actually wanted out here.
   const hw=u=>W*beta(uN+(uT-uN)*u);
   // thickness runs to nothing at both tips, so the loft closes on a thin edge the
   // way a real board does, with its fullest point just ahead of centre
@@ -2791,7 +2792,15 @@ function buildBoardMesh(S){
   // an asymmetric board is genuinely two different halves: the heel side can run
   // wider and its tail can be cut forward of the toe side's
   const asW=(v)=>v<0?(S.asymW||1):1;
-  const notch=(u,v)=>(swal?swal(u,v):0)
+  // Both ends have their corners rounded, and the rounding comes out of the LENGTH at the
+  // rail rather than out of the width. A squash tail is a flat block with the corners taken
+  // off; pinching the width instead turns every tail into a point and buries whatever was
+  // cut into it. The radius is the same roll-over the thickness uses, so a thick board has
+  // a fatter corner than a thin one, and it is nothing at the centreline where the swallow
+  // lives.
+  const cr=tipR*L, _rd=v=>1-Math.sqrt(Math.max(0,1-v*v));
+  const corner=(u,v)=> -cr*_rd(v)*_sm(0.88,1,u) + cr*_rd(v)*_sm(0.12,0,u);
+  const notch=(u,v)=>(swal?swal(u,v):0)+corner(u,v)
     +(S.asymZ&&v<0?-S.asymZ*_sm(0.62,1,u)*Math.abs(v):0);
 
   const pos=[],col=[],idx=[];
@@ -10387,6 +10396,24 @@ if(location.hash.includes('debug')){
                   legF:legFrontJ.hip.rotation.x, legB:legBackJ.hip.rotation.x,
                   head:headJ.rotation.z, bodyY:player.rotation.y, y:py}),
     riderVisible:()=>player.visible&&pug.visible,
+    // the tail, measured off the mesh: how far back the rails reach against how far back
+    // the centreline does. The difference IS the swallow, in board units.
+    tailCut(id){
+      const o=boardArtFor(id); let m=null;
+      // the biggest geometry in the group is the board; the others are its fins
+      o.traverse(n=>{ const g=n.geometry&&n.geometry.attributes&&n.geometry.attributes.position;
+        if(g&&(!m||g.count>m.attributes.position.count))m=n.geometry; });
+      if(!m)return null;
+      const p=m.attributes.position; let zMid=-9e9, zRail=-9e9, halfW=0;
+      for(let i=0;i<p.count;i++)halfW=Math.max(halfW,Math.abs(p.getX(i)));
+      for(let i=0;i<p.count;i++){
+        const x=Math.abs(p.getX(i)), z=p.getZ(i);
+        if(x<halfW*0.06)zMid=Math.max(zMid,z);
+        if(x>halfW*0.55)zRail=Math.max(zRail,z);
+      }
+      const S=BOARD_BY_ID[id].spec;
+      return {cut:+(zRail-zMid).toFixed(3), spec:+(S.swallow||0).toFixed(3), L:S.L};
+    },
     preview:id=>boardPreview(id),
     showBoard(id,spin){ closeViewer&&closeViewer(); openViewer('board',id);
       if(viewer){ viewer.spin=spin===undefined?0:spin; viewer.grab=true; } return id; },
@@ -12624,7 +12651,7 @@ function menuBeachOn(){
     // propped against the underside of a palm, which is half of why anyone photographs one
     // Leaning out to the RIGHT and slightly toward the camera, so the board can be propped
     // into the crook of it from the left without the trunk crossing the whole picture.
-    palm.position.set(0,0,0); palm.rotation.y=0.34; palm.scale.setScalar(0.58);
+    palm.position.set(0,0,0); palm.rotation.y=0.34; palm.scale.setScalar(0.46);
     menuProps.add(palm);
     const far=buildPalm(11);                       // and one well back on the other side
     far.position.set(-13.5,-0.9,-13); far.rotation.y=2.3; far.scale.setScalar(0.72);
@@ -12702,7 +12729,7 @@ function menuBeachOn(){
 // camera is at an angle, "put the board to the left of the palm" stops meaning anything in
 // x and z. So everything is placed along the camera's own two axes: forward, and right.
 const MB_YAW=1.24;                    // how far round from straight-out-to-sea the shot sits
-const MB_D=13.4;                      // how far back the camera stands from the palm
+const MB_D=10.6;                      // how far back the camera stands from the palm
 const _mbF=new THREE.Vector3(), _mbR=new THREE.Vector3(), _mbP=new THREE.Vector3();
 const _mbQ=new THREE.Quaternion(), _mbQ2=new THREE.Quaternion(), _mbUp=new THREE.Vector3(0,1,0);
 // forward, and right of it. At a yaw of zero the camera looks straight out to sea and its
@@ -12749,7 +12776,7 @@ function layoutMenuBeach(){
     _mbP.z - _mbR.z*(0.12+sway) - _mbF.z*0.95);
   // and the rider on the sand off the board's shoulder, nearer the camera, at the size he
   // rides at — anything smaller is a lie the moment you press play
-  pug.position.set(_mbP.x - _mbR.x*3.0 - _mbF.x*2.4, g, _mbP.z - _mbR.z*3.0 - _mbF.z*2.4);
+  pug.position.set(_mbP.x - _mbR.x*2.9 - _mbF.x*2.2, g, _mbP.z - _mbR.z*2.9 - _mbF.z*2.2);
   pug.rotation.set(0, Math.PI - MB_YAW + 0.22, 0);          // turned to face the camera
   pug.scale.setScalar(1);
 }
@@ -12838,8 +12865,12 @@ function renderMenuBeach(dt){
   // the palm and the whole board inside it
   const D=MB_D+Math.max(0,1-menuCam.aspect)*7.6+sw*0.5;
   const px=0, pz=MB_Z*MB_K;
-  menuCam.position.set(px-_mbF.x*D, g+2.45+sw2*0.12, pz-_mbF.z*D);
-  menuCam.lookAt(px-_mbR.x*1.9+sw*0.15, g+2.60, pz-_mbR.z*1.9);
+  // Low, and aimed UP the beach rather than down onto it. Eye level over the sand puts a
+  // third of the picture into empty foreground; from down here the sand is a strip the
+  // board stands on and the sea and the sky get the rest, which is how the photograph is
+  // framed.
+  menuCam.position.set(px-_mbF.x*D, g+1.95+sw2*0.12, pz-_mbF.z*D);
+  menuCam.lookAt(px-_mbR.x*2.6+sw*0.15, g+3.15, pz-_mbR.z*2.6);
   menuCam.updateProjectionMatrix();
   renderer.setClearColor(0x1a2540,1);
   renderer.render(prevScene,menuCam);

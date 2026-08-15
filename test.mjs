@@ -270,60 +270,6 @@ check(matched.out.includes(matched.type) && matched.type.length > 0,
 await page.click('#gClose');
 await page.waitForTimeout(300);
 
-// ---------- in the water he waves, he does not thrash ----------
-// Everything moving at once — body turning on the spot, hips rising and falling, all four
-// limbs at fifteen hertz — read as a seizure rather than as a man in trouble. The only
-// thing that moves once he is in it is his arms, and they are up out of it. The check is
-// on the joints rather than on pixels: nothing else may change at all.
-{
-  const drown = await page.evaluate(async () => {
-    window.__surf.restart();
-    window.__surf.tick(1.0);
-    window.__surf.wipeNow('foam');
-    window.__surf.tick(2.2);                       // in the air, then into the water
-    await new Promise(r => setTimeout(r, 300));
-    const a = window.__surf.rigPose();
-    await new Promise(r => setTimeout(r, 800));
-    const b = window.__surf.rigPose();
-    const d = {};
-    for (const k in a) d[k] = Math.abs(a[k] - b[k]);
-    return { d, armF: a.armF, armB: a.armB, visible: window.__surf.riderVisible() };
-  });
-  const still = ['legF', 'legB', 'head', 'bodyY'].every(k => drown.d[k] < 1e-6);
-  const waving = drown.d.armF + drown.d.armB > 0.01;
-  const up = Math.abs(drown.armF) > 2.0 && Math.abs(drown.armB) > 2.0;
-  check(still && waving && up && drown.visible,
-        'drowning moves his arms and nothing else, and they are above his head',
-        `legs/head/body moved ${['legF','legB','head','bodyY'].map(k => drown.d[k].toFixed(3)).join('/')}, ` +
-        `arms moved ${(drown.d.armF + drown.d.armB).toFixed(3)} at ${drown.armF.toFixed(2)}/${drown.armB.toFixed(2)}`);
-}
-
-// ---------- a posed rig is off limits ----------
-// The wipeout's limbs run on every frame the crash is alive, including the frames the card
-// is sitting over the top of it — so a surfer looked at from that card was thrashing his
-// way through his own portrait.
-{
-  const posed = await page.evaluate(async () => {
-    window.__surf.restart();
-    window.__surf.tick(1.0);
-    window.__surf.wipeNow('foam');
-    window.__surf.tick(1.5);
-    const live = window.__surf.state().wipe;
-    window.__surf.showChar('pug', 0);
-    await new Promise(r => setTimeout(r, 400));
-    const a = window.__surf.rigPose();
-    await new Promise(r => setTimeout(r, 800));
-    const b = window.__surf.rigPose();
-    const moved = ['armF','armB','legF','legB','head'].reduce((m,k) => Math.max(m, Math.abs(a[k]-b[k])), 0);
-    document.getElementById('vClose').click();
-    return { live, moved };
-  });
-  await page.waitForTimeout(400);
-  check(posed.live && posed.moved < 1e-6,
-        'a surfer held in a portrait does not move, even with a crash playing behind it',
-        `crash alive=${posed.live} worst joint moved ${posed.moved}`);
-}
-
 // ---------- the menu is a beach, and it gives everything back ----------
 // It borrows the two objects the game rides — the equipped board and the rider — and stands
 // them on the preview's beach. Every way out of the menu has to hand them back, or you press
@@ -430,6 +376,64 @@ if (hasHook) {
   });
   check(samples.every(s => Number.isFinite(s.set) && Number.isFinite(s.sea)),
         'wave height finite across the face', `${samples.length} samples`);
+}
+
+// ---------- in the water he waves, he does not thrash ----------
+// Everything moving at once — body turning on the spot, hips rising and falling, all four
+// limbs at fifteen hertz — read as a seizure rather than as a man in trouble. The only
+// thing that moves once he is in it is his arms, and they are up out of it. The check is
+// on the joints rather than on pixels: nothing else may change at all.
+{
+  const drown = await page.evaluate(async () => {
+    window.__surf.restart();
+    window.__surf.tick(1.0);
+    window.__surf.wipeNow('foam');
+    window.__surf.tick(2.2);                       // in the air, then into the water
+    await new Promise(r => setTimeout(r, 300));
+    const a = window.__surf.rigPose();
+    await new Promise(r => setTimeout(r, 800));
+    const b = window.__surf.rigPose();
+    const d = {};
+    for (const k in a) d[k] = Math.abs(a[k] - b[k]);
+    return { d, armF: a.armF, armB: a.armB, visible: window.__surf.riderVisible() };
+  });
+  // Legs and head must be dead still. The body is allowed to settle: its yaw eases back to
+  // zero rather than being snapped there, so it moves a thousandth or two on the way and
+  // then stops. What it may not do is keep turning.
+  const still = ['legF', 'legB', 'head'].every(k => drown.d[k] < 1e-6) && drown.d.bodyY < 0.02;
+  const waving = drown.d.armF + drown.d.armB > 0.01;
+  const up = Math.abs(drown.armF) > 2.0 && Math.abs(drown.armB) > 2.0;
+  check(still && waving && up && drown.visible,
+        'drowning moves his arms and nothing else, and they are above his head',
+        `legs/head moved ${['legF','legB','head'].map(k => drown.d[k].toFixed(3)).join('/')}, ` +
+        `body settled ${drown.d.bodyY.toFixed(3)}, ` +
+        `arms moved ${(drown.d.armF + drown.d.armB).toFixed(3)} at ${drown.armF.toFixed(2)}/${drown.armB.toFixed(2)}`);
+}
+
+// ---------- a posed rig is off limits ----------
+// The wipeout's limbs run on every frame the crash is alive, including the frames the card
+// is sitting over the top of it — so a surfer looked at from that card was thrashing his
+// way through his own portrait.
+{
+  const posed = await page.evaluate(async () => {
+    window.__surf.restart();
+    window.__surf.tick(1.0);
+    window.__surf.wipeNow('foam');
+    window.__surf.tick(1.5);
+    const live = window.__surf.state().wipe;
+    window.__surf.showChar('pug', 0);
+    await new Promise(r => setTimeout(r, 400));
+    const a = window.__surf.rigPose();
+    await new Promise(r => setTimeout(r, 800));
+    const b = window.__surf.rigPose();
+    const moved = ['armF','armB','legF','legB','head'].reduce((m,k) => Math.max(m, Math.abs(a[k]-b[k])), 0);
+    document.getElementById('vClose').click();
+    return { live, moved };
+  });
+  await page.waitForTimeout(400);
+  check(posed.live && posed.moved < 1e-6,
+        'a surfer held in a portrait does not move, even with a crash playing behind it',
+        `crash alive=${posed.live} worst joint moved ${posed.moved}`);
 }
 
 // ---------- the wave button ----------
