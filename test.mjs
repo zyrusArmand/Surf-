@@ -1490,14 +1490,20 @@ check(shaderErrors.length === 0, 'every shader compiles',
 // reachable. Three real sizes, each in its own page rather than resizing the one the suite
 // has been riding all this time: the card must end clear of the version and nothing may
 // hang off the bottom.
+// The page the suite has been riding has held a WebGL context and a running render loop
+// for twenty minutes, and a second one alongside it starved so badly under swiftshader
+// that it never finished loading at all — a 30s navigation timeout, not a layout fault.
+// Everything that needs that page is done by here, so it goes before the phones come up.
+await page.close();
 for (const [width, height, label] of [[430, 932, 'large phone'],
                                       [393, 852, 'phone'],
                                       [375, 667, 'small phone']]) {
   const p2 = await browser.newPage({ viewport: { width, height } });
   const oops = [];
   p2.on('pageerror', e => oops.push(e.message));
-  await p2.goto(`http://127.0.0.1:${PORT}/index.html#debug`, { waitUntil: 'load' });
-  await p2.waitForTimeout(4500);
+  await p2.goto(`http://127.0.0.1:${PORT}/index.html#debug`,
+                { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await p2.waitForTimeout(5000);
   await p2.evaluate(() => document.getElementById('dPlay').click());
   await p2.waitForTimeout(1200);
   await p2.evaluate(() => { window.__surf.tick(2.0); window.__surf.wipeNow('foam'); });
