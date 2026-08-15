@@ -85,14 +85,17 @@
   .hbtn {
     position:absolute; pointer-events:auto; overflow:hidden;
     border-radius:50%; user-select:none; -webkit-tap-highlight-color:transparent;
-    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
-    width:min(15.5vw,62px); height:min(15.5vw,62px);
-    color:#fff; font-weight:700; letter-spacing:.8px; font-size:min(2.5vw,10.5px);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
+    /* the trick bar's own size and spacing, to the pixel: 54 across, six apart, fourteen in
+       from the edge. The menu's columns are where your thumbs will be during a ride, so
+       they may as well be the same buttons in the same places. */
+    width:54px; height:54px;
+    color:#fff; font-weight:800; letter-spacing:.7px; font-size:9.5px;
     text-shadow:0 1px 3px rgba(0,18,42,.8), 0 0 10px rgba(0,20,45,.35);
     transition:transform .09s ease, box-shadow .09s ease, background .12s ease;
   }
   .hbtn > * { position:relative; }
-  .hbtn svg { width:40%; height:40%; display:block; fill:none; stroke:#fff; stroke-width:1.9;
+  .hbtn svg { width:38%; height:38%; display:block; fill:none; stroke:#fff; stroke-width:1.9;
               stroke-linecap:round; stroke-linejoin:round;
               filter:drop-shadow(0 1px 3px rgba(0,18,42,.85)); }
   .hbtn svg .fill { fill:#fff; stroke:none; }
@@ -115,16 +118,16 @@
      the beach behind them has a rider and a board standing in the middle of it, so the
      columns carry further up the screen and stand further apart than a pair did. PLAY drops
      to the sand at the bottom, clear of both columns and of everything in the scene. */
-  .hbtn.hb-play { width:min(21vw,86px); height:min(21vw,86px); font-size:min(3.1vw,13px);
-    border-width:2px; left:50%; transform:translateX(-50%); bottom:7%; }
+  .hbtn.hb-play { width:84px; height:84px; font-size:12px;
+    border-width:2.5px; left:50%; transform:translateX(-50%); bottom:7%; }
   .hbtn.hb-play:active { transform:translateX(-50%) scale(.93); }
   .hbtn.hb-play svg { width:38%; height:38%; }
-  .hbtn.hb-board   { left:4%;  bottom:42%; }
-  .hbtn.hb-shop    { left:4%;  bottom:32.5%; }
-  .hbtn.hb-tricks  { left:4%;  bottom:23%; }
-  .hbtn.hb-quests  { right:4%; bottom:42%; }
-  .hbtn.hb-set     { right:4%; bottom:32.5%; }
-  .hbtn.hb-stats   { right:4%; bottom:23%; }
+  .hbtn.hb-board   { left:14px;  bottom:calc(28% + 120px); }
+  .hbtn.hb-shop    { left:14px;  bottom:calc(28% + 60px); }
+  .hbtn.hb-tricks  { left:14px;  bottom:28%; }
+  .hbtn.hb-quests  { right:14px; bottom:calc(28% + 120px); }
+  .hbtn.hb-set     { right:14px; bottom:calc(28% + 60px); }
+  .hbtn.hb-stats   { right:14px; bottom:28%; }
   /* the two side panels borrow the stats panel's furniture */
   #quests, #settings, #howto, #mystats { position:fixed; inset:0; z-index:14; display:flex;
     align-items:center; justify-content:center; padding:22px; }
@@ -973,7 +976,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.97.0';
+const VERSION='2.98.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -12649,37 +12652,61 @@ function menuBeachOn(){
   layoutMenuBeach();
   return true;
 }
-// Where everything stands. Kept in one place because it is one composition: the palm is
-// planted first, the board leans on it, and the rider stands off the board's shoulder — move
-// the palm and the other two follow rather than needing three numbers changed by hand.
+// Where everything stands, worked out from the CAMERA rather than in world coordinates.
+// The shot is turned along the beach — the sea running off to the left and the waterline
+// crossing the frame as a diagonal rather than a straight bar across it — and once the
+// camera is at an angle, "put the board to the left of the palm" stops meaning anything in
+// x and z. So everything is placed along the camera's own two axes: forward, and right.
+const MB_YAW=1.24;                    // how far round from straight-out-to-sea the shot sits
+const MB_D=13.4;                      // how far back the camera stands from the palm
+const _mbF=new THREE.Vector3(), _mbR=new THREE.Vector3(), _mbP=new THREE.Vector3();
+const _mbQ=new THREE.Quaternion(), _mbQ2=new THREE.Quaternion(), _mbUp=new THREE.Vector3(0,1,0);
+// forward, and right of it. At a yaw of zero the camera looks straight out to sea and its
+// right is +x; turning it puts the sea on the left, which is the side the reference has it.
+function mbAxes(){
+  _mbF.set(Math.sin(MB_YAW),0,-Math.cos(MB_YAW));
+  _mbR.set(-_mbF.z,0,_mbF.x);
+}
 function layoutMenuBeach(){
   if(!menuBeach)return;
+  mbAxes();
   const g=(beachSandH?beachSandH(MB_Z):beachSand0)*MB_K;   // the sand where these things stand
   const board=menuBeach.board;
-  const PX=3.30*MB_K, PZ=(MB_Z-1.4)*MB_K;         // the palm
-  menuProps.position.set(PX,g-0.3*MB_K,PZ);
+  // the palm is the anchor; everything else is measured off it along the camera's axes
+  _mbP.set(0,g,MB_Z*MB_K);
+  menuProps.position.set(_mbP.x,g-0.3*MB_K,_mbP.z);
   menuProps.scale.setScalar(MB_K);
-  // stood on its tail and tipped back into the trunk. YXZ so the tip is about the world's
-  // vertical after it is stood up, not about an axis lying down — the same order the
-  // full-screen look uses for the same reason.
+  // Its trunk is a long C leaning out along its own +x, so turning the palm by minus the
+  // camera's yaw plus half a turn points that lean along the camera's LEFT: the trunk comes
+  // up out of the sand on the right and leans back across the top of the frame, with the
+  // board propped under it. That is the shape of every photograph of this ever taken.
+  // Leave it at a fixed angle and turning the shot swings the trunk anywhere it likes.
+  menuProps.rotation.y=Math.PI-MB_YAW;
   const spec=(BOARD_BY_ID[equipped]||{}).spec, L=(spec?spec.L:5.8)*MB_K;
-  // Tail in the sand, nose back against the trunk. The tilt and the offset are one thing:
-  // lean it further and the base has to walk out from the tree by the same amount, or the
-  // nose goes through the trunk at the top and the tail hangs in the air at the bottom.
-  const LEAN=-0.24;                               // how far off vertical it is propped
-  board.rotation.order='YXZ';
-  board.rotation.set(Math.PI/2,-0.52,LEAN);
-  // Tail in the sand, nose up against the trunk. The two numbers are one thing: tip it
-  // further and the tail has to walk out from the tree by the same amount, or the nose goes
-  // through the trunk at the top and the tail hangs in the air at the bottom.
-  board.position.set(PX-(0.20+Math.sin(LEAN)*L*0.5/MB_K)*MB_K, g+Math.cos(LEAN)*L*0.47, PZ+0.55*MB_K);
-  // and the rider on the sand off its shoulder, at his own size — he is a pug, and a pug
-  // beside a six foot board standing on its tail comes up about a third of it
-  // At the size he rides at, which is the only size that is not a lie: shrunk to look
-  // "realistic" beside a board on its tail he came out an inch tall, and then stood up on
-  // the same board the moment you pressed play.
-  pug.position.set(0.62*MB_K, g, (MB_Z+2.0)*MB_K);
-  pug.rotation.set(0,Math.PI-0.30,0);
+  // Tilted, the way a board propped against a tree actually stands: the tilt is taken about
+  // the camera's own forward axis, so it leans across the PICTURE by a known angle however
+  // far round the shot is turned. Standing it up maps the deck onto world +z, so the yaw
+  // that turns the deck back to face the camera is minus the camera's own — and a few
+  // degrees past that gives the three-quarter view the reference has, deck mostly toward
+  // you with enough rail showing to read the rocker.
+  const LEAN=0.27;
+  _mbQ.setFromAxisAngle(_mbF,-LEAN);                       // lean it across the frame
+  _mbQ2.setFromAxisAngle(_mbUp,-MB_YAW+0.30); _mbQ.multiply(_mbQ2);   // face the camera
+  _mbQ2.setFromAxisAngle(new THREE.Vector3(1,0,0),Math.PI/2); _mbQ.multiply(_mbQ2);  // stand it up
+  board.quaternion.copy(_mbQ);
+  board.rotation.order='XYZ';
+  // The tilt swings the tail out from under the nose by half the board's length times the
+  // sine of it, so the whole thing walks back the other way along the same axis — otherwise
+  // the tail hangs in mid-air and the nose goes through the trunk.
+  const half=L*0.47, sway=Math.sin(LEAN)*half;
+  board.position.set(
+    _mbP.x - _mbR.x*(0.12+sway) - _mbF.x*0.95,
+    g + Math.cos(LEAN)*half,
+    _mbP.z - _mbR.z*(0.12+sway) - _mbF.z*0.95);
+  // and the rider on the sand off the board's shoulder, nearer the camera, at the size he
+  // rides at — anything smaller is a lie the moment you press play
+  pug.position.set(_mbP.x - _mbR.x*3.0 - _mbF.x*2.4, g, _mbP.z - _mbR.z*3.0 - _mbF.z*2.4);
+  pug.rotation.set(0, Math.PI - MB_YAW + 0.22, 0);          // turned to face the camera
   pug.scale.setScalar(1);
 }
 function menuBeachOff(){
@@ -12756,19 +12783,19 @@ function renderMenuBeach(dt){
     }
   }
   // A slow drift across the shot rather than a fixed frame, so the menu is alive without
-  // anything in it having to move. Low and angled: the sea runs off to the left, the palm
-  // and the board hold the right, and the sand comes toward you.
+  // anything in it having to move. The camera stands back from the palm along its own
+  // forward axis and aims a little to the LEFT of it, which is what puts the palm and the
+  // board in the right of the frame and leaves the sea the rest.
+  mbAxes();
   const g=(beachSandH?beachSandH(MB_Z):beachSand0)*MB_K,
         sw=Math.sin(m.t*0.09), sw2=Math.sin(m.t*0.13+1.1);
   menuCam.aspect=Math.max(0.4,innerWidth/innerHeight);
-  // portrait needs the camera further back to keep the palm's head and the board in frame
-  const wide=Math.max(0,1-menuCam.aspect)*7.0;
-  const cz=(MB_Z+11.4)*MB_K+wide;
-  // Low and looking slightly UP the beach rather than down onto it: at eye level over the
-  // sand the near dune fills half the frame, and the picture is meant to be the sea and the
-  // two things standing against it, with sand only as a foreground to stand them on.
-  menuCam.position.set(-2.9+sw*0.45, g+2.40+sw2*0.12, cz);
-  menuCam.lookAt(2.15+sw*0.16, g+3.05, (MB_Z-2.5)*MB_K);
+  // a portrait phone sees a narrower slice, so the camera walks back to keep the crown of
+  // the palm and the whole board inside it
+  const D=MB_D+Math.max(0,1-menuCam.aspect)*7.6+sw*0.5;
+  const px=0, pz=MB_Z*MB_K;
+  menuCam.position.set(px-_mbF.x*D, g+2.45+sw2*0.12, pz-_mbF.z*D);
+  menuCam.lookAt(px-_mbR.x*1.9+sw*0.15, g+2.60, pz-_mbR.z*1.9);
   menuCam.updateProjectionMatrix();
   renderer.setClearColor(0x1a2540,1);
   renderer.render(prevScene,menuCam);
