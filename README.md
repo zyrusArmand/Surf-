@@ -52,6 +52,15 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.89.0** — **The dial, made symmetrical.** The first cut was oversized and only roughly
+  arranged. Everything comes down — side buttons 80px to 62px, Play 116px to 86px, labels and
+  icons with them — and the layout is now true about both axes: the four corners share exactly
+  two heights and one inset (measured on a 430px phone: 47px in on the left, 47px on the
+  right), and Play sits dead centre horizontally with its centre on the exact midpoint of the
+  two rows rather than hanging below them. The whole block also drops clear of the rider,
+  who is rendered left of centre and was being cut through by two buttons. Play's offset is a
+  calc from the row midpoint, so moving the rows keeps the ring true.
+
 - **v2.88.0** — **The home dial.** The main menu's stack of pills is replaced by five round
   glass buttons set around the rider, in the same gloss as the in-game controls: **Board** and
   **Shop** down the left, **Quests** and **Settings** down the right, and **Play** big in the
