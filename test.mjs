@@ -437,6 +437,17 @@ await page.waitForTimeout(300);
         JSON.stringify({bark: surf.bark.ao, sand: surf.sand.ao, board: surf.board.ao}));
   check(surf.pools === 3, 'and each thing standing on the sand darkens the sand under it',
         `${surf.pools} contact pools`);
+  // Where the sun is decides two different things and they were fighting. In world
+  // coordinates it sat behind the set, and once the shot turned to face the water that put
+  // it behind everything IN the shot — tree, board and rider all lit on the side you cannot
+  // see. It comes off the camera now: over the left shoulder, so the faces in frame are the
+  // lit ones. And the shadow box is the shadow's resolution, so it is cut to the group.
+  check(surf.shadow && surf.shadow.front < -0.05,
+        "the sun is over the camera's shoulder, so what faces you is what is lit",
+        surf.shadow ? `sun-to-camera ${surf.shadow.front}` : 'no shadow rig');
+  check(surf.shadow && surf.shadow.box < 30 && surf.shadow.map >= 2048,
+        'and the shadow map is spread over the group rather than the county',
+        surf.shadow ? `${surf.shadow.map}px over ${surf.shadow.box}ft` : 'no shadow rig');
   // Aerial perspective. Air is not clear, and a beach that holds the same saturation all the
   // way to the horizon is a texture on a plane. The group stands about 32ft out, so the haze
   // has to start well beyond it or it fogs the subject.

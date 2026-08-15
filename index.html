@@ -1017,7 +1017,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.9.0';
+const VERSION='3.9.1';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10844,7 +10844,14 @@ if(location.hash.includes('debug')){
       const pm=menuPalm?[].concat(menuPalm.material):[];
       const has=m=>m?{normal:!!m.normalMap,rough:!!m.roughnessMap,ao:!!m.aoMap,
                       env:!!m.envMap,uv:true}:null;
-      return {fog:prevScene.fog?[prevScene.fog.near,prevScene.fog.far]:null,
+      const ks=prevKey&&prevKey.shadow&&prevKey.shadow.camera;
+      return {shadow:prevKey&&prevKey.castShadow?{
+                map:prevKey.shadow.mapSize.x, box:+(ks.right-ks.left).toFixed(1),
+                // is the sun in FRONT of the subjects or behind them? Positive is behind the
+                // camera, which is the half that lights the faces you can see.
+                front:+_mbS.copy(prevKey.position).sub(prevKey.target.position)
+                          .normalize().dot(_mbF).toFixed(3)}:null,
+              fog:prevScene.fog?[prevScene.fog.near,prevScene.fog.far]:null,
               pools:menuAO&&menuAO.visible?menuAO.children.length:0,
               env:!!scene.environment, menuEnv:!!menuEnv,
               onBeach:!!(menuBeach&&prevScene.environment===menuEnv),
@@ -13110,9 +13117,8 @@ function menuBeachOn(){
     prevKey.shadow.mapSize.set(2048,2048);
     prevKey.shadow.bias=-0.0016;
     prevKey.shadow.normalBias=0.06;
-    const sc=prevKey.shadow.camera;
-    sc.left=-26; sc.right=26; sc.top=34; sc.bottom=-14; sc.near=1; sc.far=140;
-    sc.updateProjectionMatrix();
+    prevKey.shadow.camera.near=1;
+    prevKey.shadow.camera.far=140;
     if(!prevKey.target.parent)prevScene.add(prevKey.target);
   }
   if(menuPalm){ menuPalm.castShadow=true; menuPalm.receiveShadow=true; }
@@ -13135,8 +13141,8 @@ function menuBeachOn(){
                for(let i=0;i<3;i++)menuAO.add(makeAOPool());
                prevScene.add(menuAO); }
   menuAO.visible=true;
-  if(prevHemi){ prevHemi.color.set(0xc7e6ff); prevHemi.groundColor.set(0xe0b478);
-                prevHemi.intensity=0.72; }
+  if(prevHemi){ prevHemi.color.set(0xd8ecff); prevHemi.groundColor.set(0xe8c48a);
+                prevHemi.intensity=1.02; }
   // Sand: warm and light, the colour of dry tropical beach. It carries a dark multiplier
   // over its vertex colours because the previews look at it from above in full daylight —
   // under the old low sun that went to mud, and under this one it can come most of the way
@@ -13163,7 +13169,7 @@ function menuBeachOn(){
   if(beachSea){ menuDay.seaY=beachSea.position.y; beachSea.position.y=1.05; }
   // and a cool fill from the camera's side, so the shaded face of the trunk and the underside
   // of the board pick up bounce off the sand instead of going black
-  if(prevFill){ prevFill.color.set(0xffeed6); prevFill.intensity=0.42;
+  if(prevFill){ prevFill.color.set(0xffeed6); prevFill.intensity=0.50;
                 prevFill.position.set(-1.0,1.5,3.2); }
   // The palm's colours are vertex colours under a dark multiplier, set for a preview that
   // looks at it from above in flat light. In the sun it wants to be a green tree rather than
@@ -13238,9 +13244,17 @@ function layoutMenuBeach(){
   // whole set fell outside the shadow frustum and nothing cast at all. It is hung off the
   // palm instead, along the same direction the key already lights from.
   if(prevKey&&prevKey.castShadow){
-    const dir=_mbS.set(-2.5,3.3,-2.6).normalize();
+    // Where the sun is decides two different things and they were fighting. In world
+    // coordinates it sat behind the set, and once the shot turned to face the water that
+    // put it BEHIND everything in it — the tree, the board and the rider all lit on the
+    // side you cannot see and turned to the camera in their own shade, which is most of
+    // what "the home screen looks dull" was. It is taken off the CAMERA now, like
+    // everything else here: high, and over the left shoulder. The subjects are modelled,
+    // the shadows rake away to the right across the sand, and turning the shot keeps both.
+    const dir=_mbS.copy(_mbUp).multiplyScalar(0.70)
+                  .addScaledVector(_mbR,-0.96).addScaledVector(_mbF,-0.22).normalize();
     prevKey.position.set(_mbP.x+dir.x*54,_mbP.y+dir.y*54,_mbP.z+dir.z*54);
-    prevKey.target.position.set(_mbP.x-2,_mbP.y+3,_mbP.z);
+    prevKey.target.position.set(_mbP.x-_mbR.x*2.4,_mbP.y+4,_mbP.z-_mbR.z*2.4);
     prevKey.target.updateMatrixWorld();
   }
   // Tilted, the way a board propped against a tree actually stands: the tilt is taken about
@@ -13436,6 +13450,16 @@ function layoutMenuBeach(){
   // what a fixed offset would have produced
   menuBeach.riderAt=+rd.toFixed(3);
   menuBeach.spread=+rd.toFixed(3);
+  // A shadow map is a fixed number of texels spread over whatever box you hand it, so the
+  // box IS the resolution. It was 52 by 48 to be safe, which comes to 40 texels a foot and
+  // a frond edge that arrives as a staircase. Sized to what is actually standing here and
+  // no more — and sized HERE, at the end, because the width is not known until the board
+  // and the rider have both found their places.
+  if(prevKey&&prevKey.castShadow){
+    const sc=prevKey.shadow.camera, half=Math.max(9,rd*0.62+6.5);
+    sc.left=-half; sc.right=half; sc.top=half*1.6; sc.bottom=-half*0.85;
+    sc.updateProjectionMatrix();
+  }
   pug.rotation.set(0, Math.PI - MB_YAW + 0.22, 0);          // turned to face the camera
   // A world unit here is a FOOT: the boards measure 3.5 to 10.5 of them and their spec
   // sheets are in feet, which is what makes this a fixed number rather than a fraction of
@@ -13581,9 +13605,17 @@ function renderMenuBeach(dt){
   menuCam.position.set(px-_mbF.x*D, g+5.8+sw2*0.12, pz-_mbF.z*D);
   menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+6.6, pz-_mbR.z*aim);
   menuCam.updateProjectionMatrix();
+  // The board preview is shot at the renderer's own exposure and the menu was too, but the
+  // menu is a whole beach rather than one object on a sweep — far more of it is sky and wet
+  // light, and ACES pulls the top of that down hard. A tenth of a stop back is the
+  // difference between "outdoors at noon" and "a bright overcast", and it is put back
+  // immediately so nothing else in the game is touched by it.
+  const ex0=renderer.toneMappingExposure;
+  renderer.toneMappingExposure=ex0*1.14;
   renderer.setClearColor(0x1a2540,1);
   renderer.render(prevScene,menuCam);
   renderer.setClearColor(0x000000,1);
+  renderer.toneMappingExposure=ex0;
 }
 function loop(now){
   requestAnimationFrame(loop);
