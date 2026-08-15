@@ -226,6 +226,14 @@ const cut = await page.evaluate(() => {
       const wantSwallow = r.swallow ? s.L * r.swallow / r.L : 0;
       if (Math.abs((s.swallow || 0) - wantSwallow) > 0.01)
         bad.push(`${id} swallow ${(s.swallow || 0).toFixed(2)} want ${wantSwallow.toFixed(2)}`);
+      // and the rocker, which is as much of what makes a gun a gun as the outline is —
+      // seven and a half inches of nose lift against a fish's four. It is stated in inches
+      // and does NOT scale with length: a ten foot log has about the nose rocker of a six
+      // foot shortboard, which is exactly why a log is flat and a shortboard is not.
+      for (const [k, want] of [['rockN', r.rockN / 12], ['rockT', r.rockT / 12],
+                               ['noseR', r.noseR], ['tailR', r.tailR]])
+        if (Math.abs(s[k] - want) > 0.002)
+          bad.push(`${id} ${k} ${s[k]} want ${want.toFixed(3)}`);
     }
   }
   return bad;
