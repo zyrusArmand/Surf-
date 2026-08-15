@@ -976,7 +976,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.99.0';
+const VERSION='3.0.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -4751,7 +4751,15 @@ function boardPreview(id){
 // always mid-ride: hunched forward over the nose, feet crossed along the board, head
 // craned down the line. That is why every character in the shop looked like it was
 // falling over. Stand him up straight for the photo, then put the pose back exactly.
+// While a portrait pose is held, nothing else may touch the rig. The wipeout's limbs run
+// on every frame the crash is alive — including the frames the wipeout CARD is sitting over
+// the top of it — so opening the shop or a full-screen look off that card gave you a surfer
+// thrashing his way through his own portrait. One counter, raised here and dropped by the
+// undo, so anything that poses the rig is protected without having to know who else is
+// animating it.
+let rigPosed=0;
 function portraitPose(){
+  rigPosed++;
   const js=[pelvis,spine,chestJ,neck,headJ,tailJ,
     legFrontJ.hip,legFrontJ.knee,legFrontJ.ankle,
     legBackJ.hip,legBackJ.knee,legBackJ.ankle,
@@ -4778,6 +4786,7 @@ function portraitPose(){
   pelvis.position.y=pelvisHeight();    // ...which is what the hips should sit at
   updateLimbs();
   return ()=>{
+    rigPosed=Math.max(0,rigPosed-1);
     for(const [j,p,r] of keep){ j.position.copy(p); j.rotation.copy(r); }
     for(const [e,x] of ears)e.rotation.x=x;
     hipMass.position.copy(hipKeep[0]); hipMass.rotation.copy(hipKeep[1]); hipMass.scale.copy(hipKeep[2]);
@@ -9098,38 +9107,51 @@ function updateWipeout(dt){
     py=sea;
   }
   if(w.splashed){
-    // In the water he is upright and mostly under it — head out, everything else below —
-    // treading and thrashing, not floating peacefully on his side.
+    // In the water he is upright and mostly under it — head out, everything else below.
     // low enough that only his head and shoulders are out — he is drowning, not paddling
     py+=((sea-1.02)-py)*Math.min(1,dt*3.4);
     w.vy=0;
     w.rx+=(0.16-w.rx)*Math.min(1,dt*3.0);             // comes upright rather than lying flat
     w.rz*=0.86; w.sx*=0.80; w.sy*=0.92; w.sz*=0.80;
-    w.ry+=dt*0.9;                                     // turning on the spot as he flounders
-    py+=Math.sin(w.t*4.6)*0.055;                      // going under and coming back up
-    // spray thrown off the hands, not off him generally
-    for(const sx of [-1,1])if(Math.random()<dt*13)
+    // He does NOT spin on the spot or bob up and down any more. Everything moving at once —
+    // body turning, hips rising and falling, all four limbs at fifteen hertz — read as a
+    // seizure rather than as a man in trouble. He holds still and waves; that is the whole
+    // picture, and it is the one everybody already knows.
+    w.ry+=(0-w.ry)*Math.min(1,dt*2.2);
+    // spray thrown off the hands, and only off the hands
+    for(const sx of [-1,1])if(Math.random()<dt*6)
       splash(px+sx*(0.45+Math.random()*0.3),sea,w.vz*w.t+(Math.random()-0.5)*0.7,1);
   }
-  // He is a body, not a prop: arms windmill for balance while he is in the air and
-  // wash limp once he is in the water, legs kick out from under him.
-  {
+  // He is a body, not a prop — but only while he is in the air. Falling, the arms windmill
+  // for balance and the legs kick out from under him. In the water the ONLY thing that
+  // moves is his arms, straight up out of it and waving: the z rotation is what raises an
+  // arm, the same one he waves at the camera with when he lands a one-eighty.
+  if(!rigPosed){
     const air=w.splashed?0:1;
-    const f=w.t*(air?11.0:15.0);                      // faster once he is in it
-    const amp=air?1.0:0.92;                           // thrashing, not limp
-    armFrontJ.sh.rotation.x=0.6+Math.sin(f)*1.5*amp;
-    armFrontJ.sh.rotation.z=1.2+Math.cos(f*0.8)*0.7*amp;
-    armFrontJ.el.rotation.x=0.5+Math.sin(f*1.3)*0.6*amp;
-    armBackJ.sh.rotation.x=0.6+Math.sin(f+2.2)*1.5*amp;
-    armBackJ.sh.rotation.z=-1.2+Math.cos(f*0.8+1.1)*0.7*amp;
-    armBackJ.el.rotation.x=0.5+Math.sin(f*1.3+1.7)*0.6*amp;
-    const kick=air?1:0.55;
-    legFrontJ.hip.rotation.x=(air?-0.5:0.35)+Math.sin(f*0.7+0.6)*0.9*amp*kick;
-    legFrontJ.knee.rotation.x=0.9+Math.sin(f*0.9)*0.5*amp*kick;
-    legBackJ.hip.rotation.x=(air?0.5:0.35)+Math.sin(f*0.7+2.6)*0.9*amp*kick;
-    legBackJ.knee.rotation.x=-0.9+Math.sin(f*0.9+1.4)*0.5*amp*kick;
-    headJ.rotation.z=Math.sin(f*0.6)*0.4*amp;
-    headJ.rotation.x=air?0:-0.42;                     // chin up, keeping his face out of it
+    if(air){
+      const f=w.t*11.0;
+      armFrontJ.sh.rotation.x=0.6+Math.sin(f)*1.5;
+      armFrontJ.sh.rotation.z=1.2+Math.cos(f*0.8)*0.7;
+      armFrontJ.el.rotation.x=0.5+Math.sin(f*1.3)*0.6;
+      armBackJ.sh.rotation.x=0.6+Math.sin(f+2.2)*1.5;
+      armBackJ.sh.rotation.z=-1.2+Math.cos(f*0.8+1.1)*0.7;
+      armBackJ.el.rotation.x=0.5+Math.sin(f*1.3+1.7)*0.6;
+      legFrontJ.hip.rotation.x=-0.5+Math.sin(f*0.7+0.6)*0.9;
+      legFrontJ.knee.rotation.x=0.9+Math.sin(f*0.9)*0.5;
+      legBackJ.hip.rotation.x=0.5+Math.sin(f*0.7+2.6)*0.9;
+      legBackJ.knee.rotation.x=-0.9+Math.sin(f*0.9+1.4)*0.5;
+      headJ.rotation.set(0,0,Math.sin(f*0.6)*0.4);
+    } else {
+      const f=w.t*3.4;
+      armFrontJ.sh.rotation.set(0.06, 0.10,  2.44+Math.sin(f)*0.36);
+      armFrontJ.el.rotation.set(0.42+Math.sin(f)*0.26,0,0);
+      armBackJ.sh.rotation.set(0.06,-0.10,-(2.44+Math.sin(f+1.9)*0.36));
+      armBackJ.el.rotation.set(0.42+Math.sin(f+1.9)*0.26,0,0);
+      // and everything else is still: legs hanging under him, chin up out of the water
+      legFrontJ.hip.rotation.x=0.30; legFrontJ.knee.rotation.x=0.52;
+      legBackJ.hip.rotation.x=0.30;  legBackJ.knee.rotation.x=-0.52;
+      headJ.rotation.set(-0.42,0,0);
+    }
   }
   // board: cartwheels away and slaps down
   w.bvy-=20*dt;
@@ -10360,6 +10382,11 @@ if(location.hash.includes('debug')){
               boardOnBeach:!!b&&b.parent===prevScene}; },
     hideSand:v=>{ if(beachSand)beachSand.visible=!v; return !!beachSand; },
     hideSea:v=>{ if(beachSea)beachSea.visible=!v; return !!beachSea; },
+    // every joint the crash can drive, so the suite can ask what is actually moving
+    rigPose:()=>({armF:armFrontJ.sh.rotation.z, armB:armBackJ.sh.rotation.z,
+                  legF:legFrontJ.hip.rotation.x, legB:legBackJ.hip.rotation.x,
+                  head:headJ.rotation.z, bodyY:player.rotation.y, y:py}),
+    riderVisible:()=>player.visible&&pug.visible,
     preview:id=>boardPreview(id),
     showBoard(id,spin){ closeViewer&&closeViewer(); openViewer('board',id);
       if(viewer){ viewer.spin=spin===undefined?0:spin; viewer.grab=true; } return id; },
