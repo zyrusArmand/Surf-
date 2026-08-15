@@ -220,6 +220,12 @@ const cut = await page.evaluate(() => {
         bad.push(`${id} outline != ${t.key}`);
       if (Math.abs(s.L / (2 * s.W) - ratio) > 0.02)
         bad.push(`${id} ${(s.L / (2 * s.W)).toFixed(2)}:1 vs ${t.key} ${ratio.toFixed(2)}:1`);
+      // and the tail its type is defined by. A fish without a swallow is not a fish, which
+      // is exactly what three of them were: the notch was only kept on boards that already
+      // had one instead of coming from the type.
+      const wantSwallow = r.swallow ? s.L * r.swallow / r.L : 0;
+      if (Math.abs((s.swallow || 0) - wantSwallow) > 0.01)
+        bad.push(`${id} swallow ${(s.swallow || 0).toFixed(2)} want ${wantSwallow.toFixed(2)}`);
     }
   }
   return bad;

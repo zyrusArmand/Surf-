@@ -976,7 +976,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.98.0';
+const VERSION='2.99.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2745,8 +2745,18 @@ function buildBoardMesh(S){
   // radius will not go below the board's own thickness, because that is about the
   // tightest a real tip is ever rolled. A wide nose still finishes in a broad curve, a
   // narrow one in a small round tip, and neither comes to a point.
-  const tipR=(wid)=>Math.min(0.14,Math.max(T*0.85/L, W*wid/L*(S.tipK||1)));
-  const tN=tipR(S.noseW), tT=tipR(S.tailW);
+  // How far in from each end the rail rolls over. It used to scale with the WIDTH of that
+  // end, and that is what stopped a fish looking like a fish: a swallow tail fifteen inches
+  // across set the closing arc a tenth of the board's length deep, so the tail spent nine
+  // inches tapering away to a point and every wide-tailed board in the shop came out a
+  // rounded pin. Nothing about a real board works that way — the roll-over is the foam
+  // turning through ninety degrees at the edge, so it is a property of the THICKNESS and
+  // nothing else. An inch of it on a two-and-a-half inch board, wherever the outline
+  // happens to be wide. Wide tails stay wide right to the block now, pins still come to a
+  // point because their outline does, and the nose is unchanged because a nose is narrow
+  // there anyway.
+  const tipR=Math.min(0.055,Math.max(0.010,T*0.62/L*(S.tipK||1)));
+  const tN=tipR, tT=tipR;
   const round=(d,r)=>d>=r?1:Math.sqrt(Math.max(0,1-(1-d/r)*(1-d/r)));
   const close=u=>round(u,tN)*round(1-u,tT);
   // A board's plan outline is ONE curve running from the nose to the tail. The nose
@@ -2764,7 +2774,13 @@ function buildBoardMesh(S){
   const invBeta=(t,lo,hi)=>{ for(let k=0;k<44;k++){ const m=(lo+hi)*0.5;
     if(beta(m)<t) lo=m; else hi=m; } return (lo+hi)*0.5; };
   const uN=S.noseW>0?invBeta(S.noseW,0,up):0, uT=S.tailW>0?invBeta(S.tailW,1,up):1;
-  const hw=u=>W*beta(uN+(uT-uN)*u)*close(u);
+  // The closing arc takes the THICKNESS to nothing at both ends, and only the thickness.
+  // Taking the width with it was what stopped a swallow tail from existing: the outline had
+  // already run to a point by the time the notch was cut, so the notch moved a point around
+  // instead of cutting a V into fifteen inches of tail. Ending the outline at its real tail
+  // width and rolling the foam over at the edge is also simply what a board is — the end
+  // block of a squash tail is flat, and the fan that seals the mesh there is that block.
+  const hw=u=>W*beta(uN+(uT-uN)*u);
   // thickness runs to nothing at both tips, so the loft closes on a thin edge the
   // way a real board does, with its fullest point just ahead of centre
   const th=u=>Math.pow(Math.sin(Math.PI*Math.pow(Math.max(0,Math.min(1,u)),S.thSkew||1.0)),S.thPow||0.5)*close(u);
@@ -3296,7 +3312,7 @@ const BOARDS=[
    // along them: from midrib to rail a vertex crosses two whole vein cycles, so the ring
    // count is what decides whether a vein is a line or a row of dots. 84 rings put barely
    // one vertex inside each vein and it came out as stitching.
-   spec:{nu:190,nr:124,L:5.20,W:0.817,T:0.100,noseA:0.853,tailA:4.800,noseW:0.050,tailW:0.687,
+   spec:{nu:190,nr:124,L:5.20,W:0.817,T:0.100,noseA:0.853,tailA:4.800,noseW:0.050,tailW:0.687,swallow:0.394,
      rockN:0.18,noseR:0.34,rockT:0.045,tailR:0.30,deckPow:0.78,hullPow:0.70,hullK:0.92,
      pad:false,finCol:0x6f7d2a,
      paint:artScheme({deck:0x4d9c2c,hull:0xa8cc7a,rail:0x2c6b20,pin:0x2c6b20,
@@ -3404,7 +3420,7 @@ const BOARDS=[
   {id:'boogie', name:'Foam Bullet', price:800,
    blurb:'Bodyboard. Blunt nose, crescent tail, no fins — you go where the foam goes.',
    spec:{L:3.40,W:0.680,T:0.105,noseA:2.690,tailA:3.200,noseW:0.550,tailW:0.650,
-     rockN:0.20,noseR:0.40,rockT:0.05,tailR:0.30,swallow:0.340,
+     rockN:0.20,noseR:0.40,rockT:0.05,tailR:0.30,
      deckPow:0.78,hullPow:0.72,hullK:0.90,
      pad:false,
      paint:deckScheme({deck:0x131820,hull:0xf2f4f6,rail:0x00e07a,pin:0x00e07a,stringer:0x00e07a,
@@ -3638,7 +3654,7 @@ const BOARDS=[
 
   {id:'turbo', name:'Turbo 44', price:6600,
    blurb:'Mini Simmons. Stubby, planing-flat and absurdly fast in a straight line.',
-   spec:{nu:240,nr:62,L:4.90,W:0.770,T:0.160,noseA:0.853,tailA:4.800,noseW:0.050,tailW:0.687,
+   spec:{nu:240,nr:62,L:4.90,W:0.770,T:0.160,noseA:0.853,tailA:4.800,noseW:0.050,tailW:0.687,swallow:0.371,
      rockN:0.16,noseR:0.35,rockT:0.05,tailR:0.26,deckPow:0.58,hullPow:0.44,hullK:0.64,
      padCol:0x101010,finCol:0x101010,
      paint:artScheme({deck:0xffd400,hull:0xfff0a0,rail:0x101010,pin:0x101010,stringer:0x101010,
@@ -3772,7 +3788,7 @@ const BOARDS=[
   // ---- blue and white porcelain ----
   {id:'qinghua', name:'Qinghua', price:10500,
    blurb:'Cobalt under a white glaze. Sea-and-cliff waves, a key-fret border, and a craze in the finish.',
-   spec:{L:5.05,W:0.794,T:0.132,noseA:0.853,tailA:4.800,noseW:0.050,tailW:0.687,
+   spec:{L:5.05,W:0.794,T:0.132,noseA:0.853,tailA:4.800,noseW:0.050,tailW:0.687,swallow:0.383,
      rockN:0.24,noseR:0.32,rockT:0.07,tailR:0.20,deckPow:0.62,hullPow:0.48,hullK:0.60,
      nu:300,nr:96,
      pad:false,finCol:0x2a4f96,
@@ -10348,7 +10364,8 @@ if(location.hash.includes('debug')){
     showBoard(id,spin){ closeViewer&&closeViewer(); openViewer('board',id);
       if(viewer){ viewer.spin=spin===undefined?0:spin; viewer.grab=true; } return id; },
     boardOutline:id=>{ const s=BOARD_BY_ID[id].spec;
-      return {L:s.L,W:s.W,noseA:s.noseA,tailA:s.tailA,noseW:s.noseW,tailW:s.tailW}; },
+      return {L:s.L,W:s.W,noseA:s.noseA,tailA:s.tailA,noseW:s.noseW,tailW:s.tailW,
+              swallow:s.swallow||0}; },
     state:()=>({dist,speed,score,running,wipe:!!wipe,airborne,px,py,pz,
                 swPh,swT,swA,swX,swS,swRide,swRideMax,swOver,swCurlA,swClose,
                 swAng,swLoops,swTubeRide,swOnLip,ring:swTubeGeom(),
