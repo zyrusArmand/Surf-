@@ -401,6 +401,14 @@ await page.waitForTimeout(300);
   check(stood.every(f => f.palmH > 13),
         'and the palm it leans on is a tree', `${stood[0] && stood[0].palmH}ft tall`);
 
+  // He stands CLEAR of the board. A board leaning across the frame sweeps over the ground
+  // it stands on, so a fixed distance from its foot put his shoulder through the middle of
+  // it — and by how much depended on which board, which is why it looked fine on one and
+  // wrong on the next. Measured between the two silhouettes in the picture the camera sees.
+  check(stood.length === 4 && stood.every(f => f.riderGap >= 0.5),
+        'and the rider stands clear of it rather than through it',
+        stood.map(f => `${f.id} ${f.riderGap}ft between them`).join(', '));
+
   // Midday, not dusk. The one thing that says "evening" whatever else is done is a wide warm
   // band low in the sky, so the horizon glow is the number that matters — and the sky and the
   // sea both have to be blue-dominant, which a sunset's orange horizon is not.
