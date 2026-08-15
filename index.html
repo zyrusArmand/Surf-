@@ -1017,7 +1017,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.8.1';
+const VERSION='3.9.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2927,6 +2927,10 @@ function buildBoardMesh(S){
   mat.normalScale=new THREE.Vector2(0.30,0.30);
   mat.roughnessMap=bakedGrey('glassR',256,(x,y)=>0.62+_fbm(x*0.075,y*0.075)*0.55);
   mat.roughnessMap.repeat.set(9,26);
+  g.setAttribute('uv2',new THREE.Float32BufferAttribute(uvs,2));
+  mat.aoMap=bakedGrey('glassAO',256,(x,y)=>0.74+0.26*_fbm(x*0.075,y*0.075));
+  mat.aoMap.repeat.set(9,26);
+  mat.aoMapIntensity=0.35;
   // wet-looking but not mirrored: a low sun on a glassier finish blows the deck out
   // to white and the paint scheme stops reading at all
   mat.envMapIntensity=0.40;
@@ -4612,6 +4616,12 @@ function buildPalm(seed){
           // leaflets that hang further down are further into the crown's own shade, and
           // each frond carries its own tint so they do not merge into one canopy
           col.copy(G1).lerp(G2,R()*0.95*Math.max(0,1-droop*0.55)+fTint).lerp(G3,t*0.45+droop*0.30);
+          // Occlusion, baked in. A crown is a hundred blades a foot apart, and the ones near
+          // the middle have the whole rest of the crown over them — no directional shadow map
+          // resolves that, which is why a canopy lit only by a key and a hemisphere comes out
+          // as one flat green sheet. Darkest at the base of the frond, opening up toward the
+          // tips where a leaflet has sky on both sides of it.
+          col.multiplyScalar(0.62+0.38*Math.min(1,t*1.5));
           const a0=push(p.x,p.y,p.z,col);
           const a1=push(p.x+tan.x*0.30,p.y+tan.y*0.30,p.z+tan.z*0.30,col);
           col.lerp(G3,0.42);                            // dark toward the tip, for depth
@@ -4642,6 +4652,7 @@ function buildPalm(seed){
   geo.setAttribute('position',new THREE.Float32BufferAttribute(P,3));
   geo.setAttribute('color',new THREE.Float32BufferAttribute(C,3));
   geo.setAttribute('uv',new THREE.Float32BufferAttribute(UV,2));
+  geo.setAttribute('uv2',new THREE.Float32BufferAttribute(UV,2));   // aoMap reads this one
   geo.setIndex(I);
   geo.computeVertexNormals();
   // Two materials over one buffer rather than two meshes: the trunk wants a bark relief and
@@ -4670,6 +4681,15 @@ function buildPalm(seed){
   barkMat.normalScale=new THREE.Vector2(0.85,0.85);
   barkMat.roughnessMap=bakedGrey('barkR',256,(x,y)=>0.70+_fbm(x*0.30,y*0.055)*0.42);
   barkMat.roughnessMap.repeat.set(3,7);
+  // and the grooves between the rings hold shade the way any crease does. A normal map
+  // tells the light which way the surface points; it cannot tell it that the bottom of a
+  // groove can only see a sliver of sky, and that is what makes deep bark read as deep.
+  barkMat.aoMap=bakedGrey('barkAO',256,(x,y,N)=>{
+    const ring=Math.abs(((y/N*7.0+x/N*0.6)%1+1)%1-0.5)*2;
+    return 0.46+0.54*Math.pow(ring,1.1);
+  });
+  barkMat.aoMap.repeat.set(3,7);
+  barkMat.aoMapIntensity=0.85;
   const m=new THREE.Mesh(geo,[barkMat,frondMat]);
   m.userData.trunk=trunkLine;
   m.userData.bark=barkMat; m.userData.frond=frondMat;
@@ -4828,6 +4848,13 @@ function buildBeach(){
     _fbm(x*0.135,y*0.135)*0.62+_fbm(x*0.52+9,y*0.52+3)*0.38, 2.6, 0.62);
   beachSand.material.normalMap.repeat.set(150,90);   // about one tile every five feet
   beachSand.material.normalScale=new THREE.Vector2(0.55,0.55);
+  // the hollows between the grains keep a little shade, which is what stops a lit beach
+  // reading as a sheet of paper at grazing angles
+  sg.setAttribute('uv2',sg.attributes.uv);
+  beachSand.material.aoMap=bakedGrey('sandAO',256,(x,y)=>
+    0.58+0.42*(_fbm(x*0.135,y*0.135)*0.62+_fbm(x*0.52+9,y*0.52+3)*0.38));
+  beachSand.material.aoMap.repeat.set(150,90);
+  beachSand.material.aoMapIntensity=0.55;
   beachSand.material.envMapIntensity=0.16;
   beachSand.rotation.x=-Math.PI/2; beachSand.position.set(0,0,SC); g.add(beachSand);
 
@@ -10815,9 +10842,11 @@ if(location.hash.includes('debug')){
       const board=boardArtFor(equipped); let bm=null;
       board.traverse(o=>{ if(o.isMesh&&!bm&&o.geometry.attributes.uv)bm=o.material; });
       const pm=menuPalm?[].concat(menuPalm.material):[];
-      const has=m=>m?{normal:!!m.normalMap,rough:!!m.roughnessMap,env:!!m.envMap,
-                      uv:true}:null;
-      return {env:!!scene.environment, menuEnv:!!menuEnv,
+      const has=m=>m?{normal:!!m.normalMap,rough:!!m.roughnessMap,ao:!!m.aoMap,
+                      env:!!m.envMap,uv:true}:null;
+      return {fog:prevScene.fog?[prevScene.fog.near,prevScene.fog.far]:null,
+              pools:menuAO&&menuAO.visible?menuAO.children.length:0,
+              env:!!scene.environment, menuEnv:!!menuEnv,
               onBeach:!!(menuBeach&&prevScene.environment===menuEnv),
               board:has(bm), bark:has(pm[0]), frond:has(pm[1]),
               sand:beachSand?has(beachSand.material):null,
@@ -12976,7 +13005,27 @@ function update(dt){
 // the set the full-screen preview already stands boards on; the board and the rider are the
 // same two objects the game rides, lifted out and put back exactly the way the preview does
 // it. What the menu adds is a camera, a palm close enough to lean a board on, and a midday.
-let menuBeach=null, menuCam=null, menuProps=null, menuDay=null, menuPalm=null;
+let menuBeach=null, menuCam=null, menuProps=null, menuDay=null, menuPalm=null, menuAO=null;
+// Where a thing meets the ground, the ground stops being able to see the sky. A shadow map
+// answers "is the sun blocked"; it has nothing to say about the ambient half, which is why
+// an object with a perfectly good shadow beside it can still look like it was pasted on —
+// there is no darkening UNDER it, and in a photograph there always is. Three soft pools,
+// multiplied into the sand: one at the foot of the tree, one at the board's tail, one under
+// the rider. Cheap, and it is the difference between standing on a beach and hovering over
+// one. Multiply blending rather than a transparent black quad, so the sand's own grain and
+// colour show through the darkening instead of being covered by it.
+function makeAOPool(){
+  const t=bakedGrey('contactAO',128,(x,y,N)=>{
+    const dx=(x/N-0.5)*2, dy=(y/N-0.5)*2, r=Math.min(1,Math.hypot(dx,dy));
+    return 0.42+0.58*Math.pow(r,1.35);
+  });
+  t.wrapS=t.wrapT=THREE.ClampToEdgeWrapping;
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(1,1),
+    new THREE.MeshBasicMaterial({map:t,blending:THREE.MultiplyBlending,
+                                 transparent:true,depthWrite:false}));
+  m.rotation.x=-Math.PI/2; m.renderOrder=2;
+  return m;
+}
 const MB_K=1.15;                      // the set is a shade bigger than life so the sea reads
 // How far down the beach the three of them stand. At the top of the sand the waterline is a
 // hundred units off and the sea is a stripe under the horizon; walked down to here it is
@@ -13074,6 +13123,18 @@ function menuBeachOn(){
   if(!menuEnv)menuEnv=bakeEnv({top:0x1668c4, hor:0xdff2fb, ground:0xbda478,
     sun:0xffffff, sunR:4.2, groundY:-5, sunPos:new THREE.Vector3(-24,30,-14)});
   if(menuEnv){ menuDay.env=prevScene.environment; prevScene.environment=menuEnv; }
+  // Aerial perspective. Air is not clear: over a couple of hundred feet it scatters enough
+  // light back at you to wash whatever is behind it toward the colour of the horizon, and
+  // its ABSENCE is one of the loudest tells in a render — a beach that stays the same
+  // saturation all the way out has no depth in it, it is a texture on a plane. Near is set
+  // well beyond the group, so the tree, the board and the rider are untouched and only the
+  // beach running away behind them recedes. The sea already does this in its own shader.
+  menuDay.fog=prevScene.fog;
+  prevScene.fog=new THREE.Fog(0xcbe6f6,58,250);
+  if(!menuAO){ menuAO=new THREE.Group();
+               for(let i=0;i<3;i++)menuAO.add(makeAOPool());
+               prevScene.add(menuAO); }
+  menuAO.visible=true;
   if(prevHemi){ prevHemi.color.set(0xc7e6ff); prevHemi.groundColor.set(0xe0b478);
                 prevHemi.intensity=0.72; }
   // Sand: warm and light, the colour of dry tropical beach. It carries a dark multiplier
@@ -13383,6 +13444,14 @@ function layoutMenuBeach(){
   // come out the same height. At the size he RIDES at he is under two feet tall and the
   // picture said toy next to a six foot board.
   pug.scale.setScalar(rk);
+  // the three contact pools, sized to what is standing on them
+  if(menuAO){
+    const sandAt=v=>(beachSandH?beachSandH(v.z/MB_K):beachSand0)*MB_K+0.06;
+    const put=(m,p,r)=>{ m.position.set(p.x,sandAt(p),p.z); m.scale.set(r,r,1); };
+    put(menuAO.children[0],_mbP,5.4);                 // the tree, and its root plate
+    put(menuAO.children[1],board.position,2.1);       // the board's tail
+    put(menuAO.children[2],pug.position,2.0);         // and his feet
+  }
   // kept so the height he actually came out at can be read back, rather than the height he
   // happens to be measuring in the middle of an idle breath
   pug.updateMatrixWorld(true);
@@ -13426,10 +13495,12 @@ function menuBeachOff(){
   if(beachSea&&menuDay.seaY!==undefined)beachSea.position.y=menuDay.seaY;
   if(menuPalm&&menuDay.palm)
     [].concat(menuPalm.material).forEach((x,i)=>x.color.copy(menuDay.palm[i]||menuDay.palm[0]));
+  if(menuAO)menuAO.visible=false;
   if(menuPalm)menuPalm.castShadow=false;
   if(beachSand)beachSand.receiveShadow=false;
   if(prevKey&&menuDay.keyShadow!==undefined)prevKey.castShadow=menuDay.keyShadow;
   if(menuDay.env!==undefined)prevScene.environment=menuDay.env;
+  if(menuDay.fog!==undefined)prevScene.fog=menuDay.fog;
   if(prevOcean&&menuDay.sea){ prevOcean.uniforms.uDeep.value.copy(menuDay.sea.deep);
     prevOcean.uniforms.uShallow.value.copy(menuDay.sea.shal);
     prevOcean.uniforms.uSky.value.copy(menuDay.sea.sky); }

@@ -429,6 +429,20 @@ await page.waitForTimeout(300);
   check(surf.env && surf.menuEnv && surf.onBeach,
         'and everything glossy reflects a world with a horizon and a sun in it',
         JSON.stringify({ride: surf.env, menu: surf.menuEnv, inUse: surf.onBeach}));
+  // Occlusion. A shadow map answers "is the SUN blocked" and has nothing to say about the
+  // ambient half, which is why an object with a perfectly good shadow beside it can still
+  // look pasted on: nothing darkens underneath it, and in a photograph it always does.
+  check(surf.bark.ao && surf.sand.ao && surf.board.ao,
+        'creases hold shade the light never reaches',
+        JSON.stringify({bark: surf.bark.ao, sand: surf.sand.ao, board: surf.board.ao}));
+  check(surf.pools === 3, 'and each thing standing on the sand darkens the sand under it',
+        `${surf.pools} contact pools`);
+  // Aerial perspective. Air is not clear, and a beach that holds the same saturation all the
+  // way to the horizon is a texture on a plane. The group stands about 32ft out, so the haze
+  // has to start well beyond it or it fogs the subject.
+  check(surf.fog && surf.fog[0] > 45 && surf.fog[1] > 150,
+        'and the beach behind them recedes into haze rather than staying put',
+        surf.fog ? `haze from ${surf.fog[0]}ft to ${surf.fog[1]}ft` : 'no haze');
 
   // Midday, not dusk. The one thing that says "evening" whatever else is done is a wide warm
   // band low in the sky, so the horizon glow is the number that matters — and the sky and the
