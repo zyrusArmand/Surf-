@@ -1017,7 +1017,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.8.0';
+const VERSION='3.8.1';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1043,25 +1043,52 @@ const hemi=new THREE.HemisphereLight(0xdfeeff,0x2a7ba8,0.62);scene.add(hemi);
 const HEMI_I=0.62;
 // bake the sky + ocean colours into an environment map — this is what gives every
 // surface real reflections instead of flat shading
-function buildEnvironment(){
-  if(!THREE.PMREMGenerator)return;
+// A single flat blue sphere with a dull ball in it, which is what this was, gives every
+// glossy thing in the game the same even wash — technically a reflection and visually a
+// tint. What a real surface reflects is a WORLD with structure in it: sky that darkens
+// upward, a hard bright sun, a horizon, and ground of a completely different colour under
+// it. Rolling a board's rail through that is what makes it look wet, because the highlight
+// travels and changes as the rail turns; through a flat sphere nothing happens at all.
+//
+// Built as a scene rather than an image so the horizon is a real edge at a real height.
+function bakeEnv(o){
+  if(!THREE.PMREMGenerator)return null;
   try{
     const envScene=new THREE.Scene();
-    const sky=new THREE.Mesh(new THREE.SphereGeometry(50,24,16),
-      new THREE.MeshBasicMaterial({color:0x5fa8cf,side:THREE.BackSide}));
-    envScene.add(sky);
-    const sea=new THREE.Mesh(new THREE.PlaneGeometry(160,160),
-      new THREE.MeshBasicMaterial({color:0x14567f}));
-    sea.rotation.x=-Math.PI/2;sea.position.y=-6;envScene.add(sea);
-    const sunBall=new THREE.Mesh(new THREE.SphereGeometry(5,16,12),
-      new THREE.MeshBasicMaterial({color:0xd8c69a}));
-    sunBall.position.set(-22,26,-18);envScene.add(sunBall);
+    // sky, graded top to horizon on the vertices — cheaper than a shader and exact enough
+    // for something that is about to be blurred into a set of mips anyway
+    const sg=new THREE.SphereGeometry(50,32,24), sp=sg.attributes.position, col=[];
+    const cT=new THREE.Color(o.top), cH=new THREE.Color(o.hor), _c=new THREE.Color();
+    for(let i=0;i<sp.count;i++){
+      const t=Math.max(0,Math.min(1,sp.getY(i)/50));
+      _c.copy(cH).lerp(cT,Math.pow(t,0.55));
+      col.push(_c.r,_c.g,_c.b);
+    }
+    sg.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+    envScene.add(new THREE.Mesh(sg,new THREE.MeshBasicMaterial({
+      vertexColors:true,side:THREE.BackSide})));
+    // ground: the half of the world a board's underside actually sees
+    const gr=new THREE.Mesh(new THREE.PlaneGeometry(200,200),
+      new THREE.MeshBasicMaterial({color:o.ground}));
+    gr.rotation.x=-Math.PI/2; gr.position.y=o.groundY===undefined?-6:o.groundY;
+    envScene.add(gr);
+    // and the sun, which is the whole reason a highlight is a highlight and not a sheen
+    const sunBall=new THREE.Mesh(new THREE.SphereGeometry(o.sunR||3.4,16,12),
+      new THREE.MeshBasicMaterial({color:o.sun}));
+    sunBall.position.copy(o.sunPos||new THREE.Vector3(-22,26,-18));
+    envScene.add(sunBall);
     const pmrem=new THREE.PMREMGenerator(renderer);
     if(pmrem.compileEquirectangularShader)pmrem.compileEquirectangularShader();
-    const rt=pmrem.fromScene(envScene,0.04);
-    scene.environment=rt.texture;
+    const rt=pmrem.fromScene(envScene,0.035);
     pmrem.dispose();
-  }catch(e){ /* older builds without PMREM just keep the lights */ }
+    return rt.texture;
+  }catch(e){ return null; }   /* older builds without PMREM just keep the lights */
+}
+let menuEnv=null;
+function buildEnvironment(){
+  const t=bakeEnv({top:0x2f7fc4, hor:0x9fd0e8, ground:0x14567f,
+                   sun:0xfff0cf, sunPos:new THREE.Vector3(-22,26,-18)});
+  if(t)scene.environment=t;
 }
 const sunDir=new THREE.Vector3(-0.45,0.75,-0.5).normalize();
 const SUN_I=1.75;
@@ -10790,7 +10817,9 @@ if(location.hash.includes('debug')){
       const pm=menuPalm?[].concat(menuPalm.material):[];
       const has=m=>m?{normal:!!m.normalMap,rough:!!m.roughnessMap,env:!!m.envMap,
                       uv:true}:null;
-      return {board:has(bm), bark:has(pm[0]), frond:has(pm[1]),
+      return {env:!!scene.environment, menuEnv:!!menuEnv,
+              onBeach:!!(menuBeach&&prevScene.environment===menuEnv),
+              board:has(bm), bark:has(pm[0]), frond:has(pm[1]),
               sand:beachSand?has(beachSand.material):null,
               boardUV:!!(board.children[0]&&board.children[0].geometry
                          &&board.children[0].geometry.attributes.uv),
@@ -13039,6 +13068,12 @@ function menuBeachOn(){
   }
   if(menuPalm){ menuPalm.castShadow=true; menuPalm.receiveShadow=true; }
   if(beachSand)beachSand.receiveShadow=true;
+  // The board on this beach is standing under a noon sky over hot pale sand, which is a
+  // different world from the one the ride reflects — bluer above, far brighter at the
+  // horizon, and sand rather than open ocean underneath it. Baked once and kept.
+  if(!menuEnv)menuEnv=bakeEnv({top:0x1668c4, hor:0xdff2fb, ground:0xbda478,
+    sun:0xffffff, sunR:4.2, groundY:-5, sunPos:new THREE.Vector3(-24,30,-14)});
+  if(menuEnv){ menuDay.env=prevScene.environment; prevScene.environment=menuEnv; }
   if(prevHemi){ prevHemi.color.set(0xc7e6ff); prevHemi.groundColor.set(0xe0b478);
                 prevHemi.intensity=0.72; }
   // Sand: warm and light, the colour of dry tropical beach. It carries a dark multiplier
@@ -13394,6 +13429,7 @@ function menuBeachOff(){
   if(menuPalm)menuPalm.castShadow=false;
   if(beachSand)beachSand.receiveShadow=false;
   if(prevKey&&menuDay.keyShadow!==undefined)prevKey.castShadow=menuDay.keyShadow;
+  if(menuDay.env!==undefined)prevScene.environment=menuDay.env;
   if(prevOcean&&menuDay.sea){ prevOcean.uniforms.uDeep.value.copy(menuDay.sea.deep);
     prevOcean.uniforms.uShallow.value.copy(menuDay.sea.shal);
     prevOcean.uniforms.uSky.value.copy(menuDay.sea.sky); }

@@ -422,6 +422,13 @@ await page.waitForTimeout(300);
         surf.frond && !surf.frond.normal,
         'the trunk is bark and the crown is not', JSON.stringify({bark: surf.bark, frond: surf.frond}));
   check(surf.sand && surf.sand.normal, 'and the sand is grains rather than a sheet');
+  // A glossy surface reflects a WORLD, and what it reflects decides where the highlight is
+  // and how it moves as the surface turns. One flat blue sphere is a tint, not a reflection.
+  // The beach reflects its own noon — bluer above, brilliant at the horizon, hot sand under
+  // it — which is a different world from the open ocean the ride reflects.
+  check(surf.env && surf.menuEnv && surf.onBeach,
+        'and everything glossy reflects a world with a horizon and a sun in it',
+        JSON.stringify({ride: surf.env, menu: surf.menuEnv, inUse: surf.onBeach}));
 
   // Midday, not dusk. The one thing that says "evening" whatever else is done is a wide warm
   // band low in the sky, so the horizon glow is the number that matters — and the sky and the
