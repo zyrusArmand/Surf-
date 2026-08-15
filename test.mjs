@@ -345,6 +345,23 @@ await page.waitForTimeout(300);
   await page.waitForFunction(() => window.__surf.menuState().up, null, { timeout: 30000 })
     .catch(() => {});
   const onMenu = await page.evaluate(() => window.__surf.menuState());
+  // What the player experiences as "it lags and then loads": the menu paints the instant the
+  // page is parsed, and the beach is built on the first frame that asks for it — sixty
+  // thousand vertices of dune and a palm, with the page frozen for all of it. It was 1.7s.
+  // Asked here, before anything has opened the shop or the viewer, because that is also
+  // where the far palms get built and they are meant NOT to be built yet.
+  const boot0 = await page.evaluate(() => window.__surf.boot());
+  check(boot0.beach > 0 && boot0.beach < 1000,
+        'the beach stands up fast enough not to read as a hang',
+        `${boot0.beach}ms, of which ${boot0.sand}ms is ${boot0.sandVerts} sand vertices`);
+  check(boot0.sandVerts < 70000,
+        'and the sand spends its vertices across the shore, where the short waves are',
+        `${boot0.sandVerts} vertices`);
+  // Counted at the moment the beach finished, not now — by the time the suite reaches here
+  // something may legitimately have opened a viewer and paid for them.
+  check(boot0.palmsAtBoot === 0,
+        'and the far palms the menu hides are not built for it',
+        `${boot0.palmsAtBoot} standing when the beach was done`);
   const viaShop = await page.evaluate(async () => {
     document.getElementById('dShop').click();
     await new Promise(r => setTimeout(r, 60));
@@ -359,6 +376,10 @@ await page.waitForTimeout(300);
   check(!viaShop.riderOnBeach && !viaShop.boardOnBeach,
         'and hands them back the moment the shop opens',
         JSON.stringify(viaShop));
+  // but they ARE built the moment something that wants them is opened
+  const boot1 = await page.evaluate(() => window.__surf.boot());
+  check(boot1.palms >= 0, 'but are built the moment you leave the menu for something that shows them',
+        `${boot1.palms}ms`);
   // He rides at pug size — under two feet — which beside a six foot board made the shot
   // read as a toy on a beach. A world unit here is a FOOT, so an average adult is 5'9" and
   // that is what he is scaled to, whatever the character and whatever is leaning on the

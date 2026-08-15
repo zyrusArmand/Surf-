@@ -1017,7 +1017,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.9.1';
+const VERSION='3.9.2';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -4421,8 +4421,13 @@ const PREV_W=248, PREV_H=186;
 let prevTarget=null, prevScene=null, prevCam=null, beachSet=null;
 let prevKey=null, prevHemi=null, prevFill=null;
 const prevCache={};
+// How long the beach took to stand up, and which part of it. The menu shows the moment the
+// page is parsed and the scene arrives some time later, so this number IS what the player
+// experiences as the lag before it loads.
+const _bootMs={};
 function previewSetup(){
   if(prevScene)return;
+  const _t0=performance.now();
   prevTarget=new THREE.WebGLRenderTarget(PREV_W*2,PREV_H*2,
     {minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter});
   prevScene=new THREE.Scene();
@@ -4431,7 +4436,10 @@ function previewSetup(){
   prevKey=new THREE.DirectionalLight(0xfff3e0,1.8); prevKey.position.set(-1.4,2.2,2.6); prevScene.add(prevKey);
   prevFill=new THREE.DirectionalLight(0xbfd8ff,0.55); prevFill.position.set(2.0,0.7,-1.8); prevScene.add(prevFill);
   prevCam=new THREE.PerspectiveCamera(32,PREV_W/PREV_H,0.05,90);
+  const _t1=performance.now();
   beachSet=buildBeach(); prevScene.add(beachSet);
+  _bootMs.beach=Math.round(performance.now()-_t1);
+  _bootMs.palmsAtBoot=beachPalms.length;      // the far ones are meant to be lazy: zero here
   // ---- the backdrop the shop's cards are shot against ----
   // A card had the WHOLE beach in it — palms, surf, horizon — and forty-four of those in a
   // grid is forty-four competing horizons. Every tile fought the board it was meant to be
@@ -4479,6 +4487,7 @@ function previewSetup(){
     cardShadow.rotation.x=-Math.PI/2; cardShadow.position.y=-1.17; cardSet.add(cardShadow);
   }
   prevScene.add(cardSet);
+  _bootMs.total=Math.round(performance.now()-_t0);
 }
 // ---------------------------------------------------------------------------
 // The beach the full-screen look stands on. Hidden for the shop's thumbnail pass —
@@ -4497,6 +4506,7 @@ let SAND_LIT=0x484848, PALM_LIT=0x3c3c3c, beachShadow=null, beachSand0=0, beachS
 // the set's own palms stand up the beach for the previews; the menu stands its own and
 // puts these away, because three trunks and a board in one frame is a thicket
 const beachPalms=[];
+let beachPalmsBuild=null;   // the far palms, built the first time anything looks at them
 let beachSea=null, beachSand=null;   // set by measurement, see the note on the sand
 // ---- one palm, built as a single buffer geometry ----
 // Trunk, frond spines and every leaflet go into one set of arrays and come out as one
@@ -4769,7 +4779,12 @@ function buildBeach(){
   beachSea.rotation.x=-Math.PI/2; beachSea.position.set(0,0,40);
   beachSea.frustumCulled=false; g.add(beachSea);
 
-  const SW=760, SD=460, SC=0, SNU=380, SNV=330;
+  // The grid is not square because the beach is not. Everything with a short wavelength in
+  // it runs ACROSS the shore — ripples and the fine banding are at 0.44 and 0.185 in z, and
+  // at 0.048 and 0.018 in x, which is thirty times longer. So z keeps its resolution and x
+  // gives up half of it for nothing visible, and the sand's own grain lives in a normal map
+  // now rather than in vertices. Sixty thousand of them instead of a hundred and twenty-six.
+  const SW=760, SD=460, SC=0, SNU=200, SNV=300;
   const sg=new THREE.PlaneGeometry(SW,SD,SNU,SNV);
   const sp=sg.attributes.position, scol=[];
   const C1=new THREE.Color(0xf0c880), C2=new THREE.Color(0xc9ac74), C3=new THREE.Color(0xffe4b0);
@@ -4799,11 +4814,23 @@ function buildBeach(){
     const ripple=(_fbm(x*0.048+3, wz*0.44+5)-0.5)*0.42;
     return sandH(wz) + ((swell*dry+dune+fine)*dry + ripple + dry*dry*1.4)*flat;
   };
-  const EPS=1.1;
+  // The height is wanted twice: once as the surface and once as a SLOPE, for the shading
+  // painted in below. Asking hAt for it five times a vertex — the point and four neighbours
+  // — is what made this the slowest thing in the game's whole startup: hAt is four octaves
+  // of value noise four times over, and at a hundred and twenty thousand vertices that came
+  // to eleven million noise samples and the best part of two seconds with the page frozen
+  // for all of it. The grid ALREADY holds the neighbours. One pass to fill it, then the
+  // slope is a difference between vertices that are sitting right there.
+  const _ts=performance.now();
+  const NW=SNU+1, DX=SW/SNU, DZ=SD/SNV;
+  const HG=new Float32Array(sp.count);
+  for(let i=0;i<sp.count;i++){
+    const h=hAt(sp.getX(i),SC-sp.getY(i));
+    HG[i]=h; sp.setZ(i,h);
+  }
   for(let i=0;i<sp.count;i++){
     const x=sp.getX(i), wz=SC-sp.getY(i);        // plane +y runs to -z once it is laid down
-    const h=hAt(x,wz);
-    sp.setZ(i,h);
+    const col0=i%NW, row0=(i/NW)|0;
     // white sand: pale and dry up the beach, darker where the water has been over it
     const dry=_ss(-46,40,wz);
     const t=_ss(-104,-34,wz)*0.92 + (_fbm(x*0.9+31,wz*0.9+17)-0.5)*0.34;
@@ -4820,8 +4847,11 @@ function buildBeach(){
     // us: a low sun raking across from the left lights the faces turned toward it and drops
     // the far side of every ridge into shade. Without this the dunes are geometrically
     // there and completely invisible.
-    const dhx=(hAt(x+EPS,wz)-hAt(x-EPS,wz))/(2*EPS);
-    const dhz=(hAt(x,wz+EPS)-hAt(x,wz-EPS))/(2*EPS);
+    // grid neighbours, clamped at the edges. +row is -localY is +wz.
+    const xl=col0>0?i-1:i, xr=col0<NW-1?i+1:i;
+    const zl=row0>0?i-NW:i, zr=row0<SNV?i+NW:i;
+    const dhx=(HG[xr]-HG[xl])/((xr-xl)/1*DX||DX);
+    const dhz=(HG[zr]-HG[zl])/(((zr-zl)/NW)*DZ||DZ);
     const sh=Math.max(-1,Math.min(1,-dhx*0.60+dhz*1.05));
     // Sand is grains, and no mesh is ever fine enough for those, so the last scale is
     // colour only — a speckle at about a third of a unit, under a pixel out at the back
@@ -4836,6 +4866,8 @@ function buildBeach(){
   }
   sg.setAttribute('color',new THREE.Float32BufferAttribute(scol,3));
   sg.computeVertexNormals();
+  _bootMs.sand=Math.round(performance.now()-_ts);
+  _bootMs.sandVerts=sp.count;
   // Sand is grains, and a 380x330 grid over 760 units is one quad every two feet — enough
   // for dunes and ripples, nowhere near enough for the surface itself. Under the low sun a
   // beach is not a matte sheet: it is millions of facets, half of them catching the light.
@@ -4872,14 +4904,23 @@ function buildBeach(){
   // They also have to be inside the frame, which at this field of view is narrower than it
   // looks: the visible half-width sixty units back is about ten, so a palm at sixteen is off
   // the side of the screen with only its frond tips showing.
-  for(const [px0,pz0,ry,sc,sd] of [[5.4,-50,0.6,0.92,1],[8.2,-66,-1.9,1.05,5],[-5.6,-56,2.2,0.82,9]]){
-    let pz=pz0;
-    while(pz<10&&sandH(pz)<0.5)pz+=1;             // walk it up the beach until it is dry
-    const palm=buildPalm(sd);
-    palm.position.set(px0,sandH(pz)-0.25,pz);
-    palm.rotation.y=ry; palm.scale.setScalar(sc);
-    g.add(palm); beachPalms.push(palm);
-  }
+  // Three palms that the MENU never shows — it hides all of them and stands its own, closer
+  // one — and that only the shop's cards and the full-screen viewer ever need. Building them
+  // at boot put a third of a second of palm into the one moment the player is waiting on the
+  // beach to appear. They are built the first time something asks to look at them.
+  beachPalmsBuild=()=>{
+    beachPalmsBuild=null;
+    const _tp=performance.now();
+    for(const [px0,pz0,ry,sc,sd] of [[5.4,-50,0.6,0.92,1],[8.2,-66,-1.9,1.05,5],[-5.6,-56,2.2,0.82,9]]){
+      let pz=pz0;
+      while(pz<10&&sandH(pz)<0.5)pz+=1;           // walk it up the beach until it is dry
+      const palm=buildPalm(sd);
+      palm.position.set(px0,sandH(pz)-0.25,pz);
+      palm.rotation.y=ry; palm.scale.setScalar(sc);
+      g.add(palm); beachPalms.push(palm);
+    }
+    _bootMs.palms=Math.round(performance.now()-_tp);
+  };
 
   // ---- sky furniture: the game's own clouds and gulls, with depth on ----
   // In the ride these draw with depth testing OFF, ahead of the world, because there they
@@ -5194,6 +5235,9 @@ function openViewer(kind,id){
   vNext.classList.toggle('off',i<0||i>=list.length-1);
   // stand it on the beach: the set drops to just under whatever the object's lowest point
   // is, so a board stands in the shallows rather than floating over them or sunk in them
+  // (and this is the other place the far palms are wanted, so it is the other place they
+  // get built — the menu hides them and never pays for them)
+  if(beachPalmsBuild)beachPalmsBuild();
   beachSet.visible=true;
   viewer.bottom=box.min.y;
   shopEl.classList.add('hidden');
@@ -10838,6 +10882,7 @@ if(location.hash.includes('debug')){
     },
     // What each surface actually carries. A normal map that silently failed to attach looks
     // exactly like one that is too subtle to see, and only one of those is a bug.
+    boot:()=>Object.assign({},_bootMs),
     surfaces(){
       const board=boardArtFor(equipped); let bm=null;
       board.traverse(o=>{ if(o.isMesh&&!bm&&o.geometry.attributes.uv)bm=o.material; });
@@ -13498,6 +13543,7 @@ function menuBeachOff(){
   buildChar(rider);
   beachSet.visible=false;
   if(menuProps)menuProps.visible=false;
+  if(beachPalmsBuild)beachPalmsBuild();
   for(const p of beachPalms)p.visible=true;
   if(beachShadow)beachShadow.visible=true;
   if(prevSky&&menuDay){
@@ -13541,8 +13587,23 @@ function menuBeachWanted(){
   return !running && !viewer &&
          !overlay.classList.contains('hidden') && overlay.classList.contains('main');
 }
+// The beach takes about half a second to stand up — sixty thousand vertices of dune and a
+// palm — and it is built on the first frame the menu asks for it, so the page has already
+// painted its sky-and-sand backdrop by then and the scene arrives on top of that. Arriving
+// is the word: it used to POP, which reads as a stutter even when the wait is short. Faded
+// in over a third of a second against a backdrop it nearly matches, the same half-second
+// reads as the picture resolving. Once per session — coming back from the shop is not an
+// arrival and must not blink.
+let menuFaded=false;
 function renderMenuBeach(dt){
   const m=menuBeach; m.t+=dt;
+  if(!menuFaded){
+    menuFaded=true;
+    const cv=renderer.domElement;
+    cv.style.transition='none'; cv.style.opacity='0';
+    requestAnimationFrame(()=>{ cv.style.transition='opacity .34s ease-out';
+                                cv.style.opacity='1'; });
+  }
   // The layout is worked out once, not every frame — it measures the rider to scale him and
   // an idle animation would make his height pulse. But it IS worked out again the moment
   // either of the two things it measures changes, or a new character stands there at the
