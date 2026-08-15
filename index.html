@@ -688,7 +688,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.86.0';
+const VERSION='2.87.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -7581,7 +7581,7 @@ crateObj.visible=false; scene.add(crateObj);
 let crateOn=false, crateHeld=false, crateT=999, crateBobT=0, cratePin=false, crateInTube=false;
 function crateReset(){
   crateOn=false; crateHeld=false; crateObj.visible=false; cratePin=false; crateInTube=false;
-  crateT=(16+Math.random()*18)/(RIDER_PERK[rider]&&RIDER_PERK[rider].luck||1);
+  crateT=(9+Math.random()*11)/(RIDER_PERK[rider]&&RIDER_PERK[rider].luck||1);
 }
 function updateCrate(dt,eff){
   crateBobT+=dt;
@@ -7600,7 +7600,7 @@ function updateCrate(dt,eff){
   // It dies with the tube: no wave, no floating chest in open water where it was.
   if(crateInTube&&(!swTubeRide||swPh!==SWP.RIDE)){
     crateOn=false; crateInTube=false; cratePin=false; crateObj.visible=false;
-    crateT=10+Math.random()*14; return;
+    crateT=6+Math.random()*9; return;
   }
   if(!cratePin)crateObj.position.z+=eff*dt;
   const sea=crateInTube
@@ -7613,8 +7613,12 @@ function updateCrate(dt,eff){
   crateObj.position.y=sea+(crateInTube?1.15:1.25)+Math.sin(crateBobT*1.7)*(crateInTube?0.12:0.20);
   crateObj.rotation.y+=dt*1.7;                   // it SPINS — you see the chest, not a box
   crateObj.rotation.z=Math.sin(crateBobT*1.3)*0.06;
-  crateObj.userData.halo.material.opacity=0.38+0.22*Math.sin(crateBobT*2.6);
-  if(!cratePin&&crateObj.position.z>14){ crateOn=false; crateObj.visible=false; crateT=14+Math.random()*20; return; }
+  // brighter, and it breathes further — the chest has to be spotted from a long way back
+  // now that you can take it on the way past instead of setting up a jump for it
+  crateObj.userData.halo.material.opacity=0.60+0.30*Math.sin(crateBobT*2.6);
+  crateObj.userData.halo.scale.setScalar(1+0.10*Math.sin(crateBobT*2.6));
+  if(crateObj.userData.inner)crateObj.userData.inner.material.opacity=0.30+0.22*Math.sin(crateBobT*3.1+1.0);
+  if(!cratePin&&crateObj.position.z>14){ crateOn=false; crateObj.visible=false; crateT=8+Math.random()*11; return; }
   // The catch: close to THE CHEST in all three axes, and that is all. There used to be a
   // fourth condition — clear of your own waterline — which made every chest a jump you had
   // to see coming and set up for. Riding through one and having it ignore you reads as a
@@ -9337,7 +9341,11 @@ function trailSmoke(x,y,z,r){
 function stepSmoke(dt){
   for(const p of SMOKE){
     if(p.t<=0)continue;
-    p.t-=dt*0.11;                       // hangs for nine seconds or so, fading the whole way
+    // ~15 s rather than ~9. Every puff is on its own clock from the moment it was laid
+    // down, so the trail always dies from its OLDEST end — the fade travels the path from
+    // where the plane started to where it went in, rather than the whole line dimming at
+    // once. Slower means the full arc is up long enough to read before it goes.
+    p.t-=dt*0.068;
     if(p.t<=0){ p.m.visible=false; p.m.material.opacity=0; continue; }
     const age=1-p.t;
     p.m.scale.setScalar(p.r*(0.55+age*1.9));   // small, and swelling only gently
@@ -9411,7 +9419,11 @@ function updateSetWave(dt,eff){
     // only about 31 degrees wide in portrait, so for something 46 across to be in shot it
     // has to be about 166 away. It comes down at -168 now — further off, smaller, and
     // actually in frame.
-    const nx=x0+(x1-x0)*e, ny=26-24.2*k*k, nz=-330+162*k;
+    // The horizontal run is eased OUT and the drop is eased in, so it covers most of its
+    // ground early and finishes going down far more than along. A constant-rate approach
+    // under an accelerating fall is a glide, and no attitude put on top of a glide reads as
+    // a plane going in nose first.
+    const nx=x0+(x1-x0)*e, ny=26-24.2*k*k, nz=-330+162*(k*(2-k));
     const prev=plane.userData.prev;
     plane.position.set(nx,ny,nz);
     // Heading from where it is actually going. The model's nose is its -z, so the world
@@ -9425,8 +9437,12 @@ function updateSetWave(dt,eff){
     }
     plane.userData.prev=plane.userData.prev||new THREE.Vector3();
     plane.userData.prev.set(nx,ny,nz);
-    plane.rotation.z=-swS*0.95*Math.min(1,k*1.4);          // hard bank
-    plane.rotation.x=-0.58*k;                              // nose down
+    // A slow roll rather than a hard bank: a steep bank reads as a turn, and this is not
+    // turning, it is falling.
+    plane.rotation.z=-swS*0.34*Math.min(1,k*1.4);
+    // ...and over on its nose by the end. -0.58 rad is 33 degrees, which is a descent; this
+    // finishes near -1.45, which is 83 degrees, which is going in.
+    plane.rotation.x=-(0.18+1.27*e);
     plane.userData.prop.rotation.z+=dt*(40-32*k);          // the engine giving up
     // An engine that is failing says so. The trail is what makes it readable at this
     // distance — the airframe is only a few pixels across out there, the smoke is not.
@@ -11518,7 +11534,10 @@ function update(dt){
     plane.position.z+=(eff*0.45+12)*dt;
     plane.position.y=11+Math.sin(tNow*1.5)*0.6;
     plane.userData.prop.rotation.z+=dt*40;
-    plane.rotation.y=Math.PI;
+    // Level, every frame, on all three axes. Only the yaw was being reset, so a plane that
+    // had already crashed once in this session kept the dive's pitch and its hard bank —
+    // and the next banner tow came over flying visibly sideways and nose down.
+    plane.rotation.set(0,Math.PI,0);
     if(plane.position.z>40){planeActive=false;plane.visible=false;if(hanging)releaseRope(false);}
   }
   const ropeWindow=planeActive&&plane.position.z>-90&&plane.position.z<-4;

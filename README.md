@@ -52,6 +52,26 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.87.0** — **The two aeroplanes, told apart. And brighter, more frequent chests.**
+  - **The banner tow flies level.** Only its yaw was being reset each frame, so a plane that
+    had already crashed once in the session kept the dive's pitch *and* its hard bank — and
+    the next tow came over visibly sideways and nose down. All three axes are set now.
+  - **The one that crashes goes in nose first.** It used to finish at 33° nose-down on a path
+    that covered ground at a constant rate, which is a glide — and no attitude on top of a
+    glide reads as a plane going in. The horizontal run is eased out and the drop eased in,
+    so it covers its ground early and finishes going down far more than along: it now starts
+    at −10° pitch travelling 45 m for every half metre of drop, and ends at **−83° pitch on a
+    62° descent**. The bank drops from 54° to 19°, because a steep bank reads as a turn and
+    this is not turning.
+  - **Smoke hangs about 15 s instead of 9.** Every puff runs its own clock from the moment it
+    was laid down, so the trail always dies from its oldest end — the fade travels the path
+    from where the plane started to where it went in, rather than the whole line dimming at
+    once. It only ever came off the falling plane; the extra life is what makes that readable.
+  - **Chests are roughly twice as common** (first one at 9–20 s rather than 16–34 s, and the
+    same again on every respawn) and glow considerably harder — halo opacity 0.38→0.60 base,
+    a wider breath, and the inner core now pulses on its own offset. Worth it now that you
+    can take one on the way past instead of setting up a jump for it.
+
 - **v2.86.0** — **The aeroplane goes down at 5 km.** The set wave — the plane crashing and
   the barrel that comes out of the impact — armed past 600 m, which put the biggest thing in
   the game inside the first minute of nearly every run. `SET_WAVE_AT` is now 5,000 m and it
