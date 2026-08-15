@@ -52,6 +52,12 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.90.0** — **The side columns stacked and carried up.** The two pairs were sitting 82px
+  apart down near the bottom edge, which read as four loose buttons rather than two columns.
+  They are a tight stack now — 5px between them — and the whole block moves 144px up the
+  screen. Play stays exactly centred: its offset is still a calc off the row midpoint, so the
+  ring held true through the move without touching it.
+
 - **v2.89.0** — **The dial, made symmetrical.** The first cut was oversized and only roughly
   arranged. Everything comes down — side buttons 80px to 62px, Play 116px to 86px, labels and
   icons with them — and the layout is now true about both axes: the four corners share exactly
