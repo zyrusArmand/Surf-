@@ -409,6 +409,20 @@ await page.waitForTimeout(300);
         'and the rider stands clear of it rather than through it',
         stood.map(f => `${f.id} ${f.riderGap}ft between them`).join(', '));
 
+  // Surfaces. Vertex colours give a shape its markings; what they cannot give it is a
+  // surface, and bark, glassed resin and sand all read as the same moulded plastic under a
+  // directional light until something breaks the normal up finer than the mesh can. A map
+  // that silently failed to attach looks exactly like one too subtle to see, so it is asked
+  // about rather than eyeballed. The crown must NOT have one — a leaflet is a flat blade.
+  const surf = await page.evaluate(() => window.__surf.surfaces());
+  check(surf.boardUV && surf.board && surf.board.normal && surf.board.rough,
+        'the board is glassed resin over cloth, not a moulded shell',
+        JSON.stringify(surf.board));
+  check(surf.bark && surf.bark.normal && surf.bark.rough && surf.palmGroups === 2 &&
+        surf.frond && !surf.frond.normal,
+        'the trunk is bark and the crown is not', JSON.stringify({bark: surf.bark, frond: surf.frond}));
+  check(surf.sand && surf.sand.normal, 'and the sand is grains rather than a sheet');
+
   // Midday, not dusk. The one thing that says "evening" whatever else is done is a wide warm
   // band low in the sky, so the horizon glow is the number that matters — and the sky and the
   // sea both have to be blue-dominant, which a sunset's orange horizon is not.

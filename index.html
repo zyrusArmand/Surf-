@@ -1017,7 +1017,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.7.0';
+const VERSION='3.8.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2843,7 +2843,7 @@ function buildBoardMesh(S){
   const notch=(u,v)=>(swal?swal(u,v):0)
     +(S.asymZ&&v<0?-S.asymZ*_sm(0.62,1,u)*Math.abs(v):0);
 
-  const pos=[],col=[],idx=[];
+  const pos=[],col=[],uvs=[],idx=[];
   const c=new THREE.Color();
   for(let i=0;i<=NU;i++){
     const u=i/NU, w=hw(u), t=th(u), r=rock(u);
@@ -2854,6 +2854,9 @@ function buildBoardMesh(S){
       pos.push(w*v*asW(v), r+(top?T*t*prof:-T*(S.hullK||0.62)*t*prof), (u-0.5)*L+notch(u,v));
       S.paint(c,u,v,top);
       col.push(c.r,c.g,c.b);
+      // round the rail and along the board, so a tiled surface runs the length of it the way
+      // a glassed finish does rather than being sprayed on from one direction
+      uvs.push(j/NR,u);
     }
   }
   for(let i=0;i<NU;i++)for(let j=0;j<NR;j++){
@@ -2871,16 +2874,32 @@ function buildBoardMesh(S){
       const phi=(j+0.5)/NR*Math.PI*2, cv=Math.sin(phi), ctop=Math.cos(phi)>=0;
       const base=pos.length/3;
       pos.push(0,cy,cz); S.paint(c,u,cv,ctop); col.push(c.r,c.g,c.b);
+      uvs.push(phi/(Math.PI*2),u);
       if(fwd)idx.push(base,ring*NR+j,ring*NR+j2); else idx.push(base,ring*NR+j2,ring*NR+j);
     }
   }
   const g=new THREE.BufferGeometry();
   g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
   g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+  g.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
   g.setIndex(idx);
   g.computeVertexNormals();
   const mat=new THREE.MeshStandardMaterial({vertexColors:true,color:0xffffff,
     roughness:S.rough!==undefined?S.rough:0.27,metalness:0.02});
+  // A glassed board is not a mirror and it is not a moulded shell either. Resin over cloth
+  // goes off with a very slight orange peel, and the cloth itself leaves a weave you can
+  // just see across a highlight — that is the whole reason a real board reads as a made
+  // object rather than a shape. Both are far too fine to model, so they go in as a bump at
+  // a scale the mesh could never carry, and the roughness varies with it: the peaks of the
+  // peel polish out brighter than the hollows, which is what a wet-looking finish IS.
+  mat.normalMap=bakedNormal('glass',256,(x,y,N)=>
+    _fbm(x*0.075,y*0.075)*0.66                       // orange peel, resin thickness
+    +(Math.sin(x*Math.PI*2/8)*Math.sin(y*Math.PI*2/8))*0.055   // the cloth weave under it
+    ,1.15,0.94);
+  mat.normalMap.repeat.set(9,26);
+  mat.normalScale=new THREE.Vector2(0.30,0.30);
+  mat.roughnessMap=bakedGrey('glassR',256,(x,y)=>0.62+_fbm(x*0.075,y*0.075)*0.55);
+  mat.roughnessMap.repeat.set(9,26);
   // wet-looking but not mirrored: a low sun on a glassier finish blows the deck out
   // to white and the paint scheme stops reading at all
   mat.envMapIntensity=0.40;
@@ -3122,6 +3141,52 @@ function _noise(x,y){
        + (_hash(xi,yi+1)*(1-a)+_hash(xi+1,yi+1)*a)*b;
 }
 function _fbm(x,y){let s=0,m=0.5,f=1;for(let i=0;i<4;i++){s+=_noise(x*f,y*f)*m;f*=2.07;m*=0.5;}return s;}
+// ---------- surfaces, baked rather than shipped ----------
+// This game has no external assets by design, so a texture is a function evaluated into a
+// canvas at load. A height field first, wrapped so the tile joins itself on both axes, then
+// differenced into a tangent-space normal — the same two steps whatever the surface is, so
+// they live here once and each surface only supplies its own bumps.
+//
+// It matters more than it sounds. Vertex colours give a shape its markings; what they cannot
+// give it is a SURFACE. Bark, glassed resin and sand all read as the same moulded plastic
+// under a directional light until something breaks the normal up at a scale finer than the
+// mesh, and that is the whole difference between a render and a photograph of an object.
+const _texCache={};
+function bakedNormal(key,N,h,strength,flat){
+  if(_texCache[key])return _texCache[key];
+  const cv=document.createElement('canvas'); cv.width=cv.height=N;
+  const cx=cv.getContext('2d'), im=cx.createImageData(N,N), dd=im.data;
+  const H=new Float32Array(N*N);
+  for(let y=0;y<N;y++)for(let x=0;x<N;x++)H[y*N+x]=h(x,y,N);
+  for(let y=0;y<N;y++)for(let x=0;x<N;x++){
+    // wrapped differences, so the tile has no seam to find
+    const l=H[y*N+(x+N-1)%N], r=H[y*N+(x+1)%N],
+          u=H[((y+N-1)%N)*N+x], d=H[((y+1)%N)*N+x];
+    // the z of the normal is how flat the surface is between its bumps: 1 is a sheet
+    let nx=(l-r)*strength, ny=(u-d)*strength, nz=flat===undefined?0.62:flat;
+    const il=1/Math.hypot(nx,ny,nz), k=(y*N+x)*4;
+    dd[k]=(nx*il*0.5+0.5)*255; dd[k+1]=(ny*il*0.5+0.5)*255;
+    dd[k+2]=(nz*il*0.5+0.5)*255; dd[k+3]=255;
+  }
+  cx.putImageData(im,0,0);
+  const t=new THREE.CanvasTexture(cv);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.anisotropy=4;
+  return _texCache[key]=t;
+}
+// the same, for a single-channel map — roughness, or anything else that is a number per texel
+function bakedGrey(key,N,h){
+  if(_texCache[key])return _texCache[key];
+  const cv=document.createElement('canvas'); cv.width=cv.height=N;
+  const cx=cv.getContext('2d'), im=cx.createImageData(N,N), dd=im.data;
+  for(let y=0;y<N;y++)for(let x=0;x<N;x++){
+    const v=Math.max(0,Math.min(1,h(x,y,N)))*255, k=(y*N+x)*4;
+    dd[k]=dd[k+1]=dd[k+2]=v; dd[k+3]=255;
+  }
+  cx.putImageData(im,0,0);
+  const t=new THREE.CanvasTexture(cv);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.anisotropy=4;
+  return _texCache[key]=t;
+}
 const _rep=x=>((x%1)+1)%1;                       // wrap into 0..1 whatever the sign
 // lay a graphic over a normal paint scheme rather than replacing it, so every one of
 // these still gets its rails, hull and stringer for free
@@ -4411,7 +4476,11 @@ function buildPalm(seed){
   let rs=seed*9301+49297;
   const R=()=>{rs=(rs*9301+49297)%233280; return rs/233280;};
   const col=new THREE.Color();
-  const push=(x,y,z,c)=>{ P.push(x,y,z); C.push(c.r,c.g,c.b); return P.length/3-1; };
+  // UVs are pushed for everything and only meant for the trunk: the crown gets a material
+  // with no maps on it, so whatever lands on a leaflet is never read.
+  const UV=[];
+  const push=(x,y,z,c,u,v)=>{ P.push(x,y,z); C.push(c.r,c.g,c.b); UV.push(u||0,v||0);
+                              return P.length/3-1; };
 
   // --- trunk: a curve that leans out over the water and straightens near the crown,
   // lofted as tapered rings with the ring-scars a palm actually has cut into the radius
@@ -4449,7 +4518,9 @@ function buildPalm(seed){
       const rr=rad*(1-groove*0.13*(1-t*0.3));
       col.copy(BARK2).lerp(BARK1,0.30+ring*0.62+(fibre-0.5)*0.34);
       if(Math.cos(a)>0.1)col.lerp(BARK3,0.42*Math.cos(a)*(0.45+ring*0.55));
-      row.push(push(c0.x+w.x*rr, c0.y+w.y*rr, c0.z+w.z*rr, col));
+      // round the trunk and up it. The ring scars are already in the vertex colours; the UV
+      // is here so a bark relief can be laid over them at a scale the rings cannot carry.
+      row.push(push(c0.x+w.x*rr, c0.y+w.y*rr, c0.z+w.z*rr, col, j/TR, t));
     }
     ringsIdx.push(row);
   }
@@ -4463,6 +4534,7 @@ function buildPalm(seed){
   const trunkLine=[];
   for(let i=0;i<=26;i++){ const t=i/26;
     trunkLine.push({p:bend(t), r:(0.72-0.40*t)*(1+Math.pow(1-t,4)*1.5)*0.5}); }
+  const trunkIdx=I.length;                    // everything after this is crown
 
   // --- crown: the fronds
   const top=bend(1), topDir=bend(1).sub(bend(0.97)).normalize();
@@ -4542,12 +4614,38 @@ function buildPalm(seed){
   const geo=new THREE.BufferGeometry();
   geo.setAttribute('position',new THREE.Float32BufferAttribute(P,3));
   geo.setAttribute('color',new THREE.Float32BufferAttribute(C,3));
+  geo.setAttribute('uv',new THREE.Float32BufferAttribute(UV,2));
   geo.setIndex(I);
   geo.computeVertexNormals();
-  const m=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({
-    vertexColors:true,color:PALM_LIT,roughness:0.82,metalness:0.0,side:THREE.DoubleSide}));
-  m.material.envMapIntensity=0.55;
+  // Two materials over one buffer rather than two meshes: the trunk wants a bark relief and
+  // the crown very much does not — a leaflet is a flat blade and any bump on it reads as
+  // dirt. Groups cost a second draw call and nothing else.
+  geo.addGroup(0,trunkIdx,0);
+  geo.addGroup(trunkIdx,I.length-trunkIdx,1);
+  const frondMat=new THREE.MeshStandardMaterial({
+    vertexColors:true,color:PALM_LIT,roughness:0.82,metalness:0.0,side:THREE.DoubleSide});
+  frondMat.envMapIntensity=0.55;
+  const barkMat=new THREE.MeshStandardMaterial({
+    vertexColors:true,color:PALM_LIT,roughness:0.95,metalness:0.0,side:THREE.DoubleSide});
+  barkMat.envMapIntensity=0.30;
+  // A coconut palm's trunk is not a pole. The old leaf bases leave hard rings cut into it
+  // that spiral slowly up, and between them the fibre runs vertically — both are in the
+  // vertex colours already, and colour alone is exactly what makes it read as a painted
+  // cylinder. This is the same pattern as relief, at a scale no ring of 18 vertices could
+  // hold, so the rings catch the sun on their top edge and shade under it.
+  barkMat.normalMap=bakedNormal('bark',256,(x,y,N)=>{
+    const ring=Math.abs(((y/N*7.0+x/N*0.6)%1+1)%1-0.5)*2;   // the scars, climbing in a spiral
+    return Math.pow(ring,1.6)*0.72
+         + _fbm(x*0.30,y*0.055)*0.34                        // vertical fibre between them
+         + _fbm(x*0.9,y*0.9)*0.10;                          // and the roughness of the husk
+  },1.9,0.52);
+  barkMat.normalMap.repeat.set(3,7);
+  barkMat.normalScale=new THREE.Vector2(0.85,0.85);
+  barkMat.roughnessMap=bakedGrey('barkR',256,(x,y)=>0.70+_fbm(x*0.30,y*0.055)*0.42);
+  barkMat.roughnessMap.repeat.set(3,7);
+  const m=new THREE.Mesh(geo,[barkMat,frondMat]);
   m.userData.trunk=trunkLine;
+  m.userData.bark=barkMat; m.userData.frond=frondMat;
   return m;
 }
 function buildBeach(){
@@ -4699,31 +4797,10 @@ function buildBeach(){
   // Two scales, because one is a pattern: a coarse ripple and a fine grain over it.
   beachSand=new THREE.Mesh(sg,new THREE.MeshStandardMaterial({
     vertexColors:true,color:SAND_LIT,roughness:0.99,metalness:0.0}));
-  {
-    const N=256, cv=document.createElement('canvas'); cv.width=cv.height=N;
-    const cx=cv.getContext('2d'), im=cx.createImageData(N,N), dd=im.data;
-    // height field first, wrapped so the tile joins itself, then differenced into normals
-    const H=new Float32Array(N*N);
-    for(let y=0;y<N;y++)for(let x=0;x<N;x++)
-      H[y*N+x]=_fbm(x*0.135,y*0.135)*0.62+_fbm(x*0.52+9,y*0.52+3)*0.38;
-    for(let y=0;y<N;y++)for(let x=0;x<N;x++){
-      const l=H[y*N+(x+N-1)%N], r=H[y*N+(x+1)%N],
-            u=H[((y+N-1)%N)*N+x], d2=H[((y+1)%N)*N+x];
-      // the z of the normal sets how strong the bump reads; 0.62 is a beach, 1 is a sheet
-      let nx=(l-r)*2.6, ny=(u-d2)*2.6, nz=0.62;
-      const il=1/Math.hypot(nx,ny,nz);
-      const k=(y*N+x)*4;
-      dd[k]=(nx*il*0.5+0.5)*255; dd[k+1]=(ny*il*0.5+0.5)*255;
-      dd[k+2]=(nz*il*0.5+0.5)*255; dd[k+3]=255;
-    }
-    cx.putImageData(im,0,0);
-    const tex=new THREE.CanvasTexture(cv);
-    tex.wrapS=tex.wrapT=THREE.RepeatWrapping;
-    tex.repeat.set(150,90);                  // about one tile every five feet
-    tex.anisotropy=4;
-    beachSand.material.normalMap=tex;
-    beachSand.material.normalScale=new THREE.Vector2(0.55,0.55);
-  }
+  beachSand.material.normalMap=bakedNormal('sand',256,(x,y)=>
+    _fbm(x*0.135,y*0.135)*0.62+_fbm(x*0.52+9,y*0.52+3)*0.38, 2.6, 0.62);
+  beachSand.material.normalMap.repeat.set(150,90);   // about one tile every five feet
+  beachSand.material.normalScale=new THREE.Vector2(0.55,0.55);
   beachSand.material.envMapIntensity=0.16;
   beachSand.rotation.x=-Math.PI/2; beachSand.position.set(0,0,SC); g.add(beachSand);
 
@@ -10705,6 +10782,20 @@ if(location.hash.includes('debug')){
               live:+rs.y.toFixed(2), liveBoard:+bs.y.toFixed(2),
               boardL:+((BOARD_BY_ID[equipped]||{spec:{L:0}}).spec.L).toFixed(2), k:MB_K};
     },
+    // What each surface actually carries. A normal map that silently failed to attach looks
+    // exactly like one that is too subtle to see, and only one of those is a bug.
+    surfaces(){
+      const board=boardArtFor(equipped); let bm=null;
+      board.traverse(o=>{ if(o.isMesh&&!bm&&o.geometry.attributes.uv)bm=o.material; });
+      const pm=menuPalm?[].concat(menuPalm.material):[];
+      const has=m=>m?{normal:!!m.normalMap,rough:!!m.roughnessMap,env:!!m.envMap,
+                      uv:true}:null;
+      return {board:has(bm), bark:has(pm[0]), frond:has(pm[1]),
+              sand:beachSand?has(beachSand.material):null,
+              boardUV:!!(board.children[0]&&board.children[0].geometry
+                         &&board.children[0].geometry.attributes.uv),
+              palmGroups:menuPalm?menuPalm.geometry.groups.length:0};
+    },
     hullY(id){
       const o=id?boardArtFor(id):boardArt;
       o.updateWorldMatrix(true,true);
@@ -12981,8 +13072,14 @@ function menuBeachOn(){
   // The palm's colours are vertex colours under a dark multiplier, set for a preview that
   // looks at it from above in flat light. In the sun it wants to be a green tree rather than
   // an olive one, so the multiplier comes up for the menu and goes back on the way out.
-  if(menuPalm){ menuDay.palm=menuPalm.material.color.clone();
-                menuPalm.material.color.set(0x646464); }
+  // Bark and fronds are separate materials now, so they can be lifted separately — and they
+  // want different things. The crown wants to be a green tree rather than an olive one; the
+  // trunk wants to stay a warm brown rather than going the grey it read as when both were
+  // pushed up through the same neutral.
+  if(menuPalm){ const mm=[].concat(menuPalm.material);
+                menuDay.palm=mm.map(x=>x.color.clone());
+                if(mm[0])mm[0].color.set(0x8a7458);
+                if(mm[1])mm[1].color.set(0x646464); }
   layoutMenuBeach();
   return true;
 }
@@ -13292,7 +13389,8 @@ function menuBeachOff(){
   if(beachSand&&menuDay.sand){ beachSand.material.color.copy(menuDay.sand);
     beachSand.material.envMapIntensity=menuDay.sandEnv; }
   if(beachSea&&menuDay.seaY!==undefined)beachSea.position.y=menuDay.seaY;
-  if(menuPalm&&menuDay.palm)menuPalm.material.color.copy(menuDay.palm);
+  if(menuPalm&&menuDay.palm)
+    [].concat(menuPalm.material).forEach((x,i)=>x.color.copy(menuDay.palm[i]||menuDay.palm[0]));
   if(menuPalm)menuPalm.castShadow=false;
   if(beachSand)beachSand.receiveShadow=false;
   if(prevKey&&menuDay.keyShadow!==undefined)prevKey.castShadow=menuDay.keyShadow;
