@@ -119,12 +119,12 @@
     border-width:2px; left:50%; transform:translateX(-50%); bottom:7%; }
   .hbtn.hb-play:active { transform:translateX(-50%) scale(.93); }
   .hbtn.hb-play svg { width:38%; height:38%; }
-  .hbtn.hb-board   { left:8%;  bottom:44%; }
-  .hbtn.hb-shop    { left:8%;  bottom:33%; }
-  .hbtn.hb-tricks  { left:8%;  bottom:22%; }
-  .hbtn.hb-quests  { right:8%; bottom:44%; }
-  .hbtn.hb-set     { right:8%; bottom:33%; }
-  .hbtn.hb-stats   { right:8%; bottom:22%; }
+  .hbtn.hb-board   { left:4%;  bottom:42%; }
+  .hbtn.hb-shop    { left:4%;  bottom:32.5%; }
+  .hbtn.hb-tricks  { left:4%;  bottom:23%; }
+  .hbtn.hb-quests  { right:4%; bottom:42%; }
+  .hbtn.hb-set     { right:4%; bottom:32.5%; }
+  .hbtn.hb-stats   { right:4%; bottom:23%; }
   /* the two side panels borrow the stats panel's furniture */
   #quests, #settings, #howto, #mystats { position:fixed; inset:0; z-index:14; display:flex;
     align-items:center; justify-content:center; padding:22px; }
@@ -973,7 +973,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.96.0';
+const VERSION='2.97.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -4311,7 +4311,8 @@ const _ss2=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2
 let SAND_LIT=0x484848, PALM_LIT=0x3c3c3c, beachShadow=null, beachSand0=0, beachSandH=null;
 // the set's own palms stand up the beach for the previews; the menu stands its own and
 // puts these away, because three trunks and a board in one frame is a thicket
-const beachPalms=[];   // set by measurement, see the note on the sand
+const beachPalms=[];
+let beachSea=null, beachSand=null;   // set by measurement, see the note on the sand
 // ---- one palm, built as a single buffer geometry ----
 // Trunk, frond spines and every leaflet go into one set of arrays and come out as one
 // mesh: a palm is a few hundred separate blades, and a few hundred draw calls for a piece
@@ -4471,6 +4472,11 @@ function buildBeach(){
   // stays a bright day rather than following the ride into dusk; swell and foam are copied
   // over live in renderViewer so it moves exactly as the real one does.
   prevOcean=oceanMat.clone();
+  // Both sides. The swell is displaced in the vertex shader, so the back of every wave
+  // faces away from the camera — and from down on the sand, where the water is seen at a
+  // grazing angle, a single-sided sea is a set of blinds you can see the sunset through.
+  // That is the "brown showing in the waves": it was never the sand, it was the sky.
+  prevOcean.side=THREE.DoubleSide;
   prevOcean.uniforms.uSky.value=oceanUniforms.uSky.value.clone();
   prevOcean.uniforms.uDeep.value=oceanUniforms.uDeep.value.clone();
   prevOcean.uniforms.uShallow.value=oceanUniforms.uShallow.value.clone();
@@ -4518,8 +4524,9 @@ function buildBeach(){
   const seaGeo=new THREE.BufferGeometry();
   seaGeo.setAttribute('position',new THREE.Float32BufferAttribute(spos,3));
   seaGeo.setIndex(sidx);
-  const sea=new THREE.Mesh(seaGeo,prevOcean);
-  sea.rotation.x=-Math.PI/2; sea.position.set(0,0,40); sea.frustumCulled=false; g.add(sea);
+  beachSea=new THREE.Mesh(seaGeo,prevOcean);
+  beachSea.rotation.x=-Math.PI/2; beachSea.position.set(0,0,40);
+  beachSea.frustumCulled=false; g.add(beachSea);
 
   const SW=760, SD=460, SC=0, SNU=380, SNV=330;
   const sg=new THREE.PlaneGeometry(SW,SD,SNU,SNV);
@@ -4588,10 +4595,10 @@ function buildBeach(){
   }
   sg.setAttribute('color',new THREE.Float32BufferAttribute(scol,3));
   sg.computeVertexNormals();
-  const sand=new THREE.Mesh(sg,new THREE.MeshStandardMaterial({
+  beachSand=new THREE.Mesh(sg,new THREE.MeshStandardMaterial({
     vertexColors:true,color:SAND_LIT,roughness:0.99,metalness:0.0}));
-  sand.material.envMapIntensity=0.16;
-  sand.rotation.x=-Math.PI/2; sand.position.set(0,0,SC); g.add(sand);
+  beachSand.material.envMapIntensity=0.16;
+  beachSand.rotation.x=-Math.PI/2; beachSand.position.set(0,0,SC); g.add(beachSand);
 
   // a soft shadow on the sand for whatever is being looked at, so it reads as standing over
   // the beach rather than pasted on top of it
@@ -10332,6 +10339,8 @@ if(location.hash.includes('debug')){
               beachVis:beachSet?beachSet.visible:null,
               riderOnBeach:pug.parent===prevScene,
               boardOnBeach:!!b&&b.parent===prevScene}; },
+    hideSand:v=>{ if(beachSand)beachSand.visible=!v; return !!beachSand; },
+    hideSea:v=>{ if(beachSea)beachSea.visible=!v; return !!beachSea; },
     preview:id=>boardPreview(id),
     showBoard(id,spin){ closeViewer&&closeViewer(); openViewer('board',id);
       if(viewer){ viewer.spin=spin===undefined?0:spin; viewer.grab=true; } return id; },
@@ -12564,7 +12573,11 @@ function menuBeachOn(){
   if(!menuProps){
     menuProps=new THREE.Group();
     const palm=buildPalm(3);                       // the one the board leans on
-    palm.position.set(0,0,0); palm.rotation.y=-0.7; palm.scale.setScalar(0.60);
+    // turned so its long C leans back over the board rather than away from it — a board is
+    // propped against the underside of a palm, which is half of why anyone photographs one
+    // Leaning out to the RIGHT and slightly toward the camera, so the board can be propped
+    // into the crook of it from the left without the trunk crossing the whole picture.
+    palm.position.set(0,0,0); palm.rotation.y=0.34; palm.scale.setScalar(0.58);
     menuProps.add(palm);
     const far=buildPalm(11);                       // and one well back on the other side
     far.position.set(-13.5,-0.9,-13); far.rotation.y=2.3; far.scale.setScalar(0.72);
@@ -12606,13 +12619,32 @@ function menuBeachOn(){
     prevSky.uniforms.uGlowAmt.value=0.72;
   }
   // and the light with it, or the sand stays a bright grey afternoon under a red sky
-  if(prevKey){ prevKey.color.set(0xffb06a); prevKey.intensity=2.1;
-               prevKey.position.set(-2.6,1.05,-3.4); }        // low, and out over the water
-  if(prevHemi){ prevHemi.color.set(0xffd7b4); prevHemi.groundColor.set(0xa8764e);
-                prevHemi.intensity=1.02; }
+  // A strong low key and a modest sky. The other way round — a big hemisphere for
+  // brightness — lights the sand from every direction at once, and sand with no shadow in
+  // it is a sheet of paper whatever colour it is: the dunes and the ripple shading are
+  // baked for a sun raking in from the left, and they only show if there IS one.
+  if(prevKey){ prevKey.color.set(0xffcb9a); prevKey.intensity=3.2;
+               prevKey.position.set(-2.6,1.15,-3.4); }        // low, and out over the water
+  if(prevHemi){ prevHemi.color.set(0xffe2c6); prevHemi.groundColor.set(0xb8865c);
+                prevHemi.intensity=1.05; }
+  // The sand carries a dark multiplier over its vertex colours because the previews look at
+  // it from above in full daylight. Under a low sun it went to mud, so the menu lifts it —
+  // a beach at sunset is warm and bright, not brown.
+  // Warm and a little darker than the daylight preview wants, because the tone curve
+  // compresses the top end: lit to full brightness the dunes and the ripple shading flatten
+  // into one sheet of paper, which is the "sand does not look real" of it.
+  if(beachSand){ menuDay.sand=beachSand.material.color.clone();
+                 beachSand.material.color.set(0x94795d);
+                 menuDay.sandEnv=beachSand.material.envMapIntensity;
+                 beachSand.material.envMapIntensity=0.30; }
+  // And the water sits a little higher. Between the waterline and the dry sand there is a
+  // band of beach only inches above the sea, and seen from down here at a grazing angle that
+  // band spreads right across the picture as brown streaks THROUGH the water. Raising the
+  // sea drowns the flats, which is what a beach at anything but dead low tide looks like.
+  if(beachSea){ menuDay.seaY=beachSea.position.y; beachSea.position.y=0.85; }
   // and a low warm fill from the camera's side, or the whole beach is a silhouette: the key
   // is out over the water behind everything, which is where the sun is and where it has to be
-  if(prevFill){ prevFill.color.set(0xffb98a); prevFill.intensity=0.62;
+  if(prevFill){ prevFill.color.set(0xffc9a4); prevFill.intensity=0.95;
                 prevFill.position.set(-1.2,0.8,3.2); }
   layoutMenuBeach();
   return true;
@@ -12624,24 +12656,31 @@ function layoutMenuBeach(){
   if(!menuBeach)return;
   const g=(beachSandH?beachSandH(MB_Z):beachSand0)*MB_K;   // the sand where these things stand
   const board=menuBeach.board;
-  const PX=2.95*MB_K, PZ=(MB_Z-1.1)*MB_K;         // the palm
+  const PX=3.30*MB_K, PZ=(MB_Z-1.4)*MB_K;         // the palm
   menuProps.position.set(PX,g-0.3*MB_K,PZ);
   menuProps.scale.setScalar(MB_K);
   // stood on its tail and tipped back into the trunk. YXZ so the tip is about the world's
   // vertical after it is stood up, not about an axis lying down — the same order the
   // full-screen look uses for the same reason.
   const spec=(BOARD_BY_ID[equipped]||{}).spec, L=(spec?spec.L:5.8)*MB_K;
+  // Tail in the sand, nose back against the trunk. The tilt and the offset are one thing:
+  // lean it further and the base has to walk out from the tree by the same amount, or the
+  // nose goes through the trunk at the top and the tail hangs in the air at the bottom.
+  const LEAN=-0.24;                               // how far off vertical it is propped
   board.rotation.order='YXZ';
-  board.rotation.set(Math.PI/2-0.22,-0.55,0);
-  board.position.set(PX-0.62*MB_K, g+L*0.46, PZ+0.72*MB_K);
+  board.rotation.set(Math.PI/2,-0.52,LEAN);
+  // Tail in the sand, nose up against the trunk. The two numbers are one thing: tip it
+  // further and the tail has to walk out from the tree by the same amount, or the nose goes
+  // through the trunk at the top and the tail hangs in the air at the bottom.
+  board.position.set(PX-(0.20+Math.sin(LEAN)*L*0.5/MB_K)*MB_K, g+Math.cos(LEAN)*L*0.47, PZ+0.55*MB_K);
   // and the rider on the sand off its shoulder, at his own size — he is a pug, and a pug
   // beside a six foot board standing on its tail comes up about a third of it
-  // He is a pug. Beside a six foot board stood on its tail he comes up about a third of it,
-  // and he is turned to face the camera rather than the sea — the menu is him waiting to go
-  // out, not him already looking at it.
-  pug.position.set(0.50*MB_K, g, (MB_Z+1.7)*MB_K);
+  // At the size he rides at, which is the only size that is not a lie: shrunk to look
+  // "realistic" beside a board on its tail he came out an inch tall, and then stood up on
+  // the same board the moment you pressed play.
+  pug.position.set(0.62*MB_K, g, (MB_Z+2.0)*MB_K);
   pug.rotation.set(0,Math.PI-0.30,0);
-  pug.scale.setScalar(0.62);
+  pug.scale.setScalar(1);
 }
 function menuBeachOff(){
   if(!menuBeach)return;
@@ -12673,6 +12712,9 @@ function menuBeachOff(){
     prevHemi.groundColor.copy(menuDay.hemiG); prevHemi.intensity=menuDay.hemiI; }
   if(prevFill&&menuDay.fill){ prevFill.color.copy(menuDay.fill);
     prevFill.intensity=menuDay.fillI; prevFill.position.copy(menuDay.fillP); }
+  if(beachSand&&menuDay.sand){ beachSand.material.color.copy(menuDay.sand);
+    beachSand.material.envMapIntensity=menuDay.sandEnv; }
+  if(beachSea&&menuDay.seaY!==undefined)beachSea.position.y=menuDay.seaY;
 }
 // Should the beach be up? Menu showing, nothing running, no crash playing out. Asking every
 // frame rather than hooking each way in and out is what makes it impossible to leave the
@@ -12692,7 +12734,10 @@ function renderMenuBeach(dt){
   if(prevOcean){
     const pu=prevOcean.uniforms;
     pu.uT.value=oceanUniforms.uT.value; pu.uDist.value=oceanUniforms.uDist.value;
-    pu.uAmp.value=oceanUniforms.uAmp.value; pu.uPeak.value=oceanUniforms.uPeak.value;
+    // half the swell the ride runs on. This is the inside, a hundred metres in from where
+    // the game's wave stands up, and a shore break the height of an open-ocean set would be
+    // washing over the dry sand
+    pu.uAmp.value=oceanUniforms.uAmp.value*0.5; pu.uPeak.value=oceanUniforms.uPeak.value;
   }
   if(beachLife){
     for(const c2 of beachLife.clouds){
@@ -12718,12 +12763,12 @@ function renderMenuBeach(dt){
   menuCam.aspect=Math.max(0.4,innerWidth/innerHeight);
   // portrait needs the camera further back to keep the palm's head and the board in frame
   const wide=Math.max(0,1-menuCam.aspect)*7.0;
-  const cz=(MB_Z+9.6)*MB_K+wide;
+  const cz=(MB_Z+11.4)*MB_K+wide;
   // Low and looking slightly UP the beach rather than down onto it: at eye level over the
   // sand the near dune fills half the frame, and the picture is meant to be the sea and the
   // two things standing against it, with sand only as a foreground to stand them on.
-  menuCam.position.set(-2.7+sw*0.45, g+2.30+sw2*0.12, cz);
-  menuCam.lookAt(2.05+sw*0.16, g+2.55, (MB_Z-2.5)*MB_K);
+  menuCam.position.set(-2.9+sw*0.45, g+2.40+sw2*0.12, cz);
+  menuCam.lookAt(2.15+sw*0.16, g+3.05, (MB_Z-2.5)*MB_K);
   menuCam.updateProjectionMatrix();
   renderer.setClearColor(0x1a2540,1);
   renderer.render(prevScene,menuCam);
