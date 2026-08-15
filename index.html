@@ -2774,14 +2774,21 @@ function buildBoardMesh(S){
   const invBeta=(t,lo,hi)=>{ for(let k=0;k<44;k++){ const m=(lo+hi)*0.5;
     if(beta(m)<t) lo=m; else hi=m; } return (lo+hi)*0.5; };
   const uN=S.noseW>0?invBeta(S.noseW,0,up):0, uT=S.tailW>0?invBeta(S.tailW,1,up):1;
-  // The closing arc takes the THICKNESS to nothing at both ends and leaves the width alone.
-  // Applied to the width it pinches the last ring to a single point — and that point sits
-  // BEHIND the swallow, which is cut into the centreline just ahead of it, so the notch
-  // ends up buried inside the mesh and a fish comes out with a rounded squash tail. Measured
-  // on the mesh: the rails reached 0.06 SHORT of the centreline instead of a third of a foot
-  // past it. The corners are rounded instead — see below — which is the part of the closing
-  // arc that was actually wanted out here.
-  const hw=u=>W*beta(uN+(uT-uN)*u);
+  // Each end finishes in a half-circle of its OWN half-width, which is exactly what the rack
+  // upstairs draws — so the mesh and the diagram round off by one rule instead of two. A
+  // pointed nose is an inch across and stays a point; a skimboard's is half the board wide
+  // and comes to a proper dome. It is a limit on the WIDTH near the end, not a shift of the
+  // end backwards: shifting it pulls the rail in by more than the rings are spaced apart,
+  // and the surface folds back through itself — which is the notch that appeared in the
+  // rail of every blunt-ended board.
+  //
+  // A swallow gets no tail cap at all. Its rearmost points ARE the tips, the notch between
+  // them is the tail, and the rack draws that with straight lines rather than a curve —
+  // which is also what stops the cap burying the notch the way the old one did.
+  const capN=W*S.noseW, capT=S.swallow?0:W*S.tailW;
+  const _cap=(d,r)=>d>=r?1:Math.sqrt(Math.max(0,1-(1-d/r)*(1-d/r)));
+  const ends=u=>(capN>0?_cap(u*L,capN):1)*(capT>0?_cap((1-u)*L,capT):1);
+  const hw=u=>W*beta(uN+(uT-uN)*u)*ends(u);
   // thickness runs to nothing at both tips, so the loft closes on a thin edge the
   // way a real board does, with its fullest point just ahead of centre
   const th=u=>Math.pow(Math.sin(Math.PI*Math.pow(Math.max(0,Math.min(1,u)),S.thSkew||1.0)),S.thPow||0.5)*close(u);
@@ -2792,15 +2799,7 @@ function buildBoardMesh(S){
   // an asymmetric board is genuinely two different halves: the heel side can run
   // wider and its tail can be cut forward of the toe side's
   const asW=(v)=>v<0?(S.asymW||1):1;
-  // Both ends have their corners rounded, and the rounding comes out of the LENGTH at the
-  // rail rather than out of the width. A squash tail is a flat block with the corners taken
-  // off; pinching the width instead turns every tail into a point and buries whatever was
-  // cut into it. The radius is the same roll-over the thickness uses, so a thick board has
-  // a fatter corner than a thin one, and it is nothing at the centreline where the swallow
-  // lives.
-  const cr=tipR*L, _rd=v=>1-Math.sqrt(Math.max(0,1-v*v));
-  const corner=(u,v)=> -cr*_rd(v)*_sm(0.88,1,u) + cr*_rd(v)*_sm(0.12,0,u);
-  const notch=(u,v)=>(swal?swal(u,v):0)+corner(u,v)
+  const notch=(u,v)=>(swal?swal(u,v):0)
     +(S.asymZ&&v<0?-S.asymZ*_sm(0.62,1,u)*Math.abs(v):0);
 
   const pos=[],col=[],idx=[];
@@ -2822,11 +2821,15 @@ function buildBoardMesh(S){
   }
   // cap the two tips: the rings there are all but closed, but a fan seals them
   for(const [ring,fwd] of [[0,false],[NU,true]]){
-    const base=pos.length/3, u=ring/NU;
-    pos.push(0,rock(u),(u-0.5)*L+notch(u,0));
-    S.paint(c,u,0,true); col.push(c.r,c.g,c.b);
+    const u=ring/NU, cy=rock(u), cz=(u-0.5)*L+notch(u,0);
     for(let j=0;j<NR;j++){
       const j2=(j+1)%NR;
+      // A centre vertex of its OWN for each triangle, carrying the paint of the rail it
+      // meets. One shared point can only take one colour, so on any end wide enough to
+      // matter the cap came out painted whatever happens to run down the stringer.
+      const phi=(j+0.5)/NR*Math.PI*2, cv=Math.sin(phi), ctop=Math.cos(phi)>=0;
+      const base=pos.length/3;
+      pos.push(0,cy,cz); S.paint(c,u,cv,ctop); col.push(c.r,c.g,c.b);
       if(fwd)idx.push(base,ring*NR+j,ring*NR+j2); else idx.push(base,ring*NR+j2,ring*NR+j);
     }
   }
