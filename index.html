@@ -688,7 +688,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.84.0';
+const VERSION='2.85.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -6826,10 +6826,16 @@ function buildOctopus(){
   return g;
 }
 function buildObstacle(kind){
-  let m,r=0.85,h=1.6,ramp=false;
+  // rx/rz are the collision's half-extents ACROSS your line and ALONG it. They default to
+  // the old single radius; the shapes that are nothing like round set both. A log is five
+  // metres long and one metre thin, and a circle that covers its length also covers that
+  // length in the direction you approach from — so you died two and a half metres short of
+  // a log that was still visibly ahead of you. That is the "I didn't hit it" death.
+  let m,r=0.85,h=1.6,ramp=false,hx,hz;
   if(kind==='octopus'){
     m=buildOctopus();
-    m.userData={...m.userData,kind,r:1.15,h:2.4,ramp:false,used:false};
+    // the body only. Its arms wave a long way out and are not a wall.
+    m.userData={...m.userData,kind,r:1.15,h:2.4,ramp:false,used:false,hx:1.25,hz:1.25};
     return m;
   }
   if(kind==='buoy'){
@@ -6912,7 +6918,7 @@ function buildObstacle(kind){
     const stub=new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.14,0.6,10),mat(0x74492a,10));
     stub.position.set(0.8,0.45,0.1);stub.rotation.z=0.4;
     m.add(trunk,endA,endB,stub);
-    r=2.35;h=1.1;
+    r=2.35;h=1.1;hx=2.50;hz=0.62;      // a plank across your path: long, and thin
   } else if(kind==='debris'){
     // Wreckage off the plane that started all this, being carried round inside the tube.
     // It only ever appears in the barrel, so it is painted for that: hazard orange and
@@ -6941,7 +6947,8 @@ function buildObstacle(kind){
     const fin=makeDorsal(3.6,skin);
     fin.position.y=1.55;fin.rotation.y=Math.PI/2;
     m.add(fin);
-    r=1.70;h=4.2;                      // as tall as the blade really is, so you cannot clip it
+    r=1.70;h=4.2;hx=1.70;hz=0.50;      // a blade: as tall as it really is, and as thin
+                                       // as it really is, so you cannot clip it or die beside it
   } else {
     // A modern kicker: a curved transition, not a wedge. The same curve is used by the
     // physics, so the board runs up the shape you can see and leaves on the angle the
@@ -7009,9 +7016,10 @@ function buildObstacle(kind){
     lip.position.set(0,RH+0.01,-RL+0.06);
     m.add(lip);
     m.userData.rampL=RL;m.userData.rampH=RH;m.userData.rampW=RW;m.userData.rampP=RP;
-    ramp=true;r=2.4;h=99;
+    ramp=true;r=2.4;h=99;hx=1.70;hz=2.55;   // you ride up its length, not its width
   }
-  m.userData={...m.userData,kind,r,h,ramp,used:false};
+  m.userData={...m.userData,kind,r,h,ramp,used:false,
+              hx:hx===undefined?r:hx, hz:hz===undefined?r:hz};
   return m;
 }
 // one template per obstacle type; every spawn is a clone that reuses the same GPU data
@@ -7023,6 +7031,9 @@ function makeObstacle(kind,x,z){
   if(!OBST_TEMPLATES[kind])OBST_TEMPLATES[kind]=buildObstacle(kind);
   const t=OBST_TEMPLATES[kind];
   const m=t.clone(true);
+  // rx/rz are the per-instance TILT on the swell and are deliberately cleared; hx/hz are
+  // the collision half-extents and must survive the clone. Naming the hitbox rx/rz put the
+  // two in the same slot, and the tilt would have overwritten the hitbox every frame.
   m.userData={...t.userData,used:false,by:undefined,bv:0,rx:undefined,rz:undefined};
   // re-link animated sub-parts (indexes survive cloning; object references do not)
   if(t.userData.washIdx!==undefined)m.userData.wash=m.children[t.userData.washIdx];
@@ -7083,7 +7094,8 @@ for(const kind of ['buoy','jelly','log','bigfin','ramp','octopus'])(k=>{
     if(!OBST_TEMPLATES[k])OBST_TEMPLATES[k]=buildObstacle(k);
     const t=OBST_TEMPLATES[k];
     const fitted=skinAndFit(k,s3,boxOf(t));
-    fitted.userData={kind:k,r:t.userData.r,h:t.userData.h,ramp:t.userData.ramp,used:false};
+    fitted.userData={kind:k,r:t.userData.r,h:t.userData.h,ramp:t.userData.ramp,used:false,
+                     hx:t.userData.hx,hz:t.userData.hz};
     OBST_TEMPLATES[k]=fitted;
   });
 })(kind);
@@ -9565,6 +9577,16 @@ if(location.hash.includes('debug')){
     // over it — the only way to ask "does flying over this thing still set it off?"
     spawn(kind,dx,dz){ const o=makeObstacle(kind,px+dx,pz+dz); return {x:o.position.x,y:o.position.y,z:o.position.z,h:o.userData.h}; },
     setRiderY(y){ py=y; vy=0; airborne=true; return py; },
+    // What every obstacle currently in the world actually MEASURES, against what its
+    // collision claims. "I didn't hit it and I died" is a hitbox wider than the thing it
+    // belongs to, and that is a question about numbers, not about how it looks.
+    obsBounds(){
+      const B=new THREE.Box3(), S=new THREE.Vector3();
+      return obstacles.map(o=>{ B.setFromObject(o); B.getSize(S);
+        return {kind:o.userData.kind, r:o.userData.r, h:o.userData.h,
+                hx:o.userData.hx, hz:o.userData.hz,
+                halfX:+(S.x/2).toFixed(2), halfZ:+(S.z/2).toFixed(2), tall:+S.y.toFixed(2)}; });
+    },
     // How far ahead the nearest obstacle of a kind still is. A test that waits a fixed number
     // of frames for one to arrive is really testing the frame rate: under swiftshader the sim
     // advances about a tenth of the clock, and a slow run had the jellyfish still short of the
@@ -11284,8 +11306,13 @@ function update(dt){
     // ...and the cast arrives a piece at a time. Buoys and logs are the whole game to
     // begin with; ramps, then jellyfish, then sharks, then the octopuses that throw
     // things at you, each one introduced with room to get used to it.
-    const WEIGHTS=[['buoy',24,0],['log',18,0],['ramp',17,150],['jelly',21,340],
-                   ['bigfin',11,560],['octopus',14,780]].filter(w=>dist>=w[2]);
+    // The octopuses arrive at the same place they always did — 780 m is far enough in that
+    // you have met everything else first — but there are a lot more of them once they do,
+    // and they keep growing as a share of the field. They are the one obstacle that makes
+    // you watch something other than your own lane, so the late game is built out of them.
+    const octW=24+Math.min(14,Math.max(0,(dist-780)/220));
+    const WEIGHTS=[['buoy',22,0],['log',17,0],['ramp',16,150],['jelly',20,340],
+                   ['bigfin',11,560],['octopus',octW,780]].filter(w=>dist>=w[2]);
     let pick=null;
     for(let tries=0;tries<8;tries++){
       let total=0;for(const w of WEIGHTS)total+=w[1];
@@ -11305,6 +11332,12 @@ function update(dt){
     laneSlot=(laneSlot+1+((Math.random()*3)|0))%7;
     const laneX=(-3+laneSlot)*4.9+(Math.random()-0.5)*3.0;
     makeObstacle(pick,Math.max(-17,Math.min(17,px*0.55+laneX)),-170);
+    // A second thrower, well off the first one's lane and further out, so the octopuses
+    // read as a spread FIELD you thread between rather than as one obstacle at a time.
+    if(pick==='octopus'&&dist>1050&&Math.random()<0.42){
+      const away=(laneX>0?-1:1)*(6.5+Math.random()*8.0);
+      makeObstacle('octopus',Math.max(-17,Math.min(17,px*0.55+laneX+away)),-170-(15+Math.random()*24));
+    }
     // and every so often drop an extra one right against an edge
     // the second one out by the edge only starts once you are well into a run
     if(dist>600&&Math.random()<0.30){
@@ -11387,7 +11420,12 @@ function update(dt){
     // The board is a 5m plank, not a point. Test it as a capsule running nose to
     // tail, swept over the ground the obstacle covered this frame, so the nose
     // makes contact when it reaches something instead of sliding through it first.
-    const R=o.userData.r+BOARD_HALF_W;
+    // An ELLIPSE, not a circle. RX gets the board's half-width because that is a sideways
+    // clearance; RZ does not, because the board's length is already handled by nose/tail
+    // below. With one radius for both, every long thin obstacle killed you from a distance
+    // equal to its LENGTH in the direction you were coming from.
+    const RX=(o.userData.hx===undefined?o.userData.r:o.userData.hx)+BOARD_HALF_W;
+    const RZ=(o.userData.hz===undefined?o.userData.r:o.userData.hz);
     // Sweep sideways as well as forward. A shark fin crosses your line fast, and
     // testing only where it happens to be this frame lets it step straight over the
     // board between two frames — you watch it go through you and nothing happens.
@@ -11396,8 +11434,8 @@ function update(dt){
     const dxo=px<xlo?xlo-px:(px>xhi?px-xhi:0);
     o.userData.lx=ox1;
     let contact=false;
-    if(dxo<R){
-      const reach=Math.sqrt(R*R-dxo*dxo);          // z it can touch at this x offset
+    if(dxo<RX){
+      const reach=RZ*Math.sqrt(Math.max(0,1-(dxo/RX)*(dxo/RX)));   // z it can touch at this x offset
       const z1=o.position.z, z0=z1-eff*dt;         // where it was a frame ago
       const nose=pz-BOARD_HALF_L, tail=pz+BOARD_HALF_L;
       contact=(Math.min(z0,z1)-reach)<tail && (Math.max(z0,z1)+reach)>nose;
@@ -11409,7 +11447,8 @@ function update(dt){
     if(!o.userData.passed && o.position.z>pz+BOARD_HALF_L){
       o.userData.passed=true;
       const harmful=['buoy','log','jelly','bigfin','octopus'].includes(o.userData.kind);
-      const m=Math.abs(px-o.position.x)-(o.userData.r+BOARD_HALF_W);
+      // sideways clearance, so it is the sideways half-extent that counts
+      const m=Math.abs(px-o.position.x)-((o.userData.hx===undefined?o.userData.r:o.userData.hx)+BOARD_HALF_W);
       if(harmful&&!o.userData.used&&m>0&&m<1.5&&running&&!hanging&&!swTubeRide){
         score+=25; msg('CLOSE CALL! +25'); buzz(12); goalEv('close',1);
         bump(stats,'closeCalls'); 
@@ -11504,8 +11543,11 @@ function update(dt){
       sh.visible=true;
       const oy=swellH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock)+0.05;
       sh.position.set(o.position.x+0.3,oy,o.position.z+0.3);
-      const r=o.userData.r||1.2;
-      sh.scale.set(r*0.55,r*0.85,1);
+      // the shadow takes the object's own footprint, so a log lies down as a long thin
+      // smudge instead of a circle the size of its length
+      const sx=(o.userData.hx===undefined?o.userData.r:o.userData.hx)||1.2;
+      const sz=(o.userData.hz===undefined?o.userData.r:o.userData.hz)||1.2;
+      sh.scale.set(sx*0.62,sz*1.05,1);
       sh.material.opacity=0.14;
     }
     for(;si<OBST_SHADOWS.length;si++)OBST_SHADOWS[si].visible=false;

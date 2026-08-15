@@ -1274,8 +1274,11 @@ if (hasHook) {
     }
     return { skipped: false, before, held, dbg };
   });
-  check(!tube.skipped && !tube.before && tube.held,
-        'the barrel chest takes a pipe jump to grab',
+  // v2.85: no jump requirement anywhere, the barrel included — so `before` (not yet held the
+  // instant it is planted) is no longer part of the claim. What still has to be true is that
+  // a chest planted in the pocket is reachable at all from the ring.
+  check(!tube.skipped && tube.held,
+        'the barrel chest is caught off the ring, jump or no jump',
         tube.skipped ? 'never got on the ring'
                      : `held=${tube.held}` + (tube.held ? '' : ` ${JSON.stringify(tube.dbg)}`));
 }

@@ -52,6 +52,35 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.85.0** — **Hitboxes that match the obstacle, and a field of octopuses.**
+  - **"I didn't hit it and I still died" was real, and it was the log.** Collision was a
+    single circle of radius `r` in the ground plane. Measured against what the meshes
+    actually are, a log is 5.1 m long and **1.0 m thin** — but carried a 2.35 m circle, so
+    it killed you 2.4 m short of itself, while it was still visibly ahead. The shark fin was
+    the same: a 0.32 m blade inside a 1.70 m circle. Collision is now an **ellipse** with
+    separate half-extents across your line (`hx`) and along it (`hz`), and every obstacle's
+    numbers were set from a measurement of its own mesh rather than by eye:
+
+    | obstacle | old circle | new hx / hz | real halfX / halfZ |
+    |---|---|---|---|
+    | buoy | 0.85 | 0.85 / 0.85 | 0.79 / 0.80 |
+    | log | 2.35 | 2.50 / **0.62** | 2.55 / 0.52 |
+    | ramp | 2.40 | 1.70 / 2.55 | 1.62 / 2.56 |
+    | jelly | 1.05 | 1.05 / 1.05 | 1.02 / 1.03 |
+    | bigfin | 1.70 | 1.70 / **0.50** | 1.66 / 0.32 |
+    | octopus | 1.15 | 1.25 / 1.25 | 2.34 / 3.42 |
+
+    The octopus stays deliberately smaller than it looks — its arms wave a long way out and
+    are not a wall. Obstacle shadows now take the same footprint, so a log lies down as a
+    long thin smudge instead of a circle the size of its length.
+  - **More octopuses, spread out.** They still arrive at 780 m, but their share of the field
+    grows from 24 up to 38 with distance, and past 1,050 m a pick often brings a second one
+    along in a different lane and further back — so they read as a field you thread between
+    rather than one thrower at a time.
+  - `__surf.obsBounds()` (debug builds only) reports every obstacle's measured bounding box
+    against its declared collision, because "did I actually touch that" is a question about
+    numbers.
+
 - **v2.84.0** — **Three fairness fixes.**
   - **Chests no longer need a jump.** The catch used to demand you were clear of your own
     waterline, so every chest was a jump you had to spot and set up for — and riding straight
