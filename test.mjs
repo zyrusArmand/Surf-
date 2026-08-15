@@ -197,7 +197,25 @@ const shot = await page.waitForFunction(() => {
   const im = document.querySelector('#guide .card .thumb');
   return im && im.src.slice(0, 15) === 'data:image/png;' ? im.src.length : false;
 }, null, { timeout: 60000 }).then(h => h.jsonValue()).catch(() => 0);
-check(school.shapes === 12, 'board school draws twelve shapes on one scale', `${school.shapes}`);
+check(school.shapes === 8, 'board school draws the five surfboards and the three that are not',
+      `${school.shapes} shapes`);
+// Every silhouette is generated from a real board's spec and stands on the rule, so a
+// shape's drawn height must BE its stated length — nothing added past the nose or tail for
+// a blunt end, and nothing that moves when it is selected. One scale for all eight is the
+// claim the whole rack rests on, so it is measured rather than eyeballed.
+const scale = await page.evaluate(() => {
+  const types = window.__surf.types();
+  return [...document.querySelectorAll('#gRail .gsil')].map(g => {
+    const t = types.find(t => t.key === g.dataset.k);
+    return { key: g.dataset.k, ft: t.ft,
+             px: +g.querySelector('path').getBBox().height.toFixed(1) };
+  });
+});
+const perFt = scale.map(s => s.px / s.ft);
+const spread = Math.max(...perFt) - Math.min(...perFt);
+check(scale.length === 8 && spread / perFt[0] < 0.01,
+      'every shape measures its own length against the rule',
+      scale.map(s => `${s.key} ${s.ft}ft=${s.px}`).join(' '));
 check(school.before.type !== school.after.type && school.before.board !== school.after.board,
       'tapping a shape swaps both the writing and the board on offer',
       `${school.before.type}/${school.before.board} -> ${school.after.type}/${school.after.board}`);
