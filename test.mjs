@@ -359,6 +359,24 @@ await page.waitForTimeout(300);
   check(!viaShop.riderOnBeach && !viaShop.boardOnBeach,
         'and hands them back the moment the shop opens',
         JSON.stringify(viaShop));
+  // He rides at pug size — under two feet — which beside a six foot board made the shot
+  // read as a toy on a beach. A world unit here is a FOOT, so an average adult is 5'9" and
+  // that is what he is scaled to, whatever the character and whatever is leaning on the
+  // tree. Both are measured off their own boxes, not off the numbers that placed them.
+  await page.waitForTimeout(400);
+  const sizes = [];
+  for (const id of ['pug', 'ant', 'sloth']) {
+    const f = await page.evaluate(async c => {
+      window.__surf.wear(c);
+      await new Promise(r => setTimeout(r, 1200));
+      return window.__surf.menuFigures();
+    }, id).catch(() => null);
+    if (f) sizes.push({ id, ...f });
+  }
+  const want = sizes.length ? 5.75 * sizes[0].k : 0;
+  check(sizes.length >= 2 && sizes.every(f => Math.abs(f.rider - want) < 0.10),
+        'and stands him beside it at the height of an average adult, whoever he is',
+        sizes.map(f => `${f.id} ${f.rider}ft`).join(', ') + ` against ${want.toFixed(2)}ft`);
 }
 
 await startRun();
@@ -1694,6 +1712,106 @@ if (hasHook) {
 
 check(shaderErrors.length === 0, 'every shader compiles',
       shaderErrors.length ? `\n    ${shaderErrors.slice(0, 3).join('\n    ')}` : '');
+
+// ---------- the board floats in the water, not on top of it ----------
+// v3.4: the hull pitch was geared at 1.5x the slope of the water under it, so on a face
+// measuring 0.18 rad the board came out at 0.27 — and a board is nearly six feet long, so
+// the far end stood a third of a foot clear of the surface it is supposed to be resting on.
+// Riding down a face that end is the TAIL, which is where the fins are. It rode with its
+// back end and all three fins in the air. A hull cannot tilt past the water it lies on:
+// the tail is allowed to sit a little proud of the water beneath IT, and no more.
+{
+  await page.evaluate(() => { window.__surf.equip('astro'); document.getElementById('startBtn').click(); });
+  await page.evaluate(() => window.__surf.tick(4));
+  let worstTail = -99, wettest = 99, gear = 0, gn = 0, n = 0;
+  for (let i = 0; i < 30; i++) {
+    await page.evaluate(() => window.__surf.tick(0.4));
+    const m = await page.evaluate(() => {
+      const h = window.__surf.hullY(), b = window.__surf.buoy();
+      if (!b || window.__surf.state().airborne) return null;
+      // where the tail's underside actually is, the water directly under it, and the slope
+      // of that water — the hull samples are taken 2.55 ft either side of the middle
+      return { tail: h.py - Math.sin(h.pitch) * h.z1 + h.hullLo * Math.cos(h.pitch),
+               hT: b.hT, mid: h.py + h.hullLo - b.waterY,
+               pitch: h.pitch, slope: Math.atan2(b.hN - b.hT, 5.10) };
+    });
+    if (!m) continue;
+    n++;
+    worstTail = Math.max(worstTail, m.tail - m.hT);
+    wettest = Math.min(wettest, m.mid);
+    // Nobody is leaning in a headless run, so all the tilt there is comes from the water.
+    if (Math.abs(m.slope) > 0.08) { gear += m.pitch / m.slope; gn++; }
+  }
+  const geared = gn ? gear / gn : 0;
+  check(gn > 5 && geared < 1.20,
+        'the hull lies along the water rather than tilting past it',
+        `pitch averaged ${geared.toFixed(2)}x the slope of the water under it over ${gn} samples`);
+  // Half a foot covers the tail rocker and the 0.36 ft of board that overhangs the aft hull
+  // sample. The old 1.5x gearing put it two thirds of a foot up with the fins in daylight.
+  check(n > 10 && worstTail < 0.50,
+        'so the tail stays down in it and the fins stay under',
+        `worst tail stood ${worstTail.toFixed(2)} ft above the water beneath it over ${n} samples`);
+  check(n > 10 && wettest < -0.05,
+        'and the hull floats down IN the surface rather than perched on it',
+        `midships underside sat ${wettest.toFixed(2)} ft below the waterline at its shallowest`);
+}
+
+// ---------- a half-turn leaves the board turned round ----------
+// Landing a 180 used to snap the board back to nose-first under a rider who was now facing
+// the other way. Riding switch means the whole thing came round: fins forward, paint where
+// the spin left it. Both the rider AND the board carry the half turn, and both give it back.
+{
+  const spun = await page.evaluate(() => { window.__surf.landAt(0, Math.PI); return window.__surf.stance(); });
+  const half = x => Math.abs(Math.abs(((x + Math.PI) % (Math.PI * 2)) - Math.PI) - Math.PI) < 0.02;
+  check(spun.sw && half(spun.board),
+        'a landed 180 leaves the board itself backwards, fins and paint included',
+        `switch=${spun.sw}, board yaw ${spun.board}`);
+  const back = await page.evaluate(() => { window.__surf.landAt(0, Math.PI); return window.__surf.stance(); });
+  check(!back.sw && Math.abs(back.board) < 0.02,
+        'and a second one turns it back',
+        `switch=${back.sw}, board yaw ${back.board}`);
+}
+
+// ---------- the run card's controls are the buttons you already know ----------
+// Four stacked pills took half the card and read as a form. The card carries the home
+// dial's own buttons instead — same class, same glass, same size — in a single row, shop
+// included. If one of them ever falls out of the row or off the class, this says so.
+{
+  await page.evaluate(() => { window.__surf.wipeNow('foam'); });
+  for (let i = 0; i < 40; i++) {
+    await page.evaluate(() => { try { window.__surf.tick(0.25); } catch (e) {} });
+    await page.waitForTimeout(200);
+    if (await page.evaluate(() => { const c = document.getElementById('overlay').className;
+                                    return c.includes('over') && !c.includes('hidden'); })) break;
+  }
+  const row = await page.evaluate(() => {
+    // the dial is display:none behind the card, so its SIZE comes from the style rather
+    // than from a box it does not currently have
+    const dial = getComputedStyle(document.getElementById('dBoard'));
+    const ids = ['reviveBtn', 'againBtn', 'shopBtn', 'menuBtn', 'shareBtn'];
+    const ov = document.getElementById('overlay').className;
+    return { dial: [Math.round(parseFloat(dial.width)), Math.round(parseFloat(dial.height))],
+             card: ov.includes('over') && !ov.includes('hidden'),
+             btns: ids.map(id => { const e = document.getElementById(id), b = e.getBoundingClientRect();
+               return { id, cls: e.className, w: Math.round(b.width), h: Math.round(b.height),
+                        top: Math.round(b.top), left: Math.round(b.left),
+                        shown: getComputedStyle(e).display !== 'none' }; }) };
+  });
+  const on = row.btns.filter(b => b.shown);
+  const sameSize = on.every(b => b.w === row.dial[0] && b.h === row.dial[1]);
+  const sameRow = on.every(b => Math.abs(b.top - on[0].top) <= 1);
+  const inOrder = on.every((b, i) => i === 0 || b.left > on[i - 1].left);
+  check(row.card && on.length >= 4 && sameSize && sameRow && inOrder &&
+        on.every(b => /\bhbtn\b/.test(b.cls) && /\bglass\b/.test(b.cls)),
+        'the run card carries the dial buttons in one row, shop among them',
+        `${on.map(b => b.id).join(', ')} at ${on[0].w}x${on[0].h} against the dial's ${row.dial.join('x')}`);
+  check(on.some(b => b.id === 'shopBtn') && on.some(b => b.id === 'againBtn'),
+        'and both the ways on are there: surf again and the shop');
+  // the old pill row must be gone from the card, or the card is twice as tall as it needs
+  const visiblePills = await page.evaluate(() =>
+    [...document.querySelectorAll('#ovBtns .go')].filter(e => e.getClientRects().length > 0).length);
+  check(visiblePills === 0, 'and none of the old pills are left on it', `${visiblePills} still showing`);
+}
 
 // ---------- the wipeout card fits the phone it is on ----------
 // v2.93: it did not. The buttons finished 16px above the version number on a big phone and

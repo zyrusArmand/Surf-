@@ -417,7 +417,18 @@
     padding-top:calc(6vh + env(safe-area-inset-top,0px));
     padding-bottom:calc(max(9vh,62px) + env(safe-area-inset-bottom,0px)); }
   #overlay.over #ovBtns { padding-top:20px; }
+  /* The run card's row of glass buttons. They are the dial's buttons — same class, same
+     size, same glass — but laid out in a row rather than pinned to the sides of the screen,
+     so the absolute positioning the dial gives them has to come off. */
+  #overRow { display:none; }
+  #overlay.over #overRow { display:flex; justify-content:center; align-items:flex-end;
+    gap:10px; flex-wrap:nowrap; }
+  #overRow .hbtn { position:static; flex:none; }
+  #overlay.over #playRow, #overlay.over #recordsBtn { display:none; }
+  /* the free life is the one that comes and goes; the row stays centred without it */
+  #overRow .ob-life[hidden], #overRow .ob-life[style*="display: none"] { display:none; }
   #overlay.over #ovBtns .go { padding:9px 22px; font-size:15px; margin-top:0; }
+  #overlay.over #ovBtns { align-items:center; }
   /* A 4.7-inch phone is 667px tall and the card wants 650 of them, so it scrolled — and a
      "Surf again" you have to scroll to find is as good as not being there. Everything gives
      up a few pixels rather than one thing giving up a lot: a smaller title, tighter summary
@@ -821,8 +832,11 @@
   <h1 id="ovTitle">Surf</h1>
   <div id="ovPurse"><span id="ovCoins">0</span><i class="pk"></i></div>
   <p id="ovText"></p>
+  <!-- The run card's controls are the home dial's buttons: same glass, same round, same
+       size, laid out in one row. Four pills stacked down the card took half of it and read
+       as a form to fill in; this reads as the same set of controls you already know from
+       the beach, which is what they are. -->
   <div id="ovBtns">
-    <button class="go sun" id="reviveBtn">Free life</button>
     <div id="playRow">
       <button class="go" id="startBtn">Play</button>
       <button class="go teal" id="waveBtn" type="button" aria-label="Test the set wave"
@@ -830,14 +844,27 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z"/></svg>
       </button>
     </div>
-    <button class="go alt" id="shopBtn">Shop</button>
     <button class="go sun" id="recordsBtn">Stats</button>
-    <button class="go alt" id="menuBtn">Main menu</button>
-    <button class="go calm" id="shareBtn">Share</button>
+    <div id="overRow">
+      <button class="hbtn glass ob-life" id="reviveBtn" type="button" aria-label="Free life">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.4C7.2 17.6 4 14.4 4 10.6A3.9 3.9 0 0 1 12 8.5a3.9 3.9 0 0 1 8 2.1c0 3.8-3.2 7-8 9.8Z"/></svg>
+        <span>Life</span></button>
+      <button class="hbtn glass ob-again" id="againBtn" type="button" aria-label="Surf again">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M8.6 5.2 19 12 8.6 18.8z"/></svg>
+        <span>Again</span></button>
+      <button class="hbtn glass ob-shop" id="shopBtn" type="button" aria-label="Shop">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.4 8h15.2l-1.3 11.2a1.6 1.6 0 0 1-1.6 1.4H7.3a1.6 1.6 0 0 1-1.6-1.4Z"/><path d="M8.6 8V6.3a3.4 3.4 0 0 1 6.8 0V8"/></svg>
+        <span>Shop</span></button>
+      <button class="hbtn glass ob-menu" id="menuBtn" type="button" aria-label="Main menu">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.2l8 7v8.2a1.4 1.4 0 0 1-1.4 1.4H5.4A1.4 1.4 0 0 1 4 19.4Z"/></svg>
+        <span>Menu</span></button>
+      <button class="hbtn glass ob-share" id="shareBtn" type="button" aria-label="Share">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="17.5" cy="6" r="2.6"/><circle cx="6.5" cy="12" r="2.6"/><circle cx="17.5" cy="18" r="2.6"/><path d="M8.9 10.7 15.1 7.3M8.9 13.3l6.2 3.4"/></svg>
+        <span>Share</span></button>
+    </div>
   </div>
   <!-- The home dial: five round glass buttons around the rider instead of a stack of pills.
-       Only ever shown on the main menu — the wipeout card keeps its pills, because that is a
-       list of decisions to read rather than a place you already know your way around. -->
+       Only ever shown on the main menu; the run card uses the same buttons in a row. -->
   <div id="homeDial">
     <button class="hbtn glass hb-board" id="dBoard" type="button" aria-label="Boards">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6c4.4 3.6 6.4 8.2 6.4 11.4 0 4.2-3 7.4-6.4 7.4s-6.4-3.2-6.4-7.4c0-3.2 2-7.8 6.4-11.4Z"/><path d="M12 5.4v13.2"/></svg>
@@ -976,7 +1003,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.3.0';
+const VERSION='3.4.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -7989,7 +8016,17 @@ let handOn=false,handT=0,handPts=0,handRisk=0,handSrc='gesture',handHold=0;
 // it backwards from then on, until another half turn puts him round again.
 let switchRide=false, waveT=0;
 const WAVE_DUR=3.0;                   // he waves at the camera for this long after a 180
-function applyStance(){ pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0); }
+// A half turn turns the BOARD too, not just the rider. It used to snap the board back to
+// nose-first and turn him round on top of it, which is a stance change with no trick in it:
+// the fins stayed at the back, the paint stayed the way up it started, and the only thing
+// that told you anything had happened was which way he was facing. Now the board carries on
+// tail-first with its fins and its graphics where the spin left them — the two rotate
+// together, so nothing moves relative to anything else, and what changes is which end of
+// the board is leading.
+function applyStance(){
+  pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0);
+  if(typeof boardArt!=='undefined'&&boardArt)boardArt.rotation.y=switchRide?Math.PI:0;
+}
 let grabOn=false,grabPts=0,grabSide=1,grabSrc='gesture';
 let dragOn=false,dragPts=0,dragSide=1,dragSrc='gesture';
 let shake=0,boost=0,carrySpin=0,carryFlip=0,wobRoll=0,wobYaw=0,dayT=0;
@@ -8686,13 +8723,12 @@ function showMenu(mode){
   ovTitle.textContent = over ? 'Wipeout!' : 'Surf';
   ovPurse.style.display = 'none';           // the purse lives in the shop and the run card
   document.getElementById('ovText').style.display = over ? '' : 'none';
-  reviveBtn.style.display  = over&&revivesLeft>0 ? '' : 'none';
-  startBtn.textContent     = over ? 'Surf again' : 'Play';
-  shopBtn.style.display    = over ? 'none' : '';
+  // The card's row lives or dies with the .over class, so these only decide which of its
+  // buttons earn their place: a life you have, and a share the browser can actually do.
+  reviveBtn.style.display  = (over&&revivesLeft>0) ? '' : 'none';
   recordsBtn.style.display = 'none';        // stats moved behind the version 5-tap
-  menuBtn.style.display    = over ? '' : 'none';
   document.getElementById('shareBtn').style.display =
-    (over&&(navigator.share||navigator.clipboard)) ? '' : 'none';
+    (navigator.share||navigator.clipboard) ? '' : 'none';
   // the menu is open water and nothing else; he is put on it when you press Play
   hud.style.display='none';
   player.visible=over;
@@ -8713,6 +8749,7 @@ function beginRun(){
   reset();running=true;overlayUp=false;last=performance.now();
 }
 startBtn.addEventListener('click',beginRun);
+document.getElementById('againBtn').addEventListener('click',()=>{ buzz(12); beginRun(); });
 // Meeting the set wave the honest way costs 600 m of riding and then whatever is left of
 // its own clock — minutes, and it can end in a wipeout before the wave ever arrives. This
 // starts a run with the wave already on a two-second fuse, which is the only way to work
@@ -10586,6 +10623,46 @@ if(location.hash.includes('debug')){
     setCut(v){ swCutHold=(v===undefined||v<0)?-1:v; return swCutHold; },
     setTrim(v){ swTrimHold=(v===undefined||v===null)?null:v; return swTrimHold; },
     buoy(){ return _buoy; },
+    // Which way round the board and the rider are standing. A half-turn leaves BOTH of them
+    // facing the other way and the board itself reversed — fins and paint where the spin put
+    // them — so the check is on the board's own rotation, not on the flag that set it.
+    wear(id){ ownedChars[id]=1; equipChar(id); saveGame(); return rider; },
+    stance:()=>({sw:switchRide, rider:+pug.rotation.y.toFixed(3),
+                 board:+boardArt.rotation.y.toFixed(3)}),
+    // The menu beach in feet: a world unit is one, so these are directly comparable and a
+    // rider who is not person-sized against whatever is leaning on the tree shows up here.
+    menuFigures(){
+      if(!menuBeach)return null;
+      const rb=new THREE.Box3().setFromObject(pug), bb=new THREE.Box3().setFromObject(menuBeach.board);
+      const rs=rb.getSize(new THREE.Vector3()), bs=bb.getSize(new THREE.Vector3());
+      return {rider:+(menuBeach.riderH||rs.y).toFixed(2), boardH:+(menuBeach.boardH||bs.y).toFixed(2),
+              live:+rs.y.toFixed(2), liveBoard:+bs.y.toFixed(2),
+              boardL:+((BOARD_BY_ID[equipped]||{spec:{L:0}}).spec.L).toFixed(2), k:MB_K};
+    },
+    hullY(id){
+      const o=id?boardArtFor(id):boardArt;
+      o.updateWorldMatrix(true,true);
+      const inv=new THREE.Matrix4().copy(o.matrixWorld).invert();
+      let hull=null,best=-1,finLo=Infinity;
+      const rows=[];
+      o.traverse(m=>{ if(!m.isMesh)return;
+        const g=m.geometry.clone();
+        g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv,m.matrixWorld));
+        g.computeBoundingBox();
+        rows.push(g);
+        if(g.attributes.position.count>best){best=g.attributes.position.count;hull=g;}
+        finLo=Math.min(finLo,g.boundingBox.min.y); });
+      // hull surfaces at midships: lowest and highest vertex within a slice at z=0
+      let mLo=Infinity,mHi=-Infinity;
+      const p=hull.attributes.position;
+      for(let k=0;k<p.count;k++){ if(Math.abs(p.getZ(k))>0.25||Math.abs(p.getX(k))>0.06)continue;
+        mLo=Math.min(mLo,p.getY(k)); mHi=Math.max(mHi,p.getY(k)); }
+      const hb=hull.boundingBox;
+      for(const g of rows)g.dispose();
+      const dy=(id?o.position.y:0)+rig.position.y+boardArt.position.y;
+      return {hullLo:+(mLo+dy).toFixed(3),hullHi:+(mHi+dy).toFixed(3),finLo:+(finLo+dy).toFixed(3),dy:+dy.toFixed(3),
+              z0:+hb.min.z.toFixed(2),z1:+hb.max.z.toFixed(2),
+              water:_buoy&&_buoy.waterY,py:+py.toFixed(3),pitch:+rig.rotation.x.toFixed(3)}; },
     foot(z){ return swFootAt(z===undefined?pz:z); },
     // Plant the chest right in front of the rider so a test can jump for it without
     // riding out the spawn clock.
@@ -11818,10 +11895,13 @@ function update(dt){
   const dig=Math.max(0,Math.abs(carve)-0.20)/0.80;
   const railDig=Math.min(0.17,dig*dig*0.17+Math.max(0,leanW)*0.055);
   // Float: a thick board rides up on the surface, a thin one sits down in it.
+  // This number is not free to move: the ride camera is hung off py, and the tube camera is
+  // not, so trimming the float height by three hundredths showed up as the camera stepping
+  // when the ring took over. The board's attitude was what made it look perched anyway.
   const waterY=hHigh*0.88+hMean*0.12+0.05-railDig+(BS.float-1)*0.30;
   const prevWaterY=_prevWaterY; _prevWaterY=waterY;
   _buoy={waterY:+waterY.toFixed(3),railDig:+railDig.toFixed(3),hHigh:+hHigh.toFixed(3),
-         hMean:+hMean.toFixed(3),float:BS.float};
+         hMean:+hMean.toFixed(3),hN:+hN.toFixed(3),hT:+hT.toFixed(3),float:BS.float};
   rideY=waterY;
 
   // A wall this size falls away under the board fast enough to throw him off its
@@ -12217,7 +12297,15 @@ function update(dt){
   // sideways, which is where most of the tilt came from.
   const pitchT=onRampO?rampPitchT
               :swTubeRide?Math.max(-0.12,Math.min(0.12,-swAngV*0.05))
-              :(airborne?-0.22:Math.max(-0.62,Math.min(0.68,hullPitch*1.50)) + leanW*0.62);
+              // A hull LIES on the water; it cannot tilt further than the surface it is
+              // lying on. The gain here was 1.5, which over-rotated it by half the swell's
+              // own slope again — on a face that measured 0.18 rad the board came out at
+              // 0.27, and the far end of a 5.8-unit board ends up a third of a unit clear
+              // of the water it is supposed to be resting on. Riding down a face that is
+              // the TAIL, so the tail stood out of the water with all three fins in the
+              // air. One, and it lies along the face. The rider's own trim still tips it
+              // either way on top of that, but by a foot rather than by a board length.
+              :(airborne?-0.22:Math.max(-0.62,Math.min(0.68,hullPitch*1.02)) + leanW*0.30);
   boardYaw+=(yawT-boardYaw)*Math.min(1,dt*7);
   // A cracked board is unsteady under you. This is deliberately a slow, readable
   // oscillation rather than random jitter — it pushes you off your line and you steer
@@ -12801,7 +12889,10 @@ function menuBeachOn(){
 // camera is at an angle, "put the board to the left of the palm" stops meaning anything in
 // x and z. So everything is placed along the camera's own two axes: forward, and right.
 const MB_YAW=1.24;                    // how far round from straight-out-to-sea the shot sits
-const MB_D=10.6;                      // how far back the camera stands from the palm
+const MB_D=17.2;                      // how far back the camera stands from the palm
+// The rider standing on that sand is an adult, not a pug: six feet of him against a six
+// foot board. From the old mark he filled half the frame on his own, so the camera takes
+// three more steps back and the picture goes back to being a beach with two things on it.
 const _mbF=new THREE.Vector3(), _mbR=new THREE.Vector3(), _mbP=new THREE.Vector3();
 const _mbQ=new THREE.Quaternion(), _mbQ2=new THREE.Quaternion(), _mbUp=new THREE.Vector3(0,1,0);
 // forward, and right of it. At a yaw of zero the camera looks straight out to sea and its
@@ -12832,25 +12923,48 @@ function layoutMenuBeach(){
   // that turns the deck back to face the camera is minus the camera's own — and a few
   // degrees past that gives the three-quarter view the reference has, deck mostly toward
   // you with enough rail showing to read the rocker.
-  const LEAN=0.27;
+  const LEAN=-0.27;                              // tipped the other way across the frame
   _mbQ.setFromAxisAngle(_mbF,-LEAN);                       // lean it across the frame
   _mbQ2.setFromAxisAngle(_mbUp,-MB_YAW+0.30); _mbQ.multiply(_mbQ2);   // face the camera
   _mbQ2.setFromAxisAngle(new THREE.Vector3(1,0,0),Math.PI/2); _mbQ.multiply(_mbQ2);  // stand it up
   board.quaternion.copy(_mbQ);
   board.rotation.order='XYZ';
-  // The tilt swings the tail out from under the nose by half the board's length times the
-  // sine of it, so the whole thing walks back the other way along the same axis — otherwise
-  // the tail hangs in mid-air and the nose goes through the trunk.
-  const half=L*0.47, sway=Math.sin(LEAN)*half;
+  // A leaning board is held up by its TOP end, so that is the end that gets placed: the
+  // nose against the trunk, and the tail wherever the tilt puts it. Positioning the middle
+  // and hoping meant every change of angle or of board length walked the nose off the tree
+  // — and once the lean was mirrored the whole thing stood there propped against nothing.
+  // The trunk leans left as it rises, so the contact point is left of where it enters the
+  // sand; the tail then lands further left again, out on the open beach, which is the shape
+  // the reference has.
+  const half=L*0.47, topR=-Math.sin(LEAN)*half;   // how far the nose sits from the middle
+  const TOPX=-0.9;                                // where the nose meets the trunk
+  const c=topR-TOPX;
   board.position.set(
-    _mbP.x - _mbR.x*(0.12+sway) - _mbF.x*0.95,
+    _mbP.x - _mbR.x*c - _mbF.x*0.95,
     g + Math.cos(LEAN)*half,
-    _mbP.z - _mbR.z*(0.12+sway) - _mbF.z*0.95);
-  // and the rider on the sand off the board's shoulder, nearer the camera, at the size he
-  // rides at — anything smaller is a lie the moment you press play
-  pug.position.set(_mbP.x - _mbR.x*2.9 - _mbF.x*2.2, g, _mbP.z - _mbR.z*2.9 - _mbF.z*2.2);
+    _mbP.z - _mbR.z*c - _mbF.z*0.95);
+  // and the rider on the sand off the board's shoulder, a little nearer the camera. He is
+  // person-sized here, so he needs person-sized room: hard left of the palm, and barely
+  // forward of it, because a step toward the camera at this scale is worth a foot of height.
+  pug.position.set(_mbP.x - _mbR.x*4.7 - _mbF.x*0.3, g, _mbP.z - _mbR.z*4.7 - _mbF.z*0.3);
   pug.rotation.set(0, Math.PI - MB_YAW + 0.22, 0);          // turned to face the camera
+  // A world unit here is a FOOT: the boards measure 3.5 to 10.5 of them and their spec
+  // sheets are in feet, which is what makes this a fixed number rather than a fraction of
+  // whatever is leaning against the tree. An average adult is 5'9", so that is how tall he
+  // stands next to it — measured off his own bounding box, so a pug, a sloth and a crab all
+  // come out the same height. At the size he RIDES at he is under two feet tall and the
+  // picture said toy next to a six foot board.
   pug.scale.setScalar(1);
+  pug.updateMatrixWorld(true);
+  const bb=new THREE.Box3().setFromObject(pug), bs=bb.getSize(new THREE.Vector3());
+  if(bs.y>0.01)pug.scale.setScalar(5.75*MB_K/bs.y);
+  // kept so the height he actually came out at can be read back, rather than the height he
+  // happens to be measuring in the middle of an idle breath
+  pug.updateMatrixWorld(true);
+  menuBeach.rider=rider;
+  menuBeach.riderH=new THREE.Box3().setFromObject(pug).getSize(new THREE.Vector3()).y;
+  board.updateMatrixWorld(true);
+  menuBeach.boardH=new THREE.Box3().setFromObject(board).getSize(new THREE.Vector3()).y;
 }
 function menuBeachOff(){
   if(!menuBeach)return;
@@ -12900,6 +13014,11 @@ function menuBeachWanted(){
 }
 function renderMenuBeach(dt){
   const m=menuBeach; m.t+=dt;
+  // The layout is worked out once, not every frame — it measures the rider to scale him and
+  // an idle animation would make his height pulse. But it IS worked out again the moment
+  // either of the two things it measures changes, or a new character stands there at the
+  // last one's scale and a longer board leans on nothing.
+  if(m.rider!==rider||m.board!==boardArtFor(equipped)){ menuBeachOff(); menuBeachOn(); return; }
   // the sea is the game's own, so it needs the same clock the ride runs on
   if(prevOcean){
     const pu=prevOcean.uniforms;
@@ -12935,14 +13054,14 @@ function renderMenuBeach(dt){
   menuCam.aspect=Math.max(0.4,innerWidth/innerHeight);
   // a portrait phone sees a narrower slice, so the camera walks back to keep the crown of
   // the palm and the whole board inside it
-  const D=MB_D+Math.max(0,1-menuCam.aspect)*7.6+sw*0.5;
+  const D=MB_D+Math.max(0,1-menuCam.aspect)*11.8+sw*0.5;
   const px=0, pz=MB_Z*MB_K;
   // Low, and aimed UP the beach rather than down onto it. Eye level over the sand puts a
   // third of the picture into empty foreground; from down here the sand is a strip the
   // board stands on and the sea and the sky get the rest, which is how the photograph is
   // framed.
   menuCam.position.set(px-_mbF.x*D, g+1.95+sw2*0.12, pz-_mbF.z*D);
-  menuCam.lookAt(px-_mbR.x*2.6+sw*0.15, g+3.15, pz-_mbR.z*2.6);
+  menuCam.lookAt(px-_mbR.x*3.0+sw*0.15, g+4.6, pz-_mbR.z*3.0);
   menuCam.updateProjectionMatrix();
   renderer.setClearColor(0x1a2540,1);
   renderer.render(prevScene,menuCam);
