@@ -377,7 +377,14 @@ if (hasHook) {
 // needs, and it has to be a one-off: the run goes back to its own rhythm afterwards.
 {
   await page.evaluate(() => location.reload());
-  await page.waitForSelector('#dPlay', { timeout: 30000 });   // the visible main-menu control
+  // Waiting for #dPlay was waiting for nothing: it is in the static HTML, so the selector
+  // matches while the page is still parsing, long before three.js has loaded and the game's
+  // listeners are attached. The five taps below then landed on an overlay that was not
+  // listening yet, the secret panel never opened, and the click on the button inside it sat
+  // there for thirty seconds and took the whole run down. Wait for the game itself.
+  await page.waitForFunction(() => typeof window.__surf === 'object' && !!window.__surf.state,
+                             null, { timeout: 60000 });
+  await page.waitForTimeout(400);
   // The main screen is clean now: no wave test, no stats button, no purse. The wave test
   // lives behind the version 5-tap, in the secret panel, next to the other dev tools.
   const clean = await page.evaluate(() => {
@@ -390,11 +397,16 @@ if (hasHook) {
         `waveBtn=${clean.wave} statsBtn=${clean.stats} purse=${clean.purse}`);
   await ver5tap();
   await page.waitForTimeout(300);
+  // Both halves: the panel is actually open, and the button is in it. Asking only whether
+  // the button's own display is set is no check at all — a child of a display:none panel
+  // still computes its own display, so this passed every time while the panel stayed shut.
   const secretWave = await page.evaluate(() => {
     const el = document.querySelector('#stWave');
-    return !!el && getComputedStyle(el).display !== 'none';
+    return { open: !document.getElementById('stats').classList.contains('hidden'),
+             shown: !!el && getComputedStyle(el).display !== 'none' };
   });
-  check(secretWave, 'the wave test lives in the secret panel');
+  check(secretWave.open && secretWave.shown, 'the wave test lives in the secret panel',
+        `panel open=${secretWave.open} button shown=${secretWave.shown}`);
   await page.click('#stWave');
   // Two seconds of SIM time, and headless runs the sim at ~10% of wall clock.
   const fired = await page.evaluate(async () => {
