@@ -52,6 +52,20 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.88.0** — **The home dial.** The main menu's stack of pills is replaced by five round
+  glass buttons set around the rider, in the same gloss as the in-game controls: **Board** and
+  **Shop** down the left, **Quests** and **Settings** down the right, and **Play** big in the
+  middle and sat lower than the other four, so the ring reads as two columns with one obvious
+  thing between them. The pills survive on the wipeout card, which is a list of decisions to
+  read rather than a place you already know your way around.
+  - **Board** and **Shop** land in the same shop on different tabs — the rack you ride off,
+    and everyone who could be riding it. One button per destination.
+  - **Quests** shows the three session goals *before* a run instead of only on the card after
+    one, which is where a goal is actually useful.
+  - **Settings** holds a vibration toggle that is remembered across sessions (a phone buzzing
+    in a quiet room is the fastest way to make someone close a game), plus your record, best
+    trick score and the version.
+
 - **v2.87.0** — **The two aeroplanes, told apart. And brighter, more frequent chests.**
   - **The banner tow flies level.** Only its yaw was being reset each frame, so a plane that
     had already crashed once in the session kept the dive's pitch *and* its hard bank — and

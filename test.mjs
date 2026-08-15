@@ -102,6 +102,13 @@ check(!!canvas && canvas.w > 0 && canvas.h > 0, 'canvas present and sized', canv
 // The secret panel opens on five taps ON the version number — but the handler lives on the
 // overlay and hit-tests coordinates itself, so a plain click on #ver is intercepted. The
 // taps are dispatched as the pointer events the handler actually listens for.
+// The main menu is the home dial now and its Play is #dPlay; #startBtn is the pill on the
+// wipeout card ("Surf again"). Click whichever one is actually on screen.
+const startRun = () => page.evaluate(() => {
+  const d=document.getElementById('dPlay');
+  if(d && d.offsetParent!==null){ d.click(); return 'dial'; }
+  document.getElementById('startBtn').click(); return 'pill';
+});
 const ver5tap = () => page.evaluate(() => {
   const r = document.getElementById('ver').getBoundingClientRect();
   for (let i = 0; i < 5; i++)
@@ -114,7 +121,9 @@ const ver5tap = () => page.evaluate(() => {
 // broken as a wave that will not break.
 let perkSeen = { found: false, filled: 0, text: '' };
 for (const [openSel, panelSel, closeSel, label] of [
-  ['#shopBtn', '#shop', '#shopClose', 'beach shop'],
+  // v2.88: the main menu is the home dial, so the Shop PILL is hidden there — Board is the
+  // button that opens the shop from the menu now.
+  ['#dBoard', '#shop', '#shopClose', 'shop, from the home dial'],
   // Stats has no button any more: five quick taps on the version number open the secret
   // panel, which is where the dev tools live now.
   ['ver5tap', '#stats', '#stClose', 'secret stats (5 taps on the version)'],
@@ -149,7 +158,7 @@ check(perkSeen.found && perkSeen.filled > 0 && perkSeen.text.length > 0,
       'a rider card shows its perk on a stat bar',
       `found=${perkSeen.found} filled=${perkSeen.filled} text=${JSON.stringify(perkSeen.text)}`);
 
-await page.click('#startBtn');
+await startRun();
 await page.evaluate(() => window.__surf.tick(0.3));
 const d0 = await page.textContent('#hDist');
 await page.evaluate(() => window.__surf.tick(1.2));
@@ -236,7 +245,7 @@ if (hasHook) {
 // needs, and it has to be a one-off: the run goes back to its own rhythm afterwards.
 {
   await page.evaluate(() => location.reload());
-  await page.waitForSelector('#startBtn', { timeout: 30000 });
+  await page.waitForSelector('#dPlay', { timeout: 30000 });   // the visible main-menu control
   // The main screen is clean now: no wave test, no stats button, no purse. The wave test
   // lives behind the version 5-tap, in the secret panel, next to the other dev tools.
   const clean = await page.evaluate(() => {
