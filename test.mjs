@@ -276,6 +276,11 @@ await page.waitForTimeout(300);
 // play and surf on nothing. The board school and the full-screen look go through the same
 // door, so both are checked as well as play.
 {
+  // The beach is built by the render loop on the frame after the menu appears, and under
+  // swiftshader a frame is a third of a second — so asking straight away asks too early.
+  // Wait for it to come up rather than assuming it already has.
+  await page.waitForFunction(() => window.__surf.menuState().up, null, { timeout: 30000 })
+    .catch(() => {});
   const onMenu = await page.evaluate(() => window.__surf.menuState());
   const viaShop = await page.evaluate(async () => {
     document.getElementById('dShop').click();
