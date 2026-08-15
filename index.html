@@ -688,7 +688,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.85.0';
+const VERSION='2.86.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -7766,7 +7766,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   // so pressing Surf again after wiping out mid-wave started the NEW run with the old wave
   // still standing, phase and all. Found by the crate test, which restarts under a held
   // wave and then wondered why the rider was twelve metres up a ring.
-  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swClose=0;swNext=30+Math.random()*15;swTest=false;
+  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swClose=0;swNext=30+Math.random()*15;swTest=false;swArmed=false;
   swAng=0;swAngV=0;swLoops=0;swTubeRide=false;swCamLock=null;swRad=NaN;swCalm=1;swOver=0;
   swPipeAir=false;swRadV=0;swForm=0;swFootEm=0;swFootSplash=0;
   curl.visible=false;swSplash.visible=false;foamBank.visible=false;
@@ -7790,7 +7790,7 @@ function respawn(){
   for(let i=obstacles.length-1;i>=0;i--)
     if(obstacles[i].position.z>-48){scene.remove(obstacles[i]);obstacles.splice(i,1);}
   skiOn=false;skiWake=null;skiT=26;jetSki.visible=false;skiGlint.visible=false;wkA=0;
-  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=30+Math.random()*15;swTest=false;swAng=0;swAngV=0;swLoops=0;swTubeRide=false;swCamLock=null;swRad=NaN;swCalm=1;swOver=0;swPipeAir=false;swRadV=0;swForm=0;
+  swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=30+Math.random()*15;swTest=false;swArmed=false;swAng=0;swAngV=0;swLoops=0;swTubeRide=false;swCamLock=null;swRad=NaN;swCalm=1;swOver=0;swPipeAir=false;swRadV=0;swForm=0;
   for(const p of SMOKE){p.t=0;p.m.visible=false;} _smkHas=false; plane.userData.prev=null;
   curl.visible=false;swSplash.visible=false;
   whirl=null;whA=0;whirlArt.visible=false;whirlT=30+Math.random()*20;
@@ -9162,6 +9162,13 @@ const SW_CRASH_X=46, SW_HOLD_X=9.0, SW_TUBE=4.6;   // SW_PEAK is up with the pee
 const SW_FLY=5.2, SW_IMP=1.3, SW_SWELL=5.0, SW_OUT=2.6;
 let swPh=SWP.IDLE, swT=0, swRide=0, swRideMax=0, swPts=0, swDeep=0;
 let swOver=0;                           // seconds ridden past the clock, on held loops
+// How far in the aeroplane goes down and the set wave arrives. It used to be 600 m, which
+// put the biggest thing in the game inside the first minute of almost every run.
+const SET_WAVE_AT=5000;
+// Armed the moment that mark is passed. Without this the distance gate only STARTS the
+// 30-45 s countdown, so the wave would actually turn up a kilometre or two past the mark
+// rather than at it — which is not what "comes in at 5k" means.
+let swArmed=false;
 let swCurlA=0, swCam=0, swClose=0, swDebT=0, swSweep=0, swNext=30+Math.random()*15;
 // Where you are around the inside of the tube, rather than where you are across it. Zero is
 // the pocket at the bottom; a whole turn takes you up the face, over the roof upside down,
@@ -9388,7 +9395,8 @@ function updateSetWave(dt,eff){
     // thing in the game. Worse, the clear-lane test froze the countdown rather than delaying
     // the start, so a jet ski or a whirlpool stopped it dead instead of nudging it.
     // Now the clock always runs; only the moment it fires waits for a clear lane.
-    if(swTest||dist>600){
+    if(swTest||dist>SET_WAVE_AT){
+      if(!swTest&&!swArmed){ swArmed=true; swNext=Math.min(swNext,1.8); }   // fires AT the mark
       swNext-=dt;
       if(swNext<=0&&!skiOn&&!whirl&&!hanging)startSetWave();
     }
@@ -9722,7 +9730,9 @@ if(location.hash.includes('debug')){
     // reset does — not just falsifying the flags the guard reads, which would leave a jet
     // ski parked visibly in the water while the wave decided the lane was empty.
     armSetWave(){
-      dist=Math.max(dist,700); swNext=0;
+      // past the distance gate, whatever the gate currently is — this used to be a literal
+      // 700, which cleared a 600 m mark and silently stopped clearing a 5,000 m one
+      dist=Math.max(dist,SET_WAVE_AT+50); swNext=0; swArmed=true;
       skiOn=false; skiWake=null; skiT=26; jetSki.visible=false; skiGlint.visible=false; wkA=0;
       whirl=null; whA=0; whirlArt.visible=false; whirlT=30;
       return true;

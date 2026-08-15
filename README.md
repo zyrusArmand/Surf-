@@ -52,6 +52,17 @@ always a ramp and a jellyfish held on its near rim — that is your way out.
 The running version is shown at the bottom of the screen. Bump `VERSION` in
 `index.html` whenever something ships.
 
+- **v2.86.0** — **The aeroplane goes down at 5 km.** The set wave — the plane crashing and
+  the barrel that comes out of the impact — armed past 600 m, which put the biggest thing in
+  the game inside the first minute of nearly every run. `SET_WAVE_AT` is now 5,000 m and it
+  is one named constant rather than a literal buried in the update loop.
+  The distance gate only ever *started* a 30–45 s countdown, so on its own it would have put
+  the wave a kilometre or two past the mark rather than at it; crossing 5 km now arms a short
+  fuse so it arrives where the number says. Later waves in the same run keep their old
+  45–75 s spacing. The test hook that jumps a run past the gate took the constant too — it
+  was a literal `dist=700`, which cleared a 600 m mark and would have silently stopped
+  clearing a 5,000 m one.
+
 - **v2.85.0** — **Hitboxes that match the obstacle, and a field of octopuses.**
   - **"I didn't hit it and I still died" was real, and it was the log.** Collision was a
     single circle of radius `r` in the ground plane. Measured against what the meshes
