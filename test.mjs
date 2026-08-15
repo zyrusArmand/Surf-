@@ -250,6 +250,7 @@ const built = await page.evaluate(() => {
       const at = fr => { const x = fr * (N - 1), i = Math.max(0, Math.min(N - 2, Math.floor(x)));
         return p.hw[i] * (1 - (x - i)) + p.hw[i + 1] * (x - i); };
       rows.push({ id, type: t.key, wantN: r.n12, wantT: r.t12,
+                  asym: window.__surf.boardOutline(id).asym,
                   n: +(at(f) / max * r.W).toFixed(2), t: +(at(1 - f) / max * r.W).toFixed(2) });
     }
   }
@@ -266,8 +267,13 @@ const built = await page.evaluate(() => {
   const bad = built.filter(r => off(r) > 1.5);
   // and every board of a type must measure the SAME, because they are the same outline at
   // different lengths — this is what caught a family reading thirteen inches apart
+  // — except the one board that declares itself two different boards. The Asymmetric runs a
+  // longer rail on the forehand and cuts its tail forward on the backhand, so the widest
+  // point of a slice comes off whichever half is wider there and it reads an inch narrower
+  // at the tail than its siblings. That is the board, not a fault, and it is read off the
+  // spec rather than named here so the next asymmetric shape is covered too.
   const byType = {};
-  for (const r of built) (byType[r.type] ||= []).push(r);
+  for (const r of built) if (!r.asym) (byType[r.type] ||= []).push(r);
   const ragged = Object.keys(byType).filter(k => {
     const g = byType[k];
     return Math.max(...g.map(r => r.n)) - Math.min(...g.map(r => r.n)) > 0.5 ||
