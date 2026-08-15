@@ -373,10 +373,30 @@ await page.waitForTimeout(300);
     }, id).catch(() => null);
     if (f) sizes.push({ id, ...f });
   }
-  const want = sizes.length ? 5.75 * sizes[0].k : 0;
+  // The board is not placed, it is SOLVED: its lowest point rests on the sand under it and
+  // it touches the trunk without going into it. Arithmetic off half the published length
+  // had it floating clear — the mesh is not the spec sheet, because rocker, rails and the
+  // deck-alignment shift all move where the ends really are — and nothing at all held it
+  // against the tree, so it crossed straight through the trunk. Both conditions, on boards
+  // at both ends of the rack: a 4'3" skimboard, a 6' shortboard and a 10' log.
+  const stood = [];
+  for (const id of ['astro', 'carbonskim', 'noserider', 'bubblegum']) {
+    const f = await page.evaluate(async b => { window.__surf.equip(b);
+      await new Promise(r => setTimeout(r, 1200)); return window.__surf.menuFigures(); }, id);
+    if (f) stood.push({ id, ...f });
+  }
+  check(stood.length === 4 && stood.every(f => Math.abs(f.foot - f.sand) < 0.02),
+        'the board it stands there rests its foot on the sand, whatever it is',
+        stood.map(f => `${f.id} ${(f.foot - f.sand).toFixed(3)}ft off`).join(', '));
+  check(stood.length === 4 && stood.every(f => f.gap !== null && f.gap >= -0.01 && f.gap < 0.30),
+        'and leans on the trunk without going through it',
+        stood.map(f => `${f.id} gap ${f.gap} at ${f.standoff}ft out`).join(', '));
+
+  const want = 5.2;
   check(sizes.length >= 2 && sizes.every(f => Math.abs(f.rider - want) < 0.10),
         'and stands him beside it at the height of an average adult, whoever he is',
         sizes.map(f => `${f.id} ${f.rider}ft`).join(', ') + ` against ${want.toFixed(2)}ft`);
+
 }
 
 await startRun();
