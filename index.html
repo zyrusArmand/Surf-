@@ -319,6 +319,7 @@
   /* The menu no longer lays a flat panel over the game — the sea keeps rolling behind
      it under a soft vignette that has no edge anywhere, and the type carries its own
      legibility instead of borrowing it from a scrim. */
+  body.boot #overlay, body.boot #ver { opacity:0; }
   #overlay {
     position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
     color:#fff; text-align:center; padding:20px;
@@ -781,7 +782,10 @@
     background:#0a2846; color:#fff; text-align:center; padding:24px; font-size:18px; line-height:1.6; z-index:20; }
 </style>
 </head>
-<body>
+<!-- The menu's furniture is hidden until the beach behind it is standing. Otherwise the
+     first thing you get is a title and six buttons on an empty gradient, which reads as a
+     separate, broken screen that then turns into the real one. -->
+<body class="boot">
 <!-- Hidden until the game says otherwise: the menu is the first thing you see and it has
      no HUD on it. beginRun clears this inline style and the CSS below takes over. -->
 <div id="hud" style="display:none">
@@ -1017,7 +1021,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.9.2';
+const VERSION='3.9.3';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -9098,7 +9102,13 @@ crateOv.addEventListener('pointerdown',e=>{
   }
 });
 document.getElementById('crateAgain').onclick=()=>{ crateCeremonyEnd(); beginRun(); };
-document.getElementById('crateMenu').onclick=()=>{ crateCeremonyEnd(); showMenu('main'); };
+document.getElementById('crateMenu').onclick=()=>{ crateCeremonyEnd(); showMenu('main');
+// Build the beach HERE, inside the script that is already blocking the parser, rather than
+// on the first animation frame. Same half second of work either way — but on the first frame
+// the browser has already painted, so the player gets a menu with nothing behind it and then
+// a menu with a beach behind it: two screens where there should be one. Done before the
+// script returns, the first paint is the finished thing.
+try{ if(typeof menuBeachWanted==='function'&&menuBeachWanted())menuBeachOn(); }catch(e){} };
 document.getElementById('crateShop').onclick=()=>{ crateCeremonyEnd(); showMenu('main'); shopBtn.onclick(); };
 menuBtn.addEventListener('click',()=>showMenu('main'));
 // ---------- share ----------
@@ -13250,7 +13260,7 @@ const MB_PALM=1.35;
 const MB_BCLR=0.9;
 const MB_BD=0.30;                     // and the closest to the trunk it is allowed to stand
 const MB_RD=0.9;                      // where the search for his place starts
-const MB_RGAP=0.55;                   // and the daylight there has to be between the two
+const MB_RGAP=0.18;                   // and the daylight there has to be between the two
 // A world unit here is a FOOT — the boards measure 3.5 to 10.5 of them and their spec sheets
 // are in feet — so this is a height, not a fraction of whatever is leaning on the tree.
 // NOT multiplied by MB_K. That scales the SET — the sea, the sand and the palm — and the
@@ -13494,7 +13504,11 @@ function layoutMenuBeach(){
   // how wide the group actually came out, so the camera frames what is there rather than
   // what a fixed offset would have produced
   menuBeach.riderAt=+rd.toFixed(3);
+  // What the camera should centre on is the PAIR — the board and the rider standing beside
+  // it — not the whole width from the tree out to him. Aiming off the far edge of the group
+  // hung them both on the left of the frame with the palm taking the middle.
   menuBeach.spread=+rd.toFixed(3);
+  menuBeach.middle=+((d+rd)*0.5).toFixed(3);
   // A shadow map is a fixed number of texels spread over whatever box you hand it, so the
   // box IS the resolution. It was 52 by 48 to be safe, which comes to 40 texels a foot and
   // a frond edge that arrives as a staircase. Sized to what is actually standing here and
@@ -13599,10 +13613,15 @@ function renderMenuBeach(dt){
   const m=menuBeach; m.t+=dt;
   if(!menuFaded){
     menuFaded=true;
-    const cv=renderer.domElement;
+    const cv=renderer.domElement, ov=overlay, vr=document.getElementById('ver');
     cv.style.transition='none'; cv.style.opacity='0';
-    requestAnimationFrame(()=>{ cv.style.transition='opacity .34s ease-out';
-                                cv.style.opacity='1'; });
+    requestAnimationFrame(()=>{
+      // scene and furniture together, or the fade is two arrivals rather than one
+      cv.style.transition=ov.style.transition=vr.style.transition='opacity .34s ease-out';
+      cv.style.opacity='1';
+      document.body.classList.remove('boot');
+      setTimeout(()=>{ cv.style.transition=ov.style.transition=vr.style.transition=''; },420);
+    });
   }
   // The layout is worked out once, not every frame — it measures the rider to scale him and
   // an idle animation would make his height pulse. But it IS worked out again the moment
@@ -13662,7 +13681,7 @@ function renderMenuBeach(dt){
   // board stands on and the sea and the sky get the rest, which is how the photograph is
   // framed. The aim is high because the palm is a fourteen foot tree now rather than a
   // shrub, and the whole of it is meant to be in shot.
-  const aim=spread*0.66;
+  const aim=m.middle!==undefined?m.middle:spread*0.66;
   menuCam.position.set(px-_mbF.x*D, g+5.8+sw2*0.12, pz-_mbF.z*D);
   menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+6.6, pz-_mbR.z*aim);
   menuCam.updateProjectionMatrix();

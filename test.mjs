@@ -426,7 +426,9 @@ await page.waitForTimeout(300);
   // it stands on, so a fixed distance from its foot put his shoulder through the middle of
   // it — and by how much depended on which board, which is why it looked fine on one and
   // wrong on the next. Measured between the two silhouettes in the picture the camera sees.
-  check(stood.length === 4 && stood.every(f => f.riderGap >= 0.5),
+  // Clear, but standing WITH it rather than a yard down the beach from it — the pair reads
+  // as a pair, and the camera centres on the two of them.
+  check(stood.length === 4 && stood.every(f => f.riderGap >= 0.12 && f.riderGap < 0.6),
         'and the rider stands clear of it rather than through it',
         stood.map(f => `${f.id} ${f.riderGap}ft between them`).join(', '));
 
@@ -1941,6 +1943,16 @@ check(shaderErrors.length === 0, 'every shader compiles',
         'the page boots on the main menu, so the run card\'s pill is never on it');
   check(/<div id="hud" style="display:\s*none/.test(head),
         'and boots with no HUD, which is what a menu has');
+  // and the menu's furniture waits for the beach behind it, or the first thing you get is a
+  // title and six buttons on an empty gradient — a separate, broken-looking screen that then
+  // turns into the real one
+  check(/<body class="[^"]*\bboot\b/.test(head) &&
+        /body\.boot #overlay[^}]*opacity:\s*0/.test(src),
+        'and the title and the dial wait for the scene rather than arriving without it');
+  // the beach is built inside the blocking script, not on the first frame, so the first
+  // paint IS the finished screen
+  check(/showMenu\('main'\);[\s\S]{0,700}menuBeachWanted\(\)\)menuBeachOn\(\)/.test(src),
+        'and the beach is standing before the script returns, not a frame later');
   // and the script must still be able to turn it back on when a run starts
   check(/hud\.style\.display\s*=\s*''/.test(src), 'and the run still turns the HUD on');
 }
