@@ -10,12 +10,13 @@
   /* What you look at while 700KB of game parses. It used to be flat pool blue with the HUD
      and the old Play pill sitting on top of it, because the markup boots in whatever state
      it was written in and the script that sorts it out is eight thousand lines down. The
-     menu it is about to become is a beach at sunset, so this is that beach's sky and sand:
-     the page fills in rather than changing channel. */
+     menu it is about to become is a beach at midday, so this is that beach's sky, sea and
+     sand: the page fills in rather than changing channel. */
   html,body { width:100%; height:100%; overflow:hidden; font-family:'Trebuchet MS',sans-serif;
     touch-action:none;
-    background:linear-gradient(180deg,#2b2350 0%,#54305c 34%,#a8536a 56%,#e08a45 72%,
-                                       #d8b98d 82%,#c9b795 100%); }
+    background:linear-gradient(180deg,#1668c4 0%,#3d97d9 32%,#8ccdee 48%,#cfeaf8 53%,
+                                       #2eb1cd 54%,#6fd2da 62%,#a8dbd6 66%,#c9b795 69%,
+                                       #cfbc9c 100%); }
   canvas { display:block; }
   /* The readout sat hard against the top edge, under the notch on a phone. It is off the
      edge now, on a scrim that fades out rather than a bar with a line under it, and each
@@ -1016,7 +1017,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.5.0';
+const VERSION='3.6.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10660,7 +10661,12 @@ if(location.hash.includes('debug')){
       if(!menuBeach)return null;
       const rb=new THREE.Box3().setFromObject(pug), bb=new THREE.Box3().setFromObject(menuBeach.board);
       const rs=rb.getSize(new THREE.Vector3()), bs=bb.getSize(new THREE.Vector3());
-      return {standoff:menuBeach.standoff, foot:menuBeach.foot, sand:menuBeach.sandAt,
+      const sk=prevSky&&prevSky.uniforms;
+      return {sky:sk?{top:sk.uTop.value.getHex(),hor:sk.uHorizon.value.getHex(),
+                      glow:+sk.uGlowAmt.value.toFixed(2)}:null,
+              sea:prevOcean?{deep:prevOcean.uniforms.uDeep.value.getHex(),
+                             shal:prevOcean.uniforms.uShallow.value.getHex()}:null,
+              standoff:menuBeach.standoff, foot:menuBeach.foot, sand:menuBeach.sandAt,
               gap:menuBeach.gap, boardF:menuBeach.boardF, trunkF:menuBeach.trunkF,
               palmH:+(new THREE.Box3().setFromObject(menuPalm).getSize(new THREE.Vector3()).y).toFixed(2),
               rider:+(menuBeach.riderH||rs.y).toFixed(2), boardH:+(menuBeach.boardH||bs.y).toFixed(2),
@@ -12817,7 +12823,7 @@ function update(dt){
 // Nothing here is new geometry. The beach, the sea, the palms, the gulls and the clouds are
 // the set the full-screen preview already stands boards on; the board and the rider are the
 // same two objects the game rides, lifted out and put back exactly the way the preview does
-// it. What the menu adds is a camera, a palm close enough to lean a board on, and a sunset.
+// it. What the menu adds is a camera, a palm close enough to lean a board on, and a midday.
 let menuBeach=null, menuCam=null, menuProps=null, menuDay=null, menuPalm=null;
 const MB_K=1.15;                      // the set is a shade bigger than life so the sea reads
 // How far down the beach the three of them stand. At the top of the sand the waterline is a
@@ -12871,43 +12877,61 @@ function menuBeachOn(){
   for(const p of beachPalms)p.visible=false;
   beachSet.scale.setScalar(MB_K); beachSet.position.set(0,0,0);
   if(beachShadow)beachShadow.visible=false;
-  // sunset: the same dome, warmed right down, with the sun low and wide
+  // A bright tropical midday, which is what the reference is: deep azure overhead, the blue
+  // washing out to almost white at the horizon, and no sunset band anywhere. The sun is high
+  // and out of frame, so the glow across the horizon is turned right down — a wide warm band
+  // low in the sky is the one thing that says "evening" no matter what else is done.
   if(prevSky){
-    prevSky.uniforms.uTop.value.set(0x24306e);
-    prevSky.uniforms.uMid.value.set(0x8b5aa8);
-    prevSky.uniforms.uHorizon.value.set(0xffc27a);
-    prevSky.uniforms.uGlow.value.set(0xffd9a0);
-    prevSky.uniforms.uSunX.value=0.34;
-    prevSky.uniforms.uGlowAmt.value=0.72;
+    prevSky.uniforms.uTop.value.set(0x1668c4);
+    prevSky.uniforms.uMid.value.set(0x59b4e8);
+    prevSky.uniforms.uHorizon.value.set(0xcfeaf8);
+    prevSky.uniforms.uGlow.value.set(0xffffff);
+    prevSky.uniforms.uSunX.value=0.30;
+    prevSky.uniforms.uGlowAmt.value=0.14;
   }
-  // and the light with it, or the sand stays a bright grey afternoon under a red sky
-  // A strong low key and a modest sky. The other way round — a big hemisphere for
-  // brightness — lights the sand from every direction at once, and sand with no shadow in
-  // it is a sheet of paper whatever colour it is: the dunes and the ripple shading are
-  // baked for a sun raking in from the left, and they only show if there IS one.
-  if(prevKey){ prevKey.color.set(0xffcb9a); prevKey.intensity=3.2;
-               prevKey.position.set(-2.6,1.15,-3.4); }        // low, and out over the water
-  if(prevHemi){ prevHemi.color.set(0xffe2c6); prevHemi.groundColor.set(0xb8865c);
-                prevHemi.intensity=1.05; }
-  // The sand carries a dark multiplier over its vertex colours because the previews look at
-  // it from above in full daylight. Under a low sun it went to mud, so the menu lifts it —
-  // a beach at sunset is warm and bright, not brown.
-  // Warm and a little darker than the daylight preview wants, because the tone curve
-  // compresses the top end: lit to full brightness the dunes and the ripple shading flatten
-  // into one sheet of paper, which is the "sand does not look real" of it.
+  // The light with it. A hard key from high and behind the left shoulder, because the ref
+  // has the palm shadows thrown long across the sand toward the camera and the dune and
+  // ripple shading is baked for a sun that is actually somewhere; a big hemisphere on its
+  // own lights the sand from every direction at once, and sand with no shadow in it is a
+  // sheet of paper whatever colour it is. But at noon the sky itself is a huge blue source,
+  // so the hemisphere carries more than it did at sunset and carries it COOL.
+  if(prevKey){ prevKey.color.set(0xfff6e6); prevKey.intensity=2.15;
+               prevKey.position.set(-2.5,3.3,-2.6); }
+  if(prevHemi){ prevHemi.color.set(0xc7e6ff); prevHemi.groundColor.set(0xe0b478);
+                prevHemi.intensity=1.10; }
+  // Sand: warm and light, the colour of dry tropical beach. It carries a dark multiplier
+  // over its vertex colours because the previews look at it from above in full daylight —
+  // under the old low sun that went to mud, and under this one it can come most of the way
+  // back up without the dunes flattening into one sheet.
   if(beachSand){ menuDay.sand=beachSand.material.color.clone();
-                 beachSand.material.color.set(0x94795d);
+                 beachSand.material.color.set(0xb98f4e);
                  menuDay.sandEnv=beachSand.material.envMapIntensity;
-                 beachSand.material.envMapIntensity=0.30; }
+                 beachSand.material.envMapIntensity=0.16; }
+  // And the water turquoise rather than the open-ocean navy the game rides on. This is a
+  // shallow reef shore in the sun; the game's own colours are a hundred metres out and four
+  // hours later.
+  if(prevOcean){
+    menuDay.sea={deep:prevOcean.uniforms.uDeep.value.clone(),
+                 shal:prevOcean.uniforms.uShallow.value.clone(),
+                 sky:prevOcean.uniforms.uSky.value.clone()};
+    prevOcean.uniforms.uDeep.value.set(0x0f86bd);
+    prevOcean.uniforms.uShallow.value.set(0x5ad2da);
+    prevOcean.uniforms.uSky.value.set(0xbfe6fb);
+  }
   // And the water sits a little higher. Between the waterline and the dry sand there is a
   // band of beach only inches above the sea, and seen from down here at a grazing angle that
   // band spreads right across the picture as brown streaks THROUGH the water. Raising the
   // sea drowns the flats, which is what a beach at anything but dead low tide looks like.
-  if(beachSea){ menuDay.seaY=beachSea.position.y; beachSea.position.y=0.85; }
-  // and a low warm fill from the camera's side, or the whole beach is a silhouette: the key
-  // is out over the water behind everything, which is where the sun is and where it has to be
-  if(prevFill){ prevFill.color.set(0xffc9a4); prevFill.intensity=0.95;
-                prevFill.position.set(-1.2,0.8,3.2); }
+  if(beachSea){ menuDay.seaY=beachSea.position.y; beachSea.position.y=1.05; }
+  // and a cool fill from the camera's side, so the shaded face of the trunk and the underside
+  // of the board pick up bounce off the sand instead of going black
+  if(prevFill){ prevFill.color.set(0xffeed6); prevFill.intensity=0.60;
+                prevFill.position.set(-1.0,1.5,3.2); }
+  // The palm's colours are vertex colours under a dark multiplier, set for a preview that
+  // looks at it from above in flat light. In the sun it wants to be a green tree rather than
+  // an olive one, so the multiplier comes up for the menu and goes back on the way out.
+  if(menuPalm){ menuDay.palm=menuPalm.material.color.clone();
+                menuPalm.material.color.set(0x646464); }
   layoutMenuBeach();
   return true;
 }
@@ -12916,7 +12940,7 @@ function menuBeachOn(){
 // crossing the frame as a diagonal rather than a straight bar across it — and once the
 // camera is at an angle, "put the board to the left of the palm" stops meaning anything in
 // x and z. So everything is placed along the camera's own two axes: forward, and right.
-const MB_YAW=1.24;                    // how far round from straight-out-to-sea the shot sits
+const MB_YAW=0.46;                    // how far round from straight-out-to-sea the shot sits
 const MB_D=23.2;                      // how far back the camera stands from the palm
 // The palm. It was a shrub: eleven of its own units at 0.46 comes out barely six feet tall,
 // which is shorter than most of the rack — a ten foot log leaning on it towered over the
@@ -13169,6 +13193,10 @@ function menuBeachOff(){
   if(beachSand&&menuDay.sand){ beachSand.material.color.copy(menuDay.sand);
     beachSand.material.envMapIntensity=menuDay.sandEnv; }
   if(beachSea&&menuDay.seaY!==undefined)beachSea.position.y=menuDay.seaY;
+  if(menuPalm&&menuDay.palm)menuPalm.material.color.copy(menuDay.palm);
+  if(prevOcean&&menuDay.sea){ prevOcean.uniforms.uDeep.value.copy(menuDay.sea.deep);
+    prevOcean.uniforms.uShallow.value.copy(menuDay.sea.shal);
+    prevOcean.uniforms.uSky.value.copy(menuDay.sea.sky); }
 }
 // Should the beach be up? Menu showing, nothing running, no crash playing out. Asking every
 // frame rather than hooking each way in and out is what makes it impossible to leave the
@@ -13200,7 +13228,10 @@ function renderMenuBeach(dt){
     // half the swell the ride runs on. This is the inside, a hundred metres in from where
     // the game's wave stands up, and a shore break the height of an open-ocean set would be
     // washing over the dry sand
-    pu.uAmp.value=oceanUniforms.uAmp.value*0.5; pu.uPeak.value=oceanUniforms.uPeak.value;
+    // Half was the inside of a calm day. The reference is a reef shore with a set standing
+    // up and breaking across the whole frame, and the foam only shows on a wave with a
+    // shoulder to break off, so the shore break carries most of the swell the ride does.
+    pu.uAmp.value=oceanUniforms.uAmp.value*0.92; pu.uPeak.value=oceanUniforms.uPeak.value;
   }
   if(beachLife){
     for(const c2 of beachLife.clouds){
@@ -13240,8 +13271,8 @@ function renderMenuBeach(dt){
   // framed. The aim is high because the palm is a fourteen foot tree now rather than a
   // shrub, and the whole of it is meant to be in shot.
   const aim=spread*0.66;
-  menuCam.position.set(px-_mbF.x*D, g+2.5+sw2*0.12, pz-_mbF.z*D);
-  menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+7.4, pz-_mbR.z*aim);
+  menuCam.position.set(px-_mbF.x*D, g+5.8+sw2*0.12, pz-_mbF.z*D);
+  menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+6.6, pz-_mbR.z*aim);
   menuCam.updateProjectionMatrix();
   renderer.setClearColor(0x1a2540,1);
   renderer.render(prevScene,menuCam);

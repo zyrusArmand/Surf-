@@ -401,6 +401,16 @@ await page.waitForTimeout(300);
   check(stood.every(f => f.palmH > 13),
         'and the palm it leans on is a tree', `${stood[0] && stood[0].palmH}ft tall`);
 
+  // Midday, not dusk. The one thing that says "evening" whatever else is done is a wide warm
+  // band low in the sky, so the horizon glow is the number that matters — and the sky and the
+  // sea both have to be blue-dominant, which a sunset's orange horizon is not.
+  const lit = stood[0] && stood[0].sky;
+  const blue = c => (c & 0xff) > ((c >> 16) & 0xff);
+  check(!!lit && lit.glow <= 0.25 && blue(lit.top) && blue(lit.hor) &&
+        stood[0].sea && blue(stood[0].sea.deep) && blue(stood[0].sea.shal),
+        'the beach is a bright tropical midday, not a sunset',
+        lit ? `sky #${lit.top.toString(16)} horizon #${lit.hor.toString(16)} glow ${lit.glow}` : 'no sky');
+
   const want = 5.2;
   check(sizes.length >= 2 && sizes.every(f => Math.abs(f.rider - want) < 0.10),
         'and stands him beside it at the height of an average adult, whoever he is',
