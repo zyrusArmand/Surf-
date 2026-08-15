@@ -1484,6 +1484,47 @@ if (hasHook) {
 check(shaderErrors.length === 0, 'every shader compiles',
       shaderErrors.length ? `\n    ${shaderErrors.slice(0, 3).join('\n    ')}` : '');
 
+// ---------- the wipeout card fits the phone it is on ----------
+// v2.93: it did not. The buttons finished 16px above the version number on a big phone and
+// 130px BELOW the bottom of the glass on a small one, where "Surf again" simply was not
+// reachable. Three real sizes, each in its own page rather than resizing the one the suite
+// has been riding all this time: the card must end clear of the version and nothing may
+// hang off the bottom.
+for (const [width, height, label] of [[430, 932, 'large phone'],
+                                      [393, 852, 'phone'],
+                                      [375, 667, 'small phone']]) {
+  const p2 = await browser.newPage({ viewport: { width, height } });
+  const oops = [];
+  p2.on('pageerror', e => oops.push(e.message));
+  await p2.goto(`http://127.0.0.1:${PORT}/index.html#debug`, { waitUntil: 'load' });
+  await p2.waitForTimeout(4500);
+  await p2.evaluate(() => document.getElementById('dPlay').click());
+  await p2.waitForTimeout(1200);
+  await p2.evaluate(() => { window.__surf.tick(2.0); window.__surf.wipeNow('foam'); });
+  // the card arrives after the wipeout plays out, which is real seconds, not sim ones
+  for (let i = 0; i < 40; i++) {
+    await p2.evaluate(() => { try { window.__surf.tick(0.25); } catch (e) {} });
+    await p2.waitForTimeout(250);
+    const cls = await p2.evaluate(() => document.getElementById('overlay').className);
+    if (cls.includes('over') && !cls.includes('hidden')) break;
+  }
+  const fit = await p2.evaluate(() => {
+    const ov = document.getElementById('overlay');
+    const box = e => e.getBoundingClientRect();
+    return { card: ov.className.includes('over'),
+             btns: Math.round(box(document.getElementById('ovBtns')).bottom),
+             ver: Math.round(box(document.getElementById('ver')).top),
+             over: ov.scrollHeight - ov.clientHeight, H: innerHeight };
+  });
+  const gap = fit.ver - fit.btns;
+  check(fit.card && gap >= 18 && fit.btns <= fit.H && fit.over === 0,
+        `the wipeout card fits a ${label} and clears the version`,
+        `${width}x${height}: buttons end ${fit.btns}, version at ${fit.ver}, ` +
+        `gap ${gap}, overflow ${fit.over}`);
+  errors.push(...oops);
+  await p2.close();
+}
+
 check(errors.length === 0, 'no page errors', errors.length ? `\n    ${errors.slice(0, 10).join('\n    ')}` : '');
 
 await browser.close();

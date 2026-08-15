@@ -365,11 +365,44 @@
      margin-top:auto takes all the free space above the stack instead, which pins it to
      the bottom padding on a tall screen and collapses to nothing on a short one, so the
      summary can never be overlapped or clipped. */
-  #overlay.over { justify-content:flex-start;
-    padding-top:calc(21vh + env(safe-area-inset-top,0px));
-    padding-bottom:calc(13vh + env(safe-area-inset-bottom,0px)); }
-  #overlay.over #ovBtns { margin-top:auto; padding-top:24px; }
+  /* The card is 680-odd px of title, summary, goals and buttons, and 21vh of top padding
+     put the bottom of that past the bottom of the screen on every phone measured: the
+     buttons finished 16px above the version on a big one and 130px BELOW the glass on a
+     small one. Three things fix it and all three are needed.
+     - The top padding comes down to 6vh, which is where the 130-odd px comes from.
+     - The bottom padding is keyed to the version rather than to a fraction of the screen:
+       it sits 24px + the home indicator off the bottom and is about 15px tall, so 62px
+       clears it with air to spare, and the 9vh floor gives a tall screen a bigger gap
+       without letting a short one steal the room the card needs.
+     - overflow-y:auto, so that on a screen too short for the card at any padding it
+       scrolls instead of running off the bottom. Nothing can be pushed off the glass now,
+       whatever the phone or however long the goal list gets.
+     The buttons are no longer pinned to the bottom with margin-top:auto either. That was
+     there to force them DOWN when the card was short, and now that the card fits it left a
+     250px hole between the goals and "Surf again". The card reads as one block instead,
+     with the free space split evenly above and below it — "safe" centring, so that on a
+     screen too small to centre in it packs from the top and scrolls rather than hiding the
+     title off the top edge, which is what plain centring does. Browsers that do not know
+     the keyword drop that line and keep the flex-start above it. */
+  #overlay.over { justify-content:flex-start; justify-content:safe center; overflow-y:auto;
+    padding-top:calc(6vh + env(safe-area-inset-top,0px));
+    padding-bottom:calc(max(9vh,62px) + env(safe-area-inset-bottom,0px)); }
+  #overlay.over #ovBtns { padding-top:20px; }
   #overlay.over #ovBtns .go { padding:9px 22px; font-size:15px; margin-top:0; }
+  /* A 4.7-inch phone is 667px tall and the card wants 650 of them, so it scrolled — and a
+     "Surf again" you have to scroll to find is as good as not being there. Everything gives
+     up a few pixels rather than one thing giving up a lot: a smaller title, tighter summary
+     rows, a shorter gap over the buttons and slimmer buttons. It comes to about a hundred
+     pixels, which is what the small screen was short by. Taller phones never see this. */
+  @media (max-height:740px){
+    #overlay.over { padding-top:calc(4vh + env(safe-area-inset-top,0px)); }
+    #overlay.over h1 { font-size:min(9.5vw,42px); }
+    #overlay.over #ovText { margin-top:8px; font-size:min(4vw,15.5px); }
+    #overlay.over #ovText .tr { padding:4px 2px; }
+    #overlay.over #ovText .lead.goals { margin-top:8px; }
+    #overlay.over #ovBtns { padding-top:10px; gap:7px; }
+    #overlay.over #ovBtns .go { padding:7px 22px; }
+  }
   /* On the menu the title stays where it has always sat and the buttons go to the
      bottom of the screen, out of the flow, so the two do not push each other around.
      The wipeout card keeps them together under the summary. */
@@ -896,7 +929,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.92.0';
+const VERSION='2.93.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
