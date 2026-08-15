@@ -126,6 +126,8 @@ for (const [openSel, panelSel, closeSel, label] of [
   // v2.91: Board opens board school instead, so it gets its own row below.
   ['#dShop', '#shop', '#shopClose', 'shop, from the home dial'],
   ['#dBoard', '#guide', '#gClose', 'board school, from the home dial'],
+  ['#dTricks', '#howto', '#howClose', 'the trick sheet, from the home dial'],
+  ['#dStats', '#mystats', '#myClose', 'your surfing, from the home dial'],
   // Stats has no button any more: five quick taps on the version number open the secret
   // panel, which is where the dev tools live now.
   ['ver5tap', '#stats', '#stClose', 'secret stats (5 taps on the version)'],
@@ -262,7 +264,33 @@ check(matched.out.includes(matched.type) && matched.type.length > 0,
 await page.click('#gClose');
 await page.waitForTimeout(300);
 
+// ---------- the menu is a beach, and it gives everything back ----------
+// It borrows the two objects the game rides — the equipped board and the rider — and stands
+// them on the preview's beach. Every way out of the menu has to hand them back, or you press
+// play and surf on nothing. The board school and the full-screen look go through the same
+// door, so both are checked as well as play.
+{
+  const onMenu = await page.evaluate(() => window.__surf.menuState());
+  const viaShop = await page.evaluate(async () => {
+    document.getElementById('dShop').click();
+    await new Promise(r => setTimeout(r, 60));
+    const s = window.__surf.menuState();
+    document.getElementById('shopClose').click();
+    return s;
+  });
+  await page.waitForTimeout(400);
+  check(onMenu.wanted && onMenu.up && onMenu.riderOnBeach && onMenu.boardOnBeach,
+        'the main menu stands the board and the rider on a beach',
+        JSON.stringify(onMenu));
+  check(!viaShop.riderOnBeach && !viaShop.boardOnBeach,
+        'and hands them back the moment the shop opens',
+        JSON.stringify(viaShop));
+}
+
 await startRun();
+const riding = await page.evaluate(() => window.__surf.menuState());
+check(!riding.up && !riding.riderOnBeach && !riding.boardOnBeach,
+      'and hands them back to the run when you press play', JSON.stringify(riding));
 await page.evaluate(() => window.__surf.tick(0.3));
 const d0 = await page.textContent('#hDist');
 await page.evaluate(() => window.__surf.tick(1.2));
