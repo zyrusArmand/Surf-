@@ -1026,6 +1026,27 @@ if (hasHook) {
         blown.ended ? `blown, ended as ${blown.kind}` : 'landed it square');
 }
 
+// ---------- the landing window ----------
+// v2.92: the feedback was that a flip you had plainly landed still ended the run, so the
+// window opened up — 35.5 degrees of rotation to 41.3, and 44.7 of yaw to 50.4. "A little"
+// is the whole claim, so this stands on both sides of it: an attitude inside the new window
+// that the old one would have thrown you for survives, and one plainly short of round still
+// ends the run. Both halves matter — a window that only ever passes is not a window.
+{
+  const land = await page.evaluate(() => {
+    const drop = (flip, spin) => {
+      window.__surf.restart(); window.__surf.tick(0.4);
+      return window.__surf.landAt(flip, spin);
+    };
+    return { square: drop(0.05, 0), slack: drop(0.68, 0),
+             short: drop(1.20, 0), crooked: drop(0, 1.30) };
+  });
+  check(!land.square.wipe && !land.slack.wipe && land.short.wipe && land.crooked.wipe,
+        'a slightly crooked landing stands up and a plainly blown one still does not',
+        `square=${land.square.wipe} 0.68rad=${land.slack.wipe} ` +
+        `1.20rad=${land.short.kind} yaw1.30=${land.crooked.kind}`);
+}
+
 // ---------- nothing is put in the tube to crash into ----------
 // Wreckage went in as the one thing that still bit in there, and it was never a hazard you
 // could play against: the ring owns your position while you are going round it, the drum

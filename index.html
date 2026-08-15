@@ -896,7 +896,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='2.91.0';
+const VERSION='2.92.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -7750,6 +7750,17 @@ const HELI_PHASE=[HELI_CROUCH,HELI_PULL,HELI_HOP,HELI_DIVE,HELI_SURF];
 // taking hold again starts it turning from wherever it stopped. You can work the button as
 // many times as the air lasts.
 let heliPh=-1, heliT=0, heliPose=0, heliUsed=false, heliAir=false, heliHeld=false, heliIncline=0;
+// How square you have to be when you touch down. Yaw only has to finish on a HALF turn, so
+// its window is measured against the nearest 180; flip and roll have to come all the way
+// round, and their window is tighter because landing part-way over is landing upside down.
+//
+// Widened a little on the back of "you die too easily after a flip": 44.7 degrees of yaw
+// and 35.5 of rotation became 50.4 and 41.3. That is about a sixth more room on each axis
+// — enough that a landing you would have called good but slightly crooked now stands up,
+// and not enough that a rotation you plainly did not finish does. Both places that judge a
+// landing read these, and so does the name the wipeout is given, so the window and the
+// "under-rotated" label can never drift apart again.
+const LAND_YAW=0.88, LAND_FLIP=0.72;
 const SPIN_RATE=Math.PI*2*1.35, FLIP_RATE=Math.PI*2*1.25;
 let trick=null; // rope backflip only
 let planeT=34+Math.random()*26,planeActive=false,hanging=false,spawnT=0.4;
@@ -9765,12 +9776,12 @@ function swPipeLand(){
     const offS=Math.abs(((spinRot+Math.PI/2)%Math.PI)-Math.PI/2);
     const offF=Math.max(Math.abs(((flipRot+Math.PI)%(Math.PI*2))-Math.PI),
                         Math.abs(((pitchRot+Math.PI)%(Math.PI*2))-Math.PI));
-    if(offS<0.78&&offF<0.62){
+    if(offS<LAND_YAW&&offF<LAND_FLIP){
       settleTricks(true);
     } else {
       carrySpin=spinHeld?SPIN_RATE:0; carryFlip=flipHeld?FLIP_RATE:0;
       settleTricks(false,true);
-      startWipeout(offF>=0.62?'under':'land');
+      startWipeout(offF>=LAND_FLIP?'under':'land');
       return;
     }
   } else if(grabOn){ settleTricks(false,true); startWipeout('foam'); return; }
@@ -10296,6 +10307,16 @@ if(location.hash.includes('debug')){
                    dx:+d.x.toFixed(4),dy:+d.y.toFixed(4),dz:+d.z.toFixed(4)}; },
     trick(kind){ if(kind==='roll')addRoll(1,'test'); else if(kind==='flip')addFlip(1,'test');
                  else addSpin(1,'test'); return window.__surf.state(); },
+    // Land him from an attitude chosen on purpose. The landing window is a pair of numbers,
+    // and the only honest way to test a number is to stand on both sides of it: lift him,
+    // set the rotation he is going to arrive in, and let him fall onto it.
+    landAt(flip,spin){
+      spinRot=spin||0; flipRot=flip||0; pitchRot=0;
+      spinHeld=false; flipHeld=false; pitchHeld=false; grabOn=false;
+      py+=3; vy=-4; airborne=true; wakeAir=false; wakeGrace=0;
+      for(let i=0;i<180&&airborne&&!wipe;i++)update(1/60);
+      return {wipe:!!wipe, kind:lastWipe&&lastWipe.kind, airborne};
+    },
     plane:()=>({pos:plane.position.toArray().map(v=>+v.toFixed(2)),
                 yaw:+plane.rotation.y.toFixed(3), visible:plane.visible,
                 screen:(()=>{const v=plane.position.clone().project(camera);
@@ -11500,7 +11521,7 @@ function update(dt){
           const offS=Math.abs(((spinRot+Math.PI/2)%Math.PI)-Math.PI/2);
           const offF=Math.max(Math.abs(((flipRot+Math.PI)%(Math.PI*2))-Math.PI),
                               Math.abs(((pitchRot+Math.PI)%(Math.PI*2))-Math.PI));
-          if(offS<0.78&&offF<0.62){
+          if(offS<LAND_YAW&&offF<LAND_FLIP){
             if(Math.round(spinRot/Math.PI)%2!==0){ switchRide=!switchRide; applyStance();
               waveT=WAVE_DUR;                       // half a turn: he ends up facing us
               msg(switchRide?'SWITCH!':'BACK TO REGULAR!'); }
@@ -11508,7 +11529,7 @@ function update(dt){
           else {
             // he goes in exactly as he was: same attitude, still turning the same way
             carrySpin=spinHeld?SPIN_RATE:0; carryFlip=flipHeld?FLIP_RATE:0;
-            settleTricks(false,true); startWipeout(offF>=0.62?'under':'land'); return;
+            settleTricks(false,true); startWipeout(offF>=LAND_FLIP?'under':'land'); return;
           }
         } else if(grabOn){ settleTricks(false,true); startWipeout('foam'); return; }
       }
