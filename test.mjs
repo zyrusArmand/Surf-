@@ -1995,6 +1995,33 @@ check(shaderErrors.length === 0, 'every shader compiles',
         `sun height ${glit.a.y} -> ${glit.b.y} over the run`);
 }
 
+// ---------- spray is water, not beads ----------
+// Six-by-five spheres in flat white is what a droplet is NOT: water off a rail is torn, half
+// air, and has no edge. A hard little ball reads as a bead and a hundred of them read as
+// polystyrene. And a sprite has no idea where the sea is, so it cut through the surface with
+// a hard ellipse the moment it landed — the giveaway in every frame of this game. The proper
+// fix is a depth buffer; the one intersection that matters is with a surface whose height is
+// already known to the millimetre, so it is done against that for nothing.
+{
+  const sp = await page.evaluate(() => {
+    window.__surf.restart(); window.__surf.invuln(true);
+    // stepped finely, or every drop in the air was thrown on the same frame and they are
+    // all necessarily at the same point in the same life
+    window.__surf.tick(2);
+    for (let i = 0; i < 14; i++) window.__surf.tick(0.04);
+    const a = window.__surf.spray();
+    for (let i = 0; i < 6; i++) window.__surf.tick(0.04);
+    return { a, b: window.__surf.spray() };
+  });
+  check(sp.a.sprite && sp.a.soft, 'a drop is a soft sprite rather than a little sphere',
+        JSON.stringify({sprite: sp.a.sprite, soft: sp.a.soft}));
+  check(sp.a.own, 'and each carries its own opacity, because each is at its own point in its own life');
+  const fade = await page.evaluate(() => window.__surf.sprayProbe());
+  check(fade && fade.near[0] > fade.near[1] + 0.3,
+        'and one about to land is dimmer than one still in the air, so none of them cut the surface',
+        fade ? `surface fade ${fade.near[0]} at 3ft up against ${fade.near[1]} at the waterline` : 'no probe');
+}
+
 // ---------- the wipeout card fits the phone it is on ----------
 // v2.93: it did not. The buttons finished 16px above the version number on a big phone and
 // 130px BELOW the bottom of the glass on a small one, where "Surf again" simply was not

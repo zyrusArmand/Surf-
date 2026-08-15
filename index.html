@@ -1021,7 +1021,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.10.0';
+const VERSION='3.11.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -7764,15 +7764,44 @@ player.add(rig);
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
 scene.add(player);
 
-// splash particles — pooled: one shared geometry + a fixed set of meshes, reused forever
-const SPLASH_GEO=new THREE.SphereGeometry(0.12,6,5);
-const SPLASH_MAT=new THREE.MeshBasicMaterial({color:0xffffff});
-const SPLASH_MAT_WARN=new THREE.MeshBasicMaterial({color:0xffc23e});
-const SPLASH_MAT_HIT=new THREE.MeshBasicMaterial({color:0xff5f5f});
-const SPLASH_MAT_ZAP=new THREE.MeshBasicMaterial({color:0x9fe8ff});
+// ---------- spray ----------
+// These were six-by-five spheres in flat white, which is what a droplet is NOT. Water
+// thrown off a rail is torn, it is half air, and it has no edge: what you see is a bright
+// core going soft into nothing. A hard little ball reads as a bead, and a hundred beads
+// read as polystyrene. So: camera-facing sprites with a soft falloff baked into their
+// alpha, and no silhouette anywhere in them.
+//
+// And they FADE INTO THE WATER. A sprite has no idea where the sea is, so it cuts through
+// the surface with a hard ellipse the moment it lands — the giveaway that has been in every
+// frame of this game. The proper fix is a depth buffer and a soft-particle fade; the one
+// intersection that actually matters here is with a surface whose height the game already
+// knows to the millimetre, so it is done against that instead, for nothing.
+const _dropTex=(()=>{
+  const N=64, cv=document.createElement('canvas'); cv.width=cv.height=N;
+  const cx=cv.getContext('2d'), im=cx.createImageData(N,N), d=im.data;
+  for(let y=0;y<N;y++)for(let x=0;x<N;x++){
+    const dx=(x+0.5)/N-0.5, dy=(y+0.5)/N-0.5, r=Math.min(1,Math.hypot(dx,dy)*2);
+    // a hot core with a long soft shoulder — a droplet is a lens, not a disc
+    const a=Math.pow(1-r,1.9)*(0.55+0.45*Math.pow(1-r,5.0));
+    const k=(y*N+x)*4;
+    d[k]=d[k+1]=d[k+2]=255; d[k+3]=Math.max(0,Math.min(255,a*255))|0;
+  }
+  cx.putImageData(im,0,0);
+  const t=new THREE.CanvasTexture(cv); t.wrapS=t.wrapT=THREE.ClampToEdgeWrapping;
+  return t;
+})();
+function dropMat(col){ return new THREE.SpriteMaterial({map:_dropTex,color:col,
+  transparent:true,depthWrite:false,opacity:1,sizeAttenuation:true}); }
+const SPLASH_MAT=dropMat(0xffffff);
+const SPLASH_MAT_WARN=dropMat(0xffc23e);
+const SPLASH_MAT_HIT=dropMat(0xff5f5f);
+const SPLASH_MAT_ZAP=dropMat(0x9fe8ff);
 const POOL=[],splashes=[];
 for(let i=0;i<420;i++){
-  const m=new THREE.Mesh(SPLASH_GEO,SPLASH_MAT);
+  // its own material, because opacity is per-material and every drop is at its own point in
+  // its own life. Three.js caches the program, so this is four hundred uniform sets and one
+  // shader, not four hundred shaders.
+  const m=new THREE.Sprite(SPLASH_MAT.clone());
   m.visible=false;scene.add(m);POOL.push(m);
 }
 function takeDrop(){
@@ -7788,11 +7817,16 @@ function splash(x,y,z,n=8,col){
             (col===0x9fe8ff?SPLASH_MAT_ZAP:SPLASH_MAT));
   for(let i=0;i<n;i++){
     const m=takeDrop();if(!m)return;
-    m.material=mtl;
+    m.material.map=mtl.map; m.material.color.copy(mtl.color);
+    m.material.opacity=1;
     m.position.set(x,y,z);
-    const sc=0.7+Math.random()*1.1;
-    m.scale.setScalar(sc);
-    m.userData={vx:(Math.random()-0.5)*6,vy:2+Math.random()*4,vz:(Math.random()-0.5)*6,t:0.7,s:sc};
+    // Spray is not one size. A tear-off throws a few fat drops and a lot of mist, and
+    // sampling that as a curve rather than a range is most of why this reads as spray
+    // instead of as confetti: cube the roll and the small ones dominate.
+    const r=Math.random(), sc=(0.34+Math.pow(r,3.0)*1.9)*0.34;
+    m.scale.set(sc,sc,1);
+    m.userData={vx:(Math.random()-0.5)*6,vy:2+Math.random()*4,vz:(Math.random()-0.5)*6,
+                t:0.55+Math.random()*0.45,s:sc,y0:y};
     splashes.push(m);
   }
 }
@@ -9715,8 +9749,18 @@ function updateWorldDuringWipeout(dt){
     const s2=splashes[i],u=s2.userData;
     u.t-=dt;u.vy-=14*dt;
     s2.position.x+=u.vx*dt;s2.position.y+=u.vy*dt;s2.position.z+=u.vz*dt;
-    s2.scale.setScalar(Math.max(0.05,u.t*u.s));
-    if(u.t<=0){freeDrop(s2);splashes.splice(i,1);}
+    // it does not shrink to nothing any more, it goes OUT — a drop keeps its size and stops
+    // being lit, which is what mist does. Shrinking was the other half of the bead problem.
+    const k=Math.max(0,Math.min(1,u.t*2.4));
+    s2.scale.set(u.s*(0.55+0.45*k),u.s*(0.55+0.45*k),1);
+    // and it dies into the surface rather than through it: the sea's height is known here,
+    // so the last few inches of the fall are a fade instead of a cut
+    // the same surface the ride fades against, not the bare swell — a drop thrown off a
+    // wave has to disappear into the wave, and during a wipeout there is very much a wave
+    const sea=waveH(s2.position.x,dist*WAVE_DRIFT+s2.position.z,waveClock);
+    const near=Math.max(0,Math.min(1,(s2.position.y-sea)/0.55));
+    u.near=near; s2.material.opacity=k*k*(0.35+0.65*near);
+    if(u.t<=0||s2.position.y<sea-0.4){freeDrop(s2);splashes.splice(i,1);}
   }
   for(const o of obstacles){
     const k=o.userData.knock; if(!k)continue;
@@ -11054,6 +11098,35 @@ if(location.hash.includes('debug')){
     boot:()=>Object.assign({},_bootMs),
     // the composite chain: on, multisampled (or the render target would have cost the
     // canvas its own antialiasing), and what the bloom is actually keyed to
+    // spray: what the drops are, and whether they are fading into the sea rather than
+    // cutting through it
+    spray(){
+      const s=splashes;
+      return {live:s.length, sprite:!!(POOL[0]&&POOL[0].isSprite),
+              soft:!!(POOL[0]&&POOL[0].material.map),
+              own:!!(POOL[0]&&POOL[1]&&POOL[0].material!==POOL[1].material),
+              lo:s.length?+Math.min.apply(null,s.map(d=>d.material.opacity)).toFixed(3):null,
+              hi:s.length?+Math.max.apply(null,s.map(d=>d.material.opacity)).toFixed(3):null};
+    },
+    // Two drops of the same age, one well clear of the water and one all but touching it.
+    // Live spray is no use for this: it is thrown in bursts, so everything in the air at any
+    // moment is the same age and the same opacity, and a check on that measures nothing.
+    // Stepped here rather than by the caller, because a tick is a whole frame and a whole
+    // frame is long enough for the high one to land as well.
+    sprayProbe(){
+      const sea=waveH(px,dist*WAVE_DRIFT+pz,waveClock), i0=splashes.length;
+      splash(px,sea+3.0,pz,1);
+      splash(px,sea+0.05,pz,1);
+      const two=splashes.slice(i0);
+      if(two.length<2)return null;
+      update(0.004);
+      // how much of the surface fade each one got, taken from the loop itself rather than
+      // recomputed here — the sea moves while the frame runs and a second opinion about
+      // where it is measures the wrong thing
+      return {sea:+sea.toFixed(2), op:two.map(d=>+d.material.opacity.toFixed(3)),
+              near:two.map(d=>+(d.userData.near===undefined?-1:d.userData.near).toFixed(3)),
+              y:two.map(d=>+d.position.y.toFixed(2))};
+    },
     fx:()=>({on:fxOn, samples:fxOn&&fxRT.samples||0,
              thresh:fxOn?fxBright.uniforms.uT.value:null,
              amount:fxOn?fxComp.uniforms.uAmt.value:null,
@@ -13027,8 +13100,12 @@ function update(dt){
     const s2=splashes[i],u=s2.userData;
     u.t-=dt;u.vy-=14*dt;
     s2.position.x+=u.vx*dt;s2.position.y+=u.vy*dt;s2.position.z+=u.vz*dt+eff*dt*0.4;
-    s2.scale.setScalar(Math.max(0.05,u.t*u.s));
-    if(u.t<=0){freeDrop(s2);splashes.splice(i,1);}
+    const k=Math.max(0,Math.min(1,u.t*2.4));
+    s2.scale.set(u.s*(0.55+0.45*k),u.s*(0.55+0.45*k),1);
+    const sea=waveH(s2.position.x,dist*WAVE_DRIFT+s2.position.z,waveClock);
+    const near=Math.max(0,Math.min(1,(s2.position.y-sea)/0.55));
+    u.near=near; s2.material.opacity=k*k*(0.35+0.65*near);
+    if(u.t<=0||s2.position.y<sea-0.4){freeDrop(s2);splashes.splice(i,1);}
   }
   // keep the contact shadows glued under everything
   {

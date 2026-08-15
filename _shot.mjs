@@ -21,14 +21,14 @@ const OUT='/tmp/claude-0/-home-user-Surf-/7480d8db-fb33-5a1b-a73b-0e83e5c3db08/s
 console.log('fx', await page.evaluate(()=>window.__surf.fx?window.__surf.fx():'no hook'));
 await page.screenshot({path:OUT+'menu.png'});
 await page.evaluate(()=>{document.getElementById('startBtn').click();window.__surf.invuln(true);});
-const shots=[0,0];
+const shots=[0];
 for(let i=0;i<14;i++){
   await page.evaluate(()=>window.__surf.tick(18));
   const st=await page.evaluate(()=>{const s=window.__surf.state();return {d:Math.round(s.dist),run:s.running,w:s.wipe,c:s.crateHeld||s.crateOn};});
   console.log(JSON.stringify(st));
-  if(st.d>900&&!shots[0]){ await page.waitForTimeout(2600); shots[0]=1;
-    console.log('shot A at',st.d); await page.screenshot({path:OUT+'ride1.png'}); }
-  if(st.d>3000&&!shots[1]){ await page.waitForTimeout(2600); shots[1]=1;
-    console.log('shot B at',st.d); await page.screenshot({path:OUT+'ride2.png'}); break; }
+  if(st.d>700&&shots[0]<4){ await page.waitForTimeout(2200);
+    await page.evaluate(()=>{ for(let i=0;i<3;i++)window.__surf.tick(0.02); });
+    console.log('shot',shots[0],'at',st.d); await page.screenshot({path:OUT+'ride'+shots[0]+'.png'}); shots[0]++; }
+  if(shots[0]>=4)break;
 }
 await browser.close(); server.close();
