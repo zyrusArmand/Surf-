@@ -1,48 +1,39 @@
 using UnityEngine;
 
 // ---------------------------------------------------------------------------
-//  Surf — Unity port, step 2: the sea, and everything floating on it.
+//  Surf — Unity port, step 3: the ride moves.
 //
-//  Step 1 proved the scale. This adds the thing the whole game stands on: the
-//  wave height field. Everything else in Surf is downstream of it — the board
-//  rides it, the buoys and logs bob on it, the camera height follows it, the
-//  spray dies into it. Nothing else can be ported until this is right, which is
-//  why it comes before the rider, the boards, the obstacles or the UI.
+//  Step 1 put the scale on screen, step 2 put the sea under it. This adds the
+//  motion: forward speed that builds with distance, steering across the face,
+//  a camera that sits behind and follows, and a sea that scrolls past.
 //
-//  The maths below is copied verbatim from the browser game rather than
-//  reinvented. Those seven wave components and their envelope were tuned over a
-//  long time, and re-deriving them by eye would throw all of that away.
+//  The one idea worth understanding before reading any of it: THE RIDER NEVER
+//  GOES ANYWHERE. He stays at the origin and the world is moved past him. That
+//  is how the browser game works and it is why the sea mesh can be a fixed grid
+//  at the origin and never need to chase anything — the swell is sampled at an
+//  offset that grows with distance travelled, so the water slides underneath
+//  while the vertices stay put.
 // ---------------------------------------------------------------------------
 
 
-// ---- the sea itself, as pure maths ----
-// No Unity types in here on purpose: it is a function of position and time and
-// nothing else, so it can be called from the mesh, from the board, from an
-// obstacle or from a test without any of them needing a scene.
 public static class SurfWater
 {
-    // One component of the swell. dx/dz is the direction it travels, k is how
-    // tightly packed it is, a is how tall, and ek/ep drive a second slow wave
-    // that swells and flattens the first one as it passes — which is what stops
-    // the sea reading as a repeating corrugation.
     struct Comp
     {
         public float dx, dz, k, a, ek, ep, w;
         public Comp(float dx, float dz, float k, float a, float ek, float ep)
         {
             this.dx = dx; this.dz = dz; this.k = k; this.a = a; this.ek = ek; this.ep = ep;
-            // deep-water dispersion: longer waves travel faster, which is the
-            // whole reason a real sea never repeats
             this.w = Mathf.Sqrt(WAVE_G * k) * WAVE_TSCALE;
         }
     }
 
     const float WAVE_G = 9.8f, WAVE_TSCALE = 1.0f;
-    const float ENV_BASE = 0.32f, ENV_SWING = 0.68f;  // envelope floor, and how far it breathes
+    const float ENV_BASE = 0.32f, ENV_SWING = 0.68f;
     const float ZSTRETCH = 1.0f;
 
-    public const float WAVE_DRIFT = 0.46f;            // how fast the swell rolls past
-    public static float waveAmp = 0.78f;              // current swell height, varies set to set
+    public const float WAVE_DRIFT = 0.46f;   // how fast the swell rolls past as you travel
+    public static float waveAmp = 0.78f;
 
     static readonly Comp[] WAVES = {
         new Comp( 0.00f, 1.00f, 0.190f, 1.000f, 0.38f, 0.00f),
@@ -50,8 +41,8 @@ public static class SurfWater
         new Comp(-0.74f, 0.67f, 0.470f, 0.260f, 0.50f, 4.20f),
         new Comp( 0.40f,-0.92f, 0.720f, 0.110f, 0.58f, 1.30f),
         new Comp( 1.00f, 0.00f, 1.050f, 0.050f, 0.66f, 5.40f),
-        new Comp( 0.86f, 0.51f, 1.700f, 0.030f, 0.72f, 3.10f),   // chop
-        new Comp(-0.35f, 0.94f, 2.600f, 0.016f, 0.80f, 0.70f),   // finer chop
+        new Comp( 0.86f, 0.51f, 1.700f, 0.030f, 0.72f, 3.10f),
+        new Comp(-0.35f, 0.94f, 2.600f, 0.016f, 0.80f, 0.70f),
     };
 
     static float Component(in Comp W, float x, float z, float t)
@@ -61,7 +52,6 @@ public static class SurfWater
         return W.a * env * Mathf.Sin(u * W.k - t * W.w);
     }
 
-    // The full sea, chop and all. This is what you SEE.
     public static float WaveH(float x, float z, float t)
     {
         float h = 0f;
@@ -69,10 +59,7 @@ public static class SurfWater
         return h * waveAmp;
     }
 
-    // The long-period part only — what a floating object actually rides. The
-    // short chop is filtered out so that buoys glide over the swell instead of
-    // vibrating on it, and because they track the big waves they never end up
-    // buried by a crest.
+    // the long swell alone — what a floating thing rides, with the chop filtered out
     public static float SwellH(float x, float z, float t)
     {
         float h = 0f;
@@ -87,30 +74,48 @@ public class SurfBoot : MonoBehaviour
     // ---- units: ONE UNITY UNIT IS ONE FOOT ----
     const float RIDER_FT = 2.20f;
     const float BOARD_L  = 5.83f, BOARD_W = 1.42f, BOARD_T = 0.25f;
-    const float BOARD_HALF_L = 2.45f;          // the hull's own footprint, for trim
+    const float BOARD_HALF_L = 2.45f;
     const float BUOY_H = 3.17f, LOG_L = 5.10f;
+
+    // ---- the board's stats ----
+    // In the full game these come from whichever board is equipped and every one
+    // of them differs. A default board is all ones, which is what this is.
+    const float BS_speed = 1f, BS_turn = 1f, BS_grip = 1f, BS_top = 0f;
+
+    // ---- how it moves ----
+    // Straight from the browser game. Speed BUILDS with distance rather than
+    // being handed to you: 16.2 ft/s off the start, climbing by one for every
+    // 210 ft travelled, so a long run is genuinely faster than a short one.
+    const float SPEED_BASE = 16.2f, SPEED_RAMP = 210f, SPEED_CAP = 100f;
+    // Steering is momentum, not position. The stick adds sideways acceleration
+    // and GRIP bleeds it off — one constant setting both how far the board runs
+    // across the face and how long it takes to stop. It is most of why a gun and
+    // a fish feel like different boards.
+    const float TURN_ACCEL = 55f, GRIP = 3.4f;
+    const float LANE_LIMIT = 17f;            // slide out to the far lanes and stop there
 
     // ---- the ride camera ----
     const float FOV = 62f, NEAR = 0.5f, FAR = 500f;
     const float CAM_Y = 4.9f, CAM_Z = -11f, CAM_PITCH = 8.76f;
-    const float CAM_FLOOR = 2.3f;              // never let a building face swallow it
+    const float CAM_FLOOR = 2.3f;
 
-    // ---- the water mesh ----
-    // Two feet between vertices over two hundred feet of sea. The finest chop in
-    // the height field has a two-and-a-half foot wavelength, so it will not be
-    // fully resolved at this spacing — the swell is what reads at this distance
-    // and the chop is detail the shader will carry later. Doing it on the CPU at
-    // all is a stepping stone: it is here so the waves can be SEEN and floated
-    // on now, and it moves to the GPU before this ever runs on a phone.
     const int   SEA_DIV  = 100;
     const float SEA_SIZE = 200f;
 
     Camera cam;
-    Transform board, rider;
-    Transform[] floaters;                      // things that bob but do not steer
+    Transform board;
     Mesh seaMesh;
     Vector3[] seaVerts;
-    float clock;
+
+    // ---- the state of the ride ----
+    float clock;      // wave time
+    float dist;       // how far he has travelled, in feet — drives speed AND the swell offset
+    float speed, eff; // base speed, and the effective speed after steering
+    float px, vx;     // where he is across the face, and how fast he is going across it
+    float camX;       // the camera's own lateral position, which lags his
+
+    Transform[] props;
+    float[] propZ;    // each prop's distance ahead, which is what actually moves
 
     void Awake()
     {
@@ -121,69 +126,105 @@ public class SurfBoot : MonoBehaviour
         board = Box("Board", new Vector3(BOARD_W, BOARD_T, BOARD_L),
                     new Color(0.96f, 0.55f, 0.30f)).transform;
 
-        rider = Prim("Rider", PrimitiveType.Capsule, new Color(0.85f, 0.69f, 0.45f)).transform;
-        rider.localScale = new Vector3(RIDER_FT * 0.25f, RIDER_FT * 0.5f, RIDER_FT * 0.25f);
-        rider.SetParent(board, false);
-        // the rider stands on the deck, and from here on he simply goes where the
-        // board goes — which is what being parented to it means
-        rider.localPosition = new Vector3(0f, (BOARD_T * 0.5f + RIDER_FT * 0.5f) / BOARD_T, 0f);
-        rider.localScale = new Vector3(RIDER_FT * 0.25f / BOARD_W,
-                                       RIDER_FT * 0.5f  / BOARD_T,
-                                       RIDER_FT * 0.25f / BOARD_L);
+        var rider = Prim("Rider", PrimitiveType.Capsule, new Color(0.85f, 0.69f, 0.45f));
+        rider.transform.SetParent(board, false);
+        rider.transform.localPosition = new Vector3(0f, (BOARD_T * 0.5f + RIDER_FT * 0.5f) / BOARD_T, 0f);
+        rider.transform.localScale = new Vector3(RIDER_FT * 0.25f / BOARD_W,
+                                                 RIDER_FT * 0.5f  / BOARD_T,
+                                                 RIDER_FT * 0.25f / BOARD_L);
 
-        var buoy = Prim("Buoy (3.17ft)", PrimitiveType.Cylinder, new Color(0.85f, 0.20f, 0.18f));
-        buoy.transform.localScale = new Vector3(1.6f, BUOY_H * 0.5f, 1.6f);
-        buoy.transform.position = new Vector3(-6f, 0f, 14f);
+        // A handful of things to pass, so the motion has something to be measured
+        // against. Water with nothing in it does not read as moving at all.
+        props = new Transform[10];
+        propZ = new float[10];
+        for (int i = 0; i < props.Length; i++)
+        {
+            GameObject g;
+            if (i % 2 == 0)
+            {
+                g = Prim("Buoy", PrimitiveType.Cylinder, new Color(0.85f, 0.20f, 0.18f));
+                g.transform.localScale = new Vector3(1.6f, BUOY_H * 0.5f, 1.6f);
+            }
+            else
+            {
+                g = Box("Log", new Vector3(1.0f, 1.0f, LOG_L), new Color(0.45f, 0.27f, 0.14f));
+            }
+            props[i] = g.transform;
+            propZ[i] = 25f + i * 16f;
+            g.transform.position = new Vector3(Random.Range(-14f, 14f), 0f, propZ[i]);
+        }
 
-        var log = Box("Log (5.1ft)", new Vector3(1.0f, 1.0f, LOG_L), new Color(0.45f, 0.27f, 0.14f));
-        log.transform.position = new Vector3(6.5f, 0f, 20f);
-
-        floaters = new[] { buoy.transform, log.transform };
-
-        Debug.Log("[Surf] sea is live. 7 wave components, deep-water dispersion. " +
-                  "Board and props float on the swell; the camera rides it.");
+        Debug.Log("[Surf] hold A / D (or the arrow keys) to carve. " +
+                  "Speed builds with distance — it starts at 16.2 ft/s and climbs.");
     }
 
     void Update()
     {
-        clock += Time.deltaTime;
+        float dt = Time.deltaTime;
+        clock += dt;
 
-        // ---- the sea surface ----
+        // ---- forward speed ----
+        speed = Mathf.Min(SPEED_CAP + BS_top, (SPEED_BASE + dist / SPEED_RAMP) * BS_speed + BS_top);
+
+        // ---- steering ----
+        float sx = 0f;
+        if (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow))  sx -= 1f;
+        if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) sx += 1f;
+        vx += sx * TURN_ACCEL * BS_turn * dt;
+        vx -= vx * GRIP * BS_grip * dt;
+        px += vx * dt;
+        if (px < -LANE_LIMIT) { px = -LANE_LIMIT; vx = 0f; }
+        if (px >  LANE_LIMIT) { px =  LANE_LIMIT; vx = 0f; }
+
+        // Carving costs nothing and gains a little: crossing the face adds to the
+        // ground he covers, which is why a run that weaves outruns one that does not.
+        eff = Mathf.Max(SPEED_BASE, speed + Mathf.Abs(vx) * 0.3f);
+        dist += eff * dt;
+
+        // ---- the sea scrolls ----
+        // This is the whole trick. The vertices never move in x or z; the swell is
+        // sampled at an offset that grows with distance, so the water slides past
+        // underneath a grid that is standing still.
+        float drift = dist * SurfWater.WAVE_DRIFT;
         int n = SEA_DIV + 1;
-        for (int j = 0, v = 0; j < n; j++)
-            for (int i = 0; i < n; i++, v++)
-            {
-                float x = seaVerts[v].x, z = seaVerts[v].z;
-                seaVerts[v].y = SurfWater.WaveH(x, z, clock);
-            }
+        for (int v = 0; v < seaVerts.Length; v++)
+            seaVerts[v].y = SurfWater.WaveH(seaVerts[v].x, seaVerts[v].z + drift, clock);
         seaMesh.vertices = seaVerts;
         seaMesh.RecalculateNormals();
 
         // ---- the board ----
-        // Its height comes from the SWELL, not the full sea: a hull this long
-        // bridges the chop rather than following every ripple of it. And its
-        // pitch is read from the water under its own nose and tail, so it lies
-        // ALONG the wave it is on instead of sitting flat on top of one.
-        float bx = board.position.x, bz = board.position.z;
-        float yNose = SurfWater.SwellH(bx, bz + BOARD_HALF_L, clock);
-        float yTail = SurfWater.SwellH(bx, bz - BOARD_HALF_L, clock);
-        board.position = new Vector3(bx, (yNose + yTail) * 0.5f, bz);
-        // atan of rise over run, which is the angle of the line joining its ends
-        board.rotation = Quaternion.Euler(
-            -Mathf.Atan2(yNose - yTail, BOARD_HALF_L * 2f) * Mathf.Rad2Deg, 0f, 0f);
+        float yNose = SurfWater.SwellH(px, BOARD_HALF_L + drift, clock);
+        float yTail = SurfWater.SwellH(px, -BOARD_HALF_L + drift, clock);
+        board.position = new Vector3(px, (yNose + yTail) * 0.5f, 0f);
+        // it lies ALONG the wave, not flat on top of one: pitch is the angle of the
+        // line joining the water under its nose to the water under its tail
+        float pitch = -Mathf.Atan2(yNose - yTail, BOARD_HALF_L * 2f) * Mathf.Rad2Deg;
+        // and it banks into the turn, which is the whole of what carving looks like
+        board.rotation = Quaternion.Euler(pitch, 0f, Mathf.Clamp(-vx * 1.6f, -38f, 38f));
 
-        foreach (var f in floaters)
+        // ---- the world comes to him ----
+        for (int i = 0; i < props.Length; i++)
         {
-            var p = f.position;
-            p.y = SurfWater.SwellH(p.x, p.z, clock) + 0.35f;
-            f.position = p;
+            propZ[i] -= eff * dt;
+            if (propZ[i] < -20f)                       // past him: recycle it out front
+            {
+                propZ[i] += props.Length * 16f;
+                var q = props[i].position;
+                q.x = Random.Range(-14f, 14f);
+                props[i].position = q;
+            }
+            var p = props[i].position;
+            p.z = propZ[i];
+            p.y = SurfWater.SwellH(p.x, p.z + drift, clock) + 0.35f;
+            props[i].position = p;
         }
 
-        // ---- and the camera rides the sea too ----
-        float waterY = SurfWater.SwellH(0f, 0f, clock);
-        var c = cam.transform.position;
-        c.y = Mathf.Max(waterY + CAM_Y, waterY + CAM_FLOOR);
-        cam.transform.position = c;
+        // ---- and the camera sits behind him ----
+        camX += (px - camX) * Mathf.Min(1f, dt * 7f);
+        float waterY = SurfWater.SwellH(px, drift, clock);
+        cam.transform.position = new Vector3(camX,
+                                             Mathf.Max(waterY + CAM_Y, waterY + CAM_FLOOR),
+                                             CAM_Z);
     }
 
     // ---------------------------------------------------------------------
@@ -206,13 +247,11 @@ public class SurfBoot : MonoBehaviour
             for (int i = 0; i < SEA_DIV; i++)
             {
                 int v0 = j * n + i;
-                tris[t++] = v0;         tris[t++] = v0 + n;     tris[t++] = v0 + 1;
-                tris[t++] = v0 + 1;     tris[t++] = v0 + n;     tris[t++] = v0 + n + 1;
+                tris[t++] = v0;     tris[t++] = v0 + n; tris[t++] = v0 + 1;
+                tris[t++] = v0 + 1; tris[t++] = v0 + n; tris[t++] = v0 + n + 1;
             }
 
         seaMesh = new Mesh { name = "Sea" };
-        // over 65k vertices needs the wider index format, and this grid is close
-        // enough to it that raising the limit now saves a confusing failure later
         seaMesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
         seaMesh.vertices = seaVerts;
         seaMesh.uv = uv;
