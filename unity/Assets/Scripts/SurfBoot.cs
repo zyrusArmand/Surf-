@@ -186,7 +186,6 @@ public class SurfBoot : MonoBehaviour
         // sampled at an offset that grows with distance, so the water slides past
         // underneath a grid that is standing still.
         float drift = dist * SurfWater.WAVE_DRIFT;
-        int n = SEA_DIV + 1;
         for (int v = 0; v < seaVerts.Length; v++)
             seaVerts[v].y = SurfWater.WaveH(seaVerts[v].x, seaVerts[v].z + drift, clock);
         seaMesh.vertices = seaVerts;
