@@ -1,4 +1,7 @@
 using UnityEngine;
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+#endif
 
 // ---------------------------------------------------------------------------
 //  Surf — Unity port, step 3: the ride moves.
@@ -154,8 +157,8 @@ public class SurfBoot : MonoBehaviour
             g.transform.position = new Vector3(Random.Range(-14f, 14f), 0f, propZ[i]);
         }
 
-        Debug.Log("[Surf] hold A / D (or the arrow keys) to carve. " +
-                  "Speed builds with distance — it starts at 16.2 ft/s and climbs.");
+        Debug.Log("[Surf] carve with A / D, the arrow keys, or by holding the mouse on " +
+                  "the left or right half of the screen. Speed builds with distance.");
     }
 
     void Update()
@@ -167,9 +170,7 @@ public class SurfBoot : MonoBehaviour
         speed = Mathf.Min(SPEED_CAP + BS_top, (SPEED_BASE + dist / SPEED_RAMP) * BS_speed + BS_top);
 
         // ---- steering ----
-        float sx = 0f;
-        if (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow))  sx -= 1f;
-        if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) sx += 1f;
+        float sx = Steer();
         vx += sx * TURN_ACCEL * BS_turn * dt;
         vx -= vx * GRIP * BS_grip * dt;
         px += vx * dt;
@@ -224,6 +225,40 @@ public class SurfBoot : MonoBehaviour
         cam.transform.position = new Vector3(camX,
                                              Mathf.Max(waterY + CAM_Y, waterY + CAM_FLOOR),
                                              CAM_Z);
+    }
+
+    // ---- what the player is asking for, whichever way they are asking ----
+    // Unity 6 projects use the Input System package, and the old UnityEngine.Input
+    // class throws outright when it is active rather than quietly returning
+    // nothing — which, called from the top of Update, takes the whole frame down
+    // with it. Both paths are compiled here so this runs on either setting.
+    //
+    // Touch and mouse are the same gesture as the phone game: a finger on the left
+    // half of the screen carves left, the right half carves right. That also makes
+    // it playable in the editor with nothing but the mouse.
+    float Steer()
+    {
+        float sx = 0f;
+#if ENABLE_INPUT_SYSTEM
+        var k = Keyboard.current;
+        if (k != null)
+        {
+            if (k.aKey.isPressed || k.leftArrowKey.isPressed)  sx -= 1f;
+            if (k.dKey.isPressed || k.rightArrowKey.isPressed) sx += 1f;
+        }
+        var t = Touchscreen.current;
+        if (t != null && t.primaryTouch.press.isPressed)
+            sx += t.primaryTouch.position.ReadValue().x < Screen.width * 0.5f ? -1f : 1f;
+        var m = Mouse.current;
+        if (m != null && m.leftButton.isPressed)
+            sx += m.position.ReadValue().x < Screen.width * 0.5f ? -1f : 1f;
+#else
+        if (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow))  sx -= 1f;
+        if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) sx += 1f;
+        if (Input.GetMouseButton(0))
+            sx += Input.mousePosition.x < Screen.width * 0.5f ? -1f : 1f;
+#endif
+        return Mathf.Clamp(sx, -1f, 1f);
     }
 
     // ---------------------------------------------------------------------
