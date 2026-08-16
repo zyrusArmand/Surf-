@@ -376,6 +376,27 @@ await page.waitForTimeout(300);
         'the menu is shot with a real lens, focused on the board',
         dof ? `focus ${dof.focus}ft, sharp for ${dof.range}ft either side` : 'menu not up');
 
+  // A panel dims the beach and used to leave the home dial visible behind it, which sounds
+  // harmless: what it produced was the panel's row dividers running left and right THROUGH
+  // the glass buttons, so the screen showed a white line joining one button to the next.
+  // Watched with an observer rather than hooked into each open and close, because there are
+  // four panels and several ways into each, and a class that has to be taken off by hand in
+  // eight places is a class that gets left on.
+  const panel = await page.evaluate(async () => {
+    const dial = () => getComputedStyle(document.getElementById('homeDial')).display;
+    const before = dial();
+    document.getElementById('dSettings').click();
+    await new Promise(r => setTimeout(r, 120));
+    const during = dial();
+    document.getElementById('setClose').click();
+    await new Promise(r => setTimeout(r, 120));
+    return { before, during, after: dial() };
+  });
+  check(panel.before !== 'none' && panel.during === 'none' && panel.after !== 'none',
+        'the dial gets out of the way while a panel is open, and comes back',
+        JSON.stringify(panel));
+
+
   check(boot0.beach > 0 && boot0.beach < 1000,
         'the beach stands up fast enough not to read as a hang',
         `${boot0.beach}ms, of which ${boot0.sand}ms is ${boot0.sandVerts} sand vertices`);
@@ -2003,9 +2024,17 @@ check(shaderErrors.length === 0, 'every shader compiles',
   // The threshold decides whether this reads as light or as a filter: the sky fills most of
   // a frame at around 0.7, and anything near that blooms the sky into itself and turns the
   // sunset to milk. It has to sit above what a tone-mapped white surface comes out at.
-  check(fx.thresh >= 0.85 && fx.amount <= 0.8,
-        'and it catches only what is at white, not the whole sky',
+  // The first pass at these was a filter, not a light: the sky sits around 0.7 linear and
+  // lit sand is not far behind it, so anything near that blooms the frame into itself and
+  // everything wears a white sheen. Only what is genuinely AT white gets to bleed.
+  check(fx.thresh >= 0.93 && fx.amount <= 0.40,
+        'and it catches only what is at white, not the whole frame',
         `threshold ${fx.thresh}, amount ${fx.amount}`);
+  // pow(1/2.2) and sRGB agree in the midtones and part company down low, where the
+  // approximation lifts every shadow by about a tenth — which is what "faded" means.
+  const fxSrc = await readFile(join(ROOT, 'index.html'), 'utf8');
+  check(/1\.055\*pow\(c,vec3\(1\.0\/2\.4\)\)/.test(fxSrc) && !/1\.0\/2\.2/.test(fxSrc),
+        'and the frame is encoded with the real sRGB curve rather than a gamma that lifts the darks');
   // The glitter track has to run from the sun you can SEE. The directional light that shades
   // the water is a constant set at load; the sun crosses the sky over a run, and a track
   // keyed to the light would have sat in the wrong place all day.
@@ -2075,6 +2104,30 @@ check(shaderErrors.length === 0, 'every shader compiles',
   check(fade && fade.near[0] > fade.near[1] + 0.3,
         'and one about to land is dimmer than one still in the air, so none of them cut the surface',
         fade ? `surface fade ${fade.near[0]} at 3ft up against ${fade.near[1]} at the waterline` : 'no probe');
+}
+
+// ---------- nothing shows through a panel, and nothing is a pill any more ----------
+// A panel dims the beach and used to leave the home dial visible behind it, which sounds
+// harmless: what it actually produced was the panel's row dividers running left and right
+// THROUGH the glass buttons, so the screen showed a white line joining one button to the
+// next. Watched with an observer rather than hooked into each open and close, because there
+// are four panels and several ways into each, and a class that has to be taken off by hand
+// in eight places is a class that gets left on.
+{
+  // and the chest ceremony's three ways on are the buttons everything else uses
+  const crate = await page.evaluate(() => ['crateAgain', 'crateShop', 'crateMenu'].map(i => {
+    const e = document.getElementById(i);
+    return { id: i, cls: e.className, icon: !!e.querySelector('svg') };
+  }));
+  check(crate.every(b => /\bhbtn\b/.test(b.cls) && /\bglass\b/.test(b.cls) &&
+                         !/\bgo\b/.test(b.cls) && b.icon),
+        'and the chest offers round glass buttons with icons rather than a stack of pills',
+        crate.map(b => `${b.id}:${b.cls}`).join(' '));
+  // the boot paint is a colour with nothing to say, not a soft-focus photograph of a beach
+  const pSrc = await readFile(join(ROOT, 'index.html'), 'utf8');
+  check(/html,body\s*\{[^}]*background:#[0-9a-f]{6};/i.test(pSrc) &&
+        !/background:linear-gradient\(180deg,#1668c4/.test(pSrc),
+        'and the page boots on one flat colour rather than a blurred beach');
 }
 
 // ---------- the wipeout card fits the phone it is on ----------
