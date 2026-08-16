@@ -359,6 +359,23 @@ await page.waitForTimeout(300);
   check(boot0.beforeFirstFrame === true,
         'the beach is standing before the script returns, not a frame later',
         `${boot0.why || 'built at boot'}`);
+  // Depth of field, on the one screen that can pay for a second pass over the scene. The
+  // menu is a still life — a board and a rider under a tree, beach running away behind them
+  // and sand running toward the camera in front — and photographing that with anything wider
+  // than f/8 sends both soft while the subject stays sharp. The eye reads that softness as
+  // DISTANCE, which is the strongest depth cue there is and the one a render gets for free
+  // by not having. It focuses on the board, because the board is what the screen is for.
+  const dof = await page.evaluate(async () => {
+    const s = window.__surf.menuState();
+    if (!s.up) return null;
+    await new Promise(r => requestAnimationFrame(r));
+    await new Promise(r => requestAnimationFrame(r));
+    return window.__surf.fx();
+  });
+  check(dof && dof.depth && dof.dofLive === 1 && dof.focus > 5 && dof.focus < 80,
+        'the menu is shot with a real lens, focused on the board',
+        dof ? `focus ${dof.focus}ft, sharp for ${dof.range}ft either side` : 'menu not up');
+
   check(boot0.beach > 0 && boot0.beach < 1000,
         'the beach stands up fast enough not to read as a hang',
         `${boot0.beach}ms, of which ${boot0.sand}ms is ${boot0.sandVerts} sand vertices`);
