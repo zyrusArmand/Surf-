@@ -1033,7 +1033,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.19.0';
+const VERSION='3.20.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -6630,6 +6630,16 @@ const collar=new THREE.Mesh(new THREE.SphereGeometry(0.22,16,14),furMat);
 collar.position.y=-0.16;collar.scale.set(1.15,1.0,1.1);headJ.add(collar);
 const head=new THREE.Mesh(new THREE.SphereGeometry(0.40,24,20),furMat);
 headJ.add(head);
+// ---- a neck ----
+// Look at any of the characters this is drawn against and the joints are all there: head,
+// NECK, shoulders, chest, waist, hips. This rig had every one of those as a transform and
+// none of them as a shape. The head was lifted above the shoulder line by a fraction of its
+// own radius, so on every character in the roster the skull's bottom half was inside the
+// chest and the two read as one blob with ears — which is most of what "they look bad" is.
+// An open-ended cone, capped at neither end because both ends are buried, sized in buildChar
+// from the gap the head actually leaves.
+const neckMass=new THREE.Mesh(new THREE.CylinderGeometry(0.165,0.225,1,20,1,true),furMat);
+neck.add(neckMass);
 const tailJ=joint(pelvis,0,0.22,0.30);
 tailJ.rotation.y=-1.16;
 
@@ -6723,10 +6733,16 @@ function kitEyes(C,inner){
       const D=C.headS||[1,1,1], k=(D[0]+D[1]+D[2])/3;
       const w=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.086*k,18,14),white));
       w.position.set(sx*0.125*D[0],0.10*D[1],-0.30);w.scale.set(0.9,1.12,0.86);
+      // The pupil's depth is measured from the SCLERA, not from the face, and that gap has to
+      // scale with k like everything else in the eye does. Written as a flat -0.340 it was a
+      // 4 cm lead over a white ball whose own front creeps forward by 7.4 cm times k — so the
+      // bigger the head, the less pupil showed, and once the house proportions put every head
+      // up by a third the ant and the chicken were staring out of blank white discs.
       const p=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.050*k,14,12),dark));
-      p.position.set(sx*0.128*D[0],0.096*D[1],-0.340);
+      p.position.set(sx*0.128*D[0],0.096*D[1],-0.30-0.040*k);
+      w.userData.sclera=true; p.userData.pupil=true;
       const gl=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.016*k,10,8),spark));
-      gl.position.set(sx*0.108*D[0],0.128*D[1],-0.362);
+      gl.position.set(sx*0.108*D[0],0.128*D[1],-0.30-0.062*k);
     } else if(E==='beady'){                             // small, high and close: bird-like
       const e=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.056,14,12),dark));
       e.position.set(sx*0.135,0.135,-0.345);
@@ -6777,8 +6793,8 @@ const CHARS=[
    // the whole cast uniformly and this entry is not a special case that drifts from it
    wProf:[0.74,0.78,0.88,0.70], dProf:[0.84,0.88,1.02,0.78], zProf:[0.04,0.01,-0.06,-0.10],
    tall:1.26, neckLen:0.76,
-   build:[0.98,0.96,0.98], limb:0.80, limbLen:2.00, arm:0.66, armLen:1.72,
-   foot:0.94, hand:0.68, headS:[0.836,0.844,0.796]},
+   build:[0.98,0.96,0.98], limb:1.006, limbLen:1.80, arm:0.789, armLen:1.56,
+   foot:0.922, hand:0.783, headS:[0.880,0.888,0.838]},
 
   {id:'cat', body:'lean',   name:'Miso the Cat',   price:700,
    blurb:'Grey tabby. Hates water, rides it anyway, will not discuss it.',
@@ -7027,7 +7043,8 @@ const CHARS=[
 //
 // Nothing gets absolutely smaller: sizeRider normalises the finished animal to RIDER_FT
 // whatever these do, so this only ever moves mass between the head, the body and the legs.
-const HOUSE={head:1.34, tall:0.80, limb:1.14, limbLen:0.88, arm:1.12, armLen:0.90};
+const HOUSE={head:1.34, tall:0.80, limb:1.45, limbLen:0.88, arm:1.42, armLen:0.90,
+             foot:1.15, hand:1.20};
 const CHAR_BY_ID={};
 for(const c of CHARS){
   const h=c.headS||[1,1,1];
@@ -7038,6 +7055,10 @@ for(const c of CHARS){
     limbLen:(c.limbLen||1)*HOUSE.limbLen,
     arm:(c.arm||c.limb||1)*HOUSE.arm,
     armLen:(c.armLen||1)*HOUSE.armLen,
+    foot:(c.foot||1)*HOUSE.foot,
+    // hand falls through to the arm's own thickness when a character does not name one, and
+    // that fallback lives in buildChar — so this only biases the ones that do
+    ...(c.hand!==undefined?{hand:c.hand*HOUSE.hand}:{}),
   });
 }
 function buildChar(id){
@@ -7222,10 +7243,66 @@ function buildChar(id){
   let chestHW=0;
   for(let t=0.30;t<=0.85;t+=0.02) chestHW=Math.max(chestHW,_FF.hw(t));
   const tHead=_FF.tAt(chestHW*0.36);
-  const headY=_FF.y(tHead)*B[1]+0.40*_HS3[1]*(0.30+0.34*(C.neckLen||1));
+  // The lift used to be 0.30 to 0.72 of the head's own RADIUS, which is to say the skull's
+  // bottom half was inside the chest on every character in the roster — head and body were
+  // one blob and the neck joint had nothing to show for itself. It has to clear a whole
+  // radius before any neck exists at all, so that is the floor now and neckLen adds from
+  // there: a cat gets a visible throat, a frog barely clears.
+  const headR=0.40*_HS3[1];
+  const shoulderY=_FF.y(tHead)*B[1];
+  const headY=shoulderY+headR*(0.90+0.20*(C.neckLen||1));
+  pug.userData.shoulderY=shoulderY;
   neck.position.y=Math.max(0.06,headY-0.50);      // headJ = chestJ(+0.30) + neck + 0.20
+  // and the throat itself fills whatever that leaves. Measured in the NECK's own frame:
+  // the head centre is 0.20 above it and the shoulder line is wherever the torso put it.
+  {
+    const nTop=0.20-headR*0.80, nBot=shoulderY-(0.30+neck.position.y)-0.06;
+    const len=Math.max(0.05,nTop-nBot);
+    neckMass.position.y=(nTop+nBot)*0.5;
+    const nw=(C.neckW||1.02);
+    neckMass.scale.set(_HS3[0]*nw*B[0],len,_HS3[2]*nw*B[2]);
+    // ---- and a collar on it ----
+    // Every character in the reference wears something. It is not decoration: a hard band of
+    // a different colour at the neck is what stops a soft one-tone body reading as a single
+    // moulded lump, and it does the same job a rim light would do without needing one. It
+    // also lands exactly where the head meets the body, which is the join this rig has always
+    // been worst at.
+    //
+    // Not on an animal with no neck to put one on. A frog's jaw comes down to its shoulders
+    // and the band ended up inside its mouth; the anglerfish is the same. The test is the
+    // character's own neckLen rather than a list of ids, so a new one that happens to be
+    // built that way is covered without anybody remembering to add it. Nor on a segmented
+    // body: an insect's thorax already has a hard band round it at that height and a second
+    // one just reads as a mistake.
+    if((C.neckLen||1)>=0.5 && !C.segs && C.collar!==false){
+      const cw=0.205*nw, cr=_HS3[0]*cw*B[0];
+      const band=kit(neck,new THREE.Mesh(new THREE.TorusGeometry(cr,cr*0.30,10,26),
+        PBR({color:C.collar||0x8d3b2a,roughness:0.42,metalness:0.06,vivid:1.35})));
+      band.rotation.x=Math.PI/2;
+      band.position.y=nBot+len*0.24;         // low, on the shoulders, clear of any jaw
+      band.scale.z=1.28;                     // squashed onto the throat rather than a ring in air
+      const tag=kit(neck,new THREE.Mesh(new THREE.SphereGeometry(cr*0.30,12,10),
+        PBR({color:C.tag||0xe8b53c,roughness:0.28,metalness:0.55,vivid:1.4})));
+      tag.position.set(0,band.position.y-cr*0.26,-cr*1.18);
+      tag.scale.set(1,1,0.42);
+    }
+  }
   torso.scale.set(B[0],B[1],B[2]);
   collar.scale.set(1.15*B[0],1.0*B[1],1.1*B[2]);
+  // ---- shoulders ----
+  // The other joint this rig had as a transform and not as a shape. An arm that starts at the
+  // silhouette edge of a smooth torso reads as a tube stuck on the side of an egg; a deltoid
+  // over the socket is what turns the join into a shoulder. Hung on the CHEST rather than on
+  // the shoulder joint, so it stays put while the arm swings — a lump that rotated with the
+  // arm would slide round the body every time he threw a trick — and so it escapes the
+  // armLen scale that lives on the joint.
+  for(const sx of [-1,1]){
+    const d=kit(chestJ,new THREE.Mesh(new THREE.SphereGeometry(0.185,16,14),lm));
+    const q=armFrontJ.sh.userData.socket;
+    d.position.set(sx*shX*0.94,q[1]+0.015,q[2]*B[2]*0.5);
+    const k2=Math.max(0.62,A)*1.16;
+    d.scale.set(k2*0.92,k2,k2*1.02);
+  }
   // The head's scale lives on the JOINT, not the mesh, so the ears, eyes, muzzle and
   // whiskers hanging off it shrink with it. On the mesh alone, shrinking a head left its
   // ears floating in the air where the old skull used to be.
@@ -11417,6 +11494,36 @@ if(location.hash.includes('debug')){
     },
     hidePools:v=>{ if(menuAO)menuAO.visible=!v; return !!menuAO; },
     hideBody:v=>{ torso.visible=!v; if(typeof hipMass!=='undefined')hipMass.visible=!v; return true; },
+    // Whether this character has a NECK — which for most of the roster it did not. The head
+    // was lifted above the shoulder line by a fraction of its own radius, so the bottom half
+    // of the skull sat inside the chest and the two read as one lump. Measured in the spine's
+    // frame against the shoulder line the rig itself computed.
+    neckProbe(){
+      spine.updateMatrixWorld(true);
+      const inv=new THREE.Matrix4().copy(spine.matrixWorld).invert(), p=new THREE.Vector3();
+      head.updateWorldMatrix(true,false);
+      const c=head.getWorldPosition(p).applyMatrix4(inv);
+      const r=0.40*headJ.scale.y;
+      return {shoulder:+(pug.userData.shoulderY||0).toFixed(3),
+              headY:+c.y.toFixed(3), headR:+r.toFixed(3),
+              gap:+(c.y-r-(pug.userData.shoulderY||0)).toFixed(3),
+              neck:+neckMass.scale.y.toFixed(3)};
+    },
+    // How much of a 'wide' pupil is actually in front of its own white. Both scale with the
+    // head; the gap between them used to be a flat 4 cm, so the bigger the head the less
+    // pupil showed, and past a point the character stared out of blank discs.
+    eyeProbe(){
+      const front=o=>{ const g=o.geometry; if(!g.boundingBox)g.computeBoundingBox();
+        return o.position.z+g.boundingBox.min.z*(o.scale.z||1); };
+      let sc=null, pu=null;
+      for(const o of kitParts){
+        if(o.parent!==headJ||!o.isMesh)continue;
+        if(o.userData.sclera&&(sc===null||front(o)<sc))sc=front(o);
+        if(o.userData.pupil&&(pu===null||front(o)<pu))pu=front(o);
+      }
+      return sc===null?null:{sclera:+sc.toFixed(4), pupil:+pu.toFixed(4),
+                             proud:+(sc-pu).toFixed(4), headR:+(0.40*headJ.scale.y).toFixed(3)};
+    },
     // Where his paws are ACROSS his body, and how wide the body is at that height. Measured
     // in the rider's own frame: a world x answers a different question depending on which way
     // he happens to be turned. The front shoulder sits at negative x, so a front paw at

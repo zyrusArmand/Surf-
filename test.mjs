@@ -2268,6 +2268,40 @@ check(shaderErrors.length === 0, 'every shader compiles',
         ramp ? `bar bottom ${ramp.lipLow} against a deck at ${ramp.deck}` : 'no ramp');
 }
 
+// ---------- a rig with the joints in it ----------
+// Drawn against a humanoid biped rig and a shelf of plush-toy characters, and the gap was
+// never the shading — it was that half the joints existed as transforms and none of them as
+// shapes. The head was lifted above the shoulder line by 0.30 to 0.72 of its own RADIUS, so
+// on every character in the roster the bottom half of the skull was inside the chest: no
+// neck, no throat, no chin, head and body one blob with ears on it. The arms grew straight
+// out of a smooth torso with no shoulder over the socket. Both are geometry now, and this is
+// the check that the head actually clears what it is supposed to be sitting on.
+{
+  const necks = await page.evaluate(async () => {
+    const out = {};
+    for (const c of ['pug', 'cat', 'panda', 'corgi', 'penguin']) {
+      try { window.__surf.wear(c); } catch (e) { continue; }
+      await new Promise(r => setTimeout(r, 180));
+      out[c] = window.__surf.neckProbe();
+    }
+    return out;
+  });
+  const rows = Object.entries(necks);
+  check(rows.length >= 4 && rows.every(([, n]) => n.gap > 0 && n.neck > 0.02),
+        'every head clears its own shoulders, with a neck between them',
+        rows.map(([k, n]) => `${k} gap ${n.gap} neck ${n.neck}`).join(', '));
+
+  // and the pupil still shows on a head the house proportions made a third bigger
+  const eyes = await page.evaluate(async () => {
+    window.__surf.wear('ant');
+    await new Promise(r => setTimeout(r, 200));
+    return window.__surf.eyeProbe();
+  });
+  check(eyes && eyes.proud > 0.012,
+        'and a wide eye keeps its pupil in front of its white, whatever size the head is',
+        eyes ? `pupil stands ${eyes.proud} proud on a ${eyes.headR} skull` : 'no wide eye found');
+}
+
 // ---------- the pug is a pug ----------
 // Drawn from a reference, and every one of the three faults below was found by looking at a
 // render rather than by reasoning about the numbers — which is exactly why they are worth a
