@@ -1033,7 +1033,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.13.0';
+const VERSION='3.14.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1138,9 +1138,17 @@ function fxInit(){
             // where the board is standing
             float z=texture2D(tZ,vUv).x*2.0-1.0;
             float lin=2.0*uNear*uFar/(uFar+uNear-z*(uFar-uNear));
-            float coc=clamp(abs(lin-uFocus)/uRange,0.0,1.0);
-            coc*=coc*(3.0-2.0*coc);
-            c=mix(c,texture2D(tF,vUv).rgb,coc*0.86);
+            // Asymmetric, and much gentler behind than in front. A lens does soften the
+            // background, but a BACKGROUND is where most of this picture is — sky, sea and
+            // the beach running away — so treating it the same as the foreground turned the
+            // whole screen soft, which is not depth of field, it is being out of focus. The
+            // sand between you and the board keeps its blur; everything past it gets a
+            // suggestion of one.
+            float d=lin-uFocus;
+            float coc=d>0.0 ? clamp(d/(uRange*3.4),0.0,1.0)*0.34
+                            : clamp(-d/uRange,0.0,1.0)*0.72;
+            coc=coc*coc*(3.0-2.0*coc)/max(coc,1e-4)*coc;   // smootherstep, amplitude kept
+            c=mix(c,texture2D(tF,vUv).rgb,coc);
           }
           c+=texture2D(tB,vUv).rgb*uAmt;
           vec2 d=vUv-0.5;
@@ -1491,8 +1499,11 @@ const oceanUniforms={
   uSwA:{value:0}, uSwX:{value:0}, uSwS:{value:1},
   uSun:{value:sunDir}, uLight:{value:1.0},
   uSky:{value:new THREE.Color(0x8fd2f5)},
-  uDeep:{value:new THREE.Color(0x0a5e9c)},
-  uShallow:{value:new THREE.Color(0x33aede)},
+  // Between where this was and the deep navy it used to be. The pale version came from two
+  // places at once: these two, and the broad glitter lobe below, which was laying a sheen
+  // over most of the water rather than only where the sun is.
+  uDeep:{value:new THREE.Color(0x074c81)},
+  uShallow:{value:new THREE.Color(0x2792c4)},
   // what colour the sun is right now, so the glitter track belongs to the same sky, and
   // WHERE it is: the directional light that shades the water never moves, but the sun you
   // can see crosses the sky over a run. A glitter path has to run from the sun in the
@@ -1659,8 +1670,9 @@ const oceanMat=new THREE.ShaderMaterial({
       // actually wanted keeping is the broad one: the reflection of the sun lying on the
       // sea as a bright path, breaking up over the chop but never flashing. So the sparks
       // go and the path takes their light.
-      float gl = pow(max(dot(Ng,Hg),0.0),22.0)*0.62
-               + pow(max(dot(Ng,Hg),0.0),6.0)*0.10;
+      // one lobe, not two. The second was so broad it was not a reflection at all — it was a
+      // wash over the whole sea, and most of why the water had gone pale.
+      float gl = pow(max(dot(Ng,Hg),0.0),22.0)*0.62;
       // a low sun lays the track down the water; a high one has nowhere to lay it, and one
       // that has gone under has nothing to lay it with
       gl *= smoothstep(0.46,0.04,uGlitL.y) * smoothstep(-0.10,0.05,uGlitL.y);
@@ -6565,7 +6577,11 @@ function clearKit(){ for(const m of kitParts) if(m.parent)m.parent.remove(m); ki
 // eyes are part of the kit: where they sit and how big they are is most of what
 // tells one animal from another at a glance
 function kitEyes(C,inner){
-  const dark=mat(0x0d0d10,90), white=mat(0xf8f8f4,60);
+  // A face part that touches the skull z-fights with it, and z-fighting on something that
+  // MOVES does not read as z-fighting — it reads as the feature crawling around the face.
+  // Pushed forward in the depth test so the eye is always the eye, whatever the head does.
+  const dark=mat(0x0d0d10,90), white=mat(0xf8f8f4,60), spark=mat(0xffffff,120);
+  for(const m of [dark,white,spark]){ m.polygonOffset=true; m.polygonOffsetFactor=-2; m.polygonOffsetUnits=-2; }
   const E=C.eyes||'side';
   for(const sx of [-1,1]){
     if(E==='bulge'){                                    // frog: two balls sitting on the skull
@@ -6613,13 +6629,17 @@ function kitEyes(C,inner){
       // OUTBOARD of it, which is the recipe for a blank stare: a big white ball with a small
       // dark speck pushed to the far side of it, looking at nothing. The iris carries most
       // of a real eye, and it sits in the middle of what shows.
+      // The SIZE follows the head; the DEPTH must not. Scaling z by the head's own 0.82
+      // pulled the eyes back INSIDE it, so what showed was whatever sliver the curve of the
+      // skull left over — and that sliver moves as the head moves, which is the swirling.
+      // These z figures are measured against the front of the face and they stay put.
       const D=C.headS||[1,1,1], k=(D[0]+D[1]+D[2])/3;
       const w=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.086*k,18,14),white));
-      w.position.set(sx*0.125*D[0],0.10*D[1],-0.30*D[2]);w.scale.set(0.9,1.12,0.86);
-      const p=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.062*k,14,12),dark));
-      p.position.set(sx*0.126*D[0],0.096*D[1],-0.335*D[2]);
-      const gl=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.016*k,10,8),mat(0xffffff,120)));
-      gl.position.set(sx*0.104*D[0],0.130*D[1],-0.356*D[2]);
+      w.position.set(sx*0.125*D[0],0.10*D[1],-0.30);w.scale.set(0.9,1.12,0.86);
+      const p=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.050*k,14,12),dark));
+      p.position.set(sx*0.128*D[0],0.096*D[1],-0.340);
+      const gl=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.016*k,10,8),spark));
+      gl.position.set(sx*0.108*D[0],0.128*D[1],-0.362);
     } else if(E==='beady'){                             // small, high and close: bird-like
       const e=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.056,14,12),dark));
       e.position.set(sx*0.135,0.135,-0.345);
@@ -7363,6 +7383,7 @@ function buildChar(id){
   } else if(C.face==='ant'){
     // a cheerful cartoon ant, so a smile rather than mandibles
     const sm=PBR({color:C.dark,roughness:0.4,vivid:1.2});
+    sm.polygonOffset=true; sm.polygonOffsetFactor=-2; sm.polygonOffsetUnits=-2;
     const mouth=kit(headJ,new THREE.Mesh(new THREE.TorusGeometry(0.10,0.019,8,20,Math.PI*0.8),sm));
     mouth.position.set(0,-0.06,-0.31);
     mouth.rotation.set(0.16,0,Math.PI+0.43);
@@ -8402,9 +8423,14 @@ function buildObstacle(kind){
     // rails roll down 0.16 — the old bar was wider than that and sat proud of the rolled
     // corners, so its bright ends hung past both sides and read as two little tabs
     // sticking out of the ramp.
-    const lip=new THREE.Mesh(new THREE.BoxGeometry(RW*1.58,0.10,0.16),
-      new THREE.MeshBasicMaterial({color:vivid(0x2fffe8,1.5)}));
-    lip.position.set(0,RH+0.01,-RL+0.06);
+    // Sat at RH+0.01 with a half-height of 0.05, so half the bar was INSIDE the deck and
+    // the two surfaces fought for the same depth — which on a bright cyan bar reads as the
+    // top of the ramp flickering light blue. It rests ON the deck now, and is pushed forward
+    // in the depth test as well, because the deck is curved and "on" is only true at a point.
+    const lipMat=new THREE.MeshBasicMaterial({color:vivid(0x2fffe8,1.5)});
+    lipMat.polygonOffset=true; lipMat.polygonOffsetFactor=-2; lipMat.polygonOffsetUnits=-2;
+    const lip=new THREE.Mesh(new THREE.BoxGeometry(RW*1.58,0.10,0.16),lipMat);
+    lip.position.set(0,RH+0.062,-RL+0.06);
     m.add(lip);
     m.userData.rampL=RL;m.userData.rampH=RH;m.userData.rampW=RW;m.userData.rampP=RP;
     ramp=true;r=2.4;h=99;hx=1.70;hz=2.55;   // you ride up its length, not its width
@@ -9721,6 +9747,12 @@ function updateWipeout(dt){
   w.rx+=w.sx*dt*6; w.ry+=w.sy*dt*6; w.rz+=w.sz*dt*6;
   player.rotation.set(w.rx,w.ry,w.rz);
   const sea=waveH(px,dist*WAVE_DRIFT,waveClock)+0.13;
+  // The sea AROUND a whirlpool, which is not the sea at the bottom of one. waveH carries the
+  // dip and a whirlpool is ten metres deep, so anything that uses `sea` as a floor for the
+  // CAMERA follows the bowl down and ends up under the surrounding water, looking out
+  // through the back of the swirl. He is the thing to watch, going round it. (The splash and
+  // the landing below still want the real surface — that is where he actually hits.)
+  const seaTop=sea-((typeof whirlDip==='function')?whirlDip(px,dist*WAVE_DRIFT):0);
   if(!w.splashed&&py<=sea){
     w.splashed=true;
     splash(px,sea,w.vz*w.t,34);
@@ -9816,7 +9848,7 @@ function updateWipeout(dt){
   // shot cut straight to a wide hold on empty water while he was still in the air. Now it
   // rides in close on him and the board for the first beat, framing both, and only then
   // pulls back to the held wide shot it used to snap to.
-  w.camY+=((sea+4.6)-w.camY)*Math.min(1,dt*2.5);
+  w.camY+=((seaTop+4.6)-w.camY)*Math.min(1,dt*2.5);
   camera.up.set(0,1,0);
   // Frame BOTH of them for the whole crash, and pull back far enough that neither can
   // leave the shot — the held wide version lost him out of frame whenever he was thrown
@@ -9828,7 +9860,7 @@ function updateWipeout(dt){
   const back=Math.max(7.0,spread*1.45+5.2);
   const ease=Math.min(1,dt*(w.t<1.0?5.0:1.4));           // chases, then holds
   w.camX+=(mx+back*0.34-w.camX)*ease;
-  w.camY+=(Math.max(sea+2.0,my+back*0.20)-w.camY)*ease;
+  w.camY+=(Math.max(seaTop+2.0,my+back*0.20)-w.camY)*ease;
   w.camZ+=(mz+back-w.camZ)*ease;
   if(w.lockCam){
     camera.position.set(w.lockCam.x,w.lockCam.y,w.lockCam.z);
@@ -11083,6 +11115,52 @@ if(location.hash.includes('debug')){
               boardOnBeach:!!b&&b.parent===prevScene}; },
     hideSand:v=>{ if(beachSand)beachSand.visible=!v; return !!beachSand; },
     hidePools:v=>{ if(menuAO)menuAO.visible=!v; return !!menuAO; },
+    // Every part of a face, and how far it stands out from the skull. Negative means it is
+    // INSIDE the head, which is what makes a feature crawl about as the head moves: what you
+    // see is whichever sliver the curve of the skull leaves over.
+    faceProbe(){
+      let head=null;
+      headJ.children.forEach(o=>{ if(o.isMesh&&kitParts.indexOf(o)<0){
+        const g=o.geometry; if(!g.boundingSphere)g.computeBoundingSphere();
+        if(!head||g.boundingSphere.radius>head.g.boundingSphere.radius)head={o,g}; } });
+      const parts=kitParts.filter(o=>o.parent===headJ&&o.isMesh).map(o=>{
+        const g=o.geometry; if(!g.boundingBox)g.computeBoundingBox();
+        const z=o.position.z+g.boundingBox.min.z*(o.scale.z||1);
+        return {z:+z.toFixed(3), off:!!o.material.polygonOffset};
+      });
+      let hz=null;
+      if(head){ const bb=head.g.boundingBox||(head.g.computeBoundingBox(),head.g.boundingBox);
+        hz=head.o.position.z+bb.min.z*(head.o.scale.z||1); }
+      return {head:hz===null?null:+hz.toFixed(3), parts};
+    },
+    // Drop a whirlpool right on top of him and let it take him, then watch where the crash
+    // camera goes. Waiting for one to turn up on its own takes 700 m and a coin toss.
+    whirlNow(){
+      spawnWhirl(); whirl.x=px; whirl.z=pz+3; whA=Math.max(whA,3.2);
+      return {x:+whirl.x.toFixed(2),z:+whirl.z.toFixed(2)};
+    },
+    // where the camera is against the sea AROUND a whirlpool, which is the level it must
+    // stay above — the bowl itself is metres deep and is not a floor
+    camVsSea(){
+      const dip=whirlDip(camera.position.x,dist*WAVE_DRIFT);
+      const around=waveH(camera.position.x,dist*WAVE_DRIFT,waveClock)-dip;
+      const rs=waveH(px,dist*WAVE_DRIFT,waveClock)+0.13;
+      const rb=whirlDip(px,dist*WAVE_DRIFT);
+      return {cam:+camera.position.y.toFixed(2), sea:+around.toFixed(2),
+              dip:+dip.toFixed(2), over:+(camera.position.y-around).toFixed(2),
+              floor:+(rs-rb+2.0).toFixed(2), camY:wipe?+wipe.camY.toFixed(2):null,
+              rs:+rs.toFixed(2), rb:+rb.toFixed(2)};
+    },
+    // the ramp's lit lip bar against the deck it is meant to be sitting ON
+    rampProbe(){
+      const m=makeObstacle('ramp',0,-40);
+      const d=m.userData, bar=m.children.find(c=>c.material&&c.material.color&&!c.material.vertexColors);
+      const r=bar?{deck:+d.rampH.toFixed(3),
+                   lipLow:+(bar.position.y-bar.geometry.parameters.height/2).toFixed(3),
+                   off:!!bar.material.polygonOffset}:null;
+      scene.remove(m); const i=obstacles.indexOf(m); if(i>=0)obstacles.splice(i,1);
+      return r;
+    },
     bloom:v=>{ if(fxOn)fxComp.uniforms.uAmt.value=v; return v; },
     vig:v=>{ if(fxOn)fxComp.uniforms.uVig.value=v; return v; },
     hideShadow:v=>{ if(prevKey)prevKey.castShadow=!v; return !!prevKey; },
