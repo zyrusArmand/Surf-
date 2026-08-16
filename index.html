@@ -1033,13 +1033,20 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.24.0';
+const VERSION='3.25.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
 const scene=new THREE.Scene();
 scene.background=new THREE.Color(0x8fd2f5);
-const camera=new THREE.PerspectiveCamera(62, innerWidth/innerHeight, 0.1, 500);
+// Near at 0.5 rather than 0.1. A depth buffer's precision is spent almost entirely in the
+// first few multiples of the near plane, so 0.1-to-500 is a 5000:1 range that leaves distant
+// geometry with almost no resolution — and two surfaces that touch, like the ramp's lit lip
+// bar sitting on its deck, then swap places from frame to frame. That is exactly the reported
+// flicker: worst far away, settles as you approach and precision improves. The camera never
+// gets closer than a couple of feet to anything (it rides 11 back and 4.9 up), so the tighter
+// near plane costs nothing and buys five times the precision everywhere it matters.
+const camera=new THREE.PerspectiveCamera(62, innerWidth/innerHeight, 0.5, 500);
 const renderer=new THREE.WebGLRenderer({antialias:true});
 renderer.setSize(innerWidth,innerHeight);
 renderer.setPixelRatio(Math.min(2,devicePixelRatio));
@@ -8317,8 +8324,11 @@ function splash(x,y,z,n=8,col){
     // instead of as confetti: cube the roll and the small ones dominate.
     const r=Math.random(), sc=(0.34+Math.pow(r,3.0)*1.9)*0.34;
     m.scale.set(sc,sc,1);
+    // Shorter-lived than they were. A drop that hangs around for a second is still sitting in
+    // the wake long after the board has gone, and a scatter of small bright dots lying along
+    // the trail reads as glitter rather than as spray — which is what it was being taken for.
     m.userData={vx:(Math.random()-0.5)*6,vy:2+Math.random()*4,vz:(Math.random()-0.5)*6,
-                t:0.55+Math.random()*0.45,s:sc,y0:y};
+                t:0.34+Math.random()*0.30,s:sc,y0:y};
     splashes.push(m);
   }
 }
@@ -8786,7 +8796,7 @@ function buildObstacle(kind){
     // top of the ramp flickering light blue. It rests ON the deck now, and is pushed forward
     // in the depth test as well, because the deck is curved and "on" is only true at a point.
     const lipMat=new THREE.MeshBasicMaterial({color:vivid(0x2fffe8,1.5)});
-    lipMat.polygonOffset=true; lipMat.polygonOffsetFactor=-2; lipMat.polygonOffsetUnits=-2;
+    lipMat.polygonOffset=true; lipMat.polygonOffsetFactor=-4; lipMat.polygonOffsetUnits=-4;
     const lip=new THREE.Mesh(new THREE.BoxGeometry(RW*1.58,0.10,0.16),lipMat);
     lip.position.set(0,RH+0.062,-RL+0.06);
     m.add(lip);
@@ -11549,6 +11559,9 @@ if(location.hash.includes('debug')){
       return out;
     },
     hidePools:v=>{ if(menuAO)menuAO.visible=!v; return !!menuAO; },
+    hideDrops:v=>{ for(const d of splashes)d.visible=!v; return splashes.length; },
+    glit(v){ const u=oceanUniforms.uGlow;
+      if(v===false)u.value.setRGB(0,0,0); return u.value.getHex(); },
     hideBody:v=>{ torso.visible=!v; if(typeof hipMass!=='undefined')hipMass.visible=!v; return true; },
     // Whether this character has a NECK — which for most of the roster it did not. The head
     // was lifted above the shoulder line by a fraction of its own radius, so the bottom half
@@ -13954,7 +13967,7 @@ function update(dt){
     const dcam=camera.position.distanceTo(s2.position);
     const lens=Math.max(0,Math.min(1,(dcam-4.0)/3.0));
     u.near=near; u.lens=lens;
-    s2.material.opacity=k*k*(0.35+0.65*near)*lens;
+    s2.material.opacity=k*k*(0.35+0.65*near)*lens*0.70;
     if(u.t<=0||s2.position.y<sea-0.4){freeDrop(s2);splashes.splice(i,1);}
   }
   // keep the contact shadows glued under everything
