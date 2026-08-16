@@ -1033,7 +1033,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.15.0';
+const VERSION='3.16.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -7752,6 +7752,38 @@ function buildChar(id){
     const t=kit(tailJ,new THREE.Mesh(new THREE.SphereGeometry(0.11,14,12),furMat));
     t.position.set(0,0.13,0.02);t.scale.set(1,1.9,1);t.rotation.x=-0.4;
   }
+  sizeRider();
+}
+// A world unit here is a FOOT. That was settled when the boards were cut to their real spec
+// sheets, and everything else in the water turns out to agree with it: the buoy measures 3.2
+// feet, the log 5.1, the ramp 5.1 by 2.6. Every one of those is about what the real thing
+// measures. The RIDER was the one object that did not — one foot eleven, standing on a six
+// foot board, which is why the board read as a barge. He is a person now, and the same
+// person whichever animal he is: they all stand on the same boards past the same buoys.
+const RIDER_FT=5.6;
+// measured in the rider's OWN frame, so it is the same answer mid-trick as it is standing
+// still — a world-space box turns with him and its height would be whatever the flip is
+// doing at the time
+function localBoxY(root){
+  root.updateMatrixWorld(true);
+  const inv=new THREE.Matrix4().copy(root.matrixWorld).invert(), m=new THREE.Matrix4();
+  const p=new THREE.Vector3(); let lo=Infinity, hi=-Infinity;
+  root.traverse(o=>{
+    if(!o.isMesh||!o.geometry)return;
+    const g=o.geometry; if(!g.boundingBox)g.computeBoundingBox();
+    const b=g.boundingBox; m.multiplyMatrices(inv,o.matrixWorld);
+    for(const X of [b.min.x,b.max.x])for(const Y of [b.min.y,b.max.y])for(const Z of [b.min.z,b.max.z]){
+      p.set(X,Y,Z).applyMatrix4(m);
+      if(p.y<lo)lo=p.y; if(p.y>hi)hi=p.y;
+    }
+  });
+  return hi-lo;
+}
+function sizeRider(){
+  if(!pug)return;
+  const k=pug.scale.x; pug.scale.set(1,1,1);
+  const h=localBoxY(pug);
+  pug.scale.setScalar(h>0.01?RIDER_FT/h:k);
 }
 
 function equipChar(id){
@@ -8559,7 +8591,7 @@ for(const kind of ['buoy','jelly','log','bigfin','ramp','octopus'])(k=>{
 let running=false,tNow=0,last=0,speed=22,score=0,best=0,waveClock=0,lastEff=22;
 let px=0,py=0,pz=0,vy=0,vx=0,sprayCd=0,airborne=false,trickReady=false;
 const BOARD_HALF_L=2.45, BOARD_HALF_W=0.55;   // the hull's own footprint
-let boardYaw=0,boardLean=0,boardPitch=0,camX=0,camY=5.0,camZ=11.0,lookX=0,sprayAcc=0,leanW=0,pearlT=0;
+let boardYaw=0,boardLean=0,boardPitch=0,camX=0,camY=10.4,camZ=19.2,lookX=0,sprayAcc=0,leanW=0,pearlT=0;
 let tailAcc=0;    // the wash the tail throws just from moving
 let spinHeld=false,flipHeld=false,pitchHeld=false,spinRot=0,flipRot=0;
 // Tapped tricks queue whole turns rather than spinning for as long as a button is
@@ -9128,11 +9160,14 @@ function doJump(){
     // Lit here as well as in the frame loop. The loop sets it after the ring has run, which
     // is a frame away, and a trick pressed in that gap found the buttons still dead.
     trickReady=true;
-    splash(px,py,pz,10);
     return;
   }
   if(airborne)return;
-  vy=10.8*BS.air;airborne=true;splash(px,0.4,0,10);
+  // No burst on the way UP. A board leaving the water lifts a sheet off its tail, not a
+  // handful of bright drops hanging in the air behind you — and once those drops were soft
+  // lit sprites they read as sparkles thrown out by the trick, which is a different game.
+  // The landing still throws water, because that is water hitting water.
+  vy=10.8*BS.air;airborne=true;
 }
 function startTrick(type,src){
   if(!running||!trickReady)return;
@@ -9233,7 +9268,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   player.rotation.set(0,0,0);
   for(const o of obstacles)scene.remove(o);obstacles.length=0;
   dist=0;speed=13.5;score=0;px=0;py=0;pz=0;vy=0;vx=0;sprayCd=0;airborne=false;trick=null;
-  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=5.0;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;clearCracks();heliPh=-1;heliT=0;heliPose=0;heliUsed=false;heliAir=false;heliHeld=false;heliIncline=0;
+  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=10.4;camZ=19.2;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;clearCracks();heliPh=-1;heliT=0;heliPose=0;heliUsed=false;heliAir=false;heliHeld=false;heliIncline=0;
   trail.length=0;trailT=0;
   skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;skiGlint.visible=false;wkA=0;
   splatT=0;splatCd=0;if(zapEl)zapEl.classList.remove('on');
@@ -11164,6 +11199,29 @@ if(location.hash.includes('debug')){
       return {vibrate:HAS_VIBRATE, on:buzzOn, attached:!!l.parentNode,
               rendered:l.getClientRects().length>0&&cs.display!=='none'&&cs.visibility!=='hidden',
               isSwitch:i.hasAttribute('switch'), checked:i.checked};
+    },
+    // What everything in the ride actually measures, in the units the boards are cut in
+    // (one unit is one foot). This is the whole question of whether the rider is the right
+    // size for the board he is standing on.
+    scaleProbe(){
+      const sz=o=>{ o.updateMatrixWorld(true);
+        const b=new THREE.Box3().setFromObject(o), v=b.getSize(new THREE.Vector3());
+        return {x:+v.x.toFixed(2),y:+v.y.toFixed(2),z:+v.z.toFixed(2)}; };
+      // in the rider's OWN frame: a world box turns with him, so mid-lean or mid-trick its
+      // height is whatever the animation is doing rather than how tall he is
+      const keep=pug.scale.clone(); pug.scale.set(1,1,1);
+      const nat=localBoxY(pug); pug.scale.copy(keep);
+      const bs=sz(boardArtFor(equipped));
+      const out={rider:{y:+nat.toFixed(3)}, riderScale:+keep.y.toFixed(3),
+                 riderFt:+(nat*keep.y).toFixed(2),
+                 board:bs, boardFt:+Math.max(bs.x,bs.y,bs.z).toFixed(2),
+                 boardSpec:+(BOARD_BY_ID[equipped].spec.L).toFixed(2)};
+      for(const k of ['buoy','log','jelly','ramp']){
+        const m=makeObstacle(k,0,-60);
+        if(m){ out[k]=sz(m); scene.remove(m);
+               const i=obstacles.indexOf(m); if(i>=0)obstacles.splice(i,1); }
+      }
+      return out;
     },
     hidePools:v=>{ if(menuAO)menuAO.visible=!v; return !!menuAO; },
     // Every part of a face, and how far it stands out from the skull. Negative means it is
@@ -13483,11 +13541,14 @@ function update(dt){
   // Inside the barrel the camera drops and sits back: the whole point of the shot is the
   // roof over your head and the light coming through the opening, and the normal chase
   // height puts both of those above the top of the screen.
-  camY+=((waterY+4.9-swCam*2.15+airH*0.80)-camY)*Math.min(1,dt*(flying?4.6:1.6));
-  camY=Math.max(camY,waterY+2.3);            // never let a fast-building face swallow it
+  // Both of these went up when the rider did. He was one foot eleven and is five foot six
+  // now, so the thing being framed is about twice as tall as it was — from the old height
+  // and the old distance he filled the screen and the water in front of him disappeared.
+  camY+=((waterY+10.4-swCam*2.15+airH*0.80)-camY)*Math.min(1,dt*(flying?4.6:1.6));
+  camY=Math.max(camY,waterY+4.2);            // never let a fast-building face swallow it
   // follow his fore/aft travel only partly, so it reads on screen instead of the
   // camera cancelling it out and pinning him to one spot again
-  camZ+=((11.0+swCam*4.6+eff*0.05+airH*0.22+pz*0.42)-camZ)*Math.min(1,dt*2.4);
+  camZ+=((19.2+swCam*4.6+eff*0.05+airH*0.22+pz*0.42)-camZ)*Math.min(1,dt*2.4);
   // Inside the barrel the camera is FIXED. Not damped, not eased toward him — fixed. It is
   // set once when he joins the ring and then does not move again until he leaves it, so what
   // you watch is a still shot of a tube with a rider going round the inside of it.
@@ -13505,7 +13566,7 @@ function update(dt){
   // before the ring engages, the chase aim blends to where the tube's axis WILL be at full
   // form — predicted, not current, so the lock does not inherit a target that then moves.
   // The lock captures that finished pose, and from the first barrel frame nothing changes.
-  let aimX=lookX, aimY=waterY+1.05+swCam*1.5+airH*0.62, aimZ=-14-swCam*10;
+  let aimX=lookX, aimY=waterY+1.05+swCam*1.5+airH*0.62, aimZ=-11.5-swCam*10;
   if(swPh===SWP.RIDE&&!swTubeRide&&swCurlA>0.05){
     const pa1=swPeelA(pz), pb1=swPeelB(pz);
     const rad1=SW_R*(0.16+0.84*pa1)*(1-0.55*pb1), fold1=1-0.38*pb1;
@@ -13825,7 +13886,7 @@ let MENU_DOF=true;     // off is for measuring what it costs     // how many fee
 // NOT multiplied by MB_K. That scales the SET — the sea, the sand and the palm — and the
 // board is not part of it; it is the game's own object at its own size. Scaling the rider
 // with the set made him fifteen per cent taller than the thing he is standing next to.
-const MB_RH=5.2;
+const MB_RH=RIDER_FT;
 // The rider standing on that sand is an adult, not a pug: six feet of him against a six
 // foot board. From the old mark he filled half the frame on his own, so the camera takes
 // three more steps back and the picture goes back to being a beach with two things on it.
@@ -14036,11 +14097,15 @@ function layoutMenuBeach(){
     const wx=_mbP.x-_mbR.x*rr-_mbF.x*rf, wz=_mbP.z-_mbR.z*rr-_mbF.z*rf;
     return out.set(wx,(beachSandH?beachSandH(wz/MB_K):beachSand0)*MB_K,wz);
   };
-  // his own width, measured rather than assumed — a crab is not a sloth
-  pug.scale.setScalar(1); pug.updateMatrixWorld(true);
+  // He is ALREADY the right height. buildChar stands every character at RIDER_FT and that is
+  // the height he rides at, so the beach has nothing to re-scale — it used to do its own
+  // measurement here, off a world box in the portrait pose rather than off his own frame,
+  // and the two answers differed by seven per cent. One rider, one height, measured once.
+  // Only his WIDTH is wanted here, for the clearance against the board.
+  pug.updateMatrixWorld(true);
   const rb0=new THREE.Box3().setFromObject(pug), rs0=rb0.getSize(new THREE.Vector3());
-  const rk=rs0.y>0.01?MB_RH/rs0.y:1;
-  const rw=Math.max(rs0.x,rs0.z)*rk*0.5;
+  const rk=pug.scale.x;
+  const rw=Math.max(rs0.x,rs0.z)*0.5;
   let rd=d+MB_RD;
   {
     const _rp=new THREE.Vector3(), _rt=new THREE.Vector3();

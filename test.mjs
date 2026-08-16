@@ -534,7 +534,8 @@ await page.waitForTimeout(300);
         'the beach is a bright tropical midday, not a sunset',
         lit ? `sky #${lit.top.toString(16)} horizon #${lit.hor.toString(16)} glow ${lit.glow}` : 'no sky');
 
-  const want = 5.2;
+  // the same height he rides at — one number for both, because he is the same person
+  const want = 5.6;
   check(sizes.length >= 2 && sizes.every(f => Math.abs(f.rider - want) < 0.10),
         'and stands him beside it at the height of an average adult, whoever he is',
         sizes.map(f => `${f.id} ${f.rider}ft`).join(', ') + ` against ${want.toFixed(2)}ft`);
@@ -2108,6 +2109,45 @@ check(shaderErrors.length === 0, 'every shader compiles',
   check(fade && fade.near[0] > fade.near[1] + 0.3,
         'and one about to land is dimmer than one still in the air, so none of them cut the surface',
         fade ? `surface fade ${fade.near[0]} at 3ft up against ${fade.near[1]} at the waterline` : 'no probe');
+}
+
+// ---------- a rider is a person, on a board that is a board ----------
+// A world unit here is a FOOT — that was settled when the boards were cut to their published
+// spec sheets, and everything else in the water turns out to agree with it: the buoy measures
+// about three feet, the log five, the ramp five by two and a half. Each is roughly what the
+// real thing measures. The RIDER was the one object that did not: one foot eleven, standing
+// on a six foot board, which is why the board read as a barge under him. Normalised rather
+// than multiplied, so every character comes out the same height — they all stand on the same
+// boards and pass the same buoys.
+{
+  // measured on a freshly built character, because a pose changes a person's box — the menu
+  // holds him in a portrait stance and he stands a few inches taller in it, as anyone does
+  const sc = await page.evaluate(async () => {
+    window.__surf.wear('pug');
+    await new Promise(r => setTimeout(r, 250));
+    return window.__surf.scaleProbe();
+  });
+  check(Math.abs(sc.riderFt - 5.6) < 0.05 && Math.abs(sc.boardFt - sc.boardSpec) < 0.4,
+        'the rider stands about five foot six, on a board that is six feet long',
+        `${sc.riderFt}ft on a ${sc.boardFt}ft board`);
+  // and the props he rides past were right all along — this is the check that says the
+  // rider was the odd one out rather than everything else being small
+  check(sc.buoy.y > 2 && sc.buoy.y < 6 && sc.log.x > 3 && sc.log.x < 8,
+        'and the buoys and logs he passes were already at that scale',
+        `buoy ${sc.buoy.y}ft tall, log ${sc.log.x}ft long`);
+  const tall = await page.evaluate(async () => {
+    const out = {};
+    for (const c of ['pug', 'ant', 'sloth', 'crab']) {
+      try { window.__surf.wear(c); } catch (e) { continue; }
+      await new Promise(r => setTimeout(r, 200));
+      out[c] = window.__surf.scaleProbe().riderFt;
+    }
+    return out;
+  });
+  const hs = Object.values(tall);
+  check(hs.length >= 3 && Math.max(...hs) - Math.min(...hs) < 0.05,
+        'and every character is the same person, whichever animal he is',
+        JSON.stringify(tall));
 }
 
 // ---------- haptics ----------
