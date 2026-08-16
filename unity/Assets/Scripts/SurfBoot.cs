@@ -197,12 +197,7 @@ public class SurfBoot : MonoBehaviour
         board = Box("Board", new Vector3(BOARD_W, BOARD_T, BOARD_L),
                     new Color(0.96f, 0.55f, 0.30f)).transform;
 
-        var rider = Prim("Rider", PrimitiveType.Capsule, new Color(0.85f, 0.69f, 0.45f));
-        rider.transform.SetParent(board, false);
-        rider.transform.localPosition = new Vector3(0f, (BOARD_T * 0.5f + RIDER_FT * 0.5f) / BOARD_T, 0f);
-        rider.transform.localScale = new Vector3(RIDER_FT * 0.25f / BOARD_W,
-                                                 RIDER_FT * 0.5f  / BOARD_T,
-                                                 RIDER_FT * 0.25f / BOARD_L);
+        BuildPug();
 
         // A handful of things to pass, so the motion has something to be measured
         // against. Water with nothing in it does not read as moving at all.
@@ -297,6 +292,112 @@ public class SurfBoot : MonoBehaviour
         cam.transform.position = new Vector3(camX,
                                              Mathf.Max(waterY + CAM_Y, waterY + CAM_FLOOR),
                                              CAM_Z);
+    }
+
+    // ---- Astro ----
+    // Every measurement below is a fraction of his standing height, and every one of
+    // those fractions comes from the browser game's rig rather than from taste. They
+    // are worth stating because they are the whole character: the head is 37% of him,
+    // the body is 30% wide against 26% deep — broader than it is thick, like anything
+    // that walks on two legs — and the legs are a quarter of him. Those numbers took a
+    // long argument to arrive at and re-guessing them here would throw it away.
+    //
+    // He is built as a plain hierarchy under one root, and the root is parented to the
+    // board, so from here on he simply goes wherever the board goes.
+    void BuildPug()
+    {
+        var fur   = new Color(0.863f, 0.694f, 0.451f);   // 0xdcb173, a fawn pug
+        var dark  = new Color(0.200f, 0.157f, 0.122f);   // 0x33281f, the mask and the ears
+        var nose  = new Color(0.078f, 0.067f, 0.094f);   // 0x141118
+        var belly = new Color(0.914f, 0.784f, 0.576f);   // 0xe9c893, a paler chest
+        var eyeC  = new Color(0.05f, 0.05f, 0.06f);
+        var glint = new Color(1f, 1f, 1f);
+
+        float H = RIDER_FT;
+
+        var root = new GameObject("Astro").transform;
+        root.SetParent(board, false);
+        // undo the board's own scale, so his numbers are in feet and not in board-lengths
+        root.localScale = new Vector3(1f / BOARD_W, 1f / BOARD_T, 1f / BOARD_L);
+        root.localPosition = new Vector3(0f, BOARD_T * 0.5f / BOARD_T, 0f);
+        // side-on to the board, which is how anybody stands on one
+        root.localRotation = Quaternion.Euler(0f, -68f, 0f);
+
+        // ---- the body, bottom up ----
+        Part(root, "Hips",  fur,  new Vector3(0f, 0.29f * H, 0f),
+             new Vector3(0.28f * H, 0.22f * H, 0.25f * H));
+        Part(root, "Torso", fur,  new Vector3(0f, 0.47f * H, 0f),
+             new Vector3(0.30f * H, 0.40f * H, 0.26f * H));
+        // a paler chest panel. Two shades off the coat, not a cream bib: it is there to
+        // separate the chest from the hips from the legs, which from behind are otherwise
+        // one continuous fawn mass with nothing to read.
+        Part(root, "Chest", belly, new Vector3(0f, 0.47f * H, -0.10f * H),
+             new Vector3(0.20f * H, 0.28f * H, 0.10f * H));
+        Part(root, "Neck",  fur,  new Vector3(0f, 0.635f * H, -0.01f * H),
+             new Vector3(0.14f * H, 0.12f * H, 0.14f * H));
+
+        // ---- the head ----
+        var head = Part(root, "Head", fur, new Vector3(0f, 0.795f * H, -0.01f * H),
+                        new Vector3(0.37f * H, 0.375f * H, 0.35f * H));
+
+        // The MASK is the pug. On a real one the black covers the whole lower face and
+        // runs up either side of the bridge; the fawn is only the crown and the cheeks.
+        Part(head, "Muzzle", dark, new Vector3(0f, -0.30f, -0.62f), new Vector3(0.62f, 0.50f, 0.52f));
+        Part(head, "Bridge", dark, new Vector3(0f, -0.05f, -0.70f), new Vector3(0.26f, 0.42f, 0.30f));
+        Part(head, "Nose",   nose, new Vector3(0f, -0.24f, -0.92f), new Vector3(0.20f, 0.15f, 0.14f));
+
+        for (int i = 0; i < 2; i++)
+        {
+            float sx = i == 0 ? -1f : 1f;
+            // a ring of coat-dark around each eye, which is what makes them read as big
+            // at a distance where the eye itself is a few pixels across
+            Part(head, "EyeRing", dark,  new Vector3(sx * 0.42f, 0.22f, -0.62f),
+                 new Vector3(0.34f, 0.32f, 0.20f));
+            Part(head, "Eye",    eyeC,  new Vector3(sx * 0.41f, 0.23f, -0.72f),
+                 new Vector3(0.24f, 0.24f, 0.24f));
+            Part(head, "Glint",  glint, new Vector3(sx * 0.35f, 0.31f, -0.83f),
+                 new Vector3(0.07f, 0.07f, 0.07f));
+            // small dark ears folded flat against the top corners of the skull. Standing
+            // them away from the head is the one detail that turns a round-headed animal
+            // into a bear.
+            Part(head, "Ear", dark, new Vector3(sx * 0.72f, 0.52f, 0.10f),
+                 new Vector3(0.26f, 0.44f, 0.40f));
+        }
+
+        // ---- limbs ----
+        for (int i = 0; i < 2; i++)
+        {
+            float sx = i == 0 ? -1f : 1f;
+            Part(root, "Leg",  fur, new Vector3(sx * 0.075f * H, 0.135f * H, 0f),
+                 new Vector3(0.12f * H, 0.25f * H, 0.13f * H));
+            Part(root, "Foot", fur, new Vector3(sx * 0.075f * H, 0.025f * H, -0.02f * H),
+                 new Vector3(0.13f * H, 0.06f * H, 0.19f * H));
+            // arms out along the board — one down the line, one back — because that is
+            // what a surfer's arms do and it is the only way they read from astern
+            Part(root, "Arm", fur, new Vector3(sx * 0.15f * H, 0.50f * H, sx * 0.14f * H),
+                 new Vector3(0.11f * H, 0.11f * H, 0.30f * H));
+            Part(root, "Paw", fur, new Vector3(sx * 0.16f * H, 0.49f * H, sx * 0.29f * H),
+                 new Vector3(0.13f * H, 0.13f * H, 0.13f * H));
+        }
+
+        // the curl on the rump — from astern it is the single thing that says "pug"
+        Part(root, "Tail", fur, new Vector3(0f, 0.40f * H, 0.15f * H),
+             new Vector3(0.13f * H, 0.16f * H, 0.10f * H));
+    }
+
+    // one rounded lump of him. Everything is a sphere: it is what the browser rig is
+    // made of too, and a soft body reads better than a faceted one at this size.
+    Transform Part(Transform parent, string name, Color c, Vector3 pos, Vector3 size)
+    {
+        var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        go.name = name;
+        var col = go.GetComponent<Collider>();
+        if (col != null) Destroy(col);
+        go.GetComponent<Renderer>().sharedMaterial = Mat(c);
+        go.transform.SetParent(parent, false);
+        go.transform.localPosition = pos;
+        go.transform.localScale = size;
+        return go.transform;
     }
 
     // ---- the set arriving ----
