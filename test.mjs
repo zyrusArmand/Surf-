@@ -2111,6 +2111,32 @@ check(shaderErrors.length === 0, 'every shader compiles',
         fade ? `surface fade ${fade.near[0]} at 3ft up against ${fade.near[1]} at the waterline` : 'no probe');
 }
 
+// ---------- and he rides like one ----------
+// Every photograph of a surfer trimming has the knees loaded and the chest out over the
+// front foot. This one stood to attention: the rig only bent under g-force, so cruising
+// straight he was a man standing upright on a bus. The catch is that deepening the bend in
+// this rig swings the hips through the leg chain as well — drop the pelvis on top of it, as
+// looks obvious, and his feet go a quarter of a foot INTO the deck, which from directly
+// behind you cannot see has happened. Measured in the board's own frame, because the sea
+// heaves and the hull pitches and a world height answers a different question every frame.
+{
+  const feet = await page.evaluate(async () => {
+    window.__surf.restart(); window.__surf.invuln(true);
+    const settle = async () => { for (let i = 0; i < 40; i++) window.__surf.tick(0.05); };
+    const was = window.__surf.crouch();
+    window.__surf.crouch(0, 0); await settle();
+    const flat = window.__surf.footProbe();
+    window.__surf.crouch(was.c, was.h); await settle();
+    return { flat, crouched: window.__surf.footProbe(), depth: was.c };
+  });
+  check(feet.depth > 0.15, 'he rides in a stance rather than standing to attention',
+        `${feet.depth} rad of knee on top of whatever the wave asks for`);
+  const moved = Math.max(Math.abs(feet.crouched.front - feet.flat.front),
+                         Math.abs(feet.crouched.back - feet.flat.back));
+  check(moved < 0.06, 'and the stance keeps his feet on the deck rather than through it',
+        `worst foot moved ${moved.toFixed(3)}ft against the board`);
+}
+
 // ---------- a rider is a person, on a board that is a board ----------
 // A world unit here is a FOOT — that was settled when the boards were cut to their published
 // spec sheets, and everything else in the water turns out to agree with it: the buoy measures
