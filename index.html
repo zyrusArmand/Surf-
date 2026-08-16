@@ -1021,7 +1021,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.11.0';
+const VERSION='3.11.1';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -9943,6 +9943,7 @@ const horizonClip=new THREE.Plane(new THREE.Vector3(0,1,0),0);
 sunDisc.material.clippingPlanes=[horizonClip];
 moon.material.clippingPlanes=[horizonClip];
 const _cA=new THREE.Color(),_cB=new THREE.Color(),_cSun=new THREE.Color();
+const _sunAim=new THREE.Vector3();
 function lerpHex(a,b,k,out){out.setHex(a);_cB.setHex(b);out.lerp(_cB,k);return out;}
 function updateDayCycle(){
   // paced so a normal run actually gets there: warm by a few hundred metres,
@@ -9987,8 +9988,30 @@ function updateDayCycle(){
   sunGlowRim.scale.setScalar(sunDisc.scale.x);      // grows with the disc as it sits low
   sunGlowInner.material.uniforms.uOpacity.value=0.30+gAmt*0.55;
   sunGlowOuter.material.uniforms.uOpacity.value=0.16+gAmt*0.42;
-  // NOTE: the scene lights are deliberately left alone. Moving or warming them
-  // would repaint the ocean, the animals, the board and the pug.
+  // The scene lights used to be left alone on purpose — moving or warming them repaints the
+  // ocean, the animals, the board and the pug, and that was judged too high a price. It buys
+  // something real, though: with a fixed key the rider is lit from the same angle at dusk as
+  // at noon, in the same white, under a sky that has gone orange. Nothing in the frame agrees
+  // with anything else, which is most of why a run reads flatter than the menu does.
+  //
+  // So the direction follows the disc — free, no colour touched, and it is what puts the long
+  // raking light of an evening across the board and the rider instead of a fixed noon. The
+  // COLOUR follows too, but only part of the way: a full sunset key would swamp forty-six
+  // paint schemes, and the point is for the light to belong to the sky, not for the boards to
+  // stop reading. Held above the horizon whatever the disc does, because a light from below
+  // is a torch under the chin; the sun going down is carried by intensity, which was already
+  // here and doing it.
+  _sunAim.set(sxn*130,Math.max(sunY,26),-195).normalize();
+  sun.position.copy(_sunAim).multiplyScalar(60);
+  _cA.setHex(0xfff2cf).lerp(skyUniforms.uGlow.value,Math.min(0.55,gAmt*0.62));
+  if(_cA.convertSRGBToLinear)_cA.convertSRGBToLinear();
+  sun.color.copy(_cA);
+  // and what comes back UP off the water. A hemisphere's ground half is the bounce, and on
+  // open ocean the ground IS the ocean — undersides were picking up a fixed blue-grey while
+  // the sea under them turned to copper.
+  _cA.copy(oceanUniforms.uShallow.value).lerp(skyUniforms.uGlow.value,gAmt*0.50)
+     .multiplyScalar(0.62);
+  hemi.groundColor.copy(_cA);
   // clouds catch the same light as the sky behind them, so they warm into the
   // sunset instead of staying white cut-outs pasted over it
   _cA.setHex(0xffffff).lerp(skyUniforms.uGlow.value,gAmt*0.85);
@@ -11127,6 +11150,11 @@ if(location.hash.includes('debug')){
               near:two.map(d=>+(d.userData.near===undefined?-1:d.userData.near).toFixed(3)),
               y:two.map(d=>+d.position.y.toFixed(2))};
     },
+    // the key light, which used to be nailed to one direction and one white for the whole
+    // run while the sky above it went orange
+    key:()=>({dir:sun.position.clone().normalize().toArray().map(v=>+v.toFixed(3)),
+              col:sun.color.getHex(), inten:+sun.intensity.toFixed(2),
+              ground:hemi.groundColor.getHex()}),
     fx:()=>({on:fxOn, samples:fxOn&&fxRT.samples||0,
              thresh:fxOn?fxBright.uniforms.uT.value:null,
              amount:fxOn?fxComp.uniforms.uAmt.value:null,

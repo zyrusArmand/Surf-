@@ -1995,6 +1995,33 @@ check(shaderErrors.length === 0, 'every shader compiles',
         `sun height ${glit.a.y} -> ${glit.b.y} over the run`);
 }
 
+// ---------- the light belongs to the sky it is under ----------
+// The scene lights were nailed down on purpose once: moving or warming them repaints the
+// ocean, the animals, the board and the pug. What it cost was that the rider is lit from the
+// same angle at dusk as at noon, in the same white, under a sky that has gone orange —
+// nothing in the frame agreeing with anything else, which is most of why a run read flatter
+// than the menu. The direction follows the disc now and the colour follows part of the way;
+// only part, because a full sunset key would swamp forty-six paint schemes.
+{
+  const lit = await page.evaluate(() => {
+    window.__surf.restart(); window.__surf.invuln(true);
+    window.__surf.tick(8);
+    const a = window.__surf.key();
+    window.__surf.tick(150);
+    return { a, b: window.__surf.key() };
+  });
+  const moved = Math.max(...[0, 1, 2].map(i => Math.abs(lit.a.dir[i] - lit.b.dir[i])));
+  check(moved > 0.05, 'the key light crosses the sky with the sun rather than standing still',
+        `${JSON.stringify(lit.a.dir)} -> ${JSON.stringify(lit.b.dir)}`);
+  check(lit.a.col !== lit.b.col || lit.a.ground !== lit.b.ground,
+        'and warms with it, along with what bounces back up off the water',
+        `key #${lit.b.col.toString(16)}, bounce #${lit.b.ground.toString(16)}`);
+  // never from below, whatever the disc does — a light under the chin is a torch, and the
+  // sun going down is carried by intensity instead
+  check(lit.a.dir[1] > 0.1 && lit.b.dir[1] > 0.1,
+        'and never gets under it', `height ${lit.a.dir[1]} -> ${lit.b.dir[1]}`);
+}
+
 // ---------- spray is water, not beads ----------
 // Six-by-five spheres in flat white is what a droplet is NOT: water off a rail is torn, half
 // air, and has no edge. A hard little ball reads as a bead and a hundred of them read as
