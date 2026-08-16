@@ -535,7 +535,7 @@ await page.waitForTimeout(300);
         lit ? `sky #${lit.top.toString(16)} horizon #${lit.hor.toString(16)} glow ${lit.glow}` : 'no sky');
 
   // the same height he rides at — one number for both, because he is the same animal
-  const want = 4.15;
+  const want = 3.70;
   check(sizes.length >= 2 && sizes.every(f => Math.abs(f.rider - want) < 0.10),
         'and stands him beside it at the height he rides at, whoever he is',
         sizes.map(f => `${f.id} ${f.rider}ft`).join(', ') + ` against ${want.toFixed(2)}ft`);
@@ -2160,7 +2160,7 @@ check(shaderErrors.length === 0, 'every shader compiles',
 // than multiplied, so every character comes out the same height — they all stand on the same
 // boards and pass the same buoys.
 //
-// Four foot two, by way of five foot six and four foot six. He is a pug, drawn from a
+// Three foot eight, by way of five foot six, four foot six and four foot two. He is a pug, drawn from a
 // reference of one standing on a longboard at about half its length; at an adult human's
 // height he covered the deck end to end. But height was only ever half of it — see the width
 // check below, which is the half that actually made him look too big for the board.
@@ -2172,8 +2172,8 @@ check(shaderErrors.length === 0, 'every shader compiles',
     await new Promise(r => setTimeout(r, 250));
     return window.__surf.scaleProbe();
   });
-  check(Math.abs(sc.riderFt - 4.15) < 0.05 && Math.abs(sc.boardFt - sc.boardSpec) < 0.4,
-        'the rider stands about four foot two, on a board that is six feet long',
+  check(Math.abs(sc.riderFt - 3.70) < 0.05 && Math.abs(sc.boardFt - sc.boardSpec) < 0.4,
+        'the rider stands about three foot eight, on a board that is six feet long',
         `${sc.riderFt}ft on a ${sc.boardFt}ft board`);
   // and he FITS it. Height was never the thing that made him look too big for the board: he
   // measured 4.60 tall against a 5.83 board and still swamped it, because the body was 1.40

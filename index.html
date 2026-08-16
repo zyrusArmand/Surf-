@@ -1033,7 +1033,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.21.0';
+const VERSION='3.22.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5366,8 +5366,12 @@ function portraitPose(){
   for(const g of [legFrontJ,legBackJ]){
     g.hip.rotation.x=-0.05; g.knee.rotation.x=0.13; g.ankle.rotation.x=-0.08;
   }
-  armFrontJ.sh.rotation.set(0.10,0,-0.36); armFrontJ.el.rotation.x=0.26;
-  armBackJ.sh.rotation.set(0.10,0, 0.36);  armBackJ.el.rotation.x=0.26;
+  // Elbows well bent. The arms are long because the RIDE needs the reach — a paw thrown
+  // along the board has to clear a body a foot wide before it shows from astern — and at
+  // that length a straight arm hanging by the side reaches past the knee, which on a
+  // short-legged animal is a gibbon. A standing pose bends its elbows anyway.
+  armFrontJ.sh.rotation.set(0.16,0,-0.30); armFrontJ.el.rotation.x=0.72;
+  armBackJ.sh.rotation.set(0.16,0, 0.30);  armBackJ.el.rotation.x=0.72;
   for(const e of charEars)e.rotation.x=e.userData.baseX;
   updateLimbs();                       // measures legDrop for the pose just set...
   pelvis.position.y=pelvisHeight();    // ...which is what the hips should sit at
@@ -6800,7 +6804,7 @@ const CHARS=[
    // the whole cast uniformly and this entry is not a special case that drifts from it
    wProf:[0.74,0.78,0.88,0.70], dProf:[0.84,0.88,1.02,0.78], zProf:[0.04,0.01,-0.06,-0.10],
    tall:1.26, neckLen:0.76,
-   build:[0.98,0.96,0.98], limb:1.006, limbLen:1.80, arm:0.789, armLen:1.56,
+   build:[0.98,0.96,0.98], limb:1.006, limbLen:1.80, arm:0.789, armLen:2.10,
    foot:0.922, hand:0.783, headS:[0.880,0.888,0.838]},
 
   {id:'cat', body:'lean',   name:'Miso the Cat',   price:700,
@@ -7276,31 +7280,12 @@ function buildChar(id){
     neckMass.position.y=(nTop+nBot)*0.5;
     const nw=(C.neckW||1.02);
     neckMass.scale.set(_HS3[0]*nw*B[0],len,_HS3[2]*nw*B[2]);
-    // ---- and a collar on it ----
-    // Every character in the reference wears something. It is not decoration: a hard band of
-    // a different colour at the neck is what stops a soft one-tone body reading as a single
-    // moulded lump, and it does the same job a rim light would do without needing one. It
-    // also lands exactly where the head meets the body, which is the join this rig has always
-    // been worst at.
-    //
-    // Not on an animal with no neck to put one on. A frog's jaw comes down to its shoulders
-    // and the band ended up inside its mouth; the anglerfish is the same. The test is the
-    // character's own neckLen rather than a list of ids, so a new one that happens to be
-    // built that way is covered without anybody remembering to add it. Nor on a segmented
-    // body: an insect's thorax already has a hard band round it at that height and a second
-    // one just reads as a mistake.
-    if((C.neckLen||1)>=0.5 && !C.segs && C.collar!==false){
-      const cw=0.205*nw, cr=_HS3[0]*cw*B[0];
-      const band=kit(neck,new THREE.Mesh(new THREE.TorusGeometry(cr,cr*0.30,10,26),
-        PBR({color:C.collar||0x8d3b2a,roughness:0.42,metalness:0.06,vivid:1.35})));
-      band.rotation.x=Math.PI/2;
-      band.position.y=nBot+len*0.24;         // low, on the shoulders, clear of any jaw
-      band.scale.z=1.28;                     // squashed onto the throat rather than a ring in air
-      const tag=kit(neck,new THREE.Mesh(new THREE.SphereGeometry(cr*0.30,12,10),
-        PBR({color:C.tag||0xe8b53c,roughness:0.28,metalness:0.55,vivid:1.4})));
-      tag.position.set(0,band.position.y-cr*0.26,-cr*1.18);
-      tag.scale.set(1,1,0.42);
-    }
+    // No collar. There was one here, and the argument for it was that a hard band of another
+    // colour at the neck stops a soft one-tone body reading as a single moulded lump. That
+    // argument was sound when the head was sunk into the chest and there was no join to look
+    // at — but the neck above is now doing that job with actual geometry, and a red band on
+    // top of it is just a red band. Where the reference characters wear one it is a costume
+    // choice per character, not something the rig hands out to everybody.
   }
   torso.scale.set(B[0],B[1],B[2]);
   collar.scale.set(1.15*B[0],1.0*B[1],1.1*B[2]);
@@ -7799,17 +7784,23 @@ function buildChar(id){
       // vertical and tipped BACKWARD, and a 35-degree cap either side of that meets its twin
       // over the crown: what showed was a dark band across the top of the head like a pair
       // of headphones. -1.02 swings the axis properly out to the side and -0.30 about x tips
-      // it forward, and the cap is narrowed so the two stay well apart.
+      // it forward, and the cap is narrowed so the two stay well apart. Narrowed again once
+      // the rider turned side-on: a 31-degree cap is a disc more than half the width of the
+      // skull, which head-on reads as a folded ear and in profile reads as a dinner plate.
       earAt(sx,()=>{const e=new THREE.Mesh(
-        new THREE.SphereGeometry(0.414,22,12,0,Math.PI*2,0,0.55),
+        new THREE.SphereGeometry(0.414,22,12,0,Math.PI*2,0,0.44),
         darkMat.clone());
         e.material.side=THREE.DoubleSide;
-        e.rotation.set(-0.30,0,-1.14);return e;});
+        // an ellipse, not a disc: longer front-to-back than it is deep up-and-down, which is
+        // the shape of a folded ear. A circular cap seen face-on — which is what the near ear
+        // is the moment he turns side-on to the camera — is a black plate stuck on his head.
+        e.scale.set(0.74,1,1.34);
+        e.rotation.set(-0.30,0,-0.98);return e;});
       // and one flap just below the cap's outer edge, thin along the radius so it lies on the
       // skull rather than standing off it — a cap flush to the head shows nothing in profile
-      earAt(sx,()=>{const e=new THREE.Mesh(new THREE.SphereGeometry(0.160,16,12),darkMat);
-        e.position.set(0.380,0.140,-0.055);e.scale.set(0.88,0.34,0.94);
-        e.rotation.set(-0.30,0,-1.14);return e;});
+      earAt(sx,()=>{const e=new THREE.Mesh(new THREE.SphereGeometry(0.150,16,12),darkMat);
+        e.position.set(0.330,0.215,-0.055);e.scale.set(0.86,0.34,0.90);
+        e.rotation.set(-0.30,0,-0.98);return e;});
     } else if(C.ears==='pointed'){
       earAt(sx,()=>{const e=new THREE.Mesh(new THREE.ConeGeometry(0.115,0.30,4),furMat);
         e.position.set(0.20,0.42,0.02);e.rotation.z=-0.22;return e;});
@@ -8004,7 +7995,7 @@ function buildChar(id){
 // and is honest for a surfer, but he is a pug, and in the reference he is drawn at about half
 // the length of the longboard he is standing on. At an adult's height he covered the deck end
 // to end and the board underneath him stopped reading as a board at all.
-const RIDER_FT=4.15;
+const RIDER_FT=3.70;
 // measured in the rider's OWN frame, so it is the same answer mid-trick as it is standing
 // still — a world-space box turns with him and its height would be whatever the flip is
 // doing at the time
@@ -8195,15 +8186,18 @@ function makeLeg(zoff,xoff){
 }
 // place the feet in BOARD space (nose-to-tail), then convert into the rotated body's space
 //
-// -1.16 was a true surf stance — square side-on to the board — and it meant the camera, which
-// sits dead astern, spent the entire game looking at the back of his head and one flank. His
-// shoulder line ran straight up the board, so both arms pointed at the lens and away from it
-// and vanished; his legs did the same; and the only thing with any detail on it, the face,
-// was on the far side of him. Opened to -2.45 he rides backside to the camera instead, which
-// is an ordinary thing for a surfer to do and puts his chest, both arms, both paws and his
-// face in the frame. Everything downstream is derived from this constant — the hip sockets
-// through boardToBody, the legs' counter-rotation — so the feet still land on the deck.
-const STANCE_ROT=-2.45;
+// Sideways on the board and facing forward-ish, which is how a surfer actually stands.
+//
+// This went to -2.45 for a while, which turned him backside to the camera so his chest, face
+// and both paws were in frame. It solved the right problem the wrong way: the reason nothing
+// of him showed at -1.16 was not the stance, it was that his arms were thrown out along his
+// own shoulder line, and his shoulder line runs up the board, and the board runs straight
+// away from the lens. Both arms were pointing at the camera and away from it. Fix the arms —
+// leading paw down the line, trailing paw back, which is what they do anyway — and they lie
+// ACROSS the screen at any stance, so the body no longer has to be turned round to be seen.
+// Everything downstream is derived from this constant: the hip sockets through boardToBody
+// and the legs' counter-rotation, so the feet still land on the deck.
+const STANCE_ROT=-1.20;
 function boardToBody(bx,bz){
   const c=Math.cos(-STANCE_ROT), sn=Math.sin(-STANCE_ROT);
   return [bx*c+bz*sn, -bx*sn+bz*c];
@@ -12723,12 +12717,12 @@ function animateRig(dt,carve,grab,waterY){
   // head keeps looking down the line, level with the horizon
   // chin tucks to the chest through the rotation, then comes up to find the water
   neck.rotation.x=ease(neck.rotation.x,-spine.rotation.x*0.8+(airborne?0.12:0)+rigTuck*0.46,dt,9);
-  // His face, kept toward the camera in both stances. The body's yaw flips by a half turn
-  // when he lands a 180, so a single head offset can only ever be right for one of them —
-  // and whichever one it was wrong for, he rode it with the back of his head to the lens.
-  // He looks over the other shoulder instead, which is what anyone does riding switch, and
-  // the ease makes the swap read as turning his head rather than snapping it.
-  headJ.rotation.y=ease(headJ.rotation.y,(switchRide?1.78:-0.60)+carve*0.34,dt,6);
+  // Head down the line, near enough in profile, with a few degrees of it turned back toward
+  // the camera so there is a face to see rather than an ear. The body's yaw flips by a half
+  // turn when he lands a 180, so one offset can only ever be right for one of the two — he
+  // looks over the other shoulder riding switch, which is what anyone does, and the ease
+  // makes the swap read as turning his head rather than snapping it.
+  headJ.rotation.y=ease(headJ.rotation.y,(switchRide?-0.69:-1.05)+carve*0.34,dt,6);
   headJ.rotation.z=ease(headJ.rotation.z,-carve*0.10,dt,6);
   // ears and tail flap with speed and motion
   const flap=Math.sin(tNow*11)*(0.18+g*0.35);
@@ -12759,19 +12753,28 @@ function animateRig(dt,carve,grab,waterY){
     shB=[-0.35,-0.15,-1.45];      elB=[0.30,0,0];    // other paw up for balance
     armSpread=0;
   } else {
-    // Planted surf stance, both paws out wide.
+    // Planted surf stance: leading paw down the line, trailing paw back and out.
     //
-    // Every arm pose in this function had the sign of rotation.z backwards, and it had been
-    // wrong from the beginning. The front shoulder socket sits at NEGATIVE x and a positive
-    // z swings the arm toward positive x — so "out to the side" was swinging both arms IN,
-    // across the chest, where the torso swallowed them whole. He has never had visible arms
-    // on a wave; what showed was a paw-shaped lump on his own belly. Flipped here and in the
-    // windmill, the wave, the helicopter and the hand-plant.
+    // Thrown fore and aft on rotation.x rather than out sideways on rotation.z. He stands
+    // side-on, so his shoulder line runs up the board and the board runs away from the
+    // camera: arms swung out along it point at the lens and away from it and foreshorten to
+    // nothing behind the torso. Swung along the BOARD they lie across the screen instead,
+    // which is what "arms out" looks like from astern — and it is what a surfer's arms do.
+    //
+    // (The z terms are small and their sign matters: the front shoulder socket sits at
+    // NEGATIVE x and a positive z swings the arm toward positive x, so a positive z here
+    // would fold the arm across his own chest. Every pose in this function had that backwards
+    // once, which is why he had no visible arms on a wave at all.)
     const drag=Math.max(0,carve), drag2=Math.max(0,-carve);
-    shF=[0.46+drag*0.50, 0.16, -1.30-drag*0.28];   // z swings the arm out sideways
-    elF=[0.28-drag*0.16,0,0];
-    shB=[0.34+drag2*0.50,-0.16, 1.34+drag2*0.28];
-    elB=[0.26-drag2*0.16,0,0];
+    // The z terms are SMALL on purpose. z swings the arm out along his own shoulder line,
+    // and at a side-on stance that line points away from the lens: at -0.62 the paw ended up
+    // barely three inches wide of his ribs and a foot further from the camera, which is to
+    // say inside his own silhouette. x swings it along the BOARD, which is the axis that
+    // runs across the screen, so that is where nearly all of the throw goes.
+    shF=[1.14+drag*0.30, 0.12, -0.06-drag*0.14];
+    elF=[0.20-drag*0.12,0,0];
+    shB=[-1.30-drag2*0.30,-0.12, 0.10+drag2*0.14];
+    elB=[0.18-drag2*0.12,0,0];
     armSpread=Math.sin(tNow*2.4)*0.16 + heave*0.55;   // arms sway with the swell and the ride
     if(waveT>0){
       // He has just come round to face us, so he puts a hand up and waves — for three
