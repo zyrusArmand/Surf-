@@ -1033,7 +1033,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.22.0';
+const VERSION='3.23.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -6803,8 +6803,8 @@ const CHARS=[
    // written in the same pre-HOUSE units as everyone else, so the one bias below applies to
    // the whole cast uniformly and this entry is not a special case that drifts from it
    wProf:[0.74,0.78,0.88,0.70], dProf:[0.84,0.88,1.02,0.78], zProf:[0.04,0.01,-0.06,-0.10],
-   tall:1.26, neckLen:0.76,
-   build:[0.98,0.96,0.98], limb:1.006, limbLen:1.80, arm:0.789, armLen:2.10,
+   tall:0.957, neckLen:0.76,
+   build:[0.98,0.96,0.98], limb:1.594, limbLen:1.80, arm:1.144, armLen:2.10,
    foot:0.922, hand:0.783, headS:[0.880,0.888,0.838]},
 
   {id:'cat', body:'lean',   name:'Miso the Cat',   price:700,
@@ -7059,8 +7059,9 @@ const CHARS=[
 // board is wide, and half as thick again as he is wide. Nothing on two legs is built like
 // that; a human surfer is about 1.35 across and 0.75 through. That depth is the whole of why
 // he read as too big for the board while measuring shorter than it.
-const HOUSE={head:1.34, tall:0.80, limb:1.45, limbLen:0.88, arm:1.42, armLen:0.90,
+const HOUSE={head:1.34, limbLen:0.88, armLen:0.90,
              foot:1.15, hand:1.20, deep:0.72};
+const toward=(v,t,k)=>v+(t-v)*k;
 const CHAR_BY_ID={};
 for(const c of CHARS){
   const h=c.headS||[1,1,1], b=c.build||[1,1,1];
@@ -7069,10 +7070,18 @@ for(const c of CHARS){
     // scale every consumer already goes through — the torso mesh, the markings and the seat
     build:[b[0],b[1],b[2]*HOUSE.deep],
     headS:[h[0]*HOUSE.head,h[1]*HOUSE.head,h[2]*HOUSE.head],
-    tall:(c.tall||1.32)*HOUSE.tall,
-    limb:(c.limb||1)*HOUSE.limb,
+    // Torso length, same treatment and for the same reason. The frog is the shortest-bodied
+    // animal in the roster on purpose, and a flat 0.80x left it with no torso at all — head,
+    // then legs, nothing between them. It rode as a stack of green lumps.
+    tall:toward(c.tall||1.32, 1.05, 0.55),
+    // Limb THICKNESS is pulled toward a house value rather than multiplied by one. A flat
+    // multiplier does the right thing to a noodle and the wrong thing to a limb that was
+    // already heavy: the frog specifies thick legs on purpose, 1.45x turned them into
+    // columns, and the animal rode as a green sausage with no daylight anywhere in it.
+    // Pulling partway to a target lifts the thin ones and leaves the chunky ones alone.
+    limb:toward(c.limb||1, 1.35, 0.55),
     limbLen:(c.limbLen||1)*HOUSE.limbLen,
-    arm:(c.arm||c.limb||1)*HOUSE.arm,
+    arm:toward(c.arm||c.limb||1, 1.10, 0.55),
     armLen:(c.armLen||1)*HOUSE.armLen,
     foot:(c.foot||1)*HOUSE.foot,
     // hand falls through to the arm's own thickness when a character does not name one, and
@@ -7995,7 +8004,7 @@ function buildChar(id){
 // and is honest for a surfer, but he is a pug, and in the reference he is drawn at about half
 // the length of the longboard he is standing on. At an adult's height he covered the deck end
 // to end and the board underneath him stopped reading as a board at all.
-const RIDER_FT=3.70;
+const RIDER_FT=2.20;
 // measured in the rider's OWN frame, so it is the same answer mid-trick as it is standing
 // still — a world-space box turns with him and its height would be whatever the flip is
 // doing at the time
@@ -8870,7 +8879,7 @@ for(const kind of ['buoy','jelly','log','bigfin','ramp','octopus'])(k=>{
 let running=false,tNow=0,last=0,speed=22,score=0,best=0,waveClock=0,lastEff=22;
 let px=0,py=0,pz=0,vy=0,vx=0,sprayCd=0,airborne=false,trickReady=false;
 const BOARD_HALF_L=2.45, BOARD_HALF_W=0.55;   // the hull's own footprint
-let boardYaw=0,boardLean=0,boardPitch=0,camX=0,camY=10.4,camZ=19.2,lookX=0,sprayAcc=0,leanW=0,pearlT=0;
+let boardYaw=0,boardLean=0,boardPitch=0,camX=0,camY=4.9,camZ=11.0,lookX=0,sprayAcc=0,leanW=0,pearlT=0;
 let tailAcc=0;    // the wash the tail throws just from moving
 let spinHeld=false,flipHeld=false,pitchHeld=false,spinRot=0,flipRot=0;
 // Tapped tricks queue whole turns rather than spinning for as long as a button is
@@ -9547,7 +9556,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   player.rotation.set(0,0,0);
   for(const o of obstacles)scene.remove(o);obstacles.length=0;
   dist=0;speed=13.5;score=0;px=0;py=0;pz=0;vy=0;vx=0;sprayCd=0;airborne=false;trick=null;
-  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=10.4;camZ=19.2;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;clearCracks();heliPh=-1;heliT=0;heliPose=0;heliUsed=false;heliAir=false;heliHeld=false;heliIncline=0;
+  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=4.9;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;clearCracks();heliPh=-1;heliT=0;heliPose=0;heliUsed=false;heliAir=false;heliHeld=false;heliIncline=0;
   trail.length=0;trailT=0;
   skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;skiGlint.visible=false;wkA=0;
   splatT=0;splatCd=0;if(zapEl)zapEl.classList.remove('on');
@@ -14012,11 +14021,17 @@ function update(dt){
   // Both of these went up when the rider did. He was one foot eleven and is five foot six
   // now, so the thing being framed is about twice as tall as it was — from the old height
   // and the old distance he filled the screen and the water in front of him disappeared.
-  camY+=((waterY+10.4-swCam*2.15+airH*0.80)-camY)*Math.min(1,dt*(flying?4.6:1.6));
-  camY=Math.max(camY,waterY+4.2);            // never let a fast-building face swallow it
+  // Back to where this camera sat at v2.60, which is the framing the reference shots are of:
+  // 4.9 above the water at 11.0 behind, rather than 8.9 at 19.2. The instinct was that those
+  // shots were a steeper angle — they are not, they are a SHALLOWER one (nine degrees down
+  // against fourteen). What makes the board fill the frame in them is that the camera is
+  // barely half as far away. Pulling back and pitching down had been trading the board's
+  // apparent size for an angle nobody asked for.
+  camY+=((waterY+4.9-swCam*2.15+airH*0.80)-camY)*Math.min(1,dt*(flying?4.6:1.6));
+  camY=Math.max(camY,waterY+2.3);            // never let a fast-building face swallow it
   // follow his fore/aft travel only partly, so it reads on screen instead of the
   // camera cancelling it out and pinning him to one spot again
-  camZ+=((19.2+swCam*4.6+eff*0.05+airH*0.22+pz*0.42)-camZ)*Math.min(1,dt*2.4);
+  camZ+=((11.0+swCam*4.6+eff*0.05+airH*0.22+pz*0.42)-camZ)*Math.min(1,dt*2.4);
   // Inside the barrel the camera is FIXED. Not damped, not eased toward him — fixed. It is
   // set once when he joins the ring and then does not move again until he leaves it, so what
   // you watch is a still shot of a tube with a rider going round the inside of it.
@@ -14034,7 +14049,7 @@ function update(dt){
   // before the ring engages, the chase aim blends to where the tube's axis WILL be at full
   // form — predicted, not current, so the lock does not inherit a target that then moves.
   // The lock captures that finished pose, and from the first barrel frame nothing changes.
-  let aimX=lookX, aimY=waterY+1.05+swCam*1.5+airH*0.62, aimZ=-11.5-swCam*10;
+  let aimX=lookX, aimY=waterY+1.05+swCam*1.5+airH*0.62, aimZ=-14-swCam*10;
   if(swPh===SWP.RIDE&&!swTubeRide&&swCurlA>0.05){
     const pa1=swPeelA(pz), pb1=swPeelB(pz);
     const rad1=SW_R*(0.16+0.84*pa1)*(1-0.55*pb1), fold1=1-0.38*pb1;
