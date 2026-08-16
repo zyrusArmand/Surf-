@@ -11499,15 +11499,27 @@ if(location.hash.includes('debug')){
     // of the skull sat inside the chest and the two read as one lump. Measured in the spine's
     // frame against the shoulder line the rig itself computed.
     neckProbe(){
+      // The shoulder line is recomputed HERE, from the torso mesh as it actually stands,
+      // rather than read back from a number buildChar stashed. The stashed one went stale the
+      // moment anything else rebuilt the rig — the shop rebuilds it twice to draw a portrait
+      // — and the check then reported a corgi whose head floated three and a half radii above
+      // its shoulders, which a glance at the corgi says is not happening. A probe that can be
+      // wrong about the thing it exists to measure is worse than no probe.
       spine.updateMatrixWorld(true);
       const inv=new THREE.Matrix4().copy(spine.matrixWorld).invert(), p=new THREE.Vector3();
       head.updateWorldMatrix(true,false);
       const c=head.getWorldPosition(p).applyMatrix4(inv);
+      const a=torso.geometry.attributes.position;
+      let chest=0;
+      for(let i=0;i<a.count;i++) chest=Math.max(chest,Math.abs(a.getX(i)));
+      // the highest point at which the body has tapered to about a third of its chest —
+      // which is where a head belongs, and not the mesh's pole, a needle with no width
+      let sh=-Infinity;
+      for(let i=0;i<a.count;i++) if(Math.abs(a.getX(i))<=chest*0.36) sh=Math.max(sh,a.getY(i));
+      sh*=torso.scale.y;
       const r=0.40*headJ.scale.y;
-      return {shoulder:+(pug.userData.shoulderY||0).toFixed(3),
-              headY:+c.y.toFixed(3), headR:+r.toFixed(3),
-              gap:+(c.y-r-(pug.userData.shoulderY||0)).toFixed(3),
-              neck:+neckMass.scale.y.toFixed(3)};
+      return {shoulder:+sh.toFixed(3), headY:+c.y.toFixed(3), headR:+r.toFixed(3),
+              gap:+(c.y-r-sh).toFixed(3), neck:+neckMass.scale.y.toFixed(3)};
     },
     // How much of a 'wide' pupil is actually in front of its own white. Both scale with the
     // head; the gap between them used to be a flat 4 cm, so the bigger the head the less

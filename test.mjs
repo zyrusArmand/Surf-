@@ -2286,10 +2286,15 @@ check(shaderErrors.length === 0, 'every shader compiles',
     }
     return out;
   });
+  // Not "the head clears the shoulder line" — it does not, and it should not. A skull sits
+  // INTO its shoulders by a little; what it may not do is sit into them by half of itself.
+  // The old lift was 0.30 to 0.72 of a radius, which puts the bottom of the head a good 0.44
+  // of a radius under the line on a short-necked animal; it is within a twentieth of it now.
+  // Measured against the head's own radius so it means the same thing on a cat and a panda.
   const rows = Object.entries(necks);
-  check(rows.length >= 4 && rows.every(([, n]) => n.gap > 0 && n.neck > 0.02),
-        'every head clears its own shoulders, with a neck between them',
-        rows.map(([k, n]) => `${k} gap ${n.gap} neck ${n.neck}`).join(', '));
+  check(rows.length >= 4 && rows.every(([, n]) => n.gap > -0.25 * n.headR && n.neck > 0.02),
+        'no head is sunk into its own chest, and there is a throat between them',
+        rows.map(([k, n]) => `${k} ${(n.gap / n.headR).toFixed(2)} radii, neck ${n.neck}`).join(', '));
 
   // and the pupil still shows on a head the house proportions made a third bigger
   const eyes = await page.evaluate(async () => {
