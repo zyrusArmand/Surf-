@@ -1033,7 +1033,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.23.0';
+const VERSION='3.24.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -13946,7 +13946,15 @@ function update(dt){
     s2.scale.set(u.s*(0.55+0.45*k),u.s*(0.55+0.45*k),1);
     const sea=waveH(s2.position.x,dist*WAVE_DRIFT+s2.position.z,waveClock);
     const near=Math.max(0,Math.min(1,(s2.position.y-sea)/0.55));
-    u.near=near; s2.material.opacity=k*k*(0.35+0.65*near);
+    // ...and faded out again as it comes at the LENS. A drop is a soft sprite of fixed world
+    // size, so one thrown off the rail two feet from the camera covers a quarter of the deck
+    // and reads as a bright blob stuck to the board. It never showed while the camera sat
+    // nineteen feet back; at eleven the spray arrives in the near field and every one of them
+    // lands on the board. Gone by four feet out, untouched past seven.
+    const dcam=camera.position.distanceTo(s2.position);
+    const lens=Math.max(0,Math.min(1,(dcam-4.0)/3.0));
+    u.near=near; u.lens=lens;
+    s2.material.opacity=k*k*(0.35+0.65*near)*lens;
     if(u.t<=0||s2.position.y<sea-0.4){freeDrop(s2);splashes.splice(i,1);}
   }
   // keep the contact shadows glued under everything
