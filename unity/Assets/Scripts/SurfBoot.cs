@@ -38,6 +38,65 @@ public static class SurfWater
     public const float WAVE_DRIFT = 0.46f;   // how fast the swell rolls past as you travel
     public static float waveAmp = 0.78f;
 
+    // ---- the set wave ----
+    // The ambient swell above is only ever about four inches. THIS is the water the
+    // game is actually about: a wall that arrives from off to one side, stands up,
+    // and peels. Everything here is the browser game's own geometry.
+    public const float SW_PEAK = 7.0f;    // how tall the crest stands
+    public const float SW_FACE = 10.0f;   // how far the steep front face runs
+    public const float SW_BACK = 34.0f;   // and the long shoulder behind the crest
+    const float SW_BRK  = 30.0f;          // world z of the break — well behind the camera
+    const float SW_COLL = 26.0f;          // and how far behind it takes to fall to whitewater
+    public const float SW_CRASH_X = 46f;  // how far out it starts
+    public const float SW_HOLD_X  = 9.0f; // and how close it comes in
+
+    public static float dist;             // how far the rider has travelled, in feet
+    public static float swA, swX;         // crest height and crest position in x
+    public static float swS = 1f;         // which side it came from
+
+    // 0 at the break, 1 well behind it, where the section has collapsed to whitewater
+    static float PeelB(float z)
+    {
+        float u = Mathf.Clamp01((z - SW_BRK) / SW_COLL);
+        return u * u * (3f - 2f * u);
+    }
+
+    // d > 0 is behind the crest — the wave's own water. d < 0 is the trough you ride in.
+    public static float SetWaveH(float x, float z)
+    {
+        if (swA <= 0.0015f) return 0f;
+        float d = (x - swX) * swS;
+        float f;
+        if (d <= 0f)
+        {
+            // A concave power curve, not a smoothstep. A smoothstep flattens at its
+            // top, so the face arrived at the crest with ZERO slope — a rounded hump
+            // — and the lip then left it at nearly a right angle. That crease read as
+            // a flat slab with a separate spiral stuck on it. This is flat water, then
+            // a wall still steepening as it reaches the lip, which is what a wave about
+            // to barrel actually does.
+            float k = Mathf.Max(0f, 1f + d / SW_FACE);
+            f = Mathf.Pow(k, 3.2f);
+        }
+        else
+        {
+            float k = Mathf.Max(0f, 1f - d / SW_BACK);
+            f = 0.34f + 0.66f * k * k * (3f - 2f * k);
+        }
+        // z does NOT arrive in world coordinates — every caller passes the scrolled
+        // frame the swell is written in, because the swell has to roll past as you
+        // travel. The set wave does not scroll: it STANDS STILL in the world while you
+        // ride along it. So the scroll comes back off here before the peel is read.
+        //
+        // In the browser game getting this wrong cost a rendering that looked perfect
+        // and a board that sank: the visible wave stood at full height while the water
+        // the board actually rode had collapsed to 45% underneath it.
+        float wz = z - dist * WAVE_DRIFT;
+        // Ahead of the break the wall stands at full height — an unbroken wave is not a
+        // smaller wave. Only behind it does the crest drop away.
+        return swA * (1f - 0.55f * PeelB(wz)) * f;
+    }
+
     static readonly Comp[] WAVES = {
         new Comp( 0.00f, 1.00f, 0.190f, 1.000f, 0.38f, 0.00f),
         new Comp( 0.60f, 0.80f, 0.310f, 0.520f, 0.42f, 2.10f),
@@ -59,7 +118,7 @@ public static class SurfWater
     {
         float h = 0f;
         for (int i = 0; i < WAVES.Length; i++) h += Component(WAVES[i], x, z, t);
-        return h * waveAmp;
+        return h * waveAmp + SetWaveH(x, z);
     }
 
     // the long swell alone — what a floating thing rides, with the chop filtered out
@@ -67,7 +126,7 @@ public static class SurfWater
     {
         float h = 0f;
         for (int i = 0; i < 2; i++) h += Component(WAVES[i], x, z, t);
-        return h * waveAmp * 1.06f;
+        return h * waveAmp * 1.06f + SetWaveH(x, z);
     }
 }
 
@@ -120,6 +179,15 @@ public class SurfBoot : MonoBehaviour
     Transform[] props;
     float[] propZ;    // each prop's distance ahead, which is what actually moves
 
+    // ---- where the set is in its life ----
+    // The browser game runs a full phase machine here — arming, riding, the tube, the
+    // exit, the scoring — and none of that is ported yet. This is the ARRIVAL only:
+    // a wave builds, stands, and fades, from the far side each time. It is enough to
+    // put the real water on screen and ride it, and the phases go on top of it later.
+    float setT;
+    int   setPhase;   // 0 waiting, 1 building, 2 standing, 3 fading
+    const float SET_WAIT = 9f, SET_BUILD = 4.5f, SET_STAND = 11f, SET_FADE = 4f;
+
     void Awake()
     {
         BuildCamera();
@@ -158,7 +226,8 @@ public class SurfBoot : MonoBehaviour
         }
 
         Debug.Log("[Surf] carve with A / D, the arrow keys, or by holding the mouse on " +
-                  "the left or right half of the screen. Speed builds with distance.");
+                  "the left or right half of the screen. Speed builds with distance. " +
+                  "A set arrives every twenty seconds or so — carve into the face.");
     }
 
     void Update()
@@ -181,6 +250,9 @@ public class SurfBoot : MonoBehaviour
         // ground he covers, which is why a run that weaves outruns one that does not.
         eff = Mathf.Max(SPEED_BASE, speed + Mathf.Abs(vx) * 0.3f);
         dist += eff * dt;
+        SurfWater.dist = dist;      // the set wave needs it to undo the swell's scroll
+
+        UpdateSet(dt);
 
         // ---- the sea scrolls ----
         // This is the whole trick. The vertices never move in x or z; the swell is
@@ -225,6 +297,41 @@ public class SurfBoot : MonoBehaviour
         cam.transform.position = new Vector3(camX,
                                              Mathf.Max(waterY + CAM_Y, waterY + CAM_FLOOR),
                                              CAM_Z);
+    }
+
+    // ---- the set arriving ----
+    void UpdateSet(float dt)
+    {
+        setT += dt;
+        switch (setPhase)
+        {
+            case 0:
+                SurfWater.swA = 0f;
+                if (setT >= SET_WAIT) { setPhase = 1; setT = 0f; SurfWater.swS = -SurfWater.swS; }
+                break;
+            case 1:
+            {
+                // It comes in from a long way out and grows as it closes. Eased rather
+                // than linear, so it settles into position instead of arriving and
+                // stopping dead.
+                float k = Mathf.Clamp01(setT / SET_BUILD);
+                float e = k * k * (3f - 2f * k);
+                SurfWater.swA = SurfWater.SW_PEAK * e;
+                SurfWater.swX = SurfWater.swS *
+                    Mathf.Lerp(SurfWater.SW_CRASH_X, SurfWater.SW_HOLD_X, e);
+                if (setT >= SET_BUILD) { setPhase = 2; setT = 0f; }
+                break;
+            }
+            case 2:
+                SurfWater.swA = SurfWater.SW_PEAK;
+                SurfWater.swX = SurfWater.swS * SurfWater.SW_HOLD_X;
+                if (setT >= SET_STAND) { setPhase = 3; setT = 0f; }
+                break;
+            case 3:
+                SurfWater.swA = SurfWater.SW_PEAK * (1f - Mathf.Clamp01(setT / SET_FADE));
+                if (setT >= SET_FADE) { setPhase = 0; setT = 0f; }
+                break;
+        }
     }
 
     // ---- what the player is asking for, whichever way they are asking ----
