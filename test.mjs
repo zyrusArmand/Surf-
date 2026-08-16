@@ -2135,6 +2135,20 @@ check(shaderErrors.length === 0, 'every shader compiles',
                          Math.abs(feet.crouched.back - feet.flat.back));
   check(moved < 0.06, 'and the stance keeps his feet on the deck rather than through it',
         `worst foot moved ${moved.toFixed(3)}ft against the board`);
+
+  // Every arm pose in animateRig had the sign of rotation.z backwards, and had had it from
+  // the beginning. The front shoulder socket sits at negative x and a positive z swings the
+  // arm toward positive x, so "both paws out wide" swung both arms IN, across the chest,
+  // where the torso swallowed them whole. Nobody caught it because the camera sits dead
+  // astern of a rider standing side-on: the arms pointed at the lens and away from it, so
+  // out and folded looked the same — a paw-shaped lump on his own belly, either way.
+  const arms = await page.evaluate(() => window.__surf.armProbe());
+  check(arms.front < -arms.half && arms.back > arms.half,
+        'and his paws are outside his body rather than folded across his own chest',
+        `front ${arms.front}, back ${arms.back}, against a half-width of ${arms.half}`);
+  check(Math.sign(arms.front) === Math.sign(arms.sockF),
+        'and each paw is on the side its own shoulder is',
+        `front paw ${arms.front} off a socket at ${arms.sockF}`);
 }
 
 // ---------- a rider is an animal, on a board that is a board ----------
