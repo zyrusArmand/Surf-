@@ -1033,7 +1033,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.14.0';
+const VERSION='3.15.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2880,7 +2880,45 @@ const RIDER_PERK={
 // buzzing in a quiet room is the fastest way to make someone close a game.
 let buzzOn=(()=>{ try{ return localStorage.getItem('surfBuzz')!=='0'; }catch(e){ return true; } })();
 function setBuzz(v){ buzzOn=!!v; try{ localStorage.setItem('surfBuzz',buzzOn?'1':'0'); }catch(e){} }
-function buzz(p){ if(!buzzOn)return; try{ navigator.vibrate&&navigator.vibrate(p); }catch(e){} }
+// ---------- haptics ----------
+// The switch in Settings has been turning nothing on and off, and the reason is that
+// navigator.vibrate is the ONLY thing this was calling and iOS Safari has never implemented
+// it — not behind a flag, not in a PWA, not at all. On an iPhone the whole feature has been
+// a no-op since it was written.
+//
+// What iOS does have, since 17.4, is a real Taptic tap when you flip an
+// <input type="checkbox" switch>. So that is the buzzer: a one-pixel switch parked in the
+// corner, flipped from code. Two things about it are not optional. It has to be RENDERED —
+// display:none, visibility:hidden or a detached node and the system plays nothing — so it
+// is opacity:0 at one pixel instead. And on iOS it is reliable inside a user gesture and
+// not guaranteed outside one, which is why the taps that matter are wired to the buttons
+// you actually touch. Android and desktop Chrome keep the real API, where all of this is
+// unnecessary and every event can buzz.
+let _hapSw=null;
+function hapticSwitch(){
+  if(_hapSw)return _hapSw;
+  const l=document.createElement('label');
+  l.setAttribute('aria-hidden','true');
+  l.style.cssText='position:fixed;left:0;bottom:0;width:1px;height:1px;'+
+                  'opacity:0;pointer-events:none;overflow:hidden;';
+  const i=document.createElement('input');
+  i.type='checkbox'; i.setAttribute('switch','');   // the attribute IS the haptic
+  i.tabIndex=-1; i.style.cssText='width:1px;height:1px;margin:0;';
+  l.appendChild(i); document.body.appendChild(l);
+  return _hapSw=l;
+}
+const HAS_VIBRATE=typeof navigator!=='undefined'&&typeof navigator.vibrate==='function';
+function buzz(p){
+  if(!buzzOn)return;
+  if(HAS_VIBRATE){ try{ navigator.vibrate(p); }catch(e){} return; }
+  // one tap is all the switch has, so weight is carried by how many of them
+  try{
+    const l=hapticSwitch(), n=Array.isArray(p)?3:(p>=30?3:p>=18?2:1);
+    l.click();
+    for(let k=1;k<n;k++)setTimeout(()=>{ try{ l.click(); }catch(e){} },k*
+      (Array.isArray(p)?90:60));
+  }catch(e){}
+}
 // ---------- session goals ----------
 // Three standing goals, persisted with the save, paid in puka. Event goals count across
 // runs; run goals (distance, tricks) are judged against a single run at the card.
@@ -8805,8 +8843,10 @@ addEventListener('mousemove',e=>{
 });
 function endMouseDrag(){ if(mouseDrag){mouseDrag=false;steer=0;weight=0;} }
 addEventListener('mouseleave',endMouseDrag);
-jumpBtn.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();doJump();});
-jumpBtn.addEventListener('mousedown',doJump);
+// buzzed HERE rather than inside doJump, because the point of a tap you can feel is that it
+// answers the finger — and on iOS it only fires at all because this is a real touch handler
+jumpBtn.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();buzz(10);doJump();});
+jumpBtn.addEventListener('mousedown',()=>{buzz(10);doJump();});
 ropeBtn.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();ropeAction();});
 ropeBtn.addEventListener('mousedown',ropeAction);
 // A button does exactly what its gesture does — same call, same rotation, only the
@@ -8816,10 +8856,13 @@ function pressBtn(el,fn){
   el.addEventListener('mousedown',e=>{e.preventDefault();fn();});
 }
 function holdBtn(el,down,up){
-  el.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();down();},{passive:false});
+  // The tap goes in the touch handler, not in what it calls: on iOS the haptic only fires
+  // from inside a real gesture, and this is the gesture. It is also where it belongs —
+  // a button you can feel answering is the whole point of the trick bar.
+  el.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();buzz(8);down();},{passive:false});
   el.addEventListener('touchend',e=>{e.preventDefault();up();});
   el.addEventListener('touchcancel',e=>{up();});
-  el.addEventListener('mousedown',e=>{e.preventDefault();down();});
+  el.addEventListener('mousedown',e=>{e.preventDefault();buzz(8);down();});
 }
 // Hold to turn, let go to stop. A trick is now a thing you time rather than a thing
 // you trigger: he keeps rotating for as long as the button is down, and where he is
@@ -11114,6 +11157,14 @@ if(location.hash.includes('debug')){
               riderOnBeach:pug.parent===prevScene,
               boardOnBeach:!!b&&b.parent===prevScene}; },
     hideSand:v=>{ if(beachSand)beachSand.visible=!v; return !!beachSand; },
+    // which haptic path is live, and whether the iOS switch is in a state the system will
+    // actually play: a detached or display:none control is silent
+    haptics(){
+      const l=hapticSwitch(), i=l.firstChild, cs=getComputedStyle(i);
+      return {vibrate:HAS_VIBRATE, on:buzzOn, attached:!!l.parentNode,
+              rendered:l.getClientRects().length>0&&cs.display!=='none'&&cs.visibility!=='hidden',
+              isSwitch:i.hasAttribute('switch'), checked:i.checked};
+    },
     hidePools:v=>{ if(menuAO)menuAO.visible=!v; return !!menuAO; },
     // Every part of a face, and how far it stands out from the skull. Negative means it is
     // INSIDE the head, which is what makes a feature crawl about as the head moves: what you

@@ -2110,6 +2110,24 @@ check(shaderErrors.length === 0, 'every shader compiles',
         fade ? `surface fade ${fade.near[0]} at 3ft up against ${fade.near[1]} at the waterline` : 'no probe');
 }
 
+// ---------- haptics ----------
+// The Settings switch was turning nothing on and off for the reporter, and the reason is
+// that navigator.vibrate was the only thing being called: iOS Safari has never implemented
+// it, so on an iPhone the whole feature was a no-op. Where the API exists it is still used.
+{
+  const vib = await page.evaluate(() => {
+    const calls = [];
+    try { Object.defineProperty(navigator, 'vibrate',
+            { configurable: true, value: p => { calls.push(p); return true; } }); }
+    catch (e) { return null; }
+    document.getElementById('dSettings').click();     // a menu tap goes through buzz()
+    document.getElementById('setClose').click();
+    return calls;
+  });
+  check(vib && vib.length > 0, 'where the vibration API exists, that is what buzzes',
+        `${vib ? vib.length : 0} call(s)`);
+}
+
 // ---------- the crash camera does not fall into the whirlpool ----------
 // waveH carries the whirlpool's dip and a whirlpool is ten metres deep, so anything using
 // the sea under the RIDER as a floor for the camera follows the bowl down — and ends up
@@ -2234,6 +2252,38 @@ for (const [width, height, label] of [[430, 932, 'large phone'],
         `gap ${gap}, overflow ${fit.over}`);
   errors.push(...oops);
   await p2.close();
+}
+
+// ---------- and on a browser with no vibration API at all, which is every iPhone ----------
+// iOS has had a real Taptic tap since 17.4 when you flip an <input type="checkbox" switch>,
+// so that is the buzzer. Two things kill it silently and both are checked: the control has
+// to be IN the document, and it has to be RENDERED — display:none, visibility:hidden or a
+// detached node and the system plays nothing at all.
+{
+  const ctx = await browser.newContext({ viewport: { width: 393, height: 852 } });
+  await ctx.addInitScript(() => {
+    try { Object.defineProperty(navigator, 'vibrate', { get: () => undefined }); } catch (e) {}
+  });
+  const p3 = await ctx.newPage();
+  const oops = [];
+  p3.on('pageerror', e => oops.push(e.message));
+  await p3.goto(`http://127.0.0.1:${PORT}/index.html#debug`,
+                { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await p3.waitForFunction(() => typeof window.__surf === 'object' && !!window.__surf.state,
+                           null, { timeout: 120000 });
+  const h = await p3.evaluate(() => window.__surf.haptics());
+  check(!h.vibrate && h.isSwitch && h.attached && h.rendered,
+        'and where it does not, the buzzer is a real switch the system can feel',
+        JSON.stringify(h));
+  const flip = await p3.evaluate(() => {
+    const before = window.__surf.haptics().checked;
+    document.getElementById('dSettings').click();
+    return { before, after: window.__surf.haptics().checked };
+  });
+  check(flip.before !== flip.after, 'and a tap actually flips it',
+        `${flip.before} -> ${flip.after}`);
+  errors.push(...oops);
+  await ctx.close();
 }
 
 check(errors.length === 0, 'no page errors', errors.length ? `\n    ${errors.slice(0, 10).join('\n    ')}` : '');
