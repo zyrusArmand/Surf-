@@ -534,10 +534,10 @@ await page.waitForTimeout(300);
         'the beach is a bright tropical midday, not a sunset',
         lit ? `sky #${lit.top.toString(16)} horizon #${lit.hor.toString(16)} glow ${lit.glow}` : 'no sky');
 
-  // the same height he rides at — one number for both, because he is the same person
-  const want = 5.6;
+  // the same height he rides at — one number for both, because he is the same animal
+  const want = 4.6;
   check(sizes.length >= 2 && sizes.every(f => Math.abs(f.rider - want) < 0.10),
-        'and stands him beside it at the height of an average adult, whoever he is',
+        'and stands him beside it at the height he rides at, whoever he is',
         sizes.map(f => `${f.id} ${f.rider}ft`).join(', ') + ` against ${want.toFixed(2)}ft`);
 
 }
@@ -2137,7 +2137,7 @@ check(shaderErrors.length === 0, 'every shader compiles',
         `worst foot moved ${moved.toFixed(3)}ft against the board`);
 }
 
-// ---------- a rider is a person, on a board that is a board ----------
+// ---------- a rider is an animal, on a board that is a board ----------
 // A world unit here is a FOOT — that was settled when the boards were cut to their published
 // spec sheets, and everything else in the water turns out to agree with it: the buoy measures
 // about three feet, the log five, the ramp five by two and a half. Each is roughly what the
@@ -2145,6 +2145,11 @@ check(shaderErrors.length === 0, 'every shader compiles',
 // on a six foot board, which is why the board read as a barge under him. Normalised rather
 // than multiplied, so every character comes out the same height — they all stand on the same
 // boards and pass the same buoys.
+//
+// Four foot six rather than the five foot six it was first set to. He is a pug, drawn from a
+// reference of one standing on a longboard at about half its length; at an adult human's
+// height he covered the deck end to end and the board underneath him stopped reading as a
+// board at all.
 {
   // measured on a freshly built character, because a pose changes a person's box — the menu
   // holds him in a portrait stance and he stands a few inches taller in it, as anyone does
@@ -2153,8 +2158,8 @@ check(shaderErrors.length === 0, 'every shader compiles',
     await new Promise(r => setTimeout(r, 250));
     return window.__surf.scaleProbe();
   });
-  check(Math.abs(sc.riderFt - 5.6) < 0.05 && Math.abs(sc.boardFt - sc.boardSpec) < 0.4,
-        'the rider stands about five foot six, on a board that is six feet long',
+  check(Math.abs(sc.riderFt - 4.6) < 0.05 && Math.abs(sc.boardFt - sc.boardSpec) < 0.4,
+        'the rider stands about four foot six, on a board that is six feet long',
         `${sc.riderFt}ft on a ${sc.boardFt}ft board`);
   // and the props he rides past were right all along — this is the check that says the
   // rider was the odd one out rather than everything else being small
@@ -2247,6 +2252,31 @@ check(shaderErrors.length === 0, 'every shader compiles',
   check(ramp && ramp.lipLow > ramp.deck && ramp.off,
         'and the ramp\'s lit bar rests on its deck instead of inside it',
         ramp ? `bar bottom ${ramp.lipLow} against a deck at ${ramp.deck}` : 'no ramp');
+}
+
+// ---------- the pug is a pug ----------
+// Drawn from a reference, and every one of the three faults below was found by looking at a
+// render rather than by reasoning about the numbers — which is exactly why they are worth a
+// check. An ear parked on the side of a round head clears the silhouette and stands up as a
+// dark blade: that is a horn, not an ear, and it happened at every position and angle tried
+// until the ear became a CAP of a sphere concentric with the skull. Black carried across the
+// bridge at eye height is a pair of sunglasses. And an eye that does not clear the skull is a
+// bead down a socket, which is what the old 7 cm bead on the side of the head was.
+{
+  const f = await page.evaluate(async () => {
+    window.__surf.wear('pug');
+    await new Promise(r => setTimeout(r, 300));
+    return window.__surf.pugFace();
+  });
+  check(f.ear > f.skull && f.ear < f.skull + 0.09,
+        'his ears lie on the skull instead of standing off it as horns',
+        `ear reaches ${f.ear} on a ${f.skull} skull`);
+  check(f.eyeY !== null && f.maskTop < f.eyeY,
+        'and the mask goes up BETWEEN his eyes rather than across them',
+        `black on the bridge tops out at ${f.maskTop}, eyes at ${f.eyeY}`);
+  check(f.eyeOut > f.skull + 0.03,
+        'and his eyes stand proud of the skull rather than sunk into it',
+        `eye reaches ${f.eyeOut} on a ${f.skull} skull`);
 }
 
 // ---------- nothing shows through a panel, and nothing is a pill any more ----------

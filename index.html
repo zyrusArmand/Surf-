@@ -1033,7 +1033,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.17.0';
+const VERSION='3.18.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -6447,6 +6447,35 @@ function limb(parent,len,rad,col,ry=0){
 }
 const FUR=0xdCa85f, FUR2=0xdCa85f, CREAM=0xf2dcae, DARK=0x2b1d12;   // warmer, deeper fawn
 const furMat=FUR_MAT(FUR), darkMat=PBR({color:DARK,roughness:0.72});
+// ---- a coat, rather than a moulded surface ----
+// The bark, the resin and the sand all got this treatment and the animals never did, which
+// is why every one of them read as a painted vinyl toy standing next to objects that read as
+// objects: under one directional light a smooth ellipsoid has exactly one highlight and
+// nothing else to look at. Fine strokes lying mostly one way, with a coarser clumping under
+// them — enough to break the highlight up, far too small to see as a pattern.
+const _furN=bakedNormal('fur',256,(x,y,N)=>{
+  const u=x/N*Math.PI*2, v=y/N*Math.PI*2;
+  // Weighted toward the irregular term on purpose. A strong directional strand is a fur
+  // stroke on a flat sheet and corduroy on a sphere: the muzzle is a 4 cm ball whose UVs
+  // converge at the poles, so an even sine across it comes out as machined concentric
+  // rings. What survives that projection is the part with no direction in it.
+  const strand=Math.sin(v*44+Math.sin(u*6.0)*1.7);
+  const clump=Math.sin(u*15+Math.sin(v*3.0)*2.4);
+  const grain=Math.sin(u*37+v*29)*Math.sin(v*31-u*23);
+  return strand*0.18+clump*0.22+grain*0.60;
+},0.9,0.92);
+const _furR=bakedGrey('furR',128,(x,y,N)=>{
+  const u=x/N*Math.PI*2, v=y/N*Math.PI*2;
+  return 0.62+0.24*(Math.sin(u*17+v*11)*Math.sin(v*13-u*9));
+});
+for(const t of [_furN,_furR]){ t.repeat.set(3,3); }
+// Subtle on purpose. At 0.35 it was corduroy; at 0.14 the coat only softens the highlight,
+// which is the only version that survives being seen from ten feet away on a wave.
+function coatSurface(m,s){
+  m.normalMap=_furN; m.normalScale=new THREE.Vector2(s||0.14,s||0.14);
+  m.roughnessMap=_furR; m.needsUpdate=true; return m;
+}
+coatSurface(furMat,0.14); coatSurface(darkMat,0.11);
 // a penguin's feet are the one part of it that is not black; kept as its own material so
 // a foot can be a different colour from the rest of the animal without a second mesh
 const footMat=PBR({color:0xf2a01b,roughness:0.45,vivid:1.5});
@@ -6660,6 +6689,26 @@ function kitEyes(C,inner){
       b.position.set(sx*0.20,0.115,-0.30);
       const p=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.052,12,12),dark));
       p.position.set(sx*0.215,0.115,-0.355);p.scale.set(0.34,1.25,1);
+    } else if(E==='pug'){
+      // A pug's eye is nearly all iris — a big dark dome set WIDE on the front of a round
+      // skull, with one bright catchlight high on it. The old one was a 7 cm bead on the
+      // side of the head, which is why the face read as blank from anywhere but nose-on:
+      // at that size and that far round, the skull's own curve hides most of it.
+      // Size follows the head; DEPTH does not get a second multiply, because the eye is a
+      // child of the same joint the head's scale lives on and is carried by it already.
+      const D=C.headS||[1,1,1], k=(D[0]+D[1]+D[2])/3;
+      // The mask comes up AROUND each eye — that ring of coat-dark is what separates a pug
+      // from a fawn dog with a black nose, and it is the reason the eyes read as big even at
+      // a distance where the eye itself is four pixels across. Laid on the skull under the
+      // eye, not over it: a dark shape across both eyes is a pair of sunglasses.
+      const ring=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.130*k,18,14),darkMat));
+      ring.position.set(sx*0.180*D[0],0.095*D[1],-0.290);ring.scale.set(1.00,0.92,0.55);
+      ring.userData.eyeRing=true;                 // dark, and AT the eye line on purpose
+      const e=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.090*k,20,16),dark));
+      e.position.set(sx*0.175*D[0],0.100*D[1],-0.290);
+      e.userData.pugEye=true;
+      const gl=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.026*k,12,10),spark));
+      gl.position.set(sx*0.150*D[0],0.142*D[1],-0.352);
     } else if(E==='wide'){                              // alert, not googly
       // Two things were wrong and they compounded. The eye was a fixed size on a head that
       // is not — the ant's is scaled to four fifths, so his came out proportionally a fifth
@@ -6701,14 +6750,30 @@ const CHARS=[
 
   {id:'pug', body:'deep',   name:'Astro the Pug',  price:0,
    blurb:'The original. Flat face, curled tail, absolutely no quit.',
-   // A fawn pug: sandy coat, a black mask over the muzzle and ears, a deep barrel chest on
-   // short legs, and no neck at all. The skull is broad and FLAT — wider than it is deep,
-   // which is the proportion that reads as "pug" before any of the details do.
-   fur:0xd7a75c, dark:0x2b2119, nose:0x121014, face:'pug',   ears:'floppy',  tail:'curl',
-   cheeks:true, belly:0xe6c78d,
-   shape:[1.02,1.12,1.06,0.80], tall:1.18, wide:1.10, deep:1.04, neckLen:0.74,
-   build:[1.02,0.92,1.04], limb:1.06, limbLen:0.82, arm:1.02, armLen:0.84, foot:1.02,
-   headS:[0.862,0.8,0.693]},
+   // Drawn from a reference of a pug STANDING UP on a longboard, and every number here comes
+   // off that picture. The head is about a quarter of the standing height — a chibi third
+   // was tried first and the head stopped being a head and became the whole silhouette, with
+   // the board under it disappearing. The chest is the widest part and the waist pulls in
+   // under it, and there is enough leg to see a thigh.
+   //
+   // The old spec was the opposite in every respect: a tall pear of a torso with the head a
+   // fifth of it, which from behind on a wave is a sack of potatoes with ears. It also
+   // carried `shape`, `wide` and `deep`, none of which do anything — body:'deep' supplies
+   // the width and depth profiles and those three keys are only read when a character has NO
+   // named body. So its silhouette was the shared 'deep' pear, widest at the belly and
+   // narrowest at the shoulders, which is exactly where the head has to sit.
+   //
+   // No pale front, either. A fawn pug is one colour from the chin to the tail with the
+   // black only on the face and the ears; the cream oval that used to run the length of the
+   // belly read as a bib strapped over him.
+   fur:0xdcb173, dark:0x33281f, nose:0x141118, face:'pug',   ears:'fold',  tail:'curl',
+   eyes:'pug',
+   // written in the same pre-HOUSE units as everyone else, so the one bias below applies to
+   // the whole cast uniformly and this entry is not a special case that drifts from it
+   wProf:[0.74,0.78,0.88,0.70], dProf:[0.84,0.88,1.02,0.78], zProf:[0.04,0.01,-0.06,-0.10],
+   tall:1.44, neckLen:0.74,
+   build:[0.96,0.96,0.96], limb:0.98, limbLen:1.72, arm:0.88, armLen:1.24,
+   foot:1.10, hand:1.02, headS:[0.784,0.791,0.746]},
 
   {id:'cat', body:'lean',   name:'Miso the Cat',   price:700,
    blurb:'Grey tabby. Hates water, rides it anyway, will not discuss it.',
@@ -6943,7 +7008,33 @@ const CHARS=[
    footShape:[1.22,0.55,1.34], flipper:true, footCol:0xf0a51c, claws:3, clawCol:0xf0a51c,
    headS:[1.025,1.049,1.049]},
 ];
-const CHAR_BY_ID={}; for(const c of CHARS)CHAR_BY_ID[c.id]=c;
+// ---- the house proportions ----
+// Every animal above is specified at roughly life proportions: a head about a fifth of the
+// standing height on a torso as long as a sock, with limbs to match. That is honest, and at
+// the size these are actually seen — a few hundred pixels tall, usually from behind, on a
+// wave — it reads as a bag of coat with ears on it. The head is the character; the rest of
+// it is silhouette.
+//
+// So the whole cast is pulled toward the same drawing: head up by a third, torso down by a
+// fifth, limbs shorter and thicker. Applied once, here, to the record every consumer reads,
+// rather than by hand across twenty entries — hand-editing twenty sets of numbers is how the
+// pug ended up carrying three keys (shape, wide, deep) that its own body form ignores.
+//
+// Nothing gets absolutely smaller: sizeRider normalises the finished animal to RIDER_FT
+// whatever these do, so this only ever moves mass between the head, the body and the legs.
+const HOUSE={head:1.34, tall:0.80, limb:1.14, limbLen:0.88, arm:1.12, armLen:0.90};
+const CHAR_BY_ID={};
+for(const c of CHARS){
+  const h=c.headS||[1,1,1];
+  CHAR_BY_ID[c.id]=Object.assign({},c,{
+    headS:[h[0]*HOUSE.head,h[1]*HOUSE.head,h[2]*HOUSE.head],
+    tall:(c.tall||1.32)*HOUSE.tall,
+    limb:(c.limb||1)*HOUSE.limb,
+    limbLen:(c.limbLen||1)*HOUSE.limbLen,
+    arm:(c.arm||c.limb||1)*HOUSE.arm,
+    armLen:(c.armLen||1)*HOUSE.armLen,
+  });
+}
 function buildChar(id){
   const C=CHAR_BY_ID[id]||CHAR_BY_ID.pug;
   clearKit();
@@ -7304,11 +7395,31 @@ function buildChar(id){
 
   // ---- muzzle ----
   if(C.face==='pug'){
-    const m=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.22,18,14),darkMat));
-    m.position.set(0,-0.08,-0.34);m.scale.set(1.1,0.85,0.95);
-    kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.075,12,10),noseMat)).position.set(0,-0.05,-0.51);
-    const t=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.07,10,8),mat(0xff8fa0)));
-    t.position.set(0,-0.17,-0.42);t.scale.set(0.8,1.5,0.6);
+    // The MASK is the pug, and it is not a snout. On a real one the black covers the whole
+    // lower face and runs up either side of the bridge; the fawn is only the crown and the
+    // cheeks around it. The old one was a single ball hung off the front of the skull — a
+    // dark blob on a pale ball, which is why it read as a teddy bear with a nose.
+    //
+    // Two overlapping pieces, both laid ON the skull so they curve with it: a wide flat pad
+    // over the jaw, and a bridge that carries the black up between the eyes. There was a
+    // third, a brow spreading it out PAST them, and that is where it went wrong — a dark bar
+    // over two round eyes is a pair of sunglasses, which is precisely what it looked like.
+    // The black stops at the eye line and goes up between, not across; the ring around each
+    // eye (over in kitEyes) is what carries it any higher.
+    const pad=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.205,20,16),darkMat));
+    pad.position.set(0,-0.132,-0.262);pad.scale.set(1.24,1.02,0.92);
+    const bridge=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.098,16,14),darkMat));
+    bridge.position.set(0,-0.048,-0.300);bridge.scale.set(0.76,0.92,0.66);
+    // No fawn wrinkle across the muzzle. It was meant to be a fold and it came out as a
+    // wedge of coat cutting down into the black from above — the mask read as a moustache
+    // with a parting. A pug's wrinkle is a shadow at this distance, and no geometry says
+    // "shadow" as well as leaving it out does.
+    const n=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.062,14,12),noseMat));
+    n.position.set(0,-0.108,-0.405);n.scale.set(1.20,0.88,0.80);
+    // a slot of a mouth under the nose rather than a lolling tongue: the reference face is
+    // closed and slightly glum, and a pink tongue hanging out of it was most of the toy look
+    const mo=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.062,14,10),mat(0x191016,50)));
+    mo.position.set(0,-0.212,-0.360);mo.scale.set(1.35,0.40,0.52);
   } else if(C.face==='snout'){
     const m=kit(headJ,new THREE.Mesh(new THREE.CylinderGeometry(0.155,0.175,0.20,18),inner));
     m.rotation.x=Math.PI/2;m.position.set(0,-0.06,-0.44);
@@ -7575,6 +7686,33 @@ function buildChar(id){
     if(C.ears==='floppy'){
       earAt(sx,()=>{const e=new THREE.Mesh(new THREE.SphereGeometry(0.13,14,12),darkMat);
         e.position.set(0.27,0.26,0.03);e.scale.set(1,1.5,0.65);e.rotation.z=-0.35;return e;});
+    } else if(C.ears==='fold'){
+      // A pug's ear is a small dark flap that lies FLAT against the side of the skull and
+      // folds forward over itself. Every other ear in here stands away from the head, and on
+      // a round-headed animal that is the one detail that turns it into a bear.
+      //
+      // A CAP of a sphere concentric with the skull, a centimetre larger than it. Any
+      // ellipsoid parked on the side of the head is a lump with its own silhouette, and at
+      // this size a lump on a round head is a horn — which is what the first two attempts
+      // both came out as, at every position and every angle tried. A concentric cap cannot
+      // be a lump: it is the skull's own surface, lifted and repainted, so it hugs the
+      // corner of the head exactly the way a folded ear does.
+      // It sits at the origin, so the aim is entirely in the rotation, and the rotation is
+      // read in the order Z then Y then X. At -0.70/+0.24 the axis came out 41 degrees off
+      // vertical and tipped BACKWARD, and a 35-degree cap either side of that meets its twin
+      // over the crown: what showed was a dark band across the top of the head like a pair
+      // of headphones. -1.02 swings the axis properly out to the side and -0.30 about x tips
+      // it forward, and the cap is narrowed so the two stay well apart.
+      earAt(sx,()=>{const e=new THREE.Mesh(
+        new THREE.SphereGeometry(0.414,22,12,0,Math.PI*2,0,0.55),
+        darkMat.clone());
+        e.material.side=THREE.DoubleSide;
+        e.rotation.set(-0.30,0,-1.14);return e;});
+      // and one flap just below the cap's outer edge, thin along the radius so it lies on the
+      // skull rather than standing off it — a cap flush to the head shows nothing in profile
+      earAt(sx,()=>{const e=new THREE.Mesh(new THREE.SphereGeometry(0.160,16,12),darkMat);
+        e.position.set(0.380,0.140,-0.055);e.scale.set(0.88,0.34,0.94);
+        e.rotation.set(-0.30,0,-1.14);return e;});
     } else if(C.ears==='pointed'){
       earAt(sx,()=>{const e=new THREE.Mesh(new THREE.ConeGeometry(0.115,0.30,4),furMat);
         e.position.set(0.20,0.42,0.02);e.rotation.z=-0.22;return e;});
@@ -7653,12 +7791,16 @@ function buildChar(id){
     // the spiral's plane was exactly side-on, so from directly behind the whole tail was
     // edge-on and read as a stick hanging off the back. Turned into three-quarters it
     // reads as a curl from every angle.
-    const t=kit(tailJ,new THREE.Mesh(new THREE.TorusGeometry(0.105,0.052,12,22,5.4),furMat));
-    t.rotation.set(0.30,1.05,0.20);t.position.set(0.03,0.04,-0.02);
+    // Bigger, and further back than the joint. The rump grew when the bodies did, and the
+    // curl stayed where it was: it ended up buried in the backside with a centimetre of one
+    // coil showing. From directly astern — which is the angle this game is played from — the
+    // curl is the single thing that says "pug", so it has to clear the rump.
+    const t=kit(tailJ,new THREE.Mesh(new THREE.TorusGeometry(0.140,0.058,12,22,5.4),furMat));
+    t.rotation.set(0.30,1.05,0.20);t.position.set(0.03,0.05,0.10);
     // a root that fills the rump under the curl. It used to hang below and behind the
     // joint, which put a teardrop dangling off the backside rather than a tail root
-    const b=kit(tailJ,new THREE.Mesh(new THREE.SphereGeometry(0.085,12,10),furMat));
-    b.position.set(0,-0.03,-0.05);b.scale.set(1.15,1.0,1.15);
+    const b=kit(tailJ,new THREE.Mesh(new THREE.SphereGeometry(0.098,12,10),furMat));
+    b.position.set(0,-0.02,0.02);b.scale.set(1.15,1.0,1.15);
   } else if(C.tail==='long'){
     let par=tailRoot(C.tailTilt!==undefined?C.tailTilt:0.85);
     for(let i=0;i<7;i++){
@@ -7758,9 +7900,14 @@ function buildChar(id){
 // sheets, and everything else in the water turns out to agree with it: the buoy measures 3.2
 // feet, the log 5.1, the ramp 5.1 by 2.6. Every one of those is about what the real thing
 // measures. The RIDER was the one object that did not — one foot eleven, standing on a six
-// foot board, which is why the board read as a barge. He is a person now, and the same
-// person whichever animal he is: they all stand on the same boards past the same buoys.
-const RIDER_FT=5.6;
+// foot board, which is why the board read as a barge. He is the same size whichever animal
+// he is: they all stand on the same boards past the same buoys.
+//
+// Four foot six, down from the five foot six he was first set to. Five six is an adult human
+// and is honest for a surfer, but he is a pug, and in the reference he is drawn at about half
+// the length of the longboard he is standing on. At an adult's height he covered the deck end
+// to end and the board underneath him stopped reading as a board at all.
+const RIDER_FT=4.6;
 // measured in the rider's OWN frame, so it is the same answer mid-trick as it is standing
 // still — a world-space box turns with him and its height would be whatever the flip is
 // doing at the time
@@ -7779,10 +7926,23 @@ function localBoxY(root){
   });
   return hi-lo;
 }
+// ...and in one canonical POSE, not in whatever the rig happens to be doing. Own frame was
+// only half the problem: height is not a property of a pose either. Crouched into a turn he
+// is four inches shorter than he is standing on the beach, so normalising against the pose
+// that was up when the character got built made every animal a different height depending on
+// which screen had built it — 4.86 for the pug against 4.45 for the sloth, all of them
+// nominally the same. The standing pose is the one that means anything, so it is the one
+// everybody is measured in.
+function standingHeight(){
+  const undo=portraitPose();
+  const h=localBoxY(pug);
+  undo();
+  return h;
+}
 function sizeRider(){
   if(!pug)return;
   const k=pug.scale.x; pug.scale.set(1,1,1);
-  const h=localBoxY(pug);
+  const h=standingHeight();
   pug.scale.setScalar(h>0.01?RIDER_FT/h:k);
 }
 
@@ -11228,7 +11388,7 @@ if(location.hash.includes('debug')){
       // in the rider's OWN frame: a world box turns with him, so mid-lean or mid-trick its
       // height is whatever the animation is doing rather than how tall he is
       const keep=pug.scale.clone(); pug.scale.set(1,1,1);
-      const nat=localBoxY(pug); pug.scale.copy(keep);
+      const nat=standingHeight(); pug.scale.copy(keep);
       const bs=sz(boardArtFor(equipped));
       const out={rider:{y:+nat.toFixed(3)}, riderScale:+keep.y.toFixed(3),
                  riderFt:+(nat*keep.y).toFixed(2),
@@ -11242,6 +11402,43 @@ if(location.hash.includes('debug')){
       return out;
     },
     hidePools:v=>{ if(menuAO)menuAO.visible=!v; return !!menuAO; },
+    // The three ways the pug's face has actually gone wrong, in numbers. Every one of them
+    // was found by looking at a picture and none by reasoning, which is why they are worth
+    // keeping: an ear that clears the skull is a horn, black that reaches the eye line on the
+    // centreline is a pair of sunglasses, and an eye that does not clear the skull is a bead
+    // sunk in a socket. Measured in headJ's own frame, where the skull is a 0.40 sphere.
+    pugFace(){
+      headJ.updateWorldMatrix(true,true);
+      const inv=new THREE.Matrix4().copy(headJ.matrixWorld).invert();
+      const m=new THREE.Matrix4(), p=new THREE.Vector3();
+      const out={skull:0.40, ear:0, maskTop:-9, eyeY:null, eyeOut:0};
+      for(const o of kitParts){
+        if(o.parent!==headJ||!o.isMesh||!o.geometry||!o.geometry.attributes.position)continue;
+        o.updateWorldMatrix(true,false);
+        m.multiplyMatrices(inv,o.matrixWorld);
+        const a=o.geometry.attributes.position;
+        const isEar=charEars.indexOf(o)>=0;
+        const isMask=!isEar&&!o.userData.eyeRing&&o.material===darkMat;
+        let far=0, top=-9;
+        for(let i=0;i<a.count;i++){
+          p.fromBufferAttribute(a,i).applyMatrix4(m);
+          if(p.length()>far)far=p.length();
+          // only the bridge between the eyes: black low on the cheeks is a muzzle, black
+          // across the middle at eye height is the thing that read as sunglasses
+          if(Math.abs(p.x)<0.05&&p.y>top)top=p.y;
+        }
+        if(isEar)out.ear=Math.max(out.ear,far);
+        if(isMask&&top>-9)out.maskTop=Math.max(out.maskTop,top);
+        if(o.userData.pugEye){ out.eyeOut=Math.max(out.eyeOut,far); out.eyeY=+o.position.y.toFixed(3); }
+      }
+      out.ear=+out.ear.toFixed(3); out.maskTop=+out.maskTop.toFixed(3);
+      out.eyeOut=+out.eyeOut.toFixed(3);
+      return out;
+    },
+    // the shop's own portrait of a character, as a PNG data URL. Looking at the animal is
+    // the only way to judge the animal; every proportion argument this file has had was
+    // settled by a picture and not by a number.
+    charShot(id){ delete prevCache['c:'+id]; return charPreview(id); },
     // Every part of a face, and how far it stands out from the skull. Negative means it is
     // INSIDE the head, which is what makes a feature crawl about as the head moves: what you
     // see is whichever sliver the curve of the skull leaves over.
