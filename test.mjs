@@ -351,6 +351,14 @@ await page.waitForTimeout(300);
   // Asked here, before anything has opened the shop or the viewer, because that is also
   // where the far palms get built and they are meant NOT to be built yet.
   const boot0 = await page.evaluate(() => window.__surf.boot());
+  // The beach is built inside the blocking script, not on the first frame, so the first paint
+  // IS the finished screen. Asked of the running game rather than of the source: the previous
+  // version of this was a regex, it matched the crate ceremony's button handler, and the line
+  // it was looking for had in fact been bolted onto that handler by mistake and never ran at
+  // boot at all. A check that can pass while the feature does nothing is worse than none.
+  check(boot0.beforeFirstFrame === true,
+        'the beach is standing before the script returns, not a frame later',
+        `${boot0.why || 'built at boot'}`);
   check(boot0.beach > 0 && boot0.beach < 1000,
         'the beach stands up fast enough not to read as a hang',
         `${boot0.beach}ms, of which ${boot0.sand}ms is ${boot0.sandVerts} sand vertices`);
@@ -1949,10 +1957,13 @@ check(shaderErrors.length === 0, 'every shader compiles',
   check(/<body class="[^"]*\bboot\b/.test(head) &&
         /body\.boot #overlay[^}]*opacity:\s*0/.test(src),
         'and the title and the dial wait for the scene rather than arriving without it');
-  // the beach is built inside the blocking script, not on the first frame, so the first
-  // paint IS the finished screen
-  check(/showMenu\('main'\);[\s\S]{0,700}menuBeachWanted\(\)\)menuBeachOn\(\)/.test(src),
-        'and the beach is standing before the script returns, not a frame later');
+  // The beach is built inside the blocking script, not on the first frame, so the first paint
+  // IS the finished screen. Asked of the running game, not of the source: the previous
+  // version of this check was a regex, it matched the crate ceremony's button handler, and
+  // the line it was checking for had in fact been bolted onto that handler by mistake and
+  // never ran at boot at all. A check that can pass while the feature does nothing is worse
+  // than no check.
+
   // and the script must still be able to turn it back on when a run starts
   check(/hud\.style\.display\s*=\s*''/.test(src), 'and the run still turns the HUD on');
 }
