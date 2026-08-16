@@ -535,7 +535,7 @@ await page.waitForTimeout(300);
         lit ? `sky #${lit.top.toString(16)} horizon #${lit.hor.toString(16)} glow ${lit.glow}` : 'no sky');
 
   // the same height he rides at — one number for both, because he is the same animal
-  const want = 4.6;
+  const want = 4.15;
   check(sizes.length >= 2 && sizes.every(f => Math.abs(f.rider - want) < 0.10),
         'and stands him beside it at the height he rides at, whoever he is',
         sizes.map(f => `${f.id} ${f.rider}ft`).join(', ') + ` against ${want.toFixed(2)}ft`);
@@ -2160,10 +2160,10 @@ check(shaderErrors.length === 0, 'every shader compiles',
 // than multiplied, so every character comes out the same height — they all stand on the same
 // boards and pass the same buoys.
 //
-// Four foot six rather than the five foot six it was first set to. He is a pug, drawn from a
+// Four foot two, by way of five foot six and four foot six. He is a pug, drawn from a
 // reference of one standing on a longboard at about half its length; at an adult human's
-// height he covered the deck end to end and the board underneath him stopped reading as a
-// board at all.
+// height he covered the deck end to end. But height was only ever half of it — see the width
+// check below, which is the half that actually made him look too big for the board.
 {
   // measured on a freshly built character, because a pose changes a person's box — the menu
   // holds him in a portrait stance and he stands a few inches taller in it, as anyone does
@@ -2172,9 +2172,16 @@ check(shaderErrors.length === 0, 'every shader compiles',
     await new Promise(r => setTimeout(r, 250));
     return window.__surf.scaleProbe();
   });
-  check(Math.abs(sc.riderFt - 4.6) < 0.05 && Math.abs(sc.boardFt - sc.boardSpec) < 0.4,
-        'the rider stands about four foot six, on a board that is six feet long',
+  check(Math.abs(sc.riderFt - 4.15) < 0.05 && Math.abs(sc.boardFt - sc.boardSpec) < 0.4,
+        'the rider stands about four foot two, on a board that is six feet long',
         `${sc.riderFt}ft on a ${sc.boardFt}ft board`);
+  // and he FITS it. Height was never the thing that made him look too big for the board: he
+  // measured 4.60 tall against a 5.83 board and still swamped it, because the body was 1.40
+  // across and 1.67 through on a deck 1.42 wide — broader through the ribs than the board and
+  // half again as thick as he was wide. Nothing on two legs is built like that.
+  check(sc.bodyW < sc.board.x && sc.bodyD < sc.bodyW,
+        'and his body fits between the rails, and is broader than it is thick',
+        `${sc.bodyW}ft wide by ${sc.bodyD}ft thick, on a deck ${sc.board.x}ft across`);
   // and the props he rides past were right all along — this is the check that says the
   // rider was the odd one out rather than everything else being small
   check(sc.buoy.y > 2 && sc.buoy.y < 6 && sc.log.x > 3 && sc.log.x < 8,
@@ -2291,9 +2298,15 @@ check(shaderErrors.length === 0, 'every shader compiles',
   // The old lift was 0.30 to 0.72 of a radius, which puts the bottom of the head a good 0.44
   // of a radius under the line on a short-necked animal; it is within a twentieth of it now.
   // Measured against the head's own radius so it means the same thing on a cat and a panda.
+  // Bounded BOTH ways, and that is not pedantry — the first two versions of this check were
+  // green while reporting a corgi whose head floated three and a half radii above its
+  // shoulders, because they only ever asserted a floor. A one-sided check cannot tell a fixed
+  // rig from a broken probe. The head must sit near the line: not half-buried under it, which
+  // is what the old rig did at -0.44 radii, and not hovering over it either.
   const rows = Object.entries(necks);
-  check(rows.length >= 4 && rows.every(([, n]) => n.gap > -0.25 * n.headR && n.neck > 0.02),
-        'no head is sunk into its own chest, and there is a throat between them',
+  check(rows.length >= 4 && rows.every(([, n]) =>
+          Math.abs(n.gap) < 0.25 * n.headR && n.neck > 0.02),
+        'every head sits ON its shoulders — not buried in them, not floating over them',
         rows.map(([k, n]) => `${k} ${(n.gap / n.headR).toFixed(2)} radii, neck ${n.neck}`).join(', '));
 
   // and the pupil still shows on a head the house proportions made a third bigger
