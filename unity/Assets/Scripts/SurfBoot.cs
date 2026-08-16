@@ -137,7 +137,6 @@ public class SurfBoot : MonoBehaviour
     const float RIDER_FT = 2.20f;
     const float BOARD_L  = 5.83f, BOARD_W = 1.42f, BOARD_T = 0.25f;
     const float BOARD_HALF_L = 2.45f;
-    const float BUOY_H = 3.17f, LOG_L = 5.10f;
 
     // ---- the board's stats ----
     // In the full game these come from whichever board is equipped and every one
@@ -176,8 +175,44 @@ public class SurfBoot : MonoBehaviour
     float px, vx;     // where he is across the face, and how fast he is going across it
     float camX;       // the camera's own lateral position, which lags his
 
-    Transform[] props;
-    float[] propZ;    // each prop's distance ahead, which is what actually moves
+    // ---- what is in the water ----
+    // A kind is its two half-widths and how tall it stands. hx and hz are separate on
+    // purpose: a log is a plank across your path — long and thin — and giving it one
+    // radius for both made it kill you from a distance equal to its LENGTH in the
+    // direction you were coming from. The weight is how often it turns up, and the
+    // last number is how far into a run it starts appearing at all.
+    struct Kind
+    {
+        public string name; public float hx, hz, h, size; public Color col;
+        public int weight; public float from;
+        public Kind(string n, float hx, float hz, float h, float size, Color c, int w, float from)
+        { name = n; this.hx = hx; this.hz = hz; this.h = h; this.size = size; col = c; weight = w; this.from = from; }
+    }
+
+    static readonly Kind[] KINDS = {
+        new Kind("buoy",   1.05f, 1.05f, 1.60f, 3.17f, new Color(0.85f,0.20f,0.18f), 22,   0f),
+        new Kind("log",    2.50f, 0.62f, 1.10f, 5.10f, new Color(0.45f,0.27f,0.14f), 17,   0f),
+        new Kind("jelly",  1.15f, 1.15f, 1.30f, 2.03f, new Color(0.85f,0.45f,0.85f), 20, 340f),
+        new Kind("bigfin", 1.70f, 0.50f, 4.20f, 4.00f, new Color(0.32f,0.38f,0.46f), 11, 560f),
+    };
+
+    class Ob
+    {
+        public Transform t; public int kind;
+        public float x, z, lx;      // lx is where it was last frame, for the sweep
+        public bool passed;
+    }
+
+    readonly System.Collections.Generic.List<Ob> obs = new System.Collections.Generic.List<Ob>();
+    float nextSpawn = 40f;
+    int lastKind = -1, sameRun;
+
+    // ---- the state of the run ----
+    bool running = true;
+    float overT;                    // how long the wipeout card has been up
+    int score, shells;
+    string lastMsg = "";
+    float msgT;
 
     // ---- where the set is in its life ----
     // The browser game runs a full phase machine here — arming, riding, the tube, the
@@ -199,27 +234,6 @@ public class SurfBoot : MonoBehaviour
 
         BuildPug();
 
-        // A handful of things to pass, so the motion has something to be measured
-        // against. Water with nothing in it does not read as moving at all.
-        props = new Transform[10];
-        propZ = new float[10];
-        for (int i = 0; i < props.Length; i++)
-        {
-            GameObject g;
-            if (i % 2 == 0)
-            {
-                g = Prim("Buoy", PrimitiveType.Cylinder, new Color(0.85f, 0.20f, 0.18f));
-                g.transform.localScale = new Vector3(1.6f, BUOY_H * 0.5f, 1.6f);
-            }
-            else
-            {
-                g = Box("Log", new Vector3(1.0f, 1.0f, LOG_L), new Color(0.45f, 0.27f, 0.14f));
-            }
-            props[i] = g.transform;
-            propZ[i] = 25f + i * 16f;
-            g.transform.position = new Vector3(Random.Range(-14f, 14f), 0f, propZ[i]);
-        }
-
         Debug.Log("[Surf] carve with A / D, the arrow keys, or by holding the mouse on " +
                   "the left or right half of the screen. Speed builds with distance. " +
                   "A set arrives every twenty seconds or so — carve into the face.");
@@ -229,6 +243,17 @@ public class SurfBoot : MonoBehaviour
     {
         float dt = Time.deltaTime;
         clock += dt;
+        msgT = Mathf.Max(0f, msgT - dt);
+
+        if (!running)
+        {
+            // The run is over. Hold the card up for a moment and then start again —
+            // there is no menu yet, and a game you have to restart by hand is a game
+            // nobody plays for long enough to find the next bug in.
+            overT += dt;
+            if (overT > 2.2f) Restart();
+            return;
+        }
 
         // ---- forward speed ----
         speed = Mathf.Min(SPEED_CAP + BS_top, (SPEED_BASE + dist / SPEED_RAMP) * BS_speed + BS_top);
@@ -269,22 +294,7 @@ public class SurfBoot : MonoBehaviour
         // and it banks into the turn, which is the whole of what carving looks like
         board.rotation = Quaternion.Euler(pitch, 0f, Mathf.Clamp(-vx * 1.6f, -38f, 38f));
 
-        // ---- the world comes to him ----
-        for (int i = 0; i < props.Length; i++)
-        {
-            propZ[i] -= eff * dt;
-            if (propZ[i] < -20f)                       // past him: recycle it out front
-            {
-                propZ[i] += props.Length * 16f;
-                var q = props[i].position;
-                q.x = Random.Range(-14f, 14f);
-                props[i].position = q;
-            }
-            var p = props[i].position;
-            p.z = propZ[i];
-            p.y = SurfWater.SwellH(p.x, p.z + drift, clock) + 0.35f;
-            props[i].position = p;
-        }
+        UpdateObstacles(dt, drift);
 
         // ---- and the camera sits behind him ----
         camX += (px - camX) * Mathf.Min(1f, dt * 7f);
@@ -398,6 +408,159 @@ public class SurfBoot : MonoBehaviour
         go.transform.localPosition = pos;
         go.transform.localScale = size;
         return go.transform;
+    }
+
+    // ---- everything in the water ----
+    void UpdateObstacles(float dt, float drift)
+    {
+        // spawn when the run has covered enough ground since the last one
+        if (dist >= nextSpawn)
+        {
+            Spawn();
+            // The gap closes as the run gets faster, but never past the point where a
+            // board travelling at speed cannot physically get round the next thing.
+            nextSpawn = dist + Mathf.Max(26f, 62f - dist / 90f) * Random.Range(0.75f, 1.35f);
+        }
+
+        for (int i = obs.Count - 1; i >= 0; i--)
+        {
+            var o = obs[i];
+            float z0 = o.z;                  // where it was a frame ago
+            o.z -= eff * dt;
+
+            if (o.z < -22f)                  // well past him, and gone
+            {
+                Destroy(o.t.gameObject);
+                obs.RemoveAt(i);
+                continue;
+            }
+
+            var K = KINDS[o.kind];
+            o.t.position = new Vector3(o.x, SurfWater.SwellH(o.x, o.z + drift, clock) + K.h * 0.20f, o.z);
+
+            // ---- the hit ----
+            // The board is a five foot plank, not a point, so it is tested as a shape
+            // running nose to tail and SWEPT over the ground the obstacle covered this
+            // frame. Without the sweep a thing closing fast steps straight over the
+            // board between two frames — you watch it pass through you and nothing
+            // happens. It is an ellipse and not a circle: hx is a sideways clearance so
+            // it takes the board's half-width, hz does not, because the board's own
+            // length is already handled by testing its nose and tail.
+            float RX = K.hx + BOARD_HALF_W;
+            float RZ = K.hz;
+            float xlo = Mathf.Min(o.lx, o.x), xhi = Mathf.Max(o.lx, o.x);
+            float dxo = px < xlo ? xlo - px : (px > xhi ? px - xhi : 0f);
+            o.lx = o.x;
+
+            bool contact = false;
+            if (dxo < RX)
+            {
+                float reach = RZ * Mathf.Sqrt(Mathf.Max(0f, 1f - (dxo / RX) * (dxo / RX)));
+                float nose = -BOARD_HALF_L, tail = BOARD_HALF_L;
+                contact = (Mathf.Min(z0, o.z) - reach) < tail && (Mathf.Max(z0, o.z) + reach) > nose;
+            }
+
+            if (contact) { Wipeout(K.name); return; }
+
+            // ---- the near miss ----
+            // It slid past the tail without ever touching, and it went past CLOSE — a
+            // margin you could put a hand in. Fear converted into score.
+            if (!o.passed && o.z < -BOARD_HALF_L)
+            {
+                o.passed = true;
+                float margin = dxo - RX;
+                if (margin > 0f && margin < 1.6f)
+                {
+                    shells++; score += 25;
+                    Msg("CLOSE! +25");
+                }
+            }
+        }
+    }
+
+    void Spawn()
+    {
+        // Weighted, and gated on how far into the run you are — a jellyfish does not
+        // turn up in the first hundred feet. Streaks are broken up deliberately: three
+        // of the same thing running is a pattern, and a pattern stops being an obstacle.
+        int pick = 0;
+        for (int tries = 0; tries < 8; tries++)
+        {
+            int total = 0;
+            for (int i = 0; i < KINDS.Length; i++) if (dist >= KINDS[i].from) total += KINDS[i].weight;
+            int roll = Random.Range(0, total), cand = 0;
+            for (int i = 0; i < KINDS.Length; i++)
+            {
+                if (dist < KINDS[i].from) continue;
+                roll -= KINDS[i].weight;
+                if (roll <= 0) { cand = i; break; }
+            }
+            if (cand == lastKind && sameRun >= 2) continue;
+            pick = cand; break;
+        }
+        sameRun = pick == lastKind ? sameRun + 1 : 1;
+        lastKind = pick;
+
+        var K = KINDS[pick];
+        var o = new Ob { kind = pick, x = Random.Range(-LANE_LIMIT, LANE_LIMIT), z = 150f };
+        o.lx = o.x;
+
+        GameObject g;
+        if (K.name == "log")
+            g = Box("log", new Vector3(1.0f, 1.0f, K.size), K.col);
+        else if (K.name == "bigfin")
+        {
+            g = Box("bigfin", new Vector3(0.35f, K.size, 1.6f), K.col);
+        }
+        else
+        {
+            g = Prim(K.name, PrimitiveType.Sphere, K.col);
+            g.transform.localScale = Vector3.one * K.size * 0.6f;
+        }
+        o.t = g.transform;
+        obs.Add(o);
+    }
+
+    void Wipeout(string what)
+    {
+        running = false;
+        overT = 0f;
+        lastMsg = "WIPEOUT — " + what;
+        msgT = 99f;
+    }
+
+    void Restart()
+    {
+        foreach (var o in obs) if (o.t != null) Destroy(o.t.gameObject);
+        obs.Clear();
+        running = true;
+        dist = 0f; px = 0f; vx = 0f; camX = 0f;
+        SurfWater.dist = 0f; SurfWater.swA = 0f;
+        setPhase = 0; setT = 0f;
+        nextSpawn = 40f; lastKind = -1; sameRun = 0;
+        score = 0; shells = 0; lastMsg = ""; msgT = 0f;
+    }
+
+    void Msg(string m) { lastMsg = m; msgT = 1.4f; }
+
+    // ---- the numbers, on screen ----
+    // Unity's immediate-mode GUI, which is not what a shipped game uses — it is here
+    // because it needs no canvas, no prefabs and no layout work, and the point right
+    // now is to be able to READ the run rather than to style it.
+    void OnGUI()
+    {
+        var st = new GUIStyle(GUI.skin.label) { fontSize = 22, fontStyle = FontStyle.Bold };
+        st.normal.textColor = Color.white;
+        GUI.Label(new Rect(16, 12, 600, 30),
+                  $"DIST {dist / 3.281f:0} m     MPH {eff * 0.682f:0}     SHELLS {shells}     SCORE {score}", st);
+
+        if (msgT > 0f && lastMsg.Length > 0)
+        {
+            var mid = new GUIStyle(GUI.skin.label) { fontSize = 34, fontStyle = FontStyle.Bold,
+                                                     alignment = TextAnchor.MiddleCenter };
+            mid.normal.textColor = running ? Color.yellow : new Color(1f, 0.4f, 0.35f);
+            GUI.Label(new Rect(0, Screen.height * 0.34f, Screen.width, 50), lastMsg, mid);
+        }
     }
 
     // ---- the set arriving ----
