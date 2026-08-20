@@ -2177,6 +2177,20 @@ check(shaderErrors.length === 0, 'every shader compiles',
   check(fade && fade.near[0] > fade.near[1] + 0.3,
         'and one about to land is dimmer than one still in the air, so none of them cut the surface',
         fade ? `surface fade ${fade.near[0]} at 3ft up against ${fade.near[1]} at the waterline` : 'no probe');
+
+  // Riding along is not an event. Two drops used to be thrown every time the board fell
+  // faster than 5.5 through the chop, and on an ordinary swell at speed that is most
+  // frames — so a permanent scatter of small bright dots lay in the wake behind him and
+  // read as glitter rather than as spray, which is what it had been taken for three times
+  // running. Everything that throws water because something HAPPENED still does; this
+  // measures the one case where nothing has.
+  const idle = await page.evaluate(() => {
+    window.__surf.restart(); window.__surf.invuln(true);
+    window.__surf.tick(6);                          // a good long stretch of open water
+    return { live: window.__surf.spray().live, mph: window.__surf.state().speed };
+  });
+  check(idle.live === 0, 'and riding open water throws none at all, because nothing has happened',
+        `${idle.live} drop(s) still in the air after six seconds at ${Math.round(idle.mph)}`);
 }
 
 // ---------- and he rides like one ----------

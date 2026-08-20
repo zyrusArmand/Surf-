@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.30.1';
+const VERSION='3.31.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -9141,7 +9141,6 @@ let running=false,tNow=0,last=0,speed=22,score=0,best=0,waveClock=0,lastEff=22;
 let px=0,py=0,pz=0,vy=0,vx=0,sprayCd=0,airborne=false,trickReady=false;
 const BOARD_HALF_L=2.45, BOARD_HALF_W=0.55;   // the hull's own footprint
 let boardYaw=0,boardLean=0,boardPitch=0,camX=0,camY=4.9,camZ=11.0,lookX=0,sprayAcc=0,leanW=0,pearlT=0;
-let tailAcc=0;    // the wash the tail throws just from moving
 let spinHeld=false,flipHeld=false,pitchHeld=false,spinRot=0,flipRot=0;
 // Tapped tricks queue whole turns rather than spinning for as long as a button is
 // held. Committing a full revolution at a time is what makes tapping land square:
@@ -13704,6 +13703,8 @@ function update(dt){
     vy=Math.max(-24,Math.min(24,vy));
     py+=vy*dt;
     if(py<waterY-0.45){py=waterY-0.45;vy=Math.max(vy,0);}     // and never buries itself
+    // a real slam down the front of a bump throws water, and this is gated on one: it fires
+    // on a vertical impact, not on simply being under way
     if(vy<-5.5&&Math.random()<dt*26)splash(px+(Math.random()-0.5)*0.8,py+0.15,-0.6,2);
   }
   // Run up the kicker rather than being teleported off it. His height is taken from
@@ -13795,21 +13796,19 @@ function update(dt){
         splashes.push(m);
       }
     }
-    // The tail is always shovelling water, carving or not. Going straight the board
-    // still shoves a wall of it out behind — that is most of what you actually see in
-    // a wake shot, and without it the sea read as glass under a board floating on top.
-    tailAcc+=dt*(26+eff*1.9);
-    while(tailAcc>1){
-      tailAcc-=1;
-      const m=takeDrop();if(!m)break;
-      m.material=SPLASH_MAT;
-      const sc=0.62+Math.random()*1.05;m.scale.setScalar(sc);
-      const off=(Math.random()-0.5)*1.05;
-      m.position.set(px+off, waterY-0.16+Math.random()*0.2, 1.0+Math.random()*1.1);
-      m.userData={vx:off*1.6+(Math.random()-0.5)*1.4, vy:0.8+Math.random()*1.8,
-                  vz:1.7+Math.random()*2.3, t:0.32+Math.random()*0.26, s:sc};
-      splashes.push(m);
-    }
+    // THE GLITTER, and the only emitter in the game with no condition on it whatsoever.
+    // "The tail is always shovelling water, carving or not" — which it does, but it was
+    // doing it with between twenty-six and a hundred bright droplet SPRITES a second, a
+    // metre behind the board, for every second of every ride. Each lives about a third of
+    // a second, so a dozen or more are on screen at any moment: a permanent field of small
+    // white points lying in the wake. That is what has been getting called sparkle three
+    // times running, and it is why turning the other emitters down never fixed it.
+    //
+    // The job it was doing is real and the wake ribbon above already does it — a continuous
+    // band of wash tracing the board's actual path. What is gone is the lights on top of it.
+    // Everything that throws water because something HAPPENED still throws it: the snap
+    // back the other way, the fan off the rail when you actually carve, the hand drag, the
+    // heli, the landing, the ramp, the jelly, the wipeout. Being under way is not an event.
     // continuous rail spray while carving — the white fan off the outside rail
     // It was reading as a wall of white either side of the board rather than a rail
     // throwing spray. Less of it, thrown less far, and gone sooner — the board should be
@@ -14053,7 +14052,17 @@ function update(dt){
     if(trailT<=0){trailT=0.026;pushTrail(px,waterY,0.9,(0.30+Math.abs(carve)*0.52)*BS.wake);}
   }
 
-  if(!airborne&&Math.random()<dt*14)splash(px+(Math.random()-0.5),waterY-0.1,1.4,1);
+  // THE glitter. One drop, fourteen times a second, a foot and a half behind the board, for
+  // every second of every ride — with no condition on it beyond "his feet are on the water"
+  // and no comment saying why. That is a permanent field of small bright dots lying in the
+  // wake, and it is what has been getting called sparkle three times running. The wake
+  // ribbon above already draws the wash; this was drawing lights on top of it.
+  //
+  // It was NOT the first thing I removed for this. The chop-slam spray below reads the same
+  // way on paper and I took that out first on the strength of one before-and-after render,
+  // which is exactly the mistake that check further down was written to stop: tallying every
+  // splash by the line that threw it showed this one accounting for all 78 drops in six
+  // seconds of open water and the other for none of them. The renders differed by chance.
 
   // obstacles
   bigFinCd=Math.max(0,bigFinCd-dt);
