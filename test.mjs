@@ -633,18 +633,40 @@ if (hasHook) {
 // thing that moves once he is in it is his arms, and they are up out of it. The check is
 // on the joints rather than on pixels: nothing else may change at all.
 {
-  const drown = await page.evaluate(async () => {
+  // Stepped with tick() and NOT with wall-clock waits, in one evaluate with no awaits in it,
+  // because this check was flaky and both halves of the reason were timing:
+  //   - the render loop advances the wipeout too, so an `await setTimeout` between samples
+  //     let real frames slip in and the two samples came from a state the test had not set;
+  //   - a wipeout lasts 3.2 s and ends in gameOver, and sampling 2.2 s in and then 1.1 s of
+  //     wall clock later put the second sample on whichever side of that the machine felt
+  //     like. Under load it failed as "legs still moving" (caught mid-transition) one run
+  //     and "arms never moved" (caught before the splash, or after the pose was torn down)
+  //     the next, which is the tell: a real regression fails the same way every time.
+  // tick() steps in fixed increments regardless of how busy the box is, so this now samples
+  // the same two moments every run, both of them safely inside the window.
+  const drown = await page.evaluate(() => {
     window.__surf.restart();
     window.__surf.tick(1.0);
     window.__surf.wipeNow('foam');
-    window.__surf.tick(2.2);                       // in the air, then into the water
-    await new Promise(r => setTimeout(r, 300));
+    // how far he flies before he lands depends on where the wave had him, so step until the
+    // splash rather than guessing at it
+    let steps = 0;
+    while (!window.__surf.state().splashed && steps++ < 40) window.__surf.tick(0.05);
+    // And then WAIT for the yaw to settle before sampling. He does not snap square when he
+    // lands, he eases — at about 2.2 per second, from wherever the crash left him — so a
+    // sample taken shortly after the splash catches a body that is still turning and reads
+    // it as thrashing. 1.9 s of that ease leaves under a fiftieth of the original angle,
+    // which is the "settled" this check means. The whole thing still finishes comfortably
+    // inside the 3.2 s a wipeout lasts, which is the other constraint: past that it is
+    // gameOver and there is no pose left to measure.
+    window.__surf.tick(1.90);
     const a = window.__surf.rigPose();
-    await new Promise(r => setTimeout(r, 800));
+    window.__surf.tick(0.40);
     const b = window.__surf.rigPose();
     const d = {};
     for (const k in a) d[k] = Math.abs(a[k] - b[k]);
-    return { d, armF: a.armF, armB: a.armB, visible: window.__surf.riderVisible() };
+    return { d, armF: a.armF, armB: a.armB, visible: window.__surf.riderVisible(),
+             splashSteps: steps, stillWiping: window.__surf.state().wipe };
   });
   // Legs and head must be dead still. The body is allowed to settle: its yaw eases back to
   // zero rather than being snapped there, so it moves a thousandth or two on the way and
@@ -652,11 +674,12 @@ if (hasHook) {
   const still = ['legF', 'legB', 'head'].every(k => drown.d[k] < 1e-6) && drown.d.bodyY < 0.02;
   const waving = drown.d.armF + drown.d.armB > 0.01;
   const up = Math.abs(drown.armF) > 2.0 && Math.abs(drown.armB) > 2.0;
-  check(still && waving && up && drown.visible,
+  check(still && waving && up && drown.visible && drown.stillWiping,
         'drowning moves his arms and nothing else, and they are above his head',
         `legs/head moved ${['legF','legB','head'].map(k => drown.d[k].toFixed(3)).join('/')}, ` +
         `body settled ${drown.d.bodyY.toFixed(3)}, ` +
-        `arms moved ${(drown.d.armF + drown.d.armB).toFixed(3)} at ${drown.armF.toFixed(2)}/${drown.armB.toFixed(2)}`);
+        `arms moved ${(drown.d.armF + drown.d.armB).toFixed(3)} at ${drown.armF.toFixed(2)}/${drown.armB.toFixed(2)}, ` +
+        `splash after ${drown.splashSteps} steps, still wiping: ${drown.stillWiping}`);
 }
 
 // ---------- a posed rig is off limits ----------
@@ -1715,15 +1738,32 @@ if (hasHook) {
     null, { timeout: 15000 }).catch(() => {});
   const opened = await page.evaluate(() => ({
     reward: !document.querySelector('#crateReward').classList.contains('hidden'),
-    btns: !document.querySelector('#crateBtns').classList.contains('hidden'),
     text: document.querySelector('#crateReward').textContent,
+    hint: document.querySelector('#crateHint').textContent,
+    // the run card is built the moment the run ends and hidden while the chest has the
+    // screen — if it is not still waiting here, the ceremony has nothing to hand you on to
+    cardWaiting: document.querySelector('#overlay').classList.contains('hidden'),
   }));
-  check(opened.reward && opened.btns, 'tapping it open pays out and offers the three ways on',
+  check(opened.reward, 'tapping it open pays out',
         `reward: ${opened.text.trim().slice(0, 60)}`);
-  await page.click('#crateMenu');
-  const closed = await page.evaluate(() =>
-    document.querySelector('#crateOv').classList.contains('hidden'));
-  check(closed, 'and Main menu puts the ceremony away');
+  check(opened.cardWaiting && /carry on/i.test(opened.hint),
+        'and says how to carry on rather than offering its own way out of the game',
+        `hint "${opened.hint}", run card hidden: ${opened.cardWaiting}`);
+  // The chest is a step between going under and the run card, so the tap that ends it has
+  // to LAND you on that card — not on the menu, and not on a blank screen. It used to carry
+  // its own Again/Shop/Menu, which meant the run you had just finished was built and then
+  // never shown, because the chest offered a way out before you ever got to it.
+  await page.evaluate(() => document.querySelector('#crateOv')
+    .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+  const after = await page.evaluate(() => ({
+    crate: document.querySelector('#crateOv').classList.contains('hidden'),
+    card: !document.querySelector('#overlay').classList.contains('hidden'),
+    over: document.querySelector('#overlay').className,
+    again: !!document.querySelector('#againBtn'),
+  }));
+  check(after.crate && after.card && /\bover\b/.test(after.over) && after.again,
+        'and the next tap carries on to the run card, which is where the ways on live',
+        `crate away: ${after.crate}, card up: ${after.card} (${after.over})`);
 }
 
 // ---------- the feature batch: haptics, glitter, goals, perks, share, tube chest ----------
@@ -2394,15 +2434,16 @@ check(shaderErrors.length === 0, 'every shader compiles',
 // are four panels and several ways into each, and a class that has to be taken off by hand
 // in eight places is a class that gets left on.
 {
-  // and the chest ceremony's three ways on are the buttons everything else uses
-  const crate = await page.evaluate(() => ['crateAgain', 'crateShop', 'crateMenu'].map(i => {
-    const e = document.getElementById(i);
-    return { id: i, cls: e.className, icon: !!e.querySelector('svg') };
+  // The chest carries no way out of the game at all any more — no button, and no handler
+  // left behind reaching for one that is gone. There is exactly one set of ways on out of a
+  // finished run and it lives on the run card.
+  const crateEmpty = await page.evaluate(() => ({
+    btns: document.querySelectorAll('#crateOv button').length,
+    ids: ['crateAgain', 'crateShop', 'crateMenu', 'crateBtns'].filter(i => document.getElementById(i)),
   }));
-  check(crate.every(b => /\bhbtn\b/.test(b.cls) && /\bglass\b/.test(b.cls) &&
-                         !/\bgo\b/.test(b.cls) && b.icon),
-        'and the chest offers round glass buttons with icons rather than a stack of pills',
-        crate.map(b => `${b.id}:${b.cls}`).join(' '));
+  check(crateEmpty.btns === 0 && crateEmpty.ids.length === 0,
+        'and the chest carries no menu of its own — it is a step, not a way out',
+        `${crateEmpty.btns} button(s), leftovers: ${crateEmpty.ids.join(',') || 'none'}`);
   // the boot paint is a colour with nothing to say, not a soft-focus photograph of a beach
   const pSrc = await readFile(join(ROOT, 'index.html'), 'utf8');
   check(/html,body\s*\{[^}]*background:#[0-9a-f]{6};/i.test(pSrc) &&
