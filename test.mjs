@@ -2270,6 +2270,26 @@ check(shaderErrors.length === 0, 'every shader compiles',
       if (p[k].ratio < worstLow.r) worstLow = { id: `${id} ${k}`, r: p[k].ratio };
     }
   }
+  // And the OTHER way a part goes wrong: not its own size, but its size against the body it
+  // is stuck on. The shoulder swell was scaled off the arm, so it had no idea what torso it
+  // was sitting on — and when the body was reshaped into a pear underneath it, a lump that
+  // had been buried in a wide chest ended up a sixth of its own width proud of a narrow one,
+  // drawing a hard outline across his front. Both changes were defensible on their own; the
+  // fault was in the one number that did not follow the others, and nothing was comparing
+  // them. Measured on every character, because the body profile is per-character and so is
+  // the mistake.
+  const skins = await page.evaluate(() => {
+    const out = {};
+    for (const id of window.__surf.charIds()) out[id] = window.__surf.deltoidProbe(id);
+    return out;
+  });
+  let proud = { id: '-', r: 0 };
+  for (const [id, d] of Object.entries(skins))
+    if (d && d.out > proud.r) proud = { id, r: d.out, edge: d.edge, sh: d.shoulder };
+  check(proud.r > 0 && proud.r <= 1.0,
+        'and no shoulder swell breaks out through the skin of the body it belongs to',
+        `worst is ${proud.id} at ${proud.r} of its shoulder (edge ${proud.edge} against ${proud.sh})`);
+
   check(worstHigh.r <= 1.75,
         'no paw is a balloon tied to the end of a limb',
         `fattest is ${worstHigh.id} at ${worstHigh.r}x the wrist it caps`);
