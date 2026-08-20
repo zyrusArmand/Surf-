@@ -1764,6 +1764,34 @@ if (hasHook) {
   check(after.crate && after.card && /\bover\b/.test(after.over) && after.again,
         'and the next tap carries on to the run card, which is where the ways on live',
         `crate away: ${after.crate}, card up: ${after.card} (${after.over})`);
+
+  // Nothing of the menu may be on screen while a run is live, and for one version all of it
+  // was. beginRun hides the overlay and then, one line later, sweeps away any chest ceremony
+  // that might still be up — and that sweep put the overlay straight back, because the
+  // reveal had been written into the teardown to serve its other caller. Every run started
+  // with the title, the dial and Play laid over a live game, the HUD and the trick bar
+  // showing through them.
+  //
+  // Nothing caught it because nothing asserted the plainest thing in the game: a run and a
+  // menu are not both on screen. Checked down both routes into beginRun, because it was the
+  // second one that broke and the first one that everything else exercises.
+  const live = await page.evaluate(() => {
+    const look = () => ({
+      menu: !document.querySelector('#overlay').classList.contains('hidden'),
+      crate: !document.querySelector('#crateOv').classList.contains('hidden'),
+      dial: document.querySelector('#dPlay').getClientRects().length > 0,
+      running: window.__surf.state().running,
+    });
+    document.getElementById('againBtn').click();         // straight on out of a ceremony
+    const afterChest = look();
+    window.__surf.restart();                             // and the ordinary way in
+    const afterPlain = look();
+    return { afterChest, afterPlain };
+  });
+  for (const [how, r] of [['after a chest', live.afterChest], ['the ordinary way', live.afterPlain]])
+    check(!r.menu && !r.crate && !r.dial && r.running,
+          `and a run started ${how} has none of the menu left on screen`,
+          `menu up: ${r.menu}, chest up: ${r.crate}, dial drawn: ${r.dial}, running: ${r.running}`);
 }
 
 // ---------- the feature batch: haptics, glitter, goals, perks, share, tube chest ----------
