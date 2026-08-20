@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.32.0';
+const VERSION='3.33.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2625,6 +2625,11 @@ function mat(c,sh=45){return PBR({color:c,shininess:sh});}
 // cue that says INFLATED — it is what separates a balloon from a soft toy. The body is
 // eleven convex lumps, so it was eleven balloons in a bag. Take the highlight away and the
 // only shading left is the form itself.
+// The saturation push is mild — vivid() scales its argument by 0.30, so this is a 13% pull
+// away from the coat's own average, not the 2.5x I claimed in the commit that changed it.
+// That number came from re-implementing vivid() in a scratch script instead of reading it,
+// which is how you end up confidently describing a mechanism that does not exist. The value
+// is still the better one for fur: a coat wants its own colour, not a pushed one.
 function FUR_MAT(c){return PBR({color:c,roughness:0.97,metalness:0.0,envMapIntensity:0.10,vivid:0.45});}
 const player=new THREE.Group();      // gets trick rotations
 player.rotation.order='YZX';         // spin (Y) applies before flip (Z) — no gimbal tangle
@@ -6952,14 +6957,18 @@ function kitEyes(C,inner){
       // from a fawn dog with a black nose, and it is the reason the eyes read as big even at
       // a distance where the eye itself is four pixels across. Laid on the skull under the
       // eye, not over it: a dark shape across both eyes is a pair of sunglasses.
-      const ring=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.130*k,18,14),darkMat));
-      ring.position.set(sx*0.180*D[0],0.095*D[1],-0.290);ring.scale.set(1.00,0.92,0.55);
+      // Big for a dog, still an EYE. At 0.090 with a 0.130 ring around it these covered most
+      // of the front of the skull and read as a pair of goggles with a catchlight painted on
+      // — the exact googly look the toys this is drawn against never have. Theirs are small
+      // dark beads in a lot of face. Down a quarter, ring and all.
+      const ring=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.100*k,18,14),darkMat));
+      ring.position.set(sx*0.176*D[0],0.095*D[1],-0.290);ring.scale.set(1.00,0.92,0.55);
       ring.userData.eyeRing=true;                 // dark, and AT the eye line on purpose
-      const e=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.090*k,20,16),dark));
-      e.position.set(sx*0.175*D[0],0.100*D[1],-0.290);
+      const e=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.068*k,20,16),dark));
+      e.position.set(sx*0.172*D[0],0.100*D[1],-0.290);
       e.userData.pugEye=true;
-      const gl=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.026*k,12,10),spark));
-      gl.position.set(sx*0.150*D[0],0.142*D[1],-0.352);
+      const gl=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.020*k,12,10),spark));
+      gl.position.set(sx*0.152*D[0],0.136*D[1],-0.336);
     } else if(E==='wide'){                              // alert, not googly
       // Two things were wrong and they compounded. The eye was a fixed size on a head that
       // is not — the ant's is scaled to four fifths, so his came out proportionally a fifth
@@ -7023,7 +7032,10 @@ const CHARS=[
    // No pale front, either. A fawn pug is one colour from the chin to the tail with the
    // black only on the face and the ears; the cream oval that used to run the length of the
    // belly read as a bib strapped over him.
-   fur:0xdcb173, dark:0x33281f, nose:0x141118, face:'pug',   ears:'fold',  tail:'curl',
+   // The mask and the ears go near-black. At 0x33281f they came out a mid brown under this
+   // lighting, and a brown mask on a fawn dog is a moustache — the black is what makes the
+   // face read as a pug's from across a screen.
+   fur:0xdcb173, dark:0x1c1611, nose:0x141118, face:'pug',   ears:'fold',  tail:'curl',
    eyes:'pug',
    // A whisper of a paler chest and belly. The first attempt at this was a cream oval down
    // the whole front and it read as a bib; two shades off the coat and pulled into a narrow
@@ -7036,14 +7048,27 @@ const CHARS=[
    belly:0xe2bd82, bellyW:0.40,
    // written in the same pre-HOUSE units as everyone else, so the one bias below applies to
    // the whole cast uniformly and this entry is not a special case that drifts from it
-   wProf:[0.74,0.78,0.88,0.70], dProf:[0.84,0.88,1.02,0.78], zProf:[0.04,0.01,-0.06,-0.10],
-   tall:0.957, neckLen:0.76,
+   // A PEAR, not a spindle. These read hips -> waist -> chest -> shoulders, and they used to
+   // put the widest point at the CHEST and taper both ways from it, which is a rugby ball
+   // stood on end — and a rugby ball on end with tubes hanging off it is a balloon animal
+   // whatever you do to the tubes. Every soft-toy animal worth copying is the other way up:
+   // widest low through the belly, narrowing all the way to a shoulder barely there, with
+   // the head sitting straight down on top of it. That is the bowling-pin silhouette, and
+   // the silhouette is the whole read at the size he is actually seen.
+   // Depth stays under width at every station, which is both what a two-legged animal is
+   // and what the check downstream asks for.
+   wProf:[1.02,1.04,0.86,0.58], dProf:[0.90,0.92,0.78,0.54], zProf:[0.04,0.01,-0.06,-0.10],
+   tall:0.957, neckLen:0.58,
    // THICKER, not longer. A balloon animal is long thin tubes of even section; a stuffed toy
    // is short fat ones. The joint positions are untouched — armLen and limbLen are what put
    // his paws out along the board and his feet on the deck, and both are staying — so this
    // only fattens the tubes that hang on them. `hand` goes up with `arm` to hold the paw at
    // the same fraction of the wrist it caps, which is the ratio the check downstream guards.
-   build:[0.98,0.96,0.98], limb:1.95, limbLen:1.80, arm:1.52, armLen:2.10,
+   // and STUBS for arms. 2.10 was a spindle reaching most of the way down his own body; the
+   // toys this is drawn against have little nubs that barely break the outline. The sockets
+   // follow the body's own half-width at shoulder height, so pulling the shoulders in above
+   // has already brought the arms in with them — this shortens what hangs off them.
+   build:[0.98,0.96,0.98], limb:1.95, limbLen:1.42, arm:1.52, armLen:1.45,
    foot:0.922, hand:1.04, // A pug's skull is WIDE and short-faced: broader than it is tall and much shallower
    // front-to-back than either, because there is almost no muzzle in front of it. Near-equal
    // on all three axes is a ball, and a ball with features stuck on it is a balloon animal
@@ -7769,7 +7794,7 @@ function buildChar(id){
     // it lies ACROSS the lower face instead of projecting off it: a pug has almost no muzzle
     // to project, which is the whole point of the breed.
     const pad=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.205,20,16),darkMat));
-    pad.position.set(0,-0.132,-0.238);pad.scale.set(1.62,1.10,0.70);
+    pad.position.set(0,-0.150,-0.232);pad.scale.set(1.38,0.94,0.66);
     const bridge=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.098,16,14),darkMat));
     bridge.position.set(0,-0.048,-0.300);bridge.scale.set(0.76,0.92,0.66);
     // JOWLS. The heavy loose cheeks either side of the mouth are as much a pug as the flat
@@ -7778,7 +7803,7 @@ function buildChar(id){
     // outline where a cheek hangs off it.
     for(const sx of [-1,1]){
       const j=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.112,14,12),darkMat));
-      j.position.set(sx*0.148,-0.196,-0.196); j.scale.set(0.92,1.06,0.86);
+      j.position.set(sx*0.126,-0.206,-0.182); j.scale.set(0.82,0.96,0.80);
     }
     // No fawn wrinkle across the muzzle. It was meant to be a fold and it came out as a
     // wedge of coat cutting down into the black from above — the mask read as a moustache
