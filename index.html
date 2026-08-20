@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.31.0';
+const VERSION='3.32.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2625,7 +2625,7 @@ function mat(c,sh=45){return PBR({color:c,shininess:sh});}
 // cue that says INFLATED — it is what separates a balloon from a soft toy. The body is
 // eleven convex lumps, so it was eleven balloons in a bag. Take the highlight away and the
 // only shading left is the form itself.
-function FUR_MAT(c){return PBR({color:c,roughness:0.97,metalness:0.0,envMapIntensity:0.10,vivid:1.5});}
+function FUR_MAT(c){return PBR({color:c,roughness:0.97,metalness:0.0,envMapIntensity:0.10,vivid:0.45});}
 const player=new THREE.Group();      // gets trick rotations
 player.rotation.order='YZX';         // spin (Y) applies before flip (Z) — no gimbal tangle
 const rig=new THREE.Group();         // gets carve lean/yaw/pitch
@@ -7038,8 +7038,17 @@ const CHARS=[
    // the whole cast uniformly and this entry is not a special case that drifts from it
    wProf:[0.74,0.78,0.88,0.70], dProf:[0.84,0.88,1.02,0.78], zProf:[0.04,0.01,-0.06,-0.10],
    tall:0.957, neckLen:0.76,
-   build:[0.98,0.96,0.98], limb:1.594, limbLen:1.80, arm:1.144, armLen:2.10,
-   foot:0.922, hand:0.783, headS:[0.880,0.888,0.838]},
+   // THICKER, not longer. A balloon animal is long thin tubes of even section; a stuffed toy
+   // is short fat ones. The joint positions are untouched — armLen and limbLen are what put
+   // his paws out along the board and his feet on the deck, and both are staying — so this
+   // only fattens the tubes that hang on them. `hand` goes up with `arm` to hold the paw at
+   // the same fraction of the wrist it caps, which is the ratio the check downstream guards.
+   build:[0.98,0.96,0.98], limb:1.95, limbLen:1.80, arm:1.52, armLen:2.10,
+   foot:0.922, hand:1.04, // A pug's skull is WIDE and short-faced: broader than it is tall and much shallower
+   // front-to-back than either, because there is almost no muzzle in front of it. Near-equal
+   // on all three axes is a ball, and a ball with features stuck on it is a balloon animal
+   // with a face drawn on. Same volume, redistributed.
+   headS:[0.985,0.870,0.780]},
 
   {id:'cat', body:'lean',   name:'Miso the Cat',   price:700,
    blurb:'Grey tabby. Hates water, rides it anyway, will not discuss it.',
@@ -7574,8 +7583,8 @@ function buildChar(id){
   // balloon and a soft toy. A shiny animal made of eleven convex lumps is eleven balloons
   // in a bag. Anything with a shell of its own — a beetle, a crab — still says so with
   // `gloss` and keeps it.
-  furMat.roughness=C.gloss!==undefined?C.gloss:0.94;
-  furMat.envMapIntensity=C.gloss!==undefined?0.55:0.14;
+  furMat.roughness=C.gloss!==undefined?C.gloss:0.86;
+  furMat.envMapIntensity=C.gloss!==undefined?0.55:0.18;
   furMat.metalness=C.metal||0.0;
   kitEyes(C,inner);
 
@@ -7755,20 +7764,34 @@ function buildChar(id){
     // over two round eyes is a pair of sunglasses, which is precisely what it looked like.
     // The black stops at the eye line and goes up between, not across; the ring around each
     // eye (over in kitEyes) is what carries it any higher.
+    // The pad was very nearly a ball, and a ball hung on the front of another ball is the
+    // exact shape of a balloon animal's snout. Widened hard and flattened front-to-back so
+    // it lies ACROSS the lower face instead of projecting off it: a pug has almost no muzzle
+    // to project, which is the whole point of the breed.
     const pad=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.205,20,16),darkMat));
-    pad.position.set(0,-0.132,-0.262);pad.scale.set(1.24,1.02,0.92);
+    pad.position.set(0,-0.132,-0.238);pad.scale.set(1.62,1.10,0.70);
     const bridge=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.098,16,14),darkMat));
     bridge.position.set(0,-0.048,-0.300);bridge.scale.set(0.76,0.92,0.66);
+    // JOWLS. The heavy loose cheeks either side of the mouth are as much a pug as the flat
+    // face is, and they are what stops the lower head being a smooth curve — without them a
+    // muzzle is a bump and with them it is a jaw. Set low and wide, breaking the skull's
+    // outline where a cheek hangs off it.
+    for(const sx of [-1,1]){
+      const j=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.112,14,12),darkMat));
+      j.position.set(sx*0.148,-0.196,-0.196); j.scale.set(0.92,1.06,0.86);
+    }
     // No fawn wrinkle across the muzzle. It was meant to be a fold and it came out as a
     // wedge of coat cutting down into the black from above — the mask read as a moustache
     // with a parting. A pug's wrinkle is a shadow at this distance, and no geometry says
     // "shadow" as well as leaving it out does.
+    // a broad flat button, not a cone: a pug's nose is wider than it is tall and sits almost
+    // flush with the face
     const n=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.062,14,12),noseMat));
-    n.position.set(0,-0.108,-0.405);n.scale.set(1.20,0.88,0.80);
+    n.position.set(0,-0.104,-0.372);n.scale.set(1.46,0.94,0.62);
     // a slot of a mouth under the nose rather than a lolling tongue: the reference face is
     // closed and slightly glum, and a pink tongue hanging out of it was most of the toy look
     const mo=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.062,14,10),mat(0x191016,50)));
-    mo.position.set(0,-0.212,-0.360);mo.scale.set(1.35,0.40,0.52);
+    mo.position.set(0,-0.206,-0.336);mo.scale.set(1.62,0.40,0.50);
   } else if(C.face==='snout'){
     const m=kit(headJ,new THREE.Mesh(new THREE.CylinderGeometry(0.155,0.175,0.20,18),inner));
     m.rotation.x=Math.PI/2;m.position.set(0,-0.06,-0.44);

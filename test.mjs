@@ -2189,7 +2189,13 @@ check(shaderErrors.length === 0, 'every shader compiles',
     window.__surf.tick(6);                          // a good long stretch of open water
     return { live: window.__surf.spray().live, mph: window.__surf.state().speed };
   });
-  check(idle.live === 0, 'and riding open water throws none at all, because nothing has happened',
+  // Bounded at a couple rather than at zero, and NOT because zero was too strict on the
+  // board. Something else in the sea throws the odd drop — a creature surfacing, once every
+  // seven seconds or so on a random roll — and pinning this at zero made the check turn on
+  // that coin flip: it passed on the run it shipped on and failed on the next one for a
+  // reason that had nothing to do with the board. Before the fix this read thirty-three, so
+  // a bound of two still catches the regression by a mile without being decided by luck.
+  check(idle.live <= 2, 'and riding open water throws next to none, because nothing has happened',
         `${idle.live} drop(s) still in the air after six seconds at ${Math.round(idle.mph)}`);
 }
 
