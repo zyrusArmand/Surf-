@@ -2149,6 +2149,45 @@ check(shaderErrors.length === 0, 'every shader compiles',
   check(Math.sign(arms.front) === Math.sign(arms.sockF),
         'and each paw is on the side its own shoulder is',
         `front paw ${arms.front} off a socket at ${arms.sockF}`);
+
+  // A paw is the rounded END of an arm. It should be a shade thicker than the wrist it caps
+  // and no more — much past that and it stops being a paw and becomes a ball tied to a
+  // string, which is what a balloon animal is made of.
+  //
+  // This was invisible in the code and obvious in a render. `armLen` is applied as a scale
+  // on the shoulder JOINT, so it multiplied everything hanging under it — including the paw
+  // mesh. The arm TUBE hangs off nothing: it is swept in the rig's own space from the joint
+  // positions, and its radius comes straight off armProf untouched. So one end of the same
+  // limb was scaled and the other was not, and nobody noticed because every character was
+  // wrong by a different factor. The pug has the longest arms in the roster at 2.10 and his
+  // paws came out 2.49x the wrist they sat on.
+  //
+  // Checked on EVERY character, because the factor is armLen and armLen is per-character:
+  // the same bug reads as balloon hands at one end of the roster and pinheads at the other.
+  const paws = await page.evaluate(() => {
+    const out = {};
+    for (const id of window.__surf.charIds()) out[id] = window.__surf.pawProbe(id);
+    return out;
+  });
+  // ratio is the paw's THINNEST axis against the wrist, so a frog's splayed paddle and a
+  // penguin's flipper — both deliberately wide — are judged on how fat they are, not how
+  // broad. Before the fix the pug measured 2.21 here and the short-armed animals sat under
+  // half. Bounded both ways: one-sided, this check would have passed the bug it was written
+  // for in half the roster.
+  let worstHigh = { id: '-', r: 0 }, worstLow = { id: '-', r: 99 };
+  for (const [id, p] of Object.entries(paws)) {
+    for (const k of ['front', 'back', 'footF', 'footB']) {
+      if (!p[k]) continue;
+      if (p[k].ratio > worstHigh.r) worstHigh = { id: `${id} ${k}`, r: p[k].ratio };
+      if (p[k].ratio < worstLow.r) worstLow = { id: `${id} ${k}`, r: p[k].ratio };
+    }
+  }
+  check(worstHigh.r <= 1.75,
+        'no paw is a balloon tied to the end of a limb',
+        `fattest is ${worstHigh.id} at ${worstHigh.r}x the wrist it caps`);
+  check(worstLow.r >= 0.45,
+        'and none of them has shrunk to a pinhead on a full-thickness wrist',
+        `thinnest is ${worstLow.id} at ${worstLow.r}x`);
 }
 
 // ---------- a rider is an animal, on a board that is a board ----------

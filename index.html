@@ -1203,7 +1203,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.27.0';
+const VERSION='3.28.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2628,7 +2628,12 @@ function PBR(o){
   return m;
 }
 function mat(c,sh=45){return PBR({color:c,shininess:sh});}
-function FUR_MAT(c){return PBR({color:c,roughness:0.80,metalness:0.0,envMapIntensity:0.40,vivid:1.5});}  // matte but saturated
+// Fur, and the important word is MATTE. At 0.80 with the sky reflected back at 0.40 every
+// convex lump on the body caught its own broad sheen, and a sheen on a sphere is the one
+// cue that says INFLATED — it is what separates a balloon from a soft toy. The body is
+// eleven convex lumps, so it was eleven balloons in a bag. Take the highlight away and the
+// only shading left is the form itself.
+function FUR_MAT(c){return PBR({color:c,roughness:0.97,metalness:0.0,envMapIntensity:0.10,vivid:1.5});}
 const player=new THREE.Group();      // gets trick rotations
 player.rotation.order='YZX';         // spin (Y) applies before flip (Z) — no gimbal tangle
 const rig=new THREE.Group();         // gets carve lean/yaw/pitch
@@ -6978,7 +6983,11 @@ const CHARS=[
    // the whole front and it read as a bib; two shades off the coat and pulled into a narrow
    // panel, it does the one job it is for — telling the chest from the hips from the legs,
    // which are otherwise a single fawn mass from astern with nothing to separate them.
-   belly:0xe9c893, bellyW:0.46,
+   // Two shades was still one too many. The patch has a crisp edge by construction — it is
+   // his own skin lifted and repainted — so any contrast across that edge draws an outline,
+   // and an outline down the middle of his chest reads as a panel stuck on the front of him
+   // rather than as his front being paler. One shade, and narrower.
+   belly:0xe2bd82, bellyW:0.40,
    // written in the same pre-HOUSE units as everyone else, so the one bias below applies to
    // the whole cast uniformly and this entry is not a special case that drifts from it
    wProf:[0.74,0.78,0.88,0.70], dProf:[0.84,0.88,1.02,0.78], zProf:[0.04,0.01,-0.06,-0.10],
@@ -7410,11 +7419,21 @@ function buildChar(id){
   if(C.footCol)footMat.color.copy(vivid(C.footCol,1.5));
   if(C.handCol)handMat.color.copy(vivid(C.handCol,1.5));
   const HS=C.handShape||[1,1,1];
-  for(const m of handMesh){const q=base(m);m.scale.set(q.x*H*FL*HS[0],q.y*H*HS[1],q.z*H*FT*HS[2]);
-    m.material=C.handCol?handMat:lm;}
   // the whole arm can be shortened — a rex's are a fraction of the length, and unlike a
   // leg an arm is not standing on anything, so scaling it whole is safe
   const AL=C.armLen||1;
+  // ...but scaling the shoulder joint scales EVERYTHING hanging under it, and the paw hangs
+  // under it while the arm TUBE does not: the tube is swept in the rig's own space from the
+  // joint positions, and its radius comes straight off armProf, untouched by any of this.
+  // So armLen silently resized one and not the other. The pug's arms are the longest in the
+  // roster at 2.10 and his paw came out 2.49x the wrist it caps — a ball two and a half
+  // times the width of the string it hangs on, which is a balloon, not a paw. Dividing it
+  // back out makes `hand` mean what it says: how thick the paw is relative to the arm,
+  // whatever length that arm happens to be. It corrects the short-armed animals too, in the
+  // other direction — theirs had shrunk to pinheads on full-thickness wrists.
+  for(const m of handMesh){const q=base(m);
+    m.scale.set(q.x*H*FL*HS[0]/AL, q.y*H*HS[1]/AL, q.z*H*FT*HS[2]/AL);
+    m.material=C.handCol?handMat:lm;}
   for(const j of armRoot)j.scale.setScalar(AL);
   // Shoulders follow the body's width automatically — a narrow animal with the pug's
   // shoulder sockets has its arms hanging in the air beside it. Hips do not: they are
@@ -7487,16 +7506,30 @@ function buildChar(id){
   for(const sx of [-1,1]){
     const d=kit(chestJ,new THREE.Mesh(new THREE.SphereGeometry(0.185,16,14),lm));
     const q=armFrontJ.sh.userData.socket;
-    d.position.set(sx*shX*0.94,q[1]+0.015,q[2]*B[2]*0.5);
+    d.position.set(sx*shX*0.80,q[1]+0.015,q[2]*B[2]*0.5);
+    // A SWELL, not a ball. As a near-sphere this was the loudest bubble on the body: it
+    // stood out sideways past the widest part of the chest, so its own silhouette cut across
+    // the torso's and you saw a sphere parked on a shoulder rather than a shoulder. Pressed
+    // in against the ribs and stretched up into the neck and forward into the chest, the
+    // same volume stops having an outline of its own — it only shows as the body swelling
+    // where the arm leaves it, which is what a deltoid is.
     const k2=Math.max(0.62,A)*1.16;
-    d.scale.set(k2*0.92,k2,k2*1.02);
+    d.scale.set(k2*0.70,k2*1.16,k2*1.24);
   }
   // The head's scale lives on the JOINT, not the mesh, so the ears, eyes, muzzle and
   // whiskers hanging off it shrink with it. On the mesh alone, shrinking a head left its
   // ears floating in the air where the old skull used to be.
   headJ.scale.set(_HS3[0],_HS3[1],_HS3[2]);
   head.scale.set(1,1,1);
-  furMat.roughness=C.gloss!==undefined?C.gloss:0.62;
+  // MATTE, and this is the line that decides it — FUR_MAT's roughness is overwritten here
+  // on every build, so setting it there does nothing at all. At 0.62 with the sky coming
+  // back off him, every convex lump on the body caught its own broad sheen, and a sheen on
+  // a sphere is the one cue that reads as INFLATED: it is the whole difference between a
+  // balloon and a soft toy. A shiny animal made of eleven convex lumps is eleven balloons
+  // in a bag. Anything with a shell of its own — a beetle, a crab — still says so with
+  // `gloss` and keeps it.
+  furMat.roughness=C.gloss!==undefined?C.gloss:0.94;
+  furMat.envMapIntensity=C.gloss!==undefined?0.55:0.14;
   furMat.metalness=C.metal||0.0;
   kitEyes(C,inner);
 
@@ -11802,6 +11835,78 @@ if(location.hash.includes('debug')){
       const bg=torso.geometry; if(!bg.boundingBox)bg.computeBoundingBox();
       out.half=+(Math.max(-bg.boundingBox.min.x,bg.boundingBox.max.x)*torso.scale.x).toFixed(3);
       out.sockF=+armFrontJ.sh.position.x.toFixed(3);
+      return out;
+    },
+    // "Which lump is that?" is the question every one of these body problems starts with,
+    // and from a render there is no way to answer it — the whole animal is one colour, which
+    // is the point of him. This paints every mesh in the rig a different flat colour and
+    // hands back the legend, so a shape in a screenshot can be named instead of guessed at.
+    // Call it again with false to put the materials back.
+    partsMap(on){
+      const HUE=[0xff2020,0x20ff20,0x3060ff,0xffe000,0xff20ff,0x00e0e0,0xff8000,0x9040ff,
+                 0x00ff90,0xa0ff00,0xff0060,0x0090ff,0x9a5a20,0x4a8020,0x202080,0xffffff];
+      if(!on){
+        if(pug.userData.partsSave)for(const [m,mat] of pug.userData.partsSave)m.material=mat;
+        pug.userData.partsSave=null; return 'restored';
+      }
+      const save=[], legend=[]; let i=0;
+      pug.traverse(o=>{ if(!o.isMesh)return;
+        save.push([o,o.material]);
+        o.material=new THREE.MeshBasicMaterial({color:HUE[i%HUE.length]});
+        o.updateWorldMatrix(true,false);
+        const w=o.getWorldPosition(new THREE.Vector3()); pug.worldToLocal(w);
+        legend.push('#'+HUE[i%HUE.length].toString(16).padStart(6,'0')+' '+
+                    (o.name||o.geometry.type)+' r='+
+                    (o.geometry.boundingSphere||(o.geometry.computeBoundingSphere(),o.geometry.boundingSphere)).radius.toFixed(3)+
+                    ' at '+w.toArray().map(v=>v.toFixed(2)).join(',')+
+                    ' scale '+o.scale.toArray().map(v=>v.toFixed(2)).join(','));
+        i++; });
+      pug.userData.partsSave=save;
+      return legend;
+    },
+    // A paw is meant to be a rounded END to the arm, a shade thicker than the wrist it sits
+    // on. If it is much thicker than that it stops reading as a paw and starts reading as a
+    // ball tied to a string — which is most of what "he looks like a balloon animal" is.
+    // Both radii in the RIG's frame, because that is the only frame in which the two are
+    // comparable: the tube is swept in pug space and never scaled, while the paw hangs off
+    // the shoulder joint and inherits everything applied above it.
+    // With an id it builds that character, measures, and puts the rider back — no ownership
+    // flag, no save, nothing to undo. buildChar is the whole of what equipChar does visually,
+    // so this is the cheapest way to walk the roster.
+    pawProbe(id){
+      if(id&&id!==rider){ buildChar(id); const r=this.pawProbe(); buildChar(rider); return r; }
+      pug.updateMatrixWorld(true);
+      const under=(m,root)=>{ let q=m; while(q){ if(q===root)return true; q=q.parent; } return false; };
+      const s=new THREE.Vector3(), out={};
+      for(const [k,g] of [['front',armFrontJ],['back',armBackJ]]){
+        const paw=handMesh.find(m=>under(m,g.sh)); if(!paw)continue;
+        paw.updateWorldMatrix(true,false);
+        paw.matrixWorld.decompose(new THREE.Vector3(),new THREE.Quaternion(),s);
+        const gb=paw.geometry; if(!gb.boundingSphere)gb.computeBoundingSphere();
+        const R=gb.boundingSphere.radius/(pug.scale.x||1);
+        // Two numbers, and the second is the one that matters. A frog's hand is a splayed
+        // paddle and a penguin's is a flipper: both are deliberately WIDE, so the widest
+        // half-section says nothing about whether a paw looks inflated. What makes a paw
+        // read as a balloon is being fat in every direction at once — so the test is its
+        // THINNEST axis against the wrist. A paddle is wide and thin and passes; a ball is
+        // thick whichever way you turn it and does not.
+        const wide=R*Math.max(s.x,s.y,s.z), thick=R*Math.min(s.x,s.y,s.z);
+        // the tube it caps, at the wrist end of the profile
+        const wrist=armProf[armProf.length-1]*armThick;
+        out[k]={wide:+wide.toFixed(4), thick:+thick.toFixed(4), wrist:+wrist.toFixed(4),
+                ratio:+(thick/wrist).toFixed(2), wideRatio:+(wide/wrist).toFixed(2)};
+      }
+      for(const [k,g] of [['footF',legFrontJ],['footB',legBackJ]]){
+        const ft=footMesh.find(m=>under(m,g.hip)); if(!ft)continue;
+        ft.updateWorldMatrix(true,false);
+        ft.matrixWorld.decompose(new THREE.Vector3(),new THREE.Quaternion(),s);
+        const gb=ft.geometry; if(!gb.boundingSphere)gb.computeBoundingSphere();
+        const R=gb.boundingSphere.radius/(pug.scale.x||1);
+        const wide=R*Math.max(s.x,s.y,s.z), thick=R*Math.min(s.x,s.y,s.z);
+        const ank=legProf[legProf.length-1]*legThick;
+        out[k]={wide:+wide.toFixed(4), thick:+thick.toFixed(4), wrist:+ank.toFixed(4),
+                ratio:+(thick/ank).toFixed(2), wideRatio:+(wide/ank).toFixed(2)};
+      }
       return out;
     },
     riderYaw:()=>({body:+pug.rotation.y.toFixed(3), head:+headJ.rotation.y.toFixed(3),
