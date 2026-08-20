@@ -2526,6 +2526,41 @@ for (const [width, height, label] of [[430, 932, 'large phone'],
   });
   check(flip.before !== flip.after, 'and a tap actually flips it',
         `${flip.before} -> ${flip.after}`);
+
+  // "It says On and I feel nothing" has four causes on an iPhone and they are
+  // indistinguishable from the outside: no vibrate API and no switch either (iOS 17.3 and
+  // older), switch haptics present but the phone's own System Haptics or Low Power Mode
+  // silencing them, the toggle simply off, or a genuine bug in here. A web page can see
+  // exactly one of those four, so the panel has to say which of the paths it is ON and
+  // hand back the rest — otherwise the only way to tell a platform limit from a bug is to
+  // own both phones.
+  const diag = await p3.evaluate(() => {
+    document.getElementById('dSettings').click();
+    const note = document.getElementById('setBuzzNote');
+    const test = document.getElementById('setBuzzTest');
+    return { path: window.__surf.haptics().path,
+             note: note ? note.textContent.trim() : null,
+             hasTest: !!test };
+  });
+  check(diag.path === 'tap' && diag.note && /Safari|iOS/i.test(diag.note),
+        'and the panel says WHY, rather than leaving a silent toggle to be guessed at',
+        `path "${diag.path}", note: ${(diag.note || '(none)').slice(0, 72)}…`);
+  // Test has to buzz even with the toggle off: "can this phone do it at all" is a different
+  // question from "do I want it while I surf", and you cannot answer the first with the
+  // second turned off.
+  const tested = await p3.evaluate(() => {
+    const before = window.__surf.haptics().checked;
+    document.getElementById('setBuzz').click();               // turn the toggle OFF
+    const off = window.__surf.haptics().on;
+    const mid = window.__surf.haptics().checked;
+    document.getElementById('setBuzzTest').click();
+    const after = window.__surf.haptics().checked;
+    document.getElementById('setBuzz').click();               // and back on
+    return { before, off, moved: mid !== after, on: window.__surf.haptics().on };
+  });
+  check(diag.hasTest && tested.off === false && tested.moved && tested.on === true,
+        'and Test fires the tap even with the toggle off, which is the whole point of it',
+        `toggle went off: ${tested.off === false}, switch moved: ${tested.moved}, back on: ${tested.on}`);
   errors.push(...oops);
   await ctx.close();
 }

@@ -209,6 +209,9 @@
   #settings .row { display:flex; align-items:center; justify-content:space-between;
     gap:12px; padding:11px 4px; border-bottom:1px solid rgba(255,255,255,.17); font-size:min(4vw,15px); }
   #settings .row:last-of-type { border-bottom:0; }
+  /* the line under the vibration rows that says what this phone can actually do */
+  #settings .note { font-size:min(3.2vw,12px); line-height:1.45; opacity:.72; text-align:left;
+    padding:9px 3px 11px; border-bottom:1px solid rgba(255,255,255,.17); }
   #settings .sw { border-radius:999px; padding:7px 15px; font-weight:800; font-size:min(3.4vw,13px);
     border:1.5px solid rgba(255,255,255,.55); background:rgba(255,255,255,.09); color:#fff;
     text-shadow:0 1px 3px rgba(0,18,42,.6); }
@@ -1192,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.29.0';
+const VERSION='3.30.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -3070,23 +3073,45 @@ function hapticSwitch(){
   if(_hapSw)return _hapSw;
   const l=document.createElement('label');
   l.setAttribute('aria-hidden','true');
+  // The LABEL is what gets clipped to a pixel — the input inside it keeps the size Safari
+  // wants to draw a switch at. Squeezing the input itself to 1x1 was the mistake: a control
+  // given a box far smaller than its intrinsic size can be dropped from the paint entirely,
+  // and a switch that is never painted is a switch the Taptic engine is never asked about.
+  // Clip the wrapper instead and the control is laid out and drawn at full size, just with
+  // nothing of it on screen.
   l.style.cssText='position:fixed;left:0;bottom:0;width:1px;height:1px;'+
                   'opacity:0;pointer-events:none;overflow:hidden;';
   const i=document.createElement('input');
   i.type='checkbox'; i.setAttribute('switch','');   // the attribute IS the haptic
-  i.tabIndex=-1; i.style.cssText='width:1px;height:1px;margin:0;';
+  i.tabIndex=-1; i.style.cssText='margin:0;';
   l.appendChild(i); document.body.appendChild(l);
-  return _hapSw=l;
+  _hapSw=l; _hapSw.input=i;
+  return _hapSw;
 }
 const HAS_VIBRATE=typeof navigator!=='undefined'&&typeof navigator.vibrate==='function';
+// Whether the browser ADMITS to knowing what a switch is. Safari reflects the attribute as a
+// property where it supports it, so this is a decent hint at "iPhone new enough to tap"
+// versus "iPhone that can do nothing at all".
+//
+// It is reported and never obeyed. Feature detection you are not certain of must not be
+// allowed to turn a feature OFF: a browser that supports the haptic but does not reflect the
+// property would be silenced by its own detection, which is a worse failure than the one it
+// was added to diagnose. Clicking a checkbox costs nothing anywhere, so the fallback always
+// runs and this only decides what the panel says.
+const HAS_SWITCH=(()=>{ try{ return 'switch' in HTMLInputElement.prototype; }catch(e){ return false; } })();
+// What this device is using, in one word, for the settings panel to show.
+function hapticPath(){ return HAS_VIBRATE?'vibrate':'tap'; }
 function buzz(p){
   if(!buzzOn)return;
   if(HAS_VIBRATE){ try{ navigator.vibrate(p); }catch(e){} return; }
   // one tap is all the switch has, so weight is carried by how many of them
   try{
     const l=hapticSwitch(), n=Array.isArray(p)?3:(p>=30?3:p>=18?2:1);
-    l.click();
-    for(let k=1;k<n;k++)setTimeout(()=>{ try{ l.click(); }catch(e){} },k*
+    // Click the INPUT, not the label. Clicking the label works by the label's activation
+    // behaviour forwarding to the control it labels, which is one more step to go wrong for
+    // nothing gained — the control is right here.
+    l.input.click();
+    for(let k=1;k<n;k++)setTimeout(()=>{ try{ l.input.click(); }catch(e){} },k*
       (Array.isArray(p)?90:60));
   }catch(e){}
 }
@@ -6330,14 +6355,46 @@ document.getElementById('dQuests').onclick  =()=>{
   questsPanel.classList.remove('hidden');
 };
 document.getElementById('qClose').onclick   =()=>questsPanel.classList.add('hidden');
+// "The toggle is on and I feel nothing" has four different causes on an iPhone and from
+// the outside they are indistinguishable, so the panel says which one it is instead of
+// leaving you to guess:
+//   - the browser has the real vibrate API (Android, desktop) and everything works;
+//   - it is an iPhone new enough to have switch haptics, in which case a tap should be
+//     felt RIGHT NOW when you press Test, and if it is not, it is the phone's own System
+//     Haptics setting or Low Power Mode, neither of which a web page can see or override;
+//   - it is an iPhone too old for them, and there is nothing any web page can do;
+//   - the toggle is simply off.
+// Test is a button rather than something the game does on its own on purpose: iOS is
+// reliable about this inside a real finger press and not outside one, so the only honest
+// way to test it is to press something.
+function hapticNote(){
+  if(HAS_VIBRATE)return 'Your phone\u2019s own buzzer \u2014 every buzz in the game can be '+
+    'as long or as short as it wants.';
+  return 'iPhone. Safari never added the buzzer, so the only thing a web page can play is '+
+    'one short tap, and that is what every buzz here is. If Test does nothing: this browser '+
+    (HAS_SWITCH?'does':'does <b>not</b>')+' report support for it'+
+    (HAS_SWITCH?', so check Settings \u203a Sounds &amp; Haptics \u203a System Haptics is on '+
+      'and Low Power Mode is off \u2014 either one silences it and a web page cannot see or '+
+      'override either.'
+     :' \u2014 that usually means iOS 17.3 or older, and no web page can buzz on it.');
+}
 function drawSettings(){
   document.getElementById('setBody').innerHTML=
     '<div class="row"><span>Vibration</span>'+
       '<button class="sw'+(buzzOn?' on':'')+'" id="setBuzz">'+(buzzOn?'On':'Off')+'</button></div>'+
+    '<div class="row"><span>Feel a tap</span>'+
+      '<button class="sw" id="setBuzzTest">Test</button></div>'+
+    '<div class="note" id="setBuzzNote">'+hapticNote()+'</div>'+
     '<div class="row"><span>Your record</span><b>'+Math.round(stats.bestDist||0).toLocaleString()+' m</b></div>'+
     '<div class="row"><span>Best trick score</span><b>'+(best|0).toLocaleString()+'</b></div>'+
     '<div class="row"><span>Version</span><b>v'+VERSION+'</b></div>';
   document.getElementById('setBuzz').onclick=()=>{ setBuzz(!buzzOn); buzz(14); drawSettings(); };
+  const t=document.getElementById('setBuzzTest');
+  // Redrawing the panel mid-press would tear the button out from under the finger that is
+  // still on it, so Test changes nothing and only buzzes. It buzzes even with the toggle
+  // off, because "does this phone can do it at all" is a different question from "do I want
+  // it while I surf", and you cannot answer the first one with the second one turned off.
+  if(t)t.onclick=()=>{ const was=buzzOn; buzzOn=true; buzz([25,35,90]); buzzOn=was; };
 }
 document.getElementById('dSettings').onclick=()=>{ buzz(8); drawSettings(); setPanel.classList.remove('hidden'); };
 document.getElementById('setClose').onclick =()=>setPanel.classList.add('hidden');
@@ -11696,7 +11753,8 @@ if(location.hash.includes('debug')){
     // actually play: a detached or display:none control is silent
     haptics(){
       const l=hapticSwitch(), i=l.firstChild, cs=getComputedStyle(i);
-      return {vibrate:HAS_VIBRATE, on:buzzOn, attached:!!l.parentNode,
+      return {vibrate:HAS_VIBRATE, hasSwitch:HAS_SWITCH, path:hapticPath(),
+              on:buzzOn, attached:!!l.parentNode,
               rendered:l.getClientRects().length>0&&cs.display!=='none'&&cs.visibility!=='hidden',
               isSwitch:i.hasAttribute('switch'), checked:i.checked};
     },
