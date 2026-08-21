@@ -92,9 +92,21 @@ present the game drives it, and three things happen automatically.
   body is measured each frame and stood on the deck. What survives is the part worth
   having: the plant of the arms, the scissor of the legs, the wobble of the balance.
 
-A face is painted on from the skeleton if the export has no textures: the mask, nose,
-eyes and ears are placed in head-local space using `Hips`, `Head` and `headfront` as
-the axes, so they land correctly whatever way round the model was built.
+### The face
+
+**If the export has a texture or materials of its own, the game draws exactly that** —
+no markings added, no eyes bolted on over yours. Paint him however you like and the
+file wins.
+
+Only a model that arrives as bare geometry gets a face guessed for him, which is what
+an AI generator hands you by default: UVs it never got a texture for. In that case the
+mask, nose, eye rings and ears are placed in head-local space off the `Hips`, `Head`
+and `headfront` bones, and the eyes are added as geometry on the head bone — vertex
+colour cannot draw a white sclera with a pupil in it at these vertex counts.
+
+To paint your own, texture the model in whatever you generated it in — most tools will
+take a reference image — and **re-export the RIGGED version with the texture on it**.
+Downloading a fresh untextured mesh loses the skeleton, and with it the handstand.
 
 ## What you lose
 

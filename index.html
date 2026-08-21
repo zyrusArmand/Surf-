@@ -2926,6 +2926,12 @@ function paintModel(root,table,fallback){
     if(!o.isMesh)return;
     o.castShadow=true;o.receiveShadow=true;
     if(authored(o.material)){
+      // REMEMBERED, because this is the only moment anyone can tell. A few lines below, the
+      // meshes that did NOT bring a material are given one of the game's own — and the
+      // game's own materials are coloured and named, so they answer `authored` exactly the
+      // same way afterwards. Anything downstream that wants to know whether the FILE had a
+      // face on it has to be told here or it cannot find out.
+      o.userData.ownMaterial=true;
       for(const m of (Array.isArray(o.material)?o.material:[o.material]))harmonise(m);
       o.material=skinnable(o,o.material);
       return;
@@ -8706,6 +8712,19 @@ function fitEyes(headBone,sk,at,dir,eyeR,tally,look){
   if(tally)tally.eyeBalls=4;
 }
 function paintRiderFace(root,bones){
+  // ---- IF THE FILE BROUGHT A FACE, THE FILE WINS ----
+  // Everything below exists for one case: a model exported as bare geometry, with UVs it
+  // never got a texture for, which is what an AI generator hands you by default. Guessing a
+  // pug's markings from his skeleton is a decent answer to that and a poor answer to
+  // anything else — the moment someone paints the face they meant, in a tool built for
+  // painting faces, this code is only in the way.
+  //
+  // So it stands down. Export with a texture or with materials of your own and the game
+  // draws exactly what you painted: no mask, no ears, no eyes bolted on over the top of the
+  // ones you gave him. Same rule paintModel already follows for every other model.
+  let own=false;
+  root.traverse(o=>{ if(o.isMesh&&o.userData.ownMaterial)own=true; });
+  if(own)return {authored:true};
   if(!bones.Hips||!bones.Head||!bones.headfront)return null;
   root.updateMatrixWorld(true);
   // ---- BIND SPACE, and nothing else will do ----
