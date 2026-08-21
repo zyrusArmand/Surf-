@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.41.0';
+const VERSION='3.42.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -8832,7 +8832,11 @@ function setupModelRig(root,gltf){
   // So the clip is not played. It is scrubbed: forward through the kick-up, parked in the
   // inverted stretch for as long as the button is down, then forward again through the
   // dismount. Same animation, three pieces of it, driven by the player instead of by time.
-  const CLIP={inA:0.05,inB:1.48,holdA:1.45,holdB:2.20,outB:3.05};
+  // `up` and `down` run the two ends FASTER than the animator's clock. A second and a half
+  // to get upside down is right for a gymnastics reel and slow for a button you tap between
+  // waves — the trick has to be over before the next thing happens or it stops feeling like
+  // a trick. The HOLD keeps real time, because that is the part being held.
+  const CLIP={inA:0.05,inB:1.48,holdA:1.45,holdB:2.20,outB:3.05,up:2.1,down:2.4};
   if(stand){
     R.stand=mixer.clipAction(stand);
     R.stand.setLoop(THREE.LoopRepeat,Infinity);   // never let the end logic disable it
@@ -8914,10 +8918,18 @@ function setupModelRig(root,gltf){
     }
     return isFinite(lo[1])?{lo,hi}:null;
   };
+  // EVERY FRAME, not only while he is upside down. This started life as a handstand fix —
+  // the clip was animated on a floor and drove his head through the deck — and being scoped
+  // to the handstand is exactly why he stood half sunk into the board the rest of the time.
+  // The load-time alignment it relied on measures his BIND pose, and the pose actually on
+  // screen is not that: he is stood in the clip's own rest, arms out, knees bent, which puts
+  // his feet somewhere else entirely. One rule covers both — whatever pose he is in, his
+  // lowest point rests on the deck — and it is the same measurement either way.
   R.deckLift=function(){
-    if(this.rot<=0.001){ const d=-pug.position.y; return Math.abs(d)<1e-4?0:d; }
     const b=this.skinBox();
-    return b?PUG_BOX.min.y-b.lo[1]:0;
+    // a hair of daylight: sitting his lowest vertex exactly on the deck line leaves the two
+    // surfaces coplanar, and coplanar surfaces flicker into each other at distance
+    return b?(PUG_BOX.min.y+0.02)-b.lo[1]:0;
   };
   R.update=function(dt,want){
     const C=CLIP, a=this.stand;
@@ -8934,7 +8946,7 @@ function setupModelRig(root,gltf){
         // connected to him.
         if(!want){ const f=(this.t-C.inA)/(C.inB-C.inA);
           this.phase='out'; this.t=C.outB-Math.min(1,Math.max(0,f))*(C.outB-C.holdB); }
-        else { this.t+=dt; if(this.t>=C.inB){ this.t=C.holdA; this.phase='hold'; } } }
+        else { this.t+=dt*C.up; if(this.t>=C.inB){ this.t=C.holdA; this.phase='hold'; } } }
       else if(this.phase==='hold'){
         if(!want)this.phase='out';
         // and it BREATHES while it is held. Parking on one frame is a photograph; running
@@ -8942,7 +8954,7 @@ function setupModelRig(root,gltf){
         // put in there, which is what makes a held balance read as held rather than frozen.
         else { this.t+=dt*0.5; if(this.t>C.holdB)this.t=C.holdA; }
       }
-      if(this.phase==='out'){ this.t+=dt*1.25;
+      if(this.phase==='out'){ this.t+=dt*C.down;
         if(this.t>=C.outB){ this.phase='idle'; this.t=C.inA; } }
       this.aw=this.phase==='idle' ? 0
              :this.phase==='in'   ? Math.min(1,(this.t-C.inA)/0.40)
