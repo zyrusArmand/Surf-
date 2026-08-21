@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.46.0';
+const VERSION='3.47.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -8921,6 +8921,16 @@ function setupModelRig(root,gltf,id){
   R.surf=null;
   // every bone by name, so the pose below and the face paint above can both find them
   R.bones={}; root.traverse(o=>{ if(o.isBone||o.type==='Bone')R.bones[o.name]=o; });
+  // ---- and the arms come in a little ----
+  // Done to the BONES, not to the mesh, and that is the cheap way round: a Mixamo-style rig
+  // runs each bone along its own local Y, so the distance from a shoulder to an elbow IS the
+  // elbow bone's local position. Pull it in and the skin follows, because the skin follows the
+  // skeleton. No vertices are touched, it costs nothing at runtime, and it applies to any
+  // model rigged this way rather than to this one file.
+  for(const n of ['LeftForeArm','RightForeArm','LeftHand','RightHand']){
+    const b=R.bones[n]; if(b)b.position.multiplyScalar(0.88);
+  }
+  root.updateMatrixWorld(true);
   // the rest rotation of every bone we lean on, kept so the surf pose is applied FROM the
   // pose the model was built in rather than accumulated onto whatever last frame left
   R.rest={};
@@ -9168,6 +9178,30 @@ function setupModelRig(root,gltf,id){
     for(const n of ['Hips',a,b])if(R.bones[n])acc.multiply(R.bones[n].quaternion);
     R.chainRest[f]=acc;
   }
+  // ---- STANDING ABOUT, which is most of the time he is on screen ----
+  // The riding stance only runs while a run is running, so everywhere else — the title
+  // screen, the shop, the card after a wipeout — he was left in whatever pose the FILE was
+  // modelled in. For this rig that is an A-pose with his arms out sideways, which is a
+  // modelling convention and not a thing any animal does. Arms down, weight settled, and a
+  // slow breath so he is not a statue either.
+  R.idle=function(dt){
+    const q=new THREE.Quaternion(), e=new THREE.Euler();
+    const set=(n,x,y,z)=>{ const b=this.bones[n], r=this.rest[n]; if(!b||!r)return;
+      e.set(x,y,z); q.setFromEuler(e).premultiply(r); b.quaternion.slerp(q,Math.min(1,dt*6)); };
+    const T=(typeof tNow==='number'?tNow:0), br=Math.sin(T*1.25);
+    // ARMS DOWN. The rig ships them out at shoulder height, so this is most of a right angle
+    // at each shoulder — the single biggest difference between "modelled" and "standing".
+    set('LeftArm',  -0.06+br*0.03, 0.05, -0.10);
+    set('RightArm', -0.06-br*0.03,-0.05,  0.10);
+    set('LeftForeArm',  0.10+br*0.04,0,-0.06);
+    set('RightForeArm', 0.10-br*0.04,0, 0.06);
+    set('LeftUpLeg', -0.05,0,0.03); set('RightUpLeg',-0.05,0,-0.03);
+    set('LeftLeg',    0.10,0,0);    set('RightLeg',  0.10,0,0);
+    set('Spine',      0.02+br*0.012,0,0);
+    set('Head',      -0.04+br*0.02,0,0);
+    this.plant('LeftUpLeg','LeftLeg','LeftFoot',Math.min(1,dt*6));
+    this.plant('RightUpLeg','RightLeg','RightFoot',Math.min(1,dt*6));
+  };
   R.plant=function(a,b,f,w){
     const foot=this.bones[f], rest=this.rest[f], want=this.chainRest[f];
     if(!foot||!rest||!want)return;
@@ -16143,6 +16177,8 @@ requestAnimationFrame(loop);
     // knew nothing about (and made the sea jump the moment a run started).
     waveClock+=dt; oceanUniforms.uT.value=waveClock; tNow+=dt;
     if(!wipe){ menuCamera(dt); menuIdle(dt); }
+    // the imported rider poses himself here too — nothing else is driving him between runs
+    { const mr=riderRig(); if(mr&&mr.idle)mr.idle(dt); }
     updateDayCycle();
   }
   placeCeremonyChest(dt);
