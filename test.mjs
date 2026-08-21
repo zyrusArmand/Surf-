@@ -2585,6 +2585,33 @@ check(shaderErrors.length === 0, 'every shader compiles',
   // these counts — and unskinned on a bone they ride every frame of the handstand for free.
   check(f && f.eyeBalls === 4, 'and the eyes are geometry, so a pupil is a pupil and not a smudge',
         `${f ? f.eyeBalls || 0 : 0} eye parts on the head bone`);
+  // A SECOND rider, to prove none of the above is about the pug. Same 24-bone skeleton, its
+  // own coat out of the roster, and — the interesting part — no handstand in its file at all.
+  // The trick still has to work, because the button is on screen either way.
+  const cat = await page.evaluate(() => {
+    window.__surf.wear('cat'); window.__surf.restart(); window.__surf.tick(0.5);
+    const a = window.__surf.rigInfo();
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyH' }));
+    window.__surf.tick(1.4);
+    const b = window.__surf.rigInfo();
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyH' }));
+    window.__surf.tick(3);
+    const c = window.__surf.rigInfo();
+    window.__surf.wear('pug'); window.__surf.restart();
+    return { a, b, c };
+  });
+  check(cat.a.who === 'cat' && cat.a.model === true && cat.a.modelOn === true && cat.a.bones >= 20,
+        'a second character rides his own imported body too',
+        `${cat.a.who}: model ${cat.a.model}, ${cat.a.bones} bones`);
+  check(cat.a.skin && Math.abs(cat.a.skin.y[0] - cat.a.pugBox[0]) < 0.10,
+        'and he stands on the deck the same way',
+        `lowest ${cat.a.skin ? cat.a.skin.y[0] : '?'} against a deck at ${cat.a.pugBox[0]}`);
+  // No clip, and it still goes over: the timeline runs regardless and the game turns him,
+  // so the worst case is the built-in handstand performed by an imported body rather than a
+  // button that quietly does nothing.
+  check(cat.a.stand === false && cat.b.upY < -0.5 && cat.c.upY > 0.7,
+        'and a model with no handstand in it still does one, and comes back down',
+        `clip ${cat.a.stand}, up-axis ${cat.a.upY} -> ${cat.b.upY} -> ${cat.c.upY}`);
   // The built-in rig is HIDDEN under him, not thrown away. Every other character in the
   // roster is built out of the same joints, so emptying the group to make room meant the
   // sloth's owner got an invisible rider on coming back to Astro — and, worse, the detached

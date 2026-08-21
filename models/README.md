@@ -4,14 +4,20 @@ Drop a `.glb` in this folder and it replaces the built-in shape in the game. If 
 file isn't here the game keeps its procedural version, so you can replace one
 thing at a time and nothing ever breaks.
 
-`board.glb` and `pug.glb` ship with the game; the rest of the table is empty by
-design, and the 404s those file names produce are the documented path rather than
-a fault.
+`board.glb`, `pug.glb` and `cat.glb` ship with the game; the rest of the table is
+empty by design, and the 404s those file names produce are the documented path
+rather than a fault.
+
+A rider model is named for the CHARACTER it belongs to, and only that character
+rides it — everyone else keeps the built-in body, which is still there underneath.
+To give another character his own model, name the file after his id and add that id
+to `RIDER_MODELS` in `index.html`.
 
 | File | Replaces |
 | --- | --- |
 | `board.glb` | the surfboard |
-| `pug.glb` | the rider |
+| `pug.glb` | Astro the Pug |
+| `cat.glb` | Miso the Cat |
 | `buoy.glb` | the striped buoy |
 | `log.glb` | the floating log |
 | `jelly.glb` | the jellyfish |
@@ -72,20 +78,27 @@ the pug, and so on.
 
 ## Rigged riders
 
-`pug.glb` may be a **rigged** export with a skeleton and animation clips, and the one
-that ships is: a 24-bone skeleton with a handstand clip on it. If a skeleton is
-present the game drives it, and three things happen automatically.
+A rider model may be a **rigged** export with a skeleton and animation clips, and both
+that ship are: a 24-bone skeleton each, the pug's with a handstand clip on it. If a
+skeleton is present the game drives it, and these happen automatically.
 
 - **It is turned to face the wave.** Every built-in rider is modelled facing `-z`.
   A rigged one is asked which way it is looking — the line from its `Head` bone to a
   muzzle bone called `headfront` — and turned onto `-z` from wherever it started. A
   bone named `headfront` is what makes this work; without it the export keeps
   whatever orientation it arrived in.
+- **He is painted in the coat the roster already gives him**, so an imported body and
+  the built-in one are the same character in the same colour. Fur is matt and barely
+  reflects; a model left on the loader's default material mirrors the sky instead, and
+  a grey cat comes out slate blue.
 - **A clip named for a trick drives that trick.** A clip whose name matches
-  `handstand` becomes the HAND button. It is *scrubbed*, not played: forward through
-  the kick-up, parked in the inverted stretch for as long as the button is held, then
-  forward again through the dismount. So a clip that is a round trip — stand, kick up,
-  hold, come down — works correctly, and most exported ones are.
+  `handstand` becomes the HAND button. It is *scrubbed*, not played: forward through the
+  kick-up, parked in the inverted stretch for as long as the button is held, then forward
+  again through the dismount. So a clip that is a round trip — stand, kick up, hold, come
+  down — works correctly, and most exported ones are.
+- **A model with no such clip still does the trick.** The timeline runs either way and
+  the game turns him over itself; it simply has no limb animation to lay on top. The cat
+  ships walking and running and no handstand, and his HAND button works regardless.
 - **The clip's ROOT is dropped and its limbs kept.** Tricks are animated on a floor,
   where the body is free to travel and to finish leaning; a surfboard is neither. The
   hips go back where they started, the game turns the rider over itself, and the posed
@@ -98,11 +111,13 @@ present the game drives it, and three things happen automatically.
 no markings added, no eyes bolted on over yours. Paint him however you like and the
 file wins.
 
-Only a model that arrives as bare geometry gets a face guessed for him, which is what
-an AI generator hands you by default: UVs it never got a texture for. In that case the
-mask, nose, eye rings and ears are placed in head-local space off the `Hips`, `Head`
-and `headfront` bones, and the eyes are added as geometry on the head bone — vertex
-colour cannot draw a white sclera with a pupil in it at these vertex counts.
+Only a model that arrives as bare geometry gets a face made for him, which is what an AI
+generator hands you by default: UVs it never got a texture for. In that case he wears one
+clean coat in his roster colour, and gets EYES — two small spheres each, placed off the
+`Hips`, `Head` and `headfront` bones and hung on the head bone so they ride every
+animation. Markings were tried three ways and taken out: at these vertex counts a marking
+has to be a soft-edged field to avoid showing its own seams, and a soft-edged brown field
+on a brown coat is a smudge. Eyes are geometry because geometry has hard edges.
 
 To paint your own, texture the model in whatever you generated it in — most tools will
 take a reference image — and **re-export the RIGGED version with the texture on it**.
