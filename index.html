@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.44.0';
+const VERSION='3.45.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -9045,11 +9045,14 @@ function setupModelRig(root,gltf,id){
     // conclusion the built-in rig reached, for the same reason, and it is worth stating twice.
     const load=0.30+this.load*0.30+Math.abs(swell)*0.5+this.bob*0.34+air*0.22;
     const hip=-0.20-load*0.22, knee=load*1.05;
-    // and the weight goes ONTO one foot. A carve is not symmetrical: the inside leg takes it
-    // and compresses, the outside leg lengthens to reach the deck.
-    const bias=this.sway*0.30;
+    // BOTH LEGS THE SAME. An asymmetric knee bend is what a carving surfer's legs really do,
+    // and it was in here — and it is wrong for this rig, because bending one knee further than
+    // the other swings that foot along the deck. The ankle solve below holds a foot FLAT; it
+    // does not hold it in PLACE, and nothing here can, short of solving the legs backwards
+    // from the feet. So the lean lives entirely above the hips and the legs stay symmetrical,
+    // which keeps both feet exactly where they were planted.
     set('LeftUpLeg',  hip, 0, 0.06); set('RightUpLeg', hip, 0,-0.06);
-    set('LeftLeg',    knee*(1+bias),0,0); set('RightLeg', knee*(1-bias),0,0);
+    set('LeftLeg',    knee,0,0); set('RightLeg', knee,0,0);
     // ---- the lean, which is the whole of what a carve looks like ----
     // Rolled through the SPINE rather than the hips. Roll the hips and the legs go with them,
     // and then no amount of ankle work gets the soles back onto the deck; roll the spine and
@@ -9145,6 +9148,35 @@ for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
   // Standing alone, `fitted` is measured in the same space fitToBox just fitted it into.
   const bb=boxOf(fitted), k=fitted.userData.k||1, fr=fitted.userData.frame;
   if(fr)fr.position.y+=(PUG_BOX.min.y-bb.min.y)/k;
+  // ---- and CENTRED ON THE BOARD, by standing where the built-in rider stands ----
+  // fitToBox centres a model on the box it is given, which centres his whole BODY — and a
+  // body is not what stands on a board, feet are. A model whose head is further forward than
+  // his hips, or whose arms are out to one side, is centred by the average of all of that and
+  // ends up with his feet off the stringer. Measured, this one stood a good deal to one side.
+  //
+  // The built-in rider is the reference, and there is no better one: where his feet sit on the
+  // deck is what every board in the game was cut and tuned around. So the model is slid until
+  // the midpoint between its ankles lands on the midpoint between his. Nothing about the y is
+  // touched here — that is already solved, every frame, against the deck itself.
+  // TWO FRAMES, and they are not the same one — which is the whole trick, and the same trap
+  // the y alignment fell into. `fitted` has not been added to the rider group yet, so a bone
+  // inside it reports a position already in the group's coordinates: that is what fitToBox
+  // just fitted it into. The built-in rider IS in the group, so his ankles report real world
+  // and have to be brought back. Convert both and the model lands thirty feet away.
+  pug.updateMatrixWorld(true); fitted.updateMatrixWorld(true);
+  const half=(a,b,toLocal)=>{ const p=new THREE.Vector3(), q2=new THREE.Vector3();
+    a.updateWorldMatrix(true,false); b.updateWorldMatrix(true,false);
+    a.getWorldPosition(p); b.getWorldPosition(q2);
+    p.add(q2).multiplyScalar(0.5);
+    return toLocal?pug.worldToLocal(p):p; };
+  const bone=n=>{ let o=null; fitted.traverse(c=>{ if(!o&&c.name===n)o=c; }); return o; };
+  const lf=bone('LeftFoot'), rf=bone('RightFoot');
+  if(fr&&lf&&rf&&typeof legFrontJ!=='undefined'&&legFrontJ.ankle&&legBackJ&&legBackJ.ankle){
+    const want=half(legFrontJ.ankle,legBackJ.ankle,true), have=half(lf,rf,false);
+    // flip sits inside wrap, which only scales, so a local step of d moves it k*d
+    fr.position.x+=(want.x-have.x)/k;
+    fr.position.z+=(want.z-have.z)/k;
+  }
   // HIDDEN, not thrown away. The first version emptied `pug` before adding the model, and
   // that quietly broke two things at once. Every other character in the roster is built out
   // of the same joints, so equipping the sloth and coming back to Astro left him with no
@@ -12635,6 +12667,15 @@ if(location.hash.includes('debug')){
           out.LeftArmW=[w.x,w.y,w.z].map(v=>+v.toFixed(2)); }
         out.handT=+handT.toFixed(3); }
       out.pugBox=[PUG_BOX.min.y,PUG_BOX.max.y].map(v=>+v.toFixed(2));
+      out.pugX=[PUG_BOX.min.x,PUG_BOX.max.x].map(v=>+v.toFixed(2));
+      out.pugZ=[PUG_BOX.min.z,PUG_BOX.max.z].map(v=>+v.toFixed(2));
+      { const rr=riderRig();
+        if(rr&&rr.bones.LeftFoot&&rr.bones.RightFoot){
+          const a=rr.bones.LeftFoot.getWorldPosition(new THREE.Vector3());
+          const b2=rr.bones.RightFoot.getWorldPosition(new THREE.Vector3());
+          pug.worldToLocal(a); pug.worldToLocal(b2);
+          out.feet=[+((a.x+b2.x)/2).toFixed(3),+((a.z+b2.z)/2).toFixed(3)];
+          out.footL=[+a.x.toFixed(2),+a.z.toFixed(2)]; out.footR=[+b2.x.toFixed(2),+b2.z.toFixed(2)]; } }
       return out;
     },
     // Scrub the imported rider's handstand to any point in the clip. The headless renderer
