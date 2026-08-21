@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.40.0';
+const VERSION='3.41.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -8751,16 +8751,19 @@ function paintRiderFace(root,bones){
   // rather than as a dog. vivid() does this conversion for every material in the game; a
   // colour written straight into a buffer has to do it for itself.
   const lin=h=>{ const c=new THREE.Color(h); if(c.convertSRGBToLinear)c.convertSRGBToLinear(); return c; };
-  // A fawn pug is not a fawn dog with black on it. Every dark on him is BROWN — warm, and
-  // several different browns: the ears are the lightest, the muzzle a shade deeper, the eye
-  // rings deeper still, and only the nose leather is close to black. Painted in one flat
-  // near-black, as this was, the whole face reads as a hole rather than as a face, which is
-  // exactly what it looked like on the board.
-  const FUR=lin(0xdcbc90), EAR=lin(0x7d6049), MASK=lin(0x7a5f47),
-        RING=lin(0x6a4f3a), NOSE=lin(0x4a3527);
+  // ---- ONE COAT, ALL OVER ----
+  // Markings were tried and taken back out. Every version of them — near-black, then warm
+  // browns, then lighter warm browns — read as smudges rather than as a face, and the reason
+  // is structural rather than a matter of picking better colours: this head is sixteen
+  // hundred vertices, the markings have to be soft-edged fields to avoid showing their own
+  // seams, and a soft-edged brown field on a brown coat under this game's lighting IS a
+  // smudge. The right place to draw a pug's face is a texture, painted in something built
+  // for it, and the loader already stands aside for one. Until then he wears one clean coat,
+  // which reads far better than an approximation of markings.
+  const FUR=lin(0xdcbc90);
   const v=new THREE.Vector3(), d=new THREE.Vector3();
   let painted=0;
-  const tally={verts:0,head:0,mask:0,nose:0,ears:0,eyes:0,headR:0};
+  const tally={verts:0,head:0,headR:0};
   root.traverse(o=>{
     if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
     const g=o.geometry, pos=g.attributes.position, n=pos.count;
@@ -8776,21 +8779,10 @@ function paintRiderFace(root,bones){
     const headR=pF.distanceTo(pH)*1.42;              // the skull, in its own units
     tally.headR=+headR.toFixed(3);
     const toBind=sk?o.bindMatrix:o.matrixWorld;
-    // ---- the muzzle is a BALL, not a box ----
-    // A pug's mask is a rounded snout patch you could cup in a hand: it wraps the muzzle,
-    // comes to a soft edge on the cheeks, and stops. Cut with inequalities on forward, up and
-    // sideways it is a rectangle painted onto a curved face, and every edge of that rectangle
-    // shows — which is why the first version read as a smear rather than a snout. Distance
-    // from a point set out in front of the skull gives the shape for free, and it follows
-    // whatever the muzzle is actually shaped like.
-    const pMuz=pH.clone().addScaledVector(fwd,0.70*headR).addScaledVector(up,-0.04*headR);
-    const rMuz=0.40*headR;
-    // and an eye either side, on the surface. Where the surface IS gets measured rather than
-    // assumed: the direction is fixed, and how far out along it to sit is whatever the
-    // furthest vertex in that direction says.
-    // FORWARD-facing, and mostly forward at that. Set out to the sides they climb onto the
-    // cheeks and stare off both edges of the head like a frog's, which is the opposite of a
-    // pug — his are set in the front of the skull, close either side of the bridge.
+    // Where each eye goes gets MEASURED rather than assumed: the direction is fixed — mostly
+    // forward, set high on the front of the skull and close either side of the bridge, which
+    // is where a pug's are — and how far out along it to sit is whatever the furthest vertex
+    // facing that way says. So they sit IN the skull rather than on stalks in front of it.
     const eyeDir=s=>new THREE.Vector3().addScaledVector(fwd,0.80)
       .addScaledVector(up,0.60).addScaledVector(right,s*0.30).normalize();
     const EYES=[eyeDir(1),eyeDir(-1)];
@@ -8798,32 +8790,13 @@ function paintRiderFace(root,bones){
     for(let e=0;e<2;e++){ let far=-Infinity;
       for(let i=0;i<n;i++){ v.fromBufferAttribute(pos,i).applyMatrix4(toBind).sub(pH);
         if(v.length()>headR*1.30)continue;
+        if(v.length()<headR*1.30)tally.head++;
         const t=v.dot(EYES[e]); if(t>far&&v.length()&&v.clone().normalize().dot(EYES[e])>0.80)far=t; }
       if(isFinite(far))eyeAt[e]=pH.clone().addScaledVector(EYES[e],far-eyeR*0.86);
     }
+    tally.head=Math.round(tally.head/2);
     const col=new Float32Array(n*3);
-    for(let i=0;i<n;i++){
-      v.fromBufferAttribute(pos,i).applyMatrix4(toBind);
-      d.copy(v).sub(pH);
-      const u=d.dot(up)/headR, f=d.dot(fwd)/headR, r=d.dot(right)/headR;
-      let c=FUR;
-      if(d.length()<headR*1.30){                     // only ever inside the head
-        tally.head++;
-        // the snout patch, and the nose leather at the very front of it
-        if(v.distanceTo(pMuz)<rMuz){ c=MASK; tally.mask++; }
-        if(f>0.78&&u<0.14&&u>-0.26&&Math.abs(r)<0.26){ c=NOSE; tally.nose++; }
-        // The ears: high, out to the sides, and WELL behind the muzzle. This is the view the
-        // game actually shows — he rides side-on, so three quarters from behind is his normal
-        // angle — and a loose bound here painted the whole temple black, which read as a
-        // balaclava. An ear is the flap, not the side of the head it hangs off.
-        if(u>0.24&&Math.abs(r)>0.46&&f<0.22){ c=EAR; tally.ears++; }
-        // and the dark ring each eye sits in, which is the thing that makes a pug's eyes read
-        // as huge. The eyes themselves are geometry — see below — because no arrangement of
-        // vertex colours on sixteen hundred vertices makes a white sclera with a pupil in it.
-        for(let e=0;e<2;e++) if(eyeAt[e]&&v.distanceTo(eyeAt[e])<eyeR*1.55){ c=RING; tally.eyes++; }
-      }
-      col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
-    }
+    for(let i=0;i<n;i++){ col[i*3]=FUR.r; col[i*3+1]=FUR.g; col[i*3+2]=FUR.b; }
     // both pupils look the same way — FORWARD — rather than each along its own eye's normal,
     // which on a curved skull sends them off in opposite directions and reads as wall-eyed
     if(sk&&eyeAt[0]&&eyeAt[1])fitEyes(bones.Head,sk,eyeAt,EYES,eyeR,tally,fwd);

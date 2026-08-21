@@ -2571,23 +2571,20 @@ check(shaderErrors.length === 0, 'every shader compiles',
   check(back.upY > 0.7 && back.phase === 'idle',
         'and he comes back down on his feet when it is released',
         `up-axis ${back.upY}, phase "${back.phase}"`);
-  // The face is painted from the SKELETON, in bind space — the one frame where the vertex
-  // buffer and the bones are defined to agree. Measured in world space instead, every
-  // vertex failed the "is this inside the head" test and the paint coloured nothing at all.
+  // The coat is ONE colour, and that is a decision rather than an omission. Markings were
+  // tried three ways — near-black, warm brown, lighter warm brown — and every one read as a
+  // smudge, because at sixteen hundred vertices a marking has to be a soft-edged field to
+  // avoid showing its own seams, and a soft-edged brown field on a brown coat IS a smudge.
+  // A face belongs in a texture; the loader stands aside for one when a model brings it.
   const f = await page.evaluate(() => window.__surf.faceStats());
-  check(f && f.head > 0 && f.mask > 0 && f.ears > 0 && f.eyes > 0 && f.nose > 0,
-        'and he has a face on him — mask, nose, ears and both eye rings',
-        f ? `${f.head} head verts: mask ${f.mask}, nose ${f.nose}, ears ${f.ears}, rings ${f.eyes}` : 'no paint');
-  // The eyes themselves are two little spheres each, hung off the head bone. Painted instead,
-  // they came out as dark smudges — sixteen hundred vertices in a whole head is nowhere near
-  // enough to draw a circle, let alone a white one with a pupil on it.
+  check(f && f.head > 0 && f.verts > 0,
+        'the imported rider is painted from his own skeleton',
+        f ? `${f.head} of ${f.verts} verts found inside the head` : 'no paint');
+  // The eyes are two little spheres each, hung off the head bone. Painted instead, they came
+  // out as dark smudges — vertex colour cannot draw a white sclera with a pupil on it at
+  // these counts — and unskinned on a bone they ride every frame of the handstand for free.
   check(f && f.eyeBalls === 4, 'and the eyes are geometry, so a pupil is a pupil and not a smudge',
         `${f ? f.eyeBalls || 0 : 0} eye parts on the head bone`);
-  // ...and it is a mask, not a bib. The first cut ran black down his chest and round both
-  // cheeks, which is most of the head rather than the muzzle.
-  check(f && f.mask + f.ears + f.eyes + f.nose < f.head * 0.55,
-        'and the black is a pug\'s markings rather than most of his head',
-        `${f ? Math.round(100 * (f.mask + f.ears + f.eyes + f.nose) / f.head) : '?'}% of the head is dark`);
   // The built-in rig is HIDDEN under him, not thrown away. Every other character in the
   // roster is built out of the same joints, so emptying the group to make room meant the
   // sloth's owner got an invisible rider on coming back to Astro — and, worse, the detached
