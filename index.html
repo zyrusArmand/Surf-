@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.43.0';
+const VERSION='3.44.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -9008,20 +9008,92 @@ function setupModelRig(root,gltf,id){
     // copying would throw the mixer's work away at every weight instead of meeting it.
     const w=1-this.aw;
     if(w<=0.001)return;
-    const q=new THREE.Quaternion(), e=new THREE.Euler();
-    const set=(n,x,y,z)=>{ const b=this.bones[n], r=this.rest[n]; if(!b||!r)return;
-      e.set(x,y,z); q.setFromEuler(e).premultiply(r); b.quaternion.slerp(q,w); };
-    // The rig ships in an A-pose — hands already out at 0.6 of a body-width and down at hip
-    // height — so a surfing stance is a small edit to it rather than a wholesale repose:
-    // lift the arms toward level, open the elbows, and put some weight in the knees. Nobody
-    // rides a wave stood up straight.
-    set('LeftArm',   0.10,0.10,-0.90);
-    set('RightArm',  0.10,-0.10, 0.90);
-    set('LeftForeArm', 0,0,-0.16);
-    set('RightForeArm',0,0, 0.16);
-    set('LeftUpLeg', -0.16,0,0); set('RightUpLeg',-0.16,0,0);
-    set('LeftLeg',    0.30,0,0); set('RightLeg',  0.30,0,0);
-    set('Spine',      0.08,0,0);
+    this.stance(dt,w);
+  };
+  // ---- RIDING, which is not a pose ----
+  // What was here was seven fixed angles, and seven fixed angles is a mannequin: he stood
+  // in it at ten miles an hour, through every carve, over every swell, for the whole run.
+  // A surfer is never still. He is loaded through the knees and always moving in them, his
+  // weight is over one foot or the other, his arms trail and counter every shift, and none
+  // of it stops. So the stance is built out of the signals the ride already produces — the
+  // carve, the swell heaving under the board, the chop — plus a couple of slow oscillators
+  // that never line up with each other, which is what keeps a loop from reading as a loop.
+  R.sway=0; R.load=0; R.bob=0;
+  R.stance=function(dt,w){
+    const B=this.bones, q=new THREE.Quaternion(), e=new THREE.Euler();
+    const set=(n,x,y,z,k)=>{ const b=B[n], r=this.rest[n]; if(!b||!r)return;
+      e.set(x,y,z); q.setFromEuler(e).premultiply(r); b.quaternion.slerp(q,w*(k===undefined?1:k)); };
+    // ---- what the ride is doing to him ----
+    // EASED, not read raw. vx snaps about as the player's finger does and a body has mass;
+    // running the lean through a follower is the difference between leaning into a turn and
+    // being teleported into one.
+    const carve=Math.max(-1,Math.min(1,(typeof vx==='number'?vx:0)/9));
+    const air=(typeof airborne!=='undefined'&&airborne)?1:0;
+    this.sway+=(carve-this.sway)*Math.min(1,dt*5.5);
+    this.load+=(Math.abs(carve)-this.load)*Math.min(1,dt*4.5);
+    // Two oscillators at frequencies that do not divide into each other, so the sum never
+    // repeats on any beat you can count. One is the weight coming on and off the knees; the
+    // faster one is the board chattering over the surface.
+    const T=(typeof tNow==='number'?tNow:0);
+    const breathe=Math.sin(T*2.05), chatter=Math.sin(T*4.9+1.1);
+    this.bob=breathe*0.55+chatter*0.20;
+    const swell=(typeof waveH==='function'&&typeof px==='number')
+      ? (waveH(px,dist*WAVE_DRIFT+0.6,waveClock)-waveH(px,dist*WAVE_DRIFT-0.6,waveClock)) : 0;
+    // ---- legs: loaded, and never at rest ----
+    // The crouch lives in the KNEES and the fold at the waist, not in the hips — dropping the
+    // pelvis on top of a knee bend is what puts a rider's feet through his own board. Same
+    // conclusion the built-in rig reached, for the same reason, and it is worth stating twice.
+    const load=0.30+this.load*0.30+Math.abs(swell)*0.5+this.bob*0.34+air*0.22;
+    const hip=-0.20-load*0.22, knee=load*1.05;
+    // and the weight goes ONTO one foot. A carve is not symmetrical: the inside leg takes it
+    // and compresses, the outside leg lengthens to reach the deck.
+    const bias=this.sway*0.30;
+    set('LeftUpLeg',  hip, 0, 0.06); set('RightUpLeg', hip, 0,-0.06);
+    set('LeftLeg',    knee*(1+bias),0,0); set('RightLeg', knee*(1-bias),0,0);
+    // ---- the lean, which is the whole of what a carve looks like ----
+    // Rolled through the SPINE rather than the hips. Roll the hips and the legs go with them,
+    // and then no amount of ankle work gets the soles back onto the deck; roll the spine and
+    // the lean happens above the legs, which is also where it happens on a real one.
+    const lean=this.sway*0.30;
+    set('Spine',   0.05+this.bob*0.02, -this.sway*0.10, lean*0.45);
+    set('Spine01', 0.05,               -this.sway*0.08, lean*0.35);
+    set('Spine02', 0.03,               -this.sway*0.06, lean*0.25);
+    // he looks down the line, and his head stays level while his body does not
+    set('neck', -0.06, this.sway*0.20, -lean*0.30);
+    set('Head', -0.10+this.bob*0.03, this.sway*0.26, -lean*0.45);
+    // ---- arms: they trail, they counter, and they never stop ----
+    // A surfer's arms are the counterweight — they swing opposite the hips through a turn and
+    // drift the whole time he is trimming. Both offset from each other so they never mirror.
+    const sw1=Math.sin(T*1.55), sw2=Math.sin(T*1.85+2.2), fl=Math.sin(T*2.35+0.7);
+    const spread=1.02+this.load*0.26+air*0.34;
+    set('LeftArm',   0.02+sw1*0.16-this.sway*0.34, 0.08+sw1*0.14, -spread-this.sway*0.22);
+    set('RightArm',  0.02+sw2*0.16+this.sway*0.34,-0.08+sw2*0.14,  spread-this.sway*0.22);
+    set('LeftForeArm',  fl*0.18-this.load*0.14,0,-0.08-this.load*0.16);
+    set('RightForeArm',-fl*0.18-this.load*0.14,0, 0.08+this.load*0.16);
+    // ---- and the feet stay FLAT ON THE DECK, whatever the rest of him just did ----
+    // Not posed — SOLVED. Every angle above accumulates down the leg into the foot, so a foot
+    // given its own fixed angle tips off the board the moment the knees load or the body
+    // leans. Instead each ankle is handed exactly the rotation that puts the sole back where
+    // the rest pose had it: undo the chain above it, reapply the chain the rest pose had.
+    // It is one quaternion per foot and it is exact at any lean, at any crouch, forever.
+    this.plant('LeftUpLeg','LeftLeg','LeftFoot',w);
+    this.plant('RightUpLeg','RightLeg','RightFoot',w);
+  };
+  // the rest-pose rotation of the whole chain above each ankle, which is what "flat" means
+  R.chainRest={};
+  for(const [a,b,f] of [['LeftUpLeg','LeftLeg','LeftFoot'],['RightUpLeg','RightLeg','RightFoot']]){
+    const acc=new THREE.Quaternion();
+    for(const n of ['Hips',a,b])if(R.bones[n])acc.multiply(R.bones[n].quaternion);
+    R.chainRest[f]=acc;
+  }
+  R.plant=function(a,b,f,w){
+    const foot=this.bones[f], rest=this.rest[f], want=this.chainRest[f];
+    if(!foot||!rest||!want)return;
+    const now=new THREE.Quaternion();
+    for(const n of ['Hips',a,b])if(this.bones[n])now.multiply(this.bones[n].quaternion);
+    // foot = inverse(chain now) * (chain at rest) * (foot at rest)
+    const tgt=now.invert().multiply(want).multiply(rest);
+    foot.quaternion.slerp(tgt,w);
   };
   return R;
 }
@@ -9032,6 +9104,7 @@ function setupModelRig(root,gltf,id){
 // that character, and driven by whichever of its clips match tricks. Add a name here, drop
 // the .glb in, and that character rides his own body. Everyone else keeps the built-in one.
 const RIDER_MODELS=['pug','cat'];
+const RIDER_YAW=-0.42;   // measured: takes the shared 69-degree stance to a square 93
 for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
   // TURNED TO FACE THE WAVE, by asking the model which way it is looking rather than by
   // being told. Every face on the built-in riders is built at negative z — muzzle, nose,
@@ -9051,7 +9124,14 @@ for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
     if(!h||!f)return;
     const fx=f.x-h.x, fz=f.z-h.z;
     if(Math.hypot(fx,fz)<1e-6)return;
-    flip.rotation.y=-Math.atan2(fx,-fz);
+    // ...and then turned a further RIDER_YAW, because facing the way the built-in riders are
+    // BUILT is not the same as standing the way a surfer stands. The shared stance sits him at
+    // about seventy degrees, which from behind reads as three-quarters away — you see his back
+    // and not much else. A surfer is square across his board with his chest and eyes down the
+    // line, and that last twenty degrees is the whole difference between the two. Applied to
+    // the model rather than to STANCE_ROT so the built-in bodies keep the stance they were
+    // tuned in.
+    flip.rotation.y=-Math.atan2(fx,-fz)+RIDER_YAW;
   });
   // fitToBox CENTRES what it fits, which is right for a log and wrong for a rider: a model
   // whose legs are a different fraction of its height than the built-in one's ends up

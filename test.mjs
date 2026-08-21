@@ -2539,10 +2539,16 @@ check(shaderErrors.length === 0, 'every shader compiles',
   // the wave. Read in the rider group's frame, before the handstand: the surf stance and the
   // turn both sit outside it, and the question here is only whether the model arrived
   // pointing the same way the built-in body does.
-  const face = rig.faceDir;
-  check(face && face[2] < -0.8 && Math.abs(face[0]) < 0.4,
-        'and the imported body arrives facing the way every built-in one is built',
-        face ? `muzzle points ${JSON.stringify(face)}, wanted about [0, 0, -1]` : 'no bones');
+  // ...and then a further RIDER_YAW on top, so he stands square across the board with his
+  // chest down the line instead of three-quarters away from the camera. Measured against the
+  // direction that yaw intends rather than against a bare -z, so the check still fails if the
+  // auto-turn breaks — it just does not insist he face somewhere no surfer faces.
+  const face = rig.faceDir, YAW = -0.42;
+  const off = face && Math.abs(Math.atan2(-face[0], -face[2]) - YAW);
+  check(off !== null && off < 0.22,
+        'and the imported body arrives square across the board, facing down the line',
+        face ? `muzzle points ${JSON.stringify(face)}, ` +
+               `${Math.round((off || 0) * 180 / Math.PI)}° off the stance it should hold` : 'no bones');
   // The clip is a round TRIP — stand, kick up, hold, come down, stand — so playing it once
   // and clamping the last frame leaves him on his feet. It is scrubbed instead: forward to
   // the inversion, parked there while the button is down, forward again to dismount.
