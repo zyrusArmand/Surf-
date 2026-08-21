@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.34.0';
+const VERSION='3.35.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -6961,7 +6961,7 @@ function kitEyes(C,inner){
       // of the front of the skull and read as a pair of goggles with a catchlight painted on
       // — the exact googly look the toys this is drawn against never have. Theirs are small
       // dark beads in a lot of face. Down a quarter, ring and all.
-      const ring=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.100*k,18,14),darkMat));
+      const ring=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.086*k,18,14),darkMat));
       ring.position.set(sx*0.176*D[0],0.095*D[1],-0.290);ring.scale.set(1.00,0.92,0.55);
       ring.userData.eyeRing=true;                 // dark, and AT the eye line on purpose
       const e=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.068*k,20,16),dark));
@@ -7035,7 +7035,7 @@ const CHARS=[
    // The mask and the ears go near-black. At 0x33281f they came out a mid brown under this
    // lighting, and a brown mask on a fawn dog is a moustache — the black is what makes the
    // face read as a pug's from across a screen.
-   fur:0xdcb173, dark:0x1c1611, nose:0x141118, face:'pug',   ears:'fold',  tail:'curl',
+   fur:0xdcb173, dark:0x1c1611, nose:0x141118, muzzle:0xe8d2ab, face:'pug', ears:'fold', tail:'curl',
    eyes:'pug',
    // A whisper of a paler chest and belly. The first attempt at this was a cream oval down
    // the whole front and it read as a bib; two shades off the coat and pulled into a narrow
@@ -7796,45 +7796,59 @@ function buildChar(id){
 
   // ---- muzzle ----
   if(C.face==='pug'){
-    // The MASK is the pug, and it is not a snout. On a real one the black covers the whole
-    // lower face and runs up either side of the bridge; the fawn is only the crown and the
-    // cheeks around it. The old one was a single ball hung off the front of the skull — a
-    // dark blob on a pale ball, which is why it read as a teddy bear with a nose.
+    // Rebuilt against a reference photograph of the thing rather than against the last
+    // attempt at it, and two assumptions baked into every previous version turn out to be
+    // wrong at the same time.
     //
-    // Two overlapping pieces, both laid ON the skull so they curve with it: a wide flat pad
-    // over the jaw, and a bridge that carries the black up between the eyes. There was a
-    // third, a brow spreading it out PAST them, and that is where it went wrong — a dark bar
-    // over two round eyes is a pair of sunglasses, which is precisely what it looked like.
-    // The black stops at the eye line and goes up between, not across; the ring around each
-    // eye (over in kitEyes) is what carries it any higher.
-    // The pad was very nearly a ball, and a ball hung on the front of another ball is the
-    // exact shape of a balloon animal's snout. Widened hard and flattened front-to-back so
-    // it lies ACROSS the lower face instead of projecting off it: a pug has almost no muzzle
-    // to project, which is the whole point of the breed.
-    const pad=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.205,20,16),darkMat));
-    pad.position.set(0,-0.150,-0.232);pad.scale.set(1.38,0.94,0.66);
-    const bridge=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.098,16,14),darkMat));
-    bridge.position.set(0,-0.048,-0.300);bridge.scale.set(0.76,0.92,0.66);
-    // JOWLS. The heavy loose cheeks either side of the mouth are as much a pug as the flat
-    // face is, and they are what stops the lower head being a smooth curve — without them a
-    // muzzle is a bump and with them it is a jaw. Set low and wide, breaking the skull's
-    // outline where a cheek hangs off it.
+    // ONE: "a pug has almost no muzzle to project, which is the whole point of the breed."
+    // It is short, not absent, and flattening it onto the skull is exactly why the head
+    // kept coming back as a ball with paint on it. It projects here. That single form is
+    // most of what separates a dog's head from a sphere.
+    //
+    // TWO: the black. A fawn pug's mask covers the MUZZLE and runs up the bridge — it is
+    // not a brown apron over the whole lower half of the face, which is what this had
+    // grown into over three passes of widening it, and which read as a beard. The face is
+    // mostly coat. The dark is a small area around the nose, and the ring at each eye.
+    const muzMat=PBR({color:C.muzzle||0xe8d2ab,roughness:0.90,vivid:0.4});
+    const muz=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.152,20,16),muzMat));
+    muz.position.set(0,-0.118,-0.296); muz.scale.set(1.34,1.00,0.94);
+    // the mask: over the muzzle and no further
+    const pad=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.126,18,14),darkMat));
+    pad.position.set(0,-0.132,-0.352); pad.scale.set(1.20,0.92,0.60);
+    // and up the bridge between the eyes, never across them — a dark bar over two round
+    // eyes is a pair of sunglasses, which is what the third piece here used to produce
+    const bridge=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.082,16,14),darkMat));
+    bridge.position.set(0,-0.030,-0.316);bridge.scale.set(0.70,0.98,0.62);
+    // JOWLS, hanging under the muzzle rather than spread across the cheeks. They are what
+    // stops the lower head being a smooth curve: without them a muzzle is a bump, with
+    // them it is a jaw.
     for(const sx of [-1,1]){
-      const j=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.112,14,12),darkMat));
-      j.position.set(sx*0.126,-0.206,-0.182); j.scale.set(0.82,0.96,0.80);
+      // Sunk INTO the muzzle rather than parked behind it. Set back at z=-0.258 against a
+      // muzzle centred at -0.296 they hung off the cheeks as two pale puffs with their own
+      // outlines — the same "part with its own silhouette" that the shoulders had. A jowl
+      // is the bottom of a muzzle, so it lives inside one.
+      const j=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.092,14,12),muzMat));
+      j.position.set(sx*0.092,-0.190,-0.302); j.scale.set(0.88,0.96,0.82);
     }
-    // No fawn wrinkle across the muzzle. It was meant to be a fold and it came out as a
-    // wedge of coat cutting down into the black from above — the mask read as a moustache
-    // with a parting. A pug's wrinkle is a shadow at this distance, and no geometry says
-    // "shadow" as well as leaving it out does.
-    // a broad flat button, not a cone: a pug's nose is wider than it is tall and sits almost
-    // flush with the face
-    const n=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.062,14,12),noseMat));
-    n.position.set(0,-0.104,-0.372);n.scale.set(1.46,0.94,0.62);
-    // a slot of a mouth under the nose rather than a lolling tongue: the reference face is
-    // closed and slightly glum, and a pink tongue hanging out of it was most of the toy look
-    const mo=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.062,14,10),mat(0x191016,50)));
-    mo.position.set(0,-0.206,-0.336);mo.scale.set(1.62,0.40,0.50);
+    // the wrinkle over the nose, which is the one fold on a pug worth having as geometry:
+    // a low ridge of COAT across the top of the muzzle, in front of the bridge
+    const wr=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.086,16,12),furMat));
+    wr.position.set(0,-0.030,-0.372);wr.scale.set(1.34,0.52,0.44);
+    // a broad flat button on the FRONT of the muzzle, not a bump on the face
+    const n=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.058,14,12),noseMat));
+    n.position.set(0,-0.118,-0.436);n.scale.set(1.42,0.98,0.66);
+    // A grin. The reference is grinning, and the closed glum slot this had was chosen
+    // against a different picture — a mouth line that turns UP at the corners is the whole
+    // difference between a dog enjoying itself and a dog enduring something.
+    const mo=kit(headJ,new THREE.Mesh(new THREE.TorusGeometry(0.086,0.020,8,20,Math.PI),
+      mat(0x1a1016,50)));
+    mo.position.set(0,-0.176,-0.372);mo.rotation.set(0.30,0,Math.PI);
+    mo.scale.set(1.16,0.84,0.60);
+    // and a tongue in it. It was taken out once for looking toy-like on a closed mouth;
+    // on an open grinning one it is the thing that makes the grin read at all.
+    const tg=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.046,12,10),
+      PBR({color:0xe0798c,roughness:0.55,vivid:0.5})));
+    tg.position.set(0,-0.212,-0.372);tg.scale.set(0.92,0.62,0.72);
   } else if(C.face==='snout'){
     const m=kit(headJ,new THREE.Mesh(new THREE.CylinderGeometry(0.155,0.175,0.20,18),inner));
     m.rotation.x=Math.PI/2;m.position.set(0,-0.06,-0.44);
