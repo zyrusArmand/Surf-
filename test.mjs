@@ -2506,6 +2506,100 @@ check(shaderErrors.length === 0, 'every shader compiles',
         'and the page boots on one flat colour rather than a blurred beach');
 }
 
+// ---------- the imported rider ----------
+// models/pug.glb is a rigged export with a handstand clip in it, and it replaces Astro's
+// procedural body. Almost everything about wiring one of those up fails SILENTLY: the mesh
+// still draws, the bones still turn, the numbers all read correctly, and the picture is
+// wrong. Each of these is a specific silence that cost real time to find.
+{
+  const rig = await page.evaluate(() => { window.__surf.restart(); return window.__surf.rigInfo(); });
+  check(rig.model === true && rig.bones >= 20 && rig.stand === true,
+        'the rigged rider loads with its skeleton and its handstand clip',
+        `model ${rig.model}, ${rig.bones} bones, clip ${rig.stand}`);
+  // He is fitted to the box the built-in rider occupied, by his FEET rather than his middle:
+  // a model whose legs are a different fraction of his height ends up planted through the
+  // deck or hovering over it.
+  check(rig.skin && Math.abs(rig.skin.y[0] - rig.pugBox[0]) < 0.10,
+        'and his feet land on the deck the built-in rider stood on',
+        `model ${rig.skin ? rig.skin.y[0] : '?'}, built-in ${rig.pugBox[0]}`);
+  // THE SKIN FOLLOWS THE BONES. In this build of three.js that is a flag on the material,
+  // and the game replaces the loader's material with its own — which does not set it. Every
+  // other reading stays right when it is missing: the bones turn, the skeleton reports a
+  // body upside down, three.js's own applyBoneTransform puts the vertices where a handstand
+  // puts them. Only the picture disagrees, and only if you look at it.
+  const kick = await page.evaluate(() => window.__surf.boneKick('LeftArm', 'x', 1.2));
+  const moved = kick && kick.after && Math.max(...kick.before.map((v, i) => Math.abs(v - kick.after[i])));
+  check(moved > 0.05,
+        'and the skin actually deforms with them, rather than drawing its bind pose forever',
+        `worst corner of the body moved ${moved ? moved.toFixed(3) : 'n/a'} by a 1.2rad shoulder`);
+  // Every rider in this game is BUILT facing -z; this one was exported facing +z, and
+  // fitToBox may have turned it a further quarter for its own reasons. So the model measures
+  // its own muzzle — off the `headfront` bone the rig ships — and turns itself onto -z. A
+  // hard-coded half turn was tried first and was wrong twice over, leaving him side-on to
+  // the wave. Read in the rider group's frame, before the handstand: the surf stance and the
+  // turn both sit outside it, and the question here is only whether the model arrived
+  // pointing the same way the built-in body does.
+  const face = rig.faceDir;
+  check(face && face[2] < -0.8 && Math.abs(face[0]) < 0.4,
+        'and the imported body arrives facing the way every built-in one is built',
+        face ? `muzzle points ${JSON.stringify(face)}, wanted about [0, 0, -1]` : 'no bones');
+  // The clip is a round TRIP — stand, kick up, hold, come down, stand — so playing it once
+  // and clamping the last frame leaves him on his feet. It is scrubbed instead: forward to
+  // the inversion, parked there while the button is down, forward again to dismount.
+  //
+  // A TICK after the scrub, and it matters: the clip supplies the limbs but the GAME turns
+  // him over, and that half only happens inside the frame. Without it this reads the pose
+  // with the clip applied and the turn missing, which is the rider standing up.
+  const up = await page.evaluate(() => {
+    window.__surf.standAt(1.8); window.__surf.tick(0.1); return window.__surf.rigInfo(); });
+  check(up.upY < -0.5, 'and pressing HAND actually turns him upside down',
+        `his own up-axis points ${up.upY} through the deck`);
+  // ...over his own board, and ON it. The clip was animated on a floor: it travels a third
+  // of a body-width sideways and puts his head straight through the deck, because nothing in
+  // it knows the board is there. So the clip's root is dropped and the game turns him over
+  // itself, then measures the posed body and stands it on the deck.
+  const drift = up.skin && rig.skin &&
+    Math.max(Math.abs(up.skin.x[0] - rig.skin.x[0]), Math.abs(up.skin.x[1] - rig.skin.x[1]));
+  check(drift !== null && drift < 0.8 && up.skin.y[0] > rig.pugBox[0] - 0.10,
+        'and stays on the board doing it, rather than through the deck or off the rail',
+        `moved ${drift ? drift.toFixed(2) : '?'}ft across, lowest point ${up.skin ? up.skin.y[0] : '?'} ` +
+        `against a deck at ${rig.pugBox[0]}`);
+  // ...and he comes back down off it, all the way, rather than riding out the run on his
+  // hands: let go and the clip runs on to its dismount and the turn unwinds with it.
+  const back = await page.evaluate(() => {
+    window.__surf.standAt(null); window.__surf.tick(4); return window.__surf.rigInfo(); });
+  check(back.upY > 0.7 && back.phase === 'idle',
+        'and he comes back down on his feet when it is released',
+        `up-axis ${back.upY}, phase "${back.phase}"`);
+  // The face is painted from the SKELETON, in bind space — the one frame where the vertex
+  // buffer and the bones are defined to agree. Measured in world space instead, every
+  // vertex failed the "is this inside the head" test and the paint coloured nothing at all.
+  const f = await page.evaluate(() => window.__surf.faceStats());
+  check(f && f.head > 0 && f.mask > 0 && f.ears > 0 && f.eyes > 0 && f.nose > 0,
+        'and he has a face on him — mask, nose, ears and both eyes',
+        f ? `${f.head} head verts: mask ${f.mask}, nose ${f.nose}, ears ${f.ears}, eyes ${f.eyes}` : 'no paint');
+  // ...and it is a mask, not a bib. The first cut ran black down his chest and round both
+  // cheeks, which is most of the head rather than the muzzle.
+  check(f && f.mask + f.ears + f.eyes + f.nose < f.head * 0.55,
+        'and the black is a pug\'s markings rather than most of his head',
+        `${f ? Math.round(100 * (f.mask + f.ears + f.eyes + f.nose) / f.head) : '?'}% of the head is dark`);
+  // The built-in rig is HIDDEN under him, not thrown away. Every other character in the
+  // roster is built out of the same joints, so emptying the group to make room meant the
+  // sloth's owner got an invisible rider on coming back to Astro — and, worse, the detached
+  // joints kept whatever world matrix they last held, so the checks that walk the built-in
+  // rig started disagreeing with themselves between runs. pawProbe builds another character
+  // and puts Astro back, which is exactly the round trip that used to lose him.
+  const swap = await page.evaluate(() => {
+    const before = window.__surf.rigInfo().modelOn;
+    window.__surf.pawProbe('sloth');
+    const r = window.__surf.rigInfo();
+    return { before, on: r.modelOn, kids: r.kids };
+  });
+  check(swap.before === true && swap.on === true && swap.kids >= 2,
+        'and the built-in body waits under him, so the rest of the roster still has one',
+        `model shown ${swap.before} -> ${swap.on}, ${swap.kids} bodies in the group`);
+}
+
 // ---------- the wipeout card fits the phone it is on ----------
 // v2.93: it did not. The buttons finished 16px above the version number on a big phone and
 // 130px BELOW the bottom of the glass on a small one, where "Surf again" simply was not

@@ -4,6 +4,10 @@ Drop a `.glb` in this folder and it replaces the built-in shape in the game. If 
 file isn't here the game keeps its procedural version, so you can replace one
 thing at a time and nothing ever breaks.
 
+`board.glb` and `pug.glb` ship with the game; the rest of the table is empty by
+design, and the 404s those file names produce are the documented path rather than
+a fault.
+
 | File | Replaces |
 | --- | --- |
 | `board.glb` | the surfboard |
@@ -66,10 +70,37 @@ takes:
 Anything not matched gets that object's main colour — white for the board, fawn for
 the pug, and so on.
 
+## Rigged riders
+
+`pug.glb` may be a **rigged** export with a skeleton and animation clips, and the one
+that ships is: a 24-bone skeleton with a handstand clip on it. If a skeleton is
+present the game drives it, and three things happen automatically.
+
+- **It is turned to face the wave.** Every built-in rider is modelled facing `-z`.
+  A rigged one is asked which way it is looking — the line from its `Head` bone to a
+  muzzle bone called `headfront` — and turned onto `-z` from wherever it started. A
+  bone named `headfront` is what makes this work; without it the export keeps
+  whatever orientation it arrived in.
+- **A clip named for a trick drives that trick.** A clip whose name matches
+  `handstand` becomes the HAND button. It is *scrubbed*, not played: forward through
+  the kick-up, parked in the inverted stretch for as long as the button is held, then
+  forward again through the dismount. So a clip that is a round trip — stand, kick up,
+  hold, come down — works correctly, and most exported ones are.
+- **The clip's ROOT is dropped and its limbs kept.** Tricks are animated on a floor,
+  where the body is free to travel and to finish leaning; a surfboard is neither. The
+  hips go back where they started, the game turns the rider over itself, and the posed
+  body is measured each frame and stood on the deck. What survives is the part worth
+  having: the plant of the arms, the scissor of the legs, the wobble of the balance.
+
+A face is painted on from the skeleton if the export has no textures: the mask, nose,
+eyes and ears are placed in head-local space using `Hips`, `Head` and `headfront` as
+the axes, so they land correctly whatever way round the model was built.
+
 ## What you lose
 
-The built-in pug, jellyfish and octopus are animated by hand: the pug leans and
-paddles, the jellyfish's bell pulses, and the octopus's arms flow on jointed
-chains. An imported mesh has none of that rig, so those three ride, drift and float
-rigidly. Everything else — the board, buoy, log, ramp, fin, jet ski — was never
-animated internally and looks exactly as intended.
+Rolls, flips, spins and the helicopter still belong to the built-in rig, so a rigged
+import rides those out without changing shape — only the handstand is its own. The
+built-in jellyfish and octopus are animated by hand too — the bell pulses, the arms
+flow on jointed chains — and an imported mesh for either has none of that, so both
+drift and float rigidly. Everything else — the board, buoy, log, ramp, fin, jet ski —
+was never animated internally and looks exactly as intended.

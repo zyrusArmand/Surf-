@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.37.0';
+const VERSION='3.38.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2899,17 +2899,40 @@ function authored(m){
   const c=m.color;
   return !!c&&(c.r<0.985||c.g<0.985||c.b<0.985);
 }
+// ---- a material on a rigged mesh has to be TOLD it is on a rigged mesh ----
+// In this build of three.js, skinning is a flag on the material, not a property of the
+// mesh: the vertex shader is compiled with or without the bone maths depending on it, and
+// a material that says false simply draws the model in its bind pose forever. GLTFLoader
+// sets it when it builds a skinned mesh — and then this function replaces that material
+// with one of the game's own, which does not, and the deformation quietly stops.
+//
+// It cost a long time to find because everything else looked right. The bones turned. The
+// skeleton reported a body upside down. Running three.js's own applyBoneTransform over the
+// vertex buffer put the vertices where a handstand puts them. All of it true, and none of
+// it reaching the screen, because the shader drawing the mesh had no bones compiled into
+// it. The only reading that disagreed was the picture.
+//
+// CLONED, not flagged in place: the tables below hand the same material instance to every
+// model that matches, and this flag changes the shader. Set it on a shared instance and a
+// rigged rider would compile the bone maths into the shader used for the driftwood too.
+function skinnable(o,m){
+  if(!o.isSkinnedMesh||!m||!('skinning' in m))return m;
+  const one=x=>{ if(x.skinning)return x;
+    const c=x.clone(); c.skinning=true; c.needsUpdate=true; return c; };
+  return Array.isArray(m)?m.map(one):one(m);
+}
 function paintModel(root,table,fallback){
   root.traverse(o=>{
     if(!o.isMesh)return;
     o.castShadow=true;o.receiveShadow=true;
     if(authored(o.material)){
       for(const m of (Array.isArray(o.material)?o.material:[o.material]))harmonise(m);
+      o.material=skinnable(o,o.material);
       return;
     }
     const name=(o.name||'')+' '+((o.parent&&o.parent.name)||'');
-    for(const [re,m] of table){ if(re.test(name)){o.material=m;return;} }
-    if(fallback)o.material=fallback;
+    for(const [re,m] of table){ if(re.test(name)){o.material=skinnable(o,m);return;} }
+    if(fallback)o.material=skinnable(o,fallback);
   });
 }
 // paint it, then size and place it exactly where the built-in shape sat
@@ -2921,6 +2944,26 @@ function skinAndFit(kind,root,target,orient){
   // them is a line, and it is always right: if the file HAS them this does not run.
   root.traverse(o=>{ if(o.isMesh&&o.geometry&&!o.geometry.attributes.normal)
     o.geometry.computeVertexNormals(); });
+  // ---- a rigged mesh is measured where it is DRAWN, not where its node says it is ----
+  // glTF is explicit that a skinned mesh's own node transform is ignored: its vertices live
+  // in the skin's space and the joints put them on screen. Exporters lean on that. This one
+  // parks its mesh under an armature scaled to a hundredth, writes the joints in centimetres
+  // so they come out right through it, and writes the VERTICES in metres so they come out
+  // right without it. Perfectly legal, and both halves land in the correct place.
+  //
+  // But fitToBox measures a model by pushing its vertex buffer through the mesh's world
+  // matrix, so it measured this pup at a hundredth of his size and scaled up by a hundred to
+  // compensate — a factor the drawn mesh never sees. Nothing looked wrong while the skinning
+  // was switched off, because then the mesh WAS drawn through that matrix and the two errors
+  // cancelled exactly. Turn the deformation on and he is a hundred times too big and a
+  // hundred feet in the air.
+  //
+  // Lifting the skinned meshes to the root makes the scene graph say what glTF already
+  // meant: their vertices are in skin space, and nothing above them applies.
+  const lift=[]; root.traverse(o=>{ if(o.isSkinnedMesh&&o.parent&&o.parent!==root)lift.push(o); });
+  for(const o of lift){ root.add(o); o.position.set(0,0,0); o.quaternion.set(0,0,0,1);
+    o.scale.set(1,1,1); }
+  if(lift.length)root.updateMatrixWorld(true);
   const skin=MODEL_SKINS[kind]||[[],null];
   paintModel(root,skin[0],skin[1]);
   return fitToBox(root,target,orient);
@@ -2929,7 +2972,9 @@ function loadModel(file,onReady){
   if(!THREE.GLTFLoader)return;
   new THREE.GLTFLoader().load('models/'+file,
     g=>{ const root=g.scene||g.scenes[0];
-         try{ mendMirror(root); onReady(root); }catch(e){ console.warn('model '+file+' failed to fit',e); } },
+         // the whole gltf goes through, not just the scene: a rigged export carries its
+         // clips alongside the meshes and they are the entire point of it
+         try{ mendMirror(root); onReady(root,g); }catch(e){ console.warn('model '+file+' failed to fit',e); } },
     undefined,
     ()=>{ /* no such file — keep the built-in shape */ });
 }
@@ -8328,6 +8373,8 @@ function buildChar(id){
     t.position.set(0,0.13,0.02);t.scale.set(1,1.9,1);t.rotation.x=-0.4;
   }
   sizeRider();
+  builtChar=id;
+  if(typeof showRiderModel==='function')showRiderModel();
 }
 // A world unit here is a FOOT. That was settled when the boards were cut to their real spec
 // sheets, and everything else in the water turns out to agree with it: the buoy measures 3.2
@@ -8589,11 +8636,348 @@ rig.add(pug);
 // A pug model replaces the built-in one wholesale; the joint chain above it is
 // detached, so an imported dog rides rigid rather than paddling and leaning.
 const PUG_BOX=boxOf(pug);
-loadModel('pug.glb',s3=>{
-  const fitted=skinAndFit('pug',s3,PUG_BOX);
-  pug.clear ? pug.clear() : (pug.children.length=0);
+// ---------------------------------------------------------------------------
+// A RIGGED rider, if one has been dropped in models/. The built-in pug is a joint chain
+// this file animates by hand; an imported one brings its own skeleton and its own clips,
+// and the two have nothing to say to each other. So the imported one is driven the way it
+// expects to be driven — by an AnimationMixer — and the hand-written poses stand down for
+// as long as it is on screen.
+//
+// Two states, and they are the two the game actually has for a rider on his feet: standing
+// on the board, and up on his hands. Everything else the built-in rig does — the lean, the
+// paddle, the drowning wave — is not in the file, so it does not happen. That is the trade
+// for a modelled body, and it is worth saying out loud rather than discovering later.
+// `var`, not `let`, and deliberately. buildChar and showRiderModel are written further up
+// the file and RUN before this line is reached — the roster is equipped during setup, long
+// before the model finishes downloading. A hoisted var is defined from the first statement
+// of the script; a let is in its dead zone until its declaration executes and throws on
+// sight. Written as let, the very first buildChar took the page down with it.
+// builtChar is which character the shared joints were last shaped into — see showRiderModel.
+var modelRig=null, riderModel=null, builtChar='pug';
+// ---- painting a face on a model that arrived without one ----
+// Meshy exports UVs but no texture and no materials, so the pup lands as one flat fawn
+// solid. There is no way to know what its UV layout means, but there is a way to know what
+// its GEOMETRY means, and it is better: the skeleton says where everything is.
+//
+// The axes come from the bones rather than from a guess. Up is hips-to-head. FORWARD is the
+// gift in this rig — there is a bone called `headfront`, sitting out at the muzzle, so the
+// direction the face points is written down rather than inferred. Right is the cross of the
+// two. From there the mask, the ears and the eyes are three regions in head-local space, and
+// they land correctly on any model rigged to this skeleton whatever way round it was built.
+function paintRiderFace(root,bones){
+  if(!bones.Hips||!bones.Head||!bones.headfront)return null;
+  root.updateMatrixWorld(true);
+  // ---- BIND SPACE, and nothing else will do ----
+  // The obvious way to do this is to ask each bone where it is in the world and each vertex
+  // where it is in the world, and it does not work: a skinned mesh's vertex buffer is not in
+  // world space and never was. It is in BIND space, and the matrix that gets it there was
+  // captured when the file loaded — before the model was scaled to fit the rider's box. Ask
+  // the two the same question afterwards and they answer in different units: measured here,
+  // the shoulder came back at y=132 while the whole body's bounding box was 2.4 tall. Every
+  // vertex then failed the "is this inside the head" test, all 2222 of them, and the paint
+  // ran to completion having coloured nothing.
+  //
+  // Bind space is the one frame where the skeleton and the buffer are defined to agree, it
+  // is what the skinning maths is written in, and it cannot drift afterwards because nothing
+  // downstream touches it. The bind position of a bone is the inverse of its inverse-bind
+  // matrix; the bind position of a vertex is the buffer times the mesh's own bindMatrix.
+  const tmpM=new THREE.Matrix4();
+  const bindOf=(sk,name)=>{ const b=bones[name], i=sk?sk.bones.indexOf(b):-1;
+    if(i<0)return b?b.getWorldPosition(new THREE.Vector3()):null;
+    return new THREE.Vector3().setFromMatrixPosition(tmpM.copy(sk.boneInverses[i]).invert()); };
+  // CONVERTED TO LINEAR, like every other colour in this file. The renderer outputs sRGB,
+  // so it takes vertex colours to be linear already — hand it an sRGB triple raw and every
+  // colour comes back washed out and desaturated, which on a fawn coat reads as grey-green
+  // rather than as a dog. vivid() does this conversion for every material in the game; a
+  // colour written straight into a buffer has to do it for itself.
+  const lin=h=>{ const c=new THREE.Color(h); if(c.convertSRGBToLinear)c.convertSRGBToLinear(); return c; };
+  const FUR=lin(0xc99a5a), DARK=lin(0x241c15), NOSE=lin(0x120f0d), EYE=lin(0x0d0d10);
+  const v=new THREE.Vector3(), d=new THREE.Vector3();
+  let painted=0;
+  const tally={verts:0,head:0,mask:0,nose:0,ears:0,eyes:0,headR:0};
+  root.traverse(o=>{
+    if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+    const g=o.geometry, pos=g.attributes.position, n=pos.count;
+    tally.verts+=n;
+    // the frame comes from THIS mesh's own skeleton, so a file with more than one of them
+    // still paints each correctly rather than measuring one against another's bones
+    const sk=o.skeleton||null;
+    const pHips=bindOf(sk,'Hips'), pH=bindOf(sk,'Head'), pF=bindOf(sk,'headfront');
+    if(!pHips||!pH||!pF)return;
+    const up=pH.clone().sub(pHips).normalize();
+    const fwd=pF.clone().sub(pH).projectOnPlane(up).normalize();
+    const right=new THREE.Vector3().crossVectors(up,fwd).normalize();
+    const headR=pF.distanceTo(pH)*1.42;              // the skull, in its own units
+    tally.headR=+headR.toFixed(3);
+    const toBind=sk?o.bindMatrix:o.matrixWorld;
+    const col=new Float32Array(n*3);
+    for(let i=0;i<n;i++){
+      v.fromBufferAttribute(pos,i).applyMatrix4(toBind);
+      d.copy(v).sub(pH);
+      const u=d.dot(up)/headR, f=d.dot(fwd)/headR, r=d.dot(right)/headR;
+      let c=FUR;
+      if(d.length()<headR*1.30){                     // only ever inside the head
+        tally.head++;
+        // THE MASK. On a fawn pug this is a small black field over the muzzle that narrows
+        // as it runs up the bridge between the eyes — it is not a bib. The first cut of it
+        // reached to u=-0.72 and half a head wide at every height, which put a black apron
+        // down his chest and round both cheeks; the floor comes up to just under the chin
+        // and the width closes as it climbs.
+        const wid=0.58-Math.max(0,u)*0.32;
+        if(f>0.46&&u<0.26&&u>-0.30&&Math.abs(r)<wid){ c=DARK; tally.mask++; }
+        if(f>0.74&&u<0.14&&u>-0.30&&Math.abs(r)<0.28){ c=NOSE; tally.nose++; }
+        // The ears: high, out to the sides, and WELL behind the muzzle. This is the view the
+        // game actually shows — he rides side-on, so three quarters from behind is his normal
+        // angle — and a loose bound here painted the whole temple black, which read as a
+        // balaclava. An ear is the flap, not the side of the head it hangs off.
+        if(u>0.24&&Math.abs(r)>0.46&&f<0.22){ c=DARK; tally.ears++; }
+        // an eye either side, up on the front of the skull. Kept clear of the bridge so the
+        // two read as two rather than merging with the mask into one dark band.
+        const er=Math.abs(r);
+        if(f>0.20&&u>0.16&&u<0.54&&er>0.26&&er<0.54){ c=EYE; tally.eyes++; }
+      }
+      col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
+    }
+    g.setAttribute('color',new THREE.BufferAttribute(col,3));
+    const m=o.material;
+    if(m){ (Array.isArray(m)?m:[m]).forEach(mm=>{ mm.vertexColors=true; mm.color.setHex(0xffffff);
+      mm.needsUpdate=true; }); }
+    painted++;
+  });
+  tally.meshes=painted;
+  return painted>0?tally:null;
+}
+function setupModelRig(root,gltf){
+  const clips=(gltf&&gltf.animations)||[];
+  if(!clips.length||!THREE.AnimationMixer)return null;
+  const mixer=new THREE.AnimationMixer(root);
+  // Meshy names its clips "Armature|One_Arm_Handstand|baselayer", so the match is on the
+  // middle of the name rather than the whole of it — and loosely, because the next export
+  // may well call it something adjacent.
+  const find=re=>clips.find(c=>re.test(c.name));
+  const stand=find(/handstand|hand_stand/i);
+  const idle=find(/idle|tpose|rest|clip0/i)||null;
+  const R={mixer,stand:null,surf:null,on:false,phase:'idle',t:0,aw:0,rot:0};
+  // ---- where the handstand actually IS inside the clip ----
+  // MEASURED, not guessed, and the measurement is the whole reason this works. The clip is
+  // not "a handstand"; it is a round trip — stand, kick up, hold, come down, stand. Reading
+  // the Hips rotation across all 116 keys and asking which way the body's own up-axis points
+  // gives the shape of it: upright until 1.0, over by 1.4, inverted through to 2.25, back on
+  // its feet by 3.0. The first version of this played the clip once and clamped the last
+  // frame, which is a perfectly sensible thing to do and left him STANDING, because the last
+  // frame of a round trip is the pose it started in.
+  //
+  // So the clip is not played. It is scrubbed: forward through the kick-up, parked in the
+  // inverted stretch for as long as the button is down, then forward again through the
+  // dismount. Same animation, three pieces of it, driven by the player instead of by time.
+  const CLIP={inA:0.05,inB:1.48,holdA:1.45,holdB:2.20,outB:3.05};
+  if(stand){
+    R.stand=mixer.clipAction(stand);
+    R.stand.setLoop(THREE.LoopRepeat,Infinity);   // never let the end logic disable it
+    R.stand.paused=true;                          // time comes from R.update, not from dt
+    R.stand.setEffectiveWeight(0);
+    R.stand.play();
+    // ACTIVATED HERE, while every bone is still in its rest pose, and that is deliberate.
+    // three.js snapshots the "original" value of each bound property the first time an
+    // action goes live, and that snapshot is what a sub-1 weight blends back toward. Start
+    // it now and a weight of 0.3 means "thirty per cent of the way from standing to the
+    // handstand"; start it mid-trick and it means thirty per cent of the way from whatever
+    // happened to be on screen, which is not a pose anyone modelled.
+  }
+  // The surfing pose is a single frame held forever. It is built from the model's own rest
+  // pose rather than invented: whatever the file was modelled in is the one pose we know is
+  // free of skinning artefacts, and a rig this simple has its arms out in it already.
+  if(idle){ R.surf=mixer.clipAction(idle); R.surf.play(); }
+  // every bone by name, so the pose below and the face paint above can both find them
+  R.bones={}; root.traverse(o=>{ if(o.isBone||o.type==='Bone')R.bones[o.name]=o; });
+  // the rest rotation of every bone we lean on, kept so the surf pose is applied FROM the
+  // pose the model was built in rather than accumulated onto whatever last frame left
+  R.rest={};
+  for(const n of ['LeftArm','RightArm','LeftForeArm','RightForeArm','LeftUpLeg','RightUpLeg',
+                  'LeftLeg','RightLeg','Spine','Spine01','Spine02','Head'])
+    if(R.bones[n])R.rest[n]=R.bones[n].quaternion.clone();
+  R.hipHome=R.bones.Hips?R.bones.Hips.position.clone():null;
+  R.hipQ=R.bones.Hips?R.bones.Hips.quaternion.clone():null;
+  R.paint=paintRiderFace(root,R.bones);
+  // ---- the clip performs; the game decides which way up ----
+  // What is in the file is a floor move: it topples sideways over one hand, travels about a
+  // third of a body-width doing it, and finishes leaning at a hundred and twenty-five degrees
+  // rather than stood up on the vertical. On a mat that is a one-arm handstand. On a board,
+  // seen from behind, it is a dog falling off the back.
+  //
+  // So the clip's ROOT is thrown away and its LIMBS are kept, which is the half worth having:
+  // the plant of the arms, the scissor of the legs, the wobble of the balance. The hips go
+  // back to where they started and the game turns him over itself — the same flip the
+  // built-in rider does, about the same axis, ending on the vertical over his own board.
+  // Fold the arms toward the deck in body-local terms and they arrive there after the turn.
+  R.hold=function(rot){
+    const b=this.bones.Hips; if(!b)return;
+    if(this.hipHome)b.position.lerp(this.hipHome,rot);
+    if(this.hipQ)b.quaternion.slerp(this.hipQ,rot);
+  };
+  // ---- and stand him ON the deck, whatever the clip is doing ----
+  // The animation was made on a floor, and a floor is wherever the animator's origin was.
+  // Played on a surfboard it puts his head through the deck on the way over, because nothing
+  // in the clip knows the board exists. The built-in rider solves this by measuring how far
+  // his paws reach when he is upside down and lifting him by exactly that; the same idea
+  // works here and needs no measuring beforehand, because the posed body can be measured now.
+  //
+  // Every twelfth vertex, run through three.js's own skinning maths, is enough to find the
+  // bottom of him to well under an inch — and it is right for ANY frame of ANY clip, which a
+  // hand-picked landmark bone is not: what is lowest changes as he goes over.
+  // Returns the STEP to take, not the height to sit at: the measurement is made in the frame
+  // pug's own position moves in, so moving him by the shortfall closes it exactly, in one go
+  // and with no settling over frames.
+  // WHERE THE POSED BODY ACTUALLY IS. Box3.setFromObject cannot answer this — for a skinned
+  // mesh it reads the geometry's own bounding box, which is the BIND pose and never changes
+  // however the bones move, so it reports a rider mid-handstand as standing to attention.
+  // Every twelfth vertex through three.js's own skinning maths is the honest answer, and to
+  // well under an inch. Returned in the frame pug's position moves in, so the caller can act
+  // on it directly.
+  R.skinBox=function(){
+    let sm=this.skin;
+    if(!sm){ root.traverse(o=>{ if(o.isSkinnedMesh&&!sm)sm=o; }); this.skin=sm; }
+    if(!sm||!(sm.applyBoneTransform||sm.boneTransform))return null;
+    pug.updateMatrixWorld(true); sm.skeleton.update();
+    const p=sm.geometry.attributes.position, v=new THREE.Vector3();
+    const step=Math.max(1,Math.ceil(p.count/200)), par=pug.parent;
+    const lo=[Infinity,Infinity,Infinity], hi=[-Infinity,-Infinity,-Infinity];
+    for(let i=0;i<p.count;i+=step){
+      v.fromBufferAttribute(p,i);
+      sm.applyBoneTransform?sm.applyBoneTransform(i,v):sm.boneTransform(i,v);
+      v.applyMatrix4(sm.matrixWorld);
+      if(par)par.worldToLocal(v);
+      const a=[v.x,v.y,v.z];
+      for(let k=0;k<3;k++){ if(a[k]<lo[k])lo[k]=a[k]; if(a[k]>hi[k])hi[k]=a[k]; }
+    }
+    return isFinite(lo[1])?{lo,hi}:null;
+  };
+  R.deckLift=function(){
+    if(this.rot<=0.001){ const d=-pug.position.y; return Math.abs(d)<1e-4?0:d; }
+    const b=this.skinBox();
+    return b?PUG_BOX.min.y-b.lo[1]:0;
+  };
+  R.update=function(dt,want){
+    const C=CLIP, a=this.stand;
+    // a probe can pin the clip to one frame; the game never sets this
+    if(a&&this.scrub!=null){ this.phase='hold'; this.t=this.scrub; this.aw=1;
+      a.time=this.t; a.setEffectiveWeight(1); this.rot=1;
+      this.mixer.update(dt); this.hold(1); return; }
+    if(a){
+      // the three pieces, in order, with the middle one held open by the button
+      if(this.phase==='idle'){ if(want){ this.phase='in'; this.t=C.inA; } }
+      if(this.phase==='in'){
+        // let go halfway up and he comes straight back down, from the height he got to.
+        // Without this a tap commits to the whole trick and the button stops feeling
+        // connected to him.
+        if(!want){ const f=(this.t-C.inA)/(C.inB-C.inA);
+          this.phase='out'; this.t=C.outB-Math.min(1,Math.max(0,f))*(C.outB-C.holdB); }
+        else { this.t+=dt; if(this.t>=C.inB){ this.t=C.holdA; this.phase='hold'; } } }
+      else if(this.phase==='hold'){
+        if(!want)this.phase='out';
+        // and it BREATHES while it is held. Parking on one frame is a photograph; running
+        // the inverted stretch back and forth at half speed keeps the wobble the animator
+        // put in there, which is what makes a held balance read as held rather than frozen.
+        else { this.t+=dt*0.5; if(this.t>C.holdB)this.t=C.holdA; }
+      }
+      if(this.phase==='out'){ this.t+=dt*1.25;
+        if(this.t>=C.outB){ this.phase='idle'; this.t=C.inA; } }
+      this.aw=this.phase==='idle' ? 0
+             :this.phase==='in'   ? Math.min(1,(this.t-C.inA)/0.40)
+             :this.phase==='hold' ? 1
+             :Math.min(1,Math.max(0,(C.outB-this.t)/0.45));
+      // How far over he is, on the clip's OWN clock rather than the button's. The button
+      // eases in a sixth of a second and the kick-up takes a second and a half; drive the
+      // turn from the button and he is upside down before his arms have left his sides.
+      const p=this.phase==='idle' ? 0
+             :this.phase==='in'   ? (this.t-C.inA)/(C.inB-C.inA)
+             :this.phase==='hold' ? 1
+             :Math.max(0,(C.outB-this.t)/(C.outB-C.holdB));
+      const s=Math.min(1,Math.max(0,p));
+      this.rot=s*s*(3-2*s);
+      a.time=this.t; a.setEffectiveWeight(this.aw);
+    }
+    this.mixer.update(dt);
+    this.hold(this.rot);
+    // The clip owns the body while he is up. Below that the surfing stance is laid over
+    // whatever the mixer left, faded by exactly the amount the clip is NOT contributing, so
+    // the two never fight and the changeover is a blend rather than a snap. SLERP, not copy:
+    // copying would throw the mixer's work away at every weight instead of meeting it.
+    const w=1-this.aw;
+    if(w<=0.001)return;
+    const q=new THREE.Quaternion(), e=new THREE.Euler();
+    const set=(n,x,y,z)=>{ const b=this.bones[n], r=this.rest[n]; if(!b||!r)return;
+      e.set(x,y,z); q.setFromEuler(e).premultiply(r); b.quaternion.slerp(q,w); };
+    // The rig ships in an A-pose — hands already out at 0.6 of a body-width and down at hip
+    // height — so a surfing stance is a small edit to it rather than a wholesale repose:
+    // lift the arms toward level, open the elbows, and put some weight in the knees. Nobody
+    // rides a wave stood up straight.
+    set('LeftArm',   0.10,0.10,-0.90);
+    set('RightArm',  0.10,-0.10, 0.90);
+    set('LeftForeArm', 0,0,-0.16);
+    set('RightForeArm',0,0, 0.16);
+    set('LeftUpLeg', -0.16,0,0); set('RightUpLeg',-0.16,0,0);
+    set('LeftLeg',    0.30,0,0); set('RightLeg',  0.30,0,0);
+    set('Spine',      0.08,0,0);
+  };
+  return R;
+}
+loadModel('pug.glb',(s3,gltf)=>{
+  // TURNED TO FACE THE WAVE, by asking the model which way it is looking rather than by
+  // being told. Every face on the built-in riders is built at negative z — muzzle, nose,
+  // mouth, whiskers, all of it — so that is the direction this game calls forward. A rig
+  // exported from somewhere else has its own convention, and fitToBox may already have
+  // turned it a quarter for its own reasons, so a hard-coded half turn is a guess that
+  // happens to be wrong twice over: this one came out facing sideways.
+  //
+  // The rig says where it is looking. `headfront` is a bone at the muzzle, so the line from
+  // the head to it IS the direction of the face, and one atan2 puts that on -z from wherever
+  // it started. Whatever the next model is exported from, it arrives looking down the wave.
+  const fitted=skinAndFit('pug',s3,PUG_BOX,(wrap,flip)=>{
+    wrap.updateMatrixWorld(true);
+    const at=n=>{ let b=null; s3.traverse(o=>{ if(!b&&o.name===n)b=o; });
+      return b?b.getWorldPosition(new THREE.Vector3()):null; };
+    const h=at('Head'), f=at('headfront');
+    if(!h||!f)return;
+    const fx=f.x-h.x, fz=f.z-h.z;
+    if(Math.hypot(fx,fz)<1e-6)return;
+    flip.rotation.y=-Math.atan2(fx,-fz);
+  });
+  // fitToBox CENTRES what it fits, which is right for a log and wrong for a rider: a model
+  // whose legs are a different fraction of its height than the built-in pug's ends up
+  // planted through the deck or hovering over it. Line the two up by their FEET instead.
+  //
+  // MEASURED BEFORE IT IS ADDED TO THE RIG, and that is the whole trick. Once it is in, its
+  // box is in world space — carrying the board's position, its rotation and whatever height
+  // the wave has the whole player at this instant — while PUG_BOX was taken at build time
+  // with the player at the origin. Differencing those two is differencing two frames, and
+  // the first version of this did exactly that and buried him three feet under the deck.
+  // Standing alone, `fitted` is measured in the same space fitToBox just fitted it into.
+  const bb=boxOf(fitted), k=fitted.userData.k||1, fr=fitted.userData.frame;
+  if(fr)fr.position.y+=(PUG_BOX.min.y-bb.min.y)/k;
+  // HIDDEN, not thrown away. The first version emptied `pug` before adding the model, and
+  // that quietly broke two things at once. Every other character in the roster is built out
+  // of the same joints, so equipping the sloth and coming back to Astro left him with no
+  // body at all; and the joints, once detached, keep whatever world matrix they last had, so
+  // anything that measured them measured a frame from before the file finished downloading.
+  // Both were invisible until the checks that walk the built-in rig started disagreeing with
+  // themselves between runs. Left in place and switched off, it costs one boolean.
+  riderModel=fitted;
   pug.add(fitted);
+  modelRig=setupModelRig(fitted,gltf);
+  showRiderModel();
 });
+// Which body is on the board: the imported one belongs to Astro, so anyone else in the
+// roster gets the built-in rig back. Called after every rebuild, because rebuilding is
+// exactly when the two can get out of step.
+function showRiderModel(){
+  if(!riderModel)return;
+  // keyed to what was last BUILT, not to who is equipped: the rig probes build another
+  // character to measure it and put the equipped one back, without ever equipping anything
+  const on=(builtChar==='pug');
+  riderModel.visible=on;
+  for(const c of pug.children) if(c!==riderModel) c.visible=!on;
+}
 const PUG_HOME={x:pug.position.x,y:pug.position.y,z:pug.position.z};
 player.add(rig);
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
@@ -12019,6 +12403,89 @@ if(location.hash.includes('debug')){
     // With an id it builds that character, measures, and puts the rider back — no ownership
     // flag, no save, nothing to undo. buildChar is the whole of what equipChar does visually,
     // so this is the cheapest way to walk the roster.
+    // where an imported rider actually ended up, and whether anything about it worked
+    rigInfo(){
+      const out={model:!!modelRig, kids:pug.children.length};
+      const b=new THREE.Box3().setFromObject(pug);
+      out.box=[b.min.y,b.max.y].map(v=>+v.toFixed(2));
+      out.boxX=[b.min.x,b.max.x].map(v=>+v.toFixed(2));
+      if(modelRig){ out.bones=Object.keys(modelRig.bones||{}).length;
+        out.stand=!!modelRig.stand; out.surf=!!modelRig.surf;
+        const st=modelRig.stand;
+        if(st)out.act={run:st.isRunning(),t:+st.time.toFixed(2),w:+st.getEffectiveWeight().toFixed(2),
+                       dur:+(st.getClip()?st.getClip().duration:0).toFixed(2)};
+        out.phase=modelRig.phase; out.aw=+modelRig.aw.toFixed(2);
+        out.modelOn=!!(riderModel&&riderModel.visible);
+        // the POSED body, which is the only box worth reading on a rigged rider — the one
+        // above comes from Box3, which for a skinned mesh reports the bind pose forever
+        const sb=modelRig.skinBox();
+        if(sb)out.skin={x:[+sb.lo[0].toFixed(2),+sb.hi[0].toFixed(2)],
+                        y:[+sb.lo[1].toFixed(2),+sb.hi[1].toFixed(2)],
+                        z:[+sb.lo[2].toFixed(2),+sb.hi[2].toFixed(2)]};
+        // Which way the model is looking, in the RIDER GROUP's own frame. Not the player's:
+        // that frame carries the surf stance as well, so it answers "which way is he facing
+        // down the wave" when the question is "did the imported model come in at the same
+        // angle the built-in one is built at". The game's riders are built facing -z, so a
+        // correctly turned model reads as (0, ~0, -1) here whatever it was exported as.
+        const hd2=modelRig.bones.Head, fr2=modelRig.bones.headfront;
+        if(hd2&&fr2){ const a=hd2.getWorldPosition(new THREE.Vector3()),
+                            c=fr2.getWorldPosition(new THREE.Vector3());
+          pug.worldToLocal(a); pug.worldToLocal(c);
+          const d=c.sub(a), L=d.length()||1;
+          out.faceDir=[d.x/L,d.y/L,d.z/L].map(v=>+v.toFixed(2)); }
+        // which way up he actually is, which is the only reading that settles a handstand
+        const hp=modelRig.bones.Hips;
+        if(hp){ const uy=new THREE.Vector3(0,1,0).applyQuaternion(
+                  hp.getWorldQuaternion(new THREE.Quaternion()));
+          out.upY=+uy.y.toFixed(3); }
+        const la=modelRig.bones.LeftArm, hd=modelRig.bones.Head;
+        const q=o=>o?[o.quaternion.x,o.quaternion.y,o.quaternion.z,o.quaternion.w].map(v=>+v.toFixed(3)):null;
+        out.LeftArm=q(la); out.Head=q(hd);
+        if(la){ const w=new THREE.Vector3(); la.getWorldPosition(w);
+          out.LeftArmW=[w.x,w.y,w.z].map(v=>+v.toFixed(2)); }
+        out.handT=+handT.toFixed(3); }
+      out.pugBox=[PUG_BOX.min.y,PUG_BOX.max.y].map(v=>+v.toFixed(2));
+      return out;
+    },
+    // Scrub the imported rider's handstand to any point in the clip. The headless renderer
+    // runs at about a frame a second, so a four-second animation cannot be watched here —
+    // this jumps to the frame worth looking at instead of waiting for it.
+    standAt(t){
+      if(!modelRig||!modelRig.stand)return null;
+      const a=modelRig.stand;
+      modelRig.scrub=(t===null||t===undefined)?null:Math.max(0,Math.min(a.getClip().duration,t));
+      if(modelRig.scrub===null){ modelRig.phase='idle'; return {t:null}; }
+      modelRig.update(0,true);
+      return {t:+a.time.toFixed(2),dur:+a.getClip().duration.toFixed(2)};
+    },
+    // Does the face paint fire, and where? The regions are three inequalities in head-local
+    // space; this reports how many vertices each one actually claims, so "no markings" can
+    // be told apart from "markings in the wrong place" without squinting at a render.
+    faceStats(){
+      if(!modelRig||!modelRig.paint)return null;
+      return modelRig.paint;
+    },
+    // The rider stands sideways on the board, like a surfer, so the camera never sees his
+    // face square on during a run — and markings meant for the front cannot be judged from
+    // three quarters behind. This turns him to look at the camera and back again.
+    spinPug(y){ if(y===null||y===undefined)pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0);
+                else pug.rotation.y=y; return +pug.rotation.y.toFixed(2); },
+    // Does the SKIN follow the skeleton? Reading a bone's rotation only proves the bone
+    // turned. This turns one and reports where the vertices went, by running the same
+    // transform the shader runs — which is the only answer that means anything.
+    boneKick(name,ax,rad){
+      if(!modelRig)return null;
+      const b=modelRig.bones[name]; if(!b)return null;
+      const flat=()=>{ const s=modelRig.skinBox();
+        return s?s.lo.concat(s.hi).map(n=>+n.toFixed(3)):null; };
+      const before=flat(); if(!before)return {err:'no skinned mesh'};
+      const keep=b.quaternion.clone();
+      b.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(ax==='x'?1:0,ax==='y'?1:0,ax==='z'?1:0),rad));
+      const after=flat();
+      b.quaternion.copy(keep);
+      return {before,after};
+    },
     pawProbe(id){
       if(id&&id!==rider){ buildChar(id); const r=this.pawProbe(); buildChar(rider); return r; }
       pug.updateMatrixWorld(true);
@@ -13341,6 +13808,24 @@ function measureHandLift(){
 function updateHandstand(dt,carve){
   const want=(handOn&&!hanging&&!wipe)?1:0;
   handT+=(want-handT)*Math.min(1,dt*(want?7:9));
+  // ---- an imported rider does its own handstand ----
+  // The built-in one is turned upside down by this function and posed by hand. A model
+  // brought its own clip for exactly this, so the clip drives it and none of the code below
+  // runs: turning a model that is already animating itself would put it on its head twice.
+  // The rig scrubs its own clip: it takes the button, not a number, because "hold until
+  // released" is a fact about the button and nothing else. handT stays for the SCORING —
+  // what the trick pays and how fast it tires — which is the one part both riders share.
+  if(modelRig&&riderModel&&riderModel.visible){
+    modelRig.on=!!want;
+    modelRig.update(dt,!!want);
+    // turned over first, THEN stood on the deck: which part of him is lowest depends on
+    // which way up he is, so measuring before the turn measures the wrong end
+    pug.rotation.x=modelRig.rot*Math.PI;
+    pug.updateMatrixWorld(true);
+    pug.position.y+=modelRig.deckLift();
+    handstandScore(dt,carve,want);
+    return;
+  }
   if(handT<0.002&&!want){
     if(handT!==0){handT=0;pug.rotation.x=0;pug.position.y=0;}
     return;
@@ -13349,6 +13834,13 @@ function updateHandstand(dt,carve){
   applyHandPose(handT);
   pug.rotation.x=handT*Math.PI;
   pug.position.y=handT*HAND_LIFT;
+  handstandScore(dt,carve,want);
+}
+// What a handstand PAYS and what it costs, lifted out whole so the built-in rider and an
+// imported one share it. The two are posed by completely different machinery — one by hand,
+// one by its own clip — but a handstand is worth the same either way, tires at the same
+// rate, and throws you over the front on the same carve.
+function handstandScore(dt,carve,want){
   if(handT>0.55){
     // Anthony held this the whole way down, so it pays for the first few seconds and
     // then stops paying: a handstand is a trick, not a stance.
