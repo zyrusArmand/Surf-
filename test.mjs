@@ -2519,9 +2519,16 @@ check(shaderErrors.length === 0, 'every shader compiles',
   // He is fitted to the box the built-in rider occupied, by his FEET rather than his middle:
   // a model whose legs are a different fraction of his height ends up planted through the
   // deck or hovering over it.
-  check(rig.skin && Math.abs(rig.skin.y[0] - rig.pugBox[0]) < 0.10,
-        'and his feet land on the deck the built-in rider stood on',
-        `model ${rig.skin ? rig.skin.y[0] : '?'}, built-in ${rig.pugBox[0]}`);
+  // Against the built-in rider's own SOLES, not against the bottom of his bounding box. The
+  // box bottom is whatever hangs lowest on him — a tail, a dropped paw — and sits a fifth of
+  // a foot under the deck, so standing an imported rider on it buries his feet by exactly
+  // that. Which is what it did.
+  // ...after a tick. The placement happens inside the frame, so asking straight off a restart
+  // asks where he was before anything put him anywhere.
+  const g0 = await page.evaluate(() => { window.__surf.tick(0.4); return window.__surf.deckGap(); });
+  check(g0 && Math.abs(g0.gap) < 0.05,
+        'and his feet land on the deck the built-in rider stands on',
+        `${g0 ? g0.gap.toFixed(3) : '?'}ft between his soles and the ones already down there`);
   // THE SKIN FOLLOWS THE BONES. In this build of three.js that is a flag on the material,
   // and the game replaces the loader's material with its own — which does not set it. Every
   // other reading stays right when it is missing: the bones turn, the skeleton reports a
@@ -2566,10 +2573,11 @@ check(shaderErrors.length === 0, 'every shader compiles',
   // itself, then measures the posed body and stands it on the deck.
   const drift = up.skin && rig.skin &&
     Math.max(Math.abs(up.skin.x[0] - rig.skin.x[0]), Math.abs(up.skin.x[1] - rig.skin.x[1]));
-  check(drift !== null && drift < 0.8 && up.skin.y[0] > rig.pugBox[0] - 0.10,
+  const gUp = await page.evaluate(() => window.__surf.deckGap());
+  check(drift !== null && drift < 0.8 && gUp && Math.abs(gUp.gap) < 0.10,
         'and stays on the board doing it, rather than through the deck or off the rail',
-        `moved ${drift ? drift.toFixed(2) : '?'}ft across, lowest point ${up.skin ? up.skin.y[0] : '?'} ` +
-        `against a deck at ${rig.pugBox[0]}`);
+        `moved ${drift ? drift.toFixed(2) : '?'}ft across, hands ` +
+        `${gUp ? gUp.gap.toFixed(3) : '?'}ft off the deck`);
   // ...and he comes back down off it, all the way, rather than riding out the run on his
   // hands: let go and the clip runs on to its dismount and the turn unwinds with it.
   const back = await page.evaluate(() => {
@@ -2597,6 +2605,7 @@ check(shaderErrors.length === 0, 'every shader compiles',
   const cat = await page.evaluate(() => {
     window.__surf.wear('cat'); window.__surf.restart(); window.__surf.tick(0.5);
     const a = window.__surf.rigInfo();
+    const gap = (window.__surf.deckGap() || {}).gap;
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyH' }));
     window.__surf.tick(1.4);
     const b = window.__surf.rigInfo();
@@ -2604,20 +2613,35 @@ check(shaderErrors.length === 0, 'every shader compiles',
     window.__surf.tick(3);
     const c = window.__surf.rigInfo();
     window.__surf.wear('pug'); window.__surf.restart();
-    return { a, b, c };
+    return { a, b, c, gap };
   });
   check(cat.a.who === 'cat' && cat.a.model === true && cat.a.modelOn === true && cat.a.bones >= 20,
         'a second character rides his own imported body too',
         `${cat.a.who}: model ${cat.a.model}, ${cat.a.bones} bones`);
-  check(cat.a.skin && Math.abs(cat.a.skin.y[0] - cat.a.pugBox[0]) < 0.10,
+  check(cat.gap !== null && Math.abs(cat.gap) < 0.05,
         'and he stands on the deck the same way',
-        `lowest ${cat.a.skin ? cat.a.skin.y[0] : '?'} against a deck at ${cat.a.pugBox[0]}`);
+        `${cat.gap === null ? '?' : cat.gap.toFixed(3)}ft between his soles and the deck`);
   // No clip, and it still goes over: the timeline runs regardless and the game turns him,
   // so the worst case is the built-in handstand performed by an imported body rather than a
   // button that quietly does nothing.
   check(cat.a.stand === false && cat.b.upY < -0.5 && cat.c.upY > 0.7,
         'and a model with no handstand in it still does one, and comes back down',
         `clip ${cat.a.stand}, up-axis ${cat.a.upY} -> ${cat.b.upY} -> ${cat.c.upY}`);
+  // TWO SOLID OBJECTS DO NOT OVERLAP, and the only honest way to ask is to put the sole and
+  // the deck in the same frame — the board's own, because the sea heaves and the hull pitches
+  // and a world height answers a different question every frame. The built-in rider's soles
+  // ARE the deck for this purpose: he has always looked right standing on it. (The board's
+  // bounding-box top is not — that is the nose rocker, a third of a foot above anything
+  // underfoot, and measuring against it says every rider in the game is buried.)
+  const sole = await page.evaluate(() => {
+    window.__surf.wear('pug'); window.__surf.restart(); window.__surf.tick(0.6);
+    const out = []; for (let i = 0; i < 6; i++) { window.__surf.tick(0.4); out.push(window.__surf.deckGap()); }
+    return out;
+  });
+  const worst = sole.filter(Boolean).reduce((a, g) => Math.abs(g.gap) > Math.abs(a) ? g.gap : a, 0);
+  check(sole[0] && Math.abs(worst) < 0.05,
+        'his soles rest on the deck rather than inside it — they are two solid things',
+        `worst gap ${worst.toFixed(3)}ft against the built-in rider's own soles`);
   // The built-in rig is HIDDEN under him, not thrown away. Every other character in the
   // roster is built out of the same joints, so emptying the group to make room meant the
   // sloth's owner got an invisible rider on coming back to Astro — and, worse, the detached

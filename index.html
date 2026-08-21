@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.45.0';
+const VERSION='3.46.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -8674,9 +8674,51 @@ const PUG_BOX=boxOf(pug);
 // sight. Written as let, the very first buildChar took the page down with it.
 // builtChar is which character the shared joints were last shaped into — see showRiderModel.
 var riderModels={}, modelRigs={}, builtChar='pug';
-// The one on the board RIGHT NOW, which is the question every caller actually has. Keeping
-// it as a lookup rather than a variable means nothing can go stale when the shop rebuilds
-// the rider twice to draw a portrait of somebody else.
+// ---- where the deck actually IS, which is not where the bounding box says ----
+// This was PUG_BOX.min.y — the bottom of the built-in rider's BOX — and that is not his
+// soles. It is whatever hangs lowest on him in his neutral pose, a tail or a dropped paw, and
+// on this roster it sits a good fifth of a foot below the deck. Standing an imported rider on
+// it buried his feet by exactly that, which is what "they're merging into the board" was.
+//
+// His FEET are the reference, so his feet are what gets measured: the lowest corner of the
+// built-in rider's own foot meshes, in the rider group's frame. That is the surface the game
+// has always had touching the deck, so matching it is matching the thing that already looks
+// right. Measured once — the deck does not move relative to the rider group.
+// ---- where the DECK is, from the board and from nothing else ----
+// Two references were tried and both moved. PUG_BOX.min.y is the bottom of the built-in
+// rider's BOX, which is whatever hangs lowest on him — a tail, a dropped paw — and sits a
+// fifth of a foot under the deck, so standing an imported rider on it buried his feet by
+// exactly that. Reading the built-in rider's live FEET instead fixed the height and broke
+// everything else: his feet move with his own crouch, the rig probes deliberately change that
+// crouch, and during a handstand the whole rider group turns over and takes his feet with it,
+// so the thing being measured and the thing measuring it flipped together.
+//
+// The board animates for neither of them. So: the highest point of the deck in the MIDDLE of
+// the board, where a rider actually stands — not the box top, which is the nose rocker and a
+// third of a foot above anything underfoot. Measured in the rider group's PARENT, the one
+// frame that holds still while he turns upside down, and cached per board because a board is
+// rigid and only changes when one is equipped.
+let DECK_CACHE={id:null,y:0};
+function deckLine(){
+  const id=(typeof equipped!=='undefined')?equipped:'';
+  if(DECK_CACHE.id===id)return DECK_CACHE.y;
+  const par=pug.parent, bd=(typeof boardArtFor==='function')?boardArtFor(id):null;
+  if(!par||!bd)return PUG_BOX.min.y;
+  bd.updateWorldMatrix(true,true); par.updateWorldMatrix(true,false);
+  const inv=new THREE.Matrix4().copy(bd.matrixWorld).invert(), m=new THREE.Matrix4();
+  const v=new THREE.Vector3(), best=new THREE.Vector3(); let top=-Infinity;
+  bd.traverse(o=>{ if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+    const p=o.geometry.attributes.position;
+    m.multiplyMatrices(inv,o.matrixWorld);
+    for(let i=0;i<p.count;i++){
+      v.fromBufferAttribute(p,i).applyMatrix4(m);
+      if(Math.abs(v.x)>0.55||Math.abs(v.z)>1.10)continue;   // amidships only
+      if(v.y>top){ top=v.y; best.copy(v); } } });
+  if(!isFinite(top))return PUG_BOX.min.y;
+  best.applyMatrix4(bd.matrixWorld); par.worldToLocal(best);
+  DECK_CACHE={id,y:best.y};
+  return DECK_CACHE.y;
+}
 function riderRig(){ const m=riderModels[builtChar];
   return (m&&m.visible)?modelRigs[builtChar]:null; }
 // ---- painting a face on a model that arrived without one ----
@@ -8923,15 +8965,52 @@ function setupModelRig(root,gltf,id){
   // Every twelfth vertex through three.js's own skinning maths is the honest answer, and to
   // well under an inch. Returned in the frame pug's position moves in, so the caller can act
   // on it directly.
+  // ---- the vertices that can actually TOUCH something ----
+  // Every twelfth vertex was enough to say roughly where he is and NOT enough to keep him out
+  // of the board. A sole is a small, flat, dense patch; step past it and the lowest point you
+  // find is somewhere up the ankle, so he gets stood on that instead and the sole itself goes
+  // through the deck. Two solid objects do not overlap, so the surface that meets the deck has
+  // to be measured in full — but walking all two thousand every frame costs three milliseconds
+  // and most of them are his back.
+  //
+  // So: the contact surfaces, ALL of them, and nothing else. Soles and toes, palms for the
+  // handstand, plus the extremes at both ends of him for whatever is lowest mid-roll.
+  R.contactSet=function(sm){
+    const g=sm.geometry, n=g.attributes.position.count;
+    const si=g.attributes.skinIndex, sw=g.attributes.skinWeight;
+    const want=new Set();
+    for(const nm of ['LeftFoot','LeftToeBase','RightFoot','RightToeBase','LeftHand','RightHand']){
+      const b=this.bones[nm], k=b?sm.skeleton.bones.indexOf(b):-1; if(k>=0)want.add(k);
+    }
+    const pick=new Set();
+    if(si&&sw){
+      for(let i=0;i<n;i++){
+        let bi=si.getX(i), bw=sw.getX(i);
+        if(sw.getY(i)>bw){bw=sw.getY(i);bi=si.getY(i);}
+        if(sw.getZ(i)>bw){bw=sw.getZ(i);bi=si.getZ(i);}
+        if(sw.getW(i)>bw){bw=sw.getW(i);bi=si.getW(i);}
+        if(want.has(bi))pick.add(i);
+      }
+    }
+    // and the two ends of him in bind space, so a shoulder or an ear going over the top on the
+    // way into the trick is still seen
+    const ys=[]; const pos=g.attributes.position, v=new THREE.Vector3();
+    for(let i=0;i<n;i++){ v.fromBufferAttribute(pos,i); ys.push([v.y,i]); }
+    ys.sort((a,b)=>a[0]-b[0]);
+    for(let i=0;i<Math.min(160,ys.length);i++)pick.add(ys[i][1]);
+    for(let i=0;i<Math.min(110,ys.length);i++)pick.add(ys[ys.length-1-i][1]);
+    return Uint32Array.from(pick);
+  };
   R.skinBox=function(){
     let sm=this.skin;
     if(!sm){ root.traverse(o=>{ if(o.isSkinnedMesh&&!sm)sm=o; }); this.skin=sm; }
     if(!sm||!(sm.applyBoneTransform||sm.boneTransform))return null;
+    if(!this.contact)this.contact=this.contactSet(sm);
     pug.updateMatrixWorld(true); sm.skeleton.update();
     const p=sm.geometry.attributes.position, v=new THREE.Vector3();
-    const step=Math.max(1,Math.ceil(p.count/200)), par=pug.parent;
+    const idx=this.contact, par=pug.parent;
     const lo=[Infinity,Infinity,Infinity], hi=[-Infinity,-Infinity,-Infinity];
-    for(let i=0;i<p.count;i+=step){
+    for(let c=0;c<idx.length;c++){ const i=idx[c];
       v.fromBufferAttribute(p,i);
       sm.applyBoneTransform?sm.applyBoneTransform(i,v):sm.boneTransform(i,v);
       v.applyMatrix4(sm.matrixWorld);
@@ -8952,7 +9031,7 @@ function setupModelRig(root,gltf,id){
     const b=this.skinBox();
     // a hair of daylight: sitting his lowest vertex exactly on the deck line leaves the two
     // surfaces coplanar, and coplanar surfaces flicker into each other at distance
-    return b?(PUG_BOX.min.y+0.02)-b.lo[1]:0;
+    return b?(deckLine()+0.015)-b.lo[1]:0;
   };
   R.update=function(dt,want){
     const C=CLIP, a=this.stand;
@@ -9068,9 +9147,9 @@ function setupModelRig(root,gltf,id){
     // A surfer's arms are the counterweight — they swing opposite the hips through a turn and
     // drift the whole time he is trimming. Both offset from each other so they never mirror.
     const sw1=Math.sin(T*1.55), sw2=Math.sin(T*1.85+2.2), fl=Math.sin(T*2.35+0.7);
-    const spread=1.02+this.load*0.26+air*0.34;
-    set('LeftArm',   0.02+sw1*0.16-this.sway*0.34, 0.08+sw1*0.14, -spread-this.sway*0.22);
-    set('RightArm',  0.02+sw2*0.16+this.sway*0.34,-0.08+sw2*0.14,  spread-this.sway*0.22);
+    const spread=0.74+this.load*0.24+air*0.40;
+    set('LeftArm',  -0.04+sw1*0.14-this.sway*0.30, 0.06+sw1*0.12, -spread-this.sway*0.20);
+    set('RightArm', -0.04+sw2*0.14+this.sway*0.30,-0.06+sw2*0.12,  spread-this.sway*0.20);
     set('LeftForeArm',  fl*0.18-this.load*0.14,0,-0.08-this.load*0.16);
     set('RightForeArm',-fl*0.18-this.load*0.14,0, 0.08+this.load*0.16);
     // ---- and the feet stay FLAT ON THE DECK, whatever the rest of him just did ----
@@ -12703,6 +12782,40 @@ if(location.hash.includes('debug')){
     // three quarters behind. This turns him to look at the camera and back again.
     spinPug(y){ if(y===null||y===undefined)pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0);
                 else pug.rotation.y=y; return +pug.rotation.y.toFixed(2); },
+    // Two solid objects, and the only honest way to ask whether they overlap: put the SOLE
+    // and the DECK in the same frame — the board's own, because the sea heaves and the hull
+    // pitches and a world height answers a different question every frame — and subtract.
+    // Positive is daylight, negative is his foot inside the board.
+    deckGap(){
+      const rr=riderRig(); if(!rr)return null;
+      let sm=rr.skin; if(!sm)root.traverse&&0;
+      if(!sm){ pug.traverse(o=>{ if(o.isSkinnedMesh&&!sm)sm=o; }); }
+      if(!sm||!rr.contact)return null;
+      const bd=boardArtFor(equipped); bd.updateWorldMatrix(true,true);
+      const inv=new THREE.Matrix4().copy(bd.matrixWorld).invert();
+      // The deck AMIDSHIPS, in the board's own frame, which is the only reference here that
+      // holds still. Not the box top — that is the nose rocker, a third of a foot above
+      // anything underfoot, and measuring against it says every rider in the game is buried.
+      // And not the built-in rider's feet either: during a handstand the whole rider group
+      // turns over and takes them with it, so the reference and the subject flip together and
+      // the reading comes back a foot and a half wrong with nothing actually amiss.
+      const m=new THREE.Matrix4(), u=new THREE.Vector3();
+      let top=-Infinity;
+      bd.traverse(o=>{ if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+        const pp=o.geometry.attributes.position; m.multiplyMatrices(inv,o.matrixWorld);
+        for(let i=0;i<pp.count;i++){ u.fromBufferAttribute(pp,i).applyMatrix4(m);
+          if(Math.abs(u.x)>0.55||Math.abs(u.z)>1.10)continue;
+          if(u.y>top)top=u.y; } });
+      pug.updateMatrixWorld(true); sm.skeleton.update();
+      const p=sm.geometry.attributes.position, v=new THREE.Vector3();
+      let lo=Infinity;
+      for(let c=0;c<rr.contact.length;c++){ const i=rr.contact[c];
+        v.fromBufferAttribute(p,i);
+        sm.applyBoneTransform?sm.applyBoneTransform(i,v):sm.boneTransform(i,v);
+        v.applyMatrix4(sm.matrixWorld).applyMatrix4(inv);
+        if(v.y<lo)lo=v.y; }
+      return {sole:+lo.toFixed(4), deck:+top.toFixed(4), gap:+(lo-top).toFixed(4)};
+    },
     // Does the SKIN follow the skeleton? Reading a bone's rotation only proves the bone
     // turned. This turns one and reports where the vertices went, by running the same
     // transform the shader runs — which is the only answer that means anything.
