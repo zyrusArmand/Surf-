@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.36.0';
+const VERSION='3.37.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2914,6 +2914,13 @@ function paintModel(root,table,fallback){
 }
 // paint it, then size and place it exactly where the built-in shape sat
 function skinAndFit(kind,root,target,orient){
+  // NORMALS FIRST, and this is not optional. A glTF is allowed to carry positions and
+  // nothing else, and several exporters — the AI generators among them — do exactly that.
+  // Without normals every lit material shades to black, so a perfectly good model arrives
+  // as a silhouette and reads as a broken file rather than an incomplete one. Computing
+  // them is a line, and it is always right: if the file HAS them this does not run.
+  root.traverse(o=>{ if(o.isMesh&&o.geometry&&!o.geometry.attributes.normal)
+    o.geometry.computeVertexNormals(); });
   const skin=MODEL_SKINS[kind]||[[],null];
   paintModel(root,skin[0],skin[1]);
   return fitToBox(root,target,orient);
