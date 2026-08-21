@@ -2576,8 +2576,13 @@ check(shaderErrors.length === 0, 'every shader compiles',
   // vertex failed the "is this inside the head" test and the paint coloured nothing at all.
   const f = await page.evaluate(() => window.__surf.faceStats());
   check(f && f.head > 0 && f.mask > 0 && f.ears > 0 && f.eyes > 0 && f.nose > 0,
-        'and he has a face on him — mask, nose, ears and both eyes',
-        f ? `${f.head} head verts: mask ${f.mask}, nose ${f.nose}, ears ${f.ears}, eyes ${f.eyes}` : 'no paint');
+        'and he has a face on him — mask, nose, ears and both eye rings',
+        f ? `${f.head} head verts: mask ${f.mask}, nose ${f.nose}, ears ${f.ears}, rings ${f.eyes}` : 'no paint');
+  // The eyes themselves are two little spheres each, hung off the head bone. Painted instead,
+  // they came out as dark smudges — sixteen hundred vertices in a whole head is nowhere near
+  // enough to draw a circle, let alone a white one with a pupil on it.
+  check(f && f.eyeBalls === 4, 'and the eyes are geometry, so a pupil is a pupil and not a smudge',
+        `${f ? f.eyeBalls || 0 : 0} eye parts on the head bone`);
   // ...and it is a mask, not a bib. The first cut ran black down his chest and round both
   // cheeks, which is most of the head rather than the muzzle.
   check(f && f.mask + f.ears + f.eyes + f.nose < f.head * 0.55,
