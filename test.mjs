@@ -1683,6 +1683,21 @@ if (hasHook) {
 }
 
 // ---------- the treasure chest ----------
+// Its LID FACES UP. This one went wrong three times, and never in a way that a number could
+// catch: the lid is modelled already open, so the bounding box is nearly a cube, no axis
+// tapers, and all six faces read flat — every symmetry test says the chest is fine while it
+// lies on its back with the gems pointed at the camera. What does catch it is that an open
+// chest is a box with a hole in it. Fire rays at all six faces and five of them stop on the
+// shell; the sixth falls through to the inside of the base. The deep one has to be +y.
+{
+  const open = await page.evaluate(() => window.__surf.chestOpen());
+  check(open && open.open === 'y+',
+        'the chest opens upward — the lid side is the one you can see into',
+        `deepest face ${open && open.open}, ${JSON.stringify(open)}`);
+  check(open && open['y+'] > open['y-'] * 4,
+        'and it is a floor underneath rather than a second opening',
+        `top ${open && open['y+']}, bottom ${open && open['y-']}`);
+}
 // Floats two metres off the water so it takes a jump to catch; banks for the end of the
 // run; and the end-of-run ceremony is tap-tap-tap until it bursts and pays out.
 {

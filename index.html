@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.56.0';
+const VERSION='3.56.1';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10666,14 +10666,18 @@ loadModel('chest.glb',(s3,gltf)=>{
   // hundredths and it picked the vertical and tipped the chest over to match a box that is
   // widest across. A cube has no long axis and the turn is meaningless on it.
   //
-  // And then the model's own up is +z, not +y, so it still needed a quarter turn back.
-  // Neither the bounding box nor the geometry could say so: all six faces are flat to within
-  // a few per cent of each other and no axis tapers, because the lid is not domed. The only
-  // thing that knows which way up this chest goes is the texture on it, and the only way to
-  // read a texture is to look — which took rendering it large enough to see the gems inside.
+  // That spin is the ONLY thing that was wrong. The model arrives the right way up — a
+  // quarter turn was added on top of undoing the spin, on the reasoning that its own up
+  // was +z, and that turn is what laid it back down with the opening pointing at the
+  // camera. The box, the face normals and the cross-sections all read symmetrical here and
+  // none of them can settle it, because the lid is modelled open and nothing tapers. What
+  // settles it is that an open chest is a box with a HOLE in it: fire rays at each of the
+  // six faces and five of them stop on the shell while the sixth falls through to the
+  // inside of the base. Measured on this file, the opening is +y with the spin off and
+  // nothing else applied — deepest face 0.51 of the span against 0.01 for the floor
+  // opposite it (__surf.chestOpen()).
   const fitted=skinAndFit('chest',s3,CHEST_BOX,(wrap,flip)=>{
     const sp=flip.children[0]; if(sp)sp.rotation.set(0,0,0);
-    flip.rotation.x=-Math.PI/2;
   });
   // The BODY goes and the fittings stay. The glow sprites are what makes a chest findable
   // in open water, and the lid group is what the ceremony swings open — neither is part of
@@ -13608,6 +13612,31 @@ if(location.hash.includes('debug')){
               pugWorld:[+pw.x.toFixed(2),+pw.y.toFixed(2),+pw.z.toFixed(2)],
               pugScreen:[Math.round((pv.x*0.5+0.5)*innerWidth),Math.round((-pv.y*0.5+0.5)*innerHeight)],
               chestParent:beachChest.parent?beachChest.parent.name||'menuProps':'none'}; },
+    // ---- put the chest where you POINT, not where a coordinate guess lands ----
+    // Placing it by world coordinates cost round after round: the prop group has a transform
+    // of its own, the beach slopes, the trunk leans across the middle of the shot, and the
+    // sand mesh ends before the foreground does. Every one of those turns a sensible-looking
+    // number into an invisible chest. A ray from the camera through the point on screen you
+    // actually want it at answers all four at once — whatever it hits IS the ground there.
+    chestAim(sx,sy,sc){
+      if(!beachChest)return null;
+      const cam=(typeof menuBeach!=='undefined'&&menuBeach&&prevCam)?prevCam:camera;
+      const rc=new THREE.Raycaster();
+      rc.setFromCamera(new THREE.Vector2(sx*2-1,-(sy*2-1)),cam);
+      const skip=o=>{ let p=o; while(p){ if(p===beachChest)return true; p=p.parent; } return false; };
+      const hits=rc.intersectObject(prevScene,true).filter(h=>h.object.visible&&!skip(h.object));
+      if(!hits.length)return {err:'nothing under that point'};
+      const h=hits[0], p=h.point.clone();
+      if(beachChest.parent){ beachChest.parent.updateWorldMatrix(true,false);
+        beachChest.parent.worldToLocal(p); }
+      beachChest.position.copy(p);
+      if(sc!==undefined)beachChest.scale.setScalar(sc);
+      beachChest.updateMatrixWorld(true);
+      const bb=new THREE.Box3().setFromObject(beachChest);
+      beachChest.position.y+=h.point.y-bb.min.y;          // sat ON it, not through it
+      return Object.assign({hit:h.object.name||h.object.type,
+        at:[+h.point.x.toFixed(1),+h.point.y.toFixed(1),+h.point.z.toFixed(1)]},this.chestScreen());
+    },
     // Drop the chest onto the SAND, wherever it is. The beach slopes, so every time the chest
     // moved toward the camera its height had to be guessed again — and a guess that is too
     // low buries it, which looks exactly like it failed to move. A ray straight down onto the
@@ -13656,6 +13685,49 @@ if(location.hash.includes('debug')){
       const v=new THREE.Vector3(); o.updateMatrixWorld(true);
       return arms.map(A=>{ A.ch[A.ch.length-1].getWorldPosition(v); o.worldToLocal(v);
         return [+v.x.toFixed(2),+v.y.toFixed(2),+v.z.toFixed(2)]; });
+    },
+    // ---- which way this chest OPENS, measured rather than guessed ----
+    // Three rounds were lost to reasoning about it. The lid is modelled already open, so the
+    // bounding box is nearly a cube, no axis tapers, and all six faces are flat — the box, the
+    // cross-sections and the face normals ALL come back symmetrical and none of them can say
+    // which way is up. But an open chest is a box with a HOLE in it: rays fired at the five
+    // closed faces stop on the shell, and rays fired at the opening fall through to the inside
+    // of the base. Deepest median penetration is the open side, and that is not an opinion.
+    chestOpen(){
+      const m=chestModel; if(!m)return null;
+      crateObj.updateMatrixWorld(true);
+      const meshes=[]; m.traverse(o=>{ if(o.isMesh)meshes.push(o); });
+      if(!meshes.length)return null;
+      const b=new THREE.Box3(); for(const o of meshes)b.expandByObject(o);
+      const c=b.getCenter(new THREE.Vector3()), s=b.getSize(new THREE.Vector3());
+      const rc=new THREE.Raycaster(), out={};
+      for(const a of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]){
+        const d=new THREE.Vector3(a[0],a[1],a[2]);
+        const u=new THREE.Vector3(a[1],a[2],a[0]), v=new THREE.Vector3().crossVectors(d,u);
+        const su=Math.abs(u.dot(s))*0.5, sv=Math.abs(v.dot(s))*0.5;
+        const span=Math.abs(d.dot(s)), depth=[];
+        for(let i=-2;i<=2;i++)for(let j=-2;j<=2;j++){
+          const o=c.clone().addScaledVector(u,su*i/5).addScaledVector(v,sv*j/5)
+                   .addScaledVector(d,span*2);
+          rc.set(o,d.clone().negate());
+          const h=rc.intersectObjects(meshes,true)[0];
+          depth.push(h?Math.max(0,h.distance-span*1.5):span);
+        }
+        depth.sort((x,y)=>x-y);
+        out[(a[0]?'x':a[1]?'y':'z')+(a[0]+a[1]+a[2]>0?'+':'-')]=+(depth[12]/span).toFixed(3);
+      }
+      let best=null; for(const k in out)if(!best||out[k]>out[best])best=k;
+      out.open=best; return out;
+    },
+    // Turn the chest MODEL inside both chests at once, to find which way its lid faces up.
+    chestFit(rx,ry,rz){
+      let n=0;
+      for(const g of [crateObj, (typeof ceremonyChest!=='undefined'?ceremonyChest:null), beachChest]){
+        if(!g)continue;
+        g.traverse(o=>{ if(o.userData&&o.userData.frame&&o.userData.frame.isObject3D){
+          o.userData.frame.rotation.set(rx||0,ry||0,rz||0); n++; } });
+      }
+      return n;
     },
     // Shut a card again. Opening one moves the whole rider group into the preview scene, so a
     // probe that opens one and walks away leaves every later reading taken on a rider who is
