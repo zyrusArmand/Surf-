@@ -1257,7 +1257,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.77.0';
+const VERSION='3.78.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5859,22 +5859,55 @@ function riderPortrait(on){
 // its temporal dead zone at that point — the page throws before it has drawn anything. The
 // same trap the rider models hit, and worth the same note.
 var boardDry=false;
+// Roughness is a DIMMER on the specular lobe, never a switch, and on a nearly black surface
+// a dimmed lobe is still the only thing there is to see. The traction pad is #05020b: its
+// diffuse returns almost nothing, so the sun's reflection — which every lit material has,
+// with no environment map involved at all — arrives as a bare white curve sliding across the
+// pad as the board turns. On the white deck beside it the same lobe is invisible, because
+// white plus white is white. That is why widening it twice changed nothing: it was never
+// too narrow, it was uncancelled.
+//
+// r128's MeshStandardMaterial has no way to say "no specular" — the 4% dielectric floor is
+// baked into the shader. MeshPhongMaterial does: specular black is exactly zero, and it is
+// per-fragment in this build (Lambert here is still Gouraud and would band across the deck).
+// So the dry board is not a rougher board, it is a genuinely unglossed one.
+function matteOf(m){
+  if(!m)return m;
+  const p=new THREE.MeshPhongMaterial({
+    specular:0x000000, shininess:0,
+    color:m.color?m.color.clone():new THREE.Color(0xffffff),
+    map:m.map||null, alphaMap:m.alphaMap||null, aoMap:m.aoMap||null,
+    normalMap:m.normalMap||null,
+    emissive:m.emissive?m.emissive.clone():new THREE.Color(0x000000),
+    emissiveMap:m.emissiveMap||null,
+    emissiveIntensity:m.emissiveIntensity===undefined?1:m.emissiveIntensity,
+    transparent:!!m.transparent, opacity:m.opacity===undefined?1:m.opacity,
+    alphaTest:m.alphaTest||0, depthWrite:m.depthWrite!==false,
+    side:m.side, flatShading:!!m.flatShading, vertexColors:!!m.vertexColors });
+  p.name=(m.name||'')+' matte';
+  return p;
+}
 function boardSheen(o,dry){
   if(!o||!o.traverse)return;
   o.traverse(n=>{ if(!n.isMesh)return;
-    for(const m of [].concat(n.material)){
+    // the wet materials are the ones the file arrived with, and they stay untouched under
+    // the swap so going back out on a wave gives the board back exactly, not approximately
+    if(n.userData.wetMat===undefined)n.userData.wetMat=n.material;
+    for(const m of [].concat(n.userData.wetMat)){
       if(!m||m.roughness===undefined)continue;
       if(m.userData.wetR===undefined){
         m.userData.wetR=m.roughness;
         m.userData.wetM=m.metalness===undefined?0:m.metalness;
         m.userData.wetE=m.envMapIntensity===undefined?1:m.envMapIntensity; }
-      // 0.44 still left a hard white streak lying across the dark pads — a specular lobe on
-      // a big flat surface under one sun, which reads as a scratch that slides about as the
-      // scene turns. Wide enough now that the sun is a soft sheen instead of a line.
       m.roughness=dry?Math.max(m.userData.wetR,0.70):m.userData.wetR;
       m.metalness=dry?Math.min(m.userData.wetM,0.06):m.userData.wetM;
       m.envMapIntensity=dry?Math.min(m.userData.wetE,0.12):m.userData.wetE;
-      m.needsUpdate=true; } });
+      m.needsUpdate=true; }
+    if(dry){
+      if(!n.userData.dryMat)n.userData.dryMat=Array.isArray(n.userData.wetMat)
+        ? n.userData.wetMat.map(matteOf) : matteOf(n.userData.wetMat);
+      n.material=n.userData.dryMat;
+    } else n.material=n.userData.wetMat; });
 }
 // ...and it is a STATE, not an event. equipBoard throws the old model away and builds a new
 // one, so a board swapped while the title screen is up arrives glossy however carefully the
@@ -14288,7 +14321,11 @@ if(location.hash.includes('debug')){
                       glow:oceanUniforms.uGlow.value.getHex()}}),
     surfaces(){
       const board=boardArtFor(equipped); let bm=null;
-      board.traverse(o=>{ if(o.isMesh&&!bm&&o.geometry.attributes.uv)bm=o.material; });
+      // the glassed material, not whatever is on the mesh at this moment: a board sitting
+      // dry on the sand is wearing an unglossed stand-in, and the weave under it is a fact
+      // about the board rather than about which of the two is up
+      board.traverse(o=>{ if(o.isMesh&&!bm&&o.geometry.attributes.uv)
+        bm=[].concat(o.userData.wetMat===undefined?o.material:o.userData.wetMat)[0]; });
       const pm=menuPalm?[].concat(menuPalm.material):[];
       const has=m=>m?{normal:!!m.normalMap,rough:!!m.roughnessMap,ao:!!m.aoMap,
                       env:!!m.envMap,uv:true}:null;
@@ -14582,14 +14619,24 @@ if(location.hash.includes('debug')){
     // it, which is not answerable from a screenshot of a white board.
     boardFinish(){
       const o=(typeof menuBeach!=='undefined'&&menuBeach&&menuBeach.board)||boardArt;
-      let rl=9,rh=-9,el=9,eh=-9,n=0;
+      let rl=9,rh=-9,el=9,eh=-9,n=0,lit=0,spec=0;
       o.traverse(x=>{ if(!x.isMesh)return;
-        for(const m of [].concat(x.material)){ if(!m||m.roughness===undefined)continue;
+        // the glossy set is the one the board keeps under the matte swap, so these numbers
+        // mean the same thing whichever material is actually on the mesh right now
+        for(const m of [].concat(x.userData.wetMat===undefined?x.material:x.userData.wetMat)){
+          if(!m||m.roughness===undefined)continue;
           n++; rl=Math.min(rl,m.roughness); rh=Math.max(rh,m.roughness);
           const e=m.envMapIntensity===undefined?1:m.envMapIntensity;
           el=Math.min(el,e); eh=Math.max(eh,e); } });
+      // ...and this is the separate question of whether what is ON the mesh can catch a
+      // highlight at all. Roughness never answered it; a black pad lit by one sun did.
+      o.traverse(x=>{ if(!x.isMesh)return;
+        for(const m of [].concat(x.material)){ if(!m)continue; lit++;
+          const hot=(m.specular&&m.specular.getHex()>0&&(m.shininess||0)>0)||
+                    (m.roughness!==undefined&&m.metalness!==undefined);
+          if(hot)spec++; } });
       return n?{dry:boardDry, mats:n, rough:[+rl.toFixed(2),+rh.toFixed(2)],
-                env:[+el.toFixed(2),+eh.toFixed(2)]}:null;
+                env:[+el.toFixed(2),+eh.toFixed(2)], lit, spec}:null;
     },
     // The pose a SHOP CARD would photograph him in. The card path and the full-screen viewer
     // are different code and only one of them used to stand a modelled rider up, so a card
@@ -14621,6 +14668,36 @@ if(location.hash.includes('debug')){
                   m.envMapIntensity=e===undefined?0.2:e; }
           m.needsUpdate=true;
           out.push([+m.roughness.toFixed(2),+(m.envMapIntensity===undefined?1:m.envMapIntensity).toFixed(2)]); } });
+      return out;
+    },
+    // Does the DRY finish leave anything on any board that can catch a highlight? Asked of
+    // the function rather than of the title screen: walking the rack through the menu draws
+    // shop thumbnails, a thumbnail takes the preview scene back, and the beach coming down
+    // mid-walk reported perfectly matt boards as glossy. This builds each board, puts it
+    // through the same call the sand puts it through, counts, and hands it back wet.
+    dryAudit(){
+      const out=[];
+      for(const b of RACK_ORDER){
+        const g=boardArtFor(b.id);
+        boardSheen(g,true);
+        let lit=0,spec=0;
+        g.traverse(x=>{ if(!x.isMesh)return;
+          for(const m of [].concat(x.material)){ if(!m)continue; lit++;
+            if((m.specular&&m.specular.getHex()>0&&(m.shininess||0)>0)||
+               (m.roughness!==undefined&&m.metalness!==undefined))spec++; } });
+        boardSheen(g,boardDry);
+        out.push([b.id,lit,spec]);
+      }
+      return out;
+    },
+    boardMats(){
+      const o=(menuBeach&&menuBeach.board)||boardArt; if(!o)return null;
+      const out=[];
+      o.traverse(n=>{ if(!n.isMesh)return;
+        for(const m of [].concat(n.material)) out.push({mesh:n.name,mat:m.name,type:m.type,
+          color:m.color?'#'+m.color.getHexString():null,rough:m.roughness,metal:m.metalness,
+          env:m.envMapIntensity,hasEnv:!!m.envMap,map:!!m.map,
+          emissive:m.emissive?'#'+m.emissive.getHexString():null,shininess:m.shininess}); });
       return out;
     },
     octoWave(v){ if(v)for(let i=0;i<6;i++)if(v[i]!==undefined)OCT_W[i]=v[i]; return OCT_W.slice(); },

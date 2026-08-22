@@ -1994,6 +1994,28 @@ if (hasHook) {
   await page.evaluate(() => { window.__surf.equip('astro'); window.__surf.restart(); window.__surf.tick(0.4); });
 }
 
+// ---------- and no board on the beach can catch a highlight at all ----------
+// Roughness is a dimmer on the specular lobe and never a switch, so on a traction pad at
+// #05020b — a colour whose diffuse returns nothing — the sun's reflection was still the only
+// thing on the pad: a white curve that slid across it as the board turned. Widening it twice
+// changed nothing, because it was never too narrow. The dry board is unglossed now rather
+// than rough, and the question this asks is the one roughness could not answer: is there a
+// specular term on what is actually being drawn.
+//
+// Asked of every board through the dry call itself, not by walking the rack on the title
+// screen. Equipping forty-six boards draws forty-six shop thumbnails, a thumbnail takes the
+// preview scene back, and the beach coming down partway through reported the remaining
+// boards glossy — a true reading of a state the player never sees, and nothing to do with
+// the boards. dryAudit puts each one through the same call the sand puts it through.
+{
+  const spec = await page.evaluate(() => window.__surf.dryAudit());
+  const bad = spec.filter(([, lit, sp]) => !(lit > 0 && sp === 0));
+  check(spec.length > 4 && bad.length === 0,
+        'and not one board standing on the sand has a specular term left to streak with',
+        `${spec.length} boards, ${spec.reduce((a, b) => a + b[1], 0)} materials lit, ` +
+        (bad.length ? `glossy still: ${JSON.stringify(bad.slice(0, 6))}` : 'none glossy'));
+}
+
 // ---------- the octopus faces you, flexes, throws, and arrives one at a time ----------
 // Four complaints and four different causes, which is why they are four checks.
 //
