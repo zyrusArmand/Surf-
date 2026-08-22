@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.64.0';
+const VERSION='3.65.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -9623,6 +9623,10 @@ function setupModelRig(root,gltf,id){
 // the .glb in, and that character rides his own body. Everyone else keeps the built-in one.
 const RIDER_MODELS=['pug','cat','frog','monkey'];
 const RIDER_YAW=-0.42;   // measured: takes the shared 69-degree stance to a square 93
+// How big each model stands next to the others. The fit makes them all one size and one size
+// is not one HEIGHT — the frog is squat and the monkey is mostly arms, so both normalise
+// their span and come out short in the picture beside the pug.
+const RIDER_SIZE={frog:1.20, monkey:1.16};
 // SOLVED, not eyeballed: his body's forward is 24 degrees off the group's -z (the riding
 // stance plus the turn every rigged export arrives with), so squaring him to the lens is not
 // a quarter turn off the stance. __surf.menuFace(v) reports the angle that is left, and this
@@ -9680,7 +9684,13 @@ for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
   // with the player at the origin. Differencing those two is differencing two frames, and
   // the first version of this did exactly that and buried him three feet under the deck.
   // Standing alone, `fitted` is measured in the same space fitToBox just fitted it into.
-  const bb=boxOf(fitted), k=fitted.userData.k||1, fr=fitted.userData.frame;
+  // ...at his own size. Fitting normalises every model to one box, and a box is not a height:
+  // an animal with long arms or a wide stance has its span normalised rather than its body, so
+  // it stands there correct by the numbers and small in the picture. A multiplier per model,
+  // applied BEFORE the feet are lined up so the alignment is done at the size he ends up.
+  const g=RIDER_SIZE[id]||1;
+  if(g!==1)fitted.scale.multiplyScalar(g);
+  const bb=boxOf(fitted), k=(fitted.userData.k||1)*g, fr=fitted.userData.frame;
   if(fr)fr.position.y+=(PUG_BOX.min.y-bb.min.y)/k;
   // ---- and CENTRED ON THE BOARD, by standing where the built-in rider stands ----
   // fitToBox centres a model on the box it is given, which centres his whole BODY — and a
@@ -10385,25 +10395,39 @@ function clearLanding(vy0){
 // hand-animated parts (the jelly's bell, the octopus's arms) do not exist in an
 // imported mesh, so those clones simply drift.
 // A kind may have SEVERAL models — buoy.glb and buoy2.glb — and then every spawn picks one
+// at random. Named by FILE rather than by arrival order: the files load in whatever order the
+// network hands them over, so "variant 0" was a different buoy from one run to the next.
 // at random, so a run passes a danger buoy and then a channel marker rather than the same
 // object over and over. Each is fitted against the ORIGINAL procedural template's box and
 // carries the original's collision size, not the previous model's: measure the second one
 // against the first and each import quietly rescales the next.
+// ...and a model may be asked to stand LARGER or SMALLER than the shape it replaces. Fitting
+// normalises every import to one size, which is the right default and the wrong answer when
+// the point of the second model is that it is a different SIZE of the same thing: a channel
+// marker is a small buoy and a danger buoy is a big one, and fitted to the same box they were
+// two liveries of one object. Keyed by file, so it is a property of the model rather than of
+// the code that loads it.
+const OBST_SIZE={buoy:1.30, buoy2:0.70};
 for(const kind of ['buoy','jelly','log','bigfin','ramp','octopus'])(k=>{
-  const take=s3=>{
+  const take=file=>s3=>{
     if(!OBST_TEMPLATES[k])OBST_TEMPLATES[k]=buildObstacle(k);
     if(!OBST_SPEC[k]){ const t=OBST_TEMPLATES[k];
       OBST_SPEC[k]={box:boxOf(t), r:t.userData.r, h:t.userData.h, ramp:t.userData.ramp,
                     hx:t.userData.hx, hz:t.userData.hz}; }
     const sp=OBST_SPEC[k];
     const fitted=skinAndFit(k,s3,sp.box);
-    fitted.userData={kind:k,r:sp.r,h:sp.h,ramp:sp.ramp,used:false,hx:sp.hx,hz:sp.hz,
-                     variant:(OBST_VARIANTS[k]||[]).length};
+    const g=OBST_SIZE[file]||1;
+    if(g!==1)fitted.scale.multiplyScalar(g);
+    // and the hitbox goes with it. A buoy drawn a third bigger that still stops you at the
+    // old radius is a thing you ride into before it notices, and the small one is a thing
+    // that kills you from a foot away — what you can see has to be what hits you.
+    fitted.userData={kind:k,r:sp.r*g,h:sp.h*g,ramp:sp.ramp,used:false,
+                     hx:sp.hx*g,hz:sp.hz*g, size:g, variant:file};
     OBST_TEMPLATES[k]=fitted;                       // the first one in is the default
     (OBST_VARIANTS[k]||(OBST_VARIANTS[k]=[])).push(fitted);
   };
-  loadModel(k+'.glb',take);
-  loadModel(k+'2.glb',take);      // absent for most kinds, and its 404 is the documented path
+  loadModel(k+'.glb',take(k));
+  loadModel(k+'2.glb',take(k+'2'));   // absent for most kinds; its 404 is the documented path
 })(kind);
 
 // ---------- state ----------
@@ -11340,7 +11364,10 @@ function placeCeremonyChest(dt){
     (Math.random()-0.5)*0.16*crateShakeE,
     crateSpin,
     (Math.random()-0.5)*0.16*crateShakeE);
-  const sc=0.80*(1+0.06*crateShakeE);
+  // Bigger than it was. This is the one moment in the game a chest is the subject rather than
+  // a thing in the water, and at the old size it sat in the middle of the screen with a third
+  // of the frame of empty sea around it.
+  const sc=1.14*(1+0.06*crateShakeE);
   ceremonyChest.scale.setScalar(sc);
   if(crateOpened)crateLid=Math.min(1,crateLid+dt*1.5);
   const e=crateLid*crateLid*(3-2*crateLid);

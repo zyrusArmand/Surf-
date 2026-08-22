@@ -1830,11 +1830,21 @@ if (hasHook) {
   check(buoys.length >= 20 && kinds.size >= 2,
         'the buoys you pass are not all the same buoy',
         `${buoys.length} spawned, ${kinds.size} different ones: ${[...kinds].join(', ')}`);
-  check(buoys.every(b => b.r === buoys[0].r && b.h === buoys[0].h),
-        'and whichever one turns up hits you at the same size',
-        `r ${buoys[0] && buoys[0].r}, h ${buoys[0] && buoys[0].h}`);
-  check(buoys.every(b => b.tall > 2.2 && b.tall < 5.0),
-        'and stands out of the water at the same height',
+  // They are DIFFERENT SIZES on purpose — a channel marker is a small buoy and a danger buoy
+  // is a big one, and fitted to the same box they were two liveries of one object. What has
+  // to hold is that the hitbox went with the drawing: a buoy drawn a third bigger that still
+  // stops you at the old radius is a thing you ride into before it notices you.
+  const size = v => buoys.filter(b => b.variant === v);
+  const tall = v => size(v).reduce((a, b) => a + b.tall, 0) / Math.max(1, size(v).length);
+  const names = [...kinds];
+  check(names.length < 2 || Math.abs(tall(names[0]) - tall(names[1])) > 0.8,
+        'and they are not the same buoy in two liveries — one is a big one, one is a small one',
+        names.map(v => `${v} ${tall(v).toFixed(2)}ft`).join(', '));
+  check(buoys.every(b => Math.abs(b.r / b.tall - buoys[0].r / buoys[0].tall) < 0.06),
+        'and each of them hits you at the size it is drawn',
+        names.map(v => `${v} r/height ${(size(v)[0].r / size(v)[0].tall).toFixed(2)}`).join(', '));
+  check(buoys.every(b => b.tall > 1.8 && b.tall < 6.0),
+        'and both stand out of the water rather than looming or vanishing',
         buoys.slice(0, 4).map(b => `${b.variant}:${b.tall}`).join(', '));
 }
 
