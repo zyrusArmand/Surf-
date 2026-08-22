@@ -175,8 +175,10 @@ const school = await page.evaluate(async () => {
   const name = () => document.querySelector('#guide .gname b').textContent;
   const pick = () => document.querySelector('#guide .card .nm').textContent;
   const before = { type: name(), board: pick() };
-  // the last shape on the rail is the SUP, which shares no boards with the shortboard the
-  // panel opens on — so both halves of the card have to change
+  // the last shape on the rail is the longboard, which shares no boards with the shortboard
+  // the panel opens on — so both halves of the card have to change. Still the last one now
+  // that the three that are not surfboards lead the rail rather than close it: they are the
+  // three shortest things on the page and the rail is in length order.
   // an SVG <g> has no click() — the rack listens for the bubbled event instead
   rail[rail.length - 1].dispatchEvent(new MouseEvent('click', { bubbles: true }));
   await new Promise(r => setTimeout(r, 250));
