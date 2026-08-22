@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.54.0';
+const VERSION='3.55.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10678,13 +10678,23 @@ loadModel('chest.glb',(s3,gltf)=>{
   // The BODY goes and the fittings stay. The glow sprites are what makes a chest findable
   // in open water, and the lid group is what the ceremony swings open — neither is part of
   // the shape, and both would be thrown away by simply replacing the group.
-  crateObj.traverse(o=>{ if(o.isMesh)o.visible=false; });
-  crateObj.add(fitted);
   chestModel=fitted;
+  dressChest(crateObj,fitted);
+  // ...AND THE CEREMONY'S CHEST, which is a second one. buildChest() is called twice — once
+  // for the thing you catch in the water and once for the thing that opens on the card after
+  // a run — and dressing only the first left the procedural box on the only screen that
+  // shows a chest close up and still. It is the one you actually look at.
+  if(typeof ceremonyChest!=='undefined'&&ceremonyChest)dressChest(ceremonyChest,fitted.clone(true));
   placeBeachChest();
 });
 // One more of it on the title screen, sitting on the sand to the right of the palm. A prop,
 // not the pickup: no glow, no spin, no bobbing — it is scenery, and scenery holds still.
+function dressChest(g,model){
+  if(!g||g.userData.dressed)return;
+  g.userData.dressed=true;
+  g.traverse(o=>{ if(o.isMesh)o.visible=false; });
+  g.add(model);
+}
 let beachChest=null;
 function placeBeachChest(){
   if(!chestModel||typeof menuProps==='undefined'||!menuProps||beachChest)return;
@@ -13598,6 +13608,27 @@ if(location.hash.includes('debug')){
               pugWorld:[+pw.x.toFixed(2),+pw.y.toFixed(2),+pw.z.toFixed(2)],
               pugScreen:[Math.round((pv.x*0.5+0.5)*innerWidth),Math.round((-pv.y*0.5+0.5)*innerHeight)],
               chestParent:beachChest.parent?beachChest.parent.name||'menuProps':'none'}; },
+    // Drop the chest onto the SAND, wherever it is. The beach slopes, so every time the chest
+    // moved toward the camera its height had to be guessed again — and a guess that is too
+    // low buries it, which looks exactly like it failed to move. A ray straight down onto the
+    // sand mesh answers it instead, and the answer is right at any x and z.
+    chestDrop(x,z,sc){
+      if(!beachChest||typeof beachSand==='undefined'||!beachSand)return null;
+      const p=new THREE.Vector3(x,0,z);
+      beachSand.updateWorldMatrix(true,true);
+      const rc=new THREE.Raycaster(new THREE.Vector3(x,400,z),new THREE.Vector3(0,-1,0),0,2000);
+      const hit=rc.intersectObject(beachSand,true)[0];
+      if(!hit)return {err:'no sand under that point'};
+      p.y=hit.point.y;
+      if(beachChest.parent){ beachChest.parent.updateWorldMatrix(true,false);
+        beachChest.parent.worldToLocal(p); }
+      beachChest.position.copy(p);
+      if(sc!==undefined)beachChest.scale.setScalar(sc);
+      // and sat ON it rather than half through it
+      const b=new THREE.Box3().setFromObject(beachChest);
+      beachChest.position.y+=hit.point.y-b.min.y;
+      return Object.assign({sand:+hit.point.y.toFixed(2)},this.chestScreen());
+    },
     // Place it by WORLD position. Its parent group carries a transform of its own, so the
     // local coordinates it is authored in are not the ones anything else on the beach uses.
     chestWorld(x,y,z,sc){ if(!beachChest)return null;
