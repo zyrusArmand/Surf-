@@ -1257,7 +1257,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.86.0';
+const VERSION='3.87.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10077,14 +10077,35 @@ function setupModelRig(root,gltf,id){
   // Each step ends CLAMPED on its last frame, so the pause after it is spent in the pose the
   // step arrived at: standing after the chat, flat on the sand after the descent. That is
   // what spaces the show out without a single held pose having to be authored.
+  //
+  // ---- and every move leaves him standing where the next one begins ----
+  // Each beat used to stop every other clip outright and start the next at full weight, so
+  // between two frames the whole skeleton jumped from the last pose of one animation to the
+  // first pose of another. Measured: at a beat change the hips moved a third of a foot and
+  // the body turned forty-one degrees IN ONE FRAME, against seven thousandths of a foot and
+  // two degrees at the fastest moment inside a clip. Twenty times the motion of anything the
+  // animator drew, which is what read as a refresh — he blinked into a new pose facing a new
+  // way. They are cross-faded now, a third of a second of the two poses mixed, so the change
+  // between them is something he DOES rather than something that happens to him.
+  //
+  // POSTURE is the other half. A get-up begins on the floor and a chat begins on both feet,
+  // and playing them in file order meant standing one second and flat out the next with
+  // nothing in between. Every move now says what it starts in and what it leaves him in, and
+  // the show only ever picks one that begins where the last one ended: he cannot lie down
+  // without going down, and he cannot get up unless he is down.
   const SHOW=[
-    {clip:'Stand_and_Chat',        rate: 1.00, hold:1.1},
-    {clip:'Stand_Up3',             rate:-1.30, hold:0.5},   // sits, then lies flat
-    {clip:'Lie_Down_Hands_Spread', rate: 1.00, hold:0.9},
-    {clip:'Stand_Up3',             rate: 1.20, hold:0.8},
-    {clip:'One_Arm_Handstand',     rate: 1.00, hold:1.7},
+    {clip:'Stand_and_Chat',        rate: 1.00, hold:0.7, from:'stand', to:'stand'},
+    {clip:'Walking',               rate: 1.00, hold:0.2, from:'stand', to:'stand'},
+    {clip:'Angry_Ground_Stomp_2',  rate: 1.00, hold:0.5, from:'stand', to:'stand'},
+    {clip:'Backflip',              rate: 1.00, hold:0.7, from:'stand', to:'stand'},
+    {clip:'One_Arm_Handstand',     rate: 1.00, hold:1.2, from:'stand', to:'stand'},
+    {clip:'Stand_Up3',             rate:-1.30, hold:0.3, from:'stand', to:'floor'},  // the descent
+    {clip:'Lie_Down_Hands_Spread', rate: 1.00, hold:0.8, from:'floor', to:'floor'},
+    {clip:'Stand_Up3',             rate: 1.20, hold:0.5, from:'floor', to:'stand'},
+    {clip:'Running',               rate: 1.00, hold:0.3, from:'stand', to:'stand'},
   ];
-  R.step=-1; R.stepT=0; R.ground=null;
+  const FADE=0.34;
+  R.step=-1; R.stepT=0; R.ground=null; R.posture='stand'; R.cur=null; R.prev=null; R.fadeT=0;
   R.show=function(dt){
     // TURNED TOWARD THE CAMERA, and turned FIRST. The riding stance is square across the
     // board and side-on to the viewer, which is right on a wave and wrong on a title screen —
@@ -10111,32 +10132,71 @@ function setupModelRig(root,gltf,id){
     if(!this.clips){ const r=this.idle&&this.idle(dt); hold(); return r; }
     const start=i=>{
       const st=SHOW[i], a=this.clip(st.clip);
-      for(const k in this.clips)if(this.clips[k]!==a)this.clips[k].stop();
       if(!a)return 0;
+      // everything that is neither the incoming clip nor the one still fading out is stopped
+      // outright; the outgoing one keeps its pose and its weight and is taken down over FADE
+      for(const k in this.clips){ const c=this.clips[k]; if(c!==a&&c!==this.cur)c.stop(); }
+      if(this.cur&&this.cur!==a){ this.prev=this.cur; this.fadeT=FADE; }
+      else { this.prev=null; this.fadeT=0; }
       a.reset(); a.setLoop(THREE.LoopOnce,1); a.clampWhenFinished=true;
       a.timeScale=st.rate;
       // a clip run backwards has to START at its end, or it plays one frame and stops
       if(st.rate<0)a.time=a.getClip().duration;
-      a.setEffectiveWeight(1); a.play();
+      a.setEffectiveWeight(this.prev?0:1); a.play();
+      this.cur=a; this.posture=st.to;
       return a.getClip().duration/Math.abs(st.rate)+st.hold;
     };
     if(this.step<0||this.stepT<=0){
-      // SKIP what this model does not have. The show is written for a file that ships the
-      // whole repertoire; another may bring only a trick or two, and a beat with no clip
-      // behind it is a second of him standing still for no reason. Walk forward to the next
-      // one he can actually do, and give up after a full lap so a model with none of them
-      // holds the standing pose rather than spinning through an empty list every frame.
-      let tried=0, t=0;
-      do { this.step=(this.step+1)%SHOW.length; t=start(this.step); }
-      while(!t&&++tried<SHOW.length);
+      // The next move has to BEGIN where the last one ended, and it has to be one this model
+      // actually has. The show is written for a file that ships the whole repertoire; another
+      // may bring only a trick or two, and a beat with no clip behind it is a second of him
+      // standing still for no reason. Walk forward to the next move that satisfies both, and
+      // give up after two full laps so a model with none of them holds the standing pose
+      // rather than spinning through an empty list every frame.
+      let tried=0, t=0, n=this.step;
+      do { n=(n+1)%SHOW.length;
+           if(SHOW[n].from===this.posture)t=start(n);
+      } while(!t&&++tried<SHOW.length*2);
       if(!t){ this.step=-1; this.stepT=0.5;
               const r=this.idle&&this.idle(dt); hold(); return r; }
-      this.stepT=t;
+      this.step=n; this.stepT=t;
+    }
+    // the fade, BEFORE the mixer, so this frame is drawn with the weights it just set
+    if(this.fadeT>0&&this.prev){
+      this.fadeT=Math.max(0,this.fadeT-dt);
+      const w=1-this.fadeT/FADE;
+      if(this.cur)this.cur.setEffectiveWeight(w);
+      this.prev.setEffectiveWeight(1-w);
+      if(this.fadeT<=0){ this.prev.stop(); this.prev=null; }
     }
     this.stepT-=dt;
     this.mixer.update(dt);
+    // ---- and he performs it ON THE SPOT ----
+    // Walking and running are LOCOMOTION: their root travels, because they were drawn to
+    // carry a character across a floor. On a title screen there is nowhere to go, so he set
+    // off across the sand and was then put back the moment the beat ended — which is half of
+    // what looked like a refresh, and the half that moved him sideways. The hips keep their
+    // height, so lying down still drops him and the handstand still stands him up; only the
+    // travel is taken away, and it is taken away every frame rather than corrected later.
+    if(this.hipHome&&this.bones&&this.bones.Hips){
+      this.bones.Hips.position.x=this.hipHome.x;
+      this.bones.Hips.position.z=this.hipHome.z;
+    }
     hold();
   };
+  // Jump the show straight to one beat, for a test or a screenshot. It has to set the POSTURE
+  // as well as the index: the show only picks a move that begins where the last one left him,
+  // so asking for the handstand while he is lying on the sand gets the get-up instead — which
+  // is correct behaviour and useless if what you wanted was a look at the handstand.
+  R.jump=function(i){
+    const st=SHOW[((i%SHOW.length)+SHOW.length)%SHOW.length];
+    this.step=i-1; this.stepT=0; this.posture=st.from;
+    this.cur=null; this.prev=null; this.fadeT=0;   // land ON the pose, do not fade into it
+    this.show(0.001);
+    return {step:this.step, clip:SHOW[this.step]&&SHOW[this.step].clip,
+            from:SHOW[this.step]&&SHOW[this.step].from, to:this.posture};
+  };
+  R.moves=function(){ return SHOW.map(m=>({clip:m.clip,from:m.from,to:m.to,rev:m.rate<0})); };
   R.plant=function(a,b,f,w){
     const foot=this.bones[f], rest=this.rest[f], want=this.chainRest[f];
     if(!foot||!rest||!want)return;
@@ -14137,9 +14197,52 @@ if(location.hash.includes('debug')){
     // Where the title-screen show has got to, and a way to jump it forward. The whole loop
     // runs about twenty-five seconds and the headless renderer manages a frame a second, so
     // watching it in real time is not on.
+    // Run the title-screen show frame by frame and record what MOVES between beats. A pose
+    // that snaps is a discontinuity, and a discontinuity is a number: how far the hips travel
+    // in one frame, and how far the body's own forward turns in one frame. Both against a
+    // frame's worth of the same quantity a moment earlier, so a fast clip is not mistaken
+    // for a jump.
+    showTrace(sec,dt){
+      const r=riderRig(); if(!r||!r.show)return null;
+      const D=dt||1/60, N=Math.round((sec||16)/D);
+      const hips=()=>r.bones&&r.bones.Hips;
+      const out=[]; const wp=new THREE.Vector3(), fw=new THREE.Vector3();
+      r.step=-1; r.stepT=0;
+      let prevP=null, prevF=null, prevStep=-1;
+      for(let i=0;i<N;i++){
+        r.show(D);
+        const h=hips(); if(!h)break;
+        h.updateWorldMatrix(true,false);
+        h.getWorldPosition(wp);
+        fw.set(0,0,1).applyQuaternion(h.getWorldQuaternion(new THREE.Quaternion()));
+        if(prevP){
+          const d=wp.distanceTo(prevP);
+          const a=Math.acos(Math.max(-1,Math.min(1,fw.dot(prevF))))*180/Math.PI;
+          out.push({t:+(i*D).toFixed(2), step:r.step, moved:+d.toFixed(4), turned:+a.toFixed(2),
+                    cut:r.step!==prevStep});
+        }
+        prevP=wp.clone(); prevF=fw.clone(); prevStep=r.step;
+      }
+      // and the ORDER it walked, so "each move begins where the last one ended" is a chain
+      // anyone can read back rather than a rule you have to trust the picker to have kept
+      const mv=r.moves?r.moves():[];
+      const order=[]; let last=-1;
+      for(const o of out){ if(o.step!==last){ order.push(mv[o.step]||{clip:'?'}); last=o.step; } }
+      // the worst single frame, and the worst frame that is NOT a beat change
+      const cuts=out.filter(o=>o.cut), flow=out.filter(o=>!o.cut);
+      const worst=a=>a.reduce((m,o)=>(o.moved>m.moved?o:m),{moved:-1,turned:-1});
+      const worstT=a=>a.reduce((m,o)=>(o.turned>m.turned?o:m),{moved:-1,turned:-1});
+      return {frames:out.length, cuts:cuts.length,
+              order:order.map(m=>({clip:m.clip,from:m.from,to:m.to})),
+              atCut:{move:worst(cuts),turn:worstT(cuts)},
+              inFlow:{move:worst(flow),turn:worstT(flow)}};
+    },
     showStep(i){ const r=riderRig(); if(!r||!r.show)return null;
-      if(i!==undefined&&i!==null){ r.step=i-1; r.stepT=0; r.show(0.001); }
-      return {step:r.step, left:+((r.stepT||0)).toFixed(2), ground:r.ground}; },
+      if(i!==undefined&&i!==null&&r.jump)r.jump(i);
+      return {step:r.step, left:+((r.stepT||0)).toFixed(2), ground:r.ground,
+              posture:r.posture, clip:r.moves?(r.moves()[r.step]||{}).clip:null}; },
+    // the whole programme: what he can do, what each move starts in and what it leaves him in
+    showMoves(){ const r=riderRig(); return r&&r.moves?r.moves():null; },
     // The rider stands sideways on the board, like a surfer, so the camera never sees his
     // face square on during a run — and markings meant for the front cannot be judged from
     // three quarters behind. This turns him to look at the camera and back again.

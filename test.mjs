@@ -3323,15 +3323,47 @@ check(shaderErrors.length === 0, 'every shader compiles',
   // The file ships a performance, so he performs it rather than standing there. The sit and
   // the lie-down are the get-up clip run BACKWARDS — there is no sit clip in the file, and a
   // six-second get-up reversed is exactly the descent, on the animator's own timing.
-  const show = await page.evaluate(() => {
+  const moves = await page.evaluate(() => window.__surf.showMoves()) || [];
+  const show = await page.evaluate(n => {
     const out = [];
-    for (let i = 0; i < 5; i++) out.push(window.__surf.showStep(i));
+    for (let i = 0; i < n; i++) out.push(window.__surf.showStep(i));
     out.push(window.__surf.showStep(0));
     return out;
-  });
-  check(show.every(Boolean) && show.slice(0, 5).every((s2, i) => s2.step === i) && show[0].left > 0.5,
+  }, moves.length);
+  check(moves.length >= 8 && show.every(Boolean) &&
+        show.slice(0, moves.length).every((s2, i) => s2.step === i) && show[0].left > 0.5,
         'and on the title screen he runs through his whole repertoire',
-        show.every(Boolean) ? `${show.length - 1} beats, first runs ${show[0].left}s` : 'no show');
+        show.every(Boolean) ? `${moves.length} moves, first runs ${show[0].left}s` : 'no show');
+
+  // ---- and it is a performance rather than a slideshow ----
+  // Each beat used to stop every other clip and start the next at full weight, so between two
+  // frames the whole skeleton jumped from the last pose of one animation to the first pose of
+  // another. That is what read as a refresh — he blinked into a new pose facing a new way.
+  // The numbers said it plainly: at a beat change the hips moved a third of a foot and the
+  // body turned forty-one degrees IN ONE FRAME, against seven thousandths of a foot and two
+  // degrees at the fastest moment inside a clip.
+  //
+  // So the test is a RATIO, not a threshold. The join has to be quieter than the animation it
+  // joins: whatever the animator drew is allowed to be the fastest thing on screen, and the
+  // seam between two of his drawings is not. A fixed number would have to be re-guessed every
+  // time a clip with more movement in it is added.
+  const flow = await page.evaluate(() => window.__surf.showTrace(80));
+  const cutM = flow.atCut.move.moved, flowM = flow.inFlow.move.moved;
+  const cutT = flow.atCut.turn.turned, flowT = flow.inFlow.turn.turned;
+  check(flow.order.length > 6 && cutM < flowM && cutT < flowT,
+        'and the joins between his moves are quieter than the moves themselves',
+        `worst join ${cutM}ft / ${cutT}deg against ${flowM}ft / ${flowT}deg inside a clip` +
+        ` — ${(flowM / Math.max(1e-4, cutM)).toFixed(0)}x and ${(flowT / Math.max(1e-4, cutT)).toFixed(0)}x`);
+  // A get-up begins on the floor and a chat begins on both feet. Played in file order that
+  // meant standing one second and flat out the next with nothing in between, so every move
+  // now says what it starts in and what it leaves him in, and the show only picks one that
+  // begins where the last ended. Walked for eighty seconds rather than reasoned about.
+  const illegal = flow.order.filter((m, i) => i && flow.order[i - 1].to !== m.from);
+  check(flow.order.length > 6 && illegal.length === 0,
+        'and every move begins in the posture the last one left him in',
+        `${flow.order.length} moves walked` +
+        (illegal.length ? `, illegal: ${JSON.stringify(illegal.slice(0, 3))}`
+                        : ', never standing up without getting up'));
   // He is on the SAND through all of it. Every clip was animated on a floor at the animator's
   // origin, which is not where this beach is, so the height that stands him on it is measured
   // once and then held — lying down drops his body without dropping him through the ground.
