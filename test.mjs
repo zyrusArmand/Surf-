@@ -1938,8 +1938,7 @@ if (hasHook) {
     // wipeout can leave a chest ceremony sitting over the top of everything — which a check
     // twenty lines further down then measured through, finding five buttons laid out inside
     // a hidden overlay. A block that changes global state hands it back.
-    const co = document.getElementById('crateOv');
-    if (co && !co.className.includes('hidden')) { co.click(); co.click(); co.click(); }
+    if (window.__surf.chestSkip) window.__surf.chestSkip();
     window.__surf.restart(); window.__surf.tick(0.5);
     return { fresh, after };
   });
@@ -2480,7 +2479,12 @@ check(shaderErrors.length === 0, 'every shader compiles',
 // the other way. Riding switch means the whole thing came round: fins forward, paint where
 // the spin left it. Both the rider AND the board carry the half turn, and both give it back.
 {
-  const spun = await page.evaluate(() => { window.__surf.landAt(0, Math.PI); return window.__surf.stance(); });
+  // FROM A KNOWN STANCE. landAt toggles, so the pair of readings below only mean what they
+  // say if the rider starts nose-first — and whether he does depended on everything the suite
+  // had done before this point. A restart is the one thing that settles it.
+  const spun = await page.evaluate(() => {
+    window.__surf.restart(); window.__surf.tick(0.4);
+    window.__surf.landAt(0, Math.PI); return window.__surf.stance(); });
   const half = x => Math.abs(Math.abs(((x + Math.PI) % (Math.PI * 2)) - Math.PI) - Math.PI) < 0.02;
   check(spun.sw && half(spun.board),
         'a landed 180 leaves the board itself backwards, fins and paint included',
@@ -2500,12 +2504,12 @@ check(shaderErrors.length === 0, 'every shader compiles',
   for (let i = 0; i < 40; i++) {
     await page.evaluate(() => { try { window.__surf.tick(0.25); } catch (e) {} });
     await page.waitForTimeout(200);
-    // A CHEST caught earlier in the suite comes up first and hides the run card behind it —
+    // A CHEST caught earlier in the suite comes up first and HIDES the run card behind it —
     // the ceremony is a step on the way, not a card of its own — so this waited out its forty
-    // tries and then measured five buttons that were laid out inside a hidden overlay. Tap
-    // through whatever is in front rather than assuming nothing is.
-    await page.evaluate(() => { const c = document.getElementById('crateOv');
-                                if (c && !c.className.includes('hidden')) c.click(); });
+    // tries and then measured five buttons laid out inside a hidden overlay. Stepped past
+    // through the game's own carry-on rather than by clicking the overlay, because which
+    // element carries that handler is not a thing a check should have to know.
+    await page.evaluate(() => { if (window.__surf.chestSkip) window.__surf.chestSkip(); });
     // Waits for the thing being MEASURED, not for a class name that is one step before it.
     // The overlay can carry the right classes a frame before its contents have a box, and a
     // check that stops at the class then measures five buttons at zero by zero.
@@ -2558,6 +2562,23 @@ check(shaderErrors.length === 0, 'every shader compiles',
         'the page boots on the main menu, so the run card\'s pill is never on it');
   check(/<div id="hud" style="display:\s*none/.test(head),
         'and boots with no HUD, which is what a menu has');
+  // AND NOTHING LAID OVER IT. The overlay carried a radial scrim nearly half black through
+  // the middle of the frame, and on the title screen that is over the beach, the palm, the
+  // rider and the sea — all of which are the picture rather than a backdrop for text. It read
+  // as a dark sheet across the game. The run CARD keeps it, because that is a sheet of text
+  // over a frozen wipeout and needs the separation.
+  const scrim = await page.evaluate(() => {
+    const o = document.getElementById('overlay'), was = o.className;
+    o.className = 'main';
+    const menu = getComputedStyle(o).backgroundImage;
+    o.className = 'over';
+    const card = getComputedStyle(o).backgroundImage;
+    o.className = was;
+    return { menu, card };
+  });
+  check(scrim.menu === 'none' && /gradient/.test(scrim.card),
+        'and with nothing laid over the beach, though the run card keeps its own',
+        `menu "${scrim.menu}", card "${scrim.card.slice(0, 40)}"`);
   // and the menu's furniture waits for the beach behind it, or the first thing you get is a
   // title and six buttons on an empty gradient — a separate, broken-looking screen that then
   // turns into the real one
