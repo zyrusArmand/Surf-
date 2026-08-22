@@ -14,8 +14,8 @@ is 1.7 MB and looks identical in game. Exporters also like wiring the texture to
 at full white, which makes the model glow flat and ignore every light in the scene — worth
 checking if an import looks oddly unlit.
 
-`board.glb`, `chest.glb`, `log.glb`, `octopus.glb`, `pug.glb`, `cat.glb` and `frog.glb` ship
-with the game; the rest of the table is
+`board.glb`, `buoy.glb`, `chest.glb`, `log.glb`, `octopus.glb`, `pug.glb`, `cat.glb` and
+`frog.glb` ship with the game; the rest of the table is
 empty by design, and the 404s those file names produce are the documented path
 rather than a fault.
 
