@@ -1257,7 +1257,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.82.0';
+const VERSION='3.83.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -3633,6 +3633,7 @@ function buildBoardMesh(S){
   const mesh=new THREE.Mesh(g,mat);
 
   const grp=new THREE.Group(); grp.add(mesh);
+  mesh.userData.deck=true;      // named, so the pad can be measured against it by name
   // grip pad: a thin skin lying on the deck over the back third
   // a twin-tip carries two of them, one under each binding, rather than one long strip
   const padRanges=S.pads||[[S.padU0||0.735,S.padU1||0.945]];
@@ -3643,11 +3644,22 @@ function buildBoardMesh(S){
       // a pad covers the back foot, not the back half: narrower than the outline and
       // rounded off at both ends so it reads as a pad rather than a paint job
       const e=Math.sin(Math.PI*Math.min(1,Math.max(0,i/PU)))*0.5+0.5;
-      const u=P0+(P1-P0)*i/PU, w=hw(u)*wide*Math.pow(e,0.35), t=th(u), r=rock(u);
+      const u=P0+(P1-P0)*i/PU, k=wide*Math.pow(e,0.35), w=hw(u)*k, t=th(u), r=rock(u);
       for(let j=0;j<=PV;j++){
         const v=-1+2*j/PV;
-        const prof=Math.pow(Math.max(0,1-v*v*0.64),S.deckPow||0.56);
-        pp.push(w*v*asW(v), r+T*t*prof+0.006, (u-0.5)*L+notch(u,v*0.8));
+        // ---- the pad lies ON the deck, which means it has to be the SAME CURVE ----
+        // It had a dome of its own — (1 - 0.64v²) across its own width, against the deck's
+        // (1 - s²) across the BOARD's — and two different curves cannot stay a hair apart.
+        // They crossed: near the pad's edges its own profile fell faster than the deck it
+        // was lying on, by a good deal more than the six thousandths it had been lifted, so
+        // the white deck came up THROUGH the black pad in a long curved sliver down each
+        // side and a hairline near the rail. Read as a scratch on the board, and moved as it
+        // swayed, because what it tracks is the deck's curvature and not the light.
+        // s is where this vertex sits across the BOARD, which is the only coordinate the
+        // deck's own profile is written in.
+        const sv=k*v;
+        const prof=Math.pow(Math.max(0,1-sv*sv),S.deckPow||0.56);
+        pp.push(w*v*asW(v), r+T*t*prof+0.010, (u-0.5)*L+notch(u,sv));
       }
     }
     for(let i=0;i<PU;i++)for(let j=0;j<PV;j++){
@@ -3657,7 +3669,9 @@ function buildBoardMesh(S){
     const pg=new THREE.BufferGeometry();
     pg.setAttribute('position',new THREE.Float32BufferAttribute(pp,3));
     pg.setIndex(pi); pg.computeVertexNormals();
-    grp.add(new THREE.Mesh(pg,PBR({color:S.padCol||0x22262b,roughness:0.78,metalness:0.0})));
+    const padMesh=new THREE.Mesh(pg,PBR({color:S.padCol||0x22262b,roughness:0.78,metalness:0.0}));
+    padMesh.userData.pad=true;
+    grp.add(padMesh);
   }
   // fins
   const finMat=PBR({color:S.finCol||0x14181d,roughness:0.14,metalness:0.05,envMapIntensity:1.2});
@@ -14841,6 +14855,40 @@ if(location.hash.includes('debug')){
               amp:oceanUniforms.uAmp.value,
               // and the game's own ocean, which has no shore in it and must not be touched
               gameShore:oceanUniforms.uShore.value};
+    },
+    // How far the grip pad floats above the deck it is lying on, at its worst point. It is
+    // one mesh laid on another a hair apart, and a hair is all the room there is: the pad
+    // used to carry a dome of its own rather than the deck's, the two curves crossed near
+    // its edges, and the white deck came up THROUGH the black pad in a long sliver. Measured
+    // by dropping a ray from every sampled pad vertex onto the deck, which is the only way
+    // to ask "is one of these actually on top of the other" and get an answer in feet.
+    padGap(id){
+      const g=boardArtFor(id||equipped);
+      g.updateMatrixWorld(true);
+      let deck=null; const pads=[];
+      g.traverse(o=>{ if(o.userData.deck)deck=o; if(o.userData.pad)pads.push(o); });
+      if(!deck||!pads.length)return null;
+      // In the BOARD'S OWN frame, not the world's. On the title screen the board is stood
+      // on its tail, so a world-down ray runs ACROSS the deck instead of into it and comes
+      // back with two-foot gaps on a board five inches thick. Deck and pad are siblings with
+      // no transform between them, so a copy of the deck left at the origin is exactly the
+      // surface the pad's own vertices sit above.
+      const flat=new THREE.Mesh(deck.geometry,deck.material);
+      flat.updateMatrixWorld(true);
+      const ray=new THREE.Raycaster(), down=new THREE.Vector3(0,-1,0), v=new THREE.Vector3();
+      let lo=9, hi=-9, n=0;
+      for(const p of pads){
+        const pos=p.geometry.attributes.position, step=Math.max(1,Math.ceil(pos.count/80));
+        for(let i=0;i<pos.count;i+=step){
+          v.fromBufferAttribute(pos,i);
+          ray.set(new THREE.Vector3(v.x,v.y+2,v.z),down);
+          const h=ray.intersectObject(flat,false)[0];
+          if(!h)continue;
+          const d=v.y-h.point.y; n++;
+          if(d<lo)lo=d; if(d>hi)hi=d;
+        }
+      }
+      return n?{n,min:+lo.toFixed(4),max:+hi.toFixed(4)}:null;
     },
     boardMats(){
       const o=(menuBeach&&menuBeach.board)||boardArt; if(!o)return null;

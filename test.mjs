@@ -2058,6 +2058,35 @@ if (hasHook) {
         (bad.length ? `glossy still: ${JSON.stringify(bad.slice(0, 6))}` : 'none glossy'));
 }
 
+// ---------- the grip pad lies ON the deck ----------
+// A white curve kept appearing across the black pad on the title screen, and moving as the
+// board swayed. It was taken for a reflection twice and it never was one: the pad is a
+// separate skin laid a hair above the deck, and it had a dome of ITS OWN — (1 - 0.64v²)
+// across its own width, against the deck's (1 - s²) across the board's. Two different curves
+// cannot stay a hair apart. Near the pad's edges its profile fell faster than the deck it was
+// lying on, by several times the six thousandths it had been lifted, so the white deck came
+// up THROUGH the black pad. It tracked the deck's curvature, which is why it moved.
+//
+// The pad is written in the deck's own coordinate now, so the two are parallel by
+// construction — and this is the measurement that says so: a ray dropped from every sampled
+// pad vertex onto the deck below it, on every board in the rack. Positive everywhere means
+// the pad is on top; a narrow spread means it is lying flat rather than crossing.
+{
+  const pads = await page.evaluate(() => window.__surf.boardIds()
+    .map(id => [id, window.__surf.padGap(id)]).filter(r => r[1]));
+  const through = pads.filter(([, g]) => g.min <= 0.002);
+  const domed = pads.filter(([, g]) => g.max - g.min > 0.01);
+  check(pads.length > 20 && through.length === 0,
+        'every grip pad in the rack sits on top of the deck rather than through it',
+        `${pads.length} padded boards, ` +
+        (through.length ? `deck poking through: ${JSON.stringify(through.slice(0, 4))}`
+                        : `thinnest gap ${Math.min(...pads.map(p => p[1].min)).toFixed(4)}ft`));
+  check(pads.length > 20 && domed.length === 0,
+        'and lies flat on it, the same curve rather than one of its own',
+        domed.length ? `bowed: ${JSON.stringify(domed.slice(0, 4))}`
+                     : `worst spread ${Math.max(...pads.map(p => p[1].max - p[1].min)).toFixed(4)}ft`);
+}
+
 // ---------- a ramp that came out of a file is still a ramp ----------
 // The built-in kicker is a curve the ride knows by heart — its deck is H*t^P and the rider's
 // feet are put on that formula. Four numbers describe it, and none of them were carried onto
