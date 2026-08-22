@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.50.0';
+const VERSION='3.50.1';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5768,7 +5768,7 @@ function openViewer(kind,id){
     // its own skeleton. Left alone it stands in whatever the file was modelled in, which is an
     // A-pose with one arm straight down the lens. Snap it to the same standing pose it uses
     // between runs, at full weight so there is nothing to ease in while the card is opening.
-    { const mr=riderRig(); if(mr&&mr.idle)mr.idle(999); }
+    { const mr=riderRig(); if(mr){ if(mr.reset)mr.reset(); if(mr.idle)mr.idle(999); } }
   }
   const par=obj.parent, kp=obj.position.clone(), kr=obj.rotation.clone();
   prevScene.add(obj);
@@ -8988,6 +8988,23 @@ function setupModelRig(root,gltf,id){
   for(const n of ['LeftArm','RightArm','LeftForeArm','RightForeArm','LeftUpLeg','RightUpLeg',
                   'LeftLeg','RightLeg','Spine','Spine01','Spine02','Head'])
     if(R.bones[n])R.rest[n]=R.bones[n].quaternion.clone();
+  // EVERY bone's bind transform, not just the dozen the stance touches. A clip drives all
+  // twenty-four, so a pose left behind by one lives in the hips, the shoulders, both spine
+  // segments and the neck — none of which the standing pose writes. Restore only what the
+  // pose writes and the rest of the clip is still there underneath, which is why he turned up
+  // in the shop mid-something-different every single time you opened it.
+  R.bind={};
+  for(const n in R.bones){ const b=R.bones[n];
+    R.bind[n]={p:b.position.clone(), q:b.quaternion.clone(), s:b.scale.clone()}; }
+  R.reset=function(){
+    if(this.clips)for(const k in this.clips)this.clips[k].stop();
+    for(const n in this.bind){ const b=this.bones[n], r=this.bind[n];
+      b.position.copy(r.p); b.quaternion.copy(r.q); b.scale.copy(r.s); }
+    this.step=-1; this.stepT=0; this.ground=null;
+    this.phase='idle'; this.t=0; this.aw=0; this.rot=0;
+    if(this.stand){ this.stand.setLoop(THREE.LoopRepeat,Infinity); this.stand.clampWhenFinished=false;
+      this.stand.timeScale=1; this.stand.paused=true; this.stand.setEffectiveWeight(0); this.stand.play(); }
+  };
   R.hipHome=R.bones.Hips?R.bones.Hips.position.clone():null;
   R.hipQ=R.bones.Hips?R.bones.Hips.quaternion.clone():null;
   R.paint=paintRiderFace(root,R.bones,(CHAR_BY_ID[id]||{}).fur);
@@ -9100,8 +9117,11 @@ function setupModelRig(root,gltf,id){
   // pose of a lie-down onto the wave. Found by a check that asked which way his muzzle was
   // pointing and got fifty-five degrees off.
   R.leaveShow=function(){
+    // The turn-to-camera is undone on its OWN flag, not on whether the show is still running.
+    // Opening a shop card stops the show, so by the time a run started there was nothing left
+    // to leave — and he rode the whole wave still facing the title screen's camera.
+    if(this.turned){ pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0); this.turned=false; }
     if(this.step<0)return;
-    pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0);   // out of the show's turn-to-camera
     for(const k in this.clips){ const a=this.clips[k];
       a.stop();
       if(a===this.stand){ // the trick action goes back to being scrubbed by hand
@@ -9330,7 +9350,7 @@ function setupModelRig(root,gltf,id){
     // TURNED TOWARD THE CAMERA. The riding stance is square across the board and side-on to
     // the viewer, which is right on a wave and wrong on a title screen — there he is being
     // looked at, and a character being looked at faces out.
-    pug.rotation.y=STANCE_ROT+MENU_FACE;
+    pug.rotation.y=STANCE_ROT+MENU_FACE; this.turned=true;
   };
   R.plant=function(a,b,f,w){
     const foot=this.bones[f], rest=this.rest[f], want=this.chainRest[f];
@@ -13466,6 +13486,11 @@ if(location.hash.includes('debug')){
                   crateObj.position.set(px,0,pz-0.4); return true; },
     // The character gallery: put one on screen, full frame, for a look.
     charIds(){ return CHARS.map(c=>c.id); },
+    // Shut a card again. Opening one moves the whole rider group into the preview scene, so a
+    // probe that opens one and walks away leaves every later reading taken on a rider who is
+    // no longer in the game — which is exactly what happened to the two checks after it.
+    closeCard(){ if(typeof closeViewer==='function')closeViewer();
+                 return !(typeof viewer!=='undefined'&&viewer); },
     showChar(id,spin){ closeViewer&&closeViewer(); openViewer('rider',id);
                        if(viewer){ viewer.spin=spin===undefined?0:spin; viewer.grab=true; } return id; },
     tubeChest(){ if(!swTubeRide)return false;
@@ -16368,8 +16393,12 @@ requestAnimationFrame(loop);
     // and the viewer stands him somewhere else entirely, so it was lifting him clean out of
     // the top of his own portrait. A card gets the standing pose and nothing that moves him.
     { const mr=riderRig();
-      if(mr){ if(typeof viewer!=='undefined'&&viewer){ mr.step=-1; mr.stepT=0; mr.ground=null;
-                if(mr.idle)mr.idle(dt); }
+      if(mr){ if(typeof viewer!=='undefined'&&viewer){
+                // FROM BIND, EVERY FRAME. A card is a portrait: it should look the same every
+                // time it is opened, and easing toward a pose from wherever the show happened
+                // to stop is how it came to look different every time instead.
+                if(mr.reset)mr.reset();
+                if(mr.idle)mr.idle(999); }
               else if(mr.show)mr.show(dt); else if(mr.idle)mr.idle(dt); } }
     updateDayCycle();
   }

@@ -2623,6 +2623,28 @@ check(shaderErrors.length === 0, 'every shader compiles',
         'and stays on the sand doing it, lying down included',
         `ground held at ${show[0].ground === null ? 'none' : (+show[0].ground).toFixed(3)}`);
 
+  // A CARD IS A PORTRAIT: it has to look the same every time it is opened. The title-screen
+  // show drives all twenty-four bones, and the standing pose writes about a dozen — so
+  // restoring only what the pose writes left the rest of whatever clip had been running
+  // underneath, and he turned up mid-something-different on every open. The card resets the
+  // whole skeleton to its bind transforms first, then stands him up.
+  const card = await page.evaluate(() => {
+    const shots = [];
+    for (const step of [1, 2, 4]) {
+      window.__surf.showStep(step);
+      window.__surf.showChar('pug', 0);
+      shots.push(window.__surf.rigInfo().LeftArm);
+    }
+    window.__surf.closeCard();          // or every later reading is taken inside the shop
+    window.__surf.restart(); window.__surf.tick(0.4);
+    return shots;
+  });
+  const spread = card[0] && Math.max(...card[0].map((_, i) =>
+    Math.max(...card.map(c => Math.abs(c[i] - card[0][i])))));
+  check(card.every(Boolean) && spread < 0.05,
+        'and his shop card stands him the same way every time it is opened',
+        `worst difference across three openings: ${spread === undefined ? '?' : spread.toFixed(4)}`);
+
   // He turns to face the viewer on the title screen and turns BACK the moment a run starts.
   // The stance is square across the board, which is right on a wave and wrong when he is
   // being looked at; the risk is only ever that he keeps the title screen's turn onto it.
