@@ -453,14 +453,25 @@ await page.waitForTimeout(300);
     check(wide && Math.abs(wide.bottom - wide.sand) < 0.05,
           'and it is standing ON the sand rather than sunk into it — two solid things',
           wide ? `base ${wide.bottom}, sand ${wide.sand}` : 'no beach chest');
-    // It is placed off the CAMERA, not off the tree, and this is why: the menu camera walks
-    // ten feet back on a narrow screen and stands close on a wide one. Measured from the
-    // trunk, a chest framed on the sand in portrait dropped clean off the bottom in landscape.
+    // It is placed off the TREE. It used to be placed off the camera — which walks ten feet
+    // back on a narrow screen and stands close on a wide one — because a chest nine feet out
+    // on open sand in portrait dropped clean off the bottom in landscape. Leaning on the
+    // trunk it does not need that: two and a half feet from a tree that is framed on every
+    // shape of screen is in frame on every shape of screen, and measuring from the lens had
+    // started putting the two shapes eight feet apart in the world with only a clamp between
+    // them and the chest ending up behind the trunk. So the invariant flips: what must match
+    // across shapes is the distance to the TREE, not the distance to the camera.
+    const foot = c => Math.hypot(c.chestWorld[0] - c.palmWorld[0], c.chestWorld[2] - c.palmWorld[2]);
     await page.setViewportSize({ width: 430, height: 932 });
     const tall = await look();
-    check(inFrame(tall) && Math.abs(tall.camDist - wide.camDist) < 1.5,
-          'and it holds its place in the frame when the screen changes shape',
-          tall ? `portrait ${tall.chest} of ${tall.screen} at ${tall.camDist}ft, landscape ${wide.chest} at ${wide.camDist}ft`
+    check(inFrame(tall) && Math.abs(foot(tall) - foot(wide)) < 0.25,
+          'and it holds its place at the foot of the tree when the screen changes shape',
+          tall ? `portrait ${foot(tall).toFixed(2)}ft from the trunk at ${tall.chest}, ` +
+                 `landscape ${foot(wide).toFixed(2)}ft at ${wide.chest}`
+               : 'no beach chest');
+    check(tall && foot(tall) < 3.2 && foot(tall) > 1.2,
+          'and it is leaning on the trunk rather than sitting out on open sand',
+          tall ? `${foot(tall).toFixed(2)}ft between the two, box ${tall.size[0]}ft across`
                : 'no beach chest');
     await page.setViewportSize({ width: 1024, height: 640 });
     await page.waitForTimeout(600);
