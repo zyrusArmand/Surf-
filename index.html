@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.69.0';
+const VERSION='3.70.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -9139,6 +9139,7 @@ function libAdd(clips){
     if(tr.length)CLIP_LIB[k]=new THREE.AnimationClip(k,c.duration,tr);
   }
 }
+const _fq=new THREE.Quaternion();      // scratch, for the yaw the handstand clip adds
 function setupModelRig(root,gltf,id){
   const clips=(gltf&&gltf.animations)||[];
   if(!THREE.AnimationMixer)return null;
@@ -9243,6 +9244,8 @@ function setupModelRig(root,gltf,id){
       b.position.copy(r.p); b.quaternion.copy(r.q); b.scale.copy(r.s); }
     this.step=-1; this.stepT=0; this.ground=null;
     this.phase='idle'; this.t=0; this.aw=0; this.rot=0; this.brh=1;
+    if(this.yawFix){ pug.rotation.y-=this.yawFix; this.yawFix=0; }
+    if(this.xFix){ pug.position.x-=this.xFix; this.xFix=0; }
     if(this.stand){ this.stand.setLoop(THREE.LoopRepeat,Infinity); this.stand.clampWhenFinished=false;
       this.stand.timeScale=1; this.stand.paused=true; this.stand.setEffectiveWeight(0); this.stand.play(); }
   };
@@ -9335,16 +9338,58 @@ function setupModelRig(root,gltf,id){
     pug.updateMatrixWorld(true); sm.skeleton.update();
     const p=sm.geometry.attributes.position, v=new THREE.Vector3();
     const idx=this.contact, par=pug.parent;
-    const lo=[Infinity,Infinity,Infinity], hi=[-Infinity,-Infinity,-Infinity];
+    const lo=[Infinity,Infinity,Infinity], hi=[-Infinity,-Infinity,-Infinity]; let at=null;
     for(let c=0;c<idx.length;c++){ const i=idx[c];
       v.fromBufferAttribute(p,i);
       sm.applyBoneTransform?sm.applyBoneTransform(i,v):sm.boneTransform(i,v);
       v.applyMatrix4(sm.matrixWorld);
       if(par)par.worldToLocal(v);
       const a=[v.x,v.y,v.z];
+      if(a[1]<lo[1])at=a;                 // WHICH point is the lowest, not just how low
       for(let k=0;k<3;k++){ if(a[k]<lo[k])lo[k]=a[k]; if(a[k]>hi[k])hi[k]=a[k]; }
     }
-    return isFinite(lo[1])?{lo,hi}:null;
+    return isFinite(lo[1])?{lo,hi,at}:null;
+  };
+  // ---- and the hand lands ON the board ----
+  // Standing him on the deck is a height, and a height is only half of it: a one-arm
+  // handstand swings the whole body out over the hand, so with the hips held where they
+  // started his palm planted a third of a foot OUTSIDE the rail. Touching the deck by every
+  // number and touching nothing at all in the picture. So he is slid sideways until whatever
+  // of him is lowest — the palm, up there — is over the stringer, eased in by how far over
+  // he is so nothing moves while he is riding.
+  R.deckSlide=function(w){
+    // ALWAYS undone first. Both of these write to the rider group, which nothing else
+    // rewrites from scratch each frame, so a bare += accumulates: the correction has to
+    // carry its own last value and take it back off before it measures again. That also
+    // means a weight of zero unwinds it completely, which is what coming down off the
+    // trick needs and what a reset would otherwise have to remember to do.
+    pug.position.x-=this.xFix||0; this.xFix=0;
+    if(!(w>0))return;
+    pug.updateMatrixWorld(true);
+    const b=this.skinBox();
+    if(!b||!b.at)return;
+    this.xFix=-b.at[0]*w; pug.position.x+=this.xFix;
+  };
+  // ---- and he stays SIDE ON ----
+  // The clip turns him through eighty degrees on the way over — on a floor that is just
+  // where the animator put him, and on a board it swings him from side-on to showing you his
+  // back, which is not a pose anyone watches a surfer in. The turn is taken back off the
+  // GROUP: everything between the group and the hips is static, so the difference between
+  // the hips' rest orientation and the hips now is entirely the clip's doing, and the part of
+  // it about the vertical is the part that is unwanted.
+  R.faceLock=function(w){
+    pug.rotation.y-=this.yawFix||0; this.yawFix=0;
+    const h=this.bones.Hips; if(!h||!this.hipQ||!(w>0))return;
+    const P=new THREE.Quaternion(); let n=h.parent;
+    while(n&&n!==pug){ P.premultiply(n.quaternion); n=n.parent; }
+    const a=new THREE.Vector3(0,0,-1).applyQuaternion(_fq.copy(P).multiply(h.quaternion));
+    const b=new THREE.Vector3(0,0,-1).applyQuaternion(_fq.copy(P).multiply(this.hipQ));
+    a.y=0; b.y=0;
+    // near the vertical the horizontal part of it is noise, and a yaw read off noise spins
+    if(a.lengthSq()<0.05||b.lengthSq()<0.05)return;
+    a.normalize(); b.normalize();
+    this.yawFix=Math.atan2(a.z*b.x-a.x*b.z, a.x*b.x+a.z*b.z)*w;
+    pug.rotation.y+=this.yawFix;
   };
   // EVERY FRAME, not only while he is upside down. This started life as a handstand fix —
   // the clip was animated on a floor and drove his head through the deck — and being scoped
@@ -9368,7 +9413,9 @@ function setupModelRig(root,gltf,id){
     // The turn-to-camera is undone on its OWN flag, not on whether the show is still running.
     // Opening a shop card stops the show, so by the time a run started there was nothing left
     // to leave — and he rode the whole wave still facing the title screen's camera.
-    if(this.turned){ pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0); this.turned=false; }
+    if(this.turned){ pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0); this.turned=false;
+                     this.yawFix=0; }              // set wholesale, so the delta is spent
+    if(this.xFix){ pug.position.x-=this.xFix; this.xFix=0; }
     if(this.step<0)return;
     for(const k in this.clips){ const a=this.clips[k];
       a.stop();
@@ -10604,6 +10651,14 @@ const WAVE_DUR=3.0;                   // he waves at the camera for this long af
 // the board is leading.
 function applyStance(){
   pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0);
+  pug.position.x=PUG_X0;
+  // ...and the handstand's two corrections go with it. Both are remembered as a DELTA so
+  // they can be taken back off before the next frame measures again; setting the transform
+  // wholesale from out here leaves that memory pointing at a value no longer on him, and the
+  // next frame subtracts it a second time. Which is a swing of a dozen degrees appearing in
+  // a check with nothing wrong at the place it was looking.
+  if(typeof modelRigs!=='undefined')
+    for(const k in modelRigs){ const r=modelRigs[k]; if(r){ r.yawFix=0; r.xFix=0; } }
   if(typeof boardArt!=='undefined'&&boardArt)boardArt.rotation.y=switchRide?Math.PI:0;
 }
 let grabOn=false,grabPts=0,grabSide=1,grabSrc='gesture';
@@ -13443,6 +13498,15 @@ if(location.hash.includes('debug')){
           pug.worldToLocal(a); pug.worldToLocal(c);
           const d=c.sub(a), L=d.length()||1;
           out.faceDir=[d.x/L,d.y/L,d.z/L].map(v=>+v.toFixed(2)); }
+        // ...and the same line in WORLD space, which is the only frame the turn taken off the
+        // rider group can be seen in at all: faceDir is measured inside that group, so a yaw
+        // applied to the group leaves it identical and says nothing about which way he is
+        // actually pointing on the wave.
+        { const hp2=modelRig.bones.Hips;
+          if(hp2){ const f=new THREE.Vector3(0,0,-1).applyQuaternion(
+              hp2.getWorldQuaternion(new THREE.Quaternion()));
+            f.y=0;
+            out.bodyDeg=f.lengthSq()>0.02?+(Math.atan2(f.x,-f.z)*180/Math.PI).toFixed(1):null; } }
         // which way up he actually is, which is the only reading that settles a handstand
         const hp=modelRig.bones.Hips;
         if(hp){ const uy=new THREE.Vector3(0,1,0).applyQuaternion(
@@ -13549,13 +13613,17 @@ if(location.hash.includes('debug')){
           if(u.y>top)top=u.y; } });
       pug.updateMatrixWorld(true); sm.skeleton.update();
       const p=sm.geometry.attributes.position, v=new THREE.Vector3();
-      let lo=Infinity;
+      let lo=Infinity, loX=0, loZ=0;
       for(let c=0;c<rr.contact.length;c++){ const i=rr.contact[c];
         v.fromBufferAttribute(p,i);
         sm.applyBoneTransform?sm.applyBoneTransform(i,v):sm.boneTransform(i,v);
         v.applyMatrix4(sm.matrixWorld).applyMatrix4(inv);
-        if(v.y<lo)lo=v.y; }
-      return {sole:+lo.toFixed(4), deck:+top.toFixed(4), gap:+(lo-top).toFixed(4)};
+        if(v.y<lo){ lo=v.y; loX=v.x; loZ=v.z; } }
+      // ...and WHERE on the board that lowest point is. A rider whose palm is planted six
+      // inches off the rail is touching the deck by every number here and touching nothing
+      // at all in the picture, which is a different question from how high he is.
+      return {sole:+lo.toFixed(4), deck:+top.toFixed(4), gap:+(lo-top).toFixed(4),
+              x:+loX.toFixed(3), z:+loZ.toFixed(3), rail:+BOARD_HALF_W.toFixed(2)};
     },
     // Does the SKIN follow the skeleton? Reading a bone's rotation only proves the bone
     // turned. This turns one and reports where the vertices went, by running the same
@@ -15285,8 +15353,12 @@ function updateHandstand(dt,carve){
     // Turning one that did puts him on his head twice: the clip inverts the body and this
     // inverts the body the clip is in.
     pug.rotation.x=modelRig.stand?0:modelRig.rot*Math.PI;
+    // side-on first, then stood on the deck, then slid onto it — each one measures the pose
+    // the one before it left, so the order is the whole of why they agree
+    modelRig.faceLock(modelRig.rot);
     pug.updateMatrixWorld(true);
     pug.position.y+=modelRig.deckLift();
+    modelRig.deckSlide(modelRig.rot);
     handstandScore(dt,carve,want);
     return;
   }

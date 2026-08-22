@@ -2945,6 +2945,39 @@ check(shaderErrors.length === 0, 'every shader compiles',
   check(Math.max(...held.map(h => h.up)) - Math.min(...held.map(h => h.up)) < 0.35,
         'and the body parked rather than swinging through the pose',
         `${(Math.max(...held.map(h => h.up)) - Math.min(...held.map(h => h.up))).toFixed(2)} of up-axis across the hold`);
+  // SIDE ON, and ON the board. Two more things the clip does that belong on a floor and not
+  // on a surfboard: it turns him through eighty degrees on the way over, which swings him
+  // from side-on to showing you his back, and it throws the whole body out over the planted
+  // hand — with the hips held where they started, the palm landed a third of a foot OUTSIDE
+  // the rail. Touching the deck by every number and touching nothing at all in the picture.
+  //
+  // The body angle is read in WORLD space on purpose. The turn is taken back off the rider
+  // GROUP, and faceDir is measured inside that group — so it comes back identical either way
+  // and says nothing at all about which way he is really pointing.
+  const plant = await page.evaluate(() => {
+    const out = { ride: null, hold: [], after: null };
+    window.__surf.hand(false); window.__surf.restart(); window.__surf.tick(1.0);
+    out.who = window.__surf.rigInfo().who;
+    out.ride = { deg: window.__surf.rigInfo().bodyDeg, x: window.__surf.deckGap().x };
+    window.__surf.hand(true); window.__surf.tick(1.8);
+    for (let i = 0; i < 4; i++) { window.__surf.tick(0.2);
+      out.hold.push({ deg: window.__surf.rigInfo().bodyDeg, g: window.__surf.deckGap() }); }
+    window.__surf.hand(false); window.__surf.tick(3);
+    out.after = { deg: window.__surf.rigInfo().bodyDeg, x: window.__surf.deckGap().x };
+    return out;
+  });
+  const swing = Math.max(...plant.hold.map(h => Math.abs(h.deg - plant.ride.deg)));
+  check(plant.ride.deg !== null && swing < 12,
+        'he stays side on through it rather than turning his back to you',
+        `${plant.who} riding at ${plant.ride.deg}°, hold at ` +
+        `${plant.hold.map(h => h.deg).join(', ')} — worst ${swing.toFixed(1)}° off`);
+  check(plant.hold.every(h => Math.abs(h.g.x) < 0.20 && Math.abs(h.g.gap) < 0.06),
+        'and the hand he is on is planted over the stringer, not off the rail',
+        plant.hold.map(h => `${h.g.x.toFixed(2)}ft across a ${h.g.rail}ft half-width`).join(', '));
+  check(Math.abs(plant.after.deg - plant.ride.deg) < 12 &&
+        Math.abs(plant.after.x - plant.ride.x) < 0.20,
+        'and both are given back when he comes down, rather than left on him',
+        `${plant.after.deg}° against ${plant.ride.deg}°, foot at ${plant.after.x} against ${plant.ride.x}`);
   // ...over his own board, and ON it. The clip was animated on a floor: it travels a third
   // of a body-width sideways and puts his head straight through the deck, because nothing in
   // it knows the board is there. So the clip's root is dropped and the game turns him over
