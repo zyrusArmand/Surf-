@@ -746,9 +746,15 @@
      sand are still there behind the cards, which is what ties the shop to the menu you
      opened it from. Light at the top where the sky is and deep at the bottom where the
      water is, so the gradient runs the same way the scene behind it does. */
+  /* The panel was 74% opaque with nothing behind it but the live beach, and the cards on top
+     are translucent white — so the rider standing on the title screen read straight through
+     the middle of his own card as a ghost of himself. Opaque enough that nothing is
+     recognisable through it, and blurred like every other full-screen panel in the game, so
+     whatever does come through is a wash rather than a shape. */
   #shop { position:fixed; inset:0; z-index:12; color:#fff;
-    background:linear-gradient(180deg, rgba(22,96,162,.74) 0%, rgba(13,64,120,.80) 46%,
-      rgba(7,38,74,.86) 100%);
+    background:linear-gradient(180deg, rgba(20,90,155,.955) 0%, rgba(12,60,114,.965) 46%,
+      rgba(6,34,68,.975) 100%);
+    -webkit-backdrop-filter:blur(14px) saturate(130%); backdrop-filter:blur(14px) saturate(130%);
     display:flex; align-items:center; justify-content:center; padding:16px; }
   #shop .shopwrap { width:min(620px,100%); max-height:100%; display:flex; flex-direction:column; }
   #shop .go { align-self:center; margin-top:12px; }
@@ -1195,7 +1201,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.73.0';
+const VERSION='3.74.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5789,9 +5795,12 @@ function boardSheen(o,dry){
         m.userData.wetR=m.roughness;
         m.userData.wetM=m.metalness===undefined?0:m.metalness;
         m.userData.wetE=m.envMapIntensity===undefined?1:m.envMapIntensity; }
-      m.roughness=dry?Math.max(m.userData.wetR,0.44):m.userData.wetR;
-      m.metalness=dry?Math.min(m.userData.wetM,0.10):m.userData.wetM;
-      m.envMapIntensity=dry?Math.min(m.userData.wetE,0.20):m.userData.wetE;
+      // 0.44 still left a hard white streak lying across the dark pads — a specular lobe on
+      // a big flat surface under one sun, which reads as a scratch that slides about as the
+      // scene turns. Wide enough now that the sun is a soft sheen instead of a line.
+      m.roughness=dry?Math.max(m.userData.wetR,0.70):m.userData.wetR;
+      m.metalness=dry?Math.min(m.userData.wetM,0.06):m.userData.wetM;
+      m.envMapIntensity=dry?Math.min(m.userData.wetE,0.12):m.userData.wetE;
       m.needsUpdate=true; } });
 }
 // ...and it is a STATE, not an event. equipBoard throws the old model away and builds a new
@@ -8987,6 +8996,67 @@ var riderModels={}, modelRigs={}, builtChar='pug';
 // frame that holds still while he turns upside down, and cached per board because a board is
 // rigid and only changes when one is equipped.
 let DECK_CACHE={id:null,y:0};
+// ---- the deck is DOMED, and standing him on its crown is not standing him on it ----
+// deckLine gives the highest point of the midsection — the stringer — and a board falls away
+// from there to both rails. His feet are not on the stringer: they are a third of a foot
+// outboard of it, where this board has already dropped nearly three hundredths. Stood a hair
+// above the crown, his paws floated over the part of the board they were actually above by
+// three times the clearance intended, which is small in feet and perfectly visible in a
+// picture of a dog standing on nothing.
+//
+// So the deck is kept as a HEIGHT MAP rather than as one number: max y per cell, built once
+// per board in the frame the rider is placed in, and looked up under each contact vertex.
+// Empty cells take the nearest filled one, so a paw hanging over the rail is measured against
+// the rail rather than against a hole.
+//
+// Named deckUnder, not deckAt: there is already a deckAt for the board's crack decals, and a
+// second function declaration of the same name simply replaces the first — every call here
+// was landing in the crack code, which takes vectors to write into and threw on the first one.
+const DECK_NX=13, DECK_NZ=21, DECK_X=0.72, DECK_Z=1.30;
+function deckGridFor(id){
+  const par=pug.parent, bd=(typeof boardArtFor==='function')?boardArtFor(id):null;
+  if(!par||!bd)return null;
+  bd.updateWorldMatrix(true,true); par.updateWorldMatrix(true,false);
+  const g=new Float32Array(DECK_NX*DECK_NZ).fill(-Infinity);
+  const v=new THREE.Vector3(), m=new THREE.Matrix4();
+  const inv=new THREE.Matrix4().copy(par.matrixWorld).invert();
+  bd.traverse(o=>{ if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+    if(o.name==='__pin')return;
+    const p=o.geometry.attributes.position;
+    m.multiplyMatrices(inv,o.matrixWorld);
+    for(let i=0;i<p.count;i++){
+      v.fromBufferAttribute(p,i).applyMatrix4(m);
+      const cx=Math.round((v.x/DECK_X*0.5+0.5)*(DECK_NX-1));
+      const cz=Math.round((v.z/DECK_Z*0.5+0.5)*(DECK_NZ-1));
+      if(cx<0||cx>=DECK_NX||cz<0||cz>=DECK_NZ)continue;
+      const k=cz*DECK_NX+cx; if(v.y>g[k])g[k]=v.y; } });
+  // fill the holes from the nearest cell that has something in it
+  const out=Float32Array.from(g);
+  for(let z=0;z<DECK_NZ;z++)for(let x=0;x<DECK_NX;x++){
+    if(isFinite(g[z*DECK_NX+x]))continue;
+    let best=-Infinity, bd2=1e9;
+    for(let z2=0;z2<DECK_NZ;z2++)for(let x2=0;x2<DECK_NX;x2++){
+      if(!isFinite(g[z2*DECK_NX+x2]))continue;
+      const d=(x2-x)*(x2-x)+(z2-z)*(z2-z);
+      if(d<bd2){ bd2=d; best=g[z2*DECK_NX+x2]; } }
+    out[z*DECK_NX+x]=best; }
+  return out;
+}
+// Its own cache, set BEFORE anything else can touch it. Hanging the grid off DECK_CACHE was
+// a loop: deckLine REPLACES that object when it recomputes, so the grid went back to null on
+// every call and the whole board was re-walked per contact vertex per frame — three seconds
+// a frame, which the suite noticed before anything else did.
+let DECK_GRID={id:null,g:null};
+function deckUnder(x,z){
+  const id=(typeof equipped!=='undefined')?equipped:'';
+  if(DECK_GRID.id!==id){ DECK_GRID={id,g:null}; DECK_GRID.g=deckGridFor(id); }
+  const g=DECK_GRID.g;
+  if(!g)return deckLine();
+  const cx=Math.max(0,Math.min(DECK_NX-1,Math.round((x/DECK_X*0.5+0.5)*(DECK_NX-1))));
+  const cz=Math.max(0,Math.min(DECK_NZ-1,Math.round((z/DECK_Z*0.5+0.5)*(DECK_NZ-1))));
+  const y=g[cz*DECK_NX+cx];
+  return isFinite(y)?y:deckLine();
+}
 function deckLine(){
   const id=(typeof equipped!=='undefined')?equipped:'';
   if(DECK_CACHE.id===id)return DECK_CACHE.y;
@@ -8996,6 +9066,7 @@ function deckLine(){
   const inv=new THREE.Matrix4().copy(bd.matrixWorld).invert(), m=new THREE.Matrix4();
   const v=new THREE.Vector3(), best=new THREE.Vector3(); let top=-Infinity;
   bd.traverse(o=>{ if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+    if(o.name==='__pin')return;                  // the debug marker is not part of the board
     const p=o.geometry.attributes.position;
     m.multiplyMatrices(inv,o.matrixWorld);
     for(let i=0;i<p.count;i++){
@@ -9389,16 +9460,35 @@ function setupModelRig(root,gltf,id){
     ys.sort((a,b)=>a[0]-b[0]);
     for(let i=0;i<Math.min(160,ys.length);i++)pick.add(ys[i][1]);
     for(let i=0;i<Math.min(110,ys.length);i++)pick.add(ys[ys.length-1-i][1]);
+    // ---- and the FEET on their own, which is what he stands on when he is the right way up ----
+    // This pool holds palms and both ends of him as well as soles, because a handstand lands
+    // on a palm and a roll can put an ear lowest. Standing him on whichever member of it hangs
+    // lowest is right mid-trick and wrong every other second of the game: in the surfing
+    // stance his front paws hang below his hind soles, so he was stood on a knuckle with both
+    // feet in the air — a measurement that read "touching" against a picture of a dog hovering.
+    const feet=new Set(), fw=new Set();
+    for(const nm of ['LeftFoot','LeftToeBase','RightFoot','RightToeBase']){
+      const b=this.bones[nm], k=b?sm.skeleton.bones.indexOf(b):-1; if(k>=0)fw.add(k); }
+    if(si&&sw&&fw.size){
+      for(let i=0;i<n;i++){
+        let bi=si.getX(i), bw=sw.getX(i);
+        if(sw.getY(i)>bw){bw=sw.getY(i);bi=si.getY(i);}
+        if(sw.getZ(i)>bw){bw=sw.getZ(i);bi=si.getZ(i);}
+        if(sw.getW(i)>bw){bw=sw.getW(i);bi=si.getW(i);}
+        if(fw.has(bi))feet.add(i);
+      }
+    }
+    this.contactFeet=feet.size?Uint32Array.from(feet):null;
     return Uint32Array.from(pick);
   };
-  R.skinBox=function(){
+  R.skinBox=function(which){
     let sm=this.skin;
     if(!sm){ root.traverse(o=>{ if(o.isSkinnedMesh&&!sm)sm=o; }); this.skin=sm; }
     if(!sm||!(sm.applyBoneTransform||sm.boneTransform))return null;
     if(!this.contact)this.contact=this.contactSet(sm);
     pug.updateMatrixWorld(true); sm.skeleton.update();
     const p=sm.geometry.attributes.position, v=new THREE.Vector3();
-    const idx=this.contact, par=pug.parent;
+    const idx=(which==='feet'&&this.contactFeet)?this.contactFeet:this.contact, par=pug.parent;
     const lo=[Infinity,Infinity,Infinity], hi=[-Infinity,-Infinity,-Infinity]; let at=null;
     for(let c=0;c<idx.length;c++){ const i=idx[c];
       v.fromBufferAttribute(p,i);
@@ -9460,10 +9550,31 @@ function setupModelRig(root,gltf,id){
   // his feet somewhere else entirely. One rule covers both — whatever pose he is in, his
   // lowest point rests on the deck — and it is the same measurement either way.
   R.deckLift=function(){
-    const b=this.skinBox();
-    // a hair of daylight: sitting his lowest vertex exactly on the deck line leaves the two
-    // surfaces coplanar, and coplanar surfaces flicker into each other at distance
-    return b?(deckLine()+0.015)-b.lo[1]:0;
+    // WHICH of him has to be on the deck depends on which way up he is, and `rot` is that.
+    // Upright he stands on his feet; over on his hands the palms are what land. Asking the
+    // whole contact pool either way stands him on whichever knuckle happens to hang lowest.
+    //
+    // And every contact vertex is measured against the deck UNDER IT rather than against one
+    // height for the whole board — see deckUnder. The lift is the largest any of them needs, so
+    // nothing ends up inside the board and whatever is closest ends up exactly on it.
+    let sm=this.skin;
+    if(!sm){ root.traverse(o=>{ if(o.isSkinnedMesh&&!sm)sm=o; }); this.skin=sm; }
+    if(!sm||!(sm.applyBoneTransform||sm.boneTransform))return 0;
+    if(!this.contact)this.contact=this.contactSet(sm);
+    const idx=(this.rot>0.5||!this.contactFeet)?this.contact:this.contactFeet;
+    pug.updateMatrixWorld(true); sm.skeleton.update();
+    const p=sm.geometry.attributes.position, v=new THREE.Vector3(), par=pug.parent;
+    let lift=-Infinity;
+    for(let c=0;c<idx.length;c++){ const i=idx[c];
+      v.fromBufferAttribute(p,i);
+      sm.applyBoneTransform?sm.applyBoneTransform(i,v):sm.boneTransform(i,v);
+      v.applyMatrix4(sm.matrixWorld);
+      if(par)par.worldToLocal(v);
+      // a hair of daylight: sitting a vertex exactly on the deck leaves the two surfaces
+      // coplanar, and coplanar surfaces flicker into each other at distance
+      const d=deckUnder(v.x,v.z)+0.015-v.y;
+      if(d>lift)lift=d; }
+    return isFinite(lift)?lift:0;
   };
   // Leaving the title screen has to UNDO the show, and that is not just stopping it. A clip
   // was driving the whole body including the root, so whatever frame it stopped on is where
@@ -10776,7 +10887,7 @@ let lastKind='',sameRun=0,bigFinCd=6,octCd=0,laneSlot=(Math.random()*5)|0;
 // The headless renderer draws about a frame a second, so anything the world scrolls past is
 // gone before a screenshot lands on it. This stops the world moving under the camera without
 // stopping anything else — the animals keep animating, which is the whole point of looking.
-let _freeze=false;
+let _freeze=false, _pinL=null;
 // base curl, tip curl, base sway, tip sway, and the two rates. An arm is a CHAIN, so every
 // one of these accumulates down it — a number that looks small on one joint is most of a
 // half turn by the last, and that is how a wave becomes an animal tying itself in a knot.
@@ -13668,38 +13779,34 @@ if(location.hash.includes('debug')){
     // pitches and a world height answers a different question every frame — and subtract.
     // Positive is daylight, negative is his foot inside the board.
     deckGap(){
+      // MEASURED THE WAY HE IS PLACED, or it answers a different question from the one the
+      // placement asked. Same contact set, same frame, and each vertex against the deck
+      // directly under it rather than against the crown of the board — see deckUnder. The
+      // point reported is the one that needed the largest lift, which is the one touching.
       const rr=riderRig(); if(!rr)return null;
-      let sm=rr.skin; if(!sm)root.traverse&&0;
-      if(!sm){ pug.traverse(o=>{ if(o.isSkinnedMesh&&!sm)sm=o; }); }
+      let sm=rr.skin; if(!sm)pug.traverse(o=>{ if(o.isSkinnedMesh&&!sm)sm=o; });
       if(!sm||!rr.contact)return null;
-      const bd=boardArtFor(equipped); bd.updateWorldMatrix(true,true);
-      const inv=new THREE.Matrix4().copy(bd.matrixWorld).invert();
-      // The deck AMIDSHIPS, in the board's own frame, which is the only reference here that
-      // holds still. Not the box top — that is the nose rocker, a third of a foot above
-      // anything underfoot, and measuring against it says every rider in the game is buried.
-      // And not the built-in rider's feet either: during a handstand the whole rider group
-      // turns over and takes them with it, so the reference and the subject flip together and
-      // the reading comes back a foot and a half wrong with nothing actually amiss.
-      const m=new THREE.Matrix4(), u=new THREE.Vector3();
-      let top=-Infinity;
-      bd.traverse(o=>{ if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
-        const pp=o.geometry.attributes.position; m.multiplyMatrices(inv,o.matrixWorld);
-        for(let i=0;i<pp.count;i++){ u.fromBufferAttribute(pp,i).applyMatrix4(m);
-          if(Math.abs(u.x)>0.55||Math.abs(u.z)>1.10)continue;
-          if(u.y>top)top=u.y; } });
+      const set=(rr.rot>0.5||!rr.contactFeet)?rr.contact:rr.contactFeet;
       pug.updateMatrixWorld(true); sm.skeleton.update();
-      const p=sm.geometry.attributes.position, v=new THREE.Vector3();
-      let lo=Infinity, loX=0, loZ=0;
-      for(let c=0;c<rr.contact.length;c++){ const i=rr.contact[c];
+      const p=sm.geometry.attributes.position, v=new THREE.Vector3(), par=pug.parent;
+      let need=-Infinity, at=null, dk=0;
+      for(let c=0;c<set.length;c++){ const i=set[c];
         v.fromBufferAttribute(p,i);
         sm.applyBoneTransform?sm.applyBoneTransform(i,v):sm.boneTransform(i,v);
-        v.applyMatrix4(sm.matrixWorld).applyMatrix4(inv);
-        if(v.y<lo){ lo=v.y; loX=v.x; loZ=v.z; } }
-      // ...and WHERE on the board that lowest point is. A rider whose palm is planted six
-      // inches off the rail is touching the deck by every number here and touching nothing
-      // at all in the picture, which is a different question from how high he is.
-      return {sole:+lo.toFixed(4), deck:+top.toFixed(4), gap:+(lo-top).toFixed(4),
-              x:+loX.toFixed(3), z:+loZ.toFixed(3), rail:+BOARD_HALF_W.toFixed(2)};
+        v.applyMatrix4(sm.matrixWorld);
+        if(par)par.worldToLocal(v);
+        const d=deckUnder(v.x,v.z), n=d-v.y;
+        if(n>need){ need=n; at=[v.x,v.y,v.z]; dk=d; } }
+      if(!at)return null;
+      // ...and where his feet are, per bone, so "which of him is touching" is answerable
+      const bone=n=>{ const b=rr.bones&&rr.bones[n]; if(!b)return null;
+        const w=b.getWorldPosition(new THREE.Vector3());
+        if(par)par.worldToLocal(w);
+        return [+w.x.toFixed(3),+w.y.toFixed(3),+w.z.toFixed(3)]; };
+      return {sole:+at[1].toFixed(4), deck:+dk.toFixed(4), gap:+(at[1]-dk).toFixed(4),
+              x:+at[0].toFixed(3), z:+at[2].toFixed(3), rail:+BOARD_HALF_W.toFixed(2),
+              crown:+deckLine().toFixed(4),
+              LeftFoot:bone('LeftFoot'), RightFoot:bone('RightFoot')};
     },
     // Does the SKIN follow the skeleton? Reading a bone's rotation only proves the bone
     // turned. This turns one and reports where the vertices went, by running the same
@@ -14290,6 +14397,65 @@ if(location.hash.includes('debug')){
       return out;
     },
     freeze(on){ _freeze=!!on; return _freeze; },
+    // The deck's height across the board at the rider's own z, plus the single crown figure
+    // the placement used to stand him on. A deck that is domed falls away from the stringer,
+    // and the gap between the two ends of this is exactly the error the crown produced.
+    deckProfile(){
+      const rr=riderRig();
+      const z=(rr&&rr.bones&&rr.bones.Hips)?0:0;
+      const at=[0,0.15,0.30,0.45].map(x=>+deckUnder(x,z).toFixed(4));
+      return {at, crown:+deckLine().toFixed(4), x:[0,0.15,0.30,0.45]};
+    },
+    // The lowest point of the WHOLE skin, against the lowest of the set the placement uses.
+    // If those differ, the placement is standing him on a vertex that is not the bottom of
+    // him — and every reading taken from the same set will agree with itself and with nothing
+    // you can see.
+    skinLow(){
+      const rr=riderRig(); if(!rr)return null;
+      let sm=rr.skin; if(!sm)pug.traverse(o=>{ if(o.isSkinnedMesh&&!sm)sm=o; });
+      if(!sm)return null;
+      const bd=boardArtFor(equipped); bd.updateWorldMatrix(true,true);
+      const inv=new THREE.Matrix4().copy(bd.matrixWorld).invert();
+      pug.updateMatrixWorld(true); sm.skeleton.update();
+      const p=sm.geometry.attributes.position, v=new THREE.Vector3();
+      let lo=Infinity, at=null;
+      for(let i=0;i<p.count;i++){
+        v.fromBufferAttribute(p,i);
+        sm.applyBoneTransform?sm.applyBoneTransform(i,v):sm.boneTransform(i,v);
+        v.applyMatrix4(sm.matrixWorld).applyMatrix4(inv);
+        if(v.y<lo){ lo=v.y; at=[+v.x.toFixed(3),+v.y.toFixed(3),+v.z.toFixed(3)]; } }
+      // ...and the deck DIRECTLY UNDER that point, in a window tight enough to see the crown.
+      // A deck is domed: it is highest down the stringer and falls away to the rails, so
+      // standing his lowest vertex a hair above the CROWN leaves it floating over the part of
+      // the board it is actually above by however far that part has dropped.
+      let dk=-Infinity; const u=new THREE.Vector3(), m=new THREE.Matrix4();
+      bd.traverse(o=>{ if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+        if(o.name==='__pin')return;
+        const pp=o.geometry.attributes.position; m.multiplyMatrices(inv,o.matrixWorld);
+        for(let i=0;i<pp.count;i++){ u.fromBufferAttribute(pp,i).applyMatrix4(m);
+          if(Math.abs(u.x-at[0])>0.06||Math.abs(u.z-at[2])>0.06)continue;
+          if(u.y>dk)dk=u.y; } });
+      const g=window.__surf.deckGap();
+      return {all:+lo.toFixed(4), at, set:g&&g.sole, deck:g&&g.deck,
+              under:isFinite(dk)?+dk.toFixed(4):null,
+              crownGap:g?+(lo-g.deck).toFixed(4):null,
+              realGap:isFinite(dk)?+(lo-dk).toFixed(4):null, verts:p.count};
+    },
+    // A MARKER on the spot the numbers say is touching the deck. Three separate measurements
+    // agree the sole is a sixtieth of a foot off the board and the picture shows a paw
+    // hanging in the air, so one of them is looking somewhere else — and the only way to find
+    // out which is to put something visible exactly where the reading is.
+    footPin(on){
+      if(!on){ if(_pinL){ _pinL.parent&&_pinL.parent.remove(_pinL); _pinL=null; } return false; }
+      const g=window.__surf.deckGap(); if(!g)return null;
+      const bd=boardArtFor(equipped);
+      if(!_pinL){ _pinL=new THREE.Mesh(new THREE.SphereGeometry(0.05,10,8),
+        new THREE.MeshBasicMaterial({color:0xff0044,depthTest:false}));
+        _pinL.renderOrder=999; _pinL.name='__pin'; }
+      bd.add(_pinL);
+      _pinL.position.set(g.x,g.sole,g.z);
+      return {at:[g.x,g.sole,g.z], deck:g.deck};
+    },
     boardIds(){ return RACK_ORDER.map(b=>b.id); },
     // What finish the board is wearing, and where it is being asked about. Wet on the wave,
     // matt on the sand — the same object, and the whole question is whether the swap reached
@@ -17362,8 +17528,8 @@ function layoutMenuBeach(){
 // between a phone held upright and a browser window. Measured from the tree, a chest framed
 // on the sand in portrait dropped clean off the bottom of a landscape frame. Measured from
 // the lens it holds the same place in the picture at any shape of screen.
-let MB_CD=1.0;         // out to the camera's right of the trunk's own axis...
-let MB_CF=25.0;        // ...and this far in front of the camera, which puts it back up the
+let MB_CD=1.30;        // out to the camera's right of the trunk's own axis...
+let MB_CF=25.7;        // ...and this far in front of the camera, which puts it back up the
                        // beach against the foot of the tree rather than out on open sand
 let MB_CH=1.8;         // and this tall — small, because it is standing much nearer the lens
 let _bcAsp=null;

@@ -1981,7 +1981,7 @@ if (hasHook) {
     return out;
   });
   check(fin.up === true && fin.beach && fin.beach.dry === true &&
-        fin.beach.rough[0] >= 0.40 && fin.beach.env[1] <= 0.25,
+        fin.beach.rough[0] >= 0.65 && fin.beach.env[1] <= 0.15,
         'a board standing on the beach is matt rather than a mirror',
         `beach up ${fin.up}, roughness ${JSON.stringify(fin.beach && fin.beach.rough)}, ` +
         `reflection ${JSON.stringify(fin.beach && fin.beach.env)}`);
@@ -3201,6 +3201,24 @@ check(shaderErrors.length === 0, 'every shader compiles',
   check(sole[0] && Math.abs(worst) < 0.05,
         'his soles rest on the deck rather than inside it — they are two solid things',
         `worst gap ${worst.toFixed(3)}ft against the built-in rider's own soles`);
+  // AGAINST THE DECK UNDER HIS FEET, not against the crown of the board. A deck is domed: it
+  // is highest down the stringer and falls away to both rails, and his feet are a third of a
+  // foot outboard of the stringer. Stood a hair above the crown, his paws floated over the
+  // part of the board they were actually above by three times the clearance intended — small
+  // in feet, and a dog visibly standing on nothing in a picture. The number that catches a
+  // regression is not the gap, which read a perfect 0.015 throughout: it is that the height
+  // being measured against is BELOW the crown, which only a height map can produce.
+  // Asked of the DECK rather than of where his feet happen to land, because how much dome
+  // there is under a paw depends on the board: it is a third of an inch on the foil and
+  // almost nothing on the shortboard. What has to be true of every board is that the height
+  // map knows the deck falls away from the stringer at all — one number for the whole board
+  // cannot produce that, so this is the reading that catches a silent revert.
+  const prof = await page.evaluate(() => window.__surf.deckProfile());
+  const fall = prof.at[0] - prof.at[prof.at.length - 1];
+  check(fall > 0.01 && prof.at.every((y, i) => i === 0 || y <= prof.at[i - 1] + 0.001),
+        'and against the part of the board they are over, not the crown of it',
+        `deck across the board ${JSON.stringify(prof.at)} — ${(fall * 12).toFixed(1)} inches ` +
+        `of dome from stringer to rail, crown ${prof.crown}`);
   // The built-in rig is HIDDEN under him, not thrown away. Every other character in the
   // roster is built out of the same joints, so emptying the group to make room meant the
   // sloth's owner got an invisible rider on coming back to Astro — and, worse, the detached
