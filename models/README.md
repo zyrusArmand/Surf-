@@ -14,8 +14,8 @@ is 1.7 MB and looks identical in game. Exporters also like wiring the texture to
 at full white, which makes the model glow flat and ignore every light in the scene — worth
 checking if an import looks oddly unlit.
 
-`board.glb`, `buoy.glb`, `chest.glb`, `log.glb`, `octopus.glb`, `pug.glb`, `cat.glb` and
-`frog.glb` ship with the game; the rest of the table is
+`board.glb`, `buoy.glb`, `chest.glb`, `log.glb`, `octopus.glb`, `palm.glb`, `pug.glb`,
+`cat.glb` and `frog.glb` ship with the game; the rest of the table is
 empty by design, and the 404s those file names produce are the documented path
 rather than a fault.
 
@@ -27,6 +27,7 @@ to `RIDER_MODELS` in `index.html`.
 | File | Replaces |
 | --- | --- |
 | `board.glb` | the surfboard |
+| `palm.glb` | every palm tree |
 | `chest.glb` | the treasure chest |
 | `pug.glb` | Astro the Pug |
 | `cat.glb` | Miso the Cat |
@@ -88,6 +89,27 @@ takes:
 
 Anything not matched gets that object's main colour — white for the board, fawn for
 the pug, and so on.
+
+## The palm, and its rig
+
+`palm.glb` replaces every palm in the game — the three standing back on the preview beach
+behind the shop's cards, and the two on the title screen. If the file carries a **bone chain
+up its trunk** the game bends it, because a straight palm is a telegraph pole: each tree gets
+its own curve, some a gentle one, some a real C, and about a quarter of them none at all,
+picked from the tree's seed so the same tree is the same shape every time you look at it.
+
+The pose is **baked into plain geometry** rather than left skinned. A tree never animates, so
+a skeleton and a skinning shader per tree pay for a pose that is set once — and three.js
+shares one skeleton between clones of a skinned mesh, so every cloned palm would have had to
+bend the same way, which is the opposite of what is wanted. Baking is also what makes the
+trunk's centreline knowable, and the centreline is what the title screen leans a board on.
+
+The one tree that is not left to chance is the title screen's: it leaves the sand upright,
+its middle three joints take it over to the side and its top keeps going the same way, which
+is the long C the procedural tree had and the shape every photograph of a board against a
+palm has.
+
+A model with no bones is used as it is, standing straight.
 
 ## Rigged riders
 

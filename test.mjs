@@ -496,9 +496,19 @@ await page.waitForTimeout(300);
   check(stood.length === 4 && stood.every(f => Math.abs(f.foot - f.sand) < 0.02),
         'the board it stands there rests its foot on the sand, whatever it is',
         stood.map(f => `${f.id} ${(f.foot - f.sand).toFixed(3)}ft off`).join(', '));
-  check(stood.length === 4 && stood.every(f => f.gap !== null && f.gap >= -0.01 && f.gap < 0.30),
+  // WHICHEVER END HOLDS IT UP IS ON THE TRUNK. There are two ways a board leans on a tree
+  // and the game solves for both: a short one meets the pole with its NOSE, and one longer
+  // than the palm rests its BODY in the crook with the nose past the crown. Which of the two
+  // happens depends on the board and on how thick the tree is, so asking only about the nose
+  // failed a tree that was propping the board up perfectly well by its middle. The other
+  // reading is always negative when the first is at contact — board and trunk both rise out
+  // of the same sand, so below the contact point they are inside each other's clearance by
+  // construction — which is why this is the nearer of the two and not the further.
+  const holds = f => Math.min(Math.abs(f.gap === null ? 9 : f.gap),
+                              Math.abs(f.body === null ? 9 : f.body));
+  check(stood.length === 4 && stood.every(f => holds(f) < 0.30),
         'and leans on the trunk without going through it',
-        stood.map(f => `${f.id} gap ${f.gap} at ${f.standoff}ft out`).join(', '));
+        stood.map(f => `${f.id} nose ${f.gap} body ${f.body} at ${f.standoff}ft out`).join(', '));
   // in FRONT of the tree, which is where a board leaning on one is in every photograph of
   // it. Smaller along the camera's forward axis is nearer the camera.
   check(stood.length === 4 && stood.every(f => f.boardF < f.trunkF - 0.4),
@@ -508,6 +518,20 @@ await page.waitForTimeout(300);
   // foot log leaning on it tower over the whole thing
   check(stood.every(f => f.palmH > 13),
         'and the palm it leans on is a tree', `${stood[0] && stood[0].palmH}ft tall`);
+  // NO TWO PALMS ARE THE SAME TREE. The model is one straight trunk with a bone chain up it,
+  // and every palm in the game is that same mesh bent a different amount — so the failure
+  // this guards against is the one three.js hands you for free: clones of a skinned mesh
+  // share a skeleton, and a grove that shares a skeleton is one tree in five copies. Read
+  // off each finished trunk's own centreline rather than off the angles that bent it.
+  const leans = await page.evaluate(() => window.__surf.palmLeans());
+  const bent = leans.filter(p => p.lean !== null);
+  const spread = bent.length ? Math.max(...bent.map(p => p.lean)) - Math.min(...bent.map(p => p.lean)) : 0;
+  check(bent.length >= 4 && spread > 8,
+        'and no two palms in the game are the same tree',
+        bent.map(p => `${p.seed}: ${p.lean}°`).join(', '));
+  check(bent.every(p => p.lean < 60),
+        'and none of them has folded over far enough to lie down',
+        `steepest ${Math.max(...bent.map(p => p.lean))}°`);
 
   // He stands CLEAR of the board. A board leaning across the frame sweeps over the ground
   // it stands on, so a fixed distance from its foot put his shoulder through the middle of
@@ -528,9 +552,17 @@ await page.waitForTimeout(300);
   check(surf.boardUV && surf.board && surf.board.normal && surf.board.rough,
         'the board is glassed resin over cloth, not a moulded shell',
         JSON.stringify(surf.board));
-  check(surf.bark && surf.bark.normal && surf.bark.rough && surf.palmGroups === 2 &&
-        surf.frond && !surf.frond.normal,
-        'the trunk is bark and the crown is not', JSON.stringify({bark: surf.bark, frond: surf.frond}));
+  // The palm is either the procedural tree, where the trunk carries a bark relief and the
+  // crown deliberately carries none — a leaflet is a flat blade and any bump on it reads as
+  // dirt — or a modelled one, where the file already painted both and the split does not
+  // exist. Both are real and both ship, so both are what this asks about.
+  check(surf.palmModelled
+          ? (surf.bark && surf.bark.normal && surf.palmMap)
+          : (surf.bark && surf.bark.normal && surf.bark.rough && surf.palmGroups === 2 &&
+             surf.frond && !surf.frond.normal),
+        surf.palmModelled ? 'the palm is bark and leaves off its own texture, relief and all'
+                          : 'the trunk is bark and the crown is not',
+        JSON.stringify({modelled: surf.palmModelled, bark: surf.bark, frond: surf.frond}));
   check(surf.sand && surf.sand.normal, 'and the sand is grains rather than a sheet');
   // A glossy surface reflects a WORLD, and what it reflects decides where the highlight is
   // and how it moves as the surface turns. One flat blue sphere is a tint, not a reflection.
@@ -542,9 +574,13 @@ await page.waitForTimeout(300);
   // Occlusion. A shadow map answers "is the SUN blocked" and has nothing to say about the
   // ambient half, which is why an object with a perfectly good shadow beside it can still
   // look pasted on: nothing darkens underneath it, and in a photograph it always does.
-  check(surf.bark.ao && surf.sand.ao && surf.board.ao,
+  // The palm is exempt when it is MODELLED, for the same reason it is exempt from the bark
+  // relief check: the occlusion in the crown and between the bark rings is painted into the
+  // file's own texture, and a baked map over the top of a photograph darkens it twice.
+  check((surf.palmModelled || surf.bark.ao) && surf.sand.ao && surf.board.ao,
         'creases hold shade the light never reaches',
-        JSON.stringify({bark: surf.bark.ao, sand: surf.sand.ao, board: surf.board.ao}));
+        JSON.stringify({bark: surf.bark.ao, modelledPalm: surf.palmModelled,
+                        sand: surf.sand.ao, board: surf.board.ao}));
   check(surf.pools === 3, 'and each thing standing on the sand darkens the sand under it',
         `${surf.pools} contact pools`);
   // Where the sun is decides two different things and they were fighting. In world

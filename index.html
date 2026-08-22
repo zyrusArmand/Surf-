@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.59.0';
+const VERSION='3.60.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5299,6 +5299,183 @@ function buildPalm(seed){
   m.userData.bark=barkMat; m.userData.frond=frondMat;
   return m;
 }
+// ---- a MODELLED palm, bent on its own rig ----
+// The export is a straight tree with an eight-bone chain up the trunk, and a straight palm
+// is a telegraph pole. Every one in the game is bent by rotating that chain — a different
+// amount and a different way round for each, some not at all — and then BAKED into plain
+// geometry.
+//
+// Baked, not left skinned, for two reasons and the second is the important one. A tree
+// never animates, so a skeleton and a skinning shader per tree pay for a pose that is set
+// once. And three.js SHARES one skeleton between clones of a skinned mesh: every cloned
+// palm would have had to bend the same way, which is the exact opposite of what is wanted.
+// Baking is also what makes the trunk's centreline knowable, and the centreline is what the
+// menu's board leans against.
+let palmModel=null;
+// Sized by eye against the shot it stands in, because there is no scale at which this model
+// and the tree it replaces both match: its crown is a third of its height where the
+// procedural one's was a fifth. Matching the trunks made a tree half again too tall with a
+// canopy over the whole screen; matching the totals sat the crown down across the title.
+let PALM_H=1.10;                        // total height, as a multiple of the old trunk height
+const palmsBuilt=[];                    // every palm standing, so they can be re-made
+// One palm, however it is built: the model if it has arrived, the procedural tree if not.
+// Registered on the way out, because the file loads long after the beach is standing and
+// the trees already up have to be swapped for modelled ones when it does.
+function PALM(seed,prof){
+  const rec={seed,prof,m:null};
+  rec.m=palmModel?modelPalm(seed,prof):buildPalm(seed);
+  palmsBuilt.push(rec);
+  return rec.m;
+}
+// A bend is one angle per joint, so the shape of the curve is the shape of the list: all of
+// it low down is a tree leaning off its base, all of it high up is a hook. Randomised per
+// seed, and a quarter of them get none at all — a grove where every tree curves is as
+// uniform as one where none does.
+function palmProfile(seed){
+  let rs=(seed*7919+104729)%233280;
+  const R=()=>{rs=(rs*9301+49297)%233280; return rs/233280;};
+  const az=R()*Math.PI*2;
+  const kind=R();
+  if(kind<0.25)return {az,bend:[0,0,0,0,0,0,0,0]};              // straight, and some are
+  const amt=kind<0.62?0.055+R()*0.035:0.105+R()*0.090;          // a gentle one or a real C
+  const lift=0.25+R()*0.55;                                     // where along it the bend sits
+  const bend=[];
+  for(let i=0;i<8;i++){
+    const t=i/7;
+    // a hump centred at `lift`: the trunk leaves the sand straighter than it ends up
+    bend.push(amt*Math.exp(-Math.pow((t-lift)/0.42,2))*(0.55+t*0.9));
+  }
+  return {az,bend};
+}
+// The chain posed, the skin baked, and the trunk's centreline read back off the bones.
+function modelPalm(seed,prof){
+  const M=palmModel, sk=M.mesh, chain=M.chain;
+  const P=prof||palmProfile(seed);
+  const ax=new THREE.Vector3(Math.sin(P.az||0),0,-Math.cos(P.az||0));
+  const q=new THREE.Quaternion();
+  for(let i=0;i<chain.length;i++){
+    chain[i].quaternion.copy(M.rest[i]);
+    const a=(P.bend&&P.bend[i])||0;
+    // about the SAME axis in every bone's own frame, which is what keeps the bend planar:
+    // the axis is carried along by the rotations above it because they all share it
+    if(a)chain[i].quaternion.multiply(q.setFromAxisAngle(ax,a));
+  }
+  M.root.updateMatrixWorld(true);
+  sk.skeleton.update();
+  // the skin, vertex by vertex, in the mesh's own frame and then into the model's
+  const src=sk.geometry, pos=src.attributes.position;
+  const geo=new THREE.BufferGeometry();
+  const arr=new Float32Array(pos.count*3), v=new THREE.Vector3();
+  for(let i=0;i<pos.count;i++){ sk.boneTransform(i,v);
+    arr[i*3]=v.x; arr[i*3+1]=v.y; arr[i*3+2]=v.z; }
+  geo.setAttribute('position',new THREE.BufferAttribute(arr,3));
+  for(const k of ['uv','uv2','color','tangent'])
+    if(src.attributes[k])geo.setAttribute(k,src.attributes[k]);
+  if(src.index)geo.setIndex(src.index);
+  geo.applyMatrix4(sk.matrixWorld);            // out of mesh space into the model's own
+  geo.computeVertexNormals();
+  // stood on the ground at the size the procedural tree it replaces was built at, so every
+  // placement in the game keeps the framing it was authored with
+  geo.computeBoundingBox();
+  // Sized against the tree it replaces, and the number that matters is the TOTAL height, not
+  // the trunk. The procedural palm's H is its trunk and its fronds stand a couple of units
+  // above that; this model carries a third of its height in crown. Matching trunk to trunk
+  // made a tree half again as tall as the one the camera was framed for, and matching total
+  // to trunk sat the crown down in the middle of the picture where the title goes.
+  const bb=geo.boundingBox, H=(10.6+((seed*37)%13)/13*2.0)*PALM_H;
+  const k=H/Math.max(0.001,bb.max.y-bb.min.y);
+  // the same frame the geometry was just put into — bone world positions and a mesh
+  // multiplied by its own world matrix are the one pair that agree
+  const base=chain[0].getWorldPosition(new THREE.Vector3());
+  geo.translate(-base.x,-bb.min.y,-base.z);
+  geo.scale(k,k,k);
+  geo.computeBoundingBox(); geo.computeBoundingSphere();
+  const m=new THREE.Mesh(geo,M.mat);
+  // The centreline, taken off the POSED bones and in the finished tree's own space. This is
+  // what the menu's board is leaned against, and it is the whole reason the pose is baked
+  // rather than left to the shader: a skinned mesh knows where its trunk is only on the GPU.
+  const line=[], w=new THREE.Vector3();
+  for(let i=0;i<chain.length;i++){
+    chain[i].getWorldPosition(w);
+    line.push({p:new THREE.Vector3((w.x-base.x)*k,(w.y-bb.min.y)*k,(w.z-base.z)*k),
+               r:M.rad[Math.min(M.rad.length-1,Math.round(i/(chain.length-1)*(M.rad.length-1)))]*k});
+  }
+  // and on past the top bone to the crown, along the direction the chain finishes in
+  { const a=line[line.length-2].p, b=line[line.length-1].p;
+    const d=b.clone().sub(a);
+    for(let j=1;j<=3;j++)line.push({p:b.clone().addScaledVector(d,j*0.5),
+                                    r:line[line.length-1].r*0.85}); }
+  m.userData.trunk=line;
+  m.userData.modelled=true;
+  m.castShadow=true; m.receiveShadow=true;
+  return m;
+}
+loadModel('palm.glb',(s3)=>{
+  let sk=null; s3.traverse(o=>{ if(o.isSkinnedMesh&&!sk)sk=o; });
+  if(!sk||!sk.skeleton||!sk.skeleton.bones.length)return;
+  // the chain from the ground up: start at whichever bone has no bone above it
+  let b0=sk.skeleton.bones[0];
+  while(b0.parent&&b0.parent.isBone)b0=b0.parent;
+  const chain=[]; for(let b=b0;b;b=(b.children||[]).find(c=>c.isBone))chain.push(b);
+  if(chain.length<2)return;
+  s3.updateMatrixWorld(true);
+  // How thick the trunk is at each height, measured off the BIND pose where it is a
+  // vertical tube. Taken as the tenth percentile of the radius in each band rather than the
+  // largest: above the crown line most of what is in a band is frond, and the fronds run out
+  // to five times the trunk — the near-minimum is the tube they all grow out of.
+  const pos=sk.geometry.attributes.position, v=new THREE.Vector3();
+  const box=new THREE.Box3().setFromBufferAttribute(pos);
+  const NB=16, bins=[]; for(let i=0;i<NB;i++)bins.push([]);
+  const cx=b0.position.x, cz=b0.position.z, y0=box.min.y, y1=box.max.y;
+  for(let i=0;i<pos.count;i++){ v.fromBufferAttribute(pos,i);
+    const t=(v.y-y0)/Math.max(1e-6,y1-y0);
+    bins[Math.min(NB-1,Math.max(0,Math.floor(t*NB)))].push(Math.hypot(v.x-cx,v.z-cz)); }
+  const rad=[]; let run=Infinity;
+  for(const bin of bins){
+    bin.sort((a,c)=>a-c);
+    let r=bin.length?bin[Math.floor(bin.length*0.10)]:run;
+    run=Math.min(run,Math.max(r,0.004));            // a trunk tapers; it never gets fatter
+    rad.push(run);
+  }
+  const mats=[].concat(sk.material);
+  for(const mt of mats){ if(!mt)continue;
+    // an exporter wiring the texture to emissive at full white makes the tree glow flat and
+    // ignore every light on the beach — the same trap the riders hit
+    if(mt.emissive)mt.emissive.setRGB(0,0,0);
+    mt.envMapIntensity=0.35; mt.side=THREE.DoubleSide; mt.needsUpdate=true; }
+  palmModel={root:s3, mesh:sk, chain, rad,
+             rest:chain.map(b=>b.quaternion.clone()),
+             mat:mats.length===1?mats[0]:mats};
+  repalm();
+});
+// Every palm already standing, swapped for a modelled one. The file arrives long after the
+// beach does — the menu's tree is built inside the blocking script so the first paint is the
+// finished screen — so "replace all the palms" has to mean the ones that are already up.
+function repalm(){
+  for(const rec of palmsBuilt){
+    const old=rec.m, par=old&&old.parent;
+    if(!par)continue;
+    const nu=modelPalm(rec.seed,rec.prof);
+    nu.position.copy(old.position); nu.rotation.copy(old.rotation); nu.scale.copy(old.scale);
+    nu.castShadow=old.castShadow; nu.receiveShadow=old.receiveShadow;
+    par.add(nu); par.remove(old);
+    rec.m=nu;
+    if(typeof menuPalm!=='undefined'&&menuPalm===old)menuPalm=nu;
+    const i=beachPalms.indexOf(old); if(i>=0)beachPalms[i]=nu;
+  }
+  // the board leans on the trunk, and the trunk it was solved against has just been replaced
+  if(typeof layoutMenuBeach==='function')layoutMenuBeach();
+}
+// The daylight lift the menu puts over the palm is a COLOUR MULTIPLIER on vertex colours,
+// and a modelled tree has none — it has a photograph of bark and leaves. Pushing a
+// multiplier over that only greys the picture, so a painted file is left alone, which is the
+// same rule the riders follow.
+function palmTintables(p){
+  const out=[]; if(!p)return out;
+  p.traverse(o=>{ if(!o.isMesh)return;
+    for(const m of [].concat(o.material))if(m&&m.vertexColors&&!m.map)out.push(m); });
+  return out;
+}
 function buildBeach(){
   const g=new THREE.Group(); g.visible=false;
 
@@ -5508,7 +5685,7 @@ function buildBeach(){
     for(const [px0,pz0,ry,sc,sd] of [[5.4,-50,0.6,0.92,1],[8.2,-66,-1.9,1.05,5],[-5.6,-56,2.2,0.82,9]]){
       let pz=pz0;
       while(pz<10&&sandH(pz)<0.5)pz+=1;           // walk it up the beach until it is dry
-      const palm=buildPalm(sd);
+      const palm=PALM(sd);
       palm.position.set(px0,sandH(pz)-0.25,pz);
       palm.rotation.y=ry; palm.scale.setScalar(sc);
       g.add(palm); beachPalms.push(palm);
@@ -13466,7 +13643,8 @@ if(location.hash.includes('debug')){
                              shal:prevOcean.uniforms.uShallow.value.getHex()}:null,
               riderGap:menuBeach.riderGap, riderAt:menuBeach.riderAt,
               standoff:menuBeach.standoff, foot:menuBeach.foot, sand:menuBeach.sandAt,
-              gap:menuBeach.gap, boardF:menuBeach.boardF, trunkF:menuBeach.trunkF,
+              gap:menuBeach.gap, body:menuBeach.body,
+              boardF:menuBeach.boardF, trunkF:menuBeach.trunkF,
               palmH:+(new THREE.Box3().setFromObject(menuPalm).getSize(new THREE.Vector3()).y).toFixed(2),
               rider:+(menuBeach.riderH||rs.y).toFixed(2), boardH:+(menuBeach.boardH||bs.y).toFixed(2),
               live:+rs.y.toFixed(2), liveBoard:+bs.y.toFixed(2),
@@ -13540,10 +13718,16 @@ if(location.hash.includes('debug')){
               env:!!scene.environment, menuEnv:!!menuEnv,
               onBeach:!!(menuBeach&&prevScene.environment===menuEnv),
               board:has(bm), bark:has(pm[0]), frond:has(pm[1]),
+              // A MODELLED palm is one material with a photograph of bark and leaves on it,
+              // so there is no trunk group and no crown group to ask about — the split the
+              // procedural tree needed (relief on the bark, none on a flat blade) is a thing
+              // the file settled when it was painted.
+              palmModelled:!!(menuPalm&&menuPalm.userData.modelled),
+              palmMap:!!(pm[0]&&pm[0].map),
               sand:beachSand?has(beachSand.material):null,
               boardUV:!!(board.children[0]&&board.children[0].geometry
                          &&board.children[0].geometry.attributes.uv),
-              palmGroups:menuPalm?menuPalm.geometry.groups.length:0};
+              palmGroups:menuPalm&&menuPalm.geometry?menuPalm.geometry.groups.length:0};
     },
     hullY(id){
       const o=id?boardArtFor(id):boardArt;
@@ -13746,6 +13930,39 @@ if(location.hash.includes('debug')){
       if(cd!==undefined)MB_CD=cd; if(cf!==undefined)MB_CF=cf; if(ch!==undefined)MB_CH=ch;
       layoutBeachChest();
       return this.chestScreen();
+    },
+    // How far over each palm standing in the game leans, off its own trunk line rather than
+    // off the numbers that bent it — a profile that is applied to the wrong axis, or to a
+    // skeleton shared with every other tree, still reads correctly as a list of angles.
+    palmLeans(){
+      if(typeof beachPalmsBuild==='function'&&beachPalmsBuild)beachPalmsBuild();
+      return palmsBuilt.filter(r=>r.m).map(r=>{
+        const t=r.m.userData.trunk;
+        if(!t||t.length<2)return {seed:r.seed,lean:null};
+        const a=t[0].p, b=t[t.length-4]||t[t.length-1];
+        const d=b.p.clone().sub(a);
+        return {seed:r.seed, modelled:!!r.m.userData.modelled,
+                lean:+(Math.atan2(Math.hypot(d.x,d.z),Math.max(1e-6,d.y))*180/Math.PI).toFixed(1),
+                az:+(Math.atan2(d.z,d.x)*180/Math.PI).toFixed(0)};
+      });
+    },
+    // Bend the menu's palm to any profile, and report where its crown lands in the frame.
+    // Eight joint angles is eight numbers to guess at; one render each is the only way to
+    // see which of them is the tree the shot was framed for.
+    palmBend(bend,az,h){
+      if(h!==undefined)PALM_H=h;
+      if(typeof menuPalm==='undefined'||!menuPalm||!palmModel)return null;
+      const rec=palmsBuilt.find(r=>r.m===menuPalm);
+      if(rec)rec.prof={az:az||0,bend:bend||[0,0,0,0,0,0,0,0]};
+      repalm();
+      const cam=menuCam||camera, b=new THREE.Box3().setFromObject(menuPalm);
+      const px=v=>[Math.round((v.x*0.5+0.5)*innerWidth),Math.round((-v.y*0.5+0.5)*innerHeight)];
+      const c=b.getCenter(new THREE.Vector3());
+      return {crown:px(c.clone().project(cam)),
+              top:px(new THREE.Vector3(c.x,b.max.y,c.z).project(cam)),
+              base:px(menuPalm.getWorldPosition(new THREE.Vector3()).project(cam)),
+              size:[b.max.x-b.min.x,b.max.y-b.min.y,b.max.z-b.min.z].map(v=>+v.toFixed(2)),
+              screen:[innerWidth,innerHeight]};
     },
     // Turn the chest MODEL inside both chests at once, to find which way its lid faces up.
     chestFit(rx,ry,rz){
@@ -16089,15 +16306,22 @@ function menuBeachOn(){
   // nothing you can lean a board on is any use at forty units
   if(!menuProps){
     menuProps=new THREE.Group();
-    const palm=menuPalm=buildPalm(3);              // the one the board leans on
+    // The one the board leans on, and the one shape in the game that is not left to chance:
+    // the trunk leaves the sand upright, the middle three joints take it over to the side,
+    // and the top keeps going the same way rather than standing back up — which is the long
+    // C the procedural tree had and the shape every photograph of a board against a palm has.
+    const palm=menuPalm=PALM(3,{az:0,bend:[0.015,0.04,0.09,0.17,0.18,0.15,0.09,0.05]});
     // turned so its long C leans back over the board rather than away from it — a board is
     // propped against the underside of a palm, which is half of why anyone photographs one
     // Leaning out to the RIGHT and slightly toward the camera, so the board can be propped
     // into the crook of it from the left without the trunk crossing the whole picture.
     palm.position.set(0,0,0); palm.rotation.y=0.34; palm.scale.setScalar(MB_PALM);
     menuProps.add(palm);
-    const far=buildPalm(11);                       // and one well back on the other side
-    far.position.set(-13.5,-0.9,-13); far.rotation.y=2.3; far.scale.setScalar(0.72);
+    // and one well back on the other side, given a bend of its own rather than a random one:
+    // it stands nearer the camera than the shot suggests and a foot lower than the sand it
+    // is on, so a tree that leans hard lays its crown down flat on the beach behind the set.
+    const far=PALM(11,{az:2.2,bend:[0.01,0.02,0.05,0.08,0.08,0.06,0.03,0.01]});
+    far.position.set(-13.5,-0.4,-13); far.rotation.y=2.3; far.scale.setScalar(0.72);
     menuProps.add(far);
     prevScene.add(menuProps);
     placeBeachChest();                            // whichever of the two arrived second
@@ -16220,10 +16444,10 @@ function menuBeachOn(){
   // want different things. The crown wants to be a green tree rather than an olive one; the
   // trunk wants to stay a warm brown rather than going the grey it read as when both were
   // pushed up through the same neutral.
-  if(menuPalm){ const mm=[].concat(menuPalm.material);
-                menuDay.palm=mm.map(x=>x.color.clone());
-                if(mm[0])mm[0].color.set(0x8a7458);
-                if(mm[1])mm[1].color.set(0x646464); }
+  { const mm=palmTintables(menuPalm);
+    menuDay.palm=mm.map(x=>x.color.clone()); menuDay.palmMats=mm;
+    if(mm[0])mm[0].color.set(0x8a7458);
+    if(mm[1])mm[1].color.set(0x646464); }
   layoutMenuBeach();
   return true;
 }
@@ -16625,8 +16849,8 @@ function menuBeachOff(){
   if(beachSand&&menuDay.sand){ beachSand.material.color.copy(menuDay.sand);
     beachSand.material.envMapIntensity=menuDay.sandEnv; }
   if(beachSea&&menuDay.seaY!==undefined)beachSea.position.y=menuDay.seaY;
-  if(menuPalm&&menuDay.palm)
-    [].concat(menuPalm.material).forEach((x,i)=>x.color.copy(menuDay.palm[i]||menuDay.palm[0]));
+  if(menuDay.palmMats&&menuDay.palm)
+    menuDay.palmMats.forEach((x,i)=>{ if(x&&menuDay.palm[i])x.color.copy(menuDay.palm[i]); });
   if(menuAO)menuAO.visible=false;
   if(menuPalm)menuPalm.castShadow=false;
   if(beachSand)beachSand.receiveShadow=false;
