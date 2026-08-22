@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.68.0';
+const VERSION='3.69.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10445,7 +10445,7 @@ function makeObstacle(kind,x,z){
   if(kind==='octopus'){
     // each one is a different shot: 20%–90% of its throws are actually aimed at you
     m.userData.acc=0.20+Math.random()*0.70;
-    m.userData.throwT=0.9+Math.random()*1.0;
+    m.userData.throwT=0.35+Math.random()*0.75;
     m.userData.t=Math.random()*6;
     m.userData.seed=Math.random()*Math.PI*2;   // no two octopuses wave in step
     // ---- turned to face you ONCE, at spawn, and then left alone ----
@@ -10454,7 +10454,12 @@ function makeObstacle(kind,x,z){
     // about as it goes by, because the moment it is behind you the bearing flips. It faces the
     // camera from the moment it appears and drifts past on the swell like everything else in
     // the water, with a few degrees of its own so a field of them is not a rank.
-    m.userData.yaw=Math.PI+(Math.random()-0.5)*0.55;
+    // FACING YOU, which is yaw zero and not half a turn. The model is built looking down +z
+    // and the ride camera sits on +z looking the other way, so zero already has it eye to eye
+    // with you. Half a turn was measured on a version of this that was drawing the TEMPLATE
+    // rather than the clone — the template is never rotated, so it faced front whatever this
+    // number said, and the number was wrong the whole time and could not show it.
+    m.userData.yaw=(Math.random()-0.5)*0.55;
     m.rotation.y=m.userData.yaw;
     // collect the arm joints of this clone so the wave can be driven down each arm
     const joints=[];
@@ -10513,7 +10518,7 @@ function clearLanding(vy0){
 // marker is a small buoy and a danger buoy is a big one, and fitted to the same box they were
 // two liveries of one object. Keyed by file, so it is a property of the model rather than of
 // the code that loads it.
-const OBST_SIZE={buoy:1.30, buoy2:0.70};
+const OBST_SIZE={buoy:2.00, buoy2:0.70};
 for(const kind of ['buoy','jelly','log','bigfin','ramp','octopus'])(k=>{
   const take=file=>s3=>{
     if(!OBST_TEMPLATES[k])OBST_TEMPLATES[k]=buildObstacle(k);
@@ -10647,7 +10652,7 @@ const LAND_YAW=0.88, LAND_FLIP=0.72;
 const SPIN_RATE=Math.PI*2*1.35, FLIP_RATE=Math.PI*2*1.25;
 let trick=null; // rope backflip only
 let planeT=34+Math.random()*26,planeActive=false,hanging=false,spawnT=0.4;
-let lastKind='',sameRun=0,bigFinCd=6,laneSlot=(Math.random()*5)|0;
+let lastKind='',sameRun=0,bigFinCd=6,octCd=0,laneSlot=(Math.random()*5)|0;
 const keys={};
 addEventListener('keydown',e=>{
   keys[e.code]=true;
@@ -11293,7 +11298,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   planeT=34+Math.random()*26;planeActive=false;plane.visible=false;hanging=false;rope.visible=false;
   ropeBtn.style.display='none';ropeBtn.textContent='ROPE!';
   player.rotation.set(0,0,0);
-  spawnT=2.0;lastKind='';sameRun=0;bigFinCd=6;laneSlot=(Math.random()*5)|0;   // a little open water first
+  spawnT=2.0;lastKind='';sameRun=0;bigFinCd=6;octCd=0;laneSlot=(Math.random()*5)|0;   // a little open water first
   crateReset();
   // The set wave dies with the run. This line lived only in respawn() — the revive path —
   // so pressing Surf again after wiping out mid-wave started the NEW run with the old wave
@@ -14121,6 +14126,35 @@ if(location.hash.includes('debug')){
       const b=new THREE.Box3().setFromObject(beachChest);
       return {rot:[x||0,y||0,z||0],
               size:[b.max.x-b.min.x,b.max.y-b.min.y,b.max.z-b.min.z].map(v=>+v.toFixed(2))}; },
+    // Does the octopus's SKIN move, or only its bones? Every reading so far has been of bone
+    // positions, and bones moving is not the same statement as an animal moving — that was the
+    // exact shape of the clone bug, where the code turned one skeleton and the picture came
+    // from another. Sampled vertices, in the animal's OWN frame so its drift down the wave
+    // does not count as flexing, run through the same skinning maths the shader runs.
+    octoFlex(){
+      const o=obstacles.find(x=>x.userData.kind==='octopus'); if(!o)return null;
+      o.updateMatrixWorld(true);
+      const out=[], v=new THREE.Vector3(), base=o.getWorldPosition(new THREE.Vector3());
+      o.traverse(m=>{ if(!m.isSkinnedMesh||!m.geometry||!m.geometry.attributes.position)return;
+        m.skeleton.update();
+        const pa=m.geometry.attributes.position, step=Math.max(1,Math.ceil(pa.count/60));
+        for(let i=0;i<pa.count;i+=step){
+          v.fromBufferAttribute(pa,i);
+          if(m.applyBoneTransform)m.applyBoneTransform(i,v); else if(m.boneTransform)m.boneTransform(i,v);
+          v.applyMatrix4(m.matrixWorld).sub(base);
+          out.push(+v.x.toFixed(4),+v.y.toFixed(4),+v.z.toFixed(4)); } });
+      return out;
+    },
+    // How many starfish are in the air, and how many an octopus has let go of. "I never saw
+    // one thrown" is two separate questions — whether the wind-up ever fires, and whether the
+    // star that leaves the arm ever becomes a thing in the world — and this answers both.
+    starsUp(){
+      let thrown=0, winding=0;
+      for(const o of obstacles)if(o.userData.kind==='octopus'){
+        if(o.userData.armT!==undefined)winding++;
+        thrown+=o.userData.threwN||0; }
+      return {flying:stars.length, winding, live:thrown, thrown:starThrows, pool:STAR_POOL.length};
+    },
     // Would the renderer actually DRAW this thing where it is? Three.js culls by the
     // geometry's bounding sphere put through the object's world matrix, and for a skinned
     // mesh that sphere is the BIND pose — an animal whose arms are posted out on bones can
@@ -14171,7 +14205,8 @@ if(location.hash.includes('debug')){
         const b=new THREE.Box3().setFromObject(o);
         const w=swellH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock);
         const arms=(typeof octoArms==='function')?octoArms(o):null;
-        return {y:+o.position.y.toFixed(2), lo:+b.min.y.toFixed(2), hi:+b.max.y.toFixed(2),
+        return {rx:+o.rotation.x.toFixed(2), rz:+o.rotation.z.toFixed(2),
+                y:+o.position.y.toFixed(2), lo:+b.min.y.toFixed(2), hi:+b.max.y.toFixed(2),
                 water:+w.toFixed(2), under:+(w-b.min.y).toFixed(2),
                 yaw:+o.rotation.y.toFixed(2), z:+o.position.z.toFixed(1),
                 arms:arms?arms.length:0,
@@ -14812,6 +14847,7 @@ function buildStarfish(variant){
   return g;
 }
 const STAR_POOL=[],stars=[];
+let starThrows=0;                 // every starfish an octopus has ever let go of, this run
 for(let i=0;i<10;i++){const st=buildStarfish(i);st.visible=false;scene.add(st);STAR_POOL.push(st);}
 
 // The splat is the real starfish, not a picture of one. It gets its own tiny scene
@@ -14863,6 +14899,7 @@ function octoArms(o){
 }
 function throwStarfish(oct,from){
   const st=STAR_POOL.pop(); if(!st)return;
+  starThrows++;
   st.visible=true;
   const fx=from?from.x:oct.position.x, fy=from?from.y:oct.position.y+1.15,
         fz=from?from.z:oct.position.z;
@@ -16093,7 +16130,11 @@ function update(dt){
     // you have met everything else first — but there are a lot more of them once they do,
     // and they keep growing as a share of the field. They are the one obstacle that makes
     // you watch something other than your own lane, so the late game is built out of them.
-    const octW=24+Math.min(14,Math.max(0,(dist-780)/220));
+    // EASED IN, not switched on. It used to arrive at a weight of 24 against a field of 86,
+    // so the first octopus and the next eight turned up together the moment the counter
+    // passed 780 — nothing, and then a wall of them. Starting at four and climbing over the
+    // next six hundred metres puts the first one on its own, where you can look at it.
+    const octW=Math.min(30,4+Math.max(0,(dist-780)/28));
     const WEIGHTS=[['buoy',22,0],['log',17,0],['ramp',16,150],['jelly',20,340],
                    ['bigfin',11,560],['octopus',octW,780]].filter(w=>dist>=w[2]);
     let pick=null;
@@ -16103,12 +16144,18 @@ function update(dt){
       for(const w of WEIGHTS){roll-=w[1];if(roll<=0){cand=w[0];break;}}
       if(cand===lastKind&&sameRun>=2)continue;          // break up streaks
       if(cand==='bigfin'&&bigFinCd>0)continue;          // big fin needs breathing room
+      if(cand==='octopus'&&octCd>0)continue;            // and so does a thrower
       pick=cand;break;
     }
     if(!pick)pick='buoy';
     sameRun=(pick===lastKind)?sameRun+1:1;
     lastKind=pick;
     if(pick==='bigfin')bigFinCd=9;
+    // At least two other things between one octopus and the next. They are the obstacle you
+    // have to watch the water for rather than your own lane, and three of them in a row is
+    // not a harder wave, it is one you cannot read.
+    octCd=Math.max(0,octCd-1);
+    if(pick==='octopus')octCd=3;
     // spread across the full lane, centred on the player, with jittered slots so it
     // never clusters on one side
     // seven lanes spanning wider than you can steer, so the edges are never safe
@@ -16117,7 +16164,7 @@ function update(dt){
     makeObstacle(pick,Math.max(-17,Math.min(17,px*0.55+laneX)),-170);
     // A second thrower, well off the first one's lane and further out, so the octopuses
     // read as a spread FIELD you thread between rather than as one obstacle at a time.
-    if(pick==='octopus'&&dist>1050&&Math.random()<0.42){
+    if(pick==='octopus'&&dist>1400&&Math.random()<0.26){
       const away=(laneX>0?-1:1)*(6.5+Math.random()*8.0);
       makeObstacle('octopus',Math.max(-17,Math.min(17,px*0.55+laneX+away)),-170-(15+Math.random()*24));
     }
@@ -16160,7 +16207,7 @@ function update(dt){
       // the bearing it arrived on, held. The swell writes rotation.x and z every frame and
       // this is the third axis, so it has to be written too or a clone picks up whatever the
       // template was left at.
-      o.rotation.y=(u.yaw===undefined?Math.PI:u.yaw);
+      o.rotation.y=(u.yaw===undefined?0:u.yaw);
       o.position.y+=Math.sin(u.t*1.5)*dt*0.30;                 // gentle bob of its own
       // ---- an IMPORTED octopus animates its own arms ----
       // Every arm on its own clock. They share one wave shape and nothing else: each starts
@@ -16183,8 +16230,13 @@ function update(dt){
             // Bigger than they were, and by a lot. The first pass was measurable and not
             // visible: a fifth of a radian at the last joint of a short segment moves a tip
             // by an inch, and an octopus whose arms move by an inch reads as a statue.
-            const curl=Math.sin(T*Math.PI*2*0.42-lag)*(0.10+f*0.62);
-            const sway=Math.sin(T*Math.PI*2*0.27-lag*0.7)*(0.06+f*0.34);
+            // Weighted toward the SHOULDER rather than the tip, which is the change that
+            // made it read. Piling the amplitude on the last joint curls a tip tightly and
+            // moves almost nothing you can see from twenty feet — and at enough of it to be
+            // visible the arm folds back over the animal and it looks like it is lying on
+            // its side. A smaller angle at every joint sweeps the WHOLE arm instead.
+            const curl=Math.sin(T*Math.PI*2*0.44-lag)*(0.20+f*0.45);
+            const sway=Math.sin(T*Math.PI*2*0.29-lag*0.7)*(0.12+f*0.26);
             // the wind-up: back and up, then whipped forward through the release
             const whip=th>0?(th<0.55? -th*1.5 : (th-0.55)*4.4)*(0.10+f*0.55):0;
             e.set(curl+whip,sway*0.6,sway);
@@ -16209,14 +16261,18 @@ function update(dt){
         j.rotation.y=d.ry+Math.sin(t2-lag*0.8)*B+Math.cos(t1*0.41)*B*0.5;
         j.rotation.z=d.rz+Math.cos((t1+t2)*0.5-lag*0.7)*A*0.8;
       }
-      // only throws while it is close enough to be a threat
-      if(o.position.z>-72&&o.position.z<-7){
+      // Only while it is close enough to be a threat — but WIDER than it was, and armed
+      // sooner. An octopus crosses the old window in about a second and a half at speed and
+      // its first timer ran to nearly two, so most of them drifted past having never thrown
+      // anything: measured over forty spawns, one throw. It is the one obstacle that does
+      // something to you rather than sitting there, and it has to actually do it.
+      if(o.position.z>-100&&o.position.z<-4){
         u.throwT-=dt;
         if(u.throwT<=0&&u.armT===undefined){
           // pick an arm and wind it up. The star leaves at the top of the throw, not at the
           // moment the timer expires — a starfish appearing out of the middle of an animal is
           // the thing this is here to stop.
-          u.throwT=1.05+Math.random()*1.05;
+          u.throwT=0.85+Math.random()*0.85;
           if(arms&&arms.length){ u.arm=Math.floor(Math.random()*arms.length); u.armT=0.001; }
           else throwStarfish(o);
         }
@@ -16226,6 +16282,7 @@ function update(dt){
       if(u.armT!==undefined){
         u.armT+=dt*1.9;
         if(!u.threw&&u.armT>=0.60){
+          u.threwN=(u.threwN||0)+1;
           u.threw=true;
           const A=arms&&arms[u.arm];
           const tip=A?A.ch[A.ch.length-1].getWorldPosition(new THREE.Vector3()):null;

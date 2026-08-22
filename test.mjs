@@ -1843,7 +1843,7 @@ if (hasHook) {
   check(buoys.every(b => Math.abs(b.r / b.tall - buoys[0].r / buoys[0].tall) < 0.06),
         'and each of them hits you at the size it is drawn',
         names.map(v => `${v} r/height ${(size(v)[0].r / size(v)[0].tall).toFixed(2)}`).join(', '));
-  check(buoys.every(b => b.tall > 1.8 && b.tall < 6.0),
+  check(buoys.every(b => b.tall > 1.8 && b.tall < 7.6),
         'and both stand out of the water rather than looming or vanishing',
         buoys.slice(0, 4).map(b => `${b.variant}:${b.tall}`).join(', '));
 }
@@ -1873,7 +1873,11 @@ if (hasHook) {
   check(oct.yaws.length >= 6 && swing < 0.02,
         'the octopus holds the bearing it arrived on rather than turning to track you',
         `${oct.yaws.length} frames, ${swing.toFixed(4)} rad of swing`);
-  check(oct.yaws.every(y => Math.abs(Math.abs(y) - Math.PI) < 0.4),
+  // ZERO, not half a turn. The model is built looking down +z and the ride camera sits on
+  // +z, so facing you is facing its own forward — the half turn that used to be here was
+  // measured on a build that drew the template rather than the clone, and a template is
+  // never rotated, so it faced front whatever this number said.
+  check(oct.yaws.every(y => Math.abs(y) < 0.4),
         'and that bearing is toward the camera, so it comes at you face on',
         `${oct.yaws.map(y => y.toFixed(2)).join(', ')}`);
   // On AVERAGE, because it has a bob of its own worth a fifth of a foot either way and that
@@ -1902,6 +1906,75 @@ if (hasHook) {
   check(moved && new Set(moved.map(m => m.toFixed(2))).size >= Math.ceil(moved.length * 0.5),
         'and each of them on its own clock, not eight copies of one arm',
         `${moved ? new Set(moved.map(m => m.toFixed(2))).size : 0} different amounts among ${oct.arms}`);
+}
+
+// ---------- the octopus faces you, flexes, throws, and arrives one at a time ----------
+// Four complaints and four different causes, which is why they are four checks.
+//
+// Facing was a number that could not be wrong out loud: half a turn was measured on a build
+// that was drawing the TEMPLATE rather than the clone, and a template is never rotated, so it
+// faced front whatever the number said. With the clone drawn properly the same number turned
+// every octopus round to show you its back. The model is built looking down +z and the ride
+// camera sits on +z, so facing you is zero.
+{
+  const oct = await page.evaluate(async () => {
+    window.__surf.restart(); window.__surf.invuln(true); window.__surf.tick(0.5);
+    window.__surf.spawn('octopus', 0.5, -45); window.__surf.tick(0.02);
+    const a = window.__surf.octoFlex(), yaw = window.__surf.octoState()[0];
+    window.__surf.tick(0.45);
+    const b = window.__surf.octoFlex();
+    let most = 0, moved = 0;
+    if (a && b && a.length === b.length) for (let i = 0; i < a.length; i += 3) {
+      const d = Math.hypot(a[i] - b[i], a[i + 1] - b[i + 1], a[i + 2] - b[i + 2]);
+      if (d > most) most = d;
+      if (d > 0.05) moved++;
+    }
+    return { yaw: yaw && yaw.yaw, samples: a ? a.length / 3 : 0, moved, most: +most.toFixed(2) };
+  });
+  check(oct.yaw !== undefined && Math.abs(oct.yaw) < 0.4,
+        'an octopus comes at you face on rather than showing you its back',
+        `yaw ${oct.yaw}`);
+  // Its SKIN, not its bones. Every reading before this one was of bone positions, and bones
+  // moving is not the same statement as an animal moving — that is exactly the shape the
+  // clone bug took, where the code turned one skeleton and the picture came from another.
+  check(oct.samples > 20 && oct.moved > oct.samples * 0.6 && oct.most > 0.15,
+        'and its arms actually move the skin, not just the skeleton',
+        `${oct.moved} of ${oct.samples} sampled vertices moved, furthest ${oct.most}ft in half a second`);
+  // It THROWS. Measured over forty spawns this was one starfish, because an octopus crosses
+  // the throwing window in about a second and a half at speed and its first timer ran to
+  // nearly two — most of them drifted past having never thrown anything at all.
+  const thrown = await page.evaluate(() => {
+    window.__surf.restart(); window.__surf.invuln(true); window.__surf.tick(0.5);
+    const before = window.__surf.starsUp().thrown;
+    let flying = 0;
+    for (let i = 0; i < 40; i++) {
+      if (i % 6 === 0) window.__surf.spawn('octopus', (i % 5) - 2, -40);
+      window.__surf.tick(0.4);
+      flying = Math.max(flying, window.__surf.starsUp().flying);
+    }
+    return { thrown: window.__surf.starsUp().thrown - before, flying };
+  });
+  check(thrown.thrown >= 4 && thrown.flying >= 1,
+        'and the ones you pass actually throw something at you',
+        `${thrown.thrown} starfish let go of, ${thrown.flying} in the air at once`);
+  // ONE AT A TIME. The weight arrived at 24 against a field of 86 the moment the counter
+  // passed 780 m, so the first octopus and the next eight turned up together — nothing, and
+  // then a wall of them. Obstacles are held in spawn order, so "no two adjacent" is the
+  // question, and there have to be at least two other things between one and the next.
+  const spread = await page.evaluate(() => {
+    window.__surf.restart(); window.__surf.invuln(true);
+    window.__surf.setDist(2600); window.__surf.tick(30);
+    const list = window.__surf.obsBounds().map(o => o.kind);
+    let worst = 0, run = 0;
+    for (let i = 1; i < list.length; i++) {
+      if (list[i] === 'octopus' && list[i - 1] === 'octopus') { run++; worst = Math.max(worst, run); }
+      else run = 0;
+    }
+    return { list, worst, n: list.filter(k => k === 'octopus').length };
+  });
+  check(spread.list.length > 6 && spread.worst === 0,
+        'and they arrive spread through the field rather than in a wall of them',
+        `${spread.n} of ${spread.list.length} in the water, ${spread.worst} back to back`);
 }
 
 // ---------- a rigged obstacle is drawn where it IS ----------
@@ -2599,7 +2672,11 @@ check(shaderErrors.length === 0, 'every shader compiles',
         `${sc.bodyW}ft wide by ${sc.bodyD}ft thick, on a deck ${sc.board.x}ft across`);
   // and the props he rides past were right all along — this is the check that says the
   // rider was the odd one out rather than everything else being small
-  check(sc.buoy.y > 2 && sc.buoy.y < 6 && sc.log.x > 3 && sc.log.x < 8,
+  // The buoy is a NAVIGATION buoy now, deliberately much bigger than the little striped
+  // float it replaced — that is the point of it, and of the small one beside it. What still
+  // has to hold is that it is furniture in the water rather than scenery on the horizon: a
+  // thing you steer round, taller than the rider and shorter than the wave.
+  check(sc.buoy.y > 2 && sc.buoy.y < 8 && sc.log.x > 3 && sc.log.x < 8,
         'and the buoys and logs he passes were already at that scale',
         `buoy ${sc.buoy.y}ft tall, log ${sc.log.x}ft long`);
   const tall = await page.evaluate(async () => {
