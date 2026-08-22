@@ -15,7 +15,7 @@ at full white, which makes the model glow flat and ignore every light in the sce
 checking if an import looks oddly unlit.
 
 `board.glb`, `buoy.glb`, `chest.glb`, `log.glb`, `octopus.glb`, `palm.glb`, `pug.glb`,
-`cat.glb`, `frog.glb` and `monkey.glb` ship with the game; the rest of the table is
+`buoy2.glb`, `cat.glb`, `frog.glb` and `monkey.glb` ship with the game; the rest of the table is
 empty by design, and the 404s those file names produce are the documented path
 rather than a fault.
 
@@ -34,6 +34,7 @@ to `RIDER_MODELS` in `index.html`.
 | `frog.glb` | Allen the Frog |
 | `monkey.glb` | Bongo the Monkey |
 | `buoy.glb` | the striped buoy |
+| `buoy2.glb` | a second buoy, picked at random against the first |
 | `log.glb` | the floating log |
 | `jelly.glb` | the jellyfish |
 | `ramp.glb` | the wooden ramp |
@@ -66,6 +67,12 @@ Nothing else needs setting up:
 Collision size is unchanged — the game still uses the original's radius and height,
 so a model that is wildly a different shape will feel slightly off even though it
 looks right.
+
+**More than one model for the same thing.** Every obstacle also looks for a file with a `2`
+on the end — `buoy2.glb`, `log2.glb`, `jelly2.glb` — and if one is there, each spawn picks
+between them at random, so a run passes a danger buoy and then a channel marker rather than
+the same object twenty times. Both are fitted against the ORIGINAL procedural shape and both
+carry its collision size, so a second import cannot quietly rescale the first.
 
 ## Colours
 

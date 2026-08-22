@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.62.0';
+const VERSION='3.63.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10302,12 +10302,19 @@ function buildObstacle(kind){
 }
 // one template per obstacle type; every spawn is a clone that reuses the same GPU data
 const OBST_TEMPLATES={};
+// ...or SEVERAL, when more than one model has been dropped in for the same thing
+const OBST_VARIANTS={};
+// and the size and hitbox the procedural original had, kept so the second import is measured
+// against the same thing the first was rather than against the first
+const OBST_SPEC={};
 // each obstacle floats at its own waterline so nothing gets buried by a passing swell
 const FLOAT_OFF={buoy:0.36,jelly:0.34,log:0.40,bigfin:0.28,ramp:0.02,octopus:0.26};   // ramp sits low: water laps its base
 // clear the cached buoyancy state on a fresh clone so a new spawn doesn't inherit it
 function makeObstacle(kind,x,z){
   if(!OBST_TEMPLATES[kind])OBST_TEMPLATES[kind]=buildObstacle(kind);
-  const t=OBST_TEMPLATES[kind];
+  // one of the models dropped in for this kind, at random, or the only one there is
+  const vs=OBST_VARIANTS[kind];
+  const t=(vs&&vs.length>1)?vs[(Math.random()*vs.length)|0]:OBST_TEMPLATES[kind];
   const m=t.clone(true);
   // rx/rz are the per-instance TILT on the swell and are deliberately cleared; hx/hz are
   // the collision half-extents and must survive the clone. Naming the hitbox rx/rz put the
@@ -10367,15 +10374,26 @@ function clearLanding(vy0){
 // cloned from. Its collision size and float height carry over untouched; the
 // hand-animated parts (the jelly's bell, the octopus's arms) do not exist in an
 // imported mesh, so those clones simply drift.
+// A kind may have SEVERAL models — buoy.glb and buoy2.glb — and then every spawn picks one
+// at random, so a run passes a danger buoy and then a channel marker rather than the same
+// object over and over. Each is fitted against the ORIGINAL procedural template's box and
+// carries the original's collision size, not the previous model's: measure the second one
+// against the first and each import quietly rescales the next.
 for(const kind of ['buoy','jelly','log','bigfin','ramp','octopus'])(k=>{
-  loadModel(k+'.glb',s3=>{
+  const take=s3=>{
     if(!OBST_TEMPLATES[k])OBST_TEMPLATES[k]=buildObstacle(k);
-    const t=OBST_TEMPLATES[k];
-    const fitted=skinAndFit(k,s3,boxOf(t));
-    fitted.userData={kind:k,r:t.userData.r,h:t.userData.h,ramp:t.userData.ramp,used:false,
-                     hx:t.userData.hx,hz:t.userData.hz};
-    OBST_TEMPLATES[k]=fitted;
-  });
+    if(!OBST_SPEC[k]){ const t=OBST_TEMPLATES[k];
+      OBST_SPEC[k]={box:boxOf(t), r:t.userData.r, h:t.userData.h, ramp:t.userData.ramp,
+                    hx:t.userData.hx, hz:t.userData.hz}; }
+    const sp=OBST_SPEC[k];
+    const fitted=skinAndFit(k,s3,sp.box);
+    fitted.userData={kind:k,r:sp.r,h:sp.h,ramp:sp.ramp,used:false,hx:sp.hx,hz:sp.hz,
+                     variant:(OBST_VARIANTS[k]||[]).length};
+    OBST_TEMPLATES[k]=fitted;                       // the first one in is the default
+    (OBST_VARIANTS[k]||(OBST_VARIANTS[k]=[])).push(fitted);
+  };
+  loadModel(k+'.glb',take);
+  loadModel(k+'2.glb',take);      // absent for most kinds, and its 404 is the documented path
 })(kind);
 
 // ---------- state ----------
@@ -13632,6 +13650,7 @@ if(location.hash.includes('debug')){
       const B=new THREE.Box3(), S=new THREE.Vector3();
       return obstacles.map(o=>{ B.setFromObject(o); B.getSize(S);
         return {kind:o.userData.kind, r:o.userData.r, h:o.userData.h,
+                variant:o.userData.variant===undefined?null:o.userData.variant,
                 hx:o.userData.hx, hz:o.userData.hz,
                 halfX:+(S.x/2).toFixed(2), halfZ:+(S.z/2).toFixed(2), tall:+S.y.toFixed(2)}; });
     },

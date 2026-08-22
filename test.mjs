@@ -49,10 +49,12 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 1024, height: 640 } });
 
 // models/*.glb are OPTIONAL overrides — drop one in and it replaces the built-in shape,
-// leave it out and the procedural version stands (models/README.md). Eight of the nine
-// are absent by design, so their 404s are the documented path, not a fault. Anything
-// else that 404s is a genuinely missing asset.
-const EXPECTED_404 = /\/models\/[a-z]+\.glb$/;
+// leave it out and the procedural version stands (models/README.md). Most of the table is
+// absent by design, so those 404s are the documented path, not a fault. The trailing digit
+// is the same arrangement one level down: every obstacle also asks for a SECOND model of
+// itself — buoy2.glb and so on — so a kind can have more than one look, and all but one of
+// those are missing too. Anything else that 404s is a genuinely missing asset.
+const EXPECTED_404 = /\/models\/[a-z]+[0-9]*\.glb$/;
 
 // Shader compile failures do NOT throw. The program fails, three.js writes it to
 // console.error, and the mesh simply stops being drawn — state still says it is visible,
@@ -1808,6 +1810,32 @@ if (hasHook) {
         `radius varies ${circ.spanProf.toFixed(2)} m round the whole ring`);
   check(circ.spanRide < 0.6, 'and a held turn rides that circle',
         `radius band ${circ.spanRide.toFixed(2)} m over ${circ.n} moving samples`);
+}
+
+// ---------- an obstacle can come in more than one shape ----------
+// Two buoys ship — a yellow danger buoy and a red channel marker — and a run that passes the
+// same object twenty times reads as a corridor rather than as a sea. Every spawn picks one at
+// random, so what this asks is that thirty spawns are not thirty of the same one, and that
+// whichever turns up carries the ORIGINAL collision size: each model is fitted against the
+// procedural template's box, because measuring the second against the first would have let
+// each import quietly rescale the next.
+{
+  const buoys = await page.evaluate(() => {
+    window.__surf.restart(); window.__surf.invuln(true); window.__surf.tick(0.5);
+    for (let i = 0; i < 30; i++) window.__surf.spawn('buoy', (i % 7) - 3, -14 - i * 3);
+    window.__surf.tick(0.05);
+    return window.__surf.obsBounds().filter(o => o.kind === 'buoy');
+  });
+  const kinds = new Set(buoys.map(b => b.variant));
+  check(buoys.length >= 20 && kinds.size >= 2,
+        'the buoys you pass are not all the same buoy',
+        `${buoys.length} spawned, ${kinds.size} different ones: ${[...kinds].join(', ')}`);
+  check(buoys.every(b => b.r === buoys[0].r && b.h === buoys[0].h),
+        'and whichever one turns up hits you at the same size',
+        `r ${buoys[0] && buoys[0].r}, h ${buoys[0] && buoys[0].h}`);
+  check(buoys.every(b => b.tall > 2.2 && b.tall < 5.0),
+        'and stands out of the water at the same height',
+        buoys.slice(0, 4).map(b => `${b.variant}:${b.tall}`).join(', '));
 }
 
 // ---------- the treasure chest ----------
