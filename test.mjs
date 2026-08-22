@@ -1838,6 +1838,62 @@ if (hasHook) {
         buoys.slice(0, 4).map(b => `${b.variant}:${b.tall}`).join(', '));
 }
 
+// ---------- the octopus is an animal in the water, not a turret on it ----------
+// Three separate complaints and one cause between them: it was re-aimed at the rider every
+// frame. atan2 from the octopus to the player reads as an animal that TRACKS you — it swings
+// round as you steer past and then spins right about the moment it is behind you, because
+// that is where the bearing flips. It faces the camera from the moment it appears now and
+// drifts by on the swell like everything else in the water.
+{
+  const oct = await page.evaluate(() => {
+    window.__surf.restart(); window.__surf.invuln(true); window.__surf.tick(0.5);
+    window.__surf.spawn('octopus', -1.4, -60);
+    window.__surf.tick(0.05);
+    const yaws = [], sink = [], tips = [];
+    for (let i = 0; i < 8; i++) {
+      const s = window.__surf.octoState()[0];
+      if (s) { yaws.push(s.yaw); sink.push(s.y - s.water); }
+      tips.push(window.__surf.octoTips());
+      window.__surf.tick(0.28);
+    }
+    const s0 = window.__surf.octoState()[0];
+    return { yaws, sink, tips, arms: s0 ? s0.arms : 0, joints: s0 ? s0.joints : null };
+  });
+  const swing = Math.max(...oct.yaws) - Math.min(...oct.yaws);
+  check(oct.yaws.length >= 6 && swing < 0.02,
+        'the octopus holds the bearing it arrived on rather than turning to track you',
+        `${oct.yaws.length} frames, ${swing.toFixed(4)} rad of swing`);
+  check(oct.yaws.every(y => Math.abs(Math.abs(y) - Math.PI) < 0.4),
+        'and that bearing is toward the camera, so it comes at you face on',
+        `${oct.yaws.map(y => y.toFixed(2)).join(', ')}`);
+  // On AVERAGE, because it has a bob of its own worth a fifth of a foot either way and that
+  // is the point of it — an animal in the water breathes up and down through the surface. A
+  // check on the worst frame would only be measuring the top of the bob.
+  const mean = oct.sink.reduce((a, b) => a + b, 0) / Math.max(1, oct.sink.length);
+  check(mean < 0.06 && Math.min(...oct.sink) < -0.08,
+        'and it rides IN the water rather than sitting on top of it like a beach ball',
+        `averages ${mean.toFixed(2)}ft at the surface, bobbing ${Math.min(...oct.sink).toFixed(2)} to ${Math.max(...oct.sink).toFixed(2)}`);
+  // ARMS THAT MOVE, AND MOVE SEPARATELY. Eight arms doing the same thing at the same time is
+  // a windscreen wiper, and arms that move by an inch are a statue — the first pass was
+  // measurable and not visible, which is the failure this puts a number on.
+  const runs = oct.tips.filter(Boolean);
+  const moved = runs.length > 1 && runs[0].map((_, a) => {
+    let m = 0;
+    for (let i = 1; i < runs.length; i++) {
+      const p = runs[i - 1][a], q = runs[i][a];
+      m = Math.max(m, Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]));
+    }
+    return m;
+  });
+  const most = moved ? Math.max(...moved) : 0;
+  check(moved && moved.filter(m => m > 0.12).length >= Math.ceil(moved.length * 0.6),
+        'its tentacles curl and uncurl rather than hanging there',
+        `${oct.arms} arms, furthest a tip travelled between frames ${most.toFixed(2)}ft`);
+  check(moved && new Set(moved.map(m => m.toFixed(2))).size >= Math.ceil(moved.length * 0.5),
+        'and each of them on its own clock, not eight copies of one arm',
+        `${moved ? new Set(moved.map(m => m.toFixed(2))).size : 0} different amounts among ${oct.arms}`);
+}
+
 // ---------- the treasure chest ----------
 // Its LID FACES UP. This one went wrong three times, and never in a way that a number could
 // catch: the lid is modelled already open, so the bounding box is nearly a cube, no axis

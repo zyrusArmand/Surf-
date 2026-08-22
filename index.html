@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.63.0';
+const VERSION='3.64.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10308,7 +10308,9 @@ const OBST_VARIANTS={};
 // against the same thing the first was rather than against the first
 const OBST_SPEC={};
 // each obstacle floats at its own waterline so nothing gets buried by a passing swell
-const FLOAT_OFF={buoy:0.36,jelly:0.34,log:0.40,bigfin:0.28,ramp:0.02,octopus:0.26};   // ramp sits low: water laps its base
+// the octopus rides LOW: it is an animal in the water rather than on it, and floated at the
+// same height as a buoy its whole body sat proud of the surface like a beach ball
+const FLOAT_OFF={buoy:0.36,jelly:0.34,log:0.40,bigfin:0.28,ramp:0.02,octopus:0.02};   // ramp sits low: water laps its base
 // clear the cached buoyancy state on a fresh clone so a new spawn doesn't inherit it
 function makeObstacle(kind,x,z){
   if(!OBST_TEMPLATES[kind])OBST_TEMPLATES[kind]=buildObstacle(kind);
@@ -10330,6 +10332,14 @@ function makeObstacle(kind,x,z){
     m.userData.throwT=0.9+Math.random()*1.0;
     m.userData.t=Math.random()*6;
     m.userData.seed=Math.random()*Math.PI*2;   // no two octopuses wave in step
+    // ---- turned to face you ONCE, at spawn, and then left alone ----
+    // It used to be re-aimed every frame — atan2 from the octopus to the rider — which reads
+    // as an animal that tracks you: it swings round as you steer past it and then spins right
+    // about as it goes by, because the moment it is behind you the bearing flips. It faces the
+    // camera from the moment it appears and drifts past on the swell like everything else in
+    // the water, with a few degrees of its own so a field of them is not a rank.
+    m.userData.yaw=Math.PI+(Math.random()-0.5)*0.55;
+    m.rotation.y=m.userData.yaw;
     // collect the arm joints of this clone so the wave can be driven down each arm
     const joints=[];
     m.traverse(o=>{if(o.userData&&o.userData.tj)joints.push(o);});
@@ -13970,6 +13980,25 @@ if(location.hash.includes('debug')){
       const b=new THREE.Box3().setFromObject(beachChest);
       return {rot:[x||0,y||0,z||0],
               size:[b.max.x-b.min.x,b.max.y-b.min.y,b.max.z-b.min.z].map(v=>+v.toFixed(2))}; },
+    // How deep an octopus rides. Half a foot is the difference between a beach ball on the
+    // surface and a head that has gone under entirely, and neither is what was asked for.
+    octoSink(v){ if(v!==undefined)FLOAT_OFF.octopus=v; return FLOAT_OFF.octopus; },
+    // Where an octopus is against the water it is meant to be sitting IN, which way it is
+    // turned, and how many joints there are in each arm to animate. "It floats on top and its
+    // tentacles barely move" is three separate numbers and this is all three.
+    octoState(){
+      return obstacles.filter(o=>o.userData.kind==='octopus').map(o=>{
+        o.updateMatrixWorld(true);
+        const b=new THREE.Box3().setFromObject(o);
+        const w=swellH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock);
+        const arms=(typeof octoArms==='function')?octoArms(o):null;
+        return {y:+o.position.y.toFixed(2), lo:+b.min.y.toFixed(2), hi:+b.max.y.toFixed(2),
+                water:+w.toFixed(2), under:+(w-b.min.y).toFixed(2),
+                yaw:+o.rotation.y.toFixed(2), z:+o.position.z.toFixed(1),
+                arms:arms?arms.length:0,
+                joints:arms?arms.map(a=>a.ch.length):null};
+      });
+    },
     // Where every tentacle tip is, so "are the arms moving, and separately" is a number
     // rather than an impression — eight tips that all move together are one arm in eight
     // copies, and that is exactly the thing this was written to avoid.
@@ -15946,8 +15975,10 @@ function update(dt){
     if(o.userData.kind==='octopus'){
       const u=o.userData;
       u.t+=dt;
-      // turns to keep the rider in front of it while it drifts past
-      o.rotation.y=Math.atan2(o.position.x-px,o.position.z);
+      // the bearing it arrived on, held. The swell writes rotation.x and z every frame and
+      // this is the third axis, so it has to be written too or a clone picks up whatever the
+      // template was left at.
+      o.rotation.y=(u.yaw===undefined?Math.PI:u.yaw);
       o.position.y+=Math.sin(u.t*1.5)*dt*0.30;                 // gentle bob of its own
       // ---- an IMPORTED octopus animates its own arms ----
       // Every arm on its own clock. They share one wave shape and nothing else: each starts
@@ -15967,8 +15998,11 @@ function update(dt){
             const lag=i*0.62;
             // curl up and down, hardest at the tip: an arm's shoulder barely moves and its
             // last two joints do nearly all of the coiling
-            const curl=Math.sin(T*Math.PI*2*0.34-lag)*(0.06+f*0.30);
-            const sway=Math.sin(T*Math.PI*2*0.21-lag*0.7)*(0.03+f*0.16);
+            // Bigger than they were, and by a lot. The first pass was measurable and not
+            // visible: a fifth of a radian at the last joint of a short segment moves a tip
+            // by an inch, and an octopus whose arms move by an inch reads as a statue.
+            const curl=Math.sin(T*Math.PI*2*0.42-lag)*(0.10+f*0.62);
+            const sway=Math.sin(T*Math.PI*2*0.27-lag*0.7)*(0.06+f*0.34);
             // the wind-up: back and up, then whipped forward through the release
             const whip=th>0?(th<0.55? -th*1.5 : (th-0.55)*4.4)*(0.10+f*0.55):0;
             e.set(curl+whip,sway*0.6,sway);
