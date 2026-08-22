@@ -2085,6 +2085,27 @@ if (hasHook) {
         `${spread.n} of ${spread.list.length} in the water, ${spread.worst} back to back`);
 }
 
+// ---------- the tow plane is the modelled one ----------
+// It flies past towing a rope and it is the same aircraft the set wave is thrown by, so one
+// model covers both. The propeller is the thing to be careful of: the engine-failure sequence
+// spins that one part by name, and a single-mesh import has none — so the original's parts
+// are HIDDEN rather than thrown away and the propeller keeps turning inside the model.
+{
+  const pl = await page.evaluate(() => {
+    window.__surf.restart(); window.__surf.invuln(true); window.__surf.tick(0.6);
+    const a = window.__surf.planeAt(-40, 0, 10);
+    window.__surf.tick(0.5);
+    return a;
+  });
+  check(pl.modelled === true && pl.meshes[0] === 1 && pl.meshes[1] > 5,
+        'the plane that flies past is the modelled one, with the built-in parts kept and hidden',
+        `${pl.meshes[0]} of ${pl.meshes[1]} meshes drawn`);
+  check(pl.size[0] > 3 && pl.size[0] < 12 && pl.size[2] > 2 && pl.size[2] < 12 &&
+        pl.size[0] > pl.size[1] * 1.5,
+        'and it is an aeroplane-shaped thing — wider than it is tall, and about as long',
+        `${pl.size.join(' x ')}ft`);
+}
+
 // ---------- a rigged obstacle is drawn where it IS ----------
 // Object3D.clone() cannot clone a rigged model. A SkinnedMesh is drawn from its SKELETON's
 // world matrices, and clone() copies the mesh while leaving it pointing at the ORIGINAL's

@@ -15,7 +15,7 @@ at full white, which makes the model glow flat and ignore every light in the sce
 checking if an import looks oddly unlit.
 
 `board.glb`, `buoy.glb`, `chest.glb`, `log.glb`, `octopus.glb`, `palm.glb`, `pug.glb`,
-`buoy2.glb`, `cat.glb`, `frog.glb` and `monkey.glb` ship with the game; the rest of the table is
+`buoy2.glb`, `cat.glb`, `frog.glb`, `monkey.glb` and `plane.glb` ship with the game; the rest of the table is
 empty by design, and the 404s those file names produce are the documented path
 rather than a fault.
 
@@ -41,6 +41,7 @@ to `RIDER_MODELS` in `index.html`.
 | `octopus.glb` | the octopus |
 | `bigfin.glb` | the shark fin |
 | `jetski.glb` | the jet ski |
+| `plane.glb` | the tow plane and the set-wave aircraft |
 
 ## Exporting from Blender
 
@@ -103,6 +104,11 @@ takes:
 
 Anything not matched gets that object's main colour — white for the board, fawn for
 the pug, and so on.
+
+The PLANE keeps its propeller when a model replaces it. The engine-failure sequence spins that
+one part by name, and a single-mesh import has no propeller to give it — so the modelled body
+is added and the original's parts are hidden rather than thrown away. It arrives nose down its
+own `-z`, which is the direction every aircraft in this game is built to fly.
 
 ## The palm, and its rig
 

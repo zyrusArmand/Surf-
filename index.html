@@ -1201,7 +1201,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.74.0';
+const VERSION='3.75.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2869,6 +2869,18 @@ const MODEL_SKINS={
             [/arm|tentacle/i,     PBR({color:0x5a3596,roughness:0.62,vivid:1.15})]],
            PBR({color:0x8a5fd0,roughness:0.58,metalness:0.0,envMapIntensity:0.75,vivid:1.20})],
   bigfin:[[],                     PBR({color:0x3b4b58,roughness:0.20,metalness:0.03,envMapIntensity:1.5})],
+  // A plane is a white aeroplane with a red stripe and glass over the cockpit, and a model
+  // that names its parts gets all three. One that does not — this one is a single mesh called
+  // low_poly_unwrapped — gets the shell, which is the colour most of an aeroplane is. The
+  // fallback matters more here than anywhere: with no entry at all a model keeps the loader's
+  // default, which is white with FULL environment reflection, and the environment above the
+  // sea is sky — so a white plane comes out sky blue and vanishes into the thing it is
+  // flying across.
+  plane:[[[/glass|canopy|window|cockpit/i,PBR({color:0x2b4a63,roughness:0.10,metalness:0.10,envMapIntensity:1.2})],
+          [/prop|blade|spinner/i,        PBR({color:0x2b2f35,roughness:0.42})],
+          [/float|pontoon|strut|wheel/i, PBR({color:0xf3f5f7,roughness:0.36,metalness:0.04,envMapIntensity:0.5})],
+          [/stripe|trim|red|tail/i,      PBR({color:0xe23c3c,roughness:0.34,metalness:0.04,envMapIntensity:0.5})]],
+         PBR({color:0xfbfcfd,roughness:0.44,metalness:0.04,envMapIntensity:0.30})],
   jetski:[[[/seat|saddle|grip|handle|black/i,PBR({color:0x191d22,roughness:0.38})],
            [/rail|trim|deck|white/i,PBR({color:0xf6f8fa,roughness:0.16,metalness:0.04,envMapIntensity:1.2})],
            [/stripe|lime|green/i, PBR({color:0x8ede2a,roughness:0.30,vivid:1.7})]],
@@ -10241,9 +10253,27 @@ const plane=new THREE.Group();
   plane.add(fus,noseCone,canopy,wingL,wingR,strL,strR,stab,vfin,vtrim,cowl,spinner,prop,propBlur);
   plane.userData.prop=prop;
 }
+// Measured BEFORE the group is turned and before it is in the scene, so the box is the
+// plane's own and not the plane's own seen through a half turn.
+const PLANE_BOX=(function(){ const b=new THREE.Box3();
+  plane.updateMatrixWorld(true);
+  plane.traverse(o=>{ if(o.isMesh)b.expandByObject(o); });
+  return b.isEmpty()?new THREE.Box3(new THREE.Vector3(-3.3,-1,-2.6),
+                                    new THREE.Vector3(3.3,1,2.6)):b; })();
 plane.rotation.y=Math.PI;   // nose (and prop) points the way it flies
 plane.visible=false;
 scene.add(plane);
+// ---- and a modelled aeroplane, if one has been dropped in ----
+// It arrives nose down its own -z, which is the direction every plane in this game is built
+// to fly, so nothing has to be turned. The procedural one is not thrown away: its meshes are
+// hidden and its PROPELLER stays, because the engine-failure sequence spins that by name and
+// a single-mesh model has no propeller to give it.
+loadModel('plane.glb',s3=>{
+  const fitted=skinAndFit('plane',s3,PLANE_BOX);
+  plane.traverse(o=>{ if(o.isMesh)o.visible=false; });
+  plane.add(fitted);
+  plane.userData.modelled=true;
+});
 const ropeGeo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3()]);
 const rope=new THREE.Line(ropeGeo,new THREE.LineBasicMaterial({color:0xffffff}));
 rope.visible=false;scene.add(rope);
@@ -14397,6 +14427,19 @@ if(location.hash.includes('debug')){
       return out;
     },
     freeze(on){ _freeze=!!on; return _freeze; },
+    // Fly the tow plane in now and park it where it can be looked at. It arrives on its own
+    // schedule half a minute into a run, which is a long time to wait to see whether a model
+    // took, and longer under a headless renderer drawing a frame a second.
+    planeAt(z,x,y){
+      planeActive=true; plane.visible=true; plane.scale.setScalar(1);
+      plane.position.set(x===undefined?0:x, y===undefined?11:y, z===undefined?-40:z);
+      const b=new THREE.Box3().setFromObject(plane);
+      return {pos:[+plane.position.x.toFixed(2),+plane.position.y.toFixed(2),+plane.position.z.toFixed(2)],
+              size:[b.max.x-b.min.x,b.max.y-b.min.y,b.max.z-b.min.z].map(v=>+v.toFixed(2)),
+              modelled:!!plane.userData.modelled,
+              meshes:(function(){ let n=0,v=0; plane.traverse(o=>{ if(o.isMesh){n++; if(o.visible)v++;} });
+                                  return [v,n]; })()};
+    },
     // The deck's height across the board at the rider's own z, plus the single crown figure
     // the placement used to stand him on. A deck that is domed falls away from the stringer,
     // and the gap between the two ends of this is exactly the error the crown produced.
