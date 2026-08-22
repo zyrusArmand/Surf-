@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.53.0';
+const VERSION='3.53.1';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10650,7 +10650,23 @@ const CHEST_BOX=(function(){ const b=new THREE.Box3();
                                     new THREE.Vector3(0.63,0.9,0.44)):b; })();
 let chestModel=null;
 loadModel('chest.glb',(s3,gltf)=>{
-  const fitted=skinAndFit('chest',s3,CHEST_BOX);
+  // ---- STOOD UP, and the automatic turn switched off ----
+  // Two separate things were laying this chest on its side. fitToBox turns a model so its
+  // longest side runs along the longest side of the shape it replaces, which is what gets a
+  // board exported down the wrong axis to land nose-to-tail — but a chest is very nearly a
+  // cube, this one 0.91 by 1.00 by 0.91, so "longest axis" came down to a margin of eight
+  // hundredths and it picked the vertical and tipped the chest over to match a box that is
+  // widest across. A cube has no long axis and the turn is meaningless on it.
+  //
+  // And then the model's own up is +z, not +y, so it still needed a quarter turn back.
+  // Neither the bounding box nor the geometry could say so: all six faces are flat to within
+  // a few per cent of each other and no axis tapers, because the lid is not domed. The only
+  // thing that knows which way up this chest goes is the texture on it, and the only way to
+  // read a texture is to look — which took rendering it large enough to see the gems inside.
+  const fitted=skinAndFit('chest',s3,CHEST_BOX,(wrap,flip)=>{
+    const sp=flip.children[0]; if(sp)sp.rotation.set(0,0,0);
+    flip.rotation.x=-Math.PI/2;
+  });
   // The BODY goes and the fittings stay. The glow sprites are what makes a chest findable
   // in open water, and the lid group is what the ceremony swings open — neither is part of
   // the shape, and both would be thrown away by simply replacing the group.
@@ -10665,9 +10681,9 @@ let beachChest=null;
 function placeBeachChest(){
   if(!chestModel||typeof menuProps==='undefined'||!menuProps||beachChest)return;
   beachChest=chestModel.clone(true);
-  beachChest.position.set(2.45,0,0.85);
+  beachChest.position.set(3.30,0,4.30);
   beachChest.rotation.y=Math.PI/4;               // a quarter turn, so it is not square to the lens
-  beachChest.scale.setScalar(2.35);
+  beachChest.scale.setScalar(2.05);
   menuProps.add(beachChest);
 }
 let crateOn=false, crateHeld=false, crateT=999, crateBobT=0, cratePin=false, crateInTube=false;
@@ -13547,6 +13563,15 @@ if(location.hash.includes('debug')){
               size:[b.max.x-b.min.x,b.max.y-b.min.y,b.max.z-b.min.z].map(v=>+v.toFixed(2)),
               meshes, modelMeshes, beach:!!beachChest};
     },
+    // Turn the beach chest to any attitude, to find out which way up its model actually is.
+    chestPose(x,y,z,px,pz,sc){ if(!beachChest)return null;
+      beachChest.rotation.set(x||0,y||0,z||0);
+      if(px!==undefined)beachChest.position.x=px;
+      if(pz!==undefined)beachChest.position.z=pz;
+      if(sc!==undefined)beachChest.scale.setScalar(sc);
+      const b=new THREE.Box3().setFromObject(beachChest);
+      return {rot:[x||0,y||0,z||0],
+              size:[b.max.x-b.min.x,b.max.y-b.min.y,b.max.z-b.min.z].map(v=>+v.toFixed(2))}; },
     // Shut a card again. Opening one moves the whole rider group into the preview scene, so a
     // probe that opens one and walks away leaves every later reading taken on a rider who is
     // no longer in the game — which is exactly what happened to the two checks after it.
