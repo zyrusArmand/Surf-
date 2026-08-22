@@ -1257,7 +1257,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.83.0';
+const VERSION='3.84.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -14890,6 +14890,11 @@ if(location.hash.includes('debug')){
       }
       return n?{n,min:+lo.toFixed(4),max:+hi.toFixed(4)}:null;
     },
+    // walk the shot: how far back the lens stands, how high it is, and how high it looks
+    menuCamAt(d,eye,aim){
+      if(d!==undefined)MB_D=d; if(eye!==undefined)MB_EYE=eye; if(aim!==undefined)MB_AIM=aim;
+      return {d:MB_D,eye:MB_EYE,aim:MB_AIM};
+    },
     boardMats(){
       const o=(menuBeach&&menuBeach.board)||boardArt; if(!o)return null;
       const out=[];
@@ -17613,7 +17618,10 @@ function menuBeachOn(){
 // camera is at an angle, "put the board to the left of the palm" stops meaning anything in
 // x and z. So everything is placed along the camera's own two axes: forward, and right.
 const MB_YAW=0.46;                    // how far round from straight-out-to-sea the shot sits
-const MB_D=23.2;                      // how far back the camera stands from the palm
+let MB_D=19.0;                        // how far back the camera stands from the palm
+// How high the lens is over the sand, and how high it is aimed. Both are heights above the
+// beach at the palm, so they move together with everything else if the sand ever moves.
+let MB_EYE=4.7, MB_AIM=6.3;
 // The palm. It was a shrub: eleven of its own units at 0.46 comes out barely six feet tall,
 // which is shorter than most of the rack — a ten foot log leaning on it towered over the
 // whole tree. At 1.35 it is a fourteen foot palm and everything in front of it reads as
@@ -18141,7 +18149,14 @@ function renderMenuBeach(dt){
   // the trunk as a shortboard does, and the rider stands beyond that again. Frame THAT, not
   // a fixed point beside the palm, or half of it walks out of the picture on a long board.
   const spread=m.spread||5.5;
-  const D=MB_D+Math.max(0,1-menuCam.aspect)*18.0+spread*0.45+sw*0.5;
+  // ...and it stands back again on a WIDE one, which is not the same term reversed. A phone
+  // held upright is the shot this screen is composed for and it wants the board and the
+  // rider big; a landscape frame is already close, and closing it further walks the Play
+  // button — which is pinned to the bottom centre of the SCREEN, not to the scene — straight
+  // over the top of him. Standing off on wide screens keeps the button on the sand where it
+  // has always been.
+  const D=MB_D+Math.max(0,1-menuCam.aspect)*18.0
+              +Math.max(0,menuCam.aspect-0.9)*7.0+spread*0.45+sw*0.5;
   const px=0, pz=MB_Z*MB_K;
   // Low, and aimed UP the beach rather than down onto it. Eye level over the sand puts a
   // third of the picture into empty foreground; from down here the sand is a strip the
@@ -18149,8 +18164,8 @@ function renderMenuBeach(dt){
   // framed. The aim is high because the palm is a fourteen foot tree now rather than a
   // shrub, and the whole of it is meant to be in shot.
   const aim=m.middle!==undefined?m.middle:spread*0.66;
-  menuCam.position.set(px-_mbF.x*D, g+5.8+sw2*0.12, pz-_mbF.z*D);
-  menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+6.6, pz-_mbR.z*aim);
+  menuCam.position.set(px-_mbF.x*D, g+MB_EYE+sw2*0.12, pz-_mbF.z*D);
+  menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+MB_AIM, pz-_mbR.z*aim);
   menuCam.updateProjectionMatrix();
   // The board preview is shot at the renderer's own exposure and the menu was too, but the
   // menu is a whole beach rather than one object on a sweep — far more of it is sky and wet
