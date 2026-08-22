@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.53.2';
+const VERSION='3.54.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -9351,8 +9351,16 @@ function setupModelRig(root,gltf,id){
       return a.getClip().duration/Math.abs(st.rate)+st.hold;
     };
     if(this.step<0||this.stepT<=0){
-      this.step=(this.step+1)%SHOW.length;
-      this.stepT=start(this.step)||1;
+      // SKIP what this model does not have. The show is written for a file that ships the
+      // whole repertoire; another may bring only a trick or two, and a beat with no clip
+      // behind it is a second of him standing still for no reason. Walk forward to the next
+      // one he can actually do, and give up after a full lap so a model with none of them
+      // holds the standing pose rather than spinning through an empty list every frame.
+      let tried=0, t=0;
+      do { this.step=(this.step+1)%SHOW.length; t=start(this.step); }
+      while(!t&&++tried<SHOW.length);
+      if(!t){ this.step=-1; this.stepT=0.5; return this.idle&&this.idle(dt); }
+      this.stepT=t;
     }
     this.stepT-=dt;
     this.mixer.update(dt);
