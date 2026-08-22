@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.71.0';
+const VERSION='3.73.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -4978,6 +4978,7 @@ function boardArtFor(id){
     g.userData.mbox=new THREE.Box3().setFromObject(g);
     _rack[id]=g;
   }
+  if(boardDry)boardSheen(_rack[id],true);   // built while the beach is up, so it arrives matt
   return _rack[id];
 }
 function equipBoard(id){
@@ -4985,6 +4986,7 @@ function equipBoard(id){
   equipped=id;
   boardArt.clear ? boardArt.clear() : (boardArt.children.length=0);
   boardArt.add(boardArtFor(id));
+  boardSheen(boardArt,boardDry);
   applyBoardStats(id);
 }
 
@@ -5748,9 +5750,66 @@ function frameObj(obj){
 function riderPortrait(on){
   const m=(typeof riderModels!=='undefined')&&riderModels[builtChar];
   if(m)m.rotation.y=on?-RIDER_YAW:0;
+  // ...and his POSE, which is the half that was missing on the shop's own cards. portraitPose
+  // stands the built-in JOINTS up for the photograph, and an imported body has a skeleton of
+  // its own that knows nothing about them — so a card of a modelled rider caught whatever the
+  // last run left him in: mid-carve, part way through a handstand, or wherever the wipeout
+  // stopped. The full-screen viewer had its own copy of this line and the cards did not, which
+  // is why one of the two was right. Snapped to the same standing pose he uses between runs,
+  // at full weight, so there is nothing easing in while the shot is being taken.
+  if(on){ const r=(typeof riderRig==='function')&&riderRig();
+          if(r){ if(r.reset)r.reset(); if(r.idle)r.idle(999); } }
+}
+// ---- a board is glassed resin, and standing still on dry sand that is a problem ----
+// Roughness 0.14 against a mirror-bright environment is exactly right in the water, where
+// what it reflects is a moving sky over moving water and the whole point is that it reads as
+// WET. Stood still on the sand under one fixed sun it reflects a single broad soft patch of
+// that environment across the middle of the deck, which does not read as gloss at all: on a
+// white board it is a smear of dirt, and on a dark one a grey stripe down the middle.
+//
+// So the sheen comes off while it is being LOOKED at rather than ridden — the title screen,
+// the shop's cards and the full-screen viewer — and goes straight back on for the wave. The
+// wet values are remembered on the material itself the first time, so this is reversible
+// however many times it is toggled and whatever the board was authored at.
+// METALNESS comes down with it, and that is the half that matters on the mirror boards. A
+// metal surface has no diffuse colour at all — everything you see on it IS the reflection —
+// so on the beach the chrome board came out as two black holes where it was reflecting the
+// parts of the environment that have nothing in them. Dropping the reflection alone would
+// have left it black; the base colour has to be allowed back in.
+// `var`, deliberately: equipBoard runs at boot, well above this line, and a `let` here is in
+// its temporal dead zone at that point — the page throws before it has drawn anything. The
+// same trap the rider models hit, and worth the same note.
+var boardDry=false;
+function boardSheen(o,dry){
+  if(!o||!o.traverse)return;
+  o.traverse(n=>{ if(!n.isMesh)return;
+    for(const m of [].concat(n.material)){
+      if(!m||m.roughness===undefined)continue;
+      if(m.userData.wetR===undefined){
+        m.userData.wetR=m.roughness;
+        m.userData.wetM=m.metalness===undefined?0:m.metalness;
+        m.userData.wetE=m.envMapIntensity===undefined?1:m.envMapIntensity; }
+      m.roughness=dry?Math.max(m.userData.wetR,0.44):m.userData.wetR;
+      m.metalness=dry?Math.min(m.userData.wetM,0.10):m.userData.wetM;
+      m.envMapIntensity=dry?Math.min(m.userData.wetE,0.20):m.userData.wetE;
+      m.needsUpdate=true; } });
+}
+// ...and it is a STATE, not an event. equipBoard throws the old model away and builds a new
+// one, so a board swapped while the title screen is up arrives glossy however carefully the
+// screen was set up before it — which is exactly how the chrome board kept its black holes
+// through a fix that was working on every board that happened to be equipped first.
+// ...and it has to reach the board WHEREVER IT IS. Standing one on the beach reparents it
+// out of the rider's group and into the preview scene, so walking the group finds nothing at
+// all — which is why a fix that looked right in the code changed not one pixel of the render
+// twice over. Both places, every time.
+function setBoardDry(on){
+  boardDry=!!on;
+  boardSheen(boardArt,boardDry);
+  if(typeof menuBeach!=='undefined'&&menuBeach&&menuBeach.board)boardSheen(menuBeach.board,boardDry);
 }
 function snapshot(obj,kind){
   previewSetup();
+  if(kind==='board')boardSheen(obj,true);
   const par=obj.parent;
   const keepP=obj.position.clone(), keepR=obj.rotation.clone(), keepO=obj.rotation.order;
   prevScene.add(obj);
@@ -5806,6 +5865,7 @@ function snapshot(obj,kind){
   renderer.autoClear=oldAC;
   cardSet.visible=false;
   if(kind!=='board')riderPortrait(false);
+  else boardSheen(obj,false);            // and it goes back to being wet for the wave
   prevScene.remove(obj);
   obj.position.copy(keepP); obj.rotation.order=keepO; obj.rotation.copy(keepR);
   if(par)par.add(obj);
@@ -5960,9 +6020,8 @@ function openViewer(kind,id){
     name=ch.name; sub=ch.blurb;
     // An imported body ignores portraitPose — that poses the built-in JOINTS, and this one has
     // its own skeleton. Left alone it stands in whatever the file was modelled in, which is an
-    // A-pose with one arm straight down the lens. Snap it to the same standing pose it uses
-    // between runs, at full weight so there is nothing to ease in while the card is opening.
-    { const mr=riderRig(); if(mr){ if(mr.reset)mr.reset(); if(mr.idle)mr.idle(999); } }
+    // A-pose with one arm straight down the lens. riderPortrait handles it, for the cards as
+    // well as for this, which is where the line used to live and only helped here.
     riderPortrait(true);
   }
   const par=obj.parent, kp=obj.position.clone(), kr=obj.rotation.clone();
@@ -6004,6 +6063,7 @@ function openViewer(kind,id){
   // rotation of something already fully visible, and the same angle suits a character:
   // they start in profile and come round to face you.
   viewer={kind,id,obj,par,kp,kr,undo,c,hy,hr,spin:viewStart(kind),grab:null};
+  if(kind==='board')boardSheen(obj,true);   // matt while it is being looked at
   document.getElementById('vName').textContent=name;
   document.getElementById('vSub').textContent=sub||'';
   document.getElementById('vStats').innerHTML=kind==='board'?statBars(id):'';
@@ -6083,6 +6143,7 @@ vDrag.addEventListener('pointercancel',vLetGo);
 function closeViewer(){
   if(!viewer)return;
   const v=viewer; viewer=null;
+  if(v.kind==='board')boardSheen(v.obj,false);   // ...and wet again for the wave
   riderPortrait(false);          // back to the surfing stance he has to ride in
   // the overlay goes back first: a board sitting in the rack unequipped has no parent at
   // all, and putting the model back used to throw on that and leave the shop hidden
@@ -13295,6 +13356,9 @@ if(location.hash.includes('debug')){
               riderOnBeach:pug.parent===prevScene,
               boardOnBeach:!!b&&b.parent===prevScene}; },
     hideSand:v=>{ if(beachSand)beachSand.visible=!v; return !!beachSand; },
+    // Stand the title screen's beach up on demand. It is raised lazily off the menu coming
+    // up, so a check that clicks Menu and then waits is really waiting on a scheduler.
+    beachNow(){ try{ menuBeachOn(); }catch(e){} return !!menuBeach; },
     // which haptic path is live, and whether the iOS switch is in a state the system will
     // actually play: a detached or display:none control is silent
     haptics(){
@@ -14226,6 +14290,53 @@ if(location.hash.includes('debug')){
       return out;
     },
     freeze(on){ _freeze=!!on; return _freeze; },
+    boardIds(){ return RACK_ORDER.map(b=>b.id); },
+    // What finish the board is wearing, and where it is being asked about. Wet on the wave,
+    // matt on the sand — the same object, and the whole question is whether the swap reached
+    // it, which is not answerable from a screenshot of a white board.
+    boardFinish(){
+      const o=(typeof menuBeach!=='undefined'&&menuBeach&&menuBeach.board)||boardArt;
+      let rl=9,rh=-9,el=9,eh=-9,n=0;
+      o.traverse(x=>{ if(!x.isMesh)return;
+        for(const m of [].concat(x.material)){ if(!m||m.roughness===undefined)continue;
+          n++; rl=Math.min(rl,m.roughness); rh=Math.max(rh,m.roughness);
+          const e=m.envMapIntensity===undefined?1:m.envMapIntensity;
+          el=Math.min(el,e); eh=Math.max(eh,e); } });
+      return n?{dry:boardDry, mats:n, rough:[+rl.toFixed(2),+rh.toFixed(2)],
+                env:[+el.toFixed(2),+eh.toFixed(2)]}:null;
+    },
+    // The pose a SHOP CARD would photograph him in. The card path and the full-screen viewer
+    // are different code and only one of them used to stand a modelled rider up, so a card
+    // caught whatever the last run left him in. Read through the same call the card makes.
+    portraitRig(){
+      riderPortrait(true);
+      const r=riderRig();
+      const q=n=>{ const b=r&&r.bones&&r.bones[n];
+        return b?[b.quaternion.x,b.quaternion.y,b.quaternion.z,b.quaternion.w]
+                   .map(v=>+v.toFixed(3)):null; };
+      const out={model:!!r, LeftArm:q('LeftArm'), Head:q('Head'), Hips:q('Hips'),
+                 hip:r&&r.bones&&r.bones.Hips?
+                   [+r.bones.Hips.position.x.toFixed(3),+r.bones.Hips.position.y.toFixed(3)]:null};
+      riderPortrait(false);
+      return out;
+    },
+    // Two switches for the same smear across the middle of a board on the beach, because
+    // "reflection" and "the board shadowing itself" look identical in a still and are fixed
+    // in completely different places.
+    previewShadow(on){ if(prevKey)prevKey.castShadow=!!on; return prevKey?prevKey.castShadow:null; },
+    boardMatte(on,r,e){
+      const o=(menuBeach&&menuBeach.board)||boardArt;
+      if(!o)return null;
+      const out=[];
+      o.traverse(n=>{ if(!n.isMesh)return;
+        for(const m of [].concat(n.material)){
+          if(!m||m.roughness===undefined)continue;
+          if(on){ m.roughness=r===undefined?0.44:r;
+                  m.envMapIntensity=e===undefined?0.2:e; }
+          m.needsUpdate=true;
+          out.push([+m.roughness.toFixed(2),+(m.envMapIntensity===undefined?1:m.envMapIntensity).toFixed(2)]); } });
+      return out;
+    },
     octoWave(v){ if(v)for(let i=0;i<6;i++)if(v[i]!==undefined)OCT_W[i]=v[i]; return OCT_W.slice(); },
     // How many starfish are in the air, and how many an octopus has let go of. "I never saw
     // one thrown" is two separate questions — whether the wind-up ever fires, and whether the
@@ -16816,6 +16927,7 @@ function menuBeachOn(){
               rsc:pug.scale.clone()};
   prevScene.add(board); prevScene.add(pug);
   menuBeach={board,undo,keep,t:0};
+  setBoardDry(true);                    // matt while it is being looked at rather than ridden
   beachSet.visible=true; menuProps.visible=true;
   for(const p of beachPalms)p.visible=false;
   beachSet.scale.setScalar(MB_K); beachSet.position.set(0,0,0);
@@ -17250,8 +17362,8 @@ function layoutMenuBeach(){
 // between a phone held upright and a browser window. Measured from the tree, a chest framed
 // on the sand in portrait dropped clean off the bottom of a landscape frame. Measured from
 // the lens it holds the same place in the picture at any shape of screen.
-let MB_CD=0.6;         // out to the camera's right of the trunk's own axis...
-let MB_CF=23.5;        // ...and this far in front of the camera, which puts it back up the
+let MB_CD=1.0;         // out to the camera's right of the trunk's own axis...
+let MB_CF=25.0;        // ...and this far in front of the camera, which puts it back up the
                        // beach against the foot of the tree rather than out on open sand
 let MB_CH=1.8;         // and this tall — small, because it is standing much nearer the lens
 let _bcAsp=null;
@@ -17265,7 +17377,13 @@ function layoutBeachChest(){
   const spread=(typeof menuBeach!=='undefined'&&menuBeach&&menuBeach.spread)||5.5;
   const D=MB_D+Math.max(0,1-asp)*18.0+spread*0.45;
   _bcAsp=asp;
-  const cf=Math.max(2,D-MB_CF);
+  // The floor here is what stops the chest ending up BEHIND the palm on a shape where the
+  // camera stands close in. It was two feet, and at this standoff the landscape camera —
+  // which walks a good ten feet nearer than the portrait one — hit it: the chest stopped
+  // coming forward and the two shapes placed it a couple of feet apart in the world, which
+  // is the one thing the camera-relative rule exists to avoid. Under a foot is still in
+  // front of the trunk, and the clamp goes back to being the safety it was meant to be.
+  const cf=Math.max(0.8,D-MB_CF);
   const wx=_mbR.x*MB_CD-_mbF.x*cf, wz=MB_Z*MB_K+_mbR.z*MB_CD-_mbF.z*cf;
   const sand=(beachSandH?beachSandH(wz/MB_K):beachSand0)*MB_K;
   menuProps.updateWorldMatrix(true,false);
@@ -17291,6 +17409,8 @@ function layoutBeachChest(){
 function menuBeachOff(){
   if(!menuBeach)return;
   const m=menuBeach; menuBeach=null;
+  setBoardDry(false); boardSheen(m.board,false);   // wet again, for the water — and menuBeach
+                                        // is already nulled by here, so m.board is named
   if(m.undo)m.undo();
   const k=m.keep;
   if(k.bp)k.bp.add(m.board); else prevScene.remove(m.board);

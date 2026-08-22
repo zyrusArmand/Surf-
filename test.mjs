@@ -1910,6 +1910,91 @@ if (hasHook) {
         `${moved ? new Set(moved.map(m => m.toFixed(2))).size : 0} different amounts among ${oct.arms}`);
 }
 
+// ---------- a shop card photographs him standing, whatever the run did ----------
+// portraitPose stands the built-in JOINTS up for the photograph, and a modelled rider has a
+// skeleton of its own that knows nothing about them. The full-screen viewer had its own line
+// putting that skeleton back to a standing pose and the CARDS did not — so one of the two was
+// right, and the cards caught whatever the last run left him in: mid-carve, part way through
+// a handstand, or wherever the wipeout stopped. Read through the same call the card makes.
+{
+  // A HAIR of tolerance, and it has a name: the standing pose BREATHES. R.idle carries a
+  // sin(tNow) term worth three hundredths of a radian at each shoulder, so two portraits
+  // taken at different moments differ by about that much and always will. What must not
+  // differ is anything to do with the run — and a carve, a handstand and a wipeout between
+  // the two readings moved this by no more than the breath does.
+  const same = (a, b) => a && b && a.every((v, i) => Math.abs(v - b[i]) < 0.05);
+  const card = await page.evaluate(() => {
+    window.__surf.wear('pug');
+    window.__surf.restart(); window.__surf.tick(1.0);
+    const fresh = window.__surf.portraitRig();
+    // a run with everything in it: a carve, the whole handstand, and a wipeout to stop on
+    window.__surf.invuln(true); window.__surf.setSteer(1); window.__surf.tick(1.4);
+    window.__surf.setSteer(0);
+    window.__surf.hand(true); window.__surf.tick(1.8);
+    window.__surf.hand(false); window.__surf.tick(0.6);
+    window.__surf.wipeNow('foam'); window.__surf.tick(3);
+    const after = window.__surf.portraitRig();
+    // ...and put the game back. This block deliberately ends a run with a wipeout, and a
+    // wipeout can leave a chest ceremony sitting over the top of everything — which a check
+    // twenty lines further down then measured through, finding five buttons laid out inside
+    // a hidden overlay. A block that changes global state hands it back.
+    const co = document.getElementById('crateOv');
+    if (co && !co.className.includes('hidden')) { co.click(); co.click(); co.click(); }
+    window.__surf.restart(); window.__surf.tick(0.5);
+    return { fresh, after };
+  });
+  check(card.fresh.model === true &&
+        same(card.fresh.LeftArm, card.after.LeftArm) &&
+        same(card.fresh.Head, card.after.Head) &&
+        same(card.fresh.Hips, card.after.Hips),
+        'a shop card stands him the same way whatever the last run did to him',
+        `arm ${JSON.stringify(card.fresh.LeftArm)} then ${JSON.stringify(card.after.LeftArm)}`);
+  check(card.fresh.hip && card.after.hip &&
+        Math.abs(card.fresh.hip[0] - card.after.hip[0]) < 0.01 &&
+        Math.abs(card.fresh.hip[1] - card.after.hip[1]) < 0.01,
+        'and in the same place in the frame, not shifted by where the wave left him',
+        `hips ${JSON.stringify(card.fresh.hip)} then ${JSON.stringify(card.after.hip)}`);
+}
+
+// ---------- a board is wet on the wave and matt on the sand ----------
+// Roughness 0.14 against a mirror-bright environment is exactly right in the water, where
+// what it reflects is a moving sky over moving water and the whole point is that it reads as
+// WET. Stood still on dry sand under one fixed sun it reflects a single broad soft patch of
+// that environment across the deck, which reads as a smear of dirt on a white board — and on
+// the metal ones, which have no diffuse colour at all, as two black holes where the reflection
+// found parts of the environment with nothing in them.
+{
+  const fin = await page.evaluate(async () => {
+    const out = {};
+    window.__surf.equip('chrome');
+    await new Promise(r => setTimeout(r, 300));
+    window.__surf.restart(); window.__surf.tick(0.5);
+    out.ride = window.__surf.boardFinish();
+    // Stood up DIRECTLY rather than by clicking Menu and waiting. The beach is raised lazily
+    // off the menu coming up, so a click and a pause is really a wait on a scheduler — and
+    // when it had not happened yet this read the wave's own finish back as the beach's.
+    document.getElementById('menuBtn').click();
+    out.up = window.__surf.beachNow();
+    out.beach = window.__surf.boardFinish();
+    window.__surf.restart(); window.__surf.tick(0.5);
+    out.back = window.__surf.boardFinish();
+    return out;
+  });
+  check(fin.up === true && fin.beach && fin.beach.dry === true &&
+        fin.beach.rough[0] >= 0.40 && fin.beach.env[1] <= 0.25,
+        'a board standing on the beach is matt rather than a mirror',
+        `beach up ${fin.up}, roughness ${JSON.stringify(fin.beach && fin.beach.rough)}, ` +
+        `reflection ${JSON.stringify(fin.beach && fin.beach.env)}`);
+  check(fin.ride && fin.ride.dry === false && fin.ride.rough[0] < 0.30 && fin.ride.env[1] > 0.30,
+        'and the same board is glassed and wet the moment it is on a wave',
+        `roughness ${JSON.stringify(fin.ride && fin.ride.rough)}, ` +
+        `reflection ${JSON.stringify(fin.ride && fin.ride.env)}`);
+  check(fin.back && fin.back.rough[0] === fin.ride.rough[0] && fin.back.env[1] === fin.ride.env[1],
+        'and it is given back exactly, however many times it goes ashore and out again',
+        `${JSON.stringify(fin.back && fin.back.rough)} against ${JSON.stringify(fin.ride && fin.ride.rough)}`);
+  await page.evaluate(() => { window.__surf.equip('astro'); window.__surf.restart(); window.__surf.tick(0.4); });
+}
+
 // ---------- the octopus faces you, flexes, throws, and arrives one at a time ----------
 // Four complaints and four different causes, which is why they are four checks.
 //
@@ -2394,8 +2479,18 @@ check(shaderErrors.length === 0, 'every shader compiles',
   for (let i = 0; i < 40; i++) {
     await page.evaluate(() => { try { window.__surf.tick(0.25); } catch (e) {} });
     await page.waitForTimeout(200);
+    // A CHEST caught earlier in the suite comes up first and hides the run card behind it —
+    // the ceremony is a step on the way, not a card of its own — so this waited out its forty
+    // tries and then measured five buttons that were laid out inside a hidden overlay. Tap
+    // through whatever is in front rather than assuming nothing is.
+    await page.evaluate(() => { const c = document.getElementById('crateOv');
+                                if (c && !c.className.includes('hidden')) c.click(); });
+    // Waits for the thing being MEASURED, not for a class name that is one step before it.
+    // The overlay can carry the right classes a frame before its contents have a box, and a
+    // check that stops at the class then measures five buttons at zero by zero.
     if (await page.evaluate(() => { const c = document.getElementById('overlay').className;
-                                    return c.includes('over') && !c.includes('hidden'); })) break;
+          if (!(c.includes('over') && !c.includes('hidden'))) return false;
+          return document.getElementById('againBtn').getBoundingClientRect().width > 1; })) break;
   }
   const row = await page.evaluate(() => {
     // the dial is display:none behind the card, so its SIZE comes from the style rather
@@ -2404,6 +2499,7 @@ check(shaderErrors.length === 0, 'every shader compiles',
     const ids = ['reviveBtn', 'againBtn', 'shopBtn', 'menuBtn', 'shareBtn'];
     const ov = document.getElementById('overlay').className;
     return { dial: [Math.round(parseFloat(dial.width)), Math.round(parseFloat(dial.height))],
+             ovCls: ov,
              card: ov.includes('over') && !ov.includes('hidden'),
              btns: ids.map(id => { const e = document.getElementById(id), b = e.getBoundingClientRect();
                return { id, cls: e.className, w: Math.round(b.width), h: Math.round(b.height),
@@ -2417,7 +2513,8 @@ check(shaderErrors.length === 0, 'every shader compiles',
   check(row.card && on.length >= 4 && sameSize && sameRow && inOrder &&
         on.every(b => /\bhbtn\b/.test(b.cls) && /\bglass\b/.test(b.cls)),
         'the run card carries the dial buttons in one row, shop among them',
-        `${on.map(b => b.id).join(', ')} at ${on[0].w}x${on[0].h} against the dial's ${row.dial.join('x')}`);
+        `${on.map(b => b.id).join(', ')} at ${on[0].w}x${on[0].h} against the dial's ` +
+        `${row.dial.join('x')}, card up: ${row.card}, overlay "${row.ovCls}"`);
   check(on.some(b => b.id === 'shopBtn') && on.some(b => b.id === 'againBtn'),
         'and both the ways on are there: surf again and the shop');
   // the old pill row must be gone from the card, or the card is twice as tall as it needs
