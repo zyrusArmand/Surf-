@@ -14,8 +14,8 @@ is 1.7 MB and looks identical in game. Exporters also like wiring the texture to
 at full white, which makes the model glow flat and ignore every light in the scene — worth
 checking if an import looks oddly unlit.
 
-`board.glb`, `chest.glb`, `log.glb`, `octopus.glb`, `pug.glb` and `cat.glb` ship with the
-game; the rest of the table is
+`board.glb`, `chest.glb`, `log.glb`, `octopus.glb`, `pug.glb`, `cat.glb` and `frog.glb` ship
+with the game; the rest of the table is
 empty by design, and the 404s those file names produce are the documented path
 rather than a fault.
 
@@ -30,6 +30,7 @@ to `RIDER_MODELS` in `index.html`.
 | `chest.glb` | the treasure chest |
 | `pug.glb` | Astro the Pug |
 | `cat.glb` | Miso the Cat |
+| `frog.glb` | Allen the Frog |
 | `buoy.glb` | the striped buoy |
 | `log.glb` | the floating log |
 | `jelly.glb` | the jellyfish |
@@ -90,7 +91,7 @@ the pug, and so on.
 
 ## Rigged riders
 
-A rider model may be a **rigged** export with a skeleton and animation clips, and both
+A rider model may be a **rigged** export with a skeleton and animation clips, and all three
 that ship are: a 24-bone skeleton each, the pug's with a handstand clip on it. If a
 skeleton is present the game drives it, and these happen automatically.
 
@@ -110,7 +111,8 @@ skeleton is present the game drives it, and these happen automatically.
   down — works correctly, and most exported ones are.
 - **A model with no such clip still does the trick.** The timeline runs either way and
   the game turns him over itself; it simply has no limb animation to lay on top. The cat
-  ships walking and running and no handstand, and his HAND button works regardless.
+  ships walking and running and the frog a ground stomp, neither with a handstand among them,
+  and both HAND buttons work regardless.
 - **Every other clip runs on the title screen.** If the model belongs to the character you
   have equipped, he performs on the beach: standing and chatting, folding down onto the
   sand, lying with his paws spread, getting back up, a handstand, with pauses between. Each

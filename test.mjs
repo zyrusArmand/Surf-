@@ -2742,6 +2742,27 @@ check(shaderErrors.length === 0, 'every shader compiles',
   check(swap.before === true && swap.on === true && swap.kids >= 2,
         'and the built-in body waits under him, so the rest of the roster still has one',
         `model shown ${swap.before} -> ${swap.on}, ${swap.kids} bodies in the group`);
+  // EVERY character with a body of its own rides it, and stands on the deck in it. Walked
+  // off the game's own list rather than a copy of it here, because a copy goes stale the
+  // next time a model is dropped in — which is the one moment this check exists for.
+  const kinds = await page.evaluate(() => window.__surf.riderKinds());
+  const rode = await page.evaluate(async ids => {
+    const out = {};
+    for (const id of ids) {
+      window.__surf.wear(id); window.__surf.restart(); window.__surf.tick(0.8);
+      for (let i = 0; i < 3; i++) window.__surf.tick(0.4);
+      const r = window.__surf.rigInfo(), g = window.__surf.deckGap();
+      out[id] = { on: r.modelOn, who: r.who, bones: r.bones || 0, gap: g ? g.gap : null };
+    }
+    window.__surf.wear('pug'); window.__surf.restart(); window.__surf.tick(0.4);
+    return out;
+  }, kinds);
+  check(kinds.length >= 3 && kinds.every(id => rode[id].on && rode[id].who === id && rode[id].bones > 0),
+        'and each character with a body of his own is riding it, on his own skeleton',
+        kinds.map(id => `${id}: ${rode[id].bones} bones`).join(', '));
+  check(kinds.every(id => rode[id].gap !== null && Math.abs(rode[id].gap) < 0.05),
+        'and every one of them stands ON the board rather than through it',
+        kinds.map(id => `${id} ${rode[id].gap === null ? 'no reading' : rode[id].gap.toFixed(3)}`).join(', '));
 }
 
 // ---------- the wipeout card fits the phone it is on ----------
