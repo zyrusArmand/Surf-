@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.53.1';
+const VERSION='3.53.2';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10681,9 +10681,22 @@ let beachChest=null;
 function placeBeachChest(){
   if(!chestModel||typeof menuProps==='undefined'||!menuProps||beachChest)return;
   beachChest=chestModel.clone(true);
-  beachChest.position.set(3.30,0,4.30);
+  // Placed in the PUG's frame, not in the group's own. beachChest hangs off menuProps, which
+  // carries a transform of its own, so the coordinates it is authored in are not the ones
+  // anything else on this beach is placed in — a few units in the local frame moved it clean
+  // past the sand and out to sea. Anchored to the rider instead: same ground, well out to his
+  // right, clear of the trunk that leans across the middle of the shot.
+  // Placed in the RIDER's frame, not in the group's own, and this is the whole of why it kept
+  // turning up in the wrong place. beachChest hangs off menuProps, which carries a transform
+  // of its own — so the coordinates it is authored in are not the ones anything else on this
+  // beach is placed in, and a few units in the local frame put it out past the sand and into
+  // the sea. Anchored to the rider instead: out to his right, forward toward the camera, and
+  // DOWN, because the beach slopes and coming forward means coming down it.
+  { const p=new THREE.Vector3(-7.41+11, 3.18-2.2, -47.87-20);
+    if(menuProps){ menuProps.updateWorldMatrix(true,false); menuProps.worldToLocal(p); }
+    beachChest.position.copy(p); }
   beachChest.rotation.y=Math.PI/4;               // a quarter turn, so it is not square to the lens
-  beachChest.scale.setScalar(2.05);
+  beachChest.scale.setScalar(1.20);
   menuProps.add(beachChest);
 }
 let crateOn=false, crateHeld=false, crateT=999, crateBobT=0, cratePin=false, crateInTube=false;
@@ -13564,6 +13577,28 @@ if(location.hash.includes('debug')){
               meshes, modelMeshes, beach:!!beachChest};
     },
     // Turn the beach chest to any attitude, to find out which way up its model actually is.
+    // Where the beach chest lands ON SCREEN, in pixels. Placing it by eye cost three rounds
+    // of guesswork: the beach camera is angled, so world +x is screen-LEFT here, and moving
+    // the chest toward the camera shifts it sideways as well. One projection settles it.
+    chestScreen(){ if(!beachChest||!menuCam&&!prevCam)return null;
+      const cam=(typeof menuBeach!=='undefined'&&menuBeach&&prevCam)?prevCam:camera;
+      beachChest.updateWorldMatrix(true,false);
+      const v=beachChest.getWorldPosition(new THREE.Vector3()).project(cam);
+      const pw=pug.getWorldPosition(new THREE.Vector3()), pv=pw.clone().project(cam);
+      return {x:Math.round((v.x*0.5+0.5)*innerWidth), y:Math.round((-v.y*0.5+0.5)*innerHeight),
+              world:[+beachChest.position.x.toFixed(2),+beachChest.position.z.toFixed(2)],
+              pugWorld:[+pw.x.toFixed(2),+pw.y.toFixed(2),+pw.z.toFixed(2)],
+              pugScreen:[Math.round((pv.x*0.5+0.5)*innerWidth),Math.round((-pv.y*0.5+0.5)*innerHeight)],
+              chestParent:beachChest.parent?beachChest.parent.name||'menuProps':'none'}; },
+    // Place it by WORLD position. Its parent group carries a transform of its own, so the
+    // local coordinates it is authored in are not the ones anything else on the beach uses.
+    chestWorld(x,y,z,sc){ if(!beachChest)return null;
+      const p=new THREE.Vector3(x,y,z);
+      if(beachChest.parent){ beachChest.parent.updateWorldMatrix(true,false);
+        beachChest.parent.worldToLocal(p); }
+      beachChest.position.copy(p);
+      if(sc!==undefined)beachChest.scale.setScalar(sc);
+      return this.chestScreen(); },
     chestPose(x,y,z,px,pz,sc){ if(!beachChest)return null;
       beachChest.rotation.set(x||0,y||0,z||0);
       if(px!==undefined)beachChest.position.x=px;
