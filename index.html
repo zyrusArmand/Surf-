@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.60.0';
+const VERSION='3.61.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -9515,7 +9515,29 @@ function setupModelRig(root,gltf,id){
   ];
   R.step=-1; R.stepT=0; R.ground=null;
   R.show=function(dt){
-    if(!this.clips)return this.idle&&this.idle(dt);
+    // TURNED TOWARD THE CAMERA, and turned FIRST. The riding stance is square across the
+    // board and side-on to the viewer, which is right on a wave and wrong on a title screen —
+    // there he is being looked at, and a character being looked at faces out. It used to be
+    // set at the bottom, after the beats, so a model with none of these clips took both of
+    // the early returns below and never turned at all: the frog stood on the beach in his
+    // surfing stance, side-on, while the other two faced front.
+    pug.rotation.y=STANCE_ROT+MENU_FACE; this.turned=true;
+    // ---- and he stays ON THE SAND through all of it ----
+    // Every clip here was animated on a floor at the animator's origin, which is not where
+    // this beach is. The height that puts his feet on the sand is measured once, standing,
+    // and then held: lying down drops his body without dropping him through the ground, and
+    // the handstand puts his hands where his feet were rather than a foot under them.
+    //
+    // Taken BEFORE anything moves him and before the two early returns below, which is what
+    // was wrong with it. It used to be measured on beat ZERO and only there, so a model
+    // without beat zero's clip skipped it and never had a height at all — the cat went
+    // straight into his handstand and put his face through the beach — and a model with none
+    // of these clips took an early return and was never held to the sand either.
+    if(this.ground===null){ const b0=this.skinBox&&this.skinBox();
+                            if(b0)this.ground=b0.lo[1]; }
+    const hold=()=>{ const b=this.skinBox&&this.skinBox();
+                     if(b&&this.ground!==null)pug.position.y+=this.ground-b.lo[1]; };
+    if(!this.clips){ const r=this.idle&&this.idle(dt); hold(); return r; }
     const start=i=>{
       const st=SHOW[i], a=this.clip(st.clip);
       for(const k in this.clips)if(this.clips[k]!==a)this.clips[k].stop();
@@ -9536,25 +9558,13 @@ function setupModelRig(root,gltf,id){
       let tried=0, t=0;
       do { this.step=(this.step+1)%SHOW.length; t=start(this.step); }
       while(!t&&++tried<SHOW.length);
-      if(!t){ this.step=-1; this.stepT=0.5; return this.idle&&this.idle(dt); }
+      if(!t){ this.step=-1; this.stepT=0.5;
+              const r=this.idle&&this.idle(dt); hold(); return r; }
       this.stepT=t;
     }
     this.stepT-=dt;
     this.mixer.update(dt);
-    // ---- and he stays ON THE SAND through all of it ----
-    // Every one of these was animated on a floor at the animator's origin, which is not where
-    // this beach is. The height that puts his feet on the sand is measured once, standing, and
-    // then held: lying down drops his body without dropping him through the ground, and the
-    // handstand puts his hands where his feet were rather than a foot under them.
-    const box=this.skinBox&&this.skinBox();
-    if(box){
-      if(this.ground===null&&this.step===0)this.ground=box.lo[1];
-      if(this.ground!==null)pug.position.y+=this.ground-box.lo[1];
-    }
-    // TURNED TOWARD THE CAMERA. The riding stance is square across the board and side-on to
-    // the viewer, which is right on a wave and wrong on a title screen — there he is being
-    // looked at, and a character being looked at faces out.
-    pug.rotation.y=STANCE_ROT+MENU_FACE; this.turned=true;
+    hold();
   };
   R.plant=function(a,b,f,w){
     const foot=this.bones[f], rest=this.rest[f], want=this.chainRest[f];
@@ -9575,7 +9585,11 @@ function setupModelRig(root,gltf,id){
 // the .glb in, and that character rides his own body. Everyone else keeps the built-in one.
 const RIDER_MODELS=['pug','cat','frog'];
 const RIDER_YAW=-0.42;   // measured: takes the shared 69-degree stance to a square 93
-const MENU_FACE=-1.50;   // and on the title screen he turns out of it, toward the viewer
+// SOLVED, not eyeballed: his body's forward is 24 degrees off the group's -z (the riding
+// stance plus the turn every rigged export arrives with), so squaring him to the lens is not
+// a quarter turn off the stance. __surf.menuFace(v) reports the angle that is left, and this
+// is the value that reads zero.
+let MENU_FACE=-1.80;     // and on the title screen he turns out of it, toward the viewer
 for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
   // TURNED TO FACE THE WAVE, by asking the model which way it is looking rather than by
   // being told. Every face on the built-in riders is built at negative z — muzzle, nose,
@@ -13816,6 +13830,19 @@ if(location.hash.includes('debug')){
               // a reading taken in that gap comes back through the game's camera instead —
               // numbers that look like a misplaced chest and are a camera that is out at sea.
               cam:onBeach?'menu':((typeof viewCam!=='undefined'&&viewCam)?'view':'game'),
+              // Which way it is turned, expressed as something you can see rather than as an
+              // angle. The lid stands up on the hinge side, so the highest point of the mesh
+              // IS the lid — and the lid belongs at the BACK, or it stands between you and
+              // the treasure it is meant to be showing you.
+              lidBehind:(function(){
+                let hi=null; const w=new THREE.Vector3();
+                beachChest.traverse(o=>{ const a=o.geometry&&o.geometry.attributes.position;
+                  if(!a)return; o.updateWorldMatrix(true,false);
+                  for(let i=0;i<a.count;i+=7){ w.fromBufferAttribute(a,i).applyMatrix4(o.matrixWorld);
+                    if(!hi||w.y>hi.y)hi=w.clone(); } });
+                if(!hi)return null;
+                return +(cam.position.distanceTo(hi)-cam.position.distanceTo(cw)).toFixed(2);
+              })(),
               screen:[innerWidth,innerHeight]}; },
     // ---- put the chest where you POINT, not where a coordinate guess lands ----
     // Placing it by world coordinates cost round after round: the prop group has a transform
@@ -13945,6 +13972,27 @@ if(location.hash.includes('debug')){
                 lean:+(Math.atan2(Math.hypot(d.x,d.z),Math.max(1e-6,d.y))*180/Math.PI).toFixed(1),
                 az:+(Math.atan2(d.z,d.x)*180/Math.PI).toFixed(0)};
       });
+    },
+    // How square to the camera the rider on the beach actually stands. His body's own
+    // forward is not the group's -z — the stance turns him across the board and the model
+    // arrives with a turn of its own — so "facing the viewer" is the angle between where his
+    // HIPS point and the line to the lens, and nothing else can be read off a screenshot.
+    menuFace(v){
+      if(v!==undefined)MENU_FACE=v;
+      const R=riderRig(); if(R&&R.show)R.show(0.001);
+      const hp=R&&R.bones&&R.bones.Hips; if(!hp)return null;
+      pug.updateMatrixWorld(true);
+      // His body's forward is NOT the group's -z. The riding stance turns him across the
+      // board and every rigged model arrives with a turn of its own on top of that, and both
+      // are inside the group — measured, all three models read the same 24 degrees off it.
+      const f=new THREE.Vector3(0.41,0,-0.91).applyQuaternion(
+        pug.getWorldQuaternion(new THREE.Quaternion()));
+      const cam=(typeof menuBeach!=='undefined'&&menuBeach&&menuCam)?menuCam:camera;
+      const to=cam.position.clone().sub(pug.getWorldPosition(new THREE.Vector3()));
+      f.y=0; to.y=0; f.normalize(); to.normalize();
+      const off=Math.atan2(f.x*to.z-f.z*to.x, f.x*to.x+f.z*to.z)*180/Math.PI;
+      return {menuFace:+MENU_FACE.toFixed(3), off:+off.toFixed(1),
+              yaw:+pug.rotation.y.toFixed(3)};
     },
     // Bend the menu's palm to any profile, and report where its crown lands in the frame.
     // Eight joint angles is eight numbers to guess at; one render each is the only way to
@@ -16803,7 +16851,10 @@ function layoutBeachChest(){
   // already resized once to match the chest it replaces, so its own scale number says nothing
   // about how big it ends up — the only honest way to ask for a two-and-a-half-foot chest is
   // to measure the one you have and divide.
-  beachChest.scale.setScalar(1); beachChest.rotation.set(0,Math.PI/4,0);
+  // Turned right round from where it first landed: the lid stands up on the hinge side, so
+  // at a quarter turn the open lid was between you and the treasure. Facing away, you look
+  // INTO the box, which is the point of an open chest.
+  beachChest.scale.setScalar(1); beachChest.rotation.set(0,Math.PI*1.25,0);
   beachChest.updateMatrixWorld(true);
   const h=new THREE.Box3().setFromObject(beachChest).getSize(new THREE.Vector3()).y;
   beachChest.scale.setScalar(MB_CH/Math.max(1e-4,h));

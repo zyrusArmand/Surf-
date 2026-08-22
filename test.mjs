@@ -462,6 +462,44 @@ await page.waitForTimeout(300);
                : 'no beach chest');
     await page.setViewportSize({ width: 1024, height: 640 });
     await page.waitForTimeout(600);
+    // and turned so the OPEN side faces you. The lid stands up on the hinge, so the highest
+    // point of the mesh is the lid, and the lid belongs at the back — turned the other way it
+    // stands between the camera and the treasure it exists to show.
+    const lid = await page.evaluate(() => window.__surf.chestScreen());
+    check(lid && lid.lidBehind > 0.15,
+          'and its open lid stands at the back, so you look into it rather than at it',
+          lid ? `lid ${lid.lidBehind}ft further from the lens than the box` : 'no beach chest');
+  }
+  // ---- every rigged rider stands on the sand and faces out ----
+  // Both of these were true of the pug and of nobody else, and both for the same reason: the
+  // title screen's performance is written for a file that ships the whole repertoire, and the
+  // two riders that do not ship it fell off the end of it. The height that stands him on the
+  // sand was taken on beat ZERO, so a model without beat zero's clip skipped it and never had
+  // one — the cat went into his handstand and put his face through the beach. And the turn
+  // toward the camera was applied after the beats, so a model with none of those clips took
+  // an early return and stood there side-on in his surfing stance.
+  {
+    const beach = [];
+    for (const id of await page.evaluate(() => window.__surf.riderKinds())) {
+      await page.evaluate(c => window.__surf.wear(c), id);
+      await page.waitForTimeout(1400);
+      const f = await page.evaluate(() => window.__surf.menuFace());
+      const g = await page.evaluate(() => {
+        const out = [];
+        for (let i = 0; i < 5; i++) out.push(window.__surf.showStep(i));
+        return out;
+      });
+      beach.push({ id, off: f && f.off, ground: g[0] && g[0].ground, beats: g });
+    }
+    check(beach.length >= 3 && beach.every(b => b.off !== null && Math.abs(b.off) < 8),
+          'every rigged rider on the title screen stands square to the camera',
+          beach.map(b => `${b.id} ${b.off}°`).join(', '));
+    check(beach.every(b => b.ground !== null && b.ground !== undefined &&
+                           b.beats.every(s => s && s.ground === b.ground)),
+          'and each of them has a height on the sand that every beat of his show holds to',
+          beach.map(b => `${b.id} ${b.ground === null ? 'none' : (+b.ground).toFixed(2)}`).join(', '));
+    await page.evaluate(() => { window.__surf.wear('pug'); });
+    await page.waitForTimeout(800);
   }
   // but they ARE built the moment something that wants them is opened
   const boot1 = await page.evaluate(() => window.__surf.boot());
