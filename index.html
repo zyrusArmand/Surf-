@@ -1257,7 +1257,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.79.0';
+const VERSION='3.80.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1725,6 +1725,9 @@ dhz+=${W.a.toFixed(3)}*e*${W.k.toFixed(3)}*${(W.dz*ZS).toFixed(4)}*cos(${ph});`;
 }).join('\n');
 const oceanUniforms={
   uT:{value:0}, uDist:{value:0}, uAmp:{value:1.35}, uPeak:{value:2.85},
+  // The swell dies as it shoals. Only the title screen's beach uses this — the game's own
+  // ocean has no shore in it and leaves uShore at -1, which switches the whole term off.
+  uShore:{value:-1}, uShoreW:{value:1},
   uWakeZ:{value:0}, uWakeA:{value:0}, uWakeX:{value:0},
   uWhX:{value:0}, uWhZ:{value:0}, uWhA:{value:0},
   uSwA:{value:0}, uSwX:{value:0}, uSwS:{value:1},
@@ -1746,6 +1749,7 @@ const oceanMat=new THREE.ShaderMaterial({
   uniforms:oceanUniforms,
   vertexShader:`
     uniform float uT; uniform float uDist; uniform float uAmp; uniform float uPeak;
+    uniform float uShore; uniform float uShoreW;
     uniform float uWakeZ; uniform float uWakeA; uniform float uWakeX;
     uniform float uWhX; uniform float uWhZ; uniform float uWhA;
     uniform float uSwA; uniform float uSwX; uniform float uSwS;
@@ -1757,6 +1761,25 @@ const oceanMat=new THREE.ShaderMaterial({
       float h=0.0, dhx=0.0, dhz=0.0, e=1.0;
       ${glslWaves}
       h*=uAmp; dhx*=uAmp; dhz*=uAmp;
+      // ---- the swell dies as it shoals ----
+      // A beach is where the water and the sand cross, and with a metre and a third of swell
+      // still running at the crossing they do not cross, they INTERLEAVE: over a thirty-unit
+      // band the wave tops stand above the sand and the troughs fall below it, and from a
+      // camera down on the beach at a grazing angle that band is not surf, it is tongues of
+      // blue lying about on dry sand. Real water arriving in shallows loses its height, so
+      // this loses it too: full swell out at sea, nothing at all at the waterline, and the
+      // two surfaces meet in one clean line that stays put.
+      // Tapered on the row's own distance rather than on world z, because that is the axis
+      // the sea is built along; and the taper's own slope goes into the normal, or the last
+      // rows before the shore light as though they were still steep.
+      if(uShore>0.0){
+        float st=clamp((position.y-uShore)/uShoreW,0.0,1.0);
+        float ss=st*st*(3.0-2.0*st);
+        float dss=(st>0.0&&st<1.0)?(6.0*st*(1.0-st)/uShoreW):0.0;
+        dhz=dhz*ss-h*dss;      // p.y runs against position.y, hence the minus
+        dhx*=ss;
+        h*=ss;
+      }
       // the jet ski's wake, folded into the same surface
       if(uWakeA>0.001){
         float dz=p.y-uWakeZ;
@@ -14690,6 +14713,28 @@ if(location.hash.includes('debug')){
       }
       return out;
     },
+    // Where the water's edge is, and whether the swell has actually been switched off by the
+    // time it gets there. The tongues of blue on the sand were the swell still running at the
+    // crossing: the wave tops stood above the sand and the troughs below it over a thirty-unit
+    // band, so the two surfaces interleaved instead of meeting. With the taper reaching zero
+    // AT the waterline the sea there is a flat plane, and a flat plane crosses a rising beach
+    // exactly once. That is the whole guarantee, so it is what this reports — the two numbers
+    // that have to be the same place, and what the sand is doing either side of them.
+    shoreLine(){
+      const t=(typeof shoreTaper==='function')?shoreTaper():null;
+      if(!t||!beachSea)return null;
+      const u=beachSea.material.uniforms;
+      const at=wz=>+beachSandH(wz).toFixed(3);
+      return {waterline:t.waterline, row:t.row, width:t.width,
+              seaY:+beachSea.position.y.toFixed(3),
+              // the row the shader stops displacing at, back in beach coordinates
+              taperZ:+(beachSea.position.z-u.uShore.value).toFixed(2),
+              // sand ten units either side of the crossing: dry above, drowned below
+              inshore:at(t.waterline+10), offshore:at(t.waterline-10),
+              amp:oceanUniforms.uAmp.value,
+              // and the game's own ocean, which has no shore in it and must not be touched
+              gameShore:oceanUniforms.uShore.value};
+    },
     boardMats(){
       const o=(menuBeach&&menuBeach.board)||boardArt; if(!o)return null;
       const out=[];
@@ -17376,7 +17421,7 @@ function menuBeachOn(){
   // band of beach only inches above the sea, and seen from down here at a grazing angle that
   // band spreads right across the picture as brown streaks THROUGH the water. Raising the
   // sea drowns the flats, which is what a beach at anything but dead low tide looks like.
-  if(beachSea){ menuDay.seaY=beachSea.position.y; beachSea.position.y=1.05; }
+  if(beachSea){ menuDay.seaY=beachSea.position.y; beachSea.position.y=1.05; shoreTaper(); }
   // and a cool fill from the camera's side, so the shaded face of the trunk and the underside
   // of the board pick up bounce off the sand instead of going black
   if(prevFill){ prevFill.color.set(0xffeed6); prevFill.intensity=0.50;
@@ -17705,6 +17750,29 @@ function layoutMenuBeach(){
   menuBeach.boardH=new THREE.Box3().setFromObject(board).getSize(new THREE.Vector3()).y;
   layoutBeachChest();
 }
+// ---- the swell dies where the water shoals ----
+// WHERE the waterline is cannot be a number typed in here: it is wherever the beach's own
+// profile crosses whatever height the sea is sitting at, and the menu raises the sea by a
+// foot to drown the flats. Typing it in meant the taper and the actual water's edge drifted
+// apart the moment either moved. sandH is monotonic, so the crossing is found by halving the
+// interval — forty steps, once, when the day is set.
+function shoreTaper(){
+  if(!beachSea||!beachSea.material||!beachSea.material.uniforms)return null;
+  const u=beachSea.material.uniforms;
+  if(!u.uShore||typeof beachSandH!=='function'){ return null; }
+  const target=beachSea.position.y;
+  let lo=-180, hi=10;
+  for(let i=0;i<40;i++){ const m=(lo+hi)/2; if(beachSandH(m)<target)lo=m; else hi=m; }
+  const wz=(lo+hi)/2;
+  // the sea is laid down turned a quarter turn, so a row's own coordinate runs AWAY from
+  // its origin: the row sitting over the waterline is that far back from the near edge
+  u.uShore.value=beachSea.position.z-wz;
+  // and it takes this long to get its height back. Short enough that there is still real
+  // swell in the near water, long enough that the calm reads as shelter rather than as a
+  // seam — a wall of wave starting in one row is worse than the tongues it replaced.
+  u.uShoreW.value=70;
+  return {waterline:+wz.toFixed(2), row:+u.uShore.value.toFixed(2), width:u.uShoreW.value};
+}
 // ---- the chest on the sand ----
 // Out to the camera's RIGHT of the palm and well forward of it, on the open beach in front
 // of the tree rather than tucked in at its foot. Four rounds were lost placing this by world
@@ -17805,7 +17873,7 @@ function menuBeachOff(){
     prevFill.intensity=menuDay.fillI; prevFill.position.copy(menuDay.fillP); }
   if(beachSand&&menuDay.sand){ beachSand.material.color.copy(menuDay.sand);
     beachSand.material.envMapIntensity=menuDay.sandEnv; }
-  if(beachSea&&menuDay.seaY!==undefined)beachSea.position.y=menuDay.seaY;
+  if(beachSea&&menuDay.seaY!==undefined){ beachSea.position.y=menuDay.seaY; shoreTaper(); }
   if(menuDay.palmMats&&menuDay.palm)
     menuDay.palmMats.forEach((x,i)=>{ if(x&&menuDay.palm[i])x.color.copy(menuDay.palm[i]); });
   if(menuAO)menuAO.visible=false;

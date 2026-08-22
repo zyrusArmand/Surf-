@@ -483,6 +483,37 @@ await page.waitForTimeout(300);
           'and its open lid stands at the back, so you look into it rather than at it',
           lid ? `lid ${lid.lidBehind}ft further from the lens than the box` : 'no beach chest');
   }
+  // ---- and the sea stops at the sand rather than lying about on it ----
+  // A beach is where the water and the sand CROSS, and with a foot and a third of swell still
+  // running at the crossing they did not cross, they interleaved: over a thirty-unit band the
+  // wave tops stood above the sand and the troughs fell below it, and from a camera down on
+  // the beach at a grazing angle that band read as tongues of blue lying on dry sand. Hiding
+  // the sea and finding the sand clean underneath is what settled that it was the water and
+  // not the beach's own painting.
+  //
+  // The swell dies as it shoals now, and the guarantee is exact rather than approximate: at
+  // the waterline the displacement is identically zero, so the sea there is a FLAT PLANE, and
+  // a flat plane crosses a rising beach exactly once. Which makes the thing to check the one
+  // relationship that never used to exist — that the row the swell dies at and the row the
+  // water's edge falls on are the same row. Typing either in by hand is how they drift.
+  {
+    const sh = await page.evaluate(() => window.__surf.shoreLine());
+    check(sh && Math.abs(sh.taperZ - sh.waterline) < 0.05,
+          'the swell dies exactly where the water meets the sand, not somewhere near it',
+          sh ? `swell flat from ${sh.taperZ}, waterline at ${sh.waterline}, over ${sh.width} units`
+             : 'no beach sea');
+    check(sh && sh.inshore > sh.seaY && sh.offshore < sh.seaY,
+          'and the beach crosses that flat water once — dry inshore of it, drowned outside it',
+          sh ? `sand ${sh.inshore} ten units in, ${sh.offshore} ten units out, water at ${sh.seaY}`
+             : 'no beach sea');
+    check(sh && sh.amp > 0.5,
+          'and there is still a real swell out where the water is deep enough for one',
+          sh ? `amplitude ${sh.amp}` : 'no beach sea');
+    check(sh && sh.gameShore < 0,
+          "and the game's own ocean, which has no shore in it, is left alone",
+          sh ? `uShore ${sh.gameShore}` : 'no beach sea');
+  }
+
   // ---- every rigged rider stands on the sand and faces out ----
   // Both of these were true of the pug and of nobody else, and both for the same reason: the
   // title screen's performance is written for a file that ships the whole repertoire, and the
