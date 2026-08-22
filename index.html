@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.52.0';
+const VERSION='3.53.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10639,6 +10639,37 @@ function buildChest(){
 const crateObj=buildChest();
 crateObj.scale.setScalar(0.72);                  // a bit smaller than the old crate
 crateObj.visible=false; scene.add(crateObj);
+// ---- and a modelled chest, if one has been dropped in ----
+// Measured off the MESHES only. The chest carries two glow sprites, and a sprite's box is
+// whatever size it is drawn on screen — include those and the box is three times the chest
+// and the model arrives a third of the size it should be.
+const CHEST_BOX=(function(){ const b=new THREE.Box3();
+  crateObj.updateMatrixWorld(true);
+  crateObj.traverse(o=>{ if(o.isMesh)b.expandByObject(o); });
+  return b.isEmpty()?new THREE.Box3(new THREE.Vector3(-0.63,0,-0.44),
+                                    new THREE.Vector3(0.63,0.9,0.44)):b; })();
+let chestModel=null;
+loadModel('chest.glb',(s3,gltf)=>{
+  const fitted=skinAndFit('chest',s3,CHEST_BOX);
+  // The BODY goes and the fittings stay. The glow sprites are what makes a chest findable
+  // in open water, and the lid group is what the ceremony swings open — neither is part of
+  // the shape, and both would be thrown away by simply replacing the group.
+  crateObj.traverse(o=>{ if(o.isMesh)o.visible=false; });
+  crateObj.add(fitted);
+  chestModel=fitted;
+  placeBeachChest();
+});
+// One more of it on the title screen, sitting on the sand to the right of the palm. A prop,
+// not the pickup: no glow, no spin, no bobbing — it is scenery, and scenery holds still.
+let beachChest=null;
+function placeBeachChest(){
+  if(!chestModel||typeof menuProps==='undefined'||!menuProps||beachChest)return;
+  beachChest=chestModel.clone(true);
+  beachChest.position.set(2.45,0,0.85);
+  beachChest.rotation.y=Math.PI/4;               // a quarter turn, so it is not square to the lens
+  beachChest.scale.setScalar(2.35);
+  menuProps.add(beachChest);
+}
 let crateOn=false, crateHeld=false, crateT=999, crateBobT=0, cratePin=false, crateInTube=false;
 function crateReset(){
   crateOn=false; crateHeld=false; crateObj.visible=false; cratePin=false; crateInTube=false;
@@ -13505,6 +13536,17 @@ if(location.hash.includes('debug')){
                   crateObj.position.set(px,0,pz-0.4); return true; },
     // The character gallery: put one on screen, full frame, for a look.
     charIds(){ return CHARS.map(c=>c.id); },
+    // Where the chest is, what it is made of, and whether the model took.
+    chestInfo(){
+      const b=new THREE.Box3().setFromObject(crateObj);
+      let meshes=0, modelMeshes=0;
+      crateObj.traverse(o=>{ if(!o.isMesh)return; meshes++;
+        if(o.visible&&crateObj.userData&&chestModel&&(function(){let p=o;while(p){if(p===chestModel)return 1;p=p.parent;}return 0;})())modelMeshes++; });
+      return {on:crateOn, vis:crateObj.visible, model:!!chestModel,
+              pos:[crateObj.position.x,crateObj.position.y,crateObj.position.z].map(v=>+v.toFixed(2)),
+              size:[b.max.x-b.min.x,b.max.y-b.min.y,b.max.z-b.min.z].map(v=>+v.toFixed(2)),
+              meshes, modelMeshes, beach:!!beachChest};
+    },
     // Shut a card again. Opening one moves the whole rider group into the preview scene, so a
     // probe that opens one and walks away leaves every later reading taken on a rider who is
     // no longer in the game — which is exactly what happened to the two checks after it.
@@ -15777,6 +15819,7 @@ function menuBeachOn(){
     far.position.set(-13.5,-0.9,-13); far.rotation.y=2.3; far.scale.setScalar(0.72);
     menuProps.add(far);
     prevScene.add(menuProps);
+    placeBeachChest();                            // whichever of the two arrived second
   }
   // the day the preview pins itself to, kept so the viewer still opens on a bright one
   if(!menuDay&&prevSky)menuDay={top:prevSky.uniforms.uTop.value.clone(),

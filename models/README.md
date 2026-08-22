@@ -4,13 +4,17 @@ Drop a `.glb` in this folder and it replaces the built-in shape in the game. If 
 file isn't here the game keeps its procedural version, so you can replace one
 thing at a time and nothing ever breaks.
 
+The CHEST keeps its fittings when a model replaces it: the two glow sprites that make it
+findable in open water, and the lid group the end-of-run ceremony swings open. Only the body
+is swapped, so neither is lost.
+
 Keep textures small. A rider is a background character a couple of hundred pixels tall;
 `pug.glb` arrived with a 4096×4096 texture that made the file 10.5 MB, and at 1024×1024 it
 is 1.7 MB and looks identical in game. Exporters also like wiring the texture to **emissive**
 at full white, which makes the model glow flat and ignore every light in the scene — worth
 checking if an import looks oddly unlit.
 
-`board.glb`, `pug.glb` and `cat.glb` ship with the game; the rest of the table is
+`board.glb`, `chest.glb`, `pug.glb` and `cat.glb` ship with the game; the rest of the table is
 empty by design, and the 404s those file names produce are the documented path
 rather than a fault.
 
@@ -22,6 +26,7 @@ to `RIDER_MODELS` in `index.html`.
 | File | Replaces |
 | --- | --- |
 | `board.glb` | the surfboard |
+| `chest.glb` | the treasure chest |
 | `pug.glb` | Astro the Pug |
 | `cat.glb` | Miso the Cat |
 | `buoy.glb` | the striped buoy |
