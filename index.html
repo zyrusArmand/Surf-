@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.66.0';
+const VERSION='3.67.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10387,6 +10387,35 @@ function buildObstacle(kind){
               hx:hx===undefined?r:hx, hz:hz===undefined?r:hz};
   return m;
 }
+// ---- cloning a RIGGED model, which Object3D.clone cannot do ----
+// A SkinnedMesh is drawn from its SKELETON's world matrices, and clone() copies the mesh
+// while leaving it pointing at the original's bones. Every clone is then skinned by the
+// template's skeleton — which sits at the origin and is never animated — so an octopus
+// spawned a hundred and seventy feet out was DRAWN on top of the rider, at the same place,
+// every time. That is the whole of "it does not come in like a log, it just appears", and
+// the same fault is why its arms never moved: the code was turning each clone's own bones
+// and the picture was coming from bones nothing had touched. It is also exactly the trap
+// this project keeps hitting — a measurement that agrees with itself and disagrees with
+// the screen — because octoTips() was reading the bones that move.
+//
+// So the clone is rebound: each cloned mesh gets a skeleton of the CLONE's bones, in the
+// order the original's skeleton had them, with the original's bind matrix and inverses.
+function cloneModel(src){
+  const dst=src.clone(true);
+  let skinned=false; dst.traverse(o=>{ if(o.isSkinnedMesh)skinned=true; });
+  if(!skinned)return dst;
+  const bones={}; dst.traverse(o=>{ if(o.isBone)bones[o.name]=o; });
+  const srcMesh=[]; src.traverse(o=>{ if(o.isSkinnedMesh)srcMesh.push(o); });
+  const dstMesh=[]; dst.traverse(o=>{ if(o.isSkinnedMesh)dstMesh.push(o); });
+  for(let i=0;i<dstMesh.length&&i<srcMesh.length;i++){
+    const sk=srcMesh[i].skeleton;
+    const nb=sk.bones.map(b=>bones[b.name]||b);
+    const s2=new THREE.Skeleton(nb,sk.boneInverses.map(m=>m.clone()));
+    dstMesh[i].bindMatrix.copy(srcMesh[i].bindMatrix);
+    dstMesh[i].bind(s2,dstMesh[i].bindMatrix);
+  }
+  return dst;
+}
 // one template per obstacle type; every spawn is a clone that reuses the same GPU data
 const OBST_TEMPLATES={};
 // ...or SEVERAL, when more than one model has been dropped in for the same thing
@@ -10404,7 +10433,7 @@ function makeObstacle(kind,x,z){
   // one of the models dropped in for this kind, at random, or the only one there is
   const vs=OBST_VARIANTS[kind];
   const t=(vs&&vs.length>1)?vs[(Math.random()*vs.length)|0]:OBST_TEMPLATES[kind];
-  const m=t.clone(true);
+  const m=cloneModel(t);
   // rx/rz are the per-instance TILT on the swell and are deliberately cleared; hx/hz are
   // the collision half-extents and must survive the clone. Naming the hitbox rx/rz put the
   // two in the same slot, and the tilt would have overwritten the hitbox every frame.
@@ -11051,7 +11080,7 @@ loadModel('chest.glb',(s3,gltf)=>{
   // for the thing you catch in the water and once for the thing that opens on the card after
   // a run — and dressing only the first left the procedural box on the only screen that
   // shows a chest close up and still. It is the one you actually look at.
-  if(typeof ceremonyChest!=='undefined'&&ceremonyChest)dressChest(ceremonyChest,fitted.clone(true));
+  if(typeof ceremonyChest!=='undefined'&&ceremonyChest)dressChest(ceremonyChest,cloneModel(fitted));
   placeBeachChest();
 });
 // One more of it on the title screen, sitting on the sand to the right of the palm. A prop,
@@ -11065,7 +11094,7 @@ function dressChest(g,model){
 let beachChest=null;
 function placeBeachChest(){
   if(!chestModel||typeof menuProps==='undefined'||!menuProps||beachChest)return;
-  beachChest=chestModel.clone(true);
+  beachChest=cloneModel(chestModel);
   menuProps.add(beachChest);
   // and put where the rest of the beach is put, which is the whole of why it kept landing
   // in the wrong place. Four rounds went into world coordinates for this: the props group
@@ -14092,6 +14121,44 @@ if(location.hash.includes('debug')){
       const b=new THREE.Box3().setFromObject(beachChest);
       return {rot:[x||0,y||0,z||0],
               size:[b.max.x-b.min.x,b.max.y-b.min.y,b.max.z-b.min.z].map(v=>+v.toFixed(2))}; },
+    // Would the renderer actually DRAW this thing where it is? Three.js culls by the
+    // geometry's bounding sphere put through the object's world matrix, and for a skinned
+    // mesh that sphere is the BIND pose — an animal whose arms are posted out on bones can
+    // have a sphere that says it is somewhere it is not. "It does not come in from the
+    // distance, it just appears" is exactly what that looks like.
+    drawnAt(kind){
+      camera.updateMatrixWorld(true);
+      const fr=new THREE.Frustum().setFromProjectionMatrix(
+        new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
+      const sp=new THREE.Sphere();
+      return obstacles.filter(o=>!kind||o.userData.kind===kind).map(o=>{
+        o.updateMatrixWorld(true);
+        let inFr=false, culled=false, r=0;
+        o.traverse(m=>{ if(!m.isMesh||!m.geometry)return;
+          if(!m.geometry.boundingSphere)m.geometry.computeBoundingSphere();
+          sp.copy(m.geometry.boundingSphere).applyMatrix4(m.matrixWorld);
+          r=Math.max(r,sp.radius);
+          if(m.frustumCulled===false)inFr=true; else if(fr.intersectsSphere(sp))inFr=true;
+                                                else culled=true; });
+        // WHERE THE SHADER WOULD PUT IT, which for a skinned mesh is not where the object
+        // is. The vertices come from the skeleton's world matrices, so a clone still bound
+        // to the template's bones draws at the template's place however far away you move
+        // the object — and position.z will happily tell you it is a hundred feet out.
+        let dz=null, n=0, sum=0; const w=new THREE.Vector3();
+        o.traverse(m=>{ if(!m.isMesh||!m.geometry||!m.geometry.attributes.position)return;
+          const pa=m.geometry.attributes.position, step=Math.max(1,Math.ceil(pa.count/24));
+          if(m.isSkinnedMesh&&m.skeleton)m.skeleton.update();
+          for(let i=0;i<pa.count;i+=step){
+            w.fromBufferAttribute(pa,i);
+            if(m.isSkinnedMesh){ if(m.applyBoneTransform)m.applyBoneTransform(i,w);
+                                 else if(m.boneTransform)m.boneTransform(i,w); }
+            w.applyMatrix4(m.matrixWorld); sum+=w.z; n++; } });
+        if(n)dz=sum/n;
+        return {kind:o.userData.kind, z:+o.position.z.toFixed(1),
+                drawnZ:dz===null?null:+dz.toFixed(1),
+                drawn:inFr, someCulled:culled, sphere:+r.toFixed(2)};
+      });
+    },
     // How deep an octopus rides. Half a foot is the difference between a beach ball on the
     // surface and a head that has gone under entirely, and neither is what was asked for.
     octoSink(v){ if(v!==undefined)FLOAT_OFF.octopus=v; return FLOAT_OFF.octopus; },

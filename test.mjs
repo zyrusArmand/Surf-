@@ -1904,6 +1904,37 @@ if (hasHook) {
         `${moved ? new Set(moved.map(m => m.toFixed(2))).size : 0} different amounts among ${oct.arms}`);
 }
 
+// ---------- a rigged obstacle is drawn where it IS ----------
+// Object3D.clone() cannot clone a rigged model. A SkinnedMesh is drawn from its SKELETON's
+// world matrices, and clone() copies the mesh while leaving it pointing at the ORIGINAL's
+// bones — so every octopus in the water was skinned by the template's skeleton, which sits at
+// the origin and is never animated. They were all drawn in the same place, on top of the
+// rider, however far out they had been spawned, and their arms never moved because the code
+// was turning each clone's own bones while the picture came from bones nothing had touched.
+//
+// It is the trap this project keeps walking into: a reading that agrees with itself and
+// disagrees with the screen. position.z said a hundred and seventy feet out and was right;
+// the shader drew it at your feet. So the check is on where the VERTICES land, run through
+// the same skinning maths the shader runs.
+{
+  const drawn = await page.evaluate(() => {
+    window.__surf.restart(); window.__surf.invuln(true); window.__surf.tick(0.5);
+    window.__surf.spawn('octopus', -1.0, -120);
+    window.__surf.spawn('octopus', 2.0, -30);
+    window.__surf.spawn('log', 3.2, -60);
+    window.__surf.tick(0.05);
+    return window.__surf.drawnAt();
+  });
+  const off = drawn.map(o => Math.abs(o.drawnZ - o.z));
+  check(drawn.length >= 3 && off.every(d => d < 4),
+        'a spawned obstacle is drawn where it was spawned, rig or no rig',
+        drawn.map(o => `${o.kind} at ${o.z} drawn at ${o.drawnZ}`).join(', '));
+  const octs = drawn.filter(o => o.kind === 'octopus');
+  check(octs.length === 2 && Math.abs(octs[0].drawnZ - octs[1].drawnZ) > 60,
+        'and two of the same rigged thing are drawn in two different places',
+        octs.map(o => o.drawnZ).join(' vs '));
+}
+
 // ---------- the treasure chest ----------
 // Its LID FACES UP. This one went wrong three times, and never in a way that a number could
 // catch: the lid is modelled already open, so the bounding box is nearly a cube, no axis

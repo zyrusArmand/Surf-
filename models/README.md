@@ -68,6 +68,12 @@ Collision size is unchanged — the game still uses the original's radius and he
 so a model that is wildly a different shape will feel slightly off even though it
 looks right.
 
+**A rigged obstacle is cloned properly.** `Object3D.clone()` copies a SkinnedMesh and leaves
+it pointing at the ORIGINAL's bones, so every clone is drawn from the template's skeleton —
+which sits at the origin and is never animated. Rigged imports are rebound on clone: each one
+gets a skeleton of its own bones. Without it a spawn a hundred feet out is drawn at your feet
+and its animation does nothing, however correct every number about it reads.
+
 **More than one model for the same thing.** Every obstacle also looks for a file with a `2`
 on the end — `buoy2.glb`, `log2.glb`, `jelly2.glb` — and if one is there, each spawn picks
 between them at random, so a run passes a danger buoy and then a channel marker rather than
