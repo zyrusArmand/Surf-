@@ -2623,6 +2623,17 @@ check(shaderErrors.length === 0, 'every shader compiles',
         'and stays on the sand doing it, lying down included',
         `ground held at ${show[0].ground === null ? 'none' : (+show[0].ground).toFixed(3)}`);
 
+  // He turns to face the viewer on the title screen and turns BACK the moment a run starts.
+  // The stance is square across the board, which is right on a wave and wrong when he is
+  // being looked at; the risk is only ever that he keeps the title screen's turn onto it.
+  const turn = await page.evaluate(() => {
+    const a = window.__surf.stance ? null : null;
+    window.__surf.restart(); window.__surf.tick(0.4);
+    return window.__surf.stance ? window.__surf.stance() : null;
+  });
+  check(!turn || Math.abs((turn.rider !== undefined ? turn.rider : 0) - (-1.2)) < 0.25,
+        'and rides square across the board rather than keeping the title screen\'s turn',
+        turn ? `stance ${turn.rider}` : 'no stance probe');
   // TWO SOLID OBJECTS DO NOT OVERLAP, and the only honest way to ask is to put the sole and
   // the deck in the same frame — the board's own, because the sea heaves and the hull pitches
   // and a world height answers a different question every frame. The built-in rider's soles

@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.49.0';
+const VERSION='3.50.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -9101,6 +9101,7 @@ function setupModelRig(root,gltf,id){
   // pointing and got fifty-five degrees off.
   R.leaveShow=function(){
     if(this.step<0)return;
+    pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0);   // out of the show's turn-to-camera
     for(const k in this.clips){ const a=this.clips[k];
       a.stop();
       if(a===this.stand){ // the trick action goes back to being scrubbed by hand
@@ -9326,6 +9327,10 @@ function setupModelRig(root,gltf,id){
       if(this.ground===null&&this.step===0)this.ground=box.lo[1];
       if(this.ground!==null)pug.position.y+=this.ground-box.lo[1];
     }
+    // TURNED TOWARD THE CAMERA. The riding stance is square across the board and side-on to
+    // the viewer, which is right on a wave and wrong on a title screen — there he is being
+    // looked at, and a character being looked at faces out.
+    pug.rotation.y=STANCE_ROT+MENU_FACE;
   };
   R.plant=function(a,b,f,w){
     const foot=this.bones[f], rest=this.rest[f], want=this.chainRest[f];
@@ -9346,6 +9351,7 @@ function setupModelRig(root,gltf,id){
 // the .glb in, and that character rides his own body. Everyone else keeps the built-in one.
 const RIDER_MODELS=['pug','cat'];
 const RIDER_YAW=-0.42;   // measured: takes the shared 69-degree stance to a square 93
+const MENU_FACE=-1.50;   // and on the title screen he turns out of it, toward the viewer
 for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
   // TURNED TO FACE THE WAVE, by asking the model which way it is looking rather than by
   // being told. Every face on the built-in riders is built at negative z — muzzle, nose,
@@ -9436,6 +9442,19 @@ for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
   // anything that measured them measured a frame from before the file finished downloading.
   // Both were invisible until the checks that walk the built-in rig started disagreeing with
   // themselves between runs. Left in place and switched off, it costs one boolean.
+  // ---- fur is MATT, whatever the exporter thought ----
+  // The export came in at roughness 0.41 with the game's own authored-material reflection of
+  // 0.55 on top, and a rider lit like that is a polished ceramic figurine rather than an
+  // animal — it read as a shiny statue on the beach, where the light is hardest. Roughness up
+  // and reflection down, to the same numbers the built-in bodies wear. The TEXTURE is left
+  // completely alone; this is only how light behaves on it.
+  fitted.traverse(o=>{ if(!o.isMesh)return;
+    for(const m of (Array.isArray(o.material)?o.material:[o.material])){
+      if(!m||m.roughness===undefined)continue;
+      m.roughness=Math.max(m.roughness,0.88); m.metalness=0;
+      m.envMapIntensity=0.15;
+      if(m.emissive)m.emissive.setRGB(0,0,0);
+      m.needsUpdate=true; } });
   riderModels[id]=fitted;
   fitted.userData.riderFor=id;
   pug.add(fitted);
@@ -16344,8 +16363,14 @@ requestAnimationFrame(loop);
     // knew nothing about (and made the sea jump the moment a run started).
     waveClock+=dt; oceanUniforms.uT.value=waveClock; tNow+=dt;
     if(!wipe){ menuCamera(dt); menuIdle(dt); }
-    // the imported rider performs here — nothing else is driving him between runs
-    { const mr=riderRig(); if(mr){ if(mr.show)mr.show(dt); else if(mr.idle)mr.idle(dt); } }
+    // The imported rider performs here — nothing else is driving him between runs. NOT while
+    // a card is open, though: the show holds him at the height that stands him on the beach,
+    // and the viewer stands him somewhere else entirely, so it was lifting him clean out of
+    // the top of his own portrait. A card gets the standing pose and nothing that moves him.
+    { const mr=riderRig();
+      if(mr){ if(typeof viewer!=='undefined'&&viewer){ mr.step=-1; mr.stepT=0; mr.ground=null;
+                if(mr.idle)mr.idle(dt); }
+              else if(mr.show)mr.show(dt); else if(mr.idle)mr.idle(dt); } }
     updateDayCycle();
   }
   placeCeremonyChest(dt);
