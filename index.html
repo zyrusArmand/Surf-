@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.56.1';
+const VERSION='3.57.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10703,23 +10703,14 @@ let beachChest=null;
 function placeBeachChest(){
   if(!chestModel||typeof menuProps==='undefined'||!menuProps||beachChest)return;
   beachChest=chestModel.clone(true);
-  // Placed in the PUG's frame, not in the group's own. beachChest hangs off menuProps, which
-  // carries a transform of its own, so the coordinates it is authored in are not the ones
-  // anything else on this beach is placed in — a few units in the local frame moved it clean
-  // past the sand and out to sea. Anchored to the rider instead: same ground, well out to his
-  // right, clear of the trunk that leans across the middle of the shot.
-  // Placed in the RIDER's frame, not in the group's own, and this is the whole of why it kept
-  // turning up in the wrong place. beachChest hangs off menuProps, which carries a transform
-  // of its own — so the coordinates it is authored in are not the ones anything else on this
-  // beach is placed in, and a few units in the local frame put it out past the sand and into
-  // the sea. Anchored to the rider instead: out to his right, forward toward the camera, and
-  // DOWN, because the beach slopes and coming forward means coming down it.
-  { const p=new THREE.Vector3(-7.41+11, 3.18-2.2, -47.87-20);
-    if(menuProps){ menuProps.updateWorldMatrix(true,false); menuProps.worldToLocal(p); }
-    beachChest.position.copy(p); }
-  beachChest.rotation.y=Math.PI/4;               // a quarter turn, so it is not square to the lens
-  beachChest.scale.setScalar(1.20);
   menuProps.add(beachChest);
+  // and put where the rest of the beach is put, which is the whole of why it kept landing
+  // in the wrong place. Four rounds went into world coordinates for this: the props group
+  // carries a transform of its own, the shot is turned along the beach so world +x is not
+  // screen-right, the sand slopes so coming forward means coming down, and a number that
+  // looks sensible in one of those frames is nonsense in the others. layoutBeachChest does
+  // it in the CAMERA's axes, the same ones the palm, the board and the rider already use.
+  if(typeof layoutBeachChest==='function')layoutBeachChest();
 }
 let crateOn=false, crateHeld=false, crateT=999, crateBobT=0, cratePin=false, crateInTube=false;
 function crateReset(){
@@ -13602,16 +13593,43 @@ if(location.hash.includes('debug')){
     // Where the beach chest lands ON SCREEN, in pixels. Placing it by eye cost three rounds
     // of guesswork: the beach camera is angled, so world +x is screen-LEFT here, and moving
     // the chest toward the camera shifts it sideways as well. One projection settles it.
-    chestScreen(){ if(!beachChest||!menuCam&&!prevCam)return null;
-      const cam=(typeof menuBeach!=='undefined'&&menuBeach&&prevCam)?prevCam:camera;
+    // The title screen is drawn by menuCam. prevCam renders the little offscreen thumbnails
+    // and viewCam frames a shop card; neither is anywhere near this shot, and projecting
+    // through either puts every reading a third of the way up the sky — which made a chest
+    // that WAS on screen look lost, and cost a round of chasing a camera bug as a placement
+    // bug. Whichever camera drew the frame is the only one that can say where a thing is.
+    chestScreen(){ if(!beachChest)return null;
+      const onBeach=(typeof menuBeach!=='undefined'&&menuBeach&&menuCam);
+      const cam=onBeach?menuCam:((typeof viewCam!=='undefined'&&viewCam)?viewCam:camera);
+      const px=v=>[Math.round((v.x*0.5+0.5)*innerWidth),Math.round((-v.y*0.5+0.5)*innerHeight)];
       beachChest.updateWorldMatrix(true,false);
-      const v=beachChest.getWorldPosition(new THREE.Vector3()).project(cam);
-      const pw=pug.getWorldPosition(new THREE.Vector3()), pv=pw.clone().project(cam);
-      return {x:Math.round((v.x*0.5+0.5)*innerWidth), y:Math.round((-v.y*0.5+0.5)*innerHeight),
-              world:[+beachChest.position.x.toFixed(2),+beachChest.position.z.toFixed(2)],
-              pugWorld:[+pw.x.toFixed(2),+pw.y.toFixed(2),+pw.z.toFixed(2)],
-              pugScreen:[Math.round((pv.x*0.5+0.5)*innerWidth),Math.round((-pv.y*0.5+0.5)*innerHeight)],
-              chestParent:beachChest.parent?beachChest.parent.name||'menuProps':'none'}; },
+      const cw=beachChest.getWorldPosition(new THREE.Vector3());
+      const b=new THREE.Box3().setFromObject(beachChest), s=b.getSize(new THREE.Vector3());
+      const pw=pug.getWorldPosition(new THREE.Vector3());
+      const bd=(typeof menuBeach!=='undefined'&&menuBeach)?menuBeach.board:null;
+      const bw=bd?bd.getWorldPosition(new THREE.Vector3()):null;
+      const tw=menuProps?menuProps.getWorldPosition(new THREE.Vector3()):null;
+      return {chest:px(cw.clone().project(cam)),
+              top:px(b.max.clone().setX(cw.x).setZ(cw.z).project(cam)),
+              size:[s.x,s.y,s.z].map(v=>+v.toFixed(2)),
+              chestWorld:[cw.x,cw.y,cw.z].map(v=>+v.toFixed(2)),
+              pug:px(pw.clone().project(cam)), pugWorld:[pw.x,pw.y,pw.z].map(v=>+v.toFixed(2)),
+              board:bw?px(bw.clone().project(cam)):null,
+              boardWorld:bw?[bw.x,bw.y,bw.z].map(v=>+v.toFixed(2)):null,
+              palm:tw?px(tw.clone().project(cam)):null,
+              palmWorld:tw?[tw.x,tw.y,tw.z].map(v=>+v.toFixed(2)):null,
+              // near/far and on/in the ground, so "in front of the tree" and "sitting on the
+              // sand" are numbers rather than an impression of a screenshot
+              camDist:+cam.position.distanceTo(cw).toFixed(2),
+              palmDist:tw?+cam.position.distanceTo(tw).toFixed(2):null,
+              bottom:+b.min.y.toFixed(3),
+              sand:+(((typeof beachSandH==='function'&&beachSandH)
+                      ?beachSandH(cw.z/MB_K):beachSand0)*MB_K).toFixed(3),
+              // WHICH camera answered. The menu's beach comes down whenever a panel opens, and
+              // a reading taken in that gap comes back through the game's camera instead —
+              // numbers that look like a misplaced chest and are a camera that is out at sea.
+              cam:onBeach?'menu':((typeof viewCam!=='undefined'&&viewCam)?'view':'game'),
+              screen:[innerWidth,innerHeight]}; },
     // ---- put the chest where you POINT, not where a coordinate guess lands ----
     // Placing it by world coordinates cost round after round: the prop group has a transform
     // of its own, the beach slopes, the trunk leans across the middle of the shot, and the
@@ -13718,6 +13736,13 @@ if(location.hash.includes('debug')){
       }
       let best=null; for(const k in out)if(!best||out[k]>out[best])best=k;
       out.open=best; return out;
+    },
+    // Walk the beach chest around by the two numbers it is actually placed by, so where it
+    // lands in the FRAME can be read off rather than guessed from world coordinates.
+    beachChestAt(cd,cf,ch){
+      if(cd!==undefined)MB_CD=cd; if(cf!==undefined)MB_CF=cf; if(ch!==undefined)MB_CH=ch;
+      layoutBeachChest();
+      return this.chestScreen();
     },
     // Turn the chest MODEL inside both chests at once, to find which way its lid faces up.
     chestFit(rx,ry,rz){
@@ -16507,6 +16532,61 @@ function layoutMenuBeach(){
   menuBeach.riderH=new THREE.Box3().setFromObject(pug).getSize(new THREE.Vector3()).y;
   board.updateMatrixWorld(true);
   menuBeach.boardH=new THREE.Box3().setFromObject(board).getSize(new THREE.Vector3()).y;
+  layoutBeachChest();
+}
+// ---- the chest on the sand ----
+// Out to the camera's RIGHT of the palm and well forward of it, on the open beach in front
+// of the tree rather than tucked in at its foot. Four rounds were lost placing this by world
+// coordinates, and every one of them failed for a different reason: the props group carries a
+// transform of its own, the shot is turned along the beach so world +x is not screen-right,
+// the sand slopes so moving toward the camera means moving DOWN, and the trunk leans across
+// the middle of the frame. Placed in the camera's axes — the same _mbR and _mbF the palm, the
+// board and the rider are already placed in — all four stop being a problem: right is right,
+// forward is forward, and the sand is sampled wherever it lands.
+// The three numbers were WALKED there rather than reasoned about: __surf.beachChestAt(cd,gap,ch)
+// moves it and reports back where it lands in the frame, in pixels. Sitting further right than
+// this runs it off the edge — the shot is framed on the board and the rider, so the palm is
+// already right of centre — and coming further forward makes it loom over the pug, because
+// forward here means several feet nearer a camera that is not far away to begin with.
+//
+// It is placed relative to the CAMERA, not to the palm, and that is the whole of why: the
+// camera walks back on a narrow screen and stands close on a wide one, a swing of ten feet
+// between a phone held upright and a browser window. Measured from the tree, a chest framed
+// on the sand in portrait dropped clean off the bottom of a landscape frame. Measured from
+// the lens it holds the same place in the picture at any shape of screen.
+let MB_CD=-0.8;        // a shade left of the trunk's own axis, which reads RIGHT of the tree
+let MB_CF=20.8;        // and this far in front of the camera, wherever the camera has gone
+let MB_CH=1.8;         // and this tall — small, because it is standing much nearer the lens
+let _bcAsp=null;
+const _bcP=new THREE.Vector3();
+function layoutBeachChest(){
+  if(typeof beachChest==='undefined'||!beachChest)return;
+  if(typeof menuProps==='undefined'||!menuProps)return;
+  mbAxes();
+  // the same distance the menu camera works out for itself, so the two move together
+  const asp=Math.max(0.4,innerWidth/innerHeight);
+  const spread=(typeof menuBeach!=='undefined'&&menuBeach&&menuBeach.spread)||5.5;
+  const D=MB_D+Math.max(0,1-asp)*18.0+spread*0.45;
+  _bcAsp=asp;
+  const cf=Math.max(2,D-MB_CF);
+  const wx=_mbR.x*MB_CD-_mbF.x*cf, wz=MB_Z*MB_K+_mbR.z*MB_CD-_mbF.z*cf;
+  const sand=(beachSandH?beachSandH(wz/MB_K):beachSand0)*MB_K;
+  menuProps.updateWorldMatrix(true,false);
+  // Sized by MEASUREMENT. It hangs off a group that is scaled, and the model inside it was
+  // already resized once to match the chest it replaces, so its own scale number says nothing
+  // about how big it ends up — the only honest way to ask for a two-and-a-half-foot chest is
+  // to measure the one you have and divide.
+  beachChest.scale.setScalar(1); beachChest.rotation.set(0,Math.PI/4,0);
+  beachChest.updateMatrixWorld(true);
+  const h=new THREE.Box3().setFromObject(beachChest).getSize(new THREE.Vector3()).y;
+  beachChest.scale.setScalar(MB_CH/Math.max(1e-4,h));
+  _bcP.set(wx,sand,wz); menuProps.worldToLocal(_bcP);
+  beachChest.position.copy(_bcP);
+  // and sat ON the sand rather than half sunk in it — the same two-solid-things rule the
+  // rider's feet get, and it matters more here because the beach is sloping underneath it
+  beachChest.updateMatrixWorld(true);
+  const b=new THREE.Box3().setFromObject(beachChest);
+  beachChest.position.y+=(sand-b.min.y)/(menuProps.scale.y||1);
 }
 function menuBeachOff(){
   if(!menuBeach)return;
@@ -16633,6 +16713,9 @@ function renderMenuBeach(dt){
   const g=(beachSandH?beachSandH(MB_Z):beachSand0)*MB_K,
         sw=Math.sin(m.t*0.09), sw2=Math.sin(m.t*0.13+1.1);
   menuCam.aspect=Math.max(0.4,innerWidth/innerHeight);
+  // the chest is placed off the camera, so a turned phone moves it — and the layout that
+  // placed it ran once, when the beach came up
+  if(_bcAsp!==null&&Math.abs(_bcAsp-menuCam.aspect)>1e-3)layoutBeachChest();
   // a portrait phone sees a narrower slice, so the camera walks back to keep the crown of
   // the palm and the whole board inside it
   // The layout says how wide it came out — a ten foot log stands its foot twice as far from

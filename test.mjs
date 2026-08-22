@@ -422,6 +422,47 @@ await page.waitForTimeout(300);
   check(!viaShop.riderOnBeach && !viaShop.boardOnBeach,
         'and hands them back the moment the shop opens',
         JSON.stringify(viaShop));
+  // ---- and a chest sitting on the sand in front of the tree ----
+  // Placing this cost four rounds and every one failed differently: the props group carries a
+  // transform of its own, the shot is turned along the beach so world +x is not screen-right,
+  // the sand slopes so coming forward means coming down, and the reading was taken through
+  // the wrong camera. So it is checked in the FRAME — where it lands in pixels, through the
+  // camera that actually drew it — and against the ground it stands on, which are the two
+  // things "it is not where I wanted it" ever means.
+  {
+    await page.waitForFunction(() => window.__surf.chestInfo && window.__surf.chestInfo().beach,
+                               null, { timeout: 30000 }).catch(() => {});
+    // ASKED WHILE THE BEACH IS UP. It comes down whenever a panel opens, and the reading then
+    // comes back through the game's camera, which is out on a wave — a chest 58ft away in a
+    // shot that is 21ft deep, which reads exactly like a placement bug and is not one.
+    const look = async () => {
+      await page.waitForFunction(() => window.__surf.menuState().up, null, { timeout: 20000 })
+        .catch(() => {});
+      await page.waitForTimeout(500);
+      return page.evaluate(() => window.__surf.chestScreen());
+    };
+    const inFrame = c => c && c.cam === 'menu' && c.chest[0] > c.size[0] &&
+                          c.chest[0] < c.screen[0] && c.top[1] > 0 && c.chest[1] < c.screen[1];
+    const wide = await look();
+    check(inFrame(wide) && wide.camDist < wide.palmDist,
+          'a chest sits on the sand in front of the palm, in shot rather than behind the trunk',
+          wide ? `at ${wide.chest} of ${wide.screen}, ${wide.camDist}ft out against the tree at ${wide.palmDist}ft`
+               : 'no beach chest');
+    check(wide && Math.abs(wide.bottom - wide.sand) < 0.05,
+          'and it is standing ON the sand rather than sunk into it — two solid things',
+          wide ? `base ${wide.bottom}, sand ${wide.sand}` : 'no beach chest');
+    // It is placed off the CAMERA, not off the tree, and this is why: the menu camera walks
+    // ten feet back on a narrow screen and stands close on a wide one. Measured from the
+    // trunk, a chest framed on the sand in portrait dropped clean off the bottom in landscape.
+    await page.setViewportSize({ width: 430, height: 932 });
+    const tall = await look();
+    check(inFrame(tall) && Math.abs(tall.camDist - wide.camDist) < 1.5,
+          'and it holds its place in the frame when the screen changes shape',
+          tall ? `portrait ${tall.chest} of ${tall.screen} at ${tall.camDist}ft, landscape ${wide.chest} at ${wide.camDist}ft`
+               : 'no beach chest');
+    await page.setViewportSize({ width: 1024, height: 640 });
+    await page.waitForTimeout(600);
+  }
   // but they ARE built the moment something that wants them is opened
   const boot1 = await page.evaluate(() => window.__surf.boot());
   check(boot1.palms >= 0, 'but are built the moment you leave the menu for something that shows them',
