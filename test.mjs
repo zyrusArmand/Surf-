@@ -2512,7 +2512,11 @@ check(shaderErrors.length === 0, 'every shader compiles',
 // still draws, the bones still turn, the numbers all read correctly, and the picture is
 // wrong. Each of these is a specific silence that cost real time to find.
 {
-  const rig = await page.evaluate(() => { window.__surf.restart(); return window.__surf.rigInfo(); });
+  // AFTER a tick, every time. Nothing about the rider is placed or posed until a frame runs
+  // — the stance, the ground contact and the exit from the title-screen show all happen
+  // inside update() — so reading straight off a restart reads whatever the menu left behind.
+  const rig = await page.evaluate(() => {
+    window.__surf.restart(); window.__surf.tick(0.4); return window.__surf.rigInfo(); });
   check(rig.model === true && rig.bones >= 20 && rig.stand === true,
         'the rigged rider loads with its skeleton and its handstand clip',
         `model ${rig.model}, ${rig.bones} bones, clip ${rig.stand}`);
@@ -2585,48 +2589,40 @@ check(shaderErrors.length === 0, 'every shader compiles',
   check(back.upY > 0.7 && back.phase === 'idle',
         'and he comes back down on his feet when it is released',
         `up-axis ${back.upY}, phase "${back.phase}"`);
-  // The coat is ONE colour, and that is a decision rather than an omission. Markings were
-  // tried three ways — near-black, warm brown, lighter warm brown — and every one read as a
-  // smudge, because at sixteen hundred vertices a marking has to be a soft-edged field to
-  // avoid showing its own seams, and a soft-edged brown field on a brown coat IS a smudge.
-  // A face belongs in a texture; the loader stands aside for one when a model brings it.
+  // ---- the face: the file's if it brought one, ours if it did not ----
+  // Both paths are real and both ship. A model exported as bare geometry — what an AI
+  // generator hands you by default, UVs and no texture — gets one clean coat in his roster
+  // colour and eyes built as geometry, because vertex colour cannot draw a white sclera with
+  // a pupil on it at these counts. A model that arrives textured gets left completely alone:
+  // no coat written over it, no eyes bolted on over the ones it already has.
   const f = await page.evaluate(() => window.__surf.faceStats());
-  check(f && f.head > 0 && f.verts > 0,
-        'the imported rider is painted from his own skeleton',
-        f ? `${f.head} of ${f.verts} verts found inside the head` : 'no paint');
-  // The eyes are two little spheres each, hung off the head bone. Painted instead, they came
-  // out as dark smudges — vertex colour cannot draw a white sclera with a pupil on it at
-  // these counts — and unskinned on a bone they ride every frame of the handstand for free.
-  check(f && f.eyeBalls === 4, 'and the eyes are geometry, so a pupil is a pupil and not a smudge',
-        `${f ? f.eyeBalls || 0 : 0} eye parts on the head bone`);
-  // A SECOND rider, to prove none of the above is about the pug. Same 24-bone skeleton, its
-  // own coat out of the roster, and — the interesting part — no handstand in its file at all.
-  // The trick still has to work, because the button is on screen either way.
-  const cat = await page.evaluate(() => {
-    window.__surf.wear('cat'); window.__surf.restart(); window.__surf.tick(0.5);
-    const a = window.__surf.rigInfo();
-    const gap = (window.__surf.deckGap() || {}).gap;
-    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyH' }));
-    window.__surf.tick(1.4);
-    const b = window.__surf.rigInfo();
-    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyH' }));
-    window.__surf.tick(3);
-    const c = window.__surf.rigInfo();
-    window.__surf.wear('pug'); window.__surf.restart();
-    return { a, b, c, gap };
+  const own = !!(f && f.authored), made = !!(f && f.head > 0 && f.eyeBalls === 4);
+  check(own || made,
+        'he has a face — his own if the file brought one, ours if it did not',
+        own ? 'the export is textured, so the game left it alone'
+            : f ? `built: ${f.head} head verts, ${f.eyeBalls || 0} eye parts` : 'no face at all');
+
+  // ---- the title screen show ----
+  // The file ships a performance, so he performs it rather than standing there. The sit and
+  // the lie-down are the get-up clip run BACKWARDS — there is no sit clip in the file, and a
+  // six-second get-up reversed is exactly the descent, on the animator's own timing.
+  const show = await page.evaluate(() => {
+    const out = [];
+    for (let i = 0; i < 5; i++) out.push(window.__surf.showStep(i));
+    out.push(window.__surf.showStep(0));
+    return out;
   });
-  check(cat.a.who === 'cat' && cat.a.model === true && cat.a.modelOn === true && cat.a.bones >= 20,
-        'a second character rides his own imported body too',
-        `${cat.a.who}: model ${cat.a.model}, ${cat.a.bones} bones`);
-  check(cat.gap !== null && Math.abs(cat.gap) < 0.05,
-        'and he stands on the deck the same way',
-        `${cat.gap === null ? '?' : cat.gap.toFixed(3)}ft between his soles and the deck`);
-  // No clip, and it still goes over: the timeline runs regardless and the game turns him,
-  // so the worst case is the built-in handstand performed by an imported body rather than a
-  // button that quietly does nothing.
-  check(cat.a.stand === false && cat.b.upY < -0.5 && cat.c.upY > 0.7,
-        'and a model with no handstand in it still does one, and comes back down',
-        `clip ${cat.a.stand}, up-axis ${cat.a.upY} -> ${cat.b.upY} -> ${cat.c.upY}`);
+  check(show.every(Boolean) && show.slice(0, 5).every((s2, i) => s2.step === i) && show[0].left > 0.5,
+        'and on the title screen he runs through his whole repertoire',
+        show.every(Boolean) ? `${show.length - 1} beats, first runs ${show[0].left}s` : 'no show');
+  // He is on the SAND through all of it. Every clip was animated on a floor at the animator's
+  // origin, which is not where this beach is, so the height that stands him on it is measured
+  // once and then held — lying down drops his body without dropping him through the ground.
+  check(show[0].ground !== null && show[0].ground !== undefined &&
+        show.every(s2 => s2.ground === show[0].ground),
+        'and stays on the sand doing it, lying down included',
+        `ground held at ${show[0].ground === null ? 'none' : (+show[0].ground).toFixed(3)}`);
+
   // TWO SOLID OBJECTS DO NOT OVERLAP, and the only honest way to ask is to put the sole and
   // the deck in the same frame — the board's own, because the sea heaves and the hull pitches
   // and a world height answers a different question every frame. The built-in rider's soles

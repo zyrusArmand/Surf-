@@ -4,6 +4,12 @@ Drop a `.glb` in this folder and it replaces the built-in shape in the game. If 
 file isn't here the game keeps its procedural version, so you can replace one
 thing at a time and nothing ever breaks.
 
+Keep textures small. A rider is a background character a couple of hundred pixels tall;
+`pug.glb` arrived with a 4096×4096 texture that made the file 10.5 MB, and at 1024×1024 it
+is 1.7 MB and looks identical in game. Exporters also like wiring the texture to **emissive**
+at full white, which makes the model glow flat and ignore every light in the scene — worth
+checking if an import looks oddly unlit.
+
 `board.glb`, `pug.glb` and `cat.glb` ship with the game; the rest of the table is
 empty by design, and the 404s those file names produce are the documented path
 rather than a fault.
@@ -99,6 +105,17 @@ skeleton is present the game drives it, and these happen automatically.
 - **A model with no such clip still does the trick.** The timeline runs either way and
   the game turns him over itself; it simply has no limb animation to lay on top. The cat
   ships walking and running and no handstand, and his HAND button works regardless.
+- **Every other clip runs on the title screen.** If the model belongs to the character you
+  have equipped, he performs on the beach: standing and chatting, folding down onto the
+  sand, lying with his paws spread, getting back up, a handstand, with pauses between. Each
+  beat ends clamped on its last frame, so the pause after it is spent in the pose it arrived
+  at — which is what spaces the show out without a held pose having to be authored.
+  The sit and the lie-down are the **get-up clip run backwards**; there is no sit clip in the
+  file, and a six-second get-up reversed is exactly the descent on the animator's own timing.
+- **The skeleton is put into its BIND pose on load.** A glTF writes the bones wherever the
+  exporter left them, and an export carrying several clips leaves them wherever the last one
+  ended — which is not a neutral. Everything is built from that pose, so it has to be the one
+  pose the rig is defined in.
 - **The clip's ROOT is dropped and its limbs kept.** Tricks are animated on a floor,
   where the body is free to travel and to finish leaning; a surfboard is neither. The
   hips go back where they started, the game turns the rider over itself, and the posed

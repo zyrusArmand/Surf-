@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.48.0';
+const VERSION='3.49.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2975,6 +2975,32 @@ function skinAndFit(kind,root,target,orient){
   for(const o of lift){ root.add(o); o.position.set(0,0,0); o.quaternion.set(0,0,0,1);
     o.scale.set(1,1,1); }
   if(lift.length)root.updateMatrixWorld(true);
+  // ---- and the skeleton is put into its BIND pose ----
+  // A glTF writes the bones wherever the exporter left them, and an export carrying six clips
+  // leaves them wherever the last one ended — this pup arrived part way through something,
+  // which is not a pose and not a neutral. Everything downstream is built FROM that pose: the
+  // rest rotations the riding stance works from, the ankle solve's idea of flat, the direction
+  // his muzzle points. All of it inherited a pose nobody chose, and he rode the wave facing
+  // the beach because of it.
+  //
+  // The bind pose is the one pose a rig is DEFINED in — it is what the inverse-bind matrices
+  // mean — so it cannot drift with what else is in the file. Done HERE, before fitToBox wraps
+  // anything, because that is the last moment the bones and those matrices share a space.
+  root.updateMatrixWorld(true);
+  root.traverse(o=>{
+    if(!o.isSkinnedMesh||!o.skeleton)return;
+    const sk=o.skeleton, inv=new THREE.Matrix4(), loc=new THREE.Matrix4();
+    sk.bones.forEach((b,i)=>{
+      if(!b||!sk.boneInverses[i])return;
+      const world=inv.copy(sk.boneInverses[i]).invert();
+      if(b.parent){ b.parent.updateWorldMatrix(true,false);
+        loc.copy(b.parent.matrixWorld).invert().multiply(world); }
+      else loc.copy(world);
+      loc.decompose(b.position,b.quaternion,b.scale);
+      b.updateWorldMatrix(false,false);
+    });
+  });
+  root.updateMatrixWorld(true);
   // A RIDER with no skin table still needs a rider's material, and this is not cosmetic.
   // The loader's default is a plain white standard material with FULL environment reflection,
   // and the environment here is a blue sky over a blue sea — so a grey cat came out slate
@@ -8903,6 +8929,12 @@ function setupModelRig(root,gltf,id){
   const find=re=>clips.find(c=>re.test(c.name));
   const stand=find(/handstand|hand_stand/i);
   const R={mixer,stand:null,surf:null,on:false,phase:'idle',t:0,aw:0,rot:0};
+  // EVERY clip in the file, by name. The rig used to take one and drop the rest, which was
+  // fine while a file held one trick and is not once it holds a performance: this pup arrives
+  // with standing, chatting, getting up off the floor, lying with his paws out, walking and
+  // running, and all of that is worth having on the title screen.
+  R.clips={}; for(const c of clips)R.clips[c.name]=mixer.clipAction(c);
+  R.clip=n=>{ for(const k in R.clips)if(new RegExp(n,'i').test(k))return R.clips[k]; return null; };
   // ---- where the handstand actually IS inside the clip ----
   // MEASURED, not guessed, and the measurement is the whole reason this works. The clip is
   // not "a handstand"; it is a round trip — stand, kick up, hold, come down, stand. Reading
@@ -9062,7 +9094,26 @@ function setupModelRig(root,gltf,id){
     // surfaces coplanar, and coplanar surfaces flicker into each other at distance
     return b?(deckLine()+0.015)-b.lo[1]:0;
   };
+  // Leaving the title screen has to UNDO the show, and that is not just stopping it. A clip
+  // was driving the whole body including the root, so whatever frame it stopped on is where
+  // the hips stay — and the riding stance never touches the root, so he would carry the last
+  // pose of a lie-down onto the wave. Found by a check that asked which way his muzzle was
+  // pointing and got fifty-five degrees off.
+  R.leaveShow=function(){
+    if(this.step<0)return;
+    for(const k in this.clips){ const a=this.clips[k];
+      a.stop();
+      if(a===this.stand){ // the trick action goes back to being scrubbed by hand
+        a.setLoop(THREE.LoopRepeat,Infinity); a.clampWhenFinished=false;
+        a.timeScale=1; a.paused=true; a.setEffectiveWeight(0); a.play(); }
+    }
+    this.step=-1; this.stepT=0; this.phase='idle'; this.t=0; this.aw=0; this.rot=0;
+    const h=this.bones.Hips;
+    if(h){ if(this.hipHome)h.position.copy(this.hipHome);
+           if(this.hipQ)h.quaternion.copy(this.hipQ); }
+  };
   R.update=function(dt,want){
+    this.leaveShow();
     const C=CLIP, a=this.stand;
     // a probe can pin the clip to one frame; the game never sets this
     if(a&&this.scrub!=null){ this.phase='hold'; this.t=this.scrub; this.aw=1;
@@ -9224,6 +9275,58 @@ function setupModelRig(root,gltf,id){
     this.plant('LeftUpLeg','LeftLeg','LeftFoot',Math.min(1,dt*6));
     this.plant('RightUpLeg','RightLeg','RightFoot',Math.min(1,dt*6));
   };
+  // ---- the title screen show ----
+  // He used to stand on the beach doing nothing, because the only thing driving him was a
+  // stance. This file ships a performance — standing and chatting, getting up off the floor,
+  // lying with his paws spread — so he performs it.
+  //
+  // THE SIT AND THE LIE DOWN ARE `Stand_Up3` RUN BACKWARDS, and that is the whole trick.
+  // There is no sit clip in the file and no lie-down clip either; what there is is a six
+  // second get-up whose hips climb from the floor at 7 to standing at 47. Reverse it and it
+  // is exactly the descent — he folds down onto his haunches and settles flat, on the
+  // animator's own timing, because it IS the animator's own timing.
+  //
+  // Each step ends CLAMPED on its last frame, so the pause after it is spent in the pose the
+  // step arrived at: standing after the chat, flat on the sand after the descent. That is
+  // what spaces the show out without a single held pose having to be authored.
+  const SHOW=[
+    {clip:'Stand_and_Chat',        rate: 1.00, hold:1.1},
+    {clip:'Stand_Up3',             rate:-1.30, hold:0.5},   // sits, then lies flat
+    {clip:'Lie_Down_Hands_Spread', rate: 1.00, hold:0.9},
+    {clip:'Stand_Up3',             rate: 1.20, hold:0.8},
+    {clip:'One_Arm_Handstand',     rate: 1.00, hold:1.7},
+  ];
+  R.step=-1; R.stepT=0; R.ground=null;
+  R.show=function(dt){
+    if(!this.clips)return this.idle&&this.idle(dt);
+    const start=i=>{
+      const st=SHOW[i], a=this.clip(st.clip);
+      for(const k in this.clips)if(this.clips[k]!==a)this.clips[k].stop();
+      if(!a)return 0;
+      a.reset(); a.setLoop(THREE.LoopOnce,1); a.clampWhenFinished=true;
+      a.timeScale=st.rate;
+      // a clip run backwards has to START at its end, or it plays one frame and stops
+      if(st.rate<0)a.time=a.getClip().duration;
+      a.setEffectiveWeight(1); a.play();
+      return a.getClip().duration/Math.abs(st.rate)+st.hold;
+    };
+    if(this.step<0||this.stepT<=0){
+      this.step=(this.step+1)%SHOW.length;
+      this.stepT=start(this.step)||1;
+    }
+    this.stepT-=dt;
+    this.mixer.update(dt);
+    // ---- and he stays ON THE SAND through all of it ----
+    // Every one of these was animated on a floor at the animator's origin, which is not where
+    // this beach is. The height that puts his feet on the sand is measured once, standing, and
+    // then held: lying down drops his body without dropping him through the ground, and the
+    // handstand puts his hands where his feet were rather than a foot under them.
+    const box=this.skinBox&&this.skinBox();
+    if(box){
+      if(this.ground===null&&this.step===0)this.ground=box.lo[1];
+      if(this.ground!==null)pug.position.y+=this.ground-box.lo[1];
+    }
+  };
   R.plant=function(a,b,f,w){
     const foot=this.bones[f], rest=this.rest[f], want=this.chainRest[f];
     if(!foot||!rest||!want)return;
@@ -9256,11 +9359,25 @@ for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
   // it started. Whatever the next model is exported from, it arrives looking down the wave.
   const fitted=skinAndFit(id,s3,PUG_BOX,(wrap,flip)=>{
     wrap.updateMatrixWorld(true);
-    const at=n=>{ let b=null; s3.traverse(o=>{ if(!b&&o.name===n)b=o; });
+    // ---- measured in BIND pose, not in whatever pose the file was left in ----
+    // The first version read the bones where they stood, which is the node transforms the
+    // exporter happened to write — and an export carrying six clips leaves them wherever the
+    // last one ended. This pup arrived with his rest pose part way through something, so
+    // "which way is he looking" answered fifty-five degrees off and he rode the wave facing
+    // the beach. The bind pose is the one pose a rig is DEFINED in; it cannot drift.
+    let sm=null; s3.traverse(o=>{ if(o.isSkinnedMesh&&!sm)sm=o; });
+    const at=n=>{
+      if(sm&&sm.skeleton){ const i=sm.skeleton.bones.findIndex(x=>x.name===n);
+        if(i>=0)return new THREE.Vector3().setFromMatrixPosition(
+          new THREE.Matrix4().copy(sm.skeleton.boneInverses[i]).invert()); }
+      let b=null; s3.traverse(o=>{ if(!b&&o.name===n)b=o; });
       return b?b.getWorldPosition(new THREE.Vector3()):null; };
     const h=at('Head'), f=at('headfront');
     if(!h||!f)return;
-    const fx=f.x-h.x, fz=f.z-h.z;
+    // through the quarter turn fitToBox may already have applied for its own reasons
+    const d=f.clone().sub(h), sp=flip.children[0];
+    if(sp)d.applyQuaternion(sp.quaternion);
+    const fx=d.x, fz=d.z;
     if(Math.hypot(fx,fz)<1e-6)return;
     // ...and then turned a further RIDER_YAW, because facing the way the built-in riders are
     // BUILT is not the same as standing the way a surfer stands. The shared stance sits him at
@@ -12833,6 +12950,12 @@ if(location.hash.includes('debug')){
       if(!modelRig||!modelRig.paint)return null;
       return modelRig.paint;
     },
+    // Where the title-screen show has got to, and a way to jump it forward. The whole loop
+    // runs about twenty-five seconds and the headless renderer manages a frame a second, so
+    // watching it in real time is not on.
+    showStep(i){ const r=riderRig(); if(!r||!r.show)return null;
+      if(i!==undefined&&i!==null){ r.step=i-1; r.stepT=0; r.show(0.001); }
+      return {step:r.step, left:+((r.stepT||0)).toFixed(2), ground:r.ground}; },
     // The rider stands sideways on the board, like a surfer, so the camera never sees his
     // face square on during a run — and markings meant for the front cannot be judged from
     // three quarters behind. This turns him to look at the camera and back again.
@@ -16221,8 +16344,8 @@ requestAnimationFrame(loop);
     // knew nothing about (and made the sea jump the moment a run started).
     waveClock+=dt; oceanUniforms.uT.value=waveClock; tNow+=dt;
     if(!wipe){ menuCamera(dt); menuIdle(dt); }
-    // the imported rider poses himself here too — nothing else is driving him between runs
-    { const mr=riderRig(); if(mr&&mr.idle)mr.idle(dt); }
+    // the imported rider performs here — nothing else is driving him between runs
+    { const mr=riderRig(); if(mr){ if(mr.show)mr.show(dt); else if(mr.idle)mr.idle(dt); } }
     updateDayCycle();
   }
   placeCeremonyChest(dt);
