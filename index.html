@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.55.0';
+const VERSION='3.56.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -13646,6 +13646,17 @@ if(location.hash.includes('debug')){
       const b=new THREE.Box3().setFromObject(beachChest);
       return {rot:[x||0,y||0,z||0],
               size:[b.max.x-b.min.x,b.max.y-b.min.y,b.max.z-b.min.z].map(v=>+v.toFixed(2))}; },
+    // Where every tentacle tip is, so "are the arms moving, and separately" is a number
+    // rather than an impression — eight tips that all move together are one arm in eight
+    // copies, and that is exactly the thing this was written to avoid.
+    octoTips(){
+      const o=obstacles.find(x=>x.userData.kind==='octopus'); if(!o)return null;
+      const arms=(typeof octoArms==='function')?octoArms(o):null; if(!arms)return null;
+      // in the OCTOPUS's own frame, so its drift down the wave does not read as arm motion
+      const v=new THREE.Vector3(); o.updateMatrixWorld(true);
+      return arms.map(A=>{ A.ch[A.ch.length-1].getWorldPosition(v); o.worldToLocal(v);
+        return [+v.x.toFixed(2),+v.y.toFixed(2),+v.z.toFixed(2)]; });
+    },
     // Shut a card again. Opening one moves the whole rider group into the preview scene, so a
     // probe that opens one and walks away leaves every later reading taken on a rider who is
     // no longer in the game — which is exactly what happened to the two checks after it.
@@ -14191,10 +14202,34 @@ let splatT=0,splatSpin=0,splatX=0,splatCd=0;
 
 // Aimed shot: solve the flight so it arrives at your line, then decide whether that
 // aim is honest. A miss is thrown wide on purpose rather than left to chance.
-function throwStarfish(oct){
+// ---- an imported octopus's arms, found rather than authored ----
+// The built-in octopus is a joint chain this file made, so it knows every arm by name. An
+// imported one is somebody else's skeleton: seventy-four bones called Bone_000 upward, in no
+// order that means anything. What it DOES have is shape — one body bone with a dozen chains
+// hanging off it, eight of them long. So the arms are found by walking: from each child of
+// the body, follow single-child links to the tip, and keep the ones long enough to be an arm.
+// Cached on the instance, because every octopus in the water is a clone with its own bones.
+function octoArms(o){
+  if(o.userData.tent)return o.userData.tent;
+  let body=null, most=0;
+  o.traverse(b=>{ if((b.isBone||b.type==='Bone')&&(b.children||[]).length>most){
+    most=b.children.length; body=b; } });
+  const out=[];
+  if(body)for(const c of body.children){
+    const ch=[]; let n=c;
+    while(n&&ch.length<24){ ch.push(n);
+      n=(n.children||[]).find(x=>x.isBone||x.type==='Bone'); }
+    if(ch.length>=4)out.push({ch, rest:ch.map(b=>b.quaternion.clone()),
+                              ph:out.length*0.83, sp:0.72+0.11*(out.length%4)});
+  }
+  o.userData.tent=out;
+  return out;
+}
+function throwStarfish(oct,from){
   const st=STAR_POOL.pop(); if(!st)return;
   st.visible=true;
-  const fx=oct.position.x, fy=oct.position.y+1.15, fz=oct.position.z;
+  const fx=from?from.x:oct.position.x, fy=from?from.y:oct.position.y+1.15,
+        fz=from?from.z:oct.position.z;
   st.position.set(fx,fy,fz);
   st.rotation.set(Math.random()*3,Math.random()*3,Math.random()*3);
   const onTarget=Math.random()<oct.userData.acc;
@@ -15486,6 +15521,34 @@ function update(dt){
       // turns to keep the rider in front of it while it drifts past
       o.rotation.y=Math.atan2(o.position.x-px,o.position.z);
       o.position.y+=Math.sin(u.t*1.5)*dt*0.30;                 // gentle bob of its own
+      // ---- an IMPORTED octopus animates its own arms ----
+      // Every arm on its own clock. They share one wave shape and nothing else: each starts
+      // at a different phase, runs at a slightly different speed, and every joint lags the
+      // one above it, so the curl travels out to the tip instead of the whole arm hinging at
+      // once. Eight arms all doing the same thing at the same time is a windscreen wiper.
+      const arms=(u.joints&&u.joints.length)?null:octoArms(o);
+      if(arms&&arms.length){
+        if(u.seed===undefined)u.seed=Math.random()*7;
+        const q=new THREE.Quaternion(), e=new THREE.Euler();
+        for(let a=0;a<arms.length;a++){
+          const A=arms[a], T=u.t*A.sp+A.ph+u.seed;
+          // the throwing arm is doing something else entirely
+          const th=(u.armT!==undefined&&u.arm===a)?u.armT:0;
+          for(let i=0;i<A.ch.length;i++){
+            const f=i/(A.ch.length-1);              // 0 at the shoulder, 1 at the tip
+            const lag=i*0.62;
+            // curl up and down, hardest at the tip: an arm's shoulder barely moves and its
+            // last two joints do nearly all of the coiling
+            const curl=Math.sin(T*Math.PI*2*0.34-lag)*(0.06+f*0.30);
+            const sway=Math.sin(T*Math.PI*2*0.21-lag*0.7)*(0.03+f*0.16);
+            // the wind-up: back and up, then whipped forward through the release
+            const whip=th>0?(th<0.55? -th*1.5 : (th-0.55)*4.4)*(0.10+f*0.55):0;
+            e.set(curl+whip,sway*0.6,sway);
+            q.setFromEuler(e);
+            A.ch[i].quaternion.copy(A.rest[i]).multiply(q);
+          }
+        }
+      }
       // a travelling wave down every arm: each joint lags the one before it, and the
       // three axes run at different rates so the tips coil and uncoil as they sweep
       for(let k=0;k<u.joints.length;k++){
@@ -15505,7 +15568,26 @@ function update(dt){
       // only throws while it is close enough to be a threat
       if(o.position.z>-72&&o.position.z<-7){
         u.throwT-=dt;
-        if(u.throwT<=0){u.throwT=1.05+Math.random()*1.05;throwStarfish(o);}
+        if(u.throwT<=0&&u.armT===undefined){
+          // pick an arm and wind it up. The star leaves at the top of the throw, not at the
+          // moment the timer expires — a starfish appearing out of the middle of an animal is
+          // the thing this is here to stop.
+          u.throwT=1.05+Math.random()*1.05;
+          if(arms&&arms.length){ u.arm=Math.floor(Math.random()*arms.length); u.armT=0.001; }
+          else throwStarfish(o);
+        }
+      }
+      // the wind-up runs to completion wherever the octopus is, so a throw already started
+      // does not freeze halfway when it drifts out of range
+      if(u.armT!==undefined){
+        u.armT+=dt*1.9;
+        if(!u.threw&&u.armT>=0.60){
+          u.threw=true;
+          const A=arms&&arms[u.arm];
+          const tip=A?A.ch[A.ch.length-1].getWorldPosition(new THREE.Vector3()):null;
+          throwStarfish(o,tip);
+        }
+        if(u.armT>=1){ u.armT=undefined; u.threw=false; }
       }
     }
     if(o.userData.bell){
