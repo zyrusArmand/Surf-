@@ -1859,15 +1859,15 @@ if (hasHook) {
     window.__surf.restart(); window.__surf.invuln(true); window.__surf.tick(0.5);
     window.__surf.spawn('octopus', -1.4, -60);
     window.__surf.tick(0.05);
-    const yaws = [], sink = [], tips = [];
+    const yaws = [], under = [], proud = [], tips = [];
     for (let i = 0; i < 8; i++) {
       const s = window.__surf.octoState()[0];
-      if (s) { yaws.push(s.yaw); sink.push(s.y - s.water); }
+      if (s) { yaws.push(s.yaw); under.push(s.under); proud.push(s.hi - s.water); }
       tips.push(window.__surf.octoTips());
       window.__surf.tick(0.28);
     }
     const s0 = window.__surf.octoState()[0];
-    return { yaws, sink, tips, arms: s0 ? s0.arms : 0, joints: s0 ? s0.joints : null };
+    return { yaws, under, proud, tips, arms: s0 ? s0.arms : 0, joints: s0 ? s0.joints : null };
   });
   const swing = Math.max(...oct.yaws) - Math.min(...oct.yaws);
   check(oct.yaws.length >= 6 && swing < 0.02,
@@ -1880,13 +1880,15 @@ if (hasHook) {
   check(oct.yaws.every(y => Math.abs(y) < 0.4),
         'and that bearing is toward the camera, so it comes at you face on',
         `${oct.yaws.map(y => y.toFixed(2)).join(', ')}`);
-  // On AVERAGE, because it has a bob of its own worth a fifth of a foot either way and that
-  // is the point of it — an animal in the water breathes up and down through the surface. A
-  // check on the worst frame would only be measuring the top of the bob.
-  const mean = oct.sink.reduce((a, b) => a + b, 0) / Math.max(1, oct.sink.length);
-  check(mean < 0.06 && Math.min(...oct.sink) < -0.08,
+  // PART IN AND PART OUT, which is a statement about the animal and not about its origin.
+  // This used to ask whether the object's origin sat at or below the surface, and that was
+  // only ever a proxy — the honest question is whether the waterline crosses it, which the
+  // silhouette checks below answer directly. Kept here as the coarse version of the same
+  // thing: some of it under, some of it over, every frame.
+  check(oct.under.every(u => u > 0.3) && oct.proud.every(p => p > 0.8),
         'and it rides IN the water rather than sitting on top of it like a beach ball',
-        `averages ${mean.toFixed(2)}ft at the surface, bobbing ${Math.min(...oct.sink).toFixed(2)} to ${Math.max(...oct.sink).toFixed(2)}`);
+        `${Math.min(...oct.under).toFixed(2)}ft of it under the surface at least, ` +
+        `${Math.min(...oct.proud).toFixed(2)}ft of it over`);
   // ARMS THAT MOVE, AND MOVE SEPARATELY. Eight arms doing the same thing at the same time is
   // a windscreen wiper, and arms that move by an inch are a statue — the first pass was
   // measurable and not visible, which is the failure this puts a number on.
@@ -1940,6 +1942,27 @@ if (hasHook) {
   check(oct.samples > 20 && oct.moved > oct.samples * 0.6 && oct.most > 0.15,
         'and its arms actually move the skin, not just the skeleton',
         `${oct.moved} of ${oct.samples} sampled vertices moved, furthest ${oct.most}ft in half a second`);
+  // AND IT STILL LOOKS LIKE AN OCTOPUS while it does it. Two ways it stopped: floated so low
+  // that every arm was under the surface and all you could see was a purple hump, and — at
+  // the amplitudes it took to make the arms visibly move — swung far enough that they folded
+  // over the body and the whole animal read as lying on its side. So the silhouette gets its
+  // own checks: the mantle stands out of the water, and the fan of arms keeps its height.
+  const shape = await page.evaluate(() => {
+    window.__surf.restart(); window.__surf.invuln(true); window.__surf.tick(0.5);
+    window.__surf.spawn('octopus', -1.0, -22); window.__surf.freeze(true);
+    const out = [];
+    for (let i = 0; i < 6; i++) { window.__surf.tick(0.35);
+      const s = window.__surf.octoState()[0];
+      if (s) out.push({ proud: +(s.hi - s.water).toFixed(2), tall: +(s.hi - s.lo).toFixed(2) }); }
+    window.__surf.freeze(false);
+    return out;
+  });
+  check(shape.length >= 5 && shape.every(f => f.proud > 0.8),
+        'and it stands out of the water rather than showing you a purple hump',
+        `mantle ${Math.min(...shape.map(f => f.proud)).toFixed(2)}ft clear at its lowest`);
+  check(shape.length >= 5 && shape.every(f => f.tall > 2.4),
+        'and its arms stay fanned out rather than folding over it',
+        `${Math.min(...shape.map(f => f.tall)).toFixed(2)}ft from lowest arm to top at its flattest`);
   // It THROWS. Measured over forty spawns this was one starfish, because an octopus crosses
   // the throwing window in about a second and a half at speed and its first timer ran to
   // nearly two — most of them drifted past having never thrown anything at all.
@@ -2301,7 +2324,12 @@ check(shaderErrors.length === 0, 'every shader compiles',
   await page.evaluate(() => window.__surf.tick(4));
   let worstTail = -99, wettest = 99, gear = 0, gn = 0, n = 0;
   const tails = [];
-  for (let i = 0; i < 30; i++) {
+  // SIXTY samples, not thirty. A run starts on a random phase of the swell and picks up
+  // speed through it, so thirty readings put the ninetieth percentile anywhere between 0.35
+  // and 0.60 across runs with nothing changing — which is a check that fails one run in
+  // three and teaches you to ignore it. Twice the samples is the honest fix for a question
+  // that is statistical in the first place: does the tail ride high, not did it ever.
+  for (let i = 0; i < 60; i++) {
     await page.evaluate(() => window.__surf.tick(0.4));
     const m = await page.evaluate(() => {
       const h = window.__surf.hullY(), b = window.__surf.buoy();
@@ -2327,11 +2355,9 @@ check(shaderErrors.length === 0, 'every shader compiles',
   // Half a foot covers the tail rocker and the 0.36 ft of board that overhangs the aft hull
   // sample. The old 1.5x gearing put it two thirds of a foot up with the fins in daylight.
   //
-  // Taken at the NINETIETH PERCENTILE rather than at the single worst sample. The run starts
-  // on a random phase of the swell, so the one highest of thirty readings landed anywhere
-  // between 0.44 and 0.53 across runs with nothing changing — a check that fails one run in
-  // three teaches you to ignore it. One reading at the top of a swell is not the fins in
-  // daylight; the tail sitting proud most of the time is, and that is what this asks.
+  // Taken at the NINETIETH PERCENTILE rather than at the single worst sample. One reading at
+  // the top of a swell is not the fins in daylight; the tail sitting proud most of the time
+  // is, and that is what this asks.
   const sorted = tails.slice().sort((a, b) => a - b);
   const p90 = sorted.length ? sorted[Math.floor(sorted.length * 0.90)] : 99;
   check(n > 10 && p90 < 0.50,

@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.70.0';
+const VERSION='3.71.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10471,9 +10471,13 @@ const OBST_VARIANTS={};
 // against the same thing the first was rather than against the first
 const OBST_SPEC={};
 // each obstacle floats at its own waterline so nothing gets buried by a passing swell
-// the octopus rides LOW: it is an animal in the water rather than on it, and floated at the
-// same height as a buoy its whole body sat proud of the surface like a beach ball
-const FLOAT_OFF={buoy:0.36,jelly:0.34,log:0.40,bigfin:0.28,ramp:0.02,octopus:0.02};   // ramp sits low: water laps its base
+// The octopus rides with the WATERLINE ACROSS ITS ARMS — high enough that the fan of them
+// is the silhouette, low enough that it is an animal in the sea rather than on it. The 0.02
+// this was set to came from looking at a version that was drawing the template rather than
+// the clone: a template is never floated, so it sat at the origin no matter what this said,
+// and every judgement about how deep it rode was made on an object ignoring the number.
+// Properly floated, that value put every arm under the surface and left a purple hump.
+const FLOAT_OFF={buoy:0.36,jelly:0.34,log:0.40,bigfin:0.28,ramp:0.02,octopus:0.90};   // ramp sits low: water laps its base
 // clear the cached buoyancy state on a fresh clone so a new spawn doesn't inherit it
 function makeObstacle(kind,x,z){
   if(!OBST_TEMPLATES[kind])OBST_TEMPLATES[kind]=buildObstacle(kind);
@@ -10708,6 +10712,14 @@ const SPIN_RATE=Math.PI*2*1.35, FLIP_RATE=Math.PI*2*1.25;
 let trick=null; // rope backflip only
 let planeT=34+Math.random()*26,planeActive=false,hanging=false,spawnT=0.4;
 let lastKind='',sameRun=0,bigFinCd=6,octCd=0,laneSlot=(Math.random()*5)|0;
+// The headless renderer draws about a frame a second, so anything the world scrolls past is
+// gone before a screenshot lands on it. This stops the world moving under the camera without
+// stopping anything else — the animals keep animating, which is the whole point of looking.
+let _freeze=false;
+// base curl, tip curl, base sway, tip sway, and the two rates. An arm is a CHAIN, so every
+// one of these accumulates down it — a number that looks small on one joint is most of a
+// half turn by the last, and that is how a wave becomes an animal tying itself in a knot.
+const OCT_W=[0.10,0.24,0.06,0.16,0.55,0.37];
 const keys={};
 addEventListener('keydown',e=>{
   keys[e.code]=true;
@@ -11335,7 +11347,7 @@ function reset(){
     player.remove(pug); rig.add(pug);
     pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}}); rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null;
-  handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;
+  handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;_freeze=false;
   switchRide=false;waveT=0;applyStance();
   onRampO=null;rampPitchT=0; }
   player.rotation.set(0,0,0);
@@ -11378,7 +11390,7 @@ function respawn(){
     rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null;
   }
   player.rotation.set(0,0,0);
-  handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;
+  handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;_freeze=false;
   switchRide=false;waveT=0;applyStance();
   for(let i=obstacles.length-1;i>=0;i--)
     if(obstacles[i].position.z>-48){scene.remove(obstacles[i]);obstacles.splice(i,1);}
@@ -14213,6 +14225,8 @@ if(location.hash.includes('debug')){
           out.push(+v.x.toFixed(4),+v.y.toFixed(4),+v.z.toFixed(4)); } });
       return out;
     },
+    freeze(on){ _freeze=!!on; return _freeze; },
+    octoWave(v){ if(v)for(let i=0;i<6;i++)if(v[i]!==undefined)OCT_W[i]=v[i]; return OCT_W.slice(); },
     // How many starfish are in the air, and how many an octopus has let go of. "I never saw
     // one thrown" is two separate questions — whether the wind-up ever fires, and whether the
     // star that leaves the arm ever becomes a thing in the world — and this answers both.
@@ -15700,7 +15714,7 @@ function update(dt){
   // Glide: how long the speed you earned stays with you. A log carries it most of the way
   // down the line; a small high-rockered board has spent it by the next section.
   boost=Math.max(0,boost-dt*3.0/BS.glide);
-  const eff=Math.max(16.2,Math.min(113+BS.top,speed+Math.abs(vx)*0.3+trim+boost));   // 10 mph floor, 70 ceiling
+  const eff=_freeze?0:Math.max(16.2,Math.min(113+BS.top,speed+Math.abs(vx)*0.3+trim+boost));   // 10 mph floor, 70 ceiling
   lastEff=eff;
   dist+=eff*dt;
   // No score for covering ground. Distance is its own number with its own record, and
@@ -16234,12 +16248,11 @@ function update(dt){
     laneSlot=(laneSlot+1+((Math.random()*3)|0))%7;
     const laneX=(-3+laneSlot)*4.9+(Math.random()-0.5)*3.0;
     makeObstacle(pick,Math.max(-17,Math.min(17,px*0.55+laneX)),-170);
-    // A second thrower, well off the first one's lane and further out, so the octopuses
-    // read as a spread FIELD you thread between rather than as one obstacle at a time.
-    if(pick==='octopus'&&dist>1400&&Math.random()<0.26){
-      const away=(laneX>0?-1:1)*(6.5+Math.random()*8.0);
-      makeObstacle('octopus',Math.max(-17,Math.min(17,px*0.55+laneX+away)),-170-(15+Math.random()*24));
-    }
+    // There used to be a SECOND thrower dropped in beside the first, on the reasoning that a
+    // pair reads as a field you thread between rather than as one obstacle at a time. In
+    // practice it is the pair that reads as a cluster — two of the biggest things in the
+    // water arriving together, a few seconds apart, after a stretch of none. The field comes
+    // from the weight climbing instead, and every octopus arrives on its own.
     // and every so often drop an extra one right against an edge
     // the second one out by the edge only starts once you are well into a run
     if(dist>600&&Math.random()<0.30){
@@ -16307,8 +16320,8 @@ function update(dt){
             // moves almost nothing you can see from twenty feet — and at enough of it to be
             // visible the arm folds back over the animal and it looks like it is lying on
             // its side. A smaller angle at every joint sweeps the WHOLE arm instead.
-            const curl=Math.sin(T*Math.PI*2*0.44-lag)*(0.20+f*0.45);
-            const sway=Math.sin(T*Math.PI*2*0.29-lag*0.7)*(0.12+f*0.26);
+            const curl=Math.sin(T*Math.PI*2*OCT_W[4]-lag)*(OCT_W[0]+f*OCT_W[1]);
+            const sway=Math.sin(T*Math.PI*2*OCT_W[5]-lag*0.7)*(OCT_W[2]+f*OCT_W[3]);
             // the wind-up: back and up, then whipped forward through the release
             const whip=th>0?(th<0.55? -th*1.5 : (th-0.55)*4.4)*(0.10+f*0.55):0;
             e.set(curl+whip,sway*0.6,sway);
