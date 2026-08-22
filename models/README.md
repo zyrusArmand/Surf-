@@ -15,7 +15,7 @@ at full white, which makes the model glow flat and ignore every light in the sce
 checking if an import looks oddly unlit.
 
 `board.glb`, `buoy.glb`, `chest.glb`, `log.glb`, `octopus.glb`, `palm.glb`, `pug.glb`,
-`buoy2.glb`, `cat.glb`, `frog.glb`, `monkey.glb` and `plane.glb` ship with the game; the rest of the table is
+`buoy2.glb`, `cat.glb`, `frog.glb`, `monkey.glb`, `palm2.glb`, `ramp.glb` and `plane.glb` ship with the game; the rest of the table is
 empty by design, and the 404s those file names produce are the documented path
 rather than a fault.
 
@@ -42,6 +42,7 @@ to `RIDER_MODELS` in `index.html`.
 | `bigfin.glb` | the shark fin |
 | `jetski.glb` | the jet ski |
 | `plane.glb` | the tow plane and the set-wave aircraft |
+| `palm2.glb` | the title screen's own palm, in place of `palm.glb` there |
 
 ## Exporting from Blender
 

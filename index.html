@@ -1257,7 +1257,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.85.0';
+const VERSION='3.86.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5439,11 +5439,17 @@ const palmsBuilt=[];                    // every palm standing, so they can be r
 // One palm, however it is built: the model if it has arrived, the procedural tree if not.
 // Registered on the way out, because the file loads long after the beach is standing and
 // the trees already up have to be swapped for modelled ones when it does.
-function PALM(seed,prof){
-  const rec={seed,prof,m:null};
-  rec.m=palmModel?modelPalm(seed,prof):buildPalm(seed);
+function PALM(seed,prof,menu){
+  const rec={seed,prof,menu:!!menu,m:null};
+  rec.m=palmFor(rec);
   palmsBuilt.push(rec);
   return rec.m;
+}
+// Which tree this one is: the title screen's own if that file has arrived and this palm is
+// one of its two, the rigged grove model if that has, the procedural tree if neither.
+function palmFor(rec){
+  if(rec.menu&&palm2)return palm2Mesh(rec.seed,rec.prof);
+  return palmModel?modelPalm(rec.seed,rec.prof):buildPalm(rec.seed);
 }
 // A bend is one angle per joint, so the shape of the curve is the shape of the list: all of
 // it low down is a tree leaning off its base, all of it high up is a hook. Randomised per
@@ -5566,6 +5572,139 @@ loadModel('palm.glb',(s3)=>{
              mat:mats.length===1?mats[0]:mats};
   repalm();
 });
+// ---- the title screen's own palm, which is a different tree ----
+// palm.glb is RIGGED, and that is the whole reason the game's palms can be a grove rather
+// than one shape repeated: every tree gets its own bend posed into it. This one is a single
+// static mesh — there is no chain to pose, so whatever curve it was modelled with is the
+// curve it has, and it is the same tree every time it is drawn. That is fine for the title
+// screen, where there is exactly one of it and its shape was chosen deliberately, and no use
+// at all for a beach that needs nine of them to look like nine.
+let palm2=null;
+// How much of a bend profile a tree that cannot bend takes as a tilt, and how tall it stands
+// against the tree it replaces. Both were walked. Below about twenty degrees the board stops
+// reaching the trunk at all — it is propped at six degrees itself, so a trunk any straighter
+// than that has no crook in it — and the layout answers by standing the whole group out on
+// open sand, which reads as a board leaning on nothing. And a crown this wide at the height
+// the rigged tree stood at came down over the title, so it loses a seventh.
+let LEAN2=0.5, PALM2_H=0.86;
+// WHERE THE TRUNK IS, measured off the mesh, because a static model cannot be asked.
+// The board on the title screen is leaned against the trunk's centreline, and with a rig
+// that line is just the bone positions read back. Without one it has to be found: walk up
+// the mesh in slices and take the centre of what is there. Naively that is dragged sideways
+// the moment the crown starts, because a frond runs out five times further than the trunk is
+// thick and there are a dozen of them — so each slice only considers points near where the
+// trunk was in the slice BELOW it, which is a tube-follower rather than an average, and the
+// fronds never get a vote. It stops where the trunk stops: a slice whose spread jumps past
+// two and a half times the last one is not the trunk any more, it is the crown.
+function trunkLine(geo,N){
+  const pos=geo.attributes.position;
+  geo.computeBoundingBox();
+  const bb=geo.boundingBox, y0=bb.min.y, span=Math.max(1e-6,bb.max.y-y0);
+  const line=[]; let cx=0, cz=0, keep=Math.max(bb.max.x-bb.min.x,bb.max.z-bb.min.z)*0.5;
+  let run=Infinity;
+  for(let i=0;i<N;i++){
+    const y=y0+span*(i+0.5)/N, h=span/N*0.75;
+    let sx=0, sz=0, n=0;
+    for(let k=0;k<pos.count;k++){
+      const py=pos.getY(k); if(Math.abs(py-y)>h)continue;
+      const px=pos.getX(k), pz=pos.getZ(k);
+      if(i&&Math.hypot(px-cx,pz-cz)>keep)continue;
+      sx+=px; sz+=pz; n++;
+    }
+    if(n<8)break;
+    const ncx=sx/n, ncz=sz/n;
+    // HOW THICK, and not the widest thing in the slice. This tree has roots that flare out
+    // to five times the trunk, so the lowest slices measured the flare and the board — which
+    // is leaned until it just clears the trunk — was solved against a pole a foot and a half
+    // thick and ended up standing well inside it. The tenth percentile is the tube all of it
+    // grows out of, and a trunk never gets fatter going up, so the running minimum holds it
+    // to a taper. Both of those are what the rigged tree already does with its own radii.
+    const ds=[];
+    for(let k=0;k<pos.count;k++){
+      const py=pos.getY(k); if(Math.abs(py-y)>h)continue;
+      if(i&&Math.hypot(pos.getX(k)-cx,pos.getZ(k)-cz)>keep)continue;
+      ds.push(Math.hypot(pos.getX(k)-ncx,pos.getZ(k)-ncz));
+    }
+    ds.sort((a,b)=>a-b);
+    run=Math.min(run,Math.max(ds[Math.floor(ds.length*0.10)]||run,span*0.004));
+    cx=ncx; cz=ncz;
+    line.push({p:new THREE.Vector3(cx,y,cz), r:run});
+    keep=Math.max(run*4.0,span*0.04);
+  }
+  // and on past the last slice into the crown, along the direction the trunk finishes in —
+  // the same tail the rigged one gets, because a board propped high leans on the crown
+  if(line.length>=2){
+    const a=line[line.length-2].p, b=line[line.length-1].p, d=b.clone().sub(a);
+    for(let j=1;j<=3;j++)line.push({p:b.clone().addScaledVector(d,j*0.9),
+                                    r:line[line.length-1].r*0.9});
+  }
+  return line;
+}
+// One instance of it, at the same height the rigged tree would have come out at for this
+// seed, so swapping trees does not resize the shot.
+// One instance, at the same height and LEANING the same way the rigged tree would have for
+// this profile — because the title screen is a photograph of a board propped in the crook of
+// a palm, and a tree that goes straight up has no crook. The rigged model gets its curve
+// posed joint by joint; a single mesh cannot be curved at all, so it is TILTED instead,
+// about the foot it stands on, by half the total turn the profile asks for. Half, because
+// the rigged tree's angles accumulate up the trunk — the base leaves the sand upright and
+// only the tip reaches the full figure — so the whole trunk taken over at the sum would lie
+// down. A straight palm at twenty degrees is a windswept palm, which is a tree that exists.
+function palm2Mesh(seed,prof){
+  const H=(10.6+((seed*37)%13)/13*2.0)*PALM_H*PALM2_H;
+  const P=prof||{}, bend=P.bend||[];
+  const lean=bend.reduce((a,b)=>a+b,0)*LEAN2;
+  const geo=palm2.geo.clone();
+  geo.scale(H,H,H);                       // the canonical geometry stands one unit tall
+  let trunk=palm2.trunk.map(s=>({p:s.p.clone().multiplyScalar(H), r:s.r*H}));
+  if(lean>0.001){
+    // the same axis the bend is posed about, so a profile written for the rigged tree leans
+    // this one the same way round
+    const ax=new THREE.Vector3(Math.sin(P.az||0),0,-Math.cos(P.az||0));
+    const R=new THREE.Matrix4().makeRotationAxis(ax,lean);
+    geo.applyMatrix4(R);                  // about the origin, which IS the foot
+    for(const sl of trunk)sl.p.applyMatrix4(R);
+  }
+  geo.computeBoundingBox(); geo.computeBoundingSphere();
+  const m=new THREE.Mesh(geo,palm2.mat);
+  m.userData.trunk=trunk;
+  m.userData.modelled=true;
+  m.castShadow=true; m.receiveShadow=true;
+  return m;
+}
+loadModel('palm2.glb',(s3)=>{
+  let mesh=null; s3.traverse(o=>{ if(o.isMesh&&!mesh)mesh=o; });
+  if(!mesh||!mesh.geometry)return;
+  s3.updateMatrixWorld(true);
+  const geo=mesh.geometry.clone();
+  geo.applyMatrix4(mesh.matrixWorld);
+  if(!geo.attributes.normal)geo.computeVertexNormals();
+  // stood on the ground, centred on the foot of its own TRUNK rather than on the middle of
+  // its bounding box — the roots flare out to one side and the crown to the other, and a box
+  // centre puts the tree a foot from where anything leaning on it thinks it is
+  const raw=trunkLine(geo,26);
+  const foot=raw.length?raw[0].p.clone():new THREE.Vector3();
+  geo.computeBoundingBox();
+  // NUMBERS, not the box. geometry.boundingBox is a live object that computeBoundingBox
+  // overwrites in place, so holding a reference to it across the translate below and then
+  // reading min.y gives the box AFTER the move — which is zero, and put the whole trunk line
+  // half the tree's height underground while the tree itself stood correctly. Nothing looked
+  // wrong about the tree; the board simply had nothing to lean on where it was looking.
+  const baseY=geo.boundingBox.min.y, hRaw=geo.boundingBox.max.y-baseY;
+  geo.translate(-foot.x,-baseY,-foot.z);
+  // normalised to one unit tall, so an instance is one scale away from any height wanted
+  const inv=1/Math.max(1e-6,hRaw);
+  geo.scale(inv,inv,inv);
+  geo.computeBoundingBox();
+  const trunk=raw.map(sl=>({p:new THREE.Vector3((sl.p.x-foot.x)*inv,(sl.p.y-baseY)*inv,
+                                                (sl.p.z-foot.z)*inv), r:sl.r*inv}));
+  const mats=[].concat(mesh.material);
+  for(const mt of mats){ if(!mt)continue;
+    if(mt.emissive)mt.emissive.setRGB(0,0,0);
+    mt.envMapIntensity=0.35; mt.side=THREE.DoubleSide; mt.needsUpdate=true; }
+  palm2={geo,trunk,mat:mats.length===1?mats[0]:mats};
+  repalm();
+});
 // Every palm already standing, swapped for a modelled one. The file arrives long after the
 // beach does — the menu's tree is built inside the blocking script so the first paint is the
 // finished screen — so "replace all the palms" has to mean the ones that are already up.
@@ -5573,7 +5712,7 @@ function repalm(){
   for(const rec of palmsBuilt){
     const old=rec.m, par=old&&old.parent;
     if(!par)continue;
-    const nu=modelPalm(rec.seed,rec.prof);
+    const nu=palmFor(rec);
     nu.position.copy(old.position); nu.rotation.copy(old.rotation); nu.scale.copy(old.scale);
     nu.castShadow=old.castShadow; nu.receiveShadow=old.receiveShadow;
     par.add(nu); par.remove(old);
@@ -14900,6 +15039,24 @@ if(location.hash.includes('debug')){
       if(d!==undefined)MB_D=d; if(eye!==undefined)MB_EYE=eye; if(aim!==undefined)MB_AIM=aim;
       return {d:MB_D,eye:MB_EYE,aim:MB_AIM};
     },
+    // what the title screen's palm actually IS, in the frame it stands in
+    palmLean2(v,h){ if(v!==undefined)LEAN2=v; if(h!==undefined)PALM2_H=h; repalm(); return [LEAN2,PALM2_H]; },
+    palmProbe(){
+      if(typeof menuPalm==='undefined'||!menuPalm)return null;
+      menuPalm.updateWorldMatrix(true,true);
+      const b=new THREE.Box3().setFromObject(menuPalm);
+      const t=menuPalm.userData.trunk||[];
+      const w=menuPalm.getWorldPosition(new THREE.Vector3());
+      return {src:palm2?'palm2':'rigged',
+              at:[w.x,w.y,w.z].map(v=>+v.toFixed(2)),
+              scale:+menuPalm.scale.x.toFixed(3),
+              box:{min:b.min.toArray().map(v=>+v.toFixed(2)),max:b.max.toArray().map(v=>+v.toFixed(2))},
+              slices:t.length,
+              foot:t.length?t[0].p.toArray().map(v=>+v.toFixed(2)):null,
+              tip:t.length?t[t.length-1].p.toArray().map(v=>+v.toFixed(2)):null,
+              rad:t.length?[+t[0].r.toFixed(2),+t[Math.floor(t.length/2)].r.toFixed(2)]:null,
+              spread:menuBeach?menuBeach.spread:null};
+    },
     boardMats(){
       const o=(menuBeach&&menuBeach.board)||boardArt; if(!o)return null;
       const out=[];
@@ -17475,7 +17632,7 @@ function menuBeachOn(){
     // the trunk leaves the sand upright, the middle three joints take it over to the side,
     // and the top keeps going the same way rather than standing back up — which is the long
     // C the procedural tree had and the shape every photograph of a board against a palm has.
-    const palm=menuPalm=PALM(3,{az:0,bend:[0.015,0.04,0.09,0.17,0.18,0.15,0.09,0.05]});
+    const palm=menuPalm=PALM(3,{az:0,bend:[0.015,0.04,0.09,0.17,0.18,0.15,0.09,0.05]},true);
     // turned so its long C leans back over the board rather than away from it — a board is
     // propped against the underside of a palm, which is half of why anyone photographs one
     // Leaning out to the RIGHT and slightly toward the camera, so the board can be propped
@@ -17485,7 +17642,7 @@ function menuBeachOn(){
     // and one well back on the other side, given a bend of its own rather than a random one:
     // it stands nearer the camera than the shot suggests and a foot lower than the sand it
     // is on, so a tree that leans hard lays its crown down flat on the beach behind the set.
-    const far=PALM(11,{az:2.2,bend:[0.01,0.02,0.05,0.08,0.08,0.06,0.03,0.01]});
+    const far=PALM(11,{az:2.2,bend:[0.01,0.02,0.05,0.08,0.08,0.06,0.03,0.01]},true);
     far.position.set(-13.5,-0.4,-13); far.rotation.y=2.3; far.scale.setScalar(0.72);
     menuProps.add(far);
     prevScene.add(menuProps);
@@ -18153,7 +18310,12 @@ function renderMenuBeach(dt){
   // The layout says how wide it came out — a ten foot log stands its foot twice as far from
   // the trunk as a shortboard does, and the rider stands beyond that again. Frame THAT, not
   // a fixed point beside the palm, or half of it walks out of the picture on a long board.
-  const spread=m.spread||5.5;
+  // Floored, because "frame the pair" degenerates when the pair is standing ON the thing it
+  // was meant to be framed apart from. The rule exists to stop the palm taking the middle of
+  // the picture; with a board propped tight against a straight leaning trunk the pair IS the
+  // palm, the aim walks back onto the tree, and the rule produces the exact composition it
+  // was written to prevent. Below this the camera is looking at a trunk.
+  const spread=Math.max(4.6,m.spread||5.5);
   // ...and it stands back again on a WIDE one, which is not the same term reversed. A phone
   // held upright is the shot this screen is composed for and it wants the board and the
   // rider big; a landscape frame is already close, and closing it further walks the Play
@@ -18168,7 +18330,7 @@ function renderMenuBeach(dt){
   // board stands on and the sea and the sky get the rest, which is how the photograph is
   // framed. The aim is high because the palm is a fourteen foot tree now rather than a
   // shrub, and the whole of it is meant to be in shot.
-  const aim=m.middle!==undefined?m.middle:spread*0.66;
+  const aim=Math.max(3.4,m.middle!==undefined?m.middle:spread*0.66);
   menuCam.position.set(px-_mbF.x*D, g+MB_EYE+sw2*0.12, pz-_mbF.z*D);
   menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+MB_AIM, pz-_mbR.z*aim);
   menuCam.updateProjectionMatrix();
