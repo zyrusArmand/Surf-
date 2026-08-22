@@ -1257,7 +1257,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.81.0';
+const VERSION='3.82.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10888,22 +10888,99 @@ function clearLanding(vy0){
 // marker is a small buoy and a danger buoy is a big one, and fitted to the same box they were
 // two liveries of one object. Keyed by file, so it is a property of the model rather than of
 // the code that loads it.
+// ---- what a modelled kicker's surface actually DOES ----
+// The built-in ramp is a curve the ride knows by heart: its deck is H*t^P and the rider's
+// feet are placed on that formula. A dropped-in model is only guaranteed to fit the same
+// BOX — its slope can be anything, and this one is a straight kicker where the built-in is
+// a curve that steepens. Ridden on the formula he sank five inches into it through the
+// middle and floated a hand's breadth over the lip.
+//
+// So the surface is MEASURED rather than assumed: rays straight down along the centreline,
+// once, when the model is fitted. Read as a running maximum, because a kicker's deck only
+// ever rises — the last ray or two fall past the lip and hit the back of it, and taken at
+// face value that reads as a ramp that stops climbing right where it should throw you.
+const RAMP_N=24;
+function rampProfile(obj,RL){
+  obj.updateMatrixWorld(true);
+  const ray=new THREE.Raycaster(), down=new THREE.Vector3(0,-1,0), from=new THREE.Vector3();
+  const raw=[]; let hits=0;
+  for(let i=0;i<=RAMP_N;i++){
+    const t=i/RAMP_N;
+    from.set(0,60,RL-2*RL*t); ray.set(from,down);
+    const h=ray.intersectObject(obj,true);
+    if(h.length){ raw.push(h[0].point.y); hits++; } else raw.push(null);
+  }
+  if(hits<RAMP_N*0.6)return null;            // not a deck we can read; keep the formula
+  // fill the misses from the last thing we did see, then make it monotonic
+  let last=0;
+  const out=raw.map(v=>{ if(v===null)return last; last=v; return v; });
+  for(let i=1;i<out.length;i++)if(out[i]<out[i-1])out[i]=out[i-1];
+  // Relative to the OBSTACLE'S ORIGIN, which is what the ride adds it to — not to the
+  // model's own foot. The built-in wedge's deck starts at its origin and its skirt hangs
+  // below; a model whose foot sits an inch either side of that should say so.
+  return out.map(v=>+v.toFixed(4));
+}
+// how high the deck is a fraction t along, and how steeply it is climbing there
+function rampRise(d,t){
+  const p=d.rampProf;
+  if(!p)return d.rampH*Math.pow(t,d.rampP);
+  const f=Math.max(0,Math.min(1,t))*(p.length-1);
+  const i=Math.min(p.length-2,Math.floor(f));
+  return p[i]+(p[i+1]-p[i])*(f-i);
+}
+function rampSlope(d,t){
+  const p=d.rampProf;
+  if(!p)return d.rampH*d.rampP*Math.pow(Math.max(1e-3,t),d.rampP-1)/(2*d.rampL);
+  const f=Math.max(0,Math.min(1,t))*(p.length-1);
+  const i=Math.min(p.length-2,Math.floor(f));
+  return (p[i+1]-p[i])*(p.length-1)/(2*d.rampL);
+}
 const OBST_SIZE={buoy:2.00, buoy2:0.70};
 for(const kind of ['buoy','jelly','log','bigfin','ramp','octopus'])(k=>{
   const take=file=>s3=>{
     if(!OBST_TEMPLATES[k])OBST_TEMPLATES[k]=buildObstacle(k);
+    // ...INCLUDING the shape of the ramp's own slope. A kicker is not just a box with a
+    // hitbox: the ride reads its length, height and curve out of userData to work out where
+    // his feet are on the way up and how hard it throws him at the lip. Those four numbers
+    // were not copied here, and userData below is REPLACED rather than merged, so a modelled
+    // ramp was a ramp with no slope on it — and undefined does not announce itself. It
+    // spreads: t came out NaN, the height came out NaN, the rider's y came out NaN, and the
+    // first thing to actually complain was a foam ring several systems away failing to
+    // upload a matrix. Nothing had ever run this path, because ramp.glb was one of the
+    // documented absences until a file was dropped in.
     if(!OBST_SPEC[k]){ const t=OBST_TEMPLATES[k];
       OBST_SPEC[k]={box:boxOf(t), r:t.userData.r, h:t.userData.h, ramp:t.userData.ramp,
-                    hx:t.userData.hx, hz:t.userData.hz}; }
+                    hx:t.userData.hx, hz:t.userData.hz,
+                    rampL:t.userData.rampL, rampH:t.userData.rampH,
+                    rampW:t.userData.rampW, rampP:t.userData.rampP}; }
     const sp=OBST_SPEC[k];
     const fitted=skinAndFit(k,s3,sp.box);
     const g=OBST_SIZE[file]||1;
     if(g!==1)fitted.scale.multiplyScalar(g);
+    // ---- a kicker has to START at the water ----
+    // fitToBox lines models up by their CENTRES, which is right for a buoy and wrong for a
+    // ramp: this one is shorter than the built-in wedge, so centred it floated its foot
+    // clear of the surface and read as a slab hanging in the air with nothing to ride up
+    // onto. Ramps are lined up by their FEET instead. Done here, while fitToBox's own frame
+    // is still hanging off userData — the line below replaces userData wholesale.
+    if(sp.ramp&&fitted.userData.frame){
+      fitted.updateMatrixWorld(true);
+      const bb=new THREE.Box3().setFromObject(fitted);
+      const dy=sp.box.min.y-bb.min.y, kk=fitted.userData.k||1;
+      if(isFinite(dy))fitted.userData.frame.position.y+=dy/kk;
+      fitted.updateMatrixWorld(true);
+    }
     // and the hitbox goes with it. A buoy drawn a third bigger that still stops you at the
     // old radius is a thing you ride into before it notices, and the small one is a thing
     // that kills you from a foot away — what you can see has to be what hits you.
     fitted.userData={kind:k,r:sp.r*g,h:sp.h*g,ramp:sp.ramp,used:false,
                      hx:sp.hx*g,hz:sp.hz*g, size:g, variant:file};
+    // the slope goes with it, and scales with it: length, height and width are distances and
+    // follow the model's size, while the curve's exponent is a shape and does not
+    if(sp.ramp){ fitted.userData.rampL=sp.rampL*g; fitted.userData.rampH=sp.rampH*g;
+                 fitted.userData.rampW=sp.rampW*g; fitted.userData.rampP=sp.rampP;
+                 const prof=rampProfile(fitted,sp.rampL*g);
+                 if(prof)fitted.userData.rampProf=prof; }
     OBST_TEMPLATES[k]=fitted;                       // the first one in is the default
     (OBST_VARIANTS[k]||(OBST_VARIANTS[k]=[])).push(fitted);
   };
@@ -14097,12 +14174,15 @@ if(location.hash.includes('debug')){
     },
     // the ramp's lit lip bar against the deck it is meant to be sitting ON
     rampProbe(){
-      const m=makeObstacle('ramp',0,-40);
+      // the BUILT-IN wedge, deliberately, not whatever is currently spawning. This is about
+      // the lit bar on the procedural ramp's own lip; a dropped-in model has no such bar and
+      // brings its own markings, and asking it this question gets "no ramp" — which reads as
+      // a missing bar and is a different ramp.
+      const m=buildObstacle('ramp');
       const d=m.userData, bar=m.children.find(c=>c.material&&c.material.color&&!c.material.vertexColors);
       const r=bar?{deck:+d.rampH.toFixed(3),
                    lipLow:+(bar.position.y-bar.geometry.parameters.height/2).toFixed(3),
                    off:!!bar.material.polygonOffset}:null;
-      scene.remove(m); const i=obstacles.indexOf(m); if(i>=0)obstacles.splice(i,1);
       return r;
     },
     bloom:v=>{ if(fxOn)fxComp.uniforms.uAmt.value=v; return v; },
@@ -14206,6 +14286,33 @@ if(location.hash.includes('debug')){
     },
     // Put an obstacle exactly where a test wants it, and place the rider at a chosen height
     // over it — the only way to ask "does flying over this thing still set it off?"
+    obsObjects(){ return obstacles.slice(); },
+    renderer(){ return renderer; },
+    // The ramp's real surface against the slope the ride thinks it is climbing. A modelled
+    // kicker fitted to the built-in one's box is the right SIZE by construction and can still
+    // be the wrong way round, and "wrong way round" is a launch that fires off the low end.
+    rampSurface(){
+      const o=obstacles.find(x=>x.userData.ramp); if(!o)return null;
+      const d=o.userData, ray=new THREE.Raycaster(), down=new THREE.Vector3(0,-1,0);
+      o.updateMatrixWorld(true);
+      const bb=new THREE.Box3().setFromObject(o);
+      const out=[];
+      for(let i=0;i<=6;i++){
+        const t=i/6;                                   // 0 at the foot, 1 at the lip
+        const wz=o.position.z+d.rampL-2*d.rampL*t;
+        ray.set(new THREE.Vector3(o.position.x,o.position.y+30,wz),down);
+        const hit=ray.intersectObject(o,true)[0];
+        out.push({t:+t.toFixed(2),
+                  mesh:hit?+(hit.point.y-o.position.y).toFixed(2):null,
+                  ride:+rampRise(d,t).toFixed(2)});
+      }
+      return {box:{min:bb.min.toArray().map(v=>+v.toFixed(2)),
+                   max:bb.max.toArray().map(v=>+v.toFixed(2))},
+              at:[o.position.x,o.position.y,o.position.z].map(v=>+v.toFixed(2)),
+              meshes:(function(){let n=0;o.traverse(x=>{if(x.isMesh)n++;});return n;})(),
+              rows:out};
+    },
+    obsTemplate(k){ const t=OBST_TEMPLATES[k]; return t?{variant:t.userData.variant||null}:null; },
     spawn(kind,dx,dz){ const o=makeObstacle(kind,px+dx,pz+dz); return {x:o.position.x,y:o.position.y,z:o.position.z,h:o.userData.h}; },
     setRiderY(y){ py=y; vy=0; airborne=true; return py; },
     // What every obstacle currently in the world actually MEASURES, against what its
@@ -16363,9 +16470,13 @@ function update(dt){
       if(!o.userData.ramp)continue;
       const local=pz-o.position.z, RL=o.userData.rampL;
       const t=(RL-local)/(2*RL);
-      if(t<0||t>1)continue;
+      // NOT `t<0||t>1`. A NaN fails both of those, so a ramp missing its slope sailed
+      // straight through the one test that exists to reject nonsense and handed NaN to
+      // everything downstream. Written as "is it actually between nought and one", which
+      // is what was meant and which a NaN answers no to.
+      if(!(t>=0&&t<=1))continue;
       if(Math.abs(px-o.position.x)>o.userData.rampW+BOARD_HALF_W*0.6)continue;
-      const sy=o.position.y+o.userData.rampH*Math.pow(t,o.userData.rampP);
+      const sy=o.position.y+rampRise(o.userData,t);
       if(py>sy+1.4)continue;                       // clearing it in the air
       ramped={o,t,sy};
     }
@@ -16385,8 +16496,16 @@ function update(dt){
     // much as anything, which is why the same kicker could throw a big jump or barely
     // lift him. dy/dt at the lip is H*P*t^(P-1) over the ramp's length, times how fast
     // it is coming at him.
+    //
+    // From the DESIGNED curve even when a model is being ridden, and that is a deliberate
+    // split rather than an oversight. Where his feet are is a question about the shape in
+    // front of him and is measured off it. How hard a ramp throws you is a question about
+    // the game — it is why the ramp is worth hitting, it is tuned against the wave and the
+    // jump, and a dropped-in model that happens to be a gentler wedge should change what
+    // the ramp LOOKS like and not what it is for.
     rampExitV=H*P*Math.pow(Math.max(1e-3,ramped.t),P-1)/(2*RL)*Math.max(8,lastEff);
-    rampPitchT=lifted?Math.atan(H*P*Math.pow(Math.max(1e-3,ramped.t),P-1)/(2*RL)):0;
+    // The board's angle, though, is contact: it lies on whatever it is lying on.
+    rampPitchT=lifted?Math.atan(rampSlope(ramped.o.userData,Math.max(1e-3,ramped.t))):0;
     if(!ramped.o.userData.used&&ramped.t>0.72){
       ramped.o.userData.used=true;
       score+=50;boost=Math.min(16,boost+4);msg('RAMP! +50'); buzz(12); goalEv('ramp',1);

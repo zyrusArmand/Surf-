@@ -2058,6 +2058,56 @@ if (hasHook) {
         (bad.length ? `glossy still: ${JSON.stringify(bad.slice(0, 6))}` : 'none glossy'));
 }
 
+// ---------- a ramp that came out of a file is still a ramp ----------
+// The built-in kicker is a curve the ride knows by heart — its deck is H*t^P and the rider's
+// feet are put on that formula. Four numbers describe it, and none of them were carried onto
+// a model: the spec that models are rebuilt from did not copy them, and a fitted model's
+// userData is REPLACED rather than merged. So the first ramp anyone ever dropped in was a
+// ramp with no slope on it, and `undefined` does not announce itself — it spreads. t came out
+// NaN, the deck height came out NaN, the rider's y came out NaN, and the first thing to
+// actually complain was a foam ring several systems away failing to upload a matrix, on a
+// frame with nothing to do with ramps. The gate that should have stopped it, `t<0||t>1`, is
+// false for NaN in both halves.
+//
+// It had never run because ramp.glb was one of the documented absences until a file arrived.
+{
+  const ramp = await page.evaluate(() => {
+    window.__surf.restart(); window.__surf.tick(1.0);
+    window.__surf.spawn('ramp', 0, -14);
+    window.__surf.tick(0.2);
+    const surf = window.__surf.rampSurface();
+    // and ride it: step forward until he is over it, watching for anything that stops
+    // being a number
+    let finite = true, lifted = 0;
+    const y0 = window.__surf.state().py;
+    for (let i = 0; i < 60; i++) {
+      window.__surf.tick(0.05);
+      const s = window.__surf.state();
+      if (!isFinite(s.py) || !isFinite(s.px) || !isFinite(s.pz)) { finite = false; break; }
+      lifted = Math.max(lifted, s.py - y0);
+    }
+    return { surf, finite, lifted, tpl: window.__surf.obsTemplate('ramp') };
+  });
+  const modelled = !!(ramp.tpl && ramp.tpl.variant);
+  const rows = ((ramp.surf && ramp.surf.rows) || []).filter(r => r.mesh !== null && r.t < 0.95);
+  const worst = rows.length ? Math.max(...rows.map(r => Math.abs(r.mesh - r.ride))) : 99;
+  check(ramp.finite, 'riding a ramp leaves every number a number',
+        ramp.finite ? 'x, y and z all finite across the whole climb'
+                    : 'the rider went NaN on the way up');
+  // Two and a half inches, because a ramp sitting on the swell is TILTED — a twentieth of a
+  // radian of it, which is a couple of inches at the ends of a five-foot kicker — and the
+  // rays read the tilted mesh while the ride reads the untilted profile. Tighter than that
+  // is measuring the swell. Loose enough to still catch the thing this is for: a deck the
+  // ride is not following at all, which was five inches out and climbing the wrong curve.
+  check(rows.length >= 4 && worst < 0.21,
+        'and his feet are on the deck that is actually there, not the one it was assumed to have',
+        `${rows.length} points along it, worst ${worst.toFixed(2)}ft between mesh and ride` +
+        (modelled ? ' (modelled ramp)' : ' (built-in ramp)'));
+  check(ramp.lifted > 0.4, 'and it still lifts him',
+        `${ramp.lifted.toFixed(2)}ft gained`);
+  await page.evaluate(() => { window.__surf.restart(); window.__surf.tick(0.4); });
+}
+
 // ---------- the octopus faces you, flexes, throws, and arrives one at a time ----------
 // Four complaints and four different causes, which is why they are four checks.
 //
