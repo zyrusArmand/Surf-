@@ -489,8 +489,13 @@ await page.waitForTimeout(300);
         for (let i = 0; i < 5; i++) out.push(window.__surf.showStep(i));
         return out;
       });
-      beach.push({ id, off: f && f.off, ground: g[0] && g[0].ground, beats: g });
+      const r = await page.evaluate(() => window.__surf.rigInfo());
+      beach.push({ id, off: f && f.off, ground: g[0] && g[0].ground, beats: g,
+                   clips: r.clipNames || [], stand: r.stand });
     }
+    check(beach.length >= 4 && beach.every(b => b.stand === true),
+          'every character with a body of his own can do a handstand, whatever his file shipped',
+          beach.map(b => `${b.id} ${b.clips.length} clips`).join(', '));
     check(beach.length >= 3 && beach.every(b => b.off !== null && Math.abs(b.off) < 8),
           'every rigged rider on the title screen stands square to the camera',
           beach.map(b => `${b.id} ${b.off}°`).join(', '));
@@ -498,6 +503,14 @@ await page.waitForTimeout(300);
                            b.beats.every(s => s && s.ground === b.ground)),
           'and each of them has a height on the sand that every beat of his show holds to',
           beach.map(b => `${b.id} ${b.ground === null ? 'none' : (+b.ground).toFixed(2)}`).join(', '));
+    // AND EVERY ONE OF THEM DOES EVERY MOTION. They come off the same biped with the same
+    // bone names, and each export shipped a different half of the repertoire — so the clips
+    // are pooled and anything one of them brought, all of them can perform. The five beats of
+    // the title-screen show are the test of it: a rider who cannot do a beat skips it, so
+    // "every beat ran, in order" is the same statement as "he has every clip".
+    check(beach.every(b => b.beats.every((s, i) => s && s.step === i)),
+          'and every one of them performs the whole show, not the half his own file shipped',
+          beach.map(b => `${b.id} ${b.beats.map(s => s && s.step).join('')}`).join(', '));
     await page.evaluate(() => { window.__surf.wear('pug'); });
     await page.waitForTimeout(800);
   }

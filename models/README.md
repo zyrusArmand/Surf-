@@ -15,7 +15,7 @@ at full white, which makes the model glow flat and ignore every light in the sce
 checking if an import looks oddly unlit.
 
 `board.glb`, `buoy.glb`, `chest.glb`, `log.glb`, `octopus.glb`, `palm.glb`, `pug.glb`,
-`cat.glb` and `frog.glb` ship with the game; the rest of the table is
+`cat.glb`, `frog.glb` and `monkey.glb` ship with the game; the rest of the table is
 empty by design, and the 404s those file names produce are the documented path
 rather than a fault.
 
@@ -32,6 +32,7 @@ to `RIDER_MODELS` in `index.html`.
 | `pug.glb` | Astro the Pug |
 | `cat.glb` | Miso the Cat |
 | `frog.glb` | Allen the Frog |
+| `monkey.glb` | Bongo the Monkey |
 | `buoy.glb` | the striped buoy |
 | `log.glb` | the floating log |
 | `jelly.glb` | the jellyfish |
@@ -113,8 +114,8 @@ A model with no bones is used as it is, standing straight.
 
 ## Rigged riders
 
-A rider model may be a **rigged** export with a skeleton and animation clips, and all three
-that ship are: a 24-bone skeleton each, the pug's with a handstand clip on it. If a
+A rider model may be a **rigged** export with a skeleton and animation clips, and all four
+that ship are: a 24-bone skeleton each, off the same biped, with the same bone names. If a
 skeleton is present the game drives it, and these happen automatically.
 
 - **It is turned to face the wave.** Every built-in rider is modelled facing `-z`.
@@ -132,9 +133,17 @@ skeleton is present the game drives it, and these happen automatically.
   again through the dismount. So a clip that is a round trip — stand, kick up, hold, come
   down — works correctly, and most exported ones are.
 - **A model with no such clip still does the trick.** The timeline runs either way and
-  the game turns him over itself; it simply has no limb animation to lay on top. The cat
-  ships walking and running and the frog a ground stomp, neither with a handstand among them,
-  and both HAND buttons work regardless.
+  the game turns him over itself; it simply has no limb animation to lay on top. In practice
+  nobody is in that position any more — see below — but the path is still there for a model
+  that arrives with no clips at all.
+- **Every rider does every motion any of them brought.** They come off the same biped with the
+  same bone names, and each export ships a different half of the same repertoire: the pug
+  brings standing and chatting, getting up off the floor and lying with his paws spread; the
+  cat brings a backflip; the frog and the monkey bring one motion each. The clips are POOLED —
+  whatever any one of them arrives with, all of them can perform, including the handstand.
+  Borrowed clips are **rotation only**: a track that MOVES a bone rather than turning it is
+  written in the proportions of the body it was animated on, and a frog is not a pug. Rotations
+  retarget cleanly across a shared skeleton, which is the whole reason this works.
 - **Every other clip runs on the title screen.** If the model belongs to the character you
   have equipped, he performs on the beach: standing and chatting, folding down onto the
   sand, lying with his paws spread, getting back up, a handstand, with pauses between. Each

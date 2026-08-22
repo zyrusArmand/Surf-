@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.61.0';
+const VERSION='3.62.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -9115,15 +9115,35 @@ function paintRiderFace(root,bones,coat){
   tally.meshes=painted;
   return painted>0?tally:null;
 }
+// ---- every character does every motion the others brought ----
+// The rigged riders all come off the same biped: the same 26 nodes, the same 24 bones, the
+// same names. What differs is which half of the repertoire each export happened to ship —
+// the pug brings standing and chatting, getting up off the floor and lying with his paws
+// spread; the cat brings a backflip; the frog and the monkey bring one motion each. A clip
+// that names bones another rig also has is a clip that rig can perform, so they are pooled:
+// whatever any one of them arrives with, all of them can do.
+//
+// Borrowed clips are ROTATION ONLY, and that is not a shortcut. A track that MOVES a bone
+// rather than turning it is written in the proportions of the body it was animated on, and a
+// frog is not a pug — keep the translations and the frog's legs get stretched to the pug's.
+// Rotations retarget cleanly across a shared skeleton, which is the whole reason this works.
+const CLIP_LIB={};
+// Meshy writes "Armature|One_Arm_Handstand|baselayer" on some exports and the bare name on
+// others, so the pool is keyed on the middle of it or the two would never meet.
+function clipKey(n){ return String(n).replace(/^[^|]*\|/,'').replace(/\|[^|]*$/,''); }
+function libAdd(clips){
+  for(const c of clips||[]){
+    const k=clipKey(c.name);
+    if(CLIP_LIB[k])continue;
+    const tr=c.tracks.filter(t=>/\.quaternion$/.test(t.name)).map(t=>t.clone());
+    if(tr.length)CLIP_LIB[k]=new THREE.AnimationClip(k,c.duration,tr);
+  }
+}
 function setupModelRig(root,gltf,id){
   const clips=(gltf&&gltf.animations)||[];
   if(!THREE.AnimationMixer)return null;
+  libAdd(clips);
   const mixer=new THREE.AnimationMixer(root);
-  // Meshy names its clips "Armature|One_Arm_Handstand|baselayer", so the match is on the
-  // middle of the name rather than the whole of it — and loosely, because the next export
-  // may well call it something adjacent.
-  const find=re=>clips.find(c=>re.test(c.name));
-  const stand=find(/handstand|hand_stand/i);
   const R={mixer,stand:null,surf:null,on:false,phase:'idle',t:0,aw:0,rot:0};
   // EVERY clip in the file, by name. The rig used to take one and drop the rest, which was
   // fine while a file held one trick and is not once it holds a performance: this pup arrives
@@ -9131,6 +9151,15 @@ function setupModelRig(root,gltf,id){
   // running, and all of that is worth having on the title screen.
   R.clips={}; for(const c of clips)R.clips[c.name]=mixer.clipAction(c);
   R.clip=n=>{ for(const k in R.clips)if(new RegExp(n,'i').test(k))return R.clips[k]; return null; };
+  // ...and everything the others brought that this one did not. Called again every time
+  // another model finishes loading, because the files arrive in whatever order the network
+  // hands them over and the first one in would otherwise have nothing to borrow from.
+  R.borrow=function(){
+    const mine={}; for(const k in this.clips)mine[clipKey(k)]=1;
+    for(const k in CLIP_LIB)if(!mine[k])this.clips[k]=this.mixer.clipAction(CLIP_LIB[k]);
+    this.arm();
+  };
+  const find=re=>{ for(const k in R.clips)if(re.test(k))return R.clips[k]; return null; };
   // ---- where the handstand actually IS inside the clip ----
   // MEASURED, not guessed, and the measurement is the whole reason this works. The clip is
   // not "a handstand"; it is a round trip — stand, kick up, hold, come down, stand. Reading
@@ -9148,19 +9177,27 @@ function setupModelRig(root,gltf,id){
   // waves — the trick has to be over before the next thing happens or it stops feeling like
   // a trick. The HOLD keeps real time, because that is the part being held.
   const CLIP={inA:0.05,inB:1.48,holdA:1.45,holdB:2.20,outB:3.05,up:2.1,down:2.4};
-  if(stand){
-    R.stand=mixer.clipAction(stand);
-    R.stand.setLoop(THREE.LoopRepeat,Infinity);   // never let the end logic disable it
-    R.stand.paused=true;                          // time comes from R.update, not from dt
-    R.stand.setEffectiveWeight(0);
-    R.stand.play();
+  // The handstand, whether it came in this file or was borrowed from another. Armed here and
+  // again after every borrow, because the model that owns the handstand may well load after
+  // the model that needs it.
+  R.arm=function(){
+    if(this.stand)return;
+    const a=find(/handstand|hand_stand/i);
+    if(!a)return;
+    this.stand=a;
+    this.stand.setLoop(THREE.LoopRepeat,Infinity);  // never let the end logic disable it
+    this.stand.paused=true;                         // time comes from R.update, not from dt
+    this.stand.setEffectiveWeight(0);
+    this.stand.play();
     // ACTIVATED HERE, while every bone is still in its rest pose, and that is deliberate.
     // three.js snapshots the "original" value of each bound property the first time an
     // action goes live, and that snapshot is what a sub-1 weight blends back toward. Start
     // it now and a weight of 0.3 means "thirty per cent of the way from standing to the
     // handstand"; start it mid-trick and it means thirty per cent of the way from whatever
-    // happened to be on screen, which is not a pose anyone modelled.
-  }
+    // happened to be on screen, which is not a pose anyone modelled. Arming after a borrow
+    // is the same moment for the same reason: nothing has run yet.
+  };
+  R.arm();
   // The surfing pose is the model's own REST, with a stance laid over it — not a clip. An
   // export often carries a bind or T-pose clip called something like `clip0`, and playing
   // that drives every bone the stance does not touch into a pose nobody asked for. The rest
@@ -9575,6 +9612,7 @@ function setupModelRig(root,gltf,id){
     const tgt=now.invert().multiply(want).multiply(rest);
     foot.quaternion.slerp(tgt,w);
   };
+  R.borrow();
   return R;
 }
 // ---- one of these per character who has a model ----
@@ -9583,7 +9621,7 @@ function setupModelRig(root,gltf,id){
 // its own muzzle bone, fitted by its feet, painted in whatever coat the roster already gives
 // that character, and driven by whichever of its clips match tricks. Add a name here, drop
 // the .glb in, and that character rides his own body. Everyone else keeps the built-in one.
-const RIDER_MODELS=['pug','cat','frog'];
+const RIDER_MODELS=['pug','cat','frog','monkey'];
 const RIDER_YAW=-0.42;   // measured: takes the shared 69-degree stance to a square 93
 // SOLVED, not eyeballed: his body's forward is 24 degrees off the group's -z (the riding
 // stance plus the turn every rigged export arrives with), so squaring him to the lens is not
@@ -9697,6 +9735,11 @@ for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
   fitted.userData.riderFor=id;
   pug.add(fitted);
   modelRigs[id]=setupModelRig(fitted,gltf,id);
+  // and everyone already standing picks up whatever this file just brought. The models load
+  // in whatever order the network hands them over, so the first one in has an empty pool to
+  // borrow from and the last one in is the only one that ever sees all of it.
+  for(const k in modelRigs){ const r=modelRigs[k];
+    if(r&&r!==modelRigs[id]&&r.borrow)r.borrow(); }
   showRiderModel();
 });
 // Which body is on the board: an imported one belongs to the character it was exported for,
@@ -13202,6 +13245,7 @@ if(location.hash.includes('debug')){
     rigInfo(){
       const modelRig=riderRig();
       const out={model:!!modelRig, kids:pug.children.length, who:builtChar};
+      if(modelRig&&modelRig.clips)out.clipNames=Object.keys(modelRig.clips).map(clipKey).sort();
       const b=new THREE.Box3().setFromObject(pug);
       out.box=[b.min.y,b.max.y].map(v=>+v.toFixed(2));
       out.boxX=[b.min.x,b.max.x].map(v=>+v.toFixed(2));
