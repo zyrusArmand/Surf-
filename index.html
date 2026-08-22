@@ -1195,7 +1195,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.47.1';
+const VERSION='3.48.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5738,6 +5738,11 @@ function openViewer(kind,id){
   } else {
     const ch=CHAR_BY_ID[id]; buildChar(id); undo=portraitPose(); obj=pug;
     name=ch.name; sub=ch.blurb;
+    // An imported body ignores portraitPose — that poses the built-in JOINTS, and this one has
+    // its own skeleton. Left alone it stands in whatever the file was modelled in, which is an
+    // A-pose with one arm straight down the lens. Snap it to the same standing pose it uses
+    // between runs, at full weight so there is nothing to ease in while the card is opening.
+    { const mr=riderRig(); if(mr&&mr.idle)mr.idle(999); }
   }
   const par=obj.parent, kp=obj.position.clone(), kr=obj.rotation.clone();
   prevScene.add(obj);
@@ -7165,7 +7170,7 @@ const CHARS=[
    blurb:'Grey tabby. Hates water, rides it anyway, will not discuss it.',
    // A tabby IS its markings: bars across the back, bars on the brow, a pale chin, chest
    // and belly. Lean and long through the body, small wedge head, ears set wide and high.
-   fur:0xa9a7a4, dark:0x3d424b, nose:0xe08a98, stripes:0x40465a, belly:0xdedbd2, bellyW:0.62,
+   fur:0x9d9b98, dark:0x3d424b, nose:0xe08a98, stripes:0x40465a, belly:0xdedbd2, bellyW:0.62,
    face:'cat',   ears:'pointed', tail:'long', whiskers:true, cheeks:true, cheekCol:0xdedbd2,
    shape:[0.86,0.84,0.90,0.70], tall:1.46, wide:0.90, deep:0.84, neckLen:1.24,
    build:[0.82,1.02,0.86], limb:0.88, limbLen:1.06, arm:0.74, armLen:1.10, foot:0.84,
@@ -8821,11 +8826,9 @@ function paintRiderFace(root,bones,coat){
   // smudge. The right place to draw a pug's face is a texture, painted in something built
   // for it, and the loader already stands aside for one. Until then he wears one clean coat,
   // which reads far better than an approximation of markings.
-  // The coat comes from the ROSTER, not from here. Every character already carries the
-  // colour he is meant to be — it is what the built-in body is painted with — so an imported
-  // one wearing a different shade would be the same character in two colours depending on
-  // whether his file had finished downloading.
-  const FUR=lin(coat===undefined?0xdcbc90:coat);
+  // `coat` is no longer used for the body — paintModel's material already carries it, vivid()
+  // and all — but it stays in the signature because the eyes below are built from the same
+  // measurement pass and a future marking pass would want it.
   const v=new THREE.Vector3(), d=new THREE.Vector3();
   let painted=0;
   const tally={verts:0,head:0,headR:0};
@@ -8860,15 +8863,31 @@ function paintRiderFace(root,bones,coat){
       if(isFinite(far))eyeAt[e]=pH.clone().addScaledVector(EYES[e],far-eyeR*0.86);
     }
     tally.head=Math.round(tally.head/2);
-    const col=new Float32Array(n*3);
-    for(let i=0;i<n;i++){ col[i*3]=FUR.r; col[i*3+1]=FUR.g; col[i*3+2]=FUR.b; }
+    // ---- the coat is the MATERIAL's colour, not a vertex buffer ----
+    // It was a colour written into a per-vertex attribute, which is what markings needed. The
+    // markings are gone, so what is left is one flat colour smeared across two thousand
+    // vertices to say the same thing a single material property says — and it did not even
+    // say it reliably: in the shop's own scene the buffer dropped out and he came back pure
+    // white, while the built-in characters beside him were fine. One property renders the
+    // same everywhere, and there is nothing left to go wrong with it.
     // both pupils look the same way — FORWARD — rather than each along its own eye's normal,
     // which on a curved skull sends them off in opposite directions and reads as wall-eyed
     if(sk&&eyeAt[0]&&eyeAt[1])fitEyes(bones.Head,sk,eyeAt,EYES,eyeR,tally,fwd);
-    g.setAttribute('color',new THREE.BufferAttribute(col,3));
+    // and the coat is LEFT ALONE. paintModel already gave this mesh the game's own fur
+    // material in the roster colour, and that colour has been through vivid() — the
+    // saturation lift every material in this file gets so a flat colour survives being tone
+    // mapped and lit by an environment map. Overwriting it with a plain sRGB-to-linear
+    // conversion, as this did, skips that lift: the pug's coat went from #e2741a to #b6702b
+    // and came out of the shop's brighter scene as pale cream, and a grey cat came out white.
+    // The only thing to undo here is the vertex-colour buffer the markings used to need.
     const m=o.material;
-    if(m){ (Array.isArray(m)?m:[m]).forEach(mm=>{ mm.vertexColors=true; mm.color.setHex(0xffffff);
-      mm.needsUpdate=true; }); }
+    if(m)(Array.isArray(m)?m:[m]).forEach(mm=>{
+      if(!mm.vertexColors&&mm.roughness===undefined)return;
+      mm.vertexColors=false;
+      // and lit the way the built-in bodies are lit, which equipChar sets on them by hand
+      if(mm.roughness!==undefined){ mm.roughness=0.86; mm.envMapIntensity=0.18; }
+      mm.needsUpdate=true; });
+    if(g.attributes.color)g.deleteAttribute('color');
     painted++;
   });
   tally.meshes=painted;
@@ -12819,6 +12838,28 @@ if(location.hash.includes('debug')){
     // three quarters behind. This turns him to look at the camera and back again.
     spinPug(y){ if(y===null||y===undefined)pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0);
                 else pug.rotation.y=y; return +pug.rotation.y.toFixed(2); },
+    // What is actually ON SCREEN in the rider group, and what colour it is. Written because
+    // the shop showed a white cat and no amount of reasoning settled whether that was the
+    // imported body with its colour lost or the built-in one with its colour blown out.
+    bodies(){
+      const out=[];
+      pug.traverse(o=>{ if(!o.isMesh)return;
+        let vis=o.visible, p=o.parent;
+        while(vis&&p&&p!==pug.parent){ if(!p.visible)vis=false; p=p.parent; }
+        if(!vis)return;
+        const m=Array.isArray(o.material)?o.material[0]:o.material;
+        out.push({n:o.name||'(unnamed)', skinned:!!o.isSkinnedMesh,
+                  col:m&&m.color?'#'+m.color.getHexString():'-',
+                  vc:!!(m&&m.vertexColors), rough:m&&m.roughness, metal:m&&m.metalness,
+                  env:m&&m.envMapIntensity, emis:m&&m.emissive?'#'+m.emissive.getHexString():'-',
+                  tone:m&&m.toneMapped, verts:o.geometry?o.geometry.attributes.position.count:0}); });
+      // and the built-in body's material, for comparison — same scene, same lights
+      if(typeof torso!=='undefined'&&torso&&torso.material){ const t=torso.material;
+        out.push({n:'(built-in torso)', col:'#'+t.color.getHexString(), rough:t.roughness,
+                  metal:t.metalness, env:t.envMapIntensity, tone:t.toneMapped,
+                  emis:t.emissive?'#'+t.emissive.getHexString():'-'}); }
+      return out;
+    },
     // Two solid objects, and the only honest way to ask whether they overlap: put the SOLE
     // and the DECK in the same frame — the board's own, because the sea heaves and the hull
     // pitches and a world height answers a different question every frame — and subtract.
