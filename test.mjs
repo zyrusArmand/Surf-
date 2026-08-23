@@ -3567,6 +3567,13 @@ check(shaderErrors.length === 0, 'every shader compiles',
         'and on the title screen he runs through his whole repertoire',
         show.every(Boolean) ? `${moves.length} moves, first runs ${show[0].left}s` : 'no show');
 
+  // ---- the wave, which is OFF, and the pose behind it, which still has to be right ----
+  // The greeting on the title screen was removed by request. The pose was not: the scan that
+  // picks the arm with room to swing, the rocking, and the countdown are all still here, still
+  // reachable, and still checked — because what was wanted was the greeting gone from the
+  // opening screen, not the ability to make a rider wave. So this asks two separate things:
+  // that nothing greets you when the game opens, and that if the pose IS asked for it is still
+  // the good one rather than the version that swung the paw in behind his head.
   // ---- he waves when the game opens ----
   // There is no wave in any of these files — a chat, a walk, a run, a stomp, a backflip, a
   // handstand, a get-up and a lie-down, and no greeting among them — so it is posed rather
@@ -3611,9 +3618,9 @@ check(shaderErrors.length === 0, 'every shader compiles',
           'the character waves when the game opens, with the paw clear of his own head',
           `beach up ${wave.up}, ` +
           poses.map(p2 => `${p2.outW} heads out / ${p2.upW} up`).join(', '));
-    check(wave.full === 5,
-          'and he does it for five seconds',
-          `${wave.full}s of greeting`);
+    check(wave.full === 0,
+          'and nothing greets you when the game opens — the wave is off',
+          `${wave.full}s of greeting on load`);
     // and then hands over to the show and does not come back. It is counted down once per
     // LOAD rather than once per character or once per visit to the title screen, so neither
     // switching riders nor coming back from a run should get you greeted again.
