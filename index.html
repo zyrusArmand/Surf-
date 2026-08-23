@@ -1261,7 +1261,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.0.0';
+const VERSION='4.1.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5297,11 +5297,13 @@ let beachSurfH=null;                   // the surface itself, dunes included —
 // It is INSTANCED, so all of them are one draw call and the cost is triangles alone; and it
 // is on the preview beach only — the title screen and the cards, which is where a lens ever
 // gets close enough to the ground for any of this to be visible.
-let sandTile=null, sandField=null, beachSandGroup=null;
+let sandTile=null, sandField=null, beachSandGroup=null, sandFieldTop=0;
 let SAND_TILE=10.0;                     // how many units across one piece lies
 let SAND_GAP=0.66;                     // spacing as a fraction of that — under 1 is overlap
 let SAND_TILT=0.9;
-let SAND_SINK=0.62;                    // how far into the beach the pieces are pressed                    // how much of the ground's own slope each piece takes
+let SAND_SINK=0.50;
+let SAND_RELIEF=0.40;                  // how much of the piece's own height it keeps
+let SAND_DROP=0.60;                    // how far the painted beach ducks under the field                    // how far into the beach the pieces are pressed                    // how much of the ground's own slope each piece takes
 const SAND_X=34, SAND_Z0=14, SAND_Z1=-68;   // the patch of beach worth covering
 // the set's own palms stand up the beach for the previews; the menu stands its own and
 // puts these away, because three trunks and a board in one frame is a thicket
@@ -5713,10 +5715,16 @@ function sandFieldBuild(){
   sandField=null;
   if(!sandTile||!beachSandGroup||!beachSurfH)return;
   const geo=sandTile.geo, bb=geo.boundingBox||(geo.computeBoundingBox(),geo.boundingBox);
-  const span=Math.max(bb.max.x-bb.min.x, bb.max.z-bb.min.z)||1;
-  const base=SAND_TILE/span;                       // file units to beach units
-  const step=Math.max(0.6,SAND_TILE*SAND_GAP);
-  const nx=Math.ceil(SAND_X*2/step), nz=Math.ceil((SAND_Z0-SAND_Z1)/step);
+  // ---- and the spacing is PER AXIS, because the piece is not square ----
+  // The piece is 1.9 by 1.17: laid at ten units across it is ten by six, and stepping ten
+  // times the overlap in BOTH directions leaves a gap in the short one every single row. That
+  // is the whole of the bleed-through — not a placement fault, not the beach rising, just a
+  // field that was never covering the ground it was told to cover, with painted sand showing
+  // in the stripe between every row of it.
+  const spanX=(bb.max.x-bb.min.x)||1, spanZ=(bb.max.z-bb.min.z)||1;
+  const base=SAND_TILE/Math.max(spanX,spanZ);      // file units to beach units
+  const stepX=Math.max(0.6,spanX*base*SAND_GAP), stepZ=Math.max(0.6,spanZ*base*SAND_GAP);
+  const nx=Math.ceil(SAND_X*2/stepX), nz=Math.ceil((SAND_Z0-SAND_Z1)/stepZ);
   const N=nx*nz;
   if(!N||N>4000)return;
   const mesh=new THREE.InstancedMesh(geo,sandTile.mat,N);
@@ -5731,8 +5739,8 @@ function sandFieldBuild(){
   const R=()=>{ rs=(rs*1103515245+12345)&0x7fffffff; return rs/0x7fffffff; };
   let i=0;
   for(let ix=0; ix<nx; ix++)for(let iz=0; iz<nz; iz++){
-    const x=-SAND_X+(ix+0.5)*step+(R()-0.5)*step*0.8;
-    const z=SAND_Z1+(iz+0.5)*step+(R()-0.5)*step*0.8;
+    const x=-SAND_X+(ix+0.5)*stepX+(R()-0.5)*stepX*0.7;
+    const z=SAND_Z1+(iz+0.5)*stepZ+(R()-0.5)*stepZ*0.7;
     const k=base*(0.82+R()*0.42);
     // ---- and it lies FLAT where anything is standing on it ----
     // A scattered field adds relief above the ground as well as below it, and the ground is
@@ -5743,6 +5751,15 @@ function sandFieldBuild(){
     // cover the ground, they are just pressed flat where something is standing.
     const dO=Math.hypot(x,z), dS=Math.hypot(x,z-MB_Z);
     const fw=Math.min(_ss2(3,24,dO), _ss2(4,24,dS));
+    // ---- and every piece is the SAME HEIGHT, whatever size it is across ----
+    // Scaling a piece up or down as a whole, and pressing some of them flatter than others,
+    // gives each one a different surface height above the same ground — and a piece's border
+    // is a straight cut, so wherever one stands proud of its neighbour that cut is a cliff
+    // with a shadow under it. That is the tray of slabs the set kept ending up on, and it is
+    // not a placement fault: it is neighbours at different levels.
+    // Across, they still vary; upward they are identical, so any two touching pieces meet at
+    // the same height and the joins have nothing to show.
+    const kyU=base*SAND_RELIEF;
     // The lift gets a weight of its own, and a much tighter one. It is only there to clear a
     // dune, the beach has no dune within its own flat discs, and those discs are ten units
     // across — not twenty-four. Taking the lift away over the same slow ramp as the flattening
@@ -5759,7 +5776,7 @@ function sandFieldBuild(){
     // so the set ended up standing on a flat plateau with straight edges, which reads as a
     // table someone put the beach on. Half the height over twenty units instead: enough that
     // nothing standing there is knee-deep, gradual enough that there is no edge to see.
-    const ky=k*(0.20+0.80*fw);
+
     // the ground here, and which way it faces. Sampled off the same height function the mesh
     // was built from rather than off the mesh, so it is exact rather than the nearest vertex.
     // ---- and the slope it follows is measured at the PIECE'S OWN SIZE ----
@@ -5794,9 +5811,17 @@ function sandFieldBuild(){
     // that is the foot of the board disappearing again. Under the set and under the card there
     // is no dune to clear — the beach levels itself there by construction — so the same weight
     // that presses the pieces flat also takes the lift away.
-    const h=h0+lift*lw;
+    // no lift: hung from its top, a piece cannot rise through anything, and the painted beach
+    // it might otherwise cut into has been dropped well below the whole field instead
+    const h=h0;
     // turn about the vertical first, then lay it into the slope
-    e.set(0,R()*Math.PI*2,0); q.setFromEuler(e);
+    // ---- turned, but not to any angle at all ----
+    // A free turn was the first version and it undoes the spacing above: a piece stepped for a
+    // ten-by-six footprint and then laid across its own short axis covers six where ten was
+    // planned for, and the gap it leaves is the same painted stripe. Half of them face the
+    // other way and every one of them is nudged a quarter turn either side of that, which is
+    // all the variety a repeated piece needs and keeps the footprint the one it was spaced for.
+    e.set(0,(R()<0.5?0:Math.PI)+(R()-0.5)*0.9,0); q.setFromEuler(e);
     if(SAND_TILT>0.001){
       axis.crossVectors(up,nrm);
       const s2=axis.length();
@@ -5828,12 +5853,39 @@ function sandFieldBuild(){
     // appearing under the pug on his own card, and it was the beach all along.
     // So the anchor slides with the same weight: underside on the ground where it is flat,
     // sunk to its own mean out where it is not.
-    const anchor=bb.min.y+(sandTile.mid+SAND_SINK*(bb.max.y-sandTile.mid)-bb.min.y)*fw;
-    pos.set(x, h-anchor*ky, z);
-    scl.set(k,ky,k);
+    // ---- and where it is pressed flat, its TOP is the ground ----
+    // Sitting a pressed piece on its underside puts its surface a third of a unit above the
+    // height the rider, the board and the chest were all placed at, and a third of a unit is a
+    // pug up to the chest. The ground everything stands on is h, so where anything is standing
+    // the sand's surface has to BE h — which means the top of the piece, not the bottom of it.
+    // Out in the open field there is nothing standing on it and the sunk anchor is right.
+    // ---- the piece's TOP is the ground, everywhere ----
+    // Sunk to its own mean, half of every piece stands above the height that the rider, the
+    // board and the chest were all placed at. That is fine in the open and it is not fine
+    // anywhere the camera can see past — this lens sits under two feet over the sand, so a
+    // bank a foot proud ten feet in front of it hides everything behind it to the chest, and
+    // the pug ended up buried by sand that was nowhere near him.
+    // Hanging every piece from its TOP fixes that and breaks something else: the pieces stop
+    // interpenetrating, and a piece's edge is a straight cut, so the field turns into a tray of
+    // rectangles with visible sides. The edges were only ever hidden by the pieces sinking into
+    // one another.
+    // So the anchor goes back to the mean — pieces overlapping, edges buried — and the height
+    // is taken out of the RELIEF instead. A piece a quarter of its modelled height still reads
+    // as sand, because at this distance what says sand is the normal map and not the
+    // silhouette, and a quarter of it cannot bury a rider's feet.
+    pos.set(x, h-(sandTile.mid+SAND_SINK*(bb.max.y-sandTile.mid))*kyU, z);
+    scl.set(k,kyU,k);
     m.compose(pos,q,scl);
     mesh.setMatrixAt(i++,m);
   }
+  // How far the finished field stands above the bare terrain at its highest. The camera needs
+  // it: it measures its eye height off the ground it is over, and the ground it is over is now
+  // the sand laid on top rather than the terrain underneath. Two feet of lens over the beach is
+  // extremely sensitive to what is directly in front of it — a mound a quarter of a unit proud
+  // three feet away subtends as much of the frame as the rider does twenty feet away — so a
+  // camera left at the old height looks THROUGH the near sand and the rider disappears behind
+  // a ridge that is nowhere near him. Raised by the same amount, the geometry is as it was.
+  sandFieldTop=(bb.max.y-(sandTile.mid+SAND_SINK*(bb.max.y-sandTile.mid)))*base*1.24*SAND_RELIEF;
   mesh.count=i;
   mesh.instanceMatrix.needsUpdate=true;
   mesh.frustumCulled=false;          // one object covering the whole beach; its box is the beach
@@ -6246,9 +6298,23 @@ function buildBeach(){
   const _ts=performance.now();
   const NW=SNU+1, DX=SW/SNU, DZ=SD/SNV;
   const HG=new Float32Array(sp.count);
+  // ---- and it DUCKS under the modelled sand that is laid over it ----
+  // Where the scattered pieces cover the beach, the beach is not what anyone is looking at —
+  // it is a backing, and the only thing it can do is show through. Two surfaces at the same
+  // height cannot both be the visible one, and the painted one carries a wind-ripple map that
+  // reads as corduroy at a grazing angle, so every place it won was a bad place.
+  // It is dropped half a unit under the field and eased back to nothing outside it. Nothing
+  // standing on the beach moves: everything is placed off the height FUNCTION, which is
+  // untouched, and the pieces are placed off it too — this is the drawn surface alone.
+  // Eased back well before the waterline as well, or the drop takes the dry sand under a sea
+  // that is a flat sheet above it and the shore fills in.
+  const cov=(x,wz)=>Math.min(_ss(SAND_X,SAND_X-7,Math.abs(x)),
+                             _ss(SAND_Z1-1,SAND_Z1+7,wz),
+                             _ss(SAND_Z0,SAND_Z0-7,wz));
   for(let i=0;i<sp.count;i++){
-    const h=hAt(sp.getX(i),SC-sp.getY(i));
-    HG[i]=h; sp.setZ(i,h);
+    const x=sp.getX(i), wz=SC-sp.getY(i);
+    const h=hAt(x,wz);
+    HG[i]=h; sp.setZ(i,h-SAND_DROP*cov(x,wz));
   }
   for(let i=0;i<sp.count;i++){
     const x=sp.getX(i), wz=SC-sp.getY(i);        // plane +y runs to -z once it is laid down
@@ -16110,12 +16176,14 @@ if(location.hash.includes('debug')){
     },
     // The scattered sand: rebuild it to any size, spacing and slope-following, and say what
     // came out. Three numbers that only mean anything in a picture, so they are walked.
-    sandTiles(size,gap,tilt,sink){
+    sandTiles(size,gap,tilt,sink,rel){
       if(size!==undefined)SAND_TILE=size;
       if(gap!==undefined)SAND_GAP=gap;
       if(tilt!==undefined)SAND_TILT=Math.max(0,Math.min(1,tilt));
       if(sink!==undefined)SAND_SINK=sink;
-      if(size!==undefined||gap!==undefined||tilt!==undefined||sink!==undefined)sandFieldBuild();
+      if(rel!==undefined)SAND_RELIEF=rel;
+      if(size!==undefined||gap!==undefined||tilt!==undefined||sink!==undefined||rel!==undefined)
+        sandFieldBuild();
       if(!sandField)return {tile:!!sandTile, on:false, size:SAND_TILE, gap:SAND_GAP, tilt:SAND_TILT};
       const g2=sandField.geometry, tri=(g2.index?g2.index.count:g2.attributes.position.count)/3;
       // where the underside of each piece sits against the ground it is lying on — the one
@@ -16130,7 +16198,7 @@ if(location.hash.includes('debug')){
       }
       return {tile:true, on:true, count:sandField.count, trisEach:Math.round(tri),
               tris:Math.round(tri*sandField.count),
-              size:SAND_TILE, gap:SAND_GAP, tilt:SAND_TILT, sink:SAND_SINK,
+              size:SAND_TILE, gap:SAND_GAP, tilt:SAND_TILT, sink:SAND_SINK, relief:SAND_RELIEF,
               sit:{worst:+worst.toFixed(3), mean:+(sum/Math.max(1,n)).toFixed(3)},
               draws:1};
     },
@@ -19328,7 +19396,7 @@ function renderMenuBeach(dt){
   // the back of a one-sided beach with the sea showing through it.
   // Whichever ground is higher, plus the eye height, so no dune can ever bury the lens.
   const cx=px-_mbF.x*D, cz=pz-_mbF.z*D;
-  const gc=beachSurfH?beachSurfH(cx/MB_K,cz/MB_K)*MB_K:g;
+  const gc=beachSurfH?(beachSurfH(cx/MB_K,cz/MB_K)+sandFieldTop)*MB_K:g;
   menuCam.position.set(cx, Math.max(g,gc)+MB_EYE+sw2*0.12, cz);
   menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+MB_AIM, pz-_mbR.z*aim);
   menuCam.updateProjectionMatrix();

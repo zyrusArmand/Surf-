@@ -173,9 +173,29 @@ Four things had to be got right, and each of them looked like a different bug:
 - **It sits INTO the beach, not on it.** Anchored on its own mean, half of every piece stands
   above the ground everything else was placed at, and that half is what hides a rider's feet
   and swallows the foot of the board.
-- **…except where anything is standing on it**, where it is pressed flat and set down on its
-  underside instead. A piece pressed flat and *then* sunk ends up below a beach that is level
-  there, and the beach's wind-ripple map shows through it as a grey striped mat.
+- **The spacing is per axis, because the piece is not square.** It is 1.9 by 1.17 — ten units
+  across is ten by six — and stepping ten times the overlap in *both* directions leaves a gap
+  in the short one every single row. That was the whole of the bleed-through: not a placement
+  fault, just a field that was never covering the ground it was told to. The turn is limited
+  to a quarter either side of straight for the same reason; a free turn lays a piece across
+  its own short axis and re-opens the gap.
+- **Every piece is the same height, whatever size it is across.** A piece's border is a
+  straight cut, so wherever one stands proud of its neighbour that cut is a cliff with a
+  shadow under it — which is a tray of slabs, not a beach. Across they vary; upward they are
+  identical, so any two touching pieces meet at the same level.
+- **The painted beach ducks half a unit under the field** and eases back outside it. Two
+  surfaces at the same height cannot both be the visible one, and the painted one carries the
+  wind-ripple map that reads as corduroy at a grazing angle. Nothing standing on the beach
+  moves: everything is placed off the height *function*, which is untouched — this is the
+  drawn surface alone.
+- **The camera measures its eye height off the sand, not the terrain.** Two feet of lens over
+  a beach is extremely sensitive to what is directly in front of it: a mound a quarter of a
+  unit proud three feet away subtends as much of the frame as the rider does twenty feet away.
+
+The piece is simplified to **2.8k triangles and no further**. At 1k the decimation's own faces
+become the visible relief — large flat plates with straight edges — and no amount of placement
+work hides them. Nor can the pieces be made much smaller: they must be simplified further to
+stay in budget, and that is the same failure again.
 
 ## Rigged riders
 
