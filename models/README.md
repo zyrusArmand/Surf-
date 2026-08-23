@@ -18,7 +18,7 @@ at full white, which makes the model glow flat and ignore every light in the sce
 checking if an import looks oddly unlit.
 
 `board.glb`, `buoy.glb`, `chest.glb`, `log.glb`, `octopus.glb`, `palm.glb`, `pug.glb`,
-`buoy2.glb`, `cat.glb`, `frog.glb`, `monkey.glb`, `rat.glb`, `palm2.glb`, `ramp.glb` and `plane.glb` ship with the game; the rest of the table is
+`buoy2.glb`, `cat.glb`, `frog.glb`, `monkey.glb`, `rat.glb`, `ramp.glb` and `plane.glb` ship with the game; the rest of the table is
 empty by design, and the 404s those file names produce are the documented path
 rather than a fault.
 
@@ -30,7 +30,7 @@ to `RIDER_MODELS` in `index.html`.
 | File | Replaces |
 | --- | --- |
 | `board.glb` | the surfboard |
-| `palm.glb` | every palm tree except the title screen's |
+| `palm.glb` | every palm tree, the title screen's included |
 | `chest.glb` | the treasure chest |
 | `pug.glb` | Astro the Pug |
 | `cat.glb` | Miso the Cat |
@@ -46,7 +46,7 @@ to `RIDER_MODELS` in `index.html`.
 | `bigfin.glb` | the shark fin |
 | `jetski.glb` | the jet ski |
 | `plane.glb` | the tow plane and the set-wave aircraft |
-| `palm2.glb` | the title screen's own palm, in place of `palm.glb` there |
+| `palm2.glb` | a DIFFERENT tree for the title screen, in place of `palm.glb` there — not shipped |
 
 ## Exporting from Blender
 
@@ -130,9 +130,20 @@ bend the same way, which is the opposite of what is wanted. Baking is also what 
 trunk's centreline knowable, and the centreline is what the title screen leans a board on.
 
 The one tree that is not left to chance is the title screen's: it leaves the sand upright,
-its middle three joints take it over to the side and its top keeps going the same way, which
-is the long C the procedural tree had and the shape every photograph of a board against a
-palm has.
+its middle joints take it over to the side and its top keeps going the same way, which is the
+long C the procedural tree had and the shape every photograph of a board against a palm has.
+Because the base stays upright, the root sits exactly where it is placed however far the top
+leans — which is what keeps the trunk beside the chest and the board finding the crook of it.
+It also stands **shorter than a grove tree** (`MENU_PALM_H`), because the two shots are
+nothing alike: a grove tree is forty units back and reads as scenery, and this one is ten
+feet from a wide lens, where a full-height crown fills the top half of the frame.
+
+A bend is written as eight numbers and **resampled onto however many joints the rig has**, so
+the same profile describes the same tree whatever it is boned with. Indexing them straight in
+worked only while every palm had eight bones: on a six-joint trunk the last two entries — the
+part that says the top keeps going rather than standing back up — were silently dropped, and
+the long C stopped half way up. The total turn is preserved through the resample too, so a
+trunk does not straighten out just because it was cut into fewer pieces.
 
 A model with no bones is used as it is, standing straight.
 

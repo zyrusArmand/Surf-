@@ -1261,7 +1261,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.97.0';
+const VERSION='3.98.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5455,8 +5455,13 @@ function PALM(seed,prof,menu){
 // one of its two, the rigged grove model if that has, the procedural tree if neither.
 function palmFor(rec){
   if(rec.menu&&palm2)return palm2Mesh(rec.seed,rec.prof);
-  return palmModel?modelPalm(rec.seed,rec.prof):buildPalm(rec.seed);
+  return palmModel?modelPalm(rec.seed,rec.prof,rec.menu):buildPalm(rec.seed);
 }
+// How tall the title screen's palm stands against one of the grove's. Its own number because
+// the two shots are nothing alike: a grove tree is forty units back and reads as scenery, and
+// this one is ten feet from a wide lens with a board leaned on it, so at the grove's height
+// its crown fills the top half of the frame and the coconuts go off the top of the screen.
+let MENU_PALM_H=0.68;
 // A bend is one angle per joint, so the shape of the curve is the shape of the list: all of
 // it low down is a tree leaning off its base, all of it high up is a hook. Randomised per
 // seed, and a quarter of them get none at all — a grove where every tree curves is as
@@ -5478,14 +5483,31 @@ function palmProfile(seed){
   return {az,bend};
 }
 // The chain posed, the skin baked, and the trunk's centreline read back off the bones.
-function modelPalm(seed,prof){
+function modelPalm(seed,prof,menu){
   const M=palmModel, sk=M.mesh, chain=M.chain;
   const P=prof||palmProfile(seed);
   const ax=new THREE.Vector3(Math.sin(P.az||0),0,-Math.cos(P.az||0));
   const q=new THREE.Quaternion();
-  for(let i=0;i<chain.length;i++){
+  // ---- the profile is a SHAPE, so it is resampled onto however many joints this rig has ----
+  // Every bend in the game is written as eight numbers because the first tree had eight
+  // bones, and indexing them straight into the chain quietly means something different on a
+  // rig with a different count: on a six-joint trunk the last two entries — the part that
+  // says "and the top keeps going the same way rather than standing back up" — were simply
+  // dropped, and the long C the title screen is built around stopped half way up. Read as a
+  // curve sampled along the trunk instead, and the same eight numbers describe the same tree
+  // whatever it is boned with. The total turn is held too, so a trunk does not straighten out
+  // just because it was cut into fewer pieces.
+  const curve=(P.bend&&P.bend.length)?P.bend:[0];
+  const N=chain.length, at=[];
+  for(let i=0;i<N;i++){
+    const u=N>1?i/(N-1)*(curve.length-1):0, j=Math.min(curve.length-2,Math.floor(u));
+    at.push(curve.length<2?curve[0]:curve[j]+(curve[j+1]-curve[j])*(u-j));
+  }
+  const want=curve.reduce((a,b)=>a+b,0), got=at.reduce((a,b)=>a+b,0);
+  const k2=got>1e-6?want/got:1;
+  for(let i=0;i<N;i++){
     chain[i].quaternion.copy(M.rest[i]);
-    const a=(P.bend&&P.bend[i])||0;
+    const a=at[i]*k2;
     // about the SAME axis in every bone's own frame, which is what keeps the bend planar:
     // the axis is carried along by the rotations above it because they all share it
     if(a)chain[i].quaternion.multiply(q.setFromAxisAngle(ax,a));
@@ -5512,7 +5534,7 @@ function modelPalm(seed,prof){
   // above that; this model carries a third of its height in crown. Matching trunk to trunk
   // made a tree half again as tall as the one the camera was framed for, and matching total
   // to trunk sat the crown down in the middle of the picture where the title goes.
-  const bb=geo.boundingBox, H=(10.6+((seed*37)%13)/13*2.0)*PALM_H;
+  const bb=geo.boundingBox, H=(10.6+((seed*37)%13)/13*2.0)*PALM_H*(menu?MENU_PALM_H:1);
   const k=H/Math.max(0.001,bb.max.y-bb.min.y);
   // the same frame the geometry was just put into — bone world positions and a mesh
   // multiplied by its own world matrix are the one pair that agree
@@ -10587,7 +10609,18 @@ const RIDER_SIZE={frog:1.20, monkey:1.16};
 // stance plus the turn every rigged export arrives with), so squaring him to the lens is not
 // a quarter turn off the stance. __surf.menuFace(v) reports the angle that is left, and this
 // is the value that reads zero.
-let MENU_FACE=-1.80;     // and on the title screen he turns out of it, toward the viewer
+// RE-SOLVED when the title screen's palm was replaced, and worth knowing why a tree moved a
+// dog: the camera's distance and its aim both come out of how wide the SET is, and the set is
+// the tree, the board, the rider and the chest together. A shorter palm is a narrower set, so
+// the lens came in and swung round a little, and the rider who was square to it before was
+// eight degrees off it after. Nothing about him changed at all.
+// It is also a COMPROMISE across shapes of screen, and deliberately centred rather than
+// zeroed. The camera walks back and swings a little as the window changes shape, so the angle
+// left over runs about seven degrees from a wide window to a tall one and no single constant
+// is square in both. Tuned to read zero on a phone it was eight degrees out on a desktop, and
+// the value here splits it: a few degrees either side, square enough to read as square
+// everywhere, rather than perfect on one shape and visibly turned on another.
+let MENU_FACE=-1.719;    // and on the title screen he turns out of it, toward the viewer
 for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
   // TURNED TO FACE THE WAVE, by asking the model which way it is looking rather than by
   // being told. Every face on the built-in riders is built at negative z — muzzle, nose,
@@ -15788,12 +15821,19 @@ if(location.hash.includes('debug')){
     // Bend the menu's palm to any profile, and report where its crown lands in the frame.
     // Eight joint angles is eight numbers to guess at; one render each is the only way to
     // see which of them is the tree the shot was framed for.
-    palmBend(bend,az,h){
+    // `mh` is the title screen's own height factor and `sc` its scale, both walked the same
+    // way as the bend and for the same reason — how big a tree wants to be in a frame is a
+    // question about the frame, and the only way to see the answer is to render it.
+    palmBend(bend,az,h,mh,sc){
       if(h!==undefined)PALM_H=h;
+      if(mh!==undefined)MENU_PALM_H=mh;
+      if(sc!==undefined&&typeof menuPalm!=='undefined'&&menuPalm){
+        MB_PALM=sc; menuPalm.scale.setScalar(MB_PALM); }
       if(typeof menuPalm==='undefined'||!menuPalm||!palmModel)return null;
       const rec=palmsBuilt.find(r=>r.m===menuPalm);
       if(rec)rec.prof={az:az||0,bend:bend||[0,0,0,0,0,0,0,0]};
       repalm();
+      if(menuPalm)menuPalm.scale.setScalar(MB_PALM);
       const cam=menuCam||camera, b=new THREE.Box3().setFromObject(menuPalm);
       const px=v=>[Math.round((v.x*0.5+0.5)*innerWidth),Math.round((-v.y*0.5+0.5)*innerHeight)];
       const c=b.getCenter(new THREE.Vector3());
@@ -18193,7 +18233,13 @@ function menuBeachOn(){
     // the trunk leaves the sand upright, the middle three joints take it over to the side,
     // and the top keeps going the same way rather than standing back up — which is the long
     // C the procedural tree had and the shape every photograph of a board against a palm has.
-    const palm=menuPalm=PALM(3,{az:0,bend:[0.015,0.04,0.09,0.17,0.18,0.15,0.09,0.05]},true);
+    // Walked again for the new tree, which is a different shape: it carries more of its
+    // height in crown and its fronds hang out much further, so the old angles put the whole
+    // canopy across the left of the frame with the title behind it. Seven tenths of the turn
+    // stands the trunk up enough that the crown arcs over the title instead of sitting on it,
+    // and the curve is still all in the middle — the base leaves the sand upright, so the
+    // root stays exactly where it was beside the chest and the board still finds the crook.
+    const palm=menuPalm=PALM(3,{az:0,bend:[0.011,0.028,0.063,0.119,0.126,0.105,0.063,0.035]},true);
     // turned so its long C leans back over the board rather than away from it — a board is
     // propped against the underside of a palm, which is half of why anyone photographs one
     // Leaning out to the RIGHT and slightly toward the camera, so the board can be propped
@@ -18373,7 +18419,7 @@ let MB_BIAS=0.45;
 // whole tree. At 1.35 it is a fourteen foot palm and everything in front of it reads as
 // standing under a tree instead of beside a pot plant. The camera walks back to keep the
 // crown in frame; that is the only thing this number costs.
-const MB_PALM=1.35;
+let MB_PALM=1.35;
 // How far in FRONT of the trunk the board stands — in front, because that is where a board
 // leaning on a tree is in every photograph of one, and because from behind the trunk cuts
 // across it. Worked out per frame rather than fixed: the trunk is a curve with a depth of
