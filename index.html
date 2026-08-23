@@ -1271,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.14.0';
+const VERSION='4.15.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -2871,6 +2871,33 @@ makeFin(0,1.55,0,1.0);makeFin(-0.30,1.32,0.16,0.8);makeFin(0.30,1.32,-0.16,0.8);
 // can be replaced one at a time. Size, orientation and position are all taken from
 // the shape being replaced, so an export at any scale drops straight in.
 function boxOf(o){o.updateMatrixWorld(true);return new THREE.Box3().setFromObject(o);}
+// ---- and the box of what is actually DRAWN, which is not the same thing ----
+// boxOf pushes a mesh's vertex buffer through its world matrix. For a rigged model that is
+// the wrong pipeline: glTF puts a skinned mesh's vertices in skin space and lets the JOINTS
+// place them, and an exporter is free to write the two in different units — this pug's
+// vertices are in metres and its joints in centimetres under an armature scaled to a
+// hundredth, which is legal and lands both in the right place on screen. Read off the vertex
+// buffer alone he measures a hundred times his size, and nothing ever disagrees: the box is
+// self-consistent, the scale derived from it is self-consistent, and the thing on screen is
+// a speck. That is the exact shape of bug this project keeps meeting, so this is the tool
+// for it — every vertex pushed through the skinning the shader will actually apply.
+// Sampled rather than exhaustive: a bounding box does not need ten thousand points, and this
+// runs on load for a model with tens of thousands of them.
+function drawnBox(o,step){
+  o.updateMatrixWorld(true);
+  const box=new THREE.Box3(), v=new THREE.Vector3();
+  const st=Math.max(1,step||7);
+  o.traverse(m=>{
+    if(!m.isMesh||!m.geometry||!m.geometry.attributes.position)return;
+    const pa=m.geometry.attributes.position;
+    if(m.isSkinnedMesh&&m.boneTransform){
+      for(let i=0;i<pa.count;i+=st){ m.boneTransform(i,v); box.expandByPoint(v.applyMatrix4(m.matrixWorld)); }
+    } else {
+      for(let i=0;i<pa.count;i+=st){ v.fromBufferAttribute(pa,i).applyMatrix4(m.matrixWorld); box.expandByPoint(v); }
+    }
+  });
+  return box;
+}
 function longAxis(v){return (v.x>=v.y&&v.x>=v.z)?'x':(v.y>=v.z?'y':'z');}
 // a quarter turn that lays the model's longest side along the longest side of the
 // shape it replaces — a board exported down Blender's X still lands nose-to-tail
@@ -14328,12 +14355,22 @@ function buildJetSki(){
   rider.scale.setScalar(1.05);
 
   g.add(hull,hullBelly,bow,deck,seat,seatBack,cowl,hood,bars,platform,nozzle,rider);
+  rider.userData.crew=true;              // survives a modelled hull replacing the built one
   g.userData.rider=rider;
   g.userData.sparkles=sparkles;
   g.scale.setScalar(1.75);        // reads properly against the board
   g.visible=false;
   return g;
 }
+// How far the rider's origin sits above the deck he is on. He is built about his middle
+// rather than about his feet, so this is not a clearance — it is where his waist goes.
+const SKI_SIT=0.34;
+// How tall the pug on the ski stands, as a share of the hull's own length. A jet ski is
+// about three of its riders long, and he is sized off the boat rather than off the game's
+// rider height because the boat is the only thing he is ever seen next to.
+const SKI_CREW=0.34;
+// and how far his soles sink into the seat, so he is astride it rather than perched on it
+const SKI_FEET=-0.10;
 const jetSki=buildJetSki();
 jetSki.scale.setScalar(1.30);        // it crosses a long way out; small reads as nothing
 scene.add(jetSki);
@@ -14374,9 +14411,167 @@ loadModel('jetski.glb',s3=>{
   // round: the stern is the low wide end (the flat platform sits at a tenth of the height),
   // the bow is the narrow one past the console, and on this model they were the wrong way up.
   if(skiBowAt(fitted)>0)fitted.rotation.y+=Math.PI;
-  jetSki.clear ? jetSki.clear() : (jetSki.children.length=0);
+  // ---- everything EXCEPT the crew ----
+  // This cleared the group outright, which is right for the hull it is replacing and wrong
+  // for the one thing on the ski that is not hull: the procedural build puts a little rider
+  // on it, goggles and all, and he went with the rest. So a driverless jet ski has been
+  // crossing the lane ever since a model was dropped in. He is kept, and then re-seated —
+  // his place was measured against the hull he was modelled on, and this is a different one.
+  for(const c of jetSki.children.slice()) if(!c.userData.crew) jetSki.remove(c);
   jetSki.add(fitted);
+  jetSki.userData.hull=fitted;
+  seatSkiCrew();
 });
+// ---- and a PUG is driving it ----
+// The built-in ski came with a little goggled figure on it, which is a rider and is not one of
+// this game's animals — beside the pug on the board it reads as a person who wandered in from
+// another game. So the roster's own pug is put on the ski instead and the figure is stood down.
+// Loaded on its own rather than cloned off the player's: a clone takes its bones from the
+// template AS IT STANDS, and the template is mid-animation from the first frame of the run, so
+// the ski would have crossed the lane carrying whatever the rider happened to be doing —
+// including, sooner or later, a handstand. Its own copy, put into its bind pose, is one pose.
+loadModel('pug.glb',(s3,gltf)=>{
+  const crew=new THREE.Group(); crew.userData.crew=true;
+  // ---- and the target box is TALL, which is not a detail ----
+  // fitToBox lays a model's longest side along the longest side of the box it is given, and
+  // the longest side of a cube is its X. A standing figure's longest side is his height, so
+  // fitting him into a cube spins him a quarter turn and lays him on his side — which is
+  // exactly what arrived: a pug draped across the seat with his legs out. A box taller than
+  // it is wide has nothing to correct, and he arrives upright.
+  const fitted=skinAndFit('pug',s3,
+    new THREE.Box3(new THREE.Vector3(-0.25,-0.5,-0.25),new THREE.Vector3(0.25,0.5,0.25)));
+  // No second bind-pose pass here: skinAndFit already did it, upstream of the fit, at the
+  // one moment the bones and their inverse-bind matrices share a space. Repeating it after
+  // the wrapping re-derives every local against a different parent chain — which collapses
+  // the skeleton to a thirtieth of an inch across while every box taken off the geometry goes
+  // on reporting him at full size, so he is on the ski, correctly placed, and invisible.
+  //
+  // ---- and STOOD UP, which the bind pose is not ----
+  // This rig binds as a quadruped lying flat, so a pug in it reads as a dog draped over the
+  // seat rather than driving. The file carries a pose per stance as a zero-length clip — one
+  // keyframe, no duration — so the standing one is applied once here and never touched again:
+  // no mixer to update, no per-frame cost on something that is on screen for four seconds.
+  const clips=(gltf&&gltf.animations)||[];
+  const pose=clips.find(c=>/stand_and_chat/i.test(c.name))||clips.find(c=>/stand/i.test(c.name))
+           ||clips.find(c=>c.duration===0);
+  if(pose){ const mx=new THREE.AnimationMixer(fitted); mx.clipAction(pose).play(); mx.update(0); }
+  // ---- his height, measured BEFORE he has a parent ----
+  // fitToBox normalises a model's LONGEST side, and on a four-legged animal that is his
+  // length, not his height — so "fitted to a unit box" says nothing about how tall he is.
+  // Measured here, standing alone, where boxOf reports his own frame and not the boat's:
+  // once he is a child of the ski his box carries the hull's scale, its roll, and whatever
+  // height the swell has the whole thing at, and differencing that against anything is
+  // differencing two frames.
+  const cb=drawnBox(fitted);
+  crew.userData.h=Math.max(1e-4,cb.max.y-cb.min.y);
+  crew.userData.foot=cb.min.y;
+  crew.add(fitted);
+  jetSki.add(crew);
+  jetSki.userData.crewObj=crew;
+  // ---- and squared to the bow, MEASURED, after everything has had its say ----
+  // The surfing riders solve their facing inside the fit, off the bind pose. That answer is
+  // no good here, and asking it earlier is exactly why: between the bind pose and the picture
+  // sit two more turns. fitToBox spins the model a quarter to stand it up — this rig binds as
+  // a quadruped lying flat, so the stand-up is a rotation about X, and a yaw solved before it
+  // is a yaw about the wrong axis. Then the standing pose moves the head again. Solved off
+  // the finished article instead: the line from his head to his muzzle bone, brought into the
+  // boat's own frame, turned until it lies down -z, which is the way the hull drives.
+  // Measured he was fifty-four degrees off, which side-on at forty metres reads as a
+  // pug-shaped blob either way — the reason this is a number and not a screenshot.
+  { const bones={}; crew.traverse(o=>{ if(o.isBone)bones[o.name]=o; });
+    const h=bones.Head, f=bones.headfront;
+    if(h&&f){
+      const A=new THREE.Vector3(), B=new THREE.Vector3();
+      // which way he looks, in the boat's own frame, as an angle off the bow
+      const ang=()=>{ jetSki.updateMatrixWorld(true);
+        const v=f.getWorldPosition(A).sub(h.getWorldPosition(B)); v.y=0;
+        v.applyQuaternion(new THREE.Quaternion().copy(
+          jetSki.getWorldQuaternion(new THREE.Quaternion())).invert());
+        return Math.hypot(v.x,v.z)<1e-6?null:Math.atan2(v.x,-v.z); };
+      const wrap=x=>Math.atan2(Math.sin(x),Math.cos(x));
+      const a0=ang();
+      if(a0!==null){
+        // ---- and the turn is SOLVED, not assumed ----
+        // Turning him by +2.16 radians moved his head 2.16 radians the OTHER way. These
+        // exports arrive mirrored — there is a whole pass upstream for mending that — and a
+        // reflection anywhere in the chain flips the sense of a yaw while flipping nothing you
+        // would notice in a box or a bounding sphere. Subtracting the measured angle, which is
+        // right for every unmirrored model in the game, left him a hundred and thirteen
+        // degrees off, and no amount of re-deriving the frames was going to find that.
+        //
+        // So the response is measured rather than reasoned about: turn him a known radian, see
+        // which way and how far his head went, and solve for the turn that lands on zero. Two
+        // matrix updates, once, and it is right for a mirrored export and a clean one alike
+        // without this having to know which it is holding.
+        crew.rotation.y=1; const a1=ang();
+        const gain=a1===null?1:wrap(a1-a0);
+        crew.rotation.y=Math.abs(gain)<0.2?0:-a0/gain;
+        crew.userData.face=+((ang()||0)*180/Math.PI).toFixed(1);
+      }
+    } }
+  seatSkiCrew();
+});
+// ---- where a rider sits on a hull nobody has measured ----
+// The seat is not a number that survives a change of model. Read off the hull itself: down
+// the centreline, the tallest thing is the bars and the console, and a rider sits just aft
+// of them on the deck behind. So the profile of the hull is taken along its own length, the
+// peak is found, and he is put a fifth of the boat behind it at whatever height the deck is
+// there. Off the geometry rather than off a raycast, because the ski is invisible until it
+// spawns and a raycaster will not report a hit on something that is not being drawn — which
+// is the sort of thing that returns null once, at load, and is never seen again.
+function seatSkiCrew(){
+  const hull=jetSki.userData.hull||jetSki.children.find(c=>!c.userData.crew);
+  const rider=jetSki.userData.crewObj||jetSki.userData.rider;
+  if(!hull||!rider)return null;
+  // Only ONE of them drives. Stood down here rather than at the moment the pug arrives,
+  // because the two models load in whatever order the network hands them over and spawning
+  // the ski re-shows its own children — so "hide him once, on the way past" leaves two
+  // riders on the boat whenever the ordering goes the other way.
+  if(jetSki.userData.crewObj&&jetSki.userData.rider)jetSki.userData.rider.visible=false;
+  hull.updateMatrixWorld(true);
+  const toSki=new THREE.Matrix4().copy(jetSki.matrixWorld).invert();
+  const v=new THREE.Vector3();
+  let lo=1e9,hi=-1e9,wide=0;
+  const each=fn=>hull.traverse(m=>{ if(!m.isMesh||!m.geometry||!m.geometry.attributes.position)return;
+    const pa=m.geometry.attributes.position;
+    for(let i=0;i<pa.count;i++){ v.fromBufferAttribute(pa,i).applyMatrix4(m.matrixWorld).applyMatrix4(toSki); fn(v); } });
+  each(p2=>{ if(p2.z<lo)lo=p2.z; if(p2.z>hi)hi=p2.z; const w=Math.abs(p2.x); if(w>wide)wide=w; });
+  if(!(hi>lo))return null;
+  const N=32, len=hi-lo, prof=new Array(N).fill(-1e9);
+  // only the middle of the boat: a gunwale is higher than the deck a rider stands on, and
+  // taking the whole width would seat him on the rail
+  each(p2=>{ if(Math.abs(p2.x)>wide*0.30)return;
+    const b=Math.max(0,Math.min(N-1,Math.floor((p2.z-lo)/len*N)));
+    if(p2.y>prof[b])prof[b]=p2.y; });
+  let peak=0; for(let i=0;i<N;i++) if(prof[i]>prof[peak])peak=i;
+  const seat=Math.min(N-1,peak+Math.round(N*0.20));
+  let deck=prof[seat];
+  // a bin the centreline never reached reads as minus infinity; fall back to the peak's own
+  for(let i=seat;i>=0&&!(deck>-1e8);i--)deck=prof[i];
+  if(!(deck>-1e8))return null;
+  // ---- and sized to the BOAT, in the boat's own frame ----
+  // A rider fitted into a unit box is a rider of unit size, which is nothing to do with the
+  // hull he is standing on — and the hull arrives at whatever size a fit to SKI_BOX made it.
+  // So he is measured the same way the hull just was, in jetSki's coordinates, and scaled
+  // until he stands SKI_CREW of the boat's length tall. Doing it against his world box
+  // instead means dividing back out by every scale between here and the scene, which is the
+  // kind of arithmetic that is right until somebody rescales the ski.
+  const zSeat=lo+(seat+0.5)/N*len;
+  if(rider===jetSki.userData.crewObj&&rider.userData.h){
+    // sized to the BOAT, in the boat's own frame — both numbers below are jetSki-local, so
+    // the ratio holds whatever the ski is scaled to when it crosses
+    const k=len*SKI_CREW/rider.userData.h;
+    rider.scale.setScalar(k);
+    // and stood on the deck by his SOLES. fitToBox centres what it fits, and the centre of a
+    // dog is his ribs — placing him by his origin buries him to the chest.
+    rider.position.set(0,deck-rider.userData.foot*k+SKI_FEET,zSeat);
+    return {z:+zSeat.toFixed(2), y:+rider.position.y.toFixed(2), k:+k.toFixed(3),
+            deck:+deck.toFixed(2), len:+len.toFixed(2), tall:+(rider.userData.h*k).toFixed(2)};
+  }
+  rider.position.set(0,deck+SKI_SIT,zSeat);
+  return {peak:+(lo+(peak+0.5)/N*len).toFixed(2), z:+zSeat.toFixed(2),
+          y:+rider.position.y.toFixed(2), deck:+deck.toFixed(2), len:+len.toFixed(2)};
+}
 // Which end of a hull is the bow, as a sign: +1 if it points down +z, -1 if down -z. A bow is
 // narrow and carries the height; a stern is wide, low and square. Comparing the two halves on
 // both counts is steadier than either alone — some hulls are barely tapered, some barely
@@ -15567,6 +15762,80 @@ if(location.hash.includes('debug')){
     // Put the jet ski on the water now, and near enough to look at. It crosses a long way
     // out on a timer of its own, so waiting for one is not a way to check which way its bow
     // is pointing — and a bow on backwards is a thing you only ever see, never measure.
+    // Whether there is anybody ON the ski, and where the hull put him. Asked separately from
+    // skiNow because "the ski crosses the lane" and "somebody is driving it" were true and
+    // false at the same time for as long as a modelled hull has been in the game.
+    // Where the pug on the ski actually IS, mesh by mesh, in the world — and whether each of
+    // his materials is set up to be drawn from a skeleton at all. A skinned mesh whose
+    // material has skinning off is drawn in its bind pose wherever that pose lives, which is
+    // usually the origin, and a box taken off its geometry reports it exactly where it is
+    // supposed to be the whole time.
+    skiHullOff(v){ const h=jetSki.userData&&jetSki.userData.hull; if(h)h.visible=!v; return !!h; },
+    skiRaw(){
+      const c=jetSki.userData&&jetSki.userData.crewObj;
+      if(!c)return null;
+      jetSki.updateMatrixWorld(true);
+      const out=[];
+      c.traverse(o=>{ if(!o.isMesh)return;
+        const p2=o.getWorldPosition(new THREE.Vector3());
+        const g2=o.geometry&&o.geometry.boundingSphere;
+        out.push({n:o.name||'?', skinned:!!o.isSkinnedMesh, vis:o.visible,
+                  at:[p2.x,p2.y,p2.z].map(v=>+v.toFixed(2)),
+                  skinFlag:[].concat(o.material).map(m=>m.skinning===undefined?'n/a':!!m.skinning),
+                  r:g2?+g2.radius.toFixed(2):null});
+      });
+      // The size he is DRAWN at, which is the spread of his BONES in the world — not the
+      // spread of his vertex buffer, which for this export is in a different unit from the
+      // joints that place it and reports a hundred times the truth without ever disagreeing
+      // with itself.
+      const sk=[]; c.traverse(o=>{ if(o.isSkinnedMesh&&o.skeleton&&o.skeleton.bones[0]){
+        const b=o.skeleton.bones[0], bb2=new THREE.Box3(), q=new THREE.Vector3();
+        for(const bn of o.skeleton.bones){ bn.getWorldPosition(q); bb2.expandByPoint(q); }
+        const sz=bb2.getSize(new THREE.Vector3());
+        sk.push({bone:b.name, at:b.getWorldPosition(new THREE.Vector3()).toArray().map(v=>+v.toFixed(2)),
+                 boneSpan:[sz.x,sz.y,sz.z].map(v=>+v.toFixed(3)),
+                 boneFloor:+bb2.min.y.toFixed(2)}); } });
+      // Which way he is LOOKING against the way the boat is going, in degrees. A driver facing
+      // anywhere but forward is the sort of thing a side-on screenshot at forty metres cannot
+      // settle — he is a pug-shaped blob either way — and the whole reason the facing is
+      // solved off the rig rather than guessed.
+      let face=null;
+      { const bones={}; c.traverse(o=>{ if(o.isBone)bones[o.name]=o; });
+        const h=bones.Head, f=bones.headfront;
+        if(h&&f){ const a=h.getWorldPosition(new THREE.Vector3()), b=f.getWorldPosition(new THREE.Vector3());
+          const d=b.sub(a); d.y=0; d.normalize();
+          const fw=new THREE.Vector3(0,0,-1).applyQuaternion(jetSki.getWorldQuaternion(new THREE.Quaternion()));
+          fw.y=0; fw.normalize();
+          face=+(Math.atan2(d.x*fw.z-d.z*fw.x, d.x*fw.x+d.z*fw.z)*180/Math.PI).toFixed(1); } }
+      return {face, rot:+c.rotation.y.toFixed(3), atLoad:c.userData.face, crewAt:c.getWorldPosition(new THREE.Vector3()).toArray().map(v=>+v.toFixed(2)),
+              skiAt:jetSki.position.toArray().map(v=>+v.toFixed(2)),
+              scale:+c.scale.x.toFixed(3), meshes:out, roots:sk};
+    },
+    skiCrew(){
+      const u=jetSki.userData||{};
+      const r=u.crewObj||u.rider;
+      if(!r)return {rider:false};
+      jetSki.updateMatrixWorld(true);
+      const hull=u.hull||jetSki.children.find(c=>!c.userData.crew);
+      // DRAWN boxes on both sides. A rigged model's geometry box is in whatever unit its
+      // vertex buffer happens to use, and for this pug that is a hundred times what the joints
+      // placing it use — so a check written against boxOf watches a speck on a boat and reports
+      // a rider two thirds the length of it.
+      const rb=drawnBox(r,3), hb=hull?drawnBox(hull,11):null;
+      const rs=rb.getSize(new THREE.Vector3()), hs=hb?hb.getSize(new THREE.Vector3()):null;
+      return {rider:true, onScreen:r.visible&&jetSki.visible,
+              // which body is up there — the roster's pug, or the built-in goggled figure
+              pug:!!u.crewObj, figure:!!(u.rider&&u.rider.visible),
+              // how tall he is drawn against how long the boat is drawn
+              tall:+rs.y.toFixed(2), skiLong:hs?+Math.max(hs.x,hs.z).toFixed(2):null,
+              // and standing ON it: his soles between the bottom of the hull and the top of it
+              feet:+rb.min.y.toFixed(2), hullTop:hb?+hb.max.y.toFixed(2):null,
+              hullFloor:hb?+hb.min.y.toFixed(2):null,
+              // and over it rather than off the side
+              offAxis:hb?+Math.abs(rb.getCenter(new THREE.Vector3()).x-
+                                   hb.getCenter(new THREE.Vector3()).x).toFixed(2):null,
+              face:u.crewObj?u.crewObj.userData.face:null};
+    },
     skiNow(near,dir){
       if(typeof spawnJetSki!=='function')return null;
       spawnJetSki();

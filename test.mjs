@@ -686,13 +686,18 @@ await page.waitForTimeout(300);
       // happen by coincidence in the middle of an ease as readily as at the end of one. The
       // board is propped against the tree and does not animate at all, so the only thing that
       // moves its box is the camera — which makes it a clean read on whether the ease is done.
-      let m = null, prev = null, still = 0;
-      for (let i = 0; i < 40; i++) {
+      // Over a WINDOW, not against the previous sample. An ease is slowest at both ends, and
+      // consecutive samples matching to a thousandth happen near the start of one as readily
+      // as at the finish — which is how a reading of -0.14, with the whole set swung off the
+      // left of the screen mid-transition, passed for settled. The spread across the last
+      // five samples has to be flat, which a slow start does not manage.
+      let m = null; const win = [];
+      for (let i = 0; i < 48; i++) {
         await new Promise(r => setTimeout(r, 250));
         m = window.__surf.menuFrame();
-        still = (prev !== null && m && Math.abs(m.board.x[0] - prev) < 0.001) ? still + 1 : 0;
-        prev = m && m.board.x[0];
-        if (still >= 4 && i >= 8) break;
+        if (!m) continue;
+        win.push(m.board.x[0]); if (win.length > 5) win.shift();
+        if (win.length === 5 && i >= 10 && Math.max(...win) - Math.min(...win) < 0.002) break;
       }
       // The LEFT column only — Board, Shop and Tricks. The dial has a matching column down
       // the right that he is nowhere near, and taking the widest of all six asks whether he
@@ -2356,6 +2361,52 @@ if (hasHook) {
     check(slow.length >= 3 && fast.length >= 3 && ratio(slow) > 1.4 && ratio(fast) > 1.4,
           'and the shallowest throws you half again as far as the deepest',
           `slow ${ratio(slow).toFixed(2)}x, fast ${ratio(fast).toFixed(2)}x`);
+  }
+
+  // ---- and somebody is DRIVING the jet ski ----
+  // The built-in ski was modelled with a little goggled figure on it. The loader that swaps a
+  // modelled hull in cleared every child of the group first, which is right for the hull and
+  // wrong for the rider, so a driverless jet ski has been crossing the lane. He is one of the
+  // roster's own animals now rather than a person who wandered in from another game.
+  {
+    const crew = await page.evaluate(() => {
+      window.__surf.restart(); window.__surf.tick(0.3);
+      window.__surf.skiNow(true, 1); window.__surf.tick(0.05);
+      const c = window.__surf.skiCrew();
+      // and the lane left as it was found. A ski parked beside the rider throws a wake at
+      // him, and the checks further down this page ride the board through their own ticks —
+      // one of them measures his crouch against the deck and reads a different number
+      // entirely with a wave going under it.
+      window.__surf.restart();
+      return c;
+    });
+    check(crew.rider && crew.pug && crew.onScreen && !crew.figure,
+          'the jet ski crosses your line with a pug driving it',
+          JSON.stringify({ pug: crew.pug, figure: crew.figure, on: crew.onScreen }));
+    // Sized against the BOAT, and measured off what is drawn rather than off a bounding box.
+    // This model's vertices are in metres and its joints in centimetres under an armature
+    // scaled to a hundredth — legal, and both halves land correctly on screen — so every box
+    // taken off its geometry reports it a hundred times its size. Scaled off one of those he
+    // was placed perfectly, reported at two thirds the length of the ski, and drawn as a
+    // speck: the numbers agreed with each other and disagreed with the picture the whole way.
+    const share = crew.skiLong ? crew.tall / crew.skiLong : 0;
+    check(share > 0.2 && share < 0.55,
+          'and he is a rider on it rather than a speck or a giant',
+          `${crew.tall}ft against ${crew.skiLong}ft of boat — ${(share * 100).toFixed(0)}%`);
+    // ON the hull: his soles above its keel and below the top of its console, and over its
+    // centreline rather than out on the water beside it.
+    check(crew.feet > crew.hullFloor && crew.feet < crew.hullTop && crew.offAxis < 0.6,
+          'and standing on the deck rather than in the hull or beside it',
+          `soles ${crew.feet} between keel ${crew.hullFloor} and top ${crew.hullTop}, ` +
+          `${crew.offAxis}ft off the centreline`);
+    // Facing the way it drives. Solved off the rig by turning him a known amount and seeing
+    // which way his head went, because these exports arrive mirrored and a reflection in the
+    // chain flips the sense of a yaw — subtracting the measured angle, which is right for
+    // every unmirrored model here, left him a hundred and thirteen degrees off. Side-on at
+    // forty metres he is a pug-shaped blob either way, which is why this is a number.
+    check(Math.abs(crew.face) < 12,
+          'and looking where it is going, not out to sea',
+          `${crew.face}° off the bow`);
   }
 
   // ---- and the sand you can get close to is MODELLED, not painted ----
