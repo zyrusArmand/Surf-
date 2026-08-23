@@ -128,12 +128,16 @@
     border-width:2.5px; left:50%; transform:translateX(-50%); bottom:7%; }
   .hbtn.hb-play:active { transform:translateX(-50%) scale(.93); }
   .hbtn.hb-play svg { width:38%; height:38%; }
-  .hbtn.hb-board   { left:14px;  bottom:calc(28% + 120px); }
-  .hbtn.hb-shop    { left:14px;  bottom:calc(28% + 60px); }
-  .hbtn.hb-tricks  { left:14px;  bottom:28%; }
-  .hbtn.hb-quests  { right:14px; bottom:calc(28% + 120px); }
-  .hbtn.hb-set     { right:14px; bottom:calc(28% + 60px); }
-  .hbtn.hb-stats   { right:14px; bottom:28%; }
+  /* The two columns hang off ONE number, so they move together and stay level with each
+     other. Down from 28%: the camera came in and dropped last time, and the rider and the
+     board came with it, so the buttons were sitting across the middle of the picture
+     instead of below it. */
+  .hbtn.hb-board   { left:14px;  bottom:calc(24% + 120px); }
+  .hbtn.hb-shop    { left:14px;  bottom:calc(24% + 60px); }
+  .hbtn.hb-tricks  { left:14px;  bottom:24%; }
+  .hbtn.hb-quests  { right:14px; bottom:calc(24% + 120px); }
+  .hbtn.hb-set     { right:14px; bottom:calc(24% + 60px); }
+  .hbtn.hb-stats   { right:14px; bottom:24%; }
   /* the two side panels borrow the stats panel's furniture */
   /* A panel dims the beach and leaves the dial visible behind it, which sounds harmless and
      is not: the panel's row dividers run left and right THROUGH the glass buttons, so what
@@ -1257,7 +1261,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.87.0';
+const VERSION='3.88.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -15138,9 +15142,11 @@ if(location.hash.includes('debug')){
       return n?{n,min:+lo.toFixed(4),max:+hi.toFixed(4)}:null;
     },
     // walk the shot: how far back the lens stands, how high it is, and how high it looks
-    menuCamAt(d,eye,aim){
+    menuCamAt(d,eye,aim,aimx){
       if(d!==undefined)MB_D=d; if(eye!==undefined)MB_EYE=eye; if(aim!==undefined)MB_AIM=aim;
-      return {d:MB_D,eye:MB_EYE,aim:MB_AIM};
+      if(aimx!==undefined)MB_AIMX=aimx;
+      return {d:MB_D,eye:MB_EYE,aim:MB_AIM,aimx:MB_AIMX,
+              middle:menuBeach?menuBeach.middle:null, spread:menuBeach?menuBeach.spread:null};
     },
     // what the title screen's palm actually IS, in the frame it stands in
     palmLean2(v,h){ if(v!==undefined)LEAN2=v; if(h!==undefined)PALM2_H=h; repalm(); return [LEAN2,PALM2_H]; },
@@ -17887,6 +17893,12 @@ let MB_D=19.0;                        // how far back the camera stands from the
 // How high the lens is over the sand, and how high it is aimed. Both are heights above the
 // beach at the palm, so they move together with everything else if the sand ever moves.
 let MB_EYE=4.7, MB_AIM=6.3;
+// How far to the camera's LEFT of the trunk it aims, at the least. This is the number that
+// decides where the group sits ACROSS the frame: the camera looks this far left of the palm,
+// so the palm — and everything propped against it — sits that far right of centre. It is a
+// floor rather than the value because the shot normally centres on the pair, and a pair
+// standing tight against the trunk would otherwise walk the aim back onto the tree.
+let MB_AIMX=2.4;
 // The palm. It was a shrub: eleven of its own units at 0.46 comes out barely six feet tall,
 // which is shorter than most of the rack — a ten foot log leaning on it towered over the
 // whole tree. At 1.35 it is a fourteen foot palm and everything in front of it reads as
@@ -18433,7 +18445,7 @@ function renderMenuBeach(dt){
   // board stands on and the sea and the sky get the rest, which is how the photograph is
   // framed. The aim is high because the palm is a fourteen foot tree now rather than a
   // shrub, and the whole of it is meant to be in shot.
-  const aim=Math.max(3.4,m.middle!==undefined?m.middle:spread*0.66);
+  const aim=Math.max(MB_AIMX,m.middle!==undefined?m.middle:spread*0.66);
   menuCam.position.set(px-_mbF.x*D, g+MB_EYE+sw2*0.12, pz-_mbF.z*D);
   menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+MB_AIM, pz-_mbR.z*aim);
   menuCam.updateProjectionMatrix();
