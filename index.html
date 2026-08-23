@@ -1261,7 +1261,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.1.0';
+const VERSION='4.2.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5297,13 +5297,15 @@ let beachSurfH=null;                   // the surface itself, dunes included —
 // It is INSTANCED, so all of them are one draw call and the cost is triangles alone; and it
 // is on the preview beach only — the title screen and the cards, which is where a lens ever
 // gets close enough to the ground for any of this to be visible.
-let sandTile=null, sandField=null, beachSandGroup=null, sandFieldTop=0;
+let sandTile=null, sandField=null, beachSandGroup=null, sandFieldTop=0, sandLift=0;
 let SAND_TILE=10.0;                     // how many units across one piece lies
-let SAND_GAP=0.66;                     // spacing as a fraction of that — under 1 is overlap
+let SAND_GAP=0.72;                     // spacing as a fraction of that — under 1 is overlap
 let SAND_TILT=0.9;
-let SAND_SINK=0.50;
-let SAND_RELIEF=0.40;                  // how much of the piece's own height it keeps
-let SAND_DROP=0.60;                    // how far the painted beach ducks under the field                    // how far into the beach the pieces are pressed                    // how much of the ground's own slope each piece takes
+let SAND_SINK=0.62;
+let SAND_RELIEF=1.00;                  // how much of the piece's own height it keeps
+let SAND_DROP=0.60;
+let SAND_DIP=0.34;
+let SET_UP=0.55;                       // how far the set stands above what the lens assumes                     // the saucer under the set and the card                    // how far the painted beach ducks under the field                    // how far into the beach the pieces are pressed                    // how much of the ground's own slope each piece takes
 const SAND_X=34, SAND_Z0=14, SAND_Z1=-68;   // the patch of beach worth covering
 // the set's own palms stand up the beach for the previews; the menu stands its own and
 // puts these away, because three trunks and a board in one frame is a thicket
@@ -5723,7 +5725,13 @@ function sandFieldBuild(){
   // in the stripe between every row of it.
   const spanX=(bb.max.x-bb.min.x)||1, spanZ=(bb.max.z-bb.min.z)||1;
   const base=SAND_TILE/Math.max(spanX,spanZ);      // file units to beach units
-  const stepX=Math.max(0.6,spanX*base*SAND_GAP), stepZ=Math.max(0.6,spanZ*base*SAND_GAP);
+  // ...and the step is the piece's SHORT side, because it can be turned to any angle.
+  // Per-axis spacing was the first answer to the gaps and it only works if the pieces stay
+  // square to the grid — which meant limiting the turn, which lined every one of them up and
+  // turned the beach into a tray of blocks. A free turn is what makes a repeated piece stop
+  // looking repeated, and the price of it is spacing for the worst case: whichever way a piece
+  // is facing, it covers at least its short side, so that is what the grid steps by.
+  const stepX=Math.max(0.6,Math.min(spanX,spanZ)*base*SAND_GAP), stepZ=stepX;
   const nx=Math.ceil(SAND_X*2/stepX), nz=Math.ceil((SAND_Z0-SAND_Z1)/stepZ);
   const N=nx*nz;
   if(!N||N>4000)return;
@@ -5751,15 +5759,15 @@ function sandFieldBuild(){
     // cover the ground, they are just pressed flat where something is standing.
     const dO=Math.hypot(x,z), dS=Math.hypot(x,z-MB_Z);
     const fw=Math.min(_ss2(3,24,dO), _ss2(4,24,dS));
-    // ---- and every piece is the SAME HEIGHT, whatever size it is across ----
-    // Scaling a piece up or down as a whole, and pressing some of them flatter than others,
-    // gives each one a different surface height above the same ground — and a piece's border
-    // is a straight cut, so wherever one stands proud of its neighbour that cut is a cliff
-    // with a shadow under it. That is the tray of slabs the set kept ending up on, and it is
-    // not a placement fault: it is neighbours at different levels.
-    // Across, they still vary; upward they are identical, so any two touching pieces meet at
-    // the same height and the joins have nothing to show.
-    const kyU=base*SAND_RELIEF;
+    // ---- and it keeps its own height, which is what stops it looking like a tile ----
+    // Levelling every piece to the same height was an attempt to line their borders up, and it
+    // worked: they lined up, and the field turned into a tray of shallow flat plates with
+    // straight visible edges — blocky, which is the one thing sand is not.
+    // The edges were never hidden by matching. They were hidden by DEPTH: pieces at their full
+    // height, at a size that varies a fifth either way, sink into one another far enough that
+    // no border is ever the top of anything. Overlap is what makes a repeat disappear, and
+    // overlap only works if there is something to overlap into.
+    const kyU=k*SAND_RELIEF;
     // The lift gets a weight of its own, and a much tighter one. It is only there to clear a
     // dune, the beach has no dune within its own flat discs, and those discs are ten units
     // across — not twenty-four. Taking the lift away over the same slow ramp as the flattening
@@ -5811,9 +5819,18 @@ function sandFieldBuild(){
     // that is the foot of the board disappearing again. Under the set and under the card there
     // is no dune to clear — the beach levels itself there by construction — so the same weight
     // that presses the pieces flat also takes the lift away.
-    // no lift: hung from its top, a piece cannot rise through anything, and the painted beach
-    // it might otherwise cut into has been dropped well below the whole field instead
-    const h=h0;
+    // ---- and a saucer of it is set down a little, where things stand ----
+    // The rider's soles measure exactly on the sand and he still reads as buried, because the
+    // sand a foot IN FRONT of him is a finger higher than the sand under him and the lens is
+    // two feet off the ground. Nothing is wrong with his placement; the near lip of his own
+    // patch is in the way. Raising the lens does not help — measured, the block just moves
+    // closer to his feet — and shrinking the pieces' relief does not either, because the lip
+    // is where the piece SITS and not how tall it is.
+    // So the field is dished around each of the two spots anything stands on: the same smooth
+    // weight, applied to the placement rather than to the height, which is what keeps it from
+    // stepping. The whole neighbourhood goes down together and the lift comes off with it, so
+    // his feet stay on the surface and the surface stops standing in front of them.
+    const h=h0-SAND_DIP*(1-fw);
     // turn about the vertical first, then lay it into the slope
     // ---- turned, but not to any angle at all ----
     // A free turn was the first version and it undoes the spacing above: a piece stepped for a
@@ -5821,7 +5838,7 @@ function sandFieldBuild(){
     // planned for, and the gap it leaves is the same painted stripe. Half of them face the
     // other way and every one of them is nudged a quarter turn either side of that, which is
     // all the variety a repeated piece needs and keeps the footprint the one it was spaced for.
-    e.set(0,(R()<0.5?0:Math.PI)+(R()-0.5)*0.9,0); q.setFromEuler(e);
+    e.set(0,R()*Math.PI*2,0); q.setFromEuler(e);
     if(SAND_TILT>0.001){
       axis.crossVectors(up,nrm);
       const s2=axis.length();
@@ -5886,6 +5903,17 @@ function sandFieldBuild(){
   // camera left at the old height looks THROUGH the near sand and the rider disappears behind
   // a ridge that is nowhere near him. Raised by the same amount, the geometry is as it was.
   sandFieldTop=(bb.max.y-(sandTile.mid+SAND_SINK*(bb.max.y-sandTile.mid)))*base*1.24*SAND_RELIEF;
+  // ---- and what everything STANDS on is the sand, not the beach under it ----
+  // The rider, the board and the chest are placed at the beach's own height, and the sand
+  // laid over it has a thickness: at full height the surface under a foot is a third of a
+  // unit up, so the foot goes into it. Pressing the sand flat to meet the foot is what made
+  // it blocky. Lifting the foot to meet the sand costs nothing and is what the eye wants —
+  // and everything on the beach moves together, because they all read the same function.
+  // Measured, not estimated: with the lift at a guessed six tenths of the field's height the
+  // rider's soles read a fifth of a foot INTO the sand, which is exactly what "his feet are not
+  // making contact" looks like. The whole of the piece's upward half is what a foot meets.
+  sandLift=1.35*sandFieldTop-SAND_DIP;
+  if(typeof beachSandH==='function')beachSand0=beachSandH(0);
   mesh.count=i;
   mesh.instanceMatrix.needsUpdate=true;
   mesh.frustumCulled=false;          // one object covering the whole beach; its box is the beach
@@ -6136,7 +6164,10 @@ function buildBeach(){
   // the set did not level the sand — it DUG a two-foot pit and stood the board in it.
   // Level and relief are different questions and they are answered separately now.
   const sandH=wz=>{const d=_ss(-68,-52,wz);return sandH0(wz)+d*d*1.6;};
-  beachSandH=sandH;                              // the menu stands things further down it
+  // Everything on this beach is placed through here, and it answers with the top of the SAND
+  // rather than the top of the terrain — see sandFieldBuild for why, and for where the lift
+  // comes from. Zero until the modelled sand arrives, so nothing moves if it never does.
+  beachSandH=wz=>sandH(wz)+sandLift+SET_UP;
   beachSand0=sandH(0);                           // how high the sand is where the object goes
   // The sea is built row by row rather than as a PlaneGeometry, because a uniform grid
   // cannot do both jobs at once. The swell is carried in the vertex shader and its shortest
@@ -16202,6 +16233,52 @@ if(location.hash.includes('debug')){
               sit:{worst:+worst.toFixed(3), mean:+(sum/Math.max(1,n)).toFixed(3)},
               draws:1};
     },
+    // Where the top of the SAND is at a point, by dropping a ray onto the field itself, and
+    // where the rider's soles are. Two numbers that settle an argument no screenshot can:
+    // a rider hidden to the chest is either standing in a hole or standing behind a mound, and
+    // those want opposite fixes — lift him, or flatten what is between him and the lens.
+    sandTopAt(x,z){
+      if(!sandField||!beachSurfH)return null;
+      const K=beachSandGroup?beachSandGroup.scale.x:1;
+      const rc=new THREE.Raycaster(new THREE.Vector3(x,(beachSurfH(x/K,z/K)+12)*K,z),
+                                   new THREE.Vector3(0,-1,0),0,40*K);
+      sandField.updateMatrixWorld(true);
+      const hit=rc.intersectObject(sandField,false)[0];
+      const gnd=beachSurfH(x/K,z/K)*K;
+      const out={x:+x.toFixed(2), z:+z.toFixed(2), ground:+gnd.toFixed(3),
+                 sand:hit?+hit.point.y.toFixed(3):null,
+                 over:hit?+(hit.point.y-gnd).toFixed(3):null, lift:+(sandLift*K).toFixed(3)};
+      // ...and the rider, in the same frame, so the two can simply be subtracted
+      const b=new THREE.Box3().setFromObject(pug);
+      out.soles=+b.min.y.toFixed(3);
+      const rc2=new THREE.Raycaster(pug.getWorldPosition(new THREE.Vector3()).setY(b.min.y+14),
+                                    new THREE.Vector3(0,-1,0),0,40*K);
+      const h2=sandField?rc2.intersectObject(sandField,false)[0]:null;
+      out.sandUnderRider=h2?+h2.point.y.toFixed(3):null;
+      out.feetInto=h2?+(h2.point.y-b.min.y).toFixed(3):null;
+      return out;
+    },
+    // Can the lens SEE the rider's feet, or is there sand in the way? A ray from the camera to
+    // the point where his soles meet the ground, stopped short by the field if anything stands
+    // between. The distinction matters because the two look identical on a screenshot and want
+    // opposite fixes — a rider standing in a hole wants lifting, a rider behind a dune wants
+    // the lens raised — and this session spent several rounds fixing the wrong one of them.
+    soleSight(eye){
+      if(eye!==undefined){ MB_EYE=eye; }
+      if(!sandField||!menuCam)return null;
+      pug.updateMatrixWorld(true);
+      const b=new THREE.Box3().setFromObject(pug);
+      const to=pug.getWorldPosition(new THREE.Vector3()).setY(b.min.y+0.05);
+      const from=menuCam.position.clone();
+      const dir=to.clone().sub(from), len=dir.length(); dir.normalize();
+      _camRay.set(from,dir); _camRay.far=len-0.02;
+      sandField.updateMatrixWorld(true);
+      const hit=_camRay.intersectObject(sandField,false)[0];
+      return {eye:MB_EYE, clear:!hit,
+              blockedAt:hit?+hit.distance.toFixed(2):null, toFeet:+len.toFixed(2),
+              // and how much of him is hidden, in feet of his own height
+              hidden:hit?+((from.y-hit.point.y)/Math.max(1e-3,hit.distance)*len-(from.y-to.y)).toFixed(2):0};
+    },
     // Bend the menu's palm to any profile, and report where its crown lands in the frame.
     // Eight joint angles is eight numbers to guess at; one render each is the only way to
     // see which of them is the tree the shot was framed for.
@@ -18770,6 +18847,8 @@ function menuBeachOn(){
 // crossing the frame as a diagonal rather than a straight bar across it — and once the
 // camera is at an angle, "put the board to the left of the palm" stops meaning anything in
 // x and z. So everything is placed along the camera's own two axes: forward, and right.
+const _camRay=new THREE.Raycaster(), _camFrom=new THREE.Vector3(),
+      _camDown=new THREE.Vector3(0,-1,0);
 const MB_YAW=0.46;                    // how far round from straight-out-to-sea the shot sits
 // Down at the sand and close in. The lens is under two feet over the beach now, which is
 // what puts the near dunes across the bottom of the frame and leaves the sea as a band
@@ -19325,7 +19404,13 @@ function renderMenuBeach(dt){
   // forward axis and aims a little to the LEFT of it, which is what puts the palm and the
   // board in the right of the frame and leaves the sea the rest.
   mbAxes();
-  const g=(beachSandH?beachSandH(MB_Z):beachSand0)*MB_K,
+  // ---- and the lens does NOT ride the set's own lift ----
+  // Everything on the beach reads its height from beachSandH, the camera included, so lifting
+  // the set lifts the shot with it and the picture is identical. The one thing that fixes a
+  // rider cut off at the chest is the set standing HIGHER THAN THE LENS EXPECTS: an inch of
+  // clear air over the lip of the sand in front of him is the whole difference, and it is the
+  // adjustment that costs nothing else in the frame.
+  const g=((beachSandH?beachSandH(MB_Z):beachSand0)-SET_UP)*MB_K,
         sw=Math.sin(m.t*0.09), sw2=Math.sin(m.t*0.13+1.1);
   menuCam.aspect=Math.max(0.4,innerWidth/innerHeight);
   // the chest is placed off the camera, so a turned phone moves it — and the layout that
@@ -19396,7 +19481,20 @@ function renderMenuBeach(dt){
   // the back of a one-sided beach with the sea showing through it.
   // Whichever ground is higher, plus the eye height, so no dune can ever bury the lens.
   const cx=px-_mbF.x*D, cz=pz-_mbF.z*D;
-  const gc=beachSurfH?(beachSurfH(cx/MB_K,cz/MB_K)+sandFieldTop)*MB_K:g;
+  // ---- and the ground under the lens is the SAND, asked rather than estimated ----
+  // A flat allowance for the field's height is not good enough here. The pieces stand between
+  // half a foot and a foot proud of the terrain depending on which one the camera happens to
+  // be over, and at under two feet of eye height that difference is the whole picture: with
+  // the lens left low the sand ten feet in front of it cuts the rider off at the chest, and
+  // nothing is wrong with the rider at all. One ray straight down onto the field answers it
+  // exactly, and it costs one cast a frame on a still scene.
+  let gc=beachSurfH?(beachSurfH(cx/MB_K,cz/MB_K)+sandFieldTop)*MB_K:g;
+  if(sandField){
+    _camRay.set(_camFrom.set(cx,gc+30,cz),_camDown);
+    _camRay.far=90;
+    const hit=_camRay.intersectObject(sandField,false)[0];
+    if(hit)gc=Math.max(gc,hit.point.y);
+  }
   menuCam.position.set(cx, Math.max(g,gc)+MB_EYE+sw2*0.12, cz);
   menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+MB_AIM, pz-_mbR.z*aim);
   menuCam.updateProjectionMatrix();
