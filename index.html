@@ -599,7 +599,17 @@
   #ovText .tr.goal.done b { color:#ffe98a; }
   #shop .perkTx { grid-column:1 / -1; font-size:11px; opacity:.82; margin-top:2px; letter-spacing:.2px; }
   #shop .perkNone { font-size:11px; opacity:.7; font-weight:600; }
-  #crateOv { position:fixed; inset:0; z-index:120; background:rgba(4,15,27,.38);
+  /* ---- no scrim over the picture ---- */
+  /* This was a flat rgba(4,15,27,.38) across the whole viewport, and a flat fill over
+     everything is exactly what "a dark screen over it" means: the sea, the sky and the chest
+     itself all lost a third of their light so that two lines of text would read. The text can
+     pay for its own contrast — it already carries a shadow — so the darkening is a gradient
+     that lives only at the top and bottom, where the words are, and is completely clear
+     across the middle, where the chest is. */
+  #crateOv { position:fixed; inset:0; z-index:120;
+             background:linear-gradient(to bottom,
+               rgba(4,15,27,.42) 0%, rgba(4,15,27,.22) 14%, rgba(4,15,27,0) 30%,
+               rgba(4,15,27,0) 74%, rgba(4,15,27,.20) 88%, rgba(4,15,27,.40) 100%);
              display:flex; flex-direction:column; align-items:center; text-align:center;
              justify-content:space-between; padding:12vh 5vw 7vh; }
   #crateOv.hidden { display:none; }
@@ -1261,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.7.0';
+const VERSION='4.8.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -12666,7 +12676,13 @@ loadModel('chest.glb',(s3,gltf)=>{
   // for the thing you catch in the water and once for the thing that opens on the card after
   // a run — and dressing only the first left the procedural box on the only screen that
   // shows a chest close up and still. It is the one you actually look at.
-  if(typeof ceremonyChest!=='undefined'&&ceremonyChest)dressChest(ceremonyChest,cloneModel(fitted));
+  if(typeof ceremonyChest!=='undefined'&&ceremonyChest){
+    dressChest(ceremonyChest,cloneModel(fitted));
+    // the model arrives long after the ceremony chest was built, and it brings new children:
+    // put them on the chest's own layer too or the modelled chest is drawn in the main pass
+    // and back to intersecting the world
+    if(typeof chestOnItsOwnLayer==='function')chestOnItsOwnLayer();
+  }
   placeBeachChest();
 });
 // One more of it on the title screen, sitting on the sand to the right of the palm. A prop,
@@ -13001,7 +13017,20 @@ document.getElementById('waveBtn').addEventListener('click',()=>{
 const crateOv=document.getElementById('crateOv');
 const crateRewardEl=document.getElementById('crateReward');
 const crateHintEl=document.getElementById('crateHint');
+// ---- the ceremony chest is drawn OVER the world, not in it ----
+// It floats a few feet in front of whatever camera the run ended on, and the run can end
+// anywhere: alongside a buoy, under the tower of one, inside the frame of a jet ski's wake.
+// Sharing a depth buffer with the scene, the chest simply intersects whatever is there, and a
+// red lattice through the middle of the prize is not a thing anyone can read as depth.
+// It gets a layer of its own instead. The main pass never sees it, and it is drawn afterwards
+// onto a cleared depth buffer — so it lands on top of everything and still occludes itself,
+// which is what a chest with a lid needs. Same trick the trick-name overlay uses.
+const CHEST_LAYER=3;
 const ceremonyChest=buildChest(); ceremonyChest.visible=false; scene.add(ceremonyChest);
+function chestOnItsOwnLayer(){ ceremonyChest.traverse(o=>o.layers.set(CHEST_LAYER)); }
+chestOnItsOwnLayer();
+// the lights have to reach it there, and a light only lights what shares a layer with it
+for(const L of [hemi,sun])if(L&&L.layers)L.layers.enableAll();
 let crateTaps=0, crateOpened=false, crateShow=false, crateLid=0, crateShakeE=0, crateSpin=0, crateFace=null, crateFaceTo=0;
 // the reward is on screen and the ceremony will accept the tap that ends it
 let crateDone=false;
@@ -15527,6 +15556,16 @@ if(location.hash.includes('debug')){
               pos:[+jetSki.position.x.toFixed(1),+jetSki.position.y.toFixed(1),+jetSki.position.z.toFixed(1)],
               size:[+sz.x.toFixed(2),+sz.y.toFixed(2),+sz.z.toFixed(2)], on:jetSki.visible};
     },
+    // Put the treasure-chest ceremony up now, wherever the ride happens to be. It normally
+    // only appears at the end of a run that caught one, and the whole question about it is
+    // what it lands in FRONT of — so being able to stand it against a buoy on demand is the
+    // only way to see whether it does.
+    cratePlay(){ if(typeof crateCeremony!=='function')return null; crateCeremony();
+                 return {on:crateShow, vis:ceremonyChest.visible,
+                         layer:ceremonyChest.layers.mask,
+                         at:[+ceremonyChest.position.x.toFixed(1),+ceremonyChest.position.y.toFixed(1),
+                             +ceremonyChest.position.z.toFixed(1)]}; },
+    camMask(){ return camera.layers.mask; },
     obsObjects(){ return obstacles.slice(); },
     renderer(){ return renderer; },
     // The ramp's real surface against the slope the ride thinks it is climbing. A modelled
@@ -19917,13 +19956,32 @@ requestAnimationFrame(loop);
   if(viewer){ renderViewer(dt); return; }   // the look takes the whole screen and the frame
   if(menuBeachWanted()&&(menuBeach||menuBeachOn())){ renderMenuBeach(dt); return; }
   updateSkyLife(dt);          // the sky keeps moving on the menu and through a wipeout
-  present(scene,camera,splat3D.visible?()=>{
-    // clear only depth, so it lands on top of the frame but still occludes itself
+  // Two things draw ON TOP of the finished frame, both for the same reason and by the same
+  // means: a cleared depth buffer, so they sit over the world and still occlude themselves.
+  const over=(splat3D.visible||(crateShow&&ceremonyChest.visible))?()=>{
     renderer.autoClear=false;
-    renderer.clearDepth();
-    renderer.render(splatScene,splatCam);
+    if(crateShow&&ceremonyChest.visible){
+      renderer.clearDepth();
+      const keep=camera.layers.mask, bg=scene.background;
+      // ---- and the scene's BACKGROUND has to be taken off it for this pass ----
+      // render() paints scene.background before it draws anything, and it does that whether or
+      // not autoClear is off — so a second pass over the same scene repaints a flat sky-blue
+      // fill across the whole frame and the world that was already drawn there is gone. The
+      // chest came out perfectly composited onto an empty pale screen, which reads as the
+      // renderer having failed rather than as one property doing exactly what it says.
+      camera.layers.set(CHEST_LAYER);        // the chest and nothing else
+      scene.background=null;
+      renderer.render(scene,camera);
+      scene.background=bg;
+      camera.layers.mask=keep;
+    }
+    if(splat3D.visible){
+      renderer.clearDepth();
+      renderer.render(splatScene,splatCam);
+    }
     renderer.autoClear=true;
-  }:null);
+  }:null;
+  present(scene,camera,over);
 }
 requestAnimationFrame(loop);
 })();
