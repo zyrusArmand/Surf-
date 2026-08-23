@@ -1261,7 +1261,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.92.0';
+const VERSION='3.93.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10318,13 +10318,23 @@ function setupModelRig(root,gltf,id){
     // held upright and one in a browser window are not the same number of pixels — measured
     // against a fixed count the same pose reads as fine on one and broken on the other.
     const he=this.bones.head_end||this.bones.headfront;
-    const c=he?px(he.getWorldPosition(new THREE.Vector3())):null;
+    const hw=he?he.getWorldPosition(new THREE.Vector3()):null;
+    const c=hw?px(hw):null;
     const headPx=c?Math.max(1,Math.hypot(c[0]-b[0],c[1]-b[1])):null;
+    // ...and the same thing in the WORLD, in head-lengths. The screen version turned out to
+    // be independent of resolution and not of ANGLE: drop the camera to the sand and look up
+    // and the head's own length foreshortens while the arm's reach does not, so the ratio
+    // moves without the pose moving at all. How far the paw is from the head, measured
+    // against the size of the head, is a fact about the pose and survives any lens.
+    const headFt=hw?Math.max(1e-3,hw.distanceTo(dp)):null;
+    const outFt=Math.hypot(d.x,d.z), upFt=d.y;
     return {up:+d.y.toFixed(3), toCam:+(-d.dot(_mbF)).toFixed(3), across:+d.dot(_mbR).toFixed(3),
             sepX:+Math.abs(a[0]-b[0]).toFixed(1), sepY:+(b[1]-a[1]).toFixed(1),
-            headPx:headPx?+headPx.toFixed(1):null,
+            headPx:headPx?+headPx.toFixed(1):null, headFt:headFt?+headFt.toFixed(3):null,
             outHeads:headPx?+(Math.abs(a[0]-b[0])/headPx).toFixed(2):null,
             upHeads:headPx?+((b[1]-a[1])/headPx).toFixed(2):null,
+            outW:headFt?+(outFt/headFt).toFixed(2):null,
+            upW:headFt?+(upFt/headFt).toFixed(2):null,
             cfg:{arm:WAVE.arm.slice(),fore:WAVE.fore.slice(),swing:WAVE.swing}};
   };
   R.waveScan=function(){
@@ -15315,10 +15325,11 @@ if(location.hash.includes('debug')){
       return n?{n,min:+lo.toFixed(4),max:+hi.toFixed(4)}:null;
     },
     // walk the shot: how far back the lens stands, how high it is, and how high it looks
-    menuCamAt(d,eye,aim,aimx){
+    menuCamAt(d,eye,aim,aimx,fov){
       if(d!==undefined)MB_D=d; if(eye!==undefined)MB_EYE=eye; if(aim!==undefined)MB_AIM=aim;
       if(aimx!==undefined)MB_BIAS=aimx;
-      return {d:MB_D,eye:MB_EYE,aim:MB_AIM,bias:MB_BIAS,
+      if(fov!==undefined)MB_FOV=fov;
+      return {d:MB_D,eye:MB_EYE,aim:MB_AIM,bias:MB_BIAS,fov:MB_FOV,
               middle:menuBeach?menuBeach.middle:null, spread:menuBeach?menuBeach.spread:null};
     },
     // what the title screen's palm actually IS, in the frame it stands in
@@ -17943,7 +17954,8 @@ function menuBeachOn(){
   if(typeof previewSetup!=='function')return false;
   try{ previewSetup(); }catch(e){ return false; }
   if(!prevScene||!beachSet)return false;
-  if(!menuCam)menuCam=new THREE.PerspectiveCamera(47,1,0.1,1600);
+  if(!menuCam)menuCam=new THREE.PerspectiveCamera(MB_FOV,1,0.1,1600);
+  if(menuCam.fov!==MB_FOV){ menuCam.fov=MB_FOV; menuCam.updateProjectionMatrix(); }
   // a palm of its own, close in, because the set's three stand well back up the beach and
   // nothing you can lean a board on is any use at forty units
   if(!menuProps){
@@ -18104,10 +18116,14 @@ const MB_YAW=0.46;                    // how far round from straight-out-to-sea 
 // what puts the near dunes across the bottom of the frame and leaves the sea as a band
 // rather than a third of the picture — the shot is somebody crouched on the sand looking up
 // at a board propped on a tree, and not somebody standing back from it.
-let MB_D=11.5;                        // how far back the camera stands from the palm
+let MB_D=10.8;                        // how far back the camera stands from the palm
 // How high the lens is over the sand, and how high it is aimed. Both are heights above the
 // beach at the palm, so they move together with everything else if the sand ever moves.
-let MB_EYE=1.6, MB_AIM=4.6;
+let MB_EYE=0.9, MB_AIM=4.1;
+// How wide the lens is. Forty-seven is an ordinary one; a wide one is what makes a shot taken
+// from down on the sand look taken from down on the sand — the near beach stretches away
+// under you and the palm spreads right across the top instead of sitting politely in it.
+let MB_FOV=62;
 // How far right of dead centre the set is composed to sit. The camera aims at the middle of
 // what is standing on the beach and then this much to the LEFT of it, which puts everything
 // that much to the right in the frame. It used to BE the aim rather than a bias on it, and
@@ -18648,13 +18664,15 @@ function renderMenuBeach(dt){
   // was written to prevent. Below this the camera is looking at a trunk.
   const spread=Math.max(4.6,m.spread||5.5);
   // ...and it stands back again on a WIDE one, which is not the same term reversed. A phone
-  // held upright is the shot this screen is composed for and it wants the board and the
-  // rider big; a landscape frame is already close, and closing it further walks the Play
-  // button — which is pinned to the bottom centre of the SCREEN, not to the scene — straight
-  // over the top of him. Standing off on wide screens keeps the button on the sand where it
-  // has always been.
+  // held upright is the shot this screen is composed for; a landscape frame is already close,
+  // and closing it further walks the Play button — which is pinned to the bottom centre of
+  // the SCREEN, not to the scene — straight over the top of the rider.
+  // Less than half what it was, because the lens is wide now and three.js measures a field of
+  // view VERTICALLY: the same sixty-two degrees is thirty-one across a phone held upright and
+  // eighty-four across a browser window. Landscape gets all that extra room for free and does
+  // not need to be pushed back for it as well, or the set ends up a long way off.
   const D=MB_D+Math.max(0,1-menuCam.aspect)*18.0
-              +Math.max(0,menuCam.aspect-0.9)*7.0+spread*0.45+sw*0.5;
+              +Math.max(0,menuCam.aspect-0.9)*3.0+spread*0.45+sw*0.5;
   const px=0, pz=MB_Z*MB_K;
   // Low, and aimed UP the beach rather than down onto it. Eye level over the sand puts a
   // third of the picture into empty foreground; from down here the sand is a strip the

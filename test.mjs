@@ -3460,21 +3460,24 @@ check(shaderErrors.length === 0, 'every shader compiles',
                full: window.__surf.greet().full };
     });
     const poses = [wave.mid, wave.a, wave.b];
-    // In HEADS, not pixels. The first version counted pixels and passed on a phone held
-    // upright and failed in a browser window, where the same pose is drawn smaller — a
-    // threshold that has to be re-guessed for every screen is measuring the screen.
+    // In HEAD-LENGTHS, and measured in the WORLD. Counting pixels passed on a phone held
+    // upright and failed in a browser window, where the same pose is drawn smaller. Dividing
+    // by the head's own size on screen fixed that and left a subtler version of it: the ratio
+    // is independent of resolution and NOT of angle. Drop the camera to the sand and look up
+    // and the head's length foreshortens while the arm's reach does not, so the number moves
+    // without the pose moving at all — which is exactly what happened the next time the shot
+    // was reframed. How far the paw is from the head against the size of the head, in feet,
+    // is a fact about the POSE and survives any lens; it reads the same at 393x852 and at
+    // 1024x640 to two decimal places.
     //
-    // CALIBRATED AGAINST BOTH ENDS. The pose that was kept measures 0.55 to 0.66 heads out
-    // across the swing and was checked in a render; the poses that were rejected for putting
-    // the paw behind his head measured about half that. So the bar sits between the two
-    // rather than just under the good one — a threshold shaved to the observed minimum fails
-    // the next time the swing lands a frame either side of where it was sampled, which is
-    // what happened twice while this was being written.
+    // Calibrated against both ends: the pose that was kept measures 0.89 to 0.99 heads out
+    // across the swing, and the poses rejected for putting the paw behind his head measured
+    // about half that. The bar sits between them rather than just under the good one.
     check(wave.up === true &&
-          poses.every(p2 => p2 && p2.up > 0.1 && p2.outHeads > 0.45 && p2.upHeads > 0.35),
+          poses.every(p2 => p2 && p2.up > 0.1 && p2.outW > 0.6 && p2.upW > 0.15),
           'the character waves when the game opens, with the paw clear of his own head',
           `beach up ${wave.up}, ` +
-          poses.map(p2 => `${p2.outHeads} heads across / ${p2.upHeads} up`).join(', '));
+          poses.map(p2 => `${p2.outW} heads out / ${p2.upW} up`).join(', '));
     check(wave.full === 5,
           'and he does it for five seconds',
           `${wave.full}s of greeting`);
