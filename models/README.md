@@ -10,7 +10,10 @@ is swapped, so neither is lost.
 
 Keep textures small. A rider is a background character a couple of hundred pixels tall;
 `pug.glb` arrived with a 4096×4096 texture that made the file 10.5 MB, and at 1024×1024 it
-is 1.7 MB and looks identical in game. Exporters also like wiring the texture to **emissive**
+is 1.7 MB and looks identical in game. The same again for the second pug: 11.6 MB in, 1.6 MB
+out, and then simplified from 31k triangles to 9.4k, which at the size he is ever drawn is
+indistinguishable — checked side by side on the shop card, which is the closest lens in the
+game. `palm.glb` came in at 28 MB on three 4096² maps and lands at 3.8 MB. Exporters also like wiring the texture to **emissive**
 at full white, which makes the model glow flat and ignore every light in the scene — worth
 checking if an import looks oddly unlit.
 
@@ -27,7 +30,7 @@ to `RIDER_MODELS` in `index.html`.
 | File | Replaces |
 | --- | --- |
 | `board.glb` | the surfboard |
-| `palm.glb` | every palm tree |
+| `palm.glb` | every palm tree except the title screen's |
 | `chest.glb` | the treasure chest |
 | `pug.glb` | Astro the Pug |
 | `cat.glb` | Miso the Cat |
@@ -157,6 +160,17 @@ skeleton is present the game drives it, and these happen automatically.
   the game turns him over itself; it simply has no limb animation to lay on top. In practice
   nobody is in that position any more — see below — but the path is still there for a model
   that arrives with no clips at all.
+- **A rig that bends its FRONDS as well as its trunk still works.** `palm.glb` is posed by
+  walking the bone chain from the ground up and bending each joint a little, and the walk
+  stops where the tree forks: one bone child means carry on up the trunk, nine means this is
+  the crown. The first tree here was a single straight line of eight bones, so "take the
+  first child" happened to walk the trunk; the second forks into nine frond chains at the
+  top, and taking the first child there would apply the trunk's bend to one leaf as well and
+  swing it out of the crown on its own.
+- **The bend is BAKED, not skinned.** Each tree's posed vertices are read back once with
+  `boneTransform` and written into a plain static mesh, so nine trees on the beach cost
+  nothing per frame beyond their triangles — and the far ones are built lazily, so a heavier
+  tree does not show up in the boot time.
 - **Every rider does every motion any of them brought.** They come off the same biped with the
   same bone names, and each export ships a different half of the same repertoire: the pug
   brings standing and chatting, getting up off the floor and lying with his paws spread; the

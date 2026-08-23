@@ -1261,7 +1261,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.96.0';
+const VERSION='3.97.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5546,7 +5546,20 @@ loadModel('palm.glb',(s3)=>{
   // the chain from the ground up: start at whichever bone has no bone above it
   let b0=sk.skeleton.bones[0];
   while(b0.parent&&b0.parent.isBone)b0=b0.parent;
-  const chain=[]; for(let b=b0;b;b=(b.children||[]).find(c=>c.isBone))chain.push(b);
+  // ---- and it stops where the tree BRANCHES, because past there it is not a trunk ----
+  // The first rig here was one straight line of eight bones from root to crown, so taking
+  // the first bone child at every step walked the trunk by luck. A rig that also bends its
+  // FRONDS is a trunk that forks into nine chains at the crown, and "first child" walks the
+  // trunk and then carries straight on down one frond — so the bend meant for the trunk gets
+  // applied to one leaf as well, and that leaf swings out of the crown on its own.
+  // A trunk is the run of bones before the fork. One bone child means keep going; nine means
+  // this is the crown and the trunk ends here.
+  const chain=[];
+  for(let b=b0;b;){
+    chain.push(b);
+    const kids=(b.children||[]).filter(c=>c.isBone);
+    b=kids.length===1?kids[0]:null;
+  }
   if(chain.length<2)return;
   s3.updateMatrixWorld(true);
   // How thick the trunk is at each height, measured off the BIND pose where it is a
