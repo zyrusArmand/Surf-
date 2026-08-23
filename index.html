@@ -1261,7 +1261,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.3.0';
+const VERSION='4.4.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -11124,7 +11124,7 @@ const RIDER_SIZE={frog:1.20, monkey:1.16};
 // is square in both. Tuned to read zero on a phone it was eight degrees out on a desktop, and
 // the value here splits it: a few degrees either side, square enough to read as square
 // everywhere, rather than perfect on one shape and visibly turned on another.
-let MENU_FACE=-1.719;    // and on the title screen he turns out of it, toward the viewer
+let MENU_FACE=-1.491;    // and on the title screen he turns out of it, toward the viewer
 for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
   // TURNED TO FACE THE WAVE, by asking the model which way it is looking rather than by
   // being told. Every face on the built-in riders is built at negative z — muzzle, nose,
@@ -16657,6 +16657,32 @@ if(location.hash.includes('debug')){
     setCurl(v){ curl.userData.forceHide=!v; curl.visible=v; },
     // Where the rider lands on screen, and whether anything is drawn in front of him. Being
     // in frame is not the same as being visible: in the barrel he is behind a wall of lip.
+    // WHERE THE SET LANDS IN THE FRAME, as fractions of it. Framing is the one thing that
+    // cannot be argued about in world units — how big the board is on screen depends on the
+    // lens, the distance and the shape of the window all at once — so the camera is walked
+    // against these instead: what fraction of the picture's height the board fills, and where
+    // across it each of the three things sits.
+    menuFrame(){
+      if(typeof menuBeach==='undefined'||!menuBeach||!menuCam)return null;
+      const box=o=>{
+        if(!o)return null;
+        const b=new THREE.Box3().setFromObject(o);
+        let x0=9,x1=-9,y0=9,y1=-9;
+        for(let i=0;i<8;i++){
+          const v=new THREE.Vector3(i&1?b.max.x:b.min.x, i&2?b.max.y:b.min.y, i&4?b.max.z:b.min.z);
+          v.project(menuCam);
+          const sx=v.x*0.5+0.5, sy=-v.y*0.5+0.5;
+          if(sx<x0)x0=sx; if(sx>x1)x1=sx; if(sy<y0)y0=sy; if(sy>y1)y1=sy;
+        }
+        return {x:[+x0.toFixed(3),+x1.toFixed(3)], y:[+y0.toFixed(3),+y1.toFixed(3)],
+                h:+(y1-y0).toFixed(3), cx:+((x0+x1)/2).toFixed(3), foot:+y1.toFixed(3)};
+      };
+      return {board:box(menuBeach.board), rider:box(pug),
+              chest:box(typeof beachChest!=='undefined'?beachChest:null),
+              palm:box(typeof menuPalm!=='undefined'?menuPalm:null),
+              d:MB_D, eye:MB_EYE, aim:MB_AIM, fov:MB_FOV, fish:MENU_FISH,
+              aspect:+menuCam.aspect.toFixed(3)};
+    },
     riderOnScreen(){
       const v=new THREE.Vector3();
       player.getWorldPosition(v);
@@ -19034,7 +19060,7 @@ const MB_YAW=0.46;                    // how far round from straight-out-to-sea 
 // what puts the near dunes across the bottom of the frame and leaves the sea as a band
 // rather than a third of the picture — the shot is somebody crouched on the sand looking up
 // at a board propped on a tree, and not somebody standing back from it.
-let MB_D=10.8;                        // how far back the camera stands from the palm
+let MB_D=6.2;                        // how far back the camera stands from the palm
 // How high the lens is over the sand, and how high it is aimed. AIM is a height above the
 // beach at the palm; EYE is measured off the sand the camera itself stands on, which is not
 // the same place and not the same height — see the camera code.
@@ -19421,7 +19447,7 @@ function shoreTaper(){
 // tree that "in frame" and "at the tree" are the same requirement, so it is measured from
 // the tree again, and it lands in the same place on every shape of screen.
 let MB_CD=0.70;        // out to the camera's right of the trunk's own axis...
-let MB_CF=2.40;        // ...and this far in front of it, which is close enough to be leaning
+let MB_CF=1.30;        // ...and this far in front of it, which is close enough to be leaning
                        // on the trunk — the near corner of the box overlaps its foot
 let MB_CH=1.8;         // and this tall — small, because it is standing much nearer the lens
 let _bcAsp=null;
@@ -19607,7 +19633,23 @@ function renderMenuBeach(dt){
   // palm, the aim walks back onto the tree, and the rule produces the exact composition it
   // was written to prevent. Below this the camera is looking at a trunk.
   const spread=Math.max(4.6,m.spread||5.5);
-  // ...and it stands back again on a WIDE one, which is not the same term reversed. A phone
+  // ---- and the two shapes of window CANNOT hold the same shot ----
+  // The framing this is composed for is a landscape one: the board a little under half the
+  // height of the frame, the rider off its left shoulder and the chest off its right. A phone
+  // held upright sees about fifty degrees across, and the set is seven feet wide — brought in
+  // to the distance that gives that framing, the chest goes a quarter of its width off the
+  // side of the screen. So the pull-back for a tall window is not a stylistic softening of the
+  // shot, it is the only distance the whole group fits at, and it is set by the chest's edge
+  // rather than by eye.
+  // ---- and the two shapes of window CANNOT hold the same shot ----
+// The framing this is composed for is the one in the reference: the board a little under half
+// the height of the frame, the rider off its left shoulder, the chest off its right, the crown
+// across the top. A tall window sees about fifty degrees across and the set is seven feet wide,
+// so the same distance that gives that framing on a wide screen puts the chest off the side of
+// a phone. The pull-back for a tall window is therefore not a softening of the shot — it is the
+// nearest the camera can stand with the whole group still on screen, and it is set by where the
+// chest's outer edge lands rather than by eye: 0.99 of the way across the narrowest phone.
+// ...and it stands back again on a WIDE one, which is not the same term reversed. A phone
   // held upright is the shot this screen is composed for; a landscape frame is already close,
   // and closing it further walks the Play button — which is pinned to the bottom centre of
   // the SCREEN, not to the scene — straight over the top of the rider.
@@ -19634,7 +19676,7 @@ function renderMenuBeach(dt){
   // the fisheye do the only thing it is wanted for, which is bending the world around it.
   const _th=Math.atan(Math.hypot(menuCam.aspect,1)*Math.tan(MB_FOV*Math.PI/360));
   const mag=MENU_FISH>0?1/(1+(_th/Math.tan(_th)-1)*MENU_FISH):1;
-  const D=(MB_D+Math.max(0,1-menuCam.aspect)*18.0
+  const D=(MB_D+Math.max(0,1-menuCam.aspect)*12.2
               +Math.max(0,menuCam.aspect-0.9)*3.0+spread*0.45+sw*0.5)*lensK*mag;
   const px=0, pz=MB_Z*MB_K;
   // Low, and aimed UP the beach rather than down onto it. Eye level over the sand puts a
