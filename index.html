@@ -1271,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.8.0';
+const VERSION='4.9.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -16588,6 +16588,16 @@ if(location.hash.includes('debug')){
       // ...and the rider, in the same frame, so the two can simply be subtracted
       const b=new THREE.Box3().setFromObject(pug);
       out.soles=+b.min.y.toFixed(3);
+      // and the chest, which stands on the same sand and is placed by the same function
+      if(typeof beachChest!=='undefined'&&beachChest){
+        beachChest.updateMatrixWorld(true);
+        const cb=new THREE.Box3().setFromObject(beachChest);
+        const rc3=new THREE.Raycaster(beachChest.getWorldPosition(new THREE.Vector3()).setY(cb.min.y+14),
+                                      new THREE.Vector3(0,-1,0),0,40*K);
+        const h3=sandField?rc3.intersectObject(sandField,false)[0]:null;
+        out.chestBase=+cb.min.y.toFixed(3);
+        out.chestInto=h3?+(h3.point.y-cb.min.y).toFixed(3):null;
+      }
       const rc2=new THREE.Raycaster(pug.getWorldPosition(new THREE.Vector3()).setY(b.min.y+14),
                                     new THREE.Vector3(0,-1,0),0,40*K);
       const h2=sandField?rc2.intersectObject(sandField,false)[0]:null;
@@ -19265,7 +19275,11 @@ let MB_PALM=1.35;
 const MB_BCLR=0.9;
 const MB_BD=0.30;                     // and the closest to the trunk it is allowed to stand
 const MB_RD=0.9;                      // where the search for his place starts
-const MB_RGAP=0.18;
+// In from 0.18. It is the clearance the rider is pushed out to, and every inch of it is an
+// inch further toward the buttons down the side of the screen — he was standing on top of Shop.
+// Still a real gap: the two silhouettes do not touch, which is the whole point of solving for
+// it rather than fixing his offset.
+const MB_RGAP=0.13;
 const MB_DOF=25.0;
 let MENU_DOF=true;     // off is for measuring what it costs     // how many feet either side of the board stay sharp                   // and the daylight there has to be between the two
 // A world unit here is a FOOT — the boards measure 3.5 to 10.5 of them and their spec sheets
@@ -19603,12 +19617,16 @@ function shoreTaper(){
 // holding the picture together. Two and a half feet from the trunk is close enough to the
 // tree that "in frame" and "at the tree" are the same requirement, so it is measured from
 // the tree again, and it lands in the same place on every shape of screen.
-let MB_CD=0.70;        // out to the camera's right of the trunk's own axis...
+// Square in front of the trunk rather than out to the camera's right of it. The offset was
+// pushing the chest toward the edge of a narrow screen — it ran off the side of a phone and sat
+// over the Settings and Stats buttons — and the distance from the tree, which is what stops the
+// two merging, is bought more cheaply by standing it further FORWARD than further across.
+let MB_CD=0.00;        // out to the camera's right of the trunk's own axis...
 // Out from 1.3, where the new palm's trunk is thick enough at chest height that the two
 // merged into one shape — the chest was measurably clear of the CENTRELINE and visibly inside
 // the tree, which is the difference between a trunk that is a line and a trunk that is a
 // tapering column a foot and a half across at the bottom.
-let MB_CF=2.20;        // ...and this far in front of it, which is close enough to be leaning
+let MB_CF=2.60;        // ...and this far in front of it, which is close enough to be leaning
                        // on the trunk — the near corner of the box overlaps its foot
 let MB_CH=1.8;         // and this tall — small, because it is standing much nearer the lens
 let _bcAsp=null;
@@ -19889,11 +19907,24 @@ function renderMenuBeach(dt){
   const ex0=renderer.toneMappingExposure;
   renderer.toneMappingExposure=ex0*1.14;
   renderer.setClearColor(0x1a2540,1);
+  // ---- and the bloom is pulled back off the board ----
+  // Bloom is for things that are actually giving off light: the sun, a foam crest, the glitter
+  // on the water, the highlight travelling down a wet rail. A surfboard's PAINT is not, and on
+  // this screen the board is a bright saturated slab a few feet from the lens with a near-white
+  // top — so it cleared the threshold along its whole length and wore a white edge, which reads
+  // as a gap between it and anything it overlaps. Most visible where the rider leans into it,
+  // because there the halo is drawn across HIM.
+  // The threshold goes up so only what is genuinely at white still blooms, and the amount comes
+  // down, on this screen alone. The ride keeps the bloom it was tuned with.
+  let bT0=null,bA0=null;
+  if(fxOn){ bT0=fxBright.uniforms.uT.value; bA0=fxComp.uniforms.uAmt.value;
+            fxBright.uniforms.uT.value=1.06; fxComp.uniforms.uAmt.value=bA0*0.55; }
   // focused on the board, because the board is the subject — it is the thing the screen is
   // for. The range is wide enough to keep the rider beside it and the trunk behind it sharp
   // and let go of everything past them.
   present(prevScene,menuCam,null,MENU_DOF?{focus:menuCam.position.distanceTo(m.board.position),
                                            range:MB_DOF}:null,MENU_FISH);
+  if(fxOn&&bT0!==null){ fxBright.uniforms.uT.value=bT0; fxComp.uniforms.uAmt.value=bA0; }
   renderer.setClearColor(0x000000,1);
   renderer.toneMappingExposure=ex0;
 }
