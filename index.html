@@ -1261,7 +1261,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.4.0';
+const VERSION='4.5.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -12004,6 +12004,9 @@ function rampSlope(d,t){
   return (p[i+1]-p[i])*(p.length-1)/(2*d.rampL);
 }
 const OBST_SIZE={buoy:2.00, buoy2:0.70};
+// How much of the shark is out of the water — the fin, and nothing else. Measured from the
+// top of the model down, so it does not care how big the animal underneath it is.
+const BIGFIN_SHOW=0.70;
 for(const kind of ['buoy','jelly','log','bigfin','ramp','octopus'])(k=>{
   const take=file=>s3=>{
     if(!OBST_TEMPLATES[k])OBST_TEMPLATES[k]=buildObstacle(k);
@@ -12022,7 +12025,15 @@ for(const kind of ['buoy','jelly','log','bigfin','ramp','octopus'])(k=>{
                     rampL:t.userData.rampL, rampH:t.userData.rampH,
                     rampW:t.userData.rampW, rampP:t.userData.rampP}; }
     const sp=OBST_SPEC[k];
-    const fitted=skinAndFit(k,s3,sp.box);
+    // ---- a SHARK is not the fin it replaces, and cannot be fitted like one ----
+    // The built-in bigfin is a blade: no body, a box taller than it is long. fitToBox turns a
+    // model's long axis onto the target's, so a whole shark fitted to that box is stood on its
+    // tail — four feet of fish pointing at the sky. It gets a box shaped like the animal
+    // instead, long axis along its length, and everything else about the fit is unchanged.
+    const fitBox=(k==='bigfin')
+      ? new THREE.Box3(new THREE.Vector3(-4.5,-1.6,-1.6),new THREE.Vector3(4.5,1.6,1.6))
+      : sp.box;
+    const fitted=skinAndFit(k,s3,fitBox);
     const g=OBST_SIZE[file]||1;
     if(g!==1)fitted.scale.multiplyScalar(g);
     // ---- a kicker has to START at the water ----
@@ -12036,6 +12047,27 @@ for(const kind of ['buoy','jelly','log','bigfin','ramp','octopus'])(k=>{
       const bb=new THREE.Box3().setFromObject(fitted);
       const dy=sp.box.min.y-bb.min.y, kk=fitted.userData.k||1;
       if(isFinite(dy))fitted.userData.frame.position.y+=dy/kk;
+      fitted.updateMatrixWorld(true);
+    }
+    // ---- and it swims UNDER the water, with the fin out ----
+    // What crosses your line is a dorsal fin; the animal under it is meant to be a shape in
+    // the water, not a fish sitting on top of the sea. Obstacles are floated by putting their
+    // ORIGIN at the surface plus a per-kind offset, so the waterline is at a known height in
+    // the model's own frame — and the whole shark is dropped until only the top of it is above
+    // that line. Everything below is still drawn, and still reads through the water, which is
+    // what makes it a shark rather than a fin on a stick.
+    if(k==='bigfin'&&fitted.userData.frame){
+      fitted.updateMatrixWorld(true);
+      const bb=new THREE.Box3().setFromObject(fitted);
+      const kk=fitted.userData.k||1;
+      const dy=(BIGFIN_SHOW-(FLOAT_OFF.bigfin||0))-bb.max.y;
+      if(isFinite(dy))fitted.userData.frame.position.y+=dy/kk;
+      // ...and turned to swim the way it is going. The built-in fin carries a quarter turn of
+      // its own inside the template, which cancels the quarter turn every bigfin clone is
+      // given to point it along its sweep; an imported model has no such turn, so it crossed
+      // your line sideways. A quarter turn back, and the clone's own turn lands it head-first
+      // in both directions it can come from.
+      fitted.userData.frame.rotation.y-=Math.PI/2;
       fitted.updateMatrixWorld(true);
     }
     // and the hitbox goes with it. A buoy drawn a third bigger that still stops you at the

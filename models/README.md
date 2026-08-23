@@ -18,7 +18,7 @@ at full white, which makes the model glow flat and ignore every light in the sce
 checking if an import looks oddly unlit.
 
 `board.glb`, `buoy.glb`, `chest.glb`, `log.glb`, `octopus.glb`, `palm.glb`, `pug.glb`,
-`buoy2.glb`, `cat.glb`, `frog.glb`, `monkey.glb`, `rat.glb`, `ramp.glb`, `sand.glb` and `plane.glb` ship with the game; the rest of the table is
+`buoy2.glb`, `cat.glb`, `frog.glb`, `monkey.glb`, `rat.glb`, `ramp.glb`, `sand.glb`, `jelly.glb`, `jelly2.glb`, `bigfin.glb` and `plane.glb` ship with the game; the rest of the table is
 empty by design, and the 404s those file names produce are the documented path
 rather than a fault.
 
@@ -40,10 +40,11 @@ to `RIDER_MODELS` in `index.html`.
 | `buoy.glb` | the striped buoy |
 | `buoy2.glb` | a second buoy, picked at random against the first |
 | `log.glb` | the floating log |
-| `jelly.glb` | the jellyfish |
+| `jelly.glb` | the jellyfish, red |
+| `jelly2.glb` | the jellyfish, blue — one of the two at random per spawn |
 | `ramp.glb` | the wooden ramp |
 | `octopus.glb` | the octopus |
-| `bigfin.glb` | the shark fin |
+| `bigfin.glb` | the shark — swims submerged, only the fin above water |
 | `jetski.glb` | the jet ski |
 | `plane.glb` | the tow plane and the set-wave aircraft |
 | `palm2.glb` | a DIFFERENT tree for the title screen, in place of `palm.glb` there — not shipped |
@@ -222,6 +223,30 @@ The piece is simplified to **2.8k triangles and no further**. At 1k the decimati
 become the visible relief — large flat plates with straight edges — and no amount of placement
 work hides them. Nor can the pieces be made much smaller: they must be simplified further to
 stay in budget, and that is the same failure again.
+
+## Obstacles, and the second model each of them can have
+
+Every obstacle kind asks for two files — `jelly.glb` and `jelly2.glb`, `buoy.glb` and
+`buoy2.glb` — and where both are present, **each spawn picks one at random**. That is how the
+jellyfish come in two colours: red in one file, blue in the other, nothing in the code that
+knows a colour. The spawn rate is untouched; only which mesh gets cloned changes.
+
+An imported obstacle is fitted into the box of the built-in one it replaces, and `fitToBox`
+turns a model's long axis onto the target's. That is right for a buoy and wrong for a **shark**:
+the built-in `bigfin` is a blade with no body and a box taller than it is long, so a whole shark
+fitted to it is stood on its tail. It gets a box shaped like the animal instead.
+
+Two more things the shark needs, both because it is an animal rather than a fin:
+
+- **It swims under the water.** Obstacles float by putting their ORIGIN at the surface plus a
+  per-kind offset, so the waterline sits at a known height in the model's own frame, and the
+  shark is dropped until only `BIGFIN_SHOW` of it is above that line. Sink it by half and its
+  whole back is out, which reads as a fish sitting on the sea; the dorsal fin is about the top
+  fifth of this model, so the shark is scaled up as well — a bigger animal, deeper down, with
+  a fin worth seeing.
+- **It swims the way it is going.** The built-in fin carries a quarter turn inside its own
+  template, which cancels the quarter turn every `bigfin` clone is given to point it along its
+  sweep. An imported model has no such turn, so it crossed the line sideways.
 
 ## Rigged riders
 
