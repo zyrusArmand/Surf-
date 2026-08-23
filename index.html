@@ -1271,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.12.1';
+const VERSION='4.13.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -11152,7 +11152,12 @@ const RIDER_SIZE={frog:1.20, monkey:1.16};
 // is square in both. Tuned to read zero on a phone it was eight degrees out on a desktop, and
 // the value here splits it: a few degrees either side, square enough to read as square
 // everywhere, rather than perfect on one shape and visibly turned on another.
-let MENU_FACE=-1.491;    // and on the title screen he turns out of it, toward the viewer
+// Round from -1.491, and it is not a taste change: he now stands in FRONT of the board
+// rather than off its shoulder, and the camera is only a few feet away, so the direction from
+// him to the lens swung 13 degrees when he moved. Solved rather than nudged — menuFace() reads
+// the angle between his own forward and the line to the camera, and this is the value that
+// puts it at zero.
+let MENU_FACE=-1.723;    // and on the title screen he turns out of it, toward the viewer
 for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
   // TURNED TO FACE THE WAVE, by asking the model which way it is looking rather than by
   // being told. Every face on the built-in riders is built at negative z — muzzle, nose,
@@ -15589,6 +15594,10 @@ if(location.hash.includes('debug')){
     camMask(){ return camera.layers.mask; },
     riderFwd(v){ if(v!==undefined){ MB_RF=v; if(typeof layoutMenuBeach==='function')layoutMenuBeach(); }
                  return MB_RF; },
+    riderSide(v){ if(v!==undefined){ MB_RGAP=v; if(typeof layoutMenuBeach==='function')layoutMenuBeach(); }
+                  return MB_RGAP; },
+    riderYaw(v){ if(v!==undefined){ MB_RYAW=v; if(typeof layoutMenuBeach==='function')layoutMenuBeach(); }
+                 return MB_RYAW; },
     obsObjects(){ return obstacles.slice(); },
     renderer(){ return renderer; },
     // The ramp's real surface against the slope the ride thinks it is climbing. A modelled
@@ -15705,7 +15714,7 @@ if(location.hash.includes('debug')){
               riderGap:menuBeach.riderGap, riderAt:menuBeach.riderAt,
               standoff:menuBeach.standoff, foot:menuBeach.foot, sand:menuBeach.sandAt,
               gap:menuBeach.gap, body:menuBeach.body,
-              boardF:menuBeach.boardF, trunkF:menuBeach.trunkF,
+              boardF:menuBeach.boardF, trunkF:menuBeach.trunkF, riderF:menuBeach.riderF,
               palmH:+(new THREE.Box3().setFromObject(menuPalm).getSize(new THREE.Vector3()).y).toFixed(2),
               rider:+(menuBeach.riderH||rs.y).toFixed(2), boardH:+(menuBeach.boardH||bs.y).toFixed(2),
               live:+rs.y.toFixed(2), liveBoard:+bs.y.toFixed(2),
@@ -19321,21 +19330,29 @@ let MB_PALM=1.35;
 const MB_BCLR=0.9;
 const MB_BD=0.30;                     // and the closest to the trunk it is allowed to stand
 const MB_RD=0.9;                      // where the search for his place starts
-// In from 0.18. It is the clearance the rider is pushed out to, and every inch of it is an
-// inch further toward the buttons down the side of the screen — he was standing on top of Shop.
-// Still a real gap: the two silhouettes do not touch, which is the whole point of solving for
-// it rather than fixing his offset.
-// In again, from 0.13. It is the clearance the rider is pushed out to and it is the only thing
-// standing between him and the board, so it is the number that decides how far left he lands —
-// and left is where the buttons are. Small on purpose: the two silhouettes still do not touch,
-// which is what solving for it buys over fixing his offset, but there is no daylight to spare.
-// How far in front of the board he stands. It is the one lever that moves him ACROSS the frame
-// without moving anything else in the set: he is beside the board and left of centre, so
-// stepping him back toward the vanishing point walks him to the right and shrinks him a little,
-// and stepping him forward throws him out to the left. His distance from the board cannot do
-// that job any more — the clearance below is already down to a tenth of a foot.
-let MB_RF=-1.40;
-const MB_RGAP=0.05;
+// He stands IN FRONT of the board now, not off its shoulder. Two numbers do it together and
+// neither works alone.
+//
+// MB_RF is how far toward the camera he steps off the board's own plane. Positive is nearer
+// the lens, so at 2.4ft he is a good stride in front of it and reads bigger for being closer —
+// which is what makes the overlap read as "standing in front of" rather than "sunk into".
+// It also walks him LEFT, because the set sits left of centre and a step toward the camera at
+// this focal length is worth a foot of travel across the frame.
+//
+// MB_RGAP is the clearance the sideways solve stops at, and it is NEGATIVE on purpose: it used
+// to be the daylight held between his silhouette and the board's, and it is now the overlap
+// allowed between them. At -1.6 the walk-outward loop stops on the first step, which parks him
+// on the board's own line instead of a yard out to its left — and that is what pays for the
+// leftward drift MB_RF costs. Out at the old +0.05 he cleared the board by a hair and stood in
+// the Board/Shop/Tricks column; on the board's line and forward of it, he clears the glass by
+// a comfortable margin and covers the middle of the deck.
+// The extra turn on top of the shot's own yaw, for the layout's own placement of him. NOT
+// the lever that squares him to the camera on the title screen — that is MENU_FACE, which
+// the show applies over the top of this every frame, and measuring the two apart is the only
+// way to tell which one a facing complaint belongs to. Left where it was.
+let MB_RYAW=0.22;
+let MB_RF=1.90;
+let MB_RGAP=-1.60;
 const MB_DOF=25.0;
 let MENU_DOF=true;     // off is for measuring what it costs     // how many feet either side of the board stay sharp                   // and the daylight there has to be between the two
 // A world unit here is a FOOT — the boards measure 3.5 to 10.5 of them and their spec sheets
@@ -19585,6 +19602,9 @@ function layoutMenuBeach(){
   // how wide the group actually came out, so the camera frames what is there rather than
   // what a fixed offset would have produced
   menuBeach.riderAt=+rd.toFixed(3);
+  // where he sits in DEPTH against the board, so "in front of it" can be read back rather
+  // than inferred from the offset that placed it. Smaller along the forward axis is nearer.
+  menuBeach.riderF=+_pos.dot(_mbF).toFixed(3);
   // What the camera should centre on is the PAIR — the board and the rider standing beside
   // it — not the whole width from the tree out to him. Aiming off the far edge of the group
   // hung them both on the left of the frame with the palm taking the middle.
@@ -19600,7 +19620,7 @@ function layoutMenuBeach(){
     sc.left=-half; sc.right=half; sc.top=half*1.6; sc.bottom=-half*0.85;
     sc.updateProjectionMatrix();
   }
-  pug.rotation.set(0, Math.PI - MB_YAW + 0.22, 0);          // turned to face the camera
+  pug.rotation.set(0, Math.PI - MB_YAW + MB_RYAW, 0);       // turned to face the camera
   // A world unit here is a FOOT: the boards measure 3.5 to 10.5 of them and their spec
   // sheets are in feet, which is what makes this a fixed number rather than a fraction of
   // whatever is leaning against the tree. An average adult is 5'9", so that is how tall he

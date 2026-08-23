@@ -637,21 +637,25 @@ await page.waitForTimeout(300);
         'and none of them has folded over far enough to lie down',
         `steepest ${Math.max(...bent.map(p => p.lean))}°`);
 
-  // He stands CLEAR of the board. A board leaning across the frame sweeps over the ground
-  // it stands on, so a fixed distance from its foot put his shoulder through the middle of
-  // it — and by how much depended on which board, which is why it looked fine on one and
-  // wrong on the next. Measured between the two silhouettes in the picture the camera sees.
-  // Clear, but standing WITH it rather than a yard down the beach from it — the pair reads
-  // as a pair, and the camera centres on the two of them.
-  // The floor was 0.12 and is 0.05, and that is a deliberate loosening rather than a check
-  // bending to fit. It is not a comfort measure — it is the ONLY thing standing between the
-  // rider and the board, and every inch of it is an inch further left, which is where the
-  // buttons down the side of the screen are. What has to hold is that the two silhouettes do
-  // not touch and that he is not standing a yard off on his own; how much daylight there is
-  // between them beyond that is framing, and framing is walked against the picture.
-  check(stood.length === 4 && stood.every(f => f.riderGap >= 0.05 && f.riderGap < 0.6),
-        'and the rider stands clear of it rather than through it',
-        stood.map(f => `${f.id} ${f.riderGap}ft between them`).join(', '));
+  // He stands IN FRONT of the board — that is the composition now, and it is a different
+  // statement from the one this used to make. It asked for daylight between the two
+  // silhouettes, and daylight is exactly what a rider standing in front of a board does not
+  // have. What replaces it is the reason the overlap is legible: he is NEARER THE CAMERA than
+  // the board is, by enough that he occludes it rather than growing out of it. Smaller along
+  // the forward axis is nearer, and one stride is about the least that reads as in-front at
+  // this focal length.
+  // Held across the whole rack, because the board is what moves: a ten foot log stands its
+  // foot further out than a four foot skimboard does, and if he were placed off a fixed
+  // offset instead of off the board's own plane, the longest board would swallow him.
+  check(stood.length === 4 && stood.every(f => f.boardF - f.riderF > 1.5),
+        'and the rider stands in front of the board rather than beside it',
+        stood.map(f => `${f.id} ${(f.boardF - f.riderF).toFixed(2)}ft nearer the camera`).join(', '));
+  // In front of it and ACROSS it, not off to one side of it and merely a step forward. The
+  // depth check above passes just as happily for a rider standing a yard to the left and one
+  // stride nearer, which is the old picture, so the overlap is asked for on its own.
+  check(stood.length === 4 && stood.every(f => f.riderGap < 0),
+        'and over its deck rather than off to the side of it',
+        stood.map(f => `${f.id} ${f.riderGap}ft of overlap`).join(', '));
 
   // And he stands clear of the BUTTONS, which is a different question from standing clear of
   // the board and is the one a phone actually asks. The set sits left of centre so the palm
@@ -676,16 +680,19 @@ await page.waitForTimeout(300);
       // board and all — swings off the left of the screen and back. Sampled once on a timer
       // that lands in there, the reading says he is off the edge when he never is. Poll until
       // two samples a third of a second apart agree, which is the ease having stopped.
-      // Three agreements in a row, not one: an ease has slow stretches at both ends, and a
-      // single pair matching landed on the far end of one and read the set still out at arm's
-      // length. A minimum of two seconds under it, because the ease itself is about that long.
+      // Settle on the BOARD, then read the rider off the same frame. Polling the rider's own
+      // box never converges cleanly: the title-screen show walks him around the beach, so his
+      // edge is moving under a camera that is also moving, and three matching samples in a row
+      // happen by coincidence in the middle of an ease as readily as at the end of one. The
+      // board is propped against the tree and does not animate at all, so the only thing that
+      // moves its box is the camera — which makes it a clean read on whether the ease is done.
       let m = null, prev = null, still = 0;
-      for (let i = 0; i < 30; i++) {
-        await new Promise(r => setTimeout(r, 340));
+      for (let i = 0; i < 40; i++) {
+        await new Promise(r => setTimeout(r, 250));
         m = window.__surf.menuFrame();
-        still = (prev !== null && m && Math.abs(m.rider.x[0] - prev) < 0.004) ? still + 1 : 0;
-        prev = m && m.rider.x[0];
-        if (still >= 3 && i >= 6) break;
+        still = (prev !== null && m && Math.abs(m.board.x[0] - prev) < 0.001) ? still + 1 : 0;
+        prev = m && m.board.x[0];
+        if (still >= 4 && i >= 8) break;
       }
       // The LEFT column only — Board, Shop and Tricks. The dial has a matching column down
       // the right that he is nowhere near, and taking the widest of all six asks whether he
@@ -704,8 +711,12 @@ await page.waitForTimeout(300);
         framed.map(f => `${f.id}: rider from ${f.rider.x[0]}, buttons end ${f.btn}`).join(', '));
   // Right of them, but still ON the beach with the board rather than shoved off the far side
   // of it to buy the clearance. He reads as standing beside it, so he overlaps its column.
-  check(framed.length === 3 && framed.every(f => f.rider.x[0] < f.board.x[1]),
-        'and still standing beside the board rather than shoved past it',
+  // Right of them, and OVER the board rather than shoved off the far side of it to buy the
+  // clearance. In the picture that means the two boxes share a column: his right edge is past
+  // where the board's starts, and his left edge is short of where the board's ends.
+  check(framed.length === 3 &&
+        framed.every(f => f.rider.x[1] > f.board.x[0] && f.rider.x[0] < f.board.x[1]),
+        'and standing over the board rather than shoved past it',
         framed.map(f => `${f.id}: rider [${f.rider.x}] board [${f.board.x}]`).join(', '));
   await page.setViewportSize({ width: 1024, height: 640 });
   await page.waitForTimeout(600);
