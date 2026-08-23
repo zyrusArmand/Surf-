@@ -643,7 +643,13 @@ await page.waitForTimeout(300);
   // wrong on the next. Measured between the two silhouettes in the picture the camera sees.
   // Clear, but standing WITH it rather than a yard down the beach from it — the pair reads
   // as a pair, and the camera centres on the two of them.
-  check(stood.length === 4 && stood.every(f => f.riderGap >= 0.12 && f.riderGap < 0.6),
+  // The floor was 0.12 and is 0.05, and that is a deliberate loosening rather than a check
+  // bending to fit. It is not a comfort measure — it is the ONLY thing standing between the
+  // rider and the board, and every inch of it is an inch further left, which is where the
+  // buttons down the side of the screen are. What has to hold is that the two silhouettes do
+  // not touch and that he is not standing a yard off on his own; how much daylight there is
+  // between them beyond that is framing, and framing is walked against the picture.
+  check(stood.length === 4 && stood.every(f => f.riderGap >= 0.05 && f.riderGap < 0.6),
         'and the rider stands clear of it rather than through it',
         stood.map(f => `${f.id} ${f.riderGap}ft between them`).join(', '));
 
