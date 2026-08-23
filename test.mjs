@@ -452,6 +452,13 @@ await page.waitForTimeout(300);
           'a chest sits on the sand in front of the palm, in shot rather than behind the trunk',
           wide ? `at ${wide.chest} of ${wide.screen}, ${wide.camDist}ft out against the tree at ${wide.palmDist}ft`
                : 'no beach chest');
+    // ...and the shot is composed on the BOARD. It is what the shop sells and what the Board
+    // button changes, and the tree and the rider are arranged around it — so it is the thing
+    // the camera is pointed at, near enough the middle of the frame to read as the subject.
+    check(wide && Math.abs(wide.board[0] - wide.screen[0] / 2) < wide.screen[0] * 0.08,
+          'and the board is what the shot is composed on, near the middle of the frame',
+          wide ? `board at ${wide.board[0]} of ${wide.screen[0]}, ` +
+                 `${(wide.board[0] - wide.screen[0] / 2).toFixed(0)}px off centre` : 'no board');
     check(wide && Math.abs(wide.bottom - wide.sand) < 0.05,
           'and it is standing ON the sand rather than sunk into it — two solid things',
           wide ? `base ${wide.bottom}, sand ${wide.sand}` : 'no beach chest');
@@ -2104,6 +2111,44 @@ if (hasHook) {
   check(sand && sand.aniso >= 8,
         'and it lies down into the distance instead of shimmering',
         sand ? `${sand.tiles[0]}x${sand.tiles[1]} tiles at ${sand.aniso}x anisotropy` : 'no sand');
+}
+
+// ---------- and the wind has PILED it, not just combed it ----------
+// Ripples are the fine relief; dunes are the coarse one, and the beach had neither in the
+// picture. The dune terms were in the height function all along and switched off where it
+// counts: they are multiplied by how DRY the sand is, that ramped from -46, and the title
+// screen's set stands at -50 — so the whole of the visible beach sat in the wet flats where
+// every dune is multiplied by nearly nothing.
+//
+// Getting it back took three wrong turns and the numbers caught all three. Too much relief
+// and the hollows go below the waterline, where the sea is a flat sheet a foot up that simply
+// covers them and the bottom of the screen turns blue. Made one-sided so it can only pile up,
+// it climbed nine feet across the view — this camera stands under four feet over the sand, so
+// that is a wall in front of the thing the screen is about. So the check is BOTH bounds:
+// enough relief to see, and never a hollow the sea can get into.
+{
+  // WITH THE TITLE SCREEN UP, because the menu raises the sea a foot to drown the flats and
+  // that raised sea is the one the hollows have to clear. Sampled with the beach down it read
+  // the waterline as zero and passed on a bar that was not the real one.
+  const sp = await page.evaluate(async () => {
+    for (let i = 0; i < 12 && !window.__surf.beachNow(); i++) {
+      document.getElementById('menuBtn').click();
+      await new Promise(r => setTimeout(r, 120));
+    }
+    return Object.assign({ up: window.__surf.beachNow() }, window.__surf.sandProfile());
+  });
+  const ys = (sp && sp.line || []).map(p2 => p2.y);
+  const relief = ys.length ? Math.max(...ys) - Math.min(...ys) : 0;
+  check(sp && sp.nonFinite === 0,
+        'the beach is a surface — every vertex of it is a number',
+        sp ? `${sp.verts} vertices, ${sp.nonFinite} not finite` : 'no sand');
+  check(relief > 0.5,
+        'and the wind has piled it into dunes rather than combing it flat',
+        `${relief.toFixed(2)}ft between the highest and lowest of it along the view`);
+  check(sp && sp.up === true && sp.seaY > 0.5 && ys.every(y => y > sp.seaY),
+        'and none of it dips under the sea that would then be drawn over it',
+        sp ? `beach up ${sp.up}, lowest ${Math.min(...ys)} against a waterline at ${sp.seaY}`
+           : 'no sand');
 }
 
 // ---------- the grip pad lies ON the deck ----------

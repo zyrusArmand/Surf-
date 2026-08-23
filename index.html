@@ -1261,7 +1261,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.90.0';
+const VERSION='3.91.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5737,6 +5737,11 @@ function palmTintables(p){
     for(const m of [].concat(o.material))if(m&&m.vertexColors&&!m.map)out.push(m); });
   return out;
 }
+// Declared HERE rather than down with the rest of the title screen's layout, because the
+// SAND has to know where the set stands: dunes are shaped into the beach when it is built,
+// and the one patch that must stay flat is the patch the board and the rider stand on.
+const MB_K=1.15;                      // the set is a shade bigger than life so the sea reads
+const MB_Z=-44;
 function buildBeach(){
   const g=new THREE.Group(); g.visible=false;
 
@@ -5827,17 +5832,42 @@ function buildBeach(){
   // the dunes read at all: white sand lit from a hemisphere has almost no shading of its
   // own, so relief on it is invisible however much of it there is.
   const hAt=(x,wz)=>{
-    const dry=_ss(-46,40,wz);
+    // ---- where the sand is DRY, which is where the wind can shape it ----
+    // This ramped from -46, and the title screen's set stands at -50: the whole of the beach
+    // anyone actually looks at was inside the wet flats, where every dune term is multiplied
+    // by nearly zero. The relief was all there in the code and none of it in the picture.
+    // It starts at the WATERLINE now and is full a dozen units up the beach, which is where
+    // dry sand starts on a real one.
+    const dry=_ss(-70,-14,wz);
     // Flat only for the object's own footprint, so its shadow lands on sand rather than in
-    // a dune. It used to be flat for twenty-six units — and since the near field IS about
-    // thirty units deep, that flattened everything you could actually see.
-    const flat=_ss(4,13,Math.hypot(x,wz));
+    // a dune — and there are TWO footprints, because two different things get looked at: a
+    // shop card stands its object at the origin, and the title screen stands its set out at
+    // MB_Z. A dune under either is a board propped up in a hole.
+    // Kept TIGHT. Nineteen units of flat around the set sounded safe and flattened the whole
+    // of the foreground, because the camera stands sixteen units off it — the dunes were back
+    // in the code and still not in the picture. The set is under five units across from the
+    // rider to the chest, so five is what has to be flat.
+    const flat=Math.min(_ss(4,13,Math.hypot(x,wz)),
+                        _ss(5,10,Math.hypot(x,wz-MB_Z*MB_K)));
     // Three scales, because one is not a landscape. The long swell shapes the beach, the
     // dunes are what you read the surface by at this distance, the ripples catch the light.
     // The long one alone has a wavelength of ninety units — nothing visible in a thirty-unit
     // foreground, which is why the beach used to look like a sheet of paper.
-    const swell =(_fbm(x*0.011,wz*0.009)-0.5)*5.2;
-    const dune  =(_fbm(x*0.058+11,wz*0.049+7)-0.5)*3.4;
+    // ---- and how MUCH of it there is, which was walked ----
+    // Bigger is not better here and the beach said so twice. At half again this size the dry
+    // sand digs below the waterline in its hollows, and the sea is a flat sheet a foot above
+    // it that simply covers them — the bottom of the title screen turns blue. Made one-sided
+    // to fix that, so the dunes only ever pile up, it climbed nine units across the view
+    // instead: this camera stands under four feet over the sand, and a dune taller than the
+    // lens is a wall in front of everything the screen is about. The reference photographs
+    // are a dune field from standing height; this is a low camera on a small beach, and the
+    // relief that reads here is the one that stays under the horizon.
+    const swell =(_fbm(x*0.011,wz*0.009)-0.5)*6.4;
+    // The dunes themselves, and they are what the reference photographs are OF: long soft
+    // mounds a dozen units across with a crest and a shaded back to each. Bigger than they
+    // were, and drawn out along the shore rather than round, because a dune runs with the
+    // wind and the wind here runs along the beach.
+    const dune  =(_fbm(x*0.030+11,wz*0.055+7)-0.5)*5.6;
     // Stretched along the shore rather than round. The camera is low, so the beach is seen
     // at a grazing angle and anything square-ish flattens into nothing — but ripples running
     // ACROSS the view present their profile over and over, which is exactly why wind and
@@ -15326,6 +15356,29 @@ if(location.hash.includes('debug')){
               scale:+beachSand.material.normalScale.x.toFixed(2),
               tiles:[t.repeat.x,t.repeat.y], aniso:t.anisotropy};
     },
+    // What the beach's own surface is DOING, read off the mesh. Three guesses in a row about
+    // why the sand had gone missing were three guesses too many.
+    sandProfile(){
+      if(typeof beachSand==='undefined'||!beachSand)return null;
+      const pos=beachSand.geometry.attributes.position;
+      let lo=1e9, hi=-1e9, bad=0;
+      for(let i=0;i<pos.count;i++){ const z=pos.getZ(i);
+        if(!isFinite(z)){bad++;continue;} if(z<lo)lo=z; if(z>hi)hi=z; }
+      // and a line of it straight out from the set toward the camera, which is the strip the
+      // title screen actually looks along
+      const at=[]; const NW=201;
+      for(const wz of [-60,-50,-45,-40,-35,-30,-25,-20]){
+        // nearest row: the plane runs SC - planeY, and rows are SD/SNV apart
+        let best=null, bd=1e9;
+        for(let i=0;i<pos.count;i+=NW){
+          const py=pos.getY(i), w=-py;
+          if(Math.abs(w-wz)<bd){bd=Math.abs(w-wz); best=i;}
+        }
+        at.push({wz, y:+pos.getZ(best+Math.floor(NW/2)).toFixed(2)});
+      }
+      return {verts:pos.count, nonFinite:bad, lo:+lo.toFixed(2), hi:+hi.toFixed(2),
+              seaY:beachSea?+beachSea.position.y.toFixed(2):null, line:at};
+    },
     boardMats(){
       const o=(menuBeach&&menuBeach.board)||boardArt; if(!o)return null;
       const out=[];
@@ -17882,11 +17935,9 @@ function makeAOPool(){
   m.rotation.x=-Math.PI/2; m.renderOrder=2;
   return m;
 }
-const MB_K=1.15;                      // the set is a shade bigger than life so the sea reads
 // How far down the beach the three of them stand. At the top of the sand the waterline is a
 // hundred units off and the sea is a stripe under the horizon; walked down to here it is
 // fifty, which is close enough to see the shore break actually break.
-const MB_Z=-44;
 function menuBeachOn(){
   if(menuBeach)return true;
   if(typeof previewSetup!=='function')return false;
@@ -18049,10 +18100,10 @@ function menuBeachOn(){
 // camera is at an angle, "put the board to the left of the palm" stops meaning anything in
 // x and z. So everything is placed along the camera's own two axes: forward, and right.
 const MB_YAW=0.46;                    // how far round from straight-out-to-sea the shot sits
-let MB_D=19.0;                        // how far back the camera stands from the palm
+let MB_D=16.2;                        // how far back the camera stands from the palm
 // How high the lens is over the sand, and how high it is aimed. Both are heights above the
 // beach at the palm, so they move together with everything else if the sand ever moves.
-let MB_EYE=4.7, MB_AIM=6.3;
+let MB_EYE=3.9, MB_AIM=5.7;
 // How far right of dead centre the set is composed to sit. The camera aims at the middle of
 // what is standing on the beach and then this much to the LEFT of it, which puts everything
 // that much to the right in the frame. It used to BE the aim rather than a bias on it, and
@@ -18606,10 +18657,15 @@ function renderMenuBeach(dt){
   // board stands on and the sea and the sky get the rest, which is how the photograph is
   // framed. The aim is high because the palm is a fourteen foot tree now rather than a
   // shrub, and the whole of it is meant to be in shot.
-  // the centre of what is actually standing there: the rider at one end, the chest at the
-  // other, measured along the camera's own right axis from the trunk they are both placed off
-  const grp=(m.riderAt!==undefined)?(m.riderAt-MB_CD)*0.5
-           :(m.middle!==undefined?m.middle:spread*0.66);
+  // ON THE BOARD. It was the middle of the group — the rider at one end, the chest at the
+  // other — which is the right answer to "frame everything" and the wrong one to "what is
+  // this screen about". The board is the subject: it is what the shop sells, what the Board
+  // button changes, and the thing the tree and the rider are arranged around. So the camera
+  // is aimed at where it actually stands, which the layout already worked out when it solved
+  // the lean, and the bias holds it a little right of dead centre.
+  const grp=(m.standoff!==undefined)?m.standoff
+           :(m.riderAt!==undefined?(m.riderAt-MB_CD)*0.5
+           :(m.middle!==undefined?m.middle:spread*0.66));
   const aim=Math.max(0.4,grp)+MB_BIAS;
   menuCam.position.set(px-_mbF.x*D, g+MB_EYE+sw2*0.12, pz-_mbF.z*D);
   menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+MB_AIM, pz-_mbR.z*aim);
