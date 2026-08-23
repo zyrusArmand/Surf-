@@ -1271,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.9.0';
+const VERSION='4.10.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -11932,6 +11932,21 @@ function makeObstacle(kind,x,z){
     m.traverse(o=>{if(o.userData&&o.userData.tj)joints.push(o);});
     m.userData.joints=joints;
   }
+  // ---- how deep this one is sitting, and therefore how hard it throws you ----
+  // Every kicker used to be the same kicker. They ride the swell at a fixed depth, so hitting
+  // one told you exactly what you were going to get — and a ramp you have already solved is
+  // scenery with a jump attached. Each one now floats somewhere between riding high and
+  // half-drowned, picked when it spawns, and the two things that follow from that are the two
+  // things a player can see: less of it is out of the water, and it throws you less far.
+  // One number does both. The mesh is dropped by its own share of its height, so the shape you
+  // are looking at IS the shape you get, and the launch is scaled by what is left above the
+  // surface — a ramp with a third of itself under water gives you two thirds of the jump.
+  if(kind==='ramp'){
+    const u=Math.random();
+    m.userData.sinkF=u*RAMP_SINK;
+    m.userData.sink=(m.userData.rampH||2.1)*m.userData.sinkF;
+    m.userData.lift=1-m.userData.sinkF;
+  }
   if(kind==='bigfin'){
     const d=Math.random()<0.5?1:-1;
     m.rotation.y=d*Math.PI/2;
@@ -12032,6 +12047,12 @@ function rampSlope(d,t){
   return (p[i+1]-p[i])*(p.length-1)/(2*d.rampL);
 }
 const OBST_SIZE={buoy:2.00, buoy2:0.70};
+// The deepest a kicker can be sitting, as a share of its own height. Past about half it stops
+// reading as a ramp riding low and starts reading as a ramp that is sinking.
+// Walked down from a half: at that, the deepest ones show only the top corner of the deck and
+// read as a plate floating on the water rather than as a kicker riding low. Two fifths keeps
+// the wedge legible at every depth, and still swings the jump between full and three fifths.
+const RAMP_SINK=0.40;
 // How much of the shark is out of the water — the fin, and nothing else. Measured from the
 // top of the model down, so it does not care how big the animal underneath it is.
 const BIGFIN_SHOW=0.70;
@@ -15586,7 +15607,16 @@ if(location.hash.includes('debug')){
                   mesh:hit?+(hit.point.y-o.position.y).toFixed(2):null,
                   ride:+rampRise(d,t).toFixed(2)});
       }
-      return {box:{min:bb.min.toArray().map(v=>+v.toFixed(2)),
+      // what it is actually WEARING, because a modelled ramp that came with its own texture
+      // and a modelled ramp that got the game's flat orange look identical in every number
+      // above and nothing like each other on screen
+      const skins=[]; o.traverse(x=>{ if(!x.isMesh)return;
+        for(const m of [].concat(x.material))skins.push({
+          name:m.name||null, map:!!m.map, normal:!!m.normalMap, own:!!x.userData.ownMaterial,
+          color:m.color?'#'+m.color.getHexString():null}); });
+      return {skins,
+              sink:+(d.sink||0).toFixed(2), lift:+(d.lift===undefined?1:d.lift).toFixed(2),
+              box:{min:bb.min.toArray().map(v=>+v.toFixed(2)),
                    max:bb.max.toArray().map(v=>+v.toFixed(2))},
               at:[o.position.x,o.position.y,o.position.z].map(v=>+v.toFixed(2)),
               meshes:(function(){let n=0;o.traverse(x=>{if(x.isMesh)n++;});return n;})(),
@@ -18154,7 +18184,12 @@ function update(dt){
     // the game — it is why the ramp is worth hitting, it is tuned against the wave and the
     // jump, and a dropped-in model that happens to be a gentler wedge should change what
     // the ramp LOOKS like and not what it is for.
-    rampExitV=H*P*Math.pow(Math.max(1e-3,ramped.t),P-1)/(2*RL)*Math.max(8,lastEff);
+    // ...times how much of this one is actually out of the water. The curve is the designed
+    // one either way — see above for why — but a kicker sitting half under the surface only
+    // presents the top half of that curve to ride up, and it would be a lie to launch him off
+    // the whole of it. It is also the only thing that makes the depth worth looking at.
+    rampExitV=H*P*Math.pow(Math.max(1e-3,ramped.t),P-1)/(2*RL)*Math.max(8,lastEff)
+              *(ramped.o.userData.lift===undefined?1:ramped.o.userData.lift);
     // The board's angle, though, is contact: it lies on whatever it is lying on.
     rampPitchT=lifted?Math.atan(rampSlope(ramped.o.userData,Math.max(1e-3,ramped.t))):0;
     if(!ramped.o.userData.used&&ramped.t>0.72){
@@ -18553,7 +18588,8 @@ function update(dt){
     const o=obstacles[i];
     o.position.z+=eff*dt;
     // ride the long swell, ignore the chop — and stay on top of it, never under
-    const oy=swellH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock)+FLOAT_OFF[o.userData.kind];
+    const oy=swellH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock)+FLOAT_OFF[o.userData.kind]
+             -(o.userData.sink||0);
     if(o.userData.by===undefined)o.userData.by=oy;
     // a big rigid ramp barely moves; small floats respond more
     const follow=o.userData.ramp?3.0:9.0;

@@ -2214,6 +2214,32 @@ if (hasHook) {
         'and the deepest hollow in that strip still clears the water',
         sv ? `lowest ${sv.lo} against a waterline at ${sea}` : 'no sand');
 
+  // ---- and no two kickers are sitting at the same depth ----
+  // A ramp used to be a ramp: same height out of the water every time, so the jump it gave was
+  // a fact you learned once. Each one now floats somewhere between riding high and half-under,
+  // and the two things that follow are the two a player can actually see — less of it above the
+  // surface, and less of a throw. What is checked is that the two agree: the share of its own
+  // height a ramp has been dropped by, and the share of the launch it keeps, must add to one.
+  // A depth that did not reach the physics would look like variety and play like nothing.
+  {
+    const rr = await page.evaluate(() => {
+      window.__surf.restart(); window.__surf.tick(0.2);
+      for (let i = 0; i < 14; i++) window.__surf.spawn('ramp', (i % 5) * 2 - 4, -14 - i * 6);
+      window.__surf.tick(0.1);
+      return window.__surf.obsObjects().filter(o => o.userData.ramp).map(o => ({
+        h: o.userData.rampH, sink: o.userData.sink, lift: o.userData.lift }));
+    });
+    const sinks = rr.map(r => r.sink).filter(v => v !== undefined);
+    const spread = sinks.length ? Math.max(...sinks) - Math.min(...sinks) : 0;
+    check(rr.length >= 8 && spread > 0.25,
+          'no two kickers ride at the same depth',
+          `${rr.length} ramps, ${spread.toFixed(2)}ft between the highest and the lowest`);
+    check(rr.length >= 8 && rr.every(r => Math.abs((r.sink / r.h) + r.lift - 1) < 0.02),
+          'and the jump each one gives is the share of it that is out of the water',
+          rr.slice(0, 4).map(r => `${(r.sink / r.h * 100).toFixed(0)}% under / ` +
+                                  `${(r.lift * 100).toFixed(0)}% of the launch`).join(', '));
+  }
+
   // ---- and the sand you can get close to is MODELLED, not painted ----
   // The beach mesh is two feet a quad: it can carry a dune and it cannot carry sand. A small
   // modelled piece of ground is scattered over it — turned, resized and sunk to meet the beach
