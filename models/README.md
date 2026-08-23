@@ -45,7 +45,7 @@ to `RIDER_MODELS` in `index.html`.
 | `ramp.glb` | the wooden ramp |
 | `octopus.glb` | the octopus |
 | `bigfin.glb` | the shark — swims submerged, only the fin above water |
-| `jetski.glb` | the jet ski |
+| `jetski.glb` | the jet ski — turned bow-first by measurement, see below |
 | `plane.glb` | the tow plane and the set-wave aircraft |
 | `palm2.glb` | a DIFFERENT tree for the title screen, in place of `palm.glb` there — not shipped |
 | `sand.glb` | one piece of modelled ground, scattered over the preview beach |
@@ -247,6 +247,19 @@ Two more things the shark needs, both because it is an animal rather than a fin:
 - **It swims the way it is going.** The built-in fin carries a quarter turn inside its own
   template, which cancels the quarter turn every `bigfin` clone is given to point it along its
   sweep. An imported model has no such turn, so it crossed the line sideways.
+
+### Which end is the bow
+
+`fitToBox` lines a model's long axis up with the target's, and a long axis has two ends. The
+ride points local −z along the direction of travel, so a hull whose bow is at +z crosses the
+whole screen backwards, with its wake — emitted behind the way it is going — coming off the
+sharp end.
+
+It is decided by **measuring the hull**, not by eye: a jet ski seen side-on at forty metres is
+a red shape with a dark lump on it either way round. The stern is the low wide end (the flat
+platform sits at about a tenth of the hull's height), the bow is the narrow one past the
+console. Both votes are summed because some hulls are barely tapered and some barely stepped,
+and the sign of the total turns the model or leaves it alone.
 
 ## Rigged riders
 

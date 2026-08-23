@@ -1261,7 +1261,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.5.0';
+const VERSION='4.6.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -14272,9 +14272,39 @@ skiGlint.visible=false;scene.add(skiGlint);
 const SKI_BOX=boxOf(jetSki);
 loadModel('jetski.glb',s3=>{
   const fitted=skinAndFit('jetski',s3,SKI_BOX);
+  // ---- and it drives BOW FIRST, which the fit cannot know ----
+  // fitToBox lines a model's long axis up with the target's, and a long axis has two ends.
+  // The ride points local -z along the direction of travel, so a model whose bow is at +z
+  // crosses the whole screen backwards — with its wake, which is emitted behind the way it is
+  // going, coming off the sharp end. Measured off the hull rather than eyeballed, because a
+  // jet ski seen side-on at forty metres is a red shape with a dark lump on it either way
+  // round: the stern is the low wide end (the flat platform sits at a tenth of the height),
+  // the bow is the narrow one past the console, and on this model they were the wrong way up.
+  if(skiBowAt(fitted)>0)fitted.rotation.y+=Math.PI;
   jetSki.clear ? jetSki.clear() : (jetSki.children.length=0);
   jetSki.add(fitted);
 });
+// Which end of a hull is the bow, as a sign: +1 if it points down +z, -1 if down -z. A bow is
+// narrow and carries the height; a stern is wide, low and square. Comparing the two halves on
+// both counts is steadier than either alone — some hulls are barely tapered, some barely
+// stepped — so the two votes are summed and the sign of the total is the answer.
+function skiBowAt(o){
+  o.updateMatrixWorld(true);
+  const inv=new THREE.Matrix4().copy(o.matrixWorld).invert(), v=new THREE.Vector3();
+  let lo=1e9, hi=-1e9;
+  const each=fn=>o.traverse(m=>{ if(!m.isMesh||!m.geometry||!m.geometry.attributes.position)return;
+    const pa=m.geometry.attributes.position;
+    for(let i=0;i<pa.count;i+=3){ v.fromBufferAttribute(pa,i).applyMatrix4(m.matrixWorld).applyMatrix4(inv); fn(v); } });
+  each(p=>{ if(p.z<lo)lo=p.z; if(p.z>hi)hi=p.z; });
+  if(!(hi>lo))return -1;
+  const mid=(lo+hi)/2;
+  let wN=0,wP=0,hN=-1e9,hP=-1e9;
+  each(p=>{ const w=Math.abs(p.x);
+    if(p.z<mid){ if(w>wN)wN=w; if(p.y>hN)hN=p.y; }
+    else       { if(w>wP)wP=w; if(p.y>hP)hP=p.y; } });
+  // narrower half is the bow; taller half holds the console, which sits forward of centre
+  return ((wP<wN?1:-1)+(hP>hN?1:-1))>=0?1:-1;
+}
 let skiT=16, skiOn=false, skiDir=1, skiWake=null;
 function spawnJetSki(){
   skiOn=true;
@@ -15441,6 +15471,44 @@ if(location.hash.includes('debug')){
     },
     // Put an obstacle exactly where a test wants it, and place the rider at a chosen height
     // over it — the only way to ask "does flying over this thing still set it off?"
+    // Put the jet ski on the water now, and near enough to look at. It crosses a long way
+    // out on a timer of its own, so waiting for one is not a way to check which way its bow
+    // is pointing — and a bow on backwards is a thing you only ever see, never measure.
+    skiNow(near,dir){
+      if(typeof spawnJetSki!=='function')return null;
+      spawnJetSki();
+      if(dir!==undefined){ skiDir=dir; jetSki.rotation.y=-skiDir*Math.PI/2; }
+      if(near)jetSki.position.set(px-skiDir*4,jetSki.position.y,pz-12);
+      jetSki.updateMatrixWorld(true);
+      const b=new THREE.Box3().setFromObject(jetSki), sz=b.getSize(new THREE.Vector3());
+      // ---- and WHICH END IS THE BOW, measured off the hull ----
+      // A bow is narrow, high and pointed; a stern is wide, low and square, with the flat
+      // platform on it. Read as slices along the ski's own length, that difference is plain —
+      // and it is the one question here a screenshot answers badly, because a jet ski seen
+      // side-on at forty metres is a red shape with a dark lump on it either way round.
+      const prof=[];
+      { const N=8, inv=new THREE.Matrix4().copy(jetSki.matrixWorld).invert(),
+              v=new THREE.Vector3(), lb=new THREE.Box3();
+        jetSki.traverse(o=>{ if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+          const pa=o.geometry.attributes.position;
+          for(let i=0;i<pa.count;i+=3){
+            v.fromBufferAttribute(pa,i).applyMatrix4(o.matrixWorld).applyMatrix4(inv);
+            lb.expandByPoint(v); } });
+        const z0=lb.min.z, z1=lb.max.z, sl=[];
+        for(let i=0;i<N;i++)sl.push({w:0,hi:-1e9});
+        jetSki.traverse(o=>{ if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+          const pa=o.geometry.attributes.position;
+          for(let i=0;i<pa.count;i+=3){
+            v.fromBufferAttribute(pa,i).applyMatrix4(o.matrixWorld).applyMatrix4(inv);
+            let t=(v.z-z0)/Math.max(1e-6,z1-z0); t=Math.max(0,Math.min(0.999,t));
+            const q=sl[Math.floor(t*N)];
+            const w=Math.abs(v.x); if(w>q.w)q.w=w; if(v.y>q.hi)q.hi=v.y; } });
+        for(const q of sl)prof.push([+q.w.toFixed(2),+q.hi.toFixed(2)]);
+      }
+      return {prof, dir:skiDir, yaw:+jetSki.rotation.y.toFixed(2),
+              pos:[+jetSki.position.x.toFixed(1),+jetSki.position.y.toFixed(1),+jetSki.position.z.toFixed(1)],
+              size:[+sz.x.toFixed(2),+sz.y.toFixed(2),+sz.z.toFixed(2)], on:jetSki.visible};
+    },
     obsObjects(){ return obstacles.slice(); },
     renderer(){ return renderer; },
     // The ramp's real surface against the slope the ride thinks it is climbing. A modelled
