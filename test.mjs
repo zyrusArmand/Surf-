@@ -2303,15 +2303,59 @@ if (hasHook) {
       return window.__surf.obsObjects().filter(o => o.userData.ramp).map(o => ({
         h: o.userData.rampH, sink: o.userData.sink, lift: o.userData.lift }));
     });
-    const sinks = rr.map(r => r.sink).filter(v => v !== undefined);
-    const spread = sinks.length ? Math.max(...sinks) - Math.min(...sinks) : 0;
-    check(rr.length >= 8 && spread > 0.25,
-          'no two kickers ride at the same depth',
-          `${rr.length} ramps, ${spread.toFixed(2)}ft between the highest and the lowest`);
+    // FOUR depths, not a continuum. Rolling it continuously gave every kicker its own private
+    // number, which is the same as giving none of them a size — two ramps a few per cent apart
+    // are indistinguishable, and there is no distribution to learn from single samples. What is
+    // asked for is that the set of depths is small enough to recognise and that its members are
+    // far enough apart to tell apart, which is a statement about the STEPS between them.
+    const steps = [...new Set(rr.map(r => +r.sink.toFixed(3)))].sort((a, b) => a - b);
+    check(rr.length >= 8 && steps.length >= 3 && steps.length <= 4,
+          'kickers come in three or four depths rather than every depth',
+          `${rr.length} ramps across ${steps.length}: ${steps.map(v => v.toFixed(2) + 'ft').join(', ')}`);
+    check(steps.length >= 3 && steps.every((v, i) => i === 0 || v - steps[i - 1] > 0.15),
+          'and no two of those depths are near enough to read as the same ramp',
+          steps.slice(1).map((v, i) => `+${(v - steps[i]).toFixed(2)}ft`).join(', '));
     check(rr.length >= 8 && rr.every(r => Math.abs((r.sink / r.h) + r.lift - 1) < 0.02),
           'and the jump each one gives is the share of it that is out of the water',
           rr.slice(0, 4).map(r => `${(r.sink / r.h * 100).toFixed(0)}% under / ` +
                                   `${(r.lift * 100).toFixed(0)}% of the launch`).join(', '));
+  }
+
+  // ---- and the depth is FELT, which is a different claim from the depth existing ----
+  // It did not used to be. The launch carries a floor so that hitting a kicker is never a
+  // damp squib, and as a single number that floor was higher than the curve gives at any
+  // ordinary speed — so it won every time, every ramp in the game launched you at exactly
+  // 17, and four carefully spaced depths produced one jump. The numbers above all passed
+  // throughout: the depth reached userData, userData reached the launch expression, and the
+  // launch expression was then thrown away by a Math.max. Asked here at the far end, off the
+  // lip, where the player is: what does each of the four ACTUALLY throw you at.
+  {
+    const at = async eff => {
+      const rs = await page.evaluate(e => {
+        window.__surf.restart(); window.__surf.tick(0.2);
+        for (let i = 0; i < 40; i++) window.__surf.spawn('ramp', (i % 5) * 2 - 4, -14 - i * 6);
+        window.__surf.tick(0.1);
+        const by = {};
+        for (const r of window.__surf.rampLaunch(e)) by[r.tier] = r;
+        return Object.keys(by).sort().map(k => by[k]);
+      }, eff);
+      return rs;
+    };
+    // At a speed near the start of a run, which is where the floor used to flatten everything,
+    // and again well up into a fast one, where the curve is doing the work instead. Both, since
+    // a fix that only holds in one of the two regimes is the same bug in the other.
+    const slow = await at(16), fast = await at(34);
+    const ordered = r => r.length >= 3 && r.every((v, i) => i === 0 || v.vy < r[i - 1].vy - 0.8);
+    check(ordered(slow) && ordered(fast),
+          'a deeper kicker throws you less hard, at a crawl and at full speed alike',
+          `slow ${slow.map(r => r.vy).join(' / ')} — fast ${fast.map(r => r.vy).join(' / ')}`);
+    // And by enough to be a difference rather than a rounding. Ballistic flight puts both the
+    // height and the distance in proportion to this, so a third off the launch is a third off
+    // the jump in every direction — which is the whole of what the depth is for.
+    const ratio = r => r[0].vy / r[r.length - 1].vy;
+    check(slow.length >= 3 && fast.length >= 3 && ratio(slow) > 1.4 && ratio(fast) > 1.4,
+          'and the shallowest throws you half again as far as the deepest',
+          `slow ${ratio(slow).toFixed(2)}x, fast ${ratio(fast).toFixed(2)}x`);
   }
 
   // ---- and the sand you can get close to is MODELLED, not painted ----

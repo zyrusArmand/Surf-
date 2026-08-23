@@ -1271,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.13.0';
+const VERSION='4.14.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -11946,9 +11946,16 @@ function makeObstacle(kind,x,z){
   // One number does both. The mesh is dropped by its own share of its height, so the shape you
   // are looking at IS the shape you get, and the launch is scaled by what is left above the
   // surface — a ramp with a third of itself under water gives you two thirds of the jump.
+  // FOUR kickers rather than a continuum. Rolling the depth continuously gave every ramp its
+  // own private number, which is the same as giving none of them a size: two ramps a few per
+  // cent apart are indistinguishable, and a player cannot learn a distribution he can only
+  // ever see one sample of. Four named steps are four things to recognise — one riding at the
+  // full height it was modelled at, and three progressively further under — so the depth stops
+  // being noise and becomes a read you can make on approach and act on.
   if(kind==='ramp'){
-    const u=Math.random();
-    m.userData.sinkF=u*RAMP_SINK;
+    const t=(Math.random()*RAMP_TIERS.length)|0;
+    m.userData.tier=t;
+    m.userData.sinkF=RAMP_TIERS[t]*RAMP_SINK;
     m.userData.sink=(m.userData.rampH||2.1)*m.userData.sinkF;
     m.userData.lift=1-m.userData.sinkF;
   }
@@ -12044,6 +12051,13 @@ function rampRise(d,t){
   const i=Math.min(p.length-2,Math.floor(f));
   return p[i]+(p[i+1]-p[i])*(f-i);
 }
+// How hard a kicker throws you, at a point t along it, at a given speed. Pulled out of the
+// ride so that what a ramp gives can be MEASURED without re-typing the expression next to
+// it — a check written against a copy of a formula passes happily while the formula it is
+// standing in for changes underneath it.
+function rampLaunchV(H,P,RL,t,eff,lift){
+  return H*P*Math.pow(Math.max(1e-3,t),P-1)/(2*RL)*Math.max(8,eff)*(lift===undefined?1:lift);
+}
 function rampSlope(d,t){
   const p=d.rampProf;
   if(!p)return d.rampH*d.rampP*Math.pow(Math.max(1e-3,t),d.rampP-1)/(2*d.rampL);
@@ -12058,6 +12072,12 @@ const OBST_SIZE={buoy:2.00, buoy2:0.70};
 // read as a plate floating on the water rather than as a kicker riding low. Two fifths keeps
 // the wedge legible at every depth, and still swings the jump between full and three fifths.
 const RAMP_SINK=0.40;
+// The four steps, as shares of that deepest setting. Evenly spaced would put the top two a
+// sixth of the sink apart, which is a couple of inches on a two foot wedge and reads as the
+// same ramp twice; spaced out toward the deep end instead, so each step is a visible one.
+// The first is exactly zero on purpose — a full-height kicker giving the whole designed launch
+// has to be in the set, or "sitting low" has nothing to be low against.
+const RAMP_TIERS=[0, 0.42, 0.74, 1];
 // How much of the shark is out of the water — the fin, and nothing else. Measured from the
 // top of the model down, so it does not care how big the animal underneath it is.
 const BIGFIN_SHOW=0.70;
@@ -12180,7 +12200,7 @@ function addSpin(dir,src){
 // there is time up there to actually throw something
 let wakeAir=false;
 // riding a kicker: he follows its surface and leaves on whatever angle the lip has
-let onRampO=null, rampPitchT=0, rampExitV=0, wakeGrace=0;
+let onRampO=null, rampPitchT=0, rampExitV=0, rampExitL=1, wakeGrace=0;
 // How hard each launch throws him, in units per second. Both are floors: go faster and
 // the ramp gives more. Air time is roughly 2*v/g, and g is 20 in the open but 4.6 off
 // the wake, so these are about two rotations off a kicker and five off the jet ski.
@@ -15633,6 +15653,21 @@ if(location.hash.includes('debug')){
               meshes:(function(){let n=0;o.traverse(x=>{if(x.isMesh)n++;});return n;})(),
               rows:out};
     },
+    // What every kicker in the world would actually throw you at, off its lip, at a given
+    // speed — through the same function the ride uses and the same floor, so this cannot
+    // agree with a launch the game no longer performs.
+    rampLaunch(eff){
+      const out=[];
+      for(const o of obstacles){
+        const d=o.userData; if(!d||!d.ramp)continue;
+        const lift=d.lift===undefined?1:d.lift;
+        const v=rampLaunchV(d.rampH,d.rampP,d.rampL,1,eff===undefined?18:eff,lift);
+        out.push({tier:d.tier===undefined?null:d.tier, sink:+(d.sink||0).toFixed(3),
+                  lift:+lift.toFixed(3), curve:+v.toFixed(2),
+                  vy:+Math.min(28,Math.max(v,RAMP_MIN_VY*lift)).toFixed(2)});
+      }
+      return out;
+    },
     obsTemplate(k){ const t=OBST_TEMPLATES[k]; return t?{variant:t.userData.variant||null}:null; },
     spawn(kind,dx,dz){ const o=makeObstacle(kind,px+dx,pz+dz); return {x:o.position.x,y:o.position.y,z:o.position.z,h:o.userData.h}; },
     setRiderY(y){ py=y; vy=0; airborne=true; return py; },
@@ -18200,8 +18235,8 @@ function update(dt){
     // one either way — see above for why — but a kicker sitting half under the surface only
     // presents the top half of that curve to ride up, and it would be a lie to launch him off
     // the whole of it. It is also the only thing that makes the depth worth looking at.
-    rampExitV=H*P*Math.pow(Math.max(1e-3,ramped.t),P-1)/(2*RL)*Math.max(8,lastEff)
-              *(ramped.o.userData.lift===undefined?1:ramped.o.userData.lift);
+    rampExitV=rampLaunchV(H,P,RL,ramped.t,lastEff,ramped.o.userData.lift);
+    rampExitL=ramped.o.userData.lift===undefined?1:ramped.o.userData.lift;
     // The board's angle, though, is contact: it lies on whatever it is lying on.
     rampPitchT=lifted?Math.atan(rampSlope(ramped.o.userData,Math.max(1e-3,ramped.t))):0;
     if(!ramped.o.userData.used&&ramped.t>0.72){
@@ -18213,8 +18248,16 @@ function update(dt){
   } else if(onRampO){
     // off the lip with what the ramp gave him, and never with less than a real jump
     onRampO=null;airborne=true;
-    vy=Math.max(vy,Math.min(28,rampExitV),RAMP_MIN_VY);
-    rampExitV=0;
+    // The floor is PER RAMP. It is here so hitting a kicker is never a damp squib —
+    // below a certain speed the curve alone gives you a hop rather than a jump — and as
+    // one number it was 17 for every ramp in the game, which at any ordinary speed beats
+    // what the curve gives. So it won every time: every kicker launched you at exactly
+    // 17, the depth was invisible in the one place it was meant to be felt, and the tiers
+    // were scenery. Scaled by how much of the ramp is out of the water the guarantee
+    // survives — a full-height kicker still promises a real jump — and the sunk ones
+    // promise proportionally less of one, which is the difference there to be seen.
+    vy=Math.max(vy,Math.min(28,Math.max(rampExitV,RAMP_MIN_VY*rampExitL)));
+    rampExitV=0; rampExitL=1;
     clearLanding(vy);                 // whatever the ramp was hiding, it is not a wall now
   } else rampPitchT=0;
   // The height gate is meaningless on the ring, so pipe air stands in its own right. Out on
