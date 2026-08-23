@@ -2075,6 +2075,37 @@ if (hasHook) {
         (bad.length ? `glossy still: ${JSON.stringify(bad.slice(0, 6))}` : 'none glossy'));
 }
 
+// ---------- the wind has been over the beach ----------
+// A beach is not a field of grain: the wind builds dry sand into ripples — long ridges a
+// hand's width apart, running across the wind and wandering rather than ruled — and it is the
+// first thing in every photograph of one. The sand here had none, only isotropic grain.
+//
+// They live in the normal map and not the mesh, and that is not a shortcut, it is the only
+// place they fit: the sand's rows are a foot and a half apart and the height function's own
+// ripple term is a couple of feet from crest to crest, which is one and a half vertices per
+// wave. Anything at that spacing is tessellated flat however much of it is asked for.
+//
+// So the check reads the baked map back and asks whether the relief is ANISOTROPIC. Ripples
+// turn the normal hard one way and barely at all the other; grain turns it the same amount
+// in both. A ratio near one is a beach with no wind on it, whatever the code says it baked.
+{
+  const sand = await page.evaluate(() => window.__surf.sandRelief());
+  check(sand && sand.ratio > 2,
+        'the beach is ripples rather than sandpaper — the relief runs one way',
+        sand ? `${sand.along} across the ridges against ${sand.across} along them, ${sand.ratio}x`
+             : 'no sand');
+  // and deep enough to catch the light at all. It was baked at a whisper first — the numbers
+  // that drew grain, on a relief several times bigger — and read as a clean sheet.
+  check(sand && sand.scale >= 1.0,
+        'and deep enough to read from across the beach',
+        sand ? `normal scale ${sand.scale}` : 'no sand');
+  // A hundred and fifty tiles at a grazing angle is a moire generator; four samples cannot
+  // resolve the far half of the beach.
+  check(sand && sand.aniso >= 8,
+        'and it lies down into the distance instead of shimmering',
+        sand ? `${sand.tiles[0]}x${sand.tiles[1]} tiles at ${sand.aniso}x anisotropy` : 'no sand');
+}
+
 // ---------- the grip pad lies ON the deck ----------
 // A white curve kept appearing across the black pad on the title screen, and moving as the
 // board swayed. It was taken for a reflection twice and it never was one: the pad is a

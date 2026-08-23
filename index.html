@@ -1261,7 +1261,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.89.0';
+const VERSION='3.90.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5908,17 +5908,45 @@ function buildBeach(){
   // Two scales, because one is a pattern: a coarse ripple and a fine grain over it.
   beachSand=new THREE.Mesh(sg,new THREE.MeshStandardMaterial({
     vertexColors:true,color:SAND_LIT,roughness:0.99,metalness:0.0}));
-  beachSand.material.normalMap=bakedNormal('sand',256,(x,y)=>
-    _fbm(x*0.135,y*0.135)*0.62+_fbm(x*0.52+9,y*0.52+3)*0.38, 2.6, 0.62);
+  // ---- and the wind has been over it ----
+  // A beach is not a field of grain. The wind builds dry sand into RIPPLES: long ridges a
+  // hand's width apart, running across the wind, wandering rather than ruled straight — it
+  // is the first thing in every photograph of one and the sand here had none of it.
+  //
+  // They go in the normal map and not the mesh, and that is not a shortcut, it is the only
+  // place they fit. The height function already has a ripple term and the mesh cannot hold
+  // it: the rows are a foot and a half apart in z and the ripples are a couple of feet from
+  // crest to crest, which is one and a half vertices per wave. Anything at that spacing is
+  // tessellated flat no matter how much of it is asked for. In the map it costs nothing and
+  // survives at any distance.
+  //
+  // The ridges run along the tile's u, which is world x — ACROSS the view rather than into
+  // it — so they present their profile over and over instead of foreshortening into nothing.
+  // Eleven whole periods across the tile so the ridges meet themselves at the seam, and the
+  // wander is what stops eleven straight lines reading as corduroy.
+  const RIPPLE=(x,y,N)=>{
+    const wander=(_fbm(x*0.045,y*0.045)-0.5)*7.0;
+    const rip=Math.sin((y+wander)*(Math.PI*2*11/N))*0.5+0.5;
+    return rip*0.60 + _fbm(x*0.135,y*0.135)*0.22 + _fbm(x*0.52+9,y*0.52+3)*0.18;
+  };
+  // 2.6 and 0.62 drew the grain it used to have; ripples are a bigger relief than grain and
+  // came out as a whisper at those numbers. A flatter z is a steeper surface between the
+  // ridges, which is the whole of what makes them catch the light.
+  beachSand.material.normalMap=bakedNormal('sand',256,RIPPLE,4.2,0.34);
   beachSand.material.normalMap.repeat.set(150,90);   // about one tile every five feet
-  beachSand.material.normalScale=new THREE.Vector2(0.55,0.55);
-  // the hollows between the grains keep a little shade, which is what stops a lit beach
-  // reading as a sheet of paper at grazing angles
+  beachSand.material.normalScale=new THREE.Vector2(1.55,1.55);
+  // the hollows between the ridges keep a little shade, which is what stops a lit beach
+  // reading as a sheet of paper at grazing angles — and it is the SAME relief, so the shading
+  // and the shadowing agree instead of describing two different beaches
   sg.setAttribute('uv2',sg.attributes.uv);
-  beachSand.material.aoMap=bakedGrey('sandAO',256,(x,y)=>
-    0.58+0.42*(_fbm(x*0.135,y*0.135)*0.62+_fbm(x*0.52+9,y*0.52+3)*0.38));
+  beachSand.material.aoMap=bakedGrey('sandAO',256,(x,y,N)=>0.58+0.42*RIPPLE(x,y,N));
   beachSand.material.aoMap.repeat.set(150,90);
-  beachSand.material.aoMapIntensity=0.55;
+  // A hundred and fifty tiles seen at a grazing angle is a moire generator: the far half of
+  // the beach is a few texels per pixel and four samples cannot resolve it. Sixteen is the
+  // difference between ripples that lie down into the distance and ripples that shimmer.
+  beachSand.material.normalMap.anisotropy=16;
+  beachSand.material.aoMap.anisotropy=16;
+  beachSand.material.aoMapIntensity=0.80;
   beachSand.material.envMapIntensity=0.16;
   beachSand.rotation.x=-Math.PI/2; beachSand.position.set(0,0,SC); g.add(beachSand);
 
@@ -15280,6 +15308,23 @@ if(location.hash.includes('debug')){
               tip:t.length?t[t.length-1].p.toArray().map(v=>+v.toFixed(2)):null,
               rad:t.length?[+t[0].r.toFixed(2),+t[Math.floor(t.length/2)].r.toFixed(2)]:null,
               spread:menuBeach?menuBeach.spread:null};
+    },
+    // WHAT THE SAND'S RELIEF IS, read back off the baked map rather than described. Wind
+    // ripples are ANISOTROPIC — long ridges one way, a sharp profile the other — and grain is
+    // not, so the two are told apart by comparing how much the normal turns along each axis.
+    // A map that came out isotropic is a beach with no wind on it, and looks like sandpaper.
+    sandRelief(){
+      const t=beachSand&&beachSand.material&&beachSand.material.normalMap;
+      const im=t&&t.image; if(!im)return null;
+      const c=document.createElement('canvas'); c.width=im.width; c.height=im.height;
+      c.getContext('2d').drawImage(im,0,0);
+      const d=c.getContext('2d').getImageData(0,0,im.width,im.height).data;
+      let sx=0, sy=0, n=im.width*im.height;
+      for(let i=0;i<n;i++){ sx+=Math.abs(d[i*4]-128); sy+=Math.abs(d[i*4+1]-128); }
+      return {across:+(sx/n).toFixed(2), along:+(sy/n).toFixed(2),
+              ratio:+((sy/n)/Math.max(0.01,sx/n)).toFixed(2),
+              scale:+beachSand.material.normalScale.x.toFixed(2),
+              tiles:[t.repeat.x,t.repeat.y], aniso:t.anisotropy};
     },
     boardMats(){
       const o=(menuBeach&&menuBeach.board)||boardArt; if(!o)return null;
