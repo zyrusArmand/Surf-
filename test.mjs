@@ -2202,6 +2202,51 @@ if (hasHook) {
   check(sv && sea > 0.5 && sv.lo > sea,
         'and the deepest hollow in that strip still clears the water',
         sv ? `lowest ${sv.lo} against a waterline at ${sea}` : 'no sand');
+
+  // ---- and the lens over all of it is a FISHEYE, which is two things, not one ----
+  // A three.js camera is rectilinear, so the field of view alone cannot make one: opened up
+  // this far on its own it does not bend, it SMEARS, and the corners of the frame stretch
+  // sideways. The bend is a remap in the composite pass, and the two only work together —
+  // a wide angle with no bend is a stretched frame, a bend with no angle bulges a picture
+  // with nothing at its edges to bow.
+  //
+  // What is asked here is what the composite was actually HANDED on the frame it just drew,
+  // not what the title screen intends to hand it. Every way this fails quietly — the post
+  // chain unavailable, the argument dropped on the way through present(), the uniform never
+  // reaching the shader — ends with a merely very wide rectilinear shot, and that does not
+  // look like a missing feature, it looks like a broken camera.
+  // WITH THE TITLE SCREEN UP, and put up here rather than assumed: the checks above leave the
+  // page wherever they finished, and the bend belongs to one screen. Asked on any other, the
+  // honest answer is that nothing was bent — which is the first thing this reported, on a
+  // screen that was visibly bending.
+  const lens = await page.evaluate(async () => {
+    // beachNow(), not "does the menu want to be up": the click sets the screen and the beach
+    // is built on the frame AFTER it, and menuLens draws the frame it then reports on — asked
+    // in between, it finds nothing to draw and reports the game's last frame instead.
+    for (let i = 0; i < 12 && !window.__surf.beachNow(); i++) {
+      document.getElementById('menuBtn').click();
+      await new Promise(r => setTimeout(r, 150));
+    }
+    await new Promise(r => setTimeout(r, 150));
+    return window.__surf.menuLens();
+  });
+  check(lens && lens.post && lens.everApplied > 0.3,
+        'the title screen is shot through a fisheye, and the frame was actually bent by it',
+        lens ? `${lens.everApplied} of the mapping has reached the shader across ${lens.frames} frames, ` +
+               `post chain ${lens.post}` : 'no lens');
+  check(lens && lens.cornerDeg > 85,
+        'and the lens is wide enough for the bend to have something to bend',
+        lens ? `${lens.fov}° down the frame, ${lens.acrossDeg}° across it, ${lens.cornerDeg}° corner to corner`
+             : 'no lens');
+  // The mapping itself, which is what separates a fisheye from a blur: angle to radius rather
+  // than tangent to radius, so halfway out in the frame is MORE than halfway out in angle and
+  // the periphery is squeezed rather than stretched. Read off the corner angle the composite
+  // was given, so it is the mapping the shader ran and not one restated here.
+  const half = lens ? Math.tan(0.5 * lens.theta) / Math.tan(lens.theta) : 1;
+  check(lens && half < 0.46,
+        'and it squeezes the edge of the frame in rather than stretching it out',
+        lens ? `the halfway point of the picture is looking at what sat ${(half * 100).toFixed(0)}% of the way out`
+             : 'no lens');
 }
 
 // ---------- the grip pad lies ON the deck ----------

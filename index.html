@@ -1261,7 +1261,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.98.0';
+const VERSION='3.99.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -1309,6 +1309,11 @@ let fxOn=false, fxRT=null, fxA=null, fxB=null, fxScene=null, fxCam=null, fxQuad=
     fxBright=null, fxBlur=null, fxComp=null, fxCopy=null,
     fxDepth=null, fxDof=null, fxDown=null, fxDepthMat=null;
 const FX_DIV=4;                    // bloom runs at a quarter of each axis; it is a blur
+// What the composite was handed on the LAST frame it drew, kept where a later frame cannot
+// stomp it. The uniforms themselves cannot answer this: they belong to the composite and every
+// screen in the game writes them on its way past, so reading them afterwards reports whichever
+// screen painted most recently rather than the one being asked about.
+let _fxLast=null;
 const _FX_VS=`varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }`;
 function fxInit(){
   if(!renderer.capabilities||!renderer.capabilities.isWebGL2)return;
@@ -1358,20 +1363,52 @@ function fxInit(){
     fxComp=new THREE.ShaderMaterial({uniforms:{tD:{value:null},tB:{value:null},
         tZ:{value:null},tF:{value:null},
         uAmt:{value:0.32},uVig:{value:0.14},
+        uFish:{value:0.0},uTheta:{value:0.8},uAsp:{value:1.0},
         uDof:{value:0},uFocus:{value:30.0},uRange:{value:26.0},uNear:{value:0.1},uFar:{value:1600.0}},
       vertexShader:_FX_VS, fragmentShader:`
         varying vec2 vUv; uniform sampler2D tD; uniform sampler2D tB;
         uniform sampler2D tZ; uniform sampler2D tF;
         uniform float uAmt; uniform float uVig;
+        uniform float uFish; uniform float uTheta; uniform float uAsp;
         uniform float uDof; uniform float uFocus; uniform float uRange;
         uniform float uNear; uniform float uFar;
+        // ---- a FISHEYE, which is not a wide lens ----
+        // A three.js perspective camera is rectilinear by construction: it holds straight
+        // lines straight, and the price of that is the corners. Open it up past about eighty
+        // degrees and the periphery does not get wider, it gets STRETCHED — a face at the
+        // edge of the frame smears sideways — which is why simply raising the field of view
+        // never looks like a fisheye however far it is pushed. It looks like a mistake.
+        //
+        // What a fisheye actually does is trade that stretch for a bend: it maps ANGLE to
+        // radius instead of tangent to radius, so the periphery is squeezed into the frame
+        // and straight lines bow out around the middle. That is a remap of a rendered frame,
+        // and this is the pass that has one. The camera renders rectilinear and wide, and
+        // every sample here comes back through the inverse: a point at fraction t of the way
+        // to the corner is looking t*uTheta degrees off axis, and that direction sits at
+        // tan(t*uTheta)/tan(uTheta) of the way out in the frame that was drawn.
+        //
+        // It never reaches outside the rendered frame — t=1 maps to 1 — so there are no black
+        // corners to mask, and it magnifies the CENTRE, which is the other half of the look:
+        // whatever the lens is pointed at swells while the edges of the world curl away from
+        // it. uFish dials the whole thing from nothing to the full mapping.
+        vec2 fish(vec2 uv){
+          if(uFish<=0.001)return uv;
+          vec2 p=(uv-0.5)*2.0; p.x*=uAsp;
+          float rmax=length(vec2(uAsp,1.0));
+          float rd=length(p), t=rd/rmax;
+          if(t<1e-5)return uv;
+          float k=mix(1.0, tan(t*uTheta)/(t*tan(uTheta)), uFish);
+          p*=k; p.x/=uAsp;
+          return p*0.5+0.5;
+        }
         void main(){
-          vec3 c=texture2D(tD,vUv).rgb;
+          vec2 vUvF=fish(vUv);
+          vec3 c=texture2D(tD,vUvF).rgb;
           if(uDof>0.5){
             // depth buffers are not linear, and the whole near half of one is spent on the
             // first few feet — so it has to come back to feet before it can be compared to
             // where the board is standing
-            float z=texture2D(tZ,vUv).x*2.0-1.0;
+            float z=texture2D(tZ,vUvF).x*2.0-1.0;
             float lin=2.0*uNear*uFar/(uFar+uNear-z*(uFar-uNear));
             // Asymmetric, and much gentler behind than in front. A lens does soften the
             // background, but a BACKGROUND is where most of this picture is — sky, sea and
@@ -1383,9 +1420,11 @@ function fxInit(){
             float coc=d>0.0 ? clamp(d/(uRange*3.4),0.0,1.0)*0.34
                             : clamp(-d/uRange,0.0,1.0)*0.72;
             coc=coc*coc*(3.0-2.0*coc)/max(coc,1e-4)*coc;   // smootherstep, amplitude kept
-            c=mix(c,texture2D(tF,vUv).rgb,coc);
+            c=mix(c,texture2D(tF,vUvF).rgb,coc);
           }
-          c+=texture2D(tB,vUv).rgb*uAmt;
+          c+=texture2D(tB,vUvF).rgb*uAmt;
+          // the vignette rides the UNDISTORTED frame, so it stays a round darkening at the
+          // edge of the picture rather than being bent along with everything in it
           vec2 d=vUv-0.5;
           c*=1.0-uVig*dot(d,d)*2.6;
           // sRGB proper, not pow(1/2.2). They are close in the midtones and they are NOT
@@ -1443,7 +1482,11 @@ function _fxPass(mat,target){
 // The one entry point. `extra` draws into the SAME target after the scene — the trick
 // overlay needs to land on the frame and still occlude itself, and it has to bloom with
 // everything else rather than being pasted on afterwards.
-function present(scn,cam,extra,dof){
+// `fish` bends the finished frame into a fisheye — see the composite shader. It is the last
+// argument because it is the last thing that happens, and it costs nothing when it is zero.
+// With the post chain off there is no frame to bend, so the shot falls back to the plain wide
+// rectilinear one rather than to nothing.
+function present(scn,cam,extra,dof,fish){
   if(!fxOn){ renderer.render(scn,cam); if(extra)extra(); return; }
   // depth first, while the scene is still the only thing bound — a flat material over
   // everything, at half size, because nothing here is being looked at
@@ -1479,6 +1522,26 @@ function present(scn,cam,extra,dof){
   fxBlur.uniforms.uStep.value.set(0,1/fxA.height); _fxPass(fxBlur,fxA);
   fxComp.uniforms.tD.value=fxRT.texture;
   fxComp.uniforms.tB.value=fxA.texture;
+  // The corner half-angle, which is what the remap is written against: the frame's corner is
+  // as far off axis as this lens goes, and every radius inside it is a fraction of that.
+  // Taken off the CAMERA rather than stored, so it follows the field of view and the shape of
+  // the window without anything having to be told twice.
+  fxComp.uniforms.uFish.value=fish||0;
+  // ...and the HIGH WATER MARK alongside it, which is the one that can be asked about later.
+  // "What did the last frame do" is only answerable while the screen in question is the one on
+  // screen, and every frame of every other screen overwrites it — three attempts at reading it
+  // after the fact came back describing the game's camera, because in a stepped harness the
+  // game is what drew last whatever the menu was doing. Whether the bend has EVER reached the
+  // shader is a question no later frame can erase, and it still fails for every way this goes
+  // quietly wrong: post chain unavailable, argument dropped, uniform never wired.
+  _fxLast={fish:fish||0, fov:cam.fov, n:(_fxLast?_fxLast.n:0)+1,
+           max:Math.max(_fxLast?_fxLast.max:0, fish||0)};
+  if(fish){
+    const asp=cam.aspect||1;
+    fxComp.uniforms.uAsp.value=asp;
+    fxComp.uniforms.uTheta.value=
+      Math.atan(Math.hypot(asp,1)*Math.tan(cam.fov*Math.PI/360));
+  }
   _fxPass(fxComp,null);
 }
 fxInit();
@@ -15818,6 +15881,39 @@ if(location.hash.includes('debug')){
       return {menuFace:+MENU_FACE.toFixed(3), off:+off.toFixed(1),
               yaw:+pug.rotation.y.toFixed(3)};
     },
+    // The two halves of the lens, walked together, because they only mean anything together:
+    // `fov` is how much world is in the frame and `fish` is whether its edges stretch or bend.
+    menuLens(fov,fish){
+      if(fov!==undefined){ MB_FOV=fov; if(menuCam){ menuCam.fov=fov; menuCam.updateProjectionMatrix(); } }
+      if(fish!==undefined)MENU_FISH=Math.max(0,Math.min(1,fish));
+      // ---- and the frame is DRAWN before it is asked about ----
+      // The composite's uniforms belong to the composite, not to the title screen: every
+      // present() in the game writes them on its way past, and the game's own draw hands it a
+      // zero. Reading them whenever this happens to be called reports whichever screen painted
+      // last, which is how this first came back saying the bend was off on a screen that was
+      // visibly bending. So the menu frame is rendered here, and then read.
+      if(typeof renderMenuBeach==='function'&&typeof menuBeachWanted==='function'&&menuBeachWanted())
+        renderMenuBeach(0.001);
+      const asp=menuCam?menuCam.aspect:1;
+      return {fov:MB_FOV, fish:MENU_FISH, aspect:+asp.toFixed(3),
+              // what the lens actually covers, which is the question a vertical field of view
+              // never answers on its own
+              acrossDeg:+(2*Math.atan(asp*Math.tan(MB_FOV*Math.PI/360))*180/Math.PI).toFixed(1),
+              cornerDeg:+(2*Math.atan(Math.hypot(asp,1)*Math.tan(MB_FOV*Math.PI/360))*180/Math.PI).toFixed(1),
+              post:fxOn,
+              // What the composite was LAST HANDED, rather than what this screen means to
+              // hand it. present() writes these immediately before the pass that reads them,
+              // so a non-zero one here is the bend having actually been drawn — which is the
+              // thing worth asking, since every way this can fail quietly (the post chain off,
+              // the argument dropped, the uniform never reaching the shader) leaves a frame
+              // that is merely a very wide rectilinear one and looks like a mistake, not like
+              // an absence.
+              applied:_fxLast?+_fxLast.fish.toFixed(3):null,
+              everApplied:_fxLast?+_fxLast.max.toFixed(3):null,
+              drewAt:_fxLast?_fxLast.fov:null, frames:_fxLast?_fxLast.n:0,
+              wanted:typeof menuBeachWanted==='function'?menuBeachWanted():null,
+              theta:fxComp?+fxComp.uniforms.uTheta.value.toFixed(4):null};
+    },
     // Bend the menu's palm to any profile, and report where its crown lands in the frame.
     // Eight joint angles is eight numbers to guess at; one render each is the only way to
     // see which of them is the tree the shot was framed for.
@@ -18406,7 +18502,19 @@ let MB_EYE=1.8, MB_AIM=4.1;
 // How wide the lens is. Forty-seven is an ordinary one; a wide one is what makes a shot taken
 // from down on the sand look taken from down on the sand — the near beach stretches away
 // under you and the palm spreads right across the top instead of sitting politely in it.
-let MB_FOV=62;
+// Ninety-two, and it is only sane because of the bend below it. A rectilinear lens this wide
+// is unusable — the corners stretch — which is why this sat at sixty-two for as long as the
+// frame was rectilinear. Read across rather than down: three.js measures a field of view
+// VERTICALLY, so this is fifty-one degrees across a phone held upright and a hundred and
+// eighteen across a browser window.
+let MB_FOV=92;
+// ---- and how much of a FISHEYE it is ----
+// Zero is the plain rectilinear lens; one is the full angle-to-radius mapping. The two work
+// TOGETHER and neither does the job alone: the field of view above is what decides how much
+// world is in the frame, and this is what decides whether the edges of it stretch or bend. A
+// wide rectilinear lens smears the corners; a fisheye at a narrow angle bulges a picture that
+// has nothing at its edges to bend. So the angle goes up and this bends what the angle let in.
+let MENU_FISH=0.8;
 // How far right of dead centre the set is composed to sit. The camera aims at the middle of
 // what is standing on the beach and then this much to the LEFT of it, which puts everything
 // that much to the right in the frame. It used to BE the aim rather than a bias on it, and
@@ -18951,11 +19059,30 @@ function renderMenuBeach(dt){
   // and closing it further walks the Play button — which is pinned to the bottom centre of
   // the SCREEN, not to the scene — straight over the top of the rider.
   // Less than half what it was, because the lens is wide now and three.js measures a field of
-  // view VERTICALLY: the same sixty-two degrees is thirty-one across a phone held upright and
-  // eighty-four across a browser window. Landscape gets all that extra room for free and does
-  // not need to be pushed back for it as well, or the set ends up a long way off.
-  const D=MB_D+Math.max(0,1-menuCam.aspect)*18.0
-              +Math.max(0,menuCam.aspect-0.9)*3.0+spread*0.45+sw*0.5;
+  // view VERTICALLY: the same ninety-two degrees is fifty-one across a phone held upright and
+  // a hundred and eighteen across a browser window. Landscape gets all that extra room for
+  // free and does not need to be pushed back for it as well, or the set ends up a long way
+  // off. These are still the numbers walked at sixty-two — the scaling below is what carries
+  // them to whatever the lens is now.
+  // ---- and every one of those distances is in units of the LENS, not of feet ----
+  // All the numbers above were walked at sixty-two degrees, and they are the reason opening
+  // the lens up on its own does not give you a fisheye — it gives you the same picture taken
+  // from further away, with the subject small in the middle and sand everywhere. A wide-angle
+  // shot is a wide lens AND a short distance; that is the whole of what makes one look like
+  // one. So the walk is kept and the whole of it is scaled by how much wider the lens is than
+  // the one it was walked with, and the composition holds while the angle changes underneath.
+  const lensK=Math.tan(62*Math.PI/360)/Math.tan(MB_FOV*Math.PI/360);
+  // ...and the BEND magnifies the middle as well, which is a second thing pulling the same
+  // way. Mapping angle to radius spends less of the frame on the periphery and more of it on
+  // the axis, so whatever the lens is pointed at swells — half again at the settings this
+  // screen uses. Left uncorrected the two compound: the shot came in twice and the Play
+  // button ended up sitting on the board. This is the exact factor the composite applies at
+  // the centre, so cancelling it here leaves the subject the size it was posed at and lets
+  // the fisheye do the only thing it is wanted for, which is bending the world around it.
+  const _th=Math.atan(Math.hypot(menuCam.aspect,1)*Math.tan(MB_FOV*Math.PI/360));
+  const mag=MENU_FISH>0?1/(1+(_th/Math.tan(_th)-1)*MENU_FISH):1;
+  const D=(MB_D+Math.max(0,1-menuCam.aspect)*18.0
+              +Math.max(0,menuCam.aspect-0.9)*3.0+spread*0.45+sw*0.5)*lensK*mag;
   const px=0, pz=MB_Z*MB_K;
   // Low, and aimed UP the beach rather than down onto it. Eye level over the sand puts a
   // third of the picture into empty foreground; from down here the sand is a strip the
@@ -18997,7 +19124,7 @@ function renderMenuBeach(dt){
   // for. The range is wide enough to keep the rider beside it and the trunk behind it sharp
   // and let go of everything past them.
   present(prevScene,menuCam,null,MENU_DOF?{focus:menuCam.position.distanceTo(m.board.position),
-                                           range:MB_DOF}:null);
+                                           range:MB_DOF}:null,MENU_FISH);
   renderer.setClearColor(0x000000,1);
   renderer.toneMappingExposure=ex0;
 }
