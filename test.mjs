@@ -2170,6 +2170,38 @@ if (hasHook) {
         'and none of it dips under the sea that would then be drawn over it',
         sp ? `beach up ${sp.up}, lowest ${Math.min(...ys)} against a waterline at ${sp.seaY}`
            : 'no sand');
+
+  // ---- and it is DUNES, not a ramp, in the strip the lens actually sees ----
+  // The check above passed, every run, on a beach with no dunes in it whatsoever, because it
+  // asks about HEIGHT: this beach climbs three feet from the camera to the set no matter what
+  // is done to it, so "more than half a foot between the highest and lowest" is satisfied by
+  // a perfectly smooth slope. It was, and the title screen was a sheet of paper.
+  //
+  // A dune is where the ground TURNS OVER, so the measure is the second difference along the
+  // view — zero on anything smooth however tall or however tilted, large exactly where there
+  // is a crest — and it is checked as a RATIO against that same measure taken on the beach's
+  // own level curve, which has no dunes in it by construction. That makes it a comparison
+  // rather than a threshold somebody has to re-guess the next time the beach is reshaped.
+  const sv = await page.evaluate(() => window.__surf.sandView());
+  const peak = sv ? Math.max(...sv.bump) : 0;
+  check(sv && peak / Math.max(0.005, sv.flatBump) > 20,
+        'and the near beach turns over into ridges rather than running away as one smooth ramp',
+        sv ? `${peak.toFixed(3)}ft of turn-over per step against ${sv.flatBump.toFixed(3)} on the ` +
+             `bare profile — ${Math.round(peak / Math.max(0.005, sv.flatBump))}x` : 'no sand');
+  // The other half of the same lever, and the one that broke first: the eye height was
+  // measured at the SET, twenty units down a sloping beach from where the lens stands, so the
+  // first dune big enough to see put the camera under the surface and the screen filled with
+  // the back of the beach and the sea showing through it.
+  check(sv && sv.clear > 0.5,
+        'and the lens stands over the sand rather than inside it, whatever the dunes do',
+        sv ? `${sv.clear}ft of daylight under the camera` : 'no sand');
+  // against the waterline the check above already established is a real one — sandView is read
+  // a frame later and the sea is not always standing at its menu height by then, and a hollow
+  // measured against a sea at zero is not measured against anything.
+  const sea = Math.max(sv ? sv.seaY : 0, sp ? sp.seaY : 0);
+  check(sv && sea > 0.5 && sv.lo > sea,
+        'and the deepest hollow in that strip still clears the water',
+        sv ? `lowest ${sv.lo} against a waterline at ${sea}` : 'no sand');
 }
 
 // ---------- the grip pad lies ON the deck ----------

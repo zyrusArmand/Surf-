@@ -1261,7 +1261,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.95.0';
+const VERSION='3.96.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5220,6 +5220,7 @@ function previewSetup(){
 let prevOcean=null, prevSky=null, beachLife=null, cardSet=null, cardShadow=null;
 const _ss2=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
 let SAND_LIT=0x484848, PALM_LIT=0x3c3c3c, beachShadow=null, beachSand0=0, beachSandH=null;
+let beachSurfH=null;                   // the surface itself, dunes included — see buildBeach
 // the set's own palms stand up the beach for the previews; the menu stands its own and
 // puts these away, because three trunks and a board in one frame is a thicket
 const beachPalms=[];
@@ -5785,7 +5786,14 @@ function buildBeach(){
   // sand. It runs from under the sea at the back up to dry sand at the front, the sea
   // carries over the submerged part, and the shoreline is simply where they cross.
   const _ss=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
-  const sandH=wz=>9.0*_ss(-180,10,wz)-4.6;      // under water past about -84, dry in front
+  const sandH0=wz=>9.0*_ss(-180,10,wz)-4.6;     // under water past about -84, dry in front
+  // ---- the BERM, which is the beach's level and not its texture ----
+  // Dry sand piles up above the tide line; that is the bank you walk down to get to the sea
+  // and it is the reason a beach is not a ramp. It used to live inside the same bracket as
+  // the dunes and be multiplied by `flat` along with them, which meant the flat disc under
+  // the set did not level the sand — it DUG a two-foot pit and stood the board in it.
+  // Level and relief are different questions and they are answered separately now.
+  const sandH=wz=>{const d=_ss(-68,-52,wz);return sandH0(wz)+d*d*1.6;};
   beachSandH=sandH;                              // the menu stands things further down it
   beachSand0=sandH(0);                           // how high the sand is where the object goes
   // The sea is built row by row rather than as a PlaneGeometry, because a uniform grid
@@ -5818,10 +5826,11 @@ function buildBeach(){
   beachSea.frustumCulled=false; g.add(beachSea);
 
   // The grid is not square because the beach is not. Everything with a short wavelength in
-  // it runs ACROSS the shore — ripples and the fine banding are at 0.44 and 0.185 in z, and
-  // at 0.048 and 0.018 in x, which is thirty times longer. So z keeps its resolution and x
-  // gives up half of it for nothing visible, and the sand's own grain lives in a normal map
-  // now rather than in vertices. Sixty thousand of them instead of a hundred and twenty-six.
+  // it runs ACROSS the shore — the ridges and the fine banding are at 0.115 and 0.185 in z,
+  // and at 0.020 and 0.018 in x, which is several times longer. So z keeps its resolution and
+  // x gives up half of it for nothing visible, and the sand's own grain — and the wind
+  // ripples with it — lives in a normal map rather than in vertices. Sixty thousand of them
+  // instead of a hundred and twenty-six.
   const SW=760, SD=460, SC=0, SNU=200, SNV=300;
   const sg=new THREE.PlaneGeometry(SW,SD,SNU,SNV);
   const sp=sg.attributes.position, scol=[];
@@ -5839,7 +5848,11 @@ function buildBeach(){
     // by nearly zero. The relief was all there in the code and none of it in the picture.
     // It starts at the WATERLINE now and is full a dozen units up the beach, which is where
     // dry sand starts on a real one.
-    const dry=_ss(-70,-14,wz);
+    // ...which is what the comment said and not what the numbers did. -70 to -14 is a
+    // FIFTY-SIX unit ramp, and the waterline is at -60 in this mesh's own coordinates, so
+    // across the whole of the beach on screen `dry` ran 0.1 to 0.85 and every dune term was
+    // being multiplied by about a half. A dozen units is fourteen, not fifty-six.
+    const dry=_ss(-68,-52,wz);
     // Flat only for the object's own footprint, so its shadow lands on sand rather than in
     // a dune — and there are TWO footprints, because two different things get looked at: a
     // shop card stands its object at the origin, and the title screen stands its set out at
@@ -5848,35 +5861,91 @@ function buildBeach(){
     // of the foreground, because the camera stands sixteen units off it — the dunes were back
     // in the code and still not in the picture. The set is under five units across from the
     // rider to the chest, so five is what has to be flat.
+    // ...and it has to be measured in THIS mesh's units. hAt is fed the plane's own
+    // coordinates and the beach is scaled by MB_K on the way into the world, so MB_Z*MB_K is
+    // where the set stands in the WORLD and MB_Z is where it stands here. The disc was sitting
+    // six units up the beach of the set: nothing was flat under the board, and the sand
+    // directly behind it — the part the whole picture is composed against — was ironed out.
     const flat=Math.min(_ss(4,13,Math.hypot(x,wz)),
-                        _ss(5,10,Math.hypot(x,wz-MB_Z*MB_K)));
-    // Three scales, because one is not a landscape. The long swell shapes the beach, the
-    // dunes are what you read the surface by at this distance, the ripples catch the light.
-    // The long one alone has a wavelength of ninety units — nothing visible in a thirty-unit
-    // foreground, which is why the beach used to look like a sheet of paper.
+                        _ss(5,10,Math.hypot(x,wz-MB_Z)));
+    // Four scales, because one is not a landscape — and they are ranked by WAVELENGTH against
+    // the thirty-one units of beach the lens can see, not by how tall each one is.
+    //
+    // That ranking is the correction. The two big terms below used to carry three quarters of
+    // the amplitude between them, and both are longer than the view: a ninety-unit swell and
+    // an eighteen-unit dune, seen through a thirty-unit window, are a ramp and half a mound.
+    // All that height went into tilting the foreground and none of it into anything with a
+    // crest, which is why every previous attempt could measure feet of relief on a beach that
+    // photographed as a sheet of paper. They are kept, small, for the wider shots; the ridge
+    // term underneath them is what the title screen actually sees.
     // ---- and how MUCH of it there is, which was walked ----
-    // Bigger is not better here and the beach said so twice. At half again this size the dry
-    // sand digs below the waterline in its hollows, and the sea is a flat sheet a foot above
-    // it that simply covers them — the bottom of the title screen turns blue. Made one-sided
-    // to fix that, so the dunes only ever pile up, it climbed nine units across the view
-    // instead: this camera stands under four feet over the sand, and a dune taller than the
-    // lens is a wall in front of everything the screen is about. The reference photographs
-    // are a dune field from standing height; this is a low camera on a small beach, and the
-    // relief that reads here is the one that stays under the horizon.
-    const swell =(_fbm(x*0.011,wz*0.009)-0.5)*6.4;
+    // Bigger is not better here and the beach said so twice. At half again the old size the
+    // dry sand digs below the waterline in its hollows, and the sea is a flat sheet above it
+    // that simply covers them — the bottom of the title screen turns blue. Made one-sided to
+    // fix that, so the dunes only ever pile up, it climbed nine units across the view instead,
+    // and a dune taller than the lens is a wall in front of everything the screen is about.
+    // Both of those failures are now handled where they belong rather than by shrinking
+    // everything: the trough is floored against the water at the bottom of this function, and
+    // the camera measures its own eye height off the sand it stands on.
+    const swell =(_fbm(x*0.011,wz*0.009)-0.5)*2.0;
     // The dunes themselves, and they are what the reference photographs are OF: long soft
     // mounds a dozen units across with a crest and a shaded back to each. Bigger than they
     // were, and drawn out along the shore rather than round, because a dune runs with the
     // wind and the wind here runs along the beach.
-    const dune  =(_fbm(x*0.030+11,wz*0.055+7)-0.5)*5.6;
+    const dune  =(_fbm(x*0.030+11,wz*0.055+7)-0.5)*2.2;
+    // ---- and the scale that actually READS, which is a question about SLOPE ----
+    // The dune term above has a wavelength of eighteen units and the camera sees thirty-one,
+    // so the whole foreground is ONE mound — and one mound seen end-on is a ramp. Measured
+    // across the strip on screen it departed from a straight line by half a foot, which is a
+    // gradient of about a fiftieth: a beach can be built out of that and still photograph as
+    // a sheet of paper, which is exactly what kept happening.
+    //
+    // Height is not what makes a dune visible. SLOPE is: this sand has almost no shading of
+    // its own, so every bit of relief in the picture is painted in from the gradient below,
+    // and the gradient is amplitude over wavelength. Three ridges across the view at a foot
+    // apiece read; one mound at three feet does not. So the amplitude here is SMALLER than
+    // the dune term and the wavelength is half of it, which is also what keeps it safe — a
+    // crest a foot high cannot wall off a lens that stands three feet over the sand, and
+    // that is the failure that killed the last two attempts at this.
+    const ridge =(_fbm(x*0.020+31,wz*0.115+13)-0.5)*6.00;
     // Stretched along the shore rather than round. The camera is low, so the beach is seen
     // at a grazing angle and anything square-ish flattens into nothing — but ripples running
     // ACROSS the view present their profile over and over, which is exactly why wind and
     // tide ripples on a real beach are the thing you see from a deck chair.
-    const fine  =(_fbm(x*0.018+23,wz*0.185+3)-0.5)*1.25;
-    const ripple=(_fbm(x*0.048+3, wz*0.44+5)-0.5)*0.42;
-    return sandH(wz) + ((swell*dry+dune+fine)*dry + ripple + dry*dry*1.4)*flat;
+    const fine  =(_fbm(x*0.018+23,wz*0.185+3)-0.5)*2.00;
+    // ---- and the ripples are NOT in here, they are in the normal map ----
+    // A term with a two-and-a-third unit period sampled on rows a foot and a half apart is
+    // aliasing, not ripples: it lands a different phase on every row and the slope taken
+    // between neighbours flips sign each time. It cost nothing while the shading was gentle
+    // and turned the whole beach to corduroy the moment the gain went up — visible worst on
+    // the shop card, where the lens is a foot off the ground and one grid row fills a band of
+    // the screen. The wind ripples live in the baked normal map, which is the only place at
+    // this spacing that they fit, and the mesh carries nothing shorter than a dune.
+    const base=sandH(wz);
+    const t=(swell*dry+dune+ridge+fine)*dry*flat;
+    // ---- and dry sand never dips under the water ----
+    // The sea is a flat sheet at 1.05 drawn OVER the beach, so a hollow whose floor falls
+    // below it is not a hollow — it is a hole full of blue in the middle of the sand, which
+    // is exactly what killed the first attempt at bigger dunes and came straight back the
+    // moment these ones were big enough to see.
+    //
+    // The fix that was tried then was to shrink every term until the deepest trough anywhere
+    // on a seven-hundred-unit beach happened to clear the water, which is why there were no
+    // dunes left. Floor the TROUGH instead. Softly, so there is no flat plateau along the
+    // cut where a hard max would leave one — and it takes itself out of the way below the
+    // waterline, where the sand is meant to be under the sea.
+    const room=base-1.15;
+    if(room<=0)return base+t;
+    const K=0.45, d=(t+room)/K;
+    return base + (d>12 ? t : K*Math.log(1+Math.exp(d))-room);
   };
+  // ---- and the camera can ask where the SURFACE is, dunes and all ----
+  // beachSandH is the beach's level: the profile things are stood on, with the flat disc
+  // under the set already built into it. The lens needs the other one. It lies on the sand
+  // twenty units up the beach from the set, and "how high is the sand where the camera is"
+  // is a question about the actual surface — a dune there is exactly the thing that would
+  // bury it, and the level function by construction knows nothing about dunes.
+  beachSurfH=hAt;
   // The height is wanted twice: once as the surface and once as a SLOPE, for the shading
   // painted in below. Asking hAt for it five times a vertex — the point and four neighbours
   // — is what made this the slowest thing in the game's whole startup: hAt is four octaves
@@ -5915,7 +5984,15 @@ function buildBeach(){
     const zl=row0>0?i-NW:i, zr=row0<SNV?i+NW:i;
     const dhx=(HG[xr]-HG[xl])/((xr-xl)/1*DX||DX);
     const dhz=(HG[zr]-HG[zl])/(((zr-zl)/NW)*DZ||DZ);
-    const sh=Math.max(-1,Math.min(1,-dhx*0.60+dhz*1.05));
+    // ---- and the gain on it is a picture decision, not a physical one ----
+    // These were the true gradients, and the true gradient of a dune is small: a foot of
+    // crest over nine feet of ground is a ninth, which through a coefficient of one lands as
+    // a lightness step of three per cent. Nothing. The relief was measurably in the mesh and
+    // still invisible in the frame, three attempts running, and this is where it was being
+    // thrown away — not in the geometry. Raked light on white sand is exactly the case where
+    // a real surface gives far more contrast than its slope suggests, so the response is
+    // steepened until a dune's flank reads as a dune's flank.
+    const sh=Math.max(-1,Math.min(1,-dhx*1.45+dhz*2.50));
     // Sand is grains, and no mesh is ever fine enough for those, so the last scale is
     // colour only — a speckle at about a third of a unit, under a pixel out at the back
     // and a visible sparkle in the foreground.
@@ -15458,6 +15535,77 @@ if(location.hash.includes('debug')){
       return {verts:pos.count, nonFinite:bad, lo:+lo.toFixed(2), hi:+hi.toFixed(2),
               seaY:beachSea?+beachSea.position.y.toFixed(2):null, line:at};
     },
+    // ---- and what it does in the STRIP THE TITLE SCREEN LOOKS ALONG ----
+    // sandProfile answers about a beach seven hundred and sixty units wide. The camera sees
+    // about twenty-five of it, between where it stands and where the set does, and three
+    // rounds of "the dunes are in the code and not in the picture" were all about that strip.
+    //
+    // It reports SLOPE, and that is the whole point of it. Height is the wrong question: two
+    // feet of relief spread over forty units is a sheet of paper, and the same two feet over
+    // nine is a dune field, because a dune is only visible by its shading and shading comes
+    // off the gradient. `rise` is what the eye is being asked about; `relief` is only there
+    // to show it is not being bought with a wall.
+    sandView(){
+      if(typeof beachSand==='undefined'||!beachSand)return null;
+      const pos=beachSand.geometry.attributes.position;
+      // The plane's rows run +y to -y and the beach is laid down so wz = -localY, so a row
+      // is (wz+230)/DZ. Written the other way up the first time, which sampled the mirror
+      // image of the strip — thirty units the wrong side of the camera — and reported a
+      // healthy climb on a piece of beach nobody can see.
+      const NW=201, DZ=460/300;
+      const row=wz=>Math.max(0,Math.min(300,Math.round((wz+230)/DZ)));
+      const col=x=>Math.round((x+380)/3.8);
+      const Z0=-27, Z1=-66;
+      const r0=row(Z0), r1=row(Z1), c0=col(-16), c1=col(16);
+      const lo=[], hi=[];
+      let mn=1e9, mx=-1e9, worst=0, sum=0, n=0;
+      for(let r=Math.min(r0,r1); r<=Math.max(r0,r1); r++){
+        for(let c=c0;c<=c1;c++){
+          const y=pos.getZ(r*NW+c);
+          if(y<mn)mn=y; if(y>mx)mx=y;
+          const yn=pos.getZ((r+1)*NW+c);
+          const g=Math.abs(yn-y)/DZ;
+          if(g>worst)worst=g; sum+=g; n++;
+        }
+      }
+      // Three lines up the beach rather than one, and what is reported off them is how much
+      // the slope CHANGES, not how much height there is and not how steep it is.
+      //
+      // Both of the obvious numbers lie here, and each of them lied for a while. Height says
+      // nothing: this beach climbs several feet from the water to the top whatever is done to
+      // it. Slope is no better — a ramp has plenty and a ramp is a sheet of paper. A dune is
+      // where the ground turns over, so the honest measure is the second difference: zero on
+      // anything smooth, however tilted or however tall, and large exactly where there is a
+      // crest. `bump` is that, in feet per two-foot step, over the near half of the strip —
+      // the part that fills the bottom of the frame.
+      const lines={}, bump=[];
+      for(const X of [-12,0,12]){
+        const c=col(X), ln=[];
+        for(let wz=Z0; wz>=Z1; wz-=2)ln.push(+pos.getZ(row(wz)*NW+c).toFixed(2));
+        lines[X]=ln;
+        const NEAR=Math.min(ln.length-1,12);       // wz -27 down to about -51
+        let w=0; for(let k=1;k<NEAR;k++)w+=Math.abs(ln[k+1]-2*ln[k]+ln[k-1]);
+        bump.push(+(w/Math.max(1,NEAR-1)).toFixed(3));
+      }
+      // ...and the same measure on the beach's LEVEL, which is the smooth profile everything
+      // is stood on and has no dunes in it at all. That is the zero this is against: a ratio,
+      // so the bar cannot go stale the next time the beach is reshaped, and a number that
+      // says out loud what "flat" was — because "flat" was what shipped three times.
+      const lv=[]; for(let wz=Z0; wz>=Z1; wz-=2)lv.push(beachSandH?beachSandH(wz):0);
+      let lw=0; const LN=Math.min(lv.length-1,12);
+      for(let k=1;k<LN;k++)lw+=Math.abs(lv[k+1]-2*lv[k]+lv[k-1]);
+      const flatBump=+(lw/Math.max(1,LN-1)).toFixed(3);
+      return {wz:[Z1,Z0], relief:+(mx-mn).toFixed(2),
+              rise:{max:+worst.toFixed(3), mean:+(sum/Math.max(1,n)).toFixed(3)},
+              bump, flatBump, lo:+mn.toFixed(2), hi:+mx.toFixed(2),
+              k:beachSand.parent?+beachSand.parent.scale.x.toFixed(3):1,
+              // how far the lens clears the sand it stands over. Negative is a camera buried
+              // in a dune, which draws the back of the beach and shows the sea through it.
+              clear:(menuCam&&beachSurfH)?+(menuCam.position.y-
+                     beachSurfH(menuCam.position.x/1.15,menuCam.position.z/1.15)*1.15).toFixed(2):null,
+              setZ:MB_Z, camZ:menuCam?+(menuCam.position.z/(beachSand.parent?beachSand.parent.scale.z:1)).toFixed(1):null,
+              seaY:beachSea?+beachSea.position.y.toFixed(2):null, lines};
+    },
     boardMats(){
       const o=(menuBeach&&menuBeach.board)||boardArt; if(!o)return null;
       const out=[];
@@ -18185,9 +18333,17 @@ const MB_YAW=0.46;                    // how far round from straight-out-to-sea 
 // rather than a third of the picture — the shot is somebody crouched on the sand looking up
 // at a board propped on a tree, and not somebody standing back from it.
 let MB_D=10.8;                        // how far back the camera stands from the palm
-// How high the lens is over the sand, and how high it is aimed. Both are heights above the
-// beach at the palm, so they move together with everything else if the sand ever moves.
-let MB_EYE=0.9, MB_AIM=4.1;
+// How high the lens is over the sand, and how high it is aimed. AIM is a height above the
+// beach at the palm; EYE is measured off the sand the camera itself stands on, which is not
+// the same place and not the same height — see the camera code.
+//
+// Up from nine tenths of a foot, and the dunes are why. At nine tenths the beach is seen at
+// so grazing an angle that relief in it cannot be seen at all: from a high shot the same sand
+// is unmistakably a dune field, and from down there it is a flat sheet with a texture on it.
+// That is not a fault in the dunes, it is what a lens lying on the ground does — it sees the
+// crests and none of the flanks, and the flanks are the dune. Still low: under two feet is
+// somebody crouched on the sand, not somebody standing on it.
+let MB_EYE=1.8, MB_AIM=4.1;
 // How wide the lens is. Forty-seven is an ordinary one; a wide one is what makes a shot taken
 // from down on the sand look taken from down on the sand — the near beach stretches away
 // under you and the palm spreads right across the top instead of sitting politely in it.
@@ -18757,7 +18913,17 @@ function renderMenuBeach(dt){
            :(m.riderAt!==undefined?(m.riderAt-MB_CD)*0.5
            :(m.middle!==undefined?m.middle:spread*0.66));
   const aim=Math.max(0.4,grp)+MB_BIAS;
-  menuCam.position.set(px-_mbF.x*D, g+MB_EYE+sw2*0.12, pz-_mbF.z*D);
+  // ---- and it stands on the sand UNDER IT, not on the sand under the set ----
+  // The eye height was measured at the set, twenty units down the beach, and a beach slopes:
+  // the ground the lens is actually over is a foot higher than the ground the board is on,
+  // so nine tenths of a foot of eye height put the lens THROUGH the surface. It survived on
+  // luck — the noise happened to dig a hollow at that spot — and the first dune big enough
+  // to see filled the hollow in and the title screen went blue from the sand up, which is
+  // the back of a one-sided beach with the sea showing through it.
+  // Whichever ground is higher, plus the eye height, so no dune can ever bury the lens.
+  const cx=px-_mbF.x*D, cz=pz-_mbF.z*D;
+  const gc=beachSurfH?beachSurfH(cx/MB_K,cz/MB_K)*MB_K:g;
+  menuCam.position.set(cx, Math.max(g,gc)+MB_EYE+sw2*0.12, cz);
   menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+MB_AIM, pz-_mbR.z*aim);
   menuCam.updateProjectionMatrix();
   // The board preview is shot at the renderer's own exposure and the menu was too, but the
