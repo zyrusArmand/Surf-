@@ -1271,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.11.0';
+const VERSION='4.12.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -15587,6 +15587,8 @@ if(location.hash.includes('debug')){
                          at:[+ceremonyChest.position.x.toFixed(1),+ceremonyChest.position.y.toFixed(1),
                              +ceremonyChest.position.z.toFixed(1)]}; },
     camMask(){ return camera.layers.mask; },
+    riderFwd(v){ if(v!==undefined){ MB_RF=v; if(typeof layoutMenuBeach==='function')layoutMenuBeach(); }
+                 return MB_RF; },
     obsObjects(){ return obstacles.slice(); },
     renderer(){ return renderer; },
     // The ramp's real surface against the slope the ride thinks it is climbing. A modelled
@@ -16498,8 +16500,9 @@ if(location.hash.includes('debug')){
     },
     // Walk the beach chest around by the two numbers it is actually placed by, so where it
     // lands in the FRAME can be read off rather than guessed from world coordinates.
-    beachChestAt(cd,cf,ch){
+    beachChestAt(cd,cf,ch,rot){
       if(cd!==undefined)MB_CD=cd; if(cf!==undefined)MB_CF=cf; if(ch!==undefined)MB_CH=ch;
+      if(rot!==undefined)MB_CROT=rot;
       layoutBeachChest();
       return this.chestScreen();
     },
@@ -19326,6 +19329,12 @@ const MB_RD=0.9;                      // where the search for his place starts
 // standing between him and the board, so it is the number that decides how far left he lands —
 // and left is where the buttons are. Small on purpose: the two silhouettes still do not touch,
 // which is what solving for it buys over fixing his offset, but there is no daylight to spare.
+// How far in front of the board he stands. It is the one lever that moves him ACROSS the frame
+// without moving anything else in the set: he is beside the board and left of centre, so
+// stepping him back toward the vanishing point walks him to the right and shrinks him a little,
+// and stepping him forward throws him out to the left. His distance from the board cannot do
+// that job any more — the clearance below is already down to a tenth of a foot.
+let MB_RF=-1.40;
 const MB_RGAP=0.05;
 const MB_DOF=25.0;
 let MENU_DOF=true;     // off is for measuring what it costs     // how many feet either side of the board stay sharp                   // and the daylight there has to be between the two
@@ -19540,7 +19549,7 @@ function layoutMenuBeach(){
   // put his shoulder through the middle of it — and by how much depended on the board, which
   // is why it looked fine on one and wrong on the next. Same picture-plane test the board
   // uses on the tree, walked outward until he is out from under it.
-  const rf=fwd+0.55;                       // and a little nearer the camera than the board
+  const rf=fwd+MB_RF;                      // and a little nearer the camera than the board
   const riderAt=(rr,out)=>{
     const wx=_mbP.x-_mbR.x*rr-_mbF.x*rf, wz=_mbP.z-_mbR.z*rr-_mbF.z*rf;
     return out.set(wx,(beachSandH?beachSandH(wz/MB_K):beachSand0)*MB_K,wz);
@@ -19668,6 +19677,9 @@ function shoreTaper(){
 // pushing the chest toward the edge of a narrow screen — it ran off the side of a phone and sat
 // over the Settings and Stats buttons — and the distance from the tree, which is what stops the
 // two merging, is bought more cheaply by standing it further FORWARD than further across.
+// Which way it is turned. A quarter past a half turn showed the open box and its lettering
+// across a corner rather than face on; a touch further round squares the front to the lens.
+let MB_CROT=Math.PI*1.21;
 let MB_CD=0.00;        // out to the camera's right of the trunk's own axis...
 // Out from 1.3, where the new palm's trunk is thick enough at chest height that the two
 // merged into one shape — the chest was measurably clear of the CENTRELINE and visibly inside
@@ -19700,7 +19712,7 @@ function layoutBeachChest(){
   // Turned right round from where it first landed: the lid stands up on the hinge side, so
   // at a quarter turn the open lid was between you and the treasure. Facing away, you look
   // INTO the box, which is the point of an open chest.
-  beachChest.scale.setScalar(1); beachChest.rotation.set(0,Math.PI*1.25,0);
+  beachChest.scale.setScalar(1); beachChest.rotation.set(0,MB_CROT,0);
   beachChest.updateMatrixWorld(true);
   const h=new THREE.Box3().setFromObject(beachChest).getSize(new THREE.Vector3()).y;
   beachChest.scale.setScalar(MB_CH/Math.max(1e-4,h));

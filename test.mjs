@@ -653,6 +653,63 @@ await page.waitForTimeout(300);
         'and the rider stands clear of it rather than through it',
         stood.map(f => `${f.id} ${f.riderGap}ft between them`).join(', '));
 
+  // And he stands clear of the BUTTONS, which is a different question from standing clear of
+  // the board and is the one a phone actually asks. The set sits left of centre so the palm
+  // can hold the middle, and the home screen's glass column runs down that same left edge —
+  // so every foot of daylight bought between rider and board is spent walking the rider into
+  // Board, Shop and Tricks. Asked as a relationship rather than a number: his left edge is
+  // right of where the buttons end, in the frame the picture is actually composed in.
+  // Measured in PORTRAIT, because that is the aspect that squeezes him: the same layout on a
+  // wide window has the whole beach to spread into and never gets near the glass.
+  // Across the rack, because the camera SOLVES onto the group and a ten foot log pushes the
+  // whole set further away than a four foot skimboard does — so where he lands in the frame
+  // is a different answer per board, and the buttons do not move.
+  await page.setViewportSize({ width: 460, height: 966 });
+  await page.evaluate(() => window.__surf.wear('pug'));
+  await page.waitForTimeout(900);
+  const framed = [];
+  for (const id of ['carbonskim', 'noserider', 'bubblegum']) {
+    const f = await page.evaluate(async b => {
+      window.__surf.equip(b);
+      // Read it SETTLED. The camera does not cut between boards, it eases, and halfway
+      // through the ease from a six foot shortboard to a ten foot log the whole set — rider,
+      // board and all — swings off the left of the screen and back. Sampled once on a timer
+      // that lands in there, the reading says he is off the edge when he never is. Poll until
+      // two samples a third of a second apart agree, which is the ease having stopped.
+      // Three agreements in a row, not one: an ease has slow stretches at both ends, and a
+      // single pair matching landed on the far end of one and read the set still out at arm's
+      // length. A minimum of two seconds under it, because the ease itself is about that long.
+      let m = null, prev = null, still = 0;
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 340));
+        m = window.__surf.menuFrame();
+        still = (prev !== null && m && Math.abs(m.rider.x[0] - prev) < 0.004) ? still + 1 : 0;
+        prev = m && m.rider.x[0];
+        if (still >= 3 && i >= 6) break;
+      }
+      // The LEFT column only — Board, Shop and Tricks. The dial has a matching column down
+      // the right that he is nowhere near, and taking the widest of all six asks whether he
+      // stands off the right-hand edge of the screen, which is not the question.
+      let btn = 0;
+      for (const e of document.querySelectorAll('#homeDial .hbtn')) {
+        const r = e.getBoundingClientRect();
+        if (e.offsetParent && r.width && r.right < window.innerWidth / 2) btn = Math.max(btn, r.right);
+      }
+      return { rider: m && m.rider, board: m && m.board, btn: +(btn / window.innerWidth).toFixed(3) };
+    }, id);
+    if (f) framed.push({ id, ...f });
+  }
+  check(framed.length === 3 && framed.every(f => f.btn > 0 && f.rider.x[0] > f.btn),
+        'and to the right of the buttons he shares the screen with',
+        framed.map(f => `${f.id}: rider from ${f.rider.x[0]}, buttons end ${f.btn}`).join(', '));
+  // Right of them, but still ON the beach with the board rather than shoved off the far side
+  // of it to buy the clearance. He reads as standing beside it, so he overlaps its column.
+  check(framed.length === 3 && framed.every(f => f.rider.x[0] < f.board.x[1]),
+        'and still standing beside the board rather than shoved past it',
+        framed.map(f => `${f.id}: rider [${f.rider.x}] board [${f.board.x}]`).join(', '));
+  await page.setViewportSize({ width: 1024, height: 640 });
+  await page.waitForTimeout(600);
+
   // Surfaces. Vertex colours give a shape its markings; what they cannot give it is a
   // surface, and bark, glassed resin and sand all read as the same moulded plastic under a
   // directional light until something breaks the normal up finer than the mesh can. A map
