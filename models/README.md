@@ -15,7 +15,7 @@ at full white, which makes the model glow flat and ignore every light in the sce
 checking if an import looks oddly unlit.
 
 `board.glb`, `buoy.glb`, `chest.glb`, `log.glb`, `octopus.glb`, `palm.glb`, `pug.glb`,
-`buoy2.glb`, `cat.glb`, `frog.glb`, `monkey.glb`, `palm2.glb`, `ramp.glb` and `plane.glb` ship with the game; the rest of the table is
+`buoy2.glb`, `cat.glb`, `frog.glb`, `monkey.glb`, `rat.glb`, `palm2.glb`, `ramp.glb` and `plane.glb` ship with the game; the rest of the table is
 empty by design, and the 404s those file names produce are the documented path
 rather than a fault.
 
@@ -33,6 +33,7 @@ to `RIDER_MODELS` in `index.html`.
 | `cat.glb` | Miso the Cat |
 | `frog.glb` | Allen the Frog |
 | `monkey.glb` | Bongo the Monkey |
+| `rat.glb` | Fatty the Rat |
 | `buoy.glb` | the striped buoy |
 | `buoy2.glb` | a second buoy, picked at random against the first |
 | `log.glb` | the floating log |
@@ -159,7 +160,7 @@ skeleton is present the game drives it, and these happen automatically.
 - **Every rider does every motion any of them brought.** They come off the same biped with the
   same bone names, and each export ships a different half of the same repertoire: the pug
   brings standing and chatting, getting up off the floor and lying with his paws spread; the
-  cat brings a backflip; the frog and the monkey bring one motion each. The clips are POOLED —
+  cat brings a backflip; the frog, the monkey and the rat bring one motion each. The clips are POOLED —
   whatever any one of them arrives with, all of them can perform, including the handstand.
   Borrowed clips are **rotation only**: a track that MOVES a bone rather than turning it is
   written in the proportions of the body it was animated on, and a frog is not a pug. Rotations
