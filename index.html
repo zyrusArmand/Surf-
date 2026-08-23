@@ -1261,7 +1261,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.2.0';
+const VERSION='4.3.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5622,10 +5622,18 @@ function modelPalm(seed,prof,menu){
   // to trunk sat the crown down in the middle of the picture where the title goes.
   const bb=geo.boundingBox, H=(10.6+((seed*37)%13)/13*2.0)*PALM_H*(menu?MENU_PALM_H:1);
   const k=H/Math.max(0.001,bb.max.y-bb.min.y);
+  // ---- the floor is read off BEFORE the translate, because the box moves with the mesh ----
+  // geometry.boundingBox is a live object and applyMatrix4 carries it along, so `translate` by
+  // -bb.min.y sets bb.min.y to zero as it goes — and every later use of it is then measuring
+  // against the wrong floor. The trunk's centreline is one of those uses, and it came out the
+  // whole height of the tree below the tree: the board on the title screen was being leaned
+  // against a line five feet under the sand. It went unseen while the only rig here happened
+  // to have its root bone at y=0, where the error is exactly zero.
+  const floorY=bb.min.y;
   // the same frame the geometry was just put into — bone world positions and a mesh
   // multiplied by its own world matrix are the one pair that agree
   const base=chain[0].getWorldPosition(new THREE.Vector3());
-  geo.translate(-base.x,-bb.min.y,-base.z);
+  geo.translate(-base.x,-floorY,-base.z);
   geo.scale(k,k,k);
   geo.computeBoundingBox(); geo.computeBoundingSphere();
   const m=new THREE.Mesh(geo,M.mat);
@@ -5635,7 +5643,7 @@ function modelPalm(seed,prof,menu){
   const line=[], w=new THREE.Vector3();
   for(let i=0;i<chain.length;i++){
     chain[i].getWorldPosition(w);
-    line.push({p:new THREE.Vector3((w.x-base.x)*k,(w.y-bb.min.y)*k,(w.z-base.z)*k),
+    line.push({p:new THREE.Vector3((w.x-base.x)*k,(w.y-floorY)*k,(w.z-base.z)*k),
                r:M.rad[Math.min(M.rad.length-1,Math.round(i/(chain.length-1)*(M.rad.length-1)))]*k});
   }
   // and on past the top bone to the crown, along the direction the chain finishes in
@@ -5648,8 +5656,144 @@ function modelPalm(seed,prof,menu){
   m.castShadow=true; m.receiveShadow=true;
   return m;
 }
+// ---- a palm that arrives with no bones is given some ----
+// The grove is one mesh bent a different amount for every tree, and that needs a chain up the
+// trunk. A model exported without one is not a different kind of tree, it is the same tree
+// missing a rig — and used as it is, every palm in the game is the same shape, which reads as
+// wallpaper. So the chain is built here: bones evenly up the TRUNK only, each vertex on the
+// trunk blended between the two it sits between, and everything above the crown line bound
+// rigidly to the top bone. That last part is the whole trick — a crown weighted by height
+// shears apart as the trunk bends, where a real palm's crown rides on top of it as one piece.
+function rigStaticPalm(s3){
+  let m=null; s3.traverse(o=>{ if(o.isMesh&&!m)m=o; });
+  if(!m||!m.geometry||!m.geometry.attributes.position)return null;
+  // ---- everything the file wrapped it in is baked in FIRST ----
+  // A skinned mesh is posed by its bones and its bind matrix, and the bake downstream puts the
+  // result through the mesh's world matrix as well; leave any transform on the mesh or on the
+  // scene above it and the two disagree. The trunk's centreline came out five feet under the
+  // tree, so the board leaned on nothing. Flattened to identity here, bone space and world
+  // space are the same space and there is nothing left to disagree about.
+  s3.updateMatrixWorld(true);
+  const geo=m.geometry;
+  geo.applyMatrix4(m.matrixWorld);
+  if(m.parent)m.parent.remove(m);
+  s3.position.set(0,0,0); s3.rotation.set(0,0,0); s3.scale.set(1,1,1);
+  s3.updateMatrixWorld(true);
+  geo.computeBoundingBox();
+  const bb=geo.boundingBox, H=bb.max.y-bb.min.y;
+  if(!(H>0))return null;
+  // Where the trunk stops being a trunk, measured rather than assumed: walk up in bands and
+  // find the height at which the spread of the mesh first jumps — below it everything is
+  // within a hand of the centreline, above it the fronds run out five times further.
+  // ---- and the crown line is found from a PERCENTILE, not from the widest thing in a band ----
+  // Asked for the widest point in each band, the answer is wherever the lowest frond happens to
+  // hang — and one drooping leaf put the crown line at a quarter of the tree's height, which
+  // left the bone chain spanning the bottom of the trunk and the whole canopy bound rigidly to
+  // a bone half way down it. Eighty-fifth percentile instead: a band is crown when MOST of what
+  // is in it has left the trunk, not when the first thing has.
+  const pos=geo.attributes.position;
+  const NB=24, band=Array.from({length:NB},()=>[]);
+  for(let i=0;i<pos.count;i++){
+    const t=(pos.getY(i)-bb.min.y)/H;
+    band[Math.min(NB-1,Math.max(0,Math.floor(t*NB)))].push(Math.hypot(pos.getX(i),pos.getZ(i)));
+  }
+  const p85=b=>{ const a=band[b]; if(!a.length)return 0;
+                 a.sort((x,y)=>x-y); return a[Math.min(a.length-1,Math.floor(a.length*0.85))]; };
+  let trunkR=0, nR=0;
+  for(let b=0;b<3;b++){ const v=p85(b); if(v>0){trunkR+=v; nR++;} }
+  trunkR=nR?trunkR/nR:0.1;
+  let crown=NB-1;
+  for(let b=2;b<NB;b++){ if(p85(b)>3.0*trunkR){ crown=b; break; } }
+  const crownY=bb.min.y+H*Math.min(0.75,Math.max(0.30,crown/NB));
+  const N=8, span=crownY-bb.min.y;
+  const bones=[];
+  for(let i=0;i<N;i++){
+    const b=new THREE.Bone();
+    b.position.set(0, i===0?bb.min.y:span/(N-1), 0);
+    if(i)bones[i-1].add(b);
+    bones.push(b);
+  }
+  const idx=new Uint16Array(pos.count*4), wt=new Float32Array(pos.count*4);
+  for(let i=0;i<pos.count;i++){
+    const y=pos.getY(i);
+    if(y>=crownY){ idx[i*4]=N-1; wt[i*4]=1; continue; }
+    const u=Math.max(0,Math.min(N-1.0001,(y-bb.min.y)/Math.max(1e-6,span)*(N-1)));
+    const a=Math.floor(u), f=u-a;
+    idx[i*4]=a; wt[i*4]=1-f; idx[i*4+1]=a+1; wt[i*4+1]=f;
+  }
+  geo.setAttribute('skinIndex',new THREE.Uint16BufferAttribute(idx,4));
+  geo.setAttribute('skinWeight',new THREE.Float32BufferAttribute(wt,4));
+  const sk=new THREE.SkinnedMesh(geo,m.material);
+  sk.userData.trunkR=trunkR;
+  sk.name=m.name||'palm';
+  s3.add(sk);
+  sk.add(bones[0]);
+  sk.updateMatrixWorld(true);                 // the bind pose is read off these matrices
+  sk.bind(new THREE.Skeleton(bones));
+  return sk;
+}
+// ---- and it is PAINTED here, because the file brought no colour with it ----
+// This export carries geometry and nothing else: no material, no texture, not even a base
+// colour. Trunk and frond have to be told apart from the shape alone, and they can be, because
+// a palm is the one tree where that is easy — everything within a hand of the centreline is
+// trunk and everything that runs out from the top is leaf.
+// Painted onto the vertices rather than into a texture, because the bend is baked per tree and
+// vertex colour is carried through that bake for free.
+function paintStaticPalm(sk,trunkR){
+  const geo=sk.geometry, pos=geo.attributes.position;
+  geo.computeBoundingBox();
+  const bb=geo.boundingBox, H=bb.max.y-bb.min.y;
+  // the same measured trunk radius the rig found, with room for the flare at the foot, rather
+  // than a number picked to suit one export
+  const TR=Math.max(0.02,(trunkR||0.1)*1.55);
+  const col=new Float32Array(pos.count*3), c=new THREE.Color();
+  // A coconut palm's trunk is not brown. It is pale grey, warmed toward buff where the sun is
+  // on it, ringed by the scars of every frond it has dropped — which is what the reference
+  // photograph shows and what a flat brown cylinder never looks like.
+  // ---- and these are sRGB, so they are CONVERTED before they go in ----
+  // A vertex colour is a linear value: written straight in, an ordinary mid grey comes back
+  // out of the encode near white, which is why the trunks looked bleached and the canopy came
+  // out pale yellow whatever green went in. The procedural palm hides this by multiplying its
+  // own vertex colours down by a dark constant; a painted import has no such constant, so the
+  // conversion has to be real.
+  const BARK=new THREE.Color(0x9c8f7c), BARK_D=new THREE.Color(0x554c40),
+        BARK_W=new THREE.Color(0xc0b39c);
+  // and the crown runs from a deep green in the shade at its heart to a bright yellow-green at
+  // the tips, which is the only thing that stops a palm reading as a green pompom
+  const LEAF=new THREE.Color(0x497c26), LEAF_T=new THREE.Color(0x8ab53c),
+        LEAF_S=new THREE.Color(0x27461a);
+  for(let i=0;i<pos.count;i++){
+    const x=pos.getX(i), y=pos.getY(i), z=pos.getZ(i);
+    const t=(y-bb.min.y)/Math.max(1e-6,H), r=Math.hypot(x,z);
+    if(r<TR&&t<0.86){
+      // trunk: ring scars up it, darker into the base, and a warm side to the light
+      const ring=0.5+0.5*Math.sin(y*160.0);
+      c.copy(BARK).lerp(BARK_D,0.72*ring*ring);
+      c.lerp(BARK_W,Math.max(0,x*1.4+0.25)*0.28);
+      c.lerp(BARK_D,Math.max(0,0.22-t)*2.4);          // damp and dark at the foot
+    }else{
+      // frond: out toward the tip it lightens, under the crown it falls into its own shade
+      // measured from where the frond LEAVES the crown, not from the trunk's centre: a leaf
+      // runs out five times the trunk's width, so a plain radius saturates a third of the way
+      // along it and the whole canopy comes out the colour of the tips
+      const out=Math.max(0,Math.min(1,(r-TR)/0.46));
+      c.copy(LEAF).lerp(LEAF_T,out*out*0.55+0.06);
+      c.lerp(LEAF_S,Math.max(0,0.55-t)*1.5);
+      c.offsetHSL(0,0,(Math.sin(x*61.0+z*47.0)*0.5)*0.05);
+    }
+    c.convertSRGBToLinear();
+    col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
+  }
+  geo.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+  sk.material=new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.92,metalness:0,
+                                              side:THREE.DoubleSide});
+  sk.material.userData.painted=true;   // hands off, palmTintables — see there for why
+}
 loadModel('palm.glb',(s3)=>{
   let sk=null; s3.traverse(o=>{ if(o.isSkinnedMesh&&!sk)sk=o; });
+  // no rig in the file: build one, and paint it, since a file with no bones is also the kind
+  // that arrives with no material
+  if(!sk){ sk=rigStaticPalm(s3); if(sk)paintStaticPalm(sk,sk.userData.trunkR); }
   if(!sk||!sk.skeleton||!sk.skeleton.bones.length)return;
   // the chain from the ground up: start at whichever bone has no bone above it
   let b0=sk.skeleton.bones[0];
@@ -6106,7 +6250,13 @@ function repalm(){
 function palmTintables(p){
   const out=[]; if(!p)return out;
   p.traverse(o=>{ if(!o.isMesh)return;
-    for(const m of [].concat(o.material))if(m&&m.vertexColors&&!m.map)out.push(m); });
+    // ...and a material this game PAINTED itself is not one of them. The rule was written to
+    // separate a procedural tree, whose colour is vertex colour, from an imported one, whose
+    // colour is a photograph — and it reads that difference off "has vertex colours and no
+    // map", which a model painted here answers exactly like the procedural tree it is not.
+    // The daylight multiplier over it turned a green canopy into a pale yellow one.
+    for(const m of [].concat(o.material))
+      if(m&&m.vertexColors&&!m.map&&!(m.userData&&m.userData.painted))out.push(m); });
   return out;
 }
 // Declared HERE rather than down with the rest of the title screen's layout, because the
@@ -15450,6 +15600,25 @@ if(location.hash.includes('debug')){
               // the file settled when it was painted.
               palmModelled:!!(menuPalm&&menuPalm.userData.modelled),
               palmMap:!!(pm[0]&&pm[0].map),
+              // ...and a third case the split above did not allow for: a modelled palm that
+              // arrived with GEOMETRY ONLY. There is no photograph on it because the file
+              // brought none, so what carries bark-against-leaf is the paint this game put on
+              // its vertices — and the thing worth asking is whether that paint actually says
+              // anything. A single flat colour over the whole tree would pass every other
+              // question here and look like a moulded toy.
+              palmPainted:!!(pm[0]&&pm[0].userData&&pm[0].userData.painted),
+              palmHue:(function(){
+                if(!menuPalm)return null;
+                let g=null; menuPalm.traverse(o=>{ if(!g&&o.isMesh&&o.geometry.attributes.color)g=o.geometry; });
+                if(!g)return null;
+                const c=g.attributes.color; let mn=9, mx=-9, n=0, sum=0;
+                for(let i=0;i<c.count;i+=7){
+                  // green against the mean of the other two: bark sits near zero, leaf well over
+                  const h=c.getY(i)-(c.getX(i)+c.getZ(i))*0.5;
+                  if(h<mn)mn=h; if(h>mx)mx=h; sum+=h; n++;
+                }
+                return {span:+(mx-mn).toFixed(3), mean:+(sum/Math.max(1,n)).toFixed(3), verts:c.count};
+              })(),
               sand:beachSand?has(beachSand.material):null,
               boardUV:!!(board.children[0]&&board.children[0].geometry
                          &&board.children[0].geometry.attributes.uv),
@@ -15873,6 +16042,17 @@ if(location.hash.includes('debug')){
               foot:t.length?t[0].p.toArray().map(v=>+v.toFixed(2)):null,
               tip:t.length?t[t.length-1].p.toArray().map(v=>+v.toFixed(2)):null,
               rad:t.length?[+t[0].r.toFixed(2),+t[Math.floor(t.length/2)].r.toFixed(2)]:null,
+              // and the RIG behind it, because "the board is leaning on nothing" is a question
+              // about where the chain sits inside the mesh and no screenshot can answer it
+              rig:palmModel?(function(){
+                const bx=new THREE.Box3().setFromBufferAttribute(
+                  palmModel.mesh.geometry.attributes.position);
+                const b0=palmModel.chain[0].getWorldPosition(new THREE.Vector3());
+                const bn=palmModel.chain[palmModel.chain.length-1].getWorldPosition(new THREE.Vector3());
+                return {bones:palmModel.chain.length,
+                        geoY:[+bx.min.y.toFixed(3),+bx.max.y.toFixed(3)],
+                        boneY:[+b0.y.toFixed(3),+bn.y.toFixed(3)]};
+              })():null,
               spread:menuBeach?menuBeach.spread:null};
     },
     // WHAT THE SAND'S RELIEF IS, read back off the baked map rather than described. Wind

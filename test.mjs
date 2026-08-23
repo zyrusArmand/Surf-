@@ -660,13 +660,24 @@ await page.waitForTimeout(300);
   // crown deliberately carries none — a leaflet is a flat blade and any bump on it reads as
   // dirt — or a modelled one, where the file already painted both and the split does not
   // exist. Both are real and both ship, so both are what this asks about.
+  // THREE cases, not two. A modelled palm may arrive with a photograph of bark and leaves on
+  // it, or — as this one did — with geometry and absolutely nothing else: no material, no
+  // texture, not even a base colour. The second kind is painted on import, so what carries
+  // bark-against-leaf is vertex colour, and the question becomes whether that paint says
+  // anything at all. A single flat colour over the whole tree would satisfy every other check
+  // here and read as a moulded toy, so the span of green across the mesh is what is asked for.
   check(surf.palmModelled
-          ? (surf.bark && surf.bark.normal && surf.palmMap)
+          ? (surf.palmPainted
+              ? (surf.palmHue && surf.palmHue.span > 0.05 && surf.palmHue.mean > 0)
+              : (surf.bark && surf.bark.normal && surf.palmMap))
           : (surf.bark && surf.bark.normal && surf.bark.rough && surf.palmGroups === 2 &&
              surf.frond && !surf.frond.normal),
-        surf.palmModelled ? 'the palm is bark and leaves off its own texture, relief and all'
-                          : 'the trunk is bark and the crown is not',
-        JSON.stringify({modelled: surf.palmModelled, bark: surf.bark, frond: surf.frond}));
+        surf.palmModelled
+          ? (surf.palmPainted ? 'the palm came as bare geometry and is painted bark and leaves here'
+                              : 'the palm is bark and leaves off its own texture, relief and all')
+          : 'the trunk is bark and the crown is not',
+        JSON.stringify({modelled: surf.palmModelled, painted: surf.palmPainted,
+                        hue: surf.palmHue, bark: surf.bark}));
   check(surf.sand && surf.sand.normal, 'and the sand is grains rather than a sheet');
   // A glossy surface reflects a WORLD, and what it reflects decides where the highlight is
   // and how it moves as the surface turns. One flat blue sphere is a tint, not a reflection.

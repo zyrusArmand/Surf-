@@ -30,7 +30,7 @@ to `RIDER_MODELS` in `index.html`.
 | File | Replaces |
 | --- | --- |
 | `board.glb` | the surfboard |
-| `palm.glb` | every palm tree, the title screen's included |
+| `palm.glb` | every palm tree, the title screen's included — rigged and painted on import if it arrives without either |
 | `chest.glb` | the treasure chest |
 | `pug.glb` | Astro the Pug |
 | `cat.glb` | Miso the Cat |
@@ -146,7 +146,33 @@ part that says the top keeps going rather than standing back up — were silentl
 the long C stopped half way up. The total turn is preserved through the resample too, so a
 trunk does not straighten out just because it was cut into fewer pieces.
 
-A model with no bones is used as it is, standing straight.
+**A model with no bones is given some.** The grove is one mesh bent a different amount per
+tree, and used as it arrives an unrigged export makes every palm in the game the same shape,
+which reads as wallpaper. So a chain is built on import: bones evenly up the **trunk only**,
+each trunk vertex blended between the two it sits between, and everything above the crown line
+bound rigidly to the top bone — that last part is the trick, because a crown weighted by height
+shears apart as the trunk bends where a real one rides on top of it as one piece.
+
+The crown line is found from the **85th percentile** of radius in each height band, not the
+widest thing in it. One frond drooping low is enough to make a max-radius test call the crown
+at a quarter of the tree's height, which leaves the bone chain spanning the bottom of the trunk
+and the whole canopy hanging off a bone half way down it.
+
+**A model with no material is painted here.** Trunk and frond are told apart from the shape
+alone — everything within a hand of the measured trunk radius is trunk, everything that runs
+out from the top is leaf — and the colour goes onto the vertices rather than into a texture,
+because the bend is baked per tree and vertex colour rides through that bake for free. Two
+things to know if you touch it:
+
+- **Vertex colours are LINEAR.** An ordinary mid grey written straight in comes back out of the
+  encode near white, which is a bleached trunk and a pale yellow canopy whatever green went in.
+  They are converted from sRGB on the way in. The procedural palm hides this by multiplying its
+  own vertex colours down by a dark constant (`PALM_LIT`); a painted import has no such
+  constant.
+- **The menu's daylight tint skips it.** That tint is applied to any palm material with vertex
+  colours and no map — a rule written to separate the procedural tree from an imported one,
+  which a model painted *here* answers exactly like the procedural tree it is not. Painted
+  materials carry `userData.painted` and are left alone.
 
 ## The sand, and how one piece becomes a beach
 
