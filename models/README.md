@@ -18,7 +18,7 @@ at full white, which makes the model glow flat and ignore every light in the sce
 checking if an import looks oddly unlit.
 
 `board.glb`, `buoy.glb`, `chest.glb`, `log.glb`, `octopus.glb`, `palm.glb`, `pug.glb`,
-`buoy2.glb`, `cat.glb`, `frog.glb`, `monkey.glb`, `rat.glb`, `ramp.glb` and `plane.glb` ship with the game; the rest of the table is
+`buoy2.glb`, `cat.glb`, `frog.glb`, `monkey.glb`, `rat.glb`, `ramp.glb`, `sand.glb` and `plane.glb` ship with the game; the rest of the table is
 empty by design, and the 404s those file names produce are the documented path
 rather than a fault.
 
@@ -47,6 +47,7 @@ to `RIDER_MODELS` in `index.html`.
 | `jetski.glb` | the jet ski |
 | `plane.glb` | the tow plane and the set-wave aircraft |
 | `palm2.glb` | a DIFFERENT tree for the title screen, in place of `palm.glb` there — not shipped |
+| `sand.glb` | one piece of modelled ground, scattered over the preview beach |
 
 ## Exporting from Blender
 
@@ -146,6 +147,35 @@ the long C stopped half way up. The total turn is preserved through the resample
 trunk does not straighten out just because it was cut into fewer pieces.
 
 A model with no bones is used as it is, standing straight.
+
+## The sand, and how one piece becomes a beach
+
+`sand.glb` is a single small patch of modelled ground, and it is used the way a texture is
+used: laid down over and over until it covers the beach. Around a hundred and fifty copies on
+the preview beach, each turned freely about the vertical, scaled within a fifth either way, and
+placed against the beach's own height function — so the field follows the dunes rather than
+lying flat across them. They **overlap by a third**, because sand has no seams and the joins
+are the one thing that would give a repeat away.
+
+It is an **InstancedMesh**: one object, one draw call, and the cost is triangles alone. That is
+why the piece is simplified hard on the way in — 95k triangles is a reasonable budget for one
+hero prop and an impossible one for a hundred and fifty of them.
+
+Four things had to be got right, and each of them looked like a different bug:
+
+- **A piece is a plane and a dune is curved.** Laid at the height of its own centre, a piece
+  cuts into the crest either side of it and the painted beach comes up *through* the middle of
+  the field. Each one is lifted clear of the highest point under its whole footprint.
+- **The slope it follows is measured at its own size.** Read over half a unit, the gradient is
+  whatever ripple happens to be under the middle of the piece; extrapolated across five units
+  that throws the far edge into the air, which then needs more lifting — so the field got
+  higher the harder it tried to follow the ground.
+- **It sits INTO the beach, not on it.** Anchored on its own mean, half of every piece stands
+  above the ground everything else was placed at, and that half is what hides a rider's feet
+  and swallows the foot of the board.
+- **…except where anything is standing on it**, where it is pressed flat and set down on its
+  underside instead. A piece pressed flat and *then* sunk ends up below a beach that is level
+  there, and the beach's wind-ripple map shows through it as a grey striped mat.
 
 ## Rigged riders
 

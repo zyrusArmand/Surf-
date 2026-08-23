@@ -2203,6 +2203,30 @@ if (hasHook) {
         'and the deepest hollow in that strip still clears the water',
         sv ? `lowest ${sv.lo} against a waterline at ${sea}` : 'no sand');
 
+  // ---- and the sand you can get close to is MODELLED, not painted ----
+  // The beach mesh is two feet a quad: it can carry a dune and it cannot carry sand. A small
+  // modelled piece of ground is scattered over it — turned, resized and sunk to meet the beach
+  // at every one of a hundred-odd places — and what makes that read as a beach rather than as
+  // tiles is that each piece meets the ground it is lying on. So that is what is measured: how
+  // far the underside of a piece sits from the beach beneath it, over the whole field.
+  const st = await page.evaluate(() => window.__surf.sandTiles());
+  check(st && st.tile && st.on && st.count > 40,
+        'the sand on the preview beach is a modelled piece laid down over and over',
+        st ? `${st.count} pieces of ${st.trisEach} triangles, ${st.tris} in all, ${st.draws} draw call`
+           : 'no sand tiles');
+  // Every piece is placed against the height function rather than dropped at a fixed level, so
+  // this is the number that says the placement is still doing its job. Loose, on purpose: the
+  // pieces are deliberately lifted clear of the dunes they lie across and pressed flat where
+  // anything is standing, so it is a foot or so and not zero — what it must not be is metres,
+  // which is a field floating over the beach with daylight under it.
+  check(st && st.on && Math.abs(st.sit.worst) < 2.5 && st.sit.mean < 1.2,
+        'and every one of them meets the beach it is lying on rather than floating over it',
+        st ? `worst ${st.sit.worst}ft, mean ${st.sit.mean}ft between a piece and the ground` : 'no sand tiles');
+  // One object, however many pieces: an InstancedMesh, so the cost is triangles and not calls.
+  check(st && st.on && st.draws === 1 && st.tris < 900000,
+        'and the whole field is one object rather than a hundred of them',
+        st ? `${st.tris} triangles in ${st.draws} draw call` : 'no sand tiles');
+
   // ---- and the lens over all of it is a FISHEYE, which is two things, not one ----
   // A three.js camera is rectilinear, so the field of view alone cannot make one: opened up
   // this far on its own it does not bend, it SMEARS, and the corners of the frame stretch

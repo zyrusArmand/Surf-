@@ -1261,7 +1261,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.99.0';
+const VERSION='4.0.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5281,9 +5281,28 @@ function previewSetup(){
 // rolls rather than standing still.
 // ---------------------------------------------------------------------------
 let prevOcean=null, prevSky=null, beachLife=null, cardSet=null, cardShadow=null;
-const _ss2=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
 let SAND_LIT=0x484848, PALM_LIT=0x3c3c3c, beachShadow=null, beachSand0=0, beachSandH=null;
 let beachSurfH=null;                   // the surface itself, dunes included — see buildBeach
+// ---- the sand is a MODEL laid over the beach, not only a painted surface ----
+// The beach mesh is one enormous grid: it carries the dunes and the shading and it is what
+// everything stands on, and at two feet a quad it can carry nothing finer than that. Real
+// sand up close is a surface with actual relief in it, and the only way to have both is to
+// keep the big shape and scatter a small modelled piece of ground over the top of it.
+//
+// One piece, laid down a hundred and some times: turned a different way each time, a little
+// bigger or smaller each time, and sunk until its underside meets the beach it is lying on —
+// which is what stops a repeated tile reading as a repeated tile. They overlap by design,
+// because sand has no seams and the joins are the one thing that would give it away.
+//
+// It is INSTANCED, so all of them are one draw call and the cost is triangles alone; and it
+// is on the preview beach only — the title screen and the cards, which is where a lens ever
+// gets close enough to the ground for any of this to be visible.
+let sandTile=null, sandField=null, beachSandGroup=null;
+let SAND_TILE=10.0;                     // how many units across one piece lies
+let SAND_GAP=0.66;                     // spacing as a fraction of that — under 1 is overlap
+let SAND_TILT=0.9;
+let SAND_SINK=0.62;                    // how far into the beach the pieces are pressed                    // how much of the ground's own slope each piece takes
+const SAND_X=34, SAND_Z0=14, SAND_Z1=-68;   // the patch of beach worth covering
 // the set's own palms stand up the beach for the previews; the menu stands its own and
 // puts these away, because three trunks and a board in one frame is a thicket
 const beachPalms=[];
@@ -5675,6 +5694,179 @@ loadModel('palm.glb',(s3)=>{
              rest:chain.map(b=>b.quaternion.clone()),
              mat:mats.length===1?mats[0]:mats};
   repalm();
+});
+// ---- one modelled piece of ground, scattered until it IS the ground ----
+// Every instance is placed the same way: a jittered spot on a grid, a free turn about the
+// vertical, a size within a fifth either way, and then dropped until the piece's own underside
+// sits on the beach's surface at that spot. Dropped, not floated: the tile is a slab with a
+// thickness of its own, so "on the ground" is its MINIMUM y and not its origin, and using the
+// origin leaves a hundred slabs hovering a couple of inches up with daylight under every one.
+//
+// It also takes some of the ground's slope. A flat tile on a dune's flank buries one edge and
+// lifts the other clear; tilting it into the surface keeps the whole underside in contact,
+// which is the only way overlapping pieces read as one continuous beach. Only SOME of the
+// slope, though — all of it makes the pieces follow every ripple and the field starts to look
+// quilted, and none of it makes them shingle.
+const _ss2=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
+function sandFieldBuild(){
+  if(sandField&&sandField.parent)sandField.parent.remove(sandField);
+  sandField=null;
+  if(!sandTile||!beachSandGroup||!beachSurfH)return;
+  const geo=sandTile.geo, bb=geo.boundingBox||(geo.computeBoundingBox(),geo.boundingBox);
+  const span=Math.max(bb.max.x-bb.min.x, bb.max.z-bb.min.z)||1;
+  const base=SAND_TILE/span;                       // file units to beach units
+  const step=Math.max(0.6,SAND_TILE*SAND_GAP);
+  const nx=Math.ceil(SAND_X*2/step), nz=Math.ceil((SAND_Z0-SAND_Z1)/step);
+  const N=nx*nz;
+  if(!N||N>4000)return;
+  const mesh=new THREE.InstancedMesh(geo,sandTile.mat,N);
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  const m=new THREE.Matrix4(), q=new THREE.Quaternion(), e=new THREE.Euler();
+  const pos=new THREE.Vector3(), scl=new THREE.Vector3(), up=new THREE.Vector3(0,1,0);
+  const nrm=new THREE.Vector3(), axis=new THREE.Vector3();
+  // a fixed sequence, so the beach is the same beach every time it is built — a field that
+  // reshuffles on every rebuild makes every screenshot a different picture and nothing
+  // measurable can be said about it
+  let rs=20250823;
+  const R=()=>{ rs=(rs*1103515245+12345)&0x7fffffff; return rs/0x7fffffff; };
+  let i=0;
+  for(let ix=0; ix<nx; ix++)for(let iz=0; iz<nz; iz++){
+    const x=-SAND_X+(ix+0.5)*step+(R()-0.5)*step*0.8;
+    const z=SAND_Z1+(iz+0.5)*step+(R()-0.5)*step*0.8;
+    const k=base*(0.82+R()*0.42);
+    // ---- and it lies FLAT where anything is standing on it ----
+    // A scattered field adds relief above the ground as well as below it, and the ground is
+    // where the rider's feet, the board's foot and the chest were all placed. A mound of sand
+    // a third of a unit high in front of the rider hides him to the ankle — nothing has sunk,
+    // the beach in front of him has simply grown. Same two footprints the dunes keep clear,
+    // for the same reason, and answered the same way: the pieces are still there and still
+    // cover the ground, they are just pressed flat where something is standing.
+    const dO=Math.hypot(x,z), dS=Math.hypot(x,z-MB_Z);
+    const fw=Math.min(_ss2(3,24,dO), _ss2(4,24,dS));
+    // The lift gets a weight of its own, and a much tighter one. It is only there to clear a
+    // dune, the beach has no dune within its own flat discs, and those discs are ten units
+    // across — not twenty-four. Taking the lift away over the same slow ramp as the flattening
+    // meant the pieces a dozen units out were still lying at their centre height with a real
+    // dune under them, and the painted beach came up through the field beside the chest.
+    // ...and its ramp is the beach's OWN flat disc, number for number, rather than something
+    // near it. The lift is needed exactly where the beach has relief and not where it has been
+    // levelled, and any disagreement between the two leaves a ring where the ground is neither
+    // flat nor cleared — which is where the painted beach came up under the shop card and drew
+    // its ripple map across the sand at a grazing angle, as a grey striped mat under the pug.
+    const lw=Math.min(_ss2(4,13,dO), _ss2(5,10,dS));
+    // ...and PRESSED, not ironed. The first attempt took the pieces near the set down to a
+    // seventh of their height over eight units, and a big piece scales as one whole thing —
+    // so the set ended up standing on a flat plateau with straight edges, which reads as a
+    // table someone put the beach on. Half the height over twenty units instead: enough that
+    // nothing standing there is knee-deep, gradual enough that there is no edge to see.
+    const ky=k*(0.20+0.80*fw);
+    // the ground here, and which way it faces. Sampled off the same height function the mesh
+    // was built from rather than off the mesh, so it is exact rather than the nearest vertex.
+    // ---- and the slope it follows is measured at the PIECE'S OWN SIZE ----
+    // Read over half a unit, the gradient is whatever ripple happens to be under the middle of
+    // the piece, and laying a five-unit plane along it throws the far edge feet into the air —
+    // which then has to be lifted clear of, so the field ended up higher the harder it tried
+    // to follow the ground. A piece lying across a dune should follow the dune, not the ripple
+    // it happens to be centred on, so the difference is taken over a third of its own width.
+    const d=Math.max(0.6,SAND_TILE*0.35);
+    const h0=beachSurfH(x,z);
+    const gx=(beachSurfH(x+d,z)-beachSurfH(x-d,z))/(2*d);
+    const gz=(beachSurfH(x,z+d)-beachSurfH(x,z-d))/(2*d);
+    nrm.set(-gx,1,-gz).normalize();
+    // ---- and LIFTED clear of the dune it is lying across ----
+    // A piece is a plane and a dune is curved, so a piece laid on the height at its own centre
+    // cuts into the crest either side of it and the painted beach comes up THROUGH the middle
+    // of the field — which is what put a yellow band with straight edges across the
+    // foreground. Nothing was sinking; the ground was rising between the pieces.
+    // So the ground under each one is not its centre height but the highest point under its
+    // whole footprint, measured against the tilted plane the piece will actually lie on.
+    const r2=SAND_TILE*0.5;
+    let lift=0;
+    for(let a=0;a<8;a++){
+      const dx=Math.cos(a*Math.PI/4)*r2, dz=Math.sin(a*Math.PI/4)*r2;
+      const plane=h0+SAND_TILT*(gx*dx+gz*dz);
+      const e2=beachSurfH(x+dx,z+dz)-plane;
+      if(e2>lift)lift=e2;
+    }
+    // ...and no lift at all where the ground is already flat, which is exactly where things
+    // are standing on it. The clearance above is bought at the cost of the field sitting most
+    // of a foot proud of the height the rider, the board and the chest were placed at, and
+    // that is the foot of the board disappearing again. Under the set and under the card there
+    // is no dune to clear — the beach levels itself there by construction — so the same weight
+    // that presses the pieces flat also takes the lift away.
+    const h=h0+lift*lw;
+    // turn about the vertical first, then lay it into the slope
+    e.set(0,R()*Math.PI*2,0); q.setFromEuler(e);
+    if(SAND_TILT>0.001){
+      axis.crossVectors(up,nrm);
+      const s2=axis.length();
+      if(s2>1e-4)q.premultiply(new THREE.Quaternion().setFromAxisAngle(
+        axis.divideScalar(s2), Math.asin(Math.min(1,s2))*SAND_TILT));
+    }
+    // ---- and down until its SURFACE is the ground, not its underside ----
+    // The obvious placement is to sit the piece on the beach — bottom on the ground, nothing
+    // buried — and it is wrong, because the piece is a slab with a thickness of its own. Do
+    // that and the whole field stands half a foot proud of the height everything else in the
+    // scene was placed at: the rider's feet go into it up to the ankle, the board's foot
+    // disappears and the chest sinks into a bank. The ground did not move; the sand on top of
+    // it did.
+    // So the anchor is the piece's own mean surface, which is where its ground actually IS.
+    // Most of the slab ends up below the beach mesh, which costs nothing — it is never seen —
+    // and its high points stand proud and its hollows let the painted beach show through,
+    // which is exactly the mix that reads as one continuous surface rather than as tiles.
+    // ---- and the whole field sits a little INTO the beach ----
+    // Anchored on its own mean, half of every piece stands above the ground and half below,
+    // and the half above is what hides a rider's feet and swallows the foot of the board.
+    // Sunk by most of its upward half, the peaks still break the surface — which is the point
+    // of modelled sand — and the ground everything was placed on is still the ground.
+    // ---- and where it is pressed flat it sits ON the ground rather than into it ----
+    // The sunk anchor is right out in the field, where the pieces have their full height and
+    // half of it would otherwise bury a rider's feet. It is wrong at the two levelled spots:
+    // a piece pressed to a third of its height and then still sunk by most of what is left
+    // ends up almost entirely BELOW a beach that is flat there, and the beach — which carries
+    // the wind-ripple map — shows straight through it. That is the grey striped mat that kept
+    // appearing under the pug on his own card, and it was the beach all along.
+    // So the anchor slides with the same weight: underside on the ground where it is flat,
+    // sunk to its own mean out where it is not.
+    const anchor=bb.min.y+(sandTile.mid+SAND_SINK*(bb.max.y-sandTile.mid)-bb.min.y)*fw;
+    pos.set(x, h-anchor*ky, z);
+    scl.set(k,ky,k);
+    m.compose(pos,q,scl);
+    mesh.setMatrixAt(i++,m);
+  }
+  mesh.count=i;
+  mesh.instanceMatrix.needsUpdate=true;
+  mesh.frustumCulled=false;          // one object covering the whole beach; its box is the beach
+  mesh.receiveShadow=true;
+  // The beach mesh stays UNDER it and stays visible. The tiles overlap each other but they do
+  // not tile the plane exactly, and the gaps between them at the edges of the field are the
+  // beach itself — which is the same sand, painted rather than modelled, so nothing shows.
+  beachSandGroup.add(sandField=mesh);
+}
+loadModel('sand.glb',(s3)=>{
+  let mm=null; s3.traverse(o=>{ if(o.isMesh&&!mm)mm=o; });
+  if(!mm)return;
+  mm.updateWorldMatrix(true,false);
+  const geo=mm.geometry.clone();
+  geo.applyMatrix4(mm.matrixWorld);        // whatever the file wrapped it in, baked in
+  geo.computeBoundingBox();
+  const mat=Array.isArray(mm.material)?mm.material[0]:mm.material;
+  // the same rule every imported surface here follows: matt, and never emissive
+  if(mat){
+    if(mat.roughness!==undefined)mat.roughness=Math.max(mat.roughness,0.9);
+    if(mat.metalness!==undefined)mat.metalness=0;
+    mat.envMapIntensity=0.14;
+    if(mat.emissive)mat.emissive.setRGB(0,0,0);
+    mat.side=THREE.FrontSide;
+    mat.needsUpdate=true;
+  }
+  // where this piece's ground sits inside its own box, measured off the vertices rather than
+  // guessed from the box: a slab's mean height is not the middle of its bounds when most of
+  // the surface is up near the top and only the flat backing is at the bottom.
+  const pa=geo.attributes.position; let sy=0;
+  for(let i=0;i<pa.count;i++)sy+=pa.getY(i);
+  sandTile={geo,mat,mid:sy/Math.max(1,pa.count)};
+  sandFieldBuild();
 });
 // ---- the title screen's own palm, which is a different tree ----
 // palm.glb is RIGGED, and that is the whole reason the game's palms can be a grove rather
@@ -6183,6 +6375,8 @@ function buildBeach(){
   beachSand.material.aoMapIntensity=0.80;
   beachSand.material.envMapIntensity=0.16;
   beachSand.rotation.x=-Math.PI/2; beachSand.position.set(0,0,SC); g.add(beachSand);
+  beachSandGroup=g;
+  sandFieldBuild();
 
   // a soft shadow on the sand for whatever is being looked at, so it reads as standing over
   // the beach rather than pasted on top of it
@@ -15913,6 +16107,32 @@ if(location.hash.includes('debug')){
               drewAt:_fxLast?_fxLast.fov:null, frames:_fxLast?_fxLast.n:0,
               wanted:typeof menuBeachWanted==='function'?menuBeachWanted():null,
               theta:fxComp?+fxComp.uniforms.uTheta.value.toFixed(4):null};
+    },
+    // The scattered sand: rebuild it to any size, spacing and slope-following, and say what
+    // came out. Three numbers that only mean anything in a picture, so they are walked.
+    sandTiles(size,gap,tilt,sink){
+      if(size!==undefined)SAND_TILE=size;
+      if(gap!==undefined)SAND_GAP=gap;
+      if(tilt!==undefined)SAND_TILT=Math.max(0,Math.min(1,tilt));
+      if(sink!==undefined)SAND_SINK=sink;
+      if(size!==undefined||gap!==undefined||tilt!==undefined||sink!==undefined)sandFieldBuild();
+      if(!sandField)return {tile:!!sandTile, on:false, size:SAND_TILE, gap:SAND_GAP, tilt:SAND_TILT};
+      const g2=sandField.geometry, tri=(g2.index?g2.index.count:g2.attributes.position.count)/3;
+      // where the underside of each piece sits against the ground it is lying on — the one
+      // number that says whether this is a beach or a hundred slabs hovering over one
+      const m=new THREE.Matrix4(), p=new THREE.Vector3(), q=new THREE.Quaternion(),
+            sc=new THREE.Vector3(), bb=g2.boundingBox||(g2.computeBoundingBox(),g2.boundingBox);
+      let worst=0, sum=0, n=0;
+      for(let i=0;i<sandField.count;i+=7){
+        sandField.getMatrixAt(i,m); m.decompose(p,q,sc);
+        const d=(p.y+sandTile.mid*sc.y)-beachSurfH(p.x,p.z);   // surface against ground
+        if(Math.abs(d)>Math.abs(worst))worst=d; sum+=Math.abs(d); n++;
+      }
+      return {tile:true, on:true, count:sandField.count, trisEach:Math.round(tri),
+              tris:Math.round(tri*sandField.count),
+              size:SAND_TILE, gap:SAND_GAP, tilt:SAND_TILT, sink:SAND_SINK,
+              sit:{worst:+worst.toFixed(3), mean:+(sum/Math.max(1,n)).toFixed(3)},
+              draws:1};
     },
     // Bend the menu's palm to any profile, and report where its crown lands in the frame.
     // Eight joint angles is eight numbers to guess at; one render each is the only way to
