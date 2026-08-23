@@ -1261,7 +1261,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.88.0';
+const VERSION='3.89.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -9551,6 +9551,12 @@ function paintRiderFace(root,bones,coat){
 // frog is not a pug — keep the translations and the frog's legs get stretched to the pug's.
 // Rotations retarget cleanly across a shared skeleton, which is the whole reason this works.
 const CLIP_LIB={};
+// ---- he waves when the game opens, and only then ----
+// Counted down by whichever rider is on the title screen, and it lives out here rather than
+// on the rig so that it is once per LOAD and not once per character: switching to the cat
+// should not get you greeted again, and neither should coming back from a run.
+const GREET=5.0;
+let greetLeft=GREET;
 // Meshy writes "Armature|One_Arm_Handstand|baselayer" on some exports and the bare name on
 // others, so the pool is keyed on the middle of it or the two would never meet.
 function clipKey(n){ return String(n).replace(/^[^|]*\|/,'').replace(/\|[^|]*$/,''); }
@@ -10133,6 +10139,11 @@ function setupModelRig(root,gltf,id){
                             if(b0)this.ground=b0.lo[1]; }
     const hold=()=>{ const b=this.skinBox&&this.skinBox();
                      if(b&&this.ground!==null)pug.position.y+=this.ground-b.lo[1]; };
+    // the greeting comes first, before any of the show, and it happens once
+    if(greetLeft>0&&this.greet&&this.bones&&this.rest&&this.bones[WAVE.side+'Arm']){
+      greetLeft=Math.max(0,greetLeft-dt);
+      this.greet(dt); hold(); return;
+    }
     if(!this.clips){ const r=this.idle&&this.idle(dt); hold(); return r; }
     const start=i=>{
       const st=SHOW[i], a=this.clip(st.clip);
@@ -10188,11 +10199,103 @@ function setupModelRig(root,gltf,id){
     }
     hold();
   };
+  // ---- the wave ----
+  // NOT A CLIP. Nothing in any of these files waves — there is a chat, a walk, a run, a
+  // stomp, a backflip, a handstand, a get-up and a lie-down, and no greeting among them. So
+  // it is posed: the standing idle underneath for the whole body, and one arm lifted and
+  // rocking over the top of it. Written against the REST rotation of each bone rather than
+  // in world angles, which is what lets the same numbers wave a pug, a cat, a frog and a
+  // monkey — they share a skeleton, so they share a rest pose to work from.
+  // Scanned rather than guessed: the arm bones run along their own local Y, so "up" is a
+  // turn about local Z — and it is MIRRORED, plus on his right and minus on his left. Six
+  // combinations tried and the hand measured against the head; z is the only axis that puts
+  // it above one. The forearm rocks about the same axis, which keeps the wave in the plane
+  // facing the camera instead of flapping it sideways.
+  // Walked, and against the SCREEN rather than the skeleton. A higher arm measures better —
+  // the hand gets further above the head — and looks worse, because on a character this
+  // stocky the paw swings in behind the head and disappears. Two-fifteen at the shoulder puts
+  // it a clear head's width out to the side and half a head above.
+  //
+  // The elbow is CENTRED on straight and the swing does the bending, rather than sitting bent
+  // with the swing on top of it: opening the elbow pulls the paw back in toward the head, so
+  // a bent rest angle spent one end of every swing at its narrowest. Centred, both ends of
+  // the wave are equally clear and the widest part of it is the middle.
+  const WAVE={arm:[0.2,0,2.15], fore:[0,0,0], swing:0.42, rate:6.6, side:'Right'};
+  R.waveCfg=WAVE;
+  R.greet=function(dt,tt){
+    this.idle(dt);
+    const q=new THREE.Quaternion(), e=new THREE.Euler();
+    const put=(n,x,y,z)=>{ const b=this.bones[n], r=this.rest[n]; if(!b||!r)return;
+      e.set(x,y,z); b.quaternion.copy(r).multiply(q.setFromEuler(e)); };
+    const T=tt===undefined?(typeof tNow==='number'?tNow:0):tt;
+    const sw=Math.sin(T*WAVE.rate)*WAVE.swing;
+    put(WAVE.side+'Arm',     WAVE.arm[0], WAVE.arm[1], WAVE.arm[2]);
+    put(WAVE.side+'ForeArm', WAVE.fore[0], WAVE.fore[1], WAVE.fore[2]+sw);
+  };
+  // Which way this rig's arm actually swings. The bones run along their own local Y and the
+  // rest pose is whatever the file was built in, so "up" is not a known axis — it is one of
+  // three, in one of two directions, and the honest way to find out is to try all six and
+  // measure where the hand ends up. Reported against the HEAD, because the hand being above
+  // the head is the whole of what makes a raised arm read as a wave.
+  // Where the waving hand actually ends up, in the axes the SHOT is composed in: how far
+  // above the head, and how far toward the camera. Sideways-and-back reads as an arm being
+  // held out; up-and-forward reads as a wave.
+  R.wavePose=function(tt){
+    this.greet(0.016,tt===undefined?0:tt);
+    pug.updateMatrixWorld(true);
+    const h=this.bones[WAVE.side+'Hand'], hd=this.bones.Head;
+    if(!h||!hd)return null;
+    const hp=h.getWorldPosition(new THREE.Vector3()), dp=hd.getWorldPosition(new THREE.Vector3());
+    const d=hp.clone().sub(dp);
+    mbAxes();
+    // and where the two land ON SCREEN, because "the paw is clear of his head" is a fact
+    // about the picture and not about the skeleton: this character is stocky with short arms,
+    // so an arm that measures well raised can still put the paw behind the head from here.
+    const cam=(typeof menuCam!=='undefined'&&menuCam)?menuCam:camera;
+    const px=v=>{ const p=v.clone().project(cam);
+                  return [(p.x*0.5+0.5)*innerWidth,(-p.y*0.5+0.5)*innerHeight]; };
+    const a=px(hp), b=px(dp);
+    // ...and the size of his head in those same pixels, from the head bone to the one at the
+    // end of it. "Clear of his head" is a fact about the picture, and a picture on a phone
+    // held upright and one in a browser window are not the same number of pixels — measured
+    // against a fixed count the same pose reads as fine on one and broken on the other.
+    const he=this.bones.head_end||this.bones.headfront;
+    const c=he?px(he.getWorldPosition(new THREE.Vector3())):null;
+    const headPx=c?Math.max(1,Math.hypot(c[0]-b[0],c[1]-b[1])):null;
+    return {up:+d.y.toFixed(3), toCam:+(-d.dot(_mbF)).toFixed(3), across:+d.dot(_mbR).toFixed(3),
+            sepX:+Math.abs(a[0]-b[0]).toFixed(1), sepY:+(b[1]-a[1]).toFixed(1),
+            headPx:headPx?+headPx.toFixed(1):null,
+            outHeads:headPx?+(Math.abs(a[0]-b[0])/headPx).toFixed(2):null,
+            upHeads:headPx?+((b[1]-a[1])/headPx).toFixed(2):null,
+            cfg:{arm:WAVE.arm.slice(),fore:WAVE.fore.slice(),swing:WAVE.swing}};
+  };
+  R.waveScan=function(){
+    const q=new THREE.Quaternion(), e=new THREE.Euler(), v=new THREE.Vector3();
+    const out=[];
+    const head=this.bones.Head, keep=[];
+    for(const side of ['Left','Right'])for(let ax=0;ax<3;ax++)for(const a of [-2.6,-2.15,-1.6,1.6,2.15,2.6]){
+      const b=this.bones[side+'Arm'], r=this.rest[side+'Arm'], h=this.bones[side+'Hand'];
+      if(!b||!r||!h||!head)continue;
+      const was=b.quaternion.clone();
+      e.set(ax===0?a:0, ax===1?a:0, ax===2?a:0);
+      b.quaternion.copy(r).multiply(q.setFromEuler(e));
+      pug.updateMatrixWorld(true);
+      h.getWorldPosition(v);
+      const hp=head.getWorldPosition(new THREE.Vector3());
+      out.push({side,ax,a,overHead:+(v.y-hp.y).toFixed(3),
+                outFromBody:+(v.clone().sub(hp).length()).toFixed(3)});
+      b.quaternion.copy(was);
+    }
+    pug.updateMatrixWorld(true);
+    out.sort((p,n)=>n.overHead-p.overHead);
+    return out.slice(0,8);
+  };
   // Jump the show straight to one beat, for a test or a screenshot. It has to set the POSTURE
   // as well as the index: the show only picks a move that begins where the last one left him,
   // so asking for the handstand while he is lying on the sand gets the get-up instead — which
   // is correct behaviour and useless if what you wanted was a look at the handstand.
   R.jump=function(i){
+    greetLeft=0;                                  // a test asking for a beat wants the beat
     const st=SHOW[((i%SHOW.length)+SHOW.length)%SHOW.length];
     this.step=i-1; this.stepT=0; this.posture=st.from;
     this.cur=null; this.prev=null; this.fadeT=0;   // land ON the pose, do not fade into it
@@ -14119,6 +14222,11 @@ if(location.hash.includes('debug')){
         out.ct=+((modelRig.t||0).toFixed(3)); out.rot=+((modelRig.rot||0).toFixed(3));
         out.C=modelRig.C?[modelRig.C.inA,modelRig.C.inB,modelRig.C.holdA,modelRig.C.holdB]
                           .map(v=>+v.toFixed(2)):null;
+        // the two offsets the handstand puts ON him — a turn and a slide across the board —
+        // so "given back" can be asked of the offsets themselves rather than inferred from
+        // where his foot ended up three seconds later, by which time he has ridden on
+        out.xFix=+((modelRig.xFix||0).toFixed(4));
+        out.yawFix=+((modelRig.yawFix||0).toFixed(4));
         out.stand=!!modelRig.stand; out.surf=!!modelRig.surf;
         const st=modelRig.stand;
         if(st)out.act={run:st.isRunning(),t:+st.time.toFixed(2),w:+st.getEffectiveWeight().toFixed(2),
@@ -14241,6 +14349,13 @@ if(location.hash.includes('debug')){
               atCut:{move:worst(cuts),turn:worstT(cuts)},
               inFlow:{move:worst(flow),turn:worstT(flow)}};
     },
+    waveScan(){ const r=riderRig(); return r&&r.waveScan?r.waveScan():null; },
+    // how much greeting is left, and a way to ask for it again without reloading the page
+    greet(v){ if(v!==undefined)greetLeft=v;
+      return {left:+greetLeft.toFixed(2), full:GREET, step:(riderRig()||{}).step}; },
+    waveSet(o){ const r=riderRig(); if(!r||!r.waveCfg)return null;
+      Object.assign(r.waveCfg,o||{}); return r.waveCfg; },
+    wavePose(t){ const r=riderRig(); return r&&r.wavePose?r.wavePose(t):null; },
     showStep(i){ const r=riderRig(); if(!r||!r.show)return null;
       if(i!==undefined&&i!==null&&r.jump)r.jump(i);
       return {step:r.step, left:+((r.stepT||0)).toFixed(2), ground:r.ground,
@@ -15144,8 +15259,8 @@ if(location.hash.includes('debug')){
     // walk the shot: how far back the lens stands, how high it is, and how high it looks
     menuCamAt(d,eye,aim,aimx){
       if(d!==undefined)MB_D=d; if(eye!==undefined)MB_EYE=eye; if(aim!==undefined)MB_AIM=aim;
-      if(aimx!==undefined)MB_AIMX=aimx;
-      return {d:MB_D,eye:MB_EYE,aim:MB_AIM,aimx:MB_AIMX,
+      if(aimx!==undefined)MB_BIAS=aimx;
+      return {d:MB_D,eye:MB_EYE,aim:MB_AIM,bias:MB_BIAS,
               middle:menuBeach?menuBeach.middle:null, spread:menuBeach?menuBeach.spread:null};
     },
     // what the title screen's palm actually IS, in the frame it stands in
@@ -17893,12 +18008,13 @@ let MB_D=19.0;                        // how far back the camera stands from the
 // How high the lens is over the sand, and how high it is aimed. Both are heights above the
 // beach at the palm, so they move together with everything else if the sand ever moves.
 let MB_EYE=4.7, MB_AIM=6.3;
-// How far to the camera's LEFT of the trunk it aims, at the least. This is the number that
-// decides where the group sits ACROSS the frame: the camera looks this far left of the palm,
-// so the palm — and everything propped against it — sits that far right of centre. It is a
-// floor rather than the value because the shot normally centres on the pair, and a pair
-// standing tight against the trunk would otherwise walk the aim back onto the tree.
-let MB_AIMX=2.4;
+// How far right of dead centre the set is composed to sit. The camera aims at the middle of
+// what is standing on the beach and then this much to the LEFT of it, which puts everything
+// that much to the right in the frame. It used to BE the aim rather than a bias on it, and
+// that is why the set kept drifting right: the thing it was aimed at was the board and the
+// rider, and the chest sits on the far side of the trunk from both of them, so half the
+// group was outside what the camera thought it was framing.
+let MB_BIAS=0.45;
 // The palm. It was a shrub: eleven of its own units at 0.46 comes out barely six feet tall,
 // which is shorter than most of the rack — a ten foot log leaning on it towered over the
 // whole tree. At 1.35 it is a fourteen foot palm and everything in front of it reads as
@@ -18445,7 +18561,11 @@ function renderMenuBeach(dt){
   // board stands on and the sea and the sky get the rest, which is how the photograph is
   // framed. The aim is high because the palm is a fourteen foot tree now rather than a
   // shrub, and the whole of it is meant to be in shot.
-  const aim=Math.max(MB_AIMX,m.middle!==undefined?m.middle:spread*0.66);
+  // the centre of what is actually standing there: the rider at one end, the chest at the
+  // other, measured along the camera's own right axis from the trunk they are both placed off
+  const grp=(m.riderAt!==undefined)?(m.riderAt-MB_CD)*0.5
+           :(m.middle!==undefined?m.middle:spread*0.66);
+  const aim=Math.max(0.4,grp)+MB_BIAS;
   menuCam.position.set(px-_mbF.x*D, g+MB_EYE+sw2*0.12, pz-_mbF.z*D);
   menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+MB_AIM, pz-_mbR.z*aim);
   menuCam.updateProjectionMatrix();

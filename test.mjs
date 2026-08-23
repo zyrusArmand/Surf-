@@ -731,12 +731,27 @@ const speed = await page.textContent('#hSpeed');
 check(m(speed) > 0, 'speed non-zero', speed);
 
 // Frames actually being drawn, not just state being ticked.
+//
+// Asked as "do three frames arrive" rather than "how many arrive in three seconds", because
+// the second question is about the MACHINE. This runs on a software rasteriser drawing about
+// two million triangles a frame — a second or so each — so a count over a fixed window sits
+// at four or five when the box is quiet and one when it is not, and it failed twice in a row
+// on a build whose own timing was unchanged. What it is for is catching a render loop that
+// has stopped, and a loop that has stopped never delivers the third frame however long it is
+// given.
 const frames = await page.evaluate(() => new Promise(res => {
   let n = 0; const t0 = performance.now();
-  const tick = () => { n++; performance.now() - t0 < 3000 ? requestAnimationFrame(tick) : res(n); };
+  const tick = () => { n++;
+    if (n >= 3 || performance.now() - t0 > 15000) res({ n, ms: Math.round(performance.now() - t0) });
+    else requestAnimationFrame(tick); };
   requestAnimationFrame(tick);
 }));
-check(frames > 3, 'frames rendering', `${frames} in 3s`);
+// WHAT it was drawing, not just how fast. This counts real animation frames, and the menu's
+// beach is three times the triangles of a wave — so a run that has quietly left the title
+// screen up reads as the renderer having fallen over when it is only drawing something else.
+const fps = await page.evaluate(() => ({ beach: window.__surf.beachNow(),
+  running: window.__surf.state().running, greet: window.__surf.greet ? window.__surf.greet().left : null }));
+check(frames.n >= 3, 'frames rendering', `3 frames in ${frames.ms}ms — ${JSON.stringify(fps)}`);
 
 // ---------- the set wave ----------
 // It fires past 600 m and runs ~25 s of sim time, which is minutes of wall clock here, so
@@ -3273,7 +3288,9 @@ check(shaderErrors.length === 0, 'every shader compiles',
     for (let i = 0; i < 4; i++) { window.__surf.tick(0.2);
       out.hold.push({ deg: window.__surf.rigInfo().bodyDeg, g: window.__surf.deckGap() }); }
     window.__surf.hand(false); window.__surf.tick(3);
-    out.after = { deg: window.__surf.rigInfo().bodyDeg, x: window.__surf.deckGap().x };
+    const ri = window.__surf.rigInfo();
+    out.after = { deg: ri.bodyDeg, x: window.__surf.deckGap().x,
+                  xFix: ri.xFix, yawFix: ri.yawFix };
     return out;
   });
   const swing = Math.max(...plant.hold.map(h => Math.abs(h.deg - plant.ride.deg)));
@@ -3284,10 +3301,16 @@ check(shaderErrors.length === 0, 'every shader compiles',
   check(plant.hold.every(h => Math.abs(h.g.x) < 0.20 && Math.abs(h.g.gap) < 0.06),
         'and the hand he is on is planted over the stringer, not off the rail',
         plant.hold.map(h => `${h.g.x.toFixed(2)}ft across a ${h.g.rail}ft half-width`).join(', '));
+  // Asked of the OFFSETS, not of where his foot ended up. The handstand turns him and slides
+  // him across the board, and both are meant to come off when he lands — but the reading was
+  // his foot's position three seconds later against its position before, and in three seconds
+  // of riding a foot moves on its own. The reference wandered between 0.17 and 0.33 across
+  // runs and the check finally caught its own noise rather than a bug.
   check(Math.abs(plant.after.deg - plant.ride.deg) < 12 &&
-        Math.abs(plant.after.x - plant.ride.x) < 0.20,
+        Math.abs(plant.after.xFix) < 0.005 && Math.abs(plant.after.yawFix) < 0.005,
         'and both are given back when he comes down, rather than left on him',
-        `${plant.after.deg}° against ${plant.ride.deg}°, foot at ${plant.after.x} against ${plant.ride.x}`);
+        `${plant.after.deg}° against ${plant.ride.deg}°, ` +
+        `slide ${plant.after.xFix} and turn ${plant.after.yawFix} left on him`);
   // ...over his own board, and ON it. The clip was animated on a floor: it travels a third
   // of a body-width sideways and puts his head straight through the deck, because nothing in
   // it knows the board is there. So the clip's root is dropped and the game turns him over
@@ -3334,6 +3357,68 @@ check(shaderErrors.length === 0, 'every shader compiles',
         show.slice(0, moves.length).every((s2, i) => s2.step === i) && show[0].left > 0.5,
         'and on the title screen he runs through his whole repertoire',
         show.every(Boolean) ? `${moves.length} moves, first runs ${show[0].left}s` : 'no show');
+
+  // ---- he waves when the game opens ----
+  // There is no wave in any of these files — a chat, a walk, a run, a stomp, a backflip, a
+  // handstand, a get-up and a lie-down, and no greeting among them — so it is posed rather
+  // than played: the standing idle underneath and one arm lifted and rocking over the top.
+  // The pose was walked against the SCREEN and not the skeleton, because a higher arm
+  // measures better and looks worse: on a character this stocky the paw swings in behind the
+  // head and vanishes. So what is checked is what the camera can see — the paw clear of the
+  // head sideways and above it — at BOTH ends of the swing, not just at the middle.
+  {
+    const wave = await page.evaluate(async () => {
+      // WITH THE TITLE SCREEN UP. The pose is measured against the camera that draws it and
+      // on top of the standing idle, and asking for it mid-ride reads the wave through the
+      // surfing stance and the game's own camera — which put the paw below his head and
+      // looked exactly like a wave that does not work.
+      for (let i = 0; i < 12 && !window.__surf.beachNow(); i++) {
+        document.getElementById('menuBtn').click();
+        await new Promise(r => setTimeout(r, 120));
+      }
+      window.__surf.greet(5);
+      const at = t => window.__surf.wavePose(t);
+      // a quarter period either side of centre is the widest the swing goes
+      return { up: window.__surf.beachNow(),
+               mid: at(0), a: at(Math.PI / 2 / 6.6), b: at(-Math.PI / 2 / 6.6),
+               full: window.__surf.greet().full };
+    });
+    const poses = [wave.mid, wave.a, wave.b];
+    // In HEADS, not pixels. The first version counted pixels and passed on a phone held
+    // upright and failed in a browser window, where the same pose is drawn smaller — a
+    // threshold that has to be re-guessed for every screen is measuring the screen.
+    //
+    // CALIBRATED AGAINST BOTH ENDS. The pose that was kept measures 0.55 to 0.66 heads out
+    // across the swing and was checked in a render; the poses that were rejected for putting
+    // the paw behind his head measured about half that. So the bar sits between the two
+    // rather than just under the good one — a threshold shaved to the observed minimum fails
+    // the next time the swing lands a frame either side of where it was sampled, which is
+    // what happened twice while this was being written.
+    check(wave.up === true &&
+          poses.every(p2 => p2 && p2.up > 0.1 && p2.outHeads > 0.45 && p2.upHeads > 0.35),
+          'the character waves when the game opens, with the paw clear of his own head',
+          `beach up ${wave.up}, ` +
+          poses.map(p2 => `${p2.outHeads} heads across / ${p2.upHeads} up`).join(', '));
+    check(wave.full === 5,
+          'and he does it for five seconds',
+          `${wave.full}s of greeting`);
+    // and then hands over to the show and does not come back. It is counted down once per
+    // LOAD rather than once per character or once per visit to the title screen, so neither
+    // switching riders nor coming back from a run should get you greeted again.
+    const after = await page.evaluate(async () => {
+      window.__surf.greet(5);
+      for (let i = 0; i < 130; i++) window.__surf.showTick ? 0 : 0;
+      window.__surf.showTrace(6, 1 / 30);          // six seconds of show, which spends it
+      const spent = window.__surf.greet().left;
+      window.__surf.restart(); window.__surf.tick(0.5);
+      document.getElementById('menuBtn').click();
+      await new Promise(r => setTimeout(r, 400));
+      return { spent, back: window.__surf.greet().left };
+    });
+    check(after.spent === 0 && after.back === 0,
+          'and only when it opens — coming back from a run does not get you greeted again',
+          `${after.spent}s left after the first five, ${after.back}s after a run and back`);
+  }
 
   // ---- and it is a performance rather than a slideshow ----
   // Each beat used to stop every other clip and start the next at full weight, so between two
