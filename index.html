@@ -1261,7 +1261,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='3.93.0';
+const VERSION='3.94.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5962,6 +5962,34 @@ function buildBeach(){
   // 2.6 and 0.62 drew the grain it used to have; ripples are a bigger relief than grain and
   // came out as a whisper at those numbers. A flatter z is a steeper surface between the
   // ridges, which is the whole of what makes them catch the light.
+  // ---- and the grains have COLOUR, not just shape ----
+  // Everything the sand had was relief: a normal map and a shadow map over one flat colour.
+  // Relief only shows where the light rakes it, so from most angles the beach was a smooth
+  // tan sheet with a pattern of shading on it. Real sand is not one colour with bumps — it is
+  // thousands of GRAINS, quartz catching the sun white and heavier minerals nearly black, and
+  // that is an albedo you can see straight on with no light behind it at all.
+  //
+  // The SIZE of a grain is set by the camera, not by what a grain is. This lens sits a foot
+  // over the sand and the near beach fills about eight feet of frame; a photograph of that
+  // shows a couple of hundred grains across it, which is one about every centimetre. Tiled
+  // three times finer than the ripples — the first guess, and the arithmetic says two
+  // millimetres — every speck lands inside a pixel and the whole thing reads as noise rather
+  // than as sand. Distance takes care of the far end by itself: the mip chain averages the
+  // specks back to flat tan exactly where a real beach stops showing them.
+  const GRAIN=(x,y)=>{
+    const h=_fbm(x*3.1+5,y*3.1+9);        // near enough one draw per texel — a grain each
+    const patch=_fbm(x*0.9+31,y*0.9+17);  // and coarser and finer areas of them
+    let v=0.70+h*0.50;
+    if(h>0.84)v+=0.42;                    // quartz, catching the sun
+    if(h<0.15)v-=0.34;                    // the dark heavy stuff between
+    return v*(0.94+patch*0.12);
+  };
+  beachSand.material.map=bakedGrey('sandGrain',256,GRAIN);
+  beachSand.material.map.repeat.set(95,58);
+  beachSand.material.map.anisotropy=16;
+  // sRGB, because it is a COLOUR. Left linear it comes out washed and chalky — the specks
+  // lose most of their separation, which is the one thing this map exists for.
+  if(THREE.sRGBEncoding)beachSand.material.map.encoding=THREE.sRGBEncoding;
   beachSand.material.normalMap=bakedNormal('sand',256,RIPPLE,4.2,0.34);
   beachSand.material.normalMap.repeat.set(150,90);   // about one tile every five feet
   beachSand.material.normalScale=new THREE.Vector2(1.55,1.55);
@@ -15362,10 +15390,30 @@ if(location.hash.includes('debug')){
       const d=c.getContext('2d').getImageData(0,0,im.width,im.height).data;
       let sx=0, sy=0, n=im.width*im.height;
       for(let i=0;i<n;i++){ sx+=Math.abs(d[i*4]-128); sy+=Math.abs(d[i*4+1]-128); }
+      // ...and the GRAIN, which is a different question: relief only shows where the light
+      // rakes it, and this is the part of sand you can see straight on. Its contrast is what
+      // separates grains from a flat tan sheet, so that is what is reported.
+      const g=beachSand.material.map, gi=g&&g.image;
+      let grain=null;
+      if(gi){
+        const c2=document.createElement('canvas'); c2.width=gi.width; c2.height=gi.height;
+        c2.getContext('2d').drawImage(gi,0,0);
+        const gd=c2.getContext('2d').getImageData(0,0,gi.width,gi.height).data;
+        const m=gi.width*gi.height;
+        let sum=0; for(let i=0;i<m;i++)sum+=gd[i*4];
+        const mean=sum/m;
+        let dev=0; for(let i=0;i<m;i++)dev+=Math.abs(gd[i*4]-mean);
+        grain={contrast:+(dev/m).toFixed(2), mean:+mean.toFixed(1),
+               tiles:[g.repeat.x,g.repeat.y], aniso:g.anisotropy,
+               srgb:THREE.sRGBEncoding?g.encoding===THREE.sRGBEncoding:null,
+               // how big one texel of it is on the ground, in feet — the number that decides
+               // whether it reads as grains or as noise
+               ft:+(760/g.repeat.x/gi.width).toFixed(4)};
+      }
       return {across:+(sx/n).toFixed(2), along:+(sy/n).toFixed(2),
               ratio:+((sy/n)/Math.max(0.01,sx/n)).toFixed(2),
               scale:+beachSand.material.normalScale.x.toFixed(2),
-              tiles:[t.repeat.x,t.repeat.y], aniso:t.anisotropy};
+              tiles:[t.repeat.x,t.repeat.y], aniso:t.anisotropy, grain};
     },
     // What the beach's own surface is DOING, read off the mesh. Three guesses in a row about
     // why the sand had gone missing were three guesses too many.

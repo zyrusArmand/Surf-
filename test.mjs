@@ -2111,6 +2111,27 @@ if (hasHook) {
   check(sand && sand.aniso >= 8,
         'and it lies down into the distance instead of shimmering',
         sand ? `${sand.tiles[0]}x${sand.tiles[1]} tiles at ${sand.aniso}x anisotropy` : 'no sand');
+  // ---- and the grains are a COLOUR, not only a shape ----
+  // Everything the sand had was relief — a normal map and a shadow map over one flat colour —
+  // and relief only shows where the light rakes it, so from most angles the beach was a smooth
+  // tan sheet with a pattern of shading on it. Real sand is thousands of grains, quartz
+  // catching the sun and heavier minerals nearly black, and that is an albedo you can see
+  // straight on with no light behind it at all.
+  const gr = sand && sand.grain;
+  check(!!gr && gr.contrast > 12,
+        'and the sand has grains you can see with no light on them at all',
+        gr ? `${gr.contrast} of contrast about a mean of ${gr.mean}` : 'no colour map on the sand');
+  // The SIZE of a grain is set by the camera, not by what a grain is. This lens sits a foot
+  // over the sand and the near beach fills about eight feet of frame; a photograph of that
+  // shows a couple of hundred grains across it — one about every centimetre. Tiled three
+  // times finer than the ripples, which was the first guess, every speck lands inside a pixel
+  // and the whole thing reads as noise. Half a centimetre to four is the band that reads.
+  check(!!gr && gr.ft > 0.012 && gr.ft < 0.13,
+        'and they are the size a grain looks from here rather than the size a grain is',
+        gr ? `one texel every ${(gr.ft * 30.48).toFixed(1)}cm of beach` : 'no colour map');
+  check(!!gr && gr.srgb !== false,
+        'and it is treated as a colour, which is what it is',
+        gr ? `sRGB ${gr.srgb}` : 'no colour map');
 }
 
 // ---------- and the wind has PILED it, not just combed it ----------
