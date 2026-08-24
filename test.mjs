@@ -1121,6 +1121,35 @@ if (hasHook) {
     // the camera apparently having walked a foot and a quarter backwards in the middle of a
     // charge. Three seconds of stillness, and never less than five seconds in total.
     await settleShot();
+
+    // ---- the title is a plank hanging over the beach ----
+    // It was an <h1> laid over the canvas, which is the right way to draw a word and the wrong
+    // way to put an object in a scene: it takes no light, it is never behind anything, and it
+    // does not move when the shot does. Carved into a sign hung above the palm it is part of the
+    // beach. The <h1> is still there and is only hidden — it doubles as the "Wipeout!" heading,
+    // and a missing models/sign.glb has to leave the title screen with a title on it.
+    {
+      await page.waitForFunction(() => window.__surf.signAt().up, null, { timeout: 60000 })
+                .catch(() => {});
+      const sg = await page.evaluate(() => window.__surf.signAt());
+      check(sg.up && sg.titleHidden, 'the title hangs over the beach as a sign, not as a word on the glass',
+            JSON.stringify({ up: sg.up, wordHidden: sg.titleHidden }));
+      // Fully in frame and near the middle of it. The plank is a metre of wood held a few feet
+      // from a wide lens: a foot of height either way takes a corner of it off the top.
+      check(sg.up && sg.x[0] > 0.04 && sg.x[1] < 0.96 && sg.y[0] > 0.0 && sg.y[1] < 0.45 &&
+            Math.abs(sg.cx - 0.5) < 0.06,
+            'and it hangs in the frame rather than half out of it',
+            `x ${sg.x}, y ${sg.y}, centred on ${sg.cx}`);
+      // Square to the lens. A plank is flat, so a few degrees off and the carving skews; at a
+      // half turn out it shows its blank back, which is what it did on the first attempt.
+      check(sg.up && sg.face < 12, 'and faces the camera rather than showing its back',
+            `${sg.face}° off the lens`);
+      // IN FRONT of the tree. At two feet out it hung inside the crown and the fronds ran across
+      // it, hiding three of the four letters — which reads as a plank with an f on it, not as
+      // anything being wrong, and is invisible in every other number here.
+      check(sg.up && sg.ahead > 1.5, 'and in front of the palm rather than inside its crown',
+            `${sg.ahead}ft nearer the lens than the tree`);
+    }
     const at = await page.evaluate(() => {
       const f = window.__surf.menuFrame();
       return { x: (f.rider.x[0] + f.rider.x[1]) / 2, y: (f.rider.y[0] + f.rider.y[1]) / 2 };

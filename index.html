@@ -1271,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.25.0';
+const VERSION='4.26.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -13051,6 +13051,25 @@ function dressChest(g,model){
   g.add(model);
 }
 let beachChest=null;
+// ---------- the sign over the beach ----------
+// The title was an <h1> laid over the canvas. That is the right way to draw a word and the
+// wrong way to put an OBJECT in a scene: it does not take the light, it does not sit in front
+// of one thing and behind another, and it does not move when the shot does. Carved into a
+// plank hanging above the palm it is part of the beach, which is what the reference has.
+// The <h1> stays and is only hidden while this is up: it is also the "Wipeout!" heading, and
+// a missing models/sign.glb has to leave the title screen with a title on it.
+let signModel=null, beachSign=null;
+loadModel('sign.glb',(s3)=>{ signModel=s3; placeBeachSign(); });
+function placeBeachSign(){
+  if(!signModel||typeof menuProps==='undefined'||!menuProps||beachSign)return;
+  beachSign=cloneModel(signModel);
+  menuProps.add(beachSign);
+  if(typeof layoutBeachSign==='function')layoutBeachSign();
+  // The title screen is already up by the time this file arrives, and showMenu is what hides
+  // the word — it is not going to run again just because a model finished downloading.
+  if(typeof ovTitle!=='undefined'&&ovTitle&&ovTitle.textContent!=='Wipeout!')
+    ovTitle.style.visibility='hidden';
+}
 function placeBeachChest(){
   if(!chestModel||typeof menuProps==='undefined'||!menuProps||beachChest)return;
   beachChest=cloneModel(chestModel);
@@ -13327,6 +13346,8 @@ function showMenu(mode){
   overlay.classList.toggle('over',over);
   overlay.classList.toggle('main',!over);
   ovTitle.textContent = over ? 'Wipeout!' : 'Surf';
+  // hidden only for the title, and only when the plank actually arrived
+  ovTitle.style.visibility = (!over && beachSign) ? 'hidden' : '';
   ovPurse.style.display = 'none';           // the purse lives in the shop and the run card
   document.getElementById('ovText').style.display = over ? '' : 'none';
   // The card's row lives or dies with the .over class, so these only decide which of its
@@ -16469,6 +16490,41 @@ if(location.hash.includes('debug')){
               hi:bb.max.toArray().map(v=>+v.toFixed(3)),
               spread:wide.map(v=>+v.toFixed(3)), verts:cnt};
     },
+    // Where the sign hangs and how it sits in the picture. Walked, because five numbers place
+    // it and none of them means anything on its own — a width that reads right at one height
+    // is wrong at another, and how square it is to the lens only shows once it is up there.
+    signAt(w,h,f,d,rot){
+      if(w!==undefined)MB_SGN_W=w; if(h!==undefined)MB_SGN_H=h;
+      if(f!==undefined)MB_SGN_F=f; if(d!==undefined)MB_SGN_D=d;
+      if(rot!==undefined)MB_SGN_ROT=rot;
+      if(typeof layoutBeachSign==='function')layoutBeachSign();
+      if(!beachSign||!menuCam)return {up:false};
+      beachSign.updateMatrixWorld(true);
+      const b=new THREE.Box3().setFromObject(beachSign), v=new THREE.Vector3();
+      let x0=9,x1=-9,y0=9,y1=-9;
+      for(let i=0;i<8;i++){
+        v.set(i&1?b.max.x:b.min.x,i&2?b.max.y:b.min.y,i&4?b.max.z:b.min.z).project(menuCam);
+        const sx=v.x*0.5+0.5, sy=-v.y*0.5+0.5;
+        if(sx<x0)x0=sx; if(sx>x1)x1=sx; if(sy<y0)y0=sy; if(sy>y1)y1=sy;
+      }
+      // which way its face points against the line to the lens: zero is square on
+      const n=new THREE.Vector3(0,0,1).applyQuaternion(beachSign.getWorldQuaternion(new THREE.Quaternion()));
+      const to=menuCam.position.clone().sub(beachSign.getWorldPosition(new THREE.Vector3()));
+      n.y=0; to.y=0; n.normalize(); to.normalize();
+      // how far IN FRONT of the tree it hangs. Two feet out it was inside the crown: the
+      // fronds ran across it and hid three of the four letters, which reads as a plank with an
+      // f on it rather than as anything being wrong.
+      let ahead=null;
+      if(typeof menuPalm!=='undefined'&&menuPalm){
+        const sp=beachSign.getWorldPosition(new THREE.Vector3());
+        const pp=menuPalm.getWorldPosition(new THREE.Vector3());
+        ahead=+(menuCam.position.distanceTo(pp)-menuCam.position.distanceTo(sp)).toFixed(2);
+      }
+      return {up:true, ahead, x:[+x0.toFixed(3),+x1.toFixed(3)], y:[+y0.toFixed(3),+y1.toFixed(3)],
+              cx:+((x0+x1)/2).toFixed(3), face:+(Math.acos(Math.max(-1,Math.min(1,n.dot(to))))*180/Math.PI).toFixed(1),
+              titleHidden:(typeof ovTitle!=='undefined'&&ovTitle)?ovTitle.style.visibility==='hidden':null,
+              at:[MB_SGN_W,MB_SGN_H,MB_SGN_F,MB_SGN_D,+MB_SGN_ROT.toFixed(2)]};
+    },
     obsTemplate(k){ const t=OBST_TEMPLATES[k]; return t?{variant:t.userData.variant||null}:null; },
     spawn(kind,dx,dz){ const o=makeObstacle(kind,px+dx,pz+dz); return {x:o.position.x,y:o.position.y,z:o.position.z,h:o.userData.h}; },
     // Where the swell is in its cycle. It runs off the render loop's own clock, so by the time
@@ -17354,7 +17410,7 @@ if(location.hash.includes('debug')){
     beachChestAt(cd,cf,ch,rot){
       if(cd!==undefined)MB_CD=cd; if(cf!==undefined)MB_CF=cf; if(ch!==undefined)MB_CH=ch;
       if(rot!==undefined)MB_CROT=rot;
-      layoutBeachChest();
+      layoutBeachChest(); layoutBeachSign();
       return this.chestScreen();
     },
     // How far over each palm standing in the game leans, off its own trunk line rather than
@@ -20532,6 +20588,7 @@ function layoutMenuBeach(){
   board.updateMatrixWorld(true);
   menuBeach.boardH=new THREE.Box3().setFromObject(board).getSize(new THREE.Vector3()).y;
   layoutBeachChest();
+  placeBeachSign(); layoutBeachSign();
 }
 // ---- the swell dies where the water shoals ----
 // WHERE the waterline is cannot be a number typed in here: it is wherever the beach's own
@@ -20597,6 +20654,10 @@ let MB_CROT=Math.PI*1.10;
 // a radian of swing put its plane a hundredth of a foot past the trunk's and nine tenths put
 // it more than a foot back. So the chest comes to the board, and the shot re-centres around
 // the pair of them.
+// The sign over the beach: how wide it hangs, how high, how far forward of the trunk, how far
+// to the camera's right of it, and which way it faces. Solved against the reference rather
+// than chosen — see the checks.
+let MB_SGN_W=3.3, MB_SGN_H=10.4, MB_SGN_F=6.0, MB_SGN_D=-1.0, MB_SGN_ROT=3.31;
 let MB_CD=-0.50;        // out to the camera's right of the trunk's own axis...
 // Out from 1.3, where the new palm's trunk is thick enough at chest height that the two
 // merged into one shape — the chest was measurably clear of the CENTRELINE and visibly inside
@@ -20640,6 +20701,25 @@ function layoutBeachChest(){
   beachChest.updateMatrixWorld(true);
   const b=new THREE.Box3().setFromObject(beachChest);
   beachChest.position.y+=(sand-b.min.y)/(menuProps.scale.y||1);
+}
+// Hung where the chest is placed, in the same axes and for the same reasons: the props group
+// carries a turn of its own, the shot is angled along the beach so world +x is not
+// screen-right, and a number that reads sensibly in one of those frames is nonsense in the
+// others. Sized by MEASUREMENT rather than by a scale number — it hangs off a scaled group, so
+// what its own scale means depends on where it is hanging.
+function layoutBeachSign(){
+  if(!beachSign)return;
+  if(typeof menuProps==='undefined'||!menuProps)return;
+  mbAxes();
+  const wx=_mbR.x*MB_SGN_D-_mbF.x*MB_SGN_F, wz=MB_Z*MB_K+_mbR.z*MB_SGN_D-_mbF.z*MB_SGN_F;
+  menuProps.updateWorldMatrix(true,false);
+  beachSign.scale.setScalar(1); beachSign.rotation.set(0,MB_SGN_ROT,0);
+  beachSign.updateMatrixWorld(true);
+  const w=new THREE.Box3().setFromObject(beachSign).getSize(new THREE.Vector3()).x;
+  beachSign.scale.setScalar(MB_SGN_W/Math.max(1e-4,w));
+  const p=new THREE.Vector3(wx,MB_SGN_H,wz);
+  menuProps.worldToLocal(p);
+  beachSign.position.copy(p);
 }
 function menuBeachOff(){
   if(!menuBeach)return;
@@ -20776,7 +20856,7 @@ function renderMenuBeach(dt){
   menuCam.aspect=Math.max(0.4,innerWidth/innerHeight);
   // the chest is placed off the camera, so a turned phone moves it — and the layout that
   // placed it ran once, when the beach came up
-  if(_bcAsp!==null&&Math.abs(_bcAsp-menuCam.aspect)>1e-3)layoutBeachChest();
+  if(_bcAsp!==null&&Math.abs(_bcAsp-menuCam.aspect)>1e-3){ layoutBeachChest(); layoutBeachSign(); }
   // a portrait phone sees a narrower slice, so the camera walks back to keep the crown of
   // the palm and the whole board inside it
   // The layout says how wide it came out — a ten foot log stands its foot twice as far from
