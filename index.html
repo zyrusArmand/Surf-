@@ -1271,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.22.0';
+const VERSION='4.23.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10389,12 +10389,23 @@ const CLIP_LIB={};
 let CHARGE_STOP=3.2;
 const CHARGE_SPEED=7.0;      // feet a second, which is a run rather than a stroll
 const CHARGE_GLARE=0.45;     // and he holds it on you for a beat after the last punch
-// How far he tips forward over the lens, in radians. Solved rather than picked: see the check.
-let CHARGE_PITCH=-0.22;
+// A lean of the whole stance about his feet, in radians. ZERO, and kept because the number is
+// worth having: tipping the whole body was the first go at aiming the punch downward and it
+// works against itself — the pivot is on the ground, so leaning brings his head DOWN toward
+// the lens rather than up over it, and a head level with the camera cannot look down at it.
+// The spine fold below does the job without moving his feet.
+let CHARGE_PITCH=0.00;
+// How far the SPINE folds forward over the lens, in radians, split across the spine chain.
+// This is what makes the punch travel downward; the body pitch above is only a small lean of
+// the whole stance on top of it.
+let CHARGE_SPINE=0.55;
+// and how much of the way his head turns onto the lens. One is looking straight at you.
+let CHARGE_LOOK=0.85;
 const CHARGE_LEAN_RATE=2.6;  // how fast the lean comes on, per second
-// and how far off the camera's own axis his mark sits, so his BODY lands centred rather than
-// his origin — an animal with an arm out is not centred where his feet are
-let CHARGE_SIDE=-0.30;
+// How far off the camera's own axis his mark sits, so his HEAD lands centred. Centring his
+// bounding box was the first go and it reads wrong: an arm thrown out to one side drags the
+// box a tenth of the width off the animal, and what an eye locks onto is his face.
+let CHARGE_SIDE=-0.12;
 const GREET=0.0;
 let greetLeft=GREET;
 // Meshy writes "Armature|One_Arm_Handstand|baselayer" on some exports and the bare name on
@@ -11048,6 +11059,13 @@ function setupModelRig(root,gltf,id){
             // nobody put there and nothing ever takes off again.
             this.charge=null; this.step=-1; this.stepT=0;
             pug.rotation.x=0; pug.rotation.z=0; pug.rotation.order='XYZ';
+            // and the BONES put back, not just the group. The spine fold and the head aim are
+            // written straight onto the skeleton after the mixer has had its say, so they are
+            // only undone by something writing over them — and a clip that does not animate a
+            // bone does not write to it. Left alone he goes back to his mark with his head
+            // still screwed round at the camera and his back still bent: measured, twenty-two
+            // degrees of neck and half an inch of stoop that nothing ever took off again.
+            if(this.reset)this.reset();
           }
         }
       } else this.charge=null;
@@ -11071,6 +11089,52 @@ function setupModelRig(root,gltf,id){
         if(this.hipHome&&this.bones&&this.bones.Hips){
           this.bones.Hips.position.x=this.hipHome.x;
           this.bones.Hips.position.z=this.hipHome.z;
+        }
+        // ---- and he BENDS OVER you and LOOKS DOWN, on top of the clip ----
+        // Tipping the whole body about his feet was the first go at this and it works against
+        // itself: the pivot is on the ground, so leaning brings his head DOWN toward the lens
+        // rather than up over it, and a head level with the camera cannot look down at it. The
+        // legs stay where the clip put them now and only the spine folds — which is what a body
+        // does to throw a punch downward — and then the head is aimed at the lens on top.
+        //
+        // Both in WORLD terms rather than in bone-local ones. Which local axis bends a spine
+        // forward is a fact about the export, not about anatomy, and this rig is shared by six
+        // animals from four files; the camera-right axis is the same axis for all of them.
+        if(this.bones&&menuCam){
+          const _wq=new THREE.Quaternion(), _pq=new THREE.Quaternion(), _dq=new THREE.Quaternion();
+          const tilt=(b,ax,ang)=>{
+            if(!b||!ang)return;
+            b.getWorldQuaternion(_wq);
+            _dq.setFromAxisAngle(ax,ang).multiply(_wq);
+            if(b.parent){ b.parent.getWorldQuaternion(_pq); _pq.invert(); } else _pq.identity();
+            b.quaternion.copy(_pq.multiply(_dq));
+            b.updateWorldMatrix(false,true);
+          };
+          const f=menuCam.getWorldDirection(new THREE.Vector3()); f.y=0; f.normalize();
+          const rgt=new THREE.Vector3(-f.z,0,f.x);           // the axis a forward fold turns about
+          const sp=[this.bones.Spine,this.bones.Spine01,this.bones.Spine02].filter(Boolean);
+          if(sp.length)for(const b of sp)tilt(b,rgt,CHARGE_SPINE*Q.lean/sp.length);
+          // and the head put on you. Solved rather than dialled: the line from his head bone to
+          // his muzzle bone IS where he is looking, the line from his head to the lens is where
+          // he should be, and one rotation between the two closes it. Blended, so he turns his
+          // head rather than snapping it round, and so a clip that already looks at you is left
+          // alone instead of being aimed twice.
+          const hd=this.bones.Head, fr=this.bones.headfront;
+          if(hd&&fr){
+            hd.updateWorldMatrix(true,false); fr.updateWorldMatrix(true,false);
+            const hp=hd.getWorldPosition(new THREE.Vector3());
+            const cur=fr.getWorldPosition(new THREE.Vector3()).sub(hp).normalize();
+            const want=menuCam.position.clone().sub(hp).normalize();
+            if(cur.lengthSq()>0.5&&want.lengthSq()>0.5){
+              _dq.setFromUnitVectors(cur,want);
+              _dq.slerp(new THREE.Quaternion(),1-CHARGE_LOOK*Q.lean);   // toward identity
+              hd.getWorldQuaternion(_wq);
+              _dq.multiply(_wq);
+              if(hd.parent){ hd.parent.getWorldQuaternion(_pq); _pq.invert(); } else _pq.identity();
+              hd.quaternion.copy(_pq.multiply(_dq));
+              hd.updateWorldMatrix(false,true);
+            }
+          }
         }
         // Pinned AFTER the tip, not before it. Tipping him and then standing the untipped body
         // on the sand leaves the pin measuring a pose he is not in, and his footing wanders by
@@ -16228,11 +16292,13 @@ if(location.hash.includes('debug')){
     // renderer runs it at a frame every second or two, so waiting on the clock to watch it
     // finish takes minutes — this walks the same code the frame loop walks, at whatever step
     // is asked for, and the frame clamp is the ceiling on that for a reason.
-    chargeAt(pitch,side,stop){
+    chargeAt(pitch,side,stop,spine,look){
       if(pitch!==undefined)CHARGE_PITCH=pitch;
       if(side!==undefined)CHARGE_SIDE=side;
       if(stop!==undefined)CHARGE_STOP=stop;
-      return [CHARGE_PITCH,CHARGE_SIDE,CHARGE_STOP];
+      if(spine!==undefined)CHARGE_SPINE=spine;
+      if(look!==undefined)CHARGE_LOOK=look;
+      return [CHARGE_PITCH,CHARGE_SIDE,CHARGE_STOP,CHARGE_SPINE,CHARGE_LOOK];
     },
     chargeStep(dt,n){
       const R=typeof riderRig==='function'?riderRig():null;
@@ -16278,8 +16344,19 @@ if(location.hash.includes('debug')){
       // are. Positive is leaning over you, which is the difference between a punch that comes
       // down at the camera and one that goes past it — and it is not visible in anything else
       // measured here, because he ends up in the same place either way.
-      let tip=null;
+      let tip=null, hx=null, lookOff=null;
       { const R3=typeof riderRig==='function'?riderRig():null;
+        const hd2=R3&&R3.bones&&R3.bones.Head, fr2=R3&&R3.bones&&R3.bones.headfront;
+        if(hd2&&menuCam){
+          const p3=hd2.getWorldPosition(new THREE.Vector3());
+          const v3=p3.clone().project(menuCam);
+          hx=+(v3.x*0.5+0.5).toFixed(3);
+          if(fr2){
+            const c3=fr2.getWorldPosition(new THREE.Vector3()).sub(p3).normalize();
+            const w3=menuCam.position.clone().sub(p3).normalize();
+            lookOff=+(Math.acos(Math.max(-1,Math.min(1,c3.dot(w3))))*180/Math.PI).toFixed(1);
+          }
+        }
         const hd=R3&&R3.bones&&R3.bones.Head;
         if(hd&&menuCam&&typeof pug!=='undefined'&&pug){
           const h=hd.getWorldPosition(new THREE.Vector3()), c2=menuCam.position;
@@ -16288,6 +16365,10 @@ if(location.hash.includes('debug')){
         } }
       return {on:!!C, phase:C?C.phase:null, moved:C?+C.d.toFixed(2):0, t:C?+C.t.toFixed(2):0,
               cx, aim, tip, lean:C?+C.lean.toFixed(2):0,
+              // where his HEAD is on screen and how far off the lens he is looking. The box
+              // centre is not what an eye reads — an arm out to one side drags it a tenth of
+              // the width off the animal — so the head is what gets centred.
+              head:hx, look:lookOff,
               clip:R.cur?R.cur.getClip().name:null, span, dist,
               // his soles against the sand under wherever he has got to
               sole:R.skinBox?+((R.skinBox()||{lo:[0,0,0]}).lo[1]).toFixed(3):null,

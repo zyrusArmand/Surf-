@@ -1084,6 +1084,15 @@ if (hasHook) {
     const one = await page.evaluate(() => window.__surf.charge());
     check(!one.on, 'one tap on the rider leaves him where he is',
           `phase ${one.phase}, ${one.dist}ft from the lens`);
+    // his resting bands first — see the last check in this block for why a band and not a value
+    const rest = await (async () => {
+      const look = [], tip = [];
+      for (let i = 0; i < 9; i++) {
+        const r = await page.evaluate(() => window.__surf.chargeStep(0.033, 4));
+        look.push(r.look); tip.push(r.tip);
+      }
+      return { look: [Math.min(...look), Math.max(...look)], tip: [Math.min(...tip), Math.max(...tip)] };
+    })();
     await tap(); await page.waitForTimeout(110); await tap();
     const two = await page.evaluate(() => window.__surf.charge());
     check(two.on && two.phase === 'in', 'and two sends him at the camera',
@@ -1092,10 +1101,12 @@ if (hasHook) {
     // and this renderer gives it a frame every second or two, so waiting it out takes minutes;
     // chargeStep drives the same code the frame loop drives, at the same clamped step.
     const seen = { in: null, hit: null, out: null }, soles = [];
+    let reach = 0;
     let last = two, done = false;
     for (let i = 0; i < 40 && !done; i++) {
       const r = await page.evaluate(() => window.__surf.chargeStep(0.033, 8));
-      if (r.on) { seen[r.phase] = r; soles.push(+(r.sole - r.sand).toFixed(3)); last = r; }
+      if (r.on) { seen[r.phase] = r; soles.push(+(r.sole - r.sand).toFixed(3)); last = r;
+                  if (r.phase === 'hit') reach = Math.max(reach, r.tip); }
       else done = true;
     }
     check(done && seen.in && seen.hit && seen.out,
@@ -1125,30 +1136,65 @@ if (hasHook) {
     // aimed down its own axis — the lens looks at a point beside the board so the set sits
     // centred between the button columns — so running at the camera's position landed him off
     // to the left. He runs at a mark on the camera's view axis instead.
-    check(seen.hit && Math.abs(seen.hit.cx - 0.5) < 0.06,
-          'and he arrives in the middle of the frame rather than off to one side',
-          `centred on ${seen.hit && seen.hit.cx} of the width, from ${two.cx} on his mark`);
+    // In the middle by his HEAD, not by his bounding box. Centring the box was the first go
+    // and it reads wrong: an arm thrown out to one side drags the box a tenth of the width off
+    // the animal, so the numbers said centred while the picture had him over on the left. What
+    // an eye locks onto is his face.
+    check(seen.hit && Math.abs(seen.hit.head - 0.5) < 0.05,
+          'and his head arrives in the middle of the frame, not his bounding box',
+          `head on ${seen.hit && seen.hit.head} of the width (box ${seen.hit && seen.hit.cx}), ` +
+          `from ${two.head} on his mark`);
     // LEANING OVER the lens. The camera sits about chest high on him and the punch combo
     // throws at head height, so stood upright the fists travelled past the lens and out of
     // frame — up, from down here, which is the opposite of a charge at you. Asked as how much
     // nearer his head is to the camera than his feet are, against how much nearer it is when
     // he is just standing there: it is a relationship, and it is invisible in every other
     // number here because he ends up in the same place either way.
-    check(seen.hit && two.tip > 0 && seen.hit.tip > two.tip * 1.8,
+    // Across the WHOLE punch, at its furthest, not at whatever frame the walk happened to stop
+    // on. A punch combo winds up as well as landing, so the last frame of it has him back on
+    // his heels — read there it says he is less tipped than when he is standing still, which is
+    // true of that frame and nothing to do with whether the punch comes down at you.
+    check(reach > rest.tip[1] * 1.8,
           'and tipped over it, so the punch comes down at you rather than past you',
-          `head ${seen.hit && seen.hit.tip}ft nearer the lens than his feet, against ${two.tip} standing`);
+          `head reaches ${reach.toFixed(3)}ft nearer the lens than his feet, ` +
+          `against ${rest.tip[1].toFixed(3)} at his most on his mark`);
+    // LOOKING AT YOU while he throws it. Folding the spine points the punch downward and does
+    // nothing about where he is looking — and a body bent over you with its eyes on the middle
+    // distance is not menacing, it is distracted. The head is aimed at the lens on top, solved
+    // off the same head-to-muzzle line the riders are turned by. Asked as the angle between
+    // where he is looking and where the camera is: sixty-odd degrees off it standing on his
+    // mark, single figures when the punch lands.
+    check(seen.hit && seen.hit.look < 12 && two.look > 30,
+          'and looking down the lens while he does it',
+          `${seen.hit && seen.hit.look}° off the camera, against ${two.look}° on his mark`);
     // and back on his mark afterwards, at the size he was, with the show running again
     const back = await page.evaluate(() => window.__surf.charge());
     check(!back.on && Math.abs(back.dist - two.dist) < 0.15 && Math.abs(back.span - two.span) < 0.02,
           'and afterwards he is back on his mark at the size he was',
           `${back.dist}ft against ${two.dist}, ${back.span} against ${two.span}, now ${back.clip}`);
-    // and STOOD BACK UP. The lean decays toward nothing on the way back, so by the time he
-    // arrives it is small — and small is not none, and the show only ever sets his yaw, so
-    // left to the decay he stands on his mark for the rest of the session holding a tip
-    // nobody put there and nothing takes off again.
-    check(Math.abs(back.tip - two.tip) < 0.04,
-          'and standing up straight again rather than keeping the lean',
-          `${back.tip}ft of tip against the ${two.tip} he started with`);
+    // and STOOD BACK UP, head and spine included. The fold and the head aim are written onto
+    // the skeleton AFTER the mixer has had its say, so the only thing that undoes them is
+    // something writing over them — and a clip that does not animate a bone does not write to
+    // it. Left alone he went back to his mark with his head still screwed round at the camera
+    // and his back still bent: twenty degrees of neck and half an inch of stoop that nothing
+    // ever took off again.
+    // Compared as BANDS, not as two readings. He is in the middle of a performance either
+    // side of this, so his head and his back are moving anyway — one sample against one sample
+    // is two different frames of an animation, and the difference between them says nothing.
+    const bandOf = async n => {
+      const look = [], tip = [];
+      for (let i = 0; i < n; i++) {
+        const r = await page.evaluate(() => window.__surf.chargeStep(0.033, 4));
+        look.push(r.look); tip.push(r.tip);
+      }
+      return { look: [Math.min(...look), Math.max(...look)], tip: [Math.min(...tip), Math.max(...tip)] };
+    };
+    const settled = await bandOf(9);
+    check(settled.look[0] > 30 && Math.abs(settled.tip[1] - rest.tip[1]) < 0.05 &&
+          Math.abs(settled.tip[0] - rest.tip[0]) < 0.05,
+          'and standing up straight again, with his head off the camera',
+          `look ${settled.look.map(v => v.toFixed(0)).join('-')}° against ${rest.look.map(v => v.toFixed(0)).join('-')} before, ` +
+          `tip ${settled.tip.map(v => v.toFixed(2)).join('-')} against ${rest.tip.map(v => v.toFixed(2)).join('-')}`);
   }
   await ver5tap();
   await page.waitForTimeout(300);
