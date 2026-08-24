@@ -1068,6 +1068,60 @@ if (hasHook) {
   check(pk.fill > 0.25 && pk.fill < 0.92,
         'and it is a shell rather than an empty square or a solid block',
         `${(pk.fill * 100).toFixed(0)}% of the icon is opaque`);
+
+  // ---- tap him twice and he comes and has a word about it ----
+  // Two taps, not one. One tap on a character is the commonest accidental tap on this screen —
+  // the beach is most of it and he stands in the middle — and a title screen that sends him at
+  // the camera every time a thumb lands would read as flinching.
+  {
+    const at = await page.evaluate(() => {
+      const f = window.__surf.menuFrame();
+      return { x: (f.rider.x[0] + f.rider.x[1]) / 2, y: (f.rider.y[0] + f.rider.y[1]) / 2 };
+    });
+    const tap = async () => page.mouse.click(at.x * 1024, at.y * 640);
+    await tap();
+    await page.waitForTimeout(700);
+    const one = await page.evaluate(() => window.__surf.charge());
+    check(!one.on, 'one tap on the rider leaves him where he is',
+          `phase ${one.phase}, ${one.dist}ft from the lens`);
+    await tap(); await page.waitForTimeout(110); await tap();
+    const two = await page.evaluate(() => window.__surf.charge());
+    check(two.on && two.phase === 'in', 'and two sends him at the camera',
+          `phase ${two.phase}`);
+    // Walked by hand rather than by the clock. The charge is about four seconds of animation
+    // and this renderer gives it a frame every second or two, so waiting it out takes minutes;
+    // chargeStep drives the same code the frame loop drives, at the same clamped step.
+    const seen = { in: null, hit: null, out: null }, soles = [];
+    let last = two, done = false;
+    for (let i = 0; i < 40 && !done; i++) {
+      const r = await page.evaluate(() => window.__surf.chargeStep(0.033, 8));
+      if (r.on) { seen[r.phase] = r; soles.push(+(r.sole - r.sand).toFixed(3)); last = r; }
+      else done = true;
+    }
+    check(done && seen.in && seen.hit && seen.out,
+          'and he runs in, throws the punch combo and runs back',
+          `in ${seen.in && seen.in.clip}, hit ${seen.hit && seen.hit.clip}, out ${seen.out && seen.out.clip}`);
+    // NEARER AND BIGGER, which is the whole of "at the camera" — a run that plays on the spot
+    // is the same run the title show already had. Measured off the lens and off how much of
+    // the screen he stands in, because those are the two things a player can actually see.
+    check(seen.hit && seen.hit.dist < two.dist * 0.55 && seen.hit.span > two.span * 2,
+          'and he is close enough that it lands in your face',
+          `${two.dist}ft and ${(two.span * 100).toFixed(0)}% of the screen -> ` +
+          `${seen.hit && seen.hit.dist}ft and ${seen.hit && (seen.hit.span * 100).toFixed(0)}%`);
+    // The beach is not level, so the height his soles are pinned to has to travel with him.
+    // Held to the one number measured on his mark, he arrives at the lens either shin-deep in
+    // the sand or walking a foot above it, and neither shows up in a check about where he got
+    // to — only in a check about what is under him the whole way.
+    const spread = soles.length ? Math.max(...soles) - Math.min(...soles) : 9;
+    check(soles.length > 4 && spread < 0.05,
+          'and his feet are on the sand the whole way in, over a beach that is not level',
+          `${soles.length} frames, ${spread.toFixed(3)}ft of drift in his clearance`);
+    // and back on his mark afterwards, at the size he was, with the show running again
+    const back = await page.evaluate(() => window.__surf.charge());
+    check(!back.on && Math.abs(back.dist - two.dist) < 0.15 && Math.abs(back.span - two.span) < 0.02,
+          'and afterwards he is back on his mark at the size he was',
+          `${back.dist}ft against ${two.dist}, ${back.span} against ${two.span}, now ${back.clip}`);
+  }
   await ver5tap();
   await page.waitForTimeout(300);
   // Both halves: the panel is actually open, and the button is in it. Asking only whether

@@ -1271,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.20.1';
+const VERSION='4.21.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -7901,7 +7901,42 @@ let tapN=0, tapT=0, statsFull=false;
 // none so that during a run a tap at the bottom of the screen is still a tap on the
 // water and still jumps. While the menu is up, the tap lands on the menu and this
 // checks whether it fell on the version.
+// ---- was that tap ON him? ----
+// Against his projected BOX rather than a ray through his mesh. A ray is exact and exactness
+// is the wrong thing here: he is a couple of hundred pixels of animal in the middle of a
+// beach, he is moving, and a finger is not a pixel — a miss by a hair on a waving arm reads
+// as the game ignoring you. The box he sweeps, with a margin round it, is the target anyone
+// aiming at him thinks they are hitting.
+function menuRiderTapped(cx,cy){
+  if(!menuCam||typeof pug==='undefined'||!pug||!pug.visible)return false;
+  pug.updateMatrixWorld(true);
+  const b=new THREE.Box3().setFromObject(pug);
+  if(!isFinite(b.min.x)||b.isEmpty())return false;
+  const v=new THREE.Vector3();
+  let x0=9,x1=-9,y0=9,y1=-9;
+  for(let i=0;i<8;i++){
+    v.set(i&1?b.max.x:b.min.x, i&2?b.max.y:b.min.y, i&4?b.max.z:b.min.z).project(menuCam);
+    const sx=v.x*0.5+0.5, sy=-v.y*0.5+0.5;
+    if(sx<x0)x0=sx; if(sx>x1)x1=sx; if(sy<y0)y0=sy; if(sy>y1)y1=sy;
+  }
+  const px=cx/innerWidth, py=cy/innerHeight;
+  const mx=Math.max(0.03,(x1-x0)*0.18), my=Math.max(0.03,(y1-y0)*0.10);
+  return px>x0-mx&&px<x1+mx&&py>y0-my&&py<y1+my;
+}
+// TWO taps, not one. One tap on a character is the commonest accidental tap on this screen —
+// the beach is most of it and he is in the middle — and sending him at the camera every time
+// somebody puts a thumb down would make the title screen feel like it was flinching.
+let riderTapT=0;
 overlay.addEventListener('pointerdown',e=>{
+  if(menuBeach&&menuRiderTapped(e.clientX,e.clientY)){
+    const now=performance.now();
+    if(now-riderTapT<420){
+      riderTapT=0;
+      const R=typeof riderRig==='function'?riderRig():null;
+      if(R&&R.startCharge)R.startCharge();
+    } else riderTapT=now;
+    return;                                   // a tap on him is not a tap on the version
+  }
   const r=verEl.getBoundingClientRect(), pad=14;
   if(e.clientX<r.left-pad||e.clientX>r.right+pad||e.clientY<r.top-pad||e.clientY>r.bottom+pad){
     tapN=0; verEl.style.opacity=''; return;
@@ -10346,6 +10381,14 @@ const CLIP_LIB={};
 // here and still exercised by the hooks, because the thing that was wanted was the greeting
 // gone from the title screen and not the ability to make a rider wave.
 // Zero seconds means the branch below never runs and the show starts on its first beat.
+// ---- the tap-twice charge ----
+// How close to the lens he ends up, in feet. He stands about eight feet out, so this is most
+// of the way in: near enough that his shoulders fill the frame and the punch lands in your
+// face, far enough that he is a body throwing it rather than a texture — inside about two
+// feet the near plane starts eating his hands.
+const CHARGE_STOP=3.1;
+const CHARGE_SPEED=7.0;      // feet a second, which is a run rather than a stroll
+const CHARGE_GLARE=0.45;     // and he holds it on you for a beat after the last punch
 const GREET=0.0;
 let greetLeft=GREET;
 // Meshy writes "Armature|One_Arm_Handstand|baselayer" on some exports and the bare name on
@@ -10930,6 +10973,70 @@ function setupModelRig(root,gltf,id){
                             if(b0)this.ground=b0.lo[1]; }
     const hold=()=>{ const b=this.skinBox&&this.skinBox();
                      if(b&&this.ground!==null)pug.position.y+=this.ground-b.lo[1]; };
+    // ---- and if you tap him twice, he comes and has a word about it ----
+    // Three beats, and the whole of it is written here rather than as beats in SHOW because
+    // it is not a beat: the show is a loop of things he does on his mark, and this leaves the
+    // mark. He runs AT the lens, throws the punch combo into it, then turns and runs back.
+    //
+    // He travels by his POSITION, not by the clip. Running is locomotion — its root moves,
+    // because it was drawn to carry a body across a floor — and the show already cancels that
+    // every frame so he does not wander off during the loop. Cancelling it and then moving him
+    // by hand is what makes the distance controllable: the clip is a pair of legs going, and
+    // how far he actually gets is a number here rather than whatever the animator's floor was.
+    if(this.charge){
+      const C=this.charge;
+      C.t+=dt;
+      const play=(name,loop)=>{
+        const a=this.clip(name); if(!a||a===this.cur)return a;
+        for(const k in this.clips)if(this.clips[k]!==a)this.clips[k].stop();
+        a.reset(); a.setLoop(loop?THREE.LoopRepeat:THREE.LoopOnce,loop?Infinity:1);
+        a.clampWhenFinished=!loop; a.timeScale=1; a.setEffectiveWeight(1); a.play();
+        this.cur=a; this.prev=null; this.fadeT=0;
+        return a;
+      };
+      // straight at the lens, along the ground. The bearing from him to the camera does not
+      // change while he runs down it, which is why the yaw that squared him to the lens on his
+      // mark is still square all the way in — there is nothing to re-solve.
+      const cam=menuCam?menuCam.position:null;
+      if(cam){
+        const dx=cam.x-C.home.x, dz=cam.z-C.home.z, L=Math.hypot(dx,dz)||1;
+        const stop=Math.max(0.2,L-CHARGE_STOP);            // how far along that line he gets
+        const go=(want,speed)=>{
+          C.d+=(want>C.d?1:-1)*speed*dt;
+          if((want>0&&C.d>want)||(want<=0&&C.d<want))C.d=want;
+          pug.position.x=C.home.x+dx/L*C.d;
+          pug.position.z=C.home.z+dz/L*C.d;
+          // the beach is not level, so the height his soles are pinned to has to travel with
+          // him — held to one number he arrives at the lens either shin-deep or in the air
+          this.ground=(typeof beachSandH==='function'
+            ?beachSandH(pug.position.z/MB_K):(typeof beachSand0!=='undefined'?beachSand0:0))*MB_K
+            +C.lift;
+          return C.d===want;
+        };
+        if(C.phase==='in'){
+          play('Running',true);
+          if(go(stop,CHARGE_SPEED)){ C.phase='hit'; C.t=0; play('Punch_Combo',false)||play('Punch',false); }
+        } else if(C.phase==='hit'){
+          const a=this.cur, dur=a?a.getClip().duration:1.2;
+          if(C.t>=dur+CHARGE_GLARE){ C.phase='out'; C.t=0; play('Running',true); }
+        } else {
+          // turned away to go back, so he runs rather than moonwalks. Eased, because a body
+          // that changes which way it is pointing between two frames has not turned round.
+          C.turn=Math.min(1,C.turn+dt/0.28);
+          if(go(0,CHARGE_SPEED*1.15)&&C.turn>=1){ this.charge=null; this.step=-1; this.stepT=0; }
+        }
+      } else this.charge=null;
+      if(this.charge){
+        pug.rotation.y=STANCE_ROT+MENU_FACE+Math.PI*(this.charge.phase==='out'?this.charge.turn:0);
+        this.mixer.update(dt);
+        if(this.hipHome&&this.bones&&this.bones.Hips){
+          this.bones.Hips.position.x=this.hipHome.x;
+          this.bones.Hips.position.z=this.hipHome.z;
+        }
+        hold();
+        return;
+      }
+    }
     // the greeting comes first, before any of the show, and it happens once
     if(greetLeft>0&&this.greet&&this.bones&&this.rest&&this.bones[WAVE.side+'Arm']){
       greetLeft=Math.max(0,greetLeft-dt);
@@ -11161,6 +11268,20 @@ function setupModelRig(root,gltf,id){
     this.C={inA:0.02, inB:Math.max(0.30,best), holdA:Math.max(0.02,best-w), holdB:best+w,
             outB:dur, up:Math.max(1.1,best/0.62), down:Math.max(1.3,best/0.50)};
     this.plantT=+best.toFixed(3);
+  };
+  // Started from outside — a double tap on the beach. Refused while one is already running,
+  // so a flurry of taps is one charge and not a stack of them fighting over his position.
+  R.startCharge=function(){
+    if(this.charge||!this.clips)return false;
+    if(!this.clip('Running')||!(this.clip('Punch_Combo')||this.clip('Punch')))return false;
+    this.charge={phase:'in', t:0, d:0, turn:0,
+                 home:pug.position.clone(),
+                 // how far his soles sit above the sand where he is standing, kept so the
+                 // same clearance travels with him instead of being re-measured on a slope
+                 lift:(this.ground===null?0:this.ground-((typeof beachSandH==='function'
+                   ?beachSandH(pug.position.z/MB_K)
+                   :(typeof beachSand0!=='undefined'?beachSand0:0))*MB_K))};
+    return true;
   };
   R.borrow();
   R.measureStand();
@@ -16057,6 +16178,42 @@ if(location.hash.includes('debug')){
               // base64 PNG by chance often enough that the first version of this reported the
               // drawn fan still in place while the shell was plainly on screen
               drawn:bg.indexOf('image/svg')>=0};
+    },
+    // The tap-twice charge: fire it, and read back where he is in it and how big he has got.
+    // Step the title-screen performance by hand. The charge is seconds long and a headless
+    // renderer runs it at a frame every second or two, so waiting on the clock to watch it
+    // finish takes minutes — this walks the same code the frame loop walks, at whatever step
+    // is asked for, and the frame clamp is the ceiling on that for a reason.
+    chargeStep(dt,n){
+      const R=typeof riderRig==='function'?riderRig():null;
+      if(!R||!R.show)return null;
+      const d=Math.min(0.033,dt===undefined?0.033:dt);
+      for(let i=0;i<(n||1);i++)R.show(d);
+      return this.charge();
+    },
+    charge(go){
+      const R=typeof riderRig==='function'?riderRig():null;
+      if(!R)return null;
+      if(go&&R.startCharge)R.startCharge();
+      const C=R.charge;
+      let span=null, dist=null;
+      if(menuCam&&typeof pug!=='undefined'&&pug){
+        pug.updateMatrixWorld(true);
+        const b=new THREE.Box3().setFromObject(pug), v=new THREE.Vector3();
+        let y0=9,y1=-9;
+        for(let i=0;i<8;i++){
+          v.set(i&1?b.max.x:b.min.x, i&2?b.max.y:b.min.y, i&4?b.max.z:b.min.z).project(menuCam);
+          const sy=-v.y*0.5+0.5; if(sy<y0)y0=sy; if(sy>y1)y1=sy;
+        }
+        span=+(y1-y0).toFixed(3);
+        dist=+menuCam.position.distanceTo(pug.getWorldPosition(new THREE.Vector3())).toFixed(2);
+      }
+      return {on:!!C, phase:C?C.phase:null, moved:C?+C.d.toFixed(2):0, t:C?+C.t.toFixed(2):0,
+              clip:R.cur?R.cur.getClip().name:null, span, dist,
+              // his soles against the sand under wherever he has got to
+              sole:R.skinBox?+((R.skinBox()||{lo:[0,0,0]}).lo[1]).toFixed(3):null,
+              sand:+(((typeof beachSandH==='function'&&typeof pug!=='undefined')
+                ?beachSandH(pug.position.z/MB_K):0)*MB_K).toFixed(3)};
     },
     obsTemplate(k){ const t=OBST_TEMPLATES[k]; return t?{variant:t.userData.variant||null}:null; },
     spawn(kind,dx,dz){ const o=makeObstacle(kind,px+dx,pz+dz); return {x:o.position.x,y:o.position.y,z:o.position.z,h:o.userData.h}; },
