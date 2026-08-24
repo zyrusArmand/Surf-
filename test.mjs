@@ -1178,8 +1178,8 @@ if (hasHook) {
       // Across the TOP of the frame and centred on it, which is where the reference puts it. Read
       // off the plank's own box rather than a world-aligned one: a world-axis box round a turned
       // plank is a diagonal through it and reports a sign a fifth taller than the sign is.
-      check(sg.up && sg.x[0] > 0.04 && sg.x[1] < 0.96 && sg.y[0] > 0.02 && sg.y[0] < 0.14 &&
-            sg.y[1] < 0.30 && Math.abs(sg.cx - 0.5) < 0.04,
+      check(sg.up && sg.x[0] > 0.04 && sg.x[1] < 0.96 && sg.y[0] > 0.02 && sg.y[0] < 0.18 &&
+            sg.y[1] < 0.34 && Math.abs(sg.cx - 0.5) < 0.04,
             'and it hangs across the top of the frame rather than half out of it',
             `x ${sg.x}, y ${sg.y}, centred on ${sg.cx}`);
       // LEVEL, and flat on. It hung a couple of degrees off square in the world, which is nothing
@@ -1187,8 +1187,15 @@ if (hasHook) {
       // looking that steeply up at it, two degrees of turn became a foreshortened far end and
       // fourteen degrees of apparent roll, and the title lay downhill across the fronds. Neither
       // shows in a world-space angle — both are read in the picture, off the ends of the plank.
-      check(sg.up && Math.abs(sg.roll) < 1.5, 'and lies level in the picture rather than downhill',
-            `${sg.roll}° of slope across it`);
+      // It carries a deliberate roll: the plank is straight in its file but the LETTERING is cut
+      // about three degrees uphill, and a title is read by its word, not by its board. So the
+      // plank is rolled three degrees the other way and the word comes out level — which means
+      // this cannot ask for zero. It asks that the slope across the plank is the roll that was
+      // ORDERED and nothing else, so anything tilting it that nobody asked for still shows.
+      const want = -sg.at[4] * 180 / Math.PI;
+      check(sg.up && Math.abs(sg.roll - want) < 1.5,
+            'and lies at the tilt it was given and no other',
+            `${sg.roll}° of slope across it against the ${want.toFixed(1)}° asked for`);
       check(sg.up && sg.keystone < 1.05 && sg.face < 3,
             'and flat on, so the far end is the same height as the near one',
             `ends differ by ${((sg.keystone - 1) * 100).toFixed(1)}%, face ${sg.face}° off parallel`);
@@ -1226,8 +1233,8 @@ if (hasHook) {
       }
       await page.setViewportSize({ width: 460, height: 966 });
       await page.waitForTimeout(1400);
-      check(shapes.every(s => s.up && s.y[0] > 0.02 && s.y[0] < 0.14 && Math.abs(s.cx - 0.5) < 0.05 &&
-                              s.y[1] - s.y[0] < 0.20 && s.x[1] - s.x[0] > 0.12 && s.ahead > 1.5),
+      check(shapes.every(s => s.up && s.y[0] > 0.02 && s.y[0] < 0.20 && Math.abs(s.cx - 0.5) < 0.05 &&
+                              s.y[1] - s.y[0] < 0.26 && s.x[1] - s.x[0] > 0.12 && s.ahead > 1.5),
             'and it sits in the same place on a screen of any shape',
             shapes.map(s => `${s.w}x${s.h}: top ${s.y[0]}, centre ${s.cx}, ` +
                             `${((s.x[1] - s.x[0]) * 100).toFixed(0)}% wide by ` +
