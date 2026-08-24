@@ -1271,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.27.0';
+const VERSION='4.28.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -13062,6 +13062,7 @@ function placeBeachSign(){
   if(!signModel||typeof menuProps==='undefined'||!menuProps||beachSign)return;
   beachSign=cloneModel(signModel);
   menuProps.add(beachSign);
+  _sgReady=false;      // fit it again once the lens has been placed
   if(typeof layoutBeachSign==='function')layoutBeachSign();
   // The title screen is already up by the time this file arrives, and showMenu is what hides
   // the word — it is not going to run again just because a model finished downloading.
@@ -14478,7 +14479,10 @@ function dressGull(g){
 // that the first tap on it timed out.
 // A skein's count is ODD on purpose: one leader and the rest in pairs. An even count leaves a
 // bird with no opposite number, and the V flies visibly lopsided, one arm a rank longer.
-const FLIGHTS=[{v:true,n:5},{v:false,n:3},{v:false,n:1},{v:true,n:3},{v:false,n:1}];
+// And it is at least FIVE. A skein of three is one leader and one rank, and a rank is jittered a
+// good fraction of its own spacing so the birds are not stamped out — at three birds that jitter
+// is most of the shape, and the V reads as a V only about half the time.
+const FLIGHTS=[{v:true,n:5},{v:false,n:3},{v:false,n:1},{v:true,n:5},{v:false,n:1}];
 // A flock flies along its own +x, so "behind" is -x and the V opens backwards in z.
 function layFlight(flock,spec,make){
   for(let i=0;i<spec.n;i++){
@@ -16589,24 +16593,20 @@ if(location.hash.includes('debug')){
     // Where the sign hangs and how it sits in the picture. Walked, because five numbers place
     // it and none of them means anything on its own — a width that reads right at one height
     // is wrong at another, and how square it is to the lens only shows once it is up there.
-    signAt(w,h,f,d,rot){
+    signAt(w,h,f,d,rot,mh){
       if(w!==undefined)MB_SGN_W=w; if(h!==undefined)MB_SGN_H=h;
       if(f!==undefined)MB_SGN_F=f; if(d!==undefined)MB_SGN_D=d;
-      if(rot!==undefined)MB_SGN_ROT=rot;
+      if(rot!==undefined)MB_SGN_ROT=rot; if(mh!==undefined)MB_SGN_MH=mh;
       if(typeof layoutBeachSign==='function')layoutBeachSign();
       if(!beachSign||!menuCam)return {up:false};
-      beachSign.updateMatrixWorld(true);
-      const b=new THREE.Box3().setFromObject(beachSign), v=new THREE.Vector3();
-      let x0=9,x1=-9,y0=9,y1=-9;
-      for(let i=0;i<8;i++){
-        v.set(i&1?b.max.x:b.min.x,i&2?b.max.y:b.min.y,i&4?b.max.z:b.min.z).project(menuCam);
-        const sx=v.x*0.5+0.5, sy=-v.y*0.5+0.5;
-        if(sx<x0)x0=sx; if(sx>x1)x1=sx; if(sy<y0)y0=sy; if(sy>y1)y1=sy;
-      }
-      // which way its face points against the line to the lens: zero is square on
+      const m=signScreen();
+      if(!m)return {up:false};
+      const x0=m.x[0],x1=m.x[1],y0=m.y[0],y1=m.y[1];
+      // and how far its face is off parallel with the film. Square used to mean "pointed at the
+      // lens"; it means "parallel to the image plane" now, which is what keeps a flat title flat.
       const n=new THREE.Vector3(0,0,1).applyQuaternion(beachSign.getWorldQuaternion(new THREE.Quaternion()));
-      const to=menuCam.position.clone().sub(beachSign.getWorldPosition(new THREE.Vector3()));
-      n.y=0; to.y=0; n.normalize(); to.normalize();
+      const to=new THREE.Vector3(0,0,1).applyQuaternion(menuCam.getWorldQuaternion(new THREE.Quaternion()));
+      n.normalize(); to.normalize();
       // how far IN FRONT of the tree it hangs. Two feet out it was inside the crown: the
       // fronds ran across it and hid three of the four letters, which reads as a plank with an
       // f on it rather than as anything being wrong.
@@ -16617,9 +16617,11 @@ if(location.hash.includes('debug')){
         ahead=+(menuCam.position.distanceTo(pp)-menuCam.position.distanceTo(sp)).toFixed(2);
       }
       return {up:true, ahead, x:[+x0.toFixed(3),+x1.toFixed(3)], y:[+y0.toFixed(3),+y1.toFixed(3)],
-              cx:+((x0+x1)/2).toFixed(3), face:+(Math.acos(Math.max(-1,Math.min(1,n.dot(to))))*180/Math.PI).toFixed(1),
+              cx:+((x0+x1)/2).toFixed(3), roll:+m.roll.toFixed(1), keystone:+m.keystone.toFixed(3),
+              feet:[+_sgFt.toFixed(2),+_sgUp.toFixed(2),+_sgSide.toFixed(2)],
+              face:+(Math.acos(Math.max(-1,Math.min(1,n.dot(to))))*180/Math.PI).toFixed(1),
               titleHidden:(typeof ovTitle!=='undefined'&&ovTitle)?ovTitle.style.visibility==='hidden':null,
-              at:[MB_SGN_W,MB_SGN_H,MB_SGN_F,MB_SGN_D,+MB_SGN_ROT.toFixed(2)]};
+              at:[MB_SGN_W,MB_SGN_H,MB_SGN_F,MB_SGN_D,+MB_SGN_ROT.toFixed(2),MB_SGN_MH]};
     },
     // What is actually in the sky, and whether its wings move. A rigged bird with nothing
     // driving it is a bird in a fixed pose, and at this distance a fixed pose and a beating
@@ -20836,7 +20838,18 @@ let MB_CROT=Math.PI*1.10;
 // The sign over the beach: how wide it hangs, how high, how far forward of the trunk, how far
 // to the camera's right of it, and which way it faces. Solved against the reference rather
 // than chosen — see the checks.
-let MB_SGN_W=3.3, MB_SGN_H=10.4, MB_SGN_F=6.0, MB_SGN_D=-1.0, MB_SGN_ROT=3.31;
+// ROT is a roll in the PICTURE, not a turn in the world — see faceBeachSign. Zero is level.
+// W, H and D are SCREEN fractions now, not feet: how much of the width the plank spans, where its
+// top edge sits down the frame, and where its middle sits across it. Wider and higher than it hung
+// before, which is where the reference puts it — a title across the top of the picture, clear of
+// the crown, not a plaque nailed halfway down the tree. F is still feet, forward of the trunk.
+// ROT is a roll in the PICTURE rather than a turn in the world; zero is level, which is what the
+// reference is.
+// MH is the ceiling on its screen HEIGHT, and it is what actually binds on a wide frame. The
+// plank's shape is fixed, so a fixed share of the WIDTH is a share of the height that changes
+// with the shape of the screen: two thirds of the width is a tenth of the height on a tall phone
+// and half the height held sideways, where the title covered the tree it is hung in.
+let MB_SGN_W=0.66, MB_SGN_MH=0.16, MB_SGN_H=0.075, MB_SGN_F=6.0, MB_SGN_D=0.50, MB_SGN_ROT=0;
 let MB_CD=-0.50;        // out to the camera's right of the trunk's own axis...
 // Out from 1.3, where the new palm's trunk is thick enough at chest height that the two
 // merged into one shape — the chest was measurably clear of the CENTRELINE and visibly inside
@@ -20886,19 +20899,136 @@ function layoutBeachChest(){
 // screen-right, and a number that reads sensibly in one of those frames is nonsense in the
 // others. Sized by MEASUREMENT rather than by a scale number — it hangs off a scaled group, so
 // what its own scale means depends on where it is hanging.
+// The sign is a TITLE, not a prop. In the reference it reads flat on across the top of the
+// picture, and a plank hung at a fixed angle in the world does not: it was a couple of degrees
+// off square to the lens, which is nothing on a small object at eye level and a great deal on a
+// long one hung ten feet up in a ninety-two degree lens. Looking that steeply up at it, two
+// degrees of turn became a foreshortened far end and about fourteen degrees of apparent roll —
+// the title lay downhill across the fronds.
+// So it is hung SQUARE: its basis is taken from the camera's, which puts its face parallel to
+// the image plane and its long axis horizontal on screen. A plane parallel to the film has no
+// vanishing point, so the far end cannot shrink and the plank cannot lean. MB_SGN_ROT is a roll
+// in the picture now rather than a turn in the world — zero is level, which is what the
+// reference is. Done once a frame rather than once a layout, because the title screen's lens
+// sways and a billboard that is only aimed at setup drifts off square as it does.
+const _sgQ=new THREE.Quaternion(), _sgP=new THREE.Quaternion(), _sgR=new THREE.Quaternion(),
+      _sgZ=new THREE.Vector3(0,0,1);
+function faceBeachSign(){
+  if(!beachSign||typeof menuCam==='undefined'||!menuCam)return;
+  if(typeof menuProps==='undefined'||!menuProps)return;
+  menuCam.updateMatrixWorld(true); menuProps.updateWorldMatrix(true,false);
+  menuCam.getWorldQuaternion(_sgQ);
+  if(MB_SGN_ROT)_sgQ.multiply(_sgR.setFromAxisAngle(_sgZ,MB_SGN_ROT));
+  menuProps.getWorldQuaternion(_sgP).invert();
+  beachSign.quaternion.copy(_sgP.multiply(_sgQ));
+}
+// Where the plank actually lands in the picture, from its OWN box rather than a world-aligned
+// one. A world-axis box round a turned plank is a diagonal through it: it reports a sign a fifth
+// taller than the sign is, and every reading taken off it about where the thing sits in frame is
+// that much too generous. Also returns how it LIES there — roll is the slope of its long axis on
+// screen, keystone the ratio of its two ends' heights. One end shrinking is what a plank turned
+// away from the lens does, and no world-space angle shows it.
+const _sgV=new THREE.Vector3(), _sgM=new THREE.Matrix4(), _sgI=new THREE.Matrix4(),
+      _sgB=new THREE.Box3();
+function signScreen(){
+  if(!beachSign||typeof menuCam==='undefined'||!menuCam)return null;
+  beachSign.updateMatrixWorld(true);
+  _sgI.copy(beachSign.matrixWorld).invert();
+  _sgB.makeEmpty();
+  beachSign.traverse(o=>{
+    if(!o.isMesh||!o.geometry)return;
+    if(!o.geometry.boundingBox)o.geometry.computeBoundingBox();
+    const bb=o.geometry.boundingBox; _sgM.multiplyMatrices(_sgI,o.matrixWorld);
+    for(let i=0;i<8;i++)_sgB.expandByPoint(_sgV.set(i&1?bb.max.x:bb.min.x,i&2?bb.max.y:bb.min.y,
+                                                    i&4?bb.max.z:bb.min.z).applyMatrix4(_sgM));
+  });
+  if(_sgB.isEmpty())return null;
+  const b=_sgB;
+  const scr=(x,y,z)=>{ _sgV.set(x,y,z).applyMatrix4(beachSign.matrixWorld).project(menuCam);
+                       return {x:_sgV.x*0.5+0.5, y:-_sgV.y*0.5+0.5}; };
+  let x0=9,x1=-9,y0=9,y1=-9;
+  for(let i=0;i<8;i++){
+    const s=scr(i&1?b.max.x:b.min.x,i&2?b.max.y:b.min.y,i&4?b.max.z:b.min.z);
+    if(s.x<x0)x0=s.x; if(s.x>x1)x1=s.x; if(s.y<y0)y0=s.y; if(s.y>y1)y1=s.y;
+  }
+  const eL=scr(b.min.x,0,0), eR=scr(b.max.x,0,0);
+  const roll=Math.atan2((eR.y-eL.y)*(innerHeight||966),(eR.x-eL.x)*(innerWidth||460))*180/Math.PI;
+  const hL=Math.abs(scr(b.min.x,b.max.y,0).y-scr(b.min.x,b.min.y,0).y);
+  const hR=Math.abs(scr(b.max.x,b.max.y,0).y-scr(b.max.x,b.min.y,0).y);
+  return {x:[x0,x1], y:[y0,y1], roll, keystone:Math.max(hL,hR)/Math.max(1e-6,Math.min(hL,hR)),
+          w:b.max.x-b.min.x};
+}
+// The world numbers behind the two screen targets. Seeds only — they are solved, see fitBeachSign.
+let _sgFt=3.9, _sgUp=11.9, _sgSide=-1.0, _sgReady=false;
+function hangBeachSign(){
+  if(!beachSign)return null;
+  if(typeof menuProps==='undefined'||!menuProps)return null;
+  mbAxes();
+  const wx=_mbR.x*_sgSide-_mbF.x*MB_SGN_F, wz=MB_Z*MB_K+_mbR.z*_sgSide-_mbF.z*MB_SGN_F;
+  menuProps.updateWorldMatrix(true,false);
+  // Measured with the sign standing square in the WORLD, not square to the lens: a width read
+  // off a world-aligned box is the plank's own width only while the plank is world-aligned, and
+  // once it is turned to face the camera that box is a diagonal through it. So it is straightened
+  // first — the parent's turn cancelled — measured, scaled, and only then aimed.
+  beachSign.scale.setScalar(1);
+  beachSign.quaternion.copy(menuProps.getWorldQuaternion(_sgP).invert());
+  beachSign.updateMatrixWorld(true);
+  const w=new THREE.Box3().setFromObject(beachSign).getSize(_sgV).x;
+  beachSign.scale.setScalar(_sgFt/Math.max(1e-4,w));
+  const p=new THREE.Vector3(wx,_sgUp,wz);
+  menuProps.worldToLocal(p);
+  beachSign.position.copy(p);
+  faceBeachSign();
+  return signScreen();
+}
+// ---- and it is sized and hung IN THE PICTURE, not in the world ----
+// A title has to read the same on every screen, and a fixed height in feet does not: the shot
+// pulls back on a narrow frame and comes in on a squarer one — four and a half feet of travel
+// between the two — so a plank hung eleven feet nine up sat across the top of a tall phone and
+// went clean off the top of a short one. Both numbers are screen fractions now, and the feet
+// behind them are SOLVED against a measurement of where the plank actually landed: the width by
+// ratio, the height by a secant on the top edge, because neither is quite linear once the plank
+// is far enough off axis for the lens to matter. Six passes, and they interact — moving it up
+// changes how wide it reads — so both are re-checked each time round.
+function fitBeachSign(){
+  let m=hangBeachSign();
+  if(!m||typeof menuCam==='undefined'||!menuCam)return m;
+  // Both offsets are solved the same way: nudge the foot number, see what the picture did, and
+  // step by the slope. Neither is linear once the plank is far enough off axis for the lens to
+  // matter, so it is a secant rather than a division, and it is re-taken every pass.
+  const secant=(get,want,read,set,lo,hi,cap)=>{
+    const keep=get(), d=read(m)-want;
+    if(Math.abs(d)<=0.003)return true;
+    set(keep+0.5);
+    const m2=hangBeachSign();
+    set(keep);
+    const slope=m2?(read(m2)-read(m))/0.5:0;
+    if(Math.abs(slope)>1e-5)set(Math.max(lo,Math.min(hi,keep-Math.max(-cap,Math.min(cap,d/slope)))));
+    return false;
+  };
+  for(let i=0;i<7;i++){
+    let done=true;
+    // Width and height ceiling together: whichever binds first wins, so the title keeps its
+    // shape and never grows taller than its allowance however wide the frame is.
+    const w=m.x[1]-m.x[0], h=m.y[1]-m.y[0];
+    if(w>1e-4&&h>1e-4){
+      const k=Math.min(MB_SGN_W/w,MB_SGN_MH/h);
+      if(Math.abs(k-1)>0.004){
+        _sgFt=Math.max(0.5,Math.min(24,_sgFt*Math.max(0.55,Math.min(1.8,k))));
+        done=false;
+      }
+    }
+    if(!secant(()=>_sgUp,MB_SGN_H,q=>q.y[0],v=>{_sgUp=v;},2,30,4))done=false;
+    if(!secant(()=>_sgSide,MB_SGN_D,q=>(q.x[0]+q.x[1])/2,v=>{_sgSide=v;},-9,9,4))done=false;
+    m=hangBeachSign();
+    if(done||!m)break;
+  }
+  return m;
+}
 function layoutBeachSign(){
   if(!beachSign)return;
   if(typeof menuProps==='undefined'||!menuProps)return;
-  mbAxes();
-  const wx=_mbR.x*MB_SGN_D-_mbF.x*MB_SGN_F, wz=MB_Z*MB_K+_mbR.z*MB_SGN_D-_mbF.z*MB_SGN_F;
-  menuProps.updateWorldMatrix(true,false);
-  beachSign.scale.setScalar(1); beachSign.rotation.set(0,MB_SGN_ROT,0);
-  beachSign.updateMatrixWorld(true);
-  const w=new THREE.Box3().setFromObject(beachSign).getSize(new THREE.Vector3()).x;
-  beachSign.scale.setScalar(MB_SGN_W/Math.max(1e-4,w));
-  const p=new THREE.Vector3(wx,MB_SGN_H,wz);
-  menuProps.worldToLocal(p);
-  beachSign.position.copy(p);
+  if(typeof menuCam!=='undefined'&&menuCam&&_sgReady)fitBeachSign(); else hangBeachSign();
 }
 function menuBeachOff(){
   if(!menuBeach)return;
@@ -21160,6 +21290,11 @@ function renderMenuBeach(dt){
   menuCam.position.set(cx, Math.max(g,gc)+MB_EYE+sw2*0.12, cz);
   menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+MB_AIM, pz-_mbR.z*aim);
   menuCam.updateProjectionMatrix();
+  faceBeachSign();      // the title hangs square to whatever the lens just did
+  // and it is fitted once the lens is actually somewhere. The first layout runs before this
+  // function has ever placed the camera, so the projection it would have solved against is the
+  // one from the origin looking down -z, which is nowhere.
+  if(beachSign&&!_sgReady){ _sgReady=true; layoutBeachSign(); }
   // The board preview is shot at the renderer's own exposure and the menu was too, but the
   // menu is a whole beach rather than one object on a sweep — far more of it is sky and wet
   // light, and ACES pulls the top of that down hard. A tenth of a stop back is the

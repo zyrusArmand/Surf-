@@ -1175,21 +1175,47 @@ if (hasHook) {
       const sg = await page.evaluate(() => window.__surf.signAt());
       check(sg.up && sg.titleHidden, 'the title hangs over the beach as a sign, not as a word on the glass',
             JSON.stringify({ up: sg.up, wordHidden: sg.titleHidden }));
-      // Fully in frame and near the middle of it. The plank is a metre of wood held a few feet
-      // from a wide lens: a foot of height either way takes a corner of it off the top.
-      check(sg.up && sg.x[0] > 0.04 && sg.x[1] < 0.96 && sg.y[0] > 0.0 && sg.y[1] < 0.45 &&
-            Math.abs(sg.cx - 0.5) < 0.06,
-            'and it hangs in the frame rather than half out of it',
+      // Across the TOP of the frame and centred on it, which is where the reference puts it. Read
+      // off the plank's own box rather than a world-aligned one: a world-axis box round a turned
+      // plank is a diagonal through it and reports a sign a fifth taller than the sign is.
+      check(sg.up && sg.x[0] > 0.04 && sg.x[1] < 0.96 && sg.y[0] > 0.02 && sg.y[0] < 0.14 &&
+            sg.y[1] < 0.30 && Math.abs(sg.cx - 0.5) < 0.04,
+            'and it hangs across the top of the frame rather than half out of it',
             `x ${sg.x}, y ${sg.y}, centred on ${sg.cx}`);
-      // Square to the lens. A plank is flat, so a few degrees off and the carving skews; at a
-      // half turn out it shows its blank back, which is what it did on the first attempt.
-      check(sg.up && sg.face < 12, 'and faces the camera rather than showing its back',
-            `${sg.face}° off the lens`);
+      // LEVEL, and flat on. It hung a couple of degrees off square in the world, which is nothing
+      // on a small prop at eye level and a great deal on a long one ten feet up in a 92° lens:
+      // looking that steeply up at it, two degrees of turn became a foreshortened far end and
+      // fourteen degrees of apparent roll, and the title lay downhill across the fronds. Neither
+      // shows in a world-space angle — both are read in the picture, off the ends of the plank.
+      check(sg.up && Math.abs(sg.roll) < 1.5, 'and lies level in the picture rather than downhill',
+            `${sg.roll}° of slope across it`);
+      check(sg.up && sg.keystone < 1.05 && sg.face < 3,
+            'and flat on, so the far end is the same height as the near one',
+            `ends differ by ${((sg.keystone - 1) * 100).toFixed(1)}%, face ${sg.face}° off parallel`);
       // IN FRONT of the tree. At two feet out it hung inside the crown and the fronds ran across
       // it, hiding three of the four letters — which reads as a plank with an f on it, not as
       // anything being wrong, and is invisible in every other number here.
       check(sg.up && sg.ahead > 1.5, 'and in front of the palm rather than inside its crown',
             `${sg.ahead}ft nearer the lens than the tree`);
+      // and it reads the same on every screen. Hung at a fixed height in FEET it did not: the shot
+      // pulls back on a narrow frame and comes in on a squarer one, four and a half feet of travel
+      // between them, so a plank that sat across the top of a tall phone went clean off the top of
+      // a short one and covered the tree on one held sideways. Both its size and its place are
+      // solved against the picture now, so the only way to see that is to change the picture.
+      const shapes = [];
+      for (const [w, h] of [[500, 600], [900, 420]]) {
+        await page.setViewportSize({ width: w, height: h });
+        await page.waitForTimeout(1400);
+        shapes.push(Object.assign({ w, h }, await page.evaluate(() => window.__surf.signAt())));
+      }
+      await page.setViewportSize({ width: 460, height: 966 });
+      await page.waitForTimeout(1400);
+      check(shapes.every(s => s.up && s.y[0] > 0.02 && s.y[0] < 0.14 && Math.abs(s.cx - 0.5) < 0.05 &&
+                              s.y[1] - s.y[0] < 0.20 && s.x[1] - s.x[0] > 0.12 && s.ahead > 1.5),
+            'and it sits in the same place on a screen of any shape',
+            shapes.map(s => `${s.w}x${s.h}: top ${s.y[0]}, centre ${s.cx}, ` +
+                            `${((s.x[1] - s.x[0]) * 100).toFixed(0)}% wide by ` +
+                            `${((s.y[1] - s.y[0]) * 100).toFixed(0)}% tall`).join(' | '));
     }
     const at = await page.evaluate(() => {
       const f = window.__surf.menuFrame();
