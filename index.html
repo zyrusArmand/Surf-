@@ -1271,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.28.0';
+const VERSION='4.29.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -13056,11 +13056,85 @@ let beachChest=null;
 // plank hanging above the palm it is part of the beach, which is what the reference has.
 // The <h1> stays and is only hidden while this is up: it is also the "Wipeout!" heading, and
 // a missing models/sign.glb has to leave the title screen with a title on it.
-let signModel=null, beachSign=null;
+let signModel=null, beachSign=null, signFix=0;
 loadModel('sign.glb',(s3)=>{ signModel=s3; placeBeachSign(); });
+// ---- the group's own axes are the PLANK's, measured ----
+// Everything above works on the sign's bounding box: it is squared to the lens by its box, sized
+// by its box, and asked how level it is by its box. All of that is only a statement about the
+// plank while the plank is square in its own file, and nothing guarantees that — a box round a
+// plank drawn at an angle is a box, not a plank, and squaring it squares nothing. Worse, it
+// cannot be caught downstream: the box IS square to the lens, so roll and keystone both read
+// zero on it however far over the plank inside is lying.
+// So the plank's own axes are measured, by principal components of its vertices: the direction
+// its points spread furthest is its length, the direction they spread least is its face normal —
+// a plank is long, then tall, then barely thick at all, and those three are well separated. Each
+// axis is then pointed the same way as the model axis it is nearest, which is unambiguous while
+// the baked turn is under a quarter turn, and the frame is squared up from the length and the
+// normal so a poorly determined middle axis cannot skew it. The inverse is applied to the model
+// inside the sign's group, so from the outside the group's x really is along the plank and its z
+// really is out of its face.
+// Measured, THIS file only needs 1.3 degrees of it — the asset is very nearly straight, and the
+// lean that prompted all this was the fisheye, not the export. It stays because it is what makes
+// `shape`, `roll`, `keystone` and `bow` statements about the plank rather than about a box, and
+// because the next sign dropped in here has no obligation to be as tidy as this one.
+function planeFrame(root){
+  const out=new THREE.Quaternion();
+  const pts=[];
+  root.updateMatrixWorld(true);
+  const inv=new THREE.Matrix4().copy(root.matrixWorld).invert(), mm=new THREE.Matrix4(),
+        v=new THREE.Vector3();
+  root.traverse(o=>{
+    const p=o.isMesh&&o.geometry&&o.geometry.attributes&&o.geometry.attributes.position;
+    if(!p)return;
+    mm.multiplyMatrices(inv,o.matrixWorld);
+    const step=Math.max(1,Math.floor(p.count/6000));
+    for(let i=0;i<p.count;i+=step){ v.fromBufferAttribute(p,i).applyMatrix4(mm); pts.push(v.x,v.y,v.z); }
+  });
+  const n=pts.length/3;
+  if(n<12)return out;
+  let mx=0,my=0,mz=0;
+  for(let i=0;i<n;i++){ mx+=pts[i*3]; my+=pts[i*3+1]; mz+=pts[i*3+2]; }
+  mx/=n; my/=n; mz/=n;
+  const C=[[0,0,0],[0,0,0],[0,0,0]];
+  for(let i=0;i<n;i++){
+    const a=pts[i*3]-mx, b=pts[i*3+1]-my, c=pts[i*3+2]-mz, t=[a,b,c];
+    for(let r=0;r<3;r++)for(let s=0;s<3;s++)C[r][s]+=t[r]*t[s];
+  }
+  for(let r=0;r<3;r++)for(let s=0;s<3;s++)C[r][s]/=n;
+  // Jacobi, on a 3x3 symmetric matrix — a dozen sweeps is far more than it needs
+  let A=C.map(r=>r.slice()), V=[[1,0,0],[0,1,0],[0,0,1]];
+  const mul=(X,Y)=>X.map(r=>[0,1,2].map(c=>r[0]*Y[0][c]+r[1]*Y[1][c]+r[2]*Y[2][c]));
+  for(let s=0;s<40;s++){
+    let p=0,q=1,m=Math.abs(A[0][1]);
+    if(Math.abs(A[0][2])>m){ m=Math.abs(A[0][2]); p=0; q=2; }
+    if(Math.abs(A[1][2])>m){ m=Math.abs(A[1][2]); p=1; q=2; }
+    if(m<1e-13)break;
+    const th=0.5*Math.atan2(2*A[p][q],A[q][q]-A[p][p]), cs=Math.cos(th), sn=Math.sin(th);
+    const R=[[1,0,0],[0,1,0],[0,0,1]];
+    R[p][p]=cs; R[q][q]=cs; R[p][q]=sn; R[q][p]=-sn;
+    const Rt=[[R[0][0],R[1][0],R[2][0]],[R[0][1],R[1][1],R[2][1]],[R[0][2],R[1][2],R[2][2]]];
+    A=mul(mul(Rt,A),R); V=mul(V,R);
+  }
+  const ax=[0,1,2].map(i=>({e:A[i][i], v:new THREE.Vector3(V[0][i],V[1][i],V[2][i]).normalize()}))
+                  .sort((a,b)=>b.e-a.e);
+  const u=ax[0].v, w=ax[2].v;                 // longest spread, and least
+  if(u.x<0)u.negate();                        // point each the way the model already pointed
+  if(w.z<0)w.negate();
+  const vv=new THREE.Vector3().crossVectors(w,u).normalize();
+  u.copy(new THREE.Vector3().crossVectors(vv,w).normalize());
+  return out.setFromRotationMatrix(new THREE.Matrix4().makeBasis(u,vv,w)).invert();
+}
 function placeBeachSign(){
   if(!signModel||typeof menuProps==='undefined'||!menuProps||beachSign)return;
-  beachSign=cloneModel(signModel);
+  beachSign=new THREE.Group();
+  const inner=cloneModel(signModel);
+  inner.quaternion.copy(planeFrame(inner));
+  signFix=2*Math.acos(Math.min(1,Math.abs(inner.quaternion.w)))*180/Math.PI;
+  beachSign.add(inner);
+  // and centred on the group's origin, so "the middle of the sign" is the middle of the plank
+  // rather than wherever the exporter happened to put the file's origin
+  beachSign.updateMatrixWorld(true);
+  inner.position.sub(new THREE.Box3().setFromObject(inner).getCenter(new THREE.Vector3()));
   menuProps.add(beachSign);
   _sgReady=false;      // fit it again once the lens has been placed
   if(typeof layoutBeachSign==='function')layoutBeachSign();
@@ -16618,6 +16692,7 @@ if(location.hash.includes('debug')){
       }
       return {up:true, ahead, x:[+x0.toFixed(3),+x1.toFixed(3)], y:[+y0.toFixed(3),+y1.toFixed(3)],
               cx:+((x0+x1)/2).toFixed(3), roll:+m.roll.toFixed(1), keystone:+m.keystone.toFixed(3),
+              bow:+m.bow.toFixed(3), shape:+m.shape.toFixed(2), fix:+signFix.toFixed(1),
               feet:[+_sgFt.toFixed(2),+_sgUp.toFixed(2),+_sgSide.toFixed(2)],
               face:+(Math.acos(Math.max(-1,Math.min(1,n.dot(to))))*180/Math.PI).toFixed(1),
               titleHidden:(typeof ovTitle!=='undefined'&&ovTitle)?ovTitle.style.visibility==='hidden':null,
@@ -20928,6 +21003,30 @@ function faceBeachSign(){
 // that much too generous. Also returns how it LIES there — roll is the slope of its long axis on
 // screen, keystone the ratio of its two ends' heights. One end shrinking is what a plank turned
 // away from the lens does, and no world-space angle shows it.
+// ---- and it is measured in the DELIVERED picture, not the drawn one ----
+// The title screen goes out through a fisheye: the composite resamples the finished frame so that
+// a point a fraction t of the way to the corner is looking t*theta off axis. project() answers
+// about the frame that was DRAWN, which is one resample short of what anybody actually sees — and
+// the sign hangs far enough off axis for that to be the whole difference between a flat plank and
+// a bowed one. Every reading here goes through the same remap the shader does.
+// The shader maps an output radius to the input radius it should sample; this needs the inverse,
+// so it is solved rather than evaluated. r*k(r) climbs with r, so twenty-odd halvings put the
+// answer well inside a pixel.
+function fishScreen(x,y){
+  if(!(MENU_FISH>0)||typeof menuCam==='undefined'||!menuCam)return {x,y};
+  const asp=menuCam.aspect||1, rmax=Math.hypot(asp,1);
+  const th=Math.atan(rmax*Math.tan(menuCam.fov*Math.PI/360)), tt=Math.tan(th);
+  let px=(x-0.5)*2*asp, py=(y-0.5)*2;
+  const R=Math.hypot(px,py);
+  if(R<1e-6)return {x,y};
+  const at=r=>{ const t=r/rmax;
+                return t<1e-5?r:r*(1+(Math.tan(t*th)/(t*tt)-1)*MENU_FISH); };
+  if(at(rmax)<R)return {x,y};              // outside the mapped disc; leave it where it is
+  let lo=R, hi=rmax;
+  for(let i=0;i<24;i++){ const mid=(lo+hi)*0.5; if(at(mid)<R)lo=mid; else hi=mid; }
+  const k=(lo+hi)*0.5/R;
+  return {x:px*k/asp*0.5+0.5, y:py*k*0.5+0.5};
+}
 const _sgV=new THREE.Vector3(), _sgM=new THREE.Matrix4(), _sgI=new THREE.Matrix4(),
       _sgB=new THREE.Box3();
 function signScreen(){
@@ -20945,7 +21044,7 @@ function signScreen(){
   if(_sgB.isEmpty())return null;
   const b=_sgB;
   const scr=(x,y,z)=>{ _sgV.set(x,y,z).applyMatrix4(beachSign.matrixWorld).project(menuCam);
-                       return {x:_sgV.x*0.5+0.5, y:-_sgV.y*0.5+0.5}; };
+                       return fishScreen(_sgV.x*0.5+0.5,-_sgV.y*0.5+0.5); };
   let x0=9,x1=-9,y0=9,y1=-9;
   for(let i=0;i<8;i++){
     const s=scr(i&1?b.max.x:b.min.x,i&2?b.max.y:b.min.y,i&4?b.max.z:b.min.z);
@@ -20955,8 +21054,29 @@ function signScreen(){
   const roll=Math.atan2((eR.y-eL.y)*(innerHeight||966),(eR.x-eL.x)*(innerWidth||460))*180/Math.PI;
   const hL=Math.abs(scr(b.min.x,b.max.y,0).y-scr(b.min.x,b.min.y,0).y);
   const hR=Math.abs(scr(b.max.x,b.max.y,0).y-scr(b.max.x,b.min.y,0).y);
+  // ---- and how BENT it is, which is the one the ends cannot tell you ----
+  // The remap is radial about the middle of the frame, so it treats a plank's two ends alike:
+  // roll stays zero and the ends stay the same height however hard it bows. What it does do is
+  // carry the middle of a long horizontal edge further out than the ends, and a straight plank
+  // comes out as an arc. Measured as the worst departure of the top edge from the straight line
+  // between its own two corners, as a fraction of the plank's height — so it says "bent by a
+  // third of its own thickness" rather than a number of pixels that means nothing on its own.
+  let bow=0;
+  const tL=scr(b.min.x,b.max.y,0), tR=scr(b.max.x,b.max.y,0);
+  const ex=tR.x-tL.x, ey=tR.y-tL.y, eLen=Math.hypot(ex,ey);
+  if(eLen>1e-6){
+    for(let i=1;i<12;i++){
+      const s=scr(b.min.x+(b.max.x-b.min.x)*i/12,b.max.y,0);
+      bow=Math.max(bow,Math.abs((s.x-tL.x)*ey-(s.y-tL.y)*ex)/eLen);
+    }
+  }
   return {x:[x0,x1], y:[y0,y1], roll, keystone:Math.max(hL,hR)/Math.max(1e-6,Math.min(hL,hR)),
-          w:b.max.x-b.min.x};
+          bow:bow/Math.max(1e-6,(hL+hR)*0.5), w:b.max.x-b.min.x,
+          // how plank-shaped the box round it is. This is the reading that catches a crooked
+          // asset: a plank drawn at an angle in its own file sits in a box far squarer than the
+          // plank, and no angle measured on that box can tell, because the box IS square to the
+          // lens. It was 2.8 to 1 with the file's baked turn left in, and a plank is not.
+          shape:(b.max.x-b.min.x)/Math.max(1e-6,b.max.y-b.min.y)};
 }
 // The world numbers behind the two screen targets. Seeds only — they are solved, see fitBeachSign.
 let _sgFt=3.9, _sgUp=11.9, _sgSide=-1.0, _sgReady=false;

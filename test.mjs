@@ -1192,6 +1192,22 @@ if (hasHook) {
       check(sg.up && sg.keystone < 1.05 && sg.face < 3,
             'and flat on, so the far end is the same height as the near one',
             `ends differ by ${((sg.keystone - 1) * 100).toFixed(1)}%, face ${sg.face}° off parallel`);
+      // and not BENT. These readings go through the fisheye the composite applies, because the
+      // title screen is delivered through one and project() answers about the frame that was
+      // drawn — one resample short of what anybody sees. That gap was the whole bug: measured in
+      // the drawn frame the sign looked perfectly placed, and the remap then carried it up into
+      // the corner of the lens where the bend is worst and served a banana. The remap is radial
+      // about the middle of the frame, so it treats the two ends alike and neither roll nor
+      // keystone can see it — bow is the top edge's worst departure from its own chord.
+      check(sg.up && sg.bow < 0.12, 'and straight rather than bowed by the lens',
+            `top edge bends ${(sg.bow * 100).toFixed(1)}% of the plank's own height`);
+      // and the box being measured is the PLANK's. A plank drawn at an angle inside its own file
+      // sits in a box far squarer than the plank, and every reading above is taken on that box —
+      // which is square to the lens by construction, so roll and keystone read zero on it however
+      // far over the plank inside is lying. The box being plank-shaped is what says they mean
+      // anything: leave the file's own turn in and this drops from 2.6 to 1 towards 1 to 1.
+      check(sg.up && sg.shape > 2.2, 'and the box being measured is the plank, not a box round it',
+            `${sg.shape} to 1, off a ${sg.fix}° correction for the file's own turn`);
       // IN FRONT of the tree. At two feet out it hung inside the crown and the fronds ran across
       // it, hiding three of the four letters — which reads as a plank with an f on it, not as
       // anything being wrong, and is invisible in every other number here.
