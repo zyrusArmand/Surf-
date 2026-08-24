@@ -1271,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.20.0';
+const VERSION='4.20.1';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -9989,7 +9989,21 @@ const HIP_F=-0.10,   HIP_B=0.50;            // hip sockets inside the body, dire
 const [fx0,fz0]=boardToBody(-0.04,HIP_F);
 const [bx0,bz0]=boardToBody( 0.04,HIP_B);
 // shift the whole body back so his weight sits between the feet, not over the nose
-const [pgx,pgz]=boardToBody(0,(STANCE_F+STANCE_B)*0.5);
+// ---- and OVER THE STRINGER, which the zero above does not buy on its own ----
+// The zero puts the rider GROUP on the board's centreline, and what stands on a board is
+// feet. Measured in the board's own frame, both ankles came out about 0.17ft to one side of
+// it — front 0.140, back 0.206 — because the stance turns the body side-on and the body's
+// own hips are not centred on its origin. Every rigged model inherits it exactly, since a
+// model is aligned by sliding its ankle midpoint onto the built-in rider's: pug 0.223, frog
+// 0.277, ant 0.188. A quarter of the half-width, on every character in the game.
+// Taken out here rather than in the model alignment, because the built-in bodies are off by
+// it too and they have no alignment step to fix.
+// SOLVED, not the measured offset itself: boardToBody maps a board coordinate through the
+// stance, and the stance is a turn — a foot of across-the-board asked for here comes out as
+// 0.358 of a foot across the board. So this is the 0.173 the ankles were off by, divided by
+// that gain, and the ankles land on the stringer.
+const STANCE_X=0.483;
+const [pgx,pgz]=boardToBody(-STANCE_X,(STANCE_F+STANCE_B)*0.5);
 const legFrontJ=makeLeg(fz0,fx0);
 const legBackJ=makeLeg(bz0,bx0);
 function makeArm(xoff,zoff){
@@ -15218,8 +15232,23 @@ if(location.hash.includes('debug')){
       const p=new THREE.Vector3(), out={};
       for(const [k,j] of [['front',legFrontJ],['back',legBackJ]]){
         j.ankle.updateWorldMatrix(true,false);
-        out[k]=+j.ankle.getWorldPosition(p).applyMatrix4(inv).y.toFixed(3);
+        const v=j.ankle.getWorldPosition(p).applyMatrix4(inv);
+        out[k]=+v.y.toFixed(3);
+        out[k+'X']=+v.x.toFixed(3);        // across the board: 0 is the stringer
       }
+      // and where the MODEL's feet are across it, when one is riding. The built-in rider is
+      // what the model is aligned to, so if he is off the stringer every model is off it too.
+      const m=(typeof riderModels!=='undefined')&&riderModels[builtChar];
+      if(m&&m.visible){
+        let lf=null,rf=null;
+        m.traverse(c=>{ if(c.name==='LeftFoot')lf=c; else if(c.name==='RightFoot')rf=c; });
+        if(lf&&rf){
+          const a=lf.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
+          const b2=rf.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
+          out.modelX=+((a.x+b2.x)/2).toFixed(3);
+        }
+      }
+      out.halfW=+(new THREE.Box3().setFromObject(b).getSize(new THREE.Vector3()).x/2).toFixed(3);
       return out;
     },
     // What everything in the ride actually measures, in the units the boards are cut in
