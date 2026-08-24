@@ -1271,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.18.0';
+const VERSION='4.19.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -14572,6 +14572,78 @@ function seatSkiCrew(){
   return {peak:+(lo+(peak+0.5)/N*len).toFixed(2), z:+zSeat.toFixed(2),
           y:+rider.position.y.toFixed(2), deck:+deck.toFixed(2), len:+len.toFixed(2)};
 }
+// ---------- the puka shell, off the model rather than drawn ----------
+// The currency's icon is one CSS rule and every place it appears is an <i class="pk">, so
+// there is exactly one thing to replace: the HUD, the shop's prices, the buy buttons, the
+// run card's three lines, the crate reward and the purse all read from it. A modelled shell
+// is a 3-D object and the icon is a 16-pixel square in a line of text, so it is BAKED — shot
+// once, straight on, into a transparent PNG, and handed to the stylesheet as a background
+// image. That costs one render at load and nothing at all afterwards; drawing it live in six
+// places at once would cost six.
+//
+// The drawn SVG stays in the file and stays the declared background. This adds a second rule
+// that overrides only background-image, so if the model is missing — which is the documented
+// state for every file in models/ — the fan is still there and nothing has to know.
+function bakePukaIcon(root){
+  if(!renderer||typeof scene==='undefined')return null;
+  const S=512;
+  const fitted=skinAndFit('puka',root,
+    new THREE.Box3(new THREE.Vector3(-0.5,-0.5,-0.5),new THREE.Vector3(0.5,0.5,0.5)));
+  const sc=new THREE.Scene();
+  sc.environment=scene.environment;
+  sc.add(new THREE.HemisphereLight(0xffffff,0x8fa6bd,1.10));
+  const key=new THREE.DirectionalLight(0xfff3e0,2.0); key.position.set(-1.2,1.8,2.4); sc.add(key);
+  const fill=new THREE.DirectionalLight(0xbfd8ff,0.60); fill.position.set(1.8,0.6,-1.6); sc.add(fill);
+  sc.add(fitted);
+  // Framed off what is DRAWN, and ORTHOGRAPHIC. An icon is a shape in a box: a perspective
+  // lens puts the near rim of a shell wider than the far one, which at sixteen pixels reads
+  // as a lopsided fan rather than as depth, and it leaves margin that has to be guessed at.
+  const bb=drawnBox(fitted,1), c=bb.getCenter(new THREE.Vector3()), sz=bb.getSize(new THREE.Vector3());
+  const half=Math.max(sz.x,sz.y)*0.5*1.04;      // a little air, so the rim is not clipped
+  const cam=new THREE.OrthographicCamera(-half,half,half,-half,0.01,40);
+  cam.position.set(c.x,c.y,c.z+Math.max(4,sz.z*6));
+  cam.lookAt(c);
+  const rt=new THREE.WebGLRenderTarget(S,S,
+    {minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,format:THREE.RGBAFormat});
+  const oldT=renderer.getRenderTarget(), oldAC=renderer.autoClear;
+  const oldC=new THREE.Color(); renderer.getClearColor(oldC);
+  const oldA=renderer.getClearAlpha();
+  renderer.autoClear=true;
+  renderer.setClearColor(0x000000,0);           // transparent, so it sits on any background
+  renderer.setRenderTarget(rt);
+  renderer.clear();
+  renderer.render(sc,cam);
+  const buf=new Uint8Array(S*S*4);
+  renderer.readRenderTargetPixels(rt,0,0,S,S,buf);
+  renderer.setRenderTarget(oldT);
+  renderer.setClearColor(oldC,oldA);
+  renderer.autoClear=oldAC;
+  const cv=document.createElement('canvas'); cv.width=S; cv.height=S;
+  const cx=cv.getContext('2d'), img=cx.createImageData(S,S);
+  for(let y=0;y<S;y++){                          // GL reads bottom-up; a canvas is top-down
+    const src=(S-1-y)*S*4;
+    img.data.set(buf.subarray(src,src+S*4), y*S*4);
+  }
+  cx.putImageData(img,0,0);
+  rt.dispose();
+  // How much of the square the shell actually covers. A bake that goes wrong goes BLANK — a
+  // camera pointing the wrong way, a model that never arrived, a target cleared and not drawn
+  // into — and a blank one is a valid PNG of the right size with a plausible byte count, so
+  // every other measure of "it worked" passes and the icon quietly disappears from the HUD.
+  let on=0; for(let i=3;i<buf.length;i+=4) if(buf[i]>200)on++;
+  pukaIconFill=+(on/(S*S)).toFixed(3);
+  return cv.toDataURL('image/png');
+}
+let pukaIconURL=null, pukaIconFill=0;
+loadModel('puka.glb',s3=>{
+  let url=null;
+  try{ url=bakePukaIcon(s3); }catch(e){ console.warn('puka icon failed to bake',e); }
+  if(!url||url.length<200)return;                // a blank bake is worse than the drawn fan
+  pukaIconURL=url;
+  const st=document.createElement('style');
+  st.textContent='.pk{background-image:url("'+url+'")}';
+  document.head.appendChild(st);
+});
 // Which end of a hull is the bow, as a sign: +1 if it points down +z, -1 if down -z. A bow is
 // narrow and carries the height; a stern is wide, low and square. Comparing the two halves on
 // both counts is steadier than either alone — some hulls are barely tapered, some barely
@@ -15940,6 +16012,22 @@ if(location.hash.includes('debug')){
                   vy:+Math.min(28,Math.max(v,RAMP_MIN_VY*lift)).toFixed(2)});
       }
       return out;
+    },
+    // Whether the currency's icon came off the model or is still the drawn fan, and — since a
+    // bake that returns a transparent square is a pass by every other measure — how much of it
+    // is actually opaque.
+    pukaIcon(){
+      const el=document.createElement('i'); el.className='pk';
+      document.body.appendChild(el);
+      const bg=getComputedStyle(el).backgroundImage;
+      el.remove();
+      return {modelled:!!pukaIconURL, bytes:pukaIconURL?pukaIconURL.length:0,
+              fill:pukaIconFill,
+              inUse:!!(pukaIconURL&&bg.indexOf(pukaIconURL.slice(0,64))>=0),
+              // asked for by MIME rather than by the letters s-v-g: those three turn up in a
+              // base64 PNG by chance often enough that the first version of this reported the
+              // drawn fan still in place while the shell was plainly on screen
+              drawn:bg.indexOf('image/svg')>=0};
     },
     obsTemplate(k){ const t=OBST_TEMPLATES[k]; return t?{variant:t.userData.variant||null}:null; },
     spawn(kind,dx,dz){ const o=makeObstacle(kind,px+dx,pz+dz); return {x:o.position.x,y:o.position.y,z:o.position.z,h:o.userData.h}; },

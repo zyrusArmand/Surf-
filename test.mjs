@@ -1043,6 +1043,31 @@ if (hasHook) {
   check(!clean.wave && !clean.stats && !clean.purse,
         'the main screen is clean — no wave test, no stats button, no purse',
         `waveBtn=${clean.wave} statsBtn=${clean.stats} purse=${clean.purse}`);
+
+  // ---- and the currency wears the modelled shell ----
+  // Every place a puka appears is an <i class="pk"> reading one CSS rule — the HUD, the shop's
+  // prices, the buy buttons, the run card's three lines, the crate reward, the purse — so this
+  // is one question asked once. The shell is a 3-D model and the icon is sixteen pixels in a
+  // line of text, so it is baked straight on into a transparent PNG at load and handed to the
+  // stylesheet; the drawn SVG stays as the fallback for a missing file.
+  // WAITED FOR. The shell is a model like any other and arrives when it arrives, and this one
+  // is heavy enough that it does not: asked at this point in the run it reported the drawn fan
+  // still in place and an empty bake, both true and both temporary. What the icon looks like
+  // before it lands is the fallback's job, and there is a check for that above.
+  await page.waitForFunction(() => window.__surf.pukaIcon().modelled, null, { timeout: 90000 })
+            .catch(() => {});
+  const pk = await page.evaluate(() => window.__surf.pukaIcon());
+  check(pk.modelled && pk.inUse && !pk.drawn,
+        'the puka icon is the modelled shell, everywhere one appears',
+        JSON.stringify({ modelled: pk.modelled, inUse: pk.inUse, drawnFallback: pk.drawn }));
+  // And there is a SHELL in it. A bake that goes wrong goes blank — camera facing the wrong
+  // way, model that never arrived, target cleared and never drawn into — and blank is a valid
+  // PNG of the right dimensions with a plausible byte count, so every other measure of success
+  // here passes while the icon quietly vanishes out of the HUD. A fan fills something like two
+  // thirds of its square; nothing fills none of it, and a solid block fills all of it.
+  check(pk.fill > 0.25 && pk.fill < 0.92,
+        'and it is a shell rather than an empty square or a solid block',
+        `${(pk.fill * 100).toFixed(0)}% of the icon is opaque`);
   await ver5tap();
   await page.waitForTimeout(300);
   // Both halves: the panel is actually open, and the button is in it. Asking only whether
