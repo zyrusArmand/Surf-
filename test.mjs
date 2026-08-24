@@ -3317,7 +3317,15 @@ check(shaderErrors.length === 0, 'every shader compiles',
 {
   const feet = await page.evaluate(async () => {
     window.__surf.restart(); window.__surf.invuln(true);
-    const settle = async () => { for (let i = 0; i < 40; i++) window.__surf.tick(0.05); };
+    // Two seconds was not enough, and what was left in it was the SWELL. The crouch eases in
+    // over about a second, but the wave goes on heaving the hull under it the whole time, and
+    // the residual this reads is that — so the answer depended on where the swell happened to
+    // be when the run restarted, which depends on every test above this one. Measured across
+    // five different starting phases it swung 0.020 to 0.047 against a limit of 0.06, and the
+    // check passed or failed on nothing to do with the stance. At six seconds it converges:
+    // 0.011 to 0.020 across the same five. Not longer than that — twelve seconds of run is
+    // long enough to meet something, and one of those phases threw 0.117 off a wave event.
+    const settle = async () => { for (let i = 0; i < 120; i++) window.__surf.tick(0.05); };
     const was = window.__surf.crouch();
     window.__surf.crouch(0, 0); await settle();
     const flat = window.__surf.footProbe();
