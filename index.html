@@ -1271,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.30.0';
+const VERSION='4.31.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -20922,21 +20922,20 @@ let MB_CROT=Math.PI*1.10;
 // plank's shape is fixed, so a fixed share of the WIDTH is a share of the height that changes
 // with the shape of the screen: two thirds of the width is a tenth of the height on a tall phone
 // and half the height held sideways, where the title covered the tree it is hung in.
-// ---- and ROT levels the WORD, which is not the same thing as levelling the plank ----
-// The plank is straight in its file — measured, its outline runs within a degree and a quarter of
-// level and its height holds across its whole length — and it renders straight. The LETTERING is
-// not: it is carved about three degrees uphill to the right, and that is the tilt, because nobody
-// looks at a title and sees the plank. Levelling the plank leaves the word climbing.
-// Three degrees the other way, then. It costs two and a half degrees on the plank's own outline,
-// which is a rustic driftwood shape with stepped ends and no straight edge to give away, and it
-// buys a level word. Checked at the middle of the frame as well as at the top, so it is the
-// asset's own carving being answered rather than anything the lens is doing.
-// This one is not solved, it is LOOKED AT. The obvious way to measure it — pick out the raised
-// lettering by depth and take the way it spreads — reads 1.7 degrees at a fifth of the face and
-// 5.8 at a fifteenth, because the cut decides how much of the plank's own domed face comes along
-// with the letters. That is a knob wearing a measurement's clothes, and a knob may as well be
-// honest about it.
-let MB_SGN_W=0.72, MB_SGN_MH=0.22, MB_SGN_H=0.12, MB_SGN_F=6.0, MB_SGN_D=0.50, MB_SGN_ROT=-0.052;
+// ---- ROT is zero, and stays zero ----
+// The lettering is carved about three degrees uphill of the board it is cut into — measured, the
+// plank's own outline runs within a degree and a quarter of level while the word climbs — so the
+// title and its plank cannot both be level. Rolling three degrees to level the WORD was tried and
+// is wrong: it leaves the plank itself lying downhill, and the plank is the long straight thing
+// against the top of the frame, so it is the plank the eye levels against. The climbing word is a
+// property of the asset and reads as lettering; a tipped board reads as a mistake.
+// ---- and the numbers below are the reference's, measured off it ----
+// Not chosen and not walked: the reference screenshot was decoded and its plank found by colour,
+// taking the longest unbroken run of wood in each row rather than the first and last wood pixel,
+// because a frond at the edge of the frame is wood-coloured too and drags the box out. It spans
+// 0.730 of the width, centred on 0.4917, with its top edge 0.0381 down the frame. These four
+// numbers put this one within a fifth of a percent of all three.
+let MB_SGN_W=0.803, MB_SGN_MH=0.26, MB_SGN_H=0.0345, MB_SGN_F=6.0, MB_SGN_D=0.481, MB_SGN_ROT=0;
 let MB_CD=-0.50;        // out to the camera's right of the trunk's own axis...
 // Out from 1.3, where the new palm's trunk is thick enough at chest height that the two
 // merged into one shape — the chest was measurably clear of the CENTRELINE and visibly inside
@@ -21122,6 +21121,13 @@ function hangBeachSign(){
 // ratio, the height by a secant on the top edge, because neither is quite linear once the plank
 // is far enough off axis for the lens to matter. Six passes, and they interact — moving it up
 // changes how wide it reads — so both are re-checked each time round.
+// Damped, and given twice the passes to make up for it. Size and place are solved off the SAME
+// measurement and they pull on each other — a wider sign has a higher top edge, so the height
+// solve drops it, which leaves room for the width solve to widen it again. Undamped that is a
+// feedback loop, and on a squarish window it ran away: the sign climbed to twenty-seven feet, out
+// of the top of the frame and behind the tree, with every individual step doing the arithmetic
+// correctly. Taking six tenths of each step turns the same loop into a contraction.
+const DAMP=0.6;
 function fitBeachSign(){
   let m=hangBeachSign();
   if(!m||typeof menuCam==='undefined'||!menuCam)return m;
@@ -21135,23 +21141,28 @@ function fitBeachSign(){
     const m2=hangBeachSign();
     set(keep);
     const slope=m2?(read(m2)-read(m))/0.5:0;
-    if(Math.abs(slope)>1e-5)set(Math.max(lo,Math.min(hi,keep-Math.max(-cap,Math.min(cap,d/slope)))));
+    if(Math.abs(slope)>1e-5)set(Math.max(lo,Math.min(hi,keep-DAMP*Math.max(-cap,Math.min(cap,d/slope)))));
     return false;
   };
-  for(let i=0;i<7;i++){
+  for(let i=0;i<14;i++){
     let done=true;
     // Width and height ceiling together: whichever binds first wins, so the title keeps its
     // shape and never grows taller than its allowance however wide the frame is.
     const w=m.x[1]-m.x[0], h=m.y[1]-m.y[0];
     if(w>1e-4&&h>1e-4){
-      const k=Math.min(MB_SGN_W/w,MB_SGN_MH/h);
+      const k=1+(Math.min(MB_SGN_W/w,MB_SGN_MH/h)-1)*DAMP;
       if(Math.abs(k-1)>0.004){
         _sgFt=Math.max(0.5,Math.min(24,_sgFt*Math.max(0.55,Math.min(1.8,k))));
         done=false;
       }
     }
-    if(!secant(()=>_sgUp,MB_SGN_H,q=>q.y[0],v=>{_sgUp=v;},2,30,4))done=false;
-    if(!secant(()=>_sgSide,MB_SGN_D,q=>(q.x[0]+q.x[1])/2,v=>{_sgSide=v;},-9,9,4))done=false;
+    // Room to travel: the target sits high in the frame and a squarer window brings the camera
+    // in four and a half feet, so the height needed to hold that target moves a long way. Clamped
+    // at thirty feet with four a pass it SATURATED there — the top edge came to rest half again
+    // as far down the frame as asked, and the width solve then chased a sign that was never going
+    // to arrive, ending ninety percent of the way across the screen.
+    if(!secant(()=>_sgUp,MB_SGN_H,q=>q.y[0],v=>{_sgUp=v;},2,90,12))done=false;
+    if(!secant(()=>_sgSide,MB_SGN_D,q=>(q.x[0]+q.x[1])/2,v=>{_sgSide=v;},-24,24,8))done=false;
     m=hangBeachSign();
     if(done||!m)break;
   }

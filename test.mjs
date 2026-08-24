@@ -1187,11 +1187,11 @@ if (hasHook) {
       // looking that steeply up at it, two degrees of turn became a foreshortened far end and
       // fourteen degrees of apparent roll, and the title lay downhill across the fronds. Neither
       // shows in a world-space angle — both are read in the picture, off the ends of the plank.
-      // It carries a deliberate roll: the plank is straight in its file but the LETTERING is cut
-      // about three degrees uphill, and a title is read by its word, not by its board. So the
-      // plank is rolled three degrees the other way and the word comes out level — which means
-      // this cannot ask for zero. It asks that the slope across the plank is the roll that was
-      // ORDERED and nothing else, so anything tilting it that nobody asked for still shows.
+      // Asked as "the tilt it was ORDERED and no other" rather than as zero, because the roll is
+      // a knob and a knob can be turned. It is zero today: the lettering is carved about three
+      // degrees uphill of its own board, so the word and the plank cannot both be level, and
+      // rolling to level the word leaves the plank lying downhill — which is what the eye picks
+      // up, the plank being the long straight thing across the top of the frame.
       const want = -sg.at[4] * 180 / Math.PI;
       check(sg.up && Math.abs(sg.roll - want) < 1.5,
             'and lies at the tilt it was given and no other',
@@ -1234,7 +1234,7 @@ if (hasHook) {
       await page.setViewportSize({ width: 460, height: 966 });
       await page.waitForTimeout(1400);
       check(shapes.every(s => s.up && s.y[0] > 0.02 && s.y[0] < 0.20 && Math.abs(s.cx - 0.5) < 0.05 &&
-                              s.y[1] - s.y[0] < 0.26 && s.x[1] - s.x[0] > 0.12 && s.ahead > 1.5),
+                              s.y[1] - s.y[0] < 0.28 && s.x[1] - s.x[0] > 0.12 && s.ahead > 1.5),
             'and it sits in the same place on a screen of any shape',
             shapes.map(s => `${s.w}x${s.h}: top ${s.y[0]}, centre ${s.cx}, ` +
                             `${((s.x[1] - s.x[0]) * 100).toFixed(0)}% wide by ` +
