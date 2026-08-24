@@ -1122,7 +1122,48 @@ if (hasHook) {
     // charge. Three seconds of stillness, and never less than five seconds in total.
     await settleShot();
 
-    // ---- the title is a plank hanging over the beach ----
+    // ---- the gulls are modelled birds and their wings beat ----
+  // The sky's birds were three triangles apiece: two swept shapes and a dot, hinged at the
+  // shoulder. The file that replaces them brings a rig and NO clips — twenty-eight bones and
+  // nothing to play on them — so the beat is driven here, and which bones to drive is measured
+  // off the skeleton rather than read off names that mean nothing and would renumber on a
+  // re-export.
+  {
+    await page.waitForFunction(() => window.__surf.birdInfo().modelled > 0, null, { timeout: 60000 })
+              .catch(() => {});
+    const bi = await page.evaluate(() => window.__surf.birdInfo());
+    check(bi.gulls > 8 && bi.modelled === bi.gulls,
+          'every bird in the sky is the modelled one, not the drawn silhouette',
+          `${bi.modelled} of ${bi.gulls} across ${bi.flocks} flights`);
+    // The wings MOVE. A rigged bird with nothing driving it is a bird in a fixed pose, and at
+    // this range a fixed pose and a beating one are the same silhouette in a still frame — so
+    // the wingtip is walked through a whole beat and asked how far it travelled, against the
+    // bird's own span so the answer does not depend on how far off the flock is.
+    check(bi.travel > 0.12 && bi.travel < 0.9,
+          'and the wings beat rather than holding a glide',
+          `the tip travels ${(bi.travel * 100).toFixed(0)}% of the span through one beat`);
+    // and nobody is in step. Every bird has its own rate and its own phase, and the visible
+    // form of that is the tips sitting at different heights at any one instant.
+    check(bi.stagger > 0.2, 'and no two in a flight beat together',
+          `${bi.stagger} between the highest and lowest tip in a flight`);
+    // The V flights really are Vs: birds dropping back in PAIRS off a leader, so how far a
+    // bird sits off the line of flight grows with how far back it is, and the offsets cancel.
+    // Both are asked, because neither is enough on its own — four birds scattered at random
+    // correlate as well as a V often enough to be useless, and can balance by luck too.
+    const vs = (bi.flights || []).map((f, i) => ({ ...f, s: bi.shapes[i] })).filter(f => f.v);
+    check(vs.length >= 2 && vs.every(f => f.s && f.s.v > 0.97 && f.s.bal !== null && f.s.bal < 0.15),
+          'and the ones that fly in a V are in a V, not just called one',
+          vs.map(f => `${f.n}: line ${f.s && f.s.v}, balance ${f.s && f.s.bal}`).join(', '));
+    // and the sky is a MIX. Every flight used to be the same loose V of four to seven, which
+    // reads as wallpaper — the eye finds the repeat at once.
+    const solo = (bi.flights || []).filter(f => f.n === 1).length;
+    const knot = (bi.flights || []).filter(f => !f.v && f.n > 1).length;
+    check(solo >= 1 && knot >= 1 && vs.length >= 2,
+          'and the sky is a mix of skeins, knots and singles rather than one shape repeated',
+          `${vs.length} in V, ${knot} loose, ${solo} on their own`);
+  }
+
+  // ---- the title is a plank hanging over the beach ----
     // It was an <h1> laid over the canvas, which is the right way to draw a word and the wrong
     // way to put an object in a scene: it takes no light, it is never behind anything, and it
     // does not move when the shot does. Carved into a sign hung above the palm it is part of the
