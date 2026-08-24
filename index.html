@@ -1271,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.24.0';
+const VERSION='4.25.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -5714,8 +5714,18 @@ function modelPalm(seed,prof,menu){
 // rigidly to the top bone. That last part is the whole trick — a crown weighted by height
 // shears apart as the trunk bends, where a real palm's crown rides on top of it as one piece.
 function rigStaticPalm(s3){
-  let m=null; s3.traverse(o=>{ if(o.isMesh&&!m)m=o; });
-  if(!m||!m.geometry||!m.geometry.attributes.position)return null;
+  // ---- ONE mesh, and that is a requirement on the file ----
+  // Everything below is measured off a single geometry: the crown line from how far the mesh
+  // spreads from its centreline, the trunk radius from a percentile of that spread, the bone
+  // chain from the result. Handed an export split into a dozen primitives — trunk, and each
+  // frond cluster on its own — this kept the first and threw the rest away, and every one of
+  // those measurements then agreed with itself about a bushy fragment with no trunk in it.
+  // The palm that ships is joined into one mesh before it gets here. If a future one is not,
+  // this is where it will show, and the count is the thing to look at first.
+  const ms=[]; s3.traverse(o=>{ if(o.isMesh&&o.geometry&&o.geometry.attributes.position)ms.push(o); });
+  if(!ms.length)return null;
+  if(ms.length>1)console.warn('palm.glb has '+ms.length+' meshes; only the first is rigged');
+  const m=ms[0];
   // ---- everything the file wrapped it in is baked in FIRST ----
   // A skinned mesh is posed by its bones and its bind matrix, and the bake downstream puts the
   // result through the mesh's world matrix as well; leave any transform on the mesh or on the
@@ -5840,9 +5850,30 @@ function paintStaticPalm(sk,trunkR){
 }
 loadModel('palm.glb',(s3)=>{
   let sk=null; s3.traverse(o=>{ if(o.isSkinnedMesh&&!sk)sk=o; });
-  // no rig in the file: build one, and paint it, since a file with no bones is also the kind
-  // that arrives with no material
-  if(!sk){ sk=rigStaticPalm(s3); if(sk)paintStaticPalm(sk,sk.userData.trunkR); }
+  // No rig in the file: build one. And paint it ONLY if it also arrived without a skin.
+  // That used to be assumed rather than asked — a file with no bones is also the kind that
+  // arrives with no material, which was true of the export this was written for and is not a
+  // fact about palm trees. Handed one carrying a full PBR set the paint went straight over the
+  // top of it: the vertex colours won, the maps were never sampled, and the tree came out as
+  // white spikes with the bark, the leaf detail and the normal map all still in the file and
+  // none of it on screen.
+  if(!sk){
+    sk=rigStaticPalm(s3);
+    const own=sk&&sk.material&&(Array.isArray(sk.material)?sk.material.some(x=>x&&x.map)
+                                                          :!!sk.material.map);
+    if(sk&&!own)paintStaticPalm(sk,sk.userData.trunkR);
+    // ---- and a material kept from the file has to be told it is on a SKELETON ----
+    // The painted path builds its own material and sets this; a kept one was authored for a
+    // plain mesh. In this version of three a skinned mesh whose material has skinning off is
+    // drawn from its bind pose and never bends, so every tree in the grove would be the same
+    // upright tree however far its bones were bent — and the bend is measured off the bones,
+    // so everything that asks about it agrees and only the picture disagrees.
+    if(sk&&own)for(const mm of [].concat(sk.material)){
+      if(!mm)continue;
+      mm.skinning=true; mm.needsUpdate=true;
+      mm.userData.authored=true;
+    }
+  }
   if(!sk||!sk.skeleton||!sk.skeleton.bones.length)return;
   // the chain from the ground up: start at whichever bone has no bone above it
   let b0=sk.skeleton.bones[0];
@@ -16408,6 +16439,35 @@ if(location.hash.includes('debug')){
                 ?beachSandH(pug.position.z/MB_K):0)*MB_K)).toFixed(3):null,
               sand:+(((typeof beachSandH==='function'&&typeof pug!=='undefined')
                 ?beachSandH(pug.position.z/MB_K):0)*MB_K).toFixed(3)};
+    },
+    // What the palm rig made of the file it was handed: where it decided the trunk stops, how
+    // thick it thinks the trunk is, and how the mesh divides into the two. Every one of those is
+    // measured off the mesh's own shape, so a tree built to different proportions than the one
+    // this was written for gets a different answer and there is nowhere else to see it.
+    palmRig(){
+      // the TEMPLATE, not the tree on the beach: every palm in the game is this mesh with its
+      // bend baked in, so the one on screen is a plain mesh and has no rig left to ask about
+      const sk=(typeof palmModel!=='undefined'&&palmModel)?palmModel.mesh:null;
+      if(!sk)return {skinned:false};
+      const g=sk.geometry; g.computeBoundingBox();
+      const bb=g.boundingBox, H=bb.max.y-bb.min.y, pa=g.attributes.position;
+      // how far the mesh spreads from the centreline, in ten bands up the tree
+      const N=10, wide=new Array(N).fill(0), cnt=new Array(N).fill(0);
+      for(let i=0;i<pa.count;i++){
+        const b=Math.max(0,Math.min(N-1,Math.floor((pa.getY(i)-bb.min.y)/H*N)));
+        const r=Math.hypot(pa.getX(i),pa.getZ(i));
+        if(r>wide[b])wide[b]=r; cnt[b]++;
+      }
+      let chain=0, b0=sk.skeleton&&sk.skeleton.bones[0];
+      if(b0){ while(b0.parent&&b0.parent.isBone)b0=b0.parent;
+              for(let b=b0;b;){ chain++; const k=(b.children||[]).filter(c=>c.isBone);
+                                b=k.length===1?k[0]:null; } }
+      return {skinned:true, bones:sk.skeleton?sk.skeleton.bones.length:0, chain,
+              rad:(palmModel.rad||[]).map(v=>+v.toFixed(3)),
+              trunkR:sk.userData.trunkR===undefined?null:+sk.userData.trunkR.toFixed(4),
+              H:+H.toFixed(3), lo:bb.min.toArray().map(v=>+v.toFixed(3)),
+              hi:bb.max.toArray().map(v=>+v.toFixed(3)),
+              spread:wide.map(v=>+v.toFixed(3)), verts:cnt};
     },
     obsTemplate(k){ const t=OBST_TEMPLATES[k]; return t?{variant:t.userData.variant||null}:null; },
     spawn(kind,dx,dz){ const o=makeObstacle(kind,px+dx,pz+dz); return {x:o.position.x,y:o.position.y,z:o.position.z,h:o.userData.h}; },

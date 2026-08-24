@@ -1247,10 +1247,16 @@ if (hasHook) {
     // Compared as BANDS, not as two readings. He is in the middle of a performance either
     // side of this, so his head and his back are moving anyway — one sample against one sample
     // is two different frames of an animation, and the difference between them says nothing.
+    // The FIRST sample is thrown away. Ending the charge puts the skeleton back to its bind
+    // pose, and the clip that drives it does not write until the frame after — so that one
+    // frame is neither the charge nor the performance, and it reads as a rider still half
+    // turned toward the camera. It is one frame and nobody sees it; it is only ever a
+    // measurement problem, so it is dropped where the measurement is taken.
     const bandOf = async n => {
       const look = [], tip = [];
-      for (let i = 0; i < n; i++) {
+      for (let i = 0; i <= n; i++) {
         const r = await page.evaluate(() => window.__surf.chargeStep(0.033, 4));
+        if (i === 0) continue;
         look.push(r.look); tip.push(r.tip);
       }
       return { look: [Math.min(...look), Math.max(...look)], tip: [Math.min(...tip), Math.max(...tip)] };
