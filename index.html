@@ -1271,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.21.0';
+const VERSION='4.22.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10386,9 +10386,15 @@ const CLIP_LIB={};
 // of the way in: near enough that his shoulders fill the frame and the punch lands in your
 // face, far enough that he is a body throwing it rather than a texture — inside about two
 // feet the near plane starts eating his hands.
-const CHARGE_STOP=3.1;
+let CHARGE_STOP=3.2;
 const CHARGE_SPEED=7.0;      // feet a second, which is a run rather than a stroll
 const CHARGE_GLARE=0.45;     // and he holds it on you for a beat after the last punch
+// How far he tips forward over the lens, in radians. Solved rather than picked: see the check.
+let CHARGE_PITCH=-0.22;
+const CHARGE_LEAN_RATE=2.6;  // how fast the lean comes on, per second
+// and how far off the camera's own axis his mark sits, so his BODY lands centred rather than
+// his origin — an animal with an arm out is not centred where his feet are
+let CHARGE_SIDE=-0.30;
 const GREET=0.0;
 let greetLeft=GREET;
 // Meshy writes "Armature|One_Arm_Handstand|baselayer" on some exports and the bare name on
@@ -10994,13 +11000,25 @@ function setupModelRig(root,gltf,id){
         this.cur=a; this.prev=null; this.fadeT=0;
         return a;
       };
-      // straight at the lens, along the ground. The bearing from him to the camera does not
-      // change while he runs down it, which is why the yaw that squared him to the lens on his
-      // mark is still square all the way in — there is nothing to re-solve.
+      // ---- at the MIDDLE of the frame, which is not where the camera is ----
+      // He ran at the camera's position and arrived off to the left, and the reason is that
+      // this shot is not aimed down its own axis: the lens looks at a point beside the board
+      // so the set sits centred between the button columns, so "toward the camera" and "toward
+      // the middle of the picture" are two different directions. He runs at a mark on the
+      // camera's own view axis instead — CHARGE_STOP in front of the lens, straight down the
+      // middle of what it can see — and lands in the centre of the frame however the shot is
+      // aimed. The yaw that turns him is still solved against the lens itself, because that is
+      // what he is looking AT; only where he stops has moved.
       const cam=menuCam?menuCam.position:null;
       if(cam){
-        const dx=cam.x-C.home.x, dz=cam.z-C.home.z, L=Math.hypot(dx,dz)||1;
-        const stop=Math.max(0.2,L-CHARGE_STOP);            // how far along that line he gets
+        if(!C.mark){
+          const f=menuCam.getWorldDirection(new THREE.Vector3()); f.y=0; f.normalize();
+          const rgt=new THREE.Vector3(-f.z,0,f.x);
+          C.mark=new THREE.Vector3(cam.x+f.x*CHARGE_STOP+rgt.x*CHARGE_SIDE,0,
+                                   cam.z+f.z*CHARGE_STOP+rgt.z*CHARGE_SIDE);
+        }
+        const dx=C.mark.x-C.home.x, dz=C.mark.z-C.home.z, L=Math.hypot(dx,dz)||1;
+        const stop=L;                       // all the way onto the mark in front of the lens
         const go=(want,speed)=>{
           C.d+=(want>C.d?1:-1)*speed*dt;
           if((want>0&&C.d>want)||(want<=0&&C.d<want))C.d=want;
@@ -11023,16 +11041,42 @@ function setupModelRig(root,gltf,id){
           // turned away to go back, so he runs rather than moonwalks. Eased, because a body
           // that changes which way it is pointing between two frames has not turned round.
           C.turn=Math.min(1,C.turn+dt/0.28);
-          if(go(0,CHARGE_SPEED*1.15)&&C.turn>=1){ this.charge=null; this.step=-1; this.stepT=0; }
+          if(go(0,CHARGE_SPEED*1.15)&&C.turn>=1){
+            // STOOD BACK UP, explicitly. The lean decays toward nothing during the run back,
+            // so at this point it is small — and small is not none, and the show below only
+            // ever sets his yaw. Left to the decay he goes back to his mark holding a tip
+            // nobody put there and nothing ever takes off again.
+            this.charge=null; this.step=-1; this.stepT=0;
+            pug.rotation.x=0; pug.rotation.z=0; pug.rotation.order='XYZ';
+          }
         }
       } else this.charge=null;
       if(this.charge){
-        pug.rotation.y=STANCE_ROT+MENU_FACE+Math.PI*(this.charge.phase==='out'?this.charge.turn:0);
+        const Q=this.charge;
+        // ---- and he LEANS OVER the lens rather than boxing above it ----
+        // The camera on this screen sits about chest high on him and three feet out, and the
+        // punch combo throws at head height — so from down here the fists travelled upward,
+        // past the lens and out of frame, which is the opposite of what a charge at you should
+        // look like. Leaning him forward puts his head and his hands on the near side of the
+        // lens and turns the same clip into something coming DOWN at you.
+        // Pitched about his feet, which is where the group's origin sits, so a lean is a lunge
+        // — his weight goes over the front foot the way a body's does when it throws one.
+        // Eased in over the last of the run and held through the punch, because a body that
+        // changes what it is standing like between two frames has not leaned, it has snapped.
+        Q.lean+=(( Q.phase==='out'?0:1)-Q.lean)*Math.min(1,dt*CHARGE_LEAN_RATE);
+        pug.rotation.order='YXZ';
+        pug.rotation.y=STANCE_ROT+MENU_FACE+Math.PI*(Q.phase==='out'?Q.turn:0);
+        pug.rotation.x=CHARGE_PITCH*Q.lean;
         this.mixer.update(dt);
         if(this.hipHome&&this.bones&&this.bones.Hips){
           this.bones.Hips.position.x=this.hipHome.x;
           this.bones.Hips.position.z=this.hipHome.z;
         }
+        // Pinned AFTER the tip, not before it. Tipping him and then standing the untipped body
+        // on the sand leaves the pin measuring a pose he is not in, and his footing wanders by
+        // an inch and a half as the lean comes on. Pinned after, the lowest thing on him stays
+        // on the beach — which through a forward lean is his front foot, so it plants and the
+        // back heel comes up, which is what a body throwing a punch actually does.
         hold();
         return;
       }
@@ -11274,7 +11318,7 @@ function setupModelRig(root,gltf,id){
   R.startCharge=function(){
     if(this.charge||!this.clips)return false;
     if(!this.clip('Running')||!(this.clip('Punch_Combo')||this.clip('Punch')))return false;
-    this.charge={phase:'in', t:0, d:0, turn:0,
+    this.charge={phase:'in', t:0, d:0, turn:0, lean:0,
                  home:pug.position.clone(),
                  // how far his soles sit above the sand where he is standing, kept so the
                  // same clearance travels with him instead of being re-measured on a slope
@@ -16184,6 +16228,12 @@ if(location.hash.includes('debug')){
     // renderer runs it at a frame every second or two, so waiting on the clock to watch it
     // finish takes minutes — this walks the same code the frame loop walks, at whatever step
     // is asked for, and the frame clamp is the ceiling on that for a reason.
+    chargeAt(pitch,side,stop){
+      if(pitch!==undefined)CHARGE_PITCH=pitch;
+      if(side!==undefined)CHARGE_SIDE=side;
+      if(stop!==undefined)CHARGE_STOP=stop;
+      return [CHARGE_PITCH,CHARGE_SIDE,CHARGE_STOP];
+    },
     chargeStep(dt,n){
       const R=typeof riderRig==='function'?riderRig():null;
       if(!R||!R.show)return null;
@@ -16208,10 +16258,45 @@ if(location.hash.includes('debug')){
         span=+(y1-y0).toFixed(3);
         dist=+menuCam.position.distanceTo(pug.getWorldPosition(new THREE.Vector3())).toFixed(2);
       }
+      // where he is ACROSS the frame, and how far the camera has to look up to meet his fists
+      let cx=null, aim=null;
+      if(menuCam&&typeof pug!=='undefined'&&pug){
+        const b=new THREE.Box3().setFromObject(pug), v=new THREE.Vector3();
+        let x0=9,x1=-9;
+        for(let i=0;i<8;i++){
+          v.set(i&1?b.max.x:b.min.x, i&2?b.max.y:b.min.y, i&4?b.max.z:b.min.z).project(menuCam);
+          const sx=v.x*0.5+0.5; if(sx<x0)x0=sx; if(sx>x1)x1=sx;
+        }
+        cx=+((x0+x1)/2).toFixed(3);
+        const R2=typeof riderRig==='function'?riderRig():null;
+        const hp=R2&&R2.bones&&R2.bones.Hips;
+        if(hp){ const p2=hp.getWorldPosition(new THREE.Vector3());
+          const flat=Math.hypot(p2.x-menuCam.position.x,p2.z-menuCam.position.z);
+          aim=+(Math.atan2(p2.y-menuCam.position.y,flat)*180/Math.PI).toFixed(1); }
+      }
+      // How far he is TIPPED toward the lens: how much nearer his head is to it than his feet
+      // are. Positive is leaning over you, which is the difference between a punch that comes
+      // down at the camera and one that goes past it — and it is not visible in anything else
+      // measured here, because he ends up in the same place either way.
+      let tip=null;
+      { const R3=typeof riderRig==='function'?riderRig():null;
+        const hd=R3&&R3.bones&&R3.bones.Head;
+        if(hd&&menuCam&&typeof pug!=='undefined'&&pug){
+          const h=hd.getWorldPosition(new THREE.Vector3()), c2=menuCam.position;
+          tip=+(Math.hypot(pug.position.x-c2.x,pug.position.z-c2.z)
+               -Math.hypot(h.x-c2.x,h.z-c2.z)).toFixed(3);
+        } }
       return {on:!!C, phase:C?C.phase:null, moved:C?+C.d.toFixed(2):0, t:C?+C.t.toFixed(2):0,
+              cx, aim, tip, lean:C?+C.lean.toFixed(2):0,
               clip:R.cur?R.cur.getClip().name:null, span, dist,
               // his soles against the sand under wherever he has got to
               sole:R.skinBox?+((R.skinBox()||{lo:[0,0,0]}).lo[1]).toFixed(3):null,
+              // his ORIGIN against the sand, which is what the slope compensation acts on and
+              // what the lean pivots about. The lowest point on him moves when he tips — a
+              // lunge lifts the back heel, as it should — so measuring the tip and the slope
+              // through the same number says a leaning body is a sinking one.
+              base:(typeof pug!=='undefined'&&pug)?+(pug.position.y-((typeof beachSandH==='function'
+                ?beachSandH(pug.position.z/MB_K):0)*MB_K)).toFixed(3):null,
               sand:+(((typeof beachSandH==='function'&&typeof pug!=='undefined')
                 ?beachSandH(pug.position.z/MB_K):0)*MB_K).toFixed(3)};
     },

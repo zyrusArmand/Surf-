@@ -1108,19 +1108,47 @@ if (hasHook) {
           'and he is close enough that it lands in your face',
           `${two.dist}ft and ${(two.span * 100).toFixed(0)}% of the screen -> ` +
           `${seen.hit && seen.hit.dist}ft and ${seen.hit && (seen.hit.span * 100).toFixed(0)}%`);
-    // The beach is not level, so the height his soles are pinned to has to travel with him.
-    // Held to the one number measured on his mark, he arrives at the lens either shin-deep in
-    // the sand or walking a foot above it, and neither shows up in a check about where he got
-    // to — only in a check about what is under him the whole way.
+    // The beach is not level, so the height he is pinned to has to travel with him. Held to
+    // the one number measured on his mark, he arrives at the lens either shin-deep in the sand
+    // or walking a foot above it, and neither shows up in a check about where he got to — only
+    // in a check about what is under him the whole way.
+    // Measured at the LOWEST point on him, which through a forward lean is his front foot —
+    // it plants and the back heel comes up, the way a body throwing a punch does. That only
+    // holds because the pin is taken after he is tipped: tipping him and then standing the
+    // untipped body on the sand pins a pose he is not in, and his footing wandered by an inch
+    // and a half as the lean came on.
     const spread = soles.length ? Math.max(...soles) - Math.min(...soles) : 9;
     check(soles.length > 4 && spread < 0.05,
           'and his feet are on the sand the whole way in, over a beach that is not level',
-          `${soles.length} frames, ${spread.toFixed(3)}ft of drift in his clearance`);
+          `${soles.length} frames, ${spread.toFixed(3)}ft of drift in his footing`);
+    // IN THE MIDDLE of the picture, which is not the same as at the camera. This shot is not
+    // aimed down its own axis — the lens looks at a point beside the board so the set sits
+    // centred between the button columns — so running at the camera's position landed him off
+    // to the left. He runs at a mark on the camera's view axis instead.
+    check(seen.hit && Math.abs(seen.hit.cx - 0.5) < 0.06,
+          'and he arrives in the middle of the frame rather than off to one side',
+          `centred on ${seen.hit && seen.hit.cx} of the width, from ${two.cx} on his mark`);
+    // LEANING OVER the lens. The camera sits about chest high on him and the punch combo
+    // throws at head height, so stood upright the fists travelled past the lens and out of
+    // frame — up, from down here, which is the opposite of a charge at you. Asked as how much
+    // nearer his head is to the camera than his feet are, against how much nearer it is when
+    // he is just standing there: it is a relationship, and it is invisible in every other
+    // number here because he ends up in the same place either way.
+    check(seen.hit && two.tip > 0 && seen.hit.tip > two.tip * 1.8,
+          'and tipped over it, so the punch comes down at you rather than past you',
+          `head ${seen.hit && seen.hit.tip}ft nearer the lens than his feet, against ${two.tip} standing`);
     // and back on his mark afterwards, at the size he was, with the show running again
     const back = await page.evaluate(() => window.__surf.charge());
     check(!back.on && Math.abs(back.dist - two.dist) < 0.15 && Math.abs(back.span - two.span) < 0.02,
           'and afterwards he is back on his mark at the size he was',
           `${back.dist}ft against ${two.dist}, ${back.span} against ${two.span}, now ${back.clip}`);
+    // and STOOD BACK UP. The lean decays toward nothing on the way back, so by the time he
+    // arrives it is small — and small is not none, and the show only ever sets his yaw, so
+    // left to the decay he stands on his mark for the rest of the session holding a tip
+    // nobody put there and nothing takes off again.
+    check(Math.abs(back.tip - two.tip) < 0.04,
+          'and standing up straight again rather than keeping the lean',
+          `${back.tip}ft of tip against the ${two.tip} he started with`);
   }
   await ver5tap();
   await page.waitForTimeout(300);
