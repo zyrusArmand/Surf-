@@ -1069,16 +1069,63 @@ if (hasHook) {
         'and it is a shell rather than an empty square or a solid block',
         `${(pk.fill * 100).toFixed(0)}% of the icon is opaque`);
 
+  // Waiting for the title screen's shot to STOP MOVING. A resize or an equip re-solves the
+  // whole composition, and the re-solve does not happen once: models finish arriving, the
+  // character is rebuilt, the layout runs again — so the picture goes quiet, moves, and goes
+  // quiet again. A fixed wait was enough most runs and not all of them, and the runs where it
+  // was not read one half of a comparison from before the last step: a camera that had
+  // apparently walked a foot and a quarter backwards in the middle of a charge, and a rider
+  // standing a tenth of the screen from where he stands. Three seconds of stillness in the
+  // projected picture, never less than five in total, on both sides of the viewport change.
+  const settleShot = async () => {
+    const t0 = Date.now();
+    await page.waitForFunction(() => {
+      const c = window.__surf.charge();
+      const w = window.__surf._settle || (window.__surf._settle = []);
+      w.push(c.foot * 100 + c.dist); if (w.length > 10) w.shift();
+      return w.length === 10 && Math.max(...w) - Math.min(...w) < 0.01;
+    }, null, { timeout: 40000, polling: 300 }).catch(() => {});
+    await page.evaluate(() => { delete window.__surf._settle; });
+    if (Date.now() - t0 < 5000) await page.waitForTimeout(5000 - (Date.now() - t0));
+  };
+
   // ---- tap him twice and he comes and has a word about it ----
   // Two taps, not one. One tap on a character is the commonest accidental tap on this screen —
   // the beach is most of it and he stands in the middle — and a title screen that sends him at
   // the camera every time a thumb lands would read as flinching.
   {
+    // IN PORTRAIT, which is the shape this is composed for. He stands off to one side of the
+    // set and the charge brings him to the middle, and how far that is depends on the aspect:
+    // a wide window has room either side of him and the same walk covers a third as much of
+    // the frame. Measured on a landscape page the travel is real and reads as nothing.
+    await page.setViewportSize({ width: 460, height: 966 });
+    // On a KNOWN board. The mark he runs to sits on the camera's view axis, and the camera is
+    // aimed at the middle of the set — which moves with the board leaning in it. The block
+    // above leaves a ten and a half foot log equipped, and on that the same walk covers half
+    // as much of the frame: the check was reading a different composition from the one it was
+    // written against, and the reading was right about it.
+    // and on a known CHARACTER, for the same reason: the roster loop above leaves whoever it
+    // finished with standing there, and they are not the same height or the same width, so
+    // where his head sits and how far it travels is a different measurement per animal.
+    await page.evaluate(() => { window.__surf.equip('astro'); window.__surf.wear('pug'); });
+    // SETTLED, not waited out. A resize and an equip both re-solve the whole shot and it steps
+    // to its answer rather than easing there — five seconds was enough most runs and not all of
+    // them, and the run where it was not reported him standing on 0.45 of the width instead of
+    // 0.33, which is not a rider who moved but a camera that had not arrived. Polled on where
+    // he projects to, which is the thing every check below is about.
+    // A LONG quiet window, and a floor under it. A resize and an equip both re-solve the whole
+    // shot, and the re-solve does not happen once: models finish arriving, the character is
+    // rebuilt, the layout runs again — so the picture goes quiet, moves, and goes quiet again.
+    // One second of stillness was enough most runs; on the ones it was not, this block read his
+    // mark from before the last step and everything after it disagreed with everything before,
+    // the camera apparently having walked a foot and a quarter backwards in the middle of a
+    // charge. Three seconds of stillness, and never less than five seconds in total.
+    await settleShot();
     const at = await page.evaluate(() => {
       const f = window.__surf.menuFrame();
       return { x: (f.rider.x[0] + f.rider.x[1]) / 2, y: (f.rider.y[0] + f.rider.y[1]) / 2 };
     });
-    const tap = async () => page.mouse.click(at.x * 1024, at.y * 640);
+    const tap = async () => page.mouse.click(at.x * 460, at.y * 966);
     await tap();
     await page.waitForTimeout(700);
     const one = await page.evaluate(() => window.__surf.charge());
@@ -1086,12 +1133,13 @@ if (hasHook) {
           `phase ${one.phase}, ${one.dist}ft from the lens`);
     // his resting bands first — see the last check in this block for why a band and not a value
     const rest = await (async () => {
-      const look = [], tip = [];
+      const look = [], tip = [], head = [];
       for (let i = 0; i < 9; i++) {
         const r = await page.evaluate(() => window.__surf.chargeStep(0.033, 4));
-        look.push(r.look); tip.push(r.tip);
+        look.push(r.look); tip.push(r.tip); head.push(r.foot);
       }
-      return { look: [Math.min(...look), Math.max(...look)], tip: [Math.min(...tip), Math.max(...tip)] };
+      return { look: [Math.min(...look), Math.max(...look)], tip: [Math.min(...tip), Math.max(...tip)],
+               foot: +(head.reduce((a, b) => a + b, 0) / head.length).toFixed(3) };
     })();
     await tap(); await page.waitForTimeout(110); await tap();
     const two = await page.evaluate(() => window.__surf.charge());
@@ -1101,12 +1149,17 @@ if (hasHook) {
     // and this renderer gives it a frame every second or two, so waiting it out takes minutes;
     // chargeStep drives the same code the frame loop drives, at the same clamped step.
     const seen = { in: null, hit: null, out: null }, soles = [];
-    let reach = 0;
+    let reach = 0, punch = null;
     let last = two, done = false;
     for (let i = 0; i < 40 && !done; i++) {
       const r = await page.evaluate(() => window.__surf.chargeStep(0.033, 8));
       if (r.on) { seen[r.phase] = r; soles.push(+(r.sole - r.sand).toFixed(3)); last = r;
-                  if (r.phase === 'hit') reach = Math.max(reach, r.tip); }
+                  // the instant of the punch, kept whole: the frame he is furthest over the
+                  // lens. Every question below is about that moment, and asking them of
+                  // whatever frame the walk happened to stop on asks them of the recoil —
+                  // a combo winds up and comes back, so its last frame has him on his heels
+                  // and short of the middle, which is true of that frame and of nothing else.
+                  if (r.phase === 'hit' && r.tip > reach) { reach = r.tip; punch = r; } }
       else done = true;
     }
     check(done && seen.in && seen.hit && seen.out,
@@ -1115,10 +1168,10 @@ if (hasHook) {
     // NEARER AND BIGGER, which is the whole of "at the camera" — a run that plays on the spot
     // is the same run the title show already had. Measured off the lens and off how much of
     // the screen he stands in, because those are the two things a player can actually see.
-    check(seen.hit && seen.hit.dist < two.dist * 0.55 && seen.hit.span > two.span * 2,
+    check(punch && punch.dist < two.dist * 0.55 && punch.span > two.span * 2,
           'and he is close enough that it lands in your face',
           `${two.dist}ft and ${(two.span * 100).toFixed(0)}% of the screen -> ` +
-          `${seen.hit && seen.hit.dist}ft and ${seen.hit && (seen.hit.span * 100).toFixed(0)}%`);
+          `${punch && punch.dist}ft and ${punch && (punch.span * 100).toFixed(0)}%`);
     // The beach is not level, so the height he is pinned to has to travel with him. Held to
     // the one number measured on his mark, he arrives at the lens either shin-deep in the sand
     // or walking a foot above it, and neither shows up in a check about where he got to — only
@@ -1140,9 +1193,22 @@ if (hasHook) {
     // and it reads wrong: an arm thrown out to one side drags the box a tenth of the width off
     // the animal, so the numbers said centred while the picture had him over on the left. What
     // an eye locks onto is his face.
-    check(seen.hit && Math.abs(seen.hit.head - 0.5) < 0.05,
+    // He STARTS at the edge of the set and the run is what brings him in. That is the whole
+    // shape of it: standing on the middle of the screen already, a charge at the camera is a
+    // change of size and nothing else.
+    // Read off where he STANDS, and read before the taps.
+    // His own origin, not his head: the head swings a tenth of the width through a walk or a
+    // backflip, so asked off the head "where is he on screen" answers differently depending on
+    // which beat of the show the question lands in — measured, 0.33 caught standing and 0.46
+    // caught mid-move, for a rider who had not moved at all.
+    // And before the taps, because by the time the second one has been dispatched and the
+    // answer has come back he is already running.
+    check(rest.foot < 0.42 && punch && punch.foot - rest.foot > 0.12,
+          'he starts off to one side and the run is what brings him to the middle',
+          `standing on ${rest.foot} of the width, ${punch && punch.foot} at full stretch` + ``);
+    check(punch && Math.abs(punch.head - 0.5) < 0.05,
           'and his head arrives in the middle of the frame, not his bounding box',
-          `head on ${seen.hit && seen.hit.head} of the width (box ${seen.hit && seen.hit.cx}), ` +
+          `head on ${punch && punch.head} of the width (box ${punch && punch.cx}), ` +
           `from ${two.head} on his mark`);
     // LEANING OVER the lens. The camera sits about chest high on him and the punch combo
     // throws at head height, so stood upright the fists travelled past the lens and out of
@@ -1164,9 +1230,9 @@ if (hasHook) {
     // off the same head-to-muzzle line the riders are turned by. Asked as the angle between
     // where he is looking and where the camera is: sixty-odd degrees off it standing on his
     // mark, single figures when the punch lands.
-    check(seen.hit && seen.hit.look < 12 && two.look > 30,
+    check(punch && punch.look < 12 && two.look > 30,
           'and looking down the lens while he does it',
-          `${seen.hit && seen.hit.look}° off the camera, against ${two.look}° on his mark`);
+          `${punch && punch.look}° off the camera, against ${two.look}° on his mark`);
     // and back on his mark afterwards, at the size he was, with the show running again
     const back = await page.evaluate(() => window.__surf.charge());
     check(!back.on && Math.abs(back.dist - two.dist) < 0.15 && Math.abs(back.span - two.span) < 0.02,
@@ -1195,7 +1261,14 @@ if (hasHook) {
           'and standing up straight again, with his head off the camera',
           `look ${settled.look.map(v => v.toFixed(0)).join('-')}° against ${rest.look.map(v => v.toFixed(0)).join('-')} before, ` +
           `tip ${settled.tip.map(v => v.toFixed(2)).join('-')} against ${rest.tip.map(v => v.toFixed(2)).join('-')}`);
+    // and the page put back the way the rest of the run expects it — settled the same way on
+    // the way out as on the way in. The checks below this one measure cameras, and one of them
+    // asks whether the ring takes over without moving one: started mid-re-solve it reads a
+    // tenth of a metre of drift that has nothing to do with the ring.
+    await page.setViewportSize({ width: 1024, height: 640 });
+    await settleShot();
   }
+
   await ver5tap();
   await page.waitForTimeout(300);
   // Both halves: the panel is actually open, and the button is in it. Asking only whether
@@ -1431,6 +1504,7 @@ if (hasHook) {
     const step = Math.abs(rows[i].r - rows[(i + rows.length - 1) % rows.length].r);
     if (step > worstStep) { worstStep = step; atTh = rows[i].th; }
   }
+
   check(rows.length > 32 && worstStep < 2.5,
         'the ring has no cliff in it — going round is a ride, not a corner',
         rows.length ? `worst step ${worstStep.toFixed(2)} m at ${atTh.toFixed(2)} rad over ${rows.length} angles`
@@ -1771,6 +1845,12 @@ if (hasHook) {
 {
   const across = await page.evaluate(async () => {
     window.__surf.restart();
+    // The SAME wave every run. Everything below this is driven by explicit ticks and is
+    // deterministic; the swell is not, because it runs off the render loop's own clock, so the
+    // phase the ring happens to take over at is set by how many seconds of wall time the suite
+    // has spent above here. That is what the noise floor in this check's threshold was: it sat
+    // between 0.015 and 0.021 and moved to 0.030 when a block upstream got ten seconds longer.
+    window.__surf.waveAt(0);
     window.__surf.tick(0.4);
     window.__surf.armSetWave(); window.__surf.warpSetWave('SWELL', 4.6);
     // Getting to the takeover is slow under swiftshader: the swell runs, then the lip has to
@@ -3948,6 +4028,20 @@ check(shaderErrors.length === 0, 'every shader compiles',
         show.slice(0, moves.length).every((s2, i) => s2.step === i) && show[0].left > 0.5,
         'and on the title screen he runs through his whole repertoire',
         show.every(Boolean) ? `${moves.length} moves, first runs ${show[0].left}s` : 'no show');
+  // ---- and a breath between them ----
+  // Back to back the performance reads as a fidget: the last frame of one move is a third of a
+  // second from the first frame of the next, all the way round nine of them, and nothing in it
+  // ever settles. Every beat already carried a hold of its own, tuned to what that move needs
+  // after it lands — a handstand wants longer on its feet than a walk does — so the rest is
+  // added to all of them and the shape of that survives.
+  // Asked as the STILL stretch inside each beat, which is the beat's length less how long its
+  // clip is actually moving. Neither of those alone says anything: a long beat can be a long
+  // clip, and a long clip can end the moment it stops.
+  const rests = show.slice(0, moves.length).filter(s2 => s2 && s2.rest !== null).map(s2 => s2.rest);
+  check(rests.length >= 8 && rests.every(v => v >= 0.9),
+        'and holds still for a moment between them rather than running them together',
+        rests.map((v, i) => `${show[i].clip}: ${v}s`).slice(0, 4).join(', ') +
+        `, worst ${Math.min(...rests)}s`);
 
   // ---- the wave, which is OFF, and the pose behind it, which still has to be right ----
   // The greeting on the title screen was removed by request. The pose was not: the scan that

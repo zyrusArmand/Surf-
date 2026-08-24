@@ -1271,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.23.0';
+const VERSION='4.24.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -10405,7 +10405,7 @@ const CHARGE_LEAN_RATE=2.6;  // how fast the lean comes on, per second
 // How far off the camera's own axis his mark sits, so his HEAD lands centred. Centring his
 // bounding box was the first go and it reads wrong: an arm thrown out to one side drags the
 // box a tenth of the width off the animal, and what an eye locks onto is his face.
-let CHARGE_SIDE=-0.12;
+let CHARGE_SIDE=-0.08;
 const GREET=0.0;
 let greetLeft=GREET;
 // Meshy writes "Armature|One_Arm_Handstand|baselayer" on some exports and the bare name on
@@ -10966,6 +10966,8 @@ function setupModelRig(root,gltf,id){
     {clip:'Running',               rate: 1.00, hold:0.3, from:'stand', to:'stand'},
   ];
   const FADE=0.34;
+  // added to every beat's own hold — see start()
+  const SHOW_REST=0.90;
   R.step=-1; R.stepT=0; R.ground=null; R.posture='stand'; R.cur=null; R.prev=null; R.fadeT=0;
   R.show=function(dt){
     // TURNED TOWARD THE CAMERA, and turned FIRST. The riding stance is square across the
@@ -11165,7 +11167,15 @@ function setupModelRig(root,gltf,id){
       if(st.rate<0)a.time=a.getClip().duration;
       a.setEffectiveWeight(this.prev?0:1); a.play();
       this.cur=a; this.posture=st.to;
-      return a.getClip().duration/Math.abs(st.rate)+st.hold;
+      // ---- and a breath between them ----
+      // Every beat already carries its own hold, tuned to what the move needs after it lands —
+      // a handstand wants longer on its feet than a walk does. SHOW_REST is added to all of
+      // them, so the shape of that stays and the whole performance just stops rushing. He is
+      // held on the last frame of the clip through it, which is what the holds already were:
+      // the alternative is an idle underneath, and easing into and out of one every few
+      // seconds is more motion between the moves rather than less.
+      this.stepRun=a.getClip().duration/Math.abs(st.rate);
+      return this.stepRun+st.hold+SHOW_REST;
     };
     if(this.step<0||this.stepT<=0){
       // The next move has to BEGIN where the last one ended, and it has to be one this model
@@ -11427,7 +11437,7 @@ const RIDER_SIZE={frog:1.20, monkey:1.16};
 // him to the lens swung 13 degrees when he moved. Solved rather than nudged — menuFace() reads
 // the angle between his own forward and the line to the camera, and this is the value that
 // puts it at zero.
-let MENU_FACE=-1.723;    // and on the title screen he turns out of it, toward the viewer
+let MENU_FACE=-1.650;    // and on the title screen he turns out of it, toward the viewer
 for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
   // TURNED TO FACE THE WAVE, by asking the model which way it is looking rather than by
   // being told. Every face on the built-in riders is built at negative z — muzzle, nose,
@@ -15781,8 +15791,19 @@ if(location.hash.includes('debug')){
     wavePose(t){ const r=riderRig(); return r&&r.wavePose?r.wavePose(t):null; },
     showStep(i){ const r=riderRig(); if(!r||!r.show)return null;
       if(i!==undefined&&i!==null&&r.jump)r.jump(i);
+      // `left` is the whole beat; `run` is how long the clip is actually moving inside it, so
+      // the difference is the still stretch he holds afterwards — which is the thing anybody
+      // asking for a breath between the moves means, and is not readable off either alone.
+      // Taken from where the beat was STARTED, not re-derived here. Re-deriving needs the
+      // clip AND the rate it is played at, and the move list does not carry the rate — so the
+      // first version read every beat at rate one and reported a clip run backwards at 1.3x as
+      // taking longer than the beat containing it. Negative rest, on a beat that has 0.3s of it.
+      const mv=r.moves?(r.moves()[r.step]||{}):{};
+      const run=(typeof r.stepRun==='number')?r.stepRun:null;
       return {step:r.step, left:+((r.stepT||0)).toFixed(2), ground:r.ground,
-              posture:r.posture, clip:r.moves?(r.moves()[r.step]||{}).clip:null}; },
+              posture:r.posture, clip:mv.clip||null,
+              run:run===null?null:+run.toFixed(2),
+              rest:run===null?null:+((r.stepT||0)-run).toFixed(2)}; },
     // the whole programme: what he can do, what each move starts in and what it leaves him in
     showMoves(){ const r=riderRig(); return r&&r.moves?r.moves():null; },
     // The rider stands sideways on the board, like a surfer, so the camera never sees his
@@ -16369,6 +16390,13 @@ if(location.hash.includes('debug')){
               // centre is not what an eye reads — an arm out to one side drags it a tenth of
               // the width off the animal — so the head is what gets centred.
               head:hx, look:lookOff,
+              // and where he is STANDING, projected — his own origin, which the performance
+              // does not move. His head does: mid-walk or mid-backflip it swings a tenth of
+              // the width, so "where he is on screen" read off the head is a different answer
+              // depending on which beat of the show you happen to ask on.
+              foot:(menuCam&&typeof pug!=='undefined'&&pug)
+                ?+(pug.getWorldPosition(new THREE.Vector3()).project(menuCam).x*0.5+0.5).toFixed(3)
+                :null,
               clip:R.cur?R.cur.getClip().name:null, span, dist,
               // his soles against the sand under wherever he has got to
               sole:R.skinBox?+((R.skinBox()||{lo:[0,0,0]}).lo[1]).toFixed(3):null,
@@ -16383,6 +16411,12 @@ if(location.hash.includes('debug')){
     },
     obsTemplate(k){ const t=OBST_TEMPLATES[k]; return t?{variant:t.userData.variant||null}:null; },
     spawn(kind,dx,dz){ const o=makeObstacle(kind,px+dx,pz+dz); return {x:o.position.x,y:o.position.y,z:o.position.z,h:o.userData.h}; },
+    // Where the swell is in its cycle. It runs off the render loop's own clock, so by the time
+    // a check partway down a suite gets to it the sea is at whatever phase however many
+    // seconds of wall time have put it at — and a check that restarts the run and then drives
+    // it with explicit ticks is deterministic in everything EXCEPT this. Pinning it makes the
+    // wave the same wave every run, which is the difference between a measurement and a draw.
+    waveAt(t){ if(t!==undefined)waveClock=t; return waveClock; },
     setRiderY(y){ py=y; vy=0; airborne=true; return py; },
     // What every obstacle currently in the world actually MEASURES, against what its
     // collision claims. "I didn't hit it and I died" is a hitbox wider than the thing it
@@ -20082,8 +20116,8 @@ let MENU_FISH=0.8;
 // band between the two button columns. Re-solved once MB_AIMK stopped the aim chasing the
 // board out to sea, which is why the number is small now and was half a foot before. The tree comes with them: it is what they are
 // arranged around, so it cannot be moved independently and does not need to be.
-let MB_BIAS=0.39;
-let MB_AIMK=0.65;   // how much of the board's stand-off the aim follows
+let MB_BIAS=0.45;
+let MB_AIMK=1.00;   // one for one, now that it follows the set's own midpoint
 // The palm. It was a shrub: eleven of its own units at 0.46 comes out barely six feet tall,
 // which is shorter than most of the rack — a ten foot log leaning on it towered over the
 // whole tree. At 1.35 it is a fourteen foot palm and everything in front of it reads as
@@ -20121,9 +20155,14 @@ let MB_RYAW=0.22;
 let MB_RF=1.90;
 let MB_RGAP=-1.60;
 // The furthest from the trunk he will stand, whatever the board does. See the solve above.
-let MB_ROUT=2.60;
+let MB_ROUT=2.00;
 // How far outboard of the board's own foot he stands. See the step in the solve above.
-let MB_RSIDE=0.00;
+// He stands OFF to the left of the board rather than on its own foot line, which is what
+// makes the tap-twice charge a journey: he starts out at the edge of the set and the run is
+// what brings him into the middle. Out from nothing, and bounded by the button column — at
+// this he clears Board/Shop/Tricks by three hundredths of the width and the shot re-centres
+// around the wider set (see MB_BIAS).
+let MB_RSIDE=0.70;
 const MB_DOF=25.0;
 let MENU_DOF=true;     // off is for measuring what it costs     // how many feet either side of the board stay sharp                   // and the daylight there has to be between the two
 // A world unit here is a FOOT — the boards measure 3.5 to 10.5 of them and their spec sheets
@@ -20746,9 +20785,23 @@ function renderMenuBeach(dt){
   // button changes, and the thing the tree and the rider are arranged around. So the camera
   // is aimed at where it actually stands, which the layout already worked out when it solved
   // the lean, and the bias holds it a little right of dead centre.
-  const grp=(m.standoff!==undefined)?m.standoff
-           :(m.riderAt!==undefined?(m.riderAt-MB_CD)*0.5
-           :(m.middle!==undefined?m.middle:spread*0.66));
+  // ---- aimed at the middle of what is ACTUALLY out there ----
+  // This tracked the BOARD's stand-off and took a share of it, because the set's midpoint used
+  // to move about two thirds as far as the board did. That share was solved when the rider
+  // stood on the board's own foot line. He stands out past it now and stops at a cap, so on
+  // the two longest boards in the rack he does not follow the board at all and the share is
+  // wrong: measured, the set sat on 0.50 of the screen with a shortboard and 0.56 with a ten
+  // foot log. Aimed at the midpoint of the two things that BOUND the set instead — the rider
+  // at one end, the chest at the other — which is the same statement as "centre the set", needs
+  // no share to be solved, and cannot drift when something between them moves.
+  // Bounded by whichever of the two is further out, the rider or the board's own foot. On most
+  // of the rack that is the rider — he stands outboard of it on purpose — but the rider stops
+  // at a cap and a ten and a half foot board does not, so on the longest ones the far edge of
+  // the set is the board and aiming at the rider left it hanging off the left of the frame.
+  const grp=(m.riderAt!==undefined||m.standoff!==undefined)
+           ?(Math.max(m.riderAt===undefined?-9:m.riderAt,
+                      m.standoff===undefined?-9:m.standoff)-MB_CD)*0.5
+           :(m.middle!==undefined?m.middle:spread*0.66);
   // ---- and it tracks the board only PART of the way out ----
   // The aim followed the board's stand-off foot for foot, and that overshoots. A longer board
   // stands further from the trunk and takes the rider with it, so the set's two ends move in
