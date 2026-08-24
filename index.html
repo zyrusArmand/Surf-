@@ -1271,7 +1271,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.15.0';
+const VERSION='4.16.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -15885,6 +15885,8 @@ if(location.hash.includes('debug')){
                  return MB_RF; },
     riderSide(v){ if(v!==undefined){ MB_RGAP=v; if(typeof layoutMenuBeach==='function')layoutMenuBeach(); }
                   return MB_RGAP; },
+    riderOut(v){ if(v!==undefined){ MB_ROUT=v; if(typeof layoutMenuBeach==='function')layoutMenuBeach(); }
+                 return MB_ROUT; },
     riderYaw(v){ if(v!==undefined){ MB_RYAW=v; if(typeof layoutMenuBeach==='function')layoutMenuBeach(); }
                  return MB_RYAW; },
     obsObjects(){ return obstacles.slice(); },
@@ -19628,7 +19630,18 @@ let MENU_FISH=0.8;
 // 0.557, with the tree crowding the right edge and the pug against the buttons on the left.
 // Walked against the measurement rather than by eye — the rider's outer edge and the chest's
 // outer edge are the two ends of the thing, and their midpoint lands on 0.500.
-let MB_BIAS=0.05;
+// Where the shot is aimed across the beach, and it is SOLVED rather than chosen. The camera
+// looks at the board, and this holds it off dead centre; positive is right of the board, which
+// pushes the picture left. At +0.05 the set sat right of the middle of the screen — the rider
+// at 0.26 and the chest out at 0.86, midpoint 0.562 — with the buttons ending at 0.148 on the
+// left and starting at 0.852 on the right, so the group filled the right of the band and left
+// a hand's width of empty sand down the left of it. Measured response is 0.111 of screen width
+// per unit of bias, which puts the midpoint of rider, board and chest on the middle of the
+// band between the two button columns. Re-solved once MB_AIMK stopped the aim chasing the
+// board out to sea, which is why the number is small now and was half a foot before. The tree comes with them: it is what they are
+// arranged around, so it cannot be moved independently and does not need to be.
+let MB_BIAS=-0.02;
+let MB_AIMK=0.65;   // how much of the board's stand-off the aim follows
 // The palm. It was a shrub: eleven of its own units at 0.46 comes out barely six feet tall,
 // which is shorter than most of the rack — a ten foot log leaning on it towered over the
 // whole tree. At 1.35 it is a fourteen foot palm and everything in front of it reads as
@@ -19665,6 +19678,8 @@ const MB_RD=0.9;                      // where the search for his place starts
 let MB_RYAW=0.22;
 let MB_RF=1.90;
 let MB_RGAP=-1.60;
+// The furthest from the trunk he will stand, whatever the board does. See the solve above.
+let MB_ROUT=2.60;
 const MB_DOF=25.0;
 let MENU_DOF=true;     // off is for measuring what it costs     // how many feet either side of the board stay sharp                   // and the daylight there has to be between the two
 // A world unit here is a FOOT — the boards measure 3.5 to 10.5 of them and their spec sheets
@@ -19908,6 +19923,17 @@ function layoutMenuBeach(){
                       segD(footF,lo,hi),segD(tipF,lo,hi)) - (hw+rw);
     };
     for(let x=d;x<d+9;x+=0.1){ rd=x; if(sepAt(x)>=MB_RGAP)break; }
+    // ---- and he does not follow a long board all the way out ----
+    // He starts from the board's own stand-off foot, and a ten foot log stands its foot two
+    // feet further from the trunk than a six foot shortboard does. Standing in front of it he
+    // went out with it, so the set grew wider with every foot of board — and once the camera
+    // stopped chasing the board (see MB_AIMK) that width came off the LEFT of the frame,
+    // which is where the buttons are: measured, the longest board in the rack put him at
+    // 0.061 of the screen with the column ending at 0.148, so he was behind the glass.
+    // Capped, he is still in front of the deck on every board — the board leans across the
+    // frame, so inboard of its foot is still over it — and the set is the same width
+    // whatever is equipped.
+    rd=Math.min(rd,MB_ROUT);
     menuBeach.riderGap=+sepAt(rd).toFixed(3);
   }
   riderAt(rd,_pos); pug.position.copy(_pos);
@@ -20263,7 +20289,19 @@ function renderMenuBeach(dt){
   const grp=(m.standoff!==undefined)?m.standoff
            :(m.riderAt!==undefined?(m.riderAt-MB_CD)*0.5
            :(m.middle!==undefined?m.middle:spread*0.66));
-  const aim=Math.max(0.4,grp)+MB_BIAS;
+  // ---- and it tracks the board only PART of the way out ----
+  // The aim followed the board's stand-off foot for foot, and that overshoots. A longer board
+  // stands further from the trunk and takes the rider with it, so the set's two ends move in
+  // opposite directions on screen — the board and the rider left, the chest not at all — and
+  // the midpoint of the whole thing travels about two thirds as far as the board does. Aimed
+  // one for one, the camera chased the board past the group: measured, the set sat at 0.481
+  // of the screen on a four foot skimboard and 0.588 on a ten foot log, which is the whole
+  // width of the pug's head of drift depending on what you have equipped.
+  // Both halves measured rather than reasoned about: 0.111 of screen width per unit of aim,
+  // and 0.039 per foot of stand-off with the aim following it one for one — so the geometry
+  // on its own is worth -0.072 a foot, and 0.65 is the share of the board's travel that
+  // cancels it. What is left is one number for where the set sits, good for the whole rack.
+  const aim=Math.max(0.4,grp)*MB_AIMK+MB_BIAS;
   // ---- and it stands on the sand UNDER IT, not on the sand under the set ----
   // The eye height was measured at the set, twenty units down the beach, and a beach slopes:
   // the ground the lens is actually over is a foot higher than the ground the board is on,

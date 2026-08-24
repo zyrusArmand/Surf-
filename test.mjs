@@ -672,7 +672,7 @@ await page.waitForTimeout(300);
   await page.evaluate(() => window.__surf.wear('pug'));
   await page.waitForTimeout(900);
   const framed = [];
-  for (const id of ['carbonskim', 'noserider', 'bubblegum']) {
+  for (const id of ['carbonskim', 'astro', 'bubblegum']) {
     const f = await page.evaluate(async b => {
       window.__surf.equip(b);
       // Read it SETTLED. The camera does not cut between boards, it eases, and halfway
@@ -686,28 +686,34 @@ await page.waitForTimeout(300);
       // happen by coincidence in the middle of an ease as readily as at the end of one. The
       // board is propped against the tree and does not animate at all, so the only thing that
       // moves its box is the camera — which makes it a clean read on whether the ease is done.
-      // Over a WINDOW, not against the previous sample. An ease is slowest at both ends, and
-      // consecutive samples matching to a thousandth happen near the start of one as readily
-      // as at the finish — which is how a reading of -0.14, with the whole set swung off the
-      // left of the screen mid-transition, passed for settled. The spread across the last
-      // five samples has to be flat, which a slow start does not manage.
+      // Waited OUT, not polled for. Two rounds of cleverness went into settling this by
+      // watching the numbers, and both were fooled: equipping a board does not ease smoothly
+      // to its answer, it steps — through a transient where the whole set swings off the left
+      // of the screen and back — so samples agreeing with each other says only that a step is
+      // between two jumps. Watched over ten seconds it lands within three and then holds
+      // exactly. Four seconds flat, then a window to confirm it really has stopped.
+      await new Promise(r => setTimeout(r, 4000));
       let m = null; const win = [];
-      for (let i = 0; i < 48; i++) {
+      for (let i = 0; i < 40; i++) {
         await new Promise(r => setTimeout(r, 250));
         m = window.__surf.menuFrame();
         if (!m) continue;
-        win.push(m.board.x[0]); if (win.length > 5) win.shift();
-        if (win.length === 5 && i >= 10 && Math.max(...win) - Math.min(...win) < 0.002) break;
+        win.push(m.board.x[0]); if (win.length > 4) win.shift();
+        if (win.length === 4 && Math.max(...win) - Math.min(...win) < 0.002) break;
       }
-      // The LEFT column only — Board, Shop and Tricks. The dial has a matching column down
-      // the right that he is nowhere near, and taking the widest of all six asks whether he
-      // stands off the right-hand edge of the screen, which is not the question.
-      let btn = 0;
+      // Both COLUMNS, by where each button sits rather than by which half of the screen it
+      // is in: the dial's Play button is centred at the bottom and counting it as a right-hand
+      // one puts the right edge of the band at 0.41, which is nowhere near it.
+      let btn = 0, right = 1;
       for (const e of document.querySelectorAll('#homeDial .hbtn')) {
         const r = e.getBoundingClientRect();
-        if (e.offsetParent && r.width && r.right < window.innerWidth / 2) btn = Math.max(btn, r.right);
+        if (!e.offsetParent || !r.width) continue;
+        const c = (r.left + r.right) / 2 / window.innerWidth;
+        if (c < 0.35) btn = Math.max(btn, r.right / window.innerWidth);
+        else if (c > 0.65) right = Math.min(right, r.left / window.innerWidth);
       }
-      return { rider: m && m.rider, board: m && m.board, btn: +(btn / window.innerWidth).toFixed(3) };
+      return { rider: m && m.rider, board: m && m.board, chest: m && m.chest,
+               btn: +btn.toFixed(3), right: +right.toFixed(3) };
     }, id);
     if (f) framed.push({ id, ...f });
   }
@@ -723,6 +729,26 @@ await page.waitForTimeout(300);
         framed.every(f => f.rider.x[1] > f.board.x[0] && f.rider.x[0] < f.board.x[1]),
         'and standing over the board rather than shoved past it',
         framed.map(f => `${f.id}: rider [${f.rider.x}] board [${f.board.x}]`).join(', '));
+  // ---- and the whole set sits in the MIDDLE of what is left between the columns ----
+  // The buttons are the frame the picture is composed inside, not furniture at the edge of
+  // it. With the shot aimed where it was, the rider started at 0.26 and the chest finished
+  // at 0.86 — everything crowded against the right-hand column with a hand's width of empty
+  // sand down the left. Asked as the relationship it is: the midpoint of the group against
+  // the midpoint of the band, both measured, neither written down. The tree is not in the
+  // span on purpose — it is fourteen feet of palm and its crown runs off both sides of the
+  // screen, so its box has no midpoint worth having; it is what the set is arranged around
+  // and it travels with them.
+  // Within a thirtieth of the screen. The default board lands on 0.499 against a band centre
+  // of 0.500; the slack is for the ten and a half foot log, which is a genuinely wider subject
+  // — its foot stands two feet further from the trunk than a shortboard's — and comes out at
+  // 0.518. Tightening past that would mean picking a board to be right for.
+  const band = f => (f.btn + f.right) / 2;
+  const mid = f => (Math.min(f.rider.x[0], f.board.x[0], f.chest.x[0]) +
+                    Math.max(f.rider.x[1], f.board.x[1], f.chest.x[1])) / 2;
+  check(framed.length === 3 && framed.every(f => f.right > 0.65 && Math.abs(mid(f) - band(f)) < 0.03),
+        'and the set is centred in the gap the buttons leave it',
+        framed.map(f => `${f.id}: set at ${mid(f).toFixed(3)}, band ${f.btn}-${f.right} ` +
+                        `(mid ${band(f).toFixed(3)})`).join(', '));
   await page.setViewportSize({ width: 1024, height: 640 });
   await page.waitForTimeout(600);
 
