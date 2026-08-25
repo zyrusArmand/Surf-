@@ -1537,6 +1537,24 @@ if (hasHook) {
       // box that overlaps says nothing, and the question is whether they share a VOLUME. They
       // did — 1.31 by 1.80 by 0.49 feet of the board was inside the chest, because both of them
       // lean on the same trunk. Asked in the world, where the answer lives.
+      // ---- and it stops short of the buttons ----
+      // The chest sits out to the camera's right, and what bounds how far is the right-hand
+      // button column — which is glass over the canvas, so nothing in the scene knows it is
+      // there. Read off the DOM rather than compared to a number written down once: where that
+      // column starts moves with the window, from 0.852 of the width on a phone to 0.934 in a
+      // landscape one, and a constant would be wrong in two of the three.
+      const near = await page.evaluate(() => {
+        const f = window.__surf.menuFrame();
+        const bs = [...document.querySelectorAll('.hbtn')].map(e => e.getBoundingClientRect())
+                    .filter(b => b.width > 0 && b.left > innerWidth * 0.5);
+        if (!f || !f.chest || !bs.length) return null;
+        return { right: f.chest.x[1], col: Math.min(...bs.map(b => b.left)) / innerWidth };
+      });
+      check(near && near.right < near.col - 0.015,
+            'and the chest stops short of the buttons rather than sliding under them',
+            near ? `chest reaches ${near.right.toFixed(3)}, the column starts at ` +
+                   `${near.col.toFixed(3)} — ${(near.col - near.right).toFixed(3)} of the width between them`
+                 : 'no chest or no buttons');
       const clr = await page.evaluate(() => window.__surf.menuClear());
       check(clr && clr.up && clr.hit === false && clr.gap < 0,
             'and the chest stands in front of the board rather than inside it',
