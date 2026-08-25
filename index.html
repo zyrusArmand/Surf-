@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.49.0';
+window.SURF_VERSION='4.50.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -16399,6 +16399,8 @@ if(location.hash.includes('debug')){
       }
       return out;
     },
+    // Kept as a no-op: the contact pools were removed once the sun actually cast, and anything
+    // still asking to hide them should get a straight answer rather than an error.
     hidePools:v=>{ if(menuAO)menuAO.visible=!v; return !!menuAO; },
     hideDrops:v=>{ for(const d of splashes)d.visible=!v; return splashes.length; },
     glit(v){ const u=oceanUniforms.uGlow;
@@ -21243,34 +21245,6 @@ function update(dt){
 // same two objects the game rides, lifted out and put back exactly the way the preview does
 // it. What the menu adds is a camera, a palm close enough to lean a board on, and a midday.
 let menuBeach=null, menuCam=null, menuProps=null, menuDay=null, menuPalm=null, menuAO=null;
-// Where a thing meets the ground, the ground stops being able to see the sky. A shadow map
-// answers "is the sun blocked"; it has nothing to say about the ambient half, which is why
-// an object with a perfectly good shadow beside it can still look like it was pasted on —
-// there is no darkening UNDER it, and in a photograph there always is. Three soft pools,
-// multiplied into the sand: one at the foot of the tree, one at the board's tail, one under
-// the rider. Cheap, and it is the difference between standing on a beach and hovering over
-// one. Multiply blending rather than a transparent black quad, so the sand's own grain and
-// colour show through the darkening instead of being covered by it.
-function makeAOPool(){
-  // A DISC made of vertices, not a radial texture on a square. The texture version came out
-  // as a flat grey rectangle on the sand — three hard-edged squares under the three things
-  // standing on it, which is the opposite of what a pool of shade is. Vertex colours cannot
-  // do that: the rim vertices are white, so the edge of the disc IS the edge of the effect,
-  // and there is no sampling, no mip level and no wrap mode left to get wrong.
-  const g=new THREE.CircleGeometry(1,36), p=g.attributes.position, col=[];
-  for(let i=0;i<p.count;i++){
-    const r=Math.min(1,Math.hypot(p.getX(i),p.getY(i)));
-    // Lighter in the middle and gone sooner. At 0.46 with a hard shadow now underneath it the
-    // two multiplied into near black at the contact point.
-    const v=0.62+0.38*Math.pow(r,0.62);      // dark under the middle, gone by the rim
-    col.push(v,v,v);
-  }
-  g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
-  const m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({vertexColors:true,
-    blending:THREE.MultiplyBlending,transparent:true,depthWrite:false}));
-  m.rotation.x=-Math.PI/2; m.renderOrder=2;
-  return m;
-}
 // How far down the beach the three of them stand. At the top of the sand the waterline is a
 // hundred units off and the sea is a stripe under the horizon; walked down to here it is
 // fifty, which is close enough to see the shore break actually break.
@@ -21440,10 +21414,20 @@ function menuBeachOn(){
   // tone with a palm in front of it. The ocean has aerial perspective of its own, in its own
   // shader, fading toward its own sky colour, which is the version of this the water should get.
   prevScene.fog=new THREE.Fog(0xe8d6b8,95,310);
-  if(!menuAO){ menuAO=new THREE.Group();
-               for(let i=0;i<3;i++)menuAO.add(makeAOPool());
-               prevScene.add(menuAO); }
-  menuAO.visible=true;
+  // ---- and the contact pools are GONE ----
+  // Three multiply-blended discs used to sit under the tree, the board and the rider. The
+  // argument for them was sound: a shadow map answers "is
+  // the sun blocked" and has nothing to say about the ambient half, so a thing with a perfectly
+  // good shadow beside it can still look pasted on. What made it sound was that this screen had
+  // no cast shadows AT ALL — the pools were not supplementing a shadow, they were standing in
+  // for one, and they were sized for that job.
+  // With the sun actually casting they are the wrong shape doing a job already done. A disc is
+  // contact occlusion for something round; under a standing figure it is a ring on the sand a
+  // body's width across, centred on nothing in particular, and it reads as a circle drawn round
+  // him rather than as shade under him. Toggled off against on, the set sits exactly as well and
+  // the sand keeps its own grain. So they are not shrunk a third time, they are removed.
+  if(menuAO&&menuAO.parent){ menuAO.parent.remove(menuAO); }
+  menuAO=null;
   // and the ambient comes down with it. A hemisphere is the sky as a source, and an evening sky is
   // a smaller, warmer one than a midday sky — left at noon strength it fills the shadows back in
   // and cancels the low sun that was just set.
@@ -21956,17 +21940,6 @@ function layoutMenuBeach(){
   // picture said toy next to a six foot board.
   pug.scale.setScalar(rk);
   // the three contact pools, sized to what is standing on them
-  if(menuAO){
-    const sandAt=v=>(beachSandH?beachSandH(v.z/MB_K):beachSand0)*MB_K+0.06;
-    const put=(m,p,r)=>{ m.position.set(p.x,sandAt(p),p.z); m.scale.set(r,r,1); };
-    // Pulled IN, hard, now that the sun is doing the shadow. These were sized to stand in for
-    // one — five feet of pool around the tree — and next to a real cast shadow that reads as a
-    // second, rounder shadow lying under the first. A contact pool is the handful of inches
-    // where the ground cannot see the sky, so that is all it covers now.
-    put(menuAO.children[0],_mbP,2.4);                 // the tree, and its root plate
-    put(menuAO.children[1],board.position,0.95);      // the board's tail
-    put(menuAO.children[2],pug.position,0.85);        // and his feet
-  }
   // kept so the height he actually came out at can be read back, rather than the height he
   // happens to be measuring in the middle of an idle breath
   pug.updateMatrixWorld(true);

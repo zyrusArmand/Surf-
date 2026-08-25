@@ -994,7 +994,16 @@ await page.waitForTimeout(300);
         'creases hold shade the light never reaches',
         JSON.stringify({bark: surf.bark.ao, modelledPalm: surf.palmModelled,
                         sand: surf.sand.ao, board: surf.board.ao}));
-  check(surf.pools === 3, 'and each thing standing on the sand darkens the sand under it',
+  // ---- and nothing is standing in a painted circle ----
+  // There were three multiply-blended discs here, under the tree, the board and the rider, and
+  // this check used to insist on all three. They were right while this screen had no cast
+  // shadows at all — they were not supplementing a shadow, they were standing in for one. With
+  // the sun casting properly a disc is contact occlusion for something ROUND, and under a
+  // standing figure it is a ring on the sand a body's width across that reads as a circle drawn
+  // round him. Toggled off against on, the set sits exactly as well without them.
+  // So the check flips: there should be none, and the grounding is asserted where it now comes
+  // from — the casters and the key-to-fill ratio, both checked in the sign block.
+  check(surf.pools === 0, 'and nothing is standing in a painted circle of shade',
         `${surf.pools} contact pools`);
   // ---- the ground is one scanned slab, laid flat and laid the right number of times ----
   // Everything about the field is measured off the piece, which makes it robust to a new scan
