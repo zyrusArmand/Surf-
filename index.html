@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.52.0';
+window.SURF_VERSION='4.53.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -6053,6 +6053,19 @@ function groundTopAt(x,z){
 // surface is knows the surface it measured has been replaced. Declared HERE, beside the cache
 // that reads it, rather than beside the function that increments it — it works either way,
 // because none of this runs until the module is up, but a reader should not have to prove that.
+// ---- the sun's shadow box, and its VERTICAL reach ----
+// Knobs rather than constants because the edge of this box is invisible until something is
+// standing on it, and then it is a dead straight line across whatever it cuts. Walked, and the
+// crops kept: at 1.7 and 1.05 the rider wore a horizontal band across his chest — fragments
+// outside the frustum get no shadow lookup and come back lit, which on a curved body is an edge
+// no shadow could ever cast. Neither the top alone (3.2) nor the bottom alone (3.0) cured it;
+// 2.2 either side did, with the width left exactly where it was.
+// That width is why this was wrong. It was cut to 13 earlier on the reasoning that a directional
+// light's shadow falls inside its caster's own silhouette, so throw costs DEPTH and not width —
+// true of where a shadow lands on the ground, and nothing to do with holding the casters and
+// receivers themselves. At a 22 degree sun a fourteen foot palm and a standing rider need far
+// more room along the light's own up axis than their footprint suggests.
+let SH_K=1, SH_W=1, SH_T=2.2, SH_B=2.2;
 let sandGen=0;
 const _gtCache=new Map();
 function groundTopOver(x,z,r){
@@ -17884,6 +17897,12 @@ if(location.hash.includes('debug')){
       const ks=prevKey&&prevKey.shadow&&prevKey.shadow.camera;
       return {shadow:prevKey&&prevKey.castShadow?{
                 map:prevKey.shadow.mapSize.x, box:+(ks.right-ks.left).toFixed(1),
+                // ...and how far it reaches along the light's OWN up axis, which is a different
+                // question from how wide it is and was never being asked. A box tight enough to
+                // keep the resolution high can still be too short to hold a standing rider, and
+                // what that looks like is a straight bright band across him where the frustum
+                // ends — not like a shadow problem at all.
+                tall:+(ks.top-ks.bottom).toFixed(1),
                 // is the sun in FRONT of the subjects or behind them? Positive is behind the
                 // camera, which is the half that lights the faces you can see.
                 front:+_mbS.copy(prevKey.position).sub(prevKey.target.position)
@@ -19062,7 +19081,11 @@ if(location.hash.includes('debug')){
         let n=h.object.name, q=h.object;
         while(!n&&q.parent){ q=q.parent; n=q.name; }
         const m=[].concat(h.object.material||[])[0];
-        return {what:n||h.object.type, d:+h.distance.toFixed(2),
+        // whether this hit belongs to the RIDER, so a caller sweeping his silhouette can spot a
+        // stranger standing in front of him without knowing what it might be first
+        let isRider=false, q2=h.object;
+        while(q2){ if(q2===pug){ isRider=true; break; } q2=q2.parent; }
+        return {what:n||h.object.type, rider:isRider, d:+h.distance.toFixed(2),
                 y:+h.point.y.toFixed(2),
                 inst:h.instanceId===undefined?null:h.instanceId,
                 mat:m?m.type:null, vis:h.object.visible};
@@ -19083,6 +19106,14 @@ if(location.hash.includes('debug')){
               foot:+foot.toFixed(3),
               ground:g===null?null:+g.toFixed(3),
               gap:g===null?null:+(foot-g).toFixed(3)};   // + floats, - buried
+    },
+    shadowBox(k,w,t,b){
+      if(k!==undefined)SH_K=k; if(w!==undefined)SH_W=w;
+      if(t!==undefined)SH_T=t; if(b!==undefined)SH_B=b;
+      if(typeof layoutMenuBeach==='function')layoutMenuBeach();
+      const sc=prevKey&&prevKey.shadow?prevKey.shadow.camera:null;
+      return sc?{k:SH_K,w:SH_W,t:SH_T,b:SH_B,
+                 box:[sc.left,sc.right,sc.bottom,sc.top].map(v=>+v.toFixed(1))}:null;
     },
     shadowState(){
       const one=(n,o)=>{ if(!o)return n+':missing';
@@ -22077,8 +22108,8 @@ function layoutMenuBeach(){
     // width. Widened to 17 on that mistake it came to 34 feet across, which is a third of the
     // resolution given away for sand nobody can see. Thirteen covers the set and the sand it
     // throws onto, and leaves 2048 spread at nearly eighty texels to the foot.
-    const sc=prevKey.shadow.camera, half=Math.max(13,rd*0.62+8.5);
-    sc.left=-half; sc.right=half; sc.top=half*1.7; sc.bottom=-half*1.05;
+    const sc=prevKey.shadow.camera, half=Math.max(13,rd*0.62+8.5)*SH_K;
+    sc.left=-half*SH_W; sc.right=half*SH_W; sc.top=half*SH_T; sc.bottom=-half*SH_B;
     sc.updateProjectionMatrix();
   }
   pug.rotation.set(0, Math.PI - MB_YAW + MB_RYAW, 0);       // turned to face the camera

@@ -217,7 +217,15 @@ check(!!cover && /Loading the beach/.test(cover.label) && /%/.test(cover.label),
   // document, a whole megabyte of game committing on a renderer the main tab is already using.
   // Reproduced twice at exactly this boundary before widening it, because a timeout raised to
   // make a failure go away is how a real regression gets shipped.
-  const landed = async () => { for (let i = 0; i < 900; i++) {
+  // Out to six minutes from two and a half. This is the last check in the suite that still
+  // fails on a slow machine rather than on a fault, and the evidence that it is the WINDOW and
+  // not the page is in the check immediately below it: every time this one has timed out, that
+  // one has then found the page sitting on /index.html?v=99.0.0, once, remembering the version
+  // it asked for. The page navigates; it just does not always manage it inside the poll while a
+  // whole game is loading on another tab in the same renderer.
+  // Widened rather than softened. What it asserts is unchanged — the address actually changes —
+  // and a check that gives a slow machine longer is not the same as one that accepts less.
+  const landed = async () => { for (let i = 0; i < 1440; i++) {
     if (/[?&]v=99\.0\.0/.test(vp.url())) return true;
     await new Promise(r => setTimeout(r, 250)); } return false; };
   await landed();
@@ -1035,6 +1043,17 @@ await page.waitForTimeout(300);
   check(surf.shadow && surf.shadow.box < 30 && surf.shadow.map >= 2048,
         'and the shadow map is spread over the group rather than the county',
         surf.shadow ? `${surf.shadow.map}px over ${surf.shadow.box}ft` : 'no shadow rig');
+  // ---- and it is TALL enough to hold what it is shadowing ----
+  // The check above is about the box being tight, and on its own it drove the box too small:
+  // fragments outside the frustum get no shadow lookup and come back lit, so the rider wore a
+  // dead straight horizontal band across his chest — an edge no shadow could cast, on a curved
+  // body. Width and height are different questions and only one of them was being asked.
+  // At a low sun the vertical reach needed is several times the footprint, because it has to
+  // hold a fourteen foot palm and a standing rider along the LIGHT'S up axis, not the world's.
+  check(surf.shadow && surf.shadow.tall !== undefined && surf.shadow.tall > surf.shadow.box * 1.6,
+        'and tall enough in the light\'s own axis to hold the tree and the rider',
+        surf.shadow ? `${surf.shadow.tall}ft of vertical reach against ${surf.shadow.box}ft across`
+                    : 'no shadow rig');
   // Aerial perspective. Air is not clear, and a beach that holds the same saturation all the
   // way to the horizon is a texture on a plane. The group stands about 32ft out, so the haze
   // has to start well beyond it or it fogs the subject.
