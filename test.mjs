@@ -1534,6 +1534,26 @@ if (hasHook) {
       // This guards the WIRING. A rule that quietly stops being installed leaves a scene that
       // renders, passes every geometry check in this file, and is the wrong colour — but whether
       // it looks right is still a person's job, and this check does not pretend otherwise.
+      // ---- and Play is made of the same thing as the rest of the dial ----
+      // It used to be a disc of abalone in a gold bezel — a conic sweep through the colours a
+      // paua shell goes — which is a different object from the six teal-glass buttons around it.
+      // It wears their material now and stays the one the screen is for by being twice the size
+      // with a brighter ring. Asked as an EQUALITY on the computed background rather than as a
+      // judgement about whether two colours look related: the two rules carry the same string,
+      // so either they match or they do not, and nobody has to squint at it.
+      const dial = await page.evaluate(() => {
+        const g = s => { const e = document.querySelector(s); return e ? getComputedStyle(e) : null; };
+        const play = g('.hbtn.hb-play'), side = g('.hbtn.hb-shop');
+        if (!play || !side) return null;
+        return { same: play.backgroundImage === side.backgroundImage,
+                 shell: /conic-gradient/.test(play.backgroundImage),
+                 bigger: parseFloat(play.width) > parseFloat(side.width),
+                 play: play.backgroundImage.slice(0, 60) };
+      });
+      check(dial && dial.same && !dial.shell && dial.bigger,
+            'Play is the same teal glass as the rest of the dial, just bigger',
+            dial ? `same material ${dial.same}, shell gone ${!dial.shell}, ` +
+                   `larger ${dial.bigger} — "${dial.play}…"` : 'no buttons');
       const skin = await page.evaluate(() => window.__surf.signSkin());
       check(skin && skin.sign && skin.sign.gild && skin.sign.compiled && skin.sign.map,
             'the sign wears the walnut-and-gold rule, over the file\'s own grain',
