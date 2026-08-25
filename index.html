@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.45.0';
+window.SURF_VERSION='4.46.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -6175,6 +6175,31 @@ function paintStaticPalm(sk,trunkR){
                                               side:THREE.DoubleSide});
   sk.material.userData.painted=true;   // hands off, palmTintables — see there for why
 }
+// ---- and the trunk is warmed and taken down, without touching the fronds ----
+// The tree is ONE mesh with ONE material, so there is no bark material to reach for. What there
+// is, is a fragment's own colour: bark is brown and a frond is green, and the difference between
+// the red and green channels tells them apart at every pixel without knowing anything about the
+// geometry. The coconuts come along with the bark, which is right — they are the warm part of
+// the tree and the reference has them deeper than this file ships them.
+const PALM_BARK=new THREE.Color(0.80,0.62,0.46);   // a multiplier: warmer, and a stop down
+function dressPalm(root){
+  if(!root)return;
+  for(const m of [].concat(root.material||[])){
+    if(!m||m.userData.barked)continue;
+    m.userData.barked=true;
+    const prev=m.onBeforeCompile;
+    m.onBeforeCompile=sh=>{
+      if(prev)prev(sh);
+      sh.uniforms.uBark={value:PALM_BARK.clone()};
+      sh.fragmentShader=sh.fragmentShader
+        .replace('#include <common>','#include <common>\nuniform vec3 uBark;')
+        .replace('#include <map_fragment>','#include <map_fragment>\n'+
+          'float pBark=smoothstep(0.01,0.09,diffuseColor.r-diffuseColor.g);\n'+
+          'diffuseColor.rgb=mix(diffuseColor.rgb,diffuseColor.rgb*uBark,pBark);');
+    };
+    m.needsUpdate=true;
+  }
+}
 loadModel('palm.glb',(s3)=>{
   let sk=null; s3.traverse(o=>{ if(o.isSkinnedMesh&&!sk)sk=o; });
   // No rig in the file: build one. And paint it ONLY if it also arrived without a skin.
@@ -6201,6 +6226,7 @@ loadModel('palm.glb',(s3)=>{
       mm.userData.authored=true;
     }
   }
+  dressPalm(sk);
   if(!sk||!sk.skeleton||!sk.skeleton.bones.length)return;
   // the chain from the ground up: start at whichever bone has no bone above it
   let b0=sk.skeleton.bones[0];
@@ -13573,11 +13599,71 @@ function planeFrame(root){
   u.copy(new THREE.Vector3().crossVectors(vv,w).normalize());
   return out.setFromRotationMatrix(new THREE.Matrix4().makeBasis(u,vv,w)).invert();
 }
+// ---- walnut plank, gold in the letters ----
+// The file is ONE mesh with ONE material and no separate letters: the word is carved into the
+// plank as geometry, so there is nothing to paint gold by name. Which fragments are letter has
+// to be worked out from the shape, and it is worked out per FRAGMENT rather than per vertex
+// because the carve is sparsely tessellated — measured, only 302 of the plank's 11,281 vertices
+// sit on a letter floor facing out, which as vertex colours is a gold speckle, not an inlay.
+//
+// Two tests, and both are needed. DEPTH: the plank's front face is a hard band at the top of
+// the distribution and everything carved sits below it, so anything more than a few thou back
+// from the face is inside a letter. That alone gilds the plank's own rounded rim as well, which
+// is carved-looking to a depth test and is not a letter. So also DIRECTION: a letter's floor
+// looks straight out of the plank while the rim turns away toward its edge. Depth says "not the
+// face", the normal says "not the rim", and what is left is the word.
+const SGN_WOOD=new THREE.Color(0x6a4326);     // walnut, as a multiplier over the file's own grain
+const SGN_GOLD=new THREE.Color(0xc8901f);   // deeper than it looks: the map's own brightness
+                                            // lifts it, and at 0xd8a63f it came out ivory
+let SGN_FACE=0.005;                            // how far back from the front face a letter starts
+function dressSign(root){
+  root.traverse(o=>{
+    if(!o.isMesh||!o.geometry||!o.material)return;
+    const g=o.geometry;
+    if(!g.boundingBox)g.computeBoundingBox();
+    const face=g.boundingBox.max.z-SGN_FACE;
+    const many=Array.isArray(o.material);
+    const out=(many?o.material:[o.material]).map(src=>{
+      const m=src.clone();
+      m.userData.gild={uFace:{value:face}, uWood:{value:SGN_WOOD.clone()},
+                       uGold:{value:SGN_GOLD.clone()}};
+      m.onBeforeCompile=sh=>{
+        Object.assign(sh.uniforms,m.userData.gild);
+        sh.vertexShader=sh.vertexShader
+          .replace('#include <common>','#include <common>\nvarying vec3 vSgP;\nvarying vec3 vSgN;')
+          .replace('#include <begin_vertex>','#include <begin_vertex>\nvSgP=position;\nvSgN=normal;');
+        sh.fragmentShader=sh.fragmentShader
+          .replace('#include <common>','#include <common>\nvarying vec3 vSgP;\nvarying vec3 vSgN;\n'+
+                   'uniform float uFace;\nuniform vec3 uWood;\nuniform vec3 uGold;\nfloat sgGild;')
+          .replace('#include <map_fragment>','#include <map_fragment>\n'+
+            // back from the face, and looking out of it
+            // The rim needs a HARDER direction test than the letters do. At 0.55 the plank's edge bevel
+            // still counted as facing out and came back with a gold band all the way round it, which
+            // reads as a gilt frame nobody asked for. The letter faces are square to the front and
+            // clear 0.9 easily; the bevel rolls away and does not.
+            'sgGild=smoothstep(uFace,uFace-0.0035,vSgP.z)*smoothstep(0.80,0.94,normalize(vSgN).z);\n'+
+            // the grain is kept underneath both: the wood is the file\'s own map darkened, and
+            // the gold is that map\'s brightness driving the metal, so the letters still have
+            // the plank\'s figure running through them rather than reading as flat paint
+            'float sgL=dot(diffuseColor.rgb,vec3(0.299,0.587,0.114));\n'+
+            'diffuseColor.rgb=mix(diffuseColor.rgb*uWood, uGold*(0.34+0.80*sgL), sgGild);')
+          .replace('#include <roughnessmap_fragment>','#include <roughnessmap_fragment>\n'+
+                   'roughnessFactor=mix(roughnessFactor,0.30,sgGild);')
+          .replace('#include <metalnessmap_fragment>','#include <metalnessmap_fragment>\n'+
+                   'metalnessFactor=mix(metalnessFactor,0.88,sgGild);');
+      };
+      m.needsUpdate=true;
+      return m;
+    });
+    o.material=many?out:out[0];
+  });
+}
 function placeBeachSign(){
   if(!signModel||typeof menuProps==='undefined'||!menuProps||beachSign)return;
   beachSign=new THREE.Group();
   _sgLocal=null;
   const inner=cloneModel(signModel);
+  dressSign(inner);
   inner.quaternion.copy(planeFrame(inner));
   signFix=2*Math.acos(Math.min(1,Math.abs(inner.quaternion.w)))*180/Math.PI;
   beachSign.add(inner);
@@ -17281,6 +17367,22 @@ if(location.hash.includes('debug')){
       }
       return {up:true, band:+band.toFixed(3), rows:R, n, hit,
               frac:n?+(hit/n).toFixed(3):0, top:+m.y[0].toFixed(3)};
+    },
+    // What the plank and the tree are actually WEARING. Neither is a material swap — both are
+    // fragment rules injected into the file's own shader, and a rule that silently stops being
+    // installed leaves a scene that still renders, still passes every geometry check, and is
+    // simply the wrong colour. This is the wiring, not the look: it says the rule is on the
+    // material and what it was told to paint, and a person still has to look at the picture.
+    signSkin(){
+      const one=o=>{ if(!o)return null;
+        let m=null; o.traverse(q=>{ if(!m&&q.isMesh&&q.material)m=[].concat(q.material)[0]; });
+        return m?{compiled:!!m.onBeforeCompile,
+                  gild:!!(m.userData&&m.userData.gild),
+                  bark:!!(m.userData&&m.userData.barked),
+                  map:!!m.map}:null; };
+      return {sign:one(beachSign), palm:one(typeof menuPalm!=='undefined'?menuPalm:null),
+              wood:'#'+SGN_WOOD.getHexString(), gold:'#'+SGN_GOLD.getHexString(),
+              barkTint:'#'+PALM_BARK.getHexString()};
     },
     signAt(w,h,f,d,rot,mh){
       if(w!==undefined)MB_SGN_W=w; if(h!==undefined)MB_SGN_H=h;

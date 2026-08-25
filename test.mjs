@@ -1524,6 +1524,26 @@ if (hasHook) {
         const p = window.__sgPrev; window.__sgPrev = y;
         return p !== undefined && Math.abs(p - y) < 0.002;
       }, null, { timeout: 60000 }).catch(() => {});
+      // ---- and it is a walnut plank with gold in the word ----
+      // The file is one mesh with one material and no separate letters — the word is carved as
+      // geometry — so the gold is a fragment rule, not a material swap: anything set back from
+      // the plank's front face AND facing out of it is letter, and the rest is wood. Both tests
+      // are needed. Depth alone gilds the plank's own rounded rim, which is set back too and is
+      // not a letter. The palm is the same story: one material for bark and fronds together, so
+      // the bark is picked out by its own colour, red over green at every pixel.
+      // This guards the WIRING. A rule that quietly stops being installed leaves a scene that
+      // renders, passes every geometry check in this file, and is the wrong colour — but whether
+      // it looks right is still a person's job, and this check does not pretend otherwise.
+      const skin = await page.evaluate(() => window.__surf.signSkin());
+      check(skin && skin.sign && skin.sign.gild && skin.sign.compiled && skin.sign.map,
+            'the sign wears the walnut-and-gold rule, over the file\'s own grain',
+            skin && skin.sign ? `gild ${skin.sign.gild}, compiled ${skin.sign.compiled}, ` +
+                                `map kept ${skin.sign.map}, wood ${skin.wood}, gold ${skin.gold}`
+                              : 'no sign material');
+      check(skin && skin.palm && skin.palm.bark && skin.palm.map,
+            'and the palm has its bark warmed without the fronds going with it',
+            skin && skin.palm ? `bark ${skin.palm.bark}, map kept ${skin.palm.map}, ` +
+                                `tint ${skin.barkTint}` : 'no palm material');
       const crown = await page.evaluate(() => window.__surf.signCrown());
       check(crown && crown.up && crown.frac > 0.15,
             'and the palm shows above the sign on a phone — fronds over its shoulders',
