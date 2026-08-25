@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.41.0';
+window.SURF_VERSION='4.42.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -7661,11 +7661,7 @@ function renderViewer(dt){
       fl.position.x+=fl.userData.v*dt;
       if(fl.position.x>190)fl.position.x-=380; else if(fl.position.x<-190)fl.position.x+=380;
       fl.position.y+=Math.sin(tNow*0.7+fl.userData.bob)*dt*1.5;
-      for(const b2 of fl.children){
-        const u2=b2.userData, beat=Math.sin(tNow*u2.f+u2.p);
-        const a2=beat>0?beat*0.85:beat*0.42;
-        if(u2.flap)u2.flap(a2);
-      }
+      for(const b2 of fl.children)beatGull(b2.userData,tNow);
     }
   }
   const aspect=Math.max(0.35,innerWidth/innerHeight);
@@ -14964,7 +14960,21 @@ function dressGull(g){
   const by={}; m.traverse(o=>{ if(o.isBone)by[o.name]=o; });
   const pick=list=>list.map(w=>({b:by[w.n], k:w.k, rest:by[w.n]?by[w.n].quaternion.clone():null}))
                        .filter(w=>w.b);
-  const L=pick(birdWing.L), R=pick(birdWing.R);
+  // ---- and the shares are NORMALISED down each wing ----
+  // The beat is applied bone by bone from shoulder to tip with the matrices updated as it goes,
+  // so each joint adds to everything upstream of it — that is what makes the tip lag and whip
+  // rather than the wing hinging flat. It also means the tip's rotation is the SUM of the
+  // shares, not the largest of them: eight bones at an average share of two thirds turned a
+  // wing through four radians and folded it over itself, which at this size is a dark crumpled
+  // rag rather than a bird. Normalised so the shares add to one, the number passed in is what
+  // the TIP actually reaches and the joints inboard of it take a graded part of the way there.
+  // ...and how far the whole chain adds up to is GULL_WHIP, which is a measured number rather
+  // than a chosen one: normalising to exactly one puts most of the turn on the outermost bone,
+  // and a bone's OWN rotation does not carry its own tip anywhere — only its parents' does. So
+  // the tip travelled a twelfth of the span and the beat vanished. Swept against tip travel.
+  const norm=list=>{ const t=list.reduce((a,w)=>a+w.k,0)||1;
+                     for(const w of list)w.k/=t; return list; };
+  const L=norm(pick(birdWing.L)), R=norm(pick(birdWing.R));
   for(const c of g.children)c.visible=false;
   g.add(m);
   g.userData.model=m;
@@ -14983,7 +14993,7 @@ function dressGull(g){
       for(const w of arr){
         w.b.updateWorldMatrix(true,false);
         w.b.getWorldQuaternion(_gq);
-        _gd.setFromAxisAngle(_ga,a*w.k*sgn).multiply(_gq);
+        _gd.setFromAxisAngle(_ga,a*w.k*sgn*GULL_WHIP).multiply(_gq);
         if(w.b.parent){ w.b.parent.getWorldQuaternion(_gp); _gp.invert(); } else _gp.identity();
         w.b.quaternion.copy(_gp.multiply(_gd));
         w.b.updateWorldMatrix(false,true);
@@ -15037,6 +15047,37 @@ for(let f=0;f<FLIGHTS.length;f++){
   flock.userData={v:(Math.random()<0.5?-1:1)*(5+Math.random()*5), bob:Math.random()*Math.PI*2};
   skyLayer.add(flock); birds.push(flock);
 }
+// ---- one gull's wingbeat, in one place ----
+// A gull does not wave. The downstroke is the fast half — it is the half doing the work — and
+// the recovery back up takes half again as long. A sine spends equal time on both and reads as
+// a moth rather than a bird.
+// In ONE place because it was written out three times and two of them had drifted. The title
+// screen's copy turned u.L and u.Rw directly — the two flat triangles of the DRAWN silhouette,
+// which dressGull hides the moment models/bird.glb arrives. So on the beach the modelled gulls
+// flew with their wings nailed open and the whole beat was being applied to something
+// invisible. Three copies of a thing is three chances for one of them to be wrong, and the one
+// that was wrong was the one on the first screen anybody sees.
+const GULL_DOWN=0.38;         // of the cycle spent going down
+// How far the shares down one wing add up to. Swept against tip travel and then LOOKED at,
+// because travel is monotonic in it and the number alone cannot say where a wing stops being a
+// wing: at 4.2 the primaries fan out and curl back over the wrist into something closer to a
+// claw, and at 1.0 — shares normalised to exactly one — the tip moves a twelfth of the span and
+// the beat is not there. 2.6 is a clean swept wing at both ends of the stroke, tip travelling
+// most of a quarter of the span.
+let GULL_WHIP=2.6;
+function gullAngle(w){
+  const up=0.80, dn=-0.45;    // radians: about 46 degrees up off the glide, 26 down
+  return w<GULL_DOWN
+    ? up-(up-dn)*(0.5-0.5*Math.cos(Math.PI*(w/GULL_DOWN)))
+    : dn+(up-dn)*(0.5-0.5*Math.cos(Math.PI*((w-GULL_DOWN)/(1-GULL_DOWN))));
+}
+let _gullHold=null;    // debug: freeze the beat at one point of the cycle to look at it
+function beatGull(u,t){
+  if(!u||!u.flap)return;
+  if(_gullHold!==null){ u.flap(gullAngle(_gullHold)); return; }
+  let w=((t*u.f+u.p)/(Math.PI*2))%1; if(w<0)w+=1;
+  u.flap(gullAngle(w));
+}
 function updateSkyLife(dt){
   for(const c of clouds){
     c.position.x+=c.userData.v*dt;
@@ -15052,15 +15093,8 @@ function updateSkyLife(dt){
     u.bob+=dt;
     f.position.y+=Math.sin(u.bob*0.7)*dt*1.4;
     f.rotation.y=u.v>0?0:Math.PI;             // they face the way they are going
-    for(const b of f.children){
-      const d=b.userData;
-      // wings beat with a fast downstroke and a slower recovery, and no two birds
-      // in a flock are in step
-      const ph=tNow*d.f+d.p;
-      const beat=Math.sin(ph)*0.5+0.5;
-      const a=0.62*Math.pow(beat,0.65)-0.22;
-      if(d.flap)d.flap(a);
-    }
+    // no two birds in a flock are in step: each has its own rate and its own phase
+    for(const b of f.children)beatGull(b.userData,tNow);
   }
 }
 
@@ -17288,6 +17322,81 @@ if(location.hash.includes('debug')){
       f.userData.v=0;
       return {at:f.position.toArray().map(v=>+v.toFixed(1)), n:f.children.length};
     },
+    // The SKY OVER THE TITLE SCREEN, asked separately from the ride's. There are two skies and
+    // they are driven by two different loops, and for a long time only one of them was asked
+    // about — which is how the beach's gulls came to fly with their wings nailed open while
+    // every bird check in the suite passed. A hook that covers one of two things is a hook that
+    // will eventually be wrong about the other.
+    // Park one of the beach's flocks in front of the title lens, so a wing can be LOOKED at.
+    // Debug only: it moves the sky furniture and does not put it back.
+    gullWhip(v){ if(v!==undefined)GULL_WHIP=v; return GULL_WHIP; },
+    beachGullNear(d,hold){
+      if(typeof beachLife==='undefined'||!beachLife||!beachLife.birds.length||!menuCam)return null;
+      const f=beachLife.birds[0];
+      const dd=d===undefined?9:d;
+      // Out to the camera's left and lifted, into clear sky. Parked straight down the axis it
+      // went BEHIND the board and the trunk, which stand between the lens and anything nine feet
+      // out — a close-up of the back of a surfboard.
+      const fw=new THREE.Vector3(0,0,-1).applyQuaternion(menuCam.quaternion);
+      const rt=new THREE.Vector3(1,0,0).applyQuaternion(menuCam.quaternion);
+      const up=new THREE.Vector3(0,1,0);
+      // Left and DOWN. Left and up put it behind the sign, which is centred and hangs across the
+      // top; the clear quarter of this frame is the sea off the left shoulder.
+      const at=menuCam.position.clone().addScaledVector(fw,dd)
+                 .addScaledVector(rt,-dd*0.55).addScaledVector(up,-dd*0.13);
+      if(f.parent)f.parent.worldToLocal(at);
+      f.position.copy(at);
+      f.userData.v=0;
+      for(const b of f.children){
+        b.position.set(0,0,0);
+        b.userData.v=0;
+        if(hold!==undefined&&b.userData.flap)b.userData.flap(gullAngle(hold));
+      }
+      _gullHold=(hold===undefined)?null:hold;
+      // where it lands in the picture, so a close-up can be cropped rather than hunted for
+      f.updateMatrixWorld(true);
+      const b=new THREE.Box3().setFromObject(f), v=new THREE.Vector3();
+      let x0=9,x1=-9,y0=9,y1=-9;
+      for(let i=0;i<8;i++){
+        v.set(i&1?b.max.x:b.min.x,i&2?b.max.y:b.min.y,i&4?b.max.z:b.min.z).project(menuCam);
+        const sx=v.x*0.5+0.5, sy=-v.y*0.5+0.5;
+        if(sx<x0)x0=sx; if(sx>x1)x1=sx; if(sy<y0)y0=sy; if(sy>y1)y1=sy;
+      }
+      return {n:f.children.length, at:f.position.toArray().map(v=>+v.toFixed(2)), hold:_gullHold,
+              x:[+x0.toFixed(3),+x1.toFixed(3)], y:[+y0.toFixed(3),+y1.toFixed(3)]};
+    },
+    beachBirds(){
+      const out={up:false, flocks:0, gulls:0, modelled:0, driven:0, travel:null, span:null};
+      if(typeof beachLife==='undefined'||!beachLife||!beachLife.birds)return out;
+      out.up=true; out.flocks=beachLife.birds.length;
+      let probe=null;
+      for(const f of beachLife.birds)for(const b of f.children){
+        out.gulls++;
+        if(b.userData&&b.userData.model){ out.modelled++; if(!probe)probe=b; }
+        if(b.userData&&b.userData.flap)out.driven++;
+      }
+      // Walked through a whole beat and asked how far the WING TIP travelled, in the bird's own
+      // span. A pose is a pose in a still frame however good it is; the only thing that tells a
+      // beating wing from a held one is that it moved.
+      if(probe&&probe.userData.tip&&probe.userData.flap){
+        const t=probe.userData.tip, v=new THREE.Vector3();
+        let lo=1e9, hi=-1e9;
+        for(let i=0;i<=16;i++){
+          probe.userData.flap(gullAngle(i/16));
+          t.updateWorldMatrix(true,false); t.getWorldPosition(v);
+          if(v.y<lo)lo=v.y; if(v.y>hi)hi=v.y;
+        }
+        const sz=new THREE.Box3().setFromObject(probe.userData.model).getSize(new THREE.Vector3());
+        out.span=+Math.max(sz.x,sz.z).toFixed(3);
+        out.travel=+((hi-lo)/Math.max(1e-3,out.span)).toFixed(3);
+      }
+      // ...and that the beat is a BIRD'S: down fast, up slow. Measured off the curve itself
+      // rather than trusted from the constant, as the fraction of the cycle spent descending.
+      let dn=0, prev=gullAngle(0);
+      for(let i=1;i<=200;i++){ const a=gullAngle(i/200); if(a<prev)dn++; prev=a; }
+      out.down=+(dn/200).toFixed(3);
+      return out;
+    },
     birdInfo(){
       const out={flocks:0, gulls:0, modelled:0, shapes:[], tip:null, span:null};
       if(typeof birds==='undefined'||!birds)return out;
@@ -17326,8 +17435,7 @@ if(location.hash.includes('debug')){
           const v2=new THREE.Vector3();
           for(const b of f.children){
             const u=b.userData; if(!u.tip||!u.flap)continue;
-            const beat=Math.sin(tNow*u.f+u.p)*0.5+0.5;
-            u.flap(0.62*Math.pow(beat,0.65)-0.22);
+            beatGull(u,tNow);
             u.tip.updateWorldMatrix(true,false); u.tip.getWorldPosition(v2);
             const rel=v2.y-b.getWorldPosition(new THREE.Vector3()).y;
             if(rel<lo)lo=rel; if(rel>hi)hi=rel; got++;
@@ -17339,8 +17447,7 @@ if(location.hash.includes('debug')){
         const t=probe.userData.tip, v=new THREE.Vector3();
         let lo=1e9, hi=-1e9;
         for(let i=0;i<=12;i++){
-          const beat=Math.sin(i/12*Math.PI*2)*0.5+0.5;
-          probe.userData.flap(0.62*Math.pow(beat,0.65)-0.22);
+          probe.userData.flap(gullAngle(i/12));
           t.updateWorldMatrix(true,false);
           t.getWorldPosition(v);
           if(v.y<lo)lo=v.y; if(v.y>hi)hi=v.y;
@@ -22096,11 +22203,7 @@ function renderMenuBeach(dt){
       fl.position.x+=fl.userData.v*dt;
       if(fl.position.x>190)fl.position.x-=380; else if(fl.position.x<-190)fl.position.x+=380;
       fl.position.y+=Math.sin(tNow*0.7+fl.userData.bob)*dt*1.5;
-      for(const b2 of fl.children){
-        const u2=b2.userData, beat=Math.sin(tNow*u2.f+u2.p);
-        const a2=beat>0?beat*0.85:beat*0.42;
-        u2.L.rotation.z=a2; u2.Rw.rotation.z=-a2;
-      }
+      for(const b2 of fl.children)beatGull(b2.userData,tNow);
     }
   }
   // A slow drift across the shot rather than a fixed frame, so the menu is alive without

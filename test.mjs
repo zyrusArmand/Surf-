@@ -211,7 +211,13 @@ check(!!cover && /Loading the beach/.test(cover.label) && /%/.test(cover.label),
   // document happens to be there. waitForURL is no good either: it waits for the new page to reach
   // a load state as well as the right address, and this one is a whole game — it had already
   // arrived at the right URL and was still being waited on a minute later.
-  const landed = async () => { for (let i = 0; i < 360; i++) {
+  // Ninety seconds was not enough, and the failure it produced was a lie: the check went red
+  // while the one four seconds after it reported the page sitting on ?v=99.0.0, once, with the
+  // right version remembered — which is the feature working. What takes the time is the second
+  // document, a whole megabyte of game committing on a renderer the main tab is already using.
+  // Reproduced twice at exactly this boundary before widening it, because a timeout raised to
+  // make a failure go away is how a real regression gets shipped.
+  const landed = async () => { for (let i = 0; i < 900; i++) {
     if (/[?&]v=99\.0\.0/.test(vp.url())) return true;
     await new Promise(r => setTimeout(r, 250)); } return false; };
   await landed();
@@ -1356,6 +1362,27 @@ if (hasHook) {
     // form of that is the tips sitting at different heights at any one instant.
     check(bi.stagger > 0.2, 'and no two in a flight beat together',
           `${bi.stagger} between the highest and lowest tip in a flight`);
+    // ---- and the sky over the TITLE SCREEN, which is a different sky ----
+    // There are two of them, driven by two different loops, and for a long time only one was
+    // ever asked about — so the beach's gulls flew with their wings nailed open while every
+    // bird check here passed. The title screen's loop was turning u.L and u.Rw, the two flat
+    // triangles of the DRAWN silhouette, which dressGull hides the moment models/bird.glb
+    // arrives. The beat was real, and it was being applied to something invisible. A hook that
+    // covers one of two things will eventually be wrong about the other, so now both are asked.
+    const bb = await page.evaluate(() => window.__surf.beachBirds());
+    check(bb && bb.up && bb.gulls > 8 && bb.modelled === bb.gulls && bb.driven === bb.gulls,
+          'every bird over the title screen is the modelled one, and something is driving it',
+          bb && bb.up ? `${bb.modelled} modelled and ${bb.driven} driven of ${bb.gulls} ` +
+                        `across ${bb.flocks} flights` : 'no beach sky');
+    check(bb && bb.travel > 0.15 && bb.travel < 0.6,
+          'and its wings beat — the MODEL moves, not the silhouette behind it',
+          bb ? `the tip travels ${(bb.travel * 100).toFixed(0)}% of the span through one beat` : 'none');
+    // and it beats like a bird rather than waving like a moth. The downstroke is the half doing
+    // the work and it is the fast one; a sine spends equal time on both. Read off the curve
+    // itself as the fraction of the cycle spent descending, not trusted from the constant.
+    check(bb && bb.down > 0.2 && bb.down < 0.45,
+          'and the downstroke is the fast half of the beat, as a wing actually works',
+          bb ? `${(bb.down * 100).toFixed(0)}% of the cycle is spent going down` : 'none');
     // The V flights really are Vs: birds dropping back in PAIRS off a leader, so how far a
     // bird sits off the line of flight grows with how far back it is, and the offsets cancel.
     // Both are asked, because neither is enough on its own — four birds scattered at random
