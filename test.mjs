@@ -94,6 +94,64 @@ const check = (ok, label, detail = '') => {
 await page.goto(`http://127.0.0.1:${PORT}/index.html#debug`, { waitUntil: 'load' });
 await page.waitForFunction(() => typeof window.VERSION === 'string' || document.querySelector('#startBtn'), null, { timeout: 30000 });
 
+// ---------- the page checks it IS the page that shipped ----------
+// One HTML file on GitHub Pages, served with ten minutes of cache on it, and a phone holds it
+// longer than that — kept open on a tab, or added to the home screen, it can sit on yesterday's
+// build indefinitely. Every push landed and the game still came up on the previous version, which
+// looks exactly like a deploy that did not happen. So the page asks the server what shipped.
+// Both halves are asked, and the second is the one that matters: a version check that reloads
+// when it should is a nice feature, and one that reloads when it should NOT is a page that never
+// finishes loading. Run on a page of its own so a navigation cannot disturb the suite.
+{
+  const vp = await browser.newPage({ viewport: { width: 400, height: 800 } });
+  // the check fetches its own source with a cache-buster on it; that request — and only that
+  // request — is answered with a build claiming to be newer
+  // no models on this page. It exists to answer one question about one four kilobyte request, and
+  // left to itself it also pulls down sixty-five megabytes it will throw away — which it does on
+  // the same connection and the same main thread the answer has to come back through. Measured,
+  // that put the redirect fifteen seconds after the page opened, and under a suite that is already
+  // loading the game on another tab it did not arrive at all.
+  await vp.route(/\.glb(\?|$)/, r => r.abort());
+  await vp.route(/index\.html\?fresh=/, async route => {
+    const real = await readFile(join(ROOT, 'index.html'), 'utf8');
+    await route.fulfill({ status: 200, contentType: 'text/html',
+                          body: real.replace(/SURF_VERSION='[0-9][0-9.]*'/, "SURF_VERSION='99.0.0'") });
+  });
+  await vp.goto(`http://127.0.0.1:${PORT}/index.html`, { waitUntil: 'commit' });
+  // Polled on the URL rather than waited for inside the page, and rather than waitForURL. The
+  // thing being tested IS a navigation, so an evaluate that straddles one is answered by whichever
+  // document happens to be there. waitForURL is no good either: it waits for the new page to reach
+  // a load state as well as the right address, and this one is a whole game — it had already
+  // arrived at the right URL and was still being waited on a minute later.
+  const landed = async () => { for (let i = 0; i < 120; i++) {
+    if (/[?&]v=99\.0\.0/.test(vp.url())) return true;
+    await new Promise(r => setTimeout(r, 250)); } return false; };
+  await landed();
+  const moved = vp.url();
+  check(/[?&]v=99\.0\.0/.test(moved),
+        'a stale page goes and gets the build that actually shipped',
+        `landed on "${moved.replace(/^https?:\/\/[^/]+/, '')}" after the server answered with a newer version`);
+  // and it is ONE attempt, not a loop. The server here keeps insisting 99.0.0 exists and keeps
+  // serving something else, which is exactly the shape of a cache that will not let go — the
+  // page must give up rather than navigate for ever.
+  await new Promise(r => setTimeout(r, 4000));
+  const settledUrl = vp.url();
+  const want = await vp.evaluate(() => { try { return sessionStorage.getItem('surfWant'); } catch (e) { return null; } })
+                       .catch(() => null);
+  check(want === '99.0.0' && /[?&]v=99\.0\.0/.test(settledUrl),
+        'and gives up after one go rather than reloading for ever',
+        `still on "${settledUrl.replace(/^https?:\/\/[^/]+/, '')}" four seconds later, remembers asking for ${want}`);
+  await vp.close();
+}
+// and it leaves a page that is already current alone. This is the half that breaks the game if it
+// is wrong, so it is asked of the ordinary page every run: no navigation, no query string.
+{
+  const stay = await page.evaluate(() => location.search);
+  check(stay === '' || !/[?&]v=/.test(stay),
+        'and a page that is already current is left where it is',
+        `search "${stay}", running ${await page.evaluate(() => window.SURF_VERSION)}`);
+}
+
 // ---------- the loading screen ----------
 // Sixty-five megabytes of models arrive here, and they used to land in a title screen that was
 // already up: the beach dressed itself in front of you, palm then chest then rider then sign.
@@ -777,12 +835,22 @@ await page.waitForTimeout(300);
       // exactly. Four seconds flat, then a window to confirm it really has stopped.
       await new Promise(r => setTimeout(r, 4000));
       let m = null; const win = [];
-      for (let i = 0; i < 40; i++) {
+      // Both of them still, not just the board. The board barely moves and settles almost at
+      // once; the RIDER is working through his whole repertoire up there — walking, stomping,
+      // lying down — and he is half of what the set's midpoint is measured from. Waiting on the
+      // board alone meant this was sampled at whatever point of a backflip it happened to catch,
+      // and the answer moved by a twentieth of the screen depending on nothing but when the page
+      // had finished loading. He does hold still between moves, for a second at the least, which
+      // is what this waits for.
+      const rid = [];
+      for (let i = 0; i < 80; i++) {
         await new Promise(r => setTimeout(r, 250));
         m = window.__surf.menuFrame();
         if (!m) continue;
         win.push(m.board.x[0]); if (win.length > 4) win.shift();
-        if (win.length === 4 && Math.max(...win) - Math.min(...win) < 0.002) break;
+        rid.push(m.rider.x[0] + m.rider.x[1]); if (rid.length > 4) rid.shift();
+        if (win.length === 4 && Math.max(...win) - Math.min(...win) < 0.002 &&
+            rid.length === 4 && Math.max(...rid) - Math.min(...rid) < 0.004) break;
       }
       // Both COLUMNS, by where each button sits rather than by which half of the screen it
       // is in: the dial's Play button is centred at the bottom and counting it as a right-hand

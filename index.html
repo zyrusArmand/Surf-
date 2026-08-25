@@ -3,6 +3,51 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<!-- A hint, not a guarantee. Most browsers ignore these on the document itself and the CDN in
+     front of this never sees them at all — the actual answer is the version check further down,
+     which asks the server what shipped and reloads if this is not it. -->
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
+<script>
+// ---------- and the page you are looking at is the page that shipped ----------
+// This is one HTML file on GitHub Pages, which serves it with ten minutes of cache on it, and a
+// phone browser holds it a good deal longer than that — kept open on a tab, or added to the home
+// screen, it can sit on yesterday's build indefinitely. Every push landed correctly and the game
+// still came up on the previous version, which looks exactly like a deploy that did not happen.
+// So the page asks. It fetches its own first few kilobytes with the browser cache bypassed, reads
+// the version out of them, and if the server has something newer it goes and gets it — as a NEW
+// URL rather than a reload, because a reload is served from the same cache that handed us the
+// stale copy.
+// Up HERE, in the head, and asking for a RANGE rather than the file. Both of those are the
+// difference between working and technically working. Written at the bottom of the page it fetched
+// the whole megabyte, and its answer then had to queue behind sixty-five megabytes of models for
+// the main thread — measured, the redirect landed fifteen seconds in, by which time the stale page
+// had already downloaded everything it was about to throw away. From up here it is four kilobytes,
+// asked before a single model has been queued. A server that ignores the Range header just sends
+// the whole thing and this still works, only bigger.
+// The version is declared on the line above for the same reason: it has to be inside those first
+// four kilobytes, so it lives here and the game reads it from here rather than the other way about.
+// Guarded against looping, which is how this goes badly wrong: one attempt per target version per
+// session, so a cache that will not let go costs one wasted navigation rather than an endless
+// cycle of them.
+window.SURF_VERSION='4.35.0';
+(function(){
+  if(location.protocol==='file:'||typeof fetch!=='function')return;
+  var here=location.pathname;
+  fetch(here+'?fresh='+Date.now(),{cache:'no-store',headers:{Range:'bytes=0-4095'}})
+    .then(function(r){ return r.ok?r.text():null; })
+    .then(function(t){
+      if(!t)return;
+      var m=t.match(/SURF_VERSION='([0-9][0-9.]*)'/);
+      if(!m||m[1]===window.SURF_VERSION)return;
+      var last=null;
+      try{ last=sessionStorage.getItem('surfWant'); }catch(e){}
+      if(last===m[1])return;                     // already went for this one and still got this
+      try{ sessionStorage.setItem('surfWant',m[1]); }catch(e){}
+      location.replace(here+'?v='+encodeURIComponent(m[1]));
+    })
+    .catch(function(){});
+})();
+</script>
 <title>Surf</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -372,27 +417,41 @@
   #load { position:fixed; inset:0; z-index:400; display:flex; align-items:center;
     justify-content:center; padding:0 6vw 14vh;   /* optical centre, not the middle of the box */
     background:linear-gradient(180deg,#1d63ab 0%,#3f95d4 44%,#8fc9e8 62%,#e4d7b6 76%,#efe4ca 100%);
-    transition:opacity .45s ease-out; }
+    transition:opacity .55s cubic-bezier(.4,0,.2,1); }
   /* pointer-events go the moment it starts fading, not when it finishes: half a second of an
      invisible sheet eating the first tap is exactly the kind of thing nobody reports and
      everybody feels */
   #load.gone { opacity:0; pointer-events:none; }
-  #loadCard { width:min(78vw,420px); text-align:center; }
+  #loadCard { width:min(78vw,420px); text-align:center;
+    transition:opacity .4s ease-in, transform .5s cubic-bezier(.4,0,.2,1); }
+  /* the card leaves a beat before the sheet does, and lifts as it goes, so the handover reads as
+     one movement rather than a panel blinking off a picture */
+  #load.gone #loadCard { opacity:0; transform:translateY(-14px); }
   #loadTitle { margin:0 0 24px; font-size:min(15vw,72px); color:#ffdf2e; letter-spacing:-.5px;
     text-shadow:3px 3px 0 #b8641c, 0 6px 22px rgba(0,20,40,.6); }
   #loadBar { height:12px; border-radius:99px; overflow:hidden;
     background:rgba(255,255,255,.24);
     box-shadow:inset 0 2px 6px rgba(0,18,42,.34), 0 1px 0 rgba(255,255,255,.5); }
-  #loadFill { display:block; width:0%; height:100%; border-radius:99px;
+  /* ---- the bar is a TRANSFORM, and that is the whole of why it is smooth ---- */
+  /* It animated its width, and width is laid out and painted on the main thread — the same main
+     thread that spends most of this wait parsing sixty-five megabytes of glTF. Every model that
+     arrived froze the bar solid for as long as it took to unpack, so the thing meant to say "this
+     is still going" was the most obviously stuck object on the screen. A transform is composited,
+     and the compositor keeps running while script is blocked, so the bar glides through the jank
+     that used to stop it dead. It carries no radius of its own — scaling one squashes it — and is
+     clipped to a round end by the track instead. */
+  #loadFill { display:block; width:100%; height:100%; transform:scaleX(0);
+    transform-origin:left center; will-change:transform;
     background:linear-gradient(180deg,#ffe98a,#ffc93e 55%,#f2a41c);
-    box-shadow:0 0 12px rgba(255,214,86,.7); transition:width .25s ease-out; }
+    box-shadow:0 0 12px rgba(255,214,86,.7);
+    transition:transform 2.4s cubic-bezier(.16,.72,.3,1); }
   #loadPct { margin:13px 0 0; color:rgba(255,255,255,.94); font-size:14.5px; letter-spacing:.5px;
     text-shadow:0 2px 8px rgba(0,20,40,.55); }
   /* Sixty-five megabytes is a real wait on a phone, and a bar with a number on it says how long
      but not what for. This says what for. */
   #loadPct b { font-weight:normal; opacity:.72; }
   @media (prefers-reduced-motion:reduce) {
-    #load, #loadFill { transition:none; }
+    #load, #loadFill, #loadCard { transition:none; }
   }
   /* No scrim on the TITLE screen. This gradient is nearly half black through the middle of
      the frame, and it was laid over the whole overlay — which on the menu means over the
@@ -1312,7 +1371,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.33.0';
+const VERSION=window.SURF_VERSION;
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -3271,7 +3330,7 @@ function skinAndFit(kind,root,target,orient){
 // more honest than the one that does not.
 const BOOT_CAP=25000;      // and it is never a locked door: see kick()
 const Boot={
-  files:new Map(), n:0, issued:0, settled:0, shown:0, over:false, gone:false, painted:false,
+  files:new Map(), n:0, issued:0, settled:0, shown:0, goal:0, over:false, gone:false, painted:false,
   issue(file){ const id=++this.n; this.files.set(id,{file,loaded:0,total:0,done:false});
                this.issued++; return id; },
   step(id,e){ const r=this.files.get(id);
@@ -3284,6 +3343,10 @@ const Boot={
               r.done=true; if(!r.total)r.total=r.loaded;
               this.settled++; this.paint();
               if(this.settled>=this.issued)this.finish(); },
+  // Downloading is most of the wait but it is not all of it: the last bytes of a fifteen megabyte
+  // ant land well before it has been unpacked into a skeleton, and a bar weighed on bytes alone
+  // reaches a hundred percent and then sits there through every parse still to come. So the last
+  // seventh of it belongs to files actually finished. Both halves only ever climb.
   frac(){
     if(!this.issued)return 1;
     let sum=0, known=0;
@@ -3294,24 +3357,44 @@ const Boot={
       const w=r.total||guess;
       den+=w; num+=r.done?w:Math.min(r.loaded,w);
     }
-    return den>0?Math.max(0,Math.min(1,num/den)):1;
+    const bytes=den>0?Math.max(0,Math.min(1,num/den)):1;
+    return Math.max(0,Math.min(1,bytes*0.86+(this.settled/this.issued)*0.14));
   },
+  // ---- and it is always MOVING, which is not the same as always being right ----
+  // Progress arrives in bursts — a few hundred kilobytes, then nothing at all for as long as it
+  // takes to unpack what arrived — and a bar that only moves when it is told something is a bar
+  // that spends most of a long wait perfectly still. So each update aims a short way PAST what
+  // has actually landed, over a slow ease, and the next update retargets it. It creeps while it
+  // waits and it snaps when there is news; it can approach the end but it cannot reach it, and
+  // the only thing that puts it at a hundred is everything actually being in.
   paint(){
     this.shown=Math.max(this.shown,this.frac());
     const f=document.getElementById('loadFill'), p=document.getElementById('loadPct');
-    if(f)f.style.width=(this.shown*100).toFixed(1)+'%';
-    if(p)p.innerHTML='<b>Loading the beach</b> \u00b7 '+Math.round(this.shown*100)+'%';
+    // the number says what the bar says. Two readouts of the same wait disagreeing by a fifth of
+    // its length is worse than either of them being a little ahead of the bytes.
+    this.goal=Math.max(this.goal,this.over?1:Math.min(0.985,this.shown+(1-this.shown)*0.22));
+    if(f){
+      f.style.transitionDuration=(this.over?0.32:2.4)+'s';
+      f.style.transform='scaleX('+this.goal.toFixed(4)+')';
+    }
+    if(p)p.innerHTML='<b>Loading the beach</b> \u00b7 '+Math.round(this.goal*100)+'%';
   },
   // Everything is in — but "in" is not "on screen". The models are placed by the callbacks that
   // received them and the beach fades itself in over a third of a second, so leaving at the last
   // byte hands you the thing this was meant to prevent, one frame of a bare beach. It waits for
   // the beach to say it has started painting, and gives up waiting after two seconds so a screen
   // that never paints one cannot strand you here.
+  // Everything is in — but "in" is not "on screen", and lifting the sheet the moment the last byte
+  // lands hands you the thing this exists to prevent. It waits for the beach to say it has begun
+  // painting, then a beat longer: the beach fades ITSELF in over a third of a second, and leaving
+  // during that is two fades crossing each other rather than one picture arriving. The beat also
+  // buys the bar time to finish its run to a hundred, so the last thing seen is the thing
+  // completing rather than the thing vanishing mid-stride.
   finish(){
     if(this.over)return;
     this.over=true; this.shown=1; this.paint();
     const t=Date.now(), tick=()=>{
-      if(this.painted||Date.now()-t>2000)this.hide();
+      if(this.painted||Date.now()-t>2000)setTimeout(()=>this.hide(),430);
       else requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -3322,13 +3405,17 @@ const Boot={
     const el=document.getElementById('load');
     if(!el)return;
     el.classList.add('gone');
-    setTimeout(()=>{ el.style.display='none'; },600);
+    setTimeout(()=>{ el.style.display='none'; },700);
   },
   // Nothing here is allowed to be a locked door. A model server that never answers, a request
   // that neither loads nor errors, a build with no loader in it at all and so nothing to wait
   // for — every one of those ends with the game, late rather than never.
   kick(){
     if(!this.issued)this.finish();
+    // a heartbeat, so the creep keeps creeping between the things that would otherwise drive it.
+    // Downloads report in bursts and parses report nothing at all, and both leave gaps longer
+    // than one ease; this retargets across them so the bar is never simply parked.
+    const beat=setInterval(()=>{ if(this.over)clearInterval(beat); else this.paint(); },600);
     setTimeout(()=>{ this.over=true; this.hide(); },BOOT_CAP);
   }
 };
@@ -18179,7 +18266,10 @@ if(location.hash.includes('debug')){
       const st=el?getComputedStyle(el):null;
       return {up:!!el&&st.display!=='none', gone:Boot.gone,
               blocking:!!el&&st.display!=='none'&&st.pointerEvents!=='none'&&+st.opacity>0.01,
-              issued:Boot.issued, settled:Boot.settled, pct:+(Boot.shown*100).toFixed(1),
+              issued:Boot.issued, settled:Boot.settled,
+              // what the BAR is showing, which is what "never runs backwards" is a claim about,
+              // and what has actually arrived underneath it
+              pct:+(Boot.goal*100).toFixed(1), real:+(Boot.shown*100).toFixed(1),
               bytes:(()=>{ let l=0,t=0; for(const r of Boot.files.values()){ l+=r.loaded; t+=r.total; }
                            return {loaded:l, total:t}; })(),
               painted:Boot.painted,
