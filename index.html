@@ -29,23 +29,35 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.35.0';
+window.SURF_VERSION='4.36.0';
+// Every step of it is written down as it happens. A check that this works can only ever see the
+// outcome — a page that did not move — and "did not move" is the same answer for a request that
+// never went, a reply that came back the same version, a guard that had already fired, and a
+// throw. They want different fixes and there is no way to tell them apart from outside.
+window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,acted:false,err:null};
 (function(){
-  if(location.protocol==='file:'||typeof fetch!=='function')return;
+  var V=window.__vcheck;
+  V.mine=window.SURF_VERSION;
+  if(location.protocol==='file:'||typeof fetch!=='function'){ V.err='no fetch'; return; }
+  V.ran=true;
   var here=location.pathname;
   fetch(here+'?fresh='+Date.now(),{cache:'no-store',headers:{Range:'bytes=0-4095'}})
-    .then(function(r){ return r.ok?r.text():null; })
+    .then(function(r){ V.asked=true; V.ok=r.ok; return r.ok?r.text():null; })
     .then(function(t){
-      if(!t)return;
+      if(!t){ V.err='empty reply'; return; }
       var m=t.match(/SURF_VERSION='([0-9][0-9.]*)'/);
-      if(!m||m[1]===window.SURF_VERSION)return;
+      V.found=m?m[1]:null;
+      if(!m){ V.err='no version in the reply'; return; }
+      if(m[1]===window.SURF_VERSION){ V.err='same version'; return; }
       var last=null;
       try{ last=sessionStorage.getItem('surfWant'); }catch(e){}
-      if(last===m[1])return;                     // already went for this one and still got this
+      V.saw=last;
+      if(last===m[1]){ V.err='already asked for this one'; return; }   // and still got this
       try{ sessionStorage.setItem('surfWant',m[1]); }catch(e){}
+      V.acted=true;
       location.replace(here+'?v='+encodeURIComponent(m[1]));
     })
-    .catch(function(){});
+    .catch(function(e){ V.err='threw: '+e; });
 })();
 </script>
 <title>Surf</title>
@@ -1472,13 +1484,13 @@ function fxInit(){
     // corners, then the sRGB encode nobody else is doing any more.
     fxComp=new THREE.ShaderMaterial({uniforms:{tD:{value:null},tB:{value:null},
         tZ:{value:null},tF:{value:null},
-        uAmt:{value:0.32},uVig:{value:0.14},
+        uAmt:{value:0.32},uVig:{value:0.14},uGrade:{value:0.0},
         uFish:{value:0.0},uTheta:{value:0.8},uAsp:{value:1.0},
         uDof:{value:0},uFocus:{value:30.0},uRange:{value:26.0},uNear:{value:0.1},uFar:{value:1600.0}},
       vertexShader:_FX_VS, fragmentShader:`
         varying vec2 vUv; uniform sampler2D tD; uniform sampler2D tB;
         uniform sampler2D tZ; uniform sampler2D tF;
-        uniform float uAmt; uniform float uVig;
+        uniform float uAmt; uniform float uVig; uniform float uGrade;
         uniform float uFish; uniform float uTheta; uniform float uAsp;
         uniform float uDof; uniform float uFocus; uniform float uRange;
         uniform float uNear; uniform float uFar;
@@ -1533,6 +1545,22 @@ function fxInit(){
             c=mix(c,texture2D(tF,vUvF).rgb,coc);
           }
           c+=texture2D(tB,vUvF).rgb*uAmt;
+          // ---- the grade, in LINEAR, which is the only place it belongs ----
+          // Done here rather than by moving the lights again, because "warm" and "warm light" are
+          // different things: a warm key makes the lit faces gold and leaves the shadows where
+          // they were, and a grade carries the whole frame — sky, sea, sand and shadow — the same
+          // way a film stock does. Both are wanted and they do not substitute for each other.
+          // Gain in the highlights toward gold, a faint cool lift under the darks so the shadows
+          // stay blue rather than going brown, and a little saturation out of all of it, which is
+          // what stops a warm grade turning into an orange filter.
+          // Applied before the vignette and long before the sRGB encode: a grade on top of an
+          // encode is a grade on the wrong numbers, and it crushes exactly where it should be
+          // gentlest.
+          if(uGrade>0.0){
+            vec3 g=c*vec3(1.055,1.005,0.945)+vec3(0.006,0.004,0.013);
+            g=mix(vec3(dot(g,vec3(0.2126,0.7152,0.0722))),g,0.93);
+            c=mix(c,g,uGrade);
+          }
           // the vignette rides the UNDISTORTED frame, so it stays a round darkening at the
           // edge of the picture rather than being bent along with everything in it
           vec2 d=vUv-0.5;
@@ -1596,7 +1624,7 @@ function _fxPass(mat,target){
 // argument because it is the last thing that happens, and it costs nothing when it is zero.
 // With the post chain off there is no frame to bend, so the shot falls back to the plain wide
 // rectilinear one rather than to nothing.
-function present(scn,cam,extra,dof,fish){
+function present(scn,cam,extra,dof,fish,grade){
   if(!fxOn){ renderer.render(scn,cam); if(extra)extra(); return; }
   // depth first, while the scene is still the only thing bound — a flat material over
   // everything, at half size, because nothing here is being looked at
@@ -1637,6 +1665,7 @@ function present(scn,cam,extra,dof,fish){
   // Taken off the CAMERA rather than stored, so it follows the field of view and the shape of
   // the window without anything having to be told twice.
   fxComp.uniforms.uFish.value=fish||0;
+  fxComp.uniforms.uGrade.value=grade||0;
   // ...and the HIGH WATER MARK alongside it, which is the one that can be asked about later.
   // "What did the last frame do" is only answerable while the screen in question is the one on
   // screen, and every frame of every other screen overwrites it — three attempts at reading it
@@ -14772,8 +14801,11 @@ function layFlight(flock,spec,make){
     if(spec.v){
       // pairs dropping back off a leader: 0 leads, then one out to each side per row
       const r=Math.ceil(i/2), sd=(i%2)?1:-1;
-      b.position.set(-r*(2.5+Math.random()*0.7),(Math.random()-0.5)*0.7,
-                     r?sd*r*(1.9+Math.random()*0.5):0);
+      // Jittered, so the birds are not stamped out — but about half as much as they were. A rank
+      // knocked around a third of its own spacing stops reading as a rank at all on a five bird
+      // skein, and a skein whose ranks do not read is not a V, it is five birds.
+      b.position.set(-r*(2.6+Math.random()*0.42),(Math.random()-0.5)*0.6,
+                     r?sd*r*(2.0+Math.random()*0.3):0);
     } else if(spec.n===1){
       b.position.set(0,0,0);
     } else {
@@ -17148,7 +17180,17 @@ if(location.hash.includes('debug')){
                 // is the sun in FRONT of the subjects or behind them? Positive is behind the
                 // camera, which is the half that lights the faces you can see.
                 front:+_mbS.copy(prevKey.position).sub(prevKey.target.position)
-                          .normalize().dot(_mbF).toFixed(3)}:null,
+                          .normalize().dot(_mbF).toFixed(3),
+                // and how HIGH it is, which is the whole difference between midday and golden
+                // hour. Nothing else says the time of day: a sun overhead puts a short shadow
+                // directly under everything and lights every object the same all the way round,
+                // and a sun on the deck lays them across the sand and picks out one edge of each.
+                lift:+_mbS.copy(prevKey.position).sub(prevKey.target.position)
+                          .normalize().y.toFixed(3),
+                key:prevKey.color.getHex(),
+                keyI:+prevKey.intensity.toFixed(2),
+                fill:prevFill?prevFill.color.getHex():null,
+                hemiI:prevHemi?+prevHemi.intensity.toFixed(2):null}:null,
               fog:prevScene.fog?[prevScene.fog.near,prevScene.fog.far]:null,
               pools:menuAO&&menuAO.visible?menuAO.children.length:0,
               env:!!scene.environment, menuEnv:!!menuEnv,
@@ -20558,13 +20600,21 @@ function menuBeachOn(){
   // washing out to almost white at the horizon, and no sunset band anywhere. The sun is high
   // and out of frame, so the glow across the horizon is turned right down — a wide warm band
   // low in the sky is the one thing that says "evening" no matter what else is done.
+  // GOLDEN HOUR, and it is the one decision the rest of this block follows from. The screen was
+  // set to noon — a cool blue dome, a hard overhead key and a big neutral hemisphere — and noon is
+  // what makes it read as a render rather than a photograph: at noon nothing has a lit side and a
+  // shaded side worth the name, so every object is the same object all the way round and the whole
+  // frame is one flat brightness. The reference is a low sun. Warm cream at the horizon climbing to
+  // blue overhead, and a glow big enough to bloom out of the water — uGlowAmt drives the low cloud
+  // banding in the sky shader as well as the sun's halo, so it is what turns a gradient into an
+  // evening.
   if(prevSky){
-    prevSky.uniforms.uTop.value.set(0x1668c4);
-    prevSky.uniforms.uMid.value.set(0x59b4e8);
-    prevSky.uniforms.uHorizon.value.set(0xcfeaf8);
-    prevSky.uniforms.uGlow.value.set(0xffffff);
+    prevSky.uniforms.uTop.value.set(0x2a6ea8);
+    prevSky.uniforms.uMid.value.set(0x93c0da);
+    prevSky.uniforms.uHorizon.value.set(0xf7e2bb);
+    prevSky.uniforms.uGlow.value.set(0xffdda6);
     prevSky.uniforms.uSunX.value=0.30;
-    prevSky.uniforms.uGlowAmt.value=0.14;
+    prevSky.uniforms.uGlowAmt.value=0.46;
   }
   // The light with it. A hard key from high and behind the left shoulder, because the ref
   // has the palm shadows thrown long across the sand toward the camera and the dune and
@@ -20572,8 +20622,17 @@ function menuBeachOn(){
   // own lights the sand from every direction at once, and sand with no shadow in it is a
   // sheet of paper whatever colour it is. But at noon the sky itself is a huge blue source,
   // so the hemisphere carries more than it did at sunset and carries it COOL.
-  if(prevKey){ prevKey.color.set(0xfff6e6); prevKey.intensity=3.05;
-               prevKey.position.set(-2.5,3.3,-2.6);
+  // Low and gold, from behind the left shoulder. The elevation is the whole point: it was at about
+  // forty degrees, which throws a short shadow directly under everything, and it is at twenty now,
+  // which lays the palm across the sand toward the camera and puts a warm edge down one side of
+  // the board, the trunk and the rider. Not lower than that — the shadow camera is a fixed box and
+  // a sun on the deck throws shadows straight out of it.
+  // Twenty-two degrees, measured off the vector to the target rather than off this y — the light
+  // is aimed at the group and the group is not at the origin, so the number that reads like an
+  // elevation here is not one. At 1.55 it came out at thirty-three.
+  // Warm and dimmer. WHERE it is comes from layoutMenuBeach, which rebuilds this light's position
+  // off the camera's own axes on every layout — setting it here as well only looks like it works.
+  if(prevKey){ prevKey.color.set(0xffd9a0); prevKey.intensity=2.55;
     // Shadows, which is most of what "it looks like a render" was. The reference is a
     // photograph and the thing that says so is not the colour of the sand — it is the palm
     // laid across it in shadow, and the board and the rider each sitting in their own dark
@@ -20595,8 +20654,10 @@ function menuBeachOn(){
   // The board on this beach is standing under a noon sky over hot pale sand, which is a
   // different world from the one the ride reflects — bluer above, far brighter at the
   // horizon, and sand rather than open ocean underneath it. Baked once and kept.
-  if(!menuEnv)menuEnv=bakeEnv({top:0x1668c4, hor:0xdff2fb, ground:0xbda478,
-    sun:0xffffff, sunR:4.2, groundY:-5, sunPos:new THREE.Vector3(-24,30,-14)});
+  // The environment the shiny things reflect, baked to match. A board with a midday sky in its
+  // gloss standing under an evening one is the reflection saying a different time from the light.
+  if(!menuEnv)menuEnv=bakeEnv({top:0x2a6ea8, hor:0xf7e2bb, ground:0xc9a06c,
+    sun:0xffdda6, sunR:6.5, groundY:-5, sunPos:new THREE.Vector3(-30,10,-16)});
   if(menuEnv){ menuDay.env=prevScene.environment; prevScene.environment=menuEnv; }
   // Aerial perspective. Air is not clear: over a couple of hundred feet it scatters enough
   // light back at you to wash whatever is behind it toward the colour of the horizon, and
@@ -20605,21 +20666,31 @@ function menuBeachOn(){
   // well beyond the group, so the tree, the board and the rider are untouched and only the
   // beach running away behind them recedes. The sea already does this in its own shader.
   menuDay.fog=prevScene.fog;
-  prevScene.fog=new THREE.Fog(0xcbe6f6,58,250);
+  // and the haze takes the horizon's colour, which is now warm. Fog the colour of a blue midday
+  // sky over a beach lit by a gold sun puts a cold band across the back of a warm picture.
+  // Far out, and further than it was. This exists for the BEACH running away behind the set, and
+  // the sea is much further off than the sand is — brought in close with a warm colour on it, the
+  // water fogged to the same cream as the dunes and the whole back half of the picture became one
+  // tone with a palm in front of it. The ocean has aerial perspective of its own, in its own
+  // shader, fading toward its own sky colour, which is the version of this the water should get.
+  prevScene.fog=new THREE.Fog(0xe8d6b8,95,310);
   if(!menuAO){ menuAO=new THREE.Group();
                for(let i=0;i<3;i++)menuAO.add(makeAOPool());
                prevScene.add(menuAO); }
   menuAO.visible=true;
-  if(prevHemi){ prevHemi.color.set(0xd8ecff); prevHemi.groundColor.set(0xe8c48a);
-                prevHemi.intensity=1.02; }
+  // and the ambient comes down with it. A hemisphere is the sky as a source, and an evening sky is
+  // a smaller, warmer one than a midday sky — left at noon strength it fills the shadows back in
+  // and cancels the low sun that was just set.
+  if(prevHemi){ prevHemi.color.set(0xbcd6ef); prevHemi.groundColor.set(0xe0b078);
+                prevHemi.intensity=0.78; }
   // Sand: warm and light, the colour of dry tropical beach. It carries a dark multiplier
   // over its vertex colours because the previews look at it from above in full daylight —
   // under the old low sun that went to mud, and under this one it can come most of the way
   // back up without the dunes flattening into one sheet.
   if(beachSand){ menuDay.sand=beachSand.material.color.clone();
-                 beachSand.material.color.set(0xb98f4e);
+                 beachSand.material.color.set(0xc79a5a);
                  menuDay.sandEnv=beachSand.material.envMapIntensity;
-                 beachSand.material.envMapIntensity=0.16; }
+                 beachSand.material.envMapIntensity=0.24; }
   // And the water turquoise rather than the open-ocean navy the game rides on. This is a
   // shallow reef shore in the sun; the game's own colours are a hundred metres out and four
   // hours later.
@@ -20627,9 +20698,17 @@ function menuBeachOn(){
     menuDay.sea={deep:prevOcean.uniforms.uDeep.value.clone(),
                  shal:prevOcean.uniforms.uShallow.value.clone(),
                  sky:prevOcean.uniforms.uSky.value.clone()};
-    prevOcean.uniforms.uDeep.value.set(0x0f86bd);
-    prevOcean.uniforms.uShallow.value.set(0x5ad2da);
-    prevOcean.uniforms.uSky.value.set(0xbfe6fb);
+    prevOcean.uniforms.uDeep.value.set(0x074f6e);
+    prevOcean.uniforms.uShallow.value.set(0x2fa3ae);
+    // uSky is what the water REFLECTS and what its own distance haze fades toward, so this one
+    // number is most of whether the sea belongs to the sky above it. Left cold over a warm horizon
+    // the water stayed a bright midday turquoise right up to a sunset, and the join between them
+    // was a line you could point at.
+    // warm, but not CREAM. Taken all the way to the horizon's own colour the water stopped being
+    // water — it fades toward this with distance and reflects it at a grazing angle, which from
+    // down on the sand is nearly all of it, so a cream sky put a cream sea under a cream beach and
+    // the whole back half of the picture became one tone.
+    prevOcean.uniforms.uSky.value.set(0xc8d6d0);
   }
   // And the water sits a little higher. Between the waterline and the dry sand there is a
   // band of beach only inches above the sea, and seen from down here at a grazing angle that
@@ -20638,8 +20717,11 @@ function menuBeachOn(){
   if(beachSea){ menuDay.seaY=beachSea.position.y; beachSea.position.y=1.05; shoreTaper(); }
   // and a cool fill from the camera's side, so the shaded face of the trunk and the underside
   // of the board pick up bounce off the sand instead of going black
-  if(prevFill){ prevFill.color.set(0xffeed6); prevFill.intensity=0.50;
-                prevFill.position.set(-1.0,1.5,3.2); }
+  // COOL, now that the key is warm. It was warm too, which on a warm-lit scene means the shaded
+  // side is the same colour as the lit side and only darker — and a shadow that differs from its
+  // light only in brightness is the thing that reads as flat shading. Sky bounce is blue.
+  if(prevFill){ prevFill.color.set(0xa9c9e8); prevFill.intensity=0.46;
+                prevFill.position.set(-1.0,1.4,3.2); }
   // The palm's colours are vertex colours under a dark multiplier, set for a preview that
   // looks at it from above in flat light. In the sun it wants to be a green tree rather than
   // an olive one, so the multiplier comes up for the menu and goes back on the way out.
@@ -20649,8 +20731,8 @@ function menuBeachOn(){
   // pushed up through the same neutral.
   { const mm=palmTintables(menuPalm);
     menuDay.palm=mm.map(x=>x.color.clone()); menuDay.palmMats=mm;
-    if(mm[0])mm[0].color.set(0x8a7458);
-    if(mm[1])mm[1].color.set(0x646464); }
+    if(mm[0])mm[0].color.set(0x94795a);
+    if(mm[1])mm[1].color.set(0x6a6a5e); }
   layoutMenuBeach();
   return true;
 }
@@ -20694,6 +20776,10 @@ let MB_FOV=92;
 // wide rectilinear lens smears the corners; a fisheye at a narrow angle bulges a picture that
 // has nothing at its edges to bend. So the angle goes up and this bends what the angle let in.
 let MENU_FISH=0;
+// How much of the warm film grade the title screen goes out through. The RIDE does not get this —
+// it has its own art direction, it runs from morning to dusk on its own clock, and quietly warming
+// all of it because one screen wanted a sunset would be changing a thing nobody asked about.
+let MENU_GRADE=1.0;
 // ---- and the shot stands back on its own now, rather than as a side effect ----
 // The bend used to pay for itself twice: it squeezed the periphery INTO the frame, and the camera
 // was pushed back by exactly what it magnified the middle so the subject came out the size it was
@@ -20824,7 +20910,12 @@ function layoutMenuBeach(){
     // what "the home screen looks dull" was. It is taken off the CAMERA now, like
     // everything else here: high, and over the left shoulder. The subjects are modelled,
     // the shadows rake away to the right across the sand, and turning the shot keeps both.
-    const dir=_mbS.copy(_mbUp).multiplyScalar(0.70)
+    // The up-component IS the time of day, and this is the only place it is set — the day block
+    // in menuBeachOn puts the key somewhere and this overwrites it every layout, so an elevation
+    // written there is a number that never reaches the light. Down from 0.70, which was a
+    // thirty-five degree sun: at 0.40 it sits at twenty-two, low enough to lay the palm across
+    // the sand toward the camera and to put a warm edge down one side of everything standing up.
+    const dir=_mbS.copy(_mbUp).multiplyScalar(0.40)
                   .addScaledVector(_mbR,-0.96).addScaledVector(_mbF,-0.22).normalize();
     prevKey.position.set(_mbP.x+dir.x*54,_mbP.y+dir.y*54,_mbP.z+dir.z*54);
     prevKey.target.position.set(_mbP.x-_mbR.x*2.4,_mbP.y+4,_mbP.z-_mbR.z*2.4);
@@ -21705,7 +21796,11 @@ function renderMenuBeach(dt){
   // difference between "outdoors at noon" and "a bright overcast", and it is put back
   // immediately so nothing else in the game is touched by it.
   const ex0=renderer.toneMappingExposure;
-  renderer.toneMappingExposure=ex0*1.14;
+  // A tenth of a stop, not a seventh. The bigger bump was solved for the noon version of this
+  // screen, where ACES had a huge bright sky to pull down; the sun is low and dim now and the
+  // grade does the lifting, so the same bump on top of both came out as a washed bright day
+  // wearing a sunset's colours.
+  renderer.toneMappingExposure=ex0*1.06;
   renderer.setClearColor(0x1a2540,1);
   // ---- and the bloom is pulled back off the board ----
   // Bloom is for things that are actually giving off light: the sun, a foam crest, the glitter
@@ -21723,7 +21818,7 @@ function renderMenuBeach(dt){
   // for. The range is wide enough to keep the rider beside it and the trunk behind it sharp
   // and let go of everything past them.
   present(prevScene,menuCam,null,MENU_DOF?{focus:menuCam.position.distanceTo(m.board.position),
-                                           range:MB_DOF}:null,MENU_FISH);
+                                           range:MB_DOF}:null,MENU_FISH,MENU_GRADE);
   if(fxOn&&bT0!==null){ fxBright.uniforms.uT.value=bT0; fxComp.uniforms.uAmt.value=bA0; }
   renderer.setClearColor(0x000000,1);
   renderer.toneMappingExposure=ex0;
