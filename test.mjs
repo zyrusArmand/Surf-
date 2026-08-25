@@ -635,7 +635,15 @@ await page.waitForTimeout(300);
           tall ? `portrait ${foot(tall).toFixed(2)}ft from the trunk at ${tall.chest}, ` +
                  `landscape ${foot(wide).toFixed(2)}ft at ${wide.chest}`
                : 'no beach chest');
-    check(tall && foot(tall) < 3.2 && foot(tall) > 1.2,
+    // Out from 3.2. The chest and the board both lean on this trunk, and at two and a half feet
+    // out they were not merely overlapping on screen — which they should, the chest stands in
+    // front of it — but sharing 1.31 by 1.80 by 0.49 feet of actual volume, which reads as one
+    // growing out of the other. Nothing nearer than about three and a half feet separates them,
+    // so the ceiling has to clear that or the two checks cannot both be satisfied. Four and a
+    // half is still the foot of a fourteen foot tree; the check that matters for THIS is the
+    // volume one further down, and this one is only guarding against the old failure, which was
+    // a chest nine feet out on open sand.
+    check(tall && foot(tall) < 4.5 && foot(tall) > 1.2,
           'and it is leaning on the trunk rather than sitting out on open sand',
           tall ? `${foot(tall).toFixed(2)}ft between the two, box ${tall.size[0]}ft across`
                : 'no beach chest');
@@ -1383,8 +1391,13 @@ if (hasHook) {
       // Across the TOP of the frame and centred on it, which is where the reference puts it. Read
       // off the plank's own box rather than a world-aligned one: a world-axis box round a turned
       // plank is a diagonal through it and reports a sign a fifth taller than the sign is.
-      check(sg.up && sg.x[0] > 0.04 && sg.x[1] < 0.96 && sg.y[0] > 0.02 && sg.y[0] < 0.18 &&
-            sg.y[1] < 0.34 && Math.abs(sg.cx - 0.5) < 0.04,
+      // The top and bottom bounds are out from 0.18 and 0.34. This block runs in a PHONE'S
+      // window — 460x966, set a long way above and never restored — and the plank deliberately
+      // hangs lower on a tall frame than on a wide one so the crown comes over its shoulders.
+      // The bounds still say what they were written to say: across the top of the frame, not
+      // half out of it and not down among the sand.
+      check(sg.up && sg.x[0] > 0.04 && sg.x[1] < 0.96 && sg.y[0] > 0.02 && sg.y[0] < 0.24 &&
+            sg.y[1] < 0.40 && Math.abs(sg.cx - 0.5) < 0.04,
             'and it hangs across the top of the frame rather than half out of it',
             `x ${sg.x}, y ${sg.y}, centred on ${sg.cx}`);
       // LEVEL, and flat on. It hung a couple of degrees off square in the world, which is nothing
@@ -1456,6 +1469,52 @@ if (hasHook) {
             shapes.map(s => `${s.w}x${s.h}: top ${s.y[0]}, centre ${s.cx}, ` +
                             `${((s.x[1] - s.x[0]) * 100).toFixed(0)}% wide by ` +
                             `${((s.y[1] - s.y[0]) * 100).toFixed(0)}% tall`).join(' | '));
+      // Dead centre, and asked tightly. The plank is the only straight horizontal thing on the
+      // screen, so the frame's own edges are its reference — a fiftieth off does not read as
+      // slightly off, it reads as hung wrong.
+      check(shapes.every(s => Math.abs(s.cx - 0.5) <= 0.015),
+            'and it hangs dead centre, not nearly centre',
+            shapes.map(s => `${s.w}x${s.h}: centre ${s.cx}`).join(' | '));
+      // ---- and the tree comes over its shoulders ----
+      // A sign IN a palm has fronds across its top corners. Hung clear above the crown it is a
+      // sign on a pole with a tree behind it, which is a different picture. Asked by RAYCAST
+      // through the band of frame just above the plank rather than by comparing two boxes: a
+      // world-axis box around a leaning tree is a diagonal through it and reports a crown a long
+      // way above the one you can see, so its numbers cannot answer this at all.
+      // Asked on a phone's shape, because that is where it is aimed: the plank's height is
+      // capped as a fraction of the frame's HEIGHT, so the same cap is a far bigger plank in a
+      // short landscape window, and the two want different numbers. That the two ARE different
+      // is the next check — a single height cannot satisfy both, and one that looks like it does
+      // is a height that has stopped depending on the frame.
+      // Waited on the fit SETTLING, not on a pause. The plank is solved by fourteen damped
+      // passes against a measurement of where it actually landed, and this runs on software GL
+      // at about three frames a second straight after two resizes — asked immediately it caught
+      // the plank in transit, a quarter of it off the top of the frame, and reported no fronds
+      // over a sign that was not where it was going to end up. Two readings that agree is the
+      // only honest way to know a damped solve has stopped moving.
+      await page.waitForFunction(() => {
+        const y = window.__surf.signAt().y[0];
+        const p = window.__sgPrev; window.__sgPrev = y;
+        return p !== undefined && Math.abs(p - y) < 0.002;
+      }, null, { timeout: 60000 }).catch(() => {});
+      const crown = await page.evaluate(() => window.__surf.signCrown());
+      check(crown && crown.up && crown.frac > 0.15,
+            'and the palm shows above the sign on a phone — fronds over its shoulders',
+            crown ? `${crown.hit} of ${crown.n} rays through the band above it land on the palm ` +
+                    `(${(crown.frac * 100).toFixed(0)}%), top edge ${crown.top}` : 'no sign');
+      check(shapes.length === 2 && shapes[0].y[0] > shapes[1].y[0] + 0.008,
+            'and it hangs lower on a tall frame than on a wide one, as the crown needs',
+            shapes.map(s => `${s.w}x${s.h}: top ${s.y[0]}`).join(' | '));
+      // ---- and the chest is not standing INSIDE the board ----
+      // On screen these two are meant to overlap: the chest stands in front of it. So a screen
+      // box that overlaps says nothing, and the question is whether they share a VOLUME. They
+      // did — 1.31 by 1.80 by 0.49 feet of the board was inside the chest, because both of them
+      // lean on the same trunk. Asked in the world, where the answer lives.
+      const clr = await page.evaluate(() => window.__surf.menuClear());
+      check(clr && clr.up && clr.hit === false && clr.gap < 0,
+            'and the chest stands in front of the board rather than inside it',
+            clr && clr.up ? `overlap ${clr.ov.join(' x ')} feet — clear by ` +
+                            `${(-clr.gap).toFixed(2)} on its tightest axis` : 'no set');
       // ---- and the shot did not close in when the bend came off ----
       // The title screen used to go out through a fisheye. That bend paid for itself twice: it
       // squeezed the periphery INTO the frame, and the camera was stood back by exactly what it

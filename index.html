@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.40.0';
+window.SURF_VERSION='4.41.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -17212,6 +17212,35 @@ if(location.hash.includes('debug')){
                             MB_DOF]:null,
               fog:prevScene.fog?[prevScene.fog.near,prevScene.fog.far]:null};
     },
+    // Whether the palm actually shows ABOVE the plank, asked by looking rather than by comparing
+    // two boxes. A world-axis box around a leaning tree is a diagonal through it and reports a
+    // crown a long way above the one you can see, so "is the tree higher than the sign" is not a
+    // question its numbers can answer. Rays through the band of frame just over the sign's top
+    // edge can: each one either lands on the palm first or it does not.
+    signCrown(rows){
+      if(!beachSign||!menuCam||typeof menuPalm==='undefined'||!menuPalm)return {up:false};
+      const m=signScreen();
+      if(!m)return {up:false};
+      const band=(m.y[1]-m.y[0])*0.55, R=rows||3;
+      let hit=0, n=0;
+      const nd={x:0,y:0};
+      for(let r=1;r<=R;r++){
+        const sy=m.y[0]-band*(r/(R+1));
+        for(let i=0;i<13;i++){
+          const sx=m.x[0]+(m.x[1]-m.x[0])*(i/12);
+          if(sx<0||sx>1||sy<0||sy>1)continue;
+          n++;
+          nd.x=sx*2-1; nd.y=-(sy*2-1);
+          _hzRay.setFromCamera(nd,menuCam);
+          const f=_hzRay.intersectObject(menuPalm,true)[0];
+          if(!f)continue;
+          const g=_hzRay.intersectObject(beachSign,true)[0];
+          if(!g||f.distance<g.distance)hit++;    // frond in front, or no plank there at all
+        }
+      }
+      return {up:true, band:+band.toFixed(3), rows:R, n, hit,
+              frac:n?+(hit/n).toFixed(3):0, top:+m.y[0].toFixed(3)};
+    },
     signAt(w,h,f,d,rot,mh){
       if(w!==undefined)MB_SGN_W=w; if(h!==undefined)MB_SGN_H=h;
       if(f!==undefined)MB_SGN_F=f; if(d!==undefined)MB_SGN_D=d;
@@ -18581,6 +18610,27 @@ if(location.hash.includes('debug')){
     // lens, the distance and the shape of the window all at once — so the camera is walked
     // against these instead: what fraction of the picture's height the board fills, and where
     // across it each of the three things sits.
+    // Whether two pieces of the set are STANDING IN each other, which is a question about the
+    // world and not about the picture. On screen the chest is meant to overlap the board — it
+    // stands in front of it — so a screen box that overlaps says nothing. Boxes that share a
+    // volume is the thing that reads as one object growing out of another.
+    menuClear(){
+      if(typeof menuBeach==='undefined'||!menuBeach||!menuCam)return null;
+      const wb=o=>o?new THREE.Box3().setFromObject(o):null;
+      const bd=wb(menuBeach.board), ch=wb(typeof beachChest!=='undefined'?beachChest:null);
+      if(!bd||!ch)return {up:false};
+      // How deep into each other they reach on each axis: all three positive is a real overlap,
+      // and the smallest of them is how far one has to move to be clear.
+      const ov=['x','y','z'].map(k=>+(Math.min(bd.max[k],ch.max[k])-Math.max(bd.min[k],ch.min[k]))
+                                       .toFixed(3));
+      return {up:true, hit:ov.every(v=>v>0), ov,
+              gap:+Math.min.apply(null,ov).toFixed(3),
+              board:{lo:bd.min.toArray().map(v=>+v.toFixed(2)),
+                     hi:bd.max.toArray().map(v=>+v.toFixed(2))},
+              chest:{lo:ch.min.toArray().map(v=>+v.toFixed(2)),
+                     hi:ch.max.toArray().map(v=>+v.toFixed(2))},
+              at:{cd:MB_CD, cf:MB_CF, ch:MB_CH}};
+    },
     menuFrame(){
       if(typeof menuBeach==='undefined'||!menuBeach||!menuCam)return null;
       const box=o=>{
@@ -21597,21 +21647,51 @@ let MB_CROT=Math.PI*1.10;
 // is wrong: it leaves the plank itself lying downhill, and the plank is the long straight thing
 // against the top of the frame, so it is the plank the eye levels against. The climbing word is a
 // property of the asset and reads as lettering; a tipped board reads as a mistake.
-// ---- and the numbers below are the reference's, measured off it ----
-// Not chosen and not walked: the reference screenshot was decoded and its plank found by colour,
-// taking the longest unbroken run of wood in each row rather than the first and last wood pixel,
-// because a frond at the edge of the frame is wood-coloured too and drags the box out. It spans
-// 0.730 of the width, centred on 0.4917, with its top edge 0.0381 down the frame. These four
-// numbers put this one within a fifth of a percent of all three.
-let MB_SGN_W=0.803, MB_SGN_MH=0.26, MB_SGN_H=0.10, MB_SGN_F=6.0, MB_SGN_D=0.481, MB_SGN_ROT=0;
+// ---- where the plank hangs, in the picture rather than in the world ----
+// These started as the reference's own numbers, decoded off the screenshot by colour: it spans
+// 0.730 of the width, centred on 0.4917, with its top edge 0.0381 down the frame. Two of them
+// have moved since, on the eye rather than the measurement, and it is worth saying which.
+// MB_SGN_D is dead centre now. Off it by a fiftieth the plank does not read as slightly off —
+// it reads as hung wrong, because it is the only straight horizontal thing on the screen and
+// the frame's own edges are the reference for it.
+// MB_SGN_H is the TOP edge, and it is lower than the reference's so the crown shows above it.
+// A sign in a palm has the tree over its shoulders; hung clear above the crown it is a sign on
+// a pole with a tree behind it, which is a different picture.
+// MB_SGN_F stays SIX. The obvious way to get fronds in front of the plank is to hang it back
+// behind the crown, and it does not work: the fit solves size and place off the plank's box on
+// screen, and once the crown is over it the box and the part you can actually see are two
+// different rectangles. Tried at 1.2 — the solver dutifully centred a plank that was four
+// fifths hidden. It hangs in front and the overlap comes from height alone.
+let MB_SGN_W=0.803, MB_SGN_MH=0.26, MB_SGN_H=0.152, MB_SGN_F=6.0, MB_SGN_D=0.500, MB_SGN_ROT=0;
+// ...and it hangs LOWER on a tall frame than on a wide one, which is not a fudge. The plank's
+// height is capped as a fraction of the frame's HEIGHT, and a landscape frame is short — so the
+// same cap is a far bigger plank there, relative to the tree, than it is on a phone. Hung at the
+// phone's height in a laptop window it covered the crown down to a tuft; hung at the laptop's
+// height on a phone the tree sat entirely under it, which is the sign-on-a-pole the whole point
+// was to avoid. Measured by raycast through the band just above the plank: at 0.152 a phone sees
+// fronds over 5% of that band, at 0.200 it sees a third of it, and a laptop at 0.200 sees its
+// crown vanish. The same span the camera's own stand-off already uses, for the same reason.
+let MB_SGN_HP=0.092;
+function sgnTopTarget(){
+  return MB_SGN_H+MB_SGN_HP*Math.max(0,1-(menuCam?menuCam.aspect:1));
+}
 let MB_CD=-0.50;        // out to the camera's right of the trunk's own axis...
 // Out from 1.3, where the new palm's trunk is thick enough at chest height that the two
 // merged into one shape — the chest was measurably clear of the CENTRELINE and visibly inside
 // the tree, which is the difference between a trunk that is a line and a trunk that is a
 // tapering column a foot and a half across at the bottom.
-let MB_CF=2.60;        // ...and this far in front of it, which is close enough to be leaning
-                       // on the trunk — the near corner of the box overlaps its foot
-let MB_CH=1.8;         // and this tall — small, because it is standing much nearer the lens
+// Out again from 2.60, where the chest and the board were not merely overlapping ON SCREEN —
+// which they should, the chest stands in front of it — but sharing a foot and a half of actual
+// volume: measured, 1.31 by 1.80 by 0.49 feet of the board was inside the box. Both of them lean
+// on the same trunk, so of course they did. It could have been fixed by walking the chest along
+// the shore instead, and that is worse: the camera aims at the midpoint of the set, so moving
+// the chest sideways pans the whole shot and drags the pug and the board off their marks with
+// it. Straight out toward the lens separates them and moves nothing else.
+let MB_CF=4.00;        // ...and this far in front of it, which is a chest on the sand at the
+                       // foot of the tree rather than a chest growing out of the surfboard
+let MB_CH=1.55;        // and this tall — brought down from 1.8 with the step forward, because
+                       // a foot and a half nearer the lens is a quarter again as big on screen
+                       // and the point was to move it, not to grow it
 let _bcAsp=null;
 const _bcP=new THREE.Vector3();
 function layoutBeachChest(){
@@ -21845,7 +21925,7 @@ function fitBeachSign(){
     // at thirty feet with four a pass it SATURATED there — the top edge came to rest half again
     // as far down the frame as asked, and the width solve then chased a sign that was never going
     // to arrive, ending ninety percent of the way across the screen.
-    if(!secant(()=>_sgUp,MB_SGN_H,q=>q.y[0],v=>{_sgUp=v;},2,90,12))done=false;
+    if(!secant(()=>_sgUp,sgnTopTarget(),q=>q.y[0],v=>{_sgUp=v;},2,90,12))done=false;
     if(!secant(()=>_sgSide,MB_SGN_D,q=>(q.x[0]+q.x[1])/2,v=>{_sgSide=v;},-24,24,8))done=false;
     m=hangBeachSign();
     if(done||!m)break;
