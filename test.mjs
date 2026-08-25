@@ -1800,6 +1800,44 @@ if (hasHook) {
     // tenth of a metre of drift that has nothing to do with the ring.
     await page.setViewportSize({ width: 1024, height: 640 });
     await settleShot();
+    // ---- and after all that, he is still standing on the sand ----
+    // Put AFTER the charge rather than before it. Sat in front, the two shop trips broke the
+    // charge outright — it never started, and eight checks about a punch that never landed went
+    // red. The double tap has to arrive inside four hundred and twenty milliseconds of the tap
+    // before it, and a shop overlay opening and closing either side of it is not something to
+    // put in the way of that. This asks nothing of the page's state and is happy at the end.
+    // The show pins his lowest drawn point to ONE absolute world height, solved by a ray onto
+    // the sand and then kept — deliberately, so that lying down and the handstand move his body
+    // without moving him through the ground. That height belongs to the mark he was standing on,
+    // and the layout moves him off it. Opening the shop tears the whole beach down (openViewer
+    // calls menuBeachOff) and closing it builds another, so the show can be capturing before the
+    // layout has put him anywhere — and being latched it never corrected. Measured before the
+    // fix: two trips through and his foot sat at 0.584 of the frame with the chest's at 0.753.
+    //
+    // Asked against the CHEST rather than against a number. Both of them stand on the same sand
+    // a few feet apart, so where their feet land on screen tracks together whatever the window
+    // does — and it is the comparison a person makes looking at the picture. The tolerance is
+    // wide enough for the foot of perspective between two things at different depths and a
+    // fifth of what the fault was worth.
+    // TWICE, because once did not do it: the first trip came back clean and the second and third
+    // floated. A check that goes in and out once would have passed on the broken build.
+    for (const who of ['angler', 'pug']) {
+      await page.evaluate(() => document.querySelector('.hbtn.hb-shop').click());
+      await page.waitForTimeout(2500);
+      await page.evaluate(k => window.__surf.wear(k), who);
+      await page.waitForTimeout(1500);
+      await page.evaluate(() => document.getElementById('shopClose').click());
+      await page.waitForTimeout(4000);
+      const st = await page.evaluate(() => {
+        const f = window.__surf.menuFrame();
+        return f && f.rider && f.chest ? { r: f.rider.foot, c: f.chest.foot } : null;
+      });
+      check(st && Math.abs(st.r - st.c) < 0.05,
+            `and ${who} still stands on the sand after a trip to the shop, not over it`,
+            st ? `his foot at ${st.r.toFixed(3)} of the frame, the chest's at ${st.c.toFixed(3)}` +
+                 ` — ${(st.r - st.c).toFixed(3)} between them`
+               : 'no menu frame');
+    }
   }
 
   await ver5tap();
