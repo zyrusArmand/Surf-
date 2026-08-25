@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.48.0';
+window.SURF_VERSION='4.49.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -6499,6 +6499,76 @@ loadModel('sand.glb',(s3)=>{
   const geo=mm.geometry.clone();
   geo.applyMatrix4(mm.matrixWorld);        // whatever the file wrapped it in, baked in
   geo.computeBoundingBox();
+  // ---- and laid FLAT, whichever way up the file was ----
+  // This is a slab, and the one thing that is certainly true about a slab is that its thinnest
+  // axis is the one pointing at the sky. The rest of this function assumes that axis is Y, and
+  // it is not something a scan can be relied on to agree about: the piece this was written for
+  // lies in XZ at 1.90 by 0.19 by 1.17, and the next one arrived Z-up at 1.90 by 1.08 by 0.22 —
+  // standing on its edge.
+  // Nothing about that is visible as a wrong-looking beach, which is the trap. The grid STEP is
+  // the piece's short side, so a slab on its edge reports a short side of a fifth of a foot
+  // instead of four feet, and the field quietly tries to lay eight thousand tiles instead of
+  // three hundred. Twenty-three million triangles, and the page never finishes loading.
+  // So the thin axis is measured and turned up, rather than assumed.
+  {
+    const sz=geo.boundingBox.getSize(new THREE.Vector3());
+    const thin=(sz.x<=sz.y&&sz.x<=sz.z)?'x':(sz.z<=sz.y?'z':'y');
+    if(thin==='z')geo.rotateX(-Math.PI/2);
+    else if(thin==='x')geo.rotateZ(Math.PI/2);
+    // ...and centred on its own middle in the plane, so a file whose origin sits at one corner
+    // lays its tiles where the grid asked for them rather than half a piece off.
+    geo.computeBoundingBox();
+    const c=geo.boundingBox.getCenter(new THREE.Vector3());
+    geo.translate(-c.x,0,-c.z);
+    geo.computeBoundingBox();
+  }
+  // ---- and the scanned EDGE is cut off before it is tiled ----
+  // A scanned slab does not end at a clean line: the outer band curls up where the scan ran out
+  // of surface, and that lip is a real ridge standing proud of the piece. Overlapping and
+  // turning the tiles hides a SEAM — two edges not lining up — and can do nothing about a lip,
+  // because a lip stands over its neighbour whichever way round it is. Laid as it came, the
+  // beach was covered in long raised planks crossing each other at angles, one per tile.
+  // So the outer eighth is cut away and the clean middle is what gets tiled. A triangle is kept
+  // only if ALL THREE of its corners are inside, so the cut leaves no half-triangles hanging
+  // off the edge. The piece comes out smaller, and nothing downstream needs telling: the grid
+  // step is measured off the piece, so it simply lays a few more of them.
+  {
+    const EDGE=0.125;
+    const bb=geo.boundingBox, sz=bb.getSize(new THREE.Vector3());
+    const ix=sz.x*EDGE, iz=sz.z*EDGE;
+    const lo={x:bb.min.x+ix, z:bb.min.z+iz}, hi={x:bb.max.x-ix, z:bb.max.z-iz};
+    const P=geo.attributes.position, idx=geo.index;
+    const inside=i=>{ const x=P.getX(i), z=P.getZ(i);
+                      return x>=lo.x&&x<=hi.x&&z>=lo.z&&z<=hi.z; };
+    if(idx){
+      const keep=[];
+      for(let t=0;t<idx.count;t+=3){
+        const a=idx.getX(t), b=idx.getX(t+1), c2=idx.getX(t+2);
+        if(inside(a)&&inside(b)&&inside(c2))keep.push(a,b,c2);
+      }
+      if(keep.length>=3){
+        geo.setIndex(keep);
+        // ---- and the box is measured off the vertices STILL IN USE ----
+        // computeBoundingBox walks the position attribute and knows nothing about the index, so
+        // after a crop it happily reports the piece's original size while more than half its
+        // triangles have gone. Everything downstream reads that box: the tile scale, the grid
+        // step, the overlap. Left alone it worked by luck — the 28% overlap the field already
+        // uses happened to be just larger than the 25% that was cut away — which is a beach
+        // that holds together until somebody adjusts either number.
+        let x0=Infinity,x1=-Infinity,z0=Infinity,z1=-Infinity,y0=Infinity,y1=-Infinity;
+        for(const i of keep){
+          const x=P.getX(i), y=P.getY(i), z=P.getZ(i);
+          if(x<x0)x0=x; if(x>x1)x1=x;
+          if(y<y0)y0=y; if(y>y1)y1=y;
+          if(z<z0)z0=z; if(z>z1)z1=z;
+        }
+        const cx=(x0+x1)/2, cz=(z0+z1)/2;
+        geo.translate(-cx,0,-cz);
+        geo.boundingBox=new THREE.Box3(
+          new THREE.Vector3(x0-cx,y0,z0-cz), new THREE.Vector3(x1-cx,y1,z1-cz));
+      }
+    }
+  }
   const mat=Array.isArray(mm.material)?mm.material[0]:mm.material;
   // the same rule every imported surface here follows: matt, and never emissive
   if(mat){
@@ -18843,6 +18913,27 @@ if(location.hash.includes('debug')){
         this._bare=null;
       }
       return !!this._bare;
+    },
+    // The state of the ground the beach is built from. A scanned slab arrives whichever way up
+    // the scanner left it, and the only thing this code needs from it is that its THIN axis
+    // points at the sky — because the grid step is the piece's short side. A piece on edge
+    // reports a short side of inches instead of feet and the field quietly tries to lay
+    // thousands of tiles instead of hundreds, which is not a wrong-looking beach, it is a page
+    // that never finishes loading.
+    sandRig(){
+      if(typeof sandTile==='undefined'||!sandTile)return {up:false};
+      const bb=sandTile.geo.boundingBox||
+               (sandTile.geo.computeBoundingBox(),sandTile.geo.boundingBox);
+      const s2=bb.getSize(new THREE.Vector3());
+      const tris=sandTile.geo.index?sandTile.geo.index.count/3
+                                   :sandTile.geo.attributes.position.count/3;
+      const f=sandField;
+      return {up:true,
+              size:[+s2.x.toFixed(3),+s2.y.toFixed(3),+s2.z.toFixed(3)],
+              flat:s2.y<s2.x&&s2.y<s2.z,          // thin side up, which is the whole assumption
+              tris:Math.round(tris),
+              tiles:f&&f.isInstancedMesh?f.count:(f?1:0),
+              fieldTris:f&&f.isInstancedMesh?Math.round(tris*f.count):null};
     },
     shadowState(){
       const one=(n,o)=>{ if(!o)return n+':missing';

@@ -996,6 +996,25 @@ await page.waitForTimeout(300);
                         sand: surf.sand.ao, board: surf.board.ao}));
   check(surf.pools === 3, 'and each thing standing on the sand darkens the sand under it',
         `${surf.pools} contact pools`);
+  // ---- the ground is one scanned slab, laid flat and laid the right number of times ----
+  // Everything about the field is measured off the piece, which makes it robust to a new scan
+  // and gives it exactly one way to go badly wrong: the grid step is the piece's SHORT side, so
+  // a slab that arrives on its edge reports a short side of inches instead of feet. The replacement
+  // tile did exactly that — 1.90 by 1.08 by 0.22, Z-up — and the field tried to lay eight
+  // thousand tiles instead of three hundred. Twenty-three million triangles. That is not a
+  // wrong-looking beach anybody would spot in a screenshot; it is a page that never finishes
+  // loading, and the loading screen sits at 100% while it happens.
+  // So: the thin side is up, the count is in the hundreds, and the whole field fits a budget.
+  const sr = await page.evaluate(() => window.__surf.sandRig());
+  check(sr && sr.up && sr.flat,
+        'the sand tile lies flat — its thin side is the one pointing at the sky',
+        sr && sr.up ? `${sr.size.join(' x ')} feet` : 'no sand tile');
+  check(sr && sr.up && sr.tiles > 80 && sr.tiles < 900,
+        'and the field is laid in hundreds of pieces, not thousands',
+        sr && sr.up ? `${sr.tiles} tiles of ${sr.tris} triangles` : 'no field');
+  check(sr && sr.up && sr.fieldTris > 0 && sr.fieldTris < 900000,
+        'and the whole beach fits inside the budget the old one had',
+        sr && sr.up ? `${(sr.fieldTris / 1000).toFixed(0)}k triangles across the field` : 'no field');
   // Where the sun is decides two different things and they were fighting. In world
   // coordinates it sat behind the set, and once the shot turned to face the water that put
   // it behind everything IN the shot — tree, board and rider all lit on the side you cannot
