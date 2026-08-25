@@ -4542,6 +4542,7 @@ check(shaderErrors.length === 0, 'every shader compiles',
         'and stays on the sand doing it, lying down included',
         `ground held at ${show[0].ground === null ? 'none' : (+show[0].ground).toFixed(3)}`);
 
+
   // A CARD IS A PORTRAIT: it has to look the same every time it is opened. The title-screen
   // show drives all twenty-four bones, and the standing pose writes about a dozen — so
   // restoring only what the pose writes left the rest of whatever clip had been running

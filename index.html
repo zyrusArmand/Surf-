@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.37.0';
+window.SURF_VERSION='4.38.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -5949,6 +5949,28 @@ function modelPalm(seed,prof,menu){
 // trunk blended between the two it sits between, and everything above the crown line bound
 // rigidly to the top bone. That last part is the whole trick — a crown weighted by height
 // shears apart as the trunk bends, where a real palm's crown rides on top of it as one piece.
+// ---- and where the sand actually IS under a given thing, asked by ray ----
+// beachSandH answers in the beach group's own space and everything standing on the beach lives
+// in world space, and the two are a scale and an offset apart. Mixing them is not a small error:
+// it reported every character as six feet under the sand while they were plainly standing on it.
+// A ray does not care which space anything was authored in, and it hits the scattered tiles as
+// well as the painted beach under them — which matters, because the tiles ARE the surface you
+// see and they sit proud of the thing that generated them.
+const _suRay=new THREE.Raycaster(new THREE.Vector3(),new THREE.Vector3(0,-1,0),0,240);
+const _suP=new THREE.Vector3();
+function sandUnder(obj){
+  if(!obj)return null;
+  obj.getWorldPosition(_suP);
+  _suRay.set(_suP.clone().setY(_suP.y+60), _suRay.ray.direction.set(0,-1,0));
+  let best=null;
+  for(const o of [typeof sandField!=='undefined'?sandField:null,
+                  typeof beachSand!=='undefined'?beachSand:null]){
+    if(!o||!o.visible)continue;
+    const h=_suRay.intersectObject(o,false)[0];
+    if(h&&(best===null||h.point.y>best))best=h.point.y;
+  }
+  return best;
+}
 function rigStaticPalm(s3){
   // ---- ONE mesh, and that is a requirement on the file ----
   // Everything below is measured off a single geometry: the crown line from how far the mesh
@@ -6634,6 +6656,7 @@ function buildBeach(){
   // rather than the top of the terrain — see sandFieldBuild for why, and for where the lift
   // comes from. Zero until the modelled sand arrives, so nothing moves if it never does.
   beachSandH=wz=>sandH(wz)+sandLift+SET_UP;
+
   beachSand0=sandH(0);                           // how high the sand is where the object goes
   // The sea is built row by row rather than as a PlaneGeometry, because a uniform grid
   // cannot do both jobs at once. The swell is carried in the vertex shader and its shortest
@@ -10057,7 +10080,31 @@ function buildChar(id){
   }
   sizeRider();
   builtChar=id;
+  // ---- the pose he was BUILT in, kept, so he can be put back into it ----
+  // The built-in body is animated by writing straight onto its joints, and nothing writes them
+  // back. A run leaves whatever the last frame of it was — arms up from a handstand, most
+  // obviously — and the body is not thrown away when the run ends: it is the body every
+  // character without a model of his own is wearing on the home screen and on his shop card.
+  // So he came back from a handstand with his arms still over his head and stayed that way.
+  // There is a portraitPose for exactly this, but that is a photographer's pose — it squares the
+  // hips and stands the legs side by side for a card — and the home screen wants him standing on
+  // a board, not posed for a portrait. What he wants is the pose the BUILD gave him.
+  BUILT_REST=[pelvis,spine,chestJ,neck,headJ,tailJ,
+              legFrontJ.hip,legFrontJ.knee,legFrontJ.ankle,
+              legBackJ.hip,legBackJ.knee,legBackJ.ankle,
+              armFrontJ.sh,armFrontJ.el,armBackJ.sh,armBackJ.el]
+             .filter(Boolean).map(j=>[j,j.rotation.clone()]);
   if(typeof showRiderModel==='function')showRiderModel();
+}
+// Put back exactly, not blended toward: a blend that never quite arrives leaves a fraction of a
+// handstand on him for ever, and a fraction of a handstand is what "his arms are still a bit up"
+// looks like.
+let BUILT_REST=null;
+function standDown(){
+  if(!BUILT_REST)return false;
+  for(const [j,r] of BUILT_REST)j.rotation.copy(r);
+  if(typeof applyHandPose==='function')applyHandPose(0);
+  return true;
 }
 // A world unit here is a FOOT. That was settled when the boards were cut to their real spec
 // sheets, and everything else in the water turns out to agree with it: the buoy measures 3.2
@@ -10787,7 +10834,7 @@ function setupModelRig(root,gltf,id){
       this.stand.setEffectiveWeight(0); this.stand.play(); }
     for(const n in this.bind){ const b=this.bones[n], r=this.bind[n];
       b.position.copy(r.p); b.quaternion.copy(r.q); b.scale.copy(r.s); }
-    this.step=-1; this.stepT=0; this.ground=null;
+    this.step=-1; this.stepT=0; this.ground=null; this.groundFromSand=false;
     this.phase='idle'; this.t=0; this.aw=0; this.rot=0; this.brh=1;
     if(this.yawFix){ pug.rotation.y-=this.yawFix; this.yawFix=0; }
     if(this.xFix){ pug.position.x-=this.xFix; this.xFix=0; }
@@ -11233,7 +11280,7 @@ function setupModelRig(root,gltf,id){
   const FADE=0.34;
   // added to every beat's own hold — see start()
   const SHOW_REST=0.90;
-  R.step=-1; R.stepT=0; R.ground=null; R.posture='stand'; R.cur=null; R.prev=null; R.fadeT=0;
+  R.step=-1; R.stepT=0; R.ground=null; R.groundFromSand=false; R.posture='stand'; R.cur=null; R.prev=null; R.fadeT=0;
   R.show=function(dt){
     // TURNED TOWARD THE CAMERA, and turned FIRST. The riding stance is square across the
     // board and side-on to the viewer, which is right on a wave and wrong on a title screen —
@@ -11253,8 +11300,28 @@ function setupModelRig(root,gltf,id){
     // without beat zero's clip skipped it and never had a height at all — the cat went
     // straight into his handstand and put his face through the beach — and a model with none
     // of these clips took an early return and was never held to the sand either.
-    if(this.ground===null){ const b0=this.skinBox&&this.skinBox();
-                            if(b0)this.ground=b0.lo[1]; }
+    // ---- pinned to the SAND, not to wherever he happened to be when this was captured ----
+    // hold() forces his lowest drawn point back to this number every frame on every path, so
+    // whatever it is set to IS the height he stands at for the whole show — and it was set to
+    // his own lowest point at the moment of capture, which is a measurement of the model rather
+    // than of the beach. Nothing ever compared the two. Measured, he floats four inches over the
+    // sand standing still, and any character whose capture pose sits lower than his feet spends
+    // the entire show buried in it.
+    // Captured ONCE, still: a height re-measured every frame follows the dune he is standing on
+    // and there is nothing left to hold him steady against.
+    // ---- and it is captured the first time there is a BEACH to capture it from ----
+    // Captured on the first frame of the show, the beach may not be standing yet — the models
+    // arrive over several seconds and the sand is built when the menu first asks for it — so the
+    // ray finds nothing and this falls back to the model's own lowest point, which is the very
+    // measurement it was meant to replace. Measured, that is the difference between a rider on
+    // the sand and one four inches over it, and which you got depended on how quickly the page
+    // had got itself together. So it is provisional until the sand answers, and fixed after.
+    if(!this.groundFromSand){
+      const sd=(typeof sandUnder==='function')?sandUnder(pug):null;
+      if(sd!==null){ this.ground=sd; this.groundFromSand=true; }
+      else if(this.ground===null){ const b0=this.skinBox&&this.skinBox();
+                                   if(b0)this.ground=b0.lo[1]; }
+    }
     const hold=()=>{ const b=this.skinBox&&this.skinBox();
                      if(b&&this.ground!==null)pug.position.y+=this.ground-b.lo[1]; };
     // ---- and if you tap him twice, he comes and has a word about it ----
@@ -13564,6 +13631,7 @@ function reset(){
     pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}}); rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null;
   handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;_freeze=false;
+  if(typeof standDown==='function')standDown();   // arms down, whatever the run left
   switchRide=false;waveT=0;applyStance();
   onRampO=null;rampPitchT=0; }
   player.rotation.set(0,0,0);
@@ -13607,6 +13675,7 @@ function respawn(){
   }
   player.rotation.set(0,0,0);
   handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;_freeze=false;
+  if(typeof standDown==='function')standDown();   // arms down, whatever the run left
   switchRide=false;waveT=0;applyStance();
   for(let i=obstacles.length-1;i>=0;i--)
     if(obstacles[i].position.z>-48){scene.remove(obstacles[i]);obstacles.splice(i,1);}
@@ -16169,6 +16238,7 @@ if(location.hash.includes('debug')){
         if(la){ const w=new THREE.Vector3(); la.getWorldPosition(w);
           out.LeftArmW=[w.x,w.y,w.z].map(v=>+v.toFixed(2)); }
         out.handT=+handT.toFixed(3); }
+
       out.pugBox=[PUG_BOX.min.y,PUG_BOX.max.y].map(v=>+v.toFixed(2));
       out.pugX=[PUG_BOX.min.x,PUG_BOX.max.x].map(v=>+v.toFixed(2));
       out.pugZ=[PUG_BOX.min.z,PUG_BOX.max.z].map(v=>+v.toFixed(2));
@@ -16266,7 +16336,23 @@ if(location.hash.includes('debug')){
       // taking longer than the beat containing it. Negative rest, on a beat that has 0.3s of it.
       const mv=r.moves?(r.moves()[r.step]||{}):{};
       const run=(typeof r.stepRun==='number')?r.stepRun:null;
+      // ---- and how far he is ABOVE the sand, which is the thing "on the sand" means ----
+      // `ground` is the height his lowest drawn point is pinned to, and holding it constant is
+      // what stops a lie-down dropping him through the beach. But the number it is pinned AT is
+      // whatever his lowest point happened to be when it was captured, and nothing has ever
+      // compared that to where the sand actually is. Held perfectly at the wrong height, he is
+      // buried for the whole show and every reading here says he is fine.
+      // Asked by CASTING A RAY at the beach, not by evaluating its height function. The height
+      // function takes a position in the beach group's own space and the box comes back in
+      // world space, and mixing the two is not a small error — it read every character as six
+      // feet under the sand while they were plainly standing on it. A ray does not care which
+      // space anything was authored in.
+      const bx=r.skinBox&&r.skinBox();
+      const sand=(typeof sandUnder==='function')?sandUnder(pug):null;
       return {step:r.step, left:+((r.stepT||0)).toFixed(2), ground:r.ground,
+              clear:(bx&&sand!==null)?+(bx.lo[1]-sand).toFixed(3):null,
+              sand:sand===null?null:+sand.toFixed(3),
+              low:bx?+bx.lo[1].toFixed(3):null,
               posture:r.posture, clip:mv.clip||null,
               run:run===null?null:+run.toFixed(2),
               rest:run===null?null:+((r.stepT||0)-run).toFixed(2)}; },
@@ -16535,6 +16621,15 @@ if(location.hash.includes('debug')){
               swallow:s.swallow||0, asym:!!(s.asymW||s.asymZ),
               rockN:s.rockN,rockT:s.rockT,noseR:s.noseR,tailR:s.tailR}; },
     state:()=>({dist,speed,score,running,wipe:!!wipe,airborne,px,py,pz,
+      // The built-in body's shoulders and head, always — this is the body every character
+      // WITHOUT a model of his own is wearing, the handstand writes these joints directly, and a
+      // handstand left on them is one left on half the roster: on the home screen, on the shop
+      // cards and into the next run.
+      handTv:typeof handT==='number'?+handT.toFixed(3):null,
+      armsUp:(typeof armFrontJ!=='undefined'&&armFrontJ&&armFrontJ.sh)
+        ?{front:+armFrontJ.sh.rotation.x.toFixed(3), back:+armBackJ.sh.rotation.x.toFixed(3),
+          head:+((typeof headJ!=='undefined'&&headJ)?headJ.rotation.x:0).toFixed(3),
+          held:typeof _handPrev!=='undefined'&&_handPrev!==null}:null,
                 swPh,swT,swA,swX,swS,swRide,swRideMax,swOver,swCurlA,swClose,
                 swAng,swLoops,swTubeRide,swOnLip,ring:swTubeGeom(),
                 jellyHits,lastWipe,swCut,swPipeAir,trickReady,cracks,swForm,crateHeld,crateOn,
@@ -19063,11 +19158,30 @@ function _handJoint(tag,sub){
   const g={aF:armFrontJ,aB:armBackJ,lF:legFrontJ,lB:legBackJ}[tag];
   return tag==='hd'?headJ:g[sub];
 }
+// ---- and it blends from where the pose STARTED, not from where it currently is ----
+// This read each joint's live rotation and leaned it toward the handstand angle. On the way up
+// that is fine and on the way down it is not a blend at all: at k of a half it puts the joint
+// half way from wherever it already is to the target, which is FORWARD, so a released handstand
+// walks the arms up rather than bringing them down. The joints it writes belong to the built-in
+// body — the one every character without a model of his own is wearing — so the arms stayed up
+// afterwards on the home screen, on the shop cards and in the next run. Nothing rewrites them
+// out there; the ride's own stance is what was quietly covering for this.
+// The pose as it stood when the handstand began is kept, blended from, and put back exactly on
+// release. Restoring rather than blending to zero matters: a blend that never quite arrives
+// leaves a fraction of a handstand on him for ever.
+let _handPrev=null;
 function applyHandPose(k){
-  for(const [tag,sub,ax,to] of HAND_POSE){
-    const j=_handJoint(tag,sub);
-    j.rotation[ax]=j.rotation[ax]*(1-k)+to*k;
+  if(!(k>0)){
+    if(_handPrev){
+      HAND_POSE.forEach(([tag,sub,ax],i)=>{ _handJoint(tag,sub).rotation[ax]=_handPrev[i]; });
+      _handPrev=null;
+    }
+    return;
   }
+  if(!_handPrev)_handPrev=HAND_POSE.map(([tag,sub,ax])=>_handJoint(tag,sub).rotation[ax]);
+  HAND_POSE.forEach(([tag,sub,ax,to],i)=>{
+    _handJoint(tag,sub).rotation[ax]=_handPrev[i]*(1-k)+to*k;
+  });
 }
 let HAND_LIFT=null;
 function measureHandLift(){
@@ -19121,7 +19235,12 @@ function updateHandstand(dt,carve){
     return;
   }
   if(handT<0.002&&!want){
+    // and the pose is PUT BACK, not left at a two thousandth of a handstand. This returned
+    // before applyHandPose ever ran, so the last thing written to the arms was the last frame
+    // of the blend — and out on the menu, where nothing writes them again, that is what he
+    // wears.
     if(handT!==0){handT=0;pug.rotation.x=0;pug.position.y=0;}
+    applyHandPose(0);
     return;
   }
   if(HAND_LIFT===null)HAND_LIFT=measureHandLift();
