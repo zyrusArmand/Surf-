@@ -366,6 +366,34 @@
      it under a soft vignette that has no edge anywhere, and the type carries its own
      legibility instead of borrowing it from a scrim. */
   body.boot #overlay, body.boot #ver { opacity:0; }
+  /* Above everything, including the run card at 120. The gradient is the game's own sky and
+     sand rather than a black screen with a bar on it, so the loading screen and the beach it
+     opens onto are the same place — the picture resolves rather than replaces. */
+  #load { position:fixed; inset:0; z-index:400; display:flex; align-items:center;
+    justify-content:center; padding:0 6vw 14vh;   /* optical centre, not the middle of the box */
+    background:linear-gradient(180deg,#1d63ab 0%,#3f95d4 44%,#8fc9e8 62%,#e4d7b6 76%,#efe4ca 100%);
+    transition:opacity .45s ease-out; }
+  /* pointer-events go the moment it starts fading, not when it finishes: half a second of an
+     invisible sheet eating the first tap is exactly the kind of thing nobody reports and
+     everybody feels */
+  #load.gone { opacity:0; pointer-events:none; }
+  #loadCard { width:min(78vw,420px); text-align:center; }
+  #loadTitle { margin:0 0 24px; font-size:min(15vw,72px); color:#ffdf2e; letter-spacing:-.5px;
+    text-shadow:3px 3px 0 #b8641c, 0 6px 22px rgba(0,20,40,.6); }
+  #loadBar { height:12px; border-radius:99px; overflow:hidden;
+    background:rgba(255,255,255,.24);
+    box-shadow:inset 0 2px 6px rgba(0,18,42,.34), 0 1px 0 rgba(255,255,255,.5); }
+  #loadFill { display:block; width:0%; height:100%; border-radius:99px;
+    background:linear-gradient(180deg,#ffe98a,#ffc93e 55%,#f2a41c);
+    box-shadow:0 0 12px rgba(255,214,86,.7); transition:width .25s ease-out; }
+  #loadPct { margin:13px 0 0; color:rgba(255,255,255,.94); font-size:14.5px; letter-spacing:.5px;
+    text-shadow:0 2px 8px rgba(0,20,40,.55); }
+  /* Sixty-five megabytes is a real wait on a phone, and a bar with a number on it says how long
+     but not what for. This says what for. */
+  #loadPct b { font-weight:normal; opacity:.72; }
+  @media (prefers-reduced-motion:reduce) {
+    #load, #loadFill { transition:none; }
+  }
   /* No scrim on the TITLE screen. This gradient is nearly half black through the middle of
      the frame, and it was laid over the whole overlay — which on the menu means over the
      beach, the palm, the rider and the sea, all of which are the picture rather than a
@@ -1036,6 +1064,19 @@
      first thing you get is a title and six buttons on an empty gradient, which reads as a
      separate, broken screen that then turns into the real one. -->
 <body class="boot">
+<!-- The loading screen. Sixty-five megabytes of models arrive here — a fifteen megabyte ant, a
+     twenty megabyte shell, a twelve megabyte ramp — and every one of them used to land in a
+     title screen that was already up, so the beach dressed itself in front of you: the palm
+     arrived, then the chest, then the rider, then the sign. This holds the door until they are
+     all in. It is the FIRST thing in the body on purpose, so it is painted before the canvas
+     exists rather than after. -->
+<div id="load" role="status" aria-live="polite">
+  <div id="loadCard">
+    <h1 id="loadTitle">Surf</h1>
+    <div id="loadBar"><i id="loadFill"></i></div>
+    <p id="loadPct"><b>Loading the beach</b> · 0%</p>
+  </div>
+</div>
 <!-- Hidden until the game says otherwise: the menu is the first thing you see and it has
      no HUD on it. beginRun clears this inline style and the CSS below takes over. -->
 <div id="hud" style="display:none">
@@ -1271,7 +1312,7 @@ const shop=document.getElementById('shop'), shopBtn=document.getElementById('sho
 const shopList=document.getElementById('shopList'), shopCoins=document.getElementById('shopCoins');
 
 // bump this on every change that ships — it is shown at the bottom of the screen
-const VERSION='4.32.0';
+const VERSION='4.33.0';
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
@@ -3215,15 +3256,94 @@ function skinAndFit(kind,root,target,orient){
   paintModel(root,skin[0],skin[1]);
   return fitToBox(root,target,orient);
 }
+// ---------- what the loading screen is counting ----------
+// Weighted by BYTES, not by files. A fifteen megabyte ant and a two hundred kilobyte log are one
+// file each, and a bar that treats them alike sits at the same number for most of the wait and
+// then jumps — which reads as a hang, not as progress. Each request reports its own total once
+// the headers land, and until a file has told us how big it is it is guessed at the average of
+// the ones that have.
+// Keyed by a ticket rather than by filename, because two different pieces of this game ask for
+// pug.glb — the rider roster and the ski crew. Keyed by name the second request overwrote the
+// first, the second settle found the record already done and returned without counting, and the
+// screen waited for ever on a file that had already arrived.
+// The bar never goes backwards. Guessed weights get better as real totals arrive, and that can
+// nudge the true fraction down; a progress bar that retreats looks broken even when it is being
+// more honest than the one that does not.
+const BOOT_CAP=25000;      // and it is never a locked door: see kick()
+const Boot={
+  files:new Map(), n:0, issued:0, settled:0, shown:0, over:false, gone:false, painted:false,
+  issue(file){ const id=++this.n; this.files.set(id,{file,loaded:0,total:0,done:false});
+               this.issued++; return id; },
+  step(id,e){ const r=this.files.get(id);
+              if(!r||r.done||!e)return;
+              if(e.lengthComputable&&e.total)r.total=e.total;
+              if(e.loaded)r.loaded=e.loaded;
+              this.paint(); },
+  settle(id){ const r=this.files.get(id);
+              if(!r||r.done)return;
+              r.done=true; if(!r.total)r.total=r.loaded;
+              this.settled++; this.paint();
+              if(this.settled>=this.issued)this.finish(); },
+  frac(){
+    if(!this.issued)return 1;
+    let sum=0, known=0;
+    for(const r of this.files.values())if(r.total){ sum+=r.total; known++; }
+    const guess=known?sum/known:1048576;
+    let num=0, den=0;
+    for(const r of this.files.values()){
+      const w=r.total||guess;
+      den+=w; num+=r.done?w:Math.min(r.loaded,w);
+    }
+    return den>0?Math.max(0,Math.min(1,num/den)):1;
+  },
+  paint(){
+    this.shown=Math.max(this.shown,this.frac());
+    const f=document.getElementById('loadFill'), p=document.getElementById('loadPct');
+    if(f)f.style.width=(this.shown*100).toFixed(1)+'%';
+    if(p)p.innerHTML='<b>Loading the beach</b> \u00b7 '+Math.round(this.shown*100)+'%';
+  },
+  // Everything is in — but "in" is not "on screen". The models are placed by the callbacks that
+  // received them and the beach fades itself in over a third of a second, so leaving at the last
+  // byte hands you the thing this was meant to prevent, one frame of a bare beach. It waits for
+  // the beach to say it has started painting, and gives up waiting after two seconds so a screen
+  // that never paints one cannot strand you here.
+  finish(){
+    if(this.over)return;
+    this.over=true; this.shown=1; this.paint();
+    const t=Date.now(), tick=()=>{
+      if(this.painted||Date.now()-t>2000)this.hide();
+      else requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  },
+  hide(){
+    if(this.gone)return;
+    this.gone=true;
+    const el=document.getElementById('load');
+    if(!el)return;
+    el.classList.add('gone');
+    setTimeout(()=>{ el.style.display='none'; },600);
+  },
+  // Nothing here is allowed to be a locked door. A model server that never answers, a request
+  // that neither loads nor errors, a build with no loader in it at all and so nothing to wait
+  // for — every one of those ends with the game, late rather than never.
+  kick(){
+    if(!this.issued)this.finish();
+    setTimeout(()=>{ this.over=true; this.hide(); },BOOT_CAP);
+  }
+};
+addEventListener('load',()=>Boot.kick());
 function loadModel(file,onReady){
   if(!THREE.GLTFLoader)return;
+  const id=Boot.issue(file);
   new THREE.GLTFLoader().load('models/'+file,
     g=>{ const root=g.scene||g.scenes[0];
          // the whole gltf goes through, not just the scene: a rigged export carries its
          // clips alongside the meshes and they are the entire point of it
-         try{ mendMirror(root); onReady(root,g); }catch(e){ console.warn('model '+file+' failed to fit',e); } },
-    undefined,
-    ()=>{ /* no such file — keep the built-in shape */ });
+         try{ mendMirror(root); onReady(root,g); }catch(e){ console.warn('model '+file+' failed to fit',e); }
+         Boot.settle(id); },
+    e=>Boot.step(id,e),
+    ()=>{ /* no such file — keep the built-in shape */ Boot.settle(id); });
 }
 // measured now, while everything is still at rest and unrotated, because the file
 // may not arrive until the rider is already carving
@@ -18051,6 +18171,20 @@ if(location.hash.includes('debug')){
               d:MB_D, eye:MB_EYE, aim:MB_AIM, fov:MB_FOV, fish:MENU_FISH, pull:MENU_PULL,
               aspect:+menuCam.aspect.toFixed(3)};
     },
+    // What the loading screen is doing, and whether it is still in the way. `blocking` is the
+    // question that matters to anything trying to tap the game: an element that is invisible but
+    // still hit-testable is worse than one that is plainly there.
+    loading(){
+      const el=document.getElementById('load');
+      const st=el?getComputedStyle(el):null;
+      return {up:!!el&&st.display!=='none', gone:Boot.gone,
+              blocking:!!el&&st.display!=='none'&&st.pointerEvents!=='none'&&+st.opacity>0.01,
+              issued:Boot.issued, settled:Boot.settled, pct:+(Boot.shown*100).toFixed(1),
+              bytes:(()=>{ let l=0,t=0; for(const r of Boot.files.values()){ l+=r.loaded; t+=r.total; }
+                           return {loaded:l, total:t}; })(),
+              painted:Boot.painted,
+              waiting:[...Boot.files.values()].filter(r=>!r.done).map(r=>r.file)};
+    },
     riderOnScreen(){
       const v=new THREE.Vector3();
       player.getWorldPosition(v);
@@ -21286,6 +21420,9 @@ function renderMenuBeach(dt){
       cv.style.transition=ov.style.transition=vr.style.transition='opacity .34s ease-out';
       cv.style.opacity='1';
       document.body.classList.remove('boot');
+      // and the loading screen can go now, but not before: this is the frame the beach starts
+      // fading in on, and leaving any earlier shows the thing it was put up to hide
+      if(typeof Boot!=='undefined')Boot.painted=true;
       setTimeout(()=>{ cv.style.transition=ov.style.transition=vr.style.transition=''; },420);
     });
   }

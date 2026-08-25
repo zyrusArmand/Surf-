@@ -94,6 +94,82 @@ const check = (ok, label, detail = '') => {
 await page.goto(`http://127.0.0.1:${PORT}/index.html#debug`, { waitUntil: 'load' });
 await page.waitForFunction(() => typeof window.VERSION === 'string' || document.querySelector('#startBtn'), null, { timeout: 30000 });
 
+// ---------- the loading screen ----------
+// Sixty-five megabytes of models arrive here, and they used to land in a title screen that was
+// already up: the beach dressed itself in front of you, palm then chest then rider then sign.
+// A sheet goes over that now until they are all in — which means the suite has to wait for it
+// too, and would have failed on its first tap otherwise, since a sheet over the game is a sheet
+// over the buttons.
+// Sampled on the way past rather than only at the end, because the only moment a loading screen
+// can be observed loading is while it is. On a local server most of this is over before the
+// first sample lands, so what is asked of the samples is asked of however many there are.
+const loadSeen = [];
+await page.waitForFunction(() => !window.__surf || !window.__surf.loading || window.__surf.loading().gone,
+                           null, { timeout: 180000 }).catch(() => {});
+for (let i = 0; i < 40; i++) {
+  const L = await page.evaluate(() => window.__surf && window.__surf.loading ? window.__surf.loading() : null);
+  if (L) loadSeen.push(L);
+  if (L && L.gone) break;
+  await page.waitForTimeout(250);
+}
+const last = loadSeen[loadSeen.length - 1];
+// Read AFTER the fade, not at the moment it starts. It stops taking taps the instant it begins
+// to go — half a second of an invisible sheet eating the first tap is exactly the kind of thing
+// nobody reports and everybody feels — but it is still displayed for the length of the fade, and
+// asking then says it is still up when what it is doing is leaving.
+await page.waitForTimeout(900);
+const done = await page.evaluate(() => window.__surf && window.__surf.loading ? window.__surf.loading() : null);
+check(!!done && done.gone && !done.blocking && !done.up,
+      'the loading screen gets out of the way once everything is in',
+      done ? `gone ${done.gone}, still displayed ${done.up}, still taking taps ${done.blocking}, ${done.pct}%` : 'no loading hook');
+check(!!last && last.gone && !last.blocking,
+      'and stops taking taps the moment it starts to leave, rather than when it has left',
+      last ? `at the first frame of the fade: taking taps ${last.blocking}, displayed ${last.up}` : '');
+// It was really counting the models, not ticking a timer. Every loadModel takes a ticket and
+// every ticket comes back — including the ones that 404, which is most of the table and the one
+// way a counter like this hangs for ever.
+check(!!last && last.issued > 10 && last.settled === last.issued && last.waiting.length === 0,
+      'and every model it was waiting on came back, the missing ones included',
+      last ? `${last.settled} of ${last.issued} settled, still waiting on [${last.waiting.join(', ')}]` : 'no loading hook');
+// and it was weighing BYTES. A fifteen megabyte ant and a two hundred kilobyte log are one file
+// each; a bar that treats them alike sits still for most of the wait and then jumps.
+check(!!last && last.bytes.total > 10e6 && last.bytes.loaded === last.bytes.total,
+      'and it measured the download in bytes rather than in files',
+      last ? `${(last.bytes.loaded / 1e6).toFixed(1)} of ${(last.bytes.total / 1e6).toFixed(1)}MB across ${last.issued} requests` : '');
+// never backwards. Guessed weights get better as real totals arrive and that can nudge the true
+// fraction down; a bar that retreats looks broken even when it is being the more honest one.
+const back = loadSeen.filter((l, i) => i && l.pct < loadSeen[i - 1].pct - 0.01);
+check(back.length === 0, 'and its bar never ran backwards across every reading taken of it',
+      `${loadSeen.length} reading${loadSeen.length === 1 ? '' : 's'}` +
+      (loadSeen.length < 3 ? ' — over a local server most of this is done before the first one lands, so this is weak evidence here and the guarantee is the clamp in paint()' : '') +
+      `, worst step back ${back.length ? Math.max(...back.map((l, i) => loadSeen[i].pct - l.pct)).toFixed(1) + '%' : 'none'}`);
+// and it really is a sheet over the whole game while it is up, rather than a card behind it.
+// Asked structurally, by putting it back and asking the document what is on top, because the
+// moment it is genuinely up is over before a check can be written against it.
+const cover = await page.evaluate(() => {
+  const el = document.getElementById('load');
+  if (!el) return null;
+  const keep = el.style.display;
+  el.style.display = 'flex'; el.classList.remove('gone');
+  const r = el.getBoundingClientRect(), st = getComputedStyle(el);
+  const mid = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+  const corner = document.elementFromPoint(6, innerHeight - 6);
+  const out = { w: r.width / innerWidth, h: r.height / innerHeight, z: +st.zIndex,
+                mid: !!(mid && el.contains(mid)), corner: !!(corner && el.contains(corner)),
+                label: (document.getElementById('loadPct') || {}).textContent || '' };
+  el.style.display = keep; el.classList.add('gone');
+  return out;
+});
+check(cover && cover.w > 0.99 && cover.h > 0.99 && cover.z >= 120 && cover.mid && cover.corner,
+      'and while it is up it covers the whole game, not just the middle of it',
+      cover ? `${(cover.w * 100).toFixed(0)}% by ${(cover.h * 100).toFixed(0)}% at z ${cover.z}, ` +
+              `on top at the centre ${cover.mid} and in the corner ${cover.corner}` : 'no loading screen');
+// and it says what it is doing. A bar and a number say how long; they do not say what for, and
+// on a phone this is a real wait.
+check(!!cover && /Loading the beach/.test(cover.label) && /%/.test(cover.label),
+      'and it says what it is waiting for, not just how far along it is',
+      cover ? JSON.stringify(cover.label) : '');
+
 const version = await page.evaluate(() => {
   const el = [...document.querySelectorAll('*')].find(e => /^v\d+\.\d+\.\d+$/.test(e.textContent.trim()));
   return el ? el.textContent.trim() : null;
