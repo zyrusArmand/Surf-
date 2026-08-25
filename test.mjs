@@ -1482,7 +1482,20 @@ if (hasHook) {
           const f = window.__surf.menuFrame();
           return f && Math.abs(f.aspect - a) < 0.01;
         }, w / h, { timeout: 60000 }).catch(() => {});
-        await page.waitForTimeout(350);
+        // ...and then on the FIT settling, not on a fixed pause. The plank is solved by fourteen
+        // damped passes against a measurement of where it actually landed, and 350ms of a
+        // software renderer is about one frame of that. It held while the beach was cheap to
+        // draw; adding four casters to the sun's shadow map was enough to push the solve past
+        // it, and two checks about where the plank hangs started reading it in transit — a roll
+        // of 4.6 degrees against the 1.1 it was given, and a width from the shape before last.
+        // Neither had anything to do with the sign.
+        await page.waitForFunction(() => {
+          const s = window.__surf.signAt();
+          if (!s || !s.up) return false;
+          const p = window.__sgFit; window.__sgFit = s.y[0];
+          return p !== undefined && Math.abs(p - s.y[0]) < 0.002;
+        }, null, { timeout: 60000 }).catch(() => {});
+        await page.waitForTimeout(150);
       };
       const shapes = [];
       for (const [w, h] of [[500, 600], [900, 420]]) {
@@ -1554,6 +1567,31 @@ if (hasHook) {
             'Play is the same teal glass as the rest of the dial, just bigger',
             dial ? `same material ${dial.same}, shell gone ${!dial.shell}, ` +
                    `larger ${dial.bigger} — "${dial.play}…"` : 'no buttons');
+      // ---- and the set casts a real shadow that you can actually see ----
+      // What was under the rider and the board was three soft ambient POOLS — dark ellipses
+      // that sit on the sand without belonging to it, whatever the sun is doing. The beach had
+      // a shadow map, a sun and a ground already set to receive, and nothing but the tree
+      // putting anything into it: the rider, the board and the chest never cast at all.
+      // And when they did, they still could not be seen. A cast shadow is the ABSENCE of the
+      // key light, so what is left inside it is the fills — at a key of 2.55 against hemi 0.78
+      // and fill 0.46 they filled it straight back in, and a perfectly correct shadow map was
+      // invisible. That is the number this guards, because it is the one that fooled me: the
+      // flags all read right, the map was 2048 and made, everything sat in the drawn scene, and
+      // there was still nothing on the sand.
+      const sh = await page.evaluate(() => window.__surf.shadowState());
+      const casters = (sh && sh.who || []).filter(w => /^(pug|board|chest):/.test(w));
+      check(sh && sh.mapOn && sh.keyCasts && sh.mapMade &&
+            casters.length === 3 && casters.every(w => !/:0\//.test(w)),
+            'the rider, the board and the chest all cast into the sun\'s shadow map',
+            sh ? casters.join(' | ') : 'no shadow state');
+      check(sh && /sandField:/.test((sh.who || []).join('')) &&
+            (sh.who || []).some(w => /^sandField:.*[1-9]\d* recv/.test(w)),
+            'and the sand that is actually visible is set to receive it',
+            sh ? (sh.who || []).filter(w => /sand/.test(w)).join(' | ') : 'none');
+      check(sh && sh.ratio > 3.5,
+            'and the key beats the fills by enough that the shadow is not filled back in',
+            sh ? `key ${sh.lights.key} against hemi ${sh.lights.hemi} plus fill ${sh.lights.fill}` +
+                 ` — ${sh.ratio} to one` : 'no lights');
       const skin = await page.evaluate(() => window.__surf.signSkin());
       check(skin && skin.sign && skin.sign.gild && skin.sign.compiled && skin.sign.map,
             'the sign wears the walnut-and-gold rule, over the file\'s own grain',
