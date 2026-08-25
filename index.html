@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.39.0';
+window.SURF_VERSION='4.40.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -5664,6 +5664,7 @@ const SAND_X=34, SAND_Z0=14, SAND_Z1=-68;   // the patch of beach worth covering
 const beachPalms=[];
 let beachPalmsBuild=null;   // the far palms, built the first time anything looks at them
 let beachSea=null, beachSand=null;   // set by measurement, see the note on the sand
+let beachHorizon=null;
 // ---- one palm, built as a single buffer geometry ----
 // Trunk, frond spines and every leaflet go into one set of arrays and come out as one
 // mesh: a palm is a few hundred separate blades, and a few hundred draw calls for a piece
@@ -6025,6 +6026,7 @@ function modelPalm(seed,prof,menu){
 // see and they sit proud of the thing that generated them.
 const _suRay=new THREE.Raycaster(new THREE.Vector3(),new THREE.Vector3(0,-1,0),0,240);
 const _suP=new THREE.Vector3();
+const _hzRay=new THREE.Raycaster();
 function sandUnder(obj){
   if(!obj)return null;
   obj.getWorldPosition(_suP);
@@ -6669,6 +6671,77 @@ function palmTintables(p){
 // and the one patch that must stay flat is the patch the board and the rider stand on.
 const MB_K=1.15;                      // the set is a shade bigger than life so the sea reads
 const MB_Z=-44;
+// ---------- two islands and a boat, out where the sea meets the sky ----------
+// The reference has them and this did not, and their absence is felt as flatness rather than as
+// an absence: an empty horizon gives the eye nothing to judge distance against, so the sea reads
+// as a coloured band instead of as water going away from you. Two humps and a sail are enough —
+// at this range they are silhouettes, and the haze does most of the work.
+// Built in the BEACH group's own space, which is the sea's space, so they sit on the water rather
+// than near it. Far enough out that the scene's fog has them a third of the way to the horizon's
+// own colour: present, but plainly a long way off.
+function buildHorizon(seaY){
+  const g=new THREE.Group();
+  g.name='horizon';
+  // Dark for their size. Whatever colour they are, the haze takes them a long way toward the
+  // horizon's cream on the way to the eye — so a mid green comes out as cream and the island
+  // stops existing. These are chosen to be right AFTER that blend, not before it.
+  const land=new THREE.MeshStandardMaterial({color:0x27403a, roughness:1, metalness:0,
+                                             flatShading:true});
+  const scrub=new THREE.MeshStandardMaterial({color:0x1d3028, roughness:1, metalness:0,
+                                              flatShading:true});
+  const hull=new THREE.MeshStandardMaterial({color:0x3a4550, roughness:0.9, metalness:0});
+  const sail=new THREE.MeshStandardMaterial({color:0xf6f3ea, roughness:0.85, metalness:0,
+                                             side:THREE.DoubleSide});
+  // An island is one squashed dome with two smaller ones leaning on it, which from this far away
+  // is the whole of what an island looks like: a ridge that is taller at one end.
+  const island=(w,h,seed)=>{
+    const o=new THREE.Group();
+    const hump=(sx,sy,sz,x,z)=>{
+      const m=new THREE.Mesh(new THREE.SphereGeometry(1,11,7),land);
+      m.scale.set(sx,sy,sz); m.position.set(x,0,z);
+      o.add(m); return m;
+    };
+    hump(w*0.5,h,w*0.34,0,0);
+    hump(w*0.26,h*0.62,w*0.2, w*0.34,-w*0.05);
+    hump(w*0.2, h*0.44,w*0.16,-w*0.36, w*0.04);
+    // a dark fringe along the top, which is what trees are at this distance
+    for(let i=0;i<7;i++){
+      const t=(i/6-0.5)*w*0.72, r=w*0.035;
+      const m=new THREE.Mesh(new THREE.SphereGeometry(r,7,5),scrub);
+      const k=1-Math.abs(t)/(w*0.5);
+      m.position.set(t, h*Math.max(0.15,k*0.92), (seed?1:-1)*w*0.02);
+      m.scale.set(1,1.5,1);
+      o.add(m);
+    }
+    // and it is CUT OFF at the waterline rather than floating as a whole ball on it
+    o.position.y=-h*0.34;
+    return o;
+  };
+  // SMALL, and near enough to survive the haze. Sized for the far horizon and put out there,
+  // they sat at eighty per cent fog — which over a cream evening sky is not a distant island, it
+  // is nothing at all. A smaller island closer in subtends the same angle, reads as the same
+  // distance, and is only a fifth blended away.
+  const a=island(24,4.6,0); a.name='isleA'; g.add(a);
+  const b=island(17,3.4,1); b.name='isleB'; g.add(b);
+  // The boat, turned to the camera. A sail seen edge-on is a line, and a line at this size is
+  // nothing at all — so it is billboarded, which for one triangle a quarter of a mile away is
+  // both cheaper and more honest than modelling a boat that can be seen from behind.
+  const boat=new THREE.Group();
+  const sg=new THREE.BufferGeometry();
+  sg.setAttribute('position',new THREE.Float32BufferAttribute(
+    [0,0,0, 0.95,0,0, 0.13,2.45,0],3));
+  sg.computeVertexNormals();
+  const s1=new THREE.Mesh(sg,sail); s1.position.set(-0.42,0.2,0); boat.add(s1);
+  const h1=new THREE.Mesh(new THREE.SphereGeometry(1,9,6),hull);
+  h1.scale.set(1.0,0.17,0.36); h1.position.y=0.14; boat.add(h1);
+  boat.name='boat';
+  g.add(boat);
+  g.position.y=seaY;
+  g.userData.boat=boat;
+  g.userData.isles={a, b, boat};
+  return g;
+}
+
 function buildBeach(){
   const g=new THREE.Group(); g.visible=false;
 
@@ -6753,6 +6826,9 @@ function buildBeach(){
   beachSea=new THREE.Mesh(seaGeo,prevOcean);
   beachSea.rotation.x=-Math.PI/2; beachSea.position.set(0,0,40);
   beachSea.frustumCulled=false; g.add(beachSea);
+  // and the far shore, on the same water
+  beachHorizon=buildHorizon(0);
+  g.add(beachHorizon);
 
   // The grid is not square because the beach is not. Everything with a short wavelength in
   // it runs ACROSS the shore — the ridges and the fine banding are at 0.115 and 0.185 in z,
@@ -17069,6 +17145,73 @@ if(location.hash.includes('debug')){
     // Where the sign hangs and how it sits in the picture. Walked, because five numbers place
     // it and none of them means anything on its own — a width that reads right at one height
     // is wrong at another, and how square it is to the lens only shows once it is up there.
+    // Where the far shore lands ON SCREEN, which is the only question worth asking about it: an
+    // island is either in the wedge of sea this shot can see or it is standing on the beach.
+    // Paint the far shore in a colour nothing else on the beach could be, so the question
+    // "is it drawn at all" can be answered by looking rather than by arithmetic.
+    hzGlow(mode){
+      if(!beachHorizon)return false;
+      const m=mode===undefined?1:mode;
+      beachHorizon.traverse(o=>{ if(!o.isMesh)return;
+        o.material.emissive&&o.material.emissive.setHex(m?0xff00ff:0x000000);
+        o.material.fog=!m;
+        o.frustumCulled=!(m>=2);
+        o.material.depthTest=!(m>=3);
+        o.renderOrder=m>=3?999:0;
+        o.material.needsUpdate=true; });
+      return m;
+    },
+    horizonAt(ad,as,bd,bs,cd,cs){
+      if(ad!==undefined)MB_HZ_A=[ad,as];
+      if(bd!==undefined)MB_HZ_B=[bd,bs];
+      if(cd!==undefined)MB_HZ_BOAT=[cd,cs];
+      if(typeof layoutHorizon==='function')layoutHorizon();
+      if(!beachHorizon||!menuCam)return {up:false};
+      beachHorizon.updateMatrixWorld(true);
+      const one=o=>{
+        if(!o)return null;
+        const b=new THREE.Box3().setFromObject(o), v=new THREE.Vector3();
+        let x0=9,x1=-9,y0=9,y1=-9,z0=9,z1=-9;
+        for(let i=0;i<8;i++){
+          v.set(i&1?b.max.x:b.min.x,i&2?b.max.y:b.min.y,i&4?b.max.z:b.min.z).project(menuCam);
+          const sx=v.x*0.5+0.5, sy=-v.y*0.5+0.5;
+          if(sx<x0)x0=sx; if(sx>x1)x1=sx; if(sy<y0)y0=sy; if(sy>y1)y1=sy;
+          if(v.z<z0)z0=v.z; if(v.z>z1)z1=v.z;
+        }
+        const c=o.getWorldPosition(new THREE.Vector3());
+        // Being IN the frame is not the same as being ON the screen. Three other things can
+        // still eat it: an ancestor turned off, a root that is not the scene being drawn, or
+        // something nearer along the same ray. All three are asked here, because when a thing
+        // projects into shot and nothing appears, the projection is the one number already
+        // known to be true and the answer is always one of the other three.
+        let vis=true, p=o, root=o;
+        while(p){ if(!p.visible)vis=false; root=p; p=p.parent; }
+        let n=0; o.traverse(q=>{ if(q.isMesh)n++; });
+        _hzRay.set(menuCam.position, c.clone().sub(menuCam.position).normalize());
+        const hits=_hzRay.intersectObject(prevScene,true).filter(h=>h.distance>0.5)
+          .filter(h=>h.object.visible).slice(0,4).map(h=>{
+            let nm=h.object.name, q=h.object;
+            while(!nm&&q.parent){ q=q.parent; nm=q.name; }
+            return (nm||h.object.type)+'@'+h.distance.toFixed(1);
+          });
+        return {x:[+x0.toFixed(3),+x1.toFixed(3)], y:[+y0.toFixed(3),+y1.toFixed(3)],
+                dist:+menuCam.position.distanceTo(c).toFixed(1),
+                wp:c.toArray().map(v=>+v.toFixed(1)), vis, meshes:n,
+                z:[+z0.toFixed(3),+z1.toFixed(3)],
+                inScene:root===prevScene, root:root.name||root.type,
+                first:hits};
+      };
+      const I=beachHorizon.userData.isles;
+      return {up:true, a:one(I.a), b:one(I.b), boat:one(I.boat),
+              at:{a:MB_HZ_A, b:MB_HZ_B, boat:MB_HZ_BOAT},
+              cam:menuCam.position.toArray().map(v=>+v.toFixed(1)),
+              lens:{near:menuCam.near, far:menuCam.far, fov:+menuCam.fov.toFixed(2),
+                    p:[+menuCam.projectionMatrix.elements[10].toFixed(5),
+                       +menuCam.projectionMatrix.elements[14].toFixed(5)]},
+              dof:MENU_DOF?[+menuCam.position.distanceTo(menuBeach.board.position).toFixed(1),
+                            MB_DOF]:null,
+              fog:prevScene.fog?[prevScene.fog.near,prevScene.fog.far]:null};
+    },
     signAt(w,h,f,d,rot,mh){
       if(w!==undefined)MB_SGN_W=w; if(h!==undefined)MB_SGN_H=h;
       if(f!==undefined)MB_SGN_F=f; if(d!==undefined)MB_SGN_D=d;
@@ -20901,6 +21044,12 @@ function menuBeachOn(){
   // band spreads right across the picture as brown streaks THROUGH the water. Raising the
   // sea drowns the flats, which is what a beach at anything but dead low tide looks like.
   if(beachSea){ menuDay.seaY=beachSea.position.y; beachSea.position.y=1.05; shoreTaper(); }
+  // and the far shore rides the same water, and is placed in the CAMERA's frame like everything
+  // else on this screen. Put at fixed world coordinates the islands landed on the part of the
+  // horizon that is beach: this shot is turned along the shore, so the sea is a wedge off to the
+  // left rather than a band across the back, and "far out to sea" is a direction the lens knows
+  // and the world does not.
+  if(beachHorizon&&beachSea){ beachHorizon.position.y=beachSea.position.y; layoutHorizon(); }
   // and a cool fill from the camera's side, so the shaded face of the trunk and the underside
   // of the board pick up bounce off the sand instead of going black
   // COOL, now that the key is warm. It was warm too, which on a warm-lit scene means the shaded
@@ -21703,6 +21852,50 @@ function fitBeachSign(){
   }
   return m;
 }
+// Where the far shore sits, in the camera's own axes: how far out, and how far along. Both in the
+// beach group's units, because that is the space the sea is in.
+// The camera stands at the palm MINUS _mbF times its stand-off and looks back along +_mbF, so
+// out to sea is PLUS _mbF. Placed along minus it, the islands sat behind the lens — and a point
+// behind the lens still projects, to a mirrored ghost with a clip-space z just over one, which
+// is why they read as squarely in frame and drew nothing at all. Measured, not reasoned about:
+// horizonAt reports that z now, because "is it in shot" has three answers and x and y are two.
+// How far out, and WHERE ACROSS THE FRAME — not how far along the shore. Placed by a lateral
+// offset in feet they were solved in one window and lost in every other: the shot stands further
+// back and sees a much narrower wedge in a phone's portrait, so sixty-four feet along the shore
+// that sat two thirds of the way across a laptop frame was off the edge entirely. The second
+// number is a fraction of the half-frame instead — minus one is the left edge, plus one the
+// right — and the feet are worked out from the lens each time it is laid out.
+let MB_HZ_A=[165,0.44], MB_HZ_B=[145,-0.52], MB_HZ_BOAT=[118,0.24];
+const _hzF=new THREE.Vector3(), _hzR=new THREE.Vector3(), _hzP=new THREE.Vector3();
+function layoutHorizon(){
+  if(!beachHorizon||!beachHorizon.userData.isles||typeof menuCam==='undefined'||!menuCam)return;
+  // The camera's OWN axes, taken off the camera rather than rebuilt from the yaw, because the
+  // shot is aimed a little off that yaw — the aim bias holds the set right of centre — and a
+  // frame worked out from the yaw alone drifts by that bias at a hundred and fifty feet.
+  menuCam.updateMatrixWorld();
+  _hzF.set(0,0,-1).applyQuaternion(menuCam.quaternion); _hzF.y=0; _hzF.normalize();
+  _hzR.set(-_hzF.z,0,_hzF.x);   // +x of the frame, so a positive fraction is to the RIGHT
+  // tangent of the horizontal half-angle: everything at distance d that lands on the right edge
+  // of the frame is d*th feet off the axis, so a fraction of the frame is that fraction of it.
+  const th=Math.tan(menuCam.fov*Math.PI/360)*menuCam.aspect;
+  beachHorizon.updateMatrixWorld();
+  const put=(o,d,x)=>{
+    if(!o)return;
+    // d is a RADIUS, not a distance along the axis. Taken along the axis, a piece out near the
+    // edge of the frame stands further away the wider the window is — in a landscape window the
+    // far island came out at two hundred and sixty-six feet against a hundred and seventy in a
+    // portrait one, and the haze reaches eighty per cent at the far end of that. On a radius it
+    // is the same distance, and so the same colour, in every window.
+    _hzP.copy(_hzF).addScaledVector(_hzR,th*x).normalize()
+        .multiplyScalar(d).add(menuCam.position);
+    beachHorizon.worldToLocal(_hzP);
+    o.position.set(_hzP.x, o.position.y, _hzP.z);   // its own y is the cut at the waterline
+  };
+  const I=beachHorizon.userData.isles;
+  put(I.a,MB_HZ_A[0],MB_HZ_A[1]);
+  put(I.b,MB_HZ_B[0],MB_HZ_B[1]);
+  put(I.boat,MB_HZ_BOAT[0],MB_HZ_BOAT[1]);
+}
 function layoutBeachSign(){
   if(!beachSign)return;
   if(typeof menuProps==='undefined'||!menuProps)return;
@@ -21972,6 +22165,18 @@ function renderMenuBeach(dt){
   menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+MB_AIM, pz-_mbR.z*aim);
   menuCam.updateProjectionMatrix();
   faceBeachSign();      // the title hangs square to whatever the lens just did
+  // ...and the boat keeps its sail toward you. Edge on, a sail is a line, and a line a quarter of
+  // a mile away is nothing at all.
+  // and the far shore is re-placed every frame, because where it goes is worked out FROM the
+  // lens — the frame's width in the world at a hundred and fifty feet — and the lens has only
+  // just been put somewhere. Laid out once at switch-on it was solved against the camera from
+  // before this ran, which on the first frame is the origin looking down -z.
+  layoutHorizon();
+  if(beachHorizon&&beachHorizon.userData.boat&&menuCam){
+    const b=beachHorizon.userData.boat;
+    const c=b.parent?b.parent.worldToLocal(menuCam.position.clone()):menuCam.position;
+    b.rotation.y=Math.atan2(c.x-b.position.x, c.z-b.position.z);
+  }
   // and it is fitted once the lens is actually somewhere. The first layout runs before this
   // function has ever placed the camera, so the projection it would have solved against is the
   // one from the origin looking down -z, which is nowhere.

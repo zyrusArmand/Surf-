@@ -1491,6 +1491,40 @@ if (hasHook) {
                 `${pull.none.rider} without it, chest ${pull.kept.chest} against ${pull.none.chest}, ` +
                 `crown ${pull.kept.crown} off the top against ${pull.none.crown}`
               : 'no frame — the title screen was not up');
+
+      // ---- and the far shore is OUT TO SEA, not behind the lens ----
+      // Placed along minus the camera's forward, the two islands and the boat sat BEHIND the
+      // camera — and a point behind a lens still projects. It comes back through the far side of
+      // the frustum as a mirrored ghost, so every x and y read squarely in frame while nothing
+      // whatever was drawn. The number that tells them apart is clip-space z: in front of the
+      // lens it is under one, behind it, over. So that is what is asked, alongside the frame —
+      // "in shot" has three coordinates and reading two of them is how this got shipped blind.
+      // The horizon line is asked as a relationship too: the shore sits at the waterline, so it
+      // must land BELOW the top of the sea and ABOVE the sand the camera is stood on, which is
+      // the sea's own screen span rather than a y somebody wrote down once.
+      const hz = await page.evaluate(() => window.__surf.horizonAt());
+      check(hz && hz.up, 'the far shore is built and the title screen can be asked about it',
+            hz ? JSON.stringify(hz.at) : 'no horizon');
+      if (hz && hz.up) {
+        for (const k of ['a', 'b', 'boat']) {
+          const o = hz[k];
+          check(o && o.vis && o.inScene && o.meshes > 0,
+                `the ${k} of the far shore is in the drawn scene and switched on`,
+                o ? `${o.meshes} meshes, visible ${o.vis}, root ${o.root}` : 'missing');
+          check(o && o.z[0] < 1 && o.z[1] < 1,
+                `and ${k} is in FRONT of the lens, not a mirrored ghost behind it`,
+                o ? `clip z ${o.z[0]}..${o.z[1]} at ${o.dist} feet` : 'missing');
+          check(o && o.x[1] > 0.02 && o.x[0] < 0.98 && o.y[1] > 0.02 && o.y[0] < 0.98,
+                `and ${k} lands inside the frame`,
+                o ? `x ${o.x[0]}..${o.x[1]}, y ${o.y[0]}..${o.y[1]}` : 'missing');
+          check(o && o.dist > hz.fog[0] * 0.9 && o.dist < hz.fog[1],
+                `and ${k} is far enough to be horizon and near enough to survive the haze`,
+                o ? `${o.dist} feet against fog ${hz.fog[0]}..${hz.fog[1]}` : 'missing');
+        }
+        check(hz.a.x[0] > hz.b.x[1],
+              'and the two islands do not sit on top of one another',
+              `b at ${hz.b.x[0]}..${hz.b.x[1]}, a at ${hz.a.x[0]}..${hz.a.x[1]}`);
+      }
     }
     const at = await page.evaluate(() => {
       const f = window.__surf.menuFrame();
