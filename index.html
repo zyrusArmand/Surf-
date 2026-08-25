@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.51.0';
+window.SURF_VERSION='4.52.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -6612,9 +6612,48 @@ loadModel('sand.glb',(s3)=>{
           if(z<z0)z0=z; if(z>z1)z1=z;
         }
         const cx=(x0+x1)/2, cz=(z0+z1)/2;
+        // ---- and the cut edge is FEATHERED DOWN so it cannot stand on a neighbour ----
+        // Cropping the scan's ragged lip off leaves a clean edge, and a clean edge is still an
+        // edge: where one tile lies over another its cut rim sits proud of the surface below it,
+        // and reads as a flat pale plane with a straight side lying on the beach. Reported as
+        // "something going through the chest" — it was neither going through anything nor
+        // anything to do with the chest, it was tile 146 in front of it.
+        // Overlap alone cannot fix that. The tiles are turned at random, so whichever way they
+        // are laid SOME edge is the top one. The edge has to go DOWN instead: the outer band of
+        // each piece is pushed below its own surface, hard at the rim and easing to nothing
+        // inland, so every tile is a shallow dish and every rim is buried under the middle of
+        // whatever it overlaps. It costs nothing — the dished part is the part that is covered.
+        // ONCE per vertex, not once per triangle it appears in. keep is the index array and a
+        // vertex in a welded mesh belongs to five or six triangles, so walking it directly
+        // lowered every shared vertex five or six times over: the piece came out a foot and a
+        // half thick and stopped being flat at all. Its thin axis is the whole assumption this
+        // field is built on, so that is not a cosmetic error.
+        const yDrop=(y1-y0)*1.15, done=new Set();
+        for(const i of keep){
+          if(done.has(i))continue;
+          done.add(i);
+          const x=P.getX(i), z=P.getZ(i);
+          // how close to the edge, on the axis that is closest to one
+          const tx=Math.abs(x-cx)/Math.max(1e-4,(x1-x0)/2);
+          const tz=Math.abs(z-cz)/Math.max(1e-4,(z1-z0)/2);
+          const t=Math.max(tx,tz);
+          if(t<=0.55)continue;
+          const k=(t-0.55)/0.45, e=k*k*(3-2*k);       // smooth, so there is no crease
+          P.setY(i, P.getY(i)-yDrop*e);
+        }
+        P.needsUpdate=true;
+        // ...and the box is measured AGAIN, after the feather. It was taken before, so it
+        // reported the piece a fifth of a foot thick when the feather had just made it nearly a
+        // half — and the box is what the field reads to work out how far to drop each tile onto
+        // the beach. Measuring a shape and then changing the shape is the same mistake as
+        // measuring the position attribute and ignoring the index, two edits earlier in this
+        // same block. Both times it looked right and both times the number was of the shape
+        // before last.
+        let fy0=Infinity, fy1=-Infinity;
+        for(const i of keep){ const y=P.getY(i); if(y<fy0)fy0=y; if(y>fy1)fy1=y; }
         geo.translate(-cx,0,-cz);
         geo.boundingBox=new THREE.Box3(
-          new THREE.Vector3(x0-cx,y0,z0-cz), new THREE.Vector3(x1-cx,y1,z1-cz));
+          new THREE.Vector3(x0-cx,fy0,z0-cz), new THREE.Vector3(x1-cx,fy1,z1-cz));
       }
     }
   }
@@ -19008,6 +19047,27 @@ if(location.hash.includes('debug')){
     // project to different screen heights, so the comparison passed by luck while the two
     // happened to be close and failed the moment the chest moved. The question has nothing to
     // do with the picture: it is his lowest drawn point against the ground beneath him.
+    // What is actually AT a point in the picture. Pointing at a screenshot and reasoning about
+    // what a shape might be is how the last round went wrong: the answer was "a sand tile is
+    // standing through the chest", the fix was to lift the chest, and the shape stayed exactly
+    // where it was because it was never the chest's problem. A ray through the pixel says what
+    // is there, how far off it is, and what is behind it.
+    pickAt(sx,sy){
+      if(!menuCam)return null;
+      menuCam.updateMatrixWorld();
+      const rc=new THREE.Raycaster();
+      rc.setFromCamera({x:sx*2-1, y:-(sy*2-1)}, menuCam);
+      const hits=rc.intersectObject(prevScene,true).slice(0,6);
+      return hits.map(h=>{
+        let n=h.object.name, q=h.object;
+        while(!n&&q.parent){ q=q.parent; n=q.name; }
+        const m=[].concat(h.object.material||[])[0];
+        return {what:n||h.object.type, d:+h.distance.toFixed(2),
+                y:+h.point.y.toFixed(2),
+                inst:h.instanceId===undefined?null:h.instanceId,
+                mat:m?m.type:null, vis:h.object.visible};
+      });
+    },
     riderGround(){
       if(typeof menuBeach==='undefined'||!menuBeach||typeof pug==='undefined'||!pug)
         return {up:false};
@@ -22167,7 +22227,21 @@ function sgnTopTarget(){
 // reaches 0.790 where it stood — so there is about a twentieth of the frame to play with, not a
 // tenth. Measured against the buttons' real position read off the DOM rather than against a
 // number written down once, because where that column starts moves with the window.
-let MB_CD=-0.35;        // out to the camera's right of the trunk's own axis...
+// Right, and back against the trunk. It had been walked OUT to four feet to stop it sharing
+// volume with the board — which worked and was the wrong answer to the wrong question: a chest
+// four feet out on open sand is not the chest at the foot of the tree the picture wants.
+// Three things have to hold together here and they pull against each other. Against the trunk
+// is where it belongs. Clear of the board matters because the two genuinely share a volume when
+// they are both leaning on it. And the right-hand button column starts at 0.852 of the width,
+// so "further right" runs out of room quickly. Going right is what buys the first two at once —
+// beside the board rather than in front of it — and the size gives up the last eighth of an
+// inch to keep the box off the glass. Measured: 2.65ft from the trunk, clear of the board by
+// 0.15ft, and its far edge at 0.822 against that column.
+// The last sixth of an inch came off the width and the same off the step right: at 0.50 and
+// 1.42 the box reached 0.846, which is six thousandths clear of the glass and not the fifteen
+// this is checked against. The alternative was to loosen that bound because the projected box
+// over-estimates a rounded chest — which is true, and is still marking your own homework.
+let MB_CD=0.44;        // out to the camera's right of the trunk's own axis...
 // Out from 1.3, where the new palm's trunk is thick enough at chest height that the two
 // merged into one shape — the chest was measurably clear of the CENTRELINE and visibly inside
 // the tree, which is the difference between a trunk that is a line and a trunk that is a
@@ -22179,9 +22253,9 @@ let MB_CD=-0.35;        // out to the camera's right of the trunk's own axis...
 // the shore instead, and that is worse: the camera aims at the midpoint of the set, so moving
 // the chest sideways pans the whole shot and drags the pug and the board off their marks with
 // it. Straight out toward the lens separates them and moves nothing else.
-let MB_CF=4.00;        // ...and this far in front of it, which is a chest on the sand at the
+let MB_CF=2.60;        // ...and this far in front of it, which is a chest on the sand at the
                        // foot of the tree rather than a chest growing out of the surfboard
-let MB_CH=1.55;        // and this tall — brought down from 1.8 with the step forward, because
+let MB_CH=1.38;        // and this tall — brought down from 1.8 with the step forward, because
                        // a foot and a half nearer the lens is a quarter again as big on screen
                        // and the point was to move it, not to grow it
 let _bcAsp=null;
