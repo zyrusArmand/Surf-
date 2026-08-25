@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.50.0';
+window.SURF_VERSION='4.51.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -6019,10 +6019,15 @@ function modelPalm(seed,prof,menu){
 const _suRay=new THREE.Raycaster(new THREE.Vector3(),new THREE.Vector3(0,-1,0),0,240);
 const _suP=new THREE.Vector3();
 const _hzRay=new THREE.Raycaster();
-function sandUnder(obj){
-  if(!obj)return null;
-  obj.getWorldPosition(_suP);
-  _suRay.set(_suP.clone().setY(_suP.y+60), _suRay.ray.direction.set(0,-1,0));
+// The height of the ground that is actually DRAWN at one spot, which is not the same thing as
+// the height the terrain function describes. The beach is a field of scanned tiles laid over
+// that terrain, each with relief of its own, so the surface you can see stands above the curve
+// the maths gives by anything up to the thickness of a tile. Everything that has to touch the
+// ground has to ask this rather than the function, and everything that has asked the function
+// instead has been wrong in one of the two possible directions: the rider was buried in it,
+// then hung over it, and the chest had a tile edge standing through its side.
+function groundTopAt(x,z){
+  _suRay.set(_suP.set(x,120,z), _suRay.ray.direction.set(0,-1,0));
   let best=null;
   for(const o of [typeof sandField!=='undefined'?sandField:null,
                   typeof beachSand!=='undefined'?beachSand:null]){
@@ -6031,6 +6036,49 @@ function sandUnder(obj){
     if(h&&(best===null||h.point.y>best))best=h.point.y;
   }
   return best;
+}
+// ...and the highest ground anywhere under a FOOTPRINT, not just under its middle. A flat-based
+// object set on the height at its centre still has its corners in the sand wherever the ground
+// rises away from that point, which on a tiled beach it does constantly. One ray is the same
+// mistake in miniature as using the terrain function.
+// ---- and it is CACHED, because this is not a cheap question ----
+// One of these rays is tested against every triangle of the sand field — four hundred thousand
+// of them — and the caller runs from the draw loop. Uncached it dropped the title screen to a
+// crawl and the loading screen, which waits on frames, never lifted: the game sat at 100% for
+// ever. That is a far worse bug than the one being fixed, and it does not look like a graphics
+// bug at all. The answer only changes when the spot moves or the ground is rebuilt, so that is
+// what it is keyed on. Five samples rather than nine — the middle and the four corners find the
+// highest ground under a box as well as a full grid does, at half the cost.
+// Bumped whenever the ground is rebuilt, so anything holding a cached answer about where the
+// surface is knows the surface it measured has been replaced. Declared HERE, beside the cache
+// that reads it, rather than beside the function that increments it — it works either way,
+// because none of this runs until the module is up, but a reader should not have to prove that.
+let sandGen=0;
+const _gtCache=new Map();
+function groundTopOver(x,z,r){
+  // A MAP rather than one slot: the chest and the rider both ask, from different places and
+  // with different footprints, and a single-entry cache is a miss every time two callers
+  // alternate. Cleared wholesale when it grows, because the key carries a position.
+  const key=x.toFixed(2)+','+z.toFixed(2)+','+r.toFixed(2)+','+sandGen;
+  if(_gtCache.has(key))return _gtCache.get(key);
+  let best=null;
+  for(const [dx,dz] of [[0,0],[-1,-1],[1,-1],[-1,1],[1,1]]){
+    const h=groundTopAt(x+dx*r, z+dz*r);
+    if(h!==null&&(best===null||h>best))best=h;
+  }
+  if(_gtCache.size>64)_gtCache.clear();
+  _gtCache.set(key,best);
+  return best;
+}
+// ...and the same question for a whole object. The radius is the CALLER'S, because only the
+// caller knows how wide the thing standing there is — a chest is measured across its box and a
+// pair of feet across a few inches. Asking about the wrong width is how the first version of
+// the chest fix sampled a patch narrower than the chest and left the tiles that were coming
+// through outside it. Zero means one ray, which is right for a point.
+function sandUnder(obj,r){
+  if(!obj)return null;
+  obj.getWorldPosition(_suP);
+  return (r>0)?groundTopOver(_suP.x,_suP.z,r):groundTopAt(_suP.x,_suP.z);
 }
 function rigStaticPalm(s3){
   // ---- ONE mesh, and that is a requirement on the file ----
@@ -6282,6 +6330,7 @@ loadModel('palm.glb',(s3)=>{
 // quilted, and none of it makes them shingle.
 const _ss2=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
 function sandFieldBuild(){
+  sandGen++;
   if(sandField&&sandField.parent)sandField.parent.remove(sandField);
   sandField=null;
   if(!sandTile||!beachSandGroup||!beachSurfH)return;
@@ -11544,7 +11593,12 @@ function setupModelRig(root,gltf,id){
     // the sand and one four inches over it, and which you got depended on how quickly the page
     // had got itself together. So it is provisional until the sand answers, and fixed after.
     if(!this.groundFromSand){
-      const sd=(typeof sandUnder==='function')?sandUnder(pug):null;
+      // Over his own width, the same rule the chest is set by, so the two agree about where the
+      // ground is. One ray under his middle puts him on whatever the tile happens to be doing at
+      // that one point, and leaves a foot in the sand wherever it rises either side.
+      const _b0=this.skinBox&&this.skinBox();
+      const _rr=_b0?Math.max(0.12,Math.min(1.0,(_b0.hi[0]-_b0.lo[0])*0.5)):0.3;
+      const sd=(typeof sandUnder==='function')?sandUnder(pug,_rr):null;
       if(sd!==null){ this.ground=sd; this.groundFromSand=true; }
       else if(this.ground===null){ const b0=this.skinBox&&this.skinBox();
                                    if(b0)this.ground=b0.lo[1]; }
@@ -17921,8 +17975,18 @@ if(location.hash.includes('debug')){
               camDist:+cam.position.distanceTo(cw).toFixed(2),
               palmDist:tw?+cam.position.distanceTo(tw).toFixed(2):null,
               bottom:+b.min.y.toFixed(3),
-              sand:+(((typeof beachSandH==='function'&&beachSandH)
-                      ?beachSandH(cw.z/MB_K):beachSand0)*MB_K).toFixed(3),
+              // The ground it is STANDING on — the tiled field over its own footprint — not the
+              // terrain curve underneath that field. Reported as `sand`, because that is what
+              // "is it sitting on the sand" means, with the curve kept beside it as `terrain`.
+              // The gap between the two is the thickness of a tile, and reading the curve here
+              // is what made this check call a chest resting on the sand half a foot sunk.
+              sand:+(((typeof groundTopOver==='function'&&
+                       groundTopOver(cw.x,cw.z,Math.max(s.x,s.z)*0.5)!==null)
+                       ?groundTopOver(cw.x,cw.z,Math.max(s.x,s.z)*0.5)
+                       :(((typeof beachSandH==='function'&&beachSandH)
+                          ?beachSandH(cw.z/MB_K):beachSand0)*MB_K))).toFixed(3),
+              terrain:+((((typeof beachSandH==='function'&&beachSandH)
+                      ?beachSandH(cw.z/MB_K):beachSand0)*MB_K)).toFixed(3),
               // WHICH camera answered. The menu's beach comes down whenever a panel opens, and
               // a reading taken in that gap comes back through the game's camera instead —
               // numbers that look like a misplaced chest and are a camera that is out at sea.
@@ -18936,6 +19000,29 @@ if(location.hash.includes('debug')){
               tris:Math.round(tris),
               tiles:f&&f.isInstancedMesh?f.count:(f?1:0),
               fieldTris:f&&f.isInstancedMesh?Math.round(tris*f.count):null};
+    },
+    // Where the rider's soles are against the ground UNDER THEM, in feet. This existed as a
+    // comparison of his foot to the chest's foot ON SCREEN, on the reasoning that two things
+    // standing on the same beach should agree — and that is wrong, because they stand at
+    // different distances from the lens. Two objects resting perfectly on the same ground
+    // project to different screen heights, so the comparison passed by luck while the two
+    // happened to be close and failed the moment the chest moved. The question has nothing to
+    // do with the picture: it is his lowest drawn point against the ground beneath him.
+    riderGround(){
+      if(typeof menuBeach==='undefined'||!menuBeach||typeof pug==='undefined'||!pug)
+        return {up:false};
+      const R=(typeof riderRig==='function')?riderRig():null;
+      // the skinned box, not Box3 — on a skinned mesh that reports the BIND pose and wanders
+      // by a third of a foot as the show moves through its beats
+      const b=R&&R.skinBox?R.skinBox():null;
+      pug.updateMatrixWorld(true);
+      const foot=b?b.lo[1]:new THREE.Box3().setFromObject(pug).min.y;
+      const rr=b?Math.max(0.12,Math.min(1.0,(b.hi[0]-b.lo[0])*0.5)):0.3;
+      const g=(typeof sandUnder==='function')?sandUnder(pug,rr):null;
+      return {up:true, id:rider,
+              foot:+foot.toFixed(3),
+              ground:g===null?null:+g.toFixed(3),
+              gap:g===null?null:+(foot-g).toFixed(3)};   // + floats, - buried
     },
     shadowState(){
       const one=(n,o)=>{ if(!o)return n+':missing';
@@ -21729,7 +21816,10 @@ function layoutMenuBeach(){
   }
   const stand=(d,out)=>{
     const wx=_mbP.x-_mbR.x*d-_mbF.x*fwd, wz=_mbP.z-_mbR.z*d-_mbF.z*fwd;
-    const sand=(beachSandH?beachSandH(wz/MB_K):beachSand0)*MB_K;
+    // Provisional only — the terrain function, used to stand it somewhere so its box can be
+  // measured. Where it actually ENDS UP is solved at the end of this function, against the
+  // ground that is drawn rather than the ground that is described.
+  const sand=(beachSandH?beachSandH(wz/MB_K):beachSand0)*MB_K;
     return out.set(wx,sand-drop,wz);
   };
   // What holds a leaning board up is the first thing it touches, and which end that is
@@ -22124,11 +22214,25 @@ function layoutBeachChest(){
   beachChest.scale.setScalar(MB_CH/Math.max(1e-4,h));
   _bcP.set(wx,sand,wz); menuProps.worldToLocal(_bcP);
   beachChest.position.copy(_bcP);
-  // and sat ON the sand rather than half sunk in it — the same two-solid-things rule the
-  // rider's feet get, and it matters more here because the beach is sloping underneath it
+  // ---- and sat on the ground that is DRAWN, over its own FOOTPRINT ----
+  // This sat it on beachSandH, the terrain function, while what you see underfoot is a field of
+  // scanned tiles standing over that curve by up to a tile's thickness. So the chest was set
+  // below the visible surface and a tile edge came through its side and out across the sand — a
+  // pale wedge lying through the box.
+  // Over its footprint and taken at the HIGHEST, because a box set on the height under its
+  // middle still has a corner buried wherever the ground rises away from there. And the
+  // footprint is measured off the box that was just measured, not guessed: tried first at half
+  // of MB_CH, which is the chest's HEIGHT and about a third of its width, so it sampled a patch
+  // narrower than the chest and the tiles that were coming through were the ones outside it.
+  // Falls back to the terrain function while the field is still being built, which is the state
+  // the first layout runs in.
   beachChest.updateMatrixWorld(true);
   const b=new THREE.Box3().setFromObject(beachChest);
-  beachChest.position.y+=(sand-b.min.y)/(menuProps.scale.y||1);
+  const bs=b.getSize(new THREE.Vector3());
+  const foot=Math.max(bs.x,bs.z)*0.5;
+  const top=(typeof groundTopOver==='function')?groundTopOver(wx,wz,foot):null;
+  const rest=(top!==null)?top:sand;
+  beachChest.position.y+=(rest-b.min.y)/(menuProps.scale.y||1);
 }
 // Hung where the chest is placed, in the same axes and for the same reasons: the props group
 // carries a turn of its own, the shot is angled along the beach so world +x is not

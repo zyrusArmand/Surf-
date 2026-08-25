@@ -1920,11 +1920,14 @@ if (hasHook) {
     // layout has put him anywhere — and being latched it never corrected. Measured before the
     // fix: two trips through and his foot sat at 0.584 of the frame with the chest's at 0.753.
     //
-    // Asked against the CHEST rather than against a number. Both of them stand on the same sand
-    // a few feet apart, so where their feet land on screen tracks together whatever the window
-    // does — and it is the comparison a person makes looking at the picture. The tolerance is
-    // wide enough for the foot of perspective between two things at different depths and a
-    // fifth of what the fault was worth.
+    // Asked in FEET, against the ground under his own feet. It used to compare his foot to the
+    // CHEST'S, on screen, on the reasoning that two things standing on the same beach should
+    // agree about where it is. That is wrong: they stand at different distances from the lens,
+    // so they project to different heights however perfectly they are both resting on it. The
+    // comparison passed while the two happened to be close and failed the moment the chest was
+    // set on the tiled surface instead of the terrain curve — and neither outcome said anything
+    // about whether he was standing on anything. His soles against the ground beneath them is
+    // the question, and it does not care where the camera is.
     // TWICE, because once did not do it: the first trip came back clean and the second and third
     // floated. A check that goes in and out once would have passed on the broken build.
     for (const who of ['angler', 'pug']) {
@@ -1934,15 +1937,13 @@ if (hasHook) {
       await page.waitForTimeout(1500);
       await page.evaluate(() => document.getElementById('shopClose').click());
       await page.waitForTimeout(4000);
-      const st = await page.evaluate(() => {
-        const f = window.__surf.menuFrame();
-        return f && f.rider && f.chest ? { r: f.rider.foot, c: f.chest.foot } : null;
-      });
-      check(st && Math.abs(st.r - st.c) < 0.05,
+      const st = await page.evaluate(() => window.__surf.riderGround());
+      check(st && st.up && st.gap !== null && Math.abs(st.gap) < 0.15,
             `and ${who} still stands on the sand after a trip to the shop, not over it`,
-            st ? `his foot at ${st.r.toFixed(3)} of the frame, the chest's at ${st.c.toFixed(3)}` +
-                 ` — ${(st.r - st.c).toFixed(3)} between them`
-               : 'no menu frame');
+            st && st.up
+              ? `soles at ${st.foot}, ground at ${st.ground} — ` +
+                `${st.gap > 0 ? st.gap + 'ft over it' : (-st.gap) + 'ft into it'}`
+              : 'no rider');
     }
   }
 
