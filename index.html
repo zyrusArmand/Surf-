@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.70.0';
+window.SURF_VERSION='4.71.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -1394,6 +1394,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     <button class="go alt sm" id="stClaim">Claim boards</button>
     <button class="go calm sm" id="stWipe">Reset</button>
     <button class="go teal sm" id="stWave">Test wave</button>
+    <button class="go teal sm" id="stWhirl">Test whirl</button>
     <button class="go teal sm" id="stStage">Stage</button>
     <button class="go sm" id="stClose">Close</button>
   </div>
@@ -8988,6 +8989,9 @@ function openStats(full){
   // Stage button on the player's own Stats panel — the check for "nowhere a player can reach"
   // is what asked the question.
   document.getElementById('stStage').style.display = full ? '' : 'none';
+  // and the whirlpool test with it. Same reasoning as Stage: a test that summons a hazard
+  // belongs behind the five taps, not on the panel the dial opens.
+  document.getElementById('stWhirl').style.display = full ? '' : 'none';
   // Owner's key. It lives behind the version-tap because that is already the door
   // nobody finds by accident, and it is the only thing in the game that hands you
   // something you did not ride for — so it stays out of the shop entirely.
@@ -9293,6 +9297,17 @@ document.getElementById('stWave').onclick=()=>{
   document.getElementById('stats').classList.add('hidden');
   beginRun();
   swTest=true; swNext=2;
+};
+// Same shape as the wave test above, including the ordering: beginRun resets the whirlpool
+// timer, so the two seconds have to be set AFTER it and not before.
+// whTest is what makes this work at all. A whirlpool will not spawn inside the first seven
+// hundred metres however short its timer is -- that gate is the whole reason the hazard does
+// not turn up while a player is still finding the controls -- so a test that only shortened
+// the clock would sit there doing nothing and look like a broken button.
+document.getElementById('stWhirl').onclick=()=>{
+  document.getElementById('stats').classList.add('hidden');
+  beginRun();
+  whTest=true; whirlT=2;
 };
 document.getElementById('stWipe').onclick=e=>{
   // two presses: the first arms it, so a stray tap cannot erase months of history
@@ -14696,7 +14711,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   splat3D.visible=false;
   while(splashes.length){const d=splashes.pop();freeDrop(d);}
   for(const o of seaLife)scene.remove(o);seaLife.length=0;lifeT=6;
-  whirl=null;whA=0;whirlArt.visible=false;whirlT=26+Math.random()*16;
+  whirl=null;whA=0;whirlArt.visible=false;whirlT=26+Math.random()*16;whTest=false;
   planeT=34+Math.random()*26;planeActive=false;plane.visible=false;hanging=false;rope.visible=false;
   ropeBtn.style.display='none';ropeBtn.textContent='ROPE!';
   player.rotation.set(0,0,0);
@@ -14734,7 +14749,7 @@ function respawn(){
   swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=30+Math.random()*15;swTest=false;swArmed=false;swAng=0;swAngV=0;swLoops=0;swTubeRide=false;swCamLock=null;swRad=NaN;swCalm=1;swOver=0;swPipeAir=false;swRadV=0;swForm=0;
   for(const p of SMOKE){p.t=0;p.m.visible=false;} _smkHas=false; plane.userData.prev=null;
   curl.visible=false;swSplash.visible=false;
-  whirl=null;whA=0;whirlArt.visible=false;whirlT=30+Math.random()*20;
+  whirl=null;whA=0;whirlArt.visible=false;whirlT=30+Math.random()*20;whTest=false;
   hanging=false;rope.visible=false;ropeBtn.style.display='none';ropeBtn.textContent='ROPE!';
   planeActive=false;plane.visible=false;planeT=30+Math.random()*24;
   splatT=0;splat3D.visible=false;
@@ -17738,6 +17753,15 @@ if(location.hash.includes('debug')){
       spawnWhirl(); whirl.x=px; whirl.z=pz+3; whA=Math.max(whA,3.2);
       return {x:+whirl.x.toFixed(2),z:+whirl.z.toFixed(2)};
     },
+    // What the Test whirl button does, without going through the panel — so a check can time
+    // the arrival rather than confirm a button exists. Reported rather than assumed: `armed`
+    // is the flag that lets one through before the 700 m gate, and without it a shortened
+    // clock spawns nothing at all.
+    whirlIn(sec){
+      whTest=true; whirlT=(sec===undefined?2:sec);
+      return {armed:whTest, t:+whirlT.toFixed(2), live:!!whirl}; },
+    whirlState(){ return {live:!!whirl, t:+whirlT.toFixed(2), armed:whTest,
+                          a:+whA.toFixed(2), dist:Math.round(dist)}; },
     // where the camera is against the sea AROUND a whirlpool, which is the level it must
     // stay above — the bowl itself is metres deep and is not a floor
     camVsSea(){
@@ -19707,7 +19731,7 @@ if(location.hash.includes('debug')){
       // 700, which cleared a 600 m mark and silently stopped clearing a 5,000 m one
       dist=Math.max(dist,SET_WAVE_AT+50); swNext=0; swArmed=true;
       skiOn=false; skiWake=null; skiT=26; jetSki.visible=false; skiGlint.visible=false; wkA=0;
-      whirl=null; whA=0; whirlArt.visible=false; whirlT=30;
+      whirl=null; whA=0; whirlArt.visible=false; whirlT=30; whTest=false;
       return true;
     },
     // Warping is a jump to a phase's entry state, matching what the phase before it would
@@ -19864,9 +19888,13 @@ if(location.hash.includes('debug')){
     // reach it through the taps is testing the door rather than the lock.
     showRecords(full){
       openStats(!!full);
-      const b=document.getElementById('stStage');
+      const b=document.getElementById('stStage'), w=document.getElementById('stWhirl');
       return {open:!document.getElementById('stats').classList.contains('hidden'),
-              stage:!!b&&getComputedStyle(b).display!=='none'};
+              stage:!!b&&getComputedStyle(b).display!=='none',
+              // every workshop tool on this panel, not just the one that happened to be added
+              // first — the Stage button reached the player's own panel precisely because the
+              // list it had to be added to was somewhere else
+              whirl:!!w&&getComputedStyle(w).display!=='none'};
     },
     stageState(){
       const t=(typeof stageTargets==='function')?stageTargets():[];
@@ -20355,6 +20383,9 @@ function makeWhirlArt(){
   return m;
 }
 let whirl=null, whirlT=26+Math.random()*16;
+// Set by the Test whirl button to let one through before the distance gate opens. A summoned
+// whirlpool is a one-off and not a mode, so it is put down again the moment it spawns.
+let whTest=false;
 const whirlArt=makeWhirlArt(); whirlArt.visible=false; scene.add(whirlArt);
 function spawnWhirl(){
   whirl={x:Math.max(-4,Math.min(4,px+(Math.random()-0.5)*7)), z:-112,
@@ -20371,7 +20402,7 @@ function spawnWhirl(){
 function updateWhirl(dt,eff){
   if(!whirl){
     whirlT-=dt;
-    if(whirlT<=0&&dist>700){whirlT=45+Math.random()*30;spawnWhirl();}
+    if(whirlT<=0&&(dist>700||whTest)){whirlT=45+Math.random()*30;whTest=false;spawnWhirl();}
     if(whA>0){whA=Math.max(0,whA-dt*5);whirlArt.scale.y=Math.max(0.001,whA);}
     if(whA<=0)whirlArt.visible=false;
     return;

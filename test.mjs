@@ -2249,14 +2249,52 @@ if (hasHook) {
       await ver5tap();
       await page.waitForTimeout(600);
       const behindTaps = await page.evaluate(() => {
-        const b = document.getElementById('stStage');
+        const b = document.getElementById('stStage'), w = document.getElementById('stWhirl');
         return { open: !document.getElementById('stats').classList.contains('hidden'),
-                 stage: !!b && b.offsetParent !== null };
+                 stage: !!b && b.offsetParent !== null,
+                 whirl: !!w && w.offsetParent !== null };
       });
-      check(asPlayer.open && !asPlayer.stage && behindTaps.open && behindTaps.stage,
-            'the stage is behind the five taps and nowhere a player can reach',
-            `player's panel: open ${asPlayer.open}, stage ${asPlayer.stage} · ` +
-            `five taps: open ${behindTaps.open}, stage ${behindTaps.stage}`);
+      // BOTH workshop tools, not just the one that was here first. The Stage button reached the
+      // player's own Stats panel because the markup and the full-only list live in different
+      // places and only the markup got edited; asking about one button would let the next one
+      // in make exactly the same trip.
+      check(asPlayer.open && !asPlayer.stage && !asPlayer.whirl &&
+            behindTaps.open && behindTaps.stage && behindTaps.whirl,
+            'the workshop tools are behind the five taps and nowhere a player can reach',
+            `player's panel: open ${asPlayer.open}, stage ${asPlayer.stage}, ` +
+            `whirl ${asPlayer.whirl} · five taps: open ${behindTaps.open}, ` +
+            `stage ${behindTaps.stage}, whirl ${behindTaps.whirl}`);
+      // ...and the whirlpool test actually summons one, at the delay it promises. Driven
+      // through the button so the wiring is covered end to end, and timed by SIMULATED seconds
+      // rather than wall clock. The distance gate is the point: a whirlpool will not spawn
+      // inside 700 m however short its clock is, so a version of this that only shortened the
+      // timer would sit there doing nothing — which is why `dist` is reported alongside.
+      {
+        await page.evaluate(() => document.getElementById('stWhirl').click());
+        await page.waitForTimeout(400);
+        const w = await page.evaluate(() => {
+          const s = window.__surf, out = { armed: s.whirlState().armed, at: null, steps: [] };
+          for (let i = 0; i < 20; i++) {                 // 20 x 0.25s = 5 simulated seconds
+            s.tick(0.25);
+            const st = s.whirlState();
+            out.steps.push(+(0.25 * (i + 1)).toFixed(2));
+            if (st.live && out.at === null) { out.at = +(0.25 * (i + 1)).toFixed(2);
+                                              out.dist = st.dist; out.armedAfter = st.armed;
+                                              break; } }
+          return out;
+        });
+        // an upper AND a lower bound: "it eventually appears" would pass on the ordinary
+        // 45-second spawn and prove nothing about the button
+        check(w.armed === true && w.at !== null && w.at >= 1.5 && w.at <= 3.0 &&
+              w.armedAfter === false,
+              'and Test whirl brings a whirlpool two seconds later, before the 700m gate',
+              w.at === null
+                ? `armed ${w.armed} but none arrived in 5 simulated seconds`
+                : `armed ${w.armed}, arrived at ${w.at}s at ${w.dist}m ` +
+                  `(well inside the 700m gate), flag put down after: ${!w.armedAfter}`);
+        await page.evaluate(() => window.__surf.restart());
+        await page.waitForTimeout(200);
+      }
 
       await page.click('#stStage');
       await page.waitForTimeout(500);
