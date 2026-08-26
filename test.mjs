@@ -660,24 +660,34 @@ await page.waitForTimeout(300);
       const id = k[k.length - 1] || 'pug';
       return !!(s.charCardCached && s.charCardCached(id));
     }, null, { timeout: 90000, polling: 400 }).catch(() => {});
+    // ---- ASKED OF THE RECORD, NOT OF THE PIXELS ----
+    // This compared the cached card's BYTES against a fresh build, and that question has no
+    // answer. Measured: three builds inside one evaluate come back byte-identical, but builds
+    // one tick apart do not — 105894, 105994 and 106250 bytes for the same character — because
+    // the standing pose breathes off tNow and a few thousandths of a shoulder angle is a great
+    // many bytes of PNG. So the check could never go green no matter how correct the game was,
+    // and it spent three rounds reporting a bug that was in the check.
+    // A PNG cannot be asked what it is a picture of. The game writes that down instead, at the
+    // one moment it is known for certain — as the card is drawn — and this reads it back.
     const card = await page.evaluate(() => {
       const s = window.__surf;
       const kinds = s.riderKinds ? s.riderKinds() : [];
       const id = kinds[kinds.length - 1] || 'pug';        // last in, most likely to be stale
       const model = !!(s.riderHasModel && s.riderHasModel(id));
       const held = s.charCardCached ? s.charCardCached(id) : null;
-      const fresh = s.charShot(id);                        // clears and rebuilds
-      return { id, model, held: !!held, same: held ? held === fresh : null,
-               len: fresh ? fresh.length : 0 };
+      const meta = s.charCardMeta ? s.charCardMeta(id) : null;
+      return { id, model, held: !!held, len: held ? held.length : 0,
+               meta: meta ? !!meta.model : null };
     });
     await page.evaluate(() => document.getElementById('shopClose').click());
     await page.waitForTimeout(500);
-    // `model` is asserted, not just reported: with no model there is no stand-in to be stale
-    // against and the comparison is vacuous — a green light on an empty hand again.
-    check(card && card.len > 1000 && card.model && card.held && card.same === true,
+    // every one of these is asserted rather than reported. `model` because with no file in
+    // there is no stand-in to be stale against and the question is vacuous; `held` because a
+    // missing card compares nothing; `meta` because that is the answer itself.
+    check(card && card.len > 1000 && card.model && card.held && card.meta === true,
           'and the shop card for the last rider to load is of his model, not the stand-in',
           `${card.id}: ${card.len}B, his file is in: ${card.model}, ` +
-          `shop was holding a card: ${card.held}, and it matches a fresh build: ${card.same}`);
+          `shop was holding a card: ${card.held}, drawn with his model: ${card.meta}`);
   }
   // ---- and a chest sitting on the sand in front of the tree ----
   // Placing this cost four rounds and every one failed differently: the props group carries a

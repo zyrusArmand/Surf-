@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.69.2';
+window.SURF_VERSION='4.70.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -11705,6 +11705,55 @@ function setupModelRig(root,gltf,id){
   for(const n of ['LeftArm','RightArm','LeftForeArm','RightForeArm','LeftUpLeg','RightUpLeg',
                   'LeftLeg','RightLeg','Spine','Spine01','Spine02','Head'])
     if(R.bones[n])R.rest[n]=R.bones[n].quaternion.clone();
+  // ---- ARMS DOWN, WHATEVER POSE THE FILE WAS MODELLED IN ----
+  // Every pose in this rig is applied as an offset FROM the model's own rest — the standing
+  // pose asks for about a tenth of a radian at the shoulder and the riding stance for a third.
+  // That works perfectly on a file modelled with its arms already down and does nothing at all
+  // on a file modelled in a T-pose, which needs most of a right angle before it even starts.
+  // Measured across the rack, as the angle each hand hangs at from straight down: pug 37,
+  // cat 41, angler 33, frog 20, monkey 22 — and then rat 80, squirrel 85, ant 87, with pig at
+  // 61 and the alien at 52. Half the cast was standing in the shop with its arms held out at
+  // shoulder height, which is a modelling convention and not a thing any animal does.
+  //
+  // So the REST ITSELF is normalised: each shoulder is turned, once, at load, by exactly the
+  // rotation that swings the shoulder-to-hand line onto a common target, and every pose
+  // downstream then means the same thing on every file. The BIND is deliberately left alone —
+  // clips write absolute rotations and three.js has already snapshotted the originals for the
+  // handstand's blend, so changing the skeleton here would reach into both. Only the reference
+  // the pose functions premultiply by is moved.
+  //
+  // The target is a hand hanging about thirty-two degrees out from plumb, which is where the
+  // files that already read correctly sit. Deriving it from the ones that look right rather
+  // than picking a number means the five that were wrong come to the others, and the five that
+  // were right barely move.
+  (function normaliseArms(){
+    const V=THREE.Vector3, Q=THREE.Quaternion;
+    const rq=new Q(); root.getWorldQuaternion(rq);
+    const up=new V(0,1,0).applyQuaternion(rq);
+    const right=new V(1,0,0).applyQuaternion(rq);
+    const fwd=new V(0,0,-1).applyQuaternion(rq);
+    for(const s of ['Left','Right']){
+      const sh=R.bones[s+'Arm'], hd=R.bones[s+'Hand']||R.bones[s+'ForeArm'];
+      if(!sh||!hd||!R.rest[s+'Arm'])continue;
+      const S=new V(), H=new V();
+      sh.getWorldPosition(S); hd.getWorldPosition(H);
+      const d=new V().subVectors(H,S);
+      if(d.lengthSq()<1e-8)continue;
+      d.normalize();
+      const sgn=(s==='Left')?-1:1;
+      // down, splayed out by 0.62 (about 32 degrees) and a hair forward so the hands sit just
+      // clear of the hips rather than flat against them
+      const t=new V().addScaledVector(up,-1)
+                     .addScaledVector(right,sgn*0.62)
+                     .addScaledVector(fwd,0.05).normalize();
+      const corrW=new Q().setFromUnitVectors(d,t);
+      // a bone's quaternion is expressed in its PARENT's frame, so the world-space correction
+      // has to be brought back through the parent before it can be stored
+      const pq=new Q(); if(sh.parent)sh.parent.getWorldQuaternion(pq);
+      const shW=new Q(); sh.getWorldQuaternion(shW);
+      R.rest[s+'Arm']=pq.invert().multiply(corrW.multiply(shW));
+    }
+  })();
   // EVERY bone's bind transform, not just the dozen the stance touches. A clip drives all
   // twenty-four, so a pose left behind by one lives in the hips, the shoulders, both spine
   // segments and the neck — none of which the standing pose writes. Restore only what the
@@ -19926,7 +19975,14 @@ if(location.hash.includes('debug')){
         const a=new THREE.Vector3(), b=new THREE.Vector3(), c=new THREE.Vector3();
         sh.getWorldPosition(a); (el||hd).getWorldPosition(b); hd.getWorldPosition(c);
         pug.worldToLocal(a); pug.worldToLocal(b); pug.worldToLocal(c);
-        out[s]={ drop:+(a.y-c.y).toFixed(3), side:+(c.x-a.x).toFixed(3),
+        // ANGLE FROM STRAIGHT DOWN is the reading that means anything, because `drop` is a
+        // distance in feet and a long-armed animal hanging straight down out-drops a short one
+        // by more than a wrong pose does: the frog read 0.73 and the pug 0.40 with both of them
+        // correct. 0 is hanging plumb, 90 is held out at shoulder height.
+        const dx=c.x-a.x, dy=c.y-a.y, dz=c.z-a.z;
+        const horiz=Math.hypot(dx,dz);
+        out[s]={ deg:+(Math.atan2(horiz,Math.max(0,-dy))*180/Math.PI).toFixed(1),
+                 drop:+(a.y-c.y).toFixed(3), side:+(c.x-a.x).toFixed(3),
                  fwd:+(c.z-a.z).toFixed(3), elbowDrop:+(a.y-b.y).toFixed(3) };
       }
       return out; },
