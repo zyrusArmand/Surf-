@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.88.2';
+window.SURF_VERSION='4.89.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -22999,6 +22999,7 @@ let MB_CAM_YAW=-6.201155, MB_CAM_PITCH=0.195477;
 // AHEAD and SIDE below no longer place the set when this is on. They stay because the anchor
 // still has to land somewhere sensible for the things that are not staged.
 let MB_STAGED=1;
+const MB_ANCHOR=[-8.15,-43.34];   // where menuProps stood when the set was staged — see layoutMenuBeach
 let MB_CH_SC=1.38;      // how big the chest stands, as a MULTIPLE of its fitted size
 // MB_CH_SIDE and MB_CH_CLR are gone with the placement that used them — the layout's own MB_CD
 // and MB_CF already say where the chest stands relative to the trunk, and having two answers to
@@ -23242,7 +23243,16 @@ function layoutMenuBeach(){
     }
   }
   mbAxes(_yaw);
-  const gz=MB_CAM_ON?_mbAnchor(_yaw):null;
+  // ---- THE ANCHOR THE SET WAS STAGED AGAINST ----
+  // The palm's staged numbers are LOCAL to menuProps, and menuProps stands at this anchor — so
+  // they only mean what they meant if the anchor is where it was when they were read off. Left
+  // to MB_SET_AHEAD the offset got added to a different origin and the whole set was
+  // double-counted: the tree came forward until it filled the frame with the pug behind it.
+  // Recovered from the readout itself, which prints both columns for the same object:
+  //   world -12.87 = anchor.x + (-4.103 * MB_K)  ->  anchor.x = -8.15
+  //   world -51.53 = anchor.z + (-7.121 * MB_K)  ->  anchor.z = -43.34
+  // So this is not a number chosen by eye; it is the one the staged figures were measured in.
+  const gz=MB_STAGED?{x:MB_ANCHOR[0],z:MB_ANCHOR[1]}:(MB_CAM_ON?_mbAnchor(_yaw):null);
   const g=(beachSandH?beachSandH(gz?gz.z/MB_K:MB_Z):beachSand0)*MB_K;
   const board=menuBeach.board;
   // the palm is the anchor; everything else is measured off it along the camera's axes
