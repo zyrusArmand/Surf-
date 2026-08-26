@@ -5073,10 +5073,10 @@ check(shaderErrors.length === 0, 'every shader compiles',
     const out = { ride: null, hold: [], after: null };
     window.__surf.hand(false); window.__surf.restart(); window.__surf.tick(1.0);
     out.who = window.__surf.rigInfo().who;
-    out.ride = { deg: window.__surf.rigInfo().bodyDeg, x: window.__surf.deckGap().x };
+    out.ride = { deg: window.__surf.rigInfo().bodyVsBoard, x: window.__surf.deckGap().x };
     window.__surf.hand(true); window.__surf.tick(1.8);
     for (let i = 0; i < 4; i++) { window.__surf.tick(0.2);
-      out.hold.push({ deg: window.__surf.rigInfo().bodyDeg, g: window.__surf.deckGap() }); }
+      out.hold.push({ deg: window.__surf.rigInfo().bodyVsBoard, g: window.__surf.deckGap() }); }
     window.__surf.hand(false); window.__surf.tick(3);
     const ri = window.__surf.rigInfo();
     out.after = { deg: ri.bodyDeg, x: window.__surf.deckGap().x,
@@ -5084,10 +5084,16 @@ check(shaderErrors.length === 0, 'every shader compiles',
     return out;
   });
   const swing = Math.max(...plant.hold.map(h => Math.abs(h.deg - plant.ride.deg)));
-  // Measured in isolation this never passes 7.6 — twenty samples across four boards, with and
-  // without a trick left running into it — and inside the full suite it has come back 7.2, 16.2
-  // and 16.6. Something upstream leaves state that roughly doubles it and three targeted
-  // experiments have not found what, so the state is reported rather than guessed at again.
+  // ---- read against the BOARD now, not against the world ----
+  // In isolation this never passed 7.6, and in the full suite it came back 7.2, 16.2, 16.6,
+  // 8.7, 7.4, 6.1 and 13.1 — with nothing about the rig changing between them. Comparing a
+  // failing run against a passing one gave it away: on the failures the hold angles drifted
+  // steadily MORE negative, on the passes steadily less, and `day` and `dist` were identical
+  // to within one. That is not the clip turning him, it is the BOARD — on a moving wave the
+  // deck leans and carves, and a body angle read in world space rides along with it.
+  // The question this asks is whether the handstand CLIP turns his back to the camera, and
+  // that is a body-against-board quantity. Both are on the same wave, so measuring against the
+  // board cancels it and leaves only the thing in dispute.
   const swState = await page.evaluate(() => {
     const s = window.__surf;
     let st = {};

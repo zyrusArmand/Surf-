@@ -17349,7 +17349,23 @@ if(location.hash.includes('debug')){
           if(hp2){ const f=new THREE.Vector3(0,0,-1).applyQuaternion(
               hp2.getWorldQuaternion(new THREE.Quaternion()));
             f.y=0;
-            out.bodyDeg=f.lengthSq()>0.02?+(Math.atan2(f.x,-f.z)*180/Math.PI).toFixed(1):null; } }
+            out.bodyDeg=f.lengthSq()>0.02?+(Math.atan2(f.x,-f.z)*180/Math.PI).toFixed(1):null;
+            // ---- and the same angle RELATIVE TO THE BOARD ----
+            // bodyDeg is world, which was chosen so that a turn taken off the rider group still
+            // shows. It also picks up everything the board is doing: on a moving wave the deck
+            // leans and carves, and a handstand read in world space drifts with it. Measured
+            // across runs, that drift went one way or the other depending on where in the swell
+            // he was — the same check read 6.1 degrees and 13.1 with nothing about the rig
+            // changed. Against the board the wave cancels, because both are on it, and what is
+            // left is the only thing the question was ever about: is the CLIP turning him.
+            if(typeof boardArt!=='undefined'&&boardArt){
+              const bf=new THREE.Vector3(0,0,-1).applyQuaternion(
+                boardArt.getWorldQuaternion(new THREE.Quaternion()));
+              const bd=Math.atan2(bf.x,-bf.z)*180/Math.PI;
+              let d=(out.bodyDeg===null?0:out.bodyDeg)-bd;
+              while(d>180)d-=360; while(d<-180)d+=360;
+              out.bodyVsBoard=out.bodyDeg===null?null:+d.toFixed(1);
+            } } }
         // which way up he actually is, which is the only reading that settles a handstand
         const hp=modelRig.bones.Hips;
         if(hp){ const uy=new THREE.Vector3(0,1,0).applyQuaternion(
