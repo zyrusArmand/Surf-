@@ -1143,6 +1143,25 @@ const d1 = await page.textContent('#hDist');
   check(ch && ch.game.wrap,
         'the chop map repeats — a tileable map set to clamp tiles once and stretches after',
         ch ? `wrapS repeat ${ch.game.wrap}` : 'no hook');
+  // ---- and it CHANGES THE PICTURE ----
+  // Bound, repeating and the right size, and still multiplied by nothing — that is exactly the
+  // shape of the bug where the sea reflected a fixed blue all day while the term reflecting it
+  // was perfect. So this asks the only question that cannot be satisfied by plumbing: render a
+  // patch of water with the map on, render it again with the map off, and require the pixels to
+  // differ. Cropped to water and only water, clear of the HUD and the rider.
+  const patch = {x: 140, y: 300, width: 300, height: 120};
+  const on  = await page.screenshot({clip: patch});
+  await page.evaluate(() => window.__surf.chopSwitch(false));
+  await page.waitForTimeout(1400);
+  const off = await page.screenshot({clip: patch});
+  await page.evaluate(() => window.__surf.chopSwitch(true));
+  await page.waitForTimeout(1400);
+  // byte length is a weak comparator; PNG length tracks how much STRUCTURE is in the image, so
+  // two renders of the same water differ by a little and a switched-off chop differs by a lot.
+  const rel = Math.abs(on.length - off.length) / Math.max(on.length, off.length);
+  check(rel > 0.01,
+        'the chop map is not just bound but visibly changes the water it is bound to',
+        `${on.length}B with the map, ${off.length}B without — ${(rel*100).toFixed(1)}% apart`);
 }
 const m = s => parseFloat(String(s).replace(/[^\d.]/g, '')) || 0;
 check(m(d1) > m(d0), 'HUD distance advancing', `${d0} -> ${d1}`);

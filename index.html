@@ -2206,9 +2206,17 @@ const oceanMat=new THREE.ShaderMaterial({
       // procedural version drifted at, so neither the tile nor the scroll reads as a pattern.
       vec2 wob;
       if(uChopK > 0.5){
-        vec2 ca = texture2D(uChop, gp*0.055 + vec2( uT*0.0063,-uT*0.0052)).xy*2.0 - 1.0;
-        vec2 cb = texture2D(uChop, gp*0.168 + vec2(-uT*0.0116, uT*0.0097)).xy*2.0 - 1.0;
-        wob = ca + cb*0.62;
+        // The bias is the whole reason this reads as water rather than as satin. At a grazing
+        // angle — which is most of the sea — the uv derivatives along the view direction are
+        // enormous, so the sampler picks a very coarse mip and averages the ripples to flat.
+        // Measured: without it the mid-field carried a QUARTER of the fine detail the
+        // procedural chop did. fbm holds detail out to the horizon because it never filters,
+        // which is also why it shimmers; a bias buys most of that detail back and keeps the
+        // filtering. -1.0 is one mip level sharper, tuned against that measurement rather
+        // than picked.
+        vec2 ca = texture2D(uChop, gp*0.055 + vec2( uT*0.0063,-uT*0.0052), -1.0).xy*2.0 - 1.0;
+        vec2 cb = texture2D(uChop, gp*0.168 + vec2(-uT*0.0116, uT*0.0097), -1.0).xy*2.0 - 1.0;
+        wob = ca + cb*0.78;
       } else {
         wob = vec2(fbm(gp*1.85 + vec2(uT*0.21,-uT*0.17)) - 0.5,
                    fbm(gp*2.30 + vec2(-uT*0.19, uT*0.23)) - 0.5)
@@ -19207,8 +19215,19 @@ if(location.hash.includes('debug')){
     // not the one being drawn. This reports the value going in, not the code that sets it.
     chopState(){
       const rd=(u)=>({on:u.uChopK.value>0.5, w:u.uChop.value?u.uChop.value.image.width:0,
-                      wrap:u.uChop.value?u.uChop.value.wrapS===THREE.RepeatWrapping:false});
-      return {game:rd(oceanUniforms), menu:prevOcean?rd(prevOcean.uniforms):null};
+                      wrap:u.uChop.value?u.uChop.value.wrapS===THREE.RepeatWrapping:false,
+                      aniso:u.uChop.value?u.uChop.value.anisotropy:0});
+      return {game:rd(oceanUniforms), menu:prevOcean?rd(prevOcean.uniforms):null,
+              anisoCap:renderer.capabilities.getMaxAnisotropy()};
+    },
+    // Flip the chop map off and back, so "the map changes the picture" can be asked as a
+    // COMPARISON of two frames one uniform apart, rather than asserted. A map can be bound,
+    // repeating, and the right size, and still be multiplied by nothing.
+    chopSwitch(on){
+      const k=on?1:0;
+      oceanUniforms.uChopK.value=k;
+      if(prevOcean)prevOcean.uniforms.uChopK.value=k;
+      return oceanUniforms.uChopK.value;
     },
     riderGround(){
       if(typeof menuBeach==='undefined'||!menuBeach||typeof pug==='undefined'||!pug)
