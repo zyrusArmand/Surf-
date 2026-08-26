@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.82.1';
+window.SURF_VERSION='4.83.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -23515,6 +23515,7 @@ let MB_SGN_HP=0.092;
 // version was: the menu shot pulls back on a narrow window and comes in on a squarer one, and a
 // sign fixed at so many feet along the beach walks across the frame between the two.
 let MB_SGN_PLANT=1;        // 0 hangs it off the palm the old way
+let _sgFwd=6.0;            // how far up the beach it is stuck in — solved, see fitBeachSign
 // ---- AND CLEAR OF THE BUTTONS ----
 // "Bottom left" on a phone is where the Board, Shop and Tricks column lives — about 0.05 to
 // 0.16 across and 0.62 to 0.83 down — so a sign centred at 0.20 and a third of the frame wide
@@ -23763,7 +23764,15 @@ function hangBeachSign(){
   if(!beachSign)return null;
   if(typeof menuProps==='undefined'||!menuProps)return null;
   mbAxes();
-  const wx=_mbR.x*_sgSide-_mbF.x*MB_SGN_F, wz=MB_Z*MB_K+_mbR.z*_sgSide-_mbF.z*MB_SGN_F;
+  // ---- A PLANTED SIGN IS BROUGHT NEARER, NOT PUSHED DOWN ----
+  // The hung solve moves the sign's HEIGHT to hit a place in the frame, which is right for a
+  // title hanging in the air. It is wrong for one standing on the beach: to reach the bottom of
+  // the picture a sign forty feet away has to go below the sand, and the sand is drawn over it,
+  // so the solver converged happily on a position where nothing was visible at all. What puts a
+  // real object low in frame is being CLOSE to the lens. So the planted mode solves the forward
+  // distance and leaves the sign standing on the ground where it belongs.
+  const FW=MB_SGN_PLANT?_sgFwd:MB_SGN_F;
+  const wx=_mbR.x*_sgSide-_mbF.x*FW, wz=MB_Z*MB_K+_mbR.z*_sgSide-_mbF.z*FW;
   menuProps.updateWorldMatrix(true,false);
   // Measured with the sign standing square in the WORLD, not square to the lens: a width read
   // off a world-aligned box is the plank's own width only while the plank is world-aligned, and
@@ -23777,7 +23786,10 @@ function hangBeachSign(){
   const lb=signLocalBox();
   const w=(lb?lb.max.x-lb.min.x:1)*(menuProps.scale.x||1);
   beachSign.scale.setScalar(_sgFt/Math.max(1e-4,w));
-  const p=new THREE.Vector3(wx,_sgUp,wz);
+  // ...and it stands ON the beach, at whatever height the sand is where it is stuck in
+  const gy=MB_SGN_PLANT&&typeof beachSandH==='function'
+             ? beachSandH(wz/MB_K)*MB_K : _sgUp;
+  const p=new THREE.Vector3(wx,gy,wz);
   menuProps.worldToLocal(p);
   beachSign.position.copy(p);
   faceBeachSign();
@@ -23857,7 +23869,9 @@ function fitBeachSign(){
     // A planted one is placed by its MIDDLE: its bottom is buried and its top is whatever the
     // lean leaves, so neither edge is the thing being aimed.
     if(MB_SGN_PLANT){
-      if(!secant(()=>_sgUp,MB_SGN_PY,q=>(q.y[0]+q.y[1])/2,v=>{_sgUp=v;},-40,90,12))done=false;
+      // nearness for the vertical, because that is what actually moves a thing standing on the
+      // ground up and down the frame
+      if(!secant(()=>_sgFwd,MB_SGN_PY,q=>(q.y[0]+q.y[1])/2,v=>{_sgFwd=v;},-60,60,10))done=false;
       if(!secant(()=>_sgSide,MB_SGN_PX,q=>(q.x[0]+q.x[1])/2,v=>{_sgSide=v;},-40,24,8))done=false;
     }else{
       if(!secant(()=>_sgUp,sgnTopTarget(),q=>q.y[0],v=>{_sgUp=v;},2,90,12))done=false;
