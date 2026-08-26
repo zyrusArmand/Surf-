@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.61.0';
+window.SURF_VERSION='4.62.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -1308,7 +1308,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     pointer-events:auto; }
   #stageBar .go { width:auto; min-width:0; padding:7px 12px; font-size:12px; }
   /* which axis you are on, said in the button rather than in a label somewhere else */
-  #stageBar .st-md.on { color:#fff;
+  #stageBar #stageCam.on, #stageBar .st-md.on { color:#fff;
     background:linear-gradient(157deg, rgba(90,238,226,.30), rgba(20,180,180,.14) 55%,
                                        rgba(150,246,238,.22)); }
   #stageOut { margin:7px auto 0; max-width:min(680px,96vw); text-align:center;
@@ -1404,6 +1404,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     <button class="go alt sm st-md" data-md="rotx">Tilt</button>
     <button class="go alt sm st-md" data-md="roty">Turn</button>
     <button class="go alt sm st-md" data-md="rotz">Roll</button>
+    <button class="go sun sm" id="stageCam">Camera</button>
     <button class="go alt sm" id="stageCopy">Copy</button>
     <button class="go calm sm" id="stageOff">Done</button>
   </div>
@@ -9011,6 +9012,17 @@ document.getElementById('stClaim').onclick=e=>{
 // the phone mid-session cannot quietly undo the arrangement you are looking at.
 const STAGE_HOLD=5000;
 let stageOn=false, stagePick=null, stageMode='move', stageDrag=null, _stHold=null;
+// ---- the camera, as an OFFSET on the shot rather than as a replacement for it ----
+// The menu camera is written every frame — position, aim and projection — so a staged camera
+// cannot simply be set somewhere and left: the next frame would put it back before the drag
+// was on the screen. These three are applied AFTER that write, on top of whatever the shot was
+// going to be, so the camera keeps its slow drift and the numbers here stay meaningful against
+// the constants that produced them.
+// Applied before faceBeachSign and layoutHorizon on purpose. Those two are solved FROM the
+// lens — where the title hangs and where the far shore sits are both worked out from where the
+// camera ended up — so offsetting after them would leave the sign square to a camera that is
+// no longer there and the islands placed for a frame nobody is looking at.
+let stageCamOn=false, stCamYaw=0, stCamLift=0, stCamDolly=1;
 const _stRC=new THREE.Raycaster(), _stV=new THREE.Vector3(), _stV2=new THREE.Vector3();
 function stageTargets(){
   const out=[], add=(n,o)=>{ if(o)out.push({n,o}); };
@@ -9042,7 +9054,14 @@ function stagePx(o){
   const d=menuCam.position.distanceTo(_stV);
   return 2*d*Math.tan(menuCam.fov*Math.PI/360)/Math.max(1,innerHeight);
 }
+function stageCamApply(dx,dy){
+  if(stageMode==='lift'){ stCamLift+=-dy*0.02; }
+  else if(stageMode.startsWith('rot')){ stCamYaw+=dx*0.005; }
+  else { stCamYaw+=dx*0.005; stCamDolly=Math.max(0.25,Math.min(4,stCamDolly*(1+dy*0.004))); }
+  stageSay();
+}
 function stageApply(dx,dy){
+  if(stageCamOn){ stageCamApply(dx,dy); return; }
   if(!stagePick)return;
   const o=stagePick.o;
   if(stageMode.startsWith('rot')){ o.rotation[stageMode.slice(3)]+=dx*0.006; stageSay(); return; }
@@ -9066,6 +9085,14 @@ function stageApply(dx,dy){
   stageSay();
 }
 function stageText(){
+  if(stageCamOn){
+    const D=v=>(v*180/Math.PI).toFixed(1);
+    let w=[0,0,0];
+    if(typeof menuCam!=='undefined'&&menuCam)
+      w=[menuCam.position.x,menuCam.position.y,menuCam.position.z].map(v=>+v.toFixed(2));
+    return 'camera  orbit '+D(stCamYaw)+'\u00b0   dolly \u00d7'+stCamDolly.toFixed(3)+
+           '   lift '+stCamLift.toFixed(3)+'   at '+w.join(', ');
+  }
   if(!stagePick)return '';
   const o=stagePick.o, p=o.position, r=o.rotation, D=v=>(v*180/Math.PI).toFixed(1);
   o.updateMatrixWorld(true);
@@ -9077,12 +9104,16 @@ function stageText(){
 }
 function stageSay(msg){
   const el=document.getElementById('stageOut'); if(!el)return;
-  el.textContent = msg || (stagePick ? stageText()
+  el.textContent = msg || ((stageCamOn||stagePick) ? stageText()
                                      : 'press and hold anything on the beach for 5s');
 }
 function stageShow(on){
   stageOn=!!on;
   stagePick=null; stageDrag=null;
+  // the lens goes back to the shot the game ships with — a staged camera left on would follow
+  // the player out of the panel and there is nothing on the title screen to put it right
+  stageCamOn=false; stCamYaw=0; stCamLift=0; stCamDolly=1;
+  const cb=document.getElementById('stageCam'); if(cb)cb.classList.remove('on');
   if(_stHold){ clearTimeout(_stHold); _stHold=null; }
   document.getElementById('stage').classList.toggle('hidden',!stageOn);
   // the dial would eat the drags, and this is not a screen you press Play from
@@ -9095,6 +9126,19 @@ document.getElementById('stStage').onclick=()=>{
   stageShow(true);
 };
 document.getElementById('stageOff').onclick=()=>stageShow(false);
+document.getElementById('stageCam').onclick=e=>{
+  stageCamOn=!stageCamOn;
+  e.target.classList.toggle('on',stageCamOn);
+  // Long-press the button to put the shot back where it was designed. Nothing else undoes a
+  // camera drag, and a lens you have pushed somewhere unrecoverable is a reload away from
+  // costing you the whole arrangement behind it.
+  stageSay();
+};
+document.getElementById('stageCam').oncontextmenu=e=>{
+  e.preventDefault();
+  stCamYaw=0; stCamLift=0; stCamDolly=1; stageSay('camera back to the shot as designed');
+  return false;
+};
 document.getElementById('stageCopy').onclick=e=>{
   const blob=stagePick?stageText():'nothing held';
   const done=()=>{ e.target.textContent='Copied'; setTimeout(()=>e.target.textContent='Copy',1400); };
@@ -9125,7 +9169,7 @@ overlay.addEventListener('pointermove',e=>{
   stageDrag.x=e.clientX; stageDrag.y=e.clientY;
   // a hold is a HOLD: sliding off it cancels, or every drag across the beach would arm one
   if(_stHold&&stageDrag.n>14){ clearTimeout(_stHold); _stHold=null; stageSay(); }
-  if(stagePick&&!_stHold)stageApply(dx,dy);
+  if((stageCamOn||stagePick)&&!_stHold)stageApply(dx,dy);
 },true);
 for(const ev of ['pointerup','pointercancel'])overlay.addEventListener(ev,()=>{
   if(_stHold){ clearTimeout(_stHold); _stHold=null; stageSay(); }
@@ -19532,6 +19576,12 @@ if(location.hash.includes('debug')){
       return {
         on:!!(typeof stageOn!=='undefined'&&stageOn),
         mode:(typeof stageMode!=='undefined')?stageMode:null,
+        cam:!!(typeof stageCamOn!=='undefined'&&stageCamOn),
+        lens:(typeof stCamYaw!=='undefined')
+              ?{yaw:+stCamYaw.toFixed(4), dolly:+stCamDolly.toFixed(4), lift:+stCamLift.toFixed(4),
+                at:menuCam?[menuCam.position.x,menuCam.position.y,menuCam.position.z]
+                            .map(v=>+v.toFixed(2)):null}
+              :null,
         held:(typeof stagePick!=='undefined'&&stagePick)?stagePick.n:null,
         out:(document.getElementById('stageOut')||{}).textContent||null,
         items:t.map(x=>{
@@ -23039,6 +23089,7 @@ function fitBeachSign(){
 // right — and the feet are worked out from the lens each time it is laid out.
 let MB_HZ_A=[165,0.44], MB_HZ_B=[145,-0.52], MB_HZ_BOAT=[118,0.24];
 const _hzF=new THREE.Vector3(), _hzR=new THREE.Vector3(), _hzP=new THREE.Vector3();
+const _stTgt=new THREE.Vector3(), _stOff=new THREE.Vector3();
 function layoutHorizon(){
   if(!beachHorizon||!beachHorizon.userData.isles||typeof menuCam==='undefined'||!menuCam)return;
   // The camera's OWN axes, taken off the camera rather than rebuilt from the yaw, because the
@@ -23334,6 +23385,17 @@ function renderMenuBeach(dt){
   }
   menuCam.position.set(cx, Math.max(g,gc)+MB_EYE+sw2*0.12, cz);
   menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+MB_AIM, pz-_mbR.z*aim);
+  // the stage's own lens, laid on top of the shot rather than instead of it — see stageCamOn
+  if(typeof stageCamOn!=='undefined'&&stageCamOn&&typeof stageOn!=='undefined'&&stageOn){
+    _stTgt.set(px-_mbR.x*aim+sw*0.15, g+MB_AIM, pz-_mbR.z*aim);
+    _stOff.copy(menuCam.position).sub(_stTgt);
+    const c=Math.cos(stCamYaw), sn=Math.sin(stCamYaw);
+    const nx=_stOff.x*c-_stOff.z*sn, nz=_stOff.x*sn+_stOff.z*c;
+    _stOff.set(nx,_stOff.y,nz).multiplyScalar(stCamDolly);
+    _stOff.y+=stCamLift;
+    menuCam.position.copy(_stTgt).add(_stOff);
+    menuCam.lookAt(_stTgt);
+  }
   menuCam.updateProjectionMatrix();
   faceBeachSign();      // the title hangs square to whatever the lens just did
   // ...and the boat keeps its sail toward you. Edge on, a sail is a line, and a line a quarter of

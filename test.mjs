@@ -2154,9 +2154,34 @@ if (hasHook) {
             'and dragging it moves the thing itself, the way the finger went',
             `finger ${DRAG}px right, it went ${dx}px across and ${dy}px down`);
 
+      // ---- and the camera, which is the one thing that cannot simply be SET ----
+      // menuCam is written every frame — position, aim and projection — so the stage's lens is
+      // an offset applied on top of that write rather than a replacement for it. If that offset
+      // were ever dropped, or applied in the wrong place, the drag would be overwritten before
+      // it reached the screen and the camera would sit exactly still. So this asks that the
+      // lens MOVED, and that leaving the stage puts it back — a staged camera that followed a
+      // player out to the title screen would have nothing on that screen to fix it.
+      const lens0 = await page.evaluate(() => window.__surf.stageState().lens);
+      await page.click('#stageCam');
+      await page.waitForTimeout(300);
+      await page.mouse.move(215, 600);
+      await page.mouse.down();
+      for (let i = 1; i <= 12; i++) { await page.mouse.move(215 + i * 12, 600); await page.waitForTimeout(60); }
+      await page.mouse.up();
+      await page.waitForTimeout(600);
+      const lens1 = await page.evaluate(() => window.__surf.stageState());
+      const swung = Math.hypot(lens1.lens.at[0] - lens0.at[0], lens1.lens.at[2] - lens0.at[2]);
+      check(lens1.cam && Math.abs(lens1.lens.yaw) > 0.15 && swung > 1.0,
+            'and the Camera button hands the drags to the lens, which actually moves',
+            `orbit ${(lens1.lens.yaw * 180 / Math.PI).toFixed(0)}\u00b0, lens walked ${swung.toFixed(2)}ft`);
+
       await page.evaluate(() => document.getElementById('stageOff').click());
-      await page.waitForTimeout(400);
+      await page.waitForTimeout(900);
       const off = await page.evaluate(() => window.__surf.stageState());
+      const lensBack = Math.hypot(off.lens.at[0] - lens0.at[0], off.lens.at[2] - lens0.at[2]);
+      check(!off.cam && off.lens.yaw === 0 && off.lens.dolly === 1 && lensBack < 1.5,
+            'and Done gives the player back the shot the game ships with',
+            `orbit ${off.lens.yaw}, dolly ${off.lens.dolly}, lens ${lensBack.toFixed(2)}ft from where it started`);
       const dialBack = await page.evaluate(() => {
         const d = document.getElementById('homeDial');
         return !!d && getComputedStyle(d).display !== 'none';
@@ -3736,14 +3761,32 @@ if (hasHook) {
   check(ramp.finite, 'riding a ramp leaves every number a number',
         ramp.finite ? 'x, y and z all finite across the whole climb'
                     : 'the rider went NaN on the way up');
-  // Two and a half inches, because a ramp sitting on the swell is TILTED — a twentieth of a
-  // radian of it, which is a couple of inches at the ends of a five-foot kicker — and the
-  // rays read the tilted mesh while the ride reads the untilted profile. Tighter than that
-  // is measuring the swell. Loose enough to still catch the thing this is for: a deck the
-  // ride is not following at all, which was five inches out and climbing the wrong curve.
-  check(rows.length >= 4 && worst < 0.21,
+  // ---- the CURVE, with the tilt taken out ----
+  // A ramp sitting on the swell is tilted — the rays read the tilted mesh while the ride reads
+  // the untilted profile — so the gap between them has a slope in it that has nothing to do
+  // with whether the ride is following the right shape. This used to be a flat allowance of two
+  // and a half inches, sized for a five-foot kicker, and it could not tell those two apart: the
+  // moment a longer ramp went in it started failing on spawns where the deck was perfect and
+  // the swell happened to be steep. Measured across eight spawns of the 7.8ft one, seven came
+  // in at 0.06-0.10ft and one at 0.31 — and that one read -0.10, -0.01, 0.07, 0.18, 0.31 along
+  // the deck, which is a straight line, which is a tilt.
+  // So the straight line is fitted and thrown away, and what is left is the disagreement in
+  // SHAPE — which is the thing this check exists for and the thing that does not scale with how
+  // long the ramp is or how steep the water under it. The raw gap keeps a loose ceiling of its
+  // own, so a deck bodily in the wrong place still fails even if it is parallel.
+  const gaps = rows.map(r => ({ t: r.t, d: r.mesh - r.ride }));
+  let bend = 0;
+  if (gaps.length >= 3) {
+    const n = gaps.length, st = gaps.reduce((a, g) => a + g.t, 0), sd = gaps.reduce((a, g) => a + g.d, 0);
+    const stt = gaps.reduce((a, g) => a + g.t * g.t, 0), std = gaps.reduce((a, g) => a + g.t * g.d, 0);
+    const den = n * stt - st * st;
+    const m = Math.abs(den) < 1e-9 ? 0 : (n * std - st * sd) / den, b = (sd - m * st) / n;
+    bend = Math.max(...gaps.map(g => Math.abs(g.d - (m * g.t + b))));
+  }
+  check(rows.length >= 4 && bend < 0.12 && worst < 0.75,
         'and his feet are on the deck that is actually there, not the one it was assumed to have',
-        `${rows.length} points along it, worst ${worst.toFixed(2)}ft between mesh and ride` +
+        `${rows.length} points along it, ${bend.toFixed(3)}ft of BEND once the swell's tilt is ` +
+        `fitted out (raw gap ${worst.toFixed(2)}ft)` +
         (modelled ? ' (modelled ramp)' : ' (built-in ramp)'));
   check(ramp.lifted > 0.4, 'and it still lifts him',
         `${ramp.lifted.toFixed(2)}ft gained`);
