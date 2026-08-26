@@ -11,6 +11,10 @@ import { MeshoptSimplifier } from 'meshoptimizer';
 import sharp from 'sharp';
 
 const IN=process.argv[2], OUT=process.argv[3], TARGET=+(process.argv[4]||95000);
+// Texture budget, so a piece that is LOOKED at closely can keep its detail without every prop
+// paying for it. The beach is the clearest case: it fills the bottom half of the title screen
+// at arm's length, where 2048 across a fourteen-foot tile is about 150 pixels per foot.
+const TEX=+(process.argv[5]||2048), Q=+(process.argv[6]||88);
 const io=new NodeIO().registerExtensions(ALL_EXTENSIONS);
 const doc=await io.read(IN);
 const root=doc.getRoot();
@@ -42,12 +46,12 @@ await doc.transform(
   // Per SLOT, because the three maps do not deserve the same budget. Base colour is what you
   // actually look at; the normal carries the surface at a scale you pass in a fifth of a
   // second; metallic-roughness is two near-flat channels and 1024 is generous for it.
-  textureCompress({encoder:sharp, targetFormat:'jpeg', quality:88,
-                   slots:/baseColorTexture/, resize:[2048,2048]}),
-  textureCompress({encoder:sharp, targetFormat:'jpeg', quality:88,
-                   slots:/normalTexture/,    resize:[2048,2048]}),
-  textureCompress({encoder:sharp, targetFormat:'jpeg', quality:85,
-                   slots:/metallicRoughnessTexture/, resize:[1024,1024]}),
+  textureCompress({encoder:sharp, targetFormat:'jpeg', quality:Q,
+                   slots:/baseColorTexture/, resize:[TEX,TEX]}),
+  textureCompress({encoder:sharp, targetFormat:'jpeg', quality:Q,
+                   slots:/normalTexture/,    resize:[TEX,TEX]}),
+  textureCompress({encoder:sharp, targetFormat:'jpeg', quality:Math.max(80,Q-3),
+                   slots:/metallicRoughnessTexture/, resize:[Math.min(1024,TEX),Math.min(1024,TEX)]}),
   prune(), dedup(), unpartition(),
 );
 console.log('after: ', Math.round(tris()), 'tris');
