@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.85.0';
+window.SURF_VERSION='4.86.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -22940,6 +22940,7 @@ const MB_YAW=0.46;                    // how far round from straight-out-to-sea 
 let MB_CAM_ON=1;
 const MB_CAM=new THREE.Vector3(-13.64,5.20,-39.88);
 let MB_CAM_YAW=-6.201155, MB_CAM_PITCH=0.195477;
+let MB_SET_AHEAD=21.0;               // feet out along the staged camera's own forward
 let MB_CAM_ASP=0.462;                // the aspect it was staged at
 let MB_CAM_DOLLY=9.0;                // feet nearer per unit of aspect above that
 let MB_D=6.2;                        // how far back the camera stands from the palm
@@ -23111,17 +23112,47 @@ const _mbQ=new THREE.Quaternion(), _mbQ2=new THREE.Quaternion(), _mbUp=new THREE
 const _mbS=new THREE.Vector3();
 // forward, and right of it. At a yaw of zero the camera looks straight out to sea and its
 // right is +x; turning it puts the sea on the left, which is the side the reference has it.
-function mbAxes(){
-  _mbF.set(Math.sin(MB_YAW),0,-Math.cos(MB_YAW));
+function mbAxes(y){
+  const Y=(y===undefined)?MB_YAW:y;
+  _mbF.set(Math.sin(Y),0,-Math.cos(Y));
   _mbR.set(-_mbF.z,0,_mbF.x);
+}
+// Where on the ground the set stands, so that it is in front of the staged lens: along the
+// camera's own forward, flattened, MB_SET_AHEAD feet out. Flattened because the camera is tilted
+// up and following the ray itself would put the set in the air.
+function _mbAnchor(){
+  const f=new THREE.Vector3(0,0,-1).applyEuler(_stEul.set(MB_CAM_PITCH,MB_CAM_YAW,0,'YXZ'));
+  f.y=0;
+  if(f.lengthSq()<1e-8)return null;
+  f.normalize();
+  return {x:MB_CAM.x+f.x*MB_SET_AHEAD, z:MB_CAM.z+f.z*MB_SET_AHEAD};
 }
 function layoutMenuBeach(){
   if(!menuBeach)return;
-  mbAxes();
-  const g=(beachSandH?beachSandH(MB_Z):beachSand0)*MB_K;   // the sand where these things stand
+  // ---- THE SET IS BROUGHT TO THE CAMERA, NOT THE CAMERA TO THE SET ----
+  // The staged camera carries a direction as well as a place, and "put the camera here and fit
+  // everything into its view" means both are fixed and the SET is what moves. Re-aiming the
+  // lens at the set instead satisfies the second half and breaks the first: it is no longer the
+  // shot that was staged, which is exactly what it looked like.
+  // So the anchor is placed on the ground along the camera's own forward ray, and the set is
+  // turned to face back down it. Everything else in this function is measured off that anchor
+  // and follows for free.
+  let _yaw=MB_YAW;
+  if(MB_CAM_ON){
+    const f=new THREE.Vector3(0,0,-1).applyEuler(_stEul.set(MB_CAM_PITCH,MB_CAM_YAW,0,'YXZ'));
+    f.y=0;
+    if(f.lengthSq()>1e-8){
+      f.normalize();
+      // the set's forward points back at the lens, so it presents its face rather than its side
+      _yaw=Math.atan2(-f.x,f.z);
+    }
+  }
+  mbAxes(_yaw);
+  const gz=MB_CAM_ON?_mbAnchor(_yaw):null;
+  const g=(beachSandH?beachSandH(gz?gz.z/MB_K:MB_Z):beachSand0)*MB_K;
   const board=menuBeach.board;
   // the palm is the anchor; everything else is measured off it along the camera's axes
-  _mbP.set(0,g,MB_Z*MB_K);
+  if(gz)_mbP.set(gz.x,g,gz.z); else _mbP.set(0,g,MB_Z*MB_K);
   menuProps.position.set(_mbP.x,g-0.3*MB_K*MB_PALM/0.46,_mbP.z);
   menuProps.scale.setScalar(MB_K);
   // Its trunk is a long C leaning out along its own +x, so turning the palm by minus the
@@ -24267,13 +24298,12 @@ function renderMenuBeach(dt){
     menuCam.position.copy(MB_CAM);
     // along its own view axis, so widening the window brings the camera in rather than
     // sliding the shot sideways
-    menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+MB_AIM, pz-_mbR.z*aim);
-    // along its own view axis, so widening the window brings the camera in rather than
-    // sliding the shot sideways
+    // the staged ANGLE, kept. The set has been moved into this view rather than the view
+    // swung onto the set — see the note at the top of layoutMenuBeach.
+    menuCam.quaternion.setFromEuler(_stEul.set(MB_CAM_PITCH,MB_CAM_YAW,0,'YXZ'));
     const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(menuCam.quaternion);
     menuCam.position.addScaledVector(fwd,
       Math.max(0,(menuCam.aspect||MB_CAM_ASP)-MB_CAM_ASP)*MB_CAM_DOLLY);
-    menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+MB_AIM, pz-_mbR.z*aim);
   }
   // the stage's own lens — see stCamFree. Held through Done as well as during, which is why the
   // condition is the lens itself rather than whether the bar happens to be on the screen.
