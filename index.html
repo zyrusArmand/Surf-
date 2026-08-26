@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.79.0';
+window.SURF_VERSION='4.79.1';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -12942,12 +12942,21 @@ const wakeMat=new THREE.ShaderMaterial({
       if(vA<=0.001) discard;
       // stretched along the trail, because foam pulls out into streaks behind a moving board
       vec2 q=vec2(vUV.x*2.2, vUV.y*9.0);
-      float lace  = smoothstep(0.40,0.84, fbm(q*1.45 + vec2(-uT*0.07, uT*0.06)));
-      float fleck = smoothstep(0.56,0.93, fbm(q*3.90 + vec2( uT*0.11, uT*0.09)));
+      float lace  = smoothstep(0.28,0.80, fbm(q*1.45 + vec2(-uT*0.07, uT*0.06)));
+      float fleck = smoothstep(0.44,0.90, fbm(q*3.90 + vec2( uT*0.11, uT*0.09)));
+      // ---- THE WHITEWATER RECIPE, NOT THE CREST'S ----
+      // The wave carries two different foams and this is the other one. Crest foam is the thin
+      // lacy line along the top of a standing face — 0.45 + 0.55*lace — and building the trail
+      // on it is what made the trail thin. What a board actually leaves behind it is the same
+      // stuff as the churn behind the break: 0.52 + 0.34*lace + 0.30*fleck, a high floor with
+      // the noise only mottling it, because it is aerated all the way through rather than
+      // laced across the surface. Dense and cloudy, and the same numbers the curl uses, so the
+      // two still match when they are side by side.
       float edge  = smoothstep(0.30,1.0, abs(vUV.x));        // the rails throw the brightest water
-      float a = vA*(0.45+0.55*lace+0.35*fleck)*(0.52+0.80*edge);
-      // punched through, so it breaks up into foam rather than fading as a sheet
-      a *= smoothstep(0.06,0.52, 0.30+0.60*lace+0.55*fleck);
+      float a = vA*(0.52+0.34*lace+0.30*fleck)*(0.80+0.34*edge);
+      // Barely punched now. The holes are what turns a sheet into foam, but at the crest's
+      // strength they were eating most of it — this only takes out the very faintest corners.
+      a *= smoothstep(-0.25,0.35, 0.30+0.60*lace+0.55*fleck);
       if(a<=0.004) discard;
       gl_FragColor=vec4(mix(vec3(0.90,0.95,0.97),vec3(0.97,0.995,1.0),fleck), a);
     }`
@@ -12971,9 +12980,14 @@ function updateWake(dt,eff){
     wakePos[o+3]=t.x+halfW; wakePos[o+4]=y; wakePos[o+5]=t.z;
     const ou=i*4;
     wakeUV[ou]=-1; wakeUV[ou+1]=k;  wakeUV[ou+2]=1; wakeUV[ou+3]=k;
-    const a=Math.max(0,(1-k))*0.55*Math.min(1,i/2);
-    wakeAlpha[oa]=a*0.35; wakeAlpha[oa+1]=a*0.35;  // soft edges
-    if(i>0){ wakeAlpha[oa]=a*0.45; wakeAlpha[oa+1]=a*0.45; }
+    // ---- and it is OPAQUE where it is fresh ----
+    // These were 0.35 and 0.45 over a 0.55 base, so the brightest the trail could ever be was
+    // about a quarter opaque before the shader had its say — which is a pane of glass, not a
+    // wake. Churned water right behind a board hides what is under it completely and only
+    // thins as it disperses, so the near end starts near solid and the fade does the work.
+    const a=Math.max(0,(1-k))*0.95*Math.min(1,i/2);
+    wakeAlpha[oa]=a*0.70; wakeAlpha[oa+1]=a*0.70;  // soft edges
+    if(i>0){ wakeAlpha[oa]=a*0.88; wakeAlpha[oa+1]=a*0.88; }
   }
   wakeGeo.attributes.position.needsUpdate=true;
   wakeGeo.attributes.aAlpha.needsUpdate=true;
