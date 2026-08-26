@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.80.0';
+window.SURF_VERSION='4.80.1';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -18332,15 +18332,16 @@ if(location.hash.includes('debug')){
               barkTint:'#'+PALM_BARK.getHexString()};
     },
     // the planted sign's own numbers, so the corner it is dug into can be walked without an edit
-    signPlant(px,py,pw,tilt,yaw,sink,on){
+    signPlant(px,py,pw,tilt,yaw,sink,on,roll){
       if(px!==undefined)MB_SGN_PX=px; if(py!==undefined)MB_SGN_PY=py;
       if(pw!==undefined)MB_SGN_PW=pw; if(tilt!==undefined)MB_SGN_TILT=tilt;
       if(yaw!==undefined)MB_SGN_YAW=yaw; if(sink!==undefined)MB_SGN_SINK=sink;
+      if(roll!==undefined)MB_SGN_ROLL=roll;
       if(on!==undefined)MB_SGN_PLANT=on?1:0;
       if(typeof layoutBeachSign==='function')layoutBeachSign();
       const m=(typeof signScreen==='function')?signScreen():null;
       return {plant:!!MB_SGN_PLANT, px:MB_SGN_PX, py:MB_SGN_PY, pw:MB_SGN_PW,
-              tilt:MB_SGN_TILT, yaw:MB_SGN_YAW, sink:MB_SGN_SINK,
+              tilt:MB_SGN_TILT, yaw:MB_SGN_YAW, sink:MB_SGN_SINK, roll:MB_SGN_ROLL,
               at:m?{x:m.x.map(v=>+v.toFixed(3)), y:m.y.map(v=>+v.toFixed(3)),
                     roll:+m.roll.toFixed(1)}:null};
     },
@@ -23508,9 +23509,17 @@ let MB_SGN_PLANT=1;        // 0 hangs it off the palm the old way
 let MB_SGN_PX=0.20;        // where its middle sits across the frame — well left of the pug
 let MB_SGN_PY=0.86;        // and how far down. Below the board's foot, into the near sand.
 let MB_SGN_PW=0.30;        // how wide it reads, as a fraction of the frame
-let MB_SGN_TILT=0.30;      // leaned back out of the sand
-let MB_SGN_YAW=0.34;       // and turned off square, so it is stuck in at an angle
-let MB_SGN_SINK=0.30;      // how much of the plank is under the sand
+let MB_SGN_TILT=0.26;      // leaned back out of the sand
+let MB_SGN_YAW=0.30;       // and turned off square, so it is stuck in at an angle
+// ---- THE ROLL IS WHAT MAKES IT DUG IN ----
+// Lean and yaw turn the plank away from the lens, and neither of them puts an END of it in the
+// ground: a board tilted back and twisted is still a board lying level, which is exactly what
+// the first pass looked like — dropped on the sand rather than staked into it. What reads as
+// stuck in is one corner DOWN, the long axis canted across the picture, so the low end runs
+// into the beach and the high end stands clear of it. That is a roll about the view axis.
+let MB_SGN_ROLL=-0.30;
+let MB_SGN_SINK=0.46;      // how much of the plank is under the sand — deep enough to bury the
+                           // low corner rather than rest the whole edge on top of it
 function sgnTopTarget(){
   return MB_SGN_H+MB_SGN_HP*Math.max(0,1-(menuCam?menuCam.aspect:1));
 }
@@ -23762,6 +23771,9 @@ function hangBeachSign(){
     // shot moves, and a sign with a fixed world angle reads square from one camera and edge-on
     // from another. This way the lean is always the same lean as seen from the seat.
     const q=new THREE.Quaternion();
+    // roll FIRST, in the view plane, so the cant is the one you see rather than one the
+    // subsequent turns have already carried off axis
+    beachSign.quaternion.multiply(q.setFromAxisAngle(new THREE.Vector3(0,0,1),MB_SGN_ROLL));
     beachSign.quaternion.multiply(q.setFromAxisAngle(new THREE.Vector3(1,0,0),MB_SGN_TILT));
     beachSign.quaternion.multiply(q.setFromAxisAngle(new THREE.Vector3(0,1,0),MB_SGN_YAW));
     // ...and pushed down into the sand by a share of its own height, so the bottom of the plank
