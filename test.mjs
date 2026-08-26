@@ -630,17 +630,29 @@ await page.waitForTimeout(300);
   // read off the picture rather than off whether the cache happens to have an entry, because
   // an entry that exists and is wrong is the whole failure.
   {
+    // The shop has to have DRAWN the surfers first, or there is nothing cached to compare and
+    // the check passes on an empty hand — which is what it did the first time it ran, reporting
+    // "matches: null" and going green without comparing anything.
+    await page.evaluate(() => document.getElementById('dShop').click());
+    await page.waitForTimeout(700);
+    await page.evaluate(() => { const t = [...document.querySelectorAll('#shopTabs .tab')]
+      .find(b => /surfer/i.test(b.textContent)); if (t) t.click(); });
+    await page.waitForTimeout(2500);
     const card = await page.evaluate(() => {
       const s = window.__surf;
       const kinds = s.riderKinds ? s.riderKinds() : [];
       const id = kinds[kinds.length - 1] || 'pug';        // last in, most likely to be stale
       const held = s.charCardCached ? s.charCardCached(id) : null;
       const fresh = s.charShot(id);                        // clears and rebuilds
-      return { id, same: held === null ? null : held === fresh, len: fresh ? fresh.length : 0 };
+      return { id, held: !!held, same: held ? held === fresh : null,
+               len: fresh ? fresh.length : 0 };
     });
-    check(card && card.len > 1000 && card.same !== false,
+    await page.evaluate(() => document.getElementById('shopClose').click());
+    await page.waitForTimeout(500);
+    check(card && card.len > 1000 && card.held && card.same === true,
           'and the shop card for the last rider to load is of his model, not the stand-in',
-          `${card.id}: ${card.len}B, matches what the shop was holding: ${card.same}`);
+          `${card.id}: ${card.len}B, shop was holding one: ${card.held}, ` +
+          `and it matches a fresh build: ${card.same}`);
   }
   // ---- and a chest sitting on the sand in front of the tree ----
   // Placing this cost four rounds and every one failed differently: the props group carries a
