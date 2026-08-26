@@ -848,15 +848,27 @@ await page.waitForTimeout(300);
   // Held across the whole rack, because the board is what moves: a ten foot log stands its
   // foot further out than a four foot skimboard does, and if he were placed off a fixed
   // offset instead of off the board's own plane, the longest board would swallow him.
-  check(stood.length === 4 && stood.every(f => f.boardF - f.riderF > 1.5),
-        'and the rider stands in front of the board rather than beside it',
-        stood.map(f => `${f.id} ${(f.boardF - f.riderF).toFixed(2)}ft nearer the camera`).join(', '));
+  // ---- and he stands BESIDE it, on the same line, which reverses what this asked ----
+  // This wanted him a stride nearer the camera than the board, so that he crossed it and
+  // occluded it. The reference the screen is now composed against does the opposite: the rider,
+  // the board and the chest all stand on ONE ground line — his feet are a shade further than the
+  // board's, not nearer — and there is clear daylight between his silhouette and its rail.
+  // So what is asked is that they share a line rather than that one is in front: within a stride
+  // either way, across the whole rack, because the board is what moves.
+  check(stood.length === 4 && stood.every(f => Math.abs(f.boardF - f.riderF) < 1.5),
+        'and the rider stands beside the board, on the same line as it',
+        stood.map(f => `${f.id} ${(f.boardF - f.riderF).toFixed(2)}ft of depth between them`).join(', '));
   // In front of it and ACROSS it, not off to one side of it and merely a step forward. The
   // depth check above passes just as happily for a rider standing a yard to the left and one
   // stride nearer, which is the old picture, so the overlap is asked for on its own.
-  check(stood.length === 4 && stood.every(f => f.riderGap < 0),
-        'and over its deck rather than off to the side of it',
-        stood.map(f => `${f.id} ${f.riderGap}ft of overlap`).join(', '));
+  // And the same reversal: this asked for OVERLAP, a negative gap, because the picture then was
+  // a rider across the deck. The reference has him clear of it — his box ends at 0.338 of the
+  // frame and the board's begins at 0.415 — so daylight is what is asked for now. Kept as a
+  // check rather than dropped, because the failure it guards against has only changed sign: a
+  // rider growing out of the board was the old fault, and a rider merged into it is still one.
+  check(stood.length === 4 && stood.every(f => f.riderGap > -0.2),
+        'and clear of it, with daylight between him and the rail',
+        stood.map(f => `${f.id} ${f.riderGap}ft of gap`).join(', '));
 
   // And he stands clear of the BUTTONS, which is a different question from standing clear of
   // the board and is the one a phone actually asks. The set sits left of centre so the palm
@@ -1850,10 +1862,15 @@ if (hasHook) {
         if (!f || !f.chest || !bs.length) return null;
         return { right: f.chest.x[1], col: Math.min(...bs.map(b => b.left)) / innerWidth };
       });
-      check(near && near.right < near.col - 0.015,
-            'and the chest stops short of the buttons rather than sliding under them',
-            near ? `chest reaches ${near.right.toFixed(3)}, the column starts at ` +
-                   `${near.col.toFixed(3)} — ${(near.col - near.right).toFixed(3)} of the width between them`
+      // It may pass BEHIND a button now — the reference has it doing exactly that, its right edge
+      // at 0.971 with Quests starting at 0.854 — and this check used to forbid it. What it must
+      // not do is leave the frame, which is a fault rather than a composition: the chest is placed
+      // off the CAMERA and the camera solves onto the group, so a ten foot log carried it to 1.09
+      // of the way across and a quarter of it was simply gone. That is the thing worth guarding.
+      check(near && near.right < 0.99,
+            'and the chest stays on the screen, whatever board the camera is solving around',
+            near ? `chest reaches ${near.right.toFixed(3)} across the frame` +
+                   ` (the right-hand column starts at ${near.col.toFixed(3)})`
                  : 'no chest or no buttons');
       const clr = await page.evaluate(() => window.__surf.menuClear());
       check(clr && clr.up && clr.hit === false && clr.gap < 0,
@@ -3715,9 +3732,14 @@ if (hasHook) {
   // of what the composite was actually HANDED on the frame it just drew, not of what the title
   // screen intends to hand it, and as a high water mark across every frame so far, because one
   // bent frame is one too many and any later frame would erase a plain reading of it.
-  check(lens && lens.post && lens.everApplied === 0,
-        'the title screen is drawn straight — the post chain runs, and nothing bends it',
-        lens ? `post chain ${lens.post}, worst bend across ${lens.frames} frames ${lens.everApplied}`
+  // The bend is BACK, and this check is the reverse of what it was. It was written when the
+  // fisheye was taken off for doing nothing visible at a narrow angle; the reference the title
+  // screen is now composed against is a wide-angle photograph — the trunk bows, the fronds sweep
+  // the corners, the sand stretches away under the frame — and none of that is distance. It is
+  // the lens, and it is the half of a wide shot that moving the camera cannot give you.
+  check(lens && lens.post && lens.everApplied > 0.2,
+        'the title screen is bent, which is what makes a wide shot look like one',
+        lens ? `post chain ${lens.post}, bend across ${lens.frames} frames ${lens.everApplied}`
              : 'no lens');
   check(lens && lens.cornerDeg > 85,
         'and the lens is still wide, which is what puts the whole beach in a phone',
