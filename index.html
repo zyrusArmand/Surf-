@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.80.1';
+window.SURF_VERSION='4.80.2';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -18344,6 +18344,40 @@ if(location.hash.includes('debug')){
               tilt:MB_SGN_TILT, yaw:MB_SGN_YAW, sink:MB_SGN_SINK, roll:MB_SGN_ROLL,
               at:m?{x:m.x.map(v=>+v.toFixed(3)), y:m.y.map(v=>+v.toFixed(3)),
                     roll:+m.roll.toFixed(1)}:null};
+    },
+    // ---- WHERE EVERY PIECE LANDS IN THE PICTURE ----
+    // Composition is a screen question and every existing hook answers it in feet. Matching a
+    // reference means knowing that the tree runs from 0.04 to 0.62 down the frame and the chest
+    // sits at 0.71 across — not that the palm is 25.4 feet tall, which is true at every framing
+    // and says nothing about any of them.
+    // Measured through fishScreen, so these are positions in the DELIVERED frame rather than in
+    // the one three.js drew: the title goes out through a lens warp, and a composition matched
+    // before that warp is matched to a picture nobody sees.
+    menuFrame(){
+      if(typeof menuCam==='undefined'||!menuCam)return null;
+      menuCam.updateMatrixWorld(true);
+      const V=new THREE.Vector3();
+      const boxOf=o=>{
+        if(!o)return null;
+        o.updateWorldMatrix(true,true);
+        const b=new THREE.Box3().setFromObject(o);
+        if(!isFinite(b.min.x)||b.isEmpty())return null;
+        let x0=9,x1=-9,y0=9,y1=-9;
+        for(let i=0;i<8;i++){
+          V.set(i&1?b.max.x:b.min.x, i&2?b.max.y:b.min.y, i&4?b.max.z:b.min.z).project(menuCam);
+          const q=fishScreen(V.x*0.5+0.5, -V.y*0.5+0.5);
+          if(q.x<x0)x0=q.x; if(q.x>x1)x1=q.x; if(q.y<y0)y0=q.y; if(q.y>y1)y1=q.y;
+        }
+        return {x:[+x0.toFixed(3),+x1.toFixed(3)], y:[+y0.toFixed(3),+y1.toFixed(3)],
+                cx:+((x0+x1)/2).toFixed(3), cy:+((y0+y1)/2).toFixed(3)};
+      };
+      const mb=(typeof menuBeach!=='undefined'&&menuBeach)?menuBeach:null;
+      return {aspect:+menuCam.aspect.toFixed(3),
+              palm: boxOf(typeof menuPalm!=='undefined'?menuPalm:null),
+              rider:boxOf(typeof pug!=='undefined'?pug:null),
+              board:boxOf(mb?mb.board:null),
+              chest:boxOf(typeof beachChest!=='undefined'?beachChest:null),
+              sign: boxOf(typeof beachSign!=='undefined'?beachSign:null)};
     },
     signAt(w,h,f,d,rot,mh){
       if(w!==undefined)MB_SGN_W=w; if(h!==undefined)MB_SGN_H=h;
