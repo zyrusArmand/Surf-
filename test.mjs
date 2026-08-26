@@ -5046,7 +5046,10 @@ check(shaderErrors.length === 0, 'every shader compiles',
   const swState = await page.evaluate(() => {
     const s = window.__surf;
     let st = {};
-    try { st = { board: s.equipped ? s.equipped() : null, rider: s.rigInfo().who,
+    // s.equipped is not a hook — the first version of this reported board:null every time,
+    // which is a diagnostic quietly telling you nothing. The board comes off the rig.
+    try { st = { board: (s.rigInfo() || {}).board || (s.boardInfo && s.boardInfo().id) || 'n/a',
+                 rider: s.rigInfo().who,
                  sw: s.stance ? s.stance().sw : null, day: s.skyFacing ? s.skyFacing().dayT : null,
                  dist: Math.round((s.state() || {}).dist || 0) }; } catch (e) { st = { err: String(e) }; }
     return st;
