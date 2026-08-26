@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.54.0';
+window.SURF_VERSION='4.55.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -1997,7 +1997,18 @@ const oceanUniforms={
   uWhX:{value:0}, uWhZ:{value:0}, uWhA:{value:0},
   uSwA:{value:0}, uSwX:{value:0}, uSwS:{value:1},
   uSun:{value:sunDir}, uLight:{value:1.0},
+  // ---- the two bands of sky the water reflects ----
+  // uSky is what it sees at grazing angles, which is the HORIZON, and uSkyHi is what it sees
+  // looking down into it, which is the sky overhead. One colour cannot do both: water reflects
+  // a different part of the sky at every angle, and near the horizon that part is whatever the
+  // horizon happens to be — cream at midday, orange at sunset.
+  // Both follow the sky's own day cycle every frame now. They did not: uSky was set here once,
+  // to this blue, and never touched again for a whole run while the sky above it went from dawn
+  // to dusk. That is why the sea met the sky at a hard cut all day — and why making the water
+  // mirror the sky HARDER changed nothing visible. It was mirroring a fixed blue into a blue
+  // sea. The reflection was right and the thing being reflected was wrong.
   uSky:{value:new THREE.Color(0x8fd2f5)},
+  uSkyHi:{value:new THREE.Color(0x3f8fd6)},
   // Between where this was and the deep navy it used to be. The pale version came from two
   // places at once: these two, and the broad glitter lobe below, which was laying a sheen
   // over most of the water rather than only where the sun is.
@@ -2130,7 +2141,8 @@ const oceanMat=new THREE.ShaderMaterial({
     }
   `,
   fragmentShader:`
-    uniform vec3 uSun; uniform vec3 uSky; uniform vec3 uDeep; uniform vec3 uShallow;
+    uniform vec3 uSun; uniform vec3 uSky; uniform vec3 uSkyHi;
+    uniform vec3 uDeep; uniform vec3 uShallow;
     uniform vec3 uGlow; uniform vec3 uGlitL;
     uniform float uT; uniform float uDist; uniform float uAmp; uniform float uPeak;
     uniform float uLight; uniform float uSwA;
@@ -2217,7 +2229,10 @@ const oceanMat=new THREE.ShaderMaterial({
       // sky — so the sky replaces the blue there rather than being added to it.
       // This one term is most of what makes an ocean read as going away from you.
       vec3 lit = base*(0.38+0.72*diff);
-      vec3 col = mix(lit, uSky, fres*0.88) + vec3(spec);
+      // WHICH band of sky is in the reflection depends on the angle: flat on you are looking at
+      // the horizon, steeply down you are looking at the sky overhead.
+      vec3 skyRefl = mix(uSkyHi, uSky, smoothstep(0.15,0.85,fres));
+      vec3 col = mix(lit, skyRefl, fres*0.88) + vec3(spec);
       // The glitter carries the SUN's colour, not white: at the end of the day the track is
       // the same orange the sky is, and that is half of why it reads as one light source.
       col += uGlow*gl;
@@ -15029,6 +15044,9 @@ function updateDayCycle(){
   // the water's glitter belongs to the sun you can SEE, so it follows the disc
   oceanUniforms.uGlitL.value.set(sxn*130,sunY,-195).normalize();
   oceanUniforms.uGlow.value.copy(skyUniforms.uGlow.value);
+  // ...and the sky the WATER reflects follows the sky you can see, which it never did.
+  oceanUniforms.uSky.value.copy(skyUniforms.uHorizon.value);
+  oceanUniforms.uSkyHi.value.copy(skyUniforms.uMid.value);
   sunDisc.scale.setScalar(1+gAmt*0.35);            // swells a little as it sits low
   for(const sh of [sunGlowInner,sunGlowOuter,sunGlowRim]){
     sh.position.set(sunDisc.position.x,sunDisc.position.y,sunDisc.position.z-4);
@@ -19133,6 +19151,14 @@ if(location.hash.includes('debug')){
       const sc=prevKey&&prevKey.shadow?prevKey.shadow.camera:null;
       return sc?{k:SH_K,w:SH_W,t:SH_T,b:SH_B,
                  box:[sc.left,sc.right,sc.bottom,sc.top].map(v=>+v.toFixed(1))}:null;
+    },
+    // What the water is being told to reflect, against what the sky actually is. These were
+    // allowed to disagree for a whole run and nothing said so.
+    seaSky(){
+      const hx=c=>'#'+c.getHexString();
+      return {seaHorizon:hx(oceanUniforms.uSky.value), seaHigh:hx(oceanUniforms.uSkyHi.value),
+              skyHorizon:hx(skyUniforms.uHorizon.value), skyMid:hx(skyUniforms.uMid.value),
+              agree:oceanUniforms.uSky.value.getHex()===skyUniforms.uHorizon.value.getHex()};
     },
     shadowState(){
       const one=(n,o)=>{ if(!o)return n+':missing';

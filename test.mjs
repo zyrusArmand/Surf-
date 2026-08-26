@@ -1110,6 +1110,24 @@ await page.evaluate(() => window.__surf.tick(0.3));
 const d0 = await page.textContent('#hDist');
 await page.evaluate(() => window.__surf.tick(1.2));
 const d1 = await page.textContent('#hDist');
+// ---- and the sea reflects the sky that is actually up there ----
+// The sky runs a full day cycle — top, mid, horizon and glow all lerped every frame — and the
+// colour the WATER reflects was set once at construction and never touched again for the whole
+// of a run. So the sea mirrored a fixed mid-blue from dawn to dusk, which is why it met the sky
+// at a hard cut all day and had no sense of distance in it.
+// Nothing caught that, and worse, it hid the fix: strengthening the reflection changed nothing
+// visible, because it was mirroring a blue barely different from the water itself. A term can
+// be perfectly correct and still do nothing if what it is fed is wrong.
+// Asked as agreement between the two rather than against a colour, because the right answer
+// changes every frame — which is the entire point.
+{
+  await page.evaluate(() => window.__surf.tick(6));
+  const sea = await page.evaluate(() => window.__surf.seaSky());
+  check(sea && sea.agree,
+        'the sea reflects the sky that is actually overhead, not one from start-up',
+        sea ? `water sees ${sea.seaHorizon} at the horizon and ${sea.seaHigh} above, ` +
+              `sky is ${sea.skyHorizon} and ${sea.skyMid}` : 'no sea');
+}
 const m = s => parseFloat(String(s).replace(/[^\d.]/g, '')) || 0;
 check(m(d1) > m(d0), 'HUD distance advancing', `${d0} -> ${d1}`);
 
