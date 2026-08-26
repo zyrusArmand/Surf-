@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.69.0';
+window.SURF_VERSION='4.69.1';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -5782,6 +5782,12 @@ const PREV_W=248, PREV_H=186;
 let prevTarget=null, prevScene=null, prevCam=null, beachSet=null;
 let prevKey=null, prevHemi=null, prevFill=null;
 const prevCache={};
+// What each cached picture is a picture OF, written down when it is drawn. The cards are PNGs
+// and a PNG cannot be asked whether it shows an imported body or the built-in stand-in — and
+// diffing it against a fresh build cannot answer that either, because the standing pose
+// breathes off the clock and two builds a moment apart differ in bytes while showing the same
+// thing. So the fact is recorded at the one moment it is known for certain.
+const prevMeta={};
 // How long the beach took to stand up, and which part of it. The menu shows the moment the
 // page is parsed and the scene arrives some time later, so this number IS what the player
 // experiences as the lag before it loads.
@@ -7942,7 +7948,8 @@ function charPreview(id){
     buildChar(id);
     undo=portraitPose();
     prevCache['c:'+id]=snapshot(pug,'char');
-  }catch(e){ prevCache['c:'+id]=''; }
+    prevMeta['c:'+id]={model:!!(riderModels&&riderModels[id]&&modelRigs&&modelRigs[id])};
+  }catch(e){ prevCache['c:'+id]=''; prevMeta['c:'+id]={model:false,err:1}; }
   if(undo)undo();
   buildChar(rider);
   return prevCache['c:'+id];
@@ -12812,7 +12819,7 @@ for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
   // away a stale card and cached a WORSE one, drawn off a model that was installed in name
   // only. The card is only worth redrawing once the thing it is a picture of is fully standing.
   try{
-    delete prevCache['c:'+id];
+    delete prevCache['c:'+id]; delete prevMeta['c:'+id];
     const sh=document.getElementById('shop');
     if(sh&&!sh.classList.contains('hidden')&&typeof shopTab!=='undefined'&&shopTab==='riders'
        &&typeof drawShop==='function')drawShop();
@@ -17656,7 +17663,8 @@ if(location.hash.includes('debug')){
     // the shop's own portrait of a character, as a PNG data URL. Looking at the animal is
     // the only way to judge the animal; every proportion argument this file has had was
     // settled by a picture and not by a number.
-    charShot(id){ delete prevCache['c:'+id]; return charPreview(id); },
+    charShot(id){ delete prevCache['c:'+id]; delete prevMeta['c:'+id];
+      return charPreview(id); },
     // Every part of a face, and how far it stands out from the skull. Negative means it is
     // INSIDE the head, which is what makes a feature crawl about as the head moves: what you
     // see is whichever sliver the curve of the skull leaves over.
@@ -19898,6 +19906,37 @@ if(location.hash.includes('debug')){
     riderHasModel(id){
       try{ return !!(riderModels&&riderModels[id]&&modelRigs&&modelRigs[id]); }
       catch(e){ return false; } },
+    // WHAT the cached card is a picture of, recorded when it was drawn. Comparing the cached
+    // card's PIXELS against a fresh build cannot answer this: the standing pose breathes off
+    // tNow, so two builds a moment apart differ by a few thousandths of a shoulder angle and
+    // therefore by many bytes of PNG. Whether his model was installed at the moment the shot
+    // was taken is the actual question, and it is a fact worth writing down rather than
+    // inferring from a diff.
+    charCardMeta(id){ return prevMeta['c:'+id]||null; },
+    // Where his hands are, in his own frame, for whatever pose he is in right now. Positive
+    // `drop` is the hand BELOW the shoulder, which is what "arms down" means; a bind pose
+    // reads about zero drop and a wide `side`.
+    armPose(){
+      const r=(typeof riderRig==='function')&&riderRig();
+      if(!r||!r.bones)return null;
+      const out={who:builtChar};
+      for(const s of ['Left','Right']){
+        const sh=r.bones[s+'Arm'], el=r.bones[s+'ForeArm'], hd=r.bones[s+'Hand'];
+        if(!sh||!hd){ out[s]=null; continue; }
+        const a=new THREE.Vector3(), b=new THREE.Vector3(), c=new THREE.Vector3();
+        sh.getWorldPosition(a); (el||hd).getWorldPosition(b); hd.getWorldPosition(c);
+        pug.worldToLocal(a); pug.worldToLocal(b); pug.worldToLocal(c);
+        out[s]={ drop:+(a.y-c.y).toFixed(3), side:+(c.x-a.x).toFixed(3),
+                 fwd:+(c.z-a.z).toFixed(3), elbowDrop:+(a.y-b.y).toFixed(3) };
+      }
+      return out; },
+    // the same reading, taken through the call the SHOP CARD makes, so the card's pose can be
+    // checked without photographing it
+    armPosePortrait(){
+      riderPortrait(true);
+      const out=this.armPose();
+      riderPortrait(false);
+      return out; },
     chopState(){
       const rd=(u)=>({on:u.uChopK.value>0.5, w:u.uChop.value?u.uChop.value.image.width:0,
                       wrap:u.uChop.value?u.uChop.value.wrapS===THREE.RepeatWrapping:false,
