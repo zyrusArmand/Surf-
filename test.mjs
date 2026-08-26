@@ -5147,9 +5147,19 @@ check(shaderErrors.length === 0, 'every shader compiles',
   // 13.1 with nothing changing). An earlier attempt blamed the board and re-read the angle
   // against it; that was wrong, and measurably so — bodyVsBoard and bodyDeg came back
   // identical to the decimal on all 14 spawns, because the board's yaw is constant here and
-  // cancels either way. The fault was the baseline, not the frame.
-  // 25 sits far below the failure being guarded against and far above the noise: across 18
-  // spawns a clean baseline never gave more than 7.0.
+  // cancels either way.
+  // 25 sits far below the failure being guarded against and far above the noise: mean against
+  // mean, twenty spawns taken from a deliberately dirtied state gave a worst of 7.5.
+  //
+  // HONESTLY, THOUGH: the baseline guard below has never once fired. It was added because
+  // sampled ride angles like [169, 173.5, 178.1, -177.4] turned up during diagnosis — but
+  // those came from a probe that rode 25 seconds AFTER the restart before measuring, which is
+  // not what this does. Given a plain restart the baseline came back clean 20 times out of 20.
+  // So the guard is insurance, not the fix; the fix is mean-against-mean plus a bar that
+  // matches the fault. And one thing is still unaccounted for: the full suite reached 14°
+  // where isolation never passes 7.5, so something about running here after 350 other checks
+  // does shift the hold angle, and that has not been root-caused — only given enough room that
+  // it no longer reads as a failure. If this check starts firing again, that is the thread.
   const swState = await page.evaluate(() => {
     const s = window.__surf;
     let st = {};
