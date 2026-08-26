@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.88.0';
+window.SURF_VERSION='4.88.1';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -14301,6 +14301,45 @@ const CHEST_BOX=(function(){ const b=new THREE.Box3();
   crateObj.traverse(o=>{ if(o.isMesh)b.expandByObject(o); });
   return b.isEmpty()?new THREE.Box3(new THREE.Vector3(-0.63,0,-0.44),
                                     new THREE.Vector3(0.63,0.9,0.44)):b; })();
+// ---- COCONUTS: THREE ON THE TREE, AND A FEW HALVES ON THE SAND ----
+// They grow in a ring where the fronds leave the trunk, tucked UNDER and BEHIND the leaves —
+// which is both where a palm actually carries them and the only place they read as growing
+// rather than as decoration hung on a branch. Behind matters: in front of the crown they
+// silhouette against the sky and look stuck on.
+// The halves are a different thing — split shells lying about on the sand — so they are placed
+// on the ground, turned to any angle, and RE-SCATTERED every time the beach is stood up. That
+// is once per visit to the title screen, whether that is opening the game or coming back from a
+// run, so the beach is never quite the same twice.
+let coconutModel=null, cocobowlModel=null;
+const beachCocos=[], beachBowls=[];
+loadModel('coconut.glb',(s3)=>{
+  let m=null; s3.traverse(o=>{ if(o.isMesh&&!m)m=o; });
+  if(!m)return;
+  m.updateWorldMatrix(true,false);
+  const g=m.geometry.clone(); g.applyMatrix4(m.matrixWorld);
+  g.computeBoundingBox();
+  const c=g.boundingBox.getCenter(new THREE.Vector3());
+  g.translate(-c.x,-g.boundingBox.min.y,-c.z);       // stood on its own base, centred
+  g.computeBoundingBox();
+  const h=Math.max(1e-4,g.boundingBox.max.y-g.boundingBox.min.y);
+  g.scale(1/h,1/h,1/h);                              // one unit tall, so a size is one number
+  coconutModel={geo:g, mat:Array.isArray(m.material)?m.material[0]:m.material};
+  if(typeof layoutMenuBeach==='function'&&menuBeach)layoutMenuBeach();
+});
+loadModel('cocobowl.glb',(s3)=>{
+  let m=null; s3.traverse(o=>{ if(o.isMesh&&!m)m=o; });
+  if(!m)return;
+  m.updateWorldMatrix(true,false);
+  const g=m.geometry.clone(); g.applyMatrix4(m.matrixWorld);
+  g.computeBoundingBox();
+  const c=g.boundingBox.getCenter(new THREE.Vector3());
+  g.translate(-c.x,-g.boundingBox.min.y,-c.z);
+  g.computeBoundingBox();
+  const h=Math.max(1e-4,g.boundingBox.max.y-g.boundingBox.min.y);
+  g.scale(1/h,1/h,1/h);
+  cocobowlModel={geo:g, mat:Array.isArray(m.material)?m.material[0]:m.material};
+  if(typeof layoutMenuBeach==='function'&&menuBeach)layoutMenuBeach();
+});
 let chestModel=null;
 loadModel('chest.glb',(s3,gltf)=>{
   // ---- STOOD UP, and the automatic turn switched off ----
@@ -22702,6 +22741,8 @@ function menuBeachOn(){
   menuBeach={board,undo,keep,t:0};
   setBoardDry(true);                    // matt while it is being looked at rather than ridden
   beachSet.visible=true; menuProps.visible=true;
+  // a fresh scatter of half-shells for this visit — see rollBowls for why it is not in the layout
+  rollBowls();
   for(const p of beachPalms)p.visible=false;
   beachSet.scale.setScalar(MB_K); beachSet.position.set(0,0,0);
   if(beachShadow)beachShadow.visible=false;
@@ -22958,7 +22999,7 @@ let MB_CAM_YAW=-6.201155, MB_CAM_PITCH=0.195477;
 // AHEAD and SIDE below no longer place the set when this is on. They stay because the anchor
 // still has to land somewhere sensible for the things that are not staged.
 let MB_STAGED=1;
-let MB_CH_SC=2.10;      // how big the chest stands — "the big chest", against a 15ft tree
+let MB_CH_SC=1.55;      // how big the chest stands, as a MULTIPLE of its fitted size
 let MB_CH_SIDE=1.15;    // feet along the camera's right of the trunk's own axis
 let MB_CH_CLR=0.05;     // and the gap left between its lid and the trunk: touching
 const MB_STAGE={
@@ -24076,6 +24117,95 @@ function layoutHorizon(){
   put(I.b,MB_HZ_B[0],MB_HZ_B[1]);
   put(I.boat,MB_HZ_BOAT[0],MB_HZ_BOAT[1]);
 }
+// ---- WHERE A PALM ACTUALLY CARRIES THEM ----
+// At the CROWN BASE, in a ring round the trunk where the fronds leave it, and set back so the
+// leaves are between them and the lens. The height comes off the trunk line the tree carries
+// with it rather than off a number, so a different tree puts them in a different place without
+// anything here changing.
+// `back` is the half that makes them read as growing: pushed along the camera's forward, away
+// from the viewer, they sit under and behind the fronds. Brought forward instead they hang in
+// clear sky in front of the crown and look like ornaments on a Christmas tree.
+let MB_COCO_N=3;          // how many hang on the tree
+let MB_COCO_SZ=0.85;      // feet tall
+let MB_COCO_RING=0.62;    // feet out from the trunk's axis
+let MB_COCO_BACK=0.55;    // and this far behind it, into the shade of the crown
+let MB_COCO_DROP=0.42;    // below where the fronds spring, which is where the nuts sit
+let MB_BOWL_MIN=1, MB_BOWL_MAX=3;
+let MB_BOWL_SZ=0.62;
+function layoutCoconuts(){
+  if(typeof menuProps==='undefined'||!menuProps)return;
+  // ---- on the tree ----
+  if(coconutModel&&menuPalm){
+    while(beachCocos.length<MB_COCO_N){
+      const m=new THREE.Mesh(coconutModel.geo,coconutModel.mat);
+      m.castShadow=true; menuProps.add(m); beachCocos.push(m);
+    }
+    const trunk=menuPalm.userData.trunk||[];
+    // the crown is where the trunk line stops — the last slice it could still follow before the
+    // fronds took over, which is exactly the fact trunkLine was written to find
+    const tip=trunk.length?trunk[trunk.length-1]:null;
+    menuPalm.updateWorldMatrix(true,false);
+    for(let i=0;i<beachCocos.length;i++){
+      const m=beachCocos[i];
+      const a2=i/Math.max(1,beachCocos.length)*Math.PI*2+0.7;
+      const w=new THREE.Vector3(tip?tip.p.x:0,(tip?tip.p.y:1)-MB_COCO_DROP/Math.max(1e-3,menuPalm.scale.y||1),tip?tip.p.z:0);
+      menuPalm.localToWorld(w);
+      w.addScaledVector(_mbR,Math.cos(a2)*MB_COCO_RING)
+       .addScaledVector(_mbF,-Math.sin(a2)*MB_COCO_RING-MB_COCO_BACK);
+      menuProps.worldToLocal(w);
+      m.position.copy(w);
+      // The geometry was normalised to one unit tall, so a local scale of S makes it S units in
+      // the PARENT's frame — and menuProps is scaled by MB_K on the way into the world. Divided
+      // by the parent's own world scale so MB_COCO_SZ means feet, which is what it is written in.
+      const ps=menuProps.getWorldScale(new THREE.Vector3()).x||1;
+      m.scale.setScalar(MB_COCO_SZ/Math.max(1e-4,ps));
+      m.rotation.set(0.3+a2*0.11,a2*1.7,0.2*Math.sin(a2*2.3));
+    }
+  }
+  // ---- and the halves on the sand ----
+  if(cocobowlModel){
+    while(beachBowls.length<MB_BOWL_MAX){
+      const m=new THREE.Mesh(cocobowlModel.geo,cocobowlModel.mat);
+      m.castShadow=true; menuProps.add(m); beachBowls.push(m);
+    }
+    for(let i=0;i<beachBowls.length;i++){
+      const m=beachBowls[i], d=_bowlPlan[i];
+      m.visible=!!d;
+      if(!d)continue;
+      const w=new THREE.Vector3(_mbP.x,0,_mbP.z)
+        .addScaledVector(_mbR,d.side).addScaledVector(_mbF,-d.fwd);
+      w.y=(typeof beachSandH==='function')?beachSandH(w.z/MB_K)*MB_K:0;
+      menuProps.worldToLocal(w);
+      m.position.copy(w);
+      const psb=menuProps.getWorldScale(new THREE.Vector3()).x||1;
+      m.scale.setScalar(MB_BOWL_SZ/Math.max(1e-4,psb));
+      // any angle, and tipped a little, because a split shell does not lie flat
+      m.rotation.set(d.tx,d.ty,d.tz);
+    }
+  }
+}
+// ---- and a NEW scatter every time the beach is stood up ----
+// Which is once per visit to the title screen — opening the game, or coming back from a run.
+// Rolled here rather than inside the layout because the layout runs many times a visit (every
+// resize, every board change, every solve pass) and a scatter that re-rolled on each of those
+// would twitch about while the player watched.
+const _bowlPlan=[];
+function rollBowls(){
+  _bowlPlan.length=0;
+  const n=MB_BOWL_MIN+Math.floor(Math.random()*(MB_BOWL_MAX-MB_BOWL_MIN+1));
+  for(let i=0;i<MB_BOWL_MAX;i++){
+    if(i>=n){ _bowlPlan.push(null); continue; }
+    _bowlPlan.push({
+      // in the near half of the shot, off to either side of the set rather than under it
+      side:(Math.random()*2-1)*4.6,
+      fwd:-1.2-Math.random()*4.4,
+      tx:(Math.random()-0.5)*0.9,
+      ty:Math.random()*Math.PI*2,
+      tz:(Math.random()-0.5)*0.9,
+    });
+  }
+}
+rollBowls();
 function layoutBeachSign(){
   if(!beachSign)return;
   if(typeof menuProps==='undefined'||!menuProps)return;
@@ -24403,8 +24533,15 @@ function renderMenuBeach(dt){
     // floating clear of it. Placed off the palm's own world position so it follows the tree
     // wherever the tree goes.
     if(typeof beachChest!=='undefined'&&beachChest&&typeof menuPalm!=='undefined'&&menuPalm){
+      // ---- SCALED FROM ITS OWN FITTED SIZE, NOT SET TO A RAW NUMBER ----
+      // setScalar(2.1) threw away the scale the fit had already solved and made the chest 2.1
+      // times the MODEL's unit size, which is a different quantity entirely — it came out
+      // enormous, taller than the pug and half the width of the frame. The fitted scale is
+      // remembered once and multiplied.
+      if(beachChest.userData.fitS===undefined)
+        beachChest.userData.fitS=beachChest.scale.x||1;
+      beachChest.scale.setScalar(beachChest.userData.fitS*MB_CH_SC);
       const tw=new THREE.Vector3(); menuPalm.getWorldPosition(tw);
-      beachChest.scale.setScalar(MB_CH_SC);
       beachChest.updateMatrixWorld(true);
       const cb=new THREE.Box3().setFromObject(beachChest);
       const half=(cb.max.z-cb.min.z)*0.5;
@@ -24414,14 +24551,19 @@ function renderMenuBeach(dt){
       if(beachChest.parent)beachChest.parent.worldToLocal(wp);
       beachChest.position.x=wp.x; beachChest.position.z=wp.z;
       beachChest.updateMatrixWorld(true);
+      // ---- AND SAT DOWN IN ITS OWN UNITS ----
+      // The drop is measured in WORLD feet and position.y is LOCAL to menuProps, which is
+      // scaled by MB_K — adding one to the other is a units error, and it is why the chest
+      // floated at mid-trunk instead of resting on the sand. Divided by the parent's scale.
       const cb2=new THREE.Box3().setFromObject(beachChest);
-      const gy=(typeof beachSandH==='function')
-                 ? beachSandH(beachChest.getWorldPosition(new THREE.Vector3()).z/MB_K)*MB_K
-                 : 0;
-      if(isFinite(cb2.min.y))beachChest.position.y+=gy-cb2.min.y;
+      const cwp=beachChest.getWorldPosition(new THREE.Vector3());
+      const gy=(typeof beachSandH==='function')?beachSandH(cwp.z/MB_K)*MB_K:0;
+      const ps=(beachChest.parent?beachChest.parent.getWorldScale(new THREE.Vector3()).y:1)||1;
+      if(isFinite(cb2.min.y))beachChest.position.y+=(gy-cb2.min.y)/ps;
       beachChest.updateMatrixWorld(true);
     }
   }
+  layoutCoconuts();
   menuCam.updateProjectionMatrix();
   faceBeachSign();      // the title hangs square to whatever the lens just did
   // ...and the boat keeps its sail toward you. Edge on, a sail is a line, and a line a quarter of

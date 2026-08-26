@@ -15,6 +15,20 @@ const IN=process.argv[2], OUT=process.argv[3], TARGET=+(process.argv[4]||95000);
 // paying for it. The beach is the clearest case: it fills the bottom half of the title screen
 // at arm's length, where 2048 across a fourteen-foot tile is about 150 pixels per foot.
 const TEX=+(process.argv[5]||2048), Q=+(process.argv[6]||88);
+// ---- and how far a vertex may move ----
+// 0.002 is right for something with a silhouette you know — a chest, a board — where a tenth of
+// a percent of drift is a visible dent. It is far too tight for a scanned organic shell: asked
+// for 2500 tris from 102679 the coconut came back with 80113, because meshopt could not collapse
+// anything without pushing a vertex past the bound. Same wall the palm hit at the same number.
+const ERR=+(process.argv[7]||0.002);
+// ---- A NOTE ON WHAT WILL NOT SHRINK ----
+// Some scans refuse to simplify at any error bound. The coconut arrived with 167789 verts for
+// 102679 tris — nearly two per triangle, so every triangle is its own island, every edge is a
+// border, and meshopt can collapse none of it. It stops at 73k whatever it is asked for.
+// A weld TOLERANCE would be the fix, and gltf-transform v4 has no such option: WELD_DEFAULTS is
+// {overwrite:true} and nothing else, so a tolerance passed here is accepted and ignored. That
+// was tried and the number did not move by one triangle. Recorded so the next person does not
+// spend the same two builds on it — the fix has to come from the exporter, or from a remesh.
 const io=new NodeIO().registerExtensions(ALL_EXTENSIONS);
 const doc=await io.read(IN);
 const root=doc.getRoot();
@@ -42,7 +56,7 @@ await doc.transform(
   // flatten bakes the node transforms down first so joining cannot move anything.
   flatten(), join(),
   weld(),
-  simplify({simplifier:MeshoptSimplifier, ratio:Math.min(1,TARGET/before), error:0.002}),
+  simplify({simplifier:MeshoptSimplifier, ratio:Math.min(1,TARGET/before), error:ERR}),
   // Per SLOT, because the three maps do not deserve the same budget. Base colour is what you
   // actually look at; the normal carries the surface at a scale you pass in a fifth of a
   // second; metallic-roughness is two near-flat channels and 1024 is generous for it.
@@ -52,6 +66,11 @@ await doc.transform(
                    slots:/normalTexture/,    resize:[TEX,TEX]}),
   textureCompress({encoder:sharp, targetFormat:'jpeg', quality:Math.max(80,Q-3),
                    slots:/metallicRoughnessTexture/, resize:[Math.min(1024,TEX),Math.min(1024,TEX)]}),
+  // Emissive was not in any slot list, so a file carrying one shipped it at whatever size it
+  // arrived — the coconut bowl kept a 2048 emissive through a build that took everything else
+  // down to 512. An unlisted slot is not "left alone" on purpose, it is missed.
+  textureCompress({encoder:sharp, targetFormat:'jpeg', quality:Math.max(78,Q-6),
+                   slots:/emissiveTexture/, resize:[Math.min(512,TEX),Math.min(512,TEX)]}),
   prune(), dedup(), unpartition(),
 );
 console.log('after: ', Math.round(tris()), 'tris');
