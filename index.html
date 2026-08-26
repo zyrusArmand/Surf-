@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.75.0';
+window.SURF_VERSION='4.76.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -7406,11 +7406,6 @@ function buildBeach(){
   // ripples with it — lives in a normal map rather than in vertices. Sixty thousand of them
   // instead of a hundred and twenty-six.
   const SW=760, SD=460, SC=0, SNU=200, SNV=300;
-  const sg=new THREE.PlaneGeometry(SW,SD,SNU,SNV);
-  const sp=sg.attributes.position, scol=[];
-  const C1=new THREE.Color(0xf0c880), C2=new THREE.Color(0xc9ac74), C3=new THREE.Color(0xffe4b0);
-  const _c=new THREE.Color(), _WET=new THREE.Color(0x5f5237);
-  const _SHALLOW=oceanUniforms.uShallow.value.clone().lerp(new THREE.Color(0x0d3f66),0.45);
   // Height as a plain function of position, so the surface can be sampled either side of a
   // point to get its slope. That is what the shading below needs, and it is the only reason
   // the dunes read at all: white sand lit from a hemisphere has almost no shading of its
@@ -7524,159 +7519,24 @@ function buildBeach(){
   // is a question about the actual surface — a dune there is exactly the thing that would
   // bury it, and the level function by construction knows nothing about dunes.
   beachSurfH=hAt;
-  // The height is wanted twice: once as the surface and once as a SLOPE, for the shading
-  // painted in below. Asking hAt for it five times a vertex — the point and four neighbours
-  // — is what made this the slowest thing in the game's whole startup: hAt is four octaves
-  // of value noise four times over, and at a hundred and twenty thousand vertices that came
-  // to eleven million noise samples and the best part of two seconds with the page frozen
-  // for all of it. The grid ALREADY holds the neighbours. One pass to fill it, then the
-  // slope is a difference between vertices that are sitting right there.
-  const _ts=performance.now();
-  const NW=SNU+1, DX=SW/SNU, DZ=SD/SNV;
-  const HG=new Float32Array(sp.count);
-  // ---- and it DUCKS under the modelled sand that is laid over it ----
-  // Where the scattered pieces cover the beach, the beach is not what anyone is looking at —
-  // it is a backing, and the only thing it can do is show through. Two surfaces at the same
-  // height cannot both be the visible one, and the painted one carries a wind-ripple map that
-  // reads as corduroy at a grazing angle, so every place it won was a bad place.
-  // It is dropped half a unit under the field and eased back to nothing outside it. Nothing
-  // standing on the beach moves: everything is placed off the height FUNCTION, which is
-  // untouched, and the pieces are placed off it too — this is the drawn surface alone.
-  // Eased back well before the waterline as well, or the drop takes the dry sand under a sea
-  // that is a flat sheet above it and the shore fills in.
-  const cov=(x,wz)=>Math.min(_ss(SAND_X,SAND_X-7,Math.abs(x)),
-                             _ss(SAND_Z1-1,SAND_Z1+7,wz),
-                             _ss(SAND_Z0,SAND_Z0-7,wz));
-  for(let i=0;i<sp.count;i++){
-    const x=sp.getX(i), wz=SC-sp.getY(i);
-    const h=hAt(x,wz);
-    HG[i]=h; sp.setZ(i,h-SAND_DROP*cov(x,wz));
-  }
-  for(let i=0;i<sp.count;i++){
-    const x=sp.getX(i), wz=SC-sp.getY(i);        // plane +y runs to -z once it is laid down
-    const col0=i%NW, row0=(i/NW)|0;
-    // white sand: pale and dry up the beach, darker where the water has been over it
-    const dry=_ss(-46,40,wz);
-    const t=_ss(-104,-34,wz)*0.92 + (_fbm(x*0.9+31,wz*0.9+17)-0.5)*0.34;
-    _c.copy(_WET).lerp(C1,Math.max(0,Math.min(1,t)));
-    if(dry>0.55)_c.lerp(C3,(dry-0.55)*0.9);
-    // Sand that is UNDER the water has to look like it is under water. The swell runs a
-    // unit and a third either side of the surface, so its troughs bare the seabed twice a
-    // wave — and a seabed painted the colour of dry beach came through as brown water
-    // washing in and out. Below the waterline it is pulled toward the sea's own colour,
-    // hard at first and then all the way, so what shows through a trough is shallows.
-    const sub=_ss(0.4,-3.2,sandH(wz));
-    if(sub>0.001)_c.lerp(_SHALLOW,sub*0.92);
-    // Shading painted in by hand, from the slope, because the material will not give it to
-    // us: a low sun raking across from the left lights the faces turned toward it and drops
-    // the far side of every ridge into shade. Without this the dunes are geometrically
-    // there and completely invisible.
-    // grid neighbours, clamped at the edges. +row is -localY is +wz.
-    const xl=col0>0?i-1:i, xr=col0<NW-1?i+1:i;
-    const zl=row0>0?i-NW:i, zr=row0<SNV?i+NW:i;
-    const dhx=(HG[xr]-HG[xl])/((xr-xl)/1*DX||DX);
-    const dhz=(HG[zr]-HG[zl])/(((zr-zl)/NW)*DZ||DZ);
-    // ---- and the gain on it is a picture decision, not a physical one ----
-    // These were the true gradients, and the true gradient of a dune is small: a foot of
-    // crest over nine feet of ground is a ninth, which through a coefficient of one lands as
-    // a lightness step of three per cent. Nothing. The relief was measurably in the mesh and
-    // still invisible in the frame, three attempts running, and this is where it was being
-    // thrown away — not in the geometry. Raked light on white sand is exactly the case where
-    // a real surface gives far more contrast than its slope suggests, so the response is
-    // steepened until a dune's flank reads as a dune's flank.
-    const sh=Math.max(-1,Math.min(1,-dhx*1.45+dhz*2.50));
-    // Sand is grains, and no mesh is ever fine enough for those, so the last scale is
-    // colour only — a speckle at about a third of a unit, under a pixel out at the back
-    // and a visible sparkle in the foreground.
-    const gr=(_fbm(x*19.0+7,wz*19.0+19)-0.5)*0.085 + (_fbm(x*3.1+41,wz*3.1+5)-0.5)*0.075;
-    // A LOT of shading, and deliberately so. At 0.80 luminance the sand was sitting right
-    // at the top of the tone curve, where ACES compresses everything together — the dunes
-    // were geometrically present and completely invisible. Dropping the level so the sand
-    // renders in the middle of the curve is what gives this room to show.
-    _c.offsetHSL(0,0,sh*0.32+gr);
-    scol.push(_c.r,_c.g,_c.b);
-  }
-  sg.setAttribute('color',new THREE.Float32BufferAttribute(scol,3));
-  sg.computeVertexNormals();
-  _bootMs.sand=Math.round(performance.now()-_ts);
-  _bootMs.sandVerts=sp.count;
-  // Sand is grains, and a 380x330 grid over 760 units is one quad every two feet — enough
-  // for dunes and ripples, nowhere near enough for the surface itself. Under the low sun a
-  // beach is not a matte sheet: it is millions of facets, half of them catching the light.
-  // That is bump, not geometry, so it goes in as a normal map baked here on a canvas rather
-  // than shipped as a file — this game has no external assets by design — and tiled hard.
-  // Two scales, because one is a pattern: a coarse ripple and a fine grain over it.
-  beachSand=new THREE.Mesh(sg,new THREE.MeshStandardMaterial({
-    vertexColors:true,color:SAND_LIT,roughness:0.99,metalness:0.0}));
-  // ---- and the wind has been over it ----
-  // A beach is not a field of grain. The wind builds dry sand into RIPPLES: long ridges a
-  // hand's width apart, running across the wind, wandering rather than ruled straight — it
-  // is the first thing in every photograph of one and the sand here had none of it.
-  //
-  // They go in the normal map and not the mesh, and that is not a shortcut, it is the only
-  // place they fit. The height function already has a ripple term and the mesh cannot hold
-  // it: the rows are a foot and a half apart in z and the ripples are a couple of feet from
-  // crest to crest, which is one and a half vertices per wave. Anything at that spacing is
-  // tessellated flat no matter how much of it is asked for. In the map it costs nothing and
-  // survives at any distance.
-  //
-  // The ridges run along the tile's u, which is world x — ACROSS the view rather than into
-  // it — so they present their profile over and over instead of foreshortening into nothing.
-  // Eleven whole periods across the tile so the ridges meet themselves at the seam, and the
-  // wander is what stops eleven straight lines reading as corduroy.
-  const RIPPLE=(x,y,N)=>{
-    const wander=(_fbm(x*0.045,y*0.045)-0.5)*7.0;
-    const rip=Math.sin((y+wander)*(Math.PI*2*11/N))*0.5+0.5;
-    return rip*0.60 + _fbm(x*0.135,y*0.135)*0.22 + _fbm(x*0.52+9,y*0.52+3)*0.18;
-  };
-  // 2.6 and 0.62 drew the grain it used to have; ripples are a bigger relief than grain and
-  // came out as a whisper at those numbers. A flatter z is a steeper surface between the
-  // ridges, which is the whole of what makes them catch the light.
-  // ---- and the grains have COLOUR, not just shape ----
-  // Everything the sand had was relief: a normal map and a shadow map over one flat colour.
-  // Relief only shows where the light rakes it, so from most angles the beach was a smooth
-  // tan sheet with a pattern of shading on it. Real sand is not one colour with bumps — it is
-  // thousands of GRAINS, quartz catching the sun white and heavier minerals nearly black, and
-  // that is an albedo you can see straight on with no light behind it at all.
-  //
-  // The SIZE of a grain is set by the camera, not by what a grain is. This lens sits a foot
-  // over the sand and the near beach fills about eight feet of frame; a photograph of that
-  // shows a couple of hundred grains across it, which is one about every centimetre. Tiled
-  // three times finer than the ripples — the first guess, and the arithmetic says two
-  // millimetres — every speck lands inside a pixel and the whole thing reads as noise rather
-  // than as sand. Distance takes care of the far end by itself: the mip chain averages the
-  // specks back to flat tan exactly where a real beach stops showing them.
-  const GRAIN=(x,y)=>{
-    const h=_fbm(x*3.1+5,y*3.1+9);        // near enough one draw per texel — a grain each
-    const patch=_fbm(x*0.9+31,y*0.9+17);  // and coarser and finer areas of them
-    let v=0.70+h*0.50;
-    if(h>0.84)v+=0.42;                    // quartz, catching the sun
-    if(h<0.15)v-=0.34;                    // the dark heavy stuff between
-    return v*(0.94+patch*0.12);
-  };
-  beachSand.material.map=bakedGrey('sandGrain',256,GRAIN);
-  beachSand.material.map.repeat.set(95,58);
-  beachSand.material.map.anisotropy=16;
-  // sRGB, because it is a COLOUR. Left linear it comes out washed and chalky — the specks
-  // lose most of their separation, which is the one thing this map exists for.
-  if(THREE.sRGBEncoding)beachSand.material.map.encoding=THREE.sRGBEncoding;
-  beachSand.material.normalMap=bakedNormal('sand',256,RIPPLE,4.2,0.34);
-  beachSand.material.normalMap.repeat.set(150,90);   // about one tile every five feet
-  beachSand.material.normalScale=new THREE.Vector2(1.55,1.55);
-  // the hollows between the ridges keep a little shade, which is what stops a lit beach
-  // reading as a sheet of paper at grazing angles — and it is the SAME relief, so the shading
-  // and the shadowing agree instead of describing two different beaches
-  sg.setAttribute('uv2',sg.attributes.uv);
-  beachSand.material.aoMap=bakedGrey('sandAO',256,(x,y,N)=>0.58+0.42*RIPPLE(x,y,N));
-  beachSand.material.aoMap.repeat.set(150,90);
-  // A hundred and fifty tiles seen at a grazing angle is a moire generator: the far half of
-  // the beach is a few texels per pixel and four samples cannot resolve it. Sixteen is the
-  // difference between ripples that lie down into the distance and ripples that shimmer.
-  beachSand.material.normalMap.anisotropy=16;
-  beachSand.material.aoMap.anisotropy=16;
-  beachSand.material.aoMapIntensity=0.80;
-  beachSand.material.envMapIntensity=0.16;
-  beachSand.rotation.x=-Math.PI/2; beachSand.position.set(0,0,SC); g.add(beachSand);
+  // ---- THE PAINTED BEACH IS GONE, AND SO IS THE COST OF BUILDING IT ----
+  // Everything underfoot is the scanned field in sandFieldBuild now. What stood here was the
+  // beach before that existed: a 200x300 plane over 760 units, every vertex given a height and
+  // a colour, wearing a baked ripple normal, a grain map and an AO map.
+  // Two sands in one frame never agreed. The join between them read as a band across the middle
+  // distance — that is what "still shows old sand" was — and the loser of that argument was
+  // still costing sixty thousand vertices, three canvas bakes, and by the note that used to sit
+  // here the slowest single pass in the game's startup: eleven million noise samples and the
+  // best part of two seconds with the page frozen for all of it.
+  // CHECKED BEFORE REMOVING, not after: with the mesh hidden the title screen renders complete,
+  // no holes and no sky under the dunes, because the field covers the whole patch from the near
+  // edge to the waterline.
+  // hAt STAYS, and it is the reason this is only a deletion and not a rewrite. beachSurfH and
+  // beachSandH are analytic — the same four octaves of noise — and every single thing that
+  // stands on this beach, the pug, the chest, the palms, the camera and the tile field itself,
+  // reads its level from those functions rather than from any mesh. Nothing that was standing
+  // on the beach was standing on THIS.
+  beachSand=null;
   beachSandGroup=g;
   sandFieldBuild();
 
