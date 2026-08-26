@@ -1132,9 +1132,18 @@ await page.waitForTimeout(300);
         'the sun on the beach is low, which is what makes it an evening',
         sh ? `${(Math.asin(Math.max(-1, Math.min(1, sh.lift))) * 180 / Math.PI).toFixed(0)}° above the sand` : 'no shadow rig');
   // warm at the horizon and still blue overhead, with enough glow to be a sun rather than a tint
-  check(!!lit && lit.glow >= 0.30 && warm(lit.hor) && blue(lit.top),
-        'and the sky is warm where the sun is and blue away from it',
-        lit ? `horizon #${lit.hor.toString(16)}, overhead #${lit.top.toString(16)}, glow ${lit.glow}` : 'no sky');
+  // ---- and this asked for the OPPOSITE of what the screen is now composed against ----
+  // It wanted a warm horizon under a blue overhead, which is golden hour, and it was right when
+  // it was written. The reference the title screen is matched to now is a bright midday one:
+  // sampled off it, the sky runs #2771a2 overhead to #9fc8e6 at the water — pale BLUE down
+  // there, with no cream band at all. So the horizon is no longer allowed to be warm, and what
+  // is still asked is that the dome is a sky at all: blue overhead, and lighter rather than
+  // darker as it comes down, which is the one thing that is true of every daytime sky.
+  const lum = c => 0.299*((c>>16)&0xff) + 0.587*((c>>8)&0xff) + 0.114*(c&0xff);
+  check(!!lit && blue(lit.top) && blue(lit.hor) && lum(lit.hor) > lum(lit.top) + 20,
+        'and the sky is blue overhead and pales toward the water, as a daytime sky does',
+        lit ? `horizon #${lit.hor.toString(16)} (lum ${lit&&lum(lit.hor).toFixed(0)}), `+
+              `overhead #${lit.top.toString(16)} (lum ${lit&&lum(lit.top).toFixed(0)}), glow ${lit.glow}` : 'no sky');
   // and the water is still water. The sea fades toward its own sky colour with distance, so a
   // horizon-coloured one turns the whole back half of the picture into a single tone — this was
   // set to the horizon's cream and the sea vanished into the sand.
@@ -5030,10 +5039,23 @@ check(shaderErrors.length === 0, 'every shader compiles',
     return out;
   });
   const swing = Math.max(...plant.hold.map(h => Math.abs(h.deg - plant.ride.deg)));
+  // Measured in isolation this never passes 7.6 — twenty samples across four boards, with and
+  // without a trick left running into it — and inside the full suite it has come back 7.2, 16.2
+  // and 16.6. Something upstream leaves state that roughly doubles it and three targeted
+  // experiments have not found what, so the state is reported rather than guessed at again.
+  const swState = await page.evaluate(() => {
+    const s = window.__surf;
+    let st = {};
+    try { st = { board: s.equipped ? s.equipped() : null, rider: s.rigInfo().who,
+                 sw: s.stance ? s.stance().sw : null, day: s.skyFacing ? s.skyFacing().dayT : null,
+                 dist: Math.round((s.state() || {}).dist || 0) }; } catch (e) { st = { err: String(e) }; }
+    return st;
+  });
   check(plant.ride.deg !== null && swing < 12,
         'he stays side on through it rather than turning his back to you',
         `${plant.who} riding at ${plant.ride.deg}°, hold at ` +
-        `${plant.hold.map(h => h.deg).join(', ')} — worst ${swing.toFixed(1)}° off`);
+        `${plant.hold.map(h => h.deg).join(', ')} — worst ${swing.toFixed(1)}° off` +
+        `  [state ${JSON.stringify(swState)}]`);
   check(plant.hold.every(h => Math.abs(h.g.x) < 0.20 && Math.abs(h.g.gap) < 0.06),
         'and the hand he is on is planted over the stringer, not off the rail',
         plant.hold.map(h => `${h.g.x.toFixed(2)}ft across a ${h.g.rail}ft half-width`).join(', '));
