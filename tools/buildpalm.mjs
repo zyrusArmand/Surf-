@@ -13,8 +13,8 @@
 // that the game poses a bend through. Nothing here touches the skeleton.
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { dequantize, weld, simplify, prune, dedup, textureCompress, unpartition }
-  from '@gltf-transform/functions';
+import { dequantize, weld, simplify, prune, dedup, textureCompress, unpartition,
+         flatten, join } from '@gltf-transform/functions';
 import { MeshoptSimplifier } from 'meshoptimizer';
 import sharp from 'sharp';
 
@@ -45,6 +45,29 @@ console.log('before:', Math.round(before), 'tris');
 await doc.transform(
   // r128 does not read KHR_mesh_quantization — see the note in buildprop
   dequantize(),
+);
+if(STATIC){
+  // ---- THE SKIN COMES OFF FIRST, SO THE PIECES CAN BE JOINED ----
+  // See the note above for why the skin goes. It goes HERE, before anything else, because the
+  // only reason not to join a rigged file is the skin — and once it is off, the seven separate
+  // frond groups can be merged into the one mesh the game actually reads.
+  for(const mesh of root.listMeshes())
+    for(const pr of mesh.listPrimitives())
+      for(const sem of ['JOINTS_0','WEIGHTS_0','JOINTS_1','WEIGHTS_1']){
+        const at=pr.getAttribute(sem); if(at){ pr.setAttribute(sem,null); at.dispose(); }
+      }
+  for(const n of root.listNodes()) if(n.getSkin()) n.setSkin(null);
+  for(const sk of root.listSkins()) sk.dispose();
+}
+await doc.transform(
+  // ---- AND DOWN TO ONE MESH ----
+  // The game takes the FIRST mesh in palm.glb and rigs that one, warning about the rest and
+  // carrying on — and this file arrives as seven. Measured through the game's own palmRig, the
+  // piece it picked spans y 0.515 to 0.989: the top half, a frond cluster, with no trunk in it
+  // at all. So it rigged a handful of leaves and called it a tree, the trunk line came back
+  // meaningless, and the pug and the board — which are placed against that line — left the
+  // frame with it. Exactly the fault the new sand had, in a different file.
+  flatten(), join(),
   weld(),
   simplify({simplifier:MeshoptSimplifier, ratio:Math.min(1,TARGET/before), error:ERR}),
   textureCompress({encoder:sharp, targetFormat:'jpeg', quality:Q,
@@ -56,20 +79,9 @@ await doc.transform(
   prune(), dedup(), unpartition(),
 );
 console.log('after: ', Math.round(tris()), 'tris');
-if(STATIC){
-  // the vertices are already in bind space and the bind pose is the tree standing, so the
-  // weights can simply go: what is left is the same shape with nothing driving it
-  for(const mesh of root.listMeshes())
-    for(const p of mesh.listPrimitives()){
-      for(const sem of ['JOINTS_0','WEIGHTS_0','JOINTS_1','WEIGHTS_1']){
-        const a=p.getAttribute(sem); if(a){ p.setAttribute(sem,null); a.dispose(); }
-      }
-    }
-  for(const n of root.listNodes()) if(n.getSkin()) n.setSkin(null);
-  for(const sk of root.listSkins()) sk.dispose();
-  await doc.transform(prune(), dedup());
-  console.log('skin stripped — the game rigs this itself');
-}
+console.log('meshes:', root.listMeshes().length,
+            ' prims:', root.listMeshes().flatMap(m=>m.listPrimitives()).length,
+            ' skins:', root.listSkins().length);
 // A frond is a flat strip and you see the underside of half of them from below, which is
 // exactly the angle a title screen looks at a palm from.
 for(const m of root.listMaterials()) m.setDoubleSided(true);
