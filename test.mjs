@@ -1667,6 +1667,53 @@ if (hasHook) {
             'Play is the same teal glass as the rest of the dial, just bigger',
             dial ? `same material ${dial.same}, shell gone ${!dial.shell}, ` +
                    `larger ${dial.bigger} — "${dial.play}…"` : 'no buttons');
+      // ---- and ONE ring, on every button in the game ----
+      // There were seven: the dial teal at .42, the ride's controls white at .70, the menu pill
+      // amber at .80, Test wave mint, Stats gold, Reset a cold blue. Asked by collecting the
+      // computed border colour of one button from every family and requiring the SET to have a
+      // single member — which fails loudly the moment somebody adds an eighth, and which does
+      // not care what the gold happens to be this month.
+      // Not asked of width: a browser rounds border-width to whole DEVICE pixels, so 2.5px and
+      // 2px both come back "2px" at DPR 1 and the check would be measuring the test's viewport
+      // rather than the stylesheet.
+      const rings = await page.evaluate(() => {
+        const fam = ['#dPlay','#dBoard','#startBtn','#recordsBtn','#jumpBtn','#rollBtn',
+                     '#heliBtn','#shopTabs .tab','#settings .sw','.card .eye','.card .tag'];
+        const seen = {}, missing = [];
+        for (const sel of fam) {
+          const e = document.querySelector(sel);
+          if (!e) { missing.push(sel); continue; }
+          const c = getComputedStyle(e).borderTopColor;
+          (seen[c] = seen[c] || []).push(sel);
+        }
+        return { colours: Object.keys(seen), seen, missing };
+      });
+      check(rings && rings.colours.length === 1,
+            'every button in the game wears one ring, not seven',
+            rings ? `${rings.colours.length} distinct: ` +
+                    rings.colours.map(c => `${c} on ${rings.seen[c].length}`).join(', ') +
+                    (rings.missing.length ? ` (not in the DOM here: ${rings.missing.join(' ')})` : '')
+                  : 'no buttons');
+      // ---- and the ride's controls are made of the same thing as the dial ----
+      // They were pale see-through glass on purpose, so you could read the wave through them.
+      // That reasoning lost to a simpler one: pale vanished against foam and against the sun's
+      // glitter path, which are the two brightest things on the screen and the two you are most
+      // trying to read when a thumb goes looking. Equality on the computed background again,
+      // because the two rules carry the same string or they do not.
+      const ride = await page.evaluate(() => {
+        const g = s => { const e = document.querySelector(s); return e ? getComputedStyle(e) : null; };
+        const trick = g('#rollBtn'), side = g('.hbtn.hb-shop'), jump = g('#jumpBtn'), play = g('.hbtn.hb-play');
+        if (!trick || !side || !jump || !play) return null;
+        return { trickMatches: trick.backgroundImage === side.backgroundImage,
+                 jumpMatches:  jump.backgroundImage  === play.backgroundImage,
+                 sameSize: parseFloat(trick.width) === parseFloat(side.width) &&
+                           parseFloat(jump.width)  === parseFloat(play.width),
+                 w: `${trick.width}/${side.width} and ${jump.width}/${play.width}` };
+      });
+      check(ride && ride.trickMatches && ride.jumpMatches && ride.sameSize,
+            'the ride\'s controls are the menu\'s buttons — same material, same size',
+            ride ? `trick=dial ${ride.trickMatches}, JUMP=Play ${ride.jumpMatches}, ` +
+                   `sizes ${ride.w}` : 'no buttons');
       // ---- and the set casts a real shadow that you can actually see ----
       // What was under the rider and the board was three soft ambient POOLS — dark ellipses
       // that sit on the sand without belonging to it, whatever the sun is doing. The beach had
