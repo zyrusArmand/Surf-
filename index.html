@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.73.0';
+window.SURF_VERSION='4.73.1';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -6674,7 +6674,15 @@ function sandFieldBuild(){
   // neighbours at ONE distance. There is no longer a worst direction to pay for, so the same
   // overlap closes the field with fewer pieces rather than more.
   const stepZ=stepX*0.866;                      // √3/2 — what makes the six distances equal
-  const nx=Math.ceil(SAND_X*2/stepX)+1, nz=Math.ceil((SAND_Z0-SAND_Z1)/stepZ)+1;
+  // ---- AND THE GRID STARTS OUTSIDE THE PATCH IT IS COVERING ----
+  // The first centre used to sit half a step INSIDE the boundary, so the outer half-step had
+  // nothing centred over it and the field ran out before the ground did. Measured, that was
+  // the whole of the miss: coverage came back 98.53 per cent and every single bare sample was
+  // at x = -33.6 against a patch that ends at 34 — a rim, not a seam. Tightening the overlap
+  // to close it would have paid for a border fault across the entire beach, which is the sort
+  // of fix that works and costs four hundred extra pieces for nothing.
+  const gx0=-SAND_X-stepX*0.5, gz0=SAND_Z1-stepZ*0.5;
+  const nx=Math.ceil((SAND_X*2+stepX)/stepX)+1, nz=Math.ceil((SAND_Z0-SAND_Z1+stepZ)/stepZ)+1;
   const N=nx*nz;
   if(!N||N>4000)return;
   const mesh=new THREE.InstancedMesh(geo,sandTile.mat,N);
@@ -6690,8 +6698,8 @@ function sandFieldBuild(){
   let i=0;
   for(let ix=0; ix<nx; ix++)for(let iz=0; iz<nz; iz++){
     // ...and the odd rows shifted half a step across, which is the stagger itself
-    const x=-SAND_X+(ix+0.5+(iz&1?0.5:0))*stepX+(R()-0.5)*stepX*SAND_JIT;
-    const z=SAND_Z1+(iz+0.5)*stepZ+(R()-0.5)*stepZ*SAND_JIT;
+    const x=gx0+(ix+0.5+(iz&1?0.5:0))*stepX+(R()-0.5)*stepX*SAND_JIT;
+    const z=gz0+(iz+0.5)*stepZ+(R()-0.5)*stepZ*SAND_JIT;
     // ---- and a NARROWER spread of sizes ----
     // The smallest piece in the field is what sets whether the field closes, because coverage
     // is only ever guaranteed to the smallest of any two neighbours. A fifth either way reads
