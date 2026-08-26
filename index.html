@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.68.0';
+window.SURF_VERSION='4.69.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -12790,18 +12790,6 @@ for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
       if(m.emissive)m.emissive.setRGB(0,0,0);
       m.needsUpdate=true; } });
   riderModels[id]=fitted;
-  // ---- and the shop's picture of him is now out of date ----
-  // charPreview caches per character and nothing used to clear it, so a card drawn before this
-  // model arrived kept the BUILT-IN body for the rest of the session. That is not hypothetical:
-  // it is exactly what "the squirrel is not the file" looked like, and the squirrel is last in
-  // the load order and the heaviest, so it is the one most likely to lose the race. The card
-  // is thrown away here instead, and redrawn if the shop happens to be open on the Surfers tab.
-  try{
-    delete prevCache['c:'+id];
-    const sh=document.getElementById('shop');
-    if(sh&&!sh.classList.contains('hidden')&&typeof shopTab!=='undefined'&&shopTab==='riders'
-       &&typeof drawShop==='function')drawShop();
-  }catch(e){}
   fitted.userData.riderFor=id;
   pug.add(fitted);
   modelRigs[id]=setupModelRig(fitted,gltf,id);
@@ -12811,6 +12799,24 @@ for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
   for(const k in modelRigs){ const r=modelRigs[k];
     if(r&&r!==modelRigs[id]&&r.borrow)r.borrow(); }
   showRiderModel();
+  // ---- and the shop's picture of him is now out of date ----
+  // charPreview caches per character and nothing used to clear it, so a card drawn before this
+  // model arrived kept the BUILT-IN body for the rest of the session. That is not hypothetical:
+  // it is exactly what "the squirrel is not the file" looked like, and the squirrel is last in
+  // the load order and the heaviest, so it is the one most likely to lose the race. The card
+  // is thrown away here, and redrawn if the shop happens to be open on the Surfers tab.
+  //
+  // LAST, not next to the assignment it reacts to. The first version sat directly under
+  // riderModels[id]=fitted and repainted the card there — three lines before pug.add() put the
+  // body in the scene at all and four before setupModelRig() gave it a skeleton. So it threw
+  // away a stale card and cached a WORSE one, drawn off a model that was installed in name
+  // only. The card is only worth redrawing once the thing it is a picture of is fully standing.
+  try{
+    delete prevCache['c:'+id];
+    const sh=document.getElementById('shop');
+    if(sh&&!sh.classList.contains('hidden')&&typeof shopTab!=='undefined'&&shopTab==='riders'
+       &&typeof drawShop==='function')drawShop();
+  }catch(e){}
 });
 // Which body is on the board: an imported one belongs to the character it was exported for,
 // so anyone without a model gets the built-in rig back. Called after every rebuild, because
@@ -19884,6 +19890,14 @@ if(location.hash.includes('debug')){
     // what the shop is CURRENTLY holding for a character, without building anything — so a
     // check can tell a cached card apart from a freshly rebuilt one
     charCardCached(id){ return prevCache['c:'+id]||null; },
+    // whether a character's GLB has actually landed AND finished installing. A check that wants
+    // to say "the card is of his model" has to wait for the model, and the only alternative to
+    // this hook was guessing with a timer. It reports the rig too, because riderModels[id] is
+    // set several lines before the body is in the scene and has a skeleton — the card drawn in
+    // that window is of a model that exists in name only, which is a bug this very hook found.
+    riderHasModel(id){
+      try{ return !!(riderModels&&riderModels[id]&&modelRigs&&modelRigs[id]); }
+      catch(e){ return false; } },
     chopState(){
       const rd=(u)=>({on:u.uChopK.value>0.5, w:u.uChop.value?u.uChop.value.image.width:0,
                       wrap:u.uChop.value?u.uChop.value.wrapS===THREE.RepeatWrapping:false,

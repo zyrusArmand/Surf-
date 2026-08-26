@@ -633,6 +633,19 @@ await page.waitForTimeout(300);
     // The shop has to have DRAWN the surfers first, or there is nothing cached to compare and
     // the check passes on an empty hand — which is what it did the first time it ran, reporting
     // "matches: null" and going green without comparing anything.
+    // THE MODEL FIRST, and only then the card. The question is "once his file is in, is the
+    // card of it" — so waiting for the card alone asks it during the download and loses a race
+    // that was never part of the claim. That is what the previous version did: it opened the
+    // shop while the squirrel was still arriving, caught the card drawn off the stand-in, and
+    // compared it against a rebuild made after the file landed. Two different moments, so of
+    // course they differed, and the failure said nothing about whether invalidation works.
+    // charShot is deterministic — three builds in a row came back byte-identical — so once
+    // both readings are taken from the same side of the download, a mismatch is real.
+    await page.waitForFunction(() => {
+      const s = window.__surf, k = s.riderKinds ? s.riderKinds() : [];
+      const id = k[k.length - 1] || 'pug';
+      return !!(s.riderHasModel && s.riderHasModel(id));
+    }, null, { timeout: 180000, polling: 400 }).catch(() => {});
     await page.evaluate(() => document.getElementById('dShop').click());
     await page.waitForTimeout(700);
     await page.evaluate(() => { const t = [...document.querySelectorAll('#shopTabs .tab')]
@@ -651,17 +664,20 @@ await page.waitForTimeout(300);
       const s = window.__surf;
       const kinds = s.riderKinds ? s.riderKinds() : [];
       const id = kinds[kinds.length - 1] || 'pug';        // last in, most likely to be stale
+      const model = !!(s.riderHasModel && s.riderHasModel(id));
       const held = s.charCardCached ? s.charCardCached(id) : null;
       const fresh = s.charShot(id);                        // clears and rebuilds
-      return { id, held: !!held, same: held ? held === fresh : null,
+      return { id, model, held: !!held, same: held ? held === fresh : null,
                len: fresh ? fresh.length : 0 };
     });
     await page.evaluate(() => document.getElementById('shopClose').click());
     await page.waitForTimeout(500);
-    check(card && card.len > 1000 && card.held && card.same === true,
+    // `model` is asserted, not just reported: with no model there is no stand-in to be stale
+    // against and the comparison is vacuous — a green light on an empty hand again.
+    check(card && card.len > 1000 && card.model && card.held && card.same === true,
           'and the shop card for the last rider to load is of his model, not the stand-in',
-          `${card.id}: ${card.len}B, shop was holding one: ${card.held}, ` +
-          `and it matches a fresh build: ${card.same}`);
+          `${card.id}: ${card.len}B, his file is in: ${card.model}, ` +
+          `shop was holding a card: ${card.held}, and it matches a fresh build: ${card.same}`);
   }
   // ---- and a chest sitting on the sand in front of the tree ----
   // Placing this cost four rounds and every one failed differently: the props group carries a
