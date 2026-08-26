@@ -998,8 +998,9 @@ await page.waitForTimeout(300);
   // window around 0.5 until the new composition fitted, and that is how a check stops meaning
   // anything — a wide enough window around the wrong centre accepts everything. So the centre
   // moves to where the picture actually puts it and the window gets TIGHTER than it was.
-  const want = f => band(f) + 0.075;
-  check(framed.length === 3 && framed.every(f => f.right > 0.65 && Math.abs(mid(f) - want(f)) < 0.06),
+  // named for what it is rather than `want`, which is already taken further down this scope
+  const setMark = f => band(f) + 0.075;
+  check(framed.length === 3 && framed.every(f => f.right > 0.65 && Math.abs(mid(f) - setMark(f)) < 0.06),
         'and the set sits where the reference puts it, right of the middle of that gap',
         framed.map(f => `${f.id}: set at ${mid(f).toFixed(3)} (rider ${f.rider.x[0]}-${f.rider.x[1]}, ` +
                         `board ${f.board.x[0]}-${f.board.x[1]}, chest ${f.chest.x[0]}-${f.chest.x[1]}), ` +
