@@ -637,7 +637,16 @@ await page.waitForTimeout(300);
     await page.waitForTimeout(700);
     await page.evaluate(() => { const t = [...document.querySelectorAll('#shopTabs .tab')]
       .find(b => /surfer/i.test(b.textContent)); if (t) t.click(); });
-    await page.waitForTimeout(2500);
+    // WAITED ON, not slept through. drawShop does not build the thumbnails inline — it queues
+    // them as deferred jobs and works through them, so a fixed pause is a guess about how far
+    // down the list a software rasteriser has got. Two and a half seconds was not far enough
+    // and the check reported an empty cache, which is the same shape of mistake as sleeping
+    // through the sign's fit. Poll for the card instead.
+    await page.waitForFunction(() => {
+      const s = window.__surf, k = s.riderKinds ? s.riderKinds() : [];
+      const id = k[k.length - 1] || 'pug';
+      return !!(s.charCardCached && s.charCardCached(id));
+    }, null, { timeout: 90000, polling: 400 }).catch(() => {});
     const card = await page.evaluate(() => {
       const s = window.__surf;
       const kinds = s.riderKinds ? s.riderKinds() : [];
