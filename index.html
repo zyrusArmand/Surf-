@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.71.0';
+window.SURF_VERSION='4.72.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -17761,7 +17761,18 @@ if(location.hash.includes('debug')){
       whTest=true; whirlT=(sec===undefined?2:sec);
       return {armed:whTest, t:+whirlT.toFixed(2), live:!!whirl}; },
     whirlState(){ return {live:!!whirl, t:+whirlT.toFixed(2), armed:whTest,
-                          a:+whA.toFixed(2), dist:Math.round(dist)}; },
+                          a:+whA.toFixed(2), dist:Math.round(dist),
+                          // whether the differential shear actually compiled. It is injected
+                          // into a stock material, and a shader that fails to build leaves the
+                          // whirlpool turning rigidly and looking almost right — which is
+                          // exactly the sort of failure that never gets noticed.
+                          shear:!!(whirlArt.material.userData.sh&&
+                                   whirlArt.material.userData.sh.uniforms&&
+                                   whirlArt.material.userData.sh.uniforms.uWhSpin)}; },
+    // the painted texture on its own, so the drawing can be looked at without the sea on top
+    whirlTexCanvas(){
+      const m=whirlArt.material.map;
+      return (m&&m.image&&m.image.toDataURL)?m.image.toDataURL('image/png'):null; },
     // where the camera is against the sea AROUND a whirlpool, which is the level it must
     // stay above — the bowl itself is metres deep and is not a floor
     camVsSea(){
@@ -20304,50 +20315,145 @@ function placeCurl(dt){
 // rim when it forms and held there instead of being swallowed. There is always a
 // way out; you have to take it before the pull gets too strong.
 function whirlTexture(){
-  const S=512, c=document.createElement('canvas'); c.width=c.height=S;
+  // Drawn from the references rather than from the idea of a whirlpool. What is actually in
+  // those pictures, in order of how much each one carries the effect:
+  //   - ONE or TWO bold foam arms winding all the way in, not a uniform spray of filaments.
+  //     The comma-shaped trail is the thing the eye reads as "this is being sucked down".
+  //   - concentric ripple striations OUTSIDE the bowl, where the water is still flat
+  //   - a hard bright collar of broken water right at the lip
+  //   - a throat that is genuinely dark and much tighter than the bowl
+  // The old version had 26 even filaments and a soft dark blob, which averages out to a grey
+  // smudge: no dominant direction, no lip, and nothing to read the rotation against.
+  const S=1024, c=document.createElement('canvas'); c.width=c.height=S;
   const x=c.getContext('2d');
   x.translate(S/2,S/2);
   let n=8123;
   const R=()=>{n=(n*9301+49297)%233280;return n/233280;};
-  // Fine drawn-out filaments rather than painted arms. Water going round a hole
-  // shows thin streaks of aerated foam stretched along the flow, sparse and faint
-  // near the outside and gathering as they are pulled toward the middle.
-  for(let arm=0;arm<26;arm++){
-    const a0=R()*Math.PI*2, r0=0.10+R()*0.72, len=0.45+R()*0.85;
-    const wind=2.6+R()*1.7;
+  const H=S*0.5;
+  // A logarithmic spiral is what water going down a hole actually traces, and it is the
+  // reason the arms tighten toward the middle instead of coiling evenly like a clock spring.
+  const spiralPt=(a0,r0,rr,wind)=>{
+    const a=a0+wind*(Math.log(Math.max(0.05,rr))-Math.log(Math.max(0.05,r0)));
+    return [Math.cos(a)*rr*H, Math.sin(a)*rr*H];
+  };
+  // ---- 1. the flat water outside, ringed ----
+  // Faint, closely spaced, and slightly out of round, because a perfect circle reads as a
+  // target painted on the sea. These stop before the lip; the bowl itself is smooth.
+  for(let i=0;i<54;i++){
+    const rr=(0.50+i*0.0092)*H*(0.985+R()*0.03);
     x.beginPath();
-    for(let i=0;i<=64;i++){
-      const t=i/64;
-      const rr=r0+(0.96-r0)*t*len;
-      if(rr>0.99)break;
-      const a=a0+wind*(Math.log(Math.max(0.06,rr))-Math.log(Math.max(0.06,r0)));
-      const px=Math.cos(a)*rr*S*0.5, py=Math.sin(a)*rr*S*0.5;
-      if(i===0)x.moveTo(px,py); else x.lineTo(px,py);
+    for(let j=0;j<=72;j++){
+      const a=j/72*Math.PI*2;
+      const wob=1+Math.sin(a*3.0+i*0.7)*0.012+Math.sin(a*7.0+i*1.9)*0.006;
+      const px=Math.cos(a)*rr*wob, py=Math.sin(a)*rr*wob;
+      if(j===0)x.moveTo(px,py); else x.lineTo(px,py);
     }
-    x.strokeStyle='rgba(238,248,255,'+(0.10+R()*0.22).toFixed(3)+')';
-    x.lineWidth=1.1+R()*2.2; x.lineCap='round';
+    x.closePath();
+    x.strokeStyle='rgba(226,240,250,'+(0.030+R()*0.055).toFixed(3)+')';
+    x.lineWidth=0.8+R()*1.5;
     x.stroke();
   }
-  // the collar of broken water right around the throat, where it is actually white
-  for(let i=0;i<180;i++){
-    const a=R()*Math.PI*2, rr=(0.15+Math.pow(R(),1.7)*0.16)*S*0.5;
+  // ---- 2. the shear streaks down the bowl ----
+  // Fine and numerous, stretched along the flow. These are the texture of the wall, not the
+  // feature: kept faint on purpose so the arms below have something to be brighter than.
+  for(let arm=0;arm<40;arm++){
+    const a0=R()*Math.PI*2, r0=0.13+R()*0.62, len=0.5+R()*0.8;
+    const wind=2.8+R()*1.8;
     x.beginPath();
-    x.arc(Math.cos(a)*rr,Math.sin(a)*rr,0.6+R()*1.9,0,Math.PI*2);
-    x.fillStyle='rgba(245,252,255,'+(0.12+R()*0.32).toFixed(3)+')';
+    for(let i=0;i<=72;i++){
+      const t=i/72, rr=r0+(0.94-r0)*t*len;
+      if(rr>0.97)break;
+      const [px,py]=spiralPt(a0,r0,rr,wind);
+      if(i===0)x.moveTo(px,py); else x.lineTo(px,py);
+    }
+    x.strokeStyle='rgba(236,247,255,'+(0.055+R()*0.13).toFixed(3)+')';
+    x.lineWidth=0.9+R()*1.8; x.lineCap='round';
+    x.stroke();
+  }
+  // ---- 3. THE ARMS ----
+  // Two of them, roughly opposite, each drawn segment by segment so it can TAPER — wide and
+  // broken out at the rim where it is still ordinary foam, narrowing and brightening as it is
+  // drawn in, because the same amount of foam is being squeezed into a shorter circumference.
+  // Stroked as many short segments rather than one path precisely so width and alpha can
+  // change along it; a single stroke is one width for its whole length and reads as a painted
+  // stripe, which is what the old filaments looked like when they were made bold enough to see.
+  for(let arm=0;arm<2;arm++){
+    const a0=arm*Math.PI+R()*0.7, wind=3.05+R()*0.5;
+    const r0=0.135, r1=0.97;
+    let prev=null;
+    for(let i=0;i<=150;i++){
+      const t=i/150, rr=r0+(r1-r0)*t;
+      const jit=1+Math.sin(t*11.0+arm*2.1)*0.018+Math.sin(t*23.0+arm*4.3)*0.009;
+      const [px,py]=spiralPt(a0,r0,rr*jit,wind);
+      if(prev){
+        // fades out at both ends: nothing at the rim, nothing past the lip
+        const edge=Math.min(1,t/0.14)*Math.min(1,(1-t)/0.30);
+        const tight=1-t;                       // brighter and thinner toward the middle
+        x.beginPath(); x.moveTo(prev[0],prev[1]); x.lineTo(px,py);
+        x.strokeStyle='rgba(250,254,255,'+(edge*(0.14+tight*0.62)).toFixed(3)+')';
+        x.lineWidth=(1.6+t*9.0)*(0.75+R()*0.5);
+        x.lineCap='round';
+        x.stroke();
+      }
+      prev=[px,py];
+    }
+    // and the broken water that rides along the arm, which is what stops it being a ribbon
+    for(let i=0;i<220;i++){
+      const t=Math.pow(R(),0.7), rr=r0+(r1-r0)*t;
+      const [px,py]=spiralPt(a0,r0,rr,wind);
+      const spread=(2.0+t*11.0);
+      const bx=px+(R()-0.5)*spread, by=py+(R()-0.5)*spread;
+      x.beginPath(); x.arc(bx,by,0.5+R()*(1.4+t*1.8),0,Math.PI*2);
+      x.fillStyle='rgba(252,255,255,'+(Math.min(1,t/0.16)*(0.10+(1-t)*0.42)).toFixed(3)+')';
+      x.fill();
+    }
+  }
+  // ---- 4. the collar at the lip ----
+  // A hard bright ring, not a soft one. In the references the lip is the brightest thing in
+  // frame by a distance — it is where the surface tears — and its INNER edge is sharp because
+  // past it there is no surface left to be white.
+  for(let i=0;i<520;i++){
+    const a=R()*Math.PI*2;
+    const rr=(0.150+Math.pow(R(),2.1)*0.115)*H;
+    x.beginPath(); x.arc(Math.cos(a)*rr,Math.sin(a)*rr,0.5+R()*2.3,0,Math.PI*2);
+    x.fillStyle='rgba(250,255,255,'+(0.16+R()*0.46).toFixed(3)+')';
     x.fill();
   }
-  // fade to nothing well before the rim so the disc has no edge
+  // the lip drawn as a line as well, so it holds together as an edge rather than as grain
+  x.beginPath();
+  for(let j=0;j<=96;j++){
+    const a=j/96*Math.PI*2;
+    const rr=H*0.152*(1+Math.sin(a*3.0)*0.05+Math.sin(a*8.0+1.1)*0.022);
+    const px=Math.cos(a)*rr, py=Math.sin(a)*rr;
+    if(j===0)x.moveTo(px,py); else x.lineTo(px,py);
+  }
+  x.closePath();
+  x.strokeStyle='rgba(255,255,255,0.42)'; x.lineWidth=2.6; x.stroke();
+  // ---- 5. no edge on the disc ----
   x.globalCompositeOperation='destination-in';
-  let g=x.createRadialGradient(0,0,0,0,0,S*0.5);
-  g.addColorStop(0,'rgba(0,0,0,1)');g.addColorStop(0.55,'rgba(0,0,0,0.9)');
-  g.addColorStop(0.86,'rgba(0,0,0,0.25)');g.addColorStop(1,'rgba(0,0,0,0)');
-  x.fillStyle=g; x.fillRect(-S/2,-S/2,S,S);
-  // ...and drop the throat itself into shadow, which is what makes it read as a hole
+  let g=x.createRadialGradient(0,0,0,0,0,H);
+  g.addColorStop(0,'rgba(0,0,0,1)');g.addColorStop(0.55,'rgba(0,0,0,0.92)');
+  g.addColorStop(0.84,'rgba(0,0,0,0.30)');g.addColorStop(1,'rgba(0,0,0,0)');
+  x.fillStyle=g; x.fillRect(-H,-H,S,S);
+  // ---- 6. the throat ----
+  // Tighter and darker than it was, and green rather than blue-black: in every one of the
+  // references the hole is the colour of deep water lit from above, not the colour of a
+  // shadow. The falloff is steep so the lip above it stays an edge.
   x.globalCompositeOperation='source-over';
-  g=x.createRadialGradient(0,0,0,0,0,S*0.155);
-  g.addColorStop(0,'rgba(3,14,26,0.94)');g.addColorStop(0.62,'rgba(4,20,36,0.72)');
-  g.addColorStop(1,'rgba(6,28,50,0)');
-  x.fillStyle=g; x.beginPath(); x.arc(0,0,S*0.155,0,Math.PI*2); x.fill();
+  g=x.createRadialGradient(0,0,0,0,0,H*0.165);
+  g.addColorStop(0,   'rgba(6,26,30,0.97)');
+  g.addColorStop(0.45,'rgba(9,38,44,0.90)');
+  g.addColorStop(0.78,'rgba(14,54,62,0.55)');
+  g.addColorStop(1,   'rgba(20,70,80,0)');
+  x.fillStyle=g; x.beginPath(); x.arc(0,0,H*0.165,0,Math.PI*2); x.fill();
+  // a last few flecks of foam ON the dark, which is what gives the throat its depth: they are
+  // the only thing in there with a scale, so the eye reads the rest of it as far away
+  for(let i=0;i<90;i++){
+    const a=R()*Math.PI*2, rr=Math.pow(R(),0.55)*H*0.14;
+    x.beginPath(); x.arc(Math.cos(a)*rr,Math.sin(a)*rr,0.4+R()*1.1,0,Math.PI*2);
+    x.fillStyle='rgba(190,230,235,'+(0.06+R()*0.20).toFixed(3)+')';
+    x.fill();
+  }
   const t=new THREE.CanvasTexture(c);
   if(THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding;
   return t;
@@ -20377,8 +20483,37 @@ function makeWhirlArt(){
   g.setIndex(idx);
   const tex=whirlTexture();
   tex.center.set(0.5,0.5);
-  const m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({map:tex,
-    transparent:true,depthWrite:false,side:THREE.DoubleSide}));
+  const mat=new THREE.MeshBasicMaterial({map:tex,
+    transparent:true,depthWrite:false,side:THREE.DoubleSide});
+  // ---- THE MIDDLE GOES ROUND FASTER THAN THE OUTSIDE ----
+  // This is the one thing about a whirlpool that a spinning picture cannot fake, and it was
+  // the difference between the references and what we had: turning the whole texture at one
+  // rate is a decal on a turntable, and every frame of it is the same picture at a different
+  // angle. Real water going down a hole conserves angular momentum, so the closer in it is
+  // the faster it sweeps round — the arms wind up tighter and tighter the whole time, which
+  // is why a whirlpool reads as something being SWALLOWED rather than something rotating.
+  //
+  // Done in the shader against radius, so it costs one extra sample-coordinate calculation
+  // and no extra geometry. The base rotation stays on the texture matrix underneath: if this
+  // injection ever failed to compile, the whirlpool would still turn, just rigidly.
+  mat.onBeforeCompile=sh=>{
+    sh.uniforms.uWhSpin={value:0};
+    sh.fragmentShader='uniform float uWhSpin;\n'+sh.fragmentShader.replace(
+      '#include <map_fragment>',
+      [ '#ifdef USE_MAP',
+        '  vec2 wc = vUv - 0.5;',
+        '  float wr = length(wc);',
+        '  float wa = atan(wc.y, wc.x);',
+        // 1/r, damped so the very centre does not shear itself to mush inside one frame
+        '  wa += uWhSpin * (0.16 + 0.84/(wr*7.0 + 0.55));',
+        '  vec2 wuv = vec2(cos(wa), sin(wa)) * wr + 0.5;',
+        '  vec4 texelColor = texture2D( map, wuv );',
+        '  texelColor = mapTexelToLinear( texelColor );',
+        '  diffuseColor *= texelColor;',
+        '#endif' ].join('\n'));
+    mat.userData.sh=sh;
+  };
+  const m=new THREE.Mesh(g,mat);
   m.renderOrder=1;
   return m;
 }
@@ -20421,6 +20556,16 @@ function updateWhirl(dt,eff){
     P.needsUpdate=true;
   }
   whirlArt.material.map.rotation-=w.spin*dt*(0.5+whA*0.2);
+  // ...and the differential shear on top of it, which is the part that makes it a whirlpool
+  // rather than a spinning picture. Accumulated rather than set from a clock so it cannot jump
+  // when a run restarts, and wrapped at a full turn so it never grows large enough for a float
+  // to lose precision on it — this runs for as long as the whirlpool is alive and a shader
+  // angle that drifts into the thousands starts to visibly quantise.
+  { const sh=whirlArt.material.userData.sh;
+    if(sh&&sh.uniforms&&sh.uniforms.uWhSpin){
+      let v=sh.uniforms.uWhSpin.value-w.spin*dt*(0.85+whA*0.10);
+      if(v>Math.PI*2)v-=Math.PI*2; else if(v<-Math.PI*2)v+=Math.PI*2;
+      sh.uniforms.uWhSpin.value=v; } }
   whirlArt.material.opacity=Math.min(0.96,whA*0.22);
 
   // everything afloat is taken round and drawn in
