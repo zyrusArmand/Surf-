@@ -5,7 +5,7 @@
 //         meshoptimizer sharp
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { weld, simplify, prune, dedup, textureCompress, unpartition } from '@gltf-transform/functions';
+import { weld, simplify, prune, dedup, textureCompress, unpartition, dequantize } from '@gltf-transform/functions';
 import { MeshoptSimplifier } from 'meshoptimizer';
 import sharp from 'sharp';
 
@@ -20,6 +20,13 @@ const before=tris();
 console.log('before:', Math.round(before), 'tris');
 
 await doc.transform(
+  // ---- FIRST, ALWAYS ----
+  // three.js r128 does not read KHR_mesh_quantization. A quantized file does not fail to load,
+  // which is the trap: it loads with packed integers taken as coordinates, and the model turns
+  // up somewhere out past the horizon at a size nothing can measure. That cost a whole round
+  // on the squirrel — its deck gap came back as -1.28e+303 — and this tool had the same hole
+  // in it, waiting for the next quantized export to come through.
+  dequantize(),
   weld(),
   simplify({simplifier:MeshoptSimplifier, ratio:Math.min(1,TARGET/before), error:0.002}),
   // Per SLOT, because the three maps do not deserve the same budget. Base colour is what you
