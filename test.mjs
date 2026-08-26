@@ -2292,8 +2292,26 @@ if (hasHook) {
                 ? `armed ${w.armed} but none arrived in 5 simulated seconds`
                 : `armed ${w.armed}, arrived at ${w.at}s at ${w.dist}m ` +
                   `(well inside the 700m gate), flag put down after: ${!w.armedAfter}`);
-        await page.evaluate(() => window.__surf.restart());
-        await page.waitForTimeout(200);
+        // ---- AND PUT BACK WHAT IT BORROWED ----
+        // This check does not just read: the button hides the stats panel and starts a RUN, so
+        // it leaves the game somewhere completely different from where it found it. The stage
+        // block immediately below is a TITLE SCREEN tool and clicks #stStage on the panel this
+        // one closed — so the first version of this took the whole suite down with a click
+        // timeout 140 checks later, on a button that was sitting right there and invisible.
+        // Wound back through the game's own door rather than a test-only hook: the menu button
+        // is what a player would press, so using it also covers that path.
+        await page.evaluate(() => document.getElementById('menuBtn').click());
+        await page.waitForTimeout(600);
+        await ver5tap();
+        await page.waitForTimeout(600);
+        const restored = await page.evaluate(() => {
+          const b = document.getElementById('stStage');
+          return { open: !document.getElementById('stats').classList.contains('hidden'),
+                   stage: !!b && b.offsetParent !== null };
+        });
+        check(restored.open && restored.stage,
+              'and the whirl test leaves the panel where it found it for whatever runs next',
+              `stats open ${restored.open}, Stage reachable ${restored.stage}`);
       }
 
       await page.click('#stStage');
