@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.78.0';
+window.SURF_VERSION='4.79.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -12896,8 +12896,15 @@ const WAKE_SEGS=64;
 const wakeGeo=new THREE.BufferGeometry();
 const wakePos=new Float32Array(WAKE_SEGS*2*3);
 const wakeAlpha=new Float32Array(WAKE_SEGS*2);
+// Where each corner sits in the RIBBON'S own space: x across the board's path from rail to
+// rail, y along it from under the tail to the far end of the trail. Foam keyed to this stays
+// with the water it is made of; keyed to world position it would slide through the ribbon as
+// the trail drifts back down the lane, which is the thing that reads as a texture sliding over
+// a surface rather than as foam sitting on one.
+const wakeUV=new Float32Array(WAKE_SEGS*2*2);
 wakeGeo.setAttribute('position',new THREE.BufferAttribute(wakePos,3));
 wakeGeo.setAttribute('aAlpha',new THREE.BufferAttribute(wakeAlpha,1));
+wakeGeo.setAttribute('aUV',new THREE.BufferAttribute(wakeUV,2));
 {
   const idx=[];
   for(let i=0;i<WAKE_SEGS-1;i++){
@@ -12906,13 +12913,46 @@ wakeGeo.setAttribute('aAlpha',new THREE.BufferAttribute(wakeAlpha,1));
   }
   wakeGeo.setIndex(idx);
 }
-const wakeMesh=new THREE.Mesh(wakeGeo,new THREE.ShaderMaterial({
+// ---- AND IT IS FOAM, NOT A PAINTED STRIPE ----
+// This filled the ribbon with one flat colour — vec4(0.97,0.995,1.0,vA) — and a solid shape
+// with a soft edge is what a grey strip behind the board looked like. Foam has holes in it.
+// The recipe is the WAVE'S, number for number, because the two are the same substance and the
+// eye compares them directly whenever the board is anywhere near the curl: lace at
+// smoothstep(0.40,0.84) over a coarse fbm, flecks at smoothstep(0.56,0.93) over one four times
+// finer, combined 0.45 + 0.55*lace + 0.35*fleck, toward the same near-white the crest uses.
+// The one thing added is the RAILS. A board pushes water out to either side and leaves two
+// bright lines with churn between them, so the edges of the ribbon carry more foam than its
+// middle — which is also what stops a widening ribbon reading as a triangle.
+const wakeMat=new THREE.ShaderMaterial({
   transparent:true,depthWrite:false,side:THREE.DoubleSide,
-  vertexShader:`attribute float aAlpha; varying float vA;
-    void main(){vA=aAlpha; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
-  fragmentShader:`varying float vA;
-    void main(){ if(vA<=0.001) discard; gl_FragColor=vec4(0.97,0.995,1.0,vA); }`
-}));
+  uniforms:{uT:{value:0}},
+  vertexShader:`attribute float aAlpha; attribute vec2 aUV;
+    varying float vA; varying vec2 vUV;
+    void main(){vA=aAlpha; vUV=aUV;
+      gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+  fragmentShader:`precision highp float;
+    uniform float uT; varying float vA; varying vec2 vUV;
+    float h21(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123); }
+    float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+      return mix(mix(h21(i),h21(i+vec2(1.0,0.0)),f.x),
+                 mix(h21(i+vec2(0.0,1.0)),h21(i+vec2(1.0,1.0)),f.x), f.y); }
+    float fbm(vec2 p){ float s=0.0,a=0.5;
+      for(int k=0;k<4;k++){ s+=a*vn(p); p*=2.03; a*=0.5; } return s; }
+    void main(){
+      if(vA<=0.001) discard;
+      // stretched along the trail, because foam pulls out into streaks behind a moving board
+      vec2 q=vec2(vUV.x*2.2, vUV.y*9.0);
+      float lace  = smoothstep(0.40,0.84, fbm(q*1.45 + vec2(-uT*0.07, uT*0.06)));
+      float fleck = smoothstep(0.56,0.93, fbm(q*3.90 + vec2( uT*0.11, uT*0.09)));
+      float edge  = smoothstep(0.30,1.0, abs(vUV.x));        // the rails throw the brightest water
+      float a = vA*(0.45+0.55*lace+0.35*fleck)*(0.52+0.80*edge);
+      // punched through, so it breaks up into foam rather than fading as a sheet
+      a *= smoothstep(0.06,0.52, 0.30+0.60*lace+0.55*fleck);
+      if(a<=0.004) discard;
+      gl_FragColor=vec4(mix(vec3(0.90,0.95,0.97),vec3(0.97,0.995,1.0),fleck), a);
+    }`
+});
+const wakeMesh=new THREE.Mesh(wakeGeo,wakeMat);
 wakeMesh.frustumCulled=false;scene.add(wakeMesh);
 const trail=[];                       // {x,y,z,w,age}
 let trailT=0;
@@ -12929,12 +12969,17 @@ function updateWake(dt,eff){
     const y=waveH(t.x,dist*WAVE_DRIFT+t.z,waveClock)+0.05;         // rides the swell like everything else
     wakePos[o]  =t.x-halfW; wakePos[o+1]=y; wakePos[o+2]=t.z;
     wakePos[o+3]=t.x+halfW; wakePos[o+4]=y; wakePos[o+5]=t.z;
+    const ou=i*4;
+    wakeUV[ou]=-1; wakeUV[ou+1]=k;  wakeUV[ou+2]=1; wakeUV[ou+3]=k;
     const a=Math.max(0,(1-k))*0.55*Math.min(1,i/2);
     wakeAlpha[oa]=a*0.35; wakeAlpha[oa+1]=a*0.35;  // soft edges
     if(i>0){ wakeAlpha[oa]=a*0.45; wakeAlpha[oa+1]=a*0.45; }
   }
   wakeGeo.attributes.position.needsUpdate=true;
   wakeGeo.attributes.aAlpha.needsUpdate=true;
+  wakeGeo.attributes.aUV.needsUpdate=true;
+  // the churn moves on its own, so a trail that is standing still is still alive
+  wakeMat.uniforms.uT.value=(typeof tNow==='number')?tNow:(wakeMat.uniforms.uT.value+dt);
 }
 
 // ---------- plane + rope ----------
