@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.53.0';
+window.SURF_VERSION='4.54.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -2208,7 +2208,16 @@ const oceanMat=new THREE.ShaderMaterial({
       // below instead of borrowing the swell's.
       float hS = vH - vSw*uSwA;
       vec3 base = mix(uDeep,uShallow,clamp(hS*0.28+0.5,0.0,1.0));
-      vec3 col = base*(0.38+0.72*diff) + uSky*fres*0.5 + vec3(spec);
+      // ---- the sky is MIXED IN, not added on top ----
+      // This was base*(...) plus uSky*fres*0.5, which at grazing angles laid half a sky over a
+      // full-strength blue and left the water saturated all the way to the horizon. What that
+      // looks like is the thing it is: a hard cut where the sea meets the sky, and an ocean
+      // with no sense of distance in it, because the near water and the far water are the same
+      // colour. Water is a MIRROR at grazing incidence — near the horizon it is almost purely
+      // sky — so the sky replaces the blue there rather than being added to it.
+      // This one term is most of what makes an ocean read as going away from you.
+      vec3 lit = base*(0.38+0.72*diff);
+      vec3 col = mix(lit, uSky, fres*0.88) + vec3(spec);
       // The glitter carries the SUN's colour, not white: at the end of the day the track is
       // the same orange the sky is, and that is half of why it reads as one light source.
       col += uGlow*gl;
@@ -2222,7 +2231,16 @@ const oceanMat=new THREE.ShaderMaterial({
       vec2 fpM = vec2(vW.x, vW.z + uDist*0.30);
       vec2 fpF = vec2(vW.x, vW.z + uDist*0.12);
       float shimmer = fbm(fpC*0.55 + vec2(uT*0.05,-uT*0.04))*2.0 - 1.0;
-      float crest = smoothstep(0.42*uPeak, 0.71*uPeak, hS+shimmer*0.10);
+      // ---- foam is where the water TEARS, not where it is high ----
+      // The gate was height alone, at four tenths of peak, and on open chop that is most of
+      // the surface — so foam came out as an even white speckle over the whole sea at every
+      // distance, unrelated to what the water was doing. Uniform speckle does not read as
+      // foam; it reads as snow, and it was the single biggest reason this water looked unreal.
+      // Foam is caused. It appears where a crest steepens far enough to break, so the gate is
+      // now height AND slope: high up, and tilting. The threshold goes from 0.42 to 0.62 of
+      // peak so only the tops qualify, and the slope term keeps the rounded ones clean.
+      float steep = smoothstep(0.09,0.28, 1.0-clamp(N.y,0.0,1.0));
+      float crest = smoothstep(0.62*uPeak, 0.92*uPeak, hS+shimmer*0.10)*(0.30+0.70*steep);
       // Raw first, then gated. The set wave's own foam needs the texture without the swell's
       // crest mask on it — that mask is near zero all over the big face, so borrowing the
       // gated version would have laid down a perfectly flat stripe.
@@ -2232,8 +2250,9 @@ const oceanMat=new THREE.ShaderMaterial({
       float fleck = fleckR * crest;
       float slope = 1.0-clamp(N.y,0.0,1.0);
       float lip = smoothstep(0.16,0.34,slope)*smoothstep(0.25*uPeak,0.55*uPeak,hS);
-      float foam = clamp(crest*0.50 + lace*0.68 + fleck*0.34 + lip*0.60, 0.0, 1.0);
-      col = mix(col, vec3(0.96,0.99,1.0), foam*0.85);
+      // ...and it is laid on more lightly. Every layer here was pulling toward white at once.
+      float foam = clamp(crest*0.42 + lace*0.52 + fleck*0.24 + lip*0.55, 0.0, 1.0);
+      col = mix(col, vec3(0.96,0.99,1.0), foam*0.72);
       // The set wave, on its own terms. It is a wall of water rather than a tall ripple, so
       // it is shaded the way a wall is: thick and dark where it stands out of the trough,
       // lit THROUGH where it thins toward the lip — the same transmission colour the tube
