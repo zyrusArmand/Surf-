@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.55.0';
+window.SURF_VERSION='4.56.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -2175,8 +2175,27 @@ const oceanMat=new THREE.ShaderMaterial({
       vec3 V = normalize(cameraPosition - vW);
       float diff = max(dot(N,L),0.0);
       vec3 H = normalize(L+V);
-      float spec = pow(max(dot(N,H),0.0),140.0)*0.9;
-      float fres = pow(1.0-max(dot(N,V),0.0),3.0);
+      // ---- the chop, and it is FREE ----
+      // The swell is geometry, so between crests this surface is glass, and a mirror with no
+      // ripple on it is the flattest thing in any render. What breaks a broad sheen into
+      // thousands of separate points is a centimetre-scale tilt on the normal.
+      // This was already being computed — four octaves of it, right below, and handed only to
+      // the glitter. Everything else went on using the smooth geometric normal, so the water
+      // had detail in exactly one term and none in the two that cover the whole surface. Moved
+      // up and shared: the specular and the Fresnel now sit on a rippled surface for no extra
+      // samples at all.
+      // A gentler tilt than the glitter's, which wants sparkle; this wants texture.
+      vec2 gp = vec2(vW.x, vW.z + uDist*0.22);
+      vec2 wob = vec2(fbm(gp*1.85 + vec2(uT*0.21,-uT*0.17)) - 0.5,
+                      fbm(gp*2.30 + vec2(-uT*0.19, uT*0.23)) - 0.5)
+               + vec2(fbm(gp*6.40 + vec2(uT*0.44, uT*0.31)) - 0.5,
+                      fbm(gp*7.90 + vec2(-uT*0.37,uT*0.41)) - 0.5)*0.55;
+      vec3 Nr = normalize(N + vec3(wob.x, 0.0, wob.y)*0.20);
+      // N stays the smooth one for DIFFUSE and for every foam term below. Chop in the diffuse
+      // is noise in the base colour, and chop in the foam gate is the speckle this shader was
+      // just cured of — the ripple belongs in what the surface REFLECTS, not in what it is.
+      float spec = pow(max(dot(Nr,H),0.0),140.0)*0.9;
+      float fres = pow(1.0-max(dot(Nr,V),0.0),3.0);
       // ---- the glitter track ----
       // The one thing that says "sea" before anything else does, and the one thing this
       // water did not have. A smooth specular gives a soft oval where the sun reflects; a
@@ -2189,11 +2208,6 @@ const oceanMat=new THREE.ShaderMaterial({
       // shimmer rather than slide. Two lobes: a tight one for the individual sparks and a
       // wide one for the sheen they sit in. Gated on the sun being low, because a glitter
       // path is a grazing-angle phenomenon and at noon there is nothing to see.
-      vec2 gp = vec2(vW.x, vW.z + uDist*0.22);
-      vec2 wob = vec2(fbm(gp*1.85 + vec2(uT*0.21,-uT*0.17)) - 0.5,
-                      fbm(gp*2.30 + vec2(-uT*0.19, uT*0.23)) - 0.5)
-               + vec2(fbm(gp*6.40 + vec2(uT*0.44, uT*0.31)) - 0.5,
-                      fbm(gp*7.90 + vec2(-uT*0.37,uT*0.41)) - 0.5)*0.55;
       vec3 Ng = normalize(N + vec3(wob.x, 0.0, wob.y)*0.44);
       vec3 Hg = normalize(uGlitL + V);
       // The tight lobe was individual SPARKS — a field of white specks turning on and off
@@ -2203,10 +2217,18 @@ const oceanMat=new THREE.ShaderMaterial({
       // go and the path takes their light.
       // one lobe, not two. The second was so broad it was not a reflection at all — it was a
       // wash over the whole sea, and most of why the water had gone pale.
-      float gl = pow(max(dot(Ng,Hg),0.0),22.0)*0.62;
-      // a low sun lays the track down the water; a high one has nowhere to lay it, and one
-      // that has gone under has nothing to lay it with
-      gl *= smoothstep(0.46,0.04,uGlitL.y) * smoothstep(-0.10,0.05,uGlitL.y);
+      // ---- and a high sun gets a HOT PATCH rather than nothing ----
+      // This was switched off above a low sun entirely, on the reasoning that a glitter path is
+      // a grazing-angle thing and at noon there is nothing to see. Half right: what a high sun
+      // does not lay is a long PATH. What it does lay is a small, very bright patch of broken
+      // light more or less under itself — and switched off, the result was a bright sun in the
+      // sky over water doing nothing at all, which is the one thing a sunlit sea never does.
+      // So the sun's height changes the SHAPE rather than the presence: a wide soft track when
+      // it is low, tightening to a compact patch as it climbs. Below the horizon it still goes,
+      // because then there is genuinely nothing to lay it with.
+      float lowSun = smoothstep(0.46,0.04,uGlitL.y);
+      float gl = pow(max(dot(Ng,Hg),0.0), mix(78.0,22.0,lowSun))*0.62;
+      gl *= smoothstep(-0.10,0.05,uGlitL.y) * mix(0.55,1.0,lowSun);
       // The sea's own height, with the set wave taken back out of it.
       //
       // Everything below this line was tuned against a swell about a metre tall — uPeak sits
