@@ -1445,6 +1445,16 @@ if (hasHook) {
   // question: the STALE reading sits perfectly still for seven seconds and a wall-clock settle
   // would return it, confidently, and be wrong. Fourteen frames puts it well past the re-solve,
   // and eight consecutive identical frames says it has arrived.
+  // Waits for N DRAWN frames. Half this file's flakes have been wall-clock waits on things that
+  // are frame-driven, on a rasteriser that can take seconds over a frame — the sign's fit and
+  // the menu camera both. Counting the thing that actually gates them is not a longer wait, it
+  // is a different question.
+  const settleFrames = async (n) => {
+    await page.evaluate(() => { window.__fr = 0;
+      const t = () => { window.__fr++; window.__frRaf = requestAnimationFrame(t); }; t(); });
+    await page.waitForFunction(c => window.__fr >= c, n, { timeout: 60000, polling: 200 }).catch(() => {});
+    await page.evaluate(() => { cancelAnimationFrame(window.__frRaf); delete window.__fr; });
+  };
   const settleSign = async () => {
     await page.evaluate(() => {
       window.__sg = { n: 0, w: [] };
@@ -2154,13 +2164,13 @@ if (hasHook) {
             'and dragging it moves the thing itself, the way the finger went',
             `finger ${DRAG}px right, it went ${dx}px across and ${dy}px down`);
 
-      // ---- and the camera, which is the one thing that cannot simply be SET ----
-      // menuCam is written every frame — position, aim and projection — so the stage's lens is
-      // an offset applied on top of that write rather than a replacement for it. If that offset
-      // were ever dropped, or applied in the wrong place, the drag would be overwritten before
-      // it reached the screen and the camera would sit exactly still. So this asks that the
-      // lens MOVED, and that leaving the stage puts it back — a staged camera that followed a
-      // player out to the title screen would have nothing on that screen to fix it.
+      // ---- and the camera CARRIES ITS FOCUS ----
+      // The first version orbited the middle of the set, which made it a camera on a string: the
+      // palm and the rider stayed dead centre however far it swung and there was no way to look
+      // at anything else. The distinction is exactly measurable, and it is not "did the camera
+      // move" — under an orbit the camera moves plenty. It is whether the point it is LOOKING at
+      // moved with it. So the hook reports the aim ten feet down the lens, and a pan has to
+      // carry that aim about as far as it carried the body.
       const lens0 = await page.evaluate(() => window.__surf.stageState().lens);
       await page.click('#stageCam');
       await page.waitForTimeout(300);
@@ -2168,20 +2178,40 @@ if (hasHook) {
       await page.mouse.down();
       for (let i = 1; i <= 12; i++) { await page.mouse.move(215 + i * 12, 600); await page.waitForTimeout(60); }
       await page.mouse.up();
-      await page.waitForTimeout(600);
+      await settleFrames(4);
       const lens1 = await page.evaluate(() => window.__surf.stageState());
-      const swung = Math.hypot(lens1.lens.at[0] - lens0.at[0], lens1.lens.at[2] - lens0.at[2]);
-      check(lens1.cam && Math.abs(lens1.lens.yaw) > 0.15 && swung > 1.0,
-            'and the Camera button hands the drags to the lens, which actually moves',
-            `orbit ${(lens1.lens.yaw * 180 / Math.PI).toFixed(0)}\u00b0, lens walked ${swung.toFixed(2)}ft`);
+      const body = Math.hypot(lens1.lens.at[0] - lens0.at[0], lens1.lens.at[2] - lens0.at[2]);
+      const aim  = Math.hypot(lens1.lens.aim[0] - lens0.aim[0], lens1.lens.aim[2] - lens0.aim[2]);
+      check(lens1.cam && lens1.lens.free && body > 1.0 && aim > body * 0.6,
+            'and the Camera button hands the drags to a lens that takes its focus with it',
+            `lens walked ${body.toFixed(2)}ft and what it looks at moved ${aim.toFixed(2)}ft ` +
+            `— an orbit would have left the second near zero`);
 
+      // ---- and Done leaves the shot where it was found ----
+      // Finding a shot and having it thrown away on the way out is the same as not having found
+      // it. Read after FRAMES rather than after a wait: the lens is written once a drawn frame,
+      // and on this rasteriser a second is not reliably one of those — the first version of this
+      // check read the camera before the game had touched it and reported a reset that had not
+      // happened yet.
       await page.evaluate(() => document.getElementById('stageOff').click());
-      await page.waitForTimeout(900);
+      await settleFrames(4);
       const off = await page.evaluate(() => window.__surf.stageState());
-      const lensBack = Math.hypot(off.lens.at[0] - lens0.at[0], off.lens.at[2] - lens0.at[2]);
-      check(!off.cam && off.lens.yaw === 0 && off.lens.dolly === 1 && lensBack < 1.5,
-            'and Done gives the player back the shot the game ships with',
-            `orbit ${off.lens.yaw}, dolly ${off.lens.dolly}, lens ${lensBack.toFixed(2)}ft from where it started`);
+      const drift = Math.hypot(off.lens.at[0] - lens1.lens.at[0], off.lens.at[2] - lens1.lens.at[2]);
+      check(!off.on && off.lens.kept && drift < 1.0,
+            'and Done leaves the title screen on the shot you found, rather than throwing it away',
+            `kept ${off.lens.kept}, lens ${drift.toFixed(2)}ft from where the stage was closed`);
+
+      // ...and there is a way back, or a camera pushed somewhere unusable would be permanent
+      await page.evaluate(() => {
+        const b = document.getElementById('stageCam');
+        b.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      });
+      await settleFrames(4);
+      const back = await page.evaluate(() => window.__surf.stageState());
+      const home = Math.hypot(back.lens.at[0] - lens0.at[0], back.lens.at[2] - lens0.at[2]);
+      check(!back.lens.free && !back.lens.kept && home < 2.0,
+            'and long-pressing Camera gives the game its own shot back',
+            `free ${back.lens.free}, kept ${back.lens.kept}, ${home.toFixed(2)}ft from where it started`);
       const dialBack = await page.evaluate(() => {
         const d = document.getElementById('homeDial');
         return !!d && getComputedStyle(d).display !== 'none';
@@ -3756,7 +3786,16 @@ if (hasHook) {
     return { surf, finite, lifted, tpl: window.__surf.obsTemplate('ramp') };
   });
   const modelled = !!(ramp.tpl && ramp.tpl.variant);
-  const rows = ((ramp.surf && ramp.surf.rows) || []).filter(r => r.mesh !== null && r.t < 0.95);
+  // ---- both ENDS are edge, not deck ----
+  // The far end was already dropped. The foot needs it for the same reason and it took a
+  // modelled ramp to show why: at t=0 the ray lands on the leading edge where the geometry is
+  // falling away, so it catches the lip rather than the deck — and on a third of spawns it
+  // misses the mesh altogether. Measured across eighteen spawns of the 7.8ft ramp, every high
+  // reading was that one sample: -0.45, -0.09, 0.00, 0.00, 0.00, 0.00 is not a ride following
+  // the wrong curve, it is a ray sampling a chamfer. Drop it and every spawn comes in under
+  // 0.05ft of bend, against a threshold of 0.12.
+  const rows = ((ramp.surf && ramp.surf.rows) || [])
+                 .filter(r => r.mesh !== null && r.t > 0.05 && r.t < 0.95);
   const worst = rows.length ? Math.max(...rows.map(r => Math.abs(r.mesh - r.ride))) : 99;
   check(ramp.finite, 'riding a ramp leaves every number a number',
         ramp.finite ? 'x, y and z all finite across the whole climb'

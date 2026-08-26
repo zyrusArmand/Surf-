@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.62.0';
+window.SURF_VERSION='4.63.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -9012,17 +9012,36 @@ document.getElementById('stClaim').onclick=e=>{
 // the phone mid-session cannot quietly undo the arrangement you are looking at.
 const STAGE_HOLD=5000;
 let stageOn=false, stagePick=null, stageMode='move', stageDrag=null, _stHold=null;
-// ---- the camera, as an OFFSET on the shot rather than as a replacement for it ----
-// The menu camera is written every frame — position, aim and projection — so a staged camera
-// cannot simply be set somewhere and left: the next frame would put it back before the drag
-// was on the screen. These three are applied AFTER that write, on top of whatever the shot was
-// going to be, so the camera keeps its slow drift and the numbers here stay meaningful against
-// the constants that produced them.
-// Applied before faceBeachSign and layoutHorizon on purpose. Those two are solved FROM the
-// lens — where the title hangs and where the far shore sits are both worked out from where the
-// camera ended up — so offsetting after them would leave the sign square to a camera that is
-// no longer there and the islands placed for a frame nobody is looking at.
-let stageCamOn=false, stCamYaw=0, stCamLift=0, stCamDolly=1;
+// ---- the camera: a lens of its own, not an orbit around the set ----
+// The first version was three offsets applied to the game's shot — orbit, dolly, lift — which
+// made it a camera on a string: it always swung around the middle of the set, so the palm and
+// the rider stayed dead centre and there was no way to look at anything else. A camera whose
+// focus cannot leave the thing it started on is a turntable.
+// So it takes the lens over instead. Position and aim of its own, seeded from wherever the
+// game's shot had got to, and from then on the drags move the CAMERA and its focus goes with
+// it: pan slides both, turn and tilt swing where it is looking, dolly walks it forward.
+//
+// It still has to be applied every frame. menuCam is written every frame — position, aim and
+// projection — so a camera simply set somewhere would be put back before the drag reached the
+// screen. And it is applied before faceBeachSign and layoutHorizon, because both are solved
+// FROM the lens: where the title hangs and where the far islands sit are worked out from where
+// the camera ended up, so doing it after would leave the sign square to a camera that has gone.
+//
+// stCamKeep is Done saying "leave it there". The stage closes, the bar goes away, and the
+// title screen keeps the shot you found — which is the whole point of having found it. Nothing
+// on that screen puts it back, so the way back is deliberately kept somewhere you can reach:
+// long-press Camera, and it is dropped on reload like everything else here.
+let stageCamOn=false, stCamFree=false, stCamKeep=false;
+let stCamYaw=0, stCamPitch=0;
+const stCamPos=new THREE.Vector3();
+function stCamSeed(){
+  if(stCamFree||typeof menuCam==='undefined'||!menuCam)return;
+  stCamPos.copy(menuCam.position);
+  const e=new THREE.Euler().setFromQuaternion(menuCam.quaternion,'YXZ');
+  stCamYaw=e.y; stCamPitch=e.x;
+  stCamFree=true;
+}
+function stCamReset(){ stCamFree=false; stCamKeep=false; }
 const _stRC=new THREE.Raycaster(), _stV=new THREE.Vector3(), _stV2=new THREE.Vector3();
 function stageTargets(){
   const out=[], add=(n,o)=>{ if(o)out.push({n,o}); };
@@ -9054,10 +9073,27 @@ function stagePx(o){
   const d=menuCam.position.distanceTo(_stV);
   return 2*d*Math.tan(menuCam.fov*Math.PI/360)/Math.max(1,innerHeight);
 }
+const _stF=new THREE.Vector3(), _stR=new THREE.Vector3(), _stU=new THREE.Vector3();
+function stCamAxes(){
+  _stF.set(0,0,-1).applyEuler(new THREE.Euler(stCamPitch,stCamYaw,0,'YXZ'));
+  _stR.set(_stF.z,0,-_stF.x); if(_stR.lengthSq()<1e-9)_stR.set(1,0,0); _stR.normalize();
+  _stU.crossVectors(_stR,_stF).normalize();
+}
 function stageCamApply(dx,dy){
-  if(stageMode==='lift'){ stCamLift+=-dy*0.02; }
-  else if(stageMode.startsWith('rot')){ stCamYaw+=dx*0.005; }
-  else { stCamYaw+=dx*0.005; stCamDolly=Math.max(0.25,Math.min(4,stCamDolly*(1+dy*0.004))); }
+  stCamSeed();
+  stCamAxes();
+  // A foot per twenty pixels at a walking pace. Slow enough to place a shot, quick enough that
+  // crossing the beach is a couple of swipes rather than a chore.
+  const K=0.05;
+  if(stageMode==='lift'){ stCamPos.y+=-dy*K; }
+  else if(stageMode==='roty'){ stCamYaw-=dx*0.004; }
+  else if(stageMode==='rotx'){ stCamPitch=Math.max(-1.45,Math.min(1.45,stCamPitch-dy*0.004)); }
+  else if(stageMode==='rotz'){ stCamPos.addScaledVector(_stF,-dy*K); }   // dolly
+  else {
+    // PAN, and this is the one the whole rewrite is for: both the camera and what it is looking
+    // at move together, so the focus goes where you put it instead of staying on the palm.
+    stCamPos.addScaledVector(_stR,-dx*K).addScaledVector(_stU,dy*K);
+  }
   stageSay();
 }
 function stageApply(dx,dy){
@@ -9087,11 +9123,10 @@ function stageApply(dx,dy){
 function stageText(){
   if(stageCamOn){
     const D=v=>(v*180/Math.PI).toFixed(1);
-    let w=[0,0,0];
-    if(typeof menuCam!=='undefined'&&menuCam)
-      w=[menuCam.position.x,menuCam.position.y,menuCam.position.z].map(v=>+v.toFixed(2));
-    return 'camera  orbit '+D(stCamYaw)+'\u00b0   dolly \u00d7'+stCamDolly.toFixed(3)+
-           '   lift '+stCamLift.toFixed(3)+'   at '+w.join(', ');
+    const p=stCamFree?stCamPos:((typeof menuCam!=='undefined'&&menuCam)?menuCam.position:null);
+    return 'camera  at '+(p?[p.x,p.y,p.z].map(v=>v.toFixed(2)).join(', '):'—')+
+           '   looking '+D(stCamYaw)+'\u00b0 / '+D(stCamPitch)+'\u00b0'+
+           (stCamKeep?'   [kept]':'');
   }
   if(!stagePick)return '';
   const o=stagePick.o, p=o.position, r=o.rotation, D=v=>(v*180/Math.PI).toFixed(1);
@@ -9110,9 +9145,11 @@ function stageSay(msg){
 function stageShow(on){
   stageOn=!!on;
   stagePick=null; stageDrag=null;
-  // the lens goes back to the shot the game ships with — a staged camera left on would follow
-  // the player out of the panel and there is nothing on the title screen to put it right
-  stageCamOn=false; stCamYaw=0; stCamLift=0; stCamDolly=1;
+  // Done KEEPS the lens where it was left. Finding a shot and having it thrown away on the way
+  // out is the same as not having found it, so closing the stage saves it instead: the title
+  // screen goes on using it, and long-pressing Camera is the way back.
+  if(!on&&stCamFree)stCamKeep=true;
+  stageCamOn=false;
   const cb=document.getElementById('stageCam'); if(cb)cb.classList.remove('on');
   if(_stHold){ clearTimeout(_stHold); _stHold=null; }
   document.getElementById('stage').classList.toggle('hidden',!stageOn);
@@ -9128,6 +9165,7 @@ document.getElementById('stStage').onclick=()=>{
 document.getElementById('stageOff').onclick=()=>stageShow(false);
 document.getElementById('stageCam').onclick=e=>{
   stageCamOn=!stageCamOn;
+  if(stageCamOn)stCamSeed();
   e.target.classList.toggle('on',stageCamOn);
   // Long-press the button to put the shot back where it was designed. Nothing else undoes a
   // camera drag, and a lens you have pushed somewhere unrecoverable is a reload away from
@@ -9136,7 +9174,7 @@ document.getElementById('stageCam').onclick=e=>{
 };
 document.getElementById('stageCam').oncontextmenu=e=>{
   e.preventDefault();
-  stCamYaw=0; stCamLift=0; stCamDolly=1; stageSay('camera back to the shot as designed');
+  stCamReset(); stageSay('camera back to the shot the game ships with');
   return false;
 };
 document.getElementById('stageCopy').onclick=e=>{
@@ -19578,9 +19616,15 @@ if(location.hash.includes('debug')){
         mode:(typeof stageMode!=='undefined')?stageMode:null,
         cam:!!(typeof stageCamOn!=='undefined'&&stageCamOn),
         lens:(typeof stCamYaw!=='undefined')
-              ?{yaw:+stCamYaw.toFixed(4), dolly:+stCamDolly.toFixed(4), lift:+stCamLift.toFixed(4),
+              ?{free:!!stCamFree, kept:!!stCamKeep,
+                yaw:+stCamYaw.toFixed(4), pitch:+stCamPitch.toFixed(4),
                 at:menuCam?[menuCam.position.x,menuCam.position.y,menuCam.position.z]
-                            .map(v=>+v.toFixed(2)):null}
+                            .map(v=>+v.toFixed(2)):null,
+                // where it is actually LOOKING, ten feet out, so a check can tell a camera that
+                // turned from a camera that only slid
+                aim:menuCam?(function(){const v=new THREE.Vector3(0,0,-10)
+                    .applyQuaternion(menuCam.quaternion).add(menuCam.position);
+                    return [v.x,v.y,v.z].map(x=>+x.toFixed(2));})():null}
               :null,
         held:(typeof stagePick!=='undefined'&&stagePick)?stagePick.n:null,
         out:(document.getElementById('stageOut')||{}).textContent||null,
@@ -23089,7 +23133,7 @@ function fitBeachSign(){
 // right — and the feet are worked out from the lens each time it is laid out.
 let MB_HZ_A=[165,0.44], MB_HZ_B=[145,-0.52], MB_HZ_BOAT=[118,0.24];
 const _hzF=new THREE.Vector3(), _hzR=new THREE.Vector3(), _hzP=new THREE.Vector3();
-const _stTgt=new THREE.Vector3(), _stOff=new THREE.Vector3();
+const _stTgt=new THREE.Vector3(), _stOff=new THREE.Vector3(), _stEul=new THREE.Euler();
 function layoutHorizon(){
   if(!beachHorizon||!beachHorizon.userData.isles||typeof menuCam==='undefined'||!menuCam)return;
   // The camera's OWN axes, taken off the camera rather than rebuilt from the yaw, because the
@@ -23385,16 +23429,12 @@ function renderMenuBeach(dt){
   }
   menuCam.position.set(cx, Math.max(g,gc)+MB_EYE+sw2*0.12, cz);
   menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+MB_AIM, pz-_mbR.z*aim);
-  // the stage's own lens, laid on top of the shot rather than instead of it — see stageCamOn
-  if(typeof stageCamOn!=='undefined'&&stageCamOn&&typeof stageOn!=='undefined'&&stageOn){
-    _stTgt.set(px-_mbR.x*aim+sw*0.15, g+MB_AIM, pz-_mbR.z*aim);
-    _stOff.copy(menuCam.position).sub(_stTgt);
-    const c=Math.cos(stCamYaw), sn=Math.sin(stCamYaw);
-    const nx=_stOff.x*c-_stOff.z*sn, nz=_stOff.x*sn+_stOff.z*c;
-    _stOff.set(nx,_stOff.y,nz).multiplyScalar(stCamDolly);
-    _stOff.y+=stCamLift;
-    menuCam.position.copy(_stTgt).add(_stOff);
-    menuCam.lookAt(_stTgt);
+  // the stage's own lens — see stCamFree. Held through Done as well as during, which is why the
+  // condition is the lens itself rather than whether the bar happens to be on the screen.
+  if(typeof stCamFree!=='undefined'&&stCamFree&&
+     ((typeof stageOn!=='undefined'&&stageOn)||(typeof stCamKeep!=='undefined'&&stCamKeep))){
+    menuCam.position.copy(stCamPos);
+    menuCam.quaternion.setFromEuler(_stEul.set(stCamPitch,stCamYaw,0,'YXZ'));
   }
   menuCam.updateProjectionMatrix();
   faceBeachSign();      // the title hangs square to whatever the lens just did
