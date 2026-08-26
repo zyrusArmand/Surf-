@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.83.0';
+window.SURF_VERSION='4.83.1';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -23522,9 +23522,20 @@ let _sgFwd=6.0;            // how far up the beach it is stuck in — solved, se
 // ran straight underneath them and could not be seen at all. The free corner is BELOW that
 // column, between it and the Play button: down at 0.91 there is a band of near sand with
 // nothing else in it.
-let MB_SGN_PX=0.26;        // right enough to clear the button column's left edge
-let MB_SGN_PY=0.91;        // and below it, in the strip of sand above the bottom of the frame
-let MB_SGN_PW=0.30;        // how wide it reads, as a fraction of the frame
+// ---- PLACED IN FEET, NOT SOLVED ONTO THE SCREEN ----
+// The hung title is solved to a place in the frame, and it has to be: it is the title, it must
+// read the same on every window shape, and it hangs in the air where nothing constrains it.
+// A sign stuck in the sand is a different problem and the same machinery broke on it. The two
+// solves fight — pulling the sign close to the lens to bring it low in frame makes its screen-x
+// hypersensitive, so the sideways secant overshoots, and measured through the debug hook it
+// converged with the sign at x 2.78 to 3.19, nearly three frame-widths off the side, having
+// been dragged past the camera itself (ahead -6.46).
+// It is an object on a beach. It gets a position on the beach, in feet, and lands where the
+// lens puts it — which is exactly how the chest and the pug are placed, and neither of those
+// has ever wandered off screen.
+let MB_SGN_PS=-7.5;        // feet to the camera's left of the set
+let MB_SGN_PF=-13.0;       // and feet toward the camera from it — negative is nearer
+let MB_SGN_PFT=5.2;        // how wide the plank is, in feet
 let MB_SGN_TILT=0.26;      // leaned back out of the sand
 let MB_SGN_YAW=0.30;       // and turned off square, so it is stuck in at an angle
 // ---- THE ROLL IS WHAT MAKES IT DUG IN ----
@@ -23771,8 +23782,9 @@ function hangBeachSign(){
   // so the solver converged happily on a position where nothing was visible at all. What puts a
   // real object low in frame is being CLOSE to the lens. So the planted mode solves the forward
   // distance and leaves the sign standing on the ground where it belongs.
-  const FW=MB_SGN_PLANT?_sgFwd:MB_SGN_F;
-  const wx=_mbR.x*_sgSide-_mbF.x*FW, wz=MB_Z*MB_K+_mbR.z*_sgSide-_mbF.z*FW;
+  const FW=MB_SGN_PLANT?MB_SGN_PF:MB_SGN_F;
+  const SD=MB_SGN_PLANT?MB_SGN_PS:_sgSide;
+  const wx=_mbR.x*SD-_mbF.x*FW, wz=MB_Z*MB_K+_mbR.z*SD-_mbF.z*FW;
   menuProps.updateWorldMatrix(true,false);
   // Measured with the sign standing square in the WORLD, not square to the lens: a width read
   // off a world-aligned box is the plank's own width only while the plank is world-aligned, and
@@ -23785,7 +23797,7 @@ function hangBeachSign(){
   beachSign.quaternion.copy(menuProps.getWorldQuaternion(_sgP).invert());
   const lb=signLocalBox();
   const w=(lb?lb.max.x-lb.min.x:1)*(menuProps.scale.x||1);
-  beachSign.scale.setScalar(_sgFt/Math.max(1e-4,w));
+  beachSign.scale.setScalar((MB_SGN_PLANT?MB_SGN_PFT:_sgFt)/Math.max(1e-4,w));
   // ...and it stands ON the beach, at whatever height the sand is where it is stuck in
   const gy=MB_SGN_PLANT&&typeof beachSandH==='function'
              ? beachSandH(wz/MB_K)*MB_K : _sgUp;
@@ -23829,6 +23841,9 @@ const DAMP=0.6;
 function fitBeachSign(){
   let m=hangBeachSign();
   if(!m||typeof menuCam==='undefined'||!menuCam)return m;
+  // A planted sign is placed, not fitted — see the note on MB_SGN_PS. Nothing below this line
+  // applies to it, and running it anyway is what threw it off the side of the picture.
+  if(MB_SGN_PLANT)return m;
   // Both offsets are solved the same way: nudge the foot number, see what the picture did, and
   // step by the slope. Neither is linear once the plank is far enough off axis for the lens to
   // matter, so it is a secant rather than a division, and it is re-taken every pass.
