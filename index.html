@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.64.0';
+window.SURF_VERSION='4.65.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -15365,14 +15365,45 @@ const skyDome=new THREE.Mesh(
         float h=clamp(vP.y,0.0,1.0);
         vec3 c=mix(uHorizon,uMid,smoothstep(0.0,0.30,h));
         c=mix(c,uTop,smoothstep(0.25,0.85,h));
-        // warm glow blooming out of the sun's spot on the horizon
+        // ---- WHERE the sun is, in the horizontal plane ----
+        // The disc is placed at a fixed z ahead of the camera with only its x moving, so the
+        // sun's direction along the ground is (uSunX, 0, -1). Everything below keys off the
+        // dot product with it: +1 is straight at the sun, -1 is straight away from it. The
+        // old glow used vP.x alone, which cannot tell the sun from the point opposite it —
+        // and the point opposite it is where half of a real sunset happens.
+        vec3 sd=normalize(vec3(uSunX,0.0,-1.0));
+        vec3 fw=vec3(vP.x,0.0,vP.z);
+        float az=dot(normalize(fw+vec3(1e-5,0.0,0.0)),sd);
+        // ---- the glow, at THREE scales rather than one ----
+        // Forward scattering does not fall off in one curve. There is a small brilliant core
+        // where the sun is, a broad wedge spreading sixty or ninety degrees along the horizon
+        // either side of it, and a faint band that goes all the way round — the whole sky is
+        // brighter near the ground at sunset, not just the sun's quarter. One ellipse gives
+        // the middle of those three and reads as a lamp behind the horizon.
         float d=distance(vec2(vP.x,vP.y*1.7),vec2(uSunX,0.10));
-        c=mix(c,uGlow,uGlowAmt*smoothstep(0.90,0.03,d));
+        float core=smoothstep(0.42,0.02,d);
+        float wedge=smoothstep(-0.15,1.0,az)*smoothstep(0.40,0.0,h);
+        float ring=smoothstep(0.22,0.0,h)*0.35;
+        c=mix(c,uGlow,clamp(uGlowAmt*(core*0.95+wedge*0.45+ring),0.0,1.0));
+        // ---- what is NOT here, and why ----
+        // The Earth's own shadow and the Belt of Venus above it were written, measured, and
+        // taken out again. They happen on the side of the sky OPPOSITE the sun, and the sun in
+        // this game is pinned to a fixed z ahead of the camera — so that side is always behind
+        // you. Measured with skyFacing(): on the ride, none of forty-four sky samples faces away
+        // from the sun and the most anti-solar ray in the frame still scores 0.91; on the title
+        // screen four of seventy-seven reach -0.10, which is side-on, not opposite. Beautiful,
+        // physically right, and invisible from every camera the game actually has.
         // streaky sunset cloud bands low in the sky
         float band=sin(vP.y*46.0)*0.5+0.5;
         float lowband=smoothstep(0.34,0.02,h)*band*uGlowAmt*0.22;
         c=mix(c,uGlow,lowband);
         c=pow(clamp(c,0.0,1.0),vec3(2.2));
+        // ---- and dithered, because a smooth gradient in eight bits is not smooth ----
+        // Three stops across a three-hundred-unit dome puts a quarter of the frame inside one
+        // step of orange, and the eye finds the step. Half a level of hash noise costs one line
+        // and removes the single artefact that most reads as computer graphics rather than sky.
+        float dz=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453);
+        c+=(dz-0.5)/255.0;
         gl_FragColor=vec4(c,1.0);
       }`
   })
@@ -15484,10 +15515,17 @@ const _sunAim=new THREE.Vector3();
 // what a backlit edge goes: hotter and whiter than the cloud it is on
 const _cSunLine=new THREE.Color(1.55,1.48,1.34);
 function lerpHex(a,b,k,out){out.setHex(a);_cB.setHex(b);out.lerp(_cB,k);return out;}
+// ---- and a way to STAND at any hour of it ----
+// The cycle is paced off distance, which is right for playing and useless for looking: three
+// kilometres of not wiping out is a long way to go to see whether a sunset works, and ticking
+// the simulation does not get there either because the run ends and the clock goes back with
+// it. Nine hundred seconds of it never got past a fifth of the way into the evening. Held at -1
+// this changes nothing; set, it pins the hour so the sky can be judged instead of chased.
+let dayForce=-1;
 function updateDayCycle(){
   // paced so a normal run actually gets there: warm by a few hundred metres,
   // golden around a kilometre, full sunset beyond that
-  const tod=1-Math.exp(-dist/1250);
+  const tod=dayForce>=0?dayForce:1-Math.exp(-dist/1250);
   dayT=tod;                         // how far into the evening it is, for anything that cares
   let i=0;while(i<SKY_KEYS.length-2&&tod>SKY_KEYS[i+1].t)i++;
   const A=SKY_KEYS[i],B=SKY_KEYS[i+1];
@@ -19666,6 +19704,30 @@ if(location.hash.includes('debug')){
                   onScreen:p.z<1};
         })
       };
+    },
+    // ---- is the anti-sun sky ever actually ON SCREEN? ----
+    // The disc is placed at a fixed z AHEAD of the camera with only its x moving, so the sun is
+    // always roughly in front and the point opposite it is always roughly behind. Half of what
+    // a real sunset does — the Earth's shadow and the Belt of Venus above it — happens on that
+    // opposite side, and shading it is wasted work if nobody can ever look at it. Samples the
+    // frame on a grid, throws away the rays pointing at the ground, and reports how many of the
+    // rest face away from the sun.
+    // Pin the hour, or hand back -1 to let distance drive it again. See dayForce.
+    dayAt(v){ dayForce=(v===undefined||v===null)?-1:Math.max(0,Math.min(1,v));
+              updateDayCycle(); return {dayForce, dayT:+dayT.toFixed(3)}; },
+    skyFacing(cam){
+      const C=(cam==='menu'&&menuCam)?menuCam:camera;
+      const sd=new THREE.Vector3(skyUniforms.uSunX.value,0,-1).normalize();
+      const v=new THREE.Vector3(); let away=0,n=0,worst=9;
+      for(let ix=0;ix<=10;ix++)for(let iy=0;iy<=10;iy++){
+        v.set((ix/10)*2-1,(iy/10)*2-1,0.5).unproject(C).sub(C.position).normalize();
+        if(v.y<0)continue;
+        const az=new THREE.Vector3(v.x,0,v.z).normalize().dot(sd);
+        worst=Math.min(worst,az); if(az<0)away++; n++;
+      }
+      return {sky:n, away, mostAway:+worst.toFixed(2),
+              sunX:+skyUniforms.uSunX.value.toFixed(2),
+              glow:+skyUniforms.uGlowAmt.value.toFixed(2), dayT:+dayT.toFixed(2)};
     },
     chopState(){
       const rd=(u)=>({on:u.uChopK.value>0.5, w:u.uChop.value?u.uChop.value.image.width:0,
