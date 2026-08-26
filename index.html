@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.72.2';
+window.SURF_VERSION='4.73.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -5925,6 +5925,13 @@ loadTexture('sandgrain.png',t=>{
 });
 let SAND_TILE=10.0;                     // how many units across one piece lies
 let SAND_GAP=0.72;                     // spacing as a fraction of that — under 1 is overlap
+// How far a piece may wander off its grid slot, as a fraction of the step. This is the term
+// that decides the worst case: two neighbours can each wander half of it in opposite
+// directions, so the overlap has to be sized for a separation of (1 + jitter) steps rather
+// than one. At 0.7 that was a seventy per cent penalty on every number below it, paid on every
+// piece to break up a regularity that the free rotation and the size spread already break up
+// perfectly well on their own.
+let SAND_JIT=0.34;
 let SAND_TILT=0.9;
 let SAND_SINK=0.62;
 // ---- and it is a SKIN, not a landscape ----
@@ -6655,8 +6662,19 @@ function sandFieldBuild(){
   // turned the beach into a tray of blocks. A free turn is what makes a repeated piece stop
   // looking repeated, and the price of it is spacing for the worst case: whichever way a piece
   // is facing, it covers at least its short side, so that is what the grid steps by.
-  const stepX=Math.max(0.6,Math.min(spanX,spanZ)*base*SAND_GAP), stepZ=stepX;
-  const nx=Math.ceil(SAND_X*2/stepX), nz=Math.ceil((SAND_Z0-SAND_Z1)/stepZ);
+  const stepX=Math.max(0.6,Math.min(spanX,spanZ)*base*SAND_GAP);
+  // ---- ROWS OFFSET BY HALF A STEP, WHICH IS WHERE THE GAPS WERE ----
+  // On a square grid the four side neighbours sit a step away and the four CORNER ones sit a
+  // step and a half — so the corners are the weak spot and they are what the overlap has to be
+  // sized for. Every piece is turned to a free angle, so what a piece is guaranteed to cover in
+  // any direction is its inscribed circle rather than its width: at the old numbers two corner
+  // neighbours could end up seventeen units apart while between them covering ten, and the
+  // painted beach came through in the diamond between four tiles.
+  // Staggering alternate rows and pulling them closer by the same factor puts all six
+  // neighbours at ONE distance. There is no longer a worst direction to pay for, so the same
+  // overlap closes the field with fewer pieces rather than more.
+  const stepZ=stepX*0.866;                      // √3/2 — what makes the six distances equal
+  const nx=Math.ceil(SAND_X*2/stepX)+1, nz=Math.ceil((SAND_Z0-SAND_Z1)/stepZ)+1;
   const N=nx*nz;
   if(!N||N>4000)return;
   const mesh=new THREE.InstancedMesh(geo,sandTile.mat,N);
@@ -6671,9 +6689,15 @@ function sandFieldBuild(){
   const R=()=>{ rs=(rs*1103515245+12345)&0x7fffffff; return rs/0x7fffffff; };
   let i=0;
   for(let ix=0; ix<nx; ix++)for(let iz=0; iz<nz; iz++){
-    const x=-SAND_X+(ix+0.5)*stepX+(R()-0.5)*stepX*0.7;
-    const z=SAND_Z1+(iz+0.5)*stepZ+(R()-0.5)*stepZ*0.7;
-    const k=base*(0.82+R()*0.42);
+    // ...and the odd rows shifted half a step across, which is the stagger itself
+    const x=-SAND_X+(ix+0.5+(iz&1?0.5:0))*stepX+(R()-0.5)*stepX*SAND_JIT;
+    const z=SAND_Z1+(iz+0.5)*stepZ+(R()-0.5)*stepZ*SAND_JIT;
+    // ---- and a NARROWER spread of sizes ----
+    // The smallest piece in the field is what sets whether the field closes, because coverage
+    // is only ever guaranteed to the smallest of any two neighbours. A fifth either way reads
+    // as variety and costs a fifth of the overlap budget; this keeps most of the variety for a
+    // third of the price.
+    const k=base*(0.90+R()*0.26);
     // ---- and it lies FLAT where anything is standing on it ----
     // A scattered field adds relief above the ground as well as below it, and the ground is
     // where the rider's feet, the board's foot and the chest were all placed. A mound of sand
@@ -19549,6 +19573,47 @@ if(location.hash.includes('debug')){
               size:SAND_TILE, gap:SAND_GAP, tilt:SAND_TILT, sink:SAND_SINK, relief:SAND_RELIEF,
               sit:{worst:+worst.toFixed(3), mean:+(sum/Math.max(1,n)).toFixed(3)},
               draws:1};
+    },
+    // ---- IS THERE SAND OVER EVERY FOOT OF IT ----
+    // "No gaps" is a number, not an opinion, and without one this is tuned by staring at a
+    // screenshot and hoping the bare patch is not just off frame. Every piece is a square laid
+    // flat and turned, so a point is under one if it is inside that turned square — no rays and
+    // no triangles, which makes a fine grid cheap enough to ask on every build.
+    // `core` is the fraction of the piece that actually COVERS. The rim of each tile is
+    // feathered down below its own surface so it can be buried by its neighbours, and a rim
+    // with no neighbour over it is below the ground rather than on it — so counting the full
+    // footprint as coverage would report a beach that is closed when it is not.
+    sandCover(res,core){
+      if(!sandField||!sandTile)return {on:false};
+      const N=Math.max(8,Math.min(200,res||64)), K=(core===undefined?0.86:core);
+      const bb=sandTile.geo.boundingBox;
+      const hx=(bb.max.x-bb.min.x)*0.5*K, hz=(bb.max.z-bb.min.z)*0.5*K;
+      const m=new THREE.Matrix4(), p=new THREE.Vector3(), q=new THREE.Quaternion(),
+            s2=new THREE.Vector3(), e=new THREE.Euler();
+      const inst=[];
+      for(let i=0;i<sandField.count;i++){
+        sandField.getMatrixAt(i,m); m.decompose(p,q,s2); e.setFromQuaternion(q,'YXZ');
+        inst.push({x:p.x,z:p.z,c:Math.cos(-e.y),s:Math.sin(-e.y),hx:hx*s2.x,hz:hz*s2.z});
+      }
+      let hit=0, miss=0, worstX=0, worstZ=0;
+      for(let i=0;i<N;i++)for(let j=0;j<N;j++){
+        const x=-SAND_X+(i+0.5)/N*SAND_X*2;
+        const z=SAND_Z1+(j+0.5)/N*(SAND_Z0-SAND_Z1);
+        let on=false;
+        for(let k=0;k<inst.length;k++){
+          const t=inst[k], dx=x-t.x, dz=z-t.z;
+          // into the piece's own frame, where the test is two comparisons
+          const lx=dx*t.c-dz*t.s, lz=dx*t.s+dz*t.c;
+          if(Math.abs(lx)<=t.hx&&Math.abs(lz)<=t.hz){ on=true; break; }
+        }
+        if(on)hit++; else { miss++; if(!worstX){worstX=+x.toFixed(1); worstZ=+z.toFixed(1);} }
+      }
+      const tot=N*N;
+      return {on:true, res:N, core:K, count:sandField.count,
+              covered:+(hit/tot*100).toFixed(2), bare:miss,
+              firstBare:miss?[worstX,worstZ]:null,
+              size:SAND_TILE, gap:SAND_GAP,
+              tris:Math.round((sandTile.geo.index?sandTile.geo.index.count:0)/3*sandField.count)};
     },
     // Where the top of the SAND is at a point, by dropping a ray onto the field itself, and
     // where the rider's soles are. Two numbers that settle an argument no screenshot can:

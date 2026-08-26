@@ -5,7 +5,8 @@
 //         meshoptimizer sharp
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { weld, simplify, prune, dedup, textureCompress, unpartition, dequantize } from '@gltf-transform/functions';
+import { weld, simplify, prune, dedup, textureCompress, unpartition, dequantize,
+         flatten, join } from '@gltf-transform/functions';
 import { MeshoptSimplifier } from 'meshoptimizer';
 import sharp from 'sharp';
 
@@ -27,6 +28,15 @@ await doc.transform(
   // on the squirrel — its deck gap came back as -1.28e+303 — and this tool had the same hole
   // in it, waiting for the next quantized export to come through.
   dequantize(),
+  // ---- AND DOWN TO ONE PIECE ----
+  // The game takes the FIRST mesh it finds in a prop and ignores the rest, which is fine for
+  // every file that has been through here so far and silently wrong for one that does not.
+  // The new sand arrived as two primitives, 0.997 wide and 0.532 wide: loaded as it came, the
+  // beach would have been tiled with two thirds of a tile and nothing would have looked
+  // broken — just a gap-prone field that no amount of overlap tuning could close, because a
+  // third of every piece was never there.
+  // flatten bakes the node transforms down first so joining cannot move anything.
+  flatten(), join(),
   weld(),
   simplify({simplifier:MeshoptSimplifier, ratio:Math.min(1,TARGET/before), error:0.002}),
   // Per SLOT, because the three maps do not deserve the same budget. Base colour is what you
