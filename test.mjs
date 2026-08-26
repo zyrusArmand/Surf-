@@ -341,6 +341,28 @@ check(perkSeen.found && perkSeen.filled > 0 && perkSeen.text.length > 0,
 // tapping a silhouette really does swap the writing AND the board being offered.
 await page.click('#dBoard');
 await page.waitForTimeout(500);
+// ---- the ring reaches the buttons that are BUILT rather than written ----
+// A shop card's Buy, its owned tag and its little preview eye are created in script when the
+// panel opens, so the ring check on the home screen could only report them absent. It said so
+// rather than passing quietly, which is the point of the message — but absent is not checked.
+// Same gold, asked where they actually exist.
+{
+  const built = await page.evaluate(() => {
+    const fam = ['.card button', '.card .tag', '.card .eye'];
+    const seen = {}, missing = [];
+    for (const sel of fam) {
+      const e = document.querySelector(sel);
+      if (!e) { missing.push(sel); continue; }
+      const c = getComputedStyle(e).borderTopColor;
+      (seen[c] = seen[c] || []).push(sel);
+    }
+    return { colours: Object.keys(seen), found: fam.length - missing.length, missing };
+  });
+  check(built && built.found >= 2 && built.colours.length === 1,
+        'the cards the shop builds wear the same ring as the buttons written into the page',
+        built ? `${built.found}/3 built, ${built.colours.join(' ')}` +
+                (built.missing.length ? ` (absent: ${built.missing.join(' ')})` : '') : 'no cards');
+}
 const school = await page.evaluate(async () => {
   const rail = [...document.querySelectorAll('#gRail .gsil')];
   const name = () => document.querySelector('#guide .gname b').textContent;
@@ -1686,11 +1708,14 @@ if (hasHook) {
           const c = getComputedStyle(e).borderTopColor;
           (seen[c] = seen[c] || []).push(sel);
         }
-        return { colours: Object.keys(seen), seen, missing };
+        return { colours: Object.keys(seen), seen, missing, found: fam.length - missing.length };
       });
-      check(rings && rings.colours.length === 1,
+      // A single colour across an empty set is not agreement, it is absence — so the count of
+      // families actually FOUND is part of the assertion. The three that are not built until
+      // their panel opens get their own check further down, where they exist.
+      check(rings && rings.colours.length === 1 && rings.found >= 8,
             'every button in the game wears one ring, not seven',
-            rings ? `${rings.colours.length} distinct: ` +
+            rings ? `${rings.found}/11 families, ${rings.colours.length} distinct: ` +
                     rings.colours.map(c => `${c} on ${rings.seen[c].length}`).join(', ') +
                     (rings.missing.length ? ` (not in the DOM here: ${rings.missing.join(' ')})` : '')
                   : 'no buttons');
