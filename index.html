@@ -15557,7 +15557,12 @@ function updateDayCycle(){
   // ...and the sky the WATER reflects follows the sky you can see, which it never did.
   oceanUniforms.uSky.value.copy(skyUniforms.uHorizon.value);
   oceanUniforms.uSkyHi.value.copy(skyUniforms.uMid.value);
-  sunDisc.scale.setScalar(1+gAmt*0.35);            // swells a little as it sits low
+  // ---- and it SQUASHES as it lands ----
+  // Refraction bends light more the further it travels through thick air, so the bottom limb of
+  // a low sun is lifted more than the top and the disc flattens — about a fifth of its height by
+  // the time it touches the sea. Everyone has seen it and almost nothing draws it. One axis.
+  const sunSwell=1+gAmt*0.35;
+  sunDisc.scale.set(sunSwell, sunSwell*(1-gAmt*0.20), sunSwell);
   for(const sh of [sunGlowInner,sunGlowOuter,sunGlowRim]){
     sh.position.set(sunDisc.position.x,sunDisc.position.y,sunDisc.position.z-4);
     sh.material.uniforms.uColor.value.copy(skyUniforms.uGlow.value);
@@ -15606,6 +15611,10 @@ function updateDayCycle(){
     _cB.copy(_cA).lerp(_cSunLine,nearSun*nearSun*0.75);
     c.material.color.copy(_cB);
   }
+  // The underside light, which only exists while the sun is low enough to be under the cloud
+  // base. Off at midday, because a cloud lit from below at noon is a cloud on fire.
+  cloudUnder.amt.value=Math.min(1,gAmt*1.10);
+  cloudUnder.lit.value.copy(skyUniforms.uGlow.value).lerp(_cSunLine,0.25);
   // How much light is actually falling, which is a different thing from tinting: no
   // colour anywhere is touched, there is simply less of it at either end of the day.
   // The floor is deliberately high — this is dusk, not night.
@@ -15686,12 +15695,48 @@ function cloudTexture(seed){
 const CLOUD_TEX=[cloudTexture(1),cloudTexture(7),cloudTexture(23),
                  cloudTexture(41),cloudTexture(58),cloudTexture(73)];
 const clouds=[];
+// ---- lit from UNDERNEATH, which is the whole of what says sunset ----
+// A cloud sprite is one quad with one colour on it, so its top and its base have always been
+// the same. That is a cloud at noon. At this hour the sun is BELOW the cloud base and shining
+// up at it: the underside burns and the top stays a cool grey, and that split is the single
+// biggest cue in any photograph of a sunset — bigger than the colour of the sky behind it.
+// Done per fragment through onBeforeCompile, the way the sign's gild and the palm's bark are
+// done, so the sprites stay one draw each and nothing is rebuilt when the light changes.
+// vUv.y runs 0 at the bottom of the quad to 1 at the top, which is the gradient wanted.
+const cloudUnder={ lit:{value:new THREE.Color(0xffb066)}, top:{value:new THREE.Color(0x6f7d99)},
+                   amt:{value:0} };
+function dressCloud(m){
+  m.onBeforeCompile=sh=>{
+    sh.uniforms.uCldLit=cloudUnder.lit;
+    sh.uniforms.uCldTop=cloudUnder.top;
+    sh.uniforms.uCldAmt=cloudUnder.amt;
+    sh.fragmentShader='uniform vec3 uCldLit; uniform vec3 uCldTop; uniform float uCldAmt;\n'+
+      sh.fragmentShader.replace('#include <map_fragment>',
+        '#include <map_fragment>\n'+
+        // ---- mapped onto the band the cloud actually OCCUPIES ----
+        // cloudTexture draws its lumps on a flat base at canvas y=132 of 192, with the crowns
+        // reaching about y=30. Texture v runs the other way, so the cloud body lives between
+        // v=0.31 at its base and v=0.84 at its top, and everything below 0.31 is empty alpha.
+        // A plain 0-to-1 ramp therefore spends most of its strength on nothing: measured, it
+        // reached 0.45 at the base where it should have been at full, and the underside barely
+        // moved. These two smoothsteps put the whole of the effect inside the cloud.
+        // vUv, not vMapUv: this is three r128, where map_fragment still samples vUv. The newer
+        // name compiles to nothing here and takes the whole cloud material down with it.
+        'float cU=smoothstep(0.78,0.30,clamp(vUv.y,0.0,1.0));\n'+
+        'float cT=smoothstep(0.44,0.88,clamp(vUv.y,0.0,1.0));\n'+
+        'diffuseColor.rgb=mix(diffuseColor.rgb,uCldLit,cU*uCldAmt);\n'+
+        'diffuseColor.rgb=mix(diffuseColor.rgb,uCldTop,cT*uCldAmt*0.55);\n');
+    m.userData.dressed=true;
+  };
+  m.needsUpdate=true;
+}
 const CLOUD_SPAN=520;                       // how far they run before wrapping round
 for(let i=0;i<16;i++){
   const w=48+Math.random()*92;
   const m=new THREE.Mesh(new THREE.PlaneGeometry(w,w*0.5),
     new THREE.MeshBasicMaterial({map:CLOUD_TEX[(Math.random()*CLOUD_TEX.length)|0],transparent:true,
       opacity:0.30+Math.random()*0.42,depthTest:true,depthWrite:false}));
+  dressCloud(m.material);
   m.renderOrder=9;                          // over the sun's glow, still behind the water
   m.position.set((Math.random()-0.5)*CLOUD_SPAN, 46+Math.random()*104, -175-Math.random()*95);
   m.userData.v=1.4+Math.random()*3.6;       // high cloud drifts faster than low
