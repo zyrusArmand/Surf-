@@ -1426,6 +1426,44 @@ if (hasHook) {
     await page.evaluate(() => { delete window.__surf._settle; });
     if (Date.now() - t0 < 5000) await page.waitForTimeout(5000 - (Date.now() - t0));
   };
+  // ---- and the SIGN settles on its own clock ----
+  // settleShot watches where the RIDER projects to, which is the thing the checks around it are
+  // about. The sign is solved by a different solver on a different schedule, and after a resize
+  // it does not move for ELEVEN SECONDS on this rasteriser and then steps straight to its
+  // answer — long after the rider has gone quiet. So a block that waits on the rider and then
+  // asserts about the sign is reading the sign from the window it had BEFORE the resize.
+  // Caught when a change that touched nothing on this screen — a smaller obstacle model, seven
+  // megabytes off the download — shifted the suite's timing into that gap, and two sign checks
+  // failed with the landscape numbers exactly: y[0.154,0.415] and 4.6 degrees of roll, against
+  // the [0.202,0.361] and 1.4 they hold at once the fit lands. Nothing about the sign was wrong.
+  // Same shape as settleShot, on the sign's own reading.
+  // Counted in FRAMES, not in wall clock, and that distinction is the whole of it. The layout
+  // runs off the menu camera's aspect check, which runs once a DRAWN FRAME — measured, the sign
+  // re-solves between frame 2 and frame 5 after a resize, three frames, which on a phone at
+  // sixty is fifty milliseconds. It reads as eleven seconds here only because this rasteriser
+  // draws about one frame every two and a half. So "has it stopped moving" is the wrong
+  // question: the STALE reading sits perfectly still for seven seconds and a wall-clock settle
+  // would return it, confidently, and be wrong. Fourteen frames puts it well past the re-solve,
+  // and eight consecutive identical frames says it has arrived.
+  const settleSign = async () => {
+    await page.evaluate(() => {
+      window.__sg = { n: 0, w: [] };
+      const step = () => {
+        const s = window.__surf.signAt();
+        if (s.up) { window.__sg.n++; window.__sg.w.push(s.y[0] * 1000 + s.y[1] * 100 + s.roll);
+                    if (window.__sg.w.length > 8) window.__sg.w.shift(); }
+        window.__sg.raf = requestAnimationFrame(step);
+      };
+      step();
+    });
+    await page.waitForFunction(() => {
+      const g = window.__sg;
+      return g && g.n >= 14 && g.w.length === 8 && Math.max(...g.w) - Math.min(...g.w) < 0.02;
+    }, null, { timeout: 120000, polling: 500 }).catch(() => {});
+    await page.evaluate(() => {
+      if (window.__sg) { cancelAnimationFrame(window.__sg.raf); delete window.__sg; }
+    });
+  };
 
   // ---- tap him twice and he comes and has a word about it ----
   // Two taps, not one. One tap on a character is the commonest accidental tap on this screen —
@@ -1534,6 +1572,8 @@ if (hasHook) {
     {
       await page.waitForFunction(() => window.__surf.signAt().up, null, { timeout: 60000 })
                 .catch(() => {});
+      // up is not the same as fitted — see settleSign
+      await settleSign();
       const sg = await page.evaluate(() => window.__surf.signAt());
       check(sg.up && sg.titleHidden, 'the title hangs over the beach as a sign, not as a word on the glass',
             JSON.stringify({ up: sg.up, wordHidden: sg.titleHidden }));
