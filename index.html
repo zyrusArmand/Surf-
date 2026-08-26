@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.56.0';
+window.SURF_VERSION='4.57.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -2009,6 +2009,15 @@ const oceanUniforms={
   // sea. The reflection was right and the thing being reflected was wrong.
   uSky:{value:new THREE.Color(0x8fd2f5)},
   uSkyHi:{value:new THREE.Color(0x3f8fd6)},
+  // ---- the chop, as a map rather than as arithmetic ----
+  // uChop starts as a single neutral pixel — (0.5,0.5,1.0) decodes to straight up — so the
+  // water is correct-but-glassy from the first frame and stays correct if the file never
+  // arrives, rather than tilting every normal by whatever a white default would decode to.
+  // uChopK is the switch: 0 until the real map is in, and the shader runs the old procedural
+  // chop until then, so a 404 costs detail and nothing else.
+  uChop:{value:(()=>{ const t=new THREE.DataTexture(new Uint8Array([128,128,255,255]),1,1,
+                        THREE.RGBAFormat); t.needsUpdate=true; return t; })()},
+  uChopK:{value:0},
   // Between where this was and the deep navy it used to be. The pale version came from two
   // places at once: these two, and the broad glitter lobe below, which was laying a sheen
   // over most of the water rather than only where the sun is.
@@ -2146,6 +2155,7 @@ const oceanMat=new THREE.ShaderMaterial({
     uniform vec3 uGlow; uniform vec3 uGlitL;
     uniform float uT; uniform float uDist; uniform float uAmp; uniform float uPeak;
     uniform float uLight; uniform float uSwA;
+    uniform sampler2D uChop; uniform float uChopK;
     varying vec3 vN; varying vec3 vW; varying float vH; varying vec2 vPh;
     varying float vSw; varying float vBrk; varying float vPa; varying float vDx;
     // Value noise with a rotation between octaves. The rotation is the point: it
@@ -2186,10 +2196,25 @@ const oceanMat=new THREE.ShaderMaterial({
       // samples at all.
       // A gentler tilt than the glitter's, which wants sparkle; this wants texture.
       vec2 gp = vec2(vW.x, vW.z + uDist*0.22);
-      vec2 wob = vec2(fbm(gp*1.85 + vec2(uT*0.21,-uT*0.17)) - 0.5,
-                      fbm(gp*2.30 + vec2(-uT*0.19, uT*0.23)) - 0.5)
-               + vec2(fbm(gp*6.40 + vec2(uT*0.44, uT*0.31)) - 0.5,
-                      fbm(gp*7.90 + vec2(-uT*0.37,uT*0.41)) - 0.5)*0.55;
+      // TWO TEXTURE LOOKUPS, where this was four fbm calls — twelve noise evaluations and
+      // forty-eight hashes, per pixel, over the whole sea. The map is tileable by
+      // construction: every octave in it sits on a lattice whose cell count divides the
+      // image, so sampling past the edge returns exactly what sampling at the edge returned.
+      // That is a property of how it was generated and cannot be added afterwards by
+      // blending the borders — a blended seam still repeats, it just repeats softly.
+      // Two scales, 18ft and 6ft, drifting in opposite directions at the speeds the
+      // procedural version drifted at, so neither the tile nor the scroll reads as a pattern.
+      vec2 wob;
+      if(uChopK > 0.5){
+        vec2 ca = texture2D(uChop, gp*0.055 + vec2( uT*0.0063,-uT*0.0052)).xy*2.0 - 1.0;
+        vec2 cb = texture2D(uChop, gp*0.168 + vec2(-uT*0.0116, uT*0.0097)).xy*2.0 - 1.0;
+        wob = ca + cb*0.62;
+      } else {
+        wob = vec2(fbm(gp*1.85 + vec2(uT*0.21,-uT*0.17)) - 0.5,
+                   fbm(gp*2.30 + vec2(-uT*0.19, uT*0.23)) - 0.5)
+            + vec2(fbm(gp*6.40 + vec2(uT*0.44, uT*0.31)) - 0.5,
+                   fbm(gp*7.90 + vec2(-uT*0.37,uT*0.41)) - 0.5)*0.55;
+      }
       vec3 Nr = normalize(N + vec3(wob.x, 0.0, wob.y)*0.20);
       // N stays the smooth one for DIFFUSE and for every foam term below. Chop in the diffuse
       // is noise in the base colour, and chop in the foam gate is the speckle this shader was
@@ -3564,6 +3589,16 @@ const Boot={
   }
 };
 addEventListener('load',()=>Boot.kick());
+// Textures load on the same protocol as models — issue, step, settle — because the loading
+// bar weights by BYTES, and a texture nobody told it about is a jump in the bar at the end.
+function loadTexture(file,onReady){
+  const id=Boot.issue(file);
+  new THREE.TextureLoader().load('models/'+file,
+    t=>{ try{ onReady(t); }catch(e){ console.warn('texture '+file+' failed to fit',e); }
+         Boot.settle(id); },
+    e=>Boot.step(id,e),
+    ()=>{ /* no such file — the caller keeps whatever it had */ Boot.settle(id); });
+}
 function loadModel(file,onReady){
   if(!THREE.GLTFLoader)return;
   const id=Boot.issue(file);
@@ -5669,6 +5704,22 @@ function previewSetup(){
 // rolls rather than standing still.
 // ---------------------------------------------------------------------------
 let prevOcean=null, prevSky=null, beachLife=null, cardSet=null, cardShadow=null;
+// The title screen's sea is a CLONE of the game's material, and cloning a ShaderMaterial
+// deep-copies its uniforms — textures included. So handing the map to oceanUniforms alone
+// reaches the sea you play on and not the one on the home screen, which is the sea most of
+// this work is looked at in. Both, then: this one if it already exists, and the clone site
+// below picks it up if it does not.
+let chopMap=null;
+loadTexture('waternormals.png',t=>{
+  t.wrapS=t.wrapT=THREE.RepeatWrapping;          // the whole point of a tileable map
+  t.minFilter=THREE.LinearMipmapLinearFilter; t.magFilter=THREE.LinearFilter;
+  // The sea is seen at a grazing angle almost everywhere, which is exactly where an
+  // un-anisotropic mipmap smears a ripple field into flat grey a few feet out.
+  try{ t.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy()); }catch(e){}
+  chopMap=t;
+  oceanUniforms.uChop.value=t; oceanUniforms.uChopK.value=1;
+  if(prevOcean){ prevOcean.uniforms.uChop.value=t; prevOcean.uniforms.uChopK.value=1; }
+});
 let SAND_LIT=0x484848, PALM_LIT=0x3c3c3c, beachShadow=null, beachSand0=0, beachSandH=null;
 let beachSurfH=null;                   // the surface itself, dunes included — see buildBeach
 // ---- the sand is a MODEL laid over the beach, not only a painted surface ----
@@ -7014,6 +7065,7 @@ function buildBeach(){
   prevOcean.uniforms.uDeep.value=oceanUniforms.uDeep.value.clone();
   prevOcean.uniforms.uShallow.value=oceanUniforms.uShallow.value.clone();
   prevOcean.uniforms.uLight.value=1.0;
+  if(chopMap){ prevOcean.uniforms.uChop.value=chopMap; prevOcean.uniforms.uChopK.value=1; }
 
   // ---- the beach: a straight shore, looking out to sea ----
   // The angled shoreline was a compromise to get dry land into a narrow frame, and it read
@@ -19149,6 +19201,14 @@ if(location.hash.includes('debug')){
                 inst:h.instanceId===undefined?null:h.instanceId,
                 mat:m?m.type:null, vis:h.object.visible};
       });
+    },
+    // Whether the chop map actually got into the shaders — BOTH of them. The last time a
+    // water change did nothing visible, the change was right and the uniform it wrote to was
+    // not the one being drawn. This reports the value going in, not the code that sets it.
+    chopState(){
+      const rd=(u)=>({on:u.uChopK.value>0.5, w:u.uChop.value?u.uChop.value.image.width:0,
+                      wrap:u.uChop.value?u.uChop.value.wrapS===THREE.RepeatWrapping:false});
+      return {game:rd(oceanUniforms), menu:prevOcean?rd(prevOcean.uniforms):null};
     },
     riderGround(){
       if(typeof menuBeach==='undefined'||!menuBeach||typeof pug==='undefined'||!pug)

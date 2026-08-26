@@ -1128,6 +1128,22 @@ const d1 = await page.textContent('#hDist');
         sea ? `water sees ${sea.seaHorizon} at the horizon and ${sea.seaHigh} above, ` +
               `sky is ${sea.skyHorizon} and ${sea.skyMid}` : 'no sea');
 }
+// ---- the chop is a MAP now, and a map has to arrive ----
+// Two texture lookups replaced four fbm calls — twelve noise evaluations a pixel over the whole
+// sea. The saving is only real if the map is actually bound; if it is not, the shader falls back
+// to the old arithmetic and everything still LOOKS right while costing what it always did.
+// Asked of both seas, because the title screen's water is a clone of this material and cloning a
+// ShaderMaterial deep-copies its uniforms — handing the texture to one does not hand it to the
+// other, and the home screen is where this water is mostly looked at.
+{
+  const ch = await page.evaluate(() => window.__surf.chopState());
+  check(ch && ch.game.on && ch.game.w > 1,
+        'the game sea is running the chop map, not the fallback noise',
+        ch ? `on ${ch.game.on}, ${ch.game.w}px` : 'no hook');
+  check(ch && ch.game.wrap,
+        'the chop map repeats — a tileable map set to clamp tiles once and stretches after',
+        ch ? `wrapS repeat ${ch.game.wrap}` : 'no hook');
+}
 const m = s => parseFloat(String(s).replace(/[^\d.]/g, '')) || 0;
 check(m(d1) > m(d0), 'HUD distance advancing', `${d0} -> ${d1}`);
 
