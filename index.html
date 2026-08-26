@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.87.2';
+window.SURF_VERSION='4.88.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -22950,6 +22950,29 @@ let MB_CAM_YAW=-6.201155, MB_CAM_PITCH=0.195477;
 // the Board button clipped the pug by five thousandths and Quests clipped the chest by four.
 // Two feet further out is the nearest the set can stand with both columns clear, which is the
 // same kind of trade as the pull-back for a tall window: not a softening of the shot, the limit.
+// ---- THE SET, AS STAGED ----
+// Placed piece by piece with the stage tool and read off its own display, which prints
+// o.position and o.rotation.x/y/z in degrees — so these go in exactly as they came out. This
+// replaces the solved arrangement for the three that were staged; everything not listed is
+// still worked out the old way.
+// AHEAD and SIDE below no longer place the set when this is on. They stay because the anchor
+// still has to land somewhere sensible for the things that are not staged.
+let MB_STAGED=1;
+let MB_CH_SC=2.10;      // how big the chest stands — "the big chest", against a 15ft tree
+let MB_CH_SIDE=1.15;    // feet along the camera's right of the trunk's own axis
+let MB_CH_CLR=0.05;     // and the gap left between its lid and the trunk: touching
+const MB_STAGE={
+  rider:{p:[-15.406,4.480,-50.053], r:[0.0,-169.1,0.0]},
+  board:{p:[-14.617,4.840,-50.923], r:[79.6,-14.1,32.1]},
+  // the palm's numbers are LOCAL to menuProps, which is where it lives — the readout's world
+  // column said -12.87, -0.33, -51.53 for the same object, and using that as a local position
+  // would put the tree half a beach away
+  palm :{p:[-4.103,-2.539,-7.121],  r:[0.0,19.5,7.8]},
+};
+// the spare board pose, kept for the trade it was staged for: further round to make room for
+// the pug without either of them reaching the button columns
+const MB_STAGE_BOARD2={p:[-14.358,5.276,-51.280], r:[90.4,-5.7,33.0]};
+let MB_BOARD_ALT=0;
 let MB_SET_AHEAD=15.0;               // feet out along the staged camera's own forward
 // ---- and across it, to centre the group in a fixed frame ----
 // With the lens staged and unmovable, the only way to centre what it is looking at is to move
@@ -24346,6 +24369,58 @@ function renderMenuBeach(dt){
      ((typeof stageOn!=='undefined'&&stageOn)||(typeof stCamKeep!=='undefined'&&stCamKeep))){
     menuCam.position.copy(stCamPos);
     menuCam.quaternion.setFromEuler(_stEul.set(stCamPitch,stCamYaw,0,'YXZ'));
+  }
+  // ---- AND THE STAGED PIECES GO WHERE THEY WERE PUT ----
+  // Applied LAST, after everything the solve worked out, because that is what "as staged"
+  // means: these were placed by hand in the picture and nothing computed should move them.
+  if(MB_STAGED){
+    const put=(o,st)=>{ if(!o||!st)return;
+      o.position.set(st.p[0],st.p[1],st.p[2]);
+      o.rotation.set(st.r[0]*Math.PI/180,st.r[1]*Math.PI/180,st.r[2]*Math.PI/180);
+      o.updateMatrixWorld(true); };
+    put(typeof pug!=='undefined'?pug:null, MB_STAGE.rider);
+    put(menuBeach.board, MB_BOARD_ALT?MB_STAGE_BOARD2:MB_STAGE.board);
+    put(typeof menuPalm!=='undefined'?menuPalm:null, MB_STAGE.palm);
+    // ---- HIS FEET ON THE SAND ----
+    // The staged height is where he was dragged to and a drag is in the picture, not on the
+    // ground: eye alone cannot tell a rider standing on the beach from one hanging a few
+    // inches over it, and at this camera the difference is a couple of pixels. Solved against
+    // the field the same way the tile placement is — the bottom of his own box brought down
+    // onto the sand under him.
+    if(typeof pug!=='undefined'&&pug){
+      const bb=new THREE.Box3().setFromObject(pug);
+      if(isFinite(bb.min.y)){
+        const gy=(typeof beachSandH==='function')
+                   ? beachSandH(pug.position.z/MB_K)*MB_K
+                   : (typeof beachSand0!=='undefined'?beachSand0:0);
+        pug.position.y+=gy-bb.min.y;
+        pug.updateMatrixWorld(true);
+      }
+    }
+    // ---- THE CHEST, BIGGER AND AGAINST THE TRUNK ----
+    // Up the beach to the trunk rather than out on the open sand, sized so it reads as the
+    // big chest it is meant to be, and stood so its open lid meets the trunk instead of
+    // floating clear of it. Placed off the palm's own world position so it follows the tree
+    // wherever the tree goes.
+    if(typeof beachChest!=='undefined'&&beachChest&&typeof menuPalm!=='undefined'&&menuPalm){
+      const tw=new THREE.Vector3(); menuPalm.getWorldPosition(tw);
+      beachChest.scale.setScalar(MB_CH_SC);
+      beachChest.updateMatrixWorld(true);
+      const cb=new THREE.Box3().setFromObject(beachChest);
+      const half=(cb.max.z-cb.min.z)*0.5;
+      const wp=new THREE.Vector3(tw.x+_mbR.x*MB_CH_SIDE-_mbF.x*(half+MB_CH_CLR),
+                                 0,
+                                 tw.z+_mbR.z*MB_CH_SIDE-_mbF.z*(half+MB_CH_CLR));
+      if(beachChest.parent)beachChest.parent.worldToLocal(wp);
+      beachChest.position.x=wp.x; beachChest.position.z=wp.z;
+      beachChest.updateMatrixWorld(true);
+      const cb2=new THREE.Box3().setFromObject(beachChest);
+      const gy=(typeof beachSandH==='function')
+                 ? beachSandH(beachChest.getWorldPosition(new THREE.Vector3()).z/MB_K)*MB_K
+                 : 0;
+      if(isFinite(cb2.min.y))beachChest.position.y+=gy-cb2.min.y;
+      beachChest.updateMatrixWorld(true);
+    }
   }
   menuCam.updateProjectionMatrix();
   faceBeachSign();      // the title hangs square to whatever the lens just did
