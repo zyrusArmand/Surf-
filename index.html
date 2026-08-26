@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.88.1';
+window.SURF_VERSION='4.88.2';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -22999,9 +22999,10 @@ let MB_CAM_YAW=-6.201155, MB_CAM_PITCH=0.195477;
 // AHEAD and SIDE below no longer place the set when this is on. They stay because the anchor
 // still has to land somewhere sensible for the things that are not staged.
 let MB_STAGED=1;
-let MB_CH_SC=1.55;      // how big the chest stands, as a MULTIPLE of its fitted size
-let MB_CH_SIDE=1.15;    // feet along the camera's right of the trunk's own axis
-let MB_CH_CLR=0.05;     // and the gap left between its lid and the trunk: touching
+let MB_CH_SC=1.38;      // how big the chest stands, as a MULTIPLE of its fitted size
+// MB_CH_SIDE and MB_CH_CLR are gone with the placement that used them — the layout's own MB_CD
+// and MB_CF already say where the chest stands relative to the trunk, and having two answers to
+// that question is how it ended up in front of the tree.
 const MB_STAGE={
   rider:{p:[-15.406,4.480,-50.053], r:[0.0,-169.1,0.0]},
   board:{p:[-14.617,4.840,-50.923], r:[79.6,-14.1,32.1]},
@@ -24527,40 +24528,31 @@ function renderMenuBeach(dt){
         pug.updateMatrixWorld(true);
       }
     }
-    // ---- THE CHEST, BIGGER AND AGAINST THE TRUNK ----
-    // Up the beach to the trunk rather than out on the open sand, sized so it reads as the
-    // big chest it is meant to be, and stood so its open lid meets the trunk instead of
-    // floating clear of it. Placed off the palm's own world position so it follows the tree
-    // wherever the tree goes.
-    if(typeof beachChest!=='undefined'&&beachChest&&typeof menuPalm!=='undefined'&&menuPalm){
-      // ---- SCALED FROM ITS OWN FITTED SIZE, NOT SET TO A RAW NUMBER ----
-      // setScalar(2.1) threw away the scale the fit had already solved and made the chest 2.1
-      // times the MODEL's unit size, which is a different quantity entirely — it came out
-      // enormous, taller than the pug and half the width of the frame. The fitted scale is
-      // remembered once and multiplied.
+    // ---- THE CHEST, BIGGER, WHERE THE LAYOUT ALREADY PUTS IT ----
+    // My own placement is gone. It set the chest's position by pushing it toward the camera by
+    // HALF ITS OWN DEPTH, measured after scaling — so a bigger chest moved further forward,
+    // which made it bigger on screen, which moved it further forward. A feedback loop, and it
+    // is why the thing ended up floating across the front of the tree at three times its size
+    // through two attempts at "fixing the units".
+    // The layout already stands the chest on the sand against the trunk, solved with the same
+    // care as everything else here (see MB_CD and MB_CF). It does not need replacing — it needs
+    // the chest to be BIGGER, which is one number, and nothing else to change.
+    if(typeof beachChest!=='undefined'&&beachChest){
       if(beachChest.userData.fitS===undefined)
         beachChest.userData.fitS=beachChest.scale.x||1;
-      beachChest.scale.setScalar(beachChest.userData.fitS*MB_CH_SC);
-      const tw=new THREE.Vector3(); menuPalm.getWorldPosition(tw);
-      beachChest.updateMatrixWorld(true);
-      const cb=new THREE.Box3().setFromObject(beachChest);
-      const half=(cb.max.z-cb.min.z)*0.5;
-      const wp=new THREE.Vector3(tw.x+_mbR.x*MB_CH_SIDE-_mbF.x*(half+MB_CH_CLR),
-                                 0,
-                                 tw.z+_mbR.z*MB_CH_SIDE-_mbF.z*(half+MB_CH_CLR));
-      if(beachChest.parent)beachChest.parent.worldToLocal(wp);
-      beachChest.position.x=wp.x; beachChest.position.z=wp.z;
-      beachChest.updateMatrixWorld(true);
-      // ---- AND SAT DOWN IN ITS OWN UNITS ----
-      // The drop is measured in WORLD feet and position.y is LOCAL to menuProps, which is
-      // scaled by MB_K — adding one to the other is a units error, and it is why the chest
-      // floated at mid-trunk instead of resting on the sand. Divided by the parent's scale.
-      const cb2=new THREE.Box3().setFromObject(beachChest);
-      const cwp=beachChest.getWorldPosition(new THREE.Vector3());
-      const gy=(typeof beachSandH==='function')?beachSandH(cwp.z/MB_K)*MB_K:0;
-      const ps=(beachChest.parent?beachChest.parent.getWorldScale(new THREE.Vector3()).y:1)||1;
-      if(isFinite(cb2.min.y))beachChest.position.y+=(gy-cb2.min.y)/ps;
-      beachChest.updateMatrixWorld(true);
+      const want=beachChest.userData.fitS*MB_CH_SC;
+      if(Math.abs(beachChest.scale.x-want)>1e-5){
+        beachChest.scale.setScalar(want);
+        // it grew about its own origin, so put its base back on the sand — in the parent's
+        // units, which is the error that floated it the first time
+        beachChest.updateMatrixWorld(true);
+        const cb=new THREE.Box3().setFromObject(beachChest);
+        const cwp=beachChest.getWorldPosition(new THREE.Vector3());
+        const gy=(typeof beachSandH==='function')?beachSandH(cwp.z/MB_K)*MB_K:0;
+        const ps=(beachChest.parent?beachChest.parent.getWorldScale(new THREE.Vector3()).y:1)||1;
+        if(isFinite(cb.min.y))beachChest.position.y+=(gy-cb.min.y)/ps;
+        beachChest.updateMatrixWorld(true);
+      }
     }
   }
   layoutCoconuts();
