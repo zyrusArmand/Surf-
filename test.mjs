@@ -2090,6 +2090,82 @@ if (hasHook) {
     // tenth of a metre of drift that has nothing to do with the ring.
     await page.setViewportSize({ width: 1024, height: 640 });
     await settleShot();
+    // ---- the stage: laying the title screen out from inside it ----
+    // A workshop tool behind the same five taps as Records. Three things are worth guarding and
+    // they are not the same thing: that a PLAYER cannot reach it, that the hold is a HOLD, and
+    // that a drag actually moves the object rather than only the readout.
+    {
+      // The GATE, not the door: the panel opens both ways and the stage is supposed to appear
+      // in exactly one of them. Asked through the flag rather than only through the taps,
+      // because a check that can only reach it one way cannot tell a locked door from a wall.
+      const asPlayer = await page.evaluate(() => window.__surf.showRecords(false));
+      await page.evaluate(() => document.getElementById('stClose').click());
+      await page.waitForTimeout(250);
+      // ...and the five taps really are the way in, end to end
+      await ver5tap();
+      await page.waitForTimeout(600);
+      const behindTaps = await page.evaluate(() => {
+        const b = document.getElementById('stStage');
+        return { open: !document.getElementById('stats').classList.contains('hidden'),
+                 stage: !!b && b.offsetParent !== null };
+      });
+      check(asPlayer.open && !asPlayer.stage && behindTaps.open && behindTaps.stage,
+            'the stage is behind the five taps and nowhere a player can reach',
+            `player's panel: open ${asPlayer.open}, stage ${asPlayer.stage} · ` +
+            `five taps: open ${behindTaps.open}, stage ${behindTaps.stage}`);
+
+      await page.click('#stStage');
+      await page.waitForTimeout(500);
+      const st = await page.evaluate(() => window.__surf.stageState());
+      const dialGone = await page.evaluate(() => {
+        const d = document.getElementById('homeDial');
+        return !d || getComputedStyle(d).display === 'none';
+      });
+      check(st.on && st.items.length >= 4 && dialGone,
+            'and it opens onto the beach with the dial out of the way of the drags',
+            `${st.items.length} things it can hold: ${st.items.map(i => i.n).join(' ')}, dial hidden ${dialGone}`);
+
+      // ---- the hold is a HOLD ----
+      // Five seconds is what stops a stray thumb rearranging the furniture, so "did it grab"
+      // is only half the question — "did it grab EARLY" is the half that matters.
+      const palm = st.items.find(i => i.n === 'palm') || st.items[0];
+      const [sx, sy] = palm.screen;
+      await page.mouse.move(sx, sy);
+      await page.mouse.down();
+      await page.waitForTimeout(2000);
+      const early = await page.evaluate(() => window.__surf.stageState().held);
+      await page.waitForTimeout(3800);
+      const late = await page.evaluate(() => window.__surf.stageState().held);
+      check(early === null && late === palm.n,
+            'and nothing is picked up until the hold is actually held for its five seconds',
+            `at 2s "${early}", at 5.8s "${late}"`);
+
+      // ---- and a drag moves the OBJECT, not just the readout ----
+      // Asked on where it projects to, so it has to have moved the way the finger went — a
+      // sign that moves the wrong way, or by a tenth as much, passes any check on its position
+      // alone.
+      const DRAG = 120;
+      for (let i = 1; i <= 12; i++) { await page.mouse.move(sx + i * 10, sy); await page.waitForTimeout(70); }
+      await page.mouse.up();
+      const st2 = await page.evaluate(() => window.__surf.stageState());
+      const moved = st2.items.find(i => i.n === palm.n);
+      const dx = moved.screen[0] - palm.screen[0], dy = moved.screen[1] - palm.screen[1];
+      check(dx > DRAG * 0.6 && dx < DRAG * 1.6 && Math.abs(dy) < 30,
+            'and dragging it moves the thing itself, the way the finger went',
+            `finger ${DRAG}px right, it went ${dx}px across and ${dy}px down`);
+
+      await page.evaluate(() => document.getElementById('stageOff').click());
+      await page.waitForTimeout(400);
+      const off = await page.evaluate(() => window.__surf.stageState());
+      const dialBack = await page.evaluate(() => {
+        const d = document.getElementById('homeDial');
+        return !!d && getComputedStyle(d).display !== 'none';
+      });
+      check(!off.on && !off.held && dialBack,
+            'and Done puts the screen back the way a player sees it',
+            `stage ${off.on}, holding ${off.held}, dial back ${dialBack}`);
+      await settleShot();
+    }
     // ---- and after all that, he is still standing on the sand ----
     // Put AFTER the charge rather than before it. Sat in front, the two shop trips broke the
     // charge outright — it never started, and eight checks about a punch that never landed went

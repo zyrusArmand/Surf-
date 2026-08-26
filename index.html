@@ -1298,6 +1298,25 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     background:linear-gradient(157deg, rgba(255,247,190,.34), rgba(255,226,110,.16));
     box-shadow:0 0 0 3px rgba(255,246,150,.92), 0 0 26px rgba(255,224,60,.75),
                inset 0 1.6px 0 rgba(255,255,255,.95); }
+  /* ---- the stage ---- */
+  /* Pinned to the top so the whole beach below it is draggable, and the bar itself does not
+     take pointer events except on its buttons — the thing being laid out is behind it. */
+  #stage { position:fixed; left:0; right:0; top:0; z-index:60; pointer-events:none;
+    padding:calc(8px + env(safe-area-inset-top,0px)) 8px 0; }
+  #stage.hidden { display:none; }
+  #stageBar { display:flex; flex-wrap:wrap; gap:6px; justify-content:center;
+    pointer-events:auto; }
+  #stageBar .go { width:auto; min-width:0; padding:7px 12px; font-size:12px; }
+  /* which axis you are on, said in the button rather than in a label somewhere else */
+  #stageBar .st-md.on { color:#fff;
+    background:linear-gradient(157deg, rgba(90,238,226,.30), rgba(20,180,180,.14) 55%,
+                                       rgba(150,246,238,.22)); }
+  #stageOut { margin:7px auto 0; max-width:min(680px,96vw); text-align:center;
+    font-size:11.5px; font-weight:700; letter-spacing:.2px; line-height:1.45;
+    color:#eaf6ff; text-shadow:0 1px 3px rgba(0,18,42,.85);
+    background:rgba(6,26,40,.62); border:1px solid rgba(216,178,99,.55);
+    border-radius:10px; padding:6px 10px; pointer-events:none;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
 </style>
 </head>
 <!-- The menu's furniture is hidden until the beach behind it is standing. Otherwise the
@@ -1371,9 +1390,25 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     <button class="go alt sm" id="stClaim">Claim boards</button>
     <button class="go calm sm" id="stWipe">Reset</button>
     <button class="go teal sm" id="stWave">Test wave</button>
+    <button class="go teal sm" id="stStage">Stage</button>
     <button class="go sm" id="stClose">Close</button>
   </div>
 </div></div>
+<!-- The stage. A workshop for the title screen, and it is deliberately NOT part of the title
+     screen: it is built here, hidden, and only the Stage button behind the five taps on the
+     version ever shows it. Nothing a player can reach opens this. -->
+<div id="stage" class="hidden">
+  <div id="stageBar">
+    <button class="go teal sm st-md on" data-md="move">Move</button>
+    <button class="go alt sm st-md" data-md="lift">Height</button>
+    <button class="go alt sm st-md" data-md="rotx">Tilt</button>
+    <button class="go alt sm st-md" data-md="roty">Turn</button>
+    <button class="go alt sm st-md" data-md="rotz">Roll</button>
+    <button class="go alt sm" id="stageCopy">Copy</button>
+    <button class="go calm sm" id="stageOff">Done</button>
+  </div>
+  <div id="stageOut">press and hold anything on the beach for 5s</div>
+</div>
 <!-- Boots on the main menu. Without the class the run card's pill row has no rule hiding
      it, so a big orange Play bar sat across the middle of the screen for as long as the
      page took to parse — on top of the dial's own Play, which is the button that works. -->
@@ -8870,6 +8905,12 @@ function openStats(full){
   // the set-wave test rides in the secret panel too, off the main screen
   document.getElementById('stWave').style.display = full ? '' : 'none';
   document.getElementById('stCopy').style.display = full ? '' : 'none';
+  // The stage is a workshop tool. It rearranges the title screen and nothing it does is saved,
+  // so it belongs with Reset and Test wave behind the five taps rather than on the panel the
+  // dial opens. It was added to the markup without being added to this list, which put a
+  // Stage button on the player's own Stats panel — the check for "nowhere a player can reach"
+  // is what asked the question.
+  document.getElementById('stStage').style.display = full ? '' : 'none';
   // Owner's key. It lives behind the version-tap because that is already the door
   // nobody finds by accident, and it is the only thing in the game that hands you
   // something you did not ride for — so it stays out of the shop entirely.
@@ -8953,6 +8994,143 @@ document.getElementById('stClaim').onclick=e=>{
   e.target.dataset.armed='1'; e.target.textContent='Sure?';
   setTimeout(()=>{ if(e.target.dataset.armed){delete e.target.dataset.armed; openStats(true);} },3000);
 };
+// ---------- the stage: laying the title screen out from inside it ----------
+// Behind the same five taps as Records, because it is a workshop tool and not a feature.
+// Press and hold anything on the beach and it comes off its mark; then drag to move it, or
+// switch axis and drag to turn it. The hold is what keeps this from being a screen where a
+// stray thumb rearranges the furniture — five seconds is not something you do by accident.
+//
+// It does NOT save, and that is the point of the Copy button rather than an oversight: this
+// is for FINDING an arrangement, and the numbers are what leaves. Without a way to get them
+// out, a good layout dies with the reload that follows it.
+//
+// Nothing here fights the drag. Worth writing down because it was the thing to check before
+// building any of it: inside renderMenuBeach the only thing written every frame is the
+// CAMERA — the props are laid out on demand, on aspect change, so a prop that has been moved
+// stays moved. The aspect-triggered layout is suppressed while the stage is up, so turning
+// the phone mid-session cannot quietly undo the arrangement you are looking at.
+const STAGE_HOLD=5000;
+let stageOn=false, stagePick=null, stageMode='move', stageDrag=null, _stHold=null;
+const _stRC=new THREE.Raycaster(), _stV=new THREE.Vector3(), _stV2=new THREE.Vector3();
+function stageTargets(){
+  const out=[], add=(n,o)=>{ if(o)out.push({n,o}); };
+  add('palm',  typeof menuPalm!=='undefined'?menuPalm:null);
+  add('sign',  typeof beachSign!=='undefined'?beachSign:null);
+  add('chest', typeof beachChest!=='undefined'?beachChest:null);
+  add('board', (typeof menuBeach!=='undefined'&&menuBeach)?menuBeach.board:null);
+  add('rider', typeof pug!=='undefined'?pug:null);
+  return out;
+}
+// Nearest of the five under the finger, rather than the nearest thing in the scene: the sand
+// and the sea are in front of half of them and are not things you are laying out.
+function stageHit(cx,cy){
+  if(!menuCam)return null;
+  menuCam.updateMatrixWorld();
+  _stRC.setFromCamera({x:cx/innerWidth*2-1, y:-(cy/innerHeight*2-1)}, menuCam);
+  let best=null;
+  for(const t of stageTargets()){
+    let h=[]; try{ h=_stRC.intersectObject(t.o,true); }catch(e){}
+    if(h.length&&(!best||h[0].distance<best.d))best={t,d:h[0].distance};
+  }
+  return best&&best.t;
+}
+// A pixel is worth different amounts of world at different depths, so the conversion is taken
+// at the object's OWN distance — otherwise the palm crawls and the chest bolts.
+function stagePx(o){
+  o.updateMatrixWorld(true);
+  _stV.setFromMatrixPosition(o.matrixWorld);
+  const d=menuCam.position.distanceTo(_stV);
+  return 2*d*Math.tan(menuCam.fov*Math.PI/360)/Math.max(1,innerHeight);
+}
+function stageApply(dx,dy){
+  if(!stagePick)return;
+  const o=stagePick.o;
+  if(stageMode.startsWith('rot')){ o.rotation[stageMode.slice(3)]+=dx*0.006; stageSay(); return; }
+  const k=stagePx(o);
+  const fwd=new THREE.Vector3(); menuCam.getWorldDirection(fwd);
+  const right=new THREE.Vector3().crossVectors(fwd,menuCam.up).normalize();
+  const flat=fwd.clone(); flat.y=0;
+  if(flat.lengthSq()<1e-6)flat.set(0,0,-1); else flat.normalize();
+  const d = stageMode==='lift'
+    ? new THREE.Vector3(0,-dy*k,0)
+    : right.multiplyScalar(dx*k).add(flat.multiplyScalar(-dy*k));
+  // ---- moved in the PARENT's space, not the world's ----
+  // Every one of these sits inside beachSet, which is scaled, and some sit inside a group of
+  // their own on top of that. Adding a world delta straight onto position moves it by that
+  // much of the PARENT's units, which on a set scaled by MB_K is a different distance
+  // entirely. Two points converted and differenced is the same arithmetic in the right frame.
+  if(!o.parent){ o.position.add(d); stageSay(); return; }
+  _stV.setFromMatrixPosition(o.matrixWorld);
+  _stV2.copy(_stV).add(d);
+  o.position.add(o.parent.worldToLocal(_stV2).sub(o.parent.worldToLocal(_stV)));
+  stageSay();
+}
+function stageText(){
+  if(!stagePick)return '';
+  const o=stagePick.o, p=o.position, r=o.rotation, D=v=>(v*180/Math.PI).toFixed(1);
+  o.updateMatrixWorld(true);
+  const w=new THREE.Vector3().setFromMatrixPosition(o.matrixWorld);
+  const f=v=>v.toFixed(3);
+  return stagePick.n+'  local '+f(p.x)+', '+f(p.y)+', '+f(p.z)+
+         '   turn '+D(r.x)+'\u00b0, '+D(r.y)+'\u00b0, '+D(r.z)+'\u00b0'+
+         '   world '+w.x.toFixed(2)+', '+w.y.toFixed(2)+', '+w.z.toFixed(2);
+}
+function stageSay(msg){
+  const el=document.getElementById('stageOut'); if(!el)return;
+  el.textContent = msg || (stagePick ? stageText()
+                                     : 'press and hold anything on the beach for 5s');
+}
+function stageShow(on){
+  stageOn=!!on;
+  stagePick=null; stageDrag=null;
+  if(_stHold){ clearTimeout(_stHold); _stHold=null; }
+  document.getElementById('stage').classList.toggle('hidden',!stageOn);
+  // the dial would eat the drags, and this is not a screen you press Play from
+  const hd=document.getElementById('homeDial');
+  if(hd)hd.style.display=stageOn?'none':'';
+  stageSay();
+}
+document.getElementById('stStage').onclick=()=>{
+  document.getElementById('stats').classList.add('hidden');
+  stageShow(true);
+};
+document.getElementById('stageOff').onclick=()=>stageShow(false);
+document.getElementById('stageCopy').onclick=e=>{
+  const blob=stagePick?stageText():'nothing held';
+  const done=()=>{ e.target.textContent='Copied'; setTimeout(()=>e.target.textContent='Copy',1400); };
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(blob).then(done,done);
+  else done();
+};
+for(const b of document.querySelectorAll('#stageBar .st-md'))b.onclick=()=>{
+  stageMode=b.dataset.md;
+  for(const o of document.querySelectorAll('#stageBar .st-md'))o.classList.toggle('on',o===b);
+};
+// CAPTURING, and it stops there. The overlay already listens for a tap on the rider and a tap
+// on the version, and neither should fire while the beach is being rearranged.
+overlay.addEventListener('pointerdown',e=>{
+  if(!stageOn)return;
+  e.stopPropagation();
+  stageDrag={x:e.clientX,y:e.clientY,n:0};
+  const t=stageHit(e.clientX,e.clientY);
+  if(stagePick&&t&&t.o===stagePick.o)return;          // already held: drag it straight away
+  if(!t){ stageSay('nothing there — hold the palm, sign, chest, board or rider'); return; }
+  stageSay('holding '+t.n+'\u2026');
+  _stHold=setTimeout(()=>{ _stHold=null; stagePick=t; if(typeof buzz==='function')buzz(20);
+                           stageSay(); },STAGE_HOLD);
+},true);
+overlay.addEventListener('pointermove',e=>{
+  if(!stageOn||!stageDrag)return;
+  const dx=e.clientX-stageDrag.x, dy=e.clientY-stageDrag.y;
+  stageDrag.n+=Math.abs(dx)+Math.abs(dy);
+  stageDrag.x=e.clientX; stageDrag.y=e.clientY;
+  // a hold is a HOLD: sliding off it cancels, or every drag across the beach would arm one
+  if(_stHold&&stageDrag.n>14){ clearTimeout(_stHold); _stHold=null; stageSay(); }
+  if(stagePick&&!_stHold)stageApply(dx,dy);
+},true);
+for(const ev of ['pointerup','pointercancel'])overlay.addEventListener(ev,()=>{
+  if(_stHold){ clearTimeout(_stHold); _stHold=null; stageSay(); }
+  stageDrag=null;
+},true);
 document.getElementById('stWave').onclick=()=>{
   document.getElementById('stats').classList.add('hidden');
   beginRun();
@@ -19336,6 +19514,40 @@ if(location.hash.includes('debug')){
     // Whether the chop map actually got into the shaders — BOTH of them. The last time a
     // water change did nothing visible, the change was right and the uniform it wrote to was
     // not the one being drawn. This reports the value going in, not the code that sets it.
+    // What the stage is holding and where everything it can hold actually IS — in its own
+    // parent's space, in the world, and on the screen. Reported off the OBJECTS rather than
+    // off the readout, so a readout that has drifted from the scene cannot make this agree.
+    // Opens the panel either way round. The gate on the stage is the `full` flag — false is the
+    // panel a player opens, true is the one behind the five taps — and a check that can only
+    // reach it through the taps is testing the door rather than the lock.
+    showRecords(full){
+      openStats(!!full);
+      const b=document.getElementById('stStage');
+      return {open:!document.getElementById('stats').classList.contains('hidden'),
+              stage:!!b&&getComputedStyle(b).display!=='none'};
+    },
+    stageState(){
+      const t=(typeof stageTargets==='function')?stageTargets():[];
+      const V=new THREE.Vector3();
+      return {
+        on:!!(typeof stageOn!=='undefined'&&stageOn),
+        mode:(typeof stageMode!=='undefined')?stageMode:null,
+        held:(typeof stagePick!=='undefined'&&stagePick)?stagePick.n:null,
+        out:(document.getElementById('stageOut')||{}).textContent||null,
+        items:t.map(x=>{
+          x.o.updateMatrixWorld(true);
+          V.setFromMatrixPosition(x.o.matrixWorld);
+          const w=V.clone(), p=V.clone().project(menuCam);
+          return {n:x.n,
+                  local:[x.o.position.x,x.o.position.y,x.o.position.z].map(v=>+v.toFixed(3)),
+                  rot:[x.o.rotation.x,x.o.rotation.y,x.o.rotation.z].map(v=>+(v*180/Math.PI).toFixed(2)),
+                  world:[w.x,w.y,w.z].map(v=>+v.toFixed(2)),
+                  screen:[Math.round((p.x*0.5+0.5)*innerWidth),
+                          Math.round((-p.y*0.5+0.5)*innerHeight)],
+                  onScreen:p.z<1};
+        })
+      };
+    },
     chopState(){
       const rd=(u)=>({on:u.uChopK.value>0.5, w:u.uChop.value?u.uChop.value.image.width:0,
                       wrap:u.uChop.value?u.uChop.value.wrapS===THREE.RepeatWrapping:false,
@@ -22995,7 +23207,10 @@ function renderMenuBeach(dt){
   menuCam.aspect=Math.max(0.4,innerWidth/innerHeight);
   // the chest is placed off the camera, so a turned phone moves it — and the layout that
   // placed it ran once, when the beach came up
-  if(_bcAsp!==null&&Math.abs(_bcAsp-menuCam.aspect)>1e-3){ layoutBeachChest(); layoutBeachSign(); }
+  // ...unless the stage is up, in which case those two have been placed BY HAND and a turned
+  // phone re-solving them would throw the arrangement away without saying so
+  if(_bcAsp!==null&&Math.abs(_bcAsp-menuCam.aspect)>1e-3&&!(typeof stageOn!=='undefined'&&stageOn)){
+    layoutBeachChest(); layoutBeachSign(); }
   // a portrait phone sees a narrower slice, so the camera walks back to keep the crown of
   // the palm and the whole board inside it
   // The layout says how wide it came out — a ten foot log stands its foot twice as far from
