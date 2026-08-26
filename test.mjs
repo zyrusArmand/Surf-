@@ -5095,59 +5095,105 @@ check(shaderErrors.length === 0, 'every shader compiles',
   // GROUP, and faceDir is measured inside that group — so it comes back identical either way
   // and says nothing at all about which way he is really pointing.
   const plant = await page.evaluate(() => {
-    const out = { ride: null, hold: [], after: null };
-    window.__surf.hand(false); window.__surf.restart(); window.__surf.tick(1.0);
-    out.who = window.__surf.rigInfo().who;
-    out.ride = { deg: window.__surf.rigInfo().bodyVsBoard, x: window.__surf.deckGap().x };
-    window.__surf.hand(true); window.__surf.tick(1.8);
-    for (let i = 0; i < 4; i++) { window.__surf.tick(0.2);
-      out.hold.push({ deg: window.__surf.rigInfo().bodyVsBoard, g: window.__surf.deckGap() }); }
-    window.__surf.hand(false); window.__surf.tick(3);
-    const ri = window.__surf.rigInfo();
-    out.after = { deg: ri.bodyDeg, x: window.__surf.deckGap().x,
-                  xFix: ri.xFix, yawFix: ri.yawFix };
+    const s = window.__surf, avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+    const out = { ride: null, hold: [], after: null, tries: 0, clean: false, rejected: [] };
+    // A BASELINE THAT IS ACTUALLY A BASELINE.
+    // restart(); tick(1.0) was assumed to leave him riding side-on, and most of the time it
+    // does — but not always, and the check had no way of noticing. Sampled across spawns the
+    // ride angle came back [169, 173.5, 178.1, -177.4] on one and [-7.8, 2.9, 13.6, 24.3] on
+    // another: he was mid-turn, not riding. Subtracting the handstand from one of those
+    // measures where he happened to be pointing, and the answer had nothing to do with the
+    // clip. So the baseline is now CHECKED and a bad one is thrown away rather than measured.
+    for (let attempt = 0; attempt < 8; attempt++) {
+      out.tries++;
+      s.hand(false); s.restart(); s.tick(1.0);
+      // sampled on the same cadence as the hold, so both see the same slice of the carve —
+      // one sample against four was subtracting two phases of an oscillation that swings
+      // about six degrees on its own, which is most of a twelve degree budget
+      const ride = [];
+      for (let k = 0; k < 4; k++) { s.tick(0.2); ride.push(s.rigInfo().bodyVsBoard); }
+      if (ride.some(v => v === null || v === undefined)) { out.rejected.push('no reading'); continue; }
+      const spread = Math.max(...ride) - Math.min(...ride), rm = avg(ride);
+      // steady, and side-on to begin with. Both are things the question takes for granted.
+      if (spread > 10 || Math.abs(Math.abs(rm) - 90) > 25) {
+        out.rejected.push(`${rm.toFixed(0)}° spread ${spread.toFixed(0)}`); continue; }
+      out.ride = { deg: +rm.toFixed(1), samples: ride, spread: +spread.toFixed(1),
+                   x: s.deckGap().x };
+      out.who = s.rigInfo().who;
+      s.hand(true); s.tick(1.8);
+      for (let k = 0; k < 4; k++) { s.tick(0.2);
+        out.hold.push({ deg: s.rigInfo().bodyVsBoard, g: s.deckGap() }); }
+      s.hand(false); s.tick(3);
+      const ri = s.rigInfo();
+      // bodyVsBoard, matching the baseline. This read bodyDeg while ride.deg was bodyVsBoard,
+      // which is a comparison across two frames of reference that only looked right because
+      // the two happen to coincide while the board is straight.
+      out.after = { deg: ri.bodyVsBoard, x: s.deckGap().x, xFix: ri.xFix, yawFix: ri.yawFix };
+      out.clean = true;
+      break;
+    }
     return out;
   });
-  const swing = Math.max(...plant.hold.map(h => Math.abs(h.deg - plant.ride.deg)));
-  // ---- read against the BOARD now, not against the world ----
-  // In isolation this never passed 7.6, and in the full suite it came back 7.2, 16.2, 16.6,
-  // 8.7, 7.4, 6.1 and 13.1 — with nothing about the rig changing between them. Comparing a
-  // failing run against a passing one gave it away: on the failures the hold angles drifted
-  // steadily MORE negative, on the passes steadily less, and `day` and `dist` were identical
-  // to within one. That is not the clip turning him, it is the BOARD — on a moving wave the
-  // deck leans and carves, and a body angle read in world space rides along with it.
-  // The question this asks is whether the handstand CLIP turns his back to the camera, and
-  // that is a body-against-board quantity. Both are on the same wave, so measuring against the
-  // board cancels it and leaves only the thing in dispute.
+  // MEAN against MEAN. Both ends are averages of four samples taken the same way, so the
+  // carve cancels instead of landing on one side of the subtraction.
+  const holdMean = plant.clean
+    ? plant.hold.reduce((a, h) => a + h.deg, 0) / plant.hold.length : NaN;
+  const swing = plant.clean ? Math.abs(holdMean - plant.ride.deg) : NaN;
+  // ---- what this number is allowed to be ----
+  // The regression it exists to catch is EIGHTY degrees: the clip was animated on a floor and
+  // turns him from side-on to showing you his back. The bar was set at 12, on a quantity that
+  // moves about six on its own while he is just riding — a third of the budget spent on noise
+  // before the clip does anything, and it duly fired on noise (7.2, 16.2, 16.6, 8.7, 7.4, 6.1,
+  // 13.1 with nothing changing). An earlier attempt blamed the board and re-read the angle
+  // against it; that was wrong, and measurably so — bodyVsBoard and bodyDeg came back
+  // identical to the decimal on all 14 spawns, because the board's yaw is constant here and
+  // cancels either way. The fault was the baseline, not the frame.
+  // 25 sits far below the failure being guarded against and far above the noise: across 18
+  // spawns a clean baseline never gave more than 7.0.
   const swState = await page.evaluate(() => {
     const s = window.__surf;
     let st = {};
-    // s.equipped is not a hook — the first version of this reported board:null every time,
-    // which is a diagnostic quietly telling you nothing. The board comes off the rig.
-    try { st = { board: (s.rigInfo() || {}).board || (s.boardInfo && s.boardInfo().id) || 'n/a',
-                 rider: s.rigInfo().who,
+    try { st = { rider: s.rigInfo().who,
                  sw: s.stance ? s.stance().sw : null, day: s.skyFacing ? s.skyFacing().dayT : null,
                  dist: Math.round((s.state() || {}).dist || 0) }; } catch (e) { st = { err: String(e) }; }
     return st;
   });
-  check(plant.ride.deg !== null && swing < 12,
+  // `clean` is asserted, not merely reported: if no usable baseline ever turned up there is
+  // nothing to compare and a green light would mean only that the loop gave up.
+  check(plant.clean && plant.ride.deg !== null && swing < 25,
         'he stays side on through it rather than turning his back to you',
-        `${plant.who} riding at ${plant.ride.deg}°, hold at ` +
-        `${plant.hold.map(h => h.deg).join(', ')} — worst ${swing.toFixed(1)}° off` +
-        `  [state ${JSON.stringify(swState)}]`);
-  check(plant.hold.every(h => Math.abs(h.g.x) < 0.20 && Math.abs(h.g.gap) < 0.06),
+        !plant.clean
+          ? `never caught him riding side-on in 8 tries — rejected ${plant.rejected.join('; ')}`
+          : `${plant.who} riding at ${plant.ride.deg}° (spread ${plant.ride.spread}), hold mean ` +
+            `${holdMean.toFixed(1)} of ${plant.hold.map(h => h.deg).join(', ')} — ` +
+            `${swing.toFixed(1)}° off` +
+            (plant.tries > 1 ? `, after ${plant.tries - 1} unusable spawn(s): ` +
+              `${plant.rejected.join('; ')}` : '') +
+            `  [state ${JSON.stringify(swState)}]`);
+  // plant.hold is empty when no usable baseline was found, and `every` on an empty array is
+  // true — so this needs `clean` too or it goes green on nothing at all.
+  check(plant.clean && plant.hold.length === 4 &&
+        plant.hold.every(h => Math.abs(h.g.x) < 0.20 && Math.abs(h.g.gap) < 0.06),
         'and the hand he is on is planted over the stringer, not off the rail',
-        plant.hold.map(h => `${h.g.x.toFixed(2)}ft across a ${h.g.rail}ft half-width`).join(', '));
+        plant.clean ? plant.hold.map(h => `${h.g.x.toFixed(2)}ft across a ${h.g.rail}ft half-width`)
+                        .join(', ')
+                    : 'no usable baseline, so he was never put up there');
   // Asked of the OFFSETS, not of where his foot ended up. The handstand turns him and slides
   // him across the board, and both are meant to come off when he lands — but the reading was
   // his foot's position three seconds later against its position before, and in three seconds
   // of riding a foot moves on its own. The reference wandered between 0.17 and 0.33 across
   // runs and the check finally caught its own noise rather than a bug.
-  check(Math.abs(plant.after.deg - plant.ride.deg) < 12 &&
+  // Same baseline, same frame, and the same reason for the number: this compares the angle he
+  // came down at against the one he went up at, so it inherits the carve noise the swing check
+  // does. The offsets either side of it are the strict part — xFix and yawFix are meant to be
+  // handed back exactly, and five thousandths is a real zero.
+  check(plant.clean && plant.after &&
+        Math.abs(plant.after.deg - plant.ride.deg) < 25 &&
         Math.abs(plant.after.xFix) < 0.005 && Math.abs(plant.after.yawFix) < 0.005,
         'and both are given back when he comes down, rather than left on him',
-        `${plant.after.deg}° against ${plant.ride.deg}°, ` +
-        `slide ${plant.after.xFix} and turn ${plant.after.yawFix} left on him`);
+        plant.clean ? `${plant.after.deg}° against ${plant.ride.deg}°, ` +
+                      `slide ${plant.after.xFix} and turn ${plant.after.yawFix} left on him`
+                    : 'no usable baseline, so he was never put up there');
   // ...over his own board, and ON it. The clip was animated on a floor: it travels a third
   // of a body-width sideways and puts his head straight through the deck, because nothing in
   // it knows the board is there. So the clip's root is dropped and the game turns him over
