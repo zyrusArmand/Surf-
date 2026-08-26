@@ -597,9 +597,17 @@ await page.waitForTimeout(300);
   check(boot0.beach > 0 && boot0.beach < 1000,
         'the beach stands up fast enough not to read as a hang',
         `${boot0.beach}ms, of which ${boot0.sand}ms is ${boot0.sandVerts} sand vertices`);
-  check(boot0.sandVerts < 70000,
-        'and the sand spends its vertices across the shore, where the short waves are',
-        `${boot0.sandVerts} vertices`);
+  // ---- THE PAINTED BEACH IS GONE, AND HAS TO STAY GONE ----
+  // This used to ask how many vertices the painted beach spent, which was the right question
+  // while there were two sands in the frame. There is one now: the scanned field is the whole
+  // beach, and the plane that used to back it — 60k vertices, three canvas bakes and the
+  // slowest single pass in the game's startup — is deleted rather than hidden.
+  // Kept as a check rather than dropped, because "we removed it" is exactly the sort of thing
+  // that quietly comes back. The field's own budget is asserted further down against
+  // sandRig().fieldTris; this asserts the thing it replaced is not being built as well.
+  check(boot0.sandVerts === 0 && boot0.sand === 0,
+        'and the painted beach it replaced is not built at all',
+        `${boot0.sandVerts} vertices and ${boot0.sand}ms spent on a second sand`);
   // Counted at the moment the beach finished, not now — by the time the suite reaches here
   // something may legitimately have opened a viewer and paid for them.
   check(boot0.palmsAtBoot === 0,

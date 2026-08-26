@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.77.0';
+window.SURF_VERSION='4.77.1';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -7537,6 +7537,10 @@ function buildBeach(){
   // reads its level from those functions rather than from any mesh. Nothing that was standing
   // on the beach was standing on THIS.
   beachSand=null;
+  // The boot record keeps the two fields it always had, at zero, so the loading report stays
+  // readable and a check can assert the painted beach is still gone rather than silently
+  // finding them undefined.
+  _bootMs.sand=0; _bootMs.sandVerts=0;
   beachSandGroup=g;
   sandFieldBuild();
 
@@ -18646,7 +18650,13 @@ if(location.hash.includes('debug')){
                 }
                 return {span:+(mx-mn).toFixed(3), mean:+(sum/Math.max(1,n)).toFixed(3), verts:c.count};
               })(),
-              sand:beachSand?has(beachSand.material):null,
+              // THE SAND IS THE TILE FIELD NOW. This read the painted beach's material, and
+              // that mesh is gone — so every question about the sand's maps was being asked of
+              // a null and the answer was a thrown error rather than a false. Asked of the
+              // scanned piece the field is laid from, which is the surface a player is
+              // actually looking at.
+              sand:(typeof sandTile!=='undefined'&&sandTile&&sandTile.mat)
+                     ?has(sandTile.mat):null,
               boardUV:!!(board.children[0]&&board.children[0].geometry
                          &&board.children[0].geometry.attributes.uv),
               palmGroups:menuPalm&&menuPalm.geometry?menuPalm.geometry.groups.length:0};
@@ -18792,11 +18802,13 @@ if(location.hash.includes('debug')){
     // low buries it, which looks exactly like it failed to move. A ray straight down onto the
     // sand mesh answers it instead, and the answer is right at any x and z.
     chestDrop(x,z,sc){
-      if(!beachChest||typeof beachSand==='undefined'||!beachSand)return null;
+      // Dropped onto the FIELD, which is what is under the chest now that the painted beach
+      // is gone. Same ray, a different thing to hit.
+      if(!beachChest||typeof sandField==='undefined'||!sandField)return null;
       const p=new THREE.Vector3(x,0,z);
-      beachSand.updateWorldMatrix(true,true);
+      sandField.updateWorldMatrix(true,true);
       const rc=new THREE.Raycaster(new THREE.Vector3(x,400,z),new THREE.Vector3(0,-1,0),0,2000);
-      const hit=rc.intersectObject(beachSand,true)[0];
+      const hit=rc.intersectObject(sandField,true)[0];
       if(!hit)return {err:'no sand under that point'};
       p.y=hit.point.y;
       if(beachChest.parent){ beachChest.parent.updateWorldMatrix(true,false);
@@ -19097,7 +19109,13 @@ if(location.hash.includes('debug')){
     // not, so the two are told apart by comparing how much the normal turns along each axis.
     // A map that came out isotropic is a beach with no wind on it, and looks like sandpaper.
     sandRelief(){
-      const t=beachSand&&beachSand.material&&beachSand.material.normalMap;
+      // Read off the SCANNED TILE now. This used to read the painted beach's baked ripple map,
+      // and that beach is deleted — but the question it asks is still the right one and the
+      // answer is better: the wind ripples in the scan were photographed off real sand rather
+      // than generated, so the anisotropy this measures is a fact about the beach rather than
+      // about the noise function that drew it.
+      const _sm=(typeof sandTile!=='undefined'&&sandTile&&sandTile.mat)?sandTile.mat:null;
+      const t=_sm&&_sm.normalMap;
       const im=t&&t.image; if(!im)return null;
       const c=document.createElement('canvas'); c.width=im.width; c.height=im.height;
       c.getContext('2d').drawImage(im,0,0);
@@ -19107,7 +19125,7 @@ if(location.hash.includes('debug')){
       // ...and the GRAIN, which is a different question: relief only shows where the light
       // rakes it, and this is the part of sand you can see straight on. Its contrast is what
       // separates grains from a flat tan sheet, so that is what is reported.
-      const g=beachSand.material.map, gi=g&&g.image;
+      const g=_sm&&_sm.map, gi=g&&g.image;
       let grain=null;
       if(gi){
         const c2=document.createElement('canvas'); c2.width=gi.width; c2.height=gi.height;
@@ -19126,30 +19144,34 @@ if(location.hash.includes('debug')){
       }
       return {across:+(sx/n).toFixed(2), along:+(sy/n).toFixed(2),
               ratio:+((sy/n)/Math.max(0.01,sx/n)).toFixed(2),
-              scale:+beachSand.material.normalScale.x.toFixed(2),
+              scale:_sm&&_sm.normalScale?+_sm.normalScale.x.toFixed(2):null,
               tiles:[t.repeat.x,t.repeat.y], aniso:t.anisotropy, grain};
     },
     // What the beach's own surface is DOING, read off the mesh. Three guesses in a row about
     // why the sand had gone missing were three guesses too many.
     sandProfile(){
-      if(typeof beachSand==='undefined'||!beachSand)return null;
-      const pos=beachSand.geometry.attributes.position;
-      let lo=1e9, hi=-1e9, bad=0;
-      for(let i=0;i<pos.count;i++){ const z=pos.getZ(i);
-        if(!isFinite(z)){bad++;continue;} if(z<lo)lo=z; if(z>hi)hi=z; }
-      // and a line of it straight out from the set toward the camera, which is the strip the
-      // title screen actually looks along
-      const at=[]; const NW=201;
-      for(const wz of [-60,-50,-45,-40,-35,-30,-25,-20]){
-        // nearest row: the plane runs SC - planeY, and rows are SD/SNV apart
-        let best=null, bd=1e9;
-        for(let i=0;i<pos.count;i+=NW){
-          const py=pos.getY(i), w=-py;
-          if(Math.abs(w-wz)<bd){bd=Math.abs(w-wz); best=i;}
-        }
-        at.push({wz, y:+pos.getZ(best+Math.floor(NW/2)).toFixed(2)});
+      // ---- OFF THE HEIGHT FUNCTION, NOT OFF A MESH ----
+      // This walked the painted beach's vertices, and that mesh is gone. beachSurfH is where
+      // its shape came from in the first place — the plane was only ever that function sampled
+      // onto a grid — so asking the function directly measures the same beach without needing
+      // a copy of it lying around, and keeps answering after the copy was deleted.
+      if(typeof beachSurfH!=='function'||!beachSurfH)return null;
+      // the whole beach, sampled across its width and depth the way the plane used to be
+      const SPAN=760, DEPTH=460, N=201;
+      let lo=1e9, hi=-1e9, bad=0, verts=0;
+      for(let i=0;i<N;i++)for(let j=0;j<N;j+=10){
+        const x=-SPAN/2+SPAN*i/(N-1), wz=-DEPTH/2+DEPTH*j/(N-1);
+        const y=beachSurfH(x,wz); verts++;
+        if(!isFinite(y)){bad++;continue;}
+        if(y<lo)lo=y; if(y>hi)hi=y;
       }
-      return {verts:pos.count, nonFinite:bad, lo:+lo.toFixed(2), hi:+hi.toFixed(2),
+      // and a line of it straight out from the set toward the camera, which is the strip the
+      // title screen actually looks along. Asked of the function at exactly the distance
+      // wanted, rather than by hunting for the nearest row of a grid that no longer exists.
+      const at=[];
+      for(const wz of [-60,-50,-45,-40,-35,-30,-25,-20])
+        at.push({wz, y:+beachSurfH(0,wz).toFixed(2)});
+      return {verts, nonFinite:bad, lo:+lo.toFixed(2), hi:+hi.toFixed(2),
               seaY:beachSea?+beachSea.position.y.toFixed(2):null, line:at};
     },
     // ---- and what it does in the STRIP THE TITLE SCREEN LOOKS ALONG ----
@@ -19163,8 +19185,10 @@ if(location.hash.includes('debug')){
     // off the gradient. `rise` is what the eye is being asked about; `relief` is only there
     // to show it is not being bought with a wall.
     sandView(){
-      if(typeof beachSand==='undefined'||!beachSand)return null;
-      const pos=beachSand.geometry.attributes.position;
+      // Off beachSurfH, for the same reason as sandProfile: the painted plane this walked was
+      // only ever that function sampled onto a grid, and it is gone. The dunes it reports are
+      // the same dunes.
+      if(typeof beachSurfH!=='function'||!beachSurfH)return null;
       // The plane's rows run +y to -y and the beach is laid down so wz = -localY, so a row
       // is (wz+230)/DZ. Written the other way up the first time, which sampled the mirror
       // image of the strip — thirty units the wrong side of the camera — and reported a
@@ -19215,12 +19239,12 @@ if(location.hash.includes('debug')){
       return {wz:[Z1,Z0], relief:+(mx-mn).toFixed(2),
               rise:{max:+worst.toFixed(3), mean:+(sum/Math.max(1,n)).toFixed(3)},
               bump, flatBump, lo:+mn.toFixed(2), hi:+mx.toFixed(2),
-              k:beachSand.parent?+beachSand.parent.scale.x.toFixed(3):1,
+              k:beachSandGroup?+beachSandGroup.scale.x.toFixed(3):1,
               // how far the lens clears the sand it stands over. Negative is a camera buried
               // in a dune, which draws the back of the beach and shows the sea through it.
               clear:(menuCam&&beachSurfH)?+(menuCam.position.y-
                      beachSurfH(menuCam.position.x/1.15,menuCam.position.z/1.15)*1.15).toFixed(2):null,
-              setZ:MB_Z, camZ:menuCam?+(menuCam.position.z/(beachSand.parent?beachSand.parent.scale.z:1)).toFixed(1):null,
+              setZ:MB_Z, camZ:menuCam?+(menuCam.position.z/(beachSandGroup?beachSandGroup.scale.z:1)).toFixed(1):null,
               seaY:beachSea?+beachSea.position.y.toFixed(2):null, lines};
     },
     boardMats(){
