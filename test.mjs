@@ -1139,9 +1139,19 @@ await page.waitForTimeout(300);
   // there, with no cream band at all. So the horizon is no longer allowed to be warm, and what
   // is still asked is that the dome is a sky at all: blue overhead, and lighter rather than
   // darker as it comes down, which is the one thing that is true of every daytime sky.
+  // ---- and this stops chasing the hour ----
+  // Third rewrite. It has asked for a warm horizon (golden hour), then a blue one (a bright
+  // midday reference), and the screen is now back to golden hour — so each time the art
+  // direction moved, a check written against that direction went red and got rewritten. That is
+  // a check tracking taste, and it is worth nothing: it can only ever confirm what somebody
+  // just typed. What is true of EVERY daytime sky, whatever hour it is set to, is that the
+  // zenith is blue and that it gets lighter toward the horizon — the atmosphere is deeper in
+  // that direction and scatters more light back. Those two hold at noon and at sunset, and they
+  // both fail on the things actually worth catching: a dome left flat, a gradient inverted, or
+  // a horizon colour accidentally written into the zenith.
   const lum = c => 0.299*((c>>16)&0xff) + 0.587*((c>>8)&0xff) + 0.114*(c&0xff);
-  check(!!lit && blue(lit.top) && blue(lit.hor) && lum(lit.hor) > lum(lit.top) + 20,
-        'and the sky is blue overhead and pales toward the water, as a daytime sky does',
+  check(!!lit && blue(lit.top) && lum(lit.hor) > lum(lit.top) + 20,
+        'and the sky is blue overhead and lightens toward the water, whatever hour it is set to',
         lit ? `horizon #${lit.hor.toString(16)} (lum ${lit&&lum(lit.hor).toFixed(0)}), `+
               `overhead #${lit.top.toString(16)} (lum ${lit&&lum(lit.top).toFixed(0)}), glow ${lit.glow}` : 'no sky');
   // and the water is still water. The sea fades toward its own sky colour with distance, so a

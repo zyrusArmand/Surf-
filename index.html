@@ -6973,7 +6973,10 @@ loadModel('sand.glb',(s3)=>{
     // 32.97 to 28.49 against the reference's 32.19, because the detail normal feeds both.
     // This put back 0.4 of the 3.5 that cost, so it is near its own ceiling as well — the
     // relief left is in the geometry rather than in how hard the normal map is pushed.
-    if(mat.normalScale)mat.normalScale.set(2.15,2.15);
+    // Down from 2.15, which was chasing relief contrast against a flat overhead key. A sun at
+    // ten degrees rakes the ripples and produces that contrast for free; left at 2.15 on top of
+    // raking light the dunes go lumpy rather than polished.
+    if(mat.normalScale)mat.normalScale.set(1.35,1.35);
     // ...and brighter and WARMER. Measured on the near band: ours came back #959783 against the
     // reference's #c3af8d — darker across the board, and grey rather than warm, our red and
     // green within two of each other where the reference ramps 195 / 175 / 141.
@@ -6987,7 +6990,12 @@ loadModel('sand.glb',(s3)=>{
     // does nothing at all. Closing the remaining six per cent means more light on the beach or
     // a different tone curve, which is a decision about the whole screen rather than the sand,
     // and is not one to make quietly inside a material setup.
-    if(mat.color)mat.color.setRGB(1.60,1.23,1.03);
+    // ---- back to nearly neutral, now that the LIGHT is warm ----
+    // This was pushed to 1.60 red trying to warm sand against a near-white key, and over 1.0 it
+    // CLIPS: the blown pale patches across the near dunes were the material saturating, not the
+    // sand being bright. With an amber sun doing the warming there is nothing left for it to do,
+    // and taking it out is most of what "more polished" means here.
+    if(mat.color)mat.color.setRGB(1.04,0.99,0.95);
     // the grain, laid over the scan — see sandGrain
     mat.onBeforeCompile=sh=>{
       sh.uniforms.uGrain=sandGrain.map; sh.uniforms.uGrainRep=sandGrain.rep;
@@ -22287,8 +22295,8 @@ function menuBeachOn(){
     // The top was already close. The middle was the whole problem — 0x93c0da is a bright
     // cyan and the reference is a deep, dusty blue, and because a portrait frame only spans
     // the bottom of the dome, the middle is most of what anybody actually sees.
-    prevSky.uniforms.uTop.value.set(0x155985);
-    prevSky.uniforms.uMid.value.set(0x5d94bf);
+    prevSky.uniforms.uTop.value.set(0x123a63);
+    prevSky.uniforms.uMid.value.set(0x577593);
     // ---- and the horizon is BLUE-GREY, with the warmth coming from the glow ----
     // Measured against the reference down its right-hand edge, away from the sun: ours came
     // back 105 red and 51 green over it at the horizon while blue was within one. That is a
@@ -22302,14 +22310,14 @@ function menuBeachOn(){
     // blue above the first across the whole dome — not a nudge, a different hour of the day.
     // These are the newer one, which is the one asked for last: #2771a2 at the top, #5aabe0
     // through the middle, #9fc8e6 down at the water.
-    prevSky.uniforms.uHorizon.value.set(0x6d9fc9);
-    prevSky.uniforms.uGlow.value.set(0xffdda6);
+    prevSky.uniforms.uHorizon.value.set(0xd9a463);
+    prevSky.uniforms.uGlow.value.set(0xffc073);
     prevSky.uniforms.uSunX.value=0.30;
     // ...and almost none of it, because the newer reference has no warm band at all. The
     // cream along the horizon was the single loudest difference between the two.
-    prevSky.uniforms.uGlowAmt.value=0.16;
+    prevSky.uniforms.uGlowAmt.value=0.74;
     // and the haze carries much further up on this screen than on the wave — see uBlend
-    prevSky.uniforms.uBlend.value=0.50;
+    prevSky.uniforms.uBlend.value=0.58;
   }
   // The light with it. A hard key from high and behind the left shoulder, because the ref
   // has the palm shadows thrown long across the sand toward the camera and the dune and
@@ -22337,7 +22345,7 @@ function menuBeachOn(){
   // the LIT sand about as bright as it was and takes the shadowed sand down where it belongs.
   // The shadow keeps the sky's own colour, because what is left in it is the hemisphere term —
   // which is the blue a real shadow on a beach is, and not a grey disc.
-  if(prevKey){ prevKey.color.set(0xffd9a0); prevKey.intensity=3.15;
+  if(prevKey){ prevKey.color.set(0xffab63); prevKey.intensity=3.35;
     // Shadows, which is most of what "it looks like a render" was. The reference is a
     // photograph and the thing that says so is not the colour of the sand — it is the palm
     // laid across it in shadow, and the board and the rider each sitting in their own dark
@@ -22432,7 +22440,7 @@ function menuBeachOn(){
     // through it, not the near-navy this was — and it is a wide band of the picture rather
     // than a strip, so its colour carries more of the screen than the sky's does.
     prevOcean.uniforms.uDeep.value.set(0x0d6f92);
-    prevOcean.uniforms.uShallow.value.set(0x63c6d2);
+    prevOcean.uniforms.uShallow.value.set(0x4f9fb0);
     // uSky is what the water REFLECTS and what its own distance haze fades toward, so this one
     // number is most of whether the sea belongs to the sky above it. Left cold over a warm horizon
     // the water stayed a bright midday turquoise right up to a sunset, and the join between them
@@ -22686,7 +22694,11 @@ function layoutMenuBeach(){
     // written there is a number that never reaches the light. Down from 0.70, which was a
     // thirty-five degree sun: at 0.40 it sits at twenty-two, low enough to lay the palm across
     // the sand toward the camera and to put a warm edge down one side of everything standing up.
-    const dir=_mbS.copy(_mbUp).multiplyScalar(0.40)
+    // Down from 0.40 — twenty-two degrees — to about ten, which is the last hour before the sun
+    // touches the water. This is the number that makes it that hour: everything standing on the
+    // beach is lit along one side and throws a shadow most of the way across the frame, and no
+    // amount of warm paint on the dome does that on its own.
+    const dir=_mbS.copy(_mbUp).multiplyScalar(0.185)
                   .addScaledVector(_mbR,-0.96).addScaledVector(_mbF,-0.22).normalize();
     prevKey.position.set(_mbP.x+dir.x*54,_mbP.y+dir.y*54,_mbP.z+dir.z*54);
     prevKey.target.position.set(_mbP.x-_mbR.x*2.4,_mbP.y+4,_mbP.z-_mbR.z*2.4);
