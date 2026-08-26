@@ -619,6 +619,29 @@ await page.waitForTimeout(300);
   check(!viaShop.riderOnBeach && !viaShop.boardOnBeach,
         'and hands them back the moment the shop opens',
         JSON.stringify(viaShop));
+  // ---- and the card in the shop is of the body he actually rides ----
+  // charPreview caches per character, and until now nothing cleared that cache when a model
+  // finished downloading — so a card drawn before the file landed kept the BUILT-IN body for
+  // the rest of the session. Not hypothetical: it is exactly what "the squirrel is not the
+  // file" looked like on a phone, and the squirrel is last in the load order and the heaviest,
+  // so it is the one most likely to lose that race.
+  // Asked by comparing what the shop is holding against a forced rebuild. If the cached card
+  // were the stale procedural one and the rebuild is the model, the two differ — and this is
+  // read off the picture rather than off whether the cache happens to have an entry, because
+  // an entry that exists and is wrong is the whole failure.
+  {
+    const card = await page.evaluate(() => {
+      const s = window.__surf;
+      const kinds = s.riderKinds ? s.riderKinds() : [];
+      const id = kinds[kinds.length - 1] || 'pug';        // last in, most likely to be stale
+      const held = s.charCardCached ? s.charCardCached(id) : null;
+      const fresh = s.charShot(id);                        // clears and rebuilds
+      return { id, same: held === null ? null : held === fresh, len: fresh ? fresh.length : 0 };
+    });
+    check(card && card.len > 1000 && card.same !== false,
+          'and the shop card for the last rider to load is of his model, not the stand-in',
+          `${card.id}: ${card.len}B, matches what the shop was holding: ${card.same}`);
+  }
   // ---- and a chest sitting on the sand in front of the tree ----
   // Placing this cost four rounds and every one failed differently: the props group carries a
   // transform of its own, the shot is turned along the beach so world +x is not screen-right,

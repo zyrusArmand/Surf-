@@ -12790,6 +12790,18 @@ for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
       if(m.emissive)m.emissive.setRGB(0,0,0);
       m.needsUpdate=true; } });
   riderModels[id]=fitted;
+  // ---- and the shop's picture of him is now out of date ----
+  // charPreview caches per character and nothing used to clear it, so a card drawn before this
+  // model arrived kept the BUILT-IN body for the rest of the session. That is not hypothetical:
+  // it is exactly what "the squirrel is not the file" looked like, and the squirrel is last in
+  // the load order and the heaviest, so it is the one most likely to lose the race. The card
+  // is thrown away here instead, and redrawn if the shop happens to be open on the Surfers tab.
+  try{
+    delete prevCache['c:'+id];
+    const sh=document.getElementById('shop');
+    if(sh&&!sh.classList.contains('hidden')&&typeof shopTab!=='undefined'&&shopTab==='riders'
+       &&typeof drawShop==='function')drawShop();
+  }catch(e){}
   fitted.userData.riderFor=id;
   pug.add(fitted);
   modelRigs[id]=setupModelRig(fitted,gltf,id);
@@ -19853,6 +19865,9 @@ if(location.hash.includes('debug')){
               sunX:+skyUniforms.uSunX.value.toFixed(2),
               glow:+skyUniforms.uGlowAmt.value.toFixed(2), dayT:+dayT.toFixed(2)};
     },
+    // what the shop is CURRENTLY holding for a character, without building anything — so a
+    // check can tell a cached card apart from a freshly rebuilt one
+    charCardCached(id){ return prevCache['c:'+id]||null; },
     chopState(){
       const rd=(u)=>({on:u.uChopK.value>0.5, w:u.uChop.value?u.uChop.value.image.width:0,
                       wrap:u.uChop.value?u.uChop.value.wrapS===THREE.RepeatWrapping:false,
