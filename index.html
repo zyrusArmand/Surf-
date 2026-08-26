@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.83.1';
+window.SURF_VERSION='4.84.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -20226,7 +20226,31 @@ if(location.hash.includes('debug')){
         return {x:[+x0.toFixed(3),+x1.toFixed(3)], y:[+y0.toFixed(3),+y1.toFixed(3)],
                 h:+(y1-y0).toFixed(3), cx:+((x0+x1)/2).toFixed(3), foot:+y1.toFixed(3)};
       };
-      return {board:box(menuBeach.board), rider:box(pug),
+      // ---- AND WHERE THE BUTTONS ARE, in the same coordinates ----
+      // "The Board button is sitting on the pug" is a statement about two rectangles and it was
+      // never checkable, because the set was measured in screen fractions and the buttons only
+      // ever existed in the DOM. Read off getBoundingClientRect and divided by the window, both
+      // are in the same numbers and the overlap is arithmetic.
+      const R=(id)=>{ const e=document.getElementById(id); if(!e)return null;
+        const r=e.getBoundingClientRect(), W=innerWidth||1, H=innerHeight||1;
+        if(!r.width)return null;
+        return {x:[+(r.left/W).toFixed(3),+(r.right/W).toFixed(3)],
+                y:[+(r.top/H).toFixed(3),+(r.bottom/H).toFixed(3)]}; };
+      const hits=(a2,b2)=>!!(a2&&b2&&a2.x[0]<b2.x[1]&&b2.x[0]<a2.x[1]&&
+                                       a2.y[0]<b2.y[1]&&b2.y[0]<a2.y[1]);
+      const btn={board:R('dBoard'),shop:R('dShop'),tricks:R('dTricks'),
+                 quests:R('dQuests'),settings:R('dSettings'),stats:R('dStats'),
+                 play:R('goBtn')};
+      const rb=box(pug), cb=box(typeof beachChest!=='undefined'?beachChest:null),
+            bb=box(menuBeach.board);
+      const clash=[];
+      for(const k in btn){
+        if(hits(btn[k],rb))clash.push(k+'/rider');
+        if(hits(btn[k],cb))clash.push(k+'/chest');
+        if(hits(btn[k],bb))clash.push(k+'/board');
+      }
+      return {buttons:btn, clash,
+              board:box(menuBeach.board), rider:box(pug),
               chest:box(typeof beachChest!=='undefined'?beachChest:null),
               palm:box(typeof menuPalm!=='undefined'?menuPalm:null),
               d:MB_D, eye:MB_EYE, aim:MB_AIM, fov:MB_FOV, fish:MENU_FISH, pull:MENU_PULL,
@@ -22897,6 +22921,23 @@ const MB_YAW=0.46;                    // how far round from straight-out-to-sea 
 // what puts the near dunes across the bottom of the frame and leaves the sea as a band
 // rather than a third of the picture — the shot is somebody crouched on the sand looking up
 // at a board propped on a tree, and not somebody standing back from it.
+// ---- THE CAMERA, STAGED RATHER THAN SOLVED ----
+// Placed with the stage's own Camera tool, on a phone, and read straight off its readout:
+// -13.64, 5.20, -39.88 looking -355.3 / 11.2. stCamYaw and stCamPitch are the Y and X of a YXZ
+// euler, so those numbers go in as radians with nothing to reinterpret.
+// The solved framing above still runs — it is what places the SET, and the aim it computes is
+// what the tree and the board and the chest are arranged around. What this replaces is only
+// where the lens ends up standing, which was the one part being argued with.
+// ...and it still answers the window. A pose staged on a phone is a pose for one aspect, and a
+// browser window sees far more across at the same distance, so holding the camera stock still
+// would leave the set small in the middle of a wide screen. The dolly below runs it along its
+// OWN view axis by how much wider the frame is than the phone it was staged on — nearer as the
+// window widens, which is the same trade the solved version makes and in the same direction.
+let MB_CAM_ON=1;
+const MB_CAM=new THREE.Vector3(-13.64,5.20,-39.88);
+let MB_CAM_YAW=-6.201155, MB_CAM_PITCH=0.195477;
+let MB_CAM_ASP=0.462;                // the aspect it was staged at
+let MB_CAM_DOLLY=9.0;                // feet nearer per unit of aspect above that
 let MB_D=6.2;                        // how far back the camera stands from the palm
 // How high the lens is over the sand, and how high it is aimed. AIM is a height above the
 // beach at the palm; EYE is measured off the sand the camera itself stands on, which is not
@@ -24208,6 +24249,15 @@ function renderMenuBeach(dt){
   }
   menuCam.position.set(cx, Math.max(g,gc)+MB_EYE+sw2*0.12, cz);
   menuCam.lookAt(px-_mbR.x*aim+sw*0.15, g+MB_AIM, pz-_mbR.z*aim);
+  if(MB_CAM_ON){
+    menuCam.quaternion.setFromEuler(_stEul.set(MB_CAM_PITCH,MB_CAM_YAW,0,'YXZ'));
+    menuCam.position.copy(MB_CAM);
+    // along its own view axis, so widening the window brings the camera in rather than
+    // sliding the shot sideways
+    const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(menuCam.quaternion);
+    menuCam.position.addScaledVector(fwd,
+      Math.max(0,(menuCam.aspect||MB_CAM_ASP)-MB_CAM_ASP)*MB_CAM_DOLLY);
+  }
   // the stage's own lens — see stCamFree. Held through Done as well as during, which is why the
   // condition is the lens itself rather than whether the bar happens to be on the screen.
   if(typeof stCamFree!=='undefined'&&stCamFree&&
