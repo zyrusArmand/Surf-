@@ -990,14 +990,17 @@ await page.waitForTimeout(300);
   const band = f => (f.btn + f.right) / 2;
   const mid = f => (Math.min(f.rider.x[0], f.board.x[0], f.chest.x[0]) +
                     Math.max(f.rider.x[1], f.board.x[1], f.chest.x[1])) / 2;
-  // Out to 0.09 from 0.065, because the reference is not centred in that gap either: its own set
-  // runs 0.180 to 0.971, which is a middle of 0.575 against a band centred on 0.5. The picture
-  // this screen is composed against sits right of centre on purpose — the palm holds the middle
-  // and the chest carries the right — so a check demanding the old centring is asking for a shot
-  // nobody wants. What it still catches is the set drifting far enough that one end leaves the
-  // band, which is the fault rather than the composition.
-  check(framed.length === 3 && framed.every(f => f.right > 0.65 && Math.abs(mid(f) - band(f)) < 0.09),
-        'and the set is centred in the gap the buttons leave it',
+  // ---- and it is not centred in that gap, it is composed RIGHT of it, on purpose ----
+  // The reference's own set runs 0.180 to 0.971 — a middle of 0.575 against a band centred on
+  // 0.5. The palm holds the middle and the chest carries the right, so the group deliberately
+  // sits off-centre and a check demanding otherwise is asking for a shot nobody wants.
+  // Retargeted rather than widened, which matters: the first repair here was to loosen the
+  // window around 0.5 until the new composition fitted, and that is how a check stops meaning
+  // anything — a wide enough window around the wrong centre accepts everything. So the centre
+  // moves to where the picture actually puts it and the window gets TIGHTER than it was.
+  const want = f => band(f) + 0.075;
+  check(framed.length === 3 && framed.every(f => f.right > 0.65 && Math.abs(mid(f) - want(f)) < 0.06),
+        'and the set sits where the reference puts it, right of the middle of that gap',
         framed.map(f => `${f.id}: set at ${mid(f).toFixed(3)} (rider ${f.rider.x[0]}-${f.rider.x[1]}, ` +
                         `board ${f.board.x[0]}-${f.board.x[1]}, chest ${f.chest.x[0]}-${f.chest.x[1]}), ` +
                         `band ${f.btn}-${f.right}`).join(', '));
