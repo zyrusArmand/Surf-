@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.86.0';
+window.SURF_VERSION='4.86.1';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -23687,7 +23687,13 @@ function layoutBeachChest(){
   // Straight off the trunk now, so no clamp and no shape-dependence: the chest is the same
   // two and a half feet from the tree whether the camera is standing close or ten feet back.
   const cf=MB_CF;
-  const wx=_mbR.x*MB_CD-_mbF.x*cf, wz=MB_Z*MB_K+_mbR.z*MB_CD-_mbF.z*cf;
+  // Off _mbP, not off MB_Z. Both of these carried their own copy of "where the set is" —
+  // MB_Z*MB_K for the depth and an implied zero for the across — which was true while the set
+  // stood on the world's axis and stopped being true the moment it was moved to the staged
+  // camera. Measured, the chest stayed at x 2.43 to 3.85 while the palm, board and rider had
+  // all followed: three things moved and the fourth was reading a different address for the
+  // same place.
+  const wx=_mbP.x+_mbR.x*MB_CD-_mbF.x*cf, wz=_mbP.z+_mbR.z*MB_CD-_mbF.z*cf;
   const sand=(beachSandH?beachSandH(wz/MB_K):beachSand0)*MB_K;
   menuProps.updateWorldMatrix(true,false);
   // Sized by MEASUREMENT. It hangs off a group that is scaled, and the model inside it was
@@ -23860,7 +23866,7 @@ function hangBeachSign(){
   // distance and leaves the sign standing on the ground where it belongs.
   const FW=MB_SGN_PLANT?MB_SGN_PF:MB_SGN_F;
   const SD=MB_SGN_PLANT?MB_SGN_PS:_sgSide;
-  const wx=_mbR.x*SD-_mbF.x*FW, wz=MB_Z*MB_K+_mbR.z*SD-_mbF.z*FW;
+  const wx=_mbP.x+_mbR.x*SD-_mbF.x*FW, wz=_mbP.z+_mbR.z*SD-_mbF.z*FW;
   menuProps.updateWorldMatrix(true,false);
   // Measured with the sign standing square in the WORLD, not square to the lens: a width read
   // off a world-aligned box is the plank's own width only while the plank is world-aligned, and
@@ -24217,7 +24223,7 @@ function renderMenuBeach(dt){
   const mag=1/(1+(_th/Math.tan(_th)-1)*MENU_PULL);
   const D=(MB_D+Math.max(0,1-menuCam.aspect)*22.35
               +Math.max(0,menuCam.aspect-0.9)*3.0+spread*0.45+sw*0.5)*lensK*mag;
-  const px=0, pz=MB_Z*MB_K;
+  const px=_mbP.x, pz=_mbP.z;
   // Low, and aimed UP the beach rather than down onto it. Eye level over the sand puts a
   // third of the picture into empty foreground; from down here the sand is a strip the
   // board stands on and the sea and the sky get the rest, which is how the photograph is
