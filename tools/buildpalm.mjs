@@ -21,6 +21,19 @@ import sharp from 'sharp';
 const IN=process.argv[2], OUT=process.argv[3];
 const TARGET=+(process.argv[4]||30000), ERR=+(process.argv[5]||0.02);
 const TEX=+(process.argv[6]||1024), Q=+(process.argv[7]||86);
+// ---- AND THE SKIN COMES OFF ----
+// Counter-intuitive, and it is the whole reason the first attempt exploded on screen.
+// The game does not want a rigged palm; it wants a SHAPE, which it then rigs itself through
+// rigStaticPalm into a bone chain its own bend-posing code knows the shape of. Every palm in
+// the grove gets a different bend posed into that chain, which is what stops nine copies of
+// one tree reading as nine copies of one tree.
+// Hand it a file that already carries a skeleton and it skips building its own and poses the
+// FILE's joints instead — 39 of them, named and ordered by whatever exported it, with no
+// relationship to the trunk chain the code is addressing. The result is not a bent tree, it
+// is fronds flung in every direction, which is exactly what the render showed.
+// The bind pose is the tree standing up, so dropping the joint weights leaves the shape
+// correct and lets the known-good path take it.
+const STATIC=process.argv[8]!=='keep-skin';
 const io=new NodeIO().registerExtensions(ALL_EXTENSIONS);
 const doc=await io.read(IN);
 const root=doc.getRoot();
@@ -43,6 +56,20 @@ await doc.transform(
   prune(), dedup(), unpartition(),
 );
 console.log('after: ', Math.round(tris()), 'tris');
+if(STATIC){
+  // the vertices are already in bind space and the bind pose is the tree standing, so the
+  // weights can simply go: what is left is the same shape with nothing driving it
+  for(const mesh of root.listMeshes())
+    for(const p of mesh.listPrimitives()){
+      for(const sem of ['JOINTS_0','WEIGHTS_0','JOINTS_1','WEIGHTS_1']){
+        const a=p.getAttribute(sem); if(a){ p.setAttribute(sem,null); a.dispose(); }
+      }
+    }
+  for(const n of root.listNodes()) if(n.getSkin()) n.setSkin(null);
+  for(const sk of root.listSkins()) sk.dispose();
+  await doc.transform(prune(), dedup());
+  console.log('skin stripped — the game rigs this itself');
+}
 // A frond is a flat strip and you see the underside of half of them from below, which is
 // exactly the angle a title screen looks at a palm from.
 for(const m of root.listMaterials()) m.setDoubleSided(true);
