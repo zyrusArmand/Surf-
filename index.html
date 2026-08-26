@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.79.1';
+window.SURF_VERSION='4.80.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -12940,10 +12940,16 @@ const wakeMat=new THREE.ShaderMaterial({
       for(int k=0;k<4;k++){ s+=a*vn(p); p*=2.03; a*=0.5; } return s; }
     void main(){
       if(vA<=0.001) discard;
-      // stretched along the trail, because foam pulls out into streaks behind a moving board
-      vec2 q=vec2(vUV.x*2.2, vUV.y*9.0);
-      float lace  = smoothstep(0.28,0.80, fbm(q*1.45 + vec2(-uT*0.07, uT*0.06)));
-      float fleck = smoothstep(0.44,0.90, fbm(q*3.90 + vec2( uT*0.11, uT*0.09)));
+      // ---- ENOUGH CELLS TO SEE ----
+      // At vUV.y*9.0 the whole trail held nine cells of noise, and the part of it near enough to
+      // look at held about two — so the mottling existed and none of it was visible, which is
+      // how a dense foam came out as a smooth white slab. Twenty-six along and three across puts
+      // the structure at the size the churn actually is.
+      vec2 q=vec2(vUV.x*3.2, vUV.y*26.0);
+      float n1=fbm(q*1.00 + vec2(-uT*0.10, uT*0.16));       // the billows
+      float n2=fbm(q*2.70 + vec2( uT*0.15, uT*0.11));       // and the grain in them
+      float lace  = smoothstep(0.30,0.78, n1);
+      float fleck = smoothstep(0.44,0.90, n2);
       // ---- THE WHITEWATER RECIPE, NOT THE CREST'S ----
       // The wave carries two different foams and this is the other one. Crest foam is the thin
       // lacy line along the top of a standing face — 0.45 + 0.55*lace — and building the trail
@@ -12952,13 +12958,22 @@ const wakeMat=new THREE.ShaderMaterial({
       // the noise only mottling it, because it is aerated all the way through rather than
       // laced across the surface. Dense and cloudy, and the same numbers the curl uses, so the
       // two still match when they are side by side.
-      float edge  = smoothstep(0.30,1.0, abs(vUV.x));        // the rails throw the brightest water
-      float a = vA*(0.52+0.34*lace+0.30*fleck)*(0.80+0.34*edge);
-      // Barely punched now. The holes are what turns a sheet into foam, but at the crest's
-      // strength they were eating most of it — this only takes out the very faintest corners.
-      a *= smoothstep(-0.25,0.35, 0.30+0.60*lace+0.55*fleck);
+      // ---- AND THE OUTLINE IS EATEN BY THE SAME NOISE ----
+      // A dense fill inside a clean quad is a plastic strip however good the fill is: the shape
+      // is what the eye reads first, and a straight edge with a soft gradient on it is not what
+      // churned water does. The rail distance is pushed around by the billows before it is
+      // tested, so the ribbon's own silhouette comes out torn and lumpy — which is most of the
+      // difference between foam and a ribbon.
+      float ed = abs(vUV.x)*(0.80+0.40*n1) + (n2-0.5)*0.30;
+      float across = 1.0-smoothstep(0.55,1.02, ed);
+      float a = vA*(0.52+0.34*lace+0.30*fleck)*across;
+      // holes, but only the faintest — the density is the point
+      a *= smoothstep(-0.10,0.40, 0.25+0.65*lace+0.55*fleck);
       if(a<=0.004) discard;
-      gl_FragColor=vec4(mix(vec3(0.90,0.95,0.97),vec3(0.97,0.995,1.0),fleck), a);
+      // Shaded rather than flat white. Cloud reads as cloud because its hollows are darker than
+      // its heads; one brightness over the whole thing is paint whatever shape it is cut to.
+      vec3 col=mix(vec3(0.82,0.89,0.93), vec3(0.99,1.0,1.0), clamp(0.35+0.75*fleck+0.45*lace,0.0,1.0));
+      gl_FragColor=vec4(col, a);
     }`
 });
 const wakeMesh=new THREE.Mesh(wakeGeo,wakeMat);
@@ -18316,6 +18331,19 @@ if(location.hash.includes('debug')){
               wood:'#'+SGN_WOOD.getHexString(), gold:'#'+SGN_GOLD.getHexString(),
               barkTint:'#'+PALM_BARK.getHexString()};
     },
+    // the planted sign's own numbers, so the corner it is dug into can be walked without an edit
+    signPlant(px,py,pw,tilt,yaw,sink,on){
+      if(px!==undefined)MB_SGN_PX=px; if(py!==undefined)MB_SGN_PY=py;
+      if(pw!==undefined)MB_SGN_PW=pw; if(tilt!==undefined)MB_SGN_TILT=tilt;
+      if(yaw!==undefined)MB_SGN_YAW=yaw; if(sink!==undefined)MB_SGN_SINK=sink;
+      if(on!==undefined)MB_SGN_PLANT=on?1:0;
+      if(typeof layoutBeachSign==='function')layoutBeachSign();
+      const m=(typeof signScreen==='function')?signScreen():null;
+      return {plant:!!MB_SGN_PLANT, px:MB_SGN_PX, py:MB_SGN_PY, pw:MB_SGN_PW,
+              tilt:MB_SGN_TILT, yaw:MB_SGN_YAW, sink:MB_SGN_SINK,
+              at:m?{x:m.x.map(v=>+v.toFixed(3)), y:m.y.map(v=>+v.toFixed(3)),
+                    roll:+m.roll.toFixed(1)}:null};
+    },
     signAt(w,h,f,d,rot,mh){
       if(w!==undefined)MB_SGN_W=w; if(h!==undefined)MB_SGN_H=h;
       if(f!==undefined)MB_SGN_F=f; if(d!==undefined)MB_SGN_D=d;
@@ -23469,6 +23497,20 @@ let MB_SGN_W=0.625, MB_SGN_MH=0.144, MB_SGN_H=0.078, MB_SGN_F=6.0, MB_SGN_D=0.50
 // fronds over 5% of that band, at 0.200 it sees a third of it, and a laptop at 0.200 sees its
 // crown vanish. The same span the camera's own stand-off already uses, for the same reason.
 let MB_SGN_HP=0.092;
+// ---- DUG INTO THE SAND, NOT HUNG AS A TITLE ----
+// The plank used to hang off the palm across the top of the frame, which is a title card. It is
+// a beach sign now: staked into the sand down in the bottom-left corner, leaning the way a sign
+// pushed into soft ground leans, with SURF still square enough to the lens to read.
+// Everything here is a SCREEN fraction rather than a distance, for the same reason the hung
+// version was: the menu shot pulls back on a narrow window and comes in on a squarer one, and a
+// sign fixed at so many feet along the beach walks across the frame between the two.
+let MB_SGN_PLANT=1;        // 0 hangs it off the palm the old way
+let MB_SGN_PX=0.20;        // where its middle sits across the frame — well left of the pug
+let MB_SGN_PY=0.86;        // and how far down. Below the board's foot, into the near sand.
+let MB_SGN_PW=0.30;        // how wide it reads, as a fraction of the frame
+let MB_SGN_TILT=0.30;      // leaned back out of the sand
+let MB_SGN_YAW=0.34;       // and turned off square, so it is stuck in at an angle
+let MB_SGN_SINK=0.30;      // how much of the plank is under the sand
 function sgnTopTarget(){
   return MB_SGN_H+MB_SGN_HP*Math.max(0,1-(menuCam?menuCam.aspect:1));
 }
@@ -23715,6 +23757,18 @@ function hangBeachSign(){
   menuProps.worldToLocal(p);
   beachSign.position.copy(p);
   faceBeachSign();
+  if(MB_SGN_PLANT){
+    // Aimed at the lens first and then turned OFF it, rather than given a world rotation: the
+    // shot moves, and a sign with a fixed world angle reads square from one camera and edge-on
+    // from another. This way the lean is always the same lean as seen from the seat.
+    const q=new THREE.Quaternion();
+    beachSign.quaternion.multiply(q.setFromAxisAngle(new THREE.Vector3(1,0,0),MB_SGN_TILT));
+    beachSign.quaternion.multiply(q.setFromAxisAngle(new THREE.Vector3(0,1,0),MB_SGN_YAW));
+    // ...and pushed down into the sand by a share of its own height, so the bottom of the plank
+    // is under the beach rather than resting on it. Measured off the box so it holds at any size.
+    const lb0=signLocalBox();
+    if(lb0)beachSign.position.y-=(lb0.max.y-lb0.min.y)*beachSign.scale.y*MB_SGN_SINK;
+  }
   return signScreen();
 }
 // ---- and it is sized and hung IN THE PICTURE, not in the world ----
@@ -23755,7 +23809,13 @@ function fitBeachSign(){
     // shape and never grows taller than its allowance however wide the frame is.
     const w=m.x[1]-m.x[0], h=m.y[1]-m.y[0];
     if(w>1e-4&&h>1e-4){
-      const k=1+(Math.min(MB_SGN_W/w,MB_SGN_MH/h)-1)*DAMP;
+      // A hung title is bounded by width AND height — whichever binds first wins, so it keeps
+      // its shape and never grows taller than its allowance. A planted one has no height
+      // ceiling: it is leaning, so how tall it reads is the lean's business, and clamping that
+      // would fight the tilt for control of the same number.
+      const want=MB_SGN_PLANT ? MB_SGN_PW/w
+                              : Math.min(MB_SGN_W/w, MB_SGN_MH/h);
+      const k=1+(want-1)*DAMP;
       if(Math.abs(k-1)>0.004){
         _sgFt=Math.max(0.5,Math.min(24,_sgFt*Math.max(0.55,Math.min(1.8,k))));
         done=false;
@@ -23766,8 +23826,16 @@ function fitBeachSign(){
     // at thirty feet with four a pass it SATURATED there — the top edge came to rest half again
     // as far down the frame as asked, and the width solve then chased a sign that was never going
     // to arrive, ending ninety percent of the way across the screen.
-    if(!secant(()=>_sgUp,sgnTopTarget(),q=>q.y[0],v=>{_sgUp=v;},2,90,12))done=false;
-    if(!secant(()=>_sgSide,MB_SGN_D,q=>(q.x[0]+q.x[1])/2,v=>{_sgSide=v;},-24,24,8))done=false;
+    // A hung title is placed by its TOP edge, because what matters is that it clears the frame.
+    // A planted one is placed by its MIDDLE: its bottom is buried and its top is whatever the
+    // lean leaves, so neither edge is the thing being aimed.
+    if(MB_SGN_PLANT){
+      if(!secant(()=>_sgUp,MB_SGN_PY,q=>(q.y[0]+q.y[1])/2,v=>{_sgUp=v;},-40,90,12))done=false;
+      if(!secant(()=>_sgSide,MB_SGN_PX,q=>(q.x[0]+q.x[1])/2,v=>{_sgSide=v;},-40,24,8))done=false;
+    }else{
+      if(!secant(()=>_sgUp,sgnTopTarget(),q=>q.y[0],v=>{_sgUp=v;},2,90,12))done=false;
+      if(!secant(()=>_sgSide,MB_SGN_D,q=>(q.x[0]+q.x[1])/2,v=>{_sgSide=v;},-24,24,8))done=false;
+    }
     m=hangBeachSign();
     if(done||!m)break;
   }
