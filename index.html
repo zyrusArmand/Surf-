@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.89.0';
+window.SURF_VERSION='4.90.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -12958,11 +12958,17 @@ const wakeMat=new THREE.ShaderMaterial({
       // look at held about two — so the mottling existed and none of it was visible, which is
       // how a dense foam came out as a smooth white slab. Twenty-six along and three across puts
       // the structure at the size the churn actually is.
-      vec2 q=vec2(vUV.x*3.2, vUV.y*26.0);
-      float n1=fbm(q*1.00 + vec2(-uT*0.10, uT*0.16));       // the billows
-      float n2=fbm(q*2.70 + vec2( uT*0.15, uT*0.11));       // and the grain in them
-      float lace  = smoothstep(0.30,0.78, n1);
-      float fleck = smoothstep(0.44,0.90, n2);
+      // ---- BILLOWS, NOT STREAKS ----
+      // Twenty-six cells along the trail stretched the noise into fine streaks, which is crest
+      // foam — the lacy line along the top of a standing wave. What the whitewater in a barrel
+      // looks like is CLOUD: a few big soft lumps with volume, and hardly any fine grain at all.
+      // So the features get much larger and much rounder, and the fine octave is pulled right
+      // back to a suggestion of texture rather than half the signal.
+      vec2 q=vec2(vUV.x*1.9, vUV.y*9.0);
+      float n1=fbm(q*1.00 + vec2(-uT*0.06, uT*0.10));       // the billows
+      float n2=fbm(q*2.30 + vec2( uT*0.09, uT*0.07));       // and a little grain in them
+      float lace  = smoothstep(0.34,0.86, n1);
+      float fleck = smoothstep(0.46,0.92, n2);
       // ---- THE WHITEWATER RECIPE, NOT THE CREST'S ----
       // The wave carries two different foams and this is the other one. Crest foam is the thin
       // lacy line along the top of a standing face — 0.45 + 0.55*lace — and building the trail
@@ -12977,15 +12983,18 @@ const wakeMat=new THREE.ShaderMaterial({
       // churned water does. The rail distance is pushed around by the billows before it is
       // tested, so the ribbon's own silhouette comes out torn and lumpy — which is most of the
       // difference between foam and a ribbon.
-      float ed = abs(vUV.x)*(0.80+0.40*n1) + (n2-0.5)*0.30;
-      float across = 1.0-smoothstep(0.55,1.02, ed);
-      float a = vA*(0.52+0.34*lace+0.30*fleck)*across;
-      // holes, but only the faintest — the density is the point
-      a *= smoothstep(-0.10,0.40, 0.25+0.65*lace+0.55*fleck);
+      // the outline is eaten by the billows, so the silhouette is lumpy rather than a quad —
+      // but softly now, over a wide falloff, because a barrel's whitewater has no edge anywhere
+      float ed = abs(vUV.x)*(0.86+0.30*n1) + (n2-0.5)*0.18;
+      float across = 1.0-smoothstep(0.38,1.06, ed);
+      float a = vA*(0.55+0.38*lace+0.16*fleck)*across;
+      // barely punched: this stuff is aerated all the way through and reads as solid
+      a *= smoothstep(-0.30,0.30, 0.35+0.60*lace+0.35*fleck);
       if(a<=0.004) discard;
-      // Shaded rather than flat white. Cloud reads as cloud because its hollows are darker than
-      // its heads; one brightness over the whole thing is paint whatever shape it is cut to.
-      vec3 col=mix(vec3(0.82,0.89,0.93), vec3(0.99,1.0,1.0), clamp(0.35+0.75*fleck+0.45*lace,0.0,1.0));
+      // Cloud reads as cloud because its hollows are darker than its heads — but only a little.
+      // The previous range ran 0.82 to 0.99, which is a contrast a lump of foam does not have
+      // and read as marbling. Tightened toward the whitewater's own near-white.
+      vec3 col=mix(vec3(0.88,0.93,0.96), vec3(1.0,1.0,1.0), clamp(0.30+0.55*lace+0.35*fleck,0.0,1.0));
       gl_FragColor=vec4(col, a);
     }`
 });
@@ -13002,7 +13011,10 @@ function updateWake(dt,eff){
     const o=i*6, oa=i*2;
     if(!t){ wakeAlpha[oa]=0;wakeAlpha[oa+1]=0; continue; }
     const k=t.age/1.5;
-    const halfW=t.w*(0.55+k*2.6);                  // spreads out behind you
+    // ---- AND SMALLER ----
+    // It spread to over three times the board's width by the end of its life, which is a wake
+    // for a boat. Down to a little over twice, and narrower where it leaves the tail.
+    const halfW=t.w*(0.42+k*1.75);                 // spreads out behind you
     const y=waveH(t.x,dist*WAVE_DRIFT+t.z,waveClock)+0.05;         // rides the swell like everything else
     wakePos[o]  =t.x-halfW; wakePos[o+1]=y; wakePos[o+2]=t.z;
     wakePos[o+3]=t.x+halfW; wakePos[o+4]=y; wakePos[o+5]=t.z;
