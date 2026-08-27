@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.16.0';
+window.SURF_VERSION='5.17.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -19949,6 +19949,29 @@ if(location.hash.includes('debug')){
                   camFov:menuCam?+menuCam.fov.toFixed(3):null,
                   camAsp:menuCam?+menuCam.aspect.toFixed(4):null,
                   pad:SAND_CULL_PAD};
+      // ---- WHERE THE TEXTURE MEMORY ACTUALLY IS ----
+      // texMB alone says the number is big and nothing about which map to argue with. This
+      // lists the heaviest, with what carries them, so paying for one thing by trimming
+      // another is a decision about named objects rather than a guess.
+      {
+        const seen=new Map();
+        prevScene.traverse(o=>{
+          if(!o.isMesh)return;
+          let n=o.name||''; let q=o.parent;
+          while(!n&&q){ n=q.name||''; q=q.parent; }
+          for(const m of (Array.isArray(o.material)?o.material:[o.material])){
+            if(!m)continue;
+            for(const k of ['map','normalMap','roughnessMap','metalnessMap','aoMap','emissiveMap']){
+              const t=m[k];
+              if(!t||!t.image||seen.has(t.uuid))continue;
+              const w=t.image.width||0,h=t.image.height||0;
+              seen.set(t.uuid,{who:n||'(unnamed)',slot:k,px:w+'x'+h,
+                               mb:+((w*h*4*1.333)/1048576).toFixed(1)});
+            }
+          }
+        });
+        parts.textures=[...seen.values()].sort((a,b)=>b.mb-a.mb).slice(0,12);
+      }
       return {parts, calls:info.render.calls, tris:info.render.triangles, points:info.render.points,
               geoms:info.memory.geometries, textures:info.memory.textures,
               texMB:+texMB.toFixed(1),
