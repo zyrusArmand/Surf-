@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.05.0';
+window.SURF_VERSION='5.06.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -15728,15 +15728,30 @@ function updateWipeout(dt){
     // the body is in the water and barely the head is out of it. Not as deep as it first
     // went: at 1.62 he vanished under the surface altogether and the shot was an empty sea
     // with a board on it, which is not a man in trouble, it is nobody there.
-    py+=((sea-1.26)-py)*Math.min(1,dt*3.0);
+    // ---- HE RIDES THE SWELL, he does not chase it ----
+    // Easing his absolute height toward (sea - 1.26) makes him lag a surface that is itself
+    // moving: measured, his depth swung between 0.69 and 1.87 feet -- chest out of the water
+    // at one end of the swell and his head under at the other, when the whole point is that
+    // his head is just out of it. The DEPTH is what settles; where that depth puts him is
+    // wherever the water is this frame. Same sink, and it stays put.
+    if(w.dep===undefined)w.dep=Math.max(0,sea-py);
+    w.dep+=(1.26-w.dep)*Math.min(1,dt*3.0);
+    py=sea-w.dep;
     w.vy=0;
-    w.rx+=(0.16-w.rx)*Math.min(1,dt*3.0);             // comes upright rather than lying flat
-    w.rz*=0.86; w.sx*=0.80; w.sy*=0.92; w.sz*=0.80;
+    w.rx+=(0.16-w.rx)*Math.min(1,dt*5.2);             // comes upright rather than lying flat
+    w.rz*=0.74; w.sx*=0.62; w.sy*=0.70; w.sz*=0.62;
     // He does NOT spin on the spot or bob up and down any more. Everything moving at once —
     // body turning, hips rising and falling, all four limbs at fifteen hertz — read as a
     // seizure rather than as a man in trouble. He holds still and waves; that is the whole
     // picture, and it is the one everybody already knows.
-    w.ry+=(0-w.ry)*Math.min(1,dt*2.2);
+    // ---- AND THE WATER STOPS HIM TURNING ----
+    // 2.2 a second was enough to settle a two-turn somersault by the time anyone looked. The
+    // crash throws him three times as hard now, so at the same rate he was still coming round
+    // two seconds after the splash -- measured at 0.086 radians of yaw still moving per 0.4s,
+    // against a fiftieth of that before. Water is not air: it takes the spin out of a body
+    // almost at once, and the pose you are meant to be looking at is a man holding still and
+    // waving, not one slowly unwinding.
+    w.ry+=(0-w.ry)*Math.min(1,dt*5.2);
     // spray thrown off the hands, and only off the hands
     for(const sx of [-1,1])if(Math.random()<dt*6)
       splash(px+sx*(0.45+Math.random()*0.3),sea,w.vz*w.t+(Math.random()-0.5)*0.7,1);
@@ -20104,11 +20119,20 @@ if(location.hash.includes('debug')){
       const r0=row(Z0), r1=row(Z1), c0=col(-16), c1=col(16);
       const lo=[], hi=[];
       let mn=1e9, mx=-1e9, worst=0, sum=0, n=0;
+      // ---- SAMPLED OFF THE FIELD, not off a vertex array that no longer exists ----
+      // This walked `pos`, the painted beach plane's position attribute, reading its local z
+      // as height. That plane was deleted when the sand became tiles and nothing replaced the
+      // walk, so this hook has thrown "pos is not defined" ever since -- and because the
+      // suite calls it inside a page.evaluate, the throw took the whole run down with it.
+      // Every check after this point has been going unrun. The grid mapping is kept exactly
+      // as it was so the numbers mean the same thing: row r is wz = r*DZ - 230, column c is
+      // x = c*3.8 - 380, and the height at that point is what beachSurfH answers.
+      const gz=r=>r*DZ-230, gx=c=>c*3.8-380;
       for(let r=Math.min(r0,r1); r<=Math.max(r0,r1); r++){
         for(let c=c0;c<=c1;c++){
-          const y=pos.getZ(r*NW+c);
+          const y=beachSurfH(gx(c),gz(r));
           if(y<mn)mn=y; if(y>mx)mx=y;
-          const yn=pos.getZ((r+1)*NW+c);
+          const yn=beachSurfH(gx(c),gz(r+1));
           const g=Math.abs(yn-y)/DZ;
           if(g>worst)worst=g; sum+=g; n++;
         }
@@ -20126,7 +20150,7 @@ if(location.hash.includes('debug')){
       const lines={}, bump=[];
       for(const X of [-12,0,12]){
         const c=col(X), ln=[];
-        for(let wz=Z0; wz>=Z1; wz-=2)ln.push(+pos.getZ(row(wz)*NW+c).toFixed(2));
+        for(let wz=Z0; wz>=Z1; wz-=2)ln.push(+beachSurfH(c*3.8-380,wz).toFixed(2));
         lines[X]=ln;
         const NEAR=Math.min(ln.length-1,12);       // wz -27 down to about -51
         let w=0; for(let k=1;k<NEAR;k++)w+=Math.abs(ln[k+1]-2*ln[k]+ln[k-1]);
