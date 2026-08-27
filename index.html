@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.18.0';
+window.SURF_VERSION='5.19.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -13683,7 +13683,10 @@ const OBST_SPEC={};
 // the clone: a template is never floated, so it sat at the origin no matter what this said,
 // and every judgement about how deep it rode was made on an object ignoring the number.
 // Properly floated, that value put every arm under the surface and left a purple hump.
-const FLOAT_OFF={buoy:0.36,jelly:0.34,log:0.40,bigfin:0.28,ramp:0.02,octopus:0.90};   // ramp sits low: water laps its base
+// How high each kind rides: the origin goes to the surface plus this, so SMALLER sits lower.
+// The octopus was the highest thing out there at 0.90 and sat on the water like a beach ball;
+// down to 0.52, so the water comes up over the body and the arms break the surface.
+const FLOAT_OFF={buoy:0.36,jelly:0.34,log:0.40,bigfin:0.28,ramp:0.02,octopus:0.15};
 // clear the cached buoyancy state on a fresh clone so a new spawn doesn't inherit it
 function makeObstacle(kind,x,z){
   if(!OBST_TEMPLATES[kind])OBST_TEMPLATES[kind]=buildObstacle(kind);
@@ -14845,6 +14848,7 @@ const COCO_HOLD=20.0;        // seconds the charge runs for once it closes
 const COCO_SHRINK=0.38;      // how small, as a share of full size
 const COCO_EASE=2.6;         // how fast it gets there and back, per second
 const COCO_PEEK=2.6;         // seconds the plaque stays up after a nut goes in
+const W_AIRDRAG=1.15;        // how fast a thrown body sheds spin, per second
 let cocoK=1;                 // where the ease has got to
 let cocoGot=0, cocoPower=0, cocoObjs=[], cocoT=4+Math.random()*5, cocoBob=0;
 const cocoBarEl=document.getElementById('cocoBar');
@@ -15112,7 +15116,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   splat3D.visible=false;
   while(splashes.length){const d=splashes.pop();freeDrop(d);}
   for(const o of seaLife)scene.remove(o);seaLife.length=0;lifeT=6;
-  whirl=null;whA=0;whirlArt.visible=false;whirlT=26+Math.random()*16;whTest=false;
+  whirl=null;whA=0;whirlArt.visible=false;whirlT=34+Math.random()*40;whTest=false;
   planeT=34+Math.random()*26;planeActive=false;plane.visible=false;hanging=false;rope.visible=false;
   ropeBtn.style.display='none';ropeBtn.textContent='ROPE!';
   player.rotation.set(0,0,0);
@@ -15150,7 +15154,7 @@ function respawn(){
   swPh=SWP.IDLE;swA=0;swCurlA=0;swCam=0;swSweep=0;swNext=30+Math.random()*15;swTest=false;swArmed=false;swAng=0;swAngV=0;swLoops=0;swTubeRide=false;swCamLock=null;swRad=NaN;swCalm=1;swOver=0;swPipeAir=false;swRadV=0;swForm=0;
   for(const p of SMOKE){p.t=0;p.m.visible=false;} _smkHas=false; plane.userData.prev=null;
   curl.visible=false;swSplash.visible=false;
-  whirl=null;whA=0;whirlArt.visible=false;whirlT=30+Math.random()*20;whTest=false;
+  whirl=null;whA=0;whirlArt.visible=false;whirlT=40+Math.random()*45;whTest=false;
   hanging=false;rope.visible=false;ropeBtn.style.display='none';ropeBtn.textContent='ROPE!';
   planeActive=false;plane.visible=false;planeT=30+Math.random()*24;
   splatT=0;splat3D.visible=false;
@@ -15685,21 +15689,23 @@ function startWipeout(kind){
     // a log gives about a second of air and a buoy half as long again, which is a wipeout.
     vy:rider.vy*2.2+4.0, vz:rider.vz, vx:rider.vx,
     // a rotation already under way continues; otherwise the impact starts one
-    // ---- AND IT THROWS HIM ----
-    // These were 0.16 of the obstacle's spin figure, which over a flight of a second and a
-    // half came to about two turns: a tidy little somersault, not a wipeout. A man hit at
-    // speed by a log goes over the falls end over end and does not come up facing the way he
-    // went in. Tripled, with a floor under each axis so even a soft clip tumbles, and with
-    // every axis given its own sign so he corkscrews instead of turning cleanly about one.
-    sx:(Math.random()<0.5?-1:1)*(W.spin[0]*0.48+1.6),
-    sy:carrySpin*0.42 + (Math.random()<0.5?-1:1)*(W.spin[1]*0.48+1.3),
-    sz:carryFlip*0.42 + (Math.random()<0.5?-1:1)*(W.spin[2]*0.48+1.5),
+    // ---- A BODY, NOT A BALLOON ----
+    // I tripled these to get a proper wipeout and overshot badly: measured, it was 7.9 turns
+    // in the air, spinning on all three axes at once. That is not a man being thrown, it is a
+    // balloon let go -- and it read as exactly that.
+    // A body hit at speed goes over MOSTLY ONE WAY. It pitches forward over the nose, or it
+    // cartwheels sideways, and whichever it is dominates; the other two axes are the untidy
+    // bit on top, not equal partners. So the obstacle's own figure picks the main axis and
+    // the others get a fraction of it, and the whole thing is well under half what it was.
+    sx:(Math.random()<0.5?-1:1)*(W.spin[0]*0.20+0.55),
+    sy:carrySpin*0.18 + (Math.random()<0.5?-1:1)*(W.spin[1]*0.10+0.22),
+    sz:carryFlip*0.18 + (Math.random()<0.5?-1:1)*(W.spin[2]*0.14+0.30),
     // the board is kicked out from under him and tumbles off on its own
     bvx:-side*(2.8+Math.random()*2.4)-vx*0.35, bvy:rider.vy*1.15+7.0, bvz:rider.vz*0.45+1.2,
     landed:false,
     // the board goes with him: kicked away and cartwheeling, not drifting off
-    bsx:(Math.random()-0.5)*22, bsz:(Math.random()-0.5)*22,
-    bsy:(Math.random()-0.5)*9,
+    bsx:(Math.random()-0.5)*11, bsz:(Math.random()-0.5)*11,
+    bsy:(Math.random()-0.5)*5,
     bx:px, by:py, bz:0, splashed:false
   };
   carrySpin=0;carryFlip=0;
@@ -15725,6 +15731,13 @@ function updateWipeout(dt){
   w.vx*=(1-Math.min(1,dt*1.6));   // air drag, so he doesn't fly off sideways
   px+=w.vx*dt; py+=w.vy*dt;
   player.position.set(px,py,Math.max(-9,Math.min(2,w.vz*w.t*0.70)));
+  // ---- AND THE AIR SLOWS HIM ----
+  // A thrown body does not hold its rate to the water: it is a loose bag of limbs and it
+  // sheds spin the whole way down. Held constant, even a modest rate turns into a drill by
+  // the time he lands. This is a light drag, so the first half-turn off the board is the
+  // fast one and the rest is a body falling.
+  const _airK=1-Math.min(1,dt*W_AIRDRAG);
+  w.sx*=_airK; w.sy*=_airK; w.sz*=_airK;
   w.rx+=w.sx*dt*6; w.ry+=w.sy*dt*6; w.rz+=w.sz*dt*6;
   player.rotation.set(w.rx,w.ry,w.rz);
   const sea=waveH(px,dist*WAVE_DRIFT,waveClock)+0.13;
@@ -16200,7 +16213,12 @@ let dayForce=-1;
 function updateDayCycle(){
   // paced so a normal run actually gets there: warm by a few hundred metres,
   // golden around a kilometre, full sunset beyond that
-  const tod=dayForce>=0?dayForce:1-Math.exp(-dist/1250);
+  // ---- A MUCH LONGER DAY ----
+  // The clock is DISTANCE, not seconds, and at 1250 the sun was most of the way down by the
+  // end of an ordinary run: sunrise, noon and dusk all inside a couple of minutes, which
+  // makes the light something that happens TO you rather than something you ride through.
+  // At 4200 an average run moves the sun a little and a long one takes it properly round.
+  const tod=dayForce>=0?dayForce:1-Math.exp(-dist/4200);
   dayT=tod;                         // how far into the evening it is, for anything that cares
   let i=0;while(i<SKY_KEYS.length-2&&tod>SKY_KEYS[i+1].t)i++;
   const A=SKY_KEYS[i],B=SKY_KEYS[i+1];
@@ -21514,7 +21532,9 @@ function makeWhirlArt(){
   m.renderOrder=1;
   return m;
 }
-let whirl=null, whirlT=26+Math.random()*16;
+const WH_AFTER_SET=17;    // seconds of clear water after a set wave before one can form
+const WH_GAP=62, WH_GAP_R=78;   // and how far apart they come — a wide, uneven spread
+let whirl=null, whirlT=34+Math.random()*40;
 // Set by the Test whirl button to let one through before the distance gate opens. A summoned
 // whirlpool is a one-off and not a mode, so it is put down again the moment it spawns.
 let whTest=false;
@@ -21534,7 +21554,13 @@ function spawnWhirl(){
 function updateWhirl(dt,eff){
   if(!whirl){
     whirlT-=dt;
-    if(whirlT<=0&&(dist>700||whTest)){whirlT=45+Math.random()*30;whTest=false;spawnWhirl();}
+    // ---- NOT ON THE HEELS OF A SET WAVE ----
+    // The two biggest things in the game arriving back to back reads as the game emptying its
+    // pockets at you. While a set is running the clock is held at WH_AFTER_SET, so the
+    // earliest a whirlpool can form is that long AFTER the wave has finished -- and the gap
+    // between whirlpools is much wider and much less even than it was, so you cannot learn it.
+    if(swPh!==SWP.IDLE)whirlT=Math.max(whirlT,WH_AFTER_SET);
+    if(whirlT<=0&&(dist>700||whTest)){whirlT=WH_GAP+Math.random()*WH_GAP_R;whTest=false;spawnWhirl();}
     if(whA>0){whA=Math.max(0,whA-dt*5);whirlArt.scale.y=Math.max(0.001,whA);}
     if(whA<=0)whirlArt.visible=false;
     return;
