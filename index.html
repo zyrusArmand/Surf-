@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.09.0';
+window.SURF_VERSION='5.10.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -20372,7 +20372,9 @@ if(location.hash.includes('debug')){
       f.y=0; to.y=0; f.normalize(); to.normalize();
       const off=Math.atan2(f.x*to.z-f.z*to.x, f.x*to.x+f.z*to.z)*180/Math.PI;
       return {menuFace:+MENU_FACE.toFixed(3), off:+off.toFixed(1),
-              yaw:+pug.rotation.y.toFixed(3)};
+              yaw:+pug.rotation.y.toFixed(3), src:_rfSrc,
+              // and whether the solve was even allowed to run on this body
+              staged:!!MB_STAGED, faceCam:!!MB_FACE_CAM};
     },
     // The two halves of the lens, walked together, because they only mean anything together:
     // `fov` is how much world is in the frame and `fish` is whether its edges stretch or bend.
@@ -24074,7 +24076,9 @@ function seatOnSand(o,sink,baseY,radius){
   const b=new THREE.Box3().setFromObject(o);
   if(!isFinite(b.min.y))return false;
   if(baseY!==undefined&&isFinite(baseY))b.min.y=baseY;
-  b.getCenter(_sndC);
+  // Sampled at the object's OWN position, which is where sandUnder samples and therefore
+  // where every check asks. The box centre is a different point on a sloped beach.
+  o.getWorldPosition(_sndC);
   // ---- THE HIGHEST GROUND UNDER THE FOOTPRINT, not the ground at one point ----
   // A single ray down the middle finds whatever the sand happens to be doing at that exact
   // spot, and the sand is bumpy: measured against groundTopOver -- which is what riderGround
@@ -24240,6 +24244,7 @@ function sandCull(force){
 // is only right for them, which is the whole reason the staged single yaw did not work.
 let MB_FACE_CAM=1;
 const _rfA=new THREE.Vector3(), _rfB=new THREE.Vector3(), _rfQ=new THREE.Quaternion();
+let _rfSrc='?';   // which branch answered last — see menuFace
 function riderFaceDir(out){
   if(typeof pug==='undefined'||!pug)return false;
   let head=null, front=null;
@@ -24248,8 +24253,9 @@ function riderFaceDir(out){
   if(head&&front){
     head.getWorldPosition(_rfA); front.getWorldPosition(_rfB);
     out.subVectors(_rfB,_rfA); out.y=0;
-    if(out.lengthSq()>1e-8){ out.normalize(); return true; }
+    if(out.lengthSq()>1e-8){ out.normalize(); _rfSrc='muzzle'; return true; }
   }
+  _rfSrc=(head?'head-no-front':'no-bones');
   out.set(0.41,0,-0.91).applyQuaternion(pug.getWorldQuaternion(_rfQ));
   out.y=0;
   if(out.lengthSq()<1e-8)return false;
@@ -25788,14 +25794,15 @@ function renderMenuBeach(dt){
         // it grew about its own origin, so put its base back on the sand — in the parent's
         // units, which is the error that floated it the first time
         beachChest.updateMatrixWorld(true);
-        if(!seatOnSand(beachChest,0.02)){
-          const cb=new THREE.Box3().setFromObject(beachChest);
-          const cwp=beachChest.getWorldPosition(new THREE.Vector3());
-          const gy=(typeof beachSandH==='function')?beachSandH(cwp.z/MB_K)*MB_K:0;
-          const ps=(beachChest.parent?beachChest.parent.getWorldScale(new THREE.Vector3()).y:1)||1;
-          if(isFinite(cb.min.y))beachChest.position.y+=(gy-cb.min.y)/ps;
-          beachChest.updateMatrixWorld(true);
-        }
+        // ---- AND layoutBeachChest PUTS IT BACK DOWN ----
+        // It already seats the chest with exactly the formula the check reads it by: the
+        // highest ground over a disc the width of its own footprint, taken at the position it
+        // solved. I had a seatOnSand here as well, running AFTER it and sampling at a
+        // different point with a different radius -- so the correct answer was computed and
+        // then overwritten, and the chest floated 0.137 of a foot. One of them has to own the
+        // height and it should be the one that was already right; this only changes the SIZE,
+        // and then asks it to seat the new size.
+        if(typeof layoutBeachChest==='function')layoutBeachChest();
       }
     }
   }
