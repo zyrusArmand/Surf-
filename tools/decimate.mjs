@@ -56,10 +56,21 @@ for (const mesh of root.listMeshes()) {
     const diag = Math.hypot(mxx - mnx, mxy - mny, mxz - mnz) || 1;
     const cell = diag / 2000;
 
+    // ---- KEYED ON POSITION AND UV, not position alone ----
+    // Welding by position alone fuses the UV seams along with the duplicated corners, and a
+    // seam is exactly where two far-apart parts of the atlas meet. The texture then stretches
+    // across the join and the model comes back looking chewed -- which is what happened to the
+    // coconuts. Including a coarsely quantised UV in the key keeps vertices that sit at the
+    // same PLACE but read from different parts of the texture apart, so the simplifier still
+    // gets interior edges to collapse and the atlas stays intact.
+    const UV = prim.getAttribute('TEXCOORD_0');
+    const U = UV ? UV.getArray() : null;
+    const ucell = 1 / 2048;
     const map = new Map(), remap = new Int32Array(n);
     const keep = [];
     for (let i = 0; i < n; i++) {
-      const k = Math.round(P[i * 3] / cell) + '|' + Math.round(P[i * 3 + 1] / cell) + '|' + Math.round(P[i * 3 + 2] / cell);
+      let k = Math.round(P[i * 3] / cell) + '|' + Math.round(P[i * 3 + 1] / cell) + '|' + Math.round(P[i * 3 + 2] / cell);
+      if (U) k += '|' + Math.round(U[i * 2] / ucell) + '|' + Math.round(U[i * 2 + 1] / ucell);
       let j = map.get(k);
       if (j === undefined) { j = keep.length; map.set(k, j); keep.push(i); }
       remap[i] = j;
@@ -89,7 +100,10 @@ for (const mesh of root.listMeshes()) {
     const want = Math.max(60, Math.round(WANT * (tri.length / 3) / Math.max(1, triCount())));
     const out = MeshoptSimplifier.simplify(
       new Uint32Array(tri), prim.getAttribute('POSITION').getArray(), 3,
-      want * 3, 0.06, ['LockBorder']
+      // The seams are real borders now that the weld respects them, and locking every border
+      // on a model made mostly of charts leaves nothing to collapse. The error bound is what
+      // protects the silhouette instead.
+      want * 3, 0.04, []
     )[0];
 
     const ixNew = doc.createAccessor().setType('SCALAR')
