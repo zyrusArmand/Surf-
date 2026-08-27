@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.97.0';
+window.SURF_VERSION='4.98.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -6976,6 +6976,16 @@ function sandFieldBuild(){
   mesh.instanceMatrix.needsUpdate=true;
   mesh.frustumCulled=false;          // one object covering the whole beach; its box is the beach
   mesh.receiveShadow=true;
+  // ---- KEPT, so the field can be cut down to what the lens can see ----
+  // The whole grid is laid out here because the camera has not been placed yet when this
+  // runs. The copy is what sandCull works from: it rewrites the instance buffer with only
+  // the pieces in shot and drops mesh.count, which is the one number that decides how many
+  // times the GPU rasterises this tile. Measured before any of it: 165 pieces at 3,781
+  // triangles each is 623,865 triangles of sand on a menu, and most of it is behind the
+  // camera or off to the side of a shot that never moves.
+  mesh.userData.allM=new Float32Array(mesh.instanceMatrix.array.slice(0,i*16));
+  mesh.userData.allN=i;
+  mesh.userData.tileR=SAND_TILE*0.80;   // a piece's own reach, for the frustum test
   // The beach mesh stays UNDER it and stays visible. The tiles overlap each other but they do
   // not tile the plane exactly, and the gaps between them at the edges of the field are the
   // beach itself — which is the same sand, painted rather than modelled, so nothing shows.
@@ -7496,6 +7506,23 @@ function buildBeach(){
   beachSea=new THREE.Mesh(seaGeo,prevOcean);
   beachSea.rotation.x=-Math.PI/2; beachSea.position.set(0,0,40);
   beachSea.frustumCulled=false; g.add(beachSea);
+  // ---- KEPT, so the water can be cut to the shot the same way the sand is ----
+  // 280 by 400 is 224,000 triangles of ocean, laid out as a rectangle because the camera has
+  // not been placed when this runs. Measured against the shot it actually gets: the first
+  // seventy-two rows are BEHIND the lens outright — the sea starts forty units up-beach of a
+  // camera standing at z -39.88 — and most of the width of every near row is off to the side
+  // of a fifty-one degree frame. seaCull rewrites the index to the quads that survive; the
+  // vertices and the shader are untouched, so the water that is in shot is the same water.
+  seaGeo.userData.allIdx=Uint32Array.from(sidx);
+  { // one centre and reach per quad, worked out once
+    const nq=SEA_NX*SEA_NZ, c=new Float32Array(nq*3); let r=0, k=0;
+    for(let j=0;j<SEA_NZ;j++)for(let i=0;i<SEA_NX;i++){
+      const x0=(i/SEA_NX-0.5)*SEA_W, x1=((i+1)/SEA_NX-0.5)*SEA_W;
+      c[k*3]=(x0+x1)*0.5; c[k*3+1]=(zs[j]+zs[j+1])*0.5; c[k*3+2]=0;
+      r=Math.max(r,Math.hypot(x1-x0,zs[j+1]-zs[j])*0.5); k++;
+    }
+    seaGeo.userData.qc=c; seaGeo.userData.qr=r;
+  }
   // and the far shore, on the same water
   beachHorizon=buildHorizon(0);
   g.add(beachHorizon);
@@ -19520,6 +19547,136 @@ if(location.hash.includes('debug')){
               clock:+cocoT.toFixed(2), dist:Math.round(dist), model:!!coconutModel,
               phase:(typeof swPh!=='undefined'?swPh:null), idle:(typeof SWP!=='undefined'?SWP.IDLE:null)};
     },
+    // ---- WHAT THE TITLE SCREEN ACTUALLY COSTS ----
+    // Draw calls, triangles and texture memory as the renderer itself reports them, plus a
+    // per-object breakdown of what is IN the preview scene and whether the lens can see it.
+    // "It runs slow" is a measurement, and guessing at it is how the 4K sand went in.
+    menuCost(){
+      if(typeof prevScene==='undefined'||!prevScene||!renderer)return null;
+      const info=renderer.info;
+      const cam=(typeof menuCam!=='undefined'&&menuCam)?menuCam:null;
+      const fr=new THREE.Frustum();
+      if(cam){ cam.updateMatrixWorld(true);
+        fr.setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(
+          cam.projectionMatrix, cam.matrixWorldInverse)); }
+      // TIMES THE INSTANCE COUNT. An InstancedMesh carries one geometry and draws it N times,
+      // so counting its geometry once says the sand costs 8,000 triangles when the GPU is
+      // rasterising eight thousand of them per tile across a couple of hundred tiles. Counting
+      // the wrong thing here would have sent me off decimating a model that was not the cost.
+      // AND THE DRAW RANGE. A geometry can carry a full index and be told to draw a slice of
+      // it — the sea is culled that way — so the index count is what the buffer holds and the
+      // draw range is what the GPU is asked for. Reading the first and calling it the cost is
+      // the same class of mistake as ignoring the instance count.
+      const tris=(g,o)=>{ const dr=g.drawRange?g.drawRange.count:Infinity;
+                      let a=g.index?g.index.count:(g.attributes.position?g.attributes.position.count:0);
+                      if(isFinite(dr))a=Math.min(a,dr);
+                      return Math.round(a/3)*((o&&o.isInstancedMesh)?o.count:1); };
+      const rows=[]; const seen=new Set();
+      prevScene.traverse(o=>{
+        if(!o.isMesh||!o.geometry)return;
+        let vis=o.visible, p=o.parent; while(vis&&p){ if(!p.visible)vis=false; p=p.parent; }
+        o.updateWorldMatrix(true,false);
+        const b=new THREE.Box3().setFromObject(o);
+        const inView=(cam&&isFinite(b.min.x))?fr.intersectsBox(b):null;
+        // name it by the nearest named ancestor, so 56 sand tiles collapse to one line
+        let n=o.name||'', q=o.parent;
+        while(!n&&q){ n=q.name||''; q=q.parent; }
+        rows.push({n:n||'(unnamed)', t:tris(o.geometry,o), vis, inView, inst:o.isInstancedMesh?o.count:0});
+      });
+      const by={};
+      for(const r of rows){
+        const k=r.n+(r.vis?'':' [hidden]');
+        by[k]=by[k]||{n:0,tris:0,inView:0,offView:0};
+        by[k].n++; by[k].tris+=r.t;
+        if(r.inView===true)by[k].inView++; else if(r.inView===false)by[k].offView++;
+      }
+      const list=Object.entries(by).map(([k,v])=>({what:k,meshes:v.n,tris:v.tris,
+                     inView:v.inView,offView:v.offView}))
+                  .sort((a,b)=>b.tris-a.tris).slice(0,18);
+      // texture memory, which is the number that crashes phones rather than the download
+      let texMB=0; const tseen=new Set();
+      prevScene.traverse(o=>{ if(!o.isMesh)return;
+        for(const m of (Array.isArray(o.material)?o.material:[o.material])){
+          if(!m)continue;
+          for(const k of ['map','normalMap','roughnessMap','emissiveMap','aoMap','alphaMap','bumpMap'])
+            { const t=m[k]; if(t&&t.image&&!tseen.has(t.uuid)){ tseen.add(t.uuid);
+              texMB+=(t.image.width||0)*(t.image.height||0)*4*1.333/1048576; } }
+        }});
+      // and the named pieces, because "(unnamed) x32" is not an answer
+      const cnt=o=>{ let t=0,m=0,inst=0; if(!o)return {t,m,inst};
+        o.traverse(q=>{ if(q.isMesh&&q.geometry&&q.visible){ m++;
+          const g=q.geometry, dr=g.drawRange?g.drawRange.count:Infinity;
+          let a=g.index?g.index.count:(g.attributes.position?g.attributes.position.count:0);
+          if(isFinite(dr))a=Math.min(a,dr);
+          const k=q.isInstancedMesh?q.count:1; if(q.isInstancedMesh)inst+=q.count;
+          t+=Math.round(a/3)*k; } }); return {t,m,inst}; };
+      const parts={
+        // beachSet is the WHOLE beach — tiles, sea, groups. Labelling it sandTiles had me
+        // reading 510,200 as the tile cost and doubting a cull that was working.
+        beachAll :cnt(typeof beachSet!=='undefined'?beachSet:null),
+        sandTiles:(typeof sandField!=='undefined'&&sandField)?(()=>{
+          const g=sandField.geometry, a=g.index?g.index.count:g.attributes.position.count;
+          return {t:Math.round(a/3)*sandField.count, m:1, inst:sandField.count,
+                  of:sandField.userData.allN||null};
+        })():null,
+        sea      :(typeof beachSea!=='undefined'&&beachSea)?(()=>{
+          const g=beachSea.geometry, dr=g.drawRange?g.drawRange.count:Infinity;
+          let a=g.index?g.index.count:g.attributes.position.count;
+          if(isFinite(dr))a=Math.min(a,dr);
+          return {t:Math.round(a/3), m:1, of:(g.userData.allIdx||[]).length/3||null};
+        })():null,
+        palm     :cnt(typeof menuPalm!=='undefined'?menuPalm:null),
+        chest    :cnt(typeof beachChest!=='undefined'?beachChest:null),
+        sign     :cnt(typeof beachSign!=='undefined'?beachSign:null),
+        board    :cnt(menuBeach?menuBeach.board:null),
+        rider    :cnt(typeof pug!=='undefined'?pug:null),
+        horizon  :cnt(typeof beachHorizon!=='undefined'?beachHorizon:null),
+        props    :cnt(typeof menuProps!=='undefined'?menuProps:null),
+        cocos    :(typeof beachCocos!=='undefined'?beachCocos:[]).reduce((a,m)=>a+cnt(m).t,0),
+        bowls    :(typeof beachBowls!=='undefined'?beachBowls:[]).reduce((a,m)=>a+cnt(m).t,0),
+      };
+      // and what beachSet is actually made of, one line per child
+      parts.beachKids=(typeof beachSet!=='undefined'&&beachSet)?beachSet.children.map(c=>{
+        const k=cnt(c);
+        return {name:c.name||c.type, vis:c.visible, tris:k.t, meshes:k.m, inst:k.inst};
+      }).sort((a,b)=>b.tris-a.tris).slice(0,12):null;
+      parts.cull={auto:(typeof sandField!=='undefined'&&sandField)?sandField.count:null,
+                  key:_scLast,
+                  camFov:menuCam?+menuCam.fov.toFixed(3):null,
+                  camAsp:menuCam?+menuCam.aspect.toFixed(4):null,
+                  pad:SAND_CULL_PAD};
+      return {parts, calls:info.render.calls, tris:info.render.triangles, points:info.render.points,
+              geoms:info.memory.geometries, textures:info.memory.textures,
+              texMB:+texMB.toFixed(1),
+              sceneMeshes:rows.length,
+              totalTris:rows.reduce((a,r)=>a+(r.vis?r.t:0),0),
+              offViewTris:rows.reduce((a,r)=>a+((r.vis&&r.inView===false)?r.t:0),0),
+              top:list};
+    },
+    // Turn the sand cull off and on inside ONE page load, so "does culling change the
+    // picture" can be answered by two screenshots of the same beach — the shells re-scatter
+    // on every visit and the comparison is worthless across reloads.
+    sandCullSet(on){
+      const mesh=(typeof sandField!=='undefined')?sandField:null;
+      if(!mesh||!mesh.userData.allM)return null;
+      if(on===false){
+        mesh.instanceMatrix.array.set(mesh.userData.allM);
+        mesh.count=mesh.userData.allN;
+        mesh.instanceMatrix.needsUpdate=true;
+        // ...AND THE SEA, which the first version of this forgot — so the control I ran was
+        // comparing culled water against culled water and could not have found a fault in it
+        let sea=null;
+        if(typeof beachSea!=='undefined'&&beachSea&&beachSea.geometry.userData.allIdx){
+          const g=beachSea.geometry, all=g.userData.allIdx;
+          if(!g.index||g.index.array!==all)g.setIndex(new THREE.BufferAttribute(all,1));
+          g.index.needsUpdate=true; g.setDrawRange(0,all.length);
+          sea={kept:all.length/3, of:all.length/3};
+        }
+        _scLast='off';
+        return {kept:mesh.count, of:mesh.userData.allN, sea};
+      }
+      return sandCull(true)||{kept:mesh.count, of:mesh.userData.allN};
+    },
     palmProbe(wx,wz){
       // given a world x,z it MOVES the staged tree there and re-lays the set out, so the
       // question "where does the trunk have to stand to be in shot" can be answered by
@@ -23593,6 +23750,101 @@ function palmHeightAt(drop){
   if(!isFinite(b.min.y))return 0;
   return b.max.y-drop*Math.max(1e-3,b.max.y-b.min.y);
 }
+// ---- ONLY THE SAND THE SHOT CAN SEE ----
+// The tiles are one InstancedMesh, which is one draw call — but a draw call is not a cost,
+// triangles are, and an InstancedMesh rasterises its geometry once per instance whether the
+// piece is in frame or a hundred feet behind the lens. The title camera does not move, so
+// most of that field is drawn for nobody. The pieces cast no shadow (receiveShadow only), so
+// dropping the ones outside the frustum cannot change a single pixel of what is in it.
+// The margin is generous on purpose: a piece whose centre is outside can still have an edge
+// inside, the sand is sampled by raycast for seating things on it, and the shot shifts a
+// little with aspect.
+const _scFr=new THREE.Frustum(), _scM=new THREE.Matrix4(), _scV=new THREE.Vector3();
+const _scSph=new THREE.Sphere();
+let _scCam=null;
+let SAND_CULL_PAD=1.62;   // how much wider than the lens the cut is made
+let _scLast='';
+// The water, cut the same way. Its rest positions are what is tested and the swell lifts a
+// vertex several units off that, so the reach carries a generous allowance for the wave the
+// shader is about to put there.
+const _seaV=new THREE.Vector3(), _seaSph=new THREE.Sphere();
+function seaCull(){
+  const m=(typeof beachSea!=='undefined')?beachSea:null;
+  if(!m||!m.geometry||!m.geometry.userData.allIdx)return null;
+  const g=m.geometry, all=g.userData.allIdx, qc=g.userData.qc;
+  const nq=qc.length/3;
+  if(!g.userData.keep)g.userData.keep=new Uint32Array(all.length);
+  const keep=g.userData.keep;
+  m.updateWorldMatrix(true,false);
+  const par=m.matrixWorld;
+  // Generous. A far quad is seventeen units across, the swell lifts a vertex several units off
+  // the rest position this tests, and the fisheye reaches past the frustum — measured against a
+  // control for animation, a tighter margin left an excess of eight hundredths of a per cent of
+  // the frame changing, which is small but is not nothing. The saving barely moves for it.
+  const R=(g.userData.qr||1)+22;
+  let k=0;
+  for(let q=0;q<nq;q++){
+    _seaV.set(qc[q*3],qc[q*3+1],qc[q*3+2]).applyMatrix4(par);
+    _seaSph.set(_seaV,R);
+    if(!_scFr.intersectsSphere(_seaSph))continue;
+    const o=q*6;
+    for(let c=0;c<6;c++)keep[k+c]=all[o+c];
+    k+=6;
+  }
+  if(!g.index||g.index.array!==keep){
+    g.setIndex(new THREE.BufferAttribute(keep,1));
+  }
+  g.index.needsUpdate=true;
+  g.setDrawRange(0,k);
+  return {kept:k/3, of:all.length/3};
+}
+function sandCull(force){
+  const mesh=(typeof sandField!=='undefined')?sandField:null;
+  if(!mesh||!mesh.userData.allM||typeof menuCam==='undefined'||!menuCam)return null;
+  menuCam.updateMatrixWorld(true);
+  // re-cut only when the shot has actually moved — this runs from the layout, which runs
+  // many times a visit, and rewriting a few hundred matrices on each of those is work done
+  // to arrive at the identical answer
+  const key=[menuCam.position.x,menuCam.position.y,menuCam.position.z,
+             menuCam.quaternion.x,menuCam.quaternion.y,menuCam.quaternion.z,menuCam.quaternion.w,
+             menuCam.aspect,menuCam.fov].map(v=>(+v).toFixed(3)).join(',');
+  if(!force&&key===_scLast)return null;
+  _scLast=key;
+  // ---- AND THE FRUSTUM IS WIDER THAN THE CAMERA ----
+  // The title screen is DELIVERED through a fisheye, which bends the edges outward: sand that
+  // is outside the raw frustum still arrives in the picture. Cutting against the camera's own
+  // projection took a band of far beach out along the waterline — measured at 0.95 per cent of
+  // the frame, right where the shore meets the sea. The same lens caught me out on the rider's
+  // tap box. So the test is done against a widened cone, and the widening is deliberate slack
+  // rather than a number that just happened to work.
+  if(!_scCam)_scCam=new THREE.PerspectiveCamera();
+  _scCam.fov=Math.min(178,menuCam.fov*SAND_CULL_PAD);
+  _scCam.aspect=menuCam.aspect*SAND_CULL_PAD;
+  _scCam.near=Math.max(0.01,menuCam.near*0.5); _scCam.far=menuCam.far;
+  _scCam.position.copy(menuCam.position); _scCam.quaternion.copy(menuCam.quaternion);
+  _scCam.updateMatrixWorld(true); _scCam.updateProjectionMatrix();
+  _scFr.setFromProjectionMatrix(_scM.multiplyMatrices(_scCam.projectionMatrix,_scCam.matrixWorldInverse));
+  const src=mesh.userData.allM, n=mesh.userData.allN;
+  const dst=mesh.instanceMatrix.array;
+  const R=(mesh.userData.tileR||10)*2.2;      // and a piece's own reach on top of that
+  // the group the field hangs in carries a transform; the frustum is in world space
+  mesh.updateWorldMatrix(true,false);
+  const par=mesh.matrixWorld;
+  let k=0;
+  for(let t=0;t<n;t++){
+    const o=t*16;
+    _scV.set(src[o+12],src[o+13],src[o+14]).applyMatrix4(par);
+    _scSph.set(_scV,R);
+    if(!_scFr.intersectsSphere(_scSph))continue;
+    if(k!==t)for(let c=0;c<16;c++)dst[k*16+c]=src[o+c];
+    else for(let c=0;c<16;c++)dst[k*16+c]=src[o+c];
+    k++;
+  }
+  mesh.count=k;
+  mesh.instanceMatrix.needsUpdate=true;
+  const sea=seaCull();                 // same frustum, same shot, built just above
+  return {kept:k, of:n, sea};
+}
 const _mbF=new THREE.Vector3(), _mbR=new THREE.Vector3(), _mbP=new THREE.Vector3();
 const _mbQ=new THREE.Quaternion(), _mbQ2=new THREE.Quaternion(), _mbUp=new THREE.Vector3(0,1,0);
 const _mbS=new THREE.Vector3();
@@ -25093,6 +25345,7 @@ function renderMenuBeach(dt){
   }
   layoutCoconuts();
   menuCam.updateProjectionMatrix();
+  sandCull();
   faceBeachSign();      // the title hangs square to whatever the lens just did
   // ...and the boat keeps its sail toward you. Edge on, a sail is a line, and a line a quarter of
   // a mile away is nothing at all.
@@ -25131,6 +25384,12 @@ function renderMenuBeach(dt){
   // because there the halo is drawn across HIM.
   // The threshold goes up so only what is genuinely at white still blooms, and the amount comes
   // down, on this screen alone. The ride keeps the bloom it was tuned with.
+  // ---- CUT THE FIELD TO THIS FRAME, every frame ----
+  // The layout does not run per frame and the shot DRIFTS, so a cull done only at layout goes
+  // stale and sand walks out of the picture as the camera moves. Measured across two loads it
+  // kept 83 pieces once and 135 another, for the same viewport — that spread IS the drift. The
+  // work is a key comparison on the camera unless the camera has actually moved.
+  sandCull();
   let bT0=null,bA0=null;
   if(fxOn){ bT0=fxBright.uniforms.uT.value; bA0=fxComp.uniforms.uAmt.value;
             fxBright.uniforms.uT.value=1.06; fxComp.uniforms.uAmt.value=bA0*0.55; }
