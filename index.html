@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.04.0';
+window.SURF_VERSION='5.05.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -15655,15 +15655,30 @@ function startWipeout(kind){
     t:0, rx:player.rotation.x, ry:player.rotation.y, rz:player.rotation.z,
     camX:px, camY:camY, camZ:11.0,        // freeze the shot on the crash spot
     atX:px, atY:py,
-    vy:rider.vy, vz:rider.vz, vx:rider.vx,
+    // ---- AND HE IS THROWN, not dropped ----
+    // The launch speeds in the W table were tuned against a gravity of 22, and putting the
+    // real 32.2 under them without touching these made the crash SHORTER, not heavier: a log
+    // launches at 5 feet a second, which against real gravity is four inches of air and 0.58
+    // seconds from hit to splash. Measured, he managed a quarter of a turn before the water
+    // took him -- the tumble was there the whole time and had no time to happen in. Scaled so
+    // a log gives about a second of air and a buoy half as long again, which is a wipeout.
+    vy:rider.vy*2.2+4.0, vz:rider.vz, vx:rider.vx,
     // a rotation already under way continues; otherwise the impact starts one
-    sx:(Math.random()<0.5?-1:1)*W.spin[0]*0.16,
-    sy:carrySpin*0.16 + (Math.random()<0.5?-1:1)*W.spin[1]*0.16,
-    sz:carryFlip*0.16 + (Math.random()<0.5?-1:1)*W.spin[2]*0.16,
+    // ---- AND IT THROWS HIM ----
+    // These were 0.16 of the obstacle's spin figure, which over a flight of a second and a
+    // half came to about two turns: a tidy little somersault, not a wipeout. A man hit at
+    // speed by a log goes over the falls end over end and does not come up facing the way he
+    // went in. Tripled, with a floor under each axis so even a soft clip tumbles, and with
+    // every axis given its own sign so he corkscrews instead of turning cleanly about one.
+    sx:(Math.random()<0.5?-1:1)*(W.spin[0]*0.48+1.6),
+    sy:carrySpin*0.42 + (Math.random()<0.5?-1:1)*(W.spin[1]*0.48+1.3),
+    sz:carryFlip*0.42 + (Math.random()<0.5?-1:1)*(W.spin[2]*0.48+1.5),
     // the board is kicked out from under him and tumbles off on its own
-    bvx:-side*(2.8+Math.random()*2.4)-vx*0.35, bvy:rider.vy*0.55+1.5, bvz:rider.vz*0.45+1.2,
+    bvx:-side*(2.8+Math.random()*2.4)-vx*0.35, bvy:rider.vy*1.15+7.0, bvz:rider.vz*0.45+1.2,
     landed:false,
-    bsx:(Math.random()-0.5)*9, bsz:(Math.random()-0.5)*9,
+    // the board goes with him: kicked away and cartwheeling, not drifting off
+    bsx:(Math.random()-0.5)*22, bsz:(Math.random()-0.5)*22,
+    bsy:(Math.random()-0.5)*9,
     bx:px, by:py, bz:0, splashed:false
   };
   carrySpin=0;carryFlip=0;
@@ -15681,7 +15696,11 @@ function startWipeout(kind){
 function updateWipeout(dt){
   const w=wipe; w.t+=dt;
   // pug: thrown, tumbling, then splashdown
-  w.vy-=22*dt;
+  // REAL GRAVITY. 22 is not an acceleration anybody has ever fallen under: a world unit
+  // here is a FOOT, so gravity is 32.2, and at 22 he hung in the air two-thirds too long
+  // and came down like a man on the moon. Everything about how a crash reads -- how high he
+  // goes, how fast he comes back, how long the tumble lasts -- follows from this one number.
+  w.vy-=32.2*dt;
   w.vx*=(1-Math.min(1,dt*1.6));   // air drag, so he doesn't fly off sideways
   px+=w.vx*dt; py+=w.vy*dt;
   player.position.set(px,py,Math.max(-9,Math.min(2,w.vz*w.t*0.70)));
@@ -15704,7 +15723,12 @@ function updateWipeout(dt){
   if(w.splashed){
     // In the water he is upright and mostly under it — head out, everything else below.
     // low enough that only his head and shoulders are out — he is drowning, not paddling
-    py+=((sea-1.02)-py)*Math.min(1,dt*3.4);
+    // DOWN TO THE CHIN. He was settling a foot under, which left his shoulders and most of
+    // his chest above the line -- a man treading water, not a man going under. Deeper, so
+    // the body is in the water and barely the head is out of it. Not as deep as it first
+    // went: at 1.62 he vanished under the surface altogether and the shot was an empty sea
+    // with a board on it, which is not a man in trouble, it is nobody there.
+    py+=((sea-1.26)-py)*Math.min(1,dt*3.0);
     w.vy=0;
     w.rx+=(0.16-w.rx)*Math.min(1,dt*3.0);             // comes upright rather than lying flat
     w.rz*=0.86; w.sx*=0.80; w.sy*=0.92; w.sz*=0.80;
@@ -15737,19 +15761,70 @@ function updateWipeout(dt){
       legBackJ.knee.rotation.x=-0.9+Math.sin(f*0.9+1.4)*0.5;
       headJ.rotation.set(0,0,Math.sin(f*0.6)*0.4);
     } else {
-      const f=w.t*3.4;
-      armFrontJ.sh.rotation.set(0.06, 0.10,  2.44+Math.sin(f)*0.36);
-      armFrontJ.el.rotation.set(0.42+Math.sin(f)*0.26,0,0);
-      armBackJ.sh.rotation.set(0.06,-0.10,-(2.44+Math.sin(f+1.9)*0.36));
-      armBackJ.el.rotation.set(0.42+Math.sin(f+1.9)*0.26,0,0);
+      // Slower. At 3.4 the arms were going like a metronome and read as swimming; panic
+      // in water is not fast, it is high and ragged, and the two arms are given different
+      // rates so they are not a pair of wipers.
+      const f=w.t*1.85;
+      armFrontJ.sh.rotation.set(0.06, 0.10,  2.52+Math.sin(f)*0.42);
+      armFrontJ.el.rotation.set(0.38+Math.sin(f)*0.30,0,0);
+      armBackJ.sh.rotation.set(0.06,-0.10,-(2.52+Math.sin(f*1.17+1.9)*0.42));
+      armBackJ.el.rotation.set(0.38+Math.sin(f*1.17+1.9)*0.30,0,0);
       // and everything else is still: legs hanging under him, chin up out of the water
       legFrontJ.hip.rotation.x=0.30; legFrontJ.knee.rotation.x=0.52;
       legBackJ.hip.rotation.x=0.30;  legBackJ.knee.rotation.x=-0.52;
-      headJ.rotation.set(-0.42,0,0);
+      headJ.rotation.set(-0.55,0,0);   // chin up, which is all he can do
+    }
+  }
+  // ---- AND THE RIGGED RIDERS, WHO HAVE NO SUCH JOINTS ----
+  // Everything above poses the built-in body. A rider loaded from a file is a skeleton, and
+  // through a wipeout nothing was posing it at all: he tumbled as a frozen surfing stance and
+  // then floated in it, arms by his sides, still riding a board that was not there. Same
+  // picture, driven through his own bones. No clip is played -- a death animation is a
+  // performance and what is wanted here is a man in the water, held, with his arms up.
+  if(w.splashed){
+    const R=(typeof riderRig==='function')?riderRig():null;
+    if(R&&R.bones){
+      const f=w.t*1.85;
+      const set=(n,x,y,z)=>{ const b=R.bones[n]; if(b)b.rotation.set(x,y,z); };
+      // ---- AIMED AT A DIRECTION, not set to an angle ----
+      // Rolling the shoulder by 2.4 radians put LeftArm z at 2.36 and RightArm at -2.22 --
+      // the bones took the numbers, and the arms stayed by his sides. These rigs do not share
+      // a local axis convention: z is not "up" on this one, and there is no single triple that
+      // is up on all ten. So each arm is pointed at a world direction instead -- the rotation
+      // that takes the shoulder-to-hand line onto straight up, worked out in world space and
+      // handed back through the parent. Same solve that got the arms DOWN on the title screen,
+      // and for the same reason.
+      const V=THREE.Vector3, Q=THREE.Quaternion;
+      pug.updateMatrixWorld(true);
+      for(const side of ['Left','Right']){
+        const sh=R.bones[side+'Arm'], hd=R.bones[side+'Hand']||R.bones[side+'ForeArm'];
+        if(!sh||!hd)continue;
+        const S=new V(), H=new V();
+        sh.getWorldPosition(S); hd.getWorldPosition(H);
+        const d=new V().subVectors(H,S);
+        if(d.lengthSq()<1e-8)continue;
+        d.normalize();
+        const sgn=(side==='Left')?-1:1;
+        // the wave: each arm on its own rate so they are not a pair of wipers
+        const sway=Math.sin(f*(side==='Left'?1:1.17)+(side==='Left'?0:1.9))*0.34;
+        const t=new V(0,1,0).addScaledVector(new V(1,0,0),sgn*(0.24+sway)).normalize();
+        const corrW=new Q().setFromUnitVectors(d,t);
+        const pq=new Q(); if(sh.parent)sh.parent.getWorldQuaternion(pq);
+        const shW=new Q(); sh.getWorldQuaternion(shW);
+        sh.quaternion.copy(pq.invert().multiply(corrW.multiply(shW)));
+        pug.updateMatrixWorld(true);
+      }
+      set('LeftForeArm',  0.30+Math.sin(f)*0.26, 0, 0);
+      set('RightForeArm', 0.30+Math.sin(f*1.17+1.9)*0.26, 0, 0);
+      // and everything else hangs: legs down under him, chin up out of the water
+      set('LeftUpLeg', 0.30,0,0); set('RightUpLeg', 0.30,0,0);
+      set('LeftLeg', 0.46,0,0);   set('RightLeg', 0.46,0,0);
+      set('Head', -0.50,0,0);
+      if(R.mixer&&R.mixer.stopAllAction)R.mixer.stopAllAction();
     }
   }
   // board: cartwheels away and slaps down
-  w.bvy-=20*dt;
+  w.bvy-=32.2*dt;                 // the board falls under the same sky he does
   w.bx+=w.bvx*dt; w.by+=w.bvy*dt; w.bz+=w.bvz*dt;
   const bsea=waveH(w.bx,dist*WAVE_DRIFT+w.bz,waveClock)+0.13;
   if(w.by<bsea){
@@ -15784,6 +15859,7 @@ function updateWipeout(dt){
     w.by=bsea+0.02;
   } else {
     rig.rotation.x+=w.bsx*dt; rig.rotation.z+=w.bsz*dt;
+    rig.rotation.y+=(w.bsy||0)*dt;      // and about its own length, so it corkscrews too
   }
   // The crash is the best thing that happens in a run and it was being thrown away: the
   // shot cut straight to a wide hold on empty water while he was still in the air. Now it
@@ -19018,6 +19094,27 @@ if(location.hash.includes('debug')){
     obsTemplate(k){ const t=OBST_TEMPLATES[k]; return t?{variant:t.userData.variant||null}:null; },
     // Put scenery sharks in the water on demand — they arrive on a five-to-twelve second
     // clock otherwise, which is a long wait to look at one.
+    // Crash on demand, so what a wipeout looks like can be watched instead of waited for.
+    crash(kind){ if(typeof startWipeout!=='function'||!running)return null;
+      startWipeout(kind||'log');
+      return {wipe:!!wipe, spin:wipe?[+wipe.sx.toFixed(2),+wipe.sy.toFixed(2),+wipe.sz.toFixed(2)]:null}; },
+    // and where he and the board have got to, in the air or in the water
+    crashState(){ if(!wipe)return null;
+      return {t:+wipe.t.toFixed(2), splashed:!!wipe.splashed,
+              rider:{y:+py.toFixed(2), rx:+wipe.rx.toFixed(2), ry:+wipe.ry.toFixed(2), rz:+wipe.rz.toFixed(2)},
+              turns:+(Math.abs(wipe.rx)+Math.abs(wipe.ry)+Math.abs(wipe.rz))/(Math.PI*2),
+              board:{y:+wipe.by.toFixed(2), landed:!!wipe.landed},
+              sea:+(waveH(px,dist*WAVE_DRIFT,waveClock)+0.13).toFixed(2),
+              rig:(function(){ const R=(typeof riderRig==='function')?riderRig():null;
+                if(!R)return 'no rig';
+                if(!R.bones)return 'no bones';
+                const names=Object.keys(R.bones);
+                const la=R.bones.LeftArm, ra=R.bones.RightArm;
+                return {n:names.length, has:names.filter(k=>/Arm/.test(k)).join(','),
+                        left:la?[+la.rotation.x.toFixed(2),+la.rotation.y.toFixed(2),+la.rotation.z.toFixed(2)]:null,
+                        right:ra?[+ra.rotation.x.toFixed(2),+ra.rotation.y.toFixed(2),+ra.rotation.z.toFixed(2)]:null,
+                        mixer:!!R.mixer};
+              })()}; },
     spawnLife(n){ if(typeof spawnSeaLife!=='function')return null;
       for(let i=0;i<(n||1);i++)spawnSeaLife();
       return (typeof seaLife!=='undefined')?seaLife.length:null; },
