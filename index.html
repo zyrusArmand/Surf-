@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.21.0';
+window.SURF_VERSION='5.22.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -20266,6 +20266,23 @@ if(location.hash.includes('debug')){
       return out;
     },
     octoWave(v){ if(v)for(let i=0;i<6;i++)if(v[i]!==undefined)OCT_W[i]=v[i]; return OCT_W.slice(); },
+    // ---- everything standing on the menu beach, so "did anything move" is not a guess ----
+    // The reveal is held until the picture settles, but it is held on FIVE named things, and
+    // "the coconut moved" is not one of them. This walks the whole preview scene instead, so a
+    // prop nobody thought to name is still caught arriving or shifting after the fade.
+    menuStill(){
+      if(typeof prevScene==='undefined'||!prevScene)return null;
+      const out=[]; const v=new THREE.Vector3();
+      const walk=(o,d)=>{
+        if(!o.visible)return;
+        o.getWorldPosition(v);
+        out.push((o.name||o.type)+':'+v.x.toFixed(2)+','+v.y.toFixed(2)+','+v.z.toFixed(2)
+                 +':'+o.scale.x.toFixed(3));
+        if(d<2)for(const c of o.children)walk(c,d+1);
+      };
+      for(const c of prevScene.children)walk(c,0);
+      return out;
+    },
     // How far the raised arms are held up. Negative bends them the other way, which is the
     // cheapest way to find out which way "up" is on somebody else's skeleton.
     octoLift(v){ if(v!==undefined){OCT_LIFT=v;
@@ -25697,10 +25714,77 @@ function menuBeachWanted(){
 // reads as the picture resolving. Once per session — coming back from the shop is not an
 // arrival and must not blink.
 let menuFaded=false;
+// ---- and it is not shown until it has stopped rearranging itself ----
+// The set is laid out FROM things that arrive over the network, and every late arrival
+// re-solves it. Recorded frame by frame over a cold open: the palm jumps 7% of the screen at
+// 7.7s, the chest appears out of nothing at 10.4s, the rider is re-measured and re-scaled
+// twice, and at 12.0s the camera re-frames the pair and moves the whole set — rider, board,
+// chest and palm together — up six percent in a single frame. Three of those four were AFTER
+// the fade had already run, which is the report: nothing is wrong with any one number, they
+// each just arrive late and the picture keeps twitching.
+// A late arrival also trips the rebuild below, and a rebuild re-runs the entire layout, so
+// one model landing late is worth several visible jumps rather than one.
+const MB_SHOW_HOLD=5;     // frames the picture has to be identical for
+const MB_SHOW_CAP=9.0;    // ...and the longest it is ever waited for
+// The camera is judged by whether it SPED UP, not by how far it went. A fixed distance is a
+// frame-rate test wearing a distance's clothes: the drift covers four times as much ground in
+// a frame at 15fps as at 60, so any threshold loose enough for a slow phone lets a re-solve
+// through on a fast one and any threshold tight enough to catch it never passes at all — on
+// the software renderer this was measured on it never once held still and every open ran to
+// the cap. A drift moves about the same amount every frame; a re-solve is a step.
+const MB_SHOW_STEP=4.0, MB_SHOW_FLOOR=0.02;
+// Compared with a TOLERANCE rather than for equality, and this is the whole reason the first
+// attempt sat behind the cover for forty seconds and came out on the timeout every time. The
+// rider breathes: measured over the settled frames his root rides between 4.92 and 4.93 while
+// the board, the chest and the props group never move a thousandth. Matching exact numbers
+// waits for an idle animation to stop, which it never does. Three hundredths of a foot is
+// twenty times that bob and a fraction of the smallest real jump here, which was a quarter of
+// a foot of rider.
+const MB_SHOW_TOLP=0.03, MB_SHOW_TOLS=0.003;
+let _mbHold=0, _mbSig=null, _mbId='', _mbWait=0, _mbCam=null, _mbCamD=0;
+function menuSettled(dt){
+  _mbWait+=dt;
+  // position AND scale, because a re-fit shows up in the scale and a re-layout in the
+  // position. Bones are deliberately not looked at: the idle animation moves those every
+  // frame and it is not what is being waited for.
+  const parts=[typeof pug!=='undefined'?pug:null, menuBeach&&menuBeach.board,
+               typeof beachChest!=='undefined'?beachChest:null,
+               typeof menuPalm!=='undefined'?menuPalm:null,
+               typeof menuProps!=='undefined'?menuProps:null];
+  const now=[]; let id='';
+  for(const o of parts){
+    id+=(o?o.uuid:'-')+'|';
+    now.push(o?o.position.x:0, o?o.position.y:0, o?o.position.z:0, o?o.scale.x:0);
+  }
+  // identity first: a model arriving is a different object, not a moved one
+  let same=(id===_mbId)&&!!_mbSig&&_mbSig.length===now.length;
+  if(same)for(let i=0;i<now.length;i++){
+    if(Math.abs(now[i]-_mbSig[i])>((i%4===3)?MB_SHOW_TOLS:MB_SHOW_TOLP)){ same=false; break; }
+  }
+  let camStill=true;
+  if(menuCam){
+    if(_mbCam){
+      const d=menuCam.position.distanceTo(_mbCam);
+      camStill=(d<MB_SHOW_FLOOR)||(d<_mbCamD*MB_SHOW_STEP);
+      _mbCamD=d;
+    }
+    _mbCam=(_mbCam||new THREE.Vector3()).copy(menuCam.position);
+  }
+  // The reference is only replaced when it MOVED. Refreshing it every frame would let the
+  // rider's bob walk the whole set across the beach a tolerance at a time and still read as
+  // holding still the entire way.
+  if(same&&camStill)_mbHold++; else { _mbHold=0; _mbSig=now; _mbId=id; }
+  return _mbHold>=MB_SHOW_HOLD||_mbWait>=MB_SHOW_CAP;
+}
 function renderMenuBeach(dt){
   const m=menuBeach; m.t+=dt;
-  if(!menuFaded){
+  if(!menuFaded&&menuSettled(dt)){
     menuFaded=true;
+    // how long the picture was held back, and whether it was held until it was ready or cut
+    // off by the cap. "Revealed on the timeout" and "revealed because it settled" look the
+    // same from outside and mean opposite things about whether this is working.
+    _bootMs.showWait=Math.round(_mbWait*1000);
+    _bootMs.showWhy=(_mbHold>=MB_SHOW_HOLD)?'settled':'cap';
     const cv=renderer.domElement, ov=overlay, vr=document.getElementById('ver');
     cv.style.transition='none'; cv.style.opacity='0';
     requestAnimationFrame(()=>{
