@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.99.0';
+window.SURF_VERSION='5.00.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -13841,7 +13841,9 @@ function rampSlope(d,t){
 // fitted to the same box it came out 36% lower — 1.74ft against 2.73 — while staying the same
 // length. This is the number that answers "can it be longer or bigger": at 1.5 it stands
 // taller than the ramp it replaces and runs half again as long.
-const OBST_SIZE={buoy:2.00, buoy2:0.70, ramp:1.50};
+// buoy2 up from 0.70. It is the small marker buoy and at that size it read as a bit of
+// litter rather than as a thing in the water to steer round.
+const OBST_SIZE={buoy:2.00, buoy2:1.18, ramp:1.50};
 // The deepest a kicker can be sitting, as a share of its own height. Past about half it stops
 // reading as a ramp riding low and starts reading as a ramp that is sinking.
 // Walked down from a half: at that, the deepest ones show only the top corner of the deck and
@@ -14776,6 +14778,7 @@ function updateCrate(dt,eff){
   if(Math.abs(crateObj.position.z-pz)<2.2 && Math.abs(crateObj.position.x-px)<2.2
      && Math.abs(py-crateObj.position.y)<2.0){
     crateOn=false; crateHeld=true; crateObj.visible=false; cratePin=false;
+    if(ceremonyChest&&ceremonyChest.userData.halo)ceremonyChest.userData.halo.visible=true;
     if(crateInTube){ crateInTube=false; score+=150; }   // grabbing it mid-barrel pays extra
     msg('TREASURE CHEST!'); buzz(25); goalEv('chest',1);
     splash(px,py+0.3,pz,14,0xffc23e);
@@ -15244,14 +15247,25 @@ function placeCeremonyChest(dt){
   // Bigger than it was. This is the one moment in the game a chest is the subject rather than
   // a thing in the water, and at the old size it sat in the middle of the screen with a third
   // of the frame of empty sea around it.
-  const sc=1.14*(1+0.06*crateShakeE);
+  // Bigger again. This is the subject of the whole screen for a few seconds and it was
+  // sitting in the middle of the frame with sea all round it.
+  const sc=1.52*(1+0.06*crateShakeE);
   ceremonyChest.scale.setScalar(sc);
   if(crateOpened)crateLid=Math.min(1,crateLid+dt*1.5);
   const e=crateLid*crateLid*(3-2*crateLid);
   ceremonyChest.userData.lid.rotation.x=-1.85*e;
-  ceremonyChest.userData.inner.material.opacity=e*0.95;
-  ceremonyChest.userData.inner.scale.setScalar(1.6+e*1.6);
-  ceremonyChest.userData.halo.material.opacity=0.35+e*0.45;
+  // ---- NO FLAT WHITE PLATE OVER IT ----
+  // Two glow quads: a halo 3.4 units across sitting proud of the chest, and an inner glow
+  // grown to 3.2. Out in the water they are what makes a chest catchable from a distance and
+  // they are right there. HERE the chest fills the middle of the screen and the camera is
+  // five feet from it, so the same two quads are a sheet of white laid over the lid and a
+  // wash spilling wider than the box — which is what you see when you open one.
+  // The halo goes off for the ceremony and comes back for the water. The inner glow stays,
+  // because the treasure lighting the inside of the box is the whole picture, but it is kept
+  // INSIDE it rather than grown past the lid.
+  ceremonyChest.userData.halo.visible=false;
+  ceremonyChest.userData.inner.material.opacity=e*0.55;
+  ceremonyChest.userData.inner.scale.setScalar(0.85+e*0.55);
 }
 function crateRoll(){
   const lockedC=CHARS.filter(c=>!ownedChars[c.id]);
@@ -16693,7 +16707,9 @@ const SKI_CREW=0.34;
 // and how far his soles sink into the seat, so he is astride it rather than perched on it
 const SKI_FEET=-0.10;
 const jetSki=buildJetSki();
-jetSki.scale.setScalar(1.30);        // it crosses a long way out; small reads as nothing
+// Down from 1.30. It crosses a long way out, which is why it was made big — but at that
+// size it read as a boat rather than as a ski.
+jetSki.scale.setScalar(0.92);
 scene.add(jetSki);
 // A hard flash off its screen, sized to be visible from a hundred units out. It is
 // what makes you look up in time — the wake it leaves is on its way long before it
@@ -19740,6 +19756,16 @@ if(location.hash.includes('debug')){
       return sandCull(true)||{kept:mesh.count, of:mesh.userData.allN};
     },
     shrinkK(){ return (typeof cocoK!=='undefined')?+cocoK.toFixed(3):null; },
+    // Put the chest ceremony on screen without having to catch a chest and then wipe out,
+    // so what is drawn over it can be looked at rather than reasoned about.
+    chestCeremony(open){
+      if(typeof crateCeremony!=='function')return null;
+      crateHeld=true; crateCeremony();
+      if(open){ crateOpened=true; crateLid=1; }
+      return {show:crateShow, opened:!!crateOpened,
+              haloOn:!!(ceremonyChest&&ceremonyChest.userData.halo&&ceremonyChest.userData.halo.visible),
+              scale:+ceremonyChest.scale.x.toFixed(3)};
+    },
     palmProbe(wx,wz){
       // given a world x,z it MOVES the staged tree there and re-lays the set out, so the
       // question "where does the trunk have to stand to be in shot" can be answered by
