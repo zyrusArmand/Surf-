@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.98.0';
+window.SURF_VERSION='4.99.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -1289,11 +1289,26 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
      Sits ON the jump button's own column so the two read as one control stack: same right
      inset, parked directly above it. Narrow, because it is a tall plank and the width is
      what a phone has least of. */
-  #cocoBar { position:fixed; right:20px; bottom:126px; width:min(64px,15vw);
+  #cocoBar { position:fixed; right:20px; bottom:196px; width:min(54px,12.5vw);
              z-index:6; pointer-events:none;
              filter:drop-shadow(0 4px 14px rgba(0,18,26,.55));
              transition:filter .3s ease; }
   #cocoBar.hidden { display:none; }
+  /* the flash the charge closes with — a one-shot on top of the steady live glow */
+  #cocoBar.flash { animation:cbFlash .16s steps(1,end) 8; }
+  @keyframes cbFlash { 0%,100%{ filter:drop-shadow(0 0 26px rgba(255,236,150,1))
+                                       brightness(1.6) saturate(1.3); }
+                       50%    { filter:drop-shadow(0 4px 14px rgba(0,18,26,.55)); } }
+  /* ---------- the charge clock ----------
+     The title's face, its colour and its shadow, so the number belongs to the game. Sat
+     above the middle rather than on it: dead centre is where the rider is. */
+  #cocoClock { position:fixed; left:0; right:0; top:38%; z-index:7;
+    text-align:center; pointer-events:none;
+    font-size:min(20vw,104px); font-weight:700; line-height:1;
+    color:#ffdf2e; letter-spacing:-.5px;
+    text-shadow:3px 3px 0 #b8641c, 0 6px 22px rgba(0,20,40,.6);
+    opacity:0; transform:scale(.82); transition:opacity .18s ease, transform .18s ease; }
+  #cocoClock.on { opacity:.96; transform:scale(1); }
   #cocoBar .cbBase { width:100%; height:auto; display:block; -webkit-user-drag:none; }
   /* A lit nut is the same picture over itself, clipped to that nut and turned gold. The
      ellipse is in PERCENTAGES so it rides the element's size: for an ellipse the x radius
@@ -1335,7 +1350,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
                       50%{filter:drop-shadow(0 4px 20px rgba(255,206,90,.8))} }
   /* and it drains back to ghost when the power runs out, rather than blinking off */
   #cocoBar.spent .cbNut { transition:opacity .5s linear; }
-  @media (max-width:430px){ #cocoBar { right:14px; bottom:118px; } }
+  @media (max-width:430px){ #cocoBar { right:14px; bottom:182px; } }
   /* JUMP and ROPE are the ride's Play: same body, brighter gold, and the streak comes off
      so the bezel is the only thing on the rim */
   #jumpBtn, #ropeBtn {
@@ -1404,6 +1419,10 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   <div class="cell"><span class="lab">Puka</span><span class="val"><i class="pk"></i><span id="hCoins">0</span></span><span class="rec">this run</span></div>
 </div>
 <div id="trickmsg"></div>
+<!-- The charge's clock. Middle of the screen in the title's own face, so it reads as part
+     of the game rather than as instrumentation. Its own element rather than reusing
+     trickmsg, which is a one-shot that fades and would fight a counter for the same box. -->
+<div id="cocoClock" aria-hidden="true"></div>
 <!-- ---------- the coconut meter ----------
      Three nuts carved into a plank, over the jump button. Each coconut caught in the run
      lights the next one gold; the third closes the circuit and the arcs jump between them,
@@ -13132,7 +13151,11 @@ const wakeMesh=new THREE.Mesh(wakeGeo,wakeMat);
 wakeMesh.frustumCulled=false;scene.add(wakeMesh);
 const trail=[];                       // {x,y,z,w,age}
 let trailT=0;
-function pushTrail(x,y,z,w){ trail.unshift({x,y,z,w,age:0}); if(trail.length>WAKE_SEGS)trail.pop(); }
+// Scaled by the rider's own size at the moment it is laid down, not at the moment it is
+// drawn: a shrunken surfer leaving a full-width wake reads as a toy towed behind a boat,
+// and the trail the last full-size second put down should stay the width it was.
+function pushTrail(x,y,z,w){ trail.unshift({x,y,z,w:w*(typeof cocoK!=='undefined'?cocoK:1),age:0});
+  if(trail.length>WAKE_SEGS)trail.pop(); }
 function updateWake(dt,eff){
   for(const t of trail){ t.age+=dt; t.z+=eff*dt; }
   while(trail.length&&trail[trail.length-1].age>1.5)trail.pop();
@@ -13918,7 +13941,12 @@ for(const kind of ['buoy','jelly','log','bigfin','ramp','octopus'])(k=>{
 // ---------- state ----------
 let running=false,tNow=0,last=0,speed=22,score=0,best=0,waveClock=0,lastEff=22;
 let px=0,py=0,pz=0,vy=0,vx=0,sprayCd=0,airborne=false,trickReady=false;
-const BOARD_HALF_L=2.45, BOARD_HALF_W=0.55;   // the hull's own footprint
+// The hull's own footprint. NOT const any more: the coconut charge shrinks the whole rig,
+// and a hit box that stayed full size would mean a rider a third of his height still being
+// killed by things passing a board's width away — which is the opposite of what shrinking
+// him is for. BOARD_HALF_*0 are the real numbers; the pair below is what the frame is using.
+const BOARD_HALF_L0=2.45, BOARD_HALF_W0=0.55;
+let BOARD_HALF_L=BOARD_HALF_L0, BOARD_HALF_W=BOARD_HALF_W0;
 let boardYaw=0,boardLean=0,boardPitch=0,camX=0,camY=4.9,camZ=11.0,lookX=0,sprayAcc=0,leanW=0,pearlT=0;
 let spinHeld=false,flipHeld=false,pitchHeld=false,spinRot=0,flipRot=0;
 // Tapped tricks queue whole turns rather than spinning for as long as a button is
@@ -14760,9 +14788,21 @@ function updateCrate(dt,eff){
 // than set up for, the same lesson the chest already learned: a pickup that ignores you
 // when you ride through it reads as broken, not as a skill gate.
 const COCO_MAX=3;            // nuts to a charge
-const COCO_HOLD=7.0;         // seconds the charge runs for once it closes
+const COCO_HOLD=20.0;        // seconds the charge runs for once it closes
+// ---- WHAT THE CHARGE DOES: it shrinks you ----
+// Not a speed boost. The ground speed is untouched, so you cover exactly the distance you
+// would have covered anyway — and that is the point: at a third of your height the same
+// water goes past you three times faster to look at. The obstacles do not change either,
+// so a gap that was a squeeze becomes one you can steer through, which is the other half
+// of it. Eased in and out rather than snapped, because a rig that changes size between two
+// frames reads as a glitch and not as a power.
+const COCO_SHRINK=0.38;      // how small, as a share of full size
+const COCO_EASE=2.6;         // how fast it gets there and back, per second
+let cocoK=1;                 // where the ease has got to
 let cocoGot=0, cocoPower=0, cocoObjs=[], cocoT=4+Math.random()*5, cocoBob=0;
 const cocoBarEl=document.getElementById('cocoBar');
+const cocoClockEl=document.getElementById('cocoClock');
+let _cocoClockOn=false;
 // The DOM only changes when the STATE does. Called every frame it would rewrite three class
 // lists sixty times a second to say the same thing, and the pop animation would restart on
 // every one of those -- which is how a one-shot flourish turns into a permanent shudder.
@@ -14783,6 +14823,11 @@ function showCocoBar(pop){
 }
 function cocoReset(){
   cocoGot=0; cocoPower=0; cocoT=4+Math.random()*5;
+  // full size again, at once — a run must never start part-shrunk, and the ease would
+  // otherwise carry the last run's state into the first second of the next one
+  cocoK=1; BOARD_HALF_L=BOARD_HALF_L0; BOARD_HALF_W=BOARD_HALF_W0;
+  if(typeof player!=='undefined'&&player)player.scale.setScalar(1);
+  if(cocoClockEl){ cocoClockEl.classList.remove('on'); _cocoClockOn=false; }
   for(const m of cocoObjs){ m.visible=false; m.userData.on=false; }
   _cbShown=-1; _cbLive=null; showCocoBar();
 }
@@ -14813,11 +14858,24 @@ function updateCocos(dt,eff){
   cocoBob+=dt;
   if(cocoPower>0){
     cocoPower-=dt;
-    // the charge IS the boost, held rather than topped up: boost decays at 3.0/s, so
-    // re-arming it every frame is what makes this a power-up and not a single nudge
-    boost=Math.min(16,Math.max(boost,13));
     if(cocoPower<=0){ cocoPower=0; cocoGot=0; msg('POWER DOWN'); }
     showCocoBar();
+  }
+  // ---- the size, eased toward wherever the charge says ----
+  const wantK=cocoPower>0?COCO_SHRINK:1;
+  if(Math.abs(cocoK-wantK)>1e-4){
+    cocoK+=(wantK-cocoK)*Math.min(1,dt*COCO_EASE);
+    if(Math.abs(cocoK-wantK)<0.004)cocoK=wantK;
+    if(typeof player!=='undefined'&&player)player.scale.setScalar(cocoK);
+    // and the footprint with him — see BOARD_HALF_L0
+    BOARD_HALF_L=BOARD_HALF_L0*cocoK; BOARD_HALF_W=BOARD_HALF_W0*cocoK;
+  }
+  // the clock, in the middle of the screen, in the title's own face
+  if(cocoClockEl){
+    const on=cocoPower>0;
+    if(on){ const t=Math.ceil(cocoPower);
+            if(cocoClockEl.textContent!==String(t))cocoClockEl.textContent=String(t); }
+    if(on!==_cocoClockOn){ _cocoClockOn=on; cocoClockEl.classList.toggle('on',on); }
   }
   // no new nuts while a charge is running — the meter is already full and has nowhere to put them
   if(running&&swPh===SWP.IDLE&&dist>60&&cocoPower<=0){
@@ -14842,9 +14900,13 @@ function updateCocos(dt,eff){
       splash(px,py+0.3,pz,9,0xffd76a);
       showCocoBar(cocoGot-1);
       if(cocoGot>=COCO_MAX){
-        cocoPower=COCO_HOLD; boost=16;
+        cocoPower=COCO_HOLD;
         msg('POWER UP ACTIVATED!'); buzz(30);
         showCocoBar();
+        // the flash is a one-shot on top of the steady live glow, restarted by hand
+        if(cocoBarEl){ cocoBarEl.classList.remove('flash'); void cocoBarEl.offsetWidth;
+                       cocoBarEl.classList.add('flash');
+                       setTimeout(()=>cocoBarEl&&cocoBarEl.classList.remove('flash'),1500); }
       }else msg(`COCONUT ${cocoGot}/${COCO_MAX}`);
     }
   }
@@ -19677,6 +19739,7 @@ if(location.hash.includes('debug')){
       }
       return sandCull(true)||{kept:mesh.count, of:mesh.userData.allN};
     },
+    shrinkK(){ return (typeof cocoK!=='undefined')?+cocoK.toFixed(3):null; },
     palmProbe(wx,wz){
       // given a world x,z it MOVES the staged tree there and re-lays the set out, so the
       // question "where does the trunk have to stand to be in shot" can be answered by
@@ -24359,9 +24422,12 @@ let MB_SGN_HP=0.092;
 // so it stays between those two things if the tree is ever resized.
 let MB_SGN_NAIL=1;         // 0 goes back to the plank in the sand
 let MB_SGN_TDROP=0.525;    // share of the tree's height down from its top
-let MB_SGN_TOFF=0.16;      // feet clear of the trunk's SURFACE
-let MB_SGN_TFT=4.0;        // how wide the plank is, in feet
-let MB_SGN_TROLL=-0.13;    // and the cant, in the view plane
+let MB_SGN_TOFF=0.62;      // feet clear of the trunk's SURFACE — enough that the trunk
+                           // passes cleanly behind the plank instead of through its face
+let MB_SGN_TFT=3.05;       // how wide the plank is, in feet
+let MB_SGN_TROLL=-0.15;    // and the cant, in the view plane
+let MB_SGN_TYAW=0.30;      // turned off square, so it sits ACROSS the trunk at an angle
+                           // rather than flat against it with the wood coming through
 let MB_SGN_NAILSZ=0.44;    // the nail head, in feet
 let MB_SGN_NAILUP=0.56;    // how far up the plank it goes, as a share of the plank's height
 let _sgNail=null;
@@ -24715,6 +24781,8 @@ function hangBeachSign(){
     // level, and the tilt is taken in the VIEW plane so it is the cant you actually see
     beachSign.quaternion.multiply(
       new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),MB_SGN_TROLL));
+    beachSign.quaternion.multiply(
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),MB_SGN_TYAW));
     nailBeachSign();
   }else if(MB_SGN_PLANT){
     // Aimed at the lens first and then turned OFF it, rather than given a world rotation: the
