@@ -23870,6 +23870,8 @@ let MB_SET_AHEAD=15.0;               // feet out along the staged camera's own f
 let MB_SET_SIDE=1.36;                // feet along the camera's right
 let MB_CAM_ASP=0.462;                // the aspect it was staged at
 let MB_CAM_DOLLY=9.0;                // feet nearer per unit of aspect above that
+// ...but never more than this, however wide the window gets. See the note at the walk-in.
+let MB_CAM_DOLLY_MAX=3.2;
 let MB_D=6.2;                        // how far back the camera stands from the palm
 // How high the lens is over the sand, and how high it is aimed. AIM is a height above the
 // beach at the palm; EYE is measured off the sand the camera itself stands on, which is not
@@ -24145,6 +24147,7 @@ function palmHeightAt(drop){
 // little with aspect.
 const _scFr=new THREE.Frustum(), _scM=new THREE.Matrix4(), _scV=new THREE.Vector3();
 const _scSph=new THREE.Sphere();
+const _dofP=new THREE.Vector3();   // scratch for the menu's focus distance
 let _scCam=null;
 let SAND_CULL_PAD=1.62;   // how much wider than the lens the cut is made
 let _scLast='';
@@ -25697,8 +25700,15 @@ function renderMenuBeach(dt){
     // swung onto the set — see the note at the top of layoutMenuBeach.
     menuCam.quaternion.setFromEuler(_stEul.set(MB_CAM_PITCH,MB_CAM_YAW,0,'YXZ'));
     const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(menuCam.quaternion);
+    // ---- AND THE WALK-IN IS CAPPED ----
+    // This is (aspect - 0.462) * 9, which is nothing on a phone and TEN FEET on a desktop --
+    // against a set that stands eleven feet from the lens. On a wide screen the camera walked
+    // itself to within a couple of feet of the board: the focus distance came out at 2.57ft,
+    // the chest left the frame at x 972 of 1024, and the whole shot was somebody's chin. A
+    // wider frame does let the camera come in, but not by most of the distance to the subject.
     menuCam.position.addScaledVector(fwd,
-      Math.max(0,(menuCam.aspect||MB_CAM_ASP)-MB_CAM_ASP)*MB_CAM_DOLLY);
+      Math.min(MB_CAM_DOLLY_MAX,
+        Math.max(0,(menuCam.aspect||MB_CAM_ASP)-MB_CAM_ASP)*MB_CAM_DOLLY));
   }
   // the stage's own lens — see stCamFree. Held through Done as well as during, which is why the
   // condition is the lens itself rather than whether the bar happens to be on the screen.
@@ -25842,7 +25852,15 @@ function renderMenuBeach(dt){
   // focused on the board, because the board is the subject — it is the thing the screen is
   // for. The range is wide enough to keep the rider beside it and the trunk behind it sharp
   // and let go of everything past them.
-  present(prevScene,menuCam,null,MENU_DOF?{focus:menuCam.position.distanceTo(m.board.position),
+  // ---- FOCUSED AT A WORLD DISTANCE ----
+  // This measured from the camera's WORLD position to the board's LOCAL one. The board hangs
+  // in a group with a transform of its own, so the two are not in the same space and the
+  // number was not a distance at all: it came out at 2.57 feet for a board standing eleven
+  // feet from the lens, which puts the plane of focus somewhere between the camera and its
+  // own front element and softens the entire picture. The subject is the board; this is how
+  // far away the board actually is.
+  present(prevScene,menuCam,null,MENU_DOF?{focus:menuCam.position.distanceTo(
+                                             m.board.getWorldPosition(_dofP)),
                                            range:MB_DOF}:null,MENU_FISH,MENU_GRADE);
   if(fxOn&&bT0!==null){ fxBright.uniforms.uT.value=bT0; fxComp.uniforms.uAmt.value=bA0; }
   renderer.setClearColor(0x000000,1);
