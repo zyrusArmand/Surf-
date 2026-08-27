@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.91.0';
+window.SURF_VERSION='4.92.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -19235,6 +19235,68 @@ if(location.hash.includes('debug')){
     },
     // what the title screen's palm actually IS, in the frame it stands in
     palmLean2(v,h){ if(v!==undefined)LEAN2=v; if(h!==undefined)PALM2_H=h; repalm(); return [LEAN2,PALM2_H]; },
+    // ---- WHAT IS ACTUALLY UNDER EACH THING, off the drawn sand ----
+    // beachSandH is the analytic field the layout places against, and every "it looks like it
+    // is floating" argument so far has been conducted in that field's own units — which is
+    // exactly where a units error hides, because a wrong answer is self-consistent there. This
+    // fires a ray straight down at the SAND MESHES and reports the gap between what the ray
+    // hits and the bottom of the object's own box. A number that disagrees with beachSandH is
+    // the whole finding.
+    menuGround(){
+      if(typeof beachSet==='undefined'||!beachSet)return null;
+      const rc=new THREE.Raycaster(), down=new THREE.Vector3(0,-1,0);
+      const sand=[]; beachSet.traverse(o=>{ if(o.isMesh&&o.visible)sand.push(o); });
+      const look=o=>{
+        if(!o)return null;
+        o.updateWorldMatrix(true,true);
+        const b=new THREE.Box3().setFromObject(o);
+        if(!isFinite(b.min.y))return null;
+        const c=b.getCenter(new THREE.Vector3());
+        rc.set(new THREE.Vector3(c.x,b.max.y+400,c.z),down);
+        rc.far=4000;
+        const hit=rc.intersectObjects(sand,true)[0];
+        const an=(typeof beachSandH==='function')?beachSandH(c.z/MB_K)*MB_K:null;
+        return {base:+b.min.y.toFixed(3), top:+b.max.y.toFixed(3),
+                sand:hit?+hit.point.y.toFixed(3):null,
+                gap:hit?+(b.min.y-hit.point.y).toFixed(3):null,   // >0 floats, <0 is buried
+                analytic:an===null?null:+an.toFixed(3),
+                err:(hit&&an!==null)?+(an-hit.point.y).toFixed(3):null};
+      };
+      const out={tiles:sand.length};
+      out.rider=look(typeof pug!=='undefined'?pug:null);
+      out.board=look(menuBeach?menuBeach.board:null);
+      out.chest=look(typeof beachChest!=='undefined'?beachChest:null);
+      out.sign =look(typeof beachSign!=='undefined'?beachSign:null);
+      out.palm =look(typeof menuPalm!=='undefined'?menuPalm:null);
+      // ...and WHERE ON THE SCREEN each shell is, because "seated correctly" and "in the shot"
+      // are two different facts and the ground probe only ever answered the first. Two of them
+      // sat perfectly on the sand and neither was anywhere in the picture.
+      const scr=o=>{
+        if(!o||typeof menuCam==='undefined'||!menuCam)return null;
+        const b=new THREE.Box3().setFromObject(o);
+        if(!isFinite(b.min.y))return null;
+        let x0=9,x1=-9,y0=9,y1=-9;
+        for(let i=0;i<8;i++){
+          const v=new THREE.Vector3(i&1?b.max.x:b.min.x,i&2?b.max.y:b.min.y,i&4?b.max.z:b.min.z);
+          v.project(menuCam);
+          const p=fishScreen(v.x*0.5+0.5,-v.y*0.5+0.5);
+          if(p.x<x0)x0=p.x; if(p.x>x1)x1=p.x; if(p.y<y0)y0=p.y; if(p.y>y1)y1=p.y;
+        }
+        return {x:[+x0.toFixed(3),+x1.toFixed(3)],y:[+y0.toFixed(3),+y1.toFixed(3)]};
+      };
+      out.bowls=(typeof beachBowls!=='undefined'?beachBowls:[]).filter(m=>m.visible)
+                  .map(m=>Object.assign(look(m)||{},{on:scr(m)}));
+      out.cocos=(typeof beachCocos!=='undefined'?beachCocos:[]).map(m=>{
+        m.updateWorldMatrix(true,false);
+        const w=m.getWorldPosition(new THREE.Vector3());
+        return {at:[w.x,w.y,w.z].map(v=>+v.toFixed(2))};
+      });
+      if(typeof menuPalm!=='undefined'&&menuPalm){
+        const b=new THREE.Box3().setFromObject(menuPalm);
+        out.palmBox={y:[+b.min.y.toFixed(2),+b.max.y.toFixed(2)]};
+      }
+      return out;
+    },
     palmProbe(wx,wz){
       // given a world x,z it MOVES the staged tree there and re-lays the set out, so the
       // question "where does the trunk have to stand to be in shot" can be answered by
@@ -23230,6 +23292,52 @@ const MB_RH=RIDER_FT;
 // The rider standing on that sand is an adult, not a pug: six feet of him against a six
 // foot board. From the old mark he filled half the frame on his own, so the camera takes
 // three more steps back and the picture goes back to being a beach with two things on it.
+// ---- SEATED ON THE SAND THAT IS DRAWN, NOT THE SAND THAT IS CALCULATED ----
+// beachSandH is an analytic field, and the beach stopped being that field when the painted
+// mesh was replaced by tiles of sand_ULTRA: the tiles carry their own relief and are set down
+// into the field to hide their seams, so the surface you can see sits BELOW the number. Fired
+// straight down at the tiles, the gap came back at +1.89 feet under the rider, +0.99 under the
+// chest and +0.17 under a shell — which is the floating, and it is why it looked worse for the
+// rider than for anything else rather than looking like one uniform lift. It is not a constant
+// either: the ray lands on a different part of a tile's own ripple each time, so no single
+// offset fixes it.
+// So nothing is placed against the field any more. This asks the sand itself.
+const _sndRC=new THREE.Raycaster(), _sndDown=new THREE.Vector3(0,-1,0);
+const _sndC=new THREE.Vector3(), _sndS=new THREE.Vector3();
+let _sndList=null;
+function sandMeshes(){
+  // rebuilt when the tile count changes — re-tiling swaps the whole set, and a stale list
+  // raycasts against meshes that are no longer in the scene and quietly finds nothing
+  if(typeof beachSet==='undefined'||!beachSet)return null;
+  if(!_sndList||_sndList.src!==beachSet||_sndList.n!==beachSet.children.length){
+    const a=[]; beachSet.traverse(o=>{ if(o.isMesh)a.push(o); });
+    _sndList={src:beachSet, n:beachSet.children.length, a};
+  }
+  return _sndList.a;
+}
+// Puts the bottom of an object's own box on the sand under its middle. sink is a share of its
+// own height to bury, so it holds at any size. Returns false when there is no sand under it,
+// and leaves it alone rather than dropping it to zero.
+function seatOnSand(o,sink){
+  const list=sandMeshes();
+  if(!o||!list||!list.length)return false;
+  o.updateWorldMatrix(true,true);
+  const b=new THREE.Box3().setFromObject(o);
+  if(!isFinite(b.min.y))return false;
+  b.getCenter(_sndC);
+  _sndRC.set(new THREE.Vector3(_sndC.x,b.max.y+400,_sndC.z),_sndDown);
+  _sndRC.far=4000;
+  const hit=_sndRC.intersectObjects(list,true)[0];
+  if(!hit)return false;
+  const want=hit.point.y-(sink||0)*(b.max.y-b.min.y);
+  // IN THE PARENT'S UNITS. The chest and the shells hang in menuProps, which is scaled by
+  // MB_K on the way into the world, so a world-feet correction added straight to a local
+  // position overshoots by that factor — the error that floated the chest twice already.
+  const ps=(o.parent?(o.parent.getWorldScale(_sndS).y||1):1);
+  o.position.y+=(want-b.min.y)/Math.max(1e-4,ps);
+  o.updateMatrixWorld(true);
+  return true;
+}
 const _mbF=new THREE.Vector3(), _mbR=new THREE.Vector3(), _mbP=new THREE.Vector3();
 const _mbQ=new THREE.Quaternion(), _mbQ2=new THREE.Quaternion(), _mbUp=new THREE.Vector3(0,1,0);
 const _mbS=new THREE.Vector3();
@@ -23801,7 +23909,7 @@ function sgnTopTarget(){
 // Out to the right, but not to the 3.12 that solving on one board asked for: the chest is
 // placed off the CAMERA, and the camera solves onto the group, so a longer board carried it
 // out to 1.09 of the way across — a quarter of the chest off the side of the screen.
-let MB_CD=0.60;        // out to the camera's right of the trunk's own axis...
+let MB_CD=0.20;        // out to the camera's right of the trunk's own axis...
 // Out from 1.3, where the new palm's trunk is thick enough at chest height that the two
 // merged into one shape — the chest was measurably clear of the CENTRELINE and visibly inside
 // the tree, which is the difference between a trunk that is a line and a trunk that is a
@@ -24176,9 +24284,10 @@ function layoutHorizon(){
 // clear sky in front of the crown and look like ornaments on a Christmas tree.
 let MB_COCO_N=3;          // how many hang on the tree
 let MB_COCO_SZ=0.85;      // feet tall
-let MB_COCO_RING=0.62;    // feet out from the trunk's axis
-let MB_COCO_BACK=0.55;    // and this far behind it, into the shade of the crown
-let MB_COCO_DROP=0.42;    // below where the fronds spring, which is where the nuts sit
+let MB_COCO_RING=1.05;    // feet out from the trunk's axis
+let MB_COCO_BACK=1.10;    // and this far behind it, into the shade of the crown
+let MB_COCO_DROP=0.42;    // DOWN FROM THE TOP OF THE TREE, as a share of its own height —
+                          // not feet; see layoutCoconuts for what the feet version did
 let MB_BOWL_MIN=1, MB_BOWL_MAX=3;
 let MB_BOWL_SZ=0.62;
 function layoutCoconuts(){
@@ -24193,12 +24302,22 @@ function layoutCoconuts(){
     // the crown is where the trunk line stops — the last slice it could still follow before the
     // fronds took over, which is exactly the fact trunkLine was written to find
     const tip=trunk.length?trunk[trunk.length-1]:null;
-    menuPalm.updateWorldMatrix(true,false);
+    menuPalm.updateWorldMatrix(true,true);
+    const _cocoBox=new THREE.Box3().setFromObject(menuPalm);
+    if(!isFinite(_cocoBox.min.y))return;
     for(let i=0;i<beachCocos.length;i++){
       const m=beachCocos[i];
       const a2=i/Math.max(1,beachCocos.length)*Math.PI*2+0.7;
-      const w=new THREE.Vector3(tip?tip.p.x:0,(tip?tip.p.y:1)-MB_COCO_DROP/Math.max(1e-3,menuPalm.scale.y||1),tip?tip.p.z:0);
+      // ---- WHERE THE FRONDS SPRING, not where the trunk line stops ----
+      // trunkLine follows this model to the top of its GEOMETRY, and on palm2 that is the top
+      // of the crown, not the top of the trunk: the nuts came out at world y 19.65 against a
+      // tree whose own box tops out at 19.24, so all three hung in the sky above the leaves.
+      // Taken off the tree's height instead — a share down from the top of its box, which is a
+      // fact about how tall this tree is rather than about how its slices were cut, so it holds
+      // if the model is ever swapped again.
+      const w=new THREE.Vector3(tip?tip.p.x:0,tip?tip.p.y:1,tip?tip.p.z:0);
       menuPalm.localToWorld(w);
+      w.y=_cocoBox.max.y-MB_COCO_DROP*Math.max(1e-3,_cocoBox.max.y-_cocoBox.min.y);
       w.addScaledVector(_mbR,Math.cos(a2)*MB_COCO_RING)
        .addScaledVector(_mbF,-Math.sin(a2)*MB_COCO_RING-MB_COCO_BACK);
       menuProps.worldToLocal(w);
@@ -24230,6 +24349,9 @@ function layoutCoconuts(){
       m.scale.setScalar(MB_BOWL_SZ/Math.max(1e-4,psb));
       // any angle, and tipped a little, because a split shell does not lie flat
       m.rotation.set(d.tx,d.ty,d.tz);
+      // and then dropped onto the sand that is drawn, AFTER the tip — a tipped shell's box is
+      // taller than a level one, so seating it first and turning it afterwards buries one lip
+      seatOnSand(m,0.13);
     }
   }
 }
@@ -24246,8 +24368,20 @@ function rollBowls(){
     if(i>=n){ _bowlPlan.push(null); continue; }
     _bowlPlan.push({
       // in the near half of the shot, off to either side of the set rather than under it
-      side:(Math.random()*2-1)*4.6,
-      fwd:-1.2-Math.random()*4.4,
+      // NEARER THE LENS than they were. The scatter used to sit nine to fourteen feet out,
+      // which is behind the ridge of near sand this camera looks over — seated correctly on the
+      // ground and invisible, every one of them. Five to ten puts them on the open sand in front
+      // of it, which is the part of the beach the shot actually shows.
+      // and NARROW. At five to ten feet the frame is only about three feet wide where they
+      // land — 51 degrees across at this aspect — so a spread of five and a half threw them
+      // off the right edge, x 1.08 to 1.25. Biased a little left of the axis because the
+      // chest and the button column already have the right.
+      side:(Math.random()*2-1)*1.6-2.0,
+      // POSITIVE is nearer, the same way round as the sign's MB_SGN_PF: the term is
+      // -_mbF*fwd and _mbF points downrange. Negative here put every shell out past the
+      // set toward the water, which is why they measured on-screen at y 0.62 — sitting on
+      // the horizon line, forty pixels wide, behind the pug and the board.
+      fwd:4.5+Math.random()*4.5,
       tx:(Math.random()-0.5)*0.9,
       ty:Math.random()*Math.PI*2,
       tz:(Math.random()-0.5)*0.9,
@@ -24578,7 +24712,11 @@ function renderMenuBeach(dt){
     // onto the sand under him.
     if(typeof pug!=='undefined'&&pug){
       const bb=new THREE.Box3().setFromObject(pug);
-      if(isFinite(bb.min.y)){
+      // Off the drawn sand, not the field — see seatOnSand. Against the field he stood a
+      // measured 1.89 feet in the air, which at this camera is exactly the gap under his back
+      // feet in the screenshot. Sunk a hair so his paws break the surface instead of resting
+      // on a tangent to it.
+      if(isFinite(bb.min.y)&&!seatOnSand(pug,0.012)){
         const gy=(typeof beachSandH==='function')
                    ? beachSandH(pug.position.z/MB_K)*MB_K
                    : (typeof beachSand0!=='undefined'?beachSand0:0);
@@ -24599,17 +24737,19 @@ function renderMenuBeach(dt){
       if(beachChest.userData.fitS===undefined)
         beachChest.userData.fitS=beachChest.scale.x||1;
       const want=beachChest.userData.fitS*MB_CH_SC;
-      if(Math.abs(beachChest.scale.x-want)>1e-5){
-        beachChest.scale.setScalar(want);
+      {
+        if(Math.abs(beachChest.scale.x-want)>1e-5)beachChest.scale.setScalar(want);
         // it grew about its own origin, so put its base back on the sand — in the parent's
         // units, which is the error that floated it the first time
         beachChest.updateMatrixWorld(true);
-        const cb=new THREE.Box3().setFromObject(beachChest);
-        const cwp=beachChest.getWorldPosition(new THREE.Vector3());
-        const gy=(typeof beachSandH==='function')?beachSandH(cwp.z/MB_K)*MB_K:0;
-        const ps=(beachChest.parent?beachChest.parent.getWorldScale(new THREE.Vector3()).y:1)||1;
-        if(isFinite(cb.min.y))beachChest.position.y+=(gy-cb.min.y)/ps;
-        beachChest.updateMatrixWorld(true);
+        if(!seatOnSand(beachChest,0.02)){
+          const cb=new THREE.Box3().setFromObject(beachChest);
+          const cwp=beachChest.getWorldPosition(new THREE.Vector3());
+          const gy=(typeof beachSandH==='function')?beachSandH(cwp.z/MB_K)*MB_K:0;
+          const ps=(beachChest.parent?beachChest.parent.getWorldScale(new THREE.Vector3()).y:1)||1;
+          if(isFinite(cb.min.y))beachChest.position.y+=(gy-cb.min.y)/ps;
+          beachChest.updateMatrixWorld(true);
+        }
       }
     }
   }
