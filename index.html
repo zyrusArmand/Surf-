@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.06.0';
+window.SURF_VERSION='5.07.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -13757,7 +13757,14 @@ function makeObstacle(kind,x,z){
     m.userData.tier=t;
     m.userData.sinkF=RAMP_TIERS[t]*RAMP_SINK;
     m.userData.sink=(m.userData.rampH||2.1)*m.userData.sinkF;
-    m.userData.lift=1-m.userData.sinkF;
+    // ---- HOW DEEP IT SITS AND HOW HARD IT THROWS ARE TWO QUESTIONS ----
+    // lift used to be 1 - sinkF, which tied them together: raising the ramps out of the
+    // water (they were going far too low) flattened the tiers with them, and the shallowest
+    // ended up throwing you 1.28x the deepest where it had thrown 1.67x. That is the read
+    // gone -- four depths you can tell apart on approach and that all do the same thing.
+    // The sink is what you SEE and it stays shallow; the launch gets its own, steeper curve
+    // off the same tier, so the deepest still costs you a third of your air.
+    m.userData.lift=1-RAMP_TIERS[t]*RAMP_LAUNCH_DROP;
   }
   if(kind==='bigfin'){
     const d=Math.random()<0.5?1:-1;
@@ -13884,7 +13891,9 @@ const OBST_SIZE={buoy:2.00, buoy2:1.18, ramp:1.50};
 // which is a ramp you cannot read on approach and barely get anything off. The four named
 // steps are kept — that spacing is what makes the depth a read rather than noise — they
 // are just spread over a shallower range.
-const RAMP_SINK=0.22;
+const RAMP_SINK=0.26;
+// what the deepest tier costs you in launch, as a share -- see the note where lift is set
+const RAMP_LAUNCH_DROP=0.35;
 // The four steps, as shares of that deepest setting. Evenly spaced would put the top two a
 // sixth of the sink apart, which is a couple of inches on a two foot wedge and reads as the
 // same ramp twice; spaced out toward the deep end instead, so each step is a visible one.
@@ -24037,18 +24046,41 @@ function sandMeshes(){
 // Puts the bottom of an object's own box on the sand under its middle. sink is a share of its
 // own height to bury, so it holds at any size. Returns false when there is no sand under it,
 // and leaves it alone rather than dropping it to zero.
-function seatOnSand(o,sink){
+// baseY overrides where the bottom of the object is taken to be. It exists because Box3 on
+// a SKINNED mesh reports the BIND pose, not the pose on screen -- riderGround already knew
+// that and reads the rig's own skin box instead, and this did not, so a rigged rider came
+// back from the shop standing six tenths of a foot over the sand. Anything unskinned can
+// leave it out and get the box.
+function seatOnSand(o,sink,baseY,radius){
   const list=sandMeshes();
   if(!o||!list||!list.length)return false;
   o.updateWorldMatrix(true,true);
   const b=new THREE.Box3().setFromObject(o);
   if(!isFinite(b.min.y))return false;
+  if(baseY!==undefined&&isFinite(baseY))b.min.y=baseY;
   b.getCenter(_sndC);
-  _sndRC.set(new THREE.Vector3(_sndC.x,b.max.y+400,_sndC.z),_sndDown);
-  _sndRC.far=4000;
-  const hit=_sndRC.intersectObjects(list,true)[0];
-  if(!hit)return false;
-  const want=hit.point.y-(sink||0)*(b.max.y-b.min.y);
+  // ---- THE HIGHEST GROUND UNDER THE FOOTPRINT, not the ground at one point ----
+  // A single ray down the middle finds whatever the sand happens to be doing at that exact
+  // spot, and the sand is bumpy: measured against groundTopOver -- which is what riderGround
+  // and the chest already ask -- the two disagreed by 0.14 of a foot and the rider came out
+  // buried by it. A foot resting on rough ground rests on the HIGH point under it, which is
+  // what groundTopOver answers, so this asks the same question everything else does.
+  // radius matters as much as position: groundTopOver takes the highest of five samples over
+  // a disc, so asking with a bigger footprint finds a higher spot. Taking it from a Box3 that
+  // is reporting a skinned mesh's BIND pose put the rider three tenths of a foot over the
+  // sand -- the same class of error as taking his soles from it. Callers who know their own
+  // footprint pass it.
+  const _r=(radius!==undefined&&isFinite(radius))?Math.max(0.10,Math.min(1.2,radius))
+        : Math.max(0.10,Math.min(1.2,Math.min(b.max.x-b.min.x,b.max.z-b.min.z)*0.5));
+  let top=(typeof groundTopOver==='function')?groundTopOver(_sndC.x,_sndC.z,_r):null;
+  if(top===null||top===undefined){
+    _sndRC.set(new THREE.Vector3(_sndC.x,b.max.y+400,_sndC.z),_sndDown);
+    _sndRC.far=4000;
+    const hit=_sndRC.intersectObjects(list,true)[0];
+    if(!hit)return false;
+    top=hit.point.y;
+  }
+  const want=top-(sink||0)*(b.max.y-b.min.y);
   // IN THE PARENT'S UNITS. The chest and the shells hang in menuProps, which is scaled by
   // MB_K on the way into the world, so a world-feet correction added straight to a local
   // position overshoots by that factor — the error that floated the chest twice already.
@@ -25702,7 +25734,11 @@ function renderMenuBeach(dt){
       // measured 1.89 feet in the air, which at this camera is exactly the gap under his back
       // feet in the screenshot. Sunk a hair so his paws break the surface instead of resting
       // on a tangent to it.
-      if(isFinite(bb.min.y)&&!seatOnSand(pug,0.012)){
+      // his soles as the RIG reports them, not as Box3 does — see seatOnSand
+      const _rg=(typeof riderRig==='function')?riderRig():null;
+      const _sb=(_rg&&_rg.skinBox)?_rg.skinBox():null;
+      const _rr=_sb?Math.max(0.12,Math.min(1.0,(_sb.hi[0]-_sb.lo[0])*0.5)):undefined;
+      if(isFinite(bb.min.y)&&!seatOnSand(pug,0.012,_sb?_sb.lo[1]:undefined,_rr)){
         const gy=(typeof beachSandH==='function')
                    ? beachSandH(pug.position.z/MB_K)*MB_K
                    : (typeof beachSand0!=='undefined'?beachSand0:0);
