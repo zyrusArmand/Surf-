@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.15.0';
+window.SURF_VERSION='5.16.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -23828,7 +23828,9 @@ let MB_CH_SC=1.38;      // how big the chest stands, as a MULTIPLE of its fitted
 // and MB_CF already say where the chest stands relative to the trunk, and having two answers to
 // that question is how it ended up in front of the tree.
 const MB_STAGE={
-  rider:{p:[-15.406,4.480,-50.053], r:[0.0,-169.1,0.0]},
+  // Moved a stride toward the camera from where he was staged: the direction from him to the
+  // lens is (0.17, 0, 0.98) normalised, so this is 1.2 feet along it and nothing else changed.
+  rider:{p:[-15.000,4.480,-48.909], r:[0.0,-169.1,0.0]},
   board:{p:[-14.617,4.840,-50.923], r:[79.6,-14.1,32.1]},
   // x and z come from MB_PALM_W and are in WORLD feet; only y here is local, because the
   // vertical does not depend on where the anchor landed — menuProps' own height is solved
@@ -24811,9 +24813,12 @@ let MB_SGN_TFT=3.05;       // how wide the plank is, in feet
 let MB_SGN_TROLL=-0.15;    // and the cant, in the view plane
 let MB_SGN_TYAW=0.30;      // turned off square, so it sits ACROSS the trunk at an angle
                            // rather than flat against it with the wood coming through
-let MB_SGN_NAILSZ=0.44;    // the nail head, in feet
+let MB_SGN_NAILSZ=0.235;    // the nail head, in feet
 let MB_SGN_NAILUP=0.56;    // how far up the plank it goes, as a share of the plank's height
-let _sgNail=null;
+let _sgNail=null, _sgCracks=null;
+let MB_SGN_NAILTILT=-0.22;   // leaned back off square, in the plank's own frame
+let MB_SGN_NAILTURN=0.17;    // and turned a little with it
+let MB_SGN_CRACK=0.46;       // how far the splits run, in feet
 // One largish nail through the top of the sign, over the middle of the word — which on SURF
 // is the join between the u and the r. Made once and parented to the SIGN, so it rides every
 // turn and tilt the plank is given rather than having to be re-solved beside it.
@@ -24824,8 +24829,12 @@ function nailBeachSign(){
     const head=new THREE.Mesh(new THREE.SphereGeometry(0.5,14,10),
       // Iron, not chrome. At 0x8d8f94 with a bright specular it blew out white under this
       // low sun and read as a pearl stuck to the plank.
-      new THREE.MeshPhongMaterial({color:0x6a6c72,shininess:38,specular:0x9ba1a9}));
-    head.scale.set(1,0.62,1);            // a nail head is a dome, not a ball
+      new THREE.MeshPhongMaterial({color:0x5a5d63,shininess:26,specular:0x8a9099}));
+    // ---- FLAT, and sitting DOWN on the wood ----
+    // A ball scaled to 0.62 still stands proud like a bead. A hammered nail head is a shallow
+    // disc almost flush with the plank, with the wood dished slightly around it -- so it is
+    // flattened much further and pushed back until only the cap is above the face.
+    head.scale.set(1,0.30,1); head.position.z=-0.22;
     const shaft=new THREE.Mesh(new THREE.CylinderGeometry(0.17,0.17,1.1,10),
       new THREE.MeshPhongMaterial({color:0x5f6166,shininess:40,specular:0x9aa0a8}));
     shaft.rotation.x=Math.PI/2; shaft.position.z=-0.55;
@@ -24835,6 +24844,33 @@ function nailBeachSign(){
   }
   if(_sgNail.parent!==beachSign)beachSign.add(_sgNail);
   _sgNail.visible=true;
+  // ---- DRIVEN IN CROOKED, because nobody hammers one in square ----
+  // It used to stand exactly normal to the plank, which is the one angle a hand-driven nail
+  // never has, and at the old size that perfect perpendicular is what read as fake. A few
+  // degrees of lean, fixed rather than random so the picture is the same every time.
+  _sgNail.rotation.set(MB_SGN_NAILTILT,MB_SGN_NAILTURN,0);
+  // ---- AND THE WOOD IS SPLIT ROUND IT ----
+  // Wood splits when a nail goes through it, along the grain, and those splits are most of
+  // what says this plank was nailed up rather than floated into place. Thin dark slivers
+  // lying just proud of the face, radiating off the nail, longer along the plank than across
+  // it because that is the way the grain runs.
+  if(!_sgCracks){
+    const g=new THREE.Group();
+    const dark=new THREE.MeshBasicMaterial({color:0x241508,transparent:true,opacity:0.86,
+                                            depthWrite:false, side:THREE.DoubleSide});
+    // angle from the nail, how long, how thick at the nail end
+    for(const [a,len,w] of [[0.06,1.55,0.070],[-0.13,1.05,0.052],[Math.PI-0.05,1.30,0.060],
+                            [Math.PI+0.16,0.80,0.044],[1.36,0.42,0.036],[-1.42,0.36,0.032]]){
+      const sh=new THREE.Shape();
+      sh.moveTo(0,-w*0.5); sh.lineTo(len,0); sh.lineTo(0,w*0.5); sh.closePath();
+      const m=new THREE.Mesh(new THREE.ShapeGeometry(sh),dark);
+      m.rotation.z=a;
+      g.add(m);
+    }
+    _sgCracks=g;
+  }
+  if(_sgCracks.parent!==beachSign)beachSign.add(_sgCracks);
+  _sgCracks.visible=true;
   // Placed in the SIGN'S OWN units off the sign's own box, so it lands on the plank at any
   // size — the nail is a child, and a position in feet handed to a scaled parent is the units
   // error that has cost this file more time than any other single mistake.
@@ -24842,8 +24878,18 @@ function nailBeachSign(){
   const sc=beachSign.scale.x||1;
   if(lb){
     const cx=(lb.min.x+lb.max.x)/2, h=lb.max.y-lb.min.y;
-    _sgNail.position.set(cx, lb.min.y+h*(0.5+MB_SGN_NAILUP*0.5), lb.max.z+0.02/sc);
+    const ny=lb.min.y+h*(0.5+MB_SGN_NAILUP*0.5);
+    _sgNail.position.set(cx, ny, lb.max.z+0.02);
     _sgNail.scale.setScalar(MB_SGN_NAILSZ/Math.max(1e-4,sc));
+    // the splits share the nail's place on the plank but not its size -- they run across the
+    // wood, so they are scaled off the PLANK rather than off the nail head
+    if(_sgCracks){
+      // Clear of the face. lb is already in the sign's own units, so dividing the offset by
+      // the sign's scale mixed two frames and left the splits buried inside the plank -- they
+      // rendered, and nothing of them was outside the wood. In local units, proud of the face.
+      _sgCracks.position.set(cx, ny, lb.max.z+0.06);
+      _sgCracks.scale.setScalar(MB_SGN_CRACK/Math.max(1e-4,sc));
+    }
   }
 }
 let MB_SGN_PLANT=1;        // 0 hangs it off the palm the old way
@@ -24909,7 +24955,7 @@ function sgnTopTarget(){
 // Out to the right, but not to the 3.12 that solving on one board asked for: the chest is
 // placed off the CAMERA, and the camera solves onto the group, so a longer board carried it
 // out to 1.09 of the way across — a quarter of the chest off the side of the screen.
-let MB_CD=-0.45;        // out to the camera's right of the trunk's own axis...
+let MB_CD=0.82;        // out to the camera's right of the trunk's own axis...
 // Out from 1.3, where the new palm's trunk is thick enough at chest height that the two
 // merged into one shape — the chest was measurably clear of the CENTRELINE and visibly inside
 // the tree, which is the difference between a trunk that is a line and a trunk that is a
@@ -24924,10 +24970,11 @@ let MB_CD=-0.45;        // out to the camera's right of the trunk's own axis...
 // In from 2.60. Forward of the trunk is what makes it big, and it is big enough now off its
 // own height — kept nearer the tree it sits HIGHER in the frame, which is where the reference
 // has it: level with the board's foot rather than down in the near sand.
-let MB_CF=3.60;        // ...and this far in front of it, which is a chest on the sand at the
+let MB_CF=4.60;        // ...and this far in front of it, which is a chest on the sand at the
                        // foot of the tree rather than a chest growing out of the surfboard
 // Up from 1.38. In the reference the chest is nearly a third of the width of the frame —
 // it is the second biggest thing in the shot after the board — where this was under a fifth.
+let MB_CH_SINK=0.10;   // share of its own height dug into the sand
 let MB_CH=2.00;        // and this tall — brought down from 1.8 with the step forward, because
                        // a foot and a half nearer the lens is a quarter again as big on screen
                        // and the point was to move it, not to grow it
@@ -24985,7 +25032,10 @@ function layoutBeachChest(){
   const foot=Math.max(bs.x,bs.z)*0.5;
   const top=(typeof groundTopOver==='function')?groundTopOver(wx,wz,foot):null;
   const rest=(top!==null)?top:sand;
-  beachChest.position.y+=(rest-b.min.y)/(menuProps.scale.y||1);
+  // ...and then a little INTO it. A chest that has sat on a beach any length of time has
+  // its bottom edge buried; resting exactly on the surface reads as a prop set down for the
+  // photograph. A tenth of its own height, so most of it is still above the sand.
+  beachChest.position.y+=(rest-b.min.y-(bs.y*MB_CH_SINK))/(menuProps.scale.y||1);
 }
 // Hung where the chest is placed, in the same axes and for the same reasons: the props group
 // carries a turn of its own, the shot is angled along the beach so world +x is not
@@ -25816,8 +25866,11 @@ function renderMenuBeach(dt){
           const _cw=beachChest.getWorldPosition(_dofP);
           const _foot=Math.max(_cs.x,_cs.z)*0.5;
           const _top=(typeof groundTopOver==='function')?groundTopOver(_cw.x,_cw.z,_foot):null;
+          // ...including the sink. This is a copy of layoutBeachChest's height solve and it
+          // has to stay a faithful one: without the MB_CH_SINK term it ran afterwards and put
+          // the chest straight back on the surface, so the dig-in silently did nothing.
           if(_top!==null&&isFinite(_cb.min.y))
-            beachChest.position.y+=(_top-_cb.min.y)/(menuProps.scale.y||1);
+            beachChest.position.y+=(_top-_cb.min.y-(_cs.y*MB_CH_SINK))/(menuProps.scale.y||1);
           beachChest.updateMatrixWorld(true);
         }
       }
