@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.11.0';
+window.SURF_VERSION='5.12.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -25800,15 +25800,24 @@ function renderMenuBeach(dt){
         // it grew about its own origin, so put its base back on the sand — in the parent's
         // units, which is the error that floated it the first time
         beachChest.updateMatrixWorld(true);
-        // ---- AND layoutBeachChest PUTS IT BACK DOWN ----
-        // It already seats the chest with exactly the formula the check reads it by: the
-        // highest ground over a disc the width of its own footprint, taken at the position it
-        // solved. I had a seatOnSand here as well, running AFTER it and sampling at a
-        // different point with a different radius -- so the correct answer was computed and
-        // then overwritten, and the chest floated 0.137 of a foot. One of them has to own the
-        // height and it should be the one that was already right; this only changes the SIZE,
-        // and then asks it to seat the new size.
-        if(typeof layoutBeachChest==='function')layoutBeachChest();
+        // ---- ONLY THE HEIGHT, and by layoutBeachChest's own formula ----
+        // The chest floated 0.137 of a foot because two things were setting its height: that
+        // function, which does it correctly, and a seatOnSand here that ran afterwards and
+        // sampled differently. Calling the whole of layoutBeachChest instead fixed the float
+        // and cost three other checks -- it re-solves the chest's POSITION and ROTATION as
+        // well, and doing that a second time in the same frame moved the open lid round and
+        // disturbed the handstand's read of the shot. Only the height is wanted here: this is
+        // that function's own last four lines, and nothing else about the chest is touched.
+        {
+          const _cb=new THREE.Box3().setFromObject(beachChest);
+          const _cs=_cb.getSize(_sndS);
+          const _cw=beachChest.getWorldPosition(_dofP);
+          const _foot=Math.max(_cs.x,_cs.z)*0.5;
+          const _top=(typeof groundTopOver==='function')?groundTopOver(_cw.x,_cw.z,_foot):null;
+          if(_top!==null&&isFinite(_cb.min.y))
+            beachChest.position.y+=(_top-_cb.min.y)/(menuProps.scale.y||1);
+          beachChest.updateMatrixWorld(true);
+        }
       }
     }
   }
