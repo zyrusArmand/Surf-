@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.23.0';
+window.SURF_VERSION='5.24.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -9290,6 +9290,17 @@ function stageApply(dx,dy){
   const d = stageMode==='lift'
     ? new THREE.Vector3(0,-dy*k,0)
     : right.multiplyScalar(dx*k).add(flat.multiplyScalar(-dy*k));
+  // ---- a hand on the Height beats the thing that stands it on the sand ----
+  // The chest is re-seated on the ground EVERY frame, so dragging its height moved it and the
+  // next frame put it straight back: Height did nothing to it at all, while Move, Tilt and
+  // Turn all worked. Lifting it deliberately is the one case where the seating is not wanted,
+  // so a lift says so and the seating stands down until the layout runs again for real.
+  // Set only by a lift, and it LATCHES: once the height has been set by hand it survives the
+  // moves that follow, so nudging the chest along the beach afterwards does not quietly drop
+  // it back onto the sand and lose the height that was just dialled in. Until a lift happens
+  // the seating is untouched and dragging along the beach keeps the chest on the ground, which
+  // is the seating doing its job rather than fighting the drag. layoutBeachChest clears it.
+  if(stageMode==='lift'&&o.userData)o.userData.stageY=true;
   // ---- moved in the PARENT's space, not the world's ----
   // Every one of these sits inside beachSet, which is scaled, and some sit inside a group of
   // their own on top of that. Adding a world delta straight onto position moves it by that
@@ -25185,6 +25196,9 @@ function layoutBeachChest(){
   // all followed: three things moved and the fourth was reading a different address for the
   // same place.
   const wx=_mbP.x+_mbR.x*MB_CD-_mbF.x*cf, wz=_mbP.z+_mbR.z*MB_CD-_mbF.z*cf;
+  // A real re-layout takes the chest back off whoever was holding it up in stage mode: this
+  // is the function that decides where the chest stands, and it has just been asked to.
+  if(beachChest.userData)beachChest.userData.stageY=false;
   const sand=(beachSandH?beachSandH(wz/MB_K):beachSand0)*MB_K;
   menuProps.updateWorldMatrix(true,false);
   // Sized by MEASUREMENT. It hangs off a group that is scaled, and the model inside it was
@@ -26114,7 +26128,9 @@ function renderMenuBeach(dt){
         // disturbed the handstand's read of the shot. Only the height is wanted here: this is
         // that function's own last four lines, and nothing else about the chest is touched.
         {
-          const _cb=new THREE.Box3().setFromObject(beachChest);
+          // ...unless somebody is holding it up by hand in stage mode. See stageApply().
+          const _cb=(beachChest.userData.stageY)?null:new THREE.Box3().setFromObject(beachChest);
+          if(_cb){
           const _cs=_cb.getSize(_sndS);
           const _cw=beachChest.getWorldPosition(_dofP);
           const _foot=Math.max(_cs.x,_cs.z)*0.5;
@@ -26125,6 +26141,7 @@ function renderMenuBeach(dt){
           if(_top!==null&&isFinite(_cb.min.y))
             beachChest.position.y+=(_top-_cb.min.y-(_cs.y*MB_CH_SINK))/(menuProps.scale.y||1);
           beachChest.updateMatrixWorld(true);
+          }
         }
       }
     }
