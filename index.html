@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.25.0';
+window.SURF_VERSION='5.26.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -23990,8 +23990,12 @@ const MB_YAW=0.46;                    // how far round from straight-out-to-sea 
 // OWN view axis by how much wider the frame is than the phone it was staged on — nearer as the
 // window widens, which is the same trade the solved version makes and in the same direction.
 let MB_CAM_ON=1;
-const MB_CAM=new THREE.Vector3(-13.64,5.20,-39.88);
-let MB_CAM_YAW=-6.201155, MB_CAM_PITCH=0.195477;
+// Re-staged on the phone: -11.68, 4.75, -40.41 looking 13.6 / 11.2. Two feet in from the old
+// mark, a little lower, and turned round the short way — the old yaw read -355.3 degrees, which
+// is the same bearing as +4.7, so this is nine degrees further round rather than the three
+// hundred and sixty-nine it looks like written down. Pitch is unchanged at 11.2.
+const MB_CAM=new THREE.Vector3(-11.68,4.75,-40.41);
+let MB_CAM_YAW=0.237365, MB_CAM_PITCH=0.195477;
 // Down from 21. At that distance the group read 0.36 to 0.74 across and 0.46 to 0.69 down —
 // correctly placed and much too far away, a third of the frame with sand and sky round it,
 // where the reference fills most of the picture with it. The camera is staged and cannot come
@@ -24044,17 +24048,27 @@ const MB_STAGE={
 // the pug without either of them reaching the button columns
 const MB_STAGE_BOARD2={p:[-14.358,5.276,-51.280], r:[90.4,-5.7,33.0]};
 let MB_BOARD_ALT=0;
-let MB_SET_AHEAD=15.0;               // feet out along the staged camera's own forward
-// ---- and across it, to centre the group in a fixed frame ----
-// With the lens staged and unmovable, the only way to centre what it is looking at is to move
-// the subject. Measured, the set ran 0.227 to 0.590 with its middle at 0.41 and the palm
-// clipping the left edge at -0.24, leaving the right two-fifths of the frame empty. The frame
-// is about 20.3 feet wide where the set stands — 92 degrees vertical is 51.6 across a phone,
-// at 21 feet out — so a tenth of the width is a little under two feet.
-// In FEET, so it has to come in with the distance: the same 1.9 feet is nearly a tenth of the
-// frame at 21 feet out and closer to a sixth at 13, which would overshoot the centre it was
-// solved for. Scaled by the ratio.
-let MB_SET_SIDE=1.36;                // feet along the camera's right
+// ---- WHERE THE SET STANDS, IN THE WORLD, AND WHICH WAY IT FACES ----
+// This used to be derived from the staged camera: an anchor fifteen feet along the lens's own
+// forward and 1.36 across it, with the set turned to face back down that ray. That makes the
+// lens and the beach one rigid object — move the camera and the whole set goes with it, at the
+// same distance and the same relative angle, so the picture is identical and only the world
+// coordinates change. Re-staging the camera then does nothing you can see, which is not what
+// "move the camera here" means.
+// Worse, it silently invalidates anything read off the old arrangement: moving the lens to its
+// new mark would have carried the set a third of a foot along both axes and turned it 8.9
+// degrees, so a chest position noted in world feet beforehand would no longer be quite the same
+// place on the beach.
+// These two were derived rather than eyeballed, and the derivation was got WRONG first: three
+//.js builds a YXZ forward as (-cos(pitch)sin(yaw), sin(pitch), -cos(pitch)cos(yaw)), and the
+// sin(yaw) term is NEGATIVE. Taking it positive put the anchor at -11.06 against a set that
+// menuProps reported standing at -13.51, and turned the yaw the wrong way. The check that
+// caught it was reading the group's actual world position instead of trusting the algebra.
+// So the set has its own address. These two are exactly what the old derivation produced from
+// the previous camera, which is why putting them in moved nothing — and the lens above is now
+// free to be re-staged without dragging the beach along behind it.
+const MB_SET_AT={x:-13.5136, z:-54.9410};
+let MB_SET_YAW=-0.082030;            // -4.70 degrees, the facing the set was arranged at
 let MB_CAM_ASP=0.462;                // the aspect it was staged at
 let MB_CAM_DOLLY=9.0;                // feet nearer per unit of aspect above that
 // ...but never more than this, however wide the window gets. See the note at the walk-in.
@@ -24516,45 +24530,26 @@ function mbAxes(y){
   _mbF.set(Math.sin(Y),0,-Math.cos(Y));
   _mbR.set(-_mbF.z,0,_mbF.x);
 }
-// Where on the ground the set stands, so that it is in front of the staged lens: along the
-// camera's own forward, flattened, MB_SET_AHEAD feet out. Flattened because the camera is tilted
-// up and following the ray itself would put the set in the air.
+// Where on the ground the set stands. See MB_SET_AT: this was measured off the lens once, and
+// is now a place on the beach in its own right.
 function _mbAnchor(){
-  const f=new THREE.Vector3(0,0,-1).applyEuler(_stEul.set(MB_CAM_PITCH,MB_CAM_YAW,0,'YXZ'));
-  f.y=0;
-  if(f.lengthSq()<1e-8)return null;
-  f.normalize();
-  // the camera's right, which is its forward turned a quarter turn about up
-  const r={x:-f.z, z:f.x};
-  return {x:MB_CAM.x+f.x*MB_SET_AHEAD+r.x*MB_SET_SIDE,
-          z:MB_CAM.z+f.z*MB_SET_AHEAD+r.z*MB_SET_SIDE};
+  // its own address now, not a point measured off the lens — see MB_SET_AT
+  return {x:MB_SET_AT.x, z:MB_SET_AT.z};
 }
 function layoutMenuBeach(){
   if(!menuBeach)return;
-  // ---- THE SET IS BROUGHT TO THE CAMERA, NOT THE CAMERA TO THE SET ----
-  // The staged camera carries a direction as well as a place, and "put the camera here and fit
-  // everything into its view" means both are fixed and the SET is what moves. Re-aiming the
-  // lens at the set instead satisfies the second half and breaks the first: it is no longer the
-  // shot that was staged, which is exactly what it looked like.
-  // So the anchor is placed on the ground along the camera's own forward ray, and the set is
-  // turned to face back down it. Everything else in this function is measured off that anchor
-  // and follows for free.
-  let _yaw=MB_YAW;
-  if(MB_CAM_ON){
-    const f=new THREE.Vector3(0,0,-1).applyEuler(_stEul.set(MB_CAM_PITCH,MB_CAM_YAW,0,'YXZ'));
-    f.y=0;
-    if(f.lengthSq()>1e-8){
-      f.normalize();
-      // ---- AND IT RUNS THE SAME WAY ROUND AS THE CAMERA ----
-      // The set's forward is DOWNRANGE, not back at the lens. _mbR is derived from it as
-      // (-F.z, 0, F.x), which is the camera's right only when F is the camera's own forward;
-      // point F back at the lens instead and _mbR becomes the camera's LEFT, so everything the
-      // layout places "to the right of the trunk" arrives on the left. Measured, that mirrored
-      // the whole set: chest at cx 0.512, board 0.537, rider 0.649 — chest, board, rider from
-      // left to right, where the reference has rider, board, chest.
-      _yaw=Math.atan2(f.x,-f.z);
-    }
-  }
+  // ---- THE SET STANDS WHERE IT STANDS, AND THE CAMERA LOOKS AT IT ----
+  // The set's facing used to be read off the staged camera — atan2 of its flattened forward —
+  // which tied the two together: turn the lens and the whole beach turned with it, so the shot
+  // never actually changed. It has its own facing now. MB_SET_YAW holds the value that
+  // derivation produced from the previous camera, so nothing moved when this went in.
+  // The direction still matters as much as it did: the set's forward is DOWNRANGE, not back at
+  // the lens. _mbR is derived from it as (-F.z, 0, F.x), which is the camera's right only when
+  // F is the set's own forward; point it back at the lens instead and _mbR becomes the LEFT, so
+  // everything the layout places "to the right of the trunk" arrives on the left. Measured when
+  // that was wrong: chest at cx 0.512, board 0.537, rider 0.649 — chest, board, rider from left
+  // to right, where the reference has rider, board, chest.
+  const _yaw=MB_CAM_ON?MB_SET_YAW:MB_YAW;
   _mbYawUse=_yaw;          // so a bare mbAxes() later in the frame gets this one, not MB_YAW
   mbAxes(_yaw);
   // ---- WHERE THE SET STANDS ----
@@ -25158,7 +25153,7 @@ function sgnTopTarget(){
 // Out to the right, but not to the 3.12 that solving on one board asked for: the chest is
 // placed off the CAMERA, and the camera solves onto the group, so a longer board carried it
 // out to 1.09 of the way across — a quarter of the chest off the side of the screen.
-let MB_CD=0.732;       // out to the camera's right of the trunk's own axis...
+let MB_CD=0.585;       // out to the camera's right of the trunk's own axis...
 // Out from 1.3, where the new palm's trunk is thick enough at chest height that the two
 // merged into one shape — the chest was measurably clear of the CENTRELINE and visibly inside
 // the tree, which is the difference between a trunk that is a line and a trunk that is a
@@ -25173,7 +25168,7 @@ let MB_CD=0.732;       // out to the camera's right of the trunk's own axis...
 // In from 2.60. Forward of the trunk is what makes it big, and it is big enough now off its
 // own height — kept nearer the tree it sits HIGHER in the frame, which is where the reference
 // has it: level with the board's foot rather than down in the near sand.
-let MB_CF=4.946;       // ...and this far in front of it, which is a chest on the sand at the
+let MB_CF=4.730;       // ...and this far in front of it, which is a chest on the sand at the
                        // foot of the tree rather than a chest growing out of the surfboard
 // These two and MB_CROT are no longer guesses walked in by hand: the spot was staged on a phone
 // and read off as a world position, and the pair was SOLVED for it. The placement is linear in
@@ -25187,7 +25182,14 @@ let MB_CF=4.946;       // ...and this far in front of it, which is a chest on th
 // staged 3.71, so the two agree anyway — but only one of them keeps agreeing on a resize.
 // Up from 1.38. In the reference the chest is nearly a third of the width of the frame —
 // it is the second biggest thing in the shot after the board — where this was under a fifth.
-let MB_CH_SINK=0.10;   // share of its own height dug into the sand
+let MB_CH_SINK=0.3957; // share of its own height dug into the sand
+// Up from 0.10, and this is a big number on purpose. The chest was staged on the phone at
+// world y 3.06 where the seating puts it at 4.02, so it was deliberately pushed the best part
+// of a foot down into the beach — on a chest 2.30ft tall that is a shade under four tenths of
+// it under the sand, on top of the tenth that was already there. Kept as a SHARE of its own
+// height rather than as the staged height itself, so it still rides the ground it is standing
+// on: move the chest onto higher sand, or resize it, and it stays buried by the same amount
+// instead of hanging at an absolute height that only suited one spot.
 let MB_CH=2.00;        // and this tall — brought down from 1.8 with the step forward, because
                        // a foot and a half nearer the lens is a quarter again as big on screen
                        // and the point was to move it, not to grow it
