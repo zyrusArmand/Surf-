@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.07.0';
+window.SURF_VERSION='5.08.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -7205,6 +7205,20 @@ loadModel('sand.glb',(s3)=>{
   // where this piece's ground sits inside its own box, measured off the vertices rather than
   // guessed from the box: a slab's mean height is not the middle of its bounds when most of
   // the surface is up near the top and only the flat backing is at the bottom.
+  // ---- SAMPLED PROPERLY AT A GRAZING ANGLE ----
+  // The scan's maps arrived with anisotropy 1, which is no anisotropic filtering at all, and
+  // this beach is eighty-odd tiles seen almost edge-on into the distance: four samples cannot
+  // resolve the far half of it and it shimmers. This changes nothing about the texture -- not
+  // its size, its colour or its relief -- only how many samples the card takes when the
+  // surface is raked away from the lens, which is the one honest fix for moire.
+  try{
+    const mx=renderer.capabilities.getMaxAnisotropy?renderer.capabilities.getMaxAnisotropy():1;
+    const a=Math.max(1,Math.min(8,mx));
+    for(const k of ['map','normalMap','roughnessMap','aoMap','metalnessMap']){
+      const t=mat[k];
+      if(t&&t.anisotropy!==a){ t.anisotropy=a; t.needsUpdate=true; }
+    }
+  }catch(e){}
   const pa=geo.attributes.position; let sy=0;
   for(let i=0;i<pa.count;i++)sy+=pa.getY(i);
   sandTile={geo,mat,mid:sy/Math.max(1,pa.count)};
