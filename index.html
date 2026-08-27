@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.24.0';
+window.SURF_VERSION='5.25.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -19945,6 +19945,19 @@ if(location.hash.includes('debug')){
     // Draw calls, triangles and texture memory as the renderer itself reports them, plus a
     // per-object breakdown of what is IN the preview scene and whether the lens can see it.
     // "It runs slow" is a measurement, and guessing at it is how the 4K sand went in.
+    // ---- the two clocks, and how much of the frame each one was told about ----
+    // The ride's dt is capped at a thirtieth of a second so a long frame cannot step the
+    // physics THROUGH a wave. The menu has nothing to step through, and under that same cap a
+    // frame-rate dip becomes slow motion: real time passes, the idle is handed a thirtieth,
+    // and the rider animates at the ratio between them. This reports the real frame, what the
+    // ride was given and what the menu was given, so "the menu runs at real speed now" is a
+    // number rather than an argument about arithmetic.
+    clocks(){
+      return {raw:+(_clkRaw*1000).toFixed(1), ride:+(_clkDt*1000).toFixed(1),
+              menu:+(_clkMdt*1000).toFixed(1),
+              menuShare:_clkRaw>0?+(_clkMdt/_clkRaw).toFixed(3):null,
+              rideShare:_clkRaw>0?+(_clkDt/_clkRaw).toFixed(3):null};
+    },
     menuCost(){
       if(typeof prevScene==='undefined'||!prevScene||!renderer)return null;
       const info=renderer.info;
@@ -24010,7 +24023,10 @@ let MB_STAGED=1;
 // the same way the rider and the board are — converted through menuProps' own matrix at the
 // moment it is placed, so wherever the anchor lands the tree stands here.
 let MB_PALM_W=[-12.87,-51.53];    // world x,z — the readout's own column for the staged tree
-let MB_CH_SC=1.38;      // how big the chest stands, as a MULTIPLE of its fitted size
+let MB_CH_SC=1.15;      // how big the chest stands, as a MULTIPLE of its fitted size
+// Down from 1.38. It was taken up there when the chest was the thing that needed finding in
+// the frame; at the staged mark it is close enough to the lens that the same multiple made it
+// the biggest object on the beach and pushed its right-hand corner under the Quests button.
 // MB_CH_SIDE and MB_CH_CLR are gone with the placement that used them — the layout's own MB_CD
 // and MB_CF already say where the chest stands relative to the trunk, and having two answers to
 // that question is how it ended up in front of the tree.
@@ -26213,6 +26229,7 @@ function renderMenuBeach(dt){
   renderer.setClearColor(0x000000,1);
   renderer.toneMappingExposure=ex0;
 }
+let _clkRaw=0,_clkDt=0,_clkMdt=0;   // read by __surf.clocks()
 function loop(now){
   // Build the beach inside the script that is already blocking the parser, rather than on the
 // first animation frame. Same third of a second of work either way — but by the time a frame
@@ -26231,7 +26248,20 @@ try{ BOOT_WHY=menuBeachWanted()?(menuBeachOn()?'':'menuBeachOn returned false'):
 catch(e){ BOOT_WHY='threw: '+e.message; }
 BOOT_BEACH=!!menuBeach;
 requestAnimationFrame(loop);
-  const dt=Math.min(0.033,(now-last)/1000);last=now;
+  const raw=(now-last)/1000;
+  const dt=Math.min(0.033,raw);last=now;
+  // ---- the menu is ANIMATION, not physics, and the physics clamp does it real harm ----
+  // dt is capped at a thirtieth of a second so that one long frame cannot step the ride
+  // THROUGH a wave. On the title screen there is nothing to step through, and the cap turns
+  // every frame-rate dip into slow motion: at 20fps a frame is 50ms of real time and the cap
+  // hands the idle 33 of them, so the rider animates at two thirds speed. At 15fps he runs at
+  // half. Nothing has stalled and nothing is broken — the clock is simply being told less time
+  // passed than did, and a dropped frame on top of that reads as a pause and a snap.
+  // Real elapsed time here, capped an order of magnitude looser, and only so that coming back
+  // from a locked phone does not advance the whole menu in a single step.
+  // Equal to dt while a crash is playing out: that IS physics and keeps the tighter clamp.
+  const mdt=wipe?dt:Math.min(0.10,raw);
+  _clkRaw=raw; _clkDt=dt; _clkMdt=mdt;
   if(!running&&wipe){                       // crash plays out with the world still alive
     updateWipeout(dt);
     updateWorldDuringWipeout(dt);
@@ -26248,8 +26278,8 @@ requestAnimationFrame(loop);
     // The menu sea runs on the SAME clock the game samples, so anything placed on the
     // water can actually ride it — advancing uT alone animated pixels the height field
     // knew nothing about (and made the sea jump the moment a run started).
-    waveClock+=dt; oceanUniforms.uT.value=waveClock; tNow+=dt;
-    if(!wipe){ menuCamera(dt); menuIdle(dt); }
+    waveClock+=mdt; oceanUniforms.uT.value=waveClock; tNow+=mdt;
+    if(!wipe){ menuCamera(mdt); menuIdle(mdt); }
     // The imported rider performs here — nothing else is driving him between runs. NOT while
     // a card is open, though: the show holds him at the height that stands him on the beach,
     // and the viewer stands him somewhere else entirely, so it was lifting him clean out of
@@ -26261,7 +26291,7 @@ requestAnimationFrame(loop);
                 // to stop is how it came to look different every time instead.
                 if(mr.reset)mr.reset();
                 if(mr.idle)mr.idle(999); }
-              else if(mr.show)mr.show(dt); else if(mr.idle)mr.idle(dt); } }
+              else if(mr.show)mr.show(mdt); else if(mr.idle)mr.idle(mdt); } }
     updateDayCycle();
   }
   placeCeremonyChest(dt);
@@ -26270,7 +26300,7 @@ requestAnimationFrame(loop);
   // from it wants one or both of them back.
   if(menuBeach&&!menuBeachWanted())menuBeachOff();
   if(viewer){ renderViewer(dt); return; }   // the look takes the whole screen and the frame
-  if(menuBeachWanted()&&(menuBeach||menuBeachOn())){ renderMenuBeach(dt); return; }
+  if(menuBeachWanted()&&(menuBeach||menuBeachOn())){ renderMenuBeach(mdt); return; }
   updateSkyLife(dt);          // the sky keeps moving on the menu and through a wipeout
   // Two things draw ON TOP of the finished frame, both for the same reason and by the same
   // means: a cleared depth buffer, so they sit over the world and still occlude themselves.
