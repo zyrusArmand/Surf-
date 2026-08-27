@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.20.0';
+window.SURF_VERSION='5.21.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -13685,8 +13685,17 @@ const OBST_SPEC={};
 // Properly floated, that value put every arm under the surface and left a purple hump.
 // How high each kind rides: the origin goes to the surface plus this, so SMALLER sits lower.
 // The octopus was the highest thing out there at 0.90 and sat on the water like a beach ball;
-// down to 0.52, so the water comes up over the body and the arms break the surface.
-const FLOAT_OFF={buoy:0.36,jelly:0.34,log:0.40,bigfin:0.28,ramp:0.02,octopus:0.15};
+// down through 0.52 and 0.15 to below zero, so the water closes over the shoulders.
+// ---- and what could NOT be done, measured rather than argued ----
+// The ask was for the arm-to-head junction hidden AND the eyes showing above the line. On this
+// model those are the same height: the arm roots measure -0.06 to -0.09 in the animal's own
+// frame and the highest bone that is not an arm is +0.16 to +0.18 — a quarter of a foot apart
+// on an animal four feet across. Rendered across the whole band: at water -0.25 the head is up
+// and the junction with it, at +0.10 the junction is gone and so is the head. There is no
+// value that does both, so this sits at the junction line and gives up the eyes: shoulders a
+// sixth of a foot under, the crown just breaking the surface, and the raised arms above it
+// doing the work the head used to.
+const FLOAT_OFF={buoy:0.36,jelly:0.34,log:0.40,bigfin:0.28,ramp:0.02,octopus:-0.10};
 // clear the cached buoyancy state on a fresh clone so a new spawn doesn't inherit it
 function makeObstacle(kind,x,z){
   if(!OBST_TEMPLATES[kind])OBST_TEMPLATES[kind]=buildObstacle(kind);
@@ -14116,7 +14125,15 @@ let _freeze=false, _pinL=null;
 // base curl, tip curl, base sway, tip sway, and the two rates. An arm is a CHAIN, so every
 // one of these accumulates down it — a number that looks small on one joint is most of a
 // half turn by the last, and that is how a wave becomes an animal tying itself in a knot.
-const OCT_W=[0.10,0.24,0.06,0.16,0.55,0.37];
+const OCT_W=[0.16,0.34,0.08,0.20,0.50,0.34];
+// ---- how far the RAISED arms are held up ----
+// Amplitude alone cannot put a tentacle above the water. Measured: with the wave cranked from
+// 0.10/0.24 to 0.70/1.15 the tips reached DOWN from -0.9 to -1.49 and their ceiling never left
+// 0.5, because the rest pose has every arm hanging out and down and the curl only sweeps it
+// about that. So an octopus sunk to its eyes had nothing showing but a head. A share of the
+// arms are now held UP at the shoulder — a standing bend the wave then sweeps through, so they
+// break the surface and go back under instead of waving below it.
+let OCT_LIFT=1.35;
 const keys={};
 addEventListener('keydown',e=>{
   keys[e.code]=true;
@@ -20249,6 +20266,10 @@ if(location.hash.includes('debug')){
       return out;
     },
     octoWave(v){ if(v)for(let i=0;i<6;i++)if(v[i]!==undefined)OCT_W[i]=v[i]; return OCT_W.slice(); },
+    // How far the raised arms are held up. Negative bends them the other way, which is the
+    // cheapest way to find out which way "up" is on somebody else's skeleton.
+    octoLift(v){ if(v!==undefined){OCT_LIFT=v;
+      for(const o of obstacles)if(o.userData.kind==='octopus')o.userData.tent=null;} return OCT_LIFT; },
     // How many starfish are in the air, and how many an octopus has let go of. "I never saw
     // one thrown" is two separate questions — whether the wind-up ever fires, and whether the
     // star that leaves the arm ever becomes a thing in the world — and this answers both.
@@ -20327,6 +20348,42 @@ if(location.hash.includes('debug')){
       const v=new THREE.Vector3(); o.updateMatrixWorld(true);
       return arms.map(A=>{ A.ch[A.ch.length-1].getWorldPosition(v); o.worldToLocal(v);
         return [+v.x.toFixed(2),+v.y.toFixed(2),+v.z.toFixed(2)]; });
+    },
+    // ---- how the animal is BUILT, in feet above its own origin ----
+    // "Submerged to where you can't see the arms join the head, eyes just above" is a request
+    // about three heights on the model — where the arms attach, where the eyes sit, and where
+    // the mantle tops out — and none of them is knowable from the float number. Measured in the
+    // octopus's own frame so the swell it is riding does not get mixed into the answer, and off
+    // the CLONE in the water rather than the template, which is never floated and never posed.
+    octoAnat(){
+      const o=obstacles.find(x=>x.userData.kind==='octopus'); if(!o)return null;
+      o.updateMatrixWorld(true);
+      const v=new THREE.Vector3(), yOf=n=>{ n.getWorldPosition(v); o.worldToLocal(v); return v.y; };
+      const arms=(typeof octoArms==='function')?octoArms(o):[];
+      // the shoulder is the first joint of each chain: the junction that has to go under
+      const roots=arms.map(A=>+yOf(A.ch[0]).toFixed(2));
+      // eyes are not named in this skeleton, so they are found by SHAPE: on this model the
+      // pupils are their own small dark meshes, so the smallest meshes in the upper half of
+      // the body are the eyes. Reported with the body box so the guess can be checked.
+      const b=new THREE.Box3().setFromObject(o), h=b.max.y-b.min.y;
+      const eyes=[]; const named=[];
+      o.traverse(m=>{ if(!m.isMesh)return;
+        if(/eye|pupil|iris/i.test(m.name||''))named.push([m.name,+yOf(m).toFixed(2)]);
+        const mb=new THREE.Box3().setFromObject(m), ms=mb.getSize(new THREE.Vector3());
+        if(Math.max(ms.x,ms.y,ms.z)<h*0.22)eyes.push([m.name||'?',+yOf(m).toFixed(2)]);
+      });
+      // The HEAD, in bones that are not arms. The body box says nothing useful here: with the
+      // arms raised its top is a tentacle tip, which is how "mantle top +1.95" came to be
+      // believed for three rounds while the head was in fact a low bulb sitting just over the
+      // junction. Everything not in an arm chain is head, and its highest bone is the crown.
+      const inArm=new Set(); for(const A of arms)for(const b of A.ch)inArm.add(b);
+      let crown=-99, crownN='';
+      o.traverse(b=>{ if(!(b.isBone||b.type==='Bone')||inArm.has(b))return;
+        const y=yOf(b); if(y>crown){crown=y; crownN=b.name||'?';} });
+      return {crown:+crown.toFixed(2), crownName:crownN,
+              armRoots:roots, armRootAvg:+(roots.reduce((a,c)=>a+c,0)/Math.max(1,roots.length)).toFixed(2),
+              namedEyes:named, smallMeshes:eyes.slice(0,12),
+              lo:+(b.min.y-o.position.y).toFixed(2), hi:+(b.max.y-o.position.y).toFixed(2)};
     },
     // ---- which way this chest OPENS, measured rather than guessed ----
     // Three rounds were lost to reasoning about it. The lid is modelled already open, so the
@@ -21745,7 +21802,11 @@ function octoArms(o){
     const ch=[]; let n=c;
     while(n&&ch.length<24){ ch.push(n);
       n=(n.children||[]).find(x=>x.isBone||x.type==='Bone'); }
+    // Every third arm is held up, at one of two heights, so the ones out of the water are a
+    // few rather than a fan and no two of them stand at the same angle. A share rather than an
+    // angle, because how far up "up" is belongs to OCT_LIFT and wants tuning in one place.
     if(ch.length>=4)out.push({ch, rest:ch.map(b=>b.quaternion.clone()),
+                              lf:[1,0,0.78,0.34,0.92,0,0.62,0.28][out.length%8],
                               ph:out.length*0.83, sp:0.72+0.11*(out.length%4)});
   }
   o.userData.tent=out;
@@ -23142,7 +23203,12 @@ function update(dt){
             // moves almost nothing you can see from twenty feet — and at enough of it to be
             // visible the arm folds back over the animal and it looks like it is lying on
             // its side. A smaller angle at every joint sweeps the WHOLE arm instead.
-            const curl=Math.sin(T*Math.PI*2*OCT_W[4]-lag)*(OCT_W[0]+f*OCT_W[1]);
+            // ...and on the raised arms, a standing bend UNDER the wave rather than beside it.
+            // Weighted to the shoulder — (1-f*0.55) — because bending the shoulder swings the
+            // whole arm up, while the same angle spent at the tip only curls the last inch of
+            // it and leaves the arm where it was.
+            const lift=OCT_LIFT*(A.lf||0)*(1-f*0.55);
+            const curl=lift+Math.sin(T*Math.PI*2*OCT_W[4]-lag)*(OCT_W[0]+f*OCT_W[1]);
             const sway=Math.sin(T*Math.PI*2*OCT_W[5]-lag*0.7)*(OCT_W[2]+f*OCT_W[3]);
             // the wind-up: back and up, then whipped forward through the release
             const whip=th>0?(th<0.55? -th*1.5 : (th-0.55)*4.4)*(0.10+f*0.55):0;
