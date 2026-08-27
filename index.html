@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.14.0';
+window.SURF_VERSION='5.15.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -7359,6 +7359,8 @@ function repalm(){
     if(typeof menuPalm!=='undefined'&&menuPalm===old)menuPalm=nu;
     const i=beachPalms.indexOf(old); if(i>=0)beachPalms[i]=nu;
   }
+  // and the new trees get their samplers set, the same as the sand
+  for(const rec of palmsBuilt)if(rec.m)crispTextures(rec.m,8);
   // the board leans on the trunk, and the trunk it was solved against has just been replaced
   if(typeof layoutMenuBeach==='function')layoutMenuBeach();
 }
@@ -24099,6 +24101,28 @@ function seatOnSand(o,sink,baseY,radius){
 // has to ask where the trunk actually IS at the height it is being hung at, and the slices
 // trunkLine already recorded are that answer. The two that bracket the height, interpolated,
 // with the radius carried along so a thing can be stood off the surface rather than the axis.
+// ---- ANISOTROPIC FILTERING ON ANYTHING LOADED FROM A FILE ----
+// glTF textures arrive at anisotropy 1, which is none. On a surface raked away from the lens
+// -- sand into the distance, a tall trunk seen from its foot -- four samples cannot resolve
+// it and the result is mush that no amount of resolution fixes. This costs nothing but a
+// sampler setting and never changes what the texture IS.
+function crispTextures(root,cap){
+  if(!root||typeof renderer==='undefined'||!renderer)return 0;
+  let a=1;
+  try{ a=Math.max(1,Math.min(cap||8,renderer.capabilities.getMaxAnisotropy())); }catch(e){ return 0; }
+  let n=0;
+  root.traverse(o=>{
+    if(!o.isMesh)return;
+    for(const m of (Array.isArray(o.material)?o.material:[o.material])){
+      if(!m)continue;
+      for(const k of ['map','normalMap','roughnessMap','metalnessMap','aoMap','emissiveMap']){
+        const t=m[k];
+        if(t&&t.anisotropy!==a){ t.anisotropy=a; t.needsUpdate=true; n++; }
+      }
+    }
+  });
+  return n;
+}
 function trunkAt(y){
   const out=new THREE.Vector3(0,y,0); out.r=0.5;
   if(typeof menuPalm==='undefined'||!menuPalm)return out;
