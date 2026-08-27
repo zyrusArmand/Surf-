@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.01.0';
+window.SURF_VERSION='5.02.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -12311,6 +12311,15 @@ function setupModelRig(root,gltf,id){
     // the early returns below and never turned at all: the frog stood on the beach in his
     // surfing stance, side-on, while the other two faced front.
     pug.rotation.y=STANCE_ROT+MENU_FACE; this.turned=true;
+    // ...and then SOLVED, because that constant is one angle for ten bodies that do not share
+    // a facing. It stays as the seed — it is close for the built-in riders and it is what a
+    // body with no muzzle bone falls back on — and faceRiderAtCamera turns him the rest of the
+    // way by reading his own rig. Applied here as well as in the layout because this runs on
+    // every rider change and the layout does not: without it he stood at the seed angle until
+    // something else happened to re-lay the beach out.
+    if(typeof MB_FACE_CAM!=='undefined'&&MB_FACE_CAM&&
+       typeof faceRiderAtCamera==='function'&&typeof menuCam!=='undefined'&&menuCam&&
+       typeof menuBeach!=='undefined'&&menuBeach)faceRiderAtCamera();
     // ---- and he stays ON THE SAND through all of it ----
     // Every clip here was animated on a floor at the animator's origin, which is not where
     // this beach is. The height that puts his feet on the sand is measured once, standing,
@@ -16282,7 +16291,19 @@ function buildGull(){
   const body=new THREE.Mesh(new THREE.CircleGeometry(0.16,12),mtl);
   body.scale.set(1,0.5,1);
   g.add(L,Rw,body);
-  g.userData={L,Rw,f:2.6+Math.random()*2.2,p:Math.random()*Math.PI*2,
+  // ---- FASTER, DEEPER, AND NO TWO ALIKE ----
+  // f is fed to the beat as (t*f)/2PI, so 2.6 to 4.8 is 0.41 to 0.76 CYCLES A SECOND — under
+  // one flap a second, which is not a bird, it is a bird being winched. A gull beats at two
+  // to three. And the stroke was a shared 46 up / 26 down for every one of them, so a flock
+  // moved as one machine. Rate, depth and the share of the cycle spent on the downstroke are
+  // all per bird now: some hurry with a shallow beat, some pull a deep slow one.
+  g.userData={L,Rw,f:10.0+Math.random()*8.5,p:Math.random()*Math.PI*2,
+              up:0.92+Math.random()*0.42, dn:-0.52-Math.random()*0.34,
+              // the multiplier, NOT the product: GULL_DOWN is a const declared further down
+              // the file and the birds are built before it initialises, so reading it here is
+              // a temporal-dead-zone throw that takes the whole page with it. Resolved in
+              // gullAngle instead, which only ever runs long after.
+              dwK:0.82+Math.random()*0.40,
               // the drawn silhouette's own beat, kept so a missing models/bird.glb still flies
               flap:a=>{ L.rotation.z=a; Rw.rotation.z=-a; }};
   if(birdModel)dressGull(g); else gullSwap.push(g);
@@ -16439,18 +16460,22 @@ const GULL_DOWN=0.38;         // of the cycle spent going down
 // the beat is not there. 2.6 is a clean swept wing at both ends of the stroke, tip travelling
 // most of a quarter of the span.
 let GULL_WHIP=2.6;
-function gullAngle(w){
-  const up=0.80, dn=-0.45;    // radians: about 46 degrees up off the glide, 26 down
-  return w<GULL_DOWN
-    ? up-(up-dn)*(0.5-0.5*Math.cos(Math.PI*(w/GULL_DOWN)))
-    : dn+(up-dn)*(0.5-0.5*Math.cos(Math.PI*((w-GULL_DOWN)/(1-GULL_DOWN))));
+// u is the bird, and carries its own stroke. Without one it falls back to the shared beat,
+// which is what the debug freeze and anything else calling this bare still gets.
+function gullAngle(w,u){
+  const up=(u&&u.up!==undefined)?u.up:0.80;
+  const dn=(u&&u.dn!==undefined)?u.dn:-0.45;
+  const dw=Math.max(0.12,Math.min(0.88,GULL_DOWN*((u&&u.dwK!==undefined)?u.dwK:1)));
+  return w<dw
+    ? up-(up-dn)*(0.5-0.5*Math.cos(Math.PI*(w/dw)))
+    : dn+(up-dn)*(0.5-0.5*Math.cos(Math.PI*((w-dw)/(1-dw))));
 }
 let _gullHold=null;    // debug: freeze the beat at one point of the cycle to look at it
 function beatGull(u,t){
   if(!u||!u.flap)return;
-  if(_gullHold!==null){ u.flap(gullAngle(_gullHold)); return; }
+  if(_gullHold!==null){ u.flap(gullAngle(_gullHold,u)); return; }
   let w=((t*u.f+u.p)/(Math.PI*2))%1; if(w<0)w+=1;
-  u.flap(gullAngle(w));
+  u.flap(gullAngle(w,u));
 }
 function updateSkyLife(dt){
   for(const c of clouds){
@@ -20105,8 +20130,17 @@ if(location.hash.includes('debug')){
       // His body's forward is NOT the group's -z. The riding stance turns him across the
       // board and every rigged model arrives with a turn of its own on top of that, and both
       // are inside the group — measured, all three models read the same 24 degrees off it.
-      const f=new THREE.Vector3(0.41,0,-0.91).applyQuaternion(
-        pug.getWorldQuaternion(new THREE.Quaternion()));
+      // ---- OFF THE RIG, not off a constant ----
+      // This used to take the body's forward as a fixed (0.41, 0, -0.91) in the group's
+      // frame, measured back when there were three riders and true of those three. There are
+      // ten now and they do not share a facing: a rigged export arrives with its own turn and
+      // fitToBox may add a quarter of its own. Against that constant every rider read about
+      // twenty-four degrees off while the render showed them looking straight down the lens,
+      // so it was the ruler that was bent. riderFaceDir asks the rig — the line from Head to
+      // the muzzle bone, in world space — and falls back to the old constant only for a body
+      // with no such bone.
+      const f=new THREE.Vector3();
+      if(!riderFaceDir(f))return null;
       const cam=(typeof menuBeach!=='undefined'&&menuBeach&&menuCam)?menuCam:camera;
       const to=cam.position.clone().sub(pug.getWorldPosition(new THREE.Vector3()));
       f.y=0; to.y=0; f.normalize(); to.normalize();
@@ -23946,6 +23980,51 @@ function sandCull(force){
   const sea=seaCull();                 // same frustum, same shot, built just above
   return {kept:k, of:n, sea};
 }
+// ---- WHICH WAY THIS BODY IS LOOKING ----
+// Off the rig where the rig can answer: `headfront` is a bone at the muzzle, so the line from
+// the head to it IS the direction of the face, in world space, whatever the file's own
+// convention was and whatever fitToBox did to it. The constant below is the fallback for a
+// body with no such bone — it is the direction the built-in riders were measured at, and it
+// is only right for them, which is the whole reason the staged single yaw did not work.
+let MB_FACE_CAM=1;
+const _rfA=new THREE.Vector3(), _rfB=new THREE.Vector3(), _rfQ=new THREE.Quaternion();
+function riderFaceDir(out){
+  if(typeof pug==='undefined'||!pug)return false;
+  let head=null, front=null;
+  pug.traverse(o=>{ if(!front&&o.name==='headfront')front=o;
+                    if(!head&&o.name==='Head')head=o; });
+  if(head&&front){
+    head.getWorldPosition(_rfA); front.getWorldPosition(_rfB);
+    out.subVectors(_rfB,_rfA); out.y=0;
+    if(out.lengthSq()>1e-8){ out.normalize(); return true; }
+  }
+  out.set(0.41,0,-0.91).applyQuaternion(pug.getWorldQuaternion(_rfQ));
+  out.y=0;
+  if(out.lengthSq()<1e-8)return false;
+  out.normalize(); return true;
+}
+// Turned until the two line up. Done as a short loop rather than one subtraction because the
+// facing is read through the rig's world matrices: turning him moves what the next reading
+// sees, and a single step assumes a relationship that only holds if the bone happens to sit
+// on his axis. Two passes is enough for every model here; the third is insurance.
+const _rfF=new THREE.Vector3(), _rfT=new THREE.Vector3(), _rfP=new THREE.Vector3();
+function faceRiderAtCamera(){
+  for(let i=0;i<3;i++){
+    pug.updateMatrixWorld(true);
+    if(!riderFaceDir(_rfF))return null;
+    _rfT.copy(menuCam.position).sub(pug.getWorldPosition(_rfP));
+    _rfT.y=0;
+    if(_rfT.lengthSq()<1e-8)return null;
+    _rfT.normalize();
+    const off=Math.atan2(_rfF.x*_rfT.z-_rfF.z*_rfT.x, _rfF.x*_rfT.x+_rfF.z*_rfT.z);
+    if(Math.abs(off)<0.004){ return +(off*180/Math.PI).toFixed(2); }
+    // sign found by measurement, not by deriving it: applied the other way the first reading
+    // doubled instead of going to zero
+    pug.rotation.y-=off;
+  }
+  pug.updateMatrixWorld(true);
+  return null;
+}
 const _mbF=new THREE.Vector3(), _mbR=new THREE.Vector3(), _mbP=new THREE.Vector3();
 const _mbQ=new THREE.Quaternion(), _mbQ2=new THREE.Quaternion(), _mbUp=new THREE.Vector3(0,1,0);
 const _mbS=new THREE.Vector3();
@@ -25388,6 +25467,14 @@ function renderMenuBeach(dt){
       o.rotation.set(st.r[0]*Math.PI/180,st.r[1]*Math.PI/180,st.r[2]*Math.PI/180);
       o.updateMatrixWorld(true); };
     put(typeof pug!=='undefined'?pug:null, MB_STAGE.rider);
+    // ---- AND HE LOOKS AT THE CAMERA, whoever he is ----
+    // The staged pose carries ONE yaw and it is applied to every character. They do not share
+    // a facing: measured across the ten, they land in two clusters thirty-five degrees apart,
+    // because a rigged export arrives with its own turn and fitToBox may add a quarter of its
+    // own. So the position is taken as staged and the yaw is SOLVED — the angle between where
+    // this particular body is looking and the line to the lens, taken off his own rig rather
+    // than off a constant that happened to fit the first three models.
+    if(MB_FACE_CAM&&typeof pug!=='undefined'&&pug&&menuCam)faceRiderAtCamera();
     put(menuBeach.board, MB_BOARD_ALT?MB_STAGE_BOARD2:MB_STAGE.board);
     // The palm by its WORLD x,z — converted here, once menuProps has been placed and turned,
     // so it does not matter where the anchor landed or which way the set faces. Its y stays
