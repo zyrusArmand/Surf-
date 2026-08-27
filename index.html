@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.10.0';
+window.SURF_VERSION='5.11.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -24076,9 +24076,15 @@ function seatOnSand(o,sink,baseY,radius){
   const b=new THREE.Box3().setFromObject(o);
   if(!isFinite(b.min.y))return false;
   if(baseY!==undefined&&isFinite(baseY))b.min.y=baseY;
-  // Sampled at the object's OWN position, which is where sandUnder samples and therefore
-  // where every check asks. The box centre is a different point on a sloped beach.
-  o.getWorldPosition(_sndC);
+  // ---- THE BOX CENTRE, and it was a mistake to move this ----
+  // I switched it to the object's own origin on the reasoning that sandUnder samples there,
+  // so the two would agree. Measured in isolation the riders were fine. Run through the whole
+  // suite it cost six checks: the handstand stopped inverting and the menu was not up by the
+  // time the shop round-trip was read. An origin is wherever a model happens to have been
+  // authored -- on an inverted rider it is nowhere near the ground under him -- while the box
+  // centre is a property of the thing itself in the pose it is actually in. The chest's float
+  // was never this; it was two owners setting the same height.
+  b.getCenter(_sndC);
   // ---- THE HIGHEST GROUND UNDER THE FOOTPRINT, not the ground at one point ----
   // A single ray down the middle finds whatever the sand happens to be doing at that exact
   // spot, and the sand is bumpy: measured against groundTopOver -- which is what riderGround
