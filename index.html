@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.92.0';
+window.SURF_VERSION='4.94.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -1285,6 +1285,48 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     background:linear-gradient(157deg, rgba(28,104,110,.72), rgba(12,62,70,.80));
     box-shadow:0 2px 9px rgba(0,20,30,.42), inset 0 1.6px 0 rgba(198,240,236,.42),
                inset 0 0 24px rgba(20,110,116,.32); }
+  /* ---------- the coconut meter ----------
+     Sits ON the jump button's own column so the two read as one control stack: same right
+     inset, parked directly above it. Width is capped in vw as well as px because on a small
+     phone a fixed 230px plaque is a third of the screen. */
+  #cocoBar { position:fixed; right:20px; bottom:126px; width:min(198px,41vw);
+             z-index:6; pointer-events:none;
+             filter:drop-shadow(0 4px 14px rgba(0,18,26,.55));
+             transition:opacity .25s ease, transform .25s ease; }
+  #cocoBar svg { width:100%; height:auto; display:block; overflow:visible; }
+  #cocoBar.hidden { display:none; }
+  /* A nut is ghost until it is caught. Both states are on the same circle so lighting one
+     is a class on its group, not a swap of two drawn objects that have to stay aligned. */
+  #cocoBar .cbNut > ellipse { fill:url(#cbGhost); stroke:#eaf6fb; stroke-opacity:.30;
+                             stroke-width:1.6; }
+  #cocoBar .cbNut .cbEye ellipse { fill:#dfeef4; fill-opacity:.34; stroke:none; }
+  #cocoBar .cbNut .cbHusk { fill:none; stroke:#eaf6fb; stroke-opacity:.16; stroke-width:1.3;
+                            stroke-linecap:round; }
+  #cocoBar .cbNut.lit > ellipse { fill:url(#cbGold); stroke:#ffe89a; stroke-opacity:.95;
+                                  stroke-width:2; filter:url(#cbGlow); }
+  #cocoBar .cbNut.lit .cbEye ellipse { fill:#7a4406; fill-opacity:.92; }
+  #cocoBar .cbNut.lit .cbHusk { stroke:#b06a10; stroke-opacity:.42; stroke-width:1.5; }
+  #cocoBar.live .cbRim { stroke:#d8f6ff; stroke-opacity:.9; }
+  /* the pop as one lands — scaled about the nut's own centre, which is why each group
+     carries its own transform-origin rather than sharing the svg's */
+  #cocoBar .cbNut.pop { animation:cbPop .42s cubic-bezier(.2,1.5,.4,1) 1; }
+  #cocoBar .cbNut[data-i="0"] { transform-origin:72px 46px; }
+  #cocoBar .cbNut[data-i="1"] { transform-origin:150px 46px; }
+  #cocoBar .cbNut[data-i="2"] { transform-origin:228px 46px; }
+  @keyframes cbPop { 0%{transform:scale(1)} 38%{transform:scale(1.32)} 100%{transform:scale(1)} }
+  /* the arcs only exist once the circuit is closed */
+  #cocoBar .cbArcs { opacity:0; }
+  #cocoBar.live .cbArcs { opacity:1; animation:cbZap .34s steps(2,end) infinite; }
+  @keyframes cbZap { 0%{opacity:.35; transform:translateY(0)}
+                     50%{opacity:1; transform:translateY(-1.5px)}
+                     100%{opacity:.35; transform:translateY(0)} }
+  #cocoBar.live .cbGlass { fill:#cdf1ff; fill-opacity:.30; }
+  #cocoBar.live { animation:cbLive 1.1s ease-in-out infinite; }
+  @keyframes cbLive { 0%,100%{filter:drop-shadow(0 4px 14px rgba(0,18,26,.55))}
+                      50%{filter:drop-shadow(0 4px 20px rgba(255,206,90,.75))} }
+  /* and it drains back to ghost when the power runs out, rather than blinking off */
+  #cocoBar.spent .cbNut circle { transition:fill .5s linear, stroke-opacity .5s linear; }
+  @media (max-width:430px){ #cocoBar { right:14px; bottom:118px; } }
   /* JUMP and ROPE are the ride's Play: same body, brighter gold, and the streak comes off
      so the bezel is the only thing on the rim */
   #jumpBtn, #ropeBtn {
@@ -1353,6 +1395,100 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   <div class="cell"><span class="lab">Puka</span><span class="val"><i class="pk"></i><span id="hCoins">0</span></span><span class="rec">this run</span></div>
 </div>
 <div id="trickmsg"></div>
+<!-- ---------- the coconut meter ----------
+     Three nuts carved into a plank, over the jump button. Each coconut caught in the run
+     lights the next one gold; the third closes the circuit and the arcs jump between them,
+     which is the whole of what "activated" looks like. Drawn as one inline SVG rather than
+     three sprites so the wood, the glass and the glow are one object that scales with the
+     button beside it and costs nothing to redraw -- the state changes are class swaps.
+     aria-live so the phase change is announced rather than only seen. -->
+<div id="cocoBar" class="hidden" aria-live="polite" aria-label="Coconut power up">
+ <svg viewBox="0 0 300 92" role="img">
+  <defs>
+   <linearGradient id="cbWood" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0"   stop-color="#7a5836"/><stop offset=".42" stop-color="#5b3f26"/>
+    <stop offset="1"   stop-color="#3d2917"/></linearGradient>
+   <linearGradient id="cbEnd" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#6a4a2c"/><stop offset="1" stop-color="#33220f"/></linearGradient>
+   <linearGradient id="cbGlass" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#bfeaf5" stop-opacity=".55"/>
+    <stop offset=".5" stop-color="#6fc2d8" stop-opacity=".16"/>
+    <stop offset="1" stop-color="#bfeaf5" stop-opacity=".42"/></linearGradient>
+   <radialGradient id="cbGold" cx=".36" cy=".30" r=".78">
+    <stop offset="0" stop-color="#fff3b0"/><stop offset=".45" stop-color="#ffc633"/>
+    <stop offset="1" stop-color="#c9740c"/></radialGradient>
+   <radialGradient id="cbGhost" cx=".36" cy=".30" r=".78">
+    <stop offset="0" stop-color="#ffffff" stop-opacity=".30"/>
+    <stop offset="1" stop-color="#cfe6ee" stop-opacity=".13"/></radialGradient>
+   <filter id="cbGlow" x="-60%" y="-60%" width="220%" height="220%">
+    <feGaussianBlur stdDeviation="4.5" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+   <filter id="cbArc" x="-60%" y="-60%" width="220%" height="220%">
+    <feGaussianBlur stdDeviation="2.2" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <!-- the plank, and the carved caps at each end -->
+  <rect class="cbPlank" x="6" y="10" width="288" height="72" rx="13" fill="url(#cbWood)"/>
+  <rect x="6" y="10" width="288" height="72" rx="13" fill="none"
+        stroke="#2a1a0c" stroke-opacity=".85" stroke-width="3"/>
+  <!-- grain, so the plank is a piece of wood rather than a brown rectangle -->
+  <g class="cbGrain" fill="none" stroke="#2b1c0d" stroke-opacity=".26" stroke-width="1.5"
+     stroke-linecap="round">
+   <path d="M22 22 q70 -4 150 1 t110 3"/><path d="M18 70 q80 5 160 -2 t108 -1"/>
+   <path d="M40 15 q60 3 120 0"/>
+  </g>
+  <rect x="14" y="19" width="20" height="54" rx="5" fill="url(#cbEnd)"/>
+  <rect x="266" y="19" width="20" height="54" rx="5" fill="url(#cbEnd)"/>
+  <!-- the tiki notches cut into the caps, which is the detail that makes it carved -->
+  <g class="cbCarve" fill="none" stroke="#1d1206" stroke-opacity=".62" stroke-width="2.2"
+     stroke-linecap="round" stroke-linejoin="round">
+   <path d="M19 30 l5 6 -5 6"/><path d="M19 46 l5 6 -5 6"/>
+   <path d="M29 30 l-5 6 5 6"/><path d="M29 46 l-5 6 5 6"/>
+   <path d="M271 30 l5 6 -5 6"/><path d="M271 46 l5 6 -5 6"/>
+   <path d="M281 30 l-5 6 5 6"/><path d="M281 46 l-5 6 5 6"/>
+  </g>
+  <!-- the glass inset it all sits behind -->
+  <rect class="cbGlass" x="38" y="20" width="224" height="52" rx="9" fill="url(#cbGlass)"/>
+  <rect class="cbRim" x="38" y="20" width="224" height="52" rx="9" fill="none"
+        stroke="#9fe4f5" stroke-opacity=".45" stroke-width="2"/>
+  <!-- chevrons carved into the wood between the nuts -->
+  <g class="cbChev" fill="none" stroke="#2e1e0e" stroke-opacity=".5" stroke-width="3.4"
+     stroke-linecap="round" stroke-linejoin="round">
+   <path d="M112 33 l9 13 -9 13"/><path d="M124 33 l9 13 -9 13"/>
+   <path d="M180 33 l9 13 -9 13"/><path d="M192 33 l9 13 -9 13"/>
+  </g>
+  <!-- the arcs, drawn under the nuts so they read as passing behind them -->
+  <g class="cbArcs" filter="url(#cbArc)" fill="none" stroke="#eefaff"
+     stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+   <path d="M90 46 l11 -10 8 13 12 -14 9 12 12 -9"/>
+   <path d="M168 46 l11 -10 8 13 12 -14 9 12 12 -9"/>
+   <!-- a second, thinner fork off each -- a bolt that does not branch reads as a zigzag -->
+   <g stroke-width="1.7" stroke-opacity=".8">
+    <path d="M109 49 l-6 9 9 2"/><path d="M187 49 l-6 9 9 2"/>
+   </g>
+  </g>
+  <!-- and the three nuts. A coconut is an EGG, not a ball, and what makes it read as a
+       coconut rather than a marble is two things a plain disc has not got: the three eyes
+       at the stem end, and the husk fibre running the long way round it. -->
+  <g class="cbNuts">
+   <g class="cbNut" data-i="0"><ellipse cx="72" cy="46" rx="24" ry="26"/>
+     <g class="cbHusk"><path d="M58 27 q7 19 2 39"/><path d="M68 24 q5 22 1 44"/>
+        <path d="M79 25 q-4 21 1 42"/><path d="M87 30 q-6 17 -2 34"/></g>
+     <g class="cbEye"><ellipse cx="66" cy="33" rx="2.9" ry="2.4"/>
+        <ellipse cx="74" cy="31" rx="2.9" ry="2.4"/><ellipse cx="81" cy="35" rx="2.9" ry="2.4"/></g></g>
+   <g class="cbNut" data-i="1"><ellipse cx="150" cy="46" rx="24" ry="26"/>
+     <g class="cbHusk"><path d="M136 27 q7 19 2 39"/><path d="M146 24 q5 22 1 44"/>
+        <path d="M157 25 q-4 21 1 42"/><path d="M165 30 q-6 17 -2 34"/></g>
+     <g class="cbEye"><ellipse cx="144" cy="33" rx="2.9" ry="2.4"/>
+        <ellipse cx="152" cy="31" rx="2.9" ry="2.4"/><ellipse cx="159" cy="35" rx="2.9" ry="2.4"/></g></g>
+   <g class="cbNut" data-i="2"><ellipse cx="228" cy="46" rx="24" ry="26"/>
+     <g class="cbHusk"><path d="M214 27 q7 19 2 39"/><path d="M224 24 q5 22 1 44"/>
+        <path d="M235 25 q-4 21 1 42"/><path d="M243 30 q-6 17 -2 34"/></g>
+     <g class="cbEye"><ellipse cx="222" cy="33" rx="2.9" ry="2.4"/>
+        <ellipse cx="230" cy="31" rx="2.9" ry="2.4"/><ellipse cx="237" cy="35" rx="2.9" ry="2.4"/></g></g>
+  </g>
+ </svg>
+</div>
 <div id="jumpBtn" class="btn glass hidden">
   <svg class="ges" viewBox="0 0 24 24"><circle class="dot" cx="12" cy="12" r="3.1"/><path d="M6.9 6.9a7.2 7.2 0 0 0 0 10.2M17.1 6.9a7.2 7.2 0 0 1 0 10.2"/></svg>
   JUMP</div>
@@ -14624,6 +14760,101 @@ function updateCrate(dt,eff){
     bump(stats,'crates'); saveStats();
   }
 }
+// ---------- coconuts, and the meter they fill ----------
+// Three of them close the circuit. The meter over the jump button is the whole readout --
+// ghost, then gold, then the arcs -- so the nut has to be catchable on the way past rather
+// than set up for, the same lesson the chest already learned: a pickup that ignores you
+// when you ride through it reads as broken, not as a skill gate.
+const COCO_MAX=3;            // nuts to a charge
+const COCO_HOLD=7.0;         // seconds the charge runs for once it closes
+let cocoGot=0, cocoPower=0, cocoObjs=[], cocoT=4+Math.random()*5, cocoBob=0;
+const cocoBarEl=document.getElementById('cocoBar');
+// The DOM only changes when the STATE does. Called every frame it would rewrite three class
+// lists sixty times a second to say the same thing, and the pop animation would restart on
+// every one of those -- which is how a one-shot flourish turns into a permanent shudder.
+let _cbShown=-1, _cbLive=null;
+function showCocoBar(pop){
+  if(!cocoBarEl)return;
+  const live=cocoPower>0;
+  if(cocoGot===_cbShown&&live===_cbLive&&pop===undefined)return;
+  const nuts=cocoBarEl.querySelectorAll('.cbNut');
+  for(let i=0;i<nuts.length;i++){
+    const on=i<cocoGot;
+    nuts[i].classList.toggle('lit',on);
+    if(pop===i){ nuts[i].classList.remove('pop'); void nuts[i].offsetWidth; nuts[i].classList.add('pop'); }
+  }
+  cocoBarEl.classList.toggle('live',live);
+  cocoBarEl.classList.toggle('spent',!live&&_cbLive===true);
+  _cbShown=cocoGot; _cbLive=live;
+}
+function cocoReset(){
+  cocoGot=0; cocoPower=0; cocoT=4+Math.random()*5;
+  for(const m of cocoObjs){ m.visible=false; m.userData.on=false; }
+  _cbShown=-1; _cbLive=null; showCocoBar();
+}
+function cocoSpawn(){
+  if(!coconutModel)return null;
+  let m=cocoObjs.find(o=>!o.userData.on);
+  if(!m){
+    if(cocoObjs.length>=3)return null;         // three in the water at once is plenty
+    m=new THREE.Mesh(coconutModel.geo,coconutModel.mat);
+    // The nut is a metre of husk in a world of feet and the file is normalised to one unit
+    // tall, so this is a size, not a guess: a coconut is about a foot across.
+    m.scale.setScalar(1.15);
+    m.castShadow=true;
+    // A halo, for the same reason the chest has one: it has to be seen from far enough back
+    // to steer at. Additive and always facing you, so it reads at any angle.
+    const halo=new THREE.Mesh(new THREE.PlaneGeometry(3.4,3.4),
+      new THREE.MeshBasicMaterial({color:0xffd76a,transparent:true,opacity:0.5,
+        depthWrite:false,blending:THREE.AdditiveBlending}));
+    halo.userData.billboard=true; m.add(halo); m.userData.halo=halo;
+    scene.add(m); cocoObjs.push(m);
+  }
+  m.userData.on=true; m.visible=true;
+  m.position.set(Math.max(-13,Math.min(13,px+(Math.random()-0.5)*15)),0,-165);
+  m.rotation.set(Math.random()*3,Math.random()*3,Math.random()*3);
+  return m;
+}
+function updateCocos(dt,eff){
+  cocoBob+=dt;
+  if(cocoPower>0){
+    cocoPower-=dt;
+    // the charge IS the boost, held rather than topped up: boost decays at 3.0/s, so
+    // re-arming it every frame is what makes this a power-up and not a single nudge
+    boost=Math.min(16,Math.max(boost,13));
+    if(cocoPower<=0){ cocoPower=0; cocoGot=0; msg('POWER DOWN'); }
+    showCocoBar();
+  }
+  // no new nuts while a charge is running — the meter is already full and has nowhere to put them
+  if(running&&swPh===SWP.IDLE&&dist>60&&cocoPower<=0){
+    cocoT-=dt;
+    if(cocoT<=0){ cocoT=5+Math.random()*6; cocoSpawn(); }
+  }
+  for(const m of cocoObjs){
+    if(!m.userData.on)continue;
+    m.position.z+=eff*dt;
+    m.position.y=swellH(m.position.x,dist*WAVE_DRIFT+m.position.z,waveClock)+0.95
+                 +Math.sin(cocoBob*2.1+m.position.x)*0.16;
+    m.rotation.y+=dt*1.4; m.rotation.x+=dt*0.6;
+    if(m.userData.halo){
+      m.userData.halo.material.opacity=0.34+0.26*Math.sin(cocoBob*3.0+m.position.x);
+      if(typeof camera!=='undefined'&&camera)m.userData.halo.quaternion.copy(camera.quaternion);
+    }
+    if(m.position.z>14){ m.userData.on=false; m.visible=false; continue; }
+    if(Math.abs(m.position.z-pz)<2.2&&Math.abs(m.position.x-px)<2.2&&Math.abs(py-m.position.y)<2.0){
+      m.userData.on=false; m.visible=false;
+      cocoGot=Math.min(COCO_MAX,cocoGot+1);
+      score+=25; buzz(14);
+      splash(px,py+0.3,pz,9,0xffd76a);
+      showCocoBar(cocoGot-1);
+      if(cocoGot>=COCO_MAX){
+        cocoPower=COCO_HOLD; boost=16;
+        msg('POWER UP ACTIVATED!'); buzz(30);
+        showCocoBar();
+      }else msg(`COCONUT ${cocoGot}/${COCO_MAX}`);
+    }
+  }
+}
 function msg(t){trickmsg.textContent=t;trickmsg.style.opacity=1;setTimeout(()=>trickmsg.style.opacity=0,900);}
 
 function doJump(){
@@ -14806,6 +15037,7 @@ function respawn(){
   overlayUp=false;running=true;last=performance.now();
   player.visible=true; rig.visible=true; hud.style.display='';
   overlay.classList.add('hidden');jumpBtn.classList.remove('hidden');
+  if(cocoBarEl)cocoBarEl.classList.remove('hidden');cocoReset();
   msg('BACK UP!');
 }
 // The clip is a placeholder: a real build would hand this slot to a rewarded-ad SDK.
@@ -14859,6 +15091,7 @@ function beginRun(){
   if(typeof menuBeachOff==='function')menuBeachOff();
   player.visible=true; rig.visible=true; hud.style.display='';
   overlay.classList.add('hidden');jumpBtn.classList.remove('hidden');
+  if(cocoBarEl)cocoBarEl.classList.remove('hidden');cocoReset();
   reviveBtn.style.display='none';
   if(typeof crateCeremonyEnd==='function')crateCeremonyEnd();
   goalRoll();                       // anything ticked off last run is replaced now, not then
@@ -15264,6 +15497,7 @@ function startWipeout(kind){
   running=false;                       // controls stop, but the world keeps running
   endMouseDrag();steer=0;weight=0;
   jumpBtn.classList.add('hidden');ropeBtn.style.display='none';trickBar.classList.add('hidden');
+  if(cocoBarEl)cocoBarEl.classList.add('hidden');cocoReset();
   hanging=false;rope.visible=false;
   msg(W.msg);
   shake=W.kick;
@@ -15518,6 +15752,7 @@ function gameOver(){
   coins+=earned; saveGame(); showCoins();
   bump(stats,'earned',earned); bump(stats,'score',s); saveStats();
   jumpBtn.classList.add('hidden');ropeBtn.style.display='none';trickBar.classList.add('hidden');
+  if(cocoBarEl)cocoBarEl.classList.add('hidden');cocoReset();
   overlay.querySelector('h1').textContent='Wipeout!';
   // one row per line, all sharing a left edge, the whole block centred on the screen
   // Three columns — what it is, what it came to, what it paid — so the figures and the
@@ -19297,6 +19532,27 @@ if(location.hash.includes('debug')){
       }
       return out;
     },
+    // Drive the coconut meter without having to catch three nuts in a moving lane — the
+    // phases are what is being checked, and steering into a pickup is not.
+    cocoSet(n,power){
+      if(typeof cocoGot==='undefined')return null;
+      // called with nothing it READS rather than writes — a probe that resets the thing it
+      // is measuring cannot tell you whether the thing decays on its own
+      if(n!==undefined){
+        cocoGot=Math.max(0,Math.min(COCO_MAX,n|0));
+        if(power!==undefined)cocoPower=power;
+        else if(cocoGot>=COCO_MAX)cocoPower=COCO_HOLD;
+        showCocoBar(cocoGot-1);
+      }
+      const e=document.getElementById('cocoBar');
+      return {got:cocoGot, power:+cocoPower.toFixed(2),
+              lit:[...e.querySelectorAll('.cbNut')].map(x=>x.classList.contains('lit')),
+              live:e.classList.contains('live'), hidden:e.classList.contains('hidden'),
+              inRun:(typeof cocoObjs!=='undefined')?cocoObjs.filter(o=>o.userData.on).length:null,
+              pool:(typeof cocoObjs!=='undefined')?cocoObjs.length:null,
+              clock:+cocoT.toFixed(2), dist:Math.round(dist), model:!!coconutModel,
+              phase:(typeof swPh!=='undefined'?swPh:null), idle:(typeof SWP!=='undefined'?SWP.IDLE:null)};
+    },
     palmProbe(wx,wz){
       // given a world x,z it MOVES the staged tree there and re-lays the set out, so the
       // question "where does the trunk have to stand to be in shot" can be answered by
@@ -22580,6 +22836,7 @@ function update(dt){
   updateSeaLife(dt,eff);
   updateJetSki(dt,eff);
   updateCrate(dt,eff);
+  updateCocos(dt,eff);
   updateWhirl(dt,eff);
   updateStars(dt,eff);
   updateSplat(dt);
