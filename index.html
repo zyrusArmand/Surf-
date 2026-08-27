@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='4.90.0';
+window.SURF_VERSION='4.91.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -18396,15 +18396,21 @@ if(location.hash.includes('debug')){
               barkTint:'#'+PALM_BARK.getHexString()};
     },
     // the planted sign's own numbers, so the corner it is dug into can be walked without an edit
-    signPlant(px,py,pw,tilt,yaw,sink,on,roll){
-      if(px!==undefined)MB_SGN_PX=px; if(py!==undefined)MB_SGN_PY=py;
-      if(pw!==undefined)MB_SGN_PW=pw; if(tilt!==undefined)MB_SGN_TILT=tilt;
-      if(yaw!==undefined)MB_SGN_YAW=yaw; if(sink!==undefined)MB_SGN_SINK=sink;
+    // IN FEET. It used to take a screen-space target — px, py, pw — and solve for it, and that
+    // solve diverged: it ran the sign out to x 2.78..3.19 with the set six feet behind the
+    // camera and then reported the numbers it had failed to reach. The knobs are a position now,
+    // and these are those knobs. The old three are gone; this hook still named them, so calling
+    // it threw ReferenceError and every reading of where the sign is came back as an error
+    // string — which is why nobody noticed the plank standing in front of the trunk.
+    signPlant(side,fwd,ft,tilt,yaw,sink,on,roll){
+      if(side!==undefined)MB_SGN_PS=side; if(fwd!==undefined)MB_SGN_PF=fwd;
+      if(ft!==undefined)MB_SGN_PFT=ft;    if(tilt!==undefined)MB_SGN_TILT=tilt;
+      if(yaw!==undefined)MB_SGN_YAW=yaw;  if(sink!==undefined)MB_SGN_SINK=sink;
       if(roll!==undefined)MB_SGN_ROLL=roll;
       if(on!==undefined)MB_SGN_PLANT=on?1:0;
       if(typeof layoutBeachSign==='function')layoutBeachSign();
       const m=(typeof signScreen==='function')?signScreen():null;
-      return {plant:!!MB_SGN_PLANT, px:MB_SGN_PX, py:MB_SGN_PY, pw:MB_SGN_PW,
+      return {plant:!!MB_SGN_PLANT, side:MB_SGN_PS, fwd:MB_SGN_PF, ft:MB_SGN_PFT,
               tilt:MB_SGN_TILT, yaw:MB_SGN_YAW, sink:MB_SGN_SINK, roll:MB_SGN_ROLL,
               at:m?{x:m.x.map(v=>+v.toFixed(3)), y:m.y.map(v=>+v.toFixed(3)),
                     roll:+m.roll.toFixed(1)}:null};
@@ -19229,7 +19235,14 @@ if(location.hash.includes('debug')){
     },
     // what the title screen's palm actually IS, in the frame it stands in
     palmLean2(v,h){ if(v!==undefined)LEAN2=v; if(h!==undefined)PALM2_H=h; repalm(); return [LEAN2,PALM2_H]; },
-    palmProbe(){
+    palmProbe(wx,wz){
+      // given a world x,z it MOVES the staged tree there and re-lays the set out, so the
+      // question "where does the trunk have to stand to be in shot" can be answered by
+      // asking the game instead of by adjusting a number against a picture it is not in
+      if(wx!==undefined&&typeof MB_PALM_W!=='undefined'){
+        MB_PALM_W[0]=wx; if(wz!==undefined)MB_PALM_W[1]=wz;
+        if(typeof layoutMenuBeach==='function')layoutMenuBeach();
+      }
       if(typeof menuPalm==='undefined'||!menuPalm)return null;
       menuPalm.updateWorldMatrix(true,true);
       const b=new THREE.Box3().setFromObject(menuPalm);
@@ -23011,7 +23024,19 @@ let MB_CAM_YAW=-6.201155, MB_CAM_PITCH=0.195477;
 // AHEAD and SIDE below no longer place the set when this is on. They stay because the anchor
 // still has to land somewhere sensible for the things that are not staged.
 let MB_STAGED=1;
-const MB_ANCHOR=[-8.15,-43.34];   // where menuProps stood when the set was staged — see layoutMenuBeach
+// ---- THE PALM IS PLACED IN THE WORLD, LIKE THE OTHER TWO ----
+// It used to be placed by its staged LOCAL numbers, which only mean anything if menuProps
+// stands where it stood when they were read. I tried to recover that origin by arithmetic:
+//   world -12.87 = anchor.x + (-4.103 * MB_K)
+// and that is wrong, because menuProps is TURNED — rotation.y = PI - MB_YAW — so the local
+// offset is rotated before it is added. Subtracting it unrotated gave an origin that is not
+// on the beach at all, and the two things measured off it went with it: the palm ran x -7.96
+// to 16.94 and y -10.72 to 1.46 against a frame that is 0 to 1, and the chest -5.56 to 8.34.
+// Nothing of either was in shot, which is the screenshot that came back.
+// So the anchor goes back to the solve, and the palm is pinned by the readout's WORLD column
+// the same way the rider and the board are — converted through menuProps' own matrix at the
+// moment it is placed, so wherever the anchor lands the tree stands here.
+let MB_PALM_W=[-12.87,-51.53];    // world x,z — the readout's own column for the staged tree
 let MB_CH_SC=1.38;      // how big the chest stands, as a MULTIPLE of its fitted size
 // MB_CH_SIDE and MB_CH_CLR are gone with the placement that used them — the layout's own MB_CD
 // and MB_CF already say where the chest stands relative to the trunk, and having two answers to
@@ -23019,9 +23044,9 @@ let MB_CH_SC=1.38;      // how big the chest stands, as a MULTIPLE of its fitted
 const MB_STAGE={
   rider:{p:[-15.406,4.480,-50.053], r:[0.0,-169.1,0.0]},
   board:{p:[-14.617,4.840,-50.923], r:[79.6,-14.1,32.1]},
-  // the palm's numbers are LOCAL to menuProps, which is where it lives — the readout's world
-  // column said -12.87, -0.33, -51.53 for the same object, and using that as a local position
-  // would put the tree half a beach away
+  // x and z come from MB_PALM_W and are in WORLD feet; only y here is local, because the
+  // vertical does not depend on where the anchor landed — menuProps' own height is solved
+  // against the sand every layout and this rides on top of it.
   palm :{p:[-4.103,-2.539,-7.121],  r:[0.0,19.5,7.8]},
 };
 // the spare board pose, kept for the trade it was staged for: further round to make room for
@@ -23210,8 +23235,18 @@ const _mbQ=new THREE.Quaternion(), _mbQ2=new THREE.Quaternion(), _mbUp=new THREE
 const _mbS=new THREE.Vector3();
 // forward, and right of it. At a yaw of zero the camera looks straight out to sea and its
 // right is +x; turning it puts the sea on the left, which is the side the reference has it.
+// ---- AND EVERYONE ASKS FOR THE SAME ONES ----
+// The layout solves a yaw off the staged camera and calls mbAxes(_yaw) with it. Everything
+// placed afterwards — the sign, the chest — called mbAxes() bare, which fell back to MB_YAW.
+// Those are not the same angle: MB_YAW is 0.46 and the solved one is 0.082, so the second group
+// was being placed in a frame turned twenty-two degrees out of the first. It shows up as an axis
+// that does not do what it is named: pulling the sign "toward the camera" walked it off the left
+// edge instead and never brought it down the frame at all, through four sweeps and a search over
+// three thousand positions that all bottomed out at the same y because none of them were moving
+// the way the parameter said. The bare call now gets the solved angle.
+let _mbYawUse=MB_YAW;
 function mbAxes(y){
-  const Y=(y===undefined)?MB_YAW:y;
+  const Y=(y===undefined)?_mbYawUse:y;
   _mbF.set(Math.sin(Y),0,-Math.cos(Y));
   _mbR.set(-_mbF.z,0,_mbF.x);
 }
@@ -23254,17 +23289,14 @@ function layoutMenuBeach(){
       _yaw=Math.atan2(f.x,-f.z);
     }
   }
+  _mbYawUse=_yaw;          // so a bare mbAxes() later in the frame gets this one, not MB_YAW
   mbAxes(_yaw);
-  // ---- THE ANCHOR THE SET WAS STAGED AGAINST ----
-  // The palm's staged numbers are LOCAL to menuProps, and menuProps stands at this anchor — so
-  // they only mean what they meant if the anchor is where it was when they were read off. Left
-  // to MB_SET_AHEAD the offset got added to a different origin and the whole set was
-  // double-counted: the tree came forward until it filled the frame with the pug behind it.
-  // Recovered from the readout itself, which prints both columns for the same object:
-  //   world -12.87 = anchor.x + (-4.103 * MB_K)  ->  anchor.x = -8.15
-  //   world -51.53 = anchor.z + (-7.121 * MB_K)  ->  anchor.z = -43.34
-  // So this is not a number chosen by eye; it is the one the staged figures were measured in.
-  const gz=MB_STAGED?{x:MB_ANCHOR[0],z:MB_ANCHOR[1]}:(MB_CAM_ON?_mbAnchor(_yaw):null);
+  // ---- WHERE THE SET STANDS ----
+  // Solved, along the staged camera's own forward. I hard-coded an anchor here once, recovered
+  // by subtracting the palm's staged local offset from its world position — and that arithmetic
+  // is wrong, because menuProps is turned by PI - MB_YAW and the offset is rotated before it is
+  // added. See the note at MB_PALM_W. The palm no longer needs this to be any particular number.
+  const gz=MB_CAM_ON?_mbAnchor(_yaw):null;
   const g=(beachSandH?beachSandH(gz?gz.z/MB_K:MB_Z):beachSand0)*MB_K;
   const board=menuBeach.board;
   // the palm is the anchor; everything else is measured off it along the camera's axes
@@ -23725,9 +23757,11 @@ let _sgFwd=6.0;            // how far up the beach it is stuck in — solved, se
 // It is an object on a beach. It gets a position on the beach, in feet, and lands where the
 // lens puts it — which is exactly how the chest and the pug are placed, and neither of those
 // has ever wandered off screen.
-let MB_SGN_PS=-7.5;        // feet to the camera's left of the set
-let MB_SGN_PF=-13.0;       // and feet toward the camera from it — negative is nearer
-let MB_SGN_PFT=5.2;        // how wide the plank is, in feet
+let MB_SGN_PS=-5.5;        // feet to the camera's left of the set
+let MB_SGN_PF=0.0;         // and feet toward the camera from it — POSITIVE is nearer,
+                           // whatever the old comment here said: the term is -_mbF*PF and
+                           // _mbF points downrange, so a negative number pushed it out to sea
+let MB_SGN_PFT=3.0;        // how wide the plank is, in feet
 let MB_SGN_TILT=0.26;      // leaned back out of the sand
 let MB_SGN_YAW=0.30;       // and turned off square, so it is stuck in at an angle
 // ---- THE ROLL IS WHAT MAKES IT DUG IN ----
@@ -23767,7 +23801,7 @@ function sgnTopTarget(){
 // Out to the right, but not to the 3.12 that solving on one board asked for: the chest is
 // placed off the CAMERA, and the camera solves onto the group, so a longer board carried it
 // out to 1.09 of the way across — a quarter of the chest off the side of the screen.
-let MB_CD=1.90;        // out to the camera's right of the trunk's own axis...
+let MB_CD=0.60;        // out to the camera's right of the trunk's own axis...
 // Out from 1.3, where the new palm's trunk is thick enough at chest height that the two
 // merged into one shape — the chest was measurably clear of the CENTRELINE and visibly inside
 // the tree, which is the difference between a trunk that is a line and a trunk that is a
@@ -24065,8 +24099,7 @@ function fitBeachSign(){
       // its shape and never grows taller than its allowance. A planted one has no height
       // ceiling: it is leaning, so how tall it reads is the lean's business, and clamping that
       // would fight the tilt for control of the same number.
-      const want=MB_SGN_PLANT ? MB_SGN_PW/w
-                              : Math.min(MB_SGN_W/w, MB_SGN_MH/h);
+      const want=Math.min(MB_SGN_W/w, MB_SGN_MH/h);
       const k=1+(want-1)*DAMP;
       if(Math.abs(k-1)>0.004){
         _sgFt=Math.max(0.5,Math.min(24,_sgFt*Math.max(0.55,Math.min(1.8,k))));
@@ -24079,17 +24112,10 @@ function fitBeachSign(){
     // as far down the frame as asked, and the width solve then chased a sign that was never going
     // to arrive, ending ninety percent of the way across the screen.
     // A hung title is placed by its TOP edge, because what matters is that it clears the frame.
-    // A planted one is placed by its MIDDLE: its bottom is buried and its top is whatever the
-    // lean leaves, so neither edge is the thing being aimed.
-    if(MB_SGN_PLANT){
-      // nearness for the vertical, because that is what actually moves a thing standing on the
-      // ground up and down the frame
-      if(!secant(()=>_sgFwd,MB_SGN_PY,q=>(q.y[0]+q.y[1])/2,v=>{_sgFwd=v;},-60,60,10))done=false;
-      if(!secant(()=>_sgSide,MB_SGN_PX,q=>(q.x[0]+q.x[1])/2,v=>{_sgSide=v;},-40,24,8))done=false;
-    }else{
-      if(!secant(()=>_sgUp,sgnTopTarget(),q=>q.y[0],v=>{_sgUp=v;},2,90,12))done=false;
-      if(!secant(()=>_sgSide,MB_SGN_D,q=>(q.x[0]+q.x[1])/2,v=>{_sgSide=v;},-24,24,8))done=false;
-    }
+    // This loop only ever runs for a hung one — the planted branch returns above — and the
+    // screen-space solve that used to live here is gone with the knobs it aimed at.
+    if(!secant(()=>_sgUp,sgnTopTarget(),q=>q.y[0],v=>{_sgUp=v;},2,90,12))done=false;
+    if(!secant(()=>_sgSide,MB_SGN_D,q=>(q.x[0]+q.x[1])/2,v=>{_sgSide=v;},-24,24,8))done=false;
     m=hangBeachSign();
     if(done||!m)break;
   }
@@ -24533,7 +24559,17 @@ function renderMenuBeach(dt){
       o.updateMatrixWorld(true); };
     put(typeof pug!=='undefined'?pug:null, MB_STAGE.rider);
     put(menuBeach.board, MB_BOARD_ALT?MB_STAGE_BOARD2:MB_STAGE.board);
-    put(typeof menuPalm!=='undefined'?menuPalm:null, MB_STAGE.palm);
+    // The palm by its WORLD x,z — converted here, once menuProps has been placed and turned,
+    // so it does not matter where the anchor landed or which way the set faces. Its y stays
+    // local: the vertical is solved against the sand and nothing about the anchor moves it.
+    if(typeof menuPalm!=='undefined'&&menuPalm&&menuPalm.parent){
+      const st=MB_STAGE.palm;
+      menuPalm.rotation.set(st.r[0]*Math.PI/180,st.r[1]*Math.PI/180,st.r[2]*Math.PI/180);
+      menuPalm.parent.updateMatrixWorld(true);
+      const lw=menuPalm.parent.worldToLocal(new THREE.Vector3(MB_PALM_W[0],0,MB_PALM_W[1]));
+      menuPalm.position.set(lw.x,st.p[1],lw.z);
+      menuPalm.updateMatrixWorld(true);
+    }
     // ---- HIS FEET ON THE SAND ----
     // The staged height is where he was dragged to and a drag is in the picture, not on the
     // ground: eye alone cannot tell a rider standing on the beach from one hanging a few
