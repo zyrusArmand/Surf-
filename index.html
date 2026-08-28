@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.57.0';
+window.SURF_VERSION='5.58.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -22984,15 +22984,26 @@ loadModel('ufo.glb',(s3)=>{
     const N=96, hgt=Math.max(1e-4,sz.y*k), rad=new Float32Array(N);
     each(w=>{ const i=Math.min(N-1,Math.max(0,Math.floor((w.y-lo)/hgt*N)));
       const r=Math.hypot(w.x,w.z); if(r>rad[i])rad[i]=r; });
-    let e=0, seen=0;
+    let e=0, seen=0, fi=0;
     for(let i=0;i<N;i++){
       if(rad[i]<=0)continue;                       // nothing in this slice
       if(seen&&rad[i]>e*1.5)break;                 // the hull, flaring out
       if(rad[i]>e)e=rad[i];
-      seen=1;
+      seen=1; fi=i;
     }
-    g.userData.emitY=lo;
-    g.userData.emitR=Math.max(0.05,e);
+    // ---- ITS MOUTH, NOT ITS WIDEST POINT ----
+    // Taking the biggest radius anywhere in the housing measured the shoulder where it meets
+    // the hull, so the beam came out wider than the thing it leaves. What the light comes out
+    // of is the FACE at the bottom: the widest reach in the lowest third of the housing.
+    let mouth=0;
+    for(let i=0;i<=Math.max(0,Math.floor(fi*0.34));i++)if(rad[i]>mouth)mouth=rad[i];
+    // ---- AND IT STARTS INSIDE THE HOUSING ----
+    // Starting at the lowest vertex in the file left a visible gap: the beam's top face sat
+    // below the housing's own bottom edge with sky between them, because the lowest vertex is
+    // a rim or a lens and not the flat the light leaves by. Begun a third of the way UP the
+    // housing instead, so the cone's top is buried inside it and there is no seam to find.
+    g.userData.emitY=lo+(fi/N)*hgt*0.34;
+    g.userData.emitR=Math.max(0.05,mouth||e);
   }
   // ---- the beam ----
   // A cone standing on its point at the emitter under the hull, opening downward. Additive
@@ -23014,19 +23025,19 @@ loadModel('ufo.glb',(s3)=>{
   // to the housing it leaves. The fade is the OPACITY, which is what a light coming on is.
   const bm=new THREE.Mesh(new THREE.CylinderGeometry(
       Math.min(0.95,g.userData.emitR/UFO_BEAM_W),1,1,30,1,true),
-    new THREE.MeshBasicMaterial({color:0xf4f8ff,transparent:true,opacity:0,
+    new THREE.MeshBasicMaterial({color:0x7dff9a,transparent:true,opacity:0,
       blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
   // ConeGeometry already stands apex-up and mouth-down, which is the way a beam falls: a
   // point at the emitter opening out to a disc on the water. Turning it half over — which is
   // what was here first — put the wide end against the hull and tapered it to nothing where
   // it lands, so the light got NARROWER the further it travelled.
   g.add(bm); g.userData.beam=bm;
-  // a disc of light where it lands, so the beam has a foot as well as a body
-  const pool=new THREE.Mesh(new THREE.CircleGeometry(1,30),
-    new THREE.MeshBasicMaterial({color:0xf4f8ff,transparent:true,opacity:0,
-      blending:THREE.AdditiveBlending,depthWrite:false}));
-  pool.rotation.x=-Math.PI/2; g.add(pool); g.userData.pool=pool;
-  ufoLight=new THREE.PointLight(0xf4f8ff,0,90,2); g.add(ufoLight);
+  // ---- AND NO POOL ON THE WATER ----
+  // There was a flat disc lying on the sea under the far end, on the reasoning that a beam
+  // should have a foot as well as a body. On a sea with any swell in it that disc is a hard
+  // ellipse floating over the waves rather than lying on them, and seen through the shaft it
+  // is a second edge across the middle of the light. The beam ends where it ends.
+  ufoLight=new THREE.PointLight(0x8dffa8,0,90,2); g.add(ufoLight);
   g.visible=false; scene.add(g); ufo=g;
 });
 // A handful of drops off the hull for the first few seconds out of the sea. Pooled, because
@@ -23187,8 +23198,7 @@ function ufoReset(){
   ufoPh=UFOP.OFF; ufoT=0; ufoGrab=0; ufoSwap=null;
   for(const d of ufoDrips)scene.remove(d.m);
   ufoDrips.length=0;
-  if(ufo){ ufo.visible=false; ufo.userData.beam.material.opacity=0;
-           ufo.userData.pool.material.opacity=0; }
+  if(ufo){ ufo.visible=false; ufo.userData.beam.material.opacity=0; }
   if(ufoLight)ufoLight.intensity=0;
 }
 // Somebody who is not the one riding. Owned first, because being handed a character you have
@@ -23306,7 +23316,7 @@ function updateUfo(dt,eff){
   ufoT+=dt;
   const sea=waveH(ufo.position.x,dist*WAVE_DRIFT+ufo.position.z,waveClock);
   const half=ufo.userData.halfH;
-  const bm=ufo.userData.beam, pool=ufo.userData.pool;
+  const bm=ufo.userData.beam;
   if(ufoPh===UFOP.RISE){
     // out of the water over two seconds, dripping the whole way and for a while after
     const k=Math.min(1,ufoT/2.0);
@@ -23381,7 +23391,7 @@ function updateUfo(dt,eff){
 // is drawn in under it. `reach` is how far down it has got, `aimAt` is what it is pointing at.
 const _ufA=new THREE.Vector3(), _ufD=new THREE.Vector3(), _ufU=new THREE.Vector3(0,-1,0);
 function ufoBeamTo(sea,k,reach,aimAt){
-  const bm=ufo.userData.beam, pool=ufo.userData.pool, half=ufo.userData.halfH;
+  const bm=ufo.userData.beam, half=ufo.userData.halfH;
   // the underside of the housing itself, measured, rather than a fraction of the whole model
   const top=(ufo.userData.emitY!==undefined)?ufo.userData.emitY:-half*0.92;
   // the emitter, and the point it is trying to reach, both in the saucer's own space — it
@@ -23408,11 +23418,6 @@ function ufoBeamTo(sea,k,reach,aimAt){
   bm.position.set(_ufD.x*len*0.5, top+_ufD.y*len*0.5, _ufD.z*len*0.5);
   // a slow throb, so it reads as something running rather than a painted cone
   bm.material.opacity=k*(0.30+0.07*Math.sin(ufoT*7.0));
-  // the pool lies on the WATER under the far end, flat, however the beam is leaning
-  pool.position.set(_ufD.x*len, top+_ufD.y*len+0.05, _ufD.z*len);
-  const pk=(reach===undefined?1:reach);
-  pool.scale.setScalar(w*(1+0.05*Math.sin(ufoT*5.0))*pk);
-  pool.material.opacity=k*pk*(0.34+0.10*Math.sin(ufoT*5.0));
   if(ufoLight){ ufoLight.position.set(_ufD.x*len*0.4, top+_ufD.y*len*0.4, _ufD.z*len*0.4);
                 ufoLight.intensity=k*7.0; }
 }
