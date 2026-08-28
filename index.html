@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.40.0';
+window.SURF_VERSION='5.41.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -22499,6 +22499,14 @@ const UFO_FACE=0;          // square to the lens, and it stays there
 // to look at and made the whole thing about the travel rather than about being caught in the
 // light. A few feet off the deck is the picture: feet clear of the board, still in the beam.
 const UFO_LIFT=3.1;        // feet off the board
+const UFO_REACH=0.85;      // seconds for the light to travel from the hull down to him
+// ---- and he is held IN it ----
+// He used to reach the top of his lift and the sequence ended on the same beat, so there was
+// never a moment of him simply hanging in the light, which is the whole picture. Three and a
+// half seconds: in by 1.4, and the rest of it floating under the saucer.
+const UFO_HOLD=3.5;
+const UFO_DRAW=1.4;        // seconds to draw him in under the middle of the beam
+const _ufAim=new THREE.Vector3();
 let ufo=null, ufoPh=0, ufoT=0, ufoDark=0, ufoBeam=null, ufoDrips=[], ufoGrab=0, ufoSwap=null;
 let ufoLight=null, ufoRiderY=0;
 // 0 nothing, 1 breaking the surface, 2 standing off and opening the beam, 3 taking him,
@@ -22604,20 +22612,26 @@ function updateUfo(dt,eff){
               ufo.position.y-half*0.5, ufo.position.z+(Math.random()-0.5)*UFO_SCALE*0.8);
     if(ufoT>=2.2){ ufoPh=UFOP.BEAM; ufoT=0; }
   } else if(ufoPh===UFOP.BEAM){
-    // it comes and stands over him, and the beam opens as it arrives
-    ufo.position.x+=(px-ufo.position.x)*Math.min(1,dt*1.3);
+    // it settles overhead — but it does NOT slide across to be exactly above him. The beam
+    // leans out and finds him where he is, which is the half of this that reads as searching.
     ufo.position.z+=(pz-6-ufo.position.z)*Math.min(1,dt*1.3);
     ufo.position.y+=((sea+UFO_HOVER)-ufo.position.y)*Math.min(1,dt*1.6);
     if(Math.random()<dt*8&&ufoT<2.5)
       ufoDrip(ufo.position.x+(Math.random()-0.5)*UFO_SCALE*0.7,
               ufo.position.y-half*0.5, ufo.position.z+(Math.random()-0.5)*UFO_SCALE*0.7);
-    const k=Math.min(1,ufoT/1.4);
-    ufoBeamTo(sea,k);
-    if(ufoT>1.5&&Math.abs(ufo.position.x-px)<2.2){ ufoPh=UFOP.LIFT; ufoT=0; ufoRiderY=py; ufoGrab=1; }
+    const k=Math.min(1,ufoT/0.7);
+    // the far end travels down over UFO_REACH seconds rather than arriving whole
+    const reach=Math.min(1,ufoT/UFO_REACH);
+    _ufAim.set(px,py+0.2,pz);
+    ufoBeamTo(sea,k,reach,_ufAim);
+    // ...and it only has him once the light has actually got down to him
+    if(reach>=1&&ufoT>UFO_REACH+0.35){ ufoPh=UFOP.LIFT; ufoT=0; ufoRiderY=py; ufoGrab=1; }
   } else if(ufoPh===UFOP.LIFT){
-    ufo.position.x+=(px-ufo.position.x)*Math.min(1,dt*0.8);
-    ufoBeamTo(sea,1);
-    if(ufoT>=2.6){ ufoPh=UFOP.LEAVE; ufoT=0; ufoGrab=0;
+    // he comes to the light rather than the light coming to him: the saucer holds its place
+    // and he is drawn in under it, so the beam straightens as he arrives.
+    _ufAim.set(player.position.x,player.position.y+0.2,player.position.z);
+    ufoBeamTo(sea,1,1,_ufAim);
+    if(ufoT>=UFO_HOLD){ ufoPh=UFOP.LEAVE; ufoT=0; ufoGrab=0;
       ufoSwap=ufoPickChar();
       if(ufoSwap){ equipChar(ufoSwap); saveGame(); }
       splash(px,py,pz,30,0x9fe8ff);
@@ -22638,18 +22652,49 @@ function updateUfo(dt,eff){
 // The beam is a cone whose LENGTH is however far it is from the hull to the water, worked out
 // every frame, because both ends move: the saucer bobs and the sea does too. Drawn from the
 // emitter under the hull rather than from the middle of the model.
-function ufoBeamTo(sea,k){
+// ---- the beam REACHES, rather than being there ----
+// It used to be drawn at its full length on the first frame it existed and only faded up, so
+// the whole shaft arrived at once and the fade was the only thing that happened. It grows: the
+// far end travels from the hull down to whatever it is aimed at, and only then is it a beam.
+// AND IT AIMS. Straight down from the saucer put the rider at the EDGE of the light — he is
+// steering, so he is rarely under it — which is a searchlight he happens to be standing near
+// rather than one that has found him. It leans at him while it searches, and straightens as he
+// is drawn in under it. `reach` is how far down it has got, `aimAt` is what it is pointing at.
+const _ufA=new THREE.Vector3(), _ufD=new THREE.Vector3(), _ufU=new THREE.Vector3(0,-1,0);
+function ufoBeamTo(sea,k,reach,aimAt){
   const bm=ufo.userData.beam, pool=ufo.userData.pool, half=ufo.userData.halfH;
   const top=-half*0.92;
-  const len=Math.max(0.5,ufo.position.y+top-sea);
-  bm.scale.set(UFO_SCALE*0.30*(0.55+k*0.45), len, UFO_SCALE*0.30*(0.55+k*0.45));
-  bm.position.y=top-len*0.5;
+  // the emitter, and the point it is trying to reach, both in the saucer's own space — it
+  // carries no rotation, so an offset in the world is the same offset here
+  const full=Math.max(0.5,ufo.position.y+top-sea);
+  if(aimAt){ _ufA.set(aimAt.x-ufo.position.x, (aimAt.y!==undefined?aimAt.y:sea)-(ufo.position.y+top),
+                      aimAt.z-ufo.position.z); }
+  else _ufA.set(0,-full,0);
+  if(_ufA.lengthSq()<1e-6)_ufA.set(0,-full,0);
+  _ufD.copy(_ufA).normalize();
+  // ---- it points at him, and carries on to the WATER ----
+  // Running the beam only as far as the rider left it ending in mid-air with the pool of light
+  // sitting on the sea below it, unattached — a cone stopping at his head and a disc of light
+  // under his board with nothing joining them. The AIM is what he decides; the LENGTH is
+  // however far that direction has to travel to reach the surface.
+  const toSea=(ufo.position.y+top-sea)/Math.max(0.15,-_ufD.y);
+  const len=Math.max(0.4,toSea*Math.max(0.02,reach===undefined?1:reach));
+  bm.quaternion.setFromUnitVectors(_ufU,_ufD);
+  // Slimmer than it was. The beam used to stop at the rider; running it on to the water puts
+  // its wide end close to the lens, where the same radius fills most of the lower frame.
+  const w=UFO_SCALE*0.21*(0.55+k*0.45);
+  bm.scale.set(w,len,w);
+  // the cylinder is centred on itself, so its middle sits half a length down the ray
+  bm.position.set(_ufD.x*len*0.5, top+_ufD.y*len*0.5, _ufD.z*len*0.5);
   // a slow throb, so it reads as something running rather than a painted cone
   bm.material.opacity=k*(0.30+0.07*Math.sin(ufoT*7.0));
-  pool.position.y=top-len+0.05;
-  pool.scale.setScalar(UFO_SCALE*0.30*(0.55+k*0.45)*(1+0.05*Math.sin(ufoT*5.0)));
-  pool.material.opacity=k*(0.34+0.10*Math.sin(ufoT*5.0));
-  if(ufoLight){ ufoLight.position.y=top-len*0.35; ufoLight.intensity=k*7.0; }
+  // the pool lies on the WATER under the far end, flat, however the beam is leaning
+  pool.position.set(_ufD.x*len, top+_ufD.y*len+0.05, _ufD.z*len);
+  const pk=(reach===undefined?1:reach);
+  pool.scale.setScalar(w*(1+0.05*Math.sin(ufoT*5.0))*pk);
+  pool.material.opacity=k*pk*(0.34+0.10*Math.sin(ufoT*5.0));
+  if(ufoLight){ ufoLight.position.set(_ufD.x*len*0.4, top+_ufD.y*len*0.4, _ufD.z*len*0.4);
+                ufoLight.intensity=k*7.0; }
 }
 function updateStars(dt,eff){
   splatCd=Math.max(0,splatCd-dt);
@@ -23835,12 +23880,18 @@ function update(dt){
   // simply not on it any more. Turning slowly on the way, because nothing rises out of a
   // beam facing the way it was.
   if(ufoGrab&&ufo&&ufo.visible){
-    const rise=Math.min(1,ufoT/2.6);
+    const rise=Math.min(1,ufoT/UFO_DRAW);
     const e=rise*rise*(3-2*rise);
     // a few feet off the board rather than all the way to the hull — see UFO_LIFT
     player.position.y=py+lift+e*UFO_LIFT;
     player.rotation.y+=dt*2.2*e;
-    player.position.x+=(ufo.position.x-player.position.x)*Math.min(1,dt*2.0*e);
+    // ...and IN, to the middle of the light. He was left wherever he happened to be, which on
+    // a rider who is steering is off to one side of the beam — standing beside the light he is
+    // supposedly caught in. Drawn under the saucer as he rises, so the beam straightens onto
+    // him rather than leaning after him, and then he simply hangs there.
+    const cx=ufo.position.x, cz=ufo.position.z;
+    player.position.x+=(cx-player.position.x)*Math.min(1,dt*2.6);
+    player.position.z+=(cz-player.position.z)*Math.min(1,dt*1.5);
   }
   // it lies along the water it is resting on, plus whatever the rider's weight adds
   // On the ring the board lies on the wall it is riding, not on the height field: the hull
