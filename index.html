@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.42.0';
+window.SURF_VERSION='5.44.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -9357,7 +9357,19 @@ document.getElementById('stClaim').onclick=e=>{
 // stays moved. The aspect-triggered layout is suppressed while the stage is up, so turning
 // the phone mid-session cannot quietly undo the arrangement you are looking at.
 const STAGE_HOLD=5000;
-let stageOn=false, stagePick=null, stageMode='move', stageDrag=null, _stHold=null;
+// ---- a hold is about staying PUT, not about how little you have moved in TOTAL ----
+// The cancel used to add up |dx|+|dy| over every pointermove of the gesture and give up past
+// fourteen. A finger is never still: one pixel of wobble twenty times a second is twenty
+// pixels of "travel" a second while sitting in exactly the same place, so on a touchscreen the
+// five seconds could not be survived and NOTHING could be picked up — which is the whole of
+// "the Stage button won't let me move anything". Measured from where the finger went down
+// instead, so wobble costs nothing and a real drag still cancels on the first inch.
+const STAGE_SLOP=22;
+let stageOn=false, stagePick=null, stageMode='move', stageDrag=null, _stHold=null, _stTick=null;
+function stHoldStop(){
+  if(_stHold){ clearTimeout(_stHold); _stHold=null; }
+  if(_stTick){ clearInterval(_stTick); _stTick=null; }
+}
 // ---- the camera: a lens of its own, not an orbit around the set ----
 // The first version was three offsets applied to the game's shot — orbit, dolly, lift — which
 // made it a camera on a string: it always swung around the middle of the set, so the palm and
@@ -9446,6 +9458,7 @@ function stageApply(dx,dy){
   if(stageCamOn){ stageCamApply(dx,dy); return; }
   if(!stagePick)return;
   const o=stagePick.o;
+  if(o.userData)o.userData.stageHeld=true;   // see the note below on the staged constants
   if(stageMode.startsWith('rot')){ o.rotation[stageMode.slice(3)]+=dx*0.006; stageSay(); return; }
   const k=stagePx(o);
   const fwd=new THREE.Vector3(); menuCam.getWorldDirection(fwd);
@@ -9466,6 +9479,14 @@ function stageApply(dx,dy){
   // the seating is untouched and dragging along the beach keeps the chest on the ground, which
   // is the seating doing its job rather than fighting the drag. layoutBeachChest clears it.
   if(stageMode==='lift'&&o.userData)o.userData.stageY=true;
+  // ---- AND A HAND BEATS THE STAGED CONSTANTS ----
+  // The rider, the board and the palm are put back where MB_STAGE says on EVERY frame, by
+  // design: "as staged" means nothing computed moves them. But a drag is not something
+  // computed, it is the one thing that is allowed to, and the pin ran after it -- so the Stage
+  // moved all three and the next frame put them straight back. From the outside that is a
+  // Stage button that does nothing to the rider, the board or the tree, while the chest and
+  // the sign, which nothing pins, moved fine. The mark says "this one is being placed by hand
+  // now"; the pin skips whatever carries it, and a beach rebuild clears it with the object.
   // ---- moved in the PARENT's space, not the world's ----
   // Every one of these sits inside beachSet, which is scaled, and some sit inside a group of
   // their own on top of that. Adding a world delta straight onto position moves it by that
@@ -9508,7 +9529,7 @@ function stageShow(on){
   if(!on&&stCamFree)stCamKeep=true;
   stageCamOn=false;
   const cb=document.getElementById('stageCam'); if(cb)cb.classList.remove('on');
-  if(_stHold){ clearTimeout(_stHold); _stHold=null; }
+  stHoldStop();
   document.getElementById('stage').classList.toggle('hidden',!stageOn);
   // the dial would eat the drags, and this is not a screen you press Play from
   const hd=document.getElementById('homeDial');
@@ -9559,25 +9580,43 @@ for(const b of document.querySelectorAll('#stageBar .st-md'))b.onclick=()=>{
 overlay.addEventListener('pointerdown',e=>{
   if(!stageOn)return;
   e.stopPropagation();
-  stageDrag={x:e.clientX,y:e.clientY,n:0};
+  stHoldStop();
   const t=stageHit(e.clientX,e.clientY);
+  // A gesture that starts on something OTHER than what is currently held is trying to take it
+  // over, so it must not drag the old pick while it waits its five seconds. Without this every
+  // failed attempt to grab the chest quietly shoved the rider across the beach instead, and
+  // with the wobble bug above EVERY attempt was a failed one. Camera mode is exempt: there is
+  // no pick there and its drags start immediately.
+  stageDrag={x:e.clientX,y:e.clientY,x0:e.clientX,y0:e.clientY,
+             arm:!stageCamOn&&!!t&&(!stagePick||t.o!==stagePick.o)};
   if(stagePick&&t&&t.o===stagePick.o)return;          // already held: drag it straight away
   if(!t){ stageSay('nothing there — hold the palm, sign, chest, board or rider'); return; }
-  stageSay('holding '+t.n+'\u2026');
-  _stHold=setTimeout(()=>{ _stHold=null; stagePick=t; if(typeof buzz==='function')buzz(20);
-                           stageSay(); },STAGE_HOLD);
+  // counted down out loud, because a five-second hold with nothing on screen saying it is
+  // counting is indistinguishable from a button that does not work
+  let left=Math.round(STAGE_HOLD/1000);
+  const say=()=>stageSay('holding '+t.n+'\u2026 '+left);
+  say();
+  _stTick=setInterval(()=>{ if(--left>0)say(); },1000);
+  _stHold=setTimeout(()=>{ stHoldStop(); stagePick=t; if(typeof buzz==='function')buzz(20);
+    // the hold is over and this finger now owns it: keep dragging without lifting off, which
+    // is the whole gesture -- press, wait, move
+    if(stageDrag)stageDrag.arm=false;
+    stageSay(); },STAGE_HOLD);
 },true);
 overlay.addEventListener('pointermove',e=>{
   if(!stageOn||!stageDrag)return;
   const dx=e.clientX-stageDrag.x, dy=e.clientY-stageDrag.y;
-  stageDrag.n+=Math.abs(dx)+Math.abs(dy);
   stageDrag.x=e.clientX; stageDrag.y=e.clientY;
-  // a hold is a HOLD: sliding off it cancels, or every drag across the beach would arm one
-  if(_stHold&&stageDrag.n>14){ clearTimeout(_stHold); _stHold=null; stageSay(); }
-  if((stageCamOn||stagePick)&&!_stHold)stageApply(dx,dy);
+  // a hold is a HOLD: sliding off it cancels, or every drag across the beach would arm one.
+  // From where the finger went DOWN, though, and not the length of the path it has wandered
+  // while sitting still: see STAGE_SLOP.
+  if(_stHold&&Math.hypot(e.clientX-stageDrag.x0,e.clientY-stageDrag.y0)>STAGE_SLOP){
+    stHoldStop(); stageDrag.arm=false; stageSay();
+  }
+  if((stageCamOn||stagePick)&&!_stHold&&!stageDrag.arm)stageApply(dx,dy);
 },true);
 for(const ev of ['pointerup','pointercancel'])overlay.addEventListener(ev,()=>{
-  if(_stHold){ clearTimeout(_stHold); _stHold=null; stageSay(); }
+  if(_stHold){ stHoldStop(); stageSay(); }
   stageDrag=null;
 },true);
 document.getElementById('stWave').onclick=()=>{
@@ -12632,6 +12671,9 @@ function setupModelRig(root,gltf,id){
     // Handing it the other way round was tried and floats him: with the seating switched off
     // he settled 1.18ft over the sand, because the run's own deck-lift is still adding to him.
     const hold=()=>{ if(this.step<0&&!MB_AUTOPLAY)return;
+                     // ...unless the stage is holding him up by hand, which is the one thing
+                     // allowed to overrule the height this captured. See stageApply().
+                     if(pug.userData&&pug.userData.stageY)return;
                      const b=this.skinBox&&this.skinBox();
                      if(b&&this.ground!==null)pug.position.y+=this.ground-b.lo[1]; };
     // ---- and if you tap him twice, he comes and has a word about it ----
@@ -21584,6 +21626,10 @@ if(location.hash.includes('debug')){
                     return [v.x,v.y,v.z].map(x=>+x.toFixed(2));})():null}
               :null,
         held:(typeof stagePick!=='undefined'&&stagePick)?stagePick.n:null,
+        // Whether the thing being held has been taken off the staged constants. A pick that
+        // is still pinned reads as a Stage that does nothing: the drag moves it and the next
+        // frame puts it back. See stageHeld.
+        freed:(typeof stagePick!=='undefined'&&stagePick)?!!stagePick.o.userData.stageHeld:null,
         out:(document.getElementById('stageOut')||{}).textContent||null,
         items:t.map(x=>{
           x.o.updateMatrixWorld(true);
@@ -27035,7 +27081,7 @@ function renderMenuBeach(dt){
   // Applied LAST, after everything the solve worked out, because that is what "as staged"
   // means: these were placed by hand in the picture and nothing computed should move them.
   if(MB_STAGED){
-    const put=(o,st)=>{ if(!o||!st)return;
+    const put=(o,st)=>{ if(!o||!st||(o.userData&&o.userData.stageHeld))return;
       o.position.set(st.p[0],st.p[1],st.p[2]);
       o.rotation.set(st.r[0]*Math.PI/180,st.r[1]*Math.PI/180,st.r[2]*Math.PI/180);
       o.updateMatrixWorld(true); };
@@ -27047,12 +27093,13 @@ function renderMenuBeach(dt){
     // own. So the position is taken as staged and the yaw is SOLVED — the angle between where
     // this particular body is looking and the line to the lens, taken off his own rig rather
     // than off a constant that happened to fit the first three models.
-    if(MB_FACE_CAM&&typeof pug!=='undefined'&&pug&&menuCam)faceRiderAtCamera();
+    // ...and the solved yaw stands down too, or Turn on the rider is overwritten every frame
+    if(MB_FACE_CAM&&typeof pug!=='undefined'&&pug&&menuCam&&!pug.userData.stageHeld)faceRiderAtCamera();
     put(menuBeach.board, MB_BOARD_ALT?MB_STAGE_BOARD2:MB_STAGE.board);
     // The palm by its WORLD x,z — converted here, once menuProps has been placed and turned,
     // so it does not matter where the anchor landed or which way the set faces. Its y stays
     // local: the vertical is solved against the sand and nothing about the anchor moves it.
-    if(typeof menuPalm!=='undefined'&&menuPalm&&menuPalm.parent){
+    if(typeof menuPalm!=='undefined'&&menuPalm&&menuPalm.parent&&!menuPalm.userData.stageHeld){
       const st=MB_STAGE.palm;
       menuPalm.rotation.set(st.r[0]*Math.PI/180,st.r[1]*Math.PI/180,st.r[2]*Math.PI/180);
       menuPalm.parent.updateMatrixWorld(true);
@@ -27087,7 +27134,8 @@ function renderMenuBeach(dt){
       // the field's instance count. So one of the two owners was changing its mind as well.
       // The rig wins: its height is captured once, against his own soles, and held. This stays
       // as the fallback for a rider that has no rig to hold him.
-      if(isFinite(bb.min.y)&&!seatOnSand(pug,0.012,_sb?_sb.lo[1]:undefined,_rr)){
+      // ...and a hand on his Height beats the sand, the same way it does on the chest
+      if(!pug.userData.stageY&&isFinite(bb.min.y)&&!seatOnSand(pug,0.012,_sb?_sb.lo[1]:undefined,_rr)){
         const gy=(typeof beachSandH==='function')
                    ? beachSandH(pug.position.z/MB_K)*MB_K
                    : (typeof beachSand0!=='undefined'?beachSand0:0);
