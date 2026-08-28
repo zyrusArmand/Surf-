@@ -8322,8 +8322,15 @@ let shopTab='boards';
 // the cast is declared with the rig, further down the file than the shop is, so this
 // cannot be built here — it is sorted the first time the Surfers tab is actually opened
 let CHAR_ORDER=null;
-const VISIBLE_CHARS=CHARS.filter(c=>!c.hidden);
-function charOrder(){ if(!CHAR_ORDER)CHAR_ORDER=VISIBLE_CHARS.slice().sort((a,b)=>a.price-b.price); return CHAR_ORDER; }
+// LAZY, and that is not a style choice. CHARS is declared nearly two thousand lines BELOW this
+// point, so filtering it here at module evaluation is a temporal dead zone throw -- which does
+// not produce a broken roster, it produces a blank screen and no __surf at all. It did exactly
+// that, and what caught it was a test timing out waiting for the game to exist. The boards'
+// equivalent above is a plain const because BOARDS really is declared before it; this one
+// cannot be, so it is worked out on first use instead.
+let VIS_CHARS=null;
+function visibleChars(){ if(!VIS_CHARS)VIS_CHARS=CHARS.filter(c=>!c.hidden); return VIS_CHARS; }
+function charOrder(){ if(!CHAR_ORDER)CHAR_ORDER=visibleChars().slice().sort((a,b)=>a.price-b.price); return CHAR_ORDER; }
 function statBars(id){
   const v=boardStats(id);
   return '<div class="stats">'+STAT_KEYS.map(k=>
@@ -9193,7 +9200,7 @@ document.getElementById('dStats').onclick=()=>{
     (S.crates?row('Chests caught',n(S.crates)):'')+
     (S.closeCalls?row('Close calls shaved',n(S.closeCalls)):'')+
     row('Boards owned',Object.keys(owned).length+' / '+VISIBLE_BOARDS.length)+
-    row('Surfers owned',Object.keys(ownedChars).length+' / '+VISIBLE_CHARS.length)+
+    row('Surfers owned',Object.keys(ownedChars).length+' / '+visibleChars().length)+
     (runs?'':'<div class="none">Nothing yet — go and surf.</div>');
   myPanel.classList.remove('hidden');
 };
@@ -9430,7 +9437,7 @@ function openStats(full){
     `</div>`+
     `<div class="sec"><h3>Collection</h3>`+
       meter('Boards owned',nB+' / '+VISIBLE_BOARDS.length,nB/VISIBLE_BOARDS.length)+
-      meter('Surfers owned',nC+' / '+VISIBLE_CHARS.length,nC/VISIBLE_CHARS.length)+
+      meter('Surfers owned',nC+' / '+visibleChars().length,nC/visibleChars().length)+
       row('Riding',(BOARD_BY_ID[equipped]||{}).name+'  ·  '+(CHAR_BY_ID[rider]||{}).name)+
     `</div>`+
     `<div class="sec"><h3>Bought most recently</h3>`+recent+`</div>`;
