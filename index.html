@@ -22915,7 +22915,10 @@ const UFO_SCALE=9.0;       // feet across, near enough
 // Higher, and further out. At 8.6 it filled the top half of the frame and the whole thing
 // happened in your lap; the abduction wants to look like something arriving from a long way
 // off, and a beam only reads as a beam when there is some length of it to see.
-const UFO_HOVER=13.2;
+// 13.2 put it off the top of a tall screen entirely -- the hull was cut by the HUD. Height
+// and distance do different jobs here: height only lifts it up the frame, and DISTANCE is what
+// makes it small and keeps it whole, so most of the standing-off is done in z below.
+const UFO_HOVER=10.4;
 // The pool on the water is the widest the light gets, in feet, and it does NOT change with the
 // fade any more -- see the note where the cone is built.
 const UFO_BEAM_W=2.62;
@@ -22968,11 +22971,28 @@ loadModel('ufo.glb',(s3)=>{
       const p=o.geometry.attributes.position;
       for(let i=0;i<p.count;i++)fn(v.fromBufferAttribute(p,i).applyMatrix4(o.matrixWorld)); });
     each(w=>{ if(w.y<lo)lo=w.y; });
-    const band=lo+sz.y*k*0.16;
-    let rad=0;
-    each(w=>{ if(w.y<=band){ const r=Math.hypot(w.x,w.z); if(r>rad)rad=r; } });
+    // ---- AND IT IS A SLICE SCAN, not a band ----
+    // Taking the widest thing in the bottom sixth of the height measured 2.56ft, which is the
+    // HULL: the saucer's underside is a shallow dome, so a band that tall is mostly saucer and
+    // the emitter is lost inside it. The beam came out a cylinder three times the width of the
+    // housing it was supposed to be leaving.
+    //
+    // The shape is what tells them apart. Sliced thinly and read from the bottom up, the
+    // housing's radius grows gently and then the hull FLARES -- so walk up while each slice is
+    // within half again of the last, and stop at the step. What is below the step is the
+    // emitter, whatever the next file's proportions are.
+    const N=96, hgt=Math.max(1e-4,sz.y*k), rad=new Float32Array(N);
+    each(w=>{ const i=Math.min(N-1,Math.max(0,Math.floor((w.y-lo)/hgt*N)));
+      const r=Math.hypot(w.x,w.z); if(r>rad[i])rad[i]=r; });
+    let e=0, seen=0;
+    for(let i=0;i<N;i++){
+      if(rad[i]<=0)continue;                       // nothing in this slice
+      if(seen&&rad[i]>e*1.5)break;                 // the hull, flaring out
+      if(rad[i]>e)e=rad[i];
+      seen=1;
+    }
     g.userData.emitY=lo;
-    g.userData.emitR=Math.max(0.05,rad);
+    g.userData.emitR=Math.max(0.05,e);
   }
   // ---- the beam ----
   // A cone standing on its point at the emitter under the hull, opening downward. Additive
@@ -23296,7 +23316,7 @@ function updateUfo(dt,eff){
   } else if(ufoPh===UFOP.BEAM){
     // it settles overhead — but it does NOT slide across to be exactly above him. The beam
     // leans out and finds him where he is, which is the half of this that reads as searching.
-    ufo.position.z+=(pz-8.5-ufo.position.z)*Math.min(1,dt*1.3);
+    ufo.position.z+=(pz-12.5-ufo.position.z)*Math.min(1,dt*1.3);
     ufo.position.y+=((sea+UFO_HOVER)-ufo.position.y)*Math.min(1,dt*1.6);
     if(Math.random()<dt*8&&ufoT<2.5)
       ufoDrip(ufo.position.x+(Math.random()-0.5)*UFO_SCALE*0.7,
@@ -23317,7 +23337,7 @@ function updateUfo(dt,eff){
     // centring him: measured, he left the axis at a steady quarter of a foot a second for the
     // whole hold and was outside the cone by the end of it. It keeps station, slowly, which is
     // not the same as chasing him -- the lean of the beam is still what finds him.
-    ufo.position.z+=(pz-8.5-ufo.position.z)*Math.min(1,dt*0.9);
+    ufo.position.z+=(pz-12.5-ufo.position.z)*Math.min(1,dt*0.9);
     ufo.position.x+=(px-ufo.position.x)*Math.min(1,dt*0.5);
     ufoRiderWorld(_ufAim); _ufAim.y+=0.2;
     ufoBeamTo(sea,1,1,_ufAim);
