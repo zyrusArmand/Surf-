@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.45.0';
+window.SURF_VERSION='5.46.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -4198,6 +4198,10 @@ function loadSave(){
     coins=Math.max(0,v.coins|0);
     owned=Object.assign({astro:1},v.owned||{});
     equipped=v.equipped||'astro';
+    // The abduction board was a bale of hay for one build. Anybody who was handed that one
+    // gets this one instead, rather than silently falling back to the board they started on.
+    if(owned.haybale){ delete owned.haybale; owned.cattleclass=1; }
+    if(equipped==='haybale')equipped='cattleclass';
     ownedChars=Object.assign({pug:1},v.ownedChars||{});
     rider=v.rider||'pug';
     goals=Array.isArray(v.goals)?v.goals:null;
@@ -4877,38 +4881,93 @@ const BOARDS=[
   // ---- WHAT THE SAUCER SENDS YOU BACK ON ----
   // The board that comes back under the cow, and the only way to get it: see ufoPickChar. It
   // is priced as a top-shelf log because it is one, and it is handed over rather than sold.
-  {id:'haybale', name:'Hay Bale Log', price:12000,
-   blurb:"Nine foot of baled hay under a coat of resin. It should not float. Nobody has told it.",
-   spec:{L:9.20,W:1.020,T:0.302,noseA:0.365,tailA:0.753,noseW:0.050,tailW:0.480,
+  //
+  // It was a bale of hay first and that was the wrong joke twice over. Straw painted from noise
+  // came out as WOOD GRAIN — long soft stripes down a tan board, which is a plain wooden log
+  // and not a bale — and even if it had worked, "the aliens gave you some hay" is a shrug.
+  // What the saucer gives you should look like it came off the saucer. So: the abduction
+  // itself, painted down the deck. A chrome disc at the nose, its beam opening out the length
+  // of the board, and her in it.
+  {id:'cattleclass', name:'Cattle Class', price:12000,
+   blurb:"Nine foot of nothing anybody makes down here. The picture on the deck is a documentary.",
+   spec:{L:9.20,W:1.020,T:0.288,noseA:0.365,tailA:0.753,noseW:0.050,tailW:0.480,
      rockN:0.375,noseR:0.300,rockT:0.125,tailR:0.220,deckPow:0.60,hullPow:0.44,hullK:0.60,
-     // A log's numbers: it goes and it keeps going, and it does not turn. Tough because a bale
-     // is a foot of packed straw and nothing that hits it gets to the middle.
-     stat:{speed:6,turn:2,air:1,tough:9},
-     pad:false,finCol:0x6b4a1e,
-     paint:artScheme({deck:0xd8a949,hull:0xc79a3e,rail:0x8f6425,pin:0x7a4f1b,stringer:0x6b4416,
-       sw:0.024,railAt:0.80,vivid:1.12,both:true,
+     // The paint is a PICTURE and the mesh is what it is drawn on: at the stock density a
+     // saucer forty vertices across has forty steps in its rim. Denser than any other board
+     // here, because no other board here has a drawing on it.
+     nu:260,nr:70,
+     // A log's numbers: it goes and it keeps going, and it does not turn. Tough because
+     // whatever it is made of, it is not foam.
+     stat:{speed:6,turn:2,air:2,tough:9},
+     pad:false,finCol:0x6ef2b4,
+     paint:artScheme({deck:0x140b28,hull:0x1a1032,rail:0x2ee38a,pin:0x7cffd4,stringer:0x0e0820,
+       sw:0.016,railAt:0.80,vivid:1.06,both:true,
        art:(c,u,v,top)=>{
-         // ---- STRAW, WHICH IS FIBRES AND NOT A COLOUR ----
-         // A flat gold slab reads as a yellow board. What makes hay look like hay is that it
-         // is thousands of short stalks all lying roughly the same way with the light catching
-         // some and not others -- so the noise is stretched hard ALONG the board (fine across,
-         // long down it) and used to lighten and darken rather than to tint.
-         const f=_fbm(u*46.0,v*3.4);
-         _mix(c,f>0.55?0xf0d489:0x9c6f2b,Math.abs(f-0.5)*1.35);
-         // a few stalks standing out of the weave, brighter and thinner than the rest
-         const w=_fbm(u*130.0,v*2.1+9.0);
-         if(w>0.76)_mix(c,0xf7e6b0,(w-0.76)*2.6);
-         // ---- AND THE TWINE ----
-         // A bale is defined by its strings. Two of them, round the whole thing, dark against
-         // the gold -- which is also the one hard edge anywhere on it and the thing that says
-         // "bale" rather than "yellow log" at the size this is ever seen.
-         for(const at of [0.300,0.700]){
-           const d=Math.abs(u-at);
-           if(d<0.016)_mix(c,0x4a3116,1-d/0.016);
-           if(d>=0.016&&d<0.026)_mix(c,0x2e1d0c,0.35);   // its own shadow on the straw
+         const a=Math.abs(v);
+         // ---- NIGHT, first, so everything after it is a light in the dark ----
+         // The deck colour alone is flat. A slow violet-to-black gradient nose to tail gives
+         // the beam something to be brighter THAN, which is the whole of why it reads as light.
+         _mix(c,0x241147,Math.max(0,0.55-u*0.55));
+         // ---- STARS ----
+         // One per cell of a coarse grid, jittered inside it, so they are scattered rather
+         // than ruled — and only every twentieth cell has one, or it is a snowstorm. Placed by
+         // hash rather than random: a board has to be the same board every time it is lofted,
+         // or the shop photograph is of a different one.
+         const CU=78, CV=30;
+         const cu=Math.floor(u*CU), cv=Math.floor((v+1)*CV);
+         if(_hash(cu*1.7+3.1,cv*2.3)>0.95){
+           const pu=(cu+_hash(cu*3.7,cv*1.3))/CU, pv=(cv+_hash(cu*0.9,cv*5.1))/CV-1;
+           const d=Math.hypot((u-pu)*CU,(v-pv)*CV);
+           if(d<0.75)_mix(c,0xe8f8ff,(1-d/0.75)*0.95);
          }
+         // ---- THE BEAM ----
+         // Opening out from under the saucer to the tail, brightest on its own axis and
+         // fading at the edges, because a shaft of light has no outline. Drawn before the
+         // saucer and the cow so both sit IN it.
+         if(u>0.205&&u<0.95){
+           const t=(u-0.205)/0.745, w=0.105+0.520*t;
+           if(a<w){
+             const k=1-a/w;
+             _mix(c,0x8dff9e,(0.18+0.52*k*k)*(1-t*0.30));
+             if(k>0.86)_mix(c,0xe6fff0,(k-0.86)*3.4);   // the hot core of it
+           }
+         }
+         // ---- HER, CAUGHT IN IT ----
+         // Holstein, because a green silhouette in a green beam is a smudge: it is the white
+         // that separates her from the light she is in. Body, head toward the tail, and four
+         // legs hanging — a cow seen from below, which is the only angle this ever happens at.
+         const bu=(u-0.640)/0.082, bv=v/0.150;
+         const onBody=bu*bu+bv*bv<1;
+         const hu=(u-0.742)/0.040, hv=v/0.072;
+         const onHead=hu*hu+hv*hv<1;
+         let onLeg=false;
+         for(const [lu,lv] of [[0.582,-0.096],[0.582,0.096],[0.690,-0.104],[0.690,0.104]])
+           if(Math.abs(u-lu)<0.030&&Math.abs(v-lv)<0.026)onLeg=true;
+         if(onBody||onHead||onLeg){
+           _mix(c,0xf6f3ec,1);
+           // her markings, and her own shadow along the underside of her
+           if(onBody&&_fbm(u*30,v*30+5)>0.545)_mix(c,0x17130f,1);
+           if(onHead&&v<-0.020)_mix(c,0x17130f,0.85);
+           _mix(c,0x0e2a18,Math.max(0,(v-0.02))*1.1);
+         }
+         // ---- AND THE THING DOING IT ----
+         // A disc across the nose with a dome on top of it and lit ports round the rim. Last,
+         // so it sits over the beam it is casting rather than under it.
+         const du=(u-0.150)/0.048, dv=v/0.430;
+         if(du*du+dv*dv<1){
+           _mix(c,0x8fa6bd,1);                                   // hull, cold and metallic
+           _mix(c,0xdff0ff,Math.max(0,0.75-Math.abs(du+0.35)*1.5));  // the light along its top edge
+           _mix(c,0x2a3a4c,Math.max(0,(du-0.15)*0.9));           // and dark under its belly
+           // ports: a row of them across the rim, lit
+           if(Math.abs(du-0.10)<0.34){
+             const t=(v+0.43)/0.86*11;
+             if(t-Math.floor(t)<0.42)_mix(c,0x7cffd4,0.85);
+           }
+         }
+         const eu=(u-0.106)/0.031, ev=v/0.185;
+         if(eu*eu+ev*ev<1)_mix(c,0x9dffe2,0.92);                 // the dome
        }}),
-     // one big fin, the way a log is set up, and it is a plank of the same stuff
+     // one big fin, the way a log is set up
      fins:[{x:0.000,z:3.000,c:0.940,d:0.910,t:0.036,rake:0.16}]}},
   {id:'tangerine', name:'Tangerine Fish', price:900,
    blurb:'Twin-keel retro fish. Wide, loose and very fast off the bottom.',
@@ -13223,14 +13282,25 @@ for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
     // "which way is he looking" answered fifty-five degrees off and he rode the wave facing
     // the beach. The bind pose is the one pose a rig is DEFINED in; it cannot drift.
     let sm=null; s3.traverse(o=>{ if(o.isSkinnedMesh&&!sm)sm=o; });
-    const at=n=>{
-      if(sm&&sm.skeleton){ const i=sm.skeleton.bones.findIndex(x=>x.name===n);
-        if(i>=0)return new THREE.Vector3().setFromMatrixPosition(
-          new THREE.Matrix4().copy(sm.skeleton.boneInverses[i]).invert()); }
-      let b=null; s3.traverse(o=>{ if(!b&&o.name===n)b=o; });
-      return b?b.getWorldPosition(new THREE.Vector3()):null; };
-    const h=at('Head'), f=at('headfront');
-    if(!h||!f)return;
+    // ---- BY ANY OF ITS NAMES ----
+    // This asked for exactly 'Head' and exactly 'headfront', which are what the biped exports
+    // happen to call them. The cow is a QUADRUPED rig off the same generator and calls them
+    // 'head' and 'headend' — so the lookup found nothing, the whole solve bailed out on the
+    // line below, and she rode the wave at whatever angle fitToBox happened to leave her,
+    // which was backwards. A rig that cannot be asked which way it looks is a rider facing a
+    // random direction, so it is asked by a LIST of names, case-insensitively, and the next
+    // export that calls the muzzle something else only costs one more entry here.
+    const at=names=>{
+      for(const n of names){
+        if(sm&&sm.skeleton){ const i=sm.skeleton.bones.findIndex(x=>x.name.toLowerCase()===n);
+          if(i>=0)return new THREE.Vector3().setFromMatrixPosition(
+            new THREE.Matrix4().copy(sm.skeleton.boneInverses[i]).invert()); }
+        let b=null; s3.traverse(o=>{ if(!b&&o.name&&o.name.toLowerCase()===n)b=o; });
+        if(b)return b.getWorldPosition(new THREE.Vector3());
+      }
+      return null; };
+    const h=at(['head']), f=at(['headfront','headend','head_end','headtip','muzzle','nose','snout','jaw']);
+    if(!h||!f){ console.warn('rider '+id+': no head/muzzle bone, facing left as exported'); return; }
     // through the quarter turn fitToBox may already have applied for its own reasons
     const d=f.clone().sub(h), sp=flip.children[0];
     if(sp)d.applyQuaternion(sp.quaternion);
@@ -22823,7 +22893,7 @@ function ufoReset(){
 // already had and the whole sequence read as a glitch. A saucer that takes a surfer and returns
 // a cow is a story with one joke in it, and it only works if it is always the same joke.
 // She is handed over rather than sold: whatever else the beam does, you keep her.
-const UFO_CHAR='cow', UFO_BOARD='haybale';
+const UFO_CHAR='cow', UFO_BOARD='cattleclass';
 function ufoPickChar(){
   if(!CHAR_BY_ID[UFO_CHAR])return null;
   ownedChars[UFO_CHAR]=1;
