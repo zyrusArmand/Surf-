@@ -19859,7 +19859,9 @@ if(location.hash.includes('debug')){
               beamLen:+ufo.userData.beam.scale.y.toFixed(2),
               drips:ufoDrips.length, grab:ufoGrab,
               riderY:+player.position.y.toFixed(2), seaY:+sea.toFixed(2),
-              rider, swapped:ufoSwap, fit:ufoFit()};
+              // what you are riding and who is riding it — the whole point of the sequence is
+              // that both of these are different afterwards, and "different" is the check
+              rider, board:equipped, swapped:ufoSwap, fit:ufoFit()};
     },
     // Does he actually fit in the light? The beam is a cone, so "inside" depends on how far
     // up it he is: r is the cone's radius at his height, d is how far he is off its axis and
@@ -22693,7 +22695,7 @@ const UFO_BOARD_SIDE=0.90;   // and beside him rather than through him, both sti
 const UFO_BOARD_SPIN=0.50;   // rad/s, a slow turn while it hangs there
 let ufoPug=null;
 const _ufW=new THREE.Vector3(), _ufQ=new THREE.Quaternion(), _ufQ2=new THREE.Quaternion();
-const _ufE=new THREE.Euler();
+const _ufQ3=new THREE.Quaternion(), _ufE=new THREE.Euler(), _ufE2=new THREE.Euler();
 // Only ever put back what we moved: a wipeout lifts him out of the board and onto the player
 // group and puts him at its own coordinates, and writing the surf stance back over that would
 // shove a rider who is already falling. The board's position is ours either way -- the ride
@@ -22733,8 +22735,11 @@ function ufoLiftRider(dt){
   // is supposedly caught in. The drift is carried across frames rather than restarted from the
   // board each one, so he actually arrives instead of chasing a moving target for ever.
   let cx=_ufW.x+ufoPug.ox, cz=_ufW.z+ufoPug.oz;
+  // The same rate both ways. Downrange used to be drawn in at half the speed of across, on the
+  // reasoning that a rider travels that way anyway -- but the beam is a CONE and off-axis is
+  // off-axis whichever direction it is in, and the slow axis is the one he was leaving by.
   cx+=(ufo.position.x-cx)*Math.min(1,dt*2.6);
-  cz+=(ufo.position.z-cz)*Math.min(1,dt*1.5);
+  cz+=(ufo.position.z-cz)*Math.min(1,dt*2.6);
   ufoPug.ox=cx-_ufW.x; ufoPug.oz=cz-_ufW.z;
 
   // ---- the board: in, up, and over onto its tail ----
@@ -22744,10 +22749,19 @@ function ufoLiftRider(dt){
   _ufB.set(cx+UFO_BOARD_SIDE*e, _ufW.y+e*UFO_BOARD_LIFT, cz);
   player.worldToLocal(_ufB);
   rig.position.copy(_ufB);
-  rig.rotation.x+=(Math.PI*0.5-rig.rotation.x)*e;
-  rig.rotation.z*=(1-e);                      // the carve lean comes out of it as it stands up
+  // ---- THE ORDER OF THE TWO TURNS IS THE WHOLE OF IT ----
+  // Written as three euler numbers this stood the board up and then leaned it further over
+  // every second until it was hanging out of the light at forty-five degrees. The rig's euler
+  // order is XYZ, which applies the Y turn BEFORE the X one -- so the slow spin was happening
+  // while the board was still flat, and the quarter turn afterwards took that compass heading
+  // and tipped it into a lean. The spin has to be the OUTER rotation, about the world's up,
+  // with the stand-up inside it: YXZ, which is exactly that, and then a slerp from wherever
+  // the ride left the board so it arrives rather than snapping.
   ufoPug.spin+=dt*UFO_BOARD_SPIN*e;
-  rig.rotation.y+=ufoPug.spin;
+  _ufE2.set(Math.PI*0.5, rig.rotation.y+ufoPug.spin, 0, 'YXZ');
+  _ufQ3.setFromEuler(_ufE2);
+  _ufQ2.copy(rig.quaternion);                 // where the ride left it, this frame
+  rig.quaternion.copy(_ufQ2).slerp(_ufQ3,e);
   player.updateMatrixWorld(true);             // his frame has just moved under him
 
   // ---- and the rider, in world terms, whatever the board did ----
@@ -22869,6 +22883,14 @@ function updateUfo(dt,eff){
   } else if(ufoPh===UFOP.LIFT){
     // he comes to the light rather than the light coming to him: the saucer holds its place
     // and he is drawn in under it, so the beam straightens as he arrives.
+    // ---- ...but it holds its place OVER HIM, not over the ocean ----
+    // Holding a fixed z while the world scrolls past is the saucer sliding backwards relative
+    // to the rider, and the draw-in was spending its whole strength cancelling that instead of
+    // centring him: measured, he left the axis at a steady quarter of a foot a second for the
+    // whole hold and was outside the cone by the end of it. It keeps station, slowly, which is
+    // not the same as chasing him -- the lean of the beam is still what finds him.
+    ufo.position.z+=(pz-6-ufo.position.z)*Math.min(1,dt*0.9);
+    ufo.position.x+=(px-ufo.position.x)*Math.min(1,dt*0.5);
     ufoRiderWorld(_ufAim); _ufAim.y+=0.2;
     ufoBeamTo(sea,1,1,_ufAim);
     if(ufoT>=UFO_HOLD){ ufoPh=UFOP.LEAVE; ufoT=0; ufoGrab=0;
