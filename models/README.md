@@ -18,7 +18,7 @@ at full white, which makes the model glow flat and ignore every light in the sce
 checking if an import looks oddly unlit.
 
 `board.glb`, `buoy.glb`, `chest.glb`, `log.glb`, `octopus.glb`, `palm.glb`, `pug.glb`,
-`buoy2.glb`, `cat.glb`, `frog.glb`, `monkey.glb`, `rat.glb`, `ramp.glb`, `sand.glb`, `jelly.glb`, `jelly2.glb`, `bigfin.glb` and `plane.glb` ship with the game; the rest of the table is
+`buoy2.glb`, `cat.glb`, `frog.glb`, `monkey.glb`, `rat.glb`, `ramp.glb`, `sand.glb`, `jelly.glb`, `jelly2.glb`, `bigfin.glb`, `cow.glb` and `plane.glb` ship with the game; the rest of the table is
 empty by design, and the 404s those file names produce are the documented path
 rather than a fault.
 
@@ -37,6 +37,7 @@ to `RIDER_MODELS` in `index.html`.
 | `frog.glb` | Allen the Frog |
 | `monkey.glb` | Bongo the Monkey |
 | `rat.glb` | Fatty the Rat |
+| `cow.glb` | Moo the Cow — what the saucer sends back, see the UFO in `index.html` |
 | `buoy.glb` | the striped buoy |
 | `buoy2.glb` | a second buoy, picked at random against the first |
 | `log.glb` | the floating log |

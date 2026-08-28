@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.44.0';
+window.SURF_VERSION='5.45.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -4874,6 +4874,42 @@ const BOARDS=[
      paint:deckScheme({deck:0xe9d4a4,hull:0xf7ecd6,rail:0x7a4a20,stringer:0x53300f,pin:0xb8863f,
        sw:0.115,railAt:0.74,vstripes:[[0.36,0.045,0x53300f]]}),
      fins:[{x:0.000,z:3.091,c:0.935,d:0.905,t:0.034,rake:0.16}]}},
+  // ---- WHAT THE SAUCER SENDS YOU BACK ON ----
+  // The board that comes back under the cow, and the only way to get it: see ufoPickChar. It
+  // is priced as a top-shelf log because it is one, and it is handed over rather than sold.
+  {id:'haybale', name:'Hay Bale Log', price:12000,
+   blurb:"Nine foot of baled hay under a coat of resin. It should not float. Nobody has told it.",
+   spec:{L:9.20,W:1.020,T:0.302,noseA:0.365,tailA:0.753,noseW:0.050,tailW:0.480,
+     rockN:0.375,noseR:0.300,rockT:0.125,tailR:0.220,deckPow:0.60,hullPow:0.44,hullK:0.60,
+     // A log's numbers: it goes and it keeps going, and it does not turn. Tough because a bale
+     // is a foot of packed straw and nothing that hits it gets to the middle.
+     stat:{speed:6,turn:2,air:1,tough:9},
+     pad:false,finCol:0x6b4a1e,
+     paint:artScheme({deck:0xd8a949,hull:0xc79a3e,rail:0x8f6425,pin:0x7a4f1b,stringer:0x6b4416,
+       sw:0.024,railAt:0.80,vivid:1.12,both:true,
+       art:(c,u,v,top)=>{
+         // ---- STRAW, WHICH IS FIBRES AND NOT A COLOUR ----
+         // A flat gold slab reads as a yellow board. What makes hay look like hay is that it
+         // is thousands of short stalks all lying roughly the same way with the light catching
+         // some and not others -- so the noise is stretched hard ALONG the board (fine across,
+         // long down it) and used to lighten and darken rather than to tint.
+         const f=_fbm(u*46.0,v*3.4);
+         _mix(c,f>0.55?0xf0d489:0x9c6f2b,Math.abs(f-0.5)*1.35);
+         // a few stalks standing out of the weave, brighter and thinner than the rest
+         const w=_fbm(u*130.0,v*2.1+9.0);
+         if(w>0.76)_mix(c,0xf7e6b0,(w-0.76)*2.6);
+         // ---- AND THE TWINE ----
+         // A bale is defined by its strings. Two of them, round the whole thing, dark against
+         // the gold -- which is also the one hard edge anywhere on it and the thing that says
+         // "bale" rather than "yellow log" at the size this is ever seen.
+         for(const at of [0.300,0.700]){
+           const d=Math.abs(u-at);
+           if(d<0.016)_mix(c,0x4a3116,1-d/0.016);
+           if(d>=0.016&&d<0.026)_mix(c,0x2e1d0c,0.35);   // its own shadow on the straw
+         }
+       }}),
+     // one big fin, the way a log is set up, and it is a plank of the same stuff
+     fins:[{x:0.000,z:3.000,c:0.940,d:0.910,t:0.036,rake:0.16}]}},
   {id:'tangerine', name:'Tangerine Fish', price:900,
    blurb:'Twin-keel retro fish. Wide, loose and very fast off the bottom.',
    spec:{L:5.50,W:0.865,T:0.208,noseA:0.853,tailA:4.800,noseW:0.050,tailW:0.687,
@@ -10288,6 +10324,21 @@ const CHARS=[
    foot:0.92, footShape:[0.90,0.60,1.35], hand:0.86, handShape:[0.90,0.55,1.30],
    toes:3, fingers:3},
 
+  // The one the saucer hands you, and the only way to get her: see ufoPickChar. She is priced
+  // above Zorp because being abducted is the price, and she is in the shop like everyone else
+  // so the roster reads as one list rather than one list plus a secret.
+  {id:'cow', body:'barrel', name:'Moo the Cow',   price:15000,
+   blurb:'Taken off a perfectly good wave by a saucer. Came back with a longboard made of hay.',
+   // Holstein: white with the black over the back and the haunches, a pink muzzle, and the
+   // long sideways ears a cow has instead of the pointed ones every other animal here wears.
+   // Written for the built-in body, which is the fallback — cow.glb is what actually rides.
+   fur:0xf2eee6, dark:0x241f1c, nose:0xd88b96, muzzle:0xecb3bb, belly:0xf8f4ec,
+   face:'long', ears:'long', tail:'long', eyes:'wide',
+   shape:[1.18,1.22,1.08,0.80], tall:1.16, wide:1.06, deep:1.12, neckLen:0.70,
+   headS:[1.02,0.98,1.24],
+   build:[1.02,0.96,1.04], limb:1.02, limbLen:0.88, arm:0.86, armLen:0.80, foot:1.06,
+   footShape:[0.96,0.94,1.16], footCol:0x241f1c, handCol:0x241f1c, hand:0.92},
+
   {id:'rex', body:'deep',   name:'Rexy the T. rex',price:11000,
    blurb:'Tiny arms, enormous everything else. The wave gets out of the way.',
    // Deep-chested, heavy in the thigh, tiny arms held close to the chest, and a head that
@@ -13122,7 +13173,7 @@ function setupModelRig(root,gltf,id){
 // 125k triangles against the 55 to 57k the other rigged riders keep, and a 4096 square texture
 // that was most of its four and a half megabytes. Cut to 56k and 2048, it is 1.7MB, which makes
 // it the smallest of them. Hazel's built-in body stays in the roster as her fallback.
-const RIDER_MODELS=['pug','cat','frog','monkey','rat','ant','angler','alien','pig','squirrel'];
+const RIDER_MODELS=['pug','cat','frog','monkey','rat','ant','angler','alien','pig','squirrel','cow'];
 const RIDER_YAW=-0.42;   // measured: takes the shared 69-degree stance to a square 93
 // How big each model stands next to the others. The fit makes them all one size and one size
 // is not one HEIGHT — the frog is squat and the monkey is mostly arms, so both normalise
@@ -22619,48 +22670,101 @@ function ufoDrip(x,y,z){
   m.position.set(x,y,z); scene.add(m);
   ufoDrips.push({m,vy:-1.2-Math.random()*1.4,t:0});
 }
-// ---- the beam takes the RIDER, not the board ----
-// The lift used to be applied to the whole player group, so the board went up with him and
-// hung out of both sides of the light: a board is eight feet long and the cone is under three
-// across where he floats. There is no lift height that fixes that — the beam NARROWS toward
-// the saucer, so raising him only makes it worse — and shrinking him to fit would put a speck
-// in the light. So the board is left where it was, still surfing on its own, and only he is
-// drawn up. Which is what an abduction looks like anyway.
+// ---- THE BEAM TAKES BOTH, AND THE BOARD GOES UP ON ITS TAIL ----
+// The lift began as one line on the player group, which carried the board along under his feet
+// -- so he came up still surfing, in a stance, on a board lying flat and hanging out of both
+// sides of a cone under three feet across. Taking only him fixed the cone but left the board
+// down there riding by itself, which reads as him stepping off rather than being taken.
 //
-// He is a child of the board, so the lift is worked in WORLD space and put back into the
-// board's frame: adding it to his local y would send him off along whatever the board is
-// leaning at, and in a carve that is a long way from up. His on-deck x/z are kept from the
-// moment the beam took him, because those are not rewritten every frame the way his height is.
+// Both go up, and the board STANDS UP as it rises: a quarter turn onto its tail, its lean
+// unwound, turning slowly. That is the whole difference between "abducted" and "surfing higher
+// up" -- a board on its nose is cargo, a board underfoot is a ride. Vertical it is also seven
+// feet of nothing much across, which is the only orientation in which a longboard fits inside
+// this beam at all.
+//
+// Two frames of reference and one order that makes them agree. The board is moved in the
+// PLAYER's frame (the ride writes its rotation every frame and leaves its position alone, so
+// only the position has to be put back afterwards). The rider is a child of the board, so once
+// the board has turned, his local axes are lying on their side -- everything about him is
+// therefore worked in WORLD terms and converted back through the board's new matrix, including
+// his orientation, which is what keeps him upright while the thing under him turns over.
+const UFO_BOARD_LIFT=2.30;   // feet the board's middle rises: less than him, so it hangs below
+const UFO_BOARD_SIDE=0.90;   // and beside him rather than through him, both still inside the cone
+const UFO_BOARD_SPIN=0.50;   // rad/s, a slow turn while it hangs there
 let ufoPug=null;
+const _ufW=new THREE.Vector3(), _ufQ=new THREE.Quaternion(), _ufQ2=new THREE.Quaternion();
+const _ufE=new THREE.Euler();
 // Only ever put back what we moved: a wipeout lifts him out of the board and onto the player
 // group and puts him at its own coordinates, and writing the surf stance back over that would
-// shove a rider who is already falling.
+// shove a rider who is already falling. The board's position is ours either way -- the ride
+// never writes it -- so that goes back whatever happened to him.
 function ufoRiderDrop(){
   if(!ufoPug)return;
-  if(pug.parent===rig){ pug.position.x=ufoPug.x; pug.position.z=ufoPug.z; pug.rotation.y=ufoPug.ry; }
+  if(pug.parent===rig){
+    pug.position.set(ufoPug.x,ufoPug.y,ufoPug.z);
+    pug.rotation.set(ufoPug.rx,ufoPug.ry,ufoPug.rz);
+  }
+  rig.position.set(0,0,0);
   ufoPug=null;
 }
 function ufoLiftRider(dt){
   if(!(ufoGrab&&ufo&&ufo.visible&&pug.parent===rig)){ ufoRiderDrop(); return; }
-  if(!ufoPug)ufoPug={x:pug.position.x,z:pug.position.z,ry:pug.rotation.y,ox:0,oz:0};
+  if(!ufoPug){
+    pug.updateWorldMatrix(true,false);
+    pug.getWorldQuaternion(_ufQ);
+    ufoPug={x:pug.position.x,y:pug.position.y,z:pug.position.z,
+            rx:pug.rotation.x,ry:pug.rotation.y,rz:pug.rotation.z,
+            yaw:_ufE.setFromQuaternion(_ufQ,'YXZ').y, q0:_ufQ.clone(),
+            ox:0,oz:0,spin:0};
+  }
   const rise=Math.min(1,ufoT/UFO_DRAW), e=rise*rise*(3-2*rise);
+
+  // ---- measured off the board AS THE RIDE LEFT IT ----
+  // The board is about to be lifted and turned, and both of those move him: measuring his base
+  // after that would add this frame's lift to a base that already had last frame's in it, and
+  // he would climb out through the top of the saucer in about two seconds.
+  rig.position.set(0,0,0);
   player.updateMatrixWorld(true);
-  // where he would be standing this frame, in the world
+  rig.getWorldPosition(_ufW);
   _ufB.set(ufoPug.x,pug.position.y,ufoPug.z); rig.localToWorld(_ufB);
   const by=_ufB.y;
-  // ...and IN, to the middle of the light. He was left wherever he happened to be, which on
-  // a rider who is steering is off to one side of the beam — standing beside the light he is
-  // supposedly caught in. The drift is carried across frames rather than restarted from the
+  // ...and IN, to the middle of the light. They were left wherever they happened to be, which
+  // on a rider who is steering is off to one side of the beam — standing beside the light he
+  // is supposedly caught in. The drift is carried across frames rather than restarted from the
   // board each one, so he actually arrives instead of chasing a moving target for ever.
-  let cx=_ufB.x+ufoPug.ox, cz=_ufB.z+ufoPug.oz;
+  let cx=_ufW.x+ufoPug.ox, cz=_ufW.z+ufoPug.oz;
   cx+=(ufo.position.x-cx)*Math.min(1,dt*2.6);
   cz+=(ufo.position.z-cz)*Math.min(1,dt*1.5);
-  ufoPug.ox=cx-_ufB.x; ufoPug.oz=cz-_ufB.z;
+  ufoPug.ox=cx-_ufW.x; ufoPug.oz=cz-_ufW.z;
+
+  // ---- the board: in, up, and over onto its tail ----
+  // The pitch axis is x and the board's length runs down +z from the nose, so a quarter turn
+  // the POSITIVE way sends -z (the nose) to +y. The other way stands it on its nose, which
+  // looks like it is being dropped rather than carried.
+  _ufB.set(cx+UFO_BOARD_SIDE*e, _ufW.y+e*UFO_BOARD_LIFT, cz);
+  player.worldToLocal(_ufB);
+  rig.position.copy(_ufB);
+  rig.rotation.x+=(Math.PI*0.5-rig.rotation.x)*e;
+  rig.rotation.z*=(1-e);                      // the carve lean comes out of it as it stands up
+  ufoPug.spin+=dt*UFO_BOARD_SPIN*e;
+  rig.rotation.y+=ufoPug.spin;
+  player.updateMatrixWorld(true);             // his frame has just moved under him
+
+  // ---- and the rider, in world terms, whatever the board did ----
   // a few feet off the board rather than all the way to the hull — see UFO_LIFT
   _ufB.set(cx,by+e*UFO_LIFT,cz);
   rig.worldToLocal(_ufB);
   pug.position.copy(_ufB);
-  pug.rotation.y+=dt*1.6*e;   // turning slowly, because nothing rises out of a beam facing the way it was
+  // ---- UPRIGHT, while the thing he was standing on turns over ----
+  // He is still parented to the board, so without this he would go over with it and arrive at
+  // the top of the beam lying on his back. His world orientation is set instead and then put
+  // back through the board's matrix: he straightens out of the surf stance as the beam takes
+  // him, keeps the way he was facing, and turns slowly, because nothing rises out of a beam
+  // facing the way it was.
+  _ufQ.setFromEuler(_ufE.set(0,ufoPug.yaw+ufoT*1.1,0,'YXZ'));
+  _ufQ.slerp(ufoPug.q0,1-e);                  // e=0 is exactly the pose the ride had him in
+  rig.getWorldQuaternion(_ufQ2);
+  pug.quaternion.copy(_ufQ2.invert()).multiply(_ufQ);
 }
 // How well he sits inside the cone, in feet. The beam mesh is a unit cylinder scaled, so its
 // own local space already IS the cone: y runs -0.5 at the wide end to +0.5 at the emitter and
@@ -22699,11 +22803,17 @@ function ufoReset(){
 }
 // Somebody who is not the one riding. Owned first, because being handed a character you have
 // not unlocked is a reward and this is not one — it is an abduction.
+// ---- IT ALWAYS PUTS BACK A COW ----
+// It used to hand you somebody at random out of the roster, which made the abduction a shuffle
+// rather than a thing that happens to you: half the time you came back as a character you
+// already had and the whole sequence read as a glitch. A saucer that takes a surfer and returns
+// a cow is a story with one joke in it, and it only works if it is always the same joke.
+// She is handed over rather than sold: whatever else the beam does, you keep her.
+const UFO_CHAR='cow', UFO_BOARD='haybale';
 function ufoPickChar(){
-  const own=CHARS.filter(c=>ownedChars[c.id]&&c.id!==rider);
-  const any=CHARS.filter(c=>c.id!==rider);
-  const from=own.length?own:any;
-  return from.length?from[(Math.random()*from.length)|0].id:null;
+  if(!CHAR_BY_ID[UFO_CHAR])return null;
+  ownedChars[UFO_CHAR]=1;
+  return UFO_CHAR;
 }
 function ufoStart(){
   if(!ufo)return false;
@@ -22763,7 +22873,14 @@ function updateUfo(dt,eff){
     ufoBeamTo(sea,1,1,_ufAim);
     if(ufoT>=UFO_HOLD){ ufoPh=UFOP.LEAVE; ufoT=0; ufoGrab=0;
       ufoSwap=ufoPickChar();
-      if(ufoSwap){ equipChar(ufoSwap); saveGame(); }
+      // ---- AND SHE COMES BACK ON A DIFFERENT BOARD ----
+      // The one she went up on is still up there as far as anybody watching is concerned: it
+      // went vertical into the light with her. What comes down is a cow on a bale of hay, which
+      // is the punchline the whole sequence has been building to, so the board is swapped in the
+      // same breath as the rider rather than left as whatever you happened to be riding.
+      if(ufoSwap){ equipChar(ufoSwap);
+                   if(BOARD_BY_ID[UFO_BOARD]){ owned[UFO_BOARD]=1; equipBoard(UFO_BOARD); }
+                   saveGame(); }
       splash(px,py,pz,30,0x9fe8ff);
       if(typeof msg==='function')msg('ABDUCTED! 🛸');
     }

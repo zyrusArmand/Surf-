@@ -24,6 +24,11 @@ import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 const DIR=process.argv[2]||'.';
 const OUT=process.argv[3]||'models/pig.glb';
+// How much of the mesh survives, and how big the skin is baked. Both were constants tuned for
+// the pig and both are wrong for the next animal in: the cow arrives at 252k triangles against
+// the pig's 90k, so the pig's 0.61 leaves a rider carrying three times the angler's budget.
+const RATIO=+(process.argv[4]||0.61);
+const TEX  =+(process.argv[5]||2048);
 const files=readdirSync(DIR).filter(f=>f.endsWith('.glb'));
 const pick=re=>{ const f=files.find(x=>re.test(x));
   if(!f) throw new Error(`no file matching ${re} in ${DIR} — found: ${files.join(', ')}`);
@@ -66,11 +71,14 @@ for(const k of base.getRoot().listSkins())   if(!skinsBefore.has(k))  k.dispose(
 for(const n of base.getRoot().listNodes())   if(!nodesBefore.has(n))  n.dispose();
 await base.transform(prune(), dedup());
 
-// clips named the way the other rigged riders name them
-for(const a of base.getRoot().listAnimations()){
-  const n=a.getName();
-  a.setName(/walk/i.test(n) ? 'walk' : 'rest');
-}
+// ---- clips named by WHERE THEY CAME FROM, not by what the exporter called them ----
+// This tested the clip's own name against /walk/, which works only when the exporter wrote one.
+// Meshy's cow arrives as "Armature|Unreal Take|baselayer" and "Armature|clip0|baselayer", so
+// both matched neither and both came out named 'rest' — two rest clips and no walk. Which file
+// a clip arrived in is the actual fact here: `base` IS the animation export, so anything that
+// was already in it before the merge is the walk and anything the merge brought is the rest.
+for(const a of base.getRoot().listAnimations())
+  a.setName(animsBefore.has(a) ? 'walk' : 'rest');
 
 const tris=()=>base.getRoot().listMeshes()
   .flatMap(m=>m.listPrimitives())
@@ -81,10 +89,10 @@ await base.transform(
   weld(),
   // 55k is where the angler and the alien landed. The pig arrived at 90k for a character that
   // is a few dozen pixels tall for most of a run.
-  simplify({simplifier:MeshoptSimplifier, ratio:0.61, error:0.002}),
+  simplify({simplifier:MeshoptSimplifier, ratio:RATIO, error:0.002}),
   // 2048 JPEG, matching the angler: a 4.54MB PNG of a hand-painted skin is four megabytes of
   // exactly the kind of smooth gradient JPEG was designed for.
-  textureCompress({encoder:sharp, targetFormat:'jpeg', quality:86}),
+  textureCompress({encoder:sharp, targetFormat:'jpeg', quality:86, resize:[TEX,TEX]}),
   // the merge left the two files' buffers side by side, and a GLB may carry at most one
   unpartition(),
 );
