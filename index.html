@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.39.0';
+window.SURF_VERSION='5.40.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -22490,6 +22490,15 @@ function throwStarfish(oct,from){
 const UFO_NIGHT=0.92;      // dayT at which the sun is under the horizon
 const UFO_WAIT=60;         // seconds of dark before it comes
 const UFO_SCALE=9.0;       // feet across, near enough
+// How high it stands off the water once it is over you. Lower than it was: at 11.5 it sat at
+// the very top of a phone screen with the beam a long thin thing down the middle of the frame.
+const UFO_HOVER=8.6;
+const UFO_FACE=0;          // square to the lens, and it stays there
+// ---- and it lifts him a LITTLE ----
+// He used to go all the way up to the hull, which put him inside the saucer with nothing left
+// to look at and made the whole thing about the travel rather than about being caught in the
+// light. A few feet off the deck is the picture: feet clear of the board, still in the beam.
+const UFO_LIFT=3.1;        // feet off the board
 let ufo=null, ufoPh=0, ufoT=0, ufoDark=0, ufoBeam=null, ufoDrips=[], ufoGrab=0, ufoSwap=null;
 let ufoLight=null, ufoRiderY=0;
 // 0 nothing, 1 breaking the surface, 2 standing off and opening the beam, 3 taking him,
@@ -22511,7 +22520,12 @@ loadModel('ufo.glb',(s3)=>{
   // A cone standing on its point at the emitter under the hull, opening downward. Additive
   // and depth-blind, because it is light rather than a solid: anything it crosses should be
   // brightened by it and nothing should be hidden behind it.
-  const bm=new THREE.Mesh(new THREE.ConeGeometry(1,1,30,1,true),
+  // ---- IT LEAVES THE HULL AT THE SIZE OF THE THING IT LEAVES ----
+  // A cone tapers to a POINT at the emitter, so the beam appeared to come out of a pinhole and
+  // fan out from nothing. There is a circle on the underside and the light comes out of all of
+  // it: a truncated cone, a quarter as wide at the hull as it is where it lands, which is the
+  // emitter's own size against the pool on the water.
+  const bm=new THREE.Mesh(new THREE.CylinderGeometry(0.25,1,1,30,1,true),
     new THREE.MeshBasicMaterial({color:0x9fe8ff,transparent:true,opacity:0,
       blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
   // ConeGeometry already stands apex-up and mouth-down, which is the way a beam falls: a
@@ -22557,9 +22571,14 @@ function ufoStart(){
   if(!ufo)return false;
   ufoReset();
   ufoPh=UFOP.RISE; ufoT=0; ufo.visible=true;
-  // off to one side and a little ahead, so it is seen coming rather than appearing overhead
-  ufo.position.set(px+(Math.random()<0.5?-1:1)*(7+Math.random()*4), 0, pz-30);
-  ufo.rotation.set(0,Math.random()*Math.PI*2,0);
+  // ---- UP THE MIDDLE, AND FACING YOU ----
+  // It used to break the surface seven to eleven feet off to one side and turn as it rose, on
+  // the reasoning that it should be seen coming rather than appear overhead. On a phone that
+  // put it half off the edge of the frame for the whole climb, and the turn meant it was
+  // showing whatever side it happened to be on. Straight up the middle, square to the lens,
+  // and it does not rotate at any point.
+  ufo.position.set(px, 0, pz-30);
+  ufo.rotation.set(0,UFO_FACE,0);
   return true;
 }
 function updateUfo(dt,eff){
@@ -22579,7 +22598,6 @@ function updateUfo(dt,eff){
     const k=Math.min(1,ufoT/2.0);
     ufo.position.y=sea-half+(half*2+7.5)*(k*k*(3-2*k));
     ufo.position.z+=eff*dt*0.25;                 // it drifts with the world, slower than the sea
-    ufo.rotation.y+=dt*0.5;
     if(ufoT<0.12)splash(ufo.position.x,sea,ufo.position.z,26,0x9fe8ff);
     if(Math.random()<dt*26&&ufoT<4.5)
       ufoDrip(ufo.position.x+(Math.random()-0.5)*UFO_SCALE*0.8,
@@ -22589,8 +22607,7 @@ function updateUfo(dt,eff){
     // it comes and stands over him, and the beam opens as it arrives
     ufo.position.x+=(px-ufo.position.x)*Math.min(1,dt*1.3);
     ufo.position.z+=(pz-6-ufo.position.z)*Math.min(1,dt*1.3);
-    ufo.position.y+=((sea+11.5)-ufo.position.y)*Math.min(1,dt*1.6);
-    ufo.rotation.y+=dt*0.32;
+    ufo.position.y+=((sea+UFO_HOVER)-ufo.position.y)*Math.min(1,dt*1.6);
     if(Math.random()<dt*8&&ufoT<2.5)
       ufoDrip(ufo.position.x+(Math.random()-0.5)*UFO_SCALE*0.7,
               ufo.position.y-half*0.5, ufo.position.z+(Math.random()-0.5)*UFO_SCALE*0.7);
@@ -22599,7 +22616,6 @@ function updateUfo(dt,eff){
     if(ufoT>1.5&&Math.abs(ufo.position.x-px)<2.2){ ufoPh=UFOP.LIFT; ufoT=0; ufoRiderY=py; ufoGrab=1; }
   } else if(ufoPh===UFOP.LIFT){
     ufo.position.x+=(px-ufo.position.x)*Math.min(1,dt*0.8);
-    ufo.rotation.y+=dt*0.28;
     ufoBeamTo(sea,1);
     if(ufoT>=2.6){ ufoPh=UFOP.LEAVE; ufoT=0; ufoGrab=0;
       ufoSwap=ufoPickChar();
@@ -22609,7 +22625,6 @@ function updateUfo(dt,eff){
     }
   } else if(ufoPh===UFOP.LEAVE){
     ufo.position.y+=dt*(6+ufoT*14);
-    ufo.rotation.y+=dt*(0.8+ufoT*1.6);
     ufoBeamTo(sea,Math.max(0,1-ufoT/0.6));
     if(ufoT>3.2)ufoReset();
   }
@@ -23822,7 +23837,8 @@ function update(dt){
   if(ufoGrab&&ufo&&ufo.visible){
     const rise=Math.min(1,ufoT/2.6);
     const e=rise*rise*(3-2*rise);
-    player.position.y=py+lift+e*Math.max(0,(ufo.position.y-ufo.userData.halfH*1.05)-(py+lift));
+    // a few feet off the board rather than all the way to the hull — see UFO_LIFT
+    player.position.y=py+lift+e*UFO_LIFT;
     player.rotation.y+=dt*2.2*e;
     player.position.x+=(ufo.position.x-player.position.x)*Math.min(1,dt*2.0*e);
   }
