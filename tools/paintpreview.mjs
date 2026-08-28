@@ -18,7 +18,7 @@
 import { PNG } from 'pngjs';
 import { writeFileSync } from 'node:fs';
 
-const NU=220, NR=128;                // the board's own grid — see nu/nr in the spec
+const NU=240, NR=168;                // the board's own grid — see nu/nr in the spec
 const W=560, H=560;    // square, because the board this previews is
 
 // ---- the game's helpers, verbatim ----
@@ -76,11 +76,13 @@ function art(c,u,v,top){
     const rings=[[0.604,30,0.52],[0.678,44,0.40],[0.752,26,0.58],[0.830,52,0.34]];
     for(const [at,n,duty] of rings){
       const d=Math.abs(r-at);
-      if(d<0.012&&(((th/TAU+0.5)*n)%1)<duty)_mix(c,0x46eaff,(1-d/0.012)*0.95);
+      if(d<0.012&&(((th/TAU+0.5)*n)%1)<duty)_mix(c,0x46eaff,(1-d/0.012)*0.80);
     }
     // a stub of trace running out from each plate, at its own radius
-    const tr=0.58+_hash(si*7.1,3.3)*0.26;
-    if(Math.abs(r-tr)<0.075&&Math.abs(sf-0.5)<0.055)_mix(c,0x46eaff,0.85);
+    if(_hash(si*11.7,5.9)>0.34){
+      const tr=0.58+_hash(si*7.1,3.3)*0.26;
+      if(Math.abs(r-tr)<0.075&&Math.abs(sf-0.5)<0.055)_mix(c,0x46eaff,0.85);
+    }
   }
 
   // 5. THE PLASMA, a narrow ring and not a disc
@@ -96,12 +98,12 @@ function art(c,u,v,top){
   // 6. THE BEZEL and THE CORE
   if(r<0.315){
     _mix(c,0xa8b8ca,1);
-    for(const at of [0.300,0.246,0.196]){
+    for(const at of [0.300,0.244,0.192]){
       const d=Math.abs(r-at);
-      if(d<0.017)_mix(c,0x232a34,(1-d/0.017)*0.92);
+      if(d<0.026)_mix(c,0x232a34,(1-d/0.026)*0.92);
     }
     if(r<0.160){ _mix(c,0xeaf1fa,1);
-      const d=Math.abs(r-0.132); if(d<0.014)_mix(c,0x9fb0c4,(1-d/0.014)*0.8); }
+      const d=Math.abs(r-0.128); if(d<0.022)_mix(c,0x9fb0c4,(1-d/0.022)*0.8); }
   }
 
   // 7. THE RIM
