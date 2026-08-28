@@ -18,7 +18,7 @@
 import { PNG } from 'pngjs';
 import { writeFileSync } from 'node:fs';
 
-const NU=240, NR=168;                // the board's own grid — see nu/nr in the spec
+const NU=180, NR=320;                // the board's own grid — see nu/nr in the spec
 const W=560, H=560;    // square, because the board this previews is
 
 // ---- the game's helpers, verbatim ----
@@ -65,29 +65,29 @@ function art(c,u,v,top){
   if(r>0.30)_mix(c,0x0b0e14,Math.max(0,1-seam*1.25));
 
   // 3. THE BRIGHT COLLAR the plasma sits in
-  if(r>0.46&&r<0.545){
-    const t=(r-0.46)/0.085;
+  if(r>0.522&&r<0.610){
+    const t=(r-0.522)/0.088;
     _mix(c,0xaebccc,Math.sin(Math.PI*t)*0.95);
     if(Math.abs(sf-0.5)<0.14)_mix(c,0x1b2028,0.75);   // a lug per plate
   }
 
   // 4. CIRCUITRY, dashed rather than ruled
-  if(r>0.56&&r<0.90){
-    const rings=[[0.604,30,0.52],[0.678,44,0.40],[0.752,26,0.58],[0.830,52,0.34]];
+  if(r>0.625&&r<0.90){
+    const rings=[[0.664,30,0.52],[0.722,44,0.40],[0.782,26,0.58],[0.846,52,0.34]];
     for(const [at,n,duty] of rings){
       const d=Math.abs(r-at);
       if(d<0.012&&(((th/TAU+0.5)*n)%1)<duty)_mix(c,0x46eaff,(1-d/0.012)*0.80);
     }
     // a stub of trace running out from each plate, at its own radius
     if(_hash(si*11.7,5.9)>0.34){
-      const tr=0.58+_hash(si*7.1,3.3)*0.26;
+      const tr=0.655+_hash(si*7.1,3.3)*0.20;
       if(Math.abs(r-tr)<0.075&&Math.abs(sf-0.5)<0.055)_mix(c,0x46eaff,0.85);
     }
   }
 
   // 5. THE PLASMA, a narrow ring and not a disc
-  if(r>0.305&&r<0.455){
-    const t=(r-0.305)/0.150;
+  if(r>0.375&&r<0.520){
+    const t=(r-0.375)/0.145;
     const arc=0.48+0.52*Math.sin(th*6.0+_fbm(r*7,th*2.6)*7.0);
     const k=Math.sin(Math.PI*t);
     _mix(c,0x5a3cff,k*0.92);
@@ -96,15 +96,15 @@ function art(c,u,v,top){
   }
 
   // 6. THE BEZEL and THE CORE
-  if(r<0.315){
+  if(r<0.375){
     _mix(c,0xa8b8ca,1);
-    for(const at of [0.300,0.244,0.192]){
+    for(const at of [0.360,0.305,0.250]){
       const d=Math.abs(r-at);
-      if(d<0.026)_mix(c,0x232a34,(1-d/0.026)*0.92);
+      if(d<0.028)_mix(c,0x232a34,(1-d/0.028)*0.92);
     }
-    if(r<0.168){ _mix(c,0xc6d6e8,1);
-      const d0=Math.abs(r-0.160); if(d0<0.020)_mix(c,0x232a34,(1-d0/0.020)*0.95);
-      const d=Math.abs(r-0.120); if(d<0.020)_mix(c,0x8fa2b8,(1-d/0.020)*0.75); }
+    if(r<0.235){ _mix(c,0xc6d6e8,1);
+      const d0=Math.abs(r-0.226); if(d0<0.022)_mix(c,0x232a34,(1-d0/0.022)*0.95);
+      const d=Math.abs(r-0.170); if(d<0.022)_mix(c,0x8fa2b8,(1-d/0.022)*0.75); }
   }
 
   // 7. THE RIM
