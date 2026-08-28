@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.38.0';
+window.SURF_VERSION='5.39.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -15480,6 +15480,12 @@ function releaseRope(withTrick){
 
 function reset(){
   runDist0=0; runSecs=0;
+  // ---- and no saucer left over the water from the last run ----
+  // OUTSIDE the if(wipe) below, which is the trap: everything from the arms coming down to
+  // the ramp state is inside that block, so it only runs when the last run ended in a
+  // wipeout. Putting this there meant a UFO started from the secret menu and then left by
+  // pressing Play was still hanging over the water, beam and all, on the next run.
+  if(typeof ufoReset==='function'){ ufoReset(); ufoDark=0; }
   if(wipe){ scene.remove(rig); player.add(rig);
     player.remove(pug); rig.add(pug);
     pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
@@ -15634,6 +15640,13 @@ function beginRun(){
   reviveBtn.style.display='none';
   if(typeof crateCeremonyEnd==='function')crateCeremonyEnd();
   goalRoll();                       // anything ticked off last run is replaced now, not then
+  // ---- and the day is the DAY again ----
+  // The secret menu's UFO button forces full night so the visitor can be looked at, and
+  // nothing put it back: dayForce is a pin, not a mood, so every run started afterwards began
+  // at 0.97 — night, ten kilometres of sun already spent — which is the UFO's scene and not
+  // the game's. Pressing Play starts the game at the beginning. The test button sets the pin
+  // AFTER calling this, so it still gets its night.
+  dayForce=-1;
   reset();running=true;overlayUp=false;last=performance.now();
 }
 startBtn.addEventListener('click',beginRun);
@@ -21607,6 +21620,10 @@ if(location.hash.includes('debug')){
     // opposite side, and shading it is wasted work if nobody can ever look at it. Samples the
     // frame on a grid, throws away the rays pointing at the ground, and reports how many of the
     // rest face away from the sun.
+    // Read the clock WITHOUT setting it. dayAt(undefined) unpins the day as its way of saying
+    // "back to normal", so calling it to find out what the day is destroys the answer — a
+    // probe checking whether the UFO button had pinned night cleared the pin by asking.
+    dayNow(){ return {dayForce, dayT:+dayT.toFixed(3)}; },
     // Pin the hour, or hand back -1 to let distance drive it again. See dayForce.
     dayAt(v){ dayForce=(v===undefined||v===null)?-1:Math.max(0,Math.min(1,v));
               updateDayCycle(); return {dayForce, dayT:+dayT.toFixed(3)}; },
