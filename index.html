@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.27.0';
+window.SURF_VERSION='5.28.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -1796,7 +1796,15 @@ function fxInit(){
     // sheen. Only what is genuinely AT white gets to bleed — the sun's core, a foam crest,
     // the glitter, the highlight down a rail — and the amount is a third rather than a half,
     // because bloom is meant to be the thing you cannot quite look at, not a layer.
-    fxBright=new THREE.ShaderMaterial({uniforms:{tD:{value:null},uT:{value:0.945},uK:{value:0.075}},
+    // ---- and the threshold is what decides whether PAINT glows ----
+    // Bloom is for things giving off light. At 0.945 a cream dog and a bright surfboard both
+    // cleared it, so both wore a soft pale rim wherever they crossed something darker — the
+    // "white little halo" round the rider, and the light edge down the board. Rendered with the
+    // bloom taken off and put back at the same frame: the rim goes with it, and nothing else in
+    // the shot changes. Up to 1.04, which is above where tone-mapped diffuse paint lands and
+    // still under the sun, the foam crests and the glitter on the water, which are the things
+    // this is for.
+    fxBright=new THREE.ShaderMaterial({uniforms:{tD:{value:null},uT:{value:1.04},uK:{value:0.075}},
       vertexShader:_FX_VS, fragmentShader:`
         varying vec2 vUv; uniform sampler2D tD; uniform float uT; uniform float uK;
         void main(){
@@ -1822,7 +1830,7 @@ function fxInit(){
     // corners, then the sRGB encode nobody else is doing any more.
     fxComp=new THREE.ShaderMaterial({uniforms:{tD:{value:null},tB:{value:null},
         tZ:{value:null},tF:{value:null},
-        uAmt:{value:0.32},uVig:{value:0.14},uGrade:{value:0.0},
+        uAmt:{value:0.26},uVig:{value:0.14},uGrade:{value:0.0},
         uFish:{value:0.0},uTheta:{value:0.8},uAsp:{value:1.0},
         uDof:{value:0},uFocus:{value:30.0},uRange:{value:26.0},uNear:{value:0.1},uFar:{value:1600.0}},
       vertexShader:_FX_VS, fragmentShader:`
@@ -19411,6 +19419,18 @@ if(location.hash.includes('debug')){
               col:sun.color.getHex(), inten:+sun.intensity.toFixed(2),
               ground:hemi.groundColor.getHex()}),
     dof(v){ MENU_DOF=v!==false; return MENU_DOF; },
+    // The bloom the RUN renders at, set straight onto the pass. Nothing rewrites these during
+    // a run, unlike the title screen which reapplies its own two every frame — so this is the
+    // way to look at a frame with the bloom taken off it and decide whether the pale edge
+    // round the rider is the bloom or is something in the scene.
+    bloomAt(t,k){ if(!fxOn)return null;
+      if(t!==undefined)fxBright.uniforms.uT.value=t;
+      if(k!==undefined)fxComp.uniforms.uAmt.value=k;
+      return [fxBright.uniforms.uT.value, fxComp.uniforms.uAmt.value]; },
+    // The two numbers the title screen's bloom runs on, so "is the halo the bloom or the
+    // depth of field" can be answered by turning one off rather than argued about.
+    menuBloom(t,k){ if(t!==undefined)MB_BLOOM_T=t; if(k!==undefined)MB_BLOOM_K=k;
+      return [MB_BLOOM_T,MB_BLOOM_K]; },
     fx:()=>({on:fxOn, samples:fxOn&&fxRT.samples||0, dof:MENU_DOF,
              depth:!!(fxDepth&&fxDepth.depthTexture),
              focus:fxOn?+fxComp.uniforms.uFocus.value.toFixed(2):null,
@@ -24329,6 +24349,11 @@ let MB_ROUT=1.45;
 // looked right and a ten-foot log pushed him off the left edge of the screen entirely.
 let MB_RSIDE=1.45;
 const MB_DOF=25.0;
+// The bloom the title screen runs at, as knobs rather than as two numbers buried in the
+// present call. Bloom is for things GIVING OFF light; a surfboard's paint is not, and this
+// screen puts a bright saturated slab a few feet from the lens.
+let MB_BLOOM_T=1.12;   // how bright a pixel has to be before it blooms at all
+let MB_BLOOM_K=0.50;   // ...and how much of the result is added back
 let MENU_DOF=true;     // off is for measuring what it costs     // how many feet either side of the board stay sharp                   // and the daylight there has to be between the two
 // A world unit here is a FOOT — the boards measure 3.5 to 10.5 of them and their spec sheets
 // are in feet — so this is a height, not a fraction of whatever is leaning on the tree.
@@ -25126,19 +25151,29 @@ function nailBeachSign(){
   if(!beachSign)return;
   if(!_sgNail){
     const g=new THREE.Group();
-    const head=new THREE.Mesh(new THREE.SphereGeometry(0.5,14,10),
-      // Iron, not chrome. At 0x8d8f94 with a bright specular it blew out white under this
-      // low sun and read as a pearl stuck to the plank.
-      new THREE.MeshPhongMaterial({color:0x5a5d63,shininess:26,specular:0x8a9099}));
-    // ---- FLAT, and sitting DOWN on the wood ----
-    // A ball scaled to 0.62 still stands proud like a bead. A hammered nail head is a shallow
-    // disc almost flush with the plank, with the wood dished slightly around it -- so it is
-    // flattened much further and pushed back until only the cap is above the face.
-    head.scale.set(1,0.30,1); head.position.z=-0.22;
+    // Iron, not chrome. At 0x8d8f94 with a bright specular it blew out white under this
+    // low sun and read as a pearl stuck to the plank.
+    const iron=new THREE.MeshPhongMaterial({color:0x5a5d63,shininess:26,specular:0x8a9099});
+    // ---- FLATTENED ALONG THE PLANK'S NORMAL, which is z, and not along y ----
+    // This is why it read as a flat grey lozenge stuck on the wood rather than as a nail. The
+    // head was a sphere squashed on Y — so from in front, which is the only side anybody sees
+    // it from, it was an ellipse WIDER THAN IT WAS TALL. Squash it on Z instead and the same
+    // sphere is round from the front and shallow in depth: a dome standing a little proud of
+    // the plank, which is what a driven nail head is.
+    const head=new THREE.Mesh(new THREE.SphereGeometry(0.5,22,14),iron);
+    head.scale.set(1,1,0.34); head.position.z=-0.05;
+    // ---- and it has an EDGE ----
+    // A dome on its own is a bead. A hammered head is a disc: it has a rim that catches the
+    // light along one side and sits in shade on the other, and that rim is most of what says
+    // "metal driven into wood" at this size. A short chamfered barrel under the dome, a shade
+    // darker, so the two do not read as one smooth blob.
+    const rim=new THREE.Mesh(new THREE.CylinderGeometry(0.50,0.43,0.17,22,1,true),
+      new THREE.MeshPhongMaterial({color:0x4b4e54,shininess:18,specular:0x7d838c}));
+    rim.rotation.x=Math.PI/2; rim.position.z=-0.10;
     const shaft=new THREE.Mesh(new THREE.CylinderGeometry(0.17,0.17,1.1,10),
       new THREE.MeshPhongMaterial({color:0x5f6166,shininess:40,specular:0x9aa0a8}));
     shaft.rotation.x=Math.PI/2; shaft.position.z=-0.55;
-    g.add(head); g.add(shaft);
+    g.add(head); g.add(rim); g.add(shaft);
     g.castShadow=true;
     _sgNail=g; beachSign.add(_sgNail);
   }
@@ -26318,7 +26353,7 @@ function renderMenuBeach(dt){
   sandCull();
   let bT0=null,bA0=null;
   if(fxOn){ bT0=fxBright.uniforms.uT.value; bA0=fxComp.uniforms.uAmt.value;
-            fxBright.uniforms.uT.value=1.06; fxComp.uniforms.uAmt.value=bA0*0.55; }
+            fxBright.uniforms.uT.value=MB_BLOOM_T; fxComp.uniforms.uAmt.value=bA0*MB_BLOOM_K; }
   // focused on the board, because the board is the subject — it is the thing the screen is
   // for. The range is wide enough to keep the rider beside it and the trunk behind it sharp
   // and let go of everything past them.
