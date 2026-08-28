@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.26.0';
+window.SURF_VERSION='5.27.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -14902,6 +14902,8 @@ const COCO_SHRINK=0.38;      // how small, as a share of full size
 const COCO_EASE=2.6;         // how fast it gets there and back, per second
 const COCO_PEEK=2.6;         // seconds the plaque stays up after a nut goes in
 const W_AIRDRAG=1.15;        // how fast a thrown body sheds spin, per second
+// how much of the launch rate actually becomes rotation — see the note at the integration
+const W_SPINK=2.4;
 let cocoK=1;                 // where the ease has got to
 let cocoGot=0, cocoPower=0, cocoObjs=[], cocoT=4+Math.random()*5, cocoBob=0;
 const cocoBarEl=document.getElementById('cocoBar');
@@ -15247,6 +15249,31 @@ const recordsBtn=document.getElementById('recordsBtn');
 const menuBtn=document.getElementById('menuBtn');
 function showMenu(mode){
   const over = mode==='over';
+  // ---- and the crash is OVER when the title screen comes up ----
+  // Nothing cleared `wipe` on the way back to the menu — only the next reset() did, at the
+  // start of the NEXT run — and the loop runs updateWipeout for as long as it is set. So the
+  // rider went on being posed into the drowning pose, arms up and chin lifted, every frame he
+  // stood on the beach, and that is why he was standing there drowning.
+  // It also explains why restoring his bones anywhere else did nothing: menuBeachOn does
+  // exactly that and it was being overwritten sixty times a second by the crash that was still
+  // running. The crash has to END, and this is the moment it ends.
+  // `var`, deliberately, and short-circuited before `wipe` is ever read. showMenu is CALLED
+  // during boot, well above the line that declares wipe, and a `let` read from up here is in
+  // the temporal dead zone — it threw "Cannot access 'wipe' before initialization" and took the
+  // whole page down with it. A var is hoisted and merely undefined, so this reads false on the
+  // boot call and the guard never touches wipe until there is one.
+  if(!over&&_wipeLive&&wipe){
+    scene.remove(rig); player.add(rig);
+    player.remove(pug); rig.add(pug);
+    pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
+    rig.position.set(0,0,0); rig.rotation.set(0,0,0);
+    player.rotation.set(0,0,0);
+    pug.rotation.x=0; pug.position.y=0;
+    wipe=null;
+    if(typeof standDown==='function')standDown();      // the built-in body's arms come down
+    const R=(typeof riderRig==='function')?riderRig():null;
+    if(R&&R.reset)R.reset();                            // ...and a rigged one goes back to bind
+  }
   overlay.classList.toggle('over',over);
   overlay.classList.toggle('main',!over);
   ovTitle.textContent = over ? 'Wipeout!' : 'Surf';
@@ -15673,6 +15700,7 @@ function boardHit(o,topY){
   msg('CRACKED! '+(BS.lives-cracks)+' LEFT');
 }
 let wipe=null,overlayUp=false,revivesLeft=1;
+var _wipeLive=true;   // see the guard in showMenu: wipe is safe to read from here on
 let swInvuln=false;                     // tests only, and never on in a real run
 function startWipeout(kind){
   if(wipe)return;
@@ -15791,7 +15819,17 @@ function updateWipeout(dt){
   // fast one and the rest is a body falling.
   const _airK=1-Math.min(1,dt*W_AIRDRAG);
   w.sx*=_airK; w.sy*=_airK; w.sz*=_airK;
-  w.rx+=w.sx*dt*6; w.ry+=w.sy*dt*6; w.rz+=w.sz*dt*6;
+  // ---- AND THIS IS THE NUMBER THAT DECIDES HOW MAD IT LOOKS ----
+  // The rates above are not radians a second. They are multiplied HERE, and the multiplier was
+  // a bare 6 — so a launch pitch of 3.35 was really 20 radians a second, better than three full
+  // revolutions per second, and the fall lasts a bit over half of one. Traced: rx reached -8.03
+  // radians by the splash, an eight-tenths-of-a-second drill, which is the "flips out and moves
+  // all crazy" exactly.
+  // Two earlier passes cut the launch figures instead and got nowhere near, because they were
+  // trimming a number that this then multiplied by six. Cutting it here is worth more than
+  // anything done upstream of it: at 2.4 the same launch gives about seven tenths of a turn
+  // before he hits the water, which is a body pitched off a board rather than a propeller.
+  w.rx+=w.sx*dt*W_SPINK; w.ry+=w.sy*dt*W_SPINK; w.rz+=w.sz*dt*W_SPINK;
   player.rotation.set(w.rx,w.ry,w.rz);
   const sea=waveH(px,dist*WAVE_DRIFT,waveClock)+0.13;
   // The sea AROUND a whirlpool, which is not the sea at the bottom of one. waveH carries the
@@ -15909,7 +15947,23 @@ function updateWipeout(dt){
         const sgn=(side==='Left')?-1:1;
         // the wave: each arm on its own rate so they are not a pair of wipers
         const sway=Math.sin(f*(side==='Left'?1:1.17)+(side==='Left'?0:1.9))*0.34;
-        const t=new V(0,1,0).addScaledVector(new V(1,0,0),sgn*(0.24+sway)).normalize();
+        // ---- OUT ALONG HIS OWN SIDE, not along the world's x ----
+        // This spread the arms along world +x whichever way the rider was facing, so as soon as
+        // he came to rest turned — which he always does, he has just been thrown off a board —
+        // both arms leaned the SAME way across his body and met in front of his face. Measured
+        // on the pug: the right hand sat 0.045ft to the side of his head and cleared it by
+        // 0.091 against a head radius of 0.35, which is a hand through the cheek.
+        // His own right, flattened, so the two arms always go to opposite sides of HIM.
+        const rgt=new V(1,0,0).applyQuaternion(pug.getWorldQuaternion(new Q()));
+        rgt.y=0;
+        if(rgt.lengthSq()<1e-8)rgt.set(1,0,0); else rgt.normalize();
+        // ...and further out. A tenth of a foot of daylight is not clearance on a head that
+        // moves: at 0.24 the arms came up almost vertically, close enough to brush the ears.
+        // A drowning man's arms are up and OUT, and it reads better besides.
+        const fwd2=new V(0,0,1).applyQuaternion(pug.getWorldQuaternion(new Q()));
+        fwd2.y=0; if(fwd2.lengthSq()>1e-8)fwd2.normalize(); else fwd2.set(0,0,1);
+        const t=new V(0,1,0).addScaledVector(rgt,sgn*(0.75+sway))
+                            .addScaledVector(fwd2,0.16).normalize();
         const corrW=new Q().setFromUnitVectors(d,t);
         const pq=new Q(); if(sh.parent)sh.parent.getWorldQuaternion(pq);
         const shW=new Q(); sh.getWorldQuaternion(shW);
@@ -20421,6 +20475,44 @@ if(location.hash.includes('debug')){
     // the mantle tops out — and none of them is knowable from the float number. Measured in the
     // octopus's own frame so the swell it is riding does not get mixed into the answer, and off
     // the CLONE in the water rather than the template, which is never floated and never posed.
+    // ---- where the drowning rider's hands are against his own head ----
+    // "The face and arms are intersecting" is a distance, and it is one nothing could see from
+    // the angles: the arms are aimed at a world DIRECTION rather than set to an angle, so what
+    // the numbers in the pose say has almost no bearing on where a hand ends up on a given
+    // skeleton. This reports the gap in feet between each hand and the head, and the head's own
+    // size, so "clear of his face" is a number that holds for every rider in the roster.
+    drownReach(){
+      const R=(typeof riderRig==='function')?riderRig():null;
+      if(!R||!R.bones)return null;
+      pug.updateMatrixWorld(true);
+      const V=THREE.Vector3, hb=R.bones.Head||R.bones.Neck;
+      if(!hb)return null;
+      const H=new V(); hb.getWorldPosition(H);
+      // the head's own radius, off the mesh rather than guessed — a pug's head and an ant's
+      // are not the same object and a fixed clearance would be wrong on one of them
+      let hr=0.35;
+      const hbox=new THREE.Box3().setFromObject(hb);
+      if(isFinite(hbox.min.y))hr=Math.max(0.12,hbox.getSize(new V()).length()*0.25);
+      const out={headR:+hr.toFixed(3), splashed:!!(wipe&&wipe.splashed)};
+      for(const side of ['Left','Right']){
+        const h=R.bones[side+'Hand']||R.bones[side+'ForeArm'];
+        const e=R.bones[side+'ForeArm'];
+        if(!h)continue;
+        const P=new V(); h.getWorldPosition(P);
+        const E=new V(); if(e)e.getWorldPosition(E); else E.copy(P);
+        // ...and the sideways offset in HIS frame, not the world's. Measured in world x it
+        // said both hands were on the same side of his head whichever way the arms went,
+        // because a rider at rest is always turned and world x is not his shoulder line.
+        const rgt=new V(1,0,0).applyQuaternion(pug.getWorldQuaternion(new THREE.Quaternion()));
+        rgt.y=0; if(rgt.lengthSq()>1e-8)rgt.normalize(); else rgt.set(1,0,0);
+        const rel=new V().subVectors(P,H);
+        out[side.toLowerCase()]={hand:+P.distanceTo(H).toFixed(3),
+                                 elbow:+E.distanceTo(H).toFixed(3),
+                                 clear:+(P.distanceTo(H)-hr).toFixed(3),
+                                 side:+rel.dot(rgt).toFixed(3), up:+rel.y.toFixed(3)};
+      }
+      return out;
+    },
     octoAnat(){
       const o=obstacles.find(x=>x.userData.kind==='octopus'); if(!o)return null;
       o.updateMatrixWorld(true);
@@ -23749,6 +23841,16 @@ function menuBeachOn(){
               rp:pug.parent, rpos:pug.position.clone(), rrot:pug.rotation.clone(),
               rsc:pug.scale.clone()};
   prevScene.add(board); prevScene.add(pug);
+  // ---- and he comes back out of the water ----
+  // A wipeout poses the rigged rider's bones DIRECTLY — arms aimed straight up, legs hanging,
+  // chin lifted — and stops his mixer so nothing overwrites them. That is right while he is
+  // drowning and wrong the moment the run is over: the title screen's show() only writes the
+  // bones its own beats use, and on a skeleton of twenty-odd bones the rest keep whatever the
+  // drowning left in them. So he stood on the beach still drowning, which is exactly what it
+  // looked like. reset() puts every bone back to its bind and restarts the standing action,
+  // and here is the one place that is both after a run and before he is looked at.
+  { const R=(typeof riderRig==='function')?riderRig():null;
+    if(R&&R.reset)R.reset(); }
   menuBeach={board,undo,keep,t:0};
   setBoardDry(true);                    // matt while it is being looked at rather than ridden
   beachSet.visible=true; menuProps.visible=true;
