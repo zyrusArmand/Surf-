@@ -46,20 +46,22 @@ const _mix=(c,hex,k)=>{ const t=vivid(hex,1.25);
   c[0]+=(t[0]-c[0])*k; c[1]+=(t[1]-c[1])*k; c[2]+=(t[2]-c[2])*k; return c; };
 
 // ---- the board, exactly as index.html has it ----
-const DECK=0xf2efe6, RAIL=0x3dffa0, STRINGER=0x2bd987, SW=0.020, RAILAT=0.82, VIV=1.05;
+const DECK=0x140f22, RAIL=0x2bff9b, STRINGER=0x7cffc4, SW=0.020, RAILAT=0.82, VIV=1.05;
 function art(c,u,v,top){
   const a=Math.abs(v);
-  _mix(c,0x2a1a4e,0.58*_sm(0.46,0.00,u));
-  _mix(c,0x4dff8a,0.04+0.40*_sm(0.24,1.00,u));
-  _mix(c,0xa8ffd0,0.62*_sm(0.76,0.96,a));
+  _mix(c,0x0b0716,0.55*_sm(0.46,0.00,u));
+  _mix(c,0x1d5c4a,0.05+0.20*_sm(0.24,1.00,u));
+  _mix(c,0x9dffd8,0.55*_sm(0.80,0.97,a));
   // ---- ISOTROPIC IN THE WORLD, NOT IN uv ----
   // The board is nine foot two long and a foot wide, so equal noise frequency on u and v makes
   // every feature nine times longer than it is wide: that is the streaking down the deck. The
   // ratio is the board's own aspect.
   const n=_fbm(u*13.0+2.0,v*1.45+7.0)+(_fbm(u*38.0,v*4.2)-0.5)*0.12;
   const blot=_sm(0.520,0.600,n);
-  _mix(c,0x0b0a0d,blot);
-  _mix(c,0x6bffa6,blot*(1-blot)*0.9);
+  // the markings GLOW, and harder the closer they are to the tail
+  _mix(c,0x5bff92,blot*0.95);
+  _mix(c,0xe8fff0,blot*_sm(0.30,1.00,u)*0.55);
+  _mix(c,0x093a2a,blot*(1-blot)*1.2);
 }
 function deckBase(u,v){
   const c=vivid(DECK,VIV), s=Math.abs(v);
