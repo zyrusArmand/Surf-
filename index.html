@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.59.0';
+window.SURF_VERSION='5.60.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -9741,13 +9741,20 @@ function stageShow(on){
   stageSay();
 }
 // ---- the visitor, on demand ----
-// It wants a night sky and ten kilometres of riding to turn up by itself, so the only way to
-// look at it is to be put in the scene it plays in: a run under way, the sun forced under the
-// horizon, and the sequence started from the top.
+// It wants a night sky and several kilometres of riding to turn up by itself, so the only way
+// to look at it is to be put in the scene it plays in: a run under way, the sky forced to the
+// hour it happens at, and the sequence started from the top.
 document.getElementById('stUfo').onclick=()=>{
   document.getElementById('stats').classList.add('hidden');
   if(!running){ if(typeof beginRun==='function')beginRun(); }
-  dayForce=0.97;                       // full night, held until something clears it
+  // ---- AND THAT HOUR IS THE MIDDLE OF THE NIGHT ----
+  // It was 0.97, labelled "full night", and it WAS full night when the phase ran nought to one
+  // and stopped at dusk. The phase loops now: nought to one is the day, one to two is the night
+  // that follows it, and 0.97 is the red sky a few seconds BEFORE the sun goes. So every look
+  // at the saucer -- through this button and through __surf.ufoNow, which is every render I
+  // took of it -- was staged at sunset while the trigger it is meant to be testing waits for
+  // the moon. The button was showing the wrong scene, not the trigger firing at the wrong time.
+  dayForce=UFO_TEST_HOUR;
   setTimeout(()=>{ if(typeof ufoStart==='function')ufoStart(); },350);
 };
 document.getElementById('stStage').onclick=()=>{
@@ -20143,7 +20150,7 @@ if(location.hash.includes('debug')){
     // water, does the beam reach him, does he go up, does he come back as somebody else" is
     // four numbers rather than four impressions.
     ufoNow(){ if(typeof ufoStart!=='function')return null;
-      dayForce=0.97; return ufoStart(); },
+      dayForce=UFO_TEST_HOUR; return ufoStart(); },
     ufoState(){ if(typeof ufo==='undefined'||!ufo)return null;
       const sea=waveH(ufo.position.x,dist*WAVE_DRIFT+ufo.position.z,waveClock);
       return {phase:ufoPh, t:+ufoT.toFixed(2), up:!!ufo.visible,
@@ -22921,6 +22928,10 @@ function throwStarfish(oct,from){
 // thing means. Both are asked: the sun properly under, AND the moon properly up.
 const UFO_NIGHT_AMT=0.98;
 const UFO_MOON_UP=0.75;
+// The hour the test button and the debug hook pin the sky to: the middle of the night, with the
+// moon high, which is where the real trigger can fire. Anything below 1.0 is still daytime on
+// this clock and 0.97 -- what it used to be -- is the last red of the sunset.
+const UFO_TEST_HOUR=1.35;
 const UFO_WAIT=30;         // seconds of moonlit dark before it comes
 const UFO_SCALE=9.0;       // feet across, near enough
 // How high it stands off the water once it is over you. Lower than it was: at 11.5 it sat at
