@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.41.0';
+window.SURF_VERSION='5.42.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -19766,8 +19766,12 @@ if(location.hash.includes('debug')){
               beamLen:+ufo.userData.beam.scale.y.toFixed(2),
               drips:ufoDrips.length, grab:ufoGrab,
               riderY:+player.position.y.toFixed(2), seaY:+sea.toFixed(2),
-              rider, swapped:ufoSwap};
+              rider, swapped:ufoSwap, fit:ufoFit()};
     },
+    // Does he actually fit in the light? The beam is a cone, so "inside" depends on how far
+    // up it he is: r is the cone's radius at his height, d is how far he is off its axis and
+    // w is his own half-width. He is in the light when d+w <= r, and that is the whole test.
+    ufoFit:()=>ufoFit(),
     stance:()=>({sw:switchRide, rider:+pug.rotation.y.toFixed(3),
                  board:+boardArt.rotation.y.toFixed(3)}),
     // ride the other way round without landing a 180 first, so the switch stance can be
@@ -22498,7 +22502,10 @@ const UFO_FACE=0;          // square to the lens, and it stays there
 // He used to go all the way up to the hull, which put him inside the saucer with nothing left
 // to look at and made the whole thing about the travel rather than about being caught in the
 // light. A few feet off the deck is the picture: feet clear of the board, still in the beam.
-const UFO_LIFT=3.1;        // feet off the board
+// ...and 2.6 rather than 3.1, because the beam is a CONE: every foot higher is a narrower
+// shaft to fit in, so height and fitting inside pull against each other and this is where
+// they meet. Measured — see __surf.ufoFit().
+const UFO_LIFT=2.6;        // feet off the board
 const UFO_REACH=0.85;      // seconds for the light to travel from the hull down to him
 // ---- and he is held IN it ----
 // He used to reach the top of his lift and the sequence ended on the same beat, so there was
@@ -22507,6 +22514,7 @@ const UFO_REACH=0.85;      // seconds for the light to travel from the hull down
 const UFO_HOLD=3.5;
 const UFO_DRAW=1.4;        // seconds to draw him in under the middle of the beam
 const _ufAim=new THREE.Vector3();
+const _ufB=new THREE.Vector3();
 let ufo=null, ufoPh=0, ufoT=0, ufoDark=0, ufoBeam=null, ufoDrips=[], ufoGrab=0, ufoSwap=null;
 let ufoLight=null, ufoRiderY=0;
 // 0 nothing, 1 breaking the surface, 2 standing off and opening the beam, 3 taking him,
@@ -22531,9 +22539,15 @@ loadModel('ufo.glb',(s3)=>{
   // ---- IT LEAVES THE HULL AT THE SIZE OF THE THING IT LEAVES ----
   // A cone tapers to a POINT at the emitter, so the beam appeared to come out of a pinhole and
   // fan out from nothing. There is a circle on the underside and the light comes out of all of
-  // it: a truncated cone, a quarter as wide at the hull as it is where it lands, which is the
-  // emitter's own size against the pool on the water.
-  const bm=new THREE.Mesh(new THREE.CylinderGeometry(0.25,1,1,30,1,true),
+  // it: a truncated cone, a bit over half as wide at the hull as it is where it lands, which
+  // is the emitter's own size against the pool on the water.
+  //
+  // The taper was a QUARTER, and that is why he hung out of the sides. Two thirds of the way
+  // up a beam that pinched to a quarter there was under a foot of shaft to stand in, and he is
+  // a foot and a bit across — so the higher the light drew him the less of it there was to be
+  // inside of. Opening the top out costs nothing on the water, where the pool is unchanged,
+  // and makes the shaft he floats in wider than he is.
+  const bm=new THREE.Mesh(new THREE.CylinderGeometry(0.58,1,1,30,1,true),
     new THREE.MeshBasicMaterial({color:0x9fe8ff,transparent:true,opacity:0,
       blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
   // ConeGeometry already stands apex-up and mouth-down, which is the way a beam falls: a
@@ -22559,7 +22573,77 @@ function ufoDrip(x,y,z){
   m.position.set(x,y,z); scene.add(m);
   ufoDrips.push({m,vy:-1.2-Math.random()*1.4,t:0});
 }
+// ---- the beam takes the RIDER, not the board ----
+// The lift used to be applied to the whole player group, so the board went up with him and
+// hung out of both sides of the light: a board is eight feet long and the cone is under three
+// across where he floats. There is no lift height that fixes that — the beam NARROWS toward
+// the saucer, so raising him only makes it worse — and shrinking him to fit would put a speck
+// in the light. So the board is left where it was, still surfing on its own, and only he is
+// drawn up. Which is what an abduction looks like anyway.
+//
+// He is a child of the board, so the lift is worked in WORLD space and put back into the
+// board's frame: adding it to his local y would send him off along whatever the board is
+// leaning at, and in a carve that is a long way from up. His on-deck x/z are kept from the
+// moment the beam took him, because those are not rewritten every frame the way his height is.
+let ufoPug=null;
+// Only ever put back what we moved: a wipeout lifts him out of the board and onto the player
+// group and puts him at its own coordinates, and writing the surf stance back over that would
+// shove a rider who is already falling.
+function ufoRiderDrop(){
+  if(!ufoPug)return;
+  if(pug.parent===rig){ pug.position.x=ufoPug.x; pug.position.z=ufoPug.z; pug.rotation.y=ufoPug.ry; }
+  ufoPug=null;
+}
+function ufoLiftRider(dt){
+  if(!(ufoGrab&&ufo&&ufo.visible&&pug.parent===rig)){ ufoRiderDrop(); return; }
+  if(!ufoPug)ufoPug={x:pug.position.x,z:pug.position.z,ry:pug.rotation.y,ox:0,oz:0};
+  const rise=Math.min(1,ufoT/UFO_DRAW), e=rise*rise*(3-2*rise);
+  player.updateMatrixWorld(true);
+  // where he would be standing this frame, in the world
+  _ufB.set(ufoPug.x,pug.position.y,ufoPug.z); rig.localToWorld(_ufB);
+  const by=_ufB.y;
+  // ...and IN, to the middle of the light. He was left wherever he happened to be, which on
+  // a rider who is steering is off to one side of the beam — standing beside the light he is
+  // supposedly caught in. The drift is carried across frames rather than restarted from the
+  // board each one, so he actually arrives instead of chasing a moving target for ever.
+  let cx=_ufB.x+ufoPug.ox, cz=_ufB.z+ufoPug.oz;
+  cx+=(ufo.position.x-cx)*Math.min(1,dt*2.6);
+  cz+=(ufo.position.z-cz)*Math.min(1,dt*1.5);
+  ufoPug.ox=cx-_ufB.x; ufoPug.oz=cz-_ufB.z;
+  // a few feet off the board rather than all the way to the hull — see UFO_LIFT
+  _ufB.set(cx,by+e*UFO_LIFT,cz);
+  rig.worldToLocal(_ufB);
+  pug.position.copy(_ufB);
+  pug.rotation.y+=dt*1.6*e;   // turning slowly, because nothing rises out of a beam facing the way it was
+}
+// How well he sits inside the cone, in feet. The beam mesh is a unit cylinder scaled, so its
+// own local space already IS the cone: y runs -0.5 at the wide end to +0.5 at the emitter and
+// the radius goes 1 -> 0.25 across it, and one worldToLocal puts him on that ruler.
+function ufoFit(){
+  if(!ufo||!ufo.visible||typeof pug==='undefined'||!pug)return null;
+  const bm=ufo.userData.beam;
+  // from the ROOT: both of these hang off parents that moved this frame, and updating them
+  // from themselves down reads whatever their parents' matrices last said, which under
+  // __surf.tick (no render between steps) is however many feet ago
+  scene.updateMatrixWorld(true);
+  const p=new THREE.Vector3().setFromMatrixPosition(pug.matrixWorld);
+  const l=bm.worldToLocal(p.clone());
+  const u=THREE.MathUtils.clamp(l.y+0.5,0,1);          // 0 at the water end, 1 at the hull
+  const gp=bm.geometry.parameters;                     // taper read from the cone, not assumed
+  const r=(gp.radiusBottom+(gp.radiusTop-gp.radiusBottom)*u)*bm.scale.x;
+  const d=Math.hypot(l.x,l.z)*bm.scale.x;              // how far off the axis he is
+  const b=new THREE.Box3().setFromObject(pug);
+  const w=Math.max(b.max.x-b.min.x,b.max.z-b.min.z)*0.5;
+  return {u:+u.toFixed(3), r:+r.toFixed(2), d:+d.toFixed(2), w:+w.toFixed(2),
+          margin:+(r-d-w).toFixed(2), in:(d+w)<=r};
+}
+// Where he actually is, for the beam to aim at — he is no longer at the player's position.
+function ufoRiderWorld(v){
+  if(typeof pug==='undefined'||!pug||!pug.parent)return v.copy(player.position);
+  return v.setFromMatrixPosition(pug.matrixWorld);
+}
 function ufoReset(){
+  ufoRiderDrop();
   ufoPh=UFOP.OFF; ufoT=0; ufoGrab=0; ufoSwap=null;
   for(const d of ufoDrips)scene.remove(d.m);
   ufoDrips.length=0;
@@ -22629,7 +22713,7 @@ function updateUfo(dt,eff){
   } else if(ufoPh===UFOP.LIFT){
     // he comes to the light rather than the light coming to him: the saucer holds its place
     // and he is drawn in under it, so the beam straightens as he arrives.
-    _ufAim.set(player.position.x,player.position.y+0.2,player.position.z);
+    ufoRiderWorld(_ufAim); _ufAim.y+=0.2;
     ufoBeamTo(sea,1,1,_ufAim);
     if(ufoT>=UFO_HOLD){ ufoPh=UFOP.LEAVE; ufoT=0; ufoGrab=0;
       ufoSwap=ufoPickChar();
@@ -22682,7 +22766,7 @@ function ufoBeamTo(sea,k,reach,aimAt){
   bm.quaternion.setFromUnitVectors(_ufU,_ufD);
   // Slimmer than it was. The beam used to stop at the rider; running it on to the water puts
   // its wide end close to the lens, where the same radius fills most of the lower frame.
-  const w=UFO_SCALE*0.21*(0.55+k*0.45);
+  const w=UFO_SCALE*0.28*(0.55+k*0.45);
   bm.scale.set(w,len,w);
   // the cylinder is centred on itself, so its middle sits half a length down the ray
   bm.position.set(_ufD.x*len*0.5, top+_ufD.y*len*0.5, _ufD.z*len*0.5);
@@ -23874,25 +23958,6 @@ function update(dt){
     const inX=-swS*Math.sin(swAng), inY=Math.cos(swAng);
     player.position.set(px+inX*lift,py+inY*lift,pz);
   } else player.position.set(px,py+lift,pz);
-  // ---- and while the beam has him, he goes UP ----
-  // Applied after the ride has placed him rather than instead of it: he is still surfing
-  // underneath, so the board still sits on the water it is on and he still steers — he is
-  // simply not on it any more. Turning slowly on the way, because nothing rises out of a
-  // beam facing the way it was.
-  if(ufoGrab&&ufo&&ufo.visible){
-    const rise=Math.min(1,ufoT/UFO_DRAW);
-    const e=rise*rise*(3-2*rise);
-    // a few feet off the board rather than all the way to the hull — see UFO_LIFT
-    player.position.y=py+lift+e*UFO_LIFT;
-    player.rotation.y+=dt*2.2*e;
-    // ...and IN, to the middle of the light. He was left wherever he happened to be, which on
-    // a rider who is steering is off to one side of the beam — standing beside the light he is
-    // supposedly caught in. Drawn under the saucer as he rises, so the beam straightens onto
-    // him rather than leaning after him, and then he simply hangs there.
-    const cx=ufo.position.x, cz=ufo.position.z;
-    player.position.x+=(cx-player.position.x)*Math.min(1,dt*2.6);
-    player.position.z+=(cz-player.position.z)*Math.min(1,dt*1.5);
-  }
   // it lies along the water it is resting on, plus whatever the rider's weight adds
   // On the ring the board lies on the wall it is riding, not on the height field: the hull
   // samples that gave it its pitch are all taken from the flat sea underneath, which up in
@@ -23938,6 +24003,9 @@ function update(dt){
   rig.rotation.set(boardPitch+heliIncline,boardYaw+wobYaw,boardLean+grabRoll+wobRoll);
   animateRig(dt,carve,grab,waterY);
   updateHandstand(dt,carve);
+  // last, after everything that stands him on the deck has had its say — otherwise the
+  // rig puts him straight back on the board the frame after the beam picks him up
+  ufoLiftRider(dt);
 
   // whitewater under the board + wash trail behind it
   if(!airborne&&!hanging){
