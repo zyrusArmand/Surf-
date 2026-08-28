@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.31.0';
+window.SURF_VERSION='5.32.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -12679,7 +12679,15 @@ function setupModelRig(root,gltf,id){
       greetLeft=Math.max(0,greetLeft-dt);
       this.greet(dt); hold(); return;
     }
-    if(!this.clips){ const r=this.idle&&this.idle(dt); hold(); return r; }
+    // ---- AUTOPLAY OFF: he stands there ----
+    // Everything above this line still runs, and that is the point of putting the switch
+    // here rather than at the call site: he is still turned to face the camera and still
+    // held on the sand, which are not the performance — they are what stops him standing
+    // side-on and four inches over the beach. What stops is the LOOP OF BEATS below: the
+    // walk, the handstand, the run at the lens.
+    // Same path a model with no clips at all already takes, so this is a route the show was
+    // built to handle rather than a new one bolted on.
+    if(!this.clips||!MB_AUTOPLAY){ const r=this.idle&&this.idle(dt); hold(); return r; }
     const start=i=>{
       const st=SHOW[i], a=this.clip(st.clip);
       if(!a)return 0;
@@ -19564,6 +19572,7 @@ if(location.hash.includes('debug')){
               col:sun.color.getHex(), inten:+sun.intensity.toFixed(2),
               ground:hemi.groundColor.getHex()}),
     dof(v){ MENU_DOF=v!==false; return MENU_DOF; },
+    autoplay(v){ if(v!==undefined)MB_AUTOPLAY=v?1:0; return MB_AUTOPLAY; },
     // Hold the title screen absolutely still, so two frames differ ONLY by what was changed
     // between them. Without this every A/B here is measuring the drift of the shot.
     menuFreeze(v){ MB_FREEZE=v!==false; return MB_FREEZE; },
@@ -24534,6 +24543,13 @@ const MB_DOF=25.0;
 // screen puts a bright saturated slab a few feet from the lens.
 let MB_BLOOM_T=1.12;   // how bright a pixel has to be before it blooms at all
 let MB_BLOOM_K=0.50;   // ...and how much of the result is added back
+// Whether the rider performs on the title screen by himself — the walk, the handstand, the
+// run at the lens. Off leaves him standing on his mark, facing the camera and breathing.
+// A double tap still brings him over: that is an answer to something you did, not autoplay.
+// `var`, so that reading it early is merely undefined rather than a throw — and undefined
+// falls to the same side as off, which is the harmless one. A `let` here is read from
+// R.show, which is defined twelve thousand lines above this.
+var MB_AUTOPLAY=0;
 let MENU_DOF=true;     // off is for measuring what it costs     // how many feet either side of the board stay sharp                   // and the daylight there has to be between the two
 // A world unit here is a FOOT — the boards measure 3.5 to 10.5 of them and their spec sheets
 // are in feet — so this is a height, not a fraction of whatever is leaning on the tree.
