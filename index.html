@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.35.0';
+window.SURF_VERSION='5.36.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -1532,6 +1532,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     <button class="go teal sm" id="stWave">Test wave</button>
     <button class="go teal sm" id="stWhirl">Test whirl</button>
     <button class="go teal sm" id="stStage">Stage</button>
+    <button class="go teal sm" id="stUfo">UFO</button>
     <button class="go sm" id="stClose">Close</button>
   </div>
 </div></div>
@@ -9477,6 +9478,16 @@ function stageShow(on){
   if(hd)hd.style.display=stageOn?'none':'';
   stageSay();
 }
+// ---- the visitor, on demand ----
+// It wants a night sky and ten kilometres of riding to turn up by itself, so the only way to
+// look at it is to be put in the scene it plays in: a run under way, the sun forced under the
+// horizon, and the sequence started from the top.
+document.getElementById('stUfo').onclick=()=>{
+  document.getElementById('stats').classList.add('hidden');
+  if(!running){ if(typeof beginRun==='function')beginRun(); }
+  dayForce=0.97;                       // full night, held until something clears it
+  setTimeout(()=>{ if(typeof ufoStart==='function')ufoStart(); },350);
+};
 document.getElementById('stStage').onclick=()=>{
   document.getElementById('stats').classList.add('hidden');
   stageShow(true);
@@ -19550,6 +19561,24 @@ if(location.hash.includes('debug')){
     // facing the other way and the board itself reversed — fins and paint where the spin put
     // them — so the check is on the board's own rotation, not on the flag that set it.
     wear(id){ ownedChars[id]=1; equipChar(id); saveGame(); return rider; },
+    // ---- the visitor, for measuring ----
+    // Starts the sequence from the top wherever the run currently is, and reports what phase
+    // it is in and where the saucer and the beam have got to, so "does it come out of the
+    // water, does the beam reach him, does he go up, does he come back as somebody else" is
+    // four numbers rather than four impressions.
+    ufoNow(){ if(typeof ufoStart!=='function')return null;
+      dayForce=0.97; return ufoStart(); },
+    ufoState(){ if(typeof ufo==='undefined'||!ufo)return null;
+      const sea=waveH(ufo.position.x,dist*WAVE_DRIFT+ufo.position.z,waveClock);
+      return {phase:ufoPh, t:+ufoT.toFixed(2), up:!!ufo.visible,
+              y:+ufo.position.y.toFixed(2), overSea:+(ufo.position.y-sea).toFixed(2),
+              dx:+(ufo.position.x-px).toFixed(2),
+              beam:+ufo.userData.beam.material.opacity.toFixed(3),
+              beamLen:+ufo.userData.beam.scale.y.toFixed(2),
+              drips:ufoDrips.length, grab:ufoGrab,
+              riderY:+player.position.y.toFixed(2), seaY:+sea.toFixed(2),
+              rider, swapped:ufoSwap};
+    },
     stance:()=>({sw:switchRide, rider:+pug.rotation.y.toFixed(3),
                  board:+boardArt.rotation.y.toFixed(3)}),
     // ride the other way round without landing a 180 first, so the switch stance can be
@@ -22240,6 +22269,167 @@ function throwStarfish(oct,from){
     vz:(tz-fz)/T-lastEff*0.4,           // the world scroll adds eff*0.4 to z each frame
     sx:(Math.random()-0.5)*13,sy:(Math.random()-0.5)*13,t:0});
 }
+// ---------- the visitor ----------
+// It comes up out of the water once it has been properly dark for a while, stands off the
+// rider, puts a beam on him and takes him — and whoever comes back down is somebody else.
+//
+// WHEN. dayT runs 0 to 1 across the day and the sun's own height in SKY_KEYS crosses zero
+// between the 0.90 and the 0.96 key, so 0.92 is "the sun has gone down" read off the same
+// table the sky is lit from rather than picked to look right. Then a full minute of it: the
+// timer only runs while it is dark and resets the moment it is not, so dusk does not count.
+// A NOTE ON REACH. The day is deliberately slow — 1-exp(-dist/4200) — so 0.92 is about ten
+// kilometres of riding. This will effectively never happen by itself in an ordinary run.
+// That is a property of the sun's pacing, not of this: the trigger is written to the brief
+// and the test button is how it gets seen.
+const UFO_NIGHT=0.92;      // dayT at which the sun is under the horizon
+const UFO_WAIT=60;         // seconds of dark before it comes
+const UFO_SCALE=9.0;       // feet across, near enough
+let ufo=null, ufoPh=0, ufoT=0, ufoDark=0, ufoBeam=null, ufoDrips=[], ufoGrab=0, ufoSwap=null;
+let ufoLight=null, ufoRiderY=0;
+// 0 nothing, 1 breaking the surface, 2 standing off and opening the beam, 3 taking him,
+// 4 the swap and away
+const UFOP={OFF:0,RISE:1,BEAM:2,LIFT:3,LEAVE:4};
+loadModel('ufo.glb',(s3)=>{
+  const g=new THREE.Group();
+  s3.updateMatrixWorld(true);
+  const b=new THREE.Box3().setFromObject(s3), sz=b.getSize(new THREE.Vector3());
+  const c=b.getCenter(new THREE.Vector3());
+  // centred on itself and scaled to a size in FEET, so everything below is written in the
+  // units the rest of the game is written in
+  s3.position.sub(c);
+  const k=UFO_SCALE/Math.max(1e-4,Math.max(sz.x,sz.z));
+  s3.scale.setScalar(k);
+  g.add(s3);
+  g.userData.halfH=sz.y*k*0.5;
+  // ---- the beam ----
+  // A cone standing on its point at the emitter under the hull, opening downward. Additive
+  // and depth-blind, because it is light rather than a solid: anything it crosses should be
+  // brightened by it and nothing should be hidden behind it.
+  const bm=new THREE.Mesh(new THREE.ConeGeometry(1,1,30,1,true),
+    new THREE.MeshBasicMaterial({color:0x9fe8ff,transparent:true,opacity:0,
+      blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
+  // ConeGeometry already stands apex-up and mouth-down, which is the way a beam falls: a
+  // point at the emitter opening out to a disc on the water. Turning it half over — which is
+  // what was here first — put the wide end against the hull and tapered it to nothing where
+  // it lands, so the light got NARROWER the further it travelled.
+  g.add(bm); g.userData.beam=bm;
+  // a disc of light where it lands, so the beam has a foot as well as a body
+  const pool=new THREE.Mesh(new THREE.CircleGeometry(1,30),
+    new THREE.MeshBasicMaterial({color:0x9fe8ff,transparent:true,opacity:0,
+      blending:THREE.AdditiveBlending,depthWrite:false}));
+  pool.rotation.x=-Math.PI/2; g.add(pool); g.userData.pool=pool;
+  ufoLight=new THREE.PointLight(0x9fe8ff,0,90,2); g.add(ufoLight);
+  g.visible=false; scene.add(g); ufo=g;
+});
+// A handful of drops off the hull for the first few seconds out of the sea. Pooled, because
+// this runs in the draw loop and a new mesh per drop every frame is how a frame budget goes.
+const UFO_DRIP=new THREE.MeshBasicMaterial({color:0xcfefff,transparent:true,opacity:0.75,depthWrite:false});
+function ufoDrip(x,y,z){
+  if(ufoDrips.length>90)return;
+  const m=new THREE.Mesh(new THREE.SphereGeometry(0.09,6,5),UFO_DRIP);
+  m.scale.y=2.2;                  // a falling drop is not a ball
+  m.position.set(x,y,z); scene.add(m);
+  ufoDrips.push({m,vy:-1.2-Math.random()*1.4,t:0});
+}
+function ufoReset(){
+  ufoPh=UFOP.OFF; ufoT=0; ufoGrab=0; ufoSwap=null;
+  for(const d of ufoDrips)scene.remove(d.m);
+  ufoDrips.length=0;
+  if(ufo){ ufo.visible=false; ufo.userData.beam.material.opacity=0;
+           ufo.userData.pool.material.opacity=0; }
+  if(ufoLight)ufoLight.intensity=0;
+}
+// Somebody who is not the one riding. Owned first, because being handed a character you have
+// not unlocked is a reward and this is not one — it is an abduction.
+function ufoPickChar(){
+  const own=CHARS.filter(c=>ownedChars[c.id]&&c.id!==rider);
+  const any=CHARS.filter(c=>c.id!==rider);
+  const from=own.length?own:any;
+  return from.length?from[(Math.random()*from.length)|0].id:null;
+}
+function ufoStart(){
+  if(!ufo)return false;
+  ufoReset();
+  ufoPh=UFOP.RISE; ufoT=0; ufo.visible=true;
+  // off to one side and a little ahead, so it is seen coming rather than appearing overhead
+  ufo.position.set(px+(Math.random()<0.5?-1:1)*(7+Math.random()*4), 0, pz-30);
+  ufo.rotation.set(0,Math.random()*Math.PI*2,0);
+  return true;
+}
+function updateUfo(dt,eff){
+  if(!ufo)return;
+  // the dark has to be continuous: dusk that slips back does not count toward the minute
+  if(ufoPh===UFOP.OFF){
+    if(running&&dayT>=UFO_NIGHT){ ufoDark+=dt; if(ufoDark>=UFO_WAIT)ufoStart(); }
+    else ufoDark=0;
+    if(!ufoDrips.length)return;
+  }
+  ufoT+=dt;
+  const sea=waveH(ufo.position.x,dist*WAVE_DRIFT+ufo.position.z,waveClock);
+  const half=ufo.userData.halfH;
+  const bm=ufo.userData.beam, pool=ufo.userData.pool;
+  if(ufoPh===UFOP.RISE){
+    // out of the water over two seconds, dripping the whole way and for a while after
+    const k=Math.min(1,ufoT/2.0);
+    ufo.position.y=sea-half+(half*2+7.5)*(k*k*(3-2*k));
+    ufo.position.z+=eff*dt*0.25;                 // it drifts with the world, slower than the sea
+    ufo.rotation.y+=dt*0.5;
+    if(ufoT<0.12)splash(ufo.position.x,sea,ufo.position.z,26,0x9fe8ff);
+    if(Math.random()<dt*26&&ufoT<4.5)
+      ufoDrip(ufo.position.x+(Math.random()-0.5)*UFO_SCALE*0.8,
+              ufo.position.y-half*0.5, ufo.position.z+(Math.random()-0.5)*UFO_SCALE*0.8);
+    if(ufoT>=2.2){ ufoPh=UFOP.BEAM; ufoT=0; }
+  } else if(ufoPh===UFOP.BEAM){
+    // it comes and stands over him, and the beam opens as it arrives
+    ufo.position.x+=(px-ufo.position.x)*Math.min(1,dt*1.3);
+    ufo.position.z+=(pz-6-ufo.position.z)*Math.min(1,dt*1.3);
+    ufo.position.y+=((sea+11.5)-ufo.position.y)*Math.min(1,dt*1.6);
+    ufo.rotation.y+=dt*0.32;
+    if(Math.random()<dt*8&&ufoT<2.5)
+      ufoDrip(ufo.position.x+(Math.random()-0.5)*UFO_SCALE*0.7,
+              ufo.position.y-half*0.5, ufo.position.z+(Math.random()-0.5)*UFO_SCALE*0.7);
+    const k=Math.min(1,ufoT/1.4);
+    ufoBeamTo(sea,k);
+    if(ufoT>1.5&&Math.abs(ufo.position.x-px)<2.2){ ufoPh=UFOP.LIFT; ufoT=0; ufoRiderY=py; ufoGrab=1; }
+  } else if(ufoPh===UFOP.LIFT){
+    ufo.position.x+=(px-ufo.position.x)*Math.min(1,dt*0.8);
+    ufo.rotation.y+=dt*0.28;
+    ufoBeamTo(sea,1);
+    if(ufoT>=2.6){ ufoPh=UFOP.LEAVE; ufoT=0; ufoGrab=0;
+      ufoSwap=ufoPickChar();
+      if(ufoSwap){ equipChar(ufoSwap); saveGame(); }
+      splash(px,py,pz,30,0x9fe8ff);
+      if(typeof msg==='function')msg('ABDUCTED! 🛸');
+    }
+  } else if(ufoPh===UFOP.LEAVE){
+    ufo.position.y+=dt*(6+ufoT*14);
+    ufo.rotation.y+=dt*(0.8+ufoT*1.6);
+    ufoBeamTo(sea,Math.max(0,1-ufoT/0.6));
+    if(ufoT>3.2)ufoReset();
+  }
+  for(let i=ufoDrips.length-1;i>=0;i--){
+    const d=ufoDrips[i]; d.t+=dt; d.vy-=32.2*dt*0.5;
+    d.m.position.y+=d.vy*dt; d.m.position.z+=eff*dt;
+    const w=waveH(d.m.position.x,dist*WAVE_DRIFT+d.m.position.z,waveClock);
+    if(d.m.position.y<=w||d.t>4){ scene.remove(d.m); ufoDrips.splice(i,1); }
+  }
+}
+// The beam is a cone whose LENGTH is however far it is from the hull to the water, worked out
+// every frame, because both ends move: the saucer bobs and the sea does too. Drawn from the
+// emitter under the hull rather than from the middle of the model.
+function ufoBeamTo(sea,k){
+  const bm=ufo.userData.beam, pool=ufo.userData.pool, half=ufo.userData.halfH;
+  const top=-half*0.92;
+  const len=Math.max(0.5,ufo.position.y+top-sea);
+  bm.scale.set(UFO_SCALE*0.30*(0.55+k*0.45), len, UFO_SCALE*0.30*(0.55+k*0.45));
+  bm.position.y=top-len*0.5;
+  // a slow throb, so it reads as something running rather than a painted cone
+  bm.material.opacity=k*(0.30+0.07*Math.sin(ufoT*7.0));
+  pool.position.y=top-len+0.05;
+  pool.scale.setScalar(UFO_SCALE*0.30*(0.55+k*0.45)*(1+0.05*Math.sin(ufoT*5.0)));
+  pool.material.opacity=k*(0.34+0.10*Math.sin(ufoT*5.0));
+  if(ufoLight){ ufoLight.position.y=top-len*0.35; ufoLight.intensity=k*7.0; }
+}
 function updateStars(dt,eff){
   splatCd=Math.max(0,splatCd-dt);
   for(let i=stars.length-1;i>=0;i--){
@@ -23418,6 +23608,18 @@ function update(dt){
     const inX=-swS*Math.sin(swAng), inY=Math.cos(swAng);
     player.position.set(px+inX*lift,py+inY*lift,pz);
   } else player.position.set(px,py+lift,pz);
+  // ---- and while the beam has him, he goes UP ----
+  // Applied after the ride has placed him rather than instead of it: he is still surfing
+  // underneath, so the board still sits on the water it is on and he still steers — he is
+  // simply not on it any more. Turning slowly on the way, because nothing rises out of a
+  // beam facing the way it was.
+  if(ufoGrab&&ufo&&ufo.visible){
+    const rise=Math.min(1,ufoT/2.6);
+    const e=rise*rise*(3-2*rise);
+    player.position.y=py+lift+e*Math.max(0,(ufo.position.y-ufo.userData.halfH*1.05)-(py+lift));
+    player.rotation.y+=dt*2.2*e;
+    player.position.x+=(ufo.position.x-player.position.x)*Math.min(1,dt*2.0*e);
+  }
   // it lies along the water it is resting on, plus whatever the rider's weight adds
   // On the ring the board lies on the wall it is riding, not on the height field: the hull
   // samples that gave it its pitch are all taken from the flat sea underneath, which up in
@@ -23852,6 +24054,7 @@ function update(dt){
   updateStars(dt,eff);
   updateSplat(dt);
   updateDayCycle();
+  updateUfo(dt,eff);
 
   // stage sets the range; sets roll through it so you get small, medium, large and
   // the occasional extra-large — and the whole range climbs the further you get

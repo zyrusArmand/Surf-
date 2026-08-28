@@ -106,8 +106,35 @@ for (const mesh of root.listMeshes()) {
       want * 3, 0.04, []
     )[0];
 
+    // ---- AND THE VERTICES NOTHING POINTS AT ARE THROWN AWAY ----
+    // simplify() returns a shorter index list and nothing else: every vertex the original
+    // mesh had is still sitting in the attribute buffers, referenced or not, and prune() does
+    // not look inside a primitive. A UFO came out of here at 157k triangles carrying 695,007
+    // vertices — a clean mesh of that size has about 78,000 — and at 48 bytes a vertex those
+    // orphans WERE the file: 34MB of a 35MB output. The triangle count said the decimation had
+    // worked and the file size said it had not, and only the second one is what downloads.
+    // So the surviving indices are renumbered onto a compacted set of vertices, and every
+    // attribute is rebuilt to match.
+    const used = new Map();
+    const packed = new Uint32Array(out.length);
+    for (let i = 0; i < out.length; i++) {
+      const v = out[i];
+      let n = used.get(v);
+      if (n === undefined) { n = used.size; used.set(v, n); }
+      packed[i] = n;
+    }
+    const order = new Uint32Array(used.size);
+    for (const [oldI, newI] of used) order[newI] = oldI;
+    for (const name of prim.listSemantics()) {
+      const acc = prim.getAttribute(name);
+      const src = acc.getArray(), n = acc.getElementSize();
+      const dst = new src.constructor(used.size * n);
+      for (let i = 0; i < order.length; i++)
+        for (let k = 0; k < n; k++) dst[i * n + k] = src[order[i] * n + k];
+      acc.setArray(dst);
+    }
     const ixNew = doc.createAccessor().setType('SCALAR')
-      .setArray(m > 65535 ? new Uint32Array(out) : new Uint16Array(out));
+      .setArray(used.size > 65535 ? new Uint32Array(packed) : new Uint16Array(packed));
     prim.setIndices(ixNew);
   }
 }
