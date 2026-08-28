@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.30.0';
+window.SURF_VERSION='5.31.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -805,9 +805,19 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   #crateOv h2 { font-size:min(9vw,40px); color:#ffdf2e; margin:0;
                 text-shadow:0 3px 0 rgba(64,36,7,.55); }
   #crateOv .hint { color:#dff1fb; font-size:min(4.4vw,17px); opacity:.9; }
-  #crateReward .big { font-size:min(11vw,44px); color:#ffdf2e; font-weight:800;
-                      text-shadow:0 3px 0 rgba(64,36,7,.5); }
-  #crateReward .sub { color:#eaf6ff; margin-top:6px; font-size:min(4.6vw,18px); }
+  /* A little card sitting on the open chest rather than a line of type at the foot of the
+     screen. Fixed and centred on its own point, because the point is projected from the
+     chest every frame and the element has to hang off it by its middle. */
+  #crateReward { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+                 padding:7px 15px 8px; border-radius:14px; white-space:nowrap;
+                 background:rgba(6,20,34,.60);
+                 -webkit-backdrop-filter:blur(3px); backdrop-filter:blur(3px);
+                 border:1px solid rgba(255,223,46,.34);
+                 box-shadow:0 6px 20px rgba(0,20,40,.45);
+                 pointer-events:none; z-index:3; }
+  #crateReward .big { font-size:min(7.4vw,30px); color:#ffdf2e; font-weight:800;
+                      text-shadow:0 2px 0 rgba(64,36,7,.5); line-height:1.15; }
+  #crateReward .sub { color:#eaf6ff; margin-top:3px; font-size:min(3.4vw,13px); opacity:.92; }
   #crateReward.hidden { display:none; }
   #playRow .go { margin-top:0; }
   #playRow #startBtn { width:auto; flex:1 1 auto; }
@@ -15474,12 +15484,21 @@ function crateCeremonyEnd(){
 function crateCarryOn(){ crateCeremonyEnd(); overlay.classList.remove('hidden'); }
 // Runs every frame from the main loop, whatever state the game is in: the chest floats in
 // front of the camera, so the shot the crash held is the shot the ceremony plays in.
+// How the ceremony chest is framed. Scale over distance is what decides its size on screen,
+// so both are here and both matter: bringing the scale down alone leaves it in your face,
+// pushing it back alone leaves it small in a big empty frame.
+let CH_DIST=5.6;      // feet in front of the lens
+let CH_SC=1.18;       // and how big it stands there
+let CH_DROP=1.30;     // how far under the eyeline, at the distance it was set at
+let CH_GLOW=0.16;     // the light off the treasure inside, at the lid's widest
 const _chD=new THREE.Vector3();
 function placeCeremonyChest(dt){
   if(!crateShow)return;
   camera.getWorldDirection(_chD);
-  ceremonyChest.position.copy(camera.position).addScaledVector(_chD,4.9);
-  ceremonyChest.position.y-=1.3;
+  ceremonyChest.position.copy(camera.position).addScaledVector(_chD,CH_DIST);
+  // scaled with the distance, so pushing the chest back does not also walk it up the frame:
+  // a drop in feet subtends a smaller angle the further away it is
+  ceremonyChest.position.y-=CH_DROP*(CH_DIST/4.9);
   crateShakeE=Math.max(0,crateShakeE-dt*2.2);
   // Spins while it is being tapped; the moment it opens it turns TO FACE the camera —
   // lock toward you, hinge behind — so the lid swings away and you look into the box.
@@ -15500,12 +15519,13 @@ function placeCeremonyChest(dt){
     (Math.random()-0.5)*0.16*crateShakeE,
     crateSpin,
     (Math.random()-0.5)*0.16*crateShakeE);
-  // Bigger than it was. This is the one moment in the game a chest is the subject rather than
-  // a thing in the water, and at the old size it sat in the middle of the screen with a third
-  // of the frame of empty sea around it.
-  // Bigger again. This is the subject of the whole screen for a few seconds and it was
-  // sitting in the middle of the frame with sea all round it.
-  const sc=1.52*(1+0.06*crateShakeE);
+  // ---- and then too big, which is the other end of the same argument ----
+  // It was taken up twice for filling too little of the frame, and went past it: at 1.52 five
+  // feet out it ran off both edges and there was nowhere left for the sea, the sun or the
+  // horizon it is floating over. What decides the size on screen is scale OVER distance, and
+  // both are moved here rather than only the scale — pushed back as well as brought in, which
+  // is what puts the room back around it. 1.18 at 5.6 is about two thirds of what it was.
+  const sc=CH_SC*(1+0.06*crateShakeE);
   ceremonyChest.scale.setScalar(sc);
   if(crateOpened)crateLid=Math.min(1,crateLid+dt*1.5);
   const e=crateLid*crateLid*(3-2*crateLid);
@@ -15520,8 +15540,36 @@ function placeCeremonyChest(dt){
   // because the treasure lighting the inside of the box is the whole picture, but it is kept
   // INSIDE it rather than grown past the lid.
   ceremonyChest.userData.halo.visible=false;
-  ceremonyChest.userData.inner.material.opacity=e*0.55;
-  ceremonyChest.userData.inner.scale.setScalar(0.85+e*0.55);
+  // ---- and the inner glow is turned right down ----
+  // At 0.55, grown to 1.4 times the box, it was a pale wash lying over the treasure and
+  // spilling past the lid — the same "light thing around it" that has been taken off the
+  // board and the rider. The treasure lighting the inside of the box is still wanted, so it
+  // is not removed: it is dimmed to a suggestion and kept INSIDE the chest, where the light
+  // from a box of shells would actually be.
+  ceremonyChest.userData.inner.material.opacity=e*CH_GLOW;
+  ceremonyChest.userData.inner.scale.setScalar(0.80+e*0.22);
+  placeCrateReward();
+}
+// ---- WHERE THE REWARD IS SHOWN ----
+// It used to sit at the bottom of the screen, as far from the chest as the layout could put
+// it: you tap a box open in the middle of the frame and what came out of it is announced
+// down by the version number. It is pinned over the OPENING instead — projected from the
+// chest itself every frame, so it rides the float and the settle rather than being placed
+// once and left behind.
+// Taken off the box rather than off the origin, because the origin is wherever the model was
+// authored around and the mouth is not a fixed distance from it. 0.62 up the box is the lip.
+const _chBox=new THREE.Box3(), _chP=new THREE.Vector3();
+function placeCrateReward(){
+  // gated on the card being UP rather than on crateDone: the two are set together, and one
+  // of them is a flag this can be wrong about while the other is the thing on the screen
+  if(crateRewardEl.classList.contains('hidden'))return;
+  _chBox.setFromObject(ceremonyChest);
+  if(!isFinite(_chBox.min.y))return;
+  _chP.set(ceremonyChest.position.x,
+           _chBox.min.y+(_chBox.max.y-_chBox.min.y)*0.62,
+           ceremonyChest.position.z).project(camera);
+  crateRewardEl.style.left=((_chP.x*0.5+0.5)*innerWidth).toFixed(1)+'px';
+  crateRewardEl.style.top=((-_chP.y*0.5+0.5)*innerHeight).toFixed(1)+'px';
 }
 function crateRoll(){
   const lockedC=CHARS.filter(c=>!ownedChars[c.id]);
