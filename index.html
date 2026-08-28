@@ -6499,6 +6499,12 @@ const _hzRay=new THREE.Raycaster();
 function groundTopAt(x,z){
   _suRay.set(_suP.set(x,120,z), _suRay.ray.direction.set(0,-1,0));
   let best=null;
+  // the uncilled copy first — see sandQuery. It answers for the whole field however much of
+  // it the camera happens to be looking at this frame.
+  if(typeof sandQuery!=='undefined'&&sandQuery){
+    const h=_suRay.intersectObject(sandQuery,false)[0];
+    if(h)best=h.point.y;
+  }
   for(const o of [typeof sandField!=='undefined'?sandField:null,
                   typeof beachSand!=='undefined'?beachSand:null]){
     if(!o||!o.visible)continue;
@@ -6537,6 +6543,7 @@ function groundTopAt(x,z){
 // more room along the light's own up axis than their footprint suggests.
 let SH_K=1, SH_W=1, SH_T=2.2, SH_B=2.2;
 let sandGen=0;
+let sandQuery=null;   // the never-culled copy of the field that ground questions go to
 const _gtCache=new Map();
 function groundTopOver(x,z,r){
   // A MAP rather than one slot: the chest and the rider both ask, from different places and
@@ -6549,7 +6556,21 @@ function groundTopOver(x,z,r){
     const h=groundTopAt(x+dx*r, z+dz*r);
     if(h!==null&&(best===null||h>best))best=h;
   }
-  if(_gtCache.size>64)_gtCache.clear();
+  // ---- THE HIGHEST ANSWER THIS SPOT HAS EVER GIVEN ----
+  // sandField is an InstancedMesh whose count the frustum cull rewrites every frame, and a ray
+  // only hits the instances that are currently drawn. So the same question, at the same place,
+  // with the same sandGen, answers 3.601 on the frames the piece under it is kept and 3.189 on
+  // the frames it is culled — the tiled field, and the painted beach four tenths of a foot
+  // beneath it. Traced at one fixed spot, alternating for the whole session.
+  // The field lies OVER the beach, which is what it is for, so where the two disagree the
+  // higher one is the ground that is drawn. Keeping the highest reading makes the answer
+  // independent of which frame it was asked on. sandGen is in the key, so a rebuilt beach
+  // starts the reckoning again.
+  // The cache is also bigger. Clearing it wholesale at 64 was itself a source of the flicker:
+  // an evicted answer was re-taken on whatever frame asked next.
+  const prev=_gtCache.get(key);
+  if(prev!==undefined&&prev!==null&&best!==null)best=Math.max(prev,best);
+  if(_gtCache.size>512)_gtCache.clear();
   _gtCache.set(key,best);
   return best;
 }
@@ -6824,7 +6845,7 @@ function sandFieldBuild(){
   // 3.155 against ground at 3.602, which is exactly the gap between the painted beach and
   // the tiled field over it.
   if(sandField&&sandField.parent)sandField.parent.remove(sandField);
-  sandField=null;
+  sandField=null; sandQuery=null;
   if(!sandTile||!beachSandGroup||!beachSurfH){ sandGen++; return; }
   const geo=sandTile.geo, bb=geo.boundingBox||(geo.computeBoundingBox(),geo.boundingBox);
   // ---- and the spacing is PER AXIS, because the piece is not square ----
@@ -7067,6 +7088,22 @@ function sandFieldBuild(){
   // not tile the plane exactly, and the gaps between them at the edges of the field are the
   // beach itself — which is the same sand, painted rather than modelled, so nothing shows.
   beachSandGroup.add(sandField=mesh);
+  // ---- and a copy of it that is never culled, for asking where the ground is ----
+  // The drawn field is an InstancedMesh whose count the frustum cull rewrites every frame, and
+  // a ray only meets the instances that are currently drawn. So "how high is the sand here"
+  // answered 3.601 on the frames the piece under that spot was kept and 3.189 on the frames it
+  // was culled — the tiled field, and the painted beach four tenths of a foot beneath it — and
+  // the rider, seated on that answer, went up and down with it all session.
+  // This carries every piece, always, and is never rendered: it is not in the scene at all, so
+  // it costs a matrix array and nothing per frame. Questions go to it; the eye gets the culled
+  // one. Rebuilt with the field, so the two can never describe different beaches.
+  sandQuery=new THREE.InstancedMesh(mesh.geometry,mesh.material,i);
+  sandQuery.instanceMatrix.array.set(mesh.userData.allM);
+  sandQuery.instanceMatrix.needsUpdate=true;
+  sandQuery.frustumCulled=false;
+  beachSandGroup.updateMatrixWorld(true);
+  sandQuery.matrixWorld.copy(beachSandGroup.matrixWorld);
+  sandQuery.matrixWorldNeedsUpdate=false;
   // ...and only now does the generation move on, with the field standing.
   sandGen++;
 }
@@ -12560,12 +12597,42 @@ function setupModelRig(root,gltf,id){
       const _b0=this.skinBox&&this.skinBox();
       const _rr=_b0?Math.max(0.12,Math.min(1.0,(_b0.hi[0]-_b0.lo[0])*0.5)):0.3;
       const sd=(typeof sandUnder==='function')?sandUnder(pug,_rr):null;
-      if(sd!==null){ this.ground=sd; this.groundFromSand=true; this.groundGen=sandGen;
-                     this.groundX=_grP.x; this.groundZ=_grP.z; }
+      // ---- THE HIGHEST ANSWER THIS SPOT HAS EVER GIVEN, not the latest ----
+      // Traced frame by frame: at one fixed spot, with sandGen unchanged and the field
+      // present the whole time, sandUnder alternates between 3.601 and 3.189. That is the
+      // tiled field and the painted beach underneath it — groundTopAt takes the highest of
+      // whatever its ray HITS, and the field is an InstancedMesh whose count the frustum cull
+      // rewrites every frame, so on the frames its pieces are culled out of the ray's way the
+      // only thing left to hit is the beach, four tenths of a foot lower. Re-latching on those
+      // frames is what dropped him, and re-latching on the next frame is what put him back:
+      // 3.566, 3.156, 3.566 with nothing about the beach having changed.
+      // The field LIES OVER the beach — that is what it is for — so where the two disagree the
+      // higher one is the ground that is drawn. Keeping the highest reading this spot has
+      // given makes the answer independent of which frame it was asked on. It is reset the
+      // moment he moves or the sand is rebuilt, which are the two things that make a previous
+      // reading meaningless.
+      if(sd!==null){
+        const fresh=(!this.groundFromSand)||this.groundGen!==sandGen||_gMoved;
+        this.ground=fresh?sd:Math.max(this.ground===null?-Infinity:this.ground,sd);
+        this.groundFromSand=true; this.groundGen=sandGen;
+        this.groundX=_grP.x; this.groundZ=_grP.z;
+      }
       else if(this.ground===null){ const b0=this.skinBox&&this.skinBox();
                                    if(b0)this.ground=b0.lo[1]; }
     }
-    const hold=()=>{ const b=this.skinBox&&this.skinBox();
+    // ---- and it stands down when there is no beat to protect ----
+    // hold() exists so that lying down and the handstand cannot drive him through the ground:
+    // it forces his soles back to a height captured once, standing. Between beats there is
+    // nothing to protect him from, and on the title screen the menu ALREADY seats him on the
+    // sand every frame, over his own footprint, by the same rule the chest is set by.
+    // Both running is what made him move up and down. Traced: hold() reported "measured his
+    // foot at 3.155, moved him +0.446" on every frame and the next reading was 3.155 again —
+    // two owners, disagreeing by four tenths of a foot, and whichever ran last won the frame.
+    // The seating wins between beats, because it reads the ground that is actually drawn.
+    // Handing it the other way round was tried and floats him: with the seating switched off
+    // he settled 1.18ft over the sand, because the run's own deck-lift is still adding to him.
+    const hold=()=>{ if(this.step<0&&!MB_AUTOPLAY)return;
+                     const b=this.skinBox&&this.skinBox();
                      if(b&&this.ground!==null)pug.position.y+=this.ground-b.lo[1]; };
     // ---- and if you tap him twice, he comes and has a word about it ----
     // Three beats, and the whole of it is written here rather than as beats in SHOW because
@@ -21644,7 +21711,20 @@ if(location.hash.includes('debug')){
       return {up:true, id:rider,
               foot:+foot.toFixed(3),
               ground:g===null?null:+g.toFixed(3),
-              gap:g===null?null:+(foot-g).toFixed(3)};   // + floats, - buried
+              gap:g===null?null:+(foot-g).toFixed(3),   // + floats, - buried
+              // ---- and the state that DECIDES the foot, not just the foot ----
+              // Three rounds were spent reasoning about the gap without ever looking at the
+              // number the rider is actually held to. `ground` above is a fresh sample of the
+              // sand; `held` is what show() latched and forces him back to every frame. When
+              // those two disagree the gap moves and nothing about the sand has changed.
+              held:(R&&R.ground!==null&&R.ground!==undefined)?+R.ground.toFixed(3):null,
+              heldGen:R?R.groundGen:null, sandGen:(typeof sandGen!=='undefined')?sandGen:null,
+              field:(typeof sandField!=='undefined')&&!!sandField,
+              y:+pug.position.y.toFixed(3),
+              hg:R&&R._hg!==undefined?+R._hg.toFixed(3):null,
+              hlo:R&&R._hlo!==undefined?+R._hlo.toFixed(3):null,
+              hd:R&&R._hd!==undefined?+R._hd.toFixed(3):null,
+              hn:R?R._hn||0:0, hskip:R?R._hskip||0:0}
     },
     shadowBox(k,w,t,b){
       if(k!==undefined)SH_K=k; if(w!==undefined)SH_W=w;
@@ -26844,6 +26924,17 @@ function renderMenuBeach(dt){
       const _rg=(typeof riderRig==='function')?riderRig():null;
       const _sb=(_rg&&_rg.skinBox)?_rg.skinBox():null;
       const _rr=_sb?Math.max(0.12,Math.min(1.0,(_sb.hi[0]-_sb.lo[0])*0.5)):undefined;
+      // ---- ONE THING PUTS HIM AT A HEIGHT, AND IT IS THE RIG ----
+      // This seated him on a fresh sand sample every frame while the rig's own hold() was, in
+      // the same frame, forcing him back to the height it captured. Two owners, disagreeing by
+      // 0.446ft, and whichever ran last decided where he was drawn — which is the character
+      // moving up and down on the title screen. Traced: hold() reported "measured his foot at
+      // 3.155, moved him +0.446" on EVERY frame, and the next reading was 3.155 again.
+      // It is worse than a tie, because seatOnSand reads groundTopOver, whose answer flickers
+      // between the tiled field and the painted beach beneath it as the frustum cull rewrites
+      // the field's instance count. So one of the two owners was changing its mind as well.
+      // The rig wins: its height is captured once, against his own soles, and held. This stays
+      // as the fallback for a rider that has no rig to hold him.
       if(isFinite(bb.min.y)&&!seatOnSand(pug,0.012,_sb?_sb.lo[1]:undefined,_rr)){
         const gy=(typeof beachSandH==='function')
                    ? beachSandH(pug.position.z/MB_K)*MB_K
