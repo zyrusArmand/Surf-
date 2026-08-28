@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.29.0';
+window.SURF_VERSION='5.30.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -1888,7 +1888,19 @@ function fxInit(){
             float coc=d>0.0 ? clamp(d/(uRange*3.4),0.0,1.0)*0.34
                             : clamp(-d/uRange,0.0,1.0)*0.72;
             coc=coc*coc*(3.0-2.0*coc)/max(coc,1e-4)*coc;   // smootherstep, amplitude kept
-            c=mix(c,texture2D(tF,vUvF).rgb,coc);
+            // ---- AND IT NEVER BRIGHTENS ----
+            // tF is the whole frame blurred with no idea where anything is in depth, so at a
+            // silhouette it carries the FOREGROUND's colour out across the outline: a pale rim
+            // round the rider and down the edge of the board, worst while he moves, because
+            // the depth it is weighted by is half resolution and the mismatch shifts with him.
+            // A pixel is never brightened by something in front of it. Scaled rather than
+            // clamped per channel, so the hue of what is behind survives, and the softening
+            // itself is untouched — only the light bleeding the wrong way is.
+            vec3 bl=texture2D(tF,vUvF).rgb;
+            float lb=dot(bl,vec3(0.2126,0.7152,0.0722));
+            float lc=dot(c,vec3(0.2126,0.7152,0.0722));
+            if(lb>lc)bl*=(lc+0.015)/(lb+0.015);
+            c=mix(c,bl,coc);
           }
           c+=texture2D(tB,vUvF).rgb*uAmt;
           // ---- the grade, in LINEAR, which is the only place it belongs ----
@@ -19504,6 +19516,9 @@ if(location.hash.includes('debug')){
               col:sun.color.getHex(), inten:+sun.intensity.toFixed(2),
               ground:hemi.groundColor.getHex()}),
     dof(v){ MENU_DOF=v!==false; return MENU_DOF; },
+    // Hold the title screen absolutely still, so two frames differ ONLY by what was changed
+    // between them. Without this every A/B here is measuring the drift of the shot.
+    menuFreeze(v){ MB_FREEZE=v!==false; return MB_FREEZE; },
     // How far a frond tip travels, as a share of the tree's own height. Zero is a still day,
     // which is also how to check that what is moving in the crown is this and not the drift
     // of the shot.
@@ -20590,6 +20605,34 @@ if(location.hash.includes('debug')){
     // the numbers in the pose say has almost no bearing on where a hand ends up on a given
     // skeleton. This reports the gap in feet between each hand and the head, and the head's own
     // size, so "clear of his face" is a number that holds for every rider in the roster.
+// ---- how the half shells are actually LYING ----
+    // "Dome up or dome down, never on its cut edge" is a shape, and the shape is the box: a
+    // half coconut lying either way up is about twice as wide as it is tall, and one standing
+    // on its edge is as tall as it is wide. Reported per shell in WORLD feet, along with the
+    // model's own rest box — because whether rotateX(0) means "dome down" depends entirely on
+    // which way up the file was modelled, and nothing in the code that places them knows.
+    bowlState(){
+      if(typeof beachBowls==='undefined'||!beachBowls)return null;
+      const out=[];
+      for(const m of beachBowls){
+        if(!m||!m.visible)continue;
+        m.updateWorldMatrix(true,true);
+        const b=new THREE.Box3().setFromObject(m), sz=b.getSize(new THREE.Vector3());
+        const wide=Math.max(sz.x,sz.z);
+        out.push({w:+wide.toFixed(3), h:+sz.y.toFixed(3),
+                  flat:+(wide/Math.max(1e-4,sz.y)).toFixed(2),
+                  rx:+m.rotation.x.toFixed(2)});
+      }
+      // and the model in its own frame, unrotated, which is the thing that decides the rest
+      let rest=null;
+      if(beachBowls[0]){
+        const g=beachBowls[0].geometry;
+        if(g){ if(!g.boundingBox)g.computeBoundingBox();
+          const s2=g.boundingBox.getSize(new THREE.Vector3());
+          rest={x:+s2.x.toFixed(3), y:+s2.y.toFixed(3), z:+s2.z.toFixed(3)}; }
+      }
+      return {shells:out, restBox:rest};
+    },
     drownReach(){
       const R=(typeof riderRig==='function')?riderRig():null;
       if(!R||!R.bones)return null;
@@ -25873,8 +25916,16 @@ function layoutCoconuts(){
       // Turned about its own up FIRST and flipped after, so the flip is a flip of the shell
       // and not of the axes the tilt was measured in — the order is what keeps a "dome up"
       // shell from arriving on its side once a tilt is added.
+      // ---- AND THE MODEL'S OWN AXIS IS Z, NOT Y ----
+      // "Dome up or dome down" was already being chosen here, and shells still stood on their
+      // cut edge, because rotateX(0) means "however the file was modelled" and nothing in this
+      // code knew which way that was. Measured: the rest box is 0.99 x 1.00 x 0.68, so the two
+      // matching dimensions — the round cut face — are x and y, and the odd one is the DEPTH.
+      // The shell is modelled standing on its edge with its axis along z. So both of the ways
+      // up it could pick were edge-on, half a turn apart. A quarter turn about x first brings
+      // that axis upright, and the flip is a flip again.
       m.rotation.set(0,0,0);
-      m.rotateY(d.ty); m.rotateX(d.up+d.tx); m.rotateZ(d.tz);
+      m.rotateY(d.ty); m.rotateX(-Math.PI/2+d.up+d.tx); m.rotateZ(d.tz);
       // and then dropped onto the sand that is drawn, AFTER the tip — a tipped shell's box is
       // taller than a level one, so seating it first and turning it afterwards buries one lip
       seatOnSand(m,0.13);
@@ -26062,8 +26113,15 @@ function menuSettled(dt){
   if(same&&camStill)_mbHold++; else { _mbHold=0; _mbSig=now; _mbId=id; }
   return _mbHold>=MB_SHOW_HOLD||_mbWait>=MB_SHOW_CAP;
 }
+let MB_FREEZE=false;   // holds the shot still, so two frames differ only by what was toggled
 function renderMenuBeach(dt){
-  const m=menuBeach; m.t+=dt;
+  const m=menuBeach;
+  // Everything on this screen moves — the lens drifts, the rider breathes, the fronds blow —
+  // so two screenshots never differ by only the thing being tested. Comparing them was how
+  // "the bloom and the depth of field matter equally" got believed once; it was the scene
+  // animating between the shots. Stopping the clock makes the comparison mean something.
+  if(MB_FREEZE)dt=0;
+  m.t+=dt;
   // the palm's wind runs on the menu's own clock, which is real time now — see mdt
   if(typeof palmWindTick==='function')palmWindTick(m.t);
   if(!menuFaded&&menuSettled(dt)){
@@ -26524,7 +26582,8 @@ requestAnimationFrame(loop);
                 // to stop is how it came to look different every time instead.
                 if(mr.reset)mr.reset();
                 if(mr.idle)mr.idle(999); }
-              else if(mr.show)mr.show(mdt); else if(mr.idle)mr.idle(mdt); } }
+              else { const _fd=(typeof MB_FREEZE!=='undefined'&&MB_FREEZE)?0:mdt;
+                     if(mr.show)mr.show(_fd); else if(mr.idle)mr.idle(_fd); } } }
     updateDayCycle();
   }
   placeCeremonyChest(dt);
