@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.53.0';
+window.SURF_VERSION='5.54.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -16868,6 +16868,12 @@ const SKY_KEYS=[
 // is much less to look at in it -- a night as long as the day is a long time to ride in the
 // dark to see a sunrise.
 const DAY_M=5600, NIGHT_M=3400, CYCLE_M=DAY_M+NIGHT_M;
+// ...and it does not start at phase nought, which is BEFORE dawn: the first key has the sun a
+// fifth of the way under the horizon. That never showed while the daylight floor was 0.62,
+// because everything was lit like an overcast afternoon whatever the sky said. With a real
+// night behind it, phase nought is genuinely dark and every run would open in it. An eighth of
+// a day in, the sun is up and climbing, which is where a surf film starts.
+const DAY_START=0.18;
 const skyLayer=new THREE.Group();scene.add(skyLayer);
 // The sun is a sky element only: three additive shells over a bright core. No light in
 // the scene is touched.
@@ -16946,10 +16952,13 @@ const moon=new THREE.Mesh(new THREE.SphereGeometry(3.4,18,14),
 moon.renderOrder=8;skyLayer.add(moon);
 // A soft halo, so it is a moon rather than a white circle stuck on the sky. NOT clipped at the
 // horizon -- a moon just under it still lights the haze, exactly as the sun's glow does.
-const moonGlow=new THREE.Mesh(new THREE.SphereGeometry(7.6,18,14),
-  new THREE.MeshBasicMaterial({color:0xbfd0f0,transparent:true,opacity:0,
-    blending:THREE.AdditiveBlending,depthWrite:false}));
-moonGlow.renderOrder=7;skyLayer.add(moonGlow);
+// ---- AND IT IS A FALLOFF, NOT A BALL ----
+// The first one was an additive sphere, which is a solid grey disc with a hard edge: two
+// circles, one inside the other, and no glow anywhere. A halo is a gradient and nothing else,
+// so it is the same shell the sun uses -- a quad with the falloff in its shader.
+const moonGlow=sunShell(46,0.42,7,2.2);
+moonGlow.material.uniforms.uColor.value.setHex(0xbcd0f4);
+moonGlow.material.uniforms.uOpacity.value=0;
 // The disc is painted beyond the far edge of the ocean, so there is no water out
 // there to hide it once it is down. Cut it at sea level instead: it then rises out
 // of the horizon and sinks back into it properly. The glow is deliberately not cut —
@@ -16983,7 +16992,7 @@ function updateDayCycle(){
   // anywhere afterwards. A phase that WRAPS is the whole of the night cycle -- 0 to 1 across
   // the day, 1 to 2 across the night, and then back to 0, where the sky table's last key is a
   // copy of its first so nothing jumps.
-  const dc=((dist%CYCLE_M)+CYCLE_M)%CYCLE_M;
+  const dc=(((dist+DAY_START*DAY_M)%CYCLE_M)+CYCLE_M)%CYCLE_M;
   const tod=dayForce>=0?dayForce:(dc<DAY_M?dc/DAY_M:1+(dc-DAY_M)/NIGHT_M);
   dayT=tod;                         // where in the whole cycle we are, 0..2
   let i=0;while(i<SKY_KEYS.length-2&&tod>SKY_KEYS[i+1].t)i++;
@@ -16994,6 +17003,9 @@ function updateDayCycle(){
   lerpHex(A.hz,B.hz,k,skyUniforms.uHorizon.value);
   lerpHex(A.glow,B.glow,k,skyUniforms.uGlow.value);
   const sxn=A.sunX+(B.sunX-A.sunX)*k, sy=A.sunY+(B.sunY-A.sunY)*k;
+  // how much of the sun is actually on the scene, 0 to 1. Wanted in two places now -- the
+  // clouds and the lights -- and worked out once so they cannot disagree.
+  const lit=Math.max(0,Math.min(1,sy*2.6));
   skyUniforms.uSunX.value=sxn;
   const gAmt=A.gAmt+(B.gAmt-A.gAmt)*k;
   skyUniforms.uGlowAmt.value=gAmt;
@@ -17068,7 +17080,10 @@ function updateDayCycle(){
     const dx=(c.position.x-sxn*130)/150, dy=(c.position.y-sunY)/150;
     const nearSun=Math.max(0,1-Math.sqrt(dx*dx+dy*dy)*0.85);
     _cB.copy(_cA).lerp(_cSunLine,nearSun*nearSun*0.75);
-    c.material.color.copy(_cB);
+    // ...and then dimmed by how much light there is to catch. A cloud is a lit surface, and
+    // these stayed white through the whole night -- the sky went black behind a ceiling of
+    // daylit cumulus, which is the one thing in the frame that said none of this is real.
+    c.material.color.copy(_cB).multiplyScalar(0.10+0.90*lit);
   }
   // The underside light, which only exists while the sun is low enough to be under the cloud
   // base. Off at midday, because a cloud lit from below at noon is a cloud on fire.
@@ -17090,9 +17105,7 @@ function updateDayCycle(){
   const moonUp=Math.max(0,Math.min(1,(my+0.02)/0.14));
   moon.material.opacity=moonUp*0.92;
   moonGlow.position.set(mx*130,moonY,-206);
-  moonGlow.material.opacity=moonUp*0.30;
-  const sc=1+moonUp*0.06;
-  moonGlow.scale.set(sc,sc,sc);
+  moonGlow.material.uniforms.uOpacity.value=moonUp*0.55;
 
   // How much light is actually falling, which is a different thing from tinting: no
   // colour anywhere is touched, there is simply less of it at either end of the day.
@@ -17101,12 +17114,12 @@ function updateDayCycle(){
   // stopped at dusk. Held at 0.62 through a real night the sea is a grey evening that never
   // ends. What stops it going to nothing is the MOON, which is a light rather than a colour and
   // gets one of its own below.
-  const daylight=0.14+0.86*Math.max(0,Math.min(1,sy*2.6));
+  const daylight=0.14+0.86*lit;
   sun.intensity=SUN_I*daylight;
-  moonLight.intensity=MOON_I*moonUp*(1-Math.max(0,Math.min(1,sy*3.0)));
+  moonLight.intensity=MOON_I*moonUp*(1-lit);
   moonLight.position.set(mx*60,Math.max(6,my*60),-40);
   hemi.intensity=HEMI_I*(0.24+0.76*daylight+0.20*moonUp);
-  oceanUniforms.uLight.value=0.18+0.82*Math.max(0,Math.min(1,sy*2.6))+0.22*moonUp;
+  oceanUniforms.uLight.value=0.18+0.82*lit+0.22*moonUp*(1-lit);
   // the barrel roof is the same water, so it takes the same daylight and the same sky
   curlUniforms.uLight.value=oceanUniforms.uLight.value;
   curlUniforms.uSky.value.copy(oceanUniforms.uSky.value);
