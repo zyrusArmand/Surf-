@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.37.0';
+window.SURF_VERSION='5.38.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -13378,6 +13378,96 @@ let trailT=0;
 // Scaled by the rider's own size at the moment it is laid down, not at the moment it is
 // drawn: a shrunken surfer leaving a full-width wake reads as a toy towed behind a boat,
 // and the trail the last full-size second put down should stay the width it was.
+// ---------- the wash the board throws, as cloud rather than ribbon ----------
+// The wake already on the water is a flat strip: correct for the sheet of white that lies
+// BEHIND a board, wrong for the boil that piles up off the tail, which has body to it. This
+// is that boil — soft round puffs shed at the tail, growing as they fall away toward the
+// camera, so the trail is narrow where it leaves the board and widest at the bottom of the
+// screen. Which is the shape the eye already expects from the wake, and the reason it reads
+// as depth rather than as a shape drawn on the water.
+// BILLBOARDS, not spheres. A sphere of foam is a ball with a terminator on it and reads as a
+// pebble; what makes spray look like spray is a soft edge with nothing solid in it, and that
+// is a sprite with a radial falloff. The volume comes from the NUMBER of them and from their
+// being shed at slightly different depths, not from each one being a solid.
+// Dense enough that they OVERLAP. At one every thirty milliseconds the trail came out as a
+// row of separate blobs behind the board — the shape was right and it did not read as cloud,
+// because a cloud is what you get when the puffs run into each other.
+const PUFF_N=170;                 // the pool, which is also the longest the trail can be
+const PUFF_LIFE=1.55;             // seconds from the tail to gone
+const PUFF_R0=0.34, PUFF_R1=2.85; // feet across, at the tail and at the end
+let puffs=[], puffPool=[], puffT=0, puffTex=null;
+function puffTexture(){
+  if(puffTex)return puffTex;
+  const S=64, c=document.createElement('canvas'); c.width=c.height=S;
+  const x=c.getContext('2d');
+  // Soft to the edge and never quite reaching it. A gradient that ends at the border leaves a
+  // visible square corner wherever two puffs overlap, which is the tell that turns a cloud
+  // back into a stack of cards.
+  const g=x.createRadialGradient(S/2,S/2,0,S/2,S/2,S/2);
+  g.addColorStop(0.00,'rgba(255,255,255,0.95)');
+  g.addColorStop(0.35,'rgba(255,255,255,0.55)');
+  g.addColorStop(0.70,'rgba(236,248,255,0.16)');
+  g.addColorStop(1.00,'rgba(236,248,255,0)');
+  x.fillStyle=g; x.fillRect(0,0,S,S);
+  puffTex=new THREE.CanvasTexture(c);
+  if(THREE.sRGBEncoding)puffTex.encoding=THREE.sRGBEncoding;
+  return puffTex;
+}
+function puffGet(){
+  if(puffPool.length)return puffPool.pop();
+  const m=new THREE.Sprite(new THREE.SpriteMaterial({map:puffTexture(),transparent:true,
+    depthWrite:false, opacity:0, color:0xffffff}));
+  m.renderOrder=2;
+  scene.add(m);
+  return m;
+}
+// x,z where the tail is, w how hard he is working the board
+function pushPuff(x,y,z,w){
+  if(puffs.length>=PUFF_N)return;
+  const m=puffGet();
+  m.visible=true;
+  // shed a little either side of the stringer rather than all down one line, and at its own
+  // depth, so the trail has thickness across as well as along
+  const side=(Math.random()-0.5)*0.85*w;
+  puffs.push({m, x:x+side, y, z:z+(Math.random()-0.5)*0.5, age:0,
+              // the wash spreads as it goes and drifts up off the water a little
+              vx:side*0.55+(Math.random()-0.5)*0.30, vy:0.22+Math.random()*0.35,
+              w:0.62+Math.random()*0.55, rot:(Math.random()-0.5)*1.2,
+              spin:(Math.random()-0.5)*0.9});
+}
+function puffClear(){
+  for(const p of puffs){ p.m.visible=false; p.m.material.opacity=0; puffPool.push(p.m); }
+  puffs.length=0; puffT=0;
+}
+function updatePuffs(dt,eff){
+  for(let i=puffs.length-1;i>=0;i--){
+    const p=puffs[i];
+    p.age+=dt;
+    const k=p.age/PUFF_LIFE;
+    if(k>=1){ p.m.visible=false; p.m.material.opacity=0; puffPool.push(p.m); puffs.splice(i,1); continue; }
+    p.x+=p.vx*dt; p.z+=eff*dt; p.y+=p.vy*dt;
+    p.vy*=(1-Math.min(1,dt*1.4));           // it rises and settles rather than climbing away
+    // ...and it rides the swell it is lying on, like the ribbon does
+    const sea=waveH(p.x,dist*WAVE_DRIFT+p.z,waveClock);
+    // ---- and it sits ON the water, which is HIGHER than the height field says ----
+    // waveH is the long swell with the chop left out, and the drawn ocean carries that chop on
+    // top of it — the same gap that had the octopus riding with its head under the surface. A
+    // puff pinned to waveH plus a few inches spends its life inside the water it is supposed to
+    // be sitting on, which is exactly as visible as not drawing it. Held well clear instead,
+    // and rising, because foam thrown off a tail is above the surface, not on it.
+    p.m.position.set(p.x, Math.max(sea+0.34, p.y), p.z);
+    // GROWING the whole way, which is the half of this that was asked for: small at the tail,
+    // biggest by the time it is at the bottom of the screen.
+    const r=(PUFF_R0+(PUFF_R1-PUFF_R0)*k*k*(3-2*k))*p.w*(typeof cocoK!=='undefined'?cocoK:1);
+    p.m.scale.set(r,r,1);
+    p.m.material.rotation=p.rot+p.spin*p.age;
+    // up fast, out slow: a puff exists the moment the tail throws it and then thins away
+    // Up almost at once and then a long thin-out. The first version faded IN over a seventh of
+    // the life, which on a puff that only lives a second and a half means the part nearest the
+    // board — the part being looked at — was drawn at a tenth of its opacity.
+    p.m.material.opacity=0.92*Math.min(1,k*22)*(1-k)*(1-k*0.25);
+  }
+}
 function pushTrail(x,y,z,w){ trail.unshift({x,y,z,w:w*(typeof cocoK!=='undefined'?cocoK:1),age:0});
   if(trail.length>WAKE_SEGS)trail.pop(); }
 function updateWake(dt,eff){
@@ -15329,6 +15419,7 @@ function reset(){
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}}); rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null;
   handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;_freeze=false;
   if(typeof standDown==='function')standDown();   // arms down, whatever the run left
+  if(typeof puffClear==='function')puffClear();   // last run's wash does not follow him into this one
   switchRide=false;waveT=0;applyStance();
   onRampO=null;rampPitchT=0; }
   player.rotation.set(0,0,0);
@@ -19561,6 +19652,24 @@ if(location.hash.includes('debug')){
     // facing the other way and the board itself reversed — fins and paint where the spin put
     // them — so the check is on the board's own rotation, not on the flag that set it.
     wear(id){ ownedChars[id]=1; equipChar(id); saveGame(); return rider; },
+    // The wash off the tail, as a SHAPE: how many puffs are alive, and how wide the trail is
+    // at the board against how wide it is at the far end of its life. "Small at the tail and
+    // bigger toward the bottom of the screen" is that ratio, and nothing else says it.
+    puffState(){ if(typeof puffs==='undefined')return null;
+      if(!puffs.length)return {n:0};
+      let near=null, far=null, maxR=0, minR=9;
+      for(const p of puffs){ const r=p.m.scale.x;
+        if(r>maxR)maxR=r; if(r<minR)minR=r;
+        if(near===null||p.age<near.age)near=p;
+        if(far===null||p.age>far.age)far=p; }
+      return {n:puffs.length,
+              atTail:+near.m.scale.x.toFixed(2), atEnd:+far.m.scale.x.toFixed(2),
+              grows:+(far.m.scale.x/Math.max(1e-3,near.m.scale.x)).toFixed(2),
+              smallest:+minR.toFixed(2), biggest:+maxR.toFixed(2),
+              spanZ:+(far.z-near.z).toFixed(2),
+              tailOpacity:+near.m.material.opacity.toFixed(2),
+              endOpacity:+far.m.material.opacity.toFixed(2)};
+    },
     // ---- the visitor, for measuring ----
     // Starts the sequence from the top wherever the run currently is, and reports what phase
     // it is in and where the saucer and the beam have got to, so "does it come out of the
@@ -23671,6 +23780,16 @@ function update(dt){
     // water piles up on the inside rail of the turn and peels off the outside — no discs
     trailT-=dt;
     if(trailT<=0){trailT=0.026;pushTrail(px,waterY,0.9,(0.30+Math.abs(carve)*0.52)*BS.wake);}
+    // ...and the boil off the tail, at its own rate. Harder into a carve throws more of it,
+    // which is the one thing that makes a wash read as coming off a board being worked rather
+    // than as an emitter following him about.
+    puffT-=dt;
+    if(puffT<=0){ puffT=0.018;
+      const hard=0.55+Math.abs(carve)*0.85;
+      pushPuff(px,waterY+0.30,1.35,hard*BS.wake);
+      pushPuff(px,waterY+0.22,1.62,hard*BS.wake*0.85);
+      if(Math.abs(carve)>0.35)pushPuff(px,waterY+0.40,1.15,hard*BS.wake);
+    }
   }
 
   // THE glitter. One drop, fourteen times a second, a foot and a half behind the board, for
@@ -24052,6 +24171,7 @@ function update(dt){
   updateCocos(dt,eff);
   updateWhirl(dt,eff);
   updateStars(dt,eff);
+  updatePuffs(dt,eff);
   updateSplat(dt);
   updateDayCycle();
   updateUfo(dt,eff);
