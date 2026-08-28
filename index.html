@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.51.0';
+window.SURF_VERSION='5.52.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -4206,12 +4206,22 @@ function loadSave(){
     coins=Math.max(0,v.coins|0);
     owned=Object.assign({astro:1},v.owned||{});
     equipped=v.equipped||'astro';
-    // The abduction board was a bale of hay for one build. Anybody who was handed that one
-    // gets this one instead, rather than silently falling back to the board they started on.
-    if(owned.haybale){ delete owned.haybale; owned.cattleclass=1; }
-    if(equipped==='haybale')equipped='cattleclass';
+    // ---- AND THE BORROWED PAIR IS SCRUBBED OUT OF ANY SAVE THAT HAS THEM ----
+    // For two builds the abduction handed the cow and her board over for keeps, first as a bale
+    // of hay and then as Cattle Class. Both are borrowed now, so a save carrying either is a
+    // save from before the rule existed: the ownership goes, and anybody left standing on one
+    // is put back on the board and the character they started with rather than stranded on
+    // something that no longer appears in the shop.
+    // ...by NAME rather than by asking the tables, and after the two fields exist. This runs
+    // during boot, thousands of lines before CHAR_BY_ID is declared -- reading it here is a
+    // temporal dead zone throw that takes the whole game down on first load, which is a trade
+    // nobody should make for a tidier condition.
+    for(const id of ['haybale','cattleclass'])delete owned[id];
+    if(equipped==='haybale'||equipped==='cattleclass')equipped='astro';
     ownedChars=Object.assign({pug:1},v.ownedChars||{});
     rider=v.rider||'pug';
+    delete ownedChars.cow;
+    if(rider==='cow')rider='pug';
     goals=Array.isArray(v.goals)?v.goals:null;
   }catch(e){}
   // Built RIGHT HERE, not lazily when the run card first draws one. goalEv() begins with
@@ -4221,7 +4231,15 @@ function loadSave(){
   ensureGoals();
 }
 function saveGame(){
-  try{localStorage.setItem(SAVE_KEY,JSON.stringify({coins,owned,equipped,ownedChars,rider,goals}));}catch(e){}
+  // ---- WHAT THE BEAM LENT YOU IS NEVER WRITTEN DOWN ----
+  // The cow and her board are borrowed for thirty-five seconds. Anything at all can call
+  // saveGame in that window -- a coin picked up, a goal ticked, a wipeout, the panel opening --
+  // and a single one of those would make the joke permanent. So the save does not ask what is
+  // equipped, it asks what you OWN: while the borrow is on, ufoWas holds the pair you were
+  // actually riding and that is what goes to disk.
+  const r=(typeof ufoWas!=='undefined'&&ufoWas)?ufoWas.rider:rider;
+  const b=(typeof ufoWas!=='undefined'&&ufoWas)?ufoWas.board:equipped;
+  try{localStorage.setItem(SAVE_KEY,JSON.stringify({coins,owned,equipped:b,ownedChars,rider:r,goals}));}catch(e){}
 }
 
 // ---------- telemetry ----------
@@ -4905,7 +4923,7 @@ const BOARDS=[
   // toward the tail and burns hardest along the rails, as though the thing overhead already
   // has half of it in the beam. Every edge on it is smoothstepped over a band, which is the
   // whole difference between a soft-edged blotch and a flight of stairs.
-  {id:'cattleclass', name:'Cattle Class', price:12000,
+  {id:'cattleclass', name:'Cattle Class', price:12000, hidden:true,
    blurb:"Nine foot of nothing anybody makes down here. Her own markings, lit from the inside.",
    spec:{L:9.20,W:1.020,T:0.288,noseA:0.365,tailA:0.753,noseW:0.050,tailW:0.480,
      rockN:0.375,noseR:0.300,rockT:0.125,tailR:0.220,deckPow:0.60,hullPow:0.44,hullK:0.60,
@@ -6020,7 +6038,13 @@ function showCoins(){
   if(ovCoins)ovCoins.textContent=t;
   if(shopCoins)shopCoins.innerHTML=t+'<i class="pk"></i>';
 }
-const RACK_ORDER=BOARDS.slice().sort((a,b)=>a.price-b.price);
+// ---- WHAT YOU CAN OWN, WHICH IS NOT EVERYTHING THAT EXISTS ----
+// The saucer's pair are marked hidden: they are a thing that HAPPENS to you for thirty-five
+// seconds, not a character and a board you have. Filtered here rather than at each of the six
+// places that list a roster, because "the shop, the rack, the guide, two counters and the
+// claim button" is exactly the kind of list that grows a seventh entry nobody updates.
+const VISIBLE_BOARDS=BOARDS.filter(b=>!b.hidden);
+const RACK_ORDER=VISIBLE_BOARDS.slice().sort((a,b)=>a.price-b.price);
 // ---------- shop previews ----------
 // Each item is photographed once through the renderer that is already running: put it
 // alone in a small scene, render into an off-screen target, read the pixels back and
@@ -8298,7 +8322,8 @@ let shopTab='boards';
 // the cast is declared with the rig, further down the file than the shop is, so this
 // cannot be built here — it is sorted the first time the Surfers tab is actually opened
 let CHAR_ORDER=null;
-function charOrder(){ if(!CHAR_ORDER)CHAR_ORDER=CHARS.slice().sort((a,b)=>a.price-b.price); return CHAR_ORDER; }
+const VISIBLE_CHARS=CHARS.filter(c=>!c.hidden);
+function charOrder(){ if(!CHAR_ORDER)CHAR_ORDER=VISIBLE_CHARS.slice().sort((a,b)=>a.price-b.price); return CHAR_ORDER; }
 function statBars(id){
   const v=boardStats(id);
   return '<div class="stats">'+STAT_KEYS.map(k=>
@@ -9167,8 +9192,8 @@ document.getElementById('dStats').onclick=()=>{
     (tricksLanded&&fav?row('Favourite trick',TRICK_NAME[fav]||fav):'')+
     (S.crates?row('Chests caught',n(S.crates)):'')+
     (S.closeCalls?row('Close calls shaved',n(S.closeCalls)):'')+
-    row('Boards owned',Object.keys(owned).length+' / '+BOARDS.length)+
-    row('Surfers owned',Object.keys(ownedChars).length+' / '+CHARS.length)+
+    row('Boards owned',Object.keys(owned).length+' / '+VISIBLE_BOARDS.length)+
+    row('Surfers owned',Object.keys(ownedChars).length+' / '+VISIBLE_CHARS.length)+
     (runs?'':'<div class="none">Nothing yet — go and surf.</div>');
   myPanel.classList.remove('hidden');
 };
@@ -9352,7 +9377,7 @@ function openStats(full){
   const cl=document.getElementById('stClaim');
   cl.style.display = full ? '' : 'none';
   if(full){
-    const left=BOARDS.filter(b=>!owned[b.id]).length;
+    const left=VISIBLE_BOARDS.filter(b=>!owned[b.id]).length;
     cl.textContent = left ? 'Claim '+left+' boards' : 'All boards owned';
     cl.disabled = !left;
   }
@@ -9404,8 +9429,8 @@ function openStats(full){
       row('Purse now',coins.toLocaleString())+
     `</div>`+
     `<div class="sec"><h3>Collection</h3>`+
-      meter('Boards owned',nB+' / '+BOARDS.length,nB/BOARDS.length)+
-      meter('Surfers owned',nC+' / '+CHARS.length,nC/CHARS.length)+
+      meter('Boards owned',nB+' / '+VISIBLE_BOARDS.length,nB/VISIBLE_BOARDS.length)+
+      meter('Surfers owned',nC+' / '+VISIBLE_CHARS.length,nC/VISIBLE_CHARS.length)+
       row('Riding',(BOARD_BY_ID[equipped]||{}).name+'  ·  '+(CHAR_BY_ID[rider]||{}).name)+
     `</div>`+
     `<div class="sec"><h3>Bought most recently</h3>`+recent+`</div>`;
@@ -10379,7 +10404,7 @@ const CHARS=[
   // The one the saucer hands you, and the only way to get her: see ufoPickChar. She is priced
   // above Zorp because being abducted is the price, and she is in the shop like everyone else
   // so the roster reads as one list rather than one list plus a secret.
-  {id:'cow', body:'barrel', name:'Moo the Cow',   price:15000,
+  {id:'cow', body:'barrel', name:'Moo the Cow',   price:15000, hidden:true,
    blurb:'Taken off a perfectly good wave by a saucer. Came back with the board and the markings.',
    // Holstein: white with the black over the back and the haunches, a pink muzzle, and the
    // long sideways ears a cow has instead of the pointed ones every other animal here wears.
@@ -22892,6 +22917,7 @@ function ufoRiderWorld(v){
 }
 function ufoReset(){
   ufoRiderDrop();
+  ufoGiveBack(true);
   ufoPh=UFOP.OFF; ufoT=0; ufoGrab=0; ufoSwap=null;
   for(const d of ufoDrips)scene.remove(d.m);
   ufoDrips.length=0;
@@ -22908,11 +22934,42 @@ function ufoReset(){
 // a cow is a story with one joke in it, and it only works if it is always the same joke.
 // She is handed over rather than sold: whatever else the beam does, you keep her.
 const UFO_CHAR='cow', UFO_BOARD='cattleclass';
-function ufoPickChar(){
-  if(!CHAR_BY_ID[UFO_CHAR])return null;
-  ownedChars[UFO_CHAR]=1;
+// ---- BORROWED, AND FOR THIRTY-FIVE SECONDS ----
+// Handing the pair over for keeps made an abduction into a permanent change of character, which
+// is a lot of consequence for something that happens TO you while you are busy surfing -- and
+// it put a joke in the shop next to eleven animals somebody saved up for. It is a costume now:
+// you are a cow with a flying saucer under your feet, and then you are yourself again.
+//
+// ufoWas is the whole mechanism. While it is set, the borrow is on: saveGame writes what is in
+// it rather than what is equipped, so nothing that happens in the window -- a coin, a goal, a
+// wipeout, the panel opening -- can write the costume to disk. Giving it back clears it.
+const UFO_KEEP=35;
+// var, and deliberately. ufoReset is on a path that runs during boot -- reset() calls it --
+// thousands of lines before this point, and a `let` read from up there is a temporal dead zone
+// throw that takes the whole game down on load. Hoisted it is undefined at that moment, which
+// is exactly the harmless answer: nothing is borrowed yet.
+var ufoWas=null, ufoHold=0;
+function ufoBorrow(){
+  if(ufoWas||!CHAR_BY_ID[UFO_CHAR]||!BOARD_BY_ID[UFO_BOARD])return null;
+  ufoWas={rider, board:equipped};
+  equipChar(UFO_CHAR); equipBoard(UFO_BOARD);
+  ufoHold=UFO_KEEP;
   return UFO_CHAR;
 }
+// Called from ufoReset, so it also runs on a wipeout, on going back to the menu and on the
+// start of the next abduction. There is no path out of the costume that does not go through
+// here, which is the point: "still not saved if you die in it" is not a special case, it is
+// the only case.
+function ufoGiveBack(quiet){
+  if(!ufoWas)return;
+  const was=ufoWas; ufoWas=null; ufoHold=0;
+  if(CHAR_BY_ID[was.rider])equipChar(was.rider);
+  if(BOARD_BY_ID[was.board])equipBoard(was.board);
+  // ...and it says so when it wears off mid-ride, because a character changing under you with
+  // no explanation is a bug. Silent when the run is ending anyway, where it would be noise.
+  if(!quiet&&typeof msg==='function')msg('THE SPELL WEARS OFF');
+}
+function ufoPickChar(){ return ufoBorrow(); }
 function ufoStart(){
   if(!ufo)return false;
   ufoReset();
@@ -22928,6 +22985,9 @@ function ufoStart(){
   return true;
 }
 function updateUfo(dt,eff){
+  // The costume has its own clock and it runs whatever else is happening -- the saucer has
+  // long gone by then, so this cannot live inside any of the phases below.
+  if(ufoWas){ ufoHold-=dt; if(ufoHold<=0)ufoGiveBack(); }
   if(!ufo)return;
   // the dark has to be continuous: dusk that slips back does not count toward the minute
   if(ufoPh===UFOP.OFF){
@@ -22978,15 +23038,13 @@ function updateUfo(dt,eff){
     ufoRiderWorld(_ufAim); _ufAim.y+=0.2;
     ufoBeamTo(sea,1,1,_ufAim);
     if(ufoT>=UFO_HOLD){ ufoPh=UFOP.LEAVE; ufoT=0; ufoGrab=0;
-      ufoSwap=ufoPickChar();
       // ---- AND SHE COMES BACK ON A DIFFERENT BOARD ----
       // The one she went up on is still up there as far as anybody watching is concerned: it
-      // went vertical into the light with her. What comes down is a cow on a bale of hay, which
-      // is the punchline the whole sequence has been building to, so the board is swapped in the
-      // same breath as the rider rather than left as whatever you happened to be riding.
-      if(ufoSwap){ equipChar(ufoSwap);
-                   if(BOARD_BY_ID[UFO_BOARD]){ owned[UFO_BOARD]=1; equipBoard(UFO_BOARD); }
-                   saveGame(); }
+      // went vertical into the light with her. What comes down is a cow on a flying saucer,
+      // which is the punchline the whole sequence has been building to, so the board is swapped
+      // in the same breath as the rider rather than left as whatever you happened to be riding.
+      // Both are BORROWED -- see ufoBorrow -- and nothing here saves.
+      ufoSwap=ufoBorrow();
       splash(px,py,pz,30,0x9fe8ff);
       if(typeof msg==='function')msg('ABDUCTED! 🛸');
     }
