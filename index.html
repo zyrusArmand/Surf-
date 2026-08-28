@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.54.0';
+window.SURF_VERSION='5.55.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -4929,15 +4929,17 @@ const BOARDS=[
   // Four foot six across, against a nine foot log: it should look like something that came off
   // the underside of that thing, not like a surfboard with a paint job.
   {id:'cattleclass', name:'Cattle Class', price:12000, hidden:true,
-   blurb:"A disc off the underside of the saucer. Rides like a dinner plate and glows like one too.",
+   blurb:"Panelled, wired and lit from the middle. Rides like a dinner plate, which it also is.",
    spec:{L:4.60,W:2.30,T:0.34,noseA:0.5,tailA:0.5,noseW:0,tailW:0,
      // no rocker at all -- a saucer is flat. The radii stay non-zero because the rocker curve
      // divides by them, and a nought there is a NaN through the whole mesh.
      rockN:0,noseR:0.30,rockT:0,tailR:0.30,
      // a lens rather than a plank: domed the same amount above and below
      deckPow:0.50,hullPow:0.50,hullK:0.86,thPow:0.60,
-     // and rings the whole way round, because on a disc there is no long axis to spend them on
-     nu:150,nr:96,
+     // and rings the whole way round, because on a disc there is no long axis to spend them on.
+     // Denser than any other board here: the paint is a machined panel with circuit traces
+     // across it, and a trace has to be a couple of vertices wide before it is a line at all.
+     nu:220,nr:128,
      // It goes and it does not turn, like anything with no rails and no fins. Air is high
      // because a disc is a wing.
      stat:{speed:7,turn:2,air:8,tough:9},
@@ -4945,54 +4947,85 @@ const BOARDS=[
      // NO FINS. A flying saucer does not have fins, and the one thing a disc cannot do is hold
      // a line -- which the turn rating already says.
      fins:[],
-     paint:artScheme({deck:0x140f22,hull:0x100c1c,rail:0x2bff9b,pin:0x0f2a1c,stringer:0x7cffc4,
-       sw:0,railAt:0.82,vivid:1.05,both:true,
+     paint:artScheme({deck:0x2f3742,hull:0x232a34,rail:0x93a5ba,pin:0x1b2028,stringer:0x7cffc4,
+       sw:0,railAt:0.94,vivid:1.02,both:true,
+       // ---- DRAWN IN POLAR, WHICH IS THE ONE THING THIS BOARD MAKES EASY ----
+       // Every other board here fights its own parameterisation: u and v are polar on a disc,
+       // and three attempts at painting a HIDE on this thing came out as spokes because of it.
+       // A saucer is the shape that wants them. Radius gives the rings, the plasma, the collar
+       // and the rim; angle gives the plates and the seams between them. Nothing here is a
+       // texture -- it is all bands and dashes of two numbers, which is exactly what survives
+       // being evaluated once per vertex.
        art:(c,u,v,top)=>{
-         const a=Math.abs(v);
-         // ---- THE LIGHT GOES ON FIRST, AND THE HIDE ON TOP OF IT ----
-         // Written the other way round, the glow was mixed OVER the black and lerped a near
-         // black marking most of the way to acid green: the blotches came out green, the rails
-         // came out green, and the board was a mint board with green splodges on it. A black
-         // marking is black in any light. So the wash lands first and the hide goes over it.
-         _mix(c,0x0b0716,0.55*_sm(0.46,0.00,u));       // deeper still out at the nose
-         _mix(c,0x1d5c4a,0.05+0.20*_sm(0.24,1.00,u));  // and the beam catching the tail
-         // the rim, and TIGHT to the rail. At half the board's width it was not a rim light,
-         // it was the board.
-         _mix(c,0x9dffd8,0.55*_sm(0.80,0.97,a));
-         // ---- HOLSTEIN, AND THE FREQUENCIES ARE THE WHOLE OF IT ----
-         // u and v both run nought to one. On the nine foot plank this started life as, equal
-         // frequency on the two made every feature nine times longer than it was wide, which is
-         // why three attempts at this came out as streaks down the deck. The board is ROUND
-         // now, so the honest ratio is one to one and the markings are round with it.
-         // ---- SAMPLED WHERE THE VERTEX ACTUALLY IS ----
-         // u and v are POLAR on a round board: v runs the full -1 to 1 across a half-width that
-         // shrinks to nothing at both poles, so noise sampled in uv comes out as spokes converging on
-         // the nose and the tail. It is the nine-foot-plank mistake again in polar dress. The outline
-         // is known right here -- the half-width is L*sqrt(u(1-u)) -- so where the vertex actually
-         // sits on the disc is two lines of arithmetic, and a blotch sampled there is round.
          const pz=u-0.5, px=Math.sqrt(Math.max(0,u*(1-u)))*v;
-         const n=_fbm(px*9.0+2.0,pz*9.0+7.0)+(_fbm(px*26.0,pz*26.0)-0.5)*0.12;
-         const blot=_sm(0.520,0.600,n);
-         // ---- AND THE MARKINGS ARE THE LIGHT, not the dark ----
-         // Black on white was a proper Holstein and it was the wrong one: SHE is a black and
-         // white Holstein, and a white cow with black patches standing on a white board with
-         // black patches is camouflage. Same markings, inverted into the other half of the
-         // idea -- they glow, harder the nearer the tail, as though whatever took her charged
-         // them on the way back. She is the only white thing in the picture, which is the job.
-         _mix(c,0x5bff92,blot*0.95);
-         _mix(c,0xe8fff0,blot*_sm(0.30,1.00,u)*0.55);
-         // and each one sits in a rim of deeper green, so a marking has an edge rather than
-         // stopping dead against the dark
-         _mix(c,0x093a2a,blot*(1-blot)*1.2);
-         // ---- AND THE RINGS ----
-         // A stringer down the middle of a disc reads as a surfboard part bolted onto a saucer, so
-         // there is none. Concentric ribs instead, which is what the underside of the thing that
-         // dropped this looks like, and the one graphic that only works on a round board.
-         const rr=Math.sqrt(px*px+pz*pz)*2;      // 0 in the middle, 1 at the rim
-         for(const at of [0.40,0.66,0.87]){
-         const d=Math.abs(rr-at);
-         if(d<0.038)_mix(c,0xbdffe4,(1-d/0.038)*0.55);
+         const r=Math.min(1,Math.sqrt(px*px+pz*pz)*2);      // 0 at the middle, 1 at the rim
+         const th=Math.atan2(px,pz), TAU=Math.PI*2;
+         const SEG=14;                                       // hull plates, all the way round
+         const seg=(th/TAU+0.5)*SEG, si=Math.floor(seg), sf=seg-si;
+
+         // ---- THE HULL, as plates rather than a colour ----
+         // Alternating tone plate to plate, with a warm one every so often, because a ring of
+         // identical panels is a ring and a ring of slightly different ones is machinery.
+         _mix(c,0x2f3742,1);
+         _mix(c,0x3d4757,(si%2)?0.55:0.0);
+         _mix(c,0x50423a,_hash(si*3.3,1.7)>0.66?0.40:0);
+         _mix(c,0x1b2028,Math.max(0,(r-0.62))*1.1);          // and it falls away toward the rim
+         // the seams between them, deep enough to read as a joint and not a pencil line
+         const seam=Math.min(sf,1-sf)*SEG;
+         if(r>0.30)_mix(c,0x0b0e14,Math.max(0,1-seam*1.25));
+
+         // ---- THE COLLAR the plasma sits in, with a lug on every plate ----
+         if(r>0.46&&r<0.545){
+           const t=(r-0.46)/0.085;
+           _mix(c,0xaebccc,Math.sin(Math.PI*t)*0.95);
+           if(Math.abs(sf-0.5)<0.14)_mix(c,0x1b2028,0.75);
          }
+
+         // ---- CIRCUITRY, and DASHED ----
+         // Four rings, each broken at its own rate: a continuous circle reads as a pinline and
+         // a broken one reads as a trace, and that is the whole difference. Plus a stub running
+         // outward from the middle of every plate, at a radius the plate picks for itself.
+         if(r>0.56&&r<0.90){
+           const rings=[[0.604,30,0.52],[0.678,44,0.40],[0.752,26,0.58],[0.830,52,0.34]];
+           for(const [at,n,duty] of rings){
+             const d=Math.abs(r-at);
+             if(d<0.012&&(((th/TAU+0.5)*n)%1)<duty)_mix(c,0x46eaff,(1-d/0.012)*0.95);
+           }
+           const tr=0.58+_hash(si*7.1,3.3)*0.26;
+           if(Math.abs(r-tr)<0.075&&Math.abs(sf-0.5)<0.055)_mix(c,0x46eaff,0.85);
+         }
+
+         // ---- THE PLASMA: a RING, not a disc ----
+         // Brightest along its own middle and out at both edges, with the intensity crawling
+         // round it -- a band of even violet is a painted stripe, and what makes this read as
+         // something running is that it is not the same brightness twice.
+         if(r>0.305&&r<0.455){
+           const t=(r-0.305)/0.150;
+           const arc=0.48+0.52*Math.sin(th*6.0+_fbm(r*7,th*2.6)*7.0);
+           const k=Math.sin(Math.PI*t);
+           _mix(c,0x5a3cff,k*0.92);
+           _mix(c,0xbca4ff,k*arc*0.80);
+           _mix(c,0xf4efff,Math.pow(k,2.4)*arc*0.70);
+         }
+
+         // ---- THE BEZEL AND THE CORE ----
+         if(r<0.315){
+           _mix(c,0xa8b8ca,1);
+           for(const at of [0.300,0.246,0.196]){
+             const d=Math.abs(r-at);
+             if(d<0.017)_mix(c,0x232a34,(1-d/0.017)*0.92);
+           }
+           if(r<0.160){ _mix(c,0xeaf1fa,1);
+             const d=Math.abs(r-0.132); if(d<0.014)_mix(c,0x9fb0c4,(1-d/0.014)*0.8); }
+         }
+
+         // ---- AND THE RIM, which is the only lit edge on it ----
+         if(r>0.90){
+           const t=(r-0.90)/0.10;
+           _mix(c,0x93a5ba,t*0.95);
+           _mix(c,0xe4eef8,Math.pow(t,3)*0.85);
+         }
+         if(!top)_mix(c,0x11161e,0.45);      // the underside is in its own shadow
        }})}},
   {id:'tangerine', name:'Tangerine Fish', price:900,
    blurb:'Twin-keel retro fish. Wide, loose and very fast off the bottom.',

@@ -18,7 +18,7 @@
 import { PNG } from 'pngjs';
 import { writeFileSync } from 'node:fs';
 
-const NU=260, NR=70;                 // the board's own grid — see nu/nr in the spec
+const NU=220, NR=128;                // the board's own grid — see nu/nr in the spec
 const W=560, H=560;    // square, because the board this previews is
 
 // ---- the game's helpers, verbatim ----
@@ -46,38 +46,71 @@ const _mix=(c,hex,k)=>{ const t=vivid(hex,1.25);
   c[0]+=(t[0]-c[0])*k; c[1]+=(t[1]-c[1])*k; c[2]+=(t[2]-c[2])*k; return c; };
 
 // ---- the board, exactly as index.html has it ----
-const DECK=0x140f22, RAIL=0x2bff9b, STRINGER=0x7cffc4, SW=0, RAILAT=0.82, VIV=1.05;
+const DECK=0x2b313b, RAIL=0x8ea0b4, STRINGER=0x7cffc4, SW=0, RAILAT=0.94, VIV=1.02;
 function art(c,u,v,top){
-  const a=Math.abs(v);
-  _mix(c,0x0b0716,0.55*_sm(0.46,0.00,u));
-  _mix(c,0x1d5c4a,0.05+0.20*_sm(0.24,1.00,u));
-  _mix(c,0x9dffd8,0.55*_sm(0.80,0.97,a));
-  // ---- ISOTROPIC IN THE WORLD, NOT IN uv ----
-  // The board is nine foot two long and a foot wide, so equal noise frequency on u and v makes
-  // every feature nine times longer than it is wide: that is the streaking down the deck. The
-  // ratio is the board's own aspect.
-  // ---- SAMPLED WHERE THE VERTEX ACTUALLY IS ----
-  // u and v are POLAR on a round board: v runs the full -1 to 1 across a half-width that
-  // shrinks to nothing at both poles, so noise sampled in uv comes out as spokes converging on
-  // the nose and the tail. It is the nine-foot-plank mistake again in polar dress. The outline
-  // is known right here -- the half-width is L*sqrt(u(1-u)) -- so where the vertex actually
-  // sits on the disc is two lines of arithmetic, and a blotch sampled there is round.
   const pz=u-0.5, px=Math.sqrt(Math.max(0,u*(1-u)))*v;
-  const n=_fbm(px*9.0+2.0,pz*9.0+7.0)+(_fbm(px*26.0,pz*26.0)-0.5)*0.12;
-  const blot=_sm(0.520,0.600,n);
-  // the markings GLOW, and harder the closer they are to the tail
-  _mix(c,0x5bff92,blot*0.95);
-  _mix(c,0xe8fff0,blot*_sm(0.30,1.00,u)*0.55);
-  _mix(c,0x093a2a,blot*(1-blot)*1.2);
-  // ---- AND THE RINGS ----
-  // A stringer down the middle of a disc reads as a surfboard part bolted onto a saucer, so
-  // there is none. Concentric ribs instead, which is what the underside of the thing that
-  // dropped this looks like, and the one graphic that only works on a round board.
-  const rr=Math.sqrt(px*px+pz*pz)*2;      // 0 in the middle, 1 at the rim
-  for(const at of [0.40,0.66,0.87]){
-  const d=Math.abs(rr-at);
-  if(d<0.038)_mix(c,0xbdffe4,(1-d/0.038)*0.55);
+  const r=Math.min(1,Math.sqrt(px*px+pz*pz)*2);
+  const th=Math.atan2(px,pz), TAU=Math.PI*2;
+  const SEG=14;
+  const seg=(th/TAU+0.5)*SEG, si=Math.floor(seg), sf=seg-si;
+
+  // 1. HULL PLATES
+  _mix(c,0x2f3742,1);
+  _mix(c,0x3d4757,(si%2)?0.55:0.0);
+  _mix(c,0x50423a,_hash(si*3.3,1.7)>0.66?0.40:0);
+  _mix(c,0x1b2028,Math.max(0,(r-0.62))*1.1);          // the hull falls away toward the rim
+
+  // 2. RADIAL SEAMS, deep, so it reads as plates bolted together
+  const seam=Math.min(sf,1-sf)*SEG;
+  if(r>0.30)_mix(c,0x0b0e14,Math.max(0,1-seam*1.25));
+
+  // 3. THE BRIGHT COLLAR the plasma sits in
+  if(r>0.46&&r<0.545){
+    const t=(r-0.46)/0.085;
+    _mix(c,0xaebccc,Math.sin(Math.PI*t)*0.95);
+    if(Math.abs(sf-0.5)<0.14)_mix(c,0x1b2028,0.75);   // a lug per plate
   }
+
+  // 4. CIRCUITRY, dashed rather than ruled
+  if(r>0.56&&r<0.90){
+    const rings=[[0.604,30,0.52],[0.678,44,0.40],[0.752,26,0.58],[0.830,52,0.34]];
+    for(const [at,n,duty] of rings){
+      const d=Math.abs(r-at);
+      if(d<0.012&&(((th/TAU+0.5)*n)%1)<duty)_mix(c,0x46eaff,(1-d/0.012)*0.95);
+    }
+    // a stub of trace running out from each plate, at its own radius
+    const tr=0.58+_hash(si*7.1,3.3)*0.26;
+    if(Math.abs(r-tr)<0.075&&Math.abs(sf-0.5)<0.055)_mix(c,0x46eaff,0.85);
+  }
+
+  // 5. THE PLASMA, a narrow ring and not a disc
+  if(r>0.305&&r<0.455){
+    const t=(r-0.305)/0.150;
+    const arc=0.48+0.52*Math.sin(th*6.0+_fbm(r*7,th*2.6)*7.0);
+    const k=Math.sin(Math.PI*t);
+    _mix(c,0x5a3cff,k*0.92);
+    _mix(c,0xbca4ff,k*arc*0.80);
+    _mix(c,0xf4efff,Math.pow(k,2.4)*arc*0.70);
+  }
+
+  // 6. THE BEZEL and THE CORE
+  if(r<0.315){
+    _mix(c,0xa8b8ca,1);
+    for(const at of [0.300,0.246,0.196]){
+      const d=Math.abs(r-at);
+      if(d<0.017)_mix(c,0x232a34,(1-d/0.017)*0.92);
+    }
+    if(r<0.160){ _mix(c,0xeaf1fa,1);
+      const d=Math.abs(r-0.132); if(d<0.014)_mix(c,0x9fb0c4,(1-d/0.014)*0.8); }
+  }
+
+  // 7. THE RIM
+  if(r>0.90){
+    const t=(r-0.90)/0.10;
+    _mix(c,0x93a5ba,t*0.95);
+    _mix(c,0xe4eef8,Math.pow(t,3)*0.85);
+  }
+  if(!top)_mix(c,0x11161e,0.45);
 }
 function deckBase(u,v){
   const c=vivid(DECK,VIV), s=Math.abs(v);
