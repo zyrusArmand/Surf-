@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.34.0';
+window.SURF_VERSION='5.35.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -6812,10 +6812,19 @@ loadModel('palm.glb',(s3)=>{
 // quilted, and none of it makes them shingle.
 const _ss2=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
 function sandFieldBuild(){
-  sandGen++;
+  // ---- the generation counts a field that EXISTS, so it is bumped at the end ----
+  // It used to be bumped here, on the way in, which makes the counter lead the thing it
+  // counts: between this line and the field actually being added there is a window where
+  // sandGen already reads as the new generation and the only ground in the scene is the
+  // painted beach underneath. Anything that measured the ground in that window — the rider
+  // taking the height he stands at, groundTopOver filling its cache — recorded the LOWER
+  // answer and stamped it with the new generation, so nothing ever went back for it.
+  // Measured: the rider stood 0.45ft into the sand on one cold load in five, his foot at
+  // 3.155 against ground at 3.602, which is exactly the gap between the painted beach and
+  // the tiled field over it.
   if(sandField&&sandField.parent)sandField.parent.remove(sandField);
   sandField=null;
-  if(!sandTile||!beachSandGroup||!beachSurfH)return;
+  if(!sandTile||!beachSandGroup||!beachSurfH){ sandGen++; return; }
   const geo=sandTile.geo, bb=geo.boundingBox||(geo.computeBoundingBox(),geo.boundingBox);
   // ---- and the spacing is PER AXIS, because the piece is not square ----
   // The piece is 1.9 by 1.17: laid at ten units across it is ten by six, and stepping ten
@@ -7057,6 +7066,8 @@ function sandFieldBuild(){
   // not tile the plane exactly, and the gaps between them at the edges of the field are the
   // beach itself — which is the same sand, painted rather than modelled, so nothing shows.
   beachSandGroup.add(sandField=mesh);
+  // ...and only now does the generation move on, with the field standing.
+  sandGen++;
 }
 loadModel('sand.glb',(s3)=>{
   let mm=null; s3.traverse(o=>{ if(o.isMesh&&!mm)mm=o; });
