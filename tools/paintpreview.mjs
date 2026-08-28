@@ -102,8 +102,9 @@ function art(c,u,v,top){
       const d=Math.abs(r-at);
       if(d<0.026)_mix(c,0x232a34,(1-d/0.026)*0.92);
     }
-    if(r<0.160){ _mix(c,0xeaf1fa,1);
-      const d=Math.abs(r-0.128); if(d<0.022)_mix(c,0x9fb0c4,(1-d/0.022)*0.8); }
+    if(r<0.168){ _mix(c,0xc6d6e8,1);
+      const d0=Math.abs(r-0.160); if(d0<0.020)_mix(c,0x232a34,(1-d0/0.020)*0.95);
+      const d=Math.abs(r-0.120); if(d<0.020)_mix(c,0x8fa2b8,(1-d/0.020)*0.75); }
   }
 
   // 7. THE RIM
