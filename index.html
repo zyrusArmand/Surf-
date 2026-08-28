@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.32.0';
+window.SURF_VERSION='5.33.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -12015,7 +12015,7 @@ function setupModelRig(root,gltf,id){
       this.stand.setEffectiveWeight(0); this.stand.play(); }
     for(const n in this.bind){ const b=this.bones[n], r=this.bind[n];
       b.position.copy(r.p); b.quaternion.copy(r.q); b.scale.copy(r.s); }
-    this.step=-1; this.stepT=0; this.ground=null; this.groundFromSand=false;
+    this.step=-1; this.stepT=0; this.ground=null; this.groundFromSand=false; this.groundGen=-1;
     this.phase='idle'; this.t=0; this.aw=0; this.rot=0; this.brh=1;
     if(this.yawFix){ pug.rotation.y-=this.yawFix; this.yawFix=0; }
     if(this.xFix){ pug.position.x-=this.xFix; this.xFix=0; }
@@ -12506,14 +12506,23 @@ function setupModelRig(root,gltf,id){
     // measurement it was meant to replace. Measured, that is the difference between a rider on
     // the sand and one four inches over it, and which you got depended on how quickly the page
     // had got itself together. So it is provisional until the sand answers, and fixed after.
-    if(!this.groundFromSand){
+    // ---- ...and AGAIN if the sand underneath him has been rebuilt ----
+    // "Provisional until the sand answers, and fixed after" took the first non-null answer as
+    // the sand having answered. It has not: groundTopOver falls back to the analytic terrain
+    // while the tiled field is still being built, so on a cold open the height is captured
+    // against a curve that the drawn beach then stands up to a foot away from — and being
+    // latched, it was never corrected. Measured across loads: he stood 0.03ft into the sand
+    // on one and 0.45ft into it on the next, which is the "sometimes moves up or down".
+    // sandGen counts the rebuilds, so this re-measures exactly once per rebuild and holds
+    // still in between, which is what the latch was for in the first place.
+    if(!this.groundFromSand||this.groundGen!==sandGen){
       // Over his own width, the same rule the chest is set by, so the two agree about where the
       // ground is. One ray under his middle puts him on whatever the tile happens to be doing at
       // that one point, and leaves a foot in the sand wherever it rises either side.
       const _b0=this.skinBox&&this.skinBox();
       const _rr=_b0?Math.max(0.12,Math.min(1.0,(_b0.hi[0]-_b0.lo[0])*0.5)):0.3;
       const sd=(typeof sandUnder==='function')?sandUnder(pug,_rr):null;
-      if(sd!==null){ this.ground=sd; this.groundFromSand=true; }
+      if(sd!==null){ this.ground=sd; this.groundFromSand=true; this.groundGen=sandGen; }
       else if(this.ground===null){ const b0=this.skinBox&&this.skinBox();
                                    if(b0)this.ground=b0.lo[1]; }
     }
@@ -16138,6 +16147,12 @@ function updateWipeout(dt){
       set('LeftLeg', 0.46,0,0);   set('RightLeg', 0.46,0,0);
       set('Head', -0.50,0,0);
       if(R.mixer&&R.mixer.stopAllAction)R.mixer.stopAllAction();
+      // ---- and a note that these bones are NOT his own any more ----
+      // With the title screen's performance switched off nothing rewrites them, so a drowning
+      // pose that survives the trip back to the menu survives for good. showMenu clears it on
+      // the way through, but only for the routes that go through showMenu; this is read on the
+      // beach itself, which every route ends at.
+      R.wipePosed=true;
     }
   }
   // board: cartwheels away and slaps down
@@ -26180,6 +26195,10 @@ function menuSettled(dt){
 let MB_FREEZE=false;   // holds the shot still, so two frames differ only by what was toggled
 function renderMenuBeach(dt){
   const m=menuBeach;
+  // He is not allowed to stand here drowning. Cleared on the beach rather than on the way in,
+  // because "the beach is up" is true of every route to it and no route can skip it.
+  { const _R=(typeof riderRig==='function')?riderRig():null;
+    if(_R&&_R.wipePosed){ _R.wipePosed=false; if(_R.reset)_R.reset(); } }
   // Everything on this screen moves — the lens drifts, the rider breathes, the fronds blow —
   // so two screenshots never differ by only the thing being tested. Comparing them was how
   // "the bloom and the depth of field matter equally" got believed once; it was the scene
