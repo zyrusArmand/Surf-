@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.50.0';
+window.SURF_VERSION='5.51.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -13351,13 +13351,30 @@ for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
     a.getWorldPosition(p); b.getWorldPosition(q2);
     p.add(q2).multiplyScalar(0.5);
     return toLocal?pug.worldToLocal(p):p; };
-  const bone=n=>{ let o=null; fitted.traverse(c=>{ if(!o&&c.name===n)o=c; }); return o; };
-  const lf=bone('LeftFoot'), rf=bone('RightFoot');
-  if(fr&&lf&&rf&&typeof legFrontJ!=='undefined'&&legFrontJ.ankle&&legBackJ&&legBackJ.ankle){
-    const want=half(legFrontJ.ankle,legBackJ.ankle,true), have=half(lf,rf,false);
+  // ---- WHATEVER IT STANDS ON, averaged ----
+  // This looked for exactly two bones called LeftFoot and RightFoot, which is what the biped
+  // exports call them, and did nothing at all when it could not find both. The cow's hooves
+  // are frontleg2, R_frontleg2, backleg2 and R_backleg2, so the whole centring was skipped in
+  // silence and she rode along a good way to the left of the stringer with her front feet over
+  // the rail. Every foot the rig HAS is collected and averaged instead: for a biped that is the
+  // same midpoint between the same two ankles it always was, and for a quadruped it is the
+  // middle of all four, which is the same idea and the only honest reading of it.
+  const feetOf=names=>{ const out=[];
+    fitted.traverse(c=>{ if(c.name&&names.indexOf(c.name.toLowerCase())>=0)out.push(c); });
+    return out; };
+  const feet=feetOf(['leftfoot','rightfoot',
+                     'frontleg2','r_frontleg2','backleg2','r_backleg2',
+                     'leftfootend','rightfootend','lefttoebase','righttoebase']);
+  if(fr&&feet.length&&typeof legFrontJ!=='undefined'&&legFrontJ.ankle&&legBackJ&&legBackJ.ankle){
+    const want=half(legFrontJ.ankle,legBackJ.ankle,true);
+    const have=new THREE.Vector3(), q3=new THREE.Vector3();
+    for(const f of feet){ f.updateWorldMatrix(true,false); f.getWorldPosition(q3); have.add(q3); }
+    have.multiplyScalar(1/feet.length);
     // flip sits inside wrap, which only scales, so a local step of d moves it k*d
     fr.position.x+=(want.x-have.x)/k;
     fr.position.z+=(want.z-have.z)/k;
+  } else if(fr&&!feet.length){
+    console.warn('rider '+id+': no foot bones, left where the fit centred it');
   }
   // HIDDEN, not thrown away. The first version emptied `pug` before adding the model, and
   // that quietly broke two things at once. Every other character in the roster is built out
