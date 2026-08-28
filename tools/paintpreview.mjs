@@ -19,7 +19,7 @@ import { PNG } from 'pngjs';
 import { writeFileSync } from 'node:fs';
 
 const NU=260, NR=70;                 // the board's own grid — see nu/nr in the spec
-const W=300, H=1100;
+const W=560, H=560;    // square, because the board this previews is
 
 // ---- the game's helpers, verbatim ----
 const _hash=(x,y)=>{const n=Math.sin(x*127.1+y*311.7)*43758.5453;return n-Math.floor(n);};
@@ -46,7 +46,7 @@ const _mix=(c,hex,k)=>{ const t=vivid(hex,1.25);
   c[0]+=(t[0]-c[0])*k; c[1]+=(t[1]-c[1])*k; c[2]+=(t[2]-c[2])*k; return c; };
 
 // ---- the board, exactly as index.html has it ----
-const DECK=0x140f22, RAIL=0x2bff9b, STRINGER=0x7cffc4, SW=0.020, RAILAT=0.82, VIV=1.05;
+const DECK=0x140f22, RAIL=0x2bff9b, STRINGER=0x7cffc4, SW=0, RAILAT=0.82, VIV=1.05;
 function art(c,u,v,top){
   const a=Math.abs(v);
   _mix(c,0x0b0716,0.55*_sm(0.46,0.00,u));
@@ -56,12 +56,28 @@ function art(c,u,v,top){
   // The board is nine foot two long and a foot wide, so equal noise frequency on u and v makes
   // every feature nine times longer than it is wide: that is the streaking down the deck. The
   // ratio is the board's own aspect.
-  const n=_fbm(u*13.0+2.0,v*1.45+7.0)+(_fbm(u*38.0,v*4.2)-0.5)*0.12;
+  // ---- SAMPLED WHERE THE VERTEX ACTUALLY IS ----
+  // u and v are POLAR on a round board: v runs the full -1 to 1 across a half-width that
+  // shrinks to nothing at both poles, so noise sampled in uv comes out as spokes converging on
+  // the nose and the tail. It is the nine-foot-plank mistake again in polar dress. The outline
+  // is known right here -- the half-width is L*sqrt(u(1-u)) -- so where the vertex actually
+  // sits on the disc is two lines of arithmetic, and a blotch sampled there is round.
+  const pz=u-0.5, px=Math.sqrt(Math.max(0,u*(1-u)))*v;
+  const n=_fbm(px*9.0+2.0,pz*9.0+7.0)+(_fbm(px*26.0,pz*26.0)-0.5)*0.12;
   const blot=_sm(0.520,0.600,n);
   // the markings GLOW, and harder the closer they are to the tail
   _mix(c,0x5bff92,blot*0.95);
   _mix(c,0xe8fff0,blot*_sm(0.30,1.00,u)*0.55);
   _mix(c,0x093a2a,blot*(1-blot)*1.2);
+  // ---- AND THE RINGS ----
+  // A stringer down the middle of a disc reads as a surfboard part bolted onto a saucer, so
+  // there is none. Concentric ribs instead, which is what the underside of the thing that
+  // dropped this looks like, and the one graphic that only works on a round board.
+  const rr=Math.sqrt(px*px+pz*pz)*2;      // 0 in the middle, 1 at the rim
+  for(const at of [0.40,0.66,0.87]){
+  const d=Math.abs(rr-at);
+  if(d<0.038)_mix(c,0xbdffe4,(1-d/0.038)*0.55);
+  }
 }
 function deckBase(u,v){
   const c=vivid(DECK,VIV), s=Math.abs(v);
@@ -70,8 +86,12 @@ function deckBase(u,v){
   return c;
 }
 // the plan view of a longboard, so the pattern is judged on the shape it lands on
+// the plan outline the board actually has: u^noseA (1-u)^tailA over its own peak. At a=b=0.5
+// that is a semicircle, which is what makes Cattle Class round.
+const NOSE_A=0.5, TAIL_A=0.5;
 const halfW=u=>{ const t=Math.min(1,Math.max(0,u));
-  return Math.pow(Math.sin(Math.PI*Math.pow(t,0.86)),0.55)*0.99; };
+  const up=NOSE_A/(NOSE_A+TAIL_A), pk=Math.pow(up,NOSE_A)*Math.pow(1-up,TAIL_A);
+  return Math.pow(t,NOSE_A)*Math.pow(1-t,TAIL_A)/pk*0.99; };
 
 const png=new PNG({width:W,height:H});
 for(let py=0;py<H;py++){

@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.52.0';
+window.SURF_VERSION='5.53.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -2110,6 +2110,13 @@ function buildEnvironment(){
                    sun:0xfff0cf, sunPos:new THREE.Vector3(-22,26,-18)});
   if(t)scene.environment=t;
 }
+// ---- AND A LIGHT FOR THE MOON ----
+// Its own directional, cool and weak and casting no shadows. One light dimmed and tinted would
+// have been cheaper, but the shadows would then swing round at dusk and a shadow-caster fading
+// through nothing is a flicker; this simply arrives as the other one leaves. A twelfth of the
+// sun, which is roughly the real ratio once the eye has adjusted and quite enough to ride by.
+const MOON_I=0.30;
+const moonLight=new THREE.DirectionalLight(0xa8bcdf,0);
 const sunDir=new THREE.Vector3(-0.45,0.75,-0.5).normalize();
 const SUN_I=1.75;
 const sun=new THREE.DirectionalLight(0xfff2cf,1.75);
@@ -2123,6 +2130,11 @@ if(sun.shadow){
 }
 scene.add(sun);
 if(sun.target){sun.target.position.set(0,0,0);scene.add(sun.target);}
+moonLight.position.set(0,60,-40); scene.add(moonLight);
+if(moonLight.target){moonLight.target.position.set(0,0,0);scene.add(moonLight.target);}
+// how dark it is out, 0 by day and 1 at night. Anything that GLOWS should read this rather
+// than the phase, which now runs to two and would drive a lure to twice the brightness.
+let nightAmt=0;
 buildEnvironment();
 
 // ---------- shared wave model ----------
@@ -4905,81 +4917,83 @@ const BOARDS=[
        sw:0.115,railAt:0.74,vstripes:[[0.36,0.045,0x53300f]]}),
      fins:[{x:0.000,z:3.091,c:0.935,d:0.905,t:0.034,rake:0.16}]}},
   // ---- WHAT THE SAUCER SENDS YOU BACK ON ----
-  // The board that comes back under the cow, and the only way to get it: see ufoPickChar. It
-  // is priced as a top-shelf log because it is one, and it is handed over rather than sold.
+  // Borrowed for thirty-five seconds and never sold: see ufoBorrow. The price is here because
+  // every board has one and the card wants it, not because anything can be bought with it.
   //
-  // TWO WRONG ANSWERS BEFORE THIS ONE, and both were wrong about the MEDIUM rather than about
-  // the idea. This paint runs once per VERTEX, on a grid about 260 by 70 -- so it can hold a
-  // gradient, a wide band and a big soft shape, and it cannot hold a picture. A bale of hay
-  // drawn as fine straw noise came out as wood grain: long soft stripes down a tan board, a
-  // plain wooden log. An abduction scene drawn as a saucer, a beam and a cow in it came out as
-  // a white splodge, a green stripe with staircase edges, and a smudge nobody would read as a
-  // cow -- every hard `if` on a vertex grid is a staircase, and every shape smaller than a
-  // few vertices is a blob.
+  // IT IS A PERFECT CIRCLE, and that is one line of arithmetic rather than a special case in
+  // the mesh. The plan outline is u^noseA * (1-u)^tailA normalised to its own peak; at a=b=0.5
+  // that is 2*sqrt(u(1-u)), which IS a semicircle -- so with the length and the width set
+  // equal, and neither end trimmed, the loft comes out round to the vertex. Nothing in
+  // buildBoardMesh knows it is drawing a saucer.
   //
-  // So: no picture. One BIG idea, in shapes that survive being forty pixels tall. She is a
-  // Holstein, so the board is a Holstein -- three or four blotches the length of it, nothing
-  // finer -- and the alien half is LIGHT rather than drawing: an acid glow that strengthens
-  // toward the tail and burns hardest along the rails, as though the thing overhead already
-  // has half of it in the beam. Every edge on it is smoothstepped over a band, which is the
-  // whole difference between a soft-edged blotch and a flight of stairs.
+  // Four foot six across, against a nine foot log: it should look like something that came off
+  // the underside of that thing, not like a surfboard with a paint job.
   {id:'cattleclass', name:'Cattle Class', price:12000, hidden:true,
-   blurb:"Nine foot of nothing anybody makes down here. Her own markings, lit from the inside.",
-   spec:{L:9.20,W:1.020,T:0.288,noseA:0.365,tailA:0.753,noseW:0.050,tailW:0.480,
-     rockN:0.375,noseR:0.300,rockT:0.125,tailR:0.220,deckPow:0.60,hullPow:0.44,hullK:0.60,
-     // Denser than the other boards: soft edges are what this one is made of, and an edge can
-     // only be as soft as the spacing between the vertices it is drawn across.
-     nu:260,nr:70,
-     // A log's numbers: it goes and it keeps going, and it does not turn. Tough because
-     // whatever it is made of, it is not foam.
-     stat:{speed:6,turn:2,air:2,tough:9},
+   blurb:"A disc off the underside of the saucer. Rides like a dinner plate and glows like one too.",
+   spec:{L:4.60,W:2.30,T:0.34,noseA:0.5,tailA:0.5,noseW:0,tailW:0,
+     // no rocker at all -- a saucer is flat. The radii stay non-zero because the rocker curve
+     // divides by them, and a nought there is a NaN through the whole mesh.
+     rockN:0,noseR:0.30,rockT:0,tailR:0.30,
+     // a lens rather than a plank: domed the same amount above and below
+     deckPow:0.50,hullPow:0.50,hullK:0.86,thPow:0.60,
+     // and rings the whole way round, because on a disc there is no long axis to spend them on
+     nu:150,nr:96,
+     // It goes and it does not turn, like anything with no rails and no fins. Air is high
+     // because a disc is a wing.
+     stat:{speed:7,turn:2,air:8,tough:9},
      pad:false,finCol:0x6ef2b4,
+     // NO FINS. A flying saucer does not have fins, and the one thing a disc cannot do is hold
+     // a line -- which the turn rating already says.
+     fins:[],
      paint:artScheme({deck:0x140f22,hull:0x100c1c,rail:0x2bff9b,pin:0x0f2a1c,stringer:0x7cffc4,
-       sw:0.020,railAt:0.82,vivid:1.05,both:true,
+       sw:0,railAt:0.82,vivid:1.05,both:true,
        art:(c,u,v,top)=>{
          const a=Math.abs(v);
          // ---- THE LIGHT GOES ON FIRST, AND THE HIDE ON TOP OF IT ----
-         // Written the other way round, the glow was mixed OVER the black and lerped it 30 to
-         // 80 per cent of the way to acid green: the blotches came out green, the rails came
-         // out green, and the board was a mint-green board with green splodges on it -- not a
-         // Holstein and not alien either. A black marking is black in any light. So the wash
-         // lands on the white, and then the hide is laid over the top of it.
+         // Written the other way round, the glow was mixed OVER the black and lerped a near
+         // black marking most of the way to acid green: the blotches came out green, the rails
+         // came out green, and the board was a mint board with green splodges on it. A black
+         // marking is black in any light. So the wash lands first and the hide goes over it.
          _mix(c,0x0b0716,0.55*_sm(0.46,0.00,u));       // deeper still out at the nose
          _mix(c,0x1d5c4a,0.05+0.20*_sm(0.24,1.00,u));  // and the beam catching the tail
          // the rim, and TIGHT to the rail. At half the board's width it was not a rim light,
          // it was the board.
          _mix(c,0x9dffd8,0.55*_sm(0.80,0.97,a));
          // ---- HOLSTEIN, AND THE FREQUENCIES ARE THE WHOLE OF IT ----
-         // u and v are both nought to one, and the board they run across is nine foot two long
-         // and a foot wide. Equal noise frequency on the two therefore makes every feature NINE
-         // TIMES LONGER THAN IT IS WIDE -- which is why the first three attempts at this came
-         // out as streaks running the length of the deck, and why the hay before them came out
-         // as wood grain. Sampled at the board's own aspect instead, 13 to 1.45, a blotch is as
-         // round on the deck as it is on a cow.
-         //
-         // The second octave only ROUGHENS the edge of what the first one decided, which is
-         // what keeps a marking from being an ellipse -- a real one has a torn outline and
-         // nothing else about it. The threshold sits high so the patches stay ISLANDS: at half
-         // coverage they join up into one dark mass down the middle of the board, which is a
-         // stripe and not a hide.
-         const n=_fbm(u*13.0+2.0,v*1.45+7.0)+(_fbm(u*38.0,v*4.2)-0.5)*0.12;
+         // u and v both run nought to one. On the nine foot plank this started life as, equal
+         // frequency on the two made every feature nine times longer than it was wide, which is
+         // why three attempts at this came out as streaks down the deck. The board is ROUND
+         // now, so the honest ratio is one to one and the markings are round with it.
+         // ---- SAMPLED WHERE THE VERTEX ACTUALLY IS ----
+         // u and v are POLAR on a round board: v runs the full -1 to 1 across a half-width that
+         // shrinks to nothing at both poles, so noise sampled in uv comes out as spokes converging on
+         // the nose and the tail. It is the nine-foot-plank mistake again in polar dress. The outline
+         // is known right here -- the half-width is L*sqrt(u(1-u)) -- so where the vertex actually
+         // sits on the disc is two lines of arithmetic, and a blotch sampled there is round.
+         const pz=u-0.5, px=Math.sqrt(Math.max(0,u*(1-u)))*v;
+         const n=_fbm(px*9.0+2.0,pz*9.0+7.0)+(_fbm(px*26.0,pz*26.0)-0.5)*0.12;
          const blot=_sm(0.520,0.600,n);
          // ---- AND THE MARKINGS ARE THE LIGHT, not the dark ----
-         // Black on white was a proper Holstein and it was the wrong one, because SHE is a
-         // black-and-white Holstein: a white cow with black patches standing on a white board
-         // with black patches is camouflage, and on the wave she vanished into her own deck.
-         // Same markings, inverted into the other half of the idea -- they glow, and harder
-         // the nearer the tail, as though whatever took her charged them on the way back.
-         // She is now the only white thing in the picture, which is the whole job.
+         // Black on white was a proper Holstein and it was the wrong one: SHE is a black and
+         // white Holstein, and a white cow with black patches standing on a white board with
+         // black patches is camouflage. Same markings, inverted into the other half of the
+         // idea -- they glow, harder the nearer the tail, as though whatever took her charged
+         // them on the way back. She is the only white thing in the picture, which is the job.
          _mix(c,0x5bff92,blot*0.95);
          _mix(c,0xe8fff0,blot*_sm(0.30,1.00,u)*0.55);
          // and each one sits in a rim of deeper green, so a marking has an edge rather than
          // stopping dead against the dark
          _mix(c,0x093a2a,blot*(1-blot)*1.2);
-         if(!top)_mix(c,0x0d1a14,0.20);           // the underside sits in its own shade
-       }}),
-     // one big fin, the way a log is set up
-     fins:[{x:0.000,z:3.000,c:0.940,d:0.910,t:0.036,rake:0.16}]}},
+         // ---- AND THE RINGS ----
+         // A stringer down the middle of a disc reads as a surfboard part bolted onto a saucer, so
+         // there is none. Concentric ribs instead, which is what the underside of the thing that
+         // dropped this looks like, and the one graphic that only works on a round board.
+         const rr=Math.sqrt(px*px+pz*pz)*2;      // 0 in the middle, 1 at the rim
+         for(const at of [0.40,0.66,0.87]){
+         const d=Math.abs(rr-at);
+         if(d<0.038)_mix(c,0xbdffe4,(1-d/0.038)*0.55);
+         }
+       }})}},
   {id:'tangerine', name:'Tangerine Fish', price:900,
    blurb:'Twin-keel retro fish. Wide, loose and very fast off the bottom.',
    spec:{L:5.50,W:0.865,T:0.208,noseA:0.853,tailA:4.800,noseW:0.050,tailW:0.687,
@@ -15694,7 +15708,10 @@ function reset(){
   // the ramp state is inside that block, so it only runs when the last run ended in a
   // wipeout. Putting this there meant a UFO started from the secret menu and then left by
   // pressing Play was still hanging over the water, beam and all, on the next run.
+  // ...and the run starting or ending IS one of the three things that ends the costume, so
+  // that is said here rather than being smuggled inside ufoReset.
   if(typeof ufoReset==='function'){ ufoReset(); ufoDark=0; }
+  if(typeof ufoGiveBack==='function')ufoGiveBack(true);
   if(wipe){ scene.remove(rig); player.add(rig);
     player.remove(pug); rig.add(pug);
     pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
@@ -16821,8 +16838,36 @@ const SKY_KEYS=[
   {t:0.80, top:0x3d6fb4, mid:0xc9a6c0, hz:0xffa863, glow:0xff8f3c, gAmt:0.46, sunX: 0.45, sunY: 0.190},
   {t:0.90, top:0x2b3f80, mid:0xa85f86, hz:0xff6a3a, glow:0xff4f18, gAmt:0.66, sunX: 0.57, sunY: 0.040},
   {t:0.96, top:0x162452, mid:0x5a3168, hz:0xa8383a, glow:0xd8381a, gAmt:0.46, sunX: 0.63, sunY:-0.085},
-  {t:1.00, top:0x060a1c, mid:0x121a38, hz:0x33203f, glow:0x6a2418, gAmt:0.16, sunX: 0.68, sunY:-0.215},
+  {t:1.00, top:0x060a1c, mid:0x121a38, hz:0x33203f, glow:0x6a2418, gAmt:0.16, sunX: 0.68, sunY:-0.215,
+   mX:-0.72, mY:-0.10},
+  // ---- AND THEN THE NIGHT, which this table used to stop just short of ----
+  // The clock ran 1-exp(-dist) and saturated: the sky arrived at dusk and stayed there for
+  // ever, so "night" was the last keyframe held indefinitely and the moon was a disc pinned at
+  // a fixed height. The phase loops now -- 0 to 1 is this day, 1 to 2 is the night that follows
+  // it -- and the key at t=2.00 is a copy of the key at t=0.00, which is what makes the seam
+  // invisible: dawn arrives back at exactly the colours it left from.
+  //
+  // mX and mY are the MOON's own arc, and it is not the sun's mirrored. Mirroring reads as
+  // right and is not: x here is a screen-ish position rather than an angle, so negating a sun
+  // that is walking off one edge sends the moon backwards and jumps it across the sky at
+  // midnight. It gets its own five points, rising in the east as the sun sets, highest a
+  // little after the middle of the night, and setting in the west as the sun comes up.
+  {t:1.08, top:0x040814, mid:0x0a1024, hz:0x1a1430, glow:0x2e1a28, gAmt:0.07, sunX: 0.78, sunY:-0.40,
+   mX:-0.66, mY: 0.06},
+  {t:1.35, top:0x02040e, mid:0x06091a, hz:0x0e1226, glow:0x18203a, gAmt:0.03, sunX: 0.95, sunY:-0.64,
+   mX:-0.34, mY: 0.52},
+  {t:1.62, top:0x03060f, mid:0x080d1e, hz:0x14182e, glow:0x1c2440, gAmt:0.04, sunX:-0.95, sunY:-0.64,
+   mX: 0.10, mY: 0.72},
+  {t:1.86, top:0x101a3c, mid:0x2c2856, hz:0x4e3458, glow:0x8a4442, gAmt:0.16, sunX:-0.78, sunY:-0.40,
+   mX: 0.52, mY: 0.31},
+  {t:2.00, top:0x3a3f6e, mid:0x8f7f9e, hz:0xd7b6b8, glow:0xe0ab8c, gAmt:0.26, sunX:-0.66, sunY:-0.205,
+   mX: 0.70, mY:-0.10},
 ];
+// How far a run carries the sky. Two halves and they are not equal: the day is what the whole
+// table above was tuned against and keeps its old pace, and the night is shorter because there
+// is much less to look at in it -- a night as long as the day is a long time to ride in the
+// dark to see a sunrise.
+const DAY_M=5600, NIGHT_M=3400, CYCLE_M=DAY_M+NIGHT_M;
 const skyLayer=new THREE.Group();scene.add(skyLayer);
 // The sun is a sky element only: three additive shells over a bright core. No light in
 // the scene is touched.
@@ -16899,6 +16944,12 @@ stars2.renderOrder=4;skyLayer.add(stars2);
 const moon=new THREE.Mesh(new THREE.SphereGeometry(3.4,18,14),
   new THREE.MeshBasicMaterial({color:0xf6f4ea,transparent:true,opacity:0,depthTest:true,depthWrite:false}));
 moon.renderOrder=8;skyLayer.add(moon);
+// A soft halo, so it is a moon rather than a white circle stuck on the sky. NOT clipped at the
+// horizon -- a moon just under it still lights the haze, exactly as the sun's glow does.
+const moonGlow=new THREE.Mesh(new THREE.SphereGeometry(7.6,18,14),
+  new THREE.MeshBasicMaterial({color:0xbfd0f0,transparent:true,opacity:0,
+    blending:THREE.AdditiveBlending,depthWrite:false}));
+moonGlow.renderOrder=7;skyLayer.add(moonGlow);
 // The disc is painted beyond the far edge of the ocean, so there is no water out
 // there to hide it once it is down. Cut it at sea level instead: it then rises out
 // of the horizon and sinks back into it properly. The glow is deliberately not cut —
@@ -16927,8 +16978,14 @@ function updateDayCycle(){
   // end of an ordinary run: sunrise, noon and dusk all inside a couple of minutes, which
   // makes the light something that happens TO you rather than something you ride through.
   // At 4200 an average run moves the sun a little and a long one takes it properly round.
-  const tod=dayForce>=0?dayForce:1-Math.exp(-dist/4200);
-  dayT=tod;                         // how far into the evening it is, for anything that cares
+  // ---- AND IT COMES ROUND AGAIN ----
+  // 1-exp(-dist/4200) was a one-way trip: it approached dusk and never arrived, and never went
+  // anywhere afterwards. A phase that WRAPS is the whole of the night cycle -- 0 to 1 across
+  // the day, 1 to 2 across the night, and then back to 0, where the sky table's last key is a
+  // copy of its first so nothing jumps.
+  const dc=((dist%CYCLE_M)+CYCLE_M)%CYCLE_M;
+  const tod=dayForce>=0?dayForce:(dc<DAY_M?dc/DAY_M:1+(dc-DAY_M)/NIGHT_M);
+  dayT=tod;                         // where in the whole cycle we are, 0..2
   let i=0;while(i<SKY_KEYS.length-2&&tod>SKY_KEYS[i+1].t)i++;
   const A=SKY_KEYS[i],B=SKY_KEYS[i+1];
   const k=Math.max(0,Math.min(1,(tod-A.t)/(B.t-A.t)));
@@ -17020,19 +17077,49 @@ function updateDayCycle(){
   // How much light is actually falling, which is a different thing from tinting: no
   // colour anywhere is touched, there is simply less of it at either end of the day.
   // The floor is deliberately high — this is dusk, not night.
-  const daylight=0.62+0.38*Math.max(0,Math.min(1,sy*2.6));
+  // ---- THE MOON, ON ITS OWN ARC ----
+  // Placed before the light, because how much of it there is depends on how high it has got.
+  // Keys that predate the night have no moon of their own; they are day, and the moon is under
+  // the water where the clipping plane deals with it.
+  const mx=(A.mX===undefined?0:A.mX)+((B.mX===undefined?0:B.mX)-(A.mX===undefined?0:A.mX))*k;
+  const my=(A.mY===undefined?-0.5:A.mY)+((B.mY===undefined?-0.5:B.mY)-(A.mY===undefined?-0.5:A.mY))*k;
+  const moonY=my*118;
+  moon.position.set(mx*130,moonY,-205);
+  // It fades in as it clears the sea rather than at a fixed hour: the horizon plane already
+  // cuts the disc, so this is only about not having a hard-edged white circle appear.
+  const moonUp=Math.max(0,Math.min(1,(my+0.02)/0.14));
+  moon.material.opacity=moonUp*0.92;
+  moonGlow.position.set(mx*130,moonY,-206);
+  moonGlow.material.opacity=moonUp*0.30;
+  const sc=1+moonUp*0.06;
+  moonGlow.scale.set(sc,sc,sc);
+
+  // How much light is actually falling, which is a different thing from tinting: no
+  // colour anywhere is touched, there is simply less of it at either end of the day.
+  // ---- AND THE FLOOR COMES DOWN, because there is a night now ----
+  // It was 0.62 and the comment said "this is dusk, not night", which was true of a clock that
+  // stopped at dusk. Held at 0.62 through a real night the sea is a grey evening that never
+  // ends. What stops it going to nothing is the MOON, which is a light rather than a colour and
+  // gets one of its own below.
+  const daylight=0.14+0.86*Math.max(0,Math.min(1,sy*2.6));
   sun.intensity=SUN_I*daylight;
-  hemi.intensity=HEMI_I*(0.70+0.30*daylight);
-  oceanUniforms.uLight.value=0.52+0.48*Math.max(0,Math.min(1,sy*2.6));
+  moonLight.intensity=MOON_I*moonUp*(1-Math.max(0,Math.min(1,sy*3.0)));
+  moonLight.position.set(mx*60,Math.max(6,my*60),-40);
+  hemi.intensity=HEMI_I*(0.24+0.76*daylight+0.20*moonUp);
+  oceanUniforms.uLight.value=0.18+0.82*Math.max(0,Math.min(1,sy*2.6))+0.22*moonUp;
   // the barrel roof is the same water, so it takes the same daylight and the same sky
   curlUniforms.uLight.value=oceanUniforms.uLight.value;
   curlUniforms.uSky.value.copy(oceanUniforms.uSky.value);
   // out when the sun is down, gone once it is properly up, with a slow shimmer
   const night=Math.max(0,Math.min(1,(0.085-sy)/0.13));
+  nightAmt=night;
   stars2.material.opacity=night*(0.80+0.20*Math.sin(tNow*0.9));
-  const mo=Math.max(0,(tod-0.80)/0.20);
-  moon.material.opacity=mo*0.75;
-  moon.position.set(-sxn*140,120,-205);
+  // ---- AND THE PATH ON THE WATER BELONGS TO WHATEVER IS UP ----
+  // The glitter followed the sun unconditionally, which at night is a stripe of light coming
+  // off a sun that is nowhere. A moonpath is the same effect and it is the single thing that
+  // makes a night ride readable: it shows you where the swell is.
+  if(sy<0.02&&moonUp>0.02)
+    oceanUniforms.uGlitL.value.set(mx*130,moonY,-205).normalize();
 }
 
 
@@ -21852,9 +21939,24 @@ if(location.hash.includes('debug')){
     // Read the clock WITHOUT setting it. dayAt(undefined) unpins the day as its way of saying
     // "back to normal", so calling it to find out what the day is destroys the answer — a
     // probe checking whether the UFO button had pinned night cleared the pin by asking.
-    dayNow(){ return {dayForce, dayT:+dayT.toFixed(3)}; },
+    dayNow(){ return {dayForce, dayT:+dayT.toFixed(3), night:+nightAmt.toFixed(3)}; },
+    // ---- THE WHOLE SKY IN ONE ROW ----
+    // Whether a night cycle works is six numbers -- where the sun is, where the moon is, how
+    // much light each is putting out, and whether the water and the stars agree with them --
+    // and walking the phase while reading those is a test that can actually fail. A screenshot
+    // of a dark sea cannot tell you the moon is lighting it.
+    skyNow(){
+      return {sunY:+(sunDisc.position.y/118).toFixed(3),
+              moonY:+(moon.position.y/118).toFixed(3),
+              moonX:+(moon.position.x/130).toFixed(3),
+              sunI:+sun.intensity.toFixed(3), moonI:+moonLight.intensity.toFixed(3),
+              ocean:+oceanUniforms.uLight.value.toFixed(3),
+              stars:+stars2.material.opacity.toFixed(2),
+              moonOp:+moon.material.opacity.toFixed(2),
+              night:+nightAmt.toFixed(2)};
+    },
     // Pin the hour, or hand back -1 to let distance drive it again. See dayForce.
-    dayAt(v){ dayForce=(v===undefined||v===null)?-1:Math.max(0,Math.min(1,v));
+    dayAt(v){ dayForce=(v===undefined||v===null)?-1:Math.max(0,Math.min(1.999,v));
               updateDayCycle(); return {dayForce, dayT:+dayT.toFixed(3)}; },
     skyFacing(cam){
       const C=(cam==='menu'&&menuCam)?menuCam:camera;
@@ -22716,7 +22818,11 @@ function throwStarfish(oct,from){
 // kilometres of riding. This will effectively never happen by itself in an ordinary run.
 // That is a property of the sun's pacing, not of this: the trigger is written to the brief
 // and the test button is how it gets seen.
-const UFO_NIGHT=0.92;      // dayT at which the sun is under the horizon
+// How dark it has to be. This was a mark on dayT, back when dayT only ever went one way and
+// 0.92 meant "nearly the end of the evening". The phase loops now and runs to two, so a number
+// on it means nothing on its own -- how far down the sun is, which is what nightAmt measures,
+// is the thing that was actually meant all along.
+const UFO_NIGHT_AMT=0.85;
 const UFO_WAIT=60;         // seconds of dark before it comes
 const UFO_SCALE=9.0;       // feet across, near enough
 // How high it stands off the water once it is over you. Lower than it was: at 11.5 it sat at
@@ -22932,9 +23038,13 @@ function ufoRiderWorld(v){
   if(typeof pug==='undefined'||!pug||!pug.parent)return v.copy(player.position);
   return v.setFromMatrixPosition(pug.matrixWorld);
 }
+// The SAUCER's own state, and nothing else. It used to hand the costume back too, which tied
+// the two together -- and they are not the same clock at all: this runs the moment the saucer
+// finishes climbing away, about two seconds after the swap, so the thirty-five second costume
+// lasted two. The costume ends on its own timer, on a wipeout, or when the run does; the
+// saucer packing up is none of those.
 function ufoReset(){
   ufoRiderDrop();
-  ufoGiveBack(true);
   ufoPh=UFOP.OFF; ufoT=0; ufoGrab=0; ufoSwap=null;
   for(const d of ufoDrips)scene.remove(d.m);
   ufoDrips.length=0;
@@ -22966,10 +23076,51 @@ const UFO_KEEP=35;
 // throw that takes the whole game down on load. Hoisted it is undefined at that moment, which
 // is exactly the harmless answer: nothing is borrowed yet.
 var ufoWas=null, ufoHold=0;
+// ---- AND A BALE ON THE BACK OF IT ----
+// Built once and kept. It is added to boardArt AFTER equipBoard has run, which is what makes
+// it disappear again for free: equipBoard clears that group before it fills it, so putting the
+// ordinary board back takes the hay with it and there is no flag to get out of step.
+let _hayStack=null;
+function hayStack(){
+  if(_hayStack)return _hayStack;
+  const g=new THREE.Group();
+  const A=PBR({color:0xd8ab4e,roughness:0.96}), B=PBR({color:0xbf8f38,roughness:0.96});
+  const TW=PBR({color:0x4a3116,roughness:0.90});
+  // A bale is a block with two strings round it, and the strings are the whole of why it
+  // reads as a bale rather than as a yellow box.
+  const bale=(w,h,d,mat)=>{
+    const b=new THREE.Group();
+    b.add(new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat));
+    for(const z of [-d*0.27,d*0.27]){
+      const st=new THREE.Mesh(new THREE.BoxGeometry(w*1.03,h*0.10,d*0.055),TW);
+      st.position.z=z; b.add(st);
+    }
+    return b;
+  };
+  const b1=bale(0.60,0.29,0.40,A); b1.position.set(-0.15,0.145,0.00);
+  const b2=bale(0.60,0.29,0.40,B); b2.position.set( 0.16,0.145,0.05); b2.rotation.y=0.26;
+  const b3=bale(0.54,0.26,0.36,A); b3.position.set( 0.01,0.420,0.02); b3.rotation.y=-0.40;
+  g.add(b1,b2,b3);
+  // and a few stalks off the top, because a stack that is only boxes is a stack of boxes.
+  // Hashed rather than random, so the bale is the same bale every time it is built.
+  for(let i=0;i<10;i++){
+    const h1=_hash(i*3.1,7.7), h2=_hash(i*1.9,2.3), h3=_hash(i*5.3,4.1);
+    const st=new THREE.Mesh(new THREE.CylinderGeometry(0.006,0.004,0.18+h1*0.13,3),A);
+    st.position.set((h2-0.5)*0.52,0.56+h3*0.05,(h1-0.5)*0.30);
+    st.rotation.set((h3-0.5)*1.3,h2*3.0,(h2-0.5)*1.3);
+    g.add(st);
+  }
+  g.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
+  _hayStack=g; return g;
+}
 function ufoBorrow(){
   if(ufoWas||!CHAR_BY_ID[UFO_CHAR]||!BOARD_BY_ID[UFO_BOARD])return null;
   ufoWas={rider, board:equipped};
   equipChar(UFO_CHAR); equipBoard(UFO_BOARD);
+  // behind her, on the deck, at the height the disc's own thickness curve puts it there
+  const hay=hayStack();
+  hay.position.set(0,0.255,1.15);
+  boardArt.add(hay);
   ufoHold=UFO_KEEP;
   return UFO_CHAR;
 }
@@ -23008,7 +23159,8 @@ function updateUfo(dt,eff){
   if(!ufo)return;
   // the dark has to be continuous: dusk that slips back does not count toward the minute
   if(ufoPh===UFOP.OFF){
-    if(running&&dayT>=UFO_NIGHT){ ufoDark+=dt; if(ufoDark>=UFO_WAIT)ufoStart(); }
+    // the sun being DOWN, rather than a mark on a clock that used to only ever go one way
+    if(running&&nightAmt>=UFO_NIGHT_AMT){ ufoDark+=dt; if(ufoDark>=UFO_WAIT)ufoStart(); }
     else ufoDark=0;
     if(!ufoDrips.length)return;
   }
@@ -23423,9 +23575,10 @@ function animateRig(dt,carve,grab,waterY){
   } else if(pug.rotation.x!==0){ pug.rotation.x=0; pug.position.set(PUG_X0,0,PUG_Z0); applyStance(); }
   if(lureMat){
     const flick=0.86+Math.sin(tNow*3.1)*0.08+Math.sin(tNow*7.9)*0.06;
-    lureMat.emissiveIntensity=(0.30+dayT*3.1)*flick;
-    lureGlow.material.opacity=(0.06+dayT*0.42)*flick;
-    lureGlow.scale.setScalar(0.85+dayT*0.5);
+    // nightAmt, not dayT: the phase runs to two now and this used to multiply straight by it
+    lureMat.emissiveIntensity=(0.30+nightAmt*3.1)*flick;
+    lureGlow.material.opacity=(0.06+nightAmt*0.42)*flick;
+    lureGlow.scale.setScalar(0.85+nightAmt*0.5);
   }
   updateLimbs();      // the visible limb is swept from wherever the joints ended up
 }
