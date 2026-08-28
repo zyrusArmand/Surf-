@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.28.0';
+window.SURF_VERSION='5.29.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -7314,6 +7314,88 @@ function trunkLine(geo,N){
 // the rigged tree's angles accumulate up the trunk — the base leaves the sand upright and
 // only the tip reaches the full figure — so the whole trunk taken over at the sum would lie
 // down. A straight palm at twenty degrees is a windswept palm, which is a tree that exists.
+// ---- WIND, and why it has to be done in the shader ----
+// The title screen's palm is a photogrammetry scan: ONE mesh, no skeleton, no separable
+// fronds. There are no bones to turn and nothing in the file that knows a frond from the
+// trunk, so "animate the leaves" cannot be done by posing anything. What the file does carry
+// is shape, and that is enough: a vertex out on a frond is a long way from the trunk's
+// centreline and a vertex on the trunk is not. So every vertex is given a WEIGHT once, at
+// load, and the sway is applied in the vertex shader against it — the trunk stays planted,
+// the tips travel furthest, and it costs the CPU nothing per frame.
+// Measured off the trunk line the file already produces (trunkLine, the same one the board
+// and the coconuts are placed against), not off height: fronds droop, so the lowest tip of a
+// frond can hang below the top of the trunk, and anything keyed on y alone would freeze it.
+function palmWindWeights(geo,trunk){
+  const pos=geo.attributes.position; if(!pos||!trunk||!trunk.length)return;
+  const n=pos.count, w=new Float32Array(n);
+  // the geometry is normalised to one unit tall here, so these are fractions of tree height
+  const SPAN=0.26;          // how far out from the trunk before a vertex moves the full amount
+  const CLEAR=1.35;         // ...starting this many trunk-radii off the bark, so it stays put
+  for(let i=0;i<n;i++){
+    const x=pos.getX(i), y=pos.getY(i), z=pos.getZ(i);
+    // the trunk slice nearest in height, which is what "the trunk beside this vertex" means
+    let best=0, bd=Infinity;
+    for(let k=0;k<trunk.length;k++){ const d=Math.abs(trunk[k].p.y-y); if(d<bd){bd=d;best=k;} }
+    const sl=trunk[best];
+    const dx=x-sl.p.x, dz=z-sl.p.z;
+    const d=Math.sqrt(dx*dx+dz*dz)-sl.r*CLEAR;
+    let t=d/SPAN; t=t<0?0:(t>1?1:t);
+    w[i]=t*t*(3-2*t);       // smoothstep, so there is no seam where the fronds leave the bark
+  }
+  geo.setAttribute('aWind',new THREE.BufferAttribute(w,1));
+  // the box no longer bounds what is drawn, and a crown culled at the frame edge would pop
+  geo.computeBoundingSphere();
+  if(geo.boundingSphere)geo.boundingSphere.radius*=1.06;
+}
+// how far a frond tip travels, as a share of the tree's own height
+let PALM_WIND=0.030;
+const _pwU=[];            // every compiled copy's uniforms, so one clock drives them all
+let _pwT=0;
+function palmWindMaterial(mt){
+  if(!mt||mt.userData._wind)return mt;
+  mt.userData._wind=true;
+  const inject=(sh)=>{
+    sh.uniforms.uWindT={value:_pwT};
+    sh.uniforms.uWindA={value:PALM_WIND};
+    _pwU.push(sh.uniforms);
+    sh.vertexShader='attribute float aWind;\nuniform float uWindT;\nuniform float uWindA;\n'+
+      sh.vertexShader.replace('#include <begin_vertex>',`#include <begin_vertex>
+        if(aWind>0.0){
+          // THIS tree's own place in the world, so the two palms on the beach are not one
+          // gust in two copies — they share a material, so a phase in a uniform would be
+          // shared with it, and the model matrix is the one thing here that differs.
+          vec3 wp=(modelMatrix*vec4(0.0,0.0,0.0,1.0)).xyz;
+          // ...and this frond's own phase off its position, so the crown is not a single
+          // slab rocking. Three rates that do not divide into each other, which is what
+          // stops it reading as a loop.
+          float ph=wp.x*0.7+wp.z*0.9+position.y*2.9+position.x*1.7;
+          float sw=sin(uWindT*0.9+ph)+0.55*sin(uWindT*1.7+ph*1.6)+0.25*sin(uWindT*2.9+ph*0.7);
+          float g=uWindA*aWind;
+          transformed.x+=g*sw*0.85;
+          transformed.z+=g*sw*0.35;
+          // a frond dips as it swings out rather than travelling on a flat plane
+          transformed.y-=g*abs(sw)*0.22;
+        }`);
+  };
+  const prev=mt.onBeforeCompile;
+  mt.onBeforeCompile=(sh,r)=>{ if(prev)prev(sh,r); inject(sh); };
+  mt.needsUpdate=true;
+  return mt;
+}
+// The shadow has to move with it or the tree sways over a stencil of itself. Same injection,
+// against three.js's depth material, which is compiled separately and knows nothing about
+// what the visible one was patched with.
+function palmWindDepth(m){
+  if(!m||m.customDepthMaterial)return;
+  const d=new THREE.MeshDepthMaterial({depthPacking:THREE.RGBADepthPacking});
+  d.userData._wind=false;
+  palmWindMaterial(d);
+  m.customDepthMaterial=d;
+}
+function palmWindTick(t){
+  _pwT=t;
+  for(const u of _pwU){ if(u.uWindT)u.uWindT.value=t; if(u.uWindA)u.uWindA.value=PALM_WIND; }
+}
 function palm2Mesh(seed,prof){
   const H=(10.6+((seed*37)%13)/13*2.0)*PALM_H*PALM2_H;
   const P=prof||{}, bend=P.bend||[];
@@ -7334,6 +7416,7 @@ function palm2Mesh(seed,prof){
   m.userData.trunk=trunk;
   m.userData.modelled=true;
   m.castShadow=true; m.receiveShadow=true;
+  palmWindDepth(m);
   return m;
 }
 loadModel('palm2.glb',(s3)=>{
@@ -7362,10 +7445,12 @@ loadModel('palm2.glb',(s3)=>{
   geo.computeBoundingBox();
   const trunk=raw.map(sl=>({p:new THREE.Vector3((sl.p.x-foot.x)*inv,(sl.p.y-baseY)*inv,
                                                 (sl.p.z-foot.z)*inv), r:sl.r*inv}));
+  palmWindWeights(geo,trunk);
   const mats=[].concat(mesh.material);
   for(const mt of mats){ if(!mt)continue;
     if(mt.emissive)mt.emissive.setRGB(0,0,0);
-    mt.envMapIntensity=0.35; mt.side=THREE.DoubleSide; mt.needsUpdate=true; }
+    mt.envMapIntensity=0.35; mt.side=THREE.DoubleSide; mt.needsUpdate=true;
+    palmWindMaterial(mt); }
   palm2={geo,trunk,mat:mats.length===1?mats[0]:mats};
   repalm();
 });
@@ -19419,6 +19504,10 @@ if(location.hash.includes('debug')){
               col:sun.color.getHex(), inten:+sun.intensity.toFixed(2),
               ground:hemi.groundColor.getHex()}),
     dof(v){ MENU_DOF=v!==false; return MENU_DOF; },
+    // How far a frond tip travels, as a share of the tree's own height. Zero is a still day,
+    // which is also how to check that what is moving in the crown is this and not the drift
+    // of the shot.
+    palmWind(a){ if(a!==undefined)PALM_WIND=a; return PALM_WIND; },
     // The bloom the RUN renders at, set straight onto the pass. Nothing rewrites these during
     // a run, unlike the title screen which reapplies its own two every frame — so this is the
     // way to look at a frame with the bloom taken off it and decide whether the pale edge
@@ -25975,6 +26064,8 @@ function menuSettled(dt){
 }
 function renderMenuBeach(dt){
   const m=menuBeach; m.t+=dt;
+  // the palm's wind runs on the menu's own clock, which is real time now — see mdt
+  if(typeof palmWindTick==='function')palmWindTick(m.t);
   if(!menuFaded&&menuSettled(dt)){
     menuFaded=true;
     // how long the picture was held back, and whether it was held until it was ready or cut
