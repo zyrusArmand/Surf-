@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.58.0';
+window.SURF_VERSION='5.59.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -2135,6 +2135,9 @@ if(moonLight.target){moonLight.target.position.set(0,0,0);scene.add(moonLight.ta
 // how dark it is out, 0 by day and 1 at night. Anything that GLOWS should read this rather
 // than the phase, which now runs to two and would drive a lure to twice the brightness.
 let nightAmt=0;
+// ...and how far the moon has cleared the sea, 0 to 1. A separate fact from the darkness, and
+// the one that says "night proper" rather than "the sun has just gone": see UFO_MOON_UP.
+let moonAmt=0;
 buildEnvironment();
 
 // ---------- shared wave model ----------
@@ -17170,6 +17173,7 @@ function updateDayCycle(){
   // It fades in as it clears the sea rather than at a fixed hour: the horizon plane already
   // cuts the disc, so this is only about not having a hard-edged white circle appear.
   const moonUp=Math.max(0,Math.min(1,(my+0.02)/0.14));
+  moonAmt=moonUp;
   moon.material.opacity=moonUp*0.92;
   moonGlow.position.set(mx*130,moonY,-206);
   moonGlow.material.uniforms.uOpacity.value=moonUp*0.55;
@@ -22024,7 +22028,10 @@ if(location.hash.includes('debug')){
     // Read the clock WITHOUT setting it. dayAt(undefined) unpins the day as its way of saying
     // "back to normal", so calling it to find out what the day is destroys the answer — a
     // probe checking whether the UFO button had pinned night cleared the pin by asking.
-    dayNow(){ return {dayForce, dayT:+dayT.toFixed(3), night:+nightAmt.toFixed(3)}; },
+    dayNow(){ return {dayForce, dayT:+dayT.toFixed(3), night:+nightAmt.toFixed(3),
+                      moon:+moonAmt.toFixed(3), dark:+ufoDark.toFixed(1),
+                      // whether the saucer's clock is running at all, which is the question
+                      ready:!!(nightAmt>=UFO_NIGHT_AMT&&moonAmt>=UFO_MOON_UP)}; },
     // ---- THE WHOLE SKY IN ONE ROW ----
     // Whether a night cycle works is six numbers -- where the sun is, where the moon is, how
     // much light each is putting out, and whether the water and the stars agree with them --
@@ -22903,12 +22910,18 @@ function throwStarfish(oct,from){
 // kilometres of riding. This will effectively never happen by itself in an ordinary run.
 // That is a property of the sun's pacing, not of this: the trigger is written to the brief
 // and the test button is how it gets seen.
-// How dark it has to be. This was a mark on dayT, back when dayT only ever went one way and
-// 0.92 meant "nearly the end of the evening". The phase loops now and runs to two, so a number
-// on it means nothing on its own -- how far down the sun is, which is what nightAmt measures,
-// is the thing that was actually meant all along.
-const UFO_NIGHT_AMT=0.85;
-const UFO_WAIT=60;         // seconds of dark before it comes
+// ---- IT COMES OUT AT NIGHT, AND SUNSET IS NOT NIGHT ----
+// This was a mark on dayT back when dayT only ever went one way, then nightAmt, which is how
+// far the sun is DOWN -- and that saturates the moment the disc touches the horizon. So the
+// countdown was starting in the middle of a red sky with the sun still colouring the clouds,
+// which is dusk and not dark.
+//
+// The moon is the honest test. It clears the sea a little after the sun has gone, so waiting
+// for it waits out the whole of the afterglow, and "when the moon is out" is also just what the
+// thing means. Both are asked: the sun properly under, AND the moon properly up.
+const UFO_NIGHT_AMT=0.98;
+const UFO_MOON_UP=0.75;
+const UFO_WAIT=30;         // seconds of moonlit dark before it comes
 const UFO_SCALE=9.0;       // feet across, near enough
 // How high it stands off the water once it is over you. Lower than it was: at 11.5 it sat at
 // the very top of a phone screen with the beam a long thin thing down the middle of the frame.
@@ -23308,8 +23321,10 @@ function updateUfo(dt,eff){
   if(!ufo)return;
   // the dark has to be continuous: dusk that slips back does not count toward the minute
   if(ufoPh===UFOP.OFF){
-    // the sun being DOWN, rather than a mark on a clock that used to only ever go one way
-    if(running&&nightAmt>=UFO_NIGHT_AMT){ ufoDark+=dt; if(ufoDark>=UFO_WAIT)ufoStart(); }
+    // dark AND the moon up -- see UFO_MOON_UP. The clock only runs while both hold, so a
+    // sunset that never quite becomes night never counts toward it.
+    if(running&&nightAmt>=UFO_NIGHT_AMT&&moonAmt>=UFO_MOON_UP){
+      ufoDark+=dt; if(ufoDark>=UFO_WAIT)ufoStart(); }
     else ufoDark=0;
     if(!ufoDrips.length)return;
   }
