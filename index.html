@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.33.0';
+window.SURF_VERSION='5.34.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -6486,6 +6486,7 @@ function modelPalm(seed,prof,menu){
 // see and they sit proud of the thing that generated them.
 const _suRay=new THREE.Raycaster(new THREE.Vector3(),new THREE.Vector3(0,-1,0),0,240);
 const _suP=new THREE.Vector3();
+const _grP=new THREE.Vector3();   // where the rider was standing when his ground was taken
 const _hzRay=new THREE.Raycaster();
 // The height of the ground that is actually DRAWN at one spot, which is not the same thing as
 // the height the terrain function describes. The beach is a field of scanned tiles laid over
@@ -12016,6 +12017,7 @@ function setupModelRig(root,gltf,id){
     for(const n in this.bind){ const b=this.bones[n], r=this.bind[n];
       b.position.copy(r.p); b.quaternion.copy(r.q); b.scale.copy(r.s); }
     this.step=-1; this.stepT=0; this.ground=null; this.groundFromSand=false; this.groundGen=-1;
+    this.groundX=undefined; this.groundZ=undefined;
     this.phase='idle'; this.t=0; this.aw=0; this.rot=0; this.brh=1;
     if(this.yawFix){ pug.rotation.y-=this.yawFix; this.yawFix=0; }
     if(this.xFix){ pug.position.x-=this.xFix; this.xFix=0; }
@@ -12515,14 +12517,29 @@ function setupModelRig(root,gltf,id){
     // on one and 0.45ft into it on the next, which is the "sometimes moves up or down".
     // sandGen counts the rebuilds, so this re-measures exactly once per rebuild and holds
     // still in between, which is what the latch was for in the first place.
-    if(!this.groundFromSand||this.groundGen!==sandGen){
+    // ---- ...and again if he is not standing where he was when it was taken ----
+    // Tying it to sandGen alone did not fix it: measured over three cold loads he came out at
+    // 0.03ft into the sand, then 0.45, then 0.03 again, and his FOOT moved with it — 3.565,
+    // 3.155, 3.564. A height that is wrong by the same amount his foot is wrong by is not a
+    // height read at the wrong time, it is one read in the wrong PLACE. sandUnder samples
+    // under wherever the rider currently is, and on a slow load that is wherever he was left
+    // before the layout put him on his mark. Latched there, he then stands on the sand from
+    // somewhere else for the rest of the session.
+    // Only while he is between beats. During the show he walks and runs a long way off his
+    // mark, and re-measuring then is the thing the latch was written to prevent — a height
+    // that follows the dune leaves nothing to hold him steady against.
+    pug.getWorldPosition(_grP);
+    const _gMoved=(this.groundX===undefined)||
+                  Math.abs(_grP.x-this.groundX)>0.15||Math.abs(_grP.z-this.groundZ)>0.15;
+    if(!this.groundFromSand||this.groundGen!==sandGen||(_gMoved&&this.step<0)){
       // Over his own width, the same rule the chest is set by, so the two agree about where the
       // ground is. One ray under his middle puts him on whatever the tile happens to be doing at
       // that one point, and leaves a foot in the sand wherever it rises either side.
       const _b0=this.skinBox&&this.skinBox();
       const _rr=_b0?Math.max(0.12,Math.min(1.0,(_b0.hi[0]-_b0.lo[0])*0.5)):0.3;
       const sd=(typeof sandUnder==='function')?sandUnder(pug,_rr):null;
-      if(sd!==null){ this.ground=sd; this.groundFromSand=true; this.groundGen=sandGen; }
+      if(sd!==null){ this.ground=sd; this.groundFromSand=true; this.groundGen=sandGen;
+                     this.groundX=_grP.x; this.groundZ=_grP.z; }
       else if(this.ground===null){ const b0=this.skinBox&&this.skinBox();
                                    if(b0)this.ground=b0.lo[1]; }
     }
