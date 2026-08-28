@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.56.0';
+window.SURF_VERSION='5.57.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -20151,6 +20151,11 @@ if(location.hash.includes('debug')){
               riderY:+player.position.y.toFixed(2), seaY:+sea.toFixed(2),
               // what you are riding and who is riding it — the whole point of the sequence is
               // that both of these are different afterwards, and "different" is the check
+              // the emitter as MEASURED off the file, and what the cone was built to. "The beam
+              // leaves at the size of the housing" is two numbers, not an impression.
+              emitR:+(ufo.userData.emitR||0).toFixed(3),
+              beamTop:+(ufo.userData.beam.geometry.parameters.radiusTop*UFO_BEAM_W).toFixed(3),
+              beamBot:+UFO_BEAM_W.toFixed(3),
               rider, board:equipped, swapped:ufoSwap, fit:ufoFit(),
               // the costume, and how long it has left. "Is it borrowed" and "is the cow on
               // screen" are different questions and only this one has a yes/no answer.
@@ -22907,7 +22912,13 @@ const UFO_WAIT=60;         // seconds of dark before it comes
 const UFO_SCALE=9.0;       // feet across, near enough
 // How high it stands off the water once it is over you. Lower than it was: at 11.5 it sat at
 // the very top of a phone screen with the beam a long thin thing down the middle of the frame.
-const UFO_HOVER=8.6;
+// Higher, and further out. At 8.6 it filled the top half of the frame and the whole thing
+// happened in your lap; the abduction wants to look like something arriving from a long way
+// off, and a beam only reads as a beam when there is some length of it to see.
+const UFO_HOVER=13.2;
+// The pool on the water is the widest the light gets, in feet, and it does NOT change with the
+// fade any more -- see the note where the cone is built.
+const UFO_BEAM_W=2.62;
 const UFO_FACE=0;          // square to the lens, and it stays there
 // ---- and it lifts him a LITTLE ----
 // He used to go all the way up to the hull, which put him inside the saucer with nothing left
@@ -22943,6 +22954,26 @@ loadModel('ufo.glb',(s3)=>{
   s3.scale.setScalar(k);
   g.add(s3);
   g.userData.halfH=sz.y*k*0.5;
+  // ---- WHERE THE LIGHT ACTUALLY COMES OUT, MEASURED OFF THE MODEL ----
+  // The beam has to leave the hull at the size of the thing it leaves, and that thing is a
+  // housing on the underside whose radius is a FACT about the file rather than a number to
+  // pick. It was picked -- 0.58 of the pool's radius, eyeballed -- and it came out visibly
+  // narrower than the housing it was supposed to be coming out of. Two passes over the
+  // vertices: find the lowest point, then the widest horizontal reach of anything within a
+  // sixth of the model's height of it. That is the emitter, in feet, whatever is exported next.
+  g.updateMatrixWorld(true);
+  {
+    const v=new THREE.Vector3(); let lo=Infinity;
+    const each=fn=>s3.traverse(o=>{ if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+      const p=o.geometry.attributes.position;
+      for(let i=0;i<p.count;i++)fn(v.fromBufferAttribute(p,i).applyMatrix4(o.matrixWorld)); });
+    each(w=>{ if(w.y<lo)lo=w.y; });
+    const band=lo+sz.y*k*0.16;
+    let rad=0;
+    each(w=>{ if(w.y<=band){ const r=Math.hypot(w.x,w.z); if(r>rad)rad=r; } });
+    g.userData.emitY=lo;
+    g.userData.emitR=Math.max(0.05,rad);
+  }
   // ---- the beam ----
   // A cone standing on its point at the emitter under the hull, opening downward. Additive
   // and depth-blind, because it is light rather than a solid: anything it crosses should be
@@ -22958,8 +22989,12 @@ loadModel('ufo.glb',(s3)=>{
   // a foot and a bit across — so the higher the light drew him the less of it there was to be
   // inside of. Opening the top out costs nothing on the water, where the pool is unchanged,
   // and makes the shaft he floats in wider than he is.
-  const bm=new THREE.Mesh(new THREE.CylinderGeometry(0.58,1,1,30,1,true),
-    new THREE.MeshBasicMaterial({color:0x9fe8ff,transparent:true,opacity:0,
+  // ...so the cone's top is the emitter's own radius over the pool's, and the width no longer
+  // breathes with the fade -- a beam that grows sideways as it brightens does not stay attached
+  // to the housing it leaves. The fade is the OPACITY, which is what a light coming on is.
+  const bm=new THREE.Mesh(new THREE.CylinderGeometry(
+      Math.min(0.95,g.userData.emitR/UFO_BEAM_W),1,1,30,1,true),
+    new THREE.MeshBasicMaterial({color:0xf4f8ff,transparent:true,opacity:0,
       blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
   // ConeGeometry already stands apex-up and mouth-down, which is the way a beam falls: a
   // point at the emitter opening out to a disc on the water. Turning it half over — which is
@@ -22968,10 +23003,10 @@ loadModel('ufo.glb',(s3)=>{
   g.add(bm); g.userData.beam=bm;
   // a disc of light where it lands, so the beam has a foot as well as a body
   const pool=new THREE.Mesh(new THREE.CircleGeometry(1,30),
-    new THREE.MeshBasicMaterial({color:0x9fe8ff,transparent:true,opacity:0,
+    new THREE.MeshBasicMaterial({color:0xf4f8ff,transparent:true,opacity:0,
       blending:THREE.AdditiveBlending,depthWrite:false}));
   pool.rotation.x=-Math.PI/2; g.add(pool); g.userData.pool=pool;
-  ufoLight=new THREE.PointLight(0x9fe8ff,0,90,2); g.add(ufoLight);
+  ufoLight=new THREE.PointLight(0xf4f8ff,0,90,2); g.add(ufoLight);
   g.visible=false; scene.add(g); ufo=g;
 });
 // A handful of drops off the hull for the first few seconds out of the sea. Pooled, because
@@ -23261,7 +23296,7 @@ function updateUfo(dt,eff){
   } else if(ufoPh===UFOP.BEAM){
     // it settles overhead — but it does NOT slide across to be exactly above him. The beam
     // leans out and finds him where he is, which is the half of this that reads as searching.
-    ufo.position.z+=(pz-6-ufo.position.z)*Math.min(1,dt*1.3);
+    ufo.position.z+=(pz-8.5-ufo.position.z)*Math.min(1,dt*1.3);
     ufo.position.y+=((sea+UFO_HOVER)-ufo.position.y)*Math.min(1,dt*1.6);
     if(Math.random()<dt*8&&ufoT<2.5)
       ufoDrip(ufo.position.x+(Math.random()-0.5)*UFO_SCALE*0.7,
@@ -23282,7 +23317,7 @@ function updateUfo(dt,eff){
     // centring him: measured, he left the axis at a steady quarter of a foot a second for the
     // whole hold and was outside the cone by the end of it. It keeps station, slowly, which is
     // not the same as chasing him -- the lean of the beam is still what finds him.
-    ufo.position.z+=(pz-6-ufo.position.z)*Math.min(1,dt*0.9);
+    ufo.position.z+=(pz-8.5-ufo.position.z)*Math.min(1,dt*0.9);
     ufo.position.x+=(px-ufo.position.x)*Math.min(1,dt*0.5);
     ufoRiderWorld(_ufAim); _ufAim.y+=0.2;
     ufoBeamTo(sea,1,1,_ufAim);
@@ -23323,7 +23358,8 @@ function updateUfo(dt,eff){
 const _ufA=new THREE.Vector3(), _ufD=new THREE.Vector3(), _ufU=new THREE.Vector3(0,-1,0);
 function ufoBeamTo(sea,k,reach,aimAt){
   const bm=ufo.userData.beam, pool=ufo.userData.pool, half=ufo.userData.halfH;
-  const top=-half*0.92;
+  // the underside of the housing itself, measured, rather than a fraction of the whole model
+  const top=(ufo.userData.emitY!==undefined)?ufo.userData.emitY:-half*0.92;
   // the emitter, and the point it is trying to reach, both in the saucer's own space — it
   // carries no rotation, so an offset in the world is the same offset here
   const full=Math.max(0.5,ufo.position.y+top-sea);
@@ -23342,7 +23378,7 @@ function ufoBeamTo(sea,k,reach,aimAt){
   bm.quaternion.setFromUnitVectors(_ufU,_ufD);
   // Slimmer than it was. The beam used to stop at the rider; running it on to the water puts
   // its wide end close to the lens, where the same radius fills most of the lower frame.
-  const w=UFO_SCALE*0.28*(0.55+k*0.45);
+  const w=UFO_BEAM_W;
   bm.scale.set(w,len,w);
   // the cylinder is centred on itself, so its middle sits half a length down the ray
   bm.position.set(_ufD.x*len*0.5, top+_ufD.y*len*0.5, _ufD.z*len*0.5);
