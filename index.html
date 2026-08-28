@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.36.0';
+window.SURF_VERSION='5.37.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -26403,6 +26403,16 @@ function menuSettled(dt){
     id+=(o?o.uuid:'-')+'|';
     now.push(o?o.position.x:0, o?o.position.y:0, o?o.position.z:0, o?o.scale.x:0);
   }
+  // ---- and the SAND has to be the real sand ----
+  // sandFieldBuild runs twice at boot — once when the beach group is made, which is usually
+  // before sand.glb has arrived and builds nothing, and once from the model's own callback.
+  // Until the second one the only ground in the scene is the painted beach, which sits about
+  // 0.4ft below the tiled field laid over it. The rider takes the height he stands at from
+  // whatever is there, so if the field lands after the fade he is corrected in full view and
+  // that correction IS the character jumping up or down on the title screen.
+  // So the picture is not called settled until the field he is standing on exists. The cap
+  // still applies: a field that never comes cannot hold the menu for ever.
+  if(typeof sandField==='undefined'||!sandField){ _mbHold=0; return _mbWait>=MB_SHOW_CAP; }
   // identity first: a model arriving is a different object, not a moved one
   let same=(id===_mbId)&&!!_mbSig&&_mbSig.length===now.length;
   if(same)for(let i=0;i<now.length;i++){
