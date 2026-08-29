@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.65.1';
+window.SURF_VERSION='5.66.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -1533,6 +1533,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     <button class="go teal sm" id="stWhirl">Test whirl</button>
     <button class="go teal sm" id="stStage">Stage</button>
     <button class="go teal sm" id="stUfo">UFO</button>
+    <button class="go teal sm" id="stBoat">Boat</button>
     <button class="go sm" id="stClose">Close</button>
   </div>
 </div></div>
@@ -2287,7 +2288,7 @@ function waveComp(W,x,z,t){
 function waveH(x,z,t){
   let h=0;
   for(const W of WAVES)h+=waveComp(W,x,z,t);
-  return h*waveAmp*swCalm+wakeBump(x,z)+whirlDip(x,z)+setWaveH(x,z);
+  return h*waveAmp*swCalm+wakeBump(x,z)+boatBump(x,z)+whirlDip(x,z)+setWaveH(x,z);
 }
 // the long-period part of the sea only — what a floating object actually rides.
 // Short chop is filtered out, so buoys glide over the swell instead of vibrating,
@@ -2295,7 +2296,7 @@ function waveH(x,z,t){
 function swellH(x,z,t){
   let h=0;
   for(let i=0;i<2;i++)h+=waveComp(WAVES[i],x,z,t);
-  return h*waveAmp*1.06*swCalm+wakeBump(x,z)+whirlDip(x,z)+setWaveH(x,z);
+  return h*waveAmp*1.06*swCalm+wakeBump(x,z)+boatBump(x,z)+whirlDip(x,z)+setWaveH(x,z);
 }
 const OCEAN_Z=-90;
 let dist=0;
@@ -9491,6 +9492,8 @@ function openStats(full){
   // Stage button on the player's own Stats panel — the check for "nowhere a player can reach"
   // is what asked the question.
   document.getElementById('stStage').style.display = full ? '' : 'none';
+  // the tow boat's test button, behind the same five taps as the rest of the workshop
+  document.getElementById('stBoat').style.display = full ? '' : 'none';
   // and the whirlpool test with it. Same reasoning as Stage: a test that summons a hazard
   // belongs behind the five taps, not on the panel the dial opens.
   document.getElementById('stWhirl').style.display = full ? '' : 'none';
@@ -9788,6 +9791,15 @@ document.getElementById('stUfo').onclick=()=>{
   // the moon. The button was showing the wrong scene, not the trigger firing at the wrong time.
   dayForce=UFO_TEST_HOUR;
   setTimeout(()=>{ if(typeof ufoStart==='function')ufoStart(); },350);
+};
+// ---- the tow boat, on demand ----
+// Same shape as the saucer's button: it needs a run under way to have a lane to come down and
+// a rider to come past, so it puts you in one first. No hour is forced -- unlike the visitor,
+// the boat is not gated on the sky.
+document.getElementById('stBoat').onclick=()=>{
+  document.getElementById('stats').classList.add('hidden');
+  if(!running){ if(typeof beginRun==='function')beginRun(); }
+  setTimeout(()=>{ if(typeof boatStart==='function')boatStart(); },350);
 };
 document.getElementById('stStage').onclick=()=>{
   document.getElementById('stats').classList.add('hidden');
@@ -15821,6 +15833,8 @@ function reset(){
   // that is said here rather than being smuggled inside ufoReset.
   if(typeof ufoReset==='function'){ ufoReset(); ufoDark=0; }
   if(typeof ufoGiveBack==='function')ufoGiveBack(true);
+  // and no tow boat left in the lane from the last run, for the same reason
+  if(typeof boatReset==='function')boatReset();
   if(wipe){ scene.remove(rig); player.add(rig);
     player.remove(pug); rig.add(pug);
     pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
@@ -15882,6 +15896,7 @@ function respawn(){
   whirl=null;whA=0;whirlArt.visible=false;whirlT=40+Math.random()*45;whTest=false;
   hanging=false;rope.visible=false;ropeBtn.style.display='none';ropeBtn.textContent='ROPE!';
   planeActive=false;plane.visible=false;planeT=30+Math.random()*24;
+  if(typeof boatReset==='function')boatReset();
   splatT=0;splat3D.visible=false;
   while(stars.length){const st=stars.pop();st.m.visible=false;STAR_POOL.push(st.m);}
   px=0;py=0;pz=0;vy=0;vx=0;airborne=false;trick=null;spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;
@@ -18374,6 +18389,256 @@ function updateJetSki(dt,eff){
   } else if(wkA>0){ wkA=Math.max(0,wkA-dt*3); }
 }
 
+// ---------- the tow boat ----------
+// It comes down the lane, goes past close enough to see, and then settles in front of you at
+// your own speed — which is the position a tow has to be in before it can be a tow. The
+// paraglide it hands you is the next piece; this is the boat and the water it moves.
+//
+// ---- and the V IS the wake ribbon, not a decal ----
+// The rider's own trail is already a strip that widens with age, which is a V by construction,
+// so the boat's is the same geometry and the same shader rather than a new kind of foam that
+// would have to be made to match it. Three of them off one trail: two narrow arms that diverge
+// at the angle a hull's bow waves actually leave it, and a wide soft one down the middle for
+// the churn the propeller leaves between them. The arms outlive the churn, because that is
+// what makes the V readable once the boat is some way off.
+const BOAT_SEGS=56;
+const BOAT_LIFE=3.2;                   // how long a piece of wake lasts before it has dispersed
+function wakeRibbon(segs){
+  const geo=new THREE.BufferGeometry();
+  const pos=new Float32Array(segs*2*3), al=new Float32Array(segs*2), uv=new Float32Array(segs*2*2);
+  geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  geo.setAttribute('aAlpha',new THREE.BufferAttribute(al,1));
+  geo.setAttribute('aUV',new THREE.BufferAttribute(uv,2));
+  const idx=[];
+  for(let i=0;i<segs-1;i++){ const a=i*2,b=i*2+1,c=(i+1)*2,d=(i+1)*2+1; idx.push(a,b,c, b,d,c); }
+  geo.setIndex(idx);
+  // Shares the rider's foam material outright — same billows, same torn silhouette, same
+  // clock. Two foams tuned separately never quite match, and these are side by side.
+  const m=new THREE.Mesh(geo,wakeMat);
+  m.frustumCulled=false; m.visible=false; scene.add(m);
+  return {geo,pos,al,uv,mesh:m,segs};
+}
+const boatArmL=wakeRibbon(BOAT_SEGS), boatArmR=wakeRibbon(BOAT_SEGS), boatChurn=wakeRibbon(BOAT_SEGS);
+const boatTrail=[];                    // {x,z,nx,nz,age,s} — n is across the hull's heading
+// ---- and the V is an ANGLE, which is not the same as a spread in feet ----
+// The arms first moved out a fixed 12.5ft over the wake's life. But how far BACK a piece of
+// wake has got in that time is the boat's speed times its age -- eighty feet at station, a
+// hundred and fifty flat out -- so a fixed sideways spread gives a V of eight degrees at one
+// speed and four at the other, and eight degrees over a hundred feet is two parallel streaks,
+// which is exactly how it rendered. A real hull throws its bow waves out at a constant angle
+// whatever it is doing, so what each piece of wake remembers is the distance travelled when it
+// was laid, and the spread is a fraction OF the distance behind. 0.35 is about nineteen
+// degrees, which is the angle a displacement hull actually makes.
+const BOAT_VEE=0.35;
+let boatRun=0;                         // path length the boat has covered this pass
+// ---- the water it pushes, in the height field rather than on top of it ----
+// A boat drawn onto flat water is a sticker of a boat however good the foam is. This is one
+// more additive term in the same field the swell, the ski's wake and the whirlpool live in, so
+// the ocean shader lights and foams the ridge for free and the rider floats over it without
+// knowing it is there. Small on purpose: it is the hull's own push, not a wave to launch off,
+// and the ski's ridge — the one that DOES launch you — is twenty-one to this one's two.
+// var, and a guard that is true for undefined. boatBump is called from waveH, waveH is called
+// all through boot, and boot happens long before this line runs -- so a const here is read in
+// its dead zone and throws, which is a blank screen with no __surf at all rather than a broken
+// wake. The same trap has cost three debugging sessions on this file already. The guard is
+// written !(a>x) rather than a<=x for the same reason: undefined<=0.001 is FALSE, so the early
+// return would not fire and the next line would reach the constants anyway.
+var BOAT_WK_S=3.4, BOAT_WK_HALF=7.0;
+var bwA=0, bwX=0, bwZ=0;
+function boatBump(x,z){
+  if(!(bwA>0.001))return 0;
+  const dz=z-bwZ;
+  const ez=Math.exp(-(dz*dz)/(2*BOAT_WK_S*BOAT_WK_S));
+  const ax=Math.max(0,Math.min(1,1-Math.abs(x-bwX)/BOAT_WK_HALF));
+  return bwA*ez*ax*ax*(3-2*ax);
+}
+const boat=new THREE.Group();
+boat.visible=false;
+scene.add(boat);
+// A twenty-foot hull against a nine-foot board: big enough to tow from, small enough to sit in
+// the lane. Longest side along Z because the ride points local -z along the way things travel,
+// which is the convention every other moving prop here is built to.
+const BOAT_BOX=new THREE.Box3(new THREE.Vector3(-2.9,-1.6,-10),new THREE.Vector3(2.9,1.6,10));
+// ---- which end is the bow, measured rather than assumed ----
+// Same trap the jet ski fell into: fitToBox lines a model's long axis up with the target's, and
+// a long axis has two ends, so half the time a hull crosses the lane stern-first with its wake
+// coming off the sharp end. A planing hull is wide and blunt at the transom and narrows to the
+// stem, so the half with the smaller mean width is the bow.
+function boatBowAt(o){
+  const g=[]; o.updateMatrixWorld(true);
+  o.traverse(m=>{ if(m.isMesh&&m.geometry&&m.geometry.attributes.position)g.push(m); });
+  if(!g.length)return -1;
+  const b=new THREE.Box3().setFromObject(o), mid=(b.min.z+b.max.z)*0.5;
+  let wP=0,nP=0,wN=0,nN=0;
+  const v=new THREE.Vector3();
+  for(const m of g){
+    const p=m.geometry.attributes.position;
+    for(let i=0;i<p.count;i+=7){
+      v.fromBufferAttribute(p,i).applyMatrix4(m.matrixWorld);
+      if(v.z<mid){ wN+=Math.abs(v.x); nN++; } else { wP+=Math.abs(v.x); nP++; }
+    }
+  }
+  if(!nP||!nN)return -1;
+  return (wP/nP)<(wN/nN)?1:-1;         // +1 means the bow is at +z and the model needs turning
+}
+loadModel('boat.glb',s3=>{
+  const fitted=skinAndFit('boat',s3,BOAT_BOX);
+  if(boatBowAt(fitted)>0)fitted.rotation.y+=Math.PI;
+  boat.add(fitted);
+  boat.userData.hull=fitted;
+  // ---- and it FLOATS at a measured depth ----
+  // "sea + 0.55" is a guess about where the origin sits inside a hull nobody has measured, and
+  // on an import the origin can be anywhere. The box is taken here, in the boat's own space
+  // before it is placed, and the offset that puts the keel a fixed distance under the surface
+  // is worked out from it -- so the boat sits in the water at the same depth whatever the
+  // exporter chose as its centre.
+  const hb=new THREE.Box3().setFromObject(fitted);
+  if(isFinite(hb.min.y)){ boat.userData.keel=hb.min.y; boat.userData.hullH=hb.max.y-hb.min.y; }
+});
+// OFF, then it runs in from behind you, goes past on one side, and swings into the lane ahead
+// to hold station at your speed. STATION is where the tow can start.
+const BTP={OFF:-1,RUN:0,PASS:1,SWING:2,STATION:3,AWAY:4};
+let btPh=BTP.OFF, btT=0, btSide=1, btX=0, btZ=0, btYaw=0, btSpd=0;
+const BOAT_PASS_X=13.0;                // how far to the side it goes by
+const BOAT_STATION_Z=-34;              // where it settles ahead of you
+const BOAT_STATION=6.0;                // seconds it holds there before giving up on you
+function boatReset(){
+  btPh=BTP.OFF; btT=0; boat.visible=false; bwA=0;
+  boatTrail.length=0;
+  boatArmL.mesh.visible=false; boatArmR.mesh.visible=false; boatChurn.mesh.visible=false;
+}
+function boatStart(){
+  if(btPh!==BTP.OFF)return null;
+  btPh=BTP.RUN; btT=0; boatRun=0;
+  btSide=Math.random()<0.5?1:-1;
+  // Behind and out to one side, so it overtakes you rather than appearing alongside.
+  btX=px+btSide*BOAT_PASS_X; btZ=pz+58; btYaw=0; btSpd=30;
+  boat.visible=true;
+  boatTrail.length=0;
+  if(typeof msg==='function')msg('BOAT! 🚤');
+  return true;
+}
+// The trail is laid in world x/z with the heading it was laid at, so each piece of wake
+// remembers which way was across the hull when it was made. Without that the arms of the V
+// would swing round with the boat and the whole wake would pivot behind it like a rigid fork.
+const _btN=new THREE.Vector3();
+function boatLayWake(dt,eff){
+  for(const t of boatTrail){ t.age+=dt; t.z+=eff*dt; }
+  while(boatTrail.length&&boatTrail[boatTrail.length-1].age>BOAT_LIFE)boatTrail.pop();
+  if(boat.visible&&btPh!==BTP.OFF){
+    const sn=Math.sin(btYaw), cs=Math.cos(btYaw);
+    // the stern, which is where a wake comes from — the boat drives along local -z
+    boatTrail.unshift({x:btX+sn*9.0, z:btZ+cs*9.0, nx:cs, nz:-sn, age:0, s:boatRun});
+    if(boatTrail.length>BOAT_SEGS)boatTrail.length=BOAT_SEGS;
+  }
+  const live=boatTrail.length>2;
+  boatArmL.mesh.visible=live; boatArmR.mesh.visible=live; boatChurn.mesh.visible=live;
+  if(!live)return;
+  // ---- the three ribbons, off the one trail ----
+  // side: -1 and +1 place the arms, 0 is the churn down the middle. `out` is how far from the
+  // centreline that piece of wake has travelled since it was made, which is the whole V: it
+  // leaves the stern nearly together and keeps spreading for as long as it lasts.
+  const lay=(rb,side,w0,vee,halfW,fade)=>{
+    for(let i=0;i<rb.segs;i++){
+      const t=boatTrail[i], o=i*6, oa=i*2, ou=i*4;
+      if(!t){ rb.al[oa]=0; rb.al[oa+1]=0; continue; }
+      const k=t.age/BOAT_LIFE;
+      // how far astern this piece of wake has got, which is what sets the angle
+      const behind=Math.max(0,boatRun-t.s);
+      const out=side*(w0+behind*vee);
+      const cx=t.x+t.nx*out, cz=t.z+t.nz*out;
+      const hw=halfW*(0.55+k*0.9);
+      const y=waveH(cx,dist*WAVE_DRIFT+cz,waveClock)+0.06;
+      rb.pos[o]  =cx-t.nx*hw; rb.pos[o+1]=y; rb.pos[o+2]=cz-t.nz*hw;
+      rb.pos[o+3]=cx+t.nx*hw; rb.pos[o+4]=y; rb.pos[o+5]=cz+t.nz*hw;
+      rb.uv[ou]=-1; rb.uv[ou+1]=k; rb.uv[ou+2]=1; rb.uv[ou+3]=k;
+      // eased in over the first couple of segments so the ribbon does not start at the
+      // stern as a hard bright edge, and out over its life as the foam disperses
+      const a=Math.max(0,Math.pow(1-k,fade))*Math.min(1,i/2.0)*0.80;
+      rb.al[oa]=a; rb.al[oa+1]=a;
+    }
+    rb.geo.attributes.position.needsUpdate=true;
+    rb.geo.attributes.aAlpha.needsUpdate=true;
+    rb.geo.attributes.aUV.needsUpdate=true;
+  };
+  // The arms hold their brightness (fade 1.0) so the V still reads when the boat is well
+  // ahead; the churn between them is thrown up by the propeller and goes flat much sooner.
+  lay(boatArmL,-1, 2.2, BOAT_VEE, 1.55, 1.15);
+  lay(boatArmR, 1, 2.2, BOAT_VEE, 1.55, 1.15);
+  lay(boatChurn,0, 0.0, 0.0,      2.60, 2.2);
+}
+function updateBoat(dt,eff){
+  if(btPh===BTP.OFF){ boatLayWake(dt,eff); return; }
+  btT+=dt;
+  boatRun+=btSpd*dt;
+  const sea=waveH(btX,dist*WAVE_DRIFT+btZ,waveClock);
+  let yawWant=0;
+  if(btPh===BTP.RUN){
+    // overtaking, out to the side, still pointed straight down the lane
+    btSpd=30; btZ-=btSpd*dt; btZ+=eff*dt*0.30;
+    btX+=(px+btSide*BOAT_PASS_X-btX)*Math.min(1,dt*1.1);
+    if(btZ<pz+6){ btPh=BTP.PASS; btT=0; }
+  } else if(btPh===BTP.PASS){
+    // alongside and then past, throwing spray off the quarter
+    btSpd=26; btZ-=btSpd*dt; btZ+=eff*dt*0.30;
+    if(btZ<BOAT_STATION_Z+16){ btPh=BTP.SWING; btT=0; }
+  } else if(btPh===BTP.SWING){
+    // ---- and it comes into the MIDDLE, which is the point of the pass ----
+    // A tow boat has to be in front of you and on your line before it is any use, so once it
+    // is clear ahead it eases across the lane and slows to your speed. Both are eased rather
+    // than set: a hull that snaps onto the centreline has no wake worth the name, and the
+    // swing across is most of what draws the V.
+    btSpd+=(18-btSpd)*Math.min(1,dt*0.8);
+    btZ-=btSpd*dt; btZ+=eff*dt*0.30;
+    btX+=(px-btX)*Math.min(1,dt*0.85);
+    yawWant=Math.max(-0.5,Math.min(0.5,(px-btX)*0.055));
+    if(Math.abs(btX-px)<2.2&&btZ<BOAT_STATION_Z+3){ btPh=BTP.STATION; btT=0; }
+  } else if(btPh===BTP.STATION){
+    // holding its place ahead of you rather than holding a fixed z: the world scrolls past,
+    // so standing still in world space is the boat sliding backwards into your lap.
+    btZ+=((pz+BOAT_STATION_Z)-btZ)*Math.min(1,dt*1.5);
+    btX+=(px-btX)*Math.min(1,dt*1.2);
+    yawWant=Math.max(-0.35,Math.min(0.35,(px-btX)*0.05));
+    if(btT>=BOAT_STATION){ btPh=BTP.AWAY; btT=0; }
+  } else if(btPh===BTP.AWAY){
+    btSpd+=(40-btSpd)*Math.min(1,dt*0.7);
+    btZ-=btSpd*dt;
+    if(btZ<pz-190){ boatReset(); boatLayWake(dt,eff); return; }
+  }
+  btYaw+=(yawWant-btYaw)*Math.min(1,dt*2.2);
+  // ---- the keel at a measured depth, not the origin at a guessed height ----
+  const keel=(boat.userData.keel!==undefined)?boat.userData.keel:-2.4;
+  boat.position.set(btX, sea-keel-1.62+Math.sin(tNow*1.9)*0.07, btZ);
+  // ---- YXZ, because a yaw and a roll do not commute ----
+  // Default XYZ order applies the roll BEFORE the yaw, so a boat that is both turning and
+  // heeling gets its heel swung round into a pitch and comes out lying on its side -- which is
+  // what it did: at half a radian of yaw the hull was over at forty degrees showing its keel.
+  // YXZ is yaw, then pitch, then roll, which is the order those three things actually happen
+  // to a boat. Same trap the rider's board hit, for the same reason.
+  boat.rotation.order='YXZ';
+  boat.rotation.y=btYaw;
+  // bow up under power, and heeling INTO the turn the way a planing hull does -- gently. The
+  // 1.5 here was a capsize on its own, before the euler order made it worse.
+  boat.rotation.x=-0.055-0.035*Math.min(1,btSpd/30);
+  boat.rotation.z=-btYaw*0.45+Math.sin(tNow*1.3)*0.02;
+  // the ridge it pushes, parked on the stern
+  const push=Math.min(1,btSpd/26);
+  bwA=2.05*push; bwX=btX; bwZ=dist*WAVE_DRIFT+btZ+7.0;
+  // spray off the transom, at the same rate the ski throws it but in a wider fan
+  if(btSpd>8){
+    for(let i=0;i<3;i++){
+      const m=(typeof takeDrop==='function')?takeDrop():null; if(!m)break;
+      m.material=SPLASH_MAT;
+      const sc=1.0+Math.random()*1.5; m.scale.setScalar(sc);
+      m.position.set(btX+(Math.random()*2-1)*2.4, sea+0.25, btZ+8.6);
+      m.userData={vx:(Math.random()*2-1)*3.5, vy:2.5+Math.random()*5,
+                  vz:2.0+Math.random()*3.5, t:0.5+Math.random()*0.4, s:sc};
+      splashes.push(m);
+    }
+  }
+  boatLayWake(dt,eff);
+}
+
 // ---------- the set wave: a plane goes down, and what it throws you can ride ----------
 const SWP={IDLE:-1,FLY:0,IMPACT:1,SWELL:2,RIDE:3,EXIT:4};
 const SW_CRASH_X=46, SW_HOLD_X=9.0, SW_TUBE=4.6;   // SW_PEAK is up with the peel
@@ -20287,6 +20552,26 @@ if(location.hash.includes('debug')){
     // it is in and where the saucer and the beam have got to, so "does it come out of the
     // water, does the beam reach him, does he go up, does he come back as somebody else" is
     // four numbers rather than four impressions.
+    boatNow(){ if(typeof boatStart!=='function')return null;
+      if(!running&&typeof beginRun==='function')beginRun();
+      boatReset(); boatStart();
+      return {ph:btPh, x:+btX.toFixed(2), z:+btZ.toFixed(2)}; },
+    boatState(){
+      const sc=(o)=>{ const v=new THREE.Vector3(); o.updateWorldMatrix(true,false);
+        o.getWorldPosition(v); v.project(camera);
+        return [Math.round((v.x*0.5+0.5)*innerWidth),Math.round((-v.y*0.5+0.5)*innerHeight)]; };
+      let meshes=0,vis=0; boat.traverse(o=>{ if(o.isMesh){meshes++; if(o.visible)vis++;} });
+      const b=new THREE.Box3().setFromObject(boat);
+      return {ph:btPh, t:+btT.toFixed(2), visible:boat.visible,
+              pos:[+btX.toFixed(2),+boat.position.y.toFixed(2),+btZ.toFixed(2)],
+              rel:[+(btX-px).toFixed(2),+(btZ-pz).toFixed(2)],
+              yaw:+btYaw.toFixed(3), spd:+btSpd.toFixed(1),
+              screen:sc(boat), meshes, vis,
+              size:boat.visible?[+(b.max.x-b.min.x).toFixed(2),+(b.max.y-b.min.y).toFixed(2),
+                                 +(b.max.z-b.min.z).toFixed(2)]:null,
+              trail:boatTrail.length, bump:+bwA.toFixed(2),
+              hull:!!(boat.userData&&boat.userData.hull)}; },
+    boatPh(p){ btPh=p; btT=0; return btPh; },
     ufoNow(){ if(typeof ufoStart!=='function')return null;
       dayForce=UFO_TEST_HOUR; return ufoStart(); },
     ufoState(){ if(typeof ufo==='undefined'||!ufo)return null;
@@ -25278,6 +25563,7 @@ function update(dt){
 
   updateSeaLife(dt,eff);
   updateJetSki(dt,eff);
+  updateBoat(dt,eff);
   updateCrate(dt,eff);
   updateCocos(dt,eff);
   updateWhirl(dt,eff);
