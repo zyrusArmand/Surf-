@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.90.0';
+window.SURF_VERSION='5.91.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -12809,8 +12809,14 @@ function setupModelRig(root,gltf,id){
     // skeleton entirely that only the procedural body uses. Blended in rather than switched,
     // so getting on and off the ski is a movement.
     const _sit=(typeof skiSit!=='undefined')?skiSit:0;
-    const sHip=hip*(1-_sit)+1.16*_sit, sKnee=knee*(1-_sit)+1.28*_sit;
-    set('LeftUpLeg',  sHip, 0, 0.06+0.34*_sit); set('RightUpLeg', sHip, 0,-0.06-0.34*_sit);
+    // ---- and ASTRIDE it, with the shins hanging ----
+    // 1.16 at the hip and 1.28 at the knee is a tuck: thigh up, shin folded back under him, and
+    // from the side there is no leg to see at all -- which is what the shot shows against a
+    // reference whose leg runs plainly down the hull into the footwell. The thigh comes forward
+    // rather than up, the knee opens so the shin drops, and the splay goes wide enough to clear
+    // the hull's shoulder instead of gripping a board that is not there.
+    const sHip=hip*(1-_sit)+1.02*_sit, sKnee=knee*(1-_sit)+0.86*_sit;
+    set('LeftUpLeg',  sHip, 0, 0.06+0.58*_sit); set('RightUpLeg', sHip, 0,-0.06-0.58*_sit);
     set('LeftLeg',    sKnee,0,0); set('RightLeg', sKnee,0,0);
     // ---- the lean, which is the whole of what a carve looks like ----
     // Rolled through the SPINE rather than the hips. Roll the hips and the legs go with them,
@@ -12829,9 +12835,11 @@ function setupModelRig(root,gltf,id){
     const _base=Math.max(0,1-_gl-_sk);
     // and a fold forward at the waist on the ski, which is the other half of "he is riding it":
     // sitting bolt upright with your arms out front is being carried, not driving
-    set('Spine',   0.05+this.bob*0.02+0.16*_sk, -this.sway*0.10, lean*0.45);
-    set('Spine01', 0.05+0.13*_sk,               -this.sway*0.08, lean*0.35);
-    set('Spine02', 0.03+0.09*_sk,               -this.sway*0.06, lean*0.25);
+    // and the fold is a SUGGESTION of lean, not a bow -- it stacks on pug.rotation.x, and the
+    // two together were what put his nose on the console
+    set('Spine',   0.05+this.bob*0.02+0.05*_sk, -this.sway*0.10, lean*0.45);
+    set('Spine01', 0.05+0.04*_sk,               -this.sway*0.08, lean*0.35);
+    set('Spine02', 0.03+0.03*_sk,               -this.sway*0.06, lean*0.25);
     // he looks down the line, and his head stays level while his body does not
     set('neck', -0.06, this.sway*0.20, -lean*0.30);
     set('Head', -0.10+this.bob*0.03, this.sway*0.26, -lean*0.45);
@@ -25744,7 +25752,12 @@ function animateRig(dt,carve,grab,waterY){
     // square to the nose. His stance is side-on to a board the rest of the time, and nobody
     // rides a jet ski sideways.
     pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0)+(-STANCE_ROT)*h;
-    pug.rotation.x=-0.20*h;                 // a little forward over the bars
+    // ---- upright, because he was DIVING over the bars ----
+    // Side by side with the reference photo: that rider's torso is near vertical with maybe ten
+    // degrees of lean, and the pug was carrying 0.20 here plus another 0.38 folded through the
+    // spine below -- a third of a right angle, nose down over the console, rear in the air. A
+    // little lean says driving; this much says falling off the front.
+    pug.rotation.x=-0.05*h;
     // ---- and how far down is the BOARD'S business ----
     // This is a delta, not a height: deckLift() is added to pug.position.y further down the
     // frame, so whatever is written here lands on top of the deck the equipped board provides.
