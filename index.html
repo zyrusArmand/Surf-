@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.97.0';
+window.SURF_VERSION='5.98.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -14001,7 +14001,7 @@ function puffTexture(){
 function puffGet(){
   if(puffPool.length)return puffPool.pop();
   const m=new THREE.Sprite(new THREE.SpriteMaterial({map:puffTexture(),transparent:true,
-    depthWrite:false, opacity:0, color:0xffffff}));
+    depthWrite:false, opacity:0, color:0xffffff, dithering:true}));
   m.renderOrder=2;
   scene.add(m);
   return m;
@@ -18667,7 +18667,17 @@ const boatArmL=wakeRibbon(BOAT_SEGS), boatArmR=wakeRibbon(BOAT_SEGS), boatChurn=
 // So the pool nearly doubles, they start half again as wide, and each one gets a good deal
 // FAINTER -- more of them at lower alpha is a smoother mass than fewer at high alpha, and it is
 // also what stops the near end blowing out to solid white now that there are this many.
-const BF_N=460, BF_LIFE=3.0;
+// ---- and 460 was far too many, which showed up as RAINBOW SPECKLE ----
+// Reported as "tiny little circles": single pixels of pure random hue -- magenta, cyan, green,
+// yellow -- clumped densest exactly where the foam is thickest. That is not a particle system,
+// it is 8-bit blend rounding. Dozens of translucent white sprites stacked on one pixel each
+// round their blend, and on a phone's framebuffer the accumulated error surfaces as colour
+// noise. It never appeared in a headless render because swiftshader's precision differs, which
+// is why three rounds of looking for a coloured emitter found nothing: there isn't one.
+// The cure is less overdraw, not a different colour. Down to 240, with the size and the rate
+// cut to match -- which also fixes the other half of the report, a wake that had become a large
+// detached blob at the bottom of the frame.
+const BF_N=240, BF_LIFE=3.0;
 // ---- small and many, not big and few ----
 // At three and a half feet a single packet is resolvable at fifty feet, so the tail of the
 // crowd -- the oldest third, faint and spread out -- read as separate dots on the water rather
@@ -18680,12 +18690,15 @@ const BF_N=460, BF_LIFE=3.0;
 // tail and where the trail became visible, so the wake read as detached lumps rather than as
 // something coming off the board. 0.55 still starts small -- a sixth of what it grows to -- and
 // is still born a foot astern, so it connects without ever reaching the deck.
-const BF_R0=0.55, BF_R1=3.30;          // feet across, at the transom and at the far end
+const BF_R0=0.38, BF_R1=1.95;          // feet across, at the transom and at the far end
 let boatFoam=[], boatFoamPool=[], bfAcc=0;
 function bfGet(){
   if(boatFoamPool.length)return boatFoamPool.pop();
+  // dithering breaks the blend rounding up with an ordered pattern instead of letting it
+  // accumulate into visible colour noise -- the direct mitigation for the speckle, on top of
+  // simply stacking fewer layers
   const m=new THREE.Sprite(new THREE.SpriteMaterial({map:puffTexture(),transparent:true,
-    depthWrite:false, opacity:0, color:0xffffff}));
+    depthWrite:false, opacity:0, color:0xffffff, dithering:true}));
   m.renderOrder=2; scene.add(m); return m;
 }
 // near: this packet belongs to something close to the camera -- the player's own wake -- so
@@ -18717,7 +18730,7 @@ function bfPush(x,y,z,w,near){
   // lumps. It is also exactly how the old puffs looked attached -- they carried a vy and climbed
   // into the band the board occupies. The difference is where they start: those were born ON the
   // tail and climbed onto the deck, these are born a foot astern and climb behind it.
-  boatFoam.push({m, x, y, z, age:0, lf:near?1.05:BF_LIFE, ry:0, vy:near?1.75:0,
+  boatFoam.push({m, x, y, z, age:0, lf:near?1.05:BF_LIFE, ry:0, vy:near?1.15:0,
                  f0:near?1.5:20.0, fs:near?2.8:20.0,
                  vx:(Math.random()*2-1)*0.55,
                  // narrower size spread: a scatter of small ones between big ones is exactly
@@ -18775,7 +18788,7 @@ function updateBoatFoam(dt,eff){
     // smoother mass than few bright ones. With a hazy sprite that is true and useless -- it made
     // faint dots out of bright ones. With a solid-cored sprite it is simply wrong: what is
     // wanted is opaque foam, so it goes back up past where it started.
-    p.m.material.opacity=a*0.88;
+    p.m.material.opacity=a*0.70;
   }
 }
 const boatTrail=[];                    // {x,z,nx,nz,age,s} — n is across the hull's heading
@@ -26942,9 +26955,9 @@ function update(dt){
     // idle unless a boat or a ski is actually out, and it hands nothing over once full, so
     // the three can never fight over it.
     if(typeof bfPush==='function'){
-      _rideFoam+=dt*(88+Math.min(104,speed*2.1))*Math.max(0.35,BS.wake);
+      _rideFoam+=dt*(42+Math.min(46,speed*0.95))*Math.max(0.35,BS.wake);
       let n=0;
-      while(_rideFoam>=1&&n++<18){
+      while(_rideFoam>=1&&n++<8){
         _rideFoam-=1;
         // ---- clear of the tail, because it cannot come off a board it is drawn over ----
         // 0.3 behind BOARD_HALF_L put the CENTRE of a packet a few inches astern, and a packet
@@ -26968,7 +26981,7 @@ function update(dt){
         // being scattered down the lane, and with them all at the tail the two are the same
         // thing: BF_R0 at the tail growing to BF_R1 as it drifts back IS small-to-big.
         bfPush(fx, waveH(fx,dist*WAVE_DRIFT+fz,waveClock)+0.22, fz,
-               1.05*Math.max(0.5,BS.wake), true);
+               0.95*Math.max(0.5,BS.wake), true);
       }
     }
     puffT-=dt;
