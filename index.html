@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.64.0';
+window.SURF_VERSION='5.65.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -17056,8 +17056,103 @@ const stars2=new THREE.Points(starGeo,new THREE.PointsMaterial({
 // Same depth-test story as the sun, and the same fix: a starfield showing through the
 // inside of a night barrel is the identical bug, just dimmer. Behind the sun's glow.
 stars2.renderOrder=4;skyLayer.add(stars2);
-const moon=new THREE.Mesh(new THREE.SphereGeometry(3.4,18,14),
-  new THREE.MeshBasicMaterial({color:0xf6f4ea,transparent:true,opacity:0,depthTest:true,depthWrite:false}));
+// ---- A SURFACE, NOT A DISC ----
+// It was a flat off-white ball. At any size that is a hole punched in the sky, and the bigger
+// it gets the more obviously it is one -- so "bigger" and "detailed" are the same job.
+//
+// Baked rather than lit, and that is the honest way round for a FULL moon. The moon is
+// retroreflective: lit from behind the observer it shows almost no limb darkening, which is
+// why a photograph of a full moon looks flat and evenly bright right to the edge. So the
+// shading belongs IN the texture, and a light in the scene would only add a terminator that a
+// full moon does not have. What makes it read is the markings, in three layers:
+//
+//   the MARIA -- the dark seas, which are the thing everyone can actually draw from memory
+//   the CRATERS -- many small, few large, each a dark floor with a bright rim
+//   the RAYS -- the bright streaks thrown out of Tycho, which is the one feature that says
+//               "moon" faster than the seas do and is almost always left out
+function moonTexture(){
+  const W=1024,H=512,c=document.createElement('canvas'); c.width=W; c.height=H;
+  const x=c.getContext('2d');
+  let n=20250829;
+  const R=()=>{n=(n*9301+49297)%233280; return n/233280;};
+  // the regolith: a warm pale grey, never white. A white moon reads as a lamp.
+  x.fillStyle='#cfcabb'; x.fillRect(0,0,W,H);
+  // mottle, so nothing is ever a flat field
+  for(let i=0;i<2600;i++){
+    const r=6+R()*46, g=x.createRadialGradient(0,0,0,0,0,r);
+    const d=R()<0.5?18:-14;
+    g.addColorStop(0,'rgba('+(207+d)+','+(202+d)+','+(187+d)+',0.30)');
+    g.addColorStop(1,'rgba('+(207+d)+','+(202+d)+','+(187+d)+',0)');
+    x.save(); x.translate(R()*W,R()*H); x.fillStyle=g; x.fillRect(-r,-r,r*2,r*2); x.restore();
+  }
+  // ---- THE SEAS ----
+  // Placed by hand rather than scattered: the near side's arrangement is the one thing about
+  // the moon that everybody knows without knowing they know it, and a random spread of dark
+  // blobs reads as a rock. Positions are fractions of the map, and the map's middle is what
+  // faces the camera. Imbrium and Serenitatis high and left of centre, Tranquillitatis and
+  // Fecunditatis below them, Crisium small and round off to the east, Procellarum the big
+  // ragged one down the western limb.
+  const seas=[[0.44,0.30,0.115,0.085],[0.545,0.33,0.075,0.062],[0.575,0.44,0.080,0.058],
+              [0.645,0.47,0.052,0.048],[0.665,0.33,0.040,0.040],[0.355,0.44,0.125,0.115],
+              [0.475,0.55,0.058,0.045],[0.400,0.62,0.048,0.036]];
+  for(const [u,v,rw,rh] of seas){
+    // a sea has a torn edge, so it is drawn as a cluster of soft ellipses rather than one
+    for(let k=0;k<26;k++){
+      const a2=R()*Math.PI*2, rr=Math.sqrt(R());
+      const px=(u+Math.cos(a2)*rw*rr*0.7)*W, py=(v+Math.sin(a2)*rh*rr*0.7)*H;
+      const sz=(0.45+R()*0.55)*rw*W*0.55;
+      const g=x.createRadialGradient(px,py,0,px,py,sz);
+      g.addColorStop(0,'rgba(122,120,116,0.34)');
+      g.addColorStop(0.7,'rgba(126,124,120,0.20)');
+      g.addColorStop(1,'rgba(126,124,120,0)');
+      x.fillStyle=g; x.beginPath(); x.arc(px,py,sz,0,7); x.fill();
+    }
+  }
+  // ---- THE RAYS out of Tycho ----
+  // Drawn BEFORE the craters so their own rims sit on top of the streaks, and long, because
+  // the real ones cross most of the disc.
+  const TX=0.435*W, TY=0.735*H;
+  for(let i=0;i<64;i++){
+    const a2=R()*Math.PI*2, len=(0.10+R()*0.42)*W, wdt=1+R()*3.5;
+    const g=x.createLinearGradient(TX,TY,TX+Math.cos(a2)*len,TY+Math.sin(a2)*len);
+    g.addColorStop(0,'rgba(240,238,230,0.30)');
+    g.addColorStop(0.25,'rgba(238,236,228,0.16)');
+    g.addColorStop(1,'rgba(238,236,228,0)');
+    x.strokeStyle=g; x.lineWidth=wdt; x.lineCap='round';
+    x.beginPath(); x.moveTo(TX+Math.cos(a2)*8,TY+Math.sin(a2)*8);
+    x.lineTo(TX+Math.cos(a2)*len,TY+Math.sin(a2)*len); x.stroke();
+  }
+  // ---- THE CRATERS ----
+  // A power law on the radius: hundreds of small ones and a handful of big, which is what a
+  // cratered surface IS. Anything uniform in size reads as a golf ball.
+  const crater=(px,py,r,deep)=>{
+    const g=x.createRadialGradient(px-r*0.18,py-r*0.18,r*0.05,px,py,r);
+    g.addColorStop(0,'rgba(150,147,140,'+(0.30*deep)+')');
+    g.addColorStop(0.72,'rgba(160,157,150,'+(0.22*deep)+')');
+    g.addColorStop(0.90,'rgba(228,226,218,'+(0.30*deep)+')');   // the bright rim
+    g.addColorStop(1,'rgba(228,226,218,0)');
+    x.fillStyle=g; x.beginPath(); x.arc(px,py,r,0,7); x.fill();
+  };
+  for(let i=0;i<560;i++){
+    const t=R(), r=1.6+Math.pow(t,3.4)*46;      // the power is what makes big ones rare
+    crater(R()*W,R()*H,r,0.55+R()*0.65);
+  }
+  crater(TX,TY,17,1.15);                         // Tycho itself, at the foot of its own rays
+  crater(0.585*W,0.615*H,13,0.95);               // Copernicus
+  const t2=new THREE.CanvasTexture(c);
+  t2.anisotropy=8;
+  if('colorSpace' in t2 && THREE.SRGBColorSpace)t2.colorSpace=THREE.SRGBColorSpace;
+  else if('encoding' in t2 && THREE.sRGBEncoding)t2.encoding=THREE.sRGBEncoding;
+  return t2;
+}
+// Bigger, and enough segments that the limb is a circle rather than an eighteen-sided polygon
+// -- at this size the old 18x14 showed its corners.
+const moon=new THREE.Mesh(new THREE.SphereGeometry(6.4,48,32),
+  new THREE.MeshBasicMaterial({map:moonTexture(),color:0xffffff,
+    transparent:true,opacity:0,depthTest:true,depthWrite:false}));
+// Turned so the near side faces the camera: an equirectangular map puts the middle of the
+// canvas on the +z face, which is the one we look at, and the seas were laid out for that.
+moon.rotation.y=Math.PI*0.5;
 moon.renderOrder=8;skyLayer.add(moon);
 // A soft halo, so it is a moon rather than a white circle stuck on the sky. NOT clipped at the
 // horizon -- a moon just under it still lights the haze, exactly as the sun's glow does.
@@ -17065,7 +17160,7 @@ moon.renderOrder=8;skyLayer.add(moon);
 // The first one was an additive sphere, which is a solid grey disc with a hard edge: two
 // circles, one inside the other, and no glow anywhere. A halo is a gradient and nothing else,
 // so it is the same shell the sun uses -- a quad with the falloff in its shader.
-const moonGlow=sunShell(46,0.42,7,2.2);
+const moonGlow=sunShell(74,0.42,7,2.2);
 moonGlow.material.uniforms.uColor.value.setHex(0xbcd0f4);
 moonGlow.material.uniforms.uOpacity.value=0;
 // The disc is painted beyond the far edge of the ocean, so there is no water out
