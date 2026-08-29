@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.75.0';
+window.SURF_VERSION='5.76.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -13808,7 +13808,13 @@ let trailT=0;
 // because a cloud is what you get when the puffs run into each other.
 const PUFF_N=170;                 // the pool, which is also the longest the trail can be
 const PUFF_LIFE=1.55;             // seconds from the tail to gone
-const PUFF_R0=0.34, PUFF_R1=2.85; // feet across, at the tail and at the end
+// ---- and it is CLOUD, the same stuff as the barrel's whitewater ----
+// The wash was a thin ribbon with a few small puffs on it. What is wanted is what the curl
+// throws: a lumpy white mass with volume. The pool is already saturated -- two a tick at 55Hz
+// against a 170 pool and a 1.55s life is exactly full -- so more of them is not available and
+// the size is what is left. Bigger at birth so there are no gaps between them, and bigger at
+// the end so the trail has body a long way back.
+const PUFF_R0=0.58, PUFF_R1=3.45; // feet across, at the tail and at the end
 let puffs=[], puffPool=[], puffT=0, puffTex=null;
 function puffTexture(){
   if(puffTex)return puffTex;
@@ -18284,6 +18290,7 @@ function skiBowAt(o){
   return ((wP<wN?1:-1)+(hP>hN?1:-1))>=0?1:-1;
 }
 let skiT=16, skiOn=false, skiDir=1, skiWake=null;
+let _skiFoam=0;                        // emission accumulator, so density is per-second
 function spawnJetSki(){
   skiOn=true;
   skiDir=Math.random()<0.5?1:-1;
@@ -18331,6 +18338,22 @@ function updateJetSki(dt,eff){
     const gd=camera.position.distanceTo(jetSki.position);
     skiGlint.scale.setScalar(gd*0.30*(0.94+0.10*Math.sin(tNow*1.5)+0.045*Math.sin(tNow*2.6)));
     skiGlint.material.opacity=0.58+0.14*Math.sin(tNow*1.5);
+    // ---- and a foam cloud behind it, the same stuff the boat lays ----
+    // It had a rooster tail of spray and a ridge in the water, and nothing joining the two: the
+    // churned strip a ski actually leaves was missing entirely. Borrows the boat's pool, which
+    // is 240 strong and sits idle whenever the boat is not out -- and when they overlap, bfPush
+    // simply stops handing them out, which costs the ski a little density and breaks nothing.
+    if(typeof bfPush==='function'){
+      _skiFoam+=dt*46;
+      let n=0;
+      while(_skiFoam>=1&&n++<8){
+        _skiFoam-=1;
+        const a=1.5+Math.random()*Math.random()*34;      // astern of the ski, packed near it
+        const fx=jetSki.position.x-skiDir*a*0.10+(Math.random()*2-1)*(1.1+a*0.055);
+        const fz=jetSki.position.z+1.6+a;
+        bfPush(fx, waveH(fx,dist*WAVE_DRIFT+fz,waveClock)+0.24, fz, 0.72);
+      }
+    }
     // rooster tail of spray behind it
     for(let i=0;i<4;i++){
       const m=takeDrop(); if(!m)break;
@@ -18347,7 +18370,7 @@ function updateJetSki(dt,eff){
       skiWake={z:jetSki.position.z-2,z0:jetSki.position.z-2,life:22.0,hit:false,x:jetSki.position.x};
       msg('WAKE INCOMING!');
     }
-    if(Math.abs(jetSki.position.x-px)>48){skiOn=false;jetSki.visible=false;skiGlint.visible=false;}
+    if(Math.abs(jetSki.position.x-px)>48){skiOn=false;jetSki.visible=false;skiGlint.visible=false;_skiFoam=0;}
   }
   // the wake rolls in as a ridge in the ocean itself
   if(skiWake){
@@ -18721,7 +18744,10 @@ function boatLayWake(dt,eff){
   lay(boatChurn,0, 0.0, 0.0,      3.60, 1.45);
 }
 function updateBoat(dt,eff){
-  if(btPh===BTP.OFF){ boatLayWake(dt,eff); return; }
+  // The foam pool is stepped even with the boat off, because the jet ski borrows it -- without
+  // this, anything the ski laid down would be spawned and then never aged, faded or handed
+  // back, which is a pool that fills once and a wake that freezes on the water.
+  if(btPh===BTP.OFF){ boatLayWake(dt,eff); updateBoatFoam(dt,eff); return; }
   btT+=dt;
   boatRun+=btSpd*dt;
   const sea=waveH(btX,dist*WAVE_DRIFT+btZ,waveClock);
@@ -19438,10 +19464,14 @@ function swRoofY(z){
 // the air behind the plane and marks the line it came down on after it has gone.
 const SMOKE=[];
 {
-  const g=new THREE.SphereGeometry(1,9,7);
+  // ---- soft sprites, not spheres ----
+  // A nine-by-seven sphere in a flat unlit grey is a marble, and a string of them is a string
+  // of marbles. Smoke has no surface: it is the same soft billboard the board's wash and the
+  // boat's foam are built from, which is what makes those read as cloud -- only tinted down to
+  // a burnt grey instead of white, because this is an engine on fire rather than sea water.
   for(let i=0;i<150;i++){
-    const m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:0x9aa0a8,transparent:true,
-      opacity:0,depthWrite:false}));
+    const m=new THREE.Sprite(new THREE.SpriteMaterial({map:puffTexture(),color:0x33383f,
+      transparent:true, opacity:0, depthWrite:false}));
     m.visible=false; m.renderOrder=2; scene.add(m);
     SMOKE.push({m,t:0,r:1});
   }
@@ -19449,7 +19479,9 @@ const SMOKE=[];
 function puffSmoke(x,y,z,r){
   const p=SMOKE.find(q=>q.t<=0); if(!p)return;
   p.t=1; p.r=r;
-  p.m.position.set(x+(Math.random()-0.5)*1.2,y+(Math.random()-0.5)*1.2,z+(Math.random()-0.5)*1.2);
+  // scattered across the trail rather than strung down its centre, which is the other half
+  // of what makes a line of puffs read as a volume of smoke
+  p.m.position.set(x+(Math.random()-0.5)*2.6,y+(Math.random()-0.5)*2.6,z+(Math.random()-0.5)*2.6);
   p.m.visible=true;
 }
 // One puff per frame leaves a dotted line, and the gaps grow the worse the frame rate is —
@@ -19461,7 +19493,7 @@ function trailSmoke(x,y,z,r){
   if(_smkHas){
     const dx=x-_smkPrev.x, dy=y-_smkPrev.y, dz=z-_smkPrev.z;
     const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
-    const n=Math.max(1,Math.min(26,Math.round(d/1.6)));
+    const n=Math.max(1,Math.min(40,Math.round(d/1.1)));
     for(let i=1;i<=n;i++)puffSmoke(x-dx*(1-i/n), y-dy*(1-i/n), z-dz*(1-i/n), r);
   } else puffSmoke(x,y,z,r);
   _smkPrev.set(x,y,z); _smkHas=true;
@@ -19476,9 +19508,15 @@ function stepSmoke(dt){
     p.t-=dt*0.068;
     if(p.t<=0){ p.m.visible=false; p.m.material.opacity=0; continue; }
     const age=1-p.t;
-    p.m.scale.setScalar(p.r*(0.55+age*1.9));   // small, and swelling only gently
+    p.m.scale.setScalar(p.r*(1.15+age*3.2));   // a sprite has no volume of its own, so it
+                                               // has to be bigger to fill the same space
     p.m.position.y+=dt*1.1;             // it rises and spreads as it cools
-    p.m.material.opacity=0.40*p.t*Math.min(1,age*6.0);
+    // ---- and it has to be DARK against a bright sky ----
+    // A soft sprite spends most of its area in the thin part of its own falloff, so at any
+    // sensible opacity it washes out to a pale wisp -- which is what a burning engine's trail
+    // is not. Nearly opaque at the core, over a colour dark enough that thinning it still
+    // leaves grey rather than white.
+    p.m.material.opacity=0.90*p.t*Math.min(1,age*6.0);
   }
 }
 const swSplash=new THREE.Group(); swSplash.visible=false; scene.add(swSplash);
@@ -19565,6 +19603,14 @@ function updateSetWave(dt,eff){
     }
     plane.userData.prev=plane.userData.prev||new THREE.Vector3();
     plane.userData.prev.set(nx,ny,nz);
+    // ---- YXZ, or the dive comes out as a barrel roll ----
+    // The pitch below is -1.45 by the end, which IS 83 degrees nose down -- and it still fell
+    // sideways, because the default XYZ order applies pitch about the WORLD x axis rather than
+    // about the aircraft's own. Crossing the lane it is yawed near a right angle, and a pitch
+    // about world x at ninety degrees of yaw is a ROLL: the nose stayed up and the plane went
+    // in on its side. Yaw, then pitch about the yawed axis, then roll about its own nose --
+    // which is the order those happen to an aeroplane. Same trap the boat and the board hit.
+    plane.rotation.order='YXZ';
     // A slow roll rather than a hard bank: a steep bank reads as a turn, and this is not
     // turning, it is falling.
     plane.rotation.z=-swS*0.34*Math.min(1,k*1.4);
@@ -19574,7 +19620,7 @@ function updateSetWave(dt,eff){
     plane.userData.prop.rotation.z+=dt*(40-32*k);          // the engine giving up
     // An engine that is failing says so. The trail is what makes it readable at this
     // distance — the airframe is only a few pixels across out there, the smoke is not.
-    trailSmoke(nx,ny,nz,1.7+k*2.4);
+    trailSmoke(nx,ny,nz,2.6+k*3.4);
     if(swT>=SW_FLY){
       swPh=SWP.IMPACT; swT=0; plane.visible=false; swSweep=1;
       swSplash.visible=true; swSplash.position.set(swS*SW_CRASH_X,0,-168);
@@ -22962,6 +23008,14 @@ if(location.hash.includes('debug')){
     },
     plane:()=>({pos:plane.position.toArray().map(v=>+v.toFixed(2)),
                 yaw:+plane.rotation.y.toFixed(3), visible:plane.visible,
+                pitch:+plane.rotation.x.toFixed(3), roll:+plane.rotation.z.toFixed(3),
+                order:plane.rotation.order,
+                // where the NOSE actually points in the world, which is the only thing that
+                // answers "is it going in nose first" -- the three euler angles do not, since
+                // what they mean depends on the order they are applied in
+                nose:(()=>{ const v=new THREE.Vector3(0,0,-1)
+                    .applyQuaternion(plane.getWorldQuaternion(new THREE.Quaternion()));
+                  return [+v.x.toFixed(2),+v.y.toFixed(2),+v.z.toFixed(2)]; })(),
                 screen:(()=>{const v=plane.position.clone().project(camera);
                   return {x:+(v.x*0.5+0.5).toFixed(3), y:+(0.5-v.y*0.5).toFixed(3)};})(),
                 puffs:SMOKE.filter(q=>q.t>0).length}),
@@ -25877,15 +25931,20 @@ function update(dt){
   if(!airborne&&!hanging){
     // water piles up on the inside rail of the turn and peels off the outside — no discs
     trailT-=dt;
-    if(trailT<=0){trailT=0.026;pushTrail(px,waterY,0.9,(0.30+Math.abs(carve)*0.52)*BS.wake);}
+    // ---- and it starts BEHIND the board, not under his feet ----
+    // 0.9 is most of a board-length short of the tail, so the wash began halfway along the deck
+    // and the first stretch of it was drawn over the board he is standing on. It leaves from
+    // where the water actually lets go, which is the tail -- and the tail moves, because the
+    // coconut board is a different length, so it is taken off BOARD_HALF_L rather than fixed.
+    if(trailT<=0){trailT=0.026;pushTrail(px,waterY,BOARD_HALF_L+0.20,(0.30+Math.abs(carve)*0.52)*BS.wake);}
     // ...and the boil off the tail, at its own rate. Harder into a carve throws more of it,
     // which is the one thing that makes a wash read as coming off a board being worked rather
     // than as an emitter following him about.
     puffT-=dt;
     if(puffT<=0){ puffT=0.018;
       const hard=0.55+Math.abs(carve)*0.85;
-      pushPuff(px,waterY+0.30,1.35,hard*BS.wake);
-      pushPuff(px,waterY+0.22,1.62,hard*BS.wake*0.85);
+      pushPuff(px,waterY+0.30,BOARD_HALF_L+0.28,hard*BS.wake);
+      pushPuff(px,waterY+0.22,BOARD_HALF_L+0.62,hard*BS.wake*0.85);
       if(Math.abs(carve)>0.35)pushPuff(px,waterY+0.40,1.15,hard*BS.wake);
     }
   }
