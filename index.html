@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.91.0';
+window.SURF_VERSION='5.92.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -5965,7 +5965,14 @@ const BOARDS=[
    // longboard is not what the sea contains, and it is what reads, which is the trade this game
    // makes everywhere else too. W, T and the seat drop come down with it so the collision box
    // and the sit height stay in proportion rather than being left behind at the old size.
-   spec:{L:6.30,W:2.40,T:0.98,noseA:1.500,tailA:0.900,noseW:0.200,tailW:0.900,
+   // ---- and 6.30 was still a man's machine with a dog on it ----
+   // Three rounds of posing kept hitting the same wall, and it was never the pose: your rider
+   // stands about 59% of his ski's length, the pug is 36% of this one. At that ratio his thigh
+   // cannot span the hull the way a man's does, his arms only reach the bars from the very
+   // front of the seat, and every fix reads as a small animal placed on a large object. 4.40
+   // puts him at about 51%, which is nearly the photograph, and the seat drop and the fore/aft
+   // shift below scale with it so the placement holds rather than being re-derived.
+   spec:{L:4.40,W:1.70,T:0.70,noseA:1.500,tailA:0.900,noseW:0.200,tailW:0.900,
      rockN:0.320,noseR:0.520,rockT:0.060,tailR:0.400,deckPow:0.70,hullPow:0.52,hullK:0.80,
      padCol:0x191d22,finCol:0x14181d,padW:0.62,pads:[[0.34,0.78]],rough:0.42,
      // the engine, and what it costs: it is a boat, so it will not turn and it will not fly
@@ -5978,7 +5985,7 @@ const BOARDS=[
      // released for the sit it is the ONLY term setting his height, so it is small and it is
      // negative: measured with the solver off he sat 3.43ft under the hull top and his hips
      // wanted to come up about two feet to meet the saddle.
-     top:44, wake:2.30, lift:0.55, seat:-0.28, stat:{speed:10,tough:9,turn:2,air:2},
+     top:44, wake:2.30, lift:0.55, seat:-0.20, stat:{speed:10,tough:9,turn:2,air:2},
      // the hull it is really wearing. The loft above is the fallback and the thing the rider
      // is seated against; the model covers it once the file is in.
      model:'jetski.glb',
@@ -12815,7 +12822,13 @@ function setupModelRig(root,gltf,id){
     // reference whose leg runs plainly down the hull into the footwell. The thigh comes forward
     // rather than up, the knee opens so the shin drops, and the splay goes wide enough to clear
     // the hull's shoulder instead of gripping a board that is not there.
-    const sHip=hip*(1-_sit)+1.02*_sit, sKnee=knee*(1-_sit)+0.86*_sit;
+    // ---- and sitting is MORE hip, not less ----
+    // Last round these came down from 1.16/1.28 to 1.02/0.86 on the reading that a deep bend was
+    // a tuck hiding his legs. Backwards: reducing hip flexion straightens the leg, and the shot
+    // that came back has him standing bolt upright on the front deck. Sitting is the thigh
+    // brought FORWARD toward horizontal -- which is a big hip angle -- with the knee open enough
+    // that the shin drops into the well rather than folding back under the seat.
+    const sHip=hip*(1-_sit)+1.46*_sit, sKnee=knee*(1-_sit)+1.08*_sit;
     set('LeftUpLeg',  sHip, 0, 0.06+0.58*_sit); set('RightUpLeg', sHip, 0,-0.06-0.58*_sit);
     set('LeftLeg',    sKnee,0,0); set('RightLeg', sKnee,0,0);
     // ---- the lean, which is the whole of what a carve looks like ----
@@ -12867,7 +12880,7 @@ function setupModelRig(root,gltf,id){
     // can be sat on it under the canopy -- and there he is holding a control bar, not bars.
     // _sk is scaled by (1-_gl) so the two weights can never sum past one and the surf pose is
     // never asked for a negative share of him.
-    const aSpread=spread*_base+1.30*_gl+0.16*_sk;   // grips are 0.30 half-width, not 0.60
+    const aSpread=spread*_base+1.30*_gl+0.04*_sk;   // grips measure 0.19 half-width on the rescaled hull
     const aUp=-0.02*_base+(-0.55)*_gl+(-0.95)*_sk;
     set('LeftArm',  aUp+(sw1*0.11-this.sway*0.26)*_base, (0.05+sw1*0.10)*_base, -aSpread-this.sway*0.18*_base);
     set('RightArm', aUp+(sw2*0.11+this.sway*0.26)*_base,(-0.05+sw2*0.10)*_base,  aSpread-this.sway*0.18*_base);
@@ -25784,7 +25797,20 @@ function animateRig(dt,carve,grab,waterY){
     // front at 2.97. Both wanted the same 0.42 forward -- which is not a coincidence, it is a
     // rider sitting hard up against the console with his arms out to the bars, and it is the
     // only place on this hull where a dog's reach and a man's machine agree.
-    pug.position.z=PUG_Z0-0.58*h;
+    // ---- and onto the FRONT OF THE SEAT, which is where his reach and the saddle meet ----
+    // Measured off a side-on shot rather than off the instrument, which has been reporting a
+    // "saddle" that is really the console top: the hull runs 650px bow to stern, the black seat
+    // spans 48% to 75% of it, the bars sit at 34%, and he was at 41% -- in the gap, on neither.
+    //
+    // Which end of the seat is not a free choice. Sat at its MIDDLE, 61%, the bars are 27% of a
+    // 6.4ft hull away -- 1.7ft, against a hip-to-hand reach of about 1.0 -- and he cannot hold
+    // them; that is the same wall every previous attempt hit. At the seat's FRONT edge, 48%, the
+    // gap is 14% and 0.9ft, which is exactly his reach. So the front of the saddle is not a
+    // compromise between sitting and steering, it is the one place both are true.
+    // On the rescaled hull: hips 2.55, hands 2.13, bars 1.72. He reaches 0.42 forward and needs
+    // 0.83, so he goes the missing 0.41 forward -- which lands his hips at 2.14 against a saddle
+    // front of 2.04, still on the seat. The same trade as before, just at the size where it fits.
+    pug.position.z=PUG_Z0-0.50*h;
     // hips folded, knees back, feet in the wells -- which is sitting, and is the whole
     // difference between this and every other thing in the rack
     const bend=(j,base)=>{ j.rotation.x=j.rotation.x*(1-h)+base*h; };
