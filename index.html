@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.80.0';
+window.SURF_VERSION='5.81.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -19155,8 +19155,21 @@ loadModel('paraglider.glb',s3=>{
     // it rather than two flat colours. Deep and saturated for the reason above -- the last set
     // showed how far the wash moves them: a deep orange-red came back tan and a teal came back
     // cyan, so both of these are pushed further into their own hue than they should look.
-    const FAB=[new THREE.Color(0xe85400), new THREE.Color(0x14459e),
-               new THREE.Color(0xff7a1a), new THREE.Color(0x1e5cc8)];
+    //
+    // ---- and the GREEN channel is the one that has to be starved ----
+    // 0xe85400 -- (232,84,0), a colour that is unambiguously orange in a swatch -- came back off
+    // the screen at roughly (200,170,60). Mustard. The red held and the blue stayed near zero;
+    // it was green that doubled, because the wing is backlit by a sky that is itself orange and
+    // the whole frame is tone-mapped after that. So the fix is not "more saturated" in general,
+    // it is LESS GREEN specifically: measured at +86 on the channel, an input green of ~30 is
+    // what lands near 116, and 232/116/60 is orange. The blues are left alone -- they came
+    // through the same wash reading exactly as intended, which is the evidence that this is a
+    // green-channel problem and not a general wash.
+    // The deep one landed: 0xe81e00 came back vermilion. The light one did not -- 0xff4a10 still
+    // has green 74 going in and still came back mustard, which is the same lesson a second time,
+    // so it gets the same treatment rather than a smaller version of it.
+    const FAB=[new THREE.Color(0xe81e00), new THREE.Color(0x14459e),
+               new THREE.Color(0xff2a00), new THREE.Color(0x1e5cc8)];
     const LINE=new THREE.Color(0x3b4048);
     const v=new THREE.Vector3();
     fitted.updateMatrixWorld(true);
@@ -19184,13 +19197,71 @@ loadModel('paraglider.glb',s3=>{
     fitted.traverse(o=>{
       if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
       const p=o.geometry.attributes.position, col=new Float32Array(p.count*3);
+      const isFab=new Uint8Array(p.count);
       for(let i=0;i<p.count;i++){
         v.fromBufferAttribute(p,i).applyMatrix4(o.matrixWorld);
         const fab=(colTop[bin(v.x)]-v.y)<h*0.26;
+        isFab[i]=fab?1:0;
         const c=fab?FAB[Math.floor(((v.x-x0)/w)*FAB.length*2.4)%FAB.length]:LINE;
         col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
       }
       o.geometry.setAttribute('color',new THREE.BufferAttribute(col,3));
+      // ---- and the NORMALS get low-passed, which is what the squares actually were ----
+      // Proved rather than guessed: the same frame rendered with an unlit flat material has no
+      // squares in it at all, and rendered lit it is a grid from tip to tip. So they were never
+      // the base map, the normal map, the roughness map, the cell walls or the triangle count --
+      // every one of which was tried. The MESH carries the ripstop quilting as real relief, a
+      // few inches of it, and every light in the scene finds it.
+      //
+      // The relief is welcome in the silhouette and unwelcome in the shading, so only the
+      // shading is touched: each fabric vertex takes the average of the normals around it inside
+      // a radius set to the quilting's own scale. Coarser than a cell, finer than the wing, so
+      // the arc survives and the quilting washes out.
+      //
+      // Two things this has to be careful about. It is limited to fabric -- the rigging is in
+      // the same mesh and a smoothed strand is a smeared strand. And it is BILATERAL: a canopy
+      // is a skin over a skin, so the vertex an inch away through the fabric faces the opposite
+      // way, and a plain average of the two is a normal pointing nowhere. Only neighbours facing
+      // broadly the same way are allowed to vote.
+      // ---- guarded, because loadModel drops the WHOLE model on a throw ----
+      // r128's BufferAttribute has no copyArray, and the one line that assumed it did cost the
+      // wing: the loader caught, discarded the paraglider and flew the fallback. Smoothing is a
+      // refinement on a model that already works, so it is never allowed to be the reason the
+      // model does not arrive.
+      try{
+      const nrm=o.geometry.attributes.normal;
+      if(nrm){
+        let lx0=1e9,lx1=-1e9;
+        for(let i=0;i<p.count;i++){ const x=p.getX(i); if(x<lx0)lx0=x; if(x>lx1)lx1=x; }
+        // Cell size is 3% of the span, so the grid is about 33 cells across and every index sits
+        // inside +-512. That makes the key EXACT arithmetic rather than a hash -- a hash
+        // collision here would let a vertex on the far wingtip vote on this one's normal, which
+        // is a smear nobody would trace back to a bucket.
+        const R=Math.max(1e-6,(lx1-lx0)*0.030), inv=1/R, grid=new Map();
+        const KEY=(a,b,c)=>((a+512)*1048576+(b+512)*1024+(c+512));
+        for(let i=0;i<p.count;i++){ if(!isFab[i])continue;
+          const k=KEY(Math.floor(p.getX(i)*inv),Math.floor(p.getY(i)*inv),Math.floor(p.getZ(i)*inv));
+          let a=grid.get(k); if(!a){a=[];grid.set(k,a);} a.push(i); }
+        const out=new Float32Array(p.count*3);
+        for(let i=0;i<p.count;i++){
+          out[i*3]=nrm.getX(i); out[i*3+1]=nrm.getY(i); out[i*3+2]=nrm.getZ(i);
+          if(!isFab[i])continue;
+          const cx=Math.floor(p.getX(i)*inv), cy=Math.floor(p.getY(i)*inv), cz=Math.floor(p.getZ(i)*inv);
+          const nx=out[i*3], ny=out[i*3+1], nz=out[i*3+2];
+          let sx=0,sy=0,sz=0,n=0;
+          for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)for(let c=-1;c<=1;c++){
+            const g=grid.get(KEY(cx+a,cy+b,cz+c)); if(!g)continue;
+            for(let q=0;q<g.length;q++){ const j=g[q];
+              const jx=nrm.getX(j), jy=nrm.getY(j), jz=nrm.getZ(j);
+              if(nx*jx+ny*jy+nz*jz<0.35)continue;   // the other side of the skin does not vote
+              sx+=jx; sy+=jy; sz+=jz; n++; } }
+          if(n>2){ const L=Math.sqrt(sx*sx+sy*sy+sz*sz);
+            if(L>1e-6){ out[i*3]=sx/L; out[i*3+1]=sy/L; out[i*3+2]=sz/L; } }
+        }
+        for(let i=0;i<p.count;i++)nrm.setXYZ(i,out[i*3],out[i*3+1],out[i*3+2]);
+        nrm.needsUpdate=true;
+      }
+      }catch(e){ console.warn('paraglider normal smoothing skipped',e&&e.message); }
       if(o.material){ o.material=o.material.clone();
         o.material.map=null; o.material.vertexColors=true;
         if(o.material.color)o.material.color.setHex(0xffffff);
@@ -19218,6 +19289,22 @@ loadModel('paraglider.glb',s3=>{
     // Double-sided was drawing the canopy's inside as well as its outside -- and this model has
     // its cell walls modelled, so every internal rib came through the fabric and the wing read
     // as a grid of little panes. Front faces only: the skin you can see is the skin you get.
+    // ---- and NO NORMAL MAP, which is what actually killed the tiny squares ----
+    // FrontSide above was the first answer to "it looks like a ton of tiny squares" and it was
+    // only half of one: the cell walls stopped showing through, and the squares stayed. They
+    // were never geometry. Open the model's normal map and it IS squares -- a scanned patchwork
+    // of ripstop with literal grids baked into it, the same chaotic atlas as the base colour
+    // map, carrying no panel seam or rib or anything else a wing has. Every bit of structure
+    // that map could have supplied is in the mesh already, at 70k triangles: the ribs across the
+    // canopy in the render are geometry, and they survive this. So the map is dropped rather
+    // than scaled down -- a grid at a quarter strength is still a grid, and it had already been
+    // asked about three times.
+    m.normalMap=null; m.bumpMap=null;
+    // ---- and the roughness map goes with it ----
+    // roughness is a MULTIPLIER over roughnessMap.g, and that channel measures about 0.35 across
+    // this scan -- so the 0.86 set above was really asking for 0.30, which is a satin, and the
+    // wing came back with a sheen on it. Dropping the map makes the number mean what it says.
+    m.roughnessMap=null; m.metalnessMap=null;
     m.side=THREE.FrontSide; m.needsUpdate=true;
   }});
   // the built wing and its string lines step aside; the model is the whole rig
@@ -21421,6 +21508,20 @@ if(location.hash.includes('debug')){
     glideNow(){ if(typeof glideStart!=='function')return null;
       if(!running&&typeof beginRun==='function')beginRun();
       glideReset(); glideStart(); return {ph:glPh}; },
+    // ---- the canopy, lit and unlit ----
+    // "It looks like a ton of tiny squares" has now survived the base map coming off, the normal
+    // map coming off, the roughness map coming off, FrontSide, and a decimation from 70k to 24k.
+    // Every one of those was a guess that cost a render. This is the test that actually splits
+    // the two remaining explanations: swap the canopy to an unlit flat material and look. If the
+    // squares go, they are SHADING -- relief in the mesh catching the light. If they stay, they
+    // are SURFACES -- the model's internal cell walls drawing through their own skin, which no
+    // material setting will ever fix and which has to be cut out of the geometry.
+    pgFlat(on){ const m=glider.userData&&glider.userData.model; if(!m)return null; let n=0;
+      m.traverse(o=>{ if(!o.isMesh)return; n++;
+        if(on){ if(!o.userData._lit)o.userData._lit=o.material;
+                o.material=new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.FrontSide}); }
+        else if(o.userData._lit){ o.material=o.userData._lit; } });
+      return n; },
     glideState(){
       const sc=(o)=>{ const v=new THREE.Vector3(); o.updateWorldMatrix(true,false);
         o.getWorldPosition(v); v.project(camera);
