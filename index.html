@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.77.0';
+window.SURF_VERSION='5.78.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -12806,10 +12806,18 @@ function setupModelRig(root,gltf,id){
     // shoulder height — that is a tightrope walker, and it read as one. The arms only come up
     // when there is a reason: hard into a carve, and higher again in the air.
     const spread=0.34+this.load*0.30+air*0.55;
-    set('LeftArm',  -0.02+sw1*0.11-this.sway*0.26, 0.05+sw1*0.10, -spread-this.sway*0.18);
-    set('RightArm', -0.02+sw2*0.11+this.sway*0.26,-0.05+sw2*0.10,  spread-this.sway*0.18);
-    set('LeftForeArm',  fl*0.18-this.load*0.14,0,-0.08-this.load*0.16);
-    set('RightForeArm',-fl*0.18-this.load*0.14,0, 0.08+this.load*0.16);
+    // ---- and under the canopy both arms go UP AND OUT to the handles ----
+    // The glide's arm angles were written into shF/shB, which drive armFrontJ -- the BUILT rig,
+    // and a rider who is a model does not use it. Same lesson the jet ski's legs taught: what
+    // you can see on these characters is bones, and this is where they are set. 1.30 out is
+    // most of a right angle, which is where the reach is widest.
+    const _gl=(typeof glFace!=='undefined')?glFace:0;
+    const aSpread=spread*(1-_gl)+1.30*_gl;
+    const aUp=-0.02*(1-_gl)+(-0.55)*_gl;
+    set('LeftArm',  aUp+(sw1*0.11-this.sway*0.26)*(1-_gl), (0.05+sw1*0.10)*(1-_gl), -aSpread-this.sway*0.18*(1-_gl));
+    set('RightArm', aUp+(sw2*0.11+this.sway*0.26)*(1-_gl),(-0.05+sw2*0.10)*(1-_gl),  aSpread-this.sway*0.18*(1-_gl));
+    set('LeftForeArm',  (fl*0.18-this.load*0.14)*(1-_gl),0,(-0.08-this.load*0.16)*(1-_gl));
+    set('RightForeArm',(-fl*0.18-this.load*0.14)*(1-_gl),0,( 0.08+this.load*0.16)*(1-_gl));
     // ---- and the feet stay FLAT ON THE DECK, whatever the rest of him just did ----
     // Not posed — SOLVED. Every angle above accumulates down the leg into the foot, so a foot
     // given its own fixed angle tips off the board the moment the knees load or the body
@@ -14896,6 +14904,7 @@ let trick=null; // rope backflip only
 let planeT=34+Math.random()*26,planeActive=false,hanging=false,spawnT=0.4;
 // var: read by the pose code, which runs on the title screen before this line would in a let
 var skiSit=0;                          // 0 standing on a board, 1 sat on the ski
+var glFace=0;                          // 0 side-on to the board, 1 square to the nose under the wing
 var _jsFoam=0, _jsTail=0;              // its wake and its rooster tail, per second not per frame
 let lastKind='',sameRun=0,bigFinCd=6,octCd=0,laneSlot=(Math.random()*5)|0;
 // The headless renderer draws about a frame a second, so anything the world scrolls past is
@@ -19217,6 +19226,24 @@ const glBrake=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(
   [new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3()]),
   new THREE.LineBasicMaterial({color:0xf2ede0, transparent:true, opacity:0.8}));
 glBrake.visible=false; glBrake.frustumCulled=false; scene.add(glBrake);
+// ---- the bar the whole thing meets at ----
+// A tow rope going to the harness and control lines going to the hands are two separate things
+// arriving at two separate places, and neither is anything to hold. This is the junction: a
+// bar across both hands, the canopy's brakes on its ends, the boat's rope on its middle. One
+// object, and the reason the pose has him reaching out to the sides.
+const glBar=new THREE.Group();
+{
+  const steel=new THREE.MeshPhongMaterial({color:0x8d939c,shininess:70,specular:0xdfe6ee});
+  const grip=new THREE.MeshPhongMaterial({color:0x1b1f25,shininess:20});
+  const tube=new THREE.Mesh(new THREE.CylinderGeometry(0.055,0.055,1,12),steel);
+  tube.rotation.z=Math.PI/2; tube.name='span';
+  const gL=new THREE.Mesh(new THREE.CylinderGeometry(0.085,0.085,0.34,12),grip);
+  const gR=gL.clone(); gL.rotation.z=gR.rotation.z=Math.PI/2;
+  gL.name='gripL'; gR.name='gripR';
+  glBar.add(tube,gL,gR);
+  glBar.userData={tube,gL,gR};
+}
+glBar.visible=false; scene.add(glBar);
 // ---- and they end in his HANDS, wherever those actually are ----
 // Taken off the paw meshes rather than worked out from the arm angles: the pose is eased toward
 // its target every frame, so the arm is never quite where the numbers say and a line drawn to
@@ -19224,7 +19251,18 @@ glBrake.visible=false; glBrake.frustumCulled=false; scene.add(glBrake);
 // very different arms -- a frog's reach is not a pug's -- so anything derived from one of them
 // would be wrong for the rest.
 const _glPawUnder=(m,root)=>{ let q=m; while(q){ if(q===root)return true; q=q.parent; } return false; };
+// ---- and WHOSE hands, which is not the same question every time ----
+// handMesh holds the built body's paws and nothing else. A rider who arrived as a model is
+// drawn from bones, its paws are not in that list, and the built ones are invisible and
+// somewhere else entirely -- so every line drawn to them ended in mid-air near his chest. The
+// model's own LeftHand/RightHand come first; the built paws are the fallback for the
+// characters that still use them.
 function glPaws(){
+  const R=(typeof riderRig==='function')?riderRig():null;
+  if(R&&R.bones){
+    const f=R.bones.LeftHand||R.bones.LeftForeArm, b=R.bones.RightHand||R.bones.RightForeArm;
+    if(f&&b)return {f,b};
+  }
   if(typeof handMesh==='undefined'||!handMesh||!handMesh.length)return null;
   if(typeof armFrontJ==='undefined'||typeof armBackJ==='undefined')return null;
   const f=handMesh.find(m=>_glPawUnder(m,armFrontJ.sh));
@@ -19232,10 +19270,12 @@ function glPaws(){
   return (f&&b)?{f,b}:null;
 }
 const _gb0=new THREE.Vector3(), _gb1=new THREE.Vector3(),
-      _gh0=new THREE.Vector3(), _gh1=new THREE.Vector3();
+      _gh0=new THREE.Vector3(), _gh1=new THREE.Vector3(),
+      _gbM=new THREE.Vector3(), _gbD=new THREE.Vector3(), _gbF=new THREE.Vector3(),
+      _gbX=new THREE.Vector3(0,1,0);   // the tube is built along its own Y
 function glideReset(){
   glPh=GLP.OFF; glT=0; glAge=0; glVx=0; glRoll=0; glRollV=0; glPitch=0; glPitchV=0; glYaw=0;
-  glider.visible=false; glRope.visible=false; glBrake.visible=false;
+  glider.visible=false; glRope.visible=false; glBrake.visible=false; glBar.visible=false;
 }
 function glideStart(){
   if(glPh!==GLP.OFF||!running||wipe)return false;
@@ -19369,14 +19409,31 @@ function glideStep(dt,waterY){
       glBrake.geometry.setFromPoints(crossed<straight
         ? [_gb0,_gh1,_gb1,_gh0] : [_gb0,_gh0,_gb1,_gh1]);
       glBrake.visible=true;
-    } else glBrake.visible=false;
-  } else glBrake.visible=false;
+      // the bar spans the two hands: placed at their midpoint, turned to lie along the line
+      // between them, and stretched to exactly reach both -- so it is in his grip whatever the
+      // arms are doing rather than a prop parked near them.
+      _gbM.addVectors(_gh0,_gh1).multiplyScalar(0.5);
+      const span=Math.max(0.35,_gh0.distanceTo(_gh1));
+      glBar.position.copy(_gbM);
+      glBar.quaternion.setFromUnitVectors(_gbX,
+        _gbD.subVectors(_gh1,_gh0).normalize());
+      glBar.userData.tube.scale.set(1,span,1);
+      glBar.userData.gL.position.set(0, span*0.5-0.17, 0);
+      glBar.userData.gR.position.set(0,-span*0.5+0.17, 0);
+      glBar.visible=true;
+    } else { glBrake.visible=false; glBar.visible=false; }
+  } else { glBrake.visible=false; glBar.visible=false; }
   // The rope runs from the harness -- the same point the canopy hangs from -- to the boat's
   // transom, so all three are one connected thing rather than a wing and a boat that happen to
   // be in the same shot.
+  // ---- and the tow rope ends AT THE BAR ----
+  // It used to run to the harness, which put the thing pulling him and the thing he is holding
+  // in two different places. It lands on the same bar the canopy's brakes do, so there is one
+  // physical junction: boat, rope, bar, hands, wing.
   if(glRope.visible){
+    const at=glBar.visible?_gbM:_gbF.set(px,py+1.0,pz-0.4);
     glRope.geometry.setFromPoints([
-      new THREE.Vector3(px, py+1.0, pz-0.4),
+      new THREE.Vector3(at.x,at.y,at.z),
       new THREE.Vector3(btX, boat.position.y+0.9, btZ+8.4)]);
   }
 }
@@ -21362,6 +21419,19 @@ if(location.hash.includes('debug')){
       return {ph:glPh, t:+glT.toFixed(2), py:+py.toFixed(2), px:+px.toFixed(2),
               vx:+glVx.toFixed(2), roll:+glRoll.toFixed(3),
               wing:glider.visible, rope:glRope.visible, brake:glBrake.visible,
+              bar:glBar.visible, face:+glFace.toFixed(3),
+              // where the bar sits relative to him, and whether the rope reaches it: the
+              // whole point is that these are ONE point, so the check is that they coincide
+              barAt:glBar.visible?[+(glBar.position.x-px).toFixed(2),
+                                   +(glBar.position.y-py).toFixed(2),
+                                   +(glBar.position.z-pz).toFixed(2)]:null,
+              ropeEnd:(function(){ const a=glRope.geometry.attributes.position;
+                if(!a||a.count<2||!glBar.visible)return null;
+                const dx=a.getX(0)-glBar.position.x, dy=a.getY(0)-glBar.position.y,
+                      dz=a.getZ(0)-glBar.position.z;
+                return +Math.sqrt(dx*dx+dy*dy+dz*dz).toFixed(3); })(),
+              modelHands:(function(){ const R=(typeof riderRig==='function')?riderRig():null;
+                return !!(R&&R.bones&&R.bones.LeftHand); })(),
               paws:!!glPaws(),
               // how far apart the two paws actually finish, and how high above the board --
               // "the arms are out" is a claim about numbers, not about a 60ft-distant pug
@@ -24952,6 +25022,10 @@ function animateRig(dt,carve,grab,waterY){
   // somebody teleporting into a seated pose. Same machinery as the helicopter's, which is the
   // other whole-body override here.
   skiSit=ease(skiSit,(equipped==='skijet'&&!wipe)?1:0,dt,5);
+  // ---- and under the canopy he faces FORWARD ----
+  // His stance is side-on to a board, which is right for surfing and wrong for hanging in a
+  // harness: a parasailer faces the way he is going. Same eased whole-body turn the ski uses.
+  glFace=ease(glFace,(typeof glPh!=='undefined'&&glPh>=0&&!wipe)?1:0,dt,4);
   // arms: reach for the rail on a grab, windmill for balance in the air, drop and counterweight on the wave
   let shF,elF,shB,elB,armSpread;
   if(grab){
@@ -25083,11 +25157,21 @@ function animateRig(dt,carve,grab,waterY){
     straight(legBackJ.hip ,-0.30); straight(legBackJ.knee ,0.34); straight(legBackJ.ankle ,-0.20);
     headJ.rotation.x=headJ.rotation.x*(1-h)+0.66*h;    // chin up off the deck, eyes past the tip
     headJ.rotation.y*=1-h;
-  } else if(pug.rotation.x!==0&&skiSit<=0.02){ pug.rotation.x=0; pug.position.set(PUG_X0,0,PUG_Z0); applyStance(); }
+  } else if(pug.rotation.x!==0&&skiSit<=0.02&&glFace<=0.02){ pug.rotation.x=0; pug.position.set(PUG_X0,0,PUG_Z0); applyStance(); }
   // ---- astride, facing the bow ----
   // AFTER the block above, not inside the same chain: that branch resets the body whenever the
   // helicopter is not running, so a pose written before it is undone on the very next line. It
   // is gated on skiSit instead, and this re-applies once it has let go.
+  if(glFace>0.02&&heliPose<=0.02&&skiSit<=0.02){
+    const h=glFace;
+    // square to the nose, and hanging: the legs come forward and down rather than braced on a
+    // deck he is no longer standing on
+    pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0)+(-STANCE_ROT)*h;
+    const hang=(j,base)=>{ j.rotation.x=j.rotation.x*(1-h)+base*h; };
+    hang(legFrontJ.hip,0.34); hang(legFrontJ.knee,0.30); hang(legFrontJ.ankle,-0.12);
+    hang(legBackJ.hip ,0.34); hang(legBackJ.knee ,0.30); hang(legBackJ.ankle ,-0.12);
+    headJ.rotation.y*=1-h;
+  }
   if(skiSit>0.02&&heliPose<=0.02){
     const h=skiSit;
     // square to the nose. His stance is side-on to a board the rest of the time, and nobody
