@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.83.0';
+window.SURF_VERSION='5.84.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -19047,6 +19047,8 @@ var GL_LINE=9.4;
 // what the wing MEASURED as on import -- the fabric depth and the box ratios are derived from
 // whatever file turns up, so they are reported rather than left to be inferred from a picture
 var GL_FABD=0, GL_RY=0, GL_RZ=0;
+// false = the canopy keeps the texture it shipped with; true = it is painted in bands
+var GL_PAINT=false;
 function buildGlider(){
   const g=new THREE.Group();
   const SPAN=17, CHORD=5.4, NC=16, ARC=0.66;
@@ -19145,12 +19147,17 @@ loadModel('paraglider.glb',s3=>{
   if(isFinite(b.min.x))
     glider.userData.brake=[new THREE.Vector3(b.min.x*0.74, GL_LINE*0.88, b.max.z*0.55),
                            new THREE.Vector3(b.max.x*0.74, GL_LINE*0.88, b.max.z*0.55)];
-  // ---- and it is PAINTED, because the texture it came with is a grid ----
-  // The baked map is ripstop: a dense blue weave that at any distance reads as a mesh of tiny
-  // squares rather than as a wing, and it is the same flat blue from tip to tip. Bands are what
-  // a canopy actually looks like, so the map comes off and the colour is put on per vertex
-  // instead -- keyed to the vertex's own position ACROSS THE SPAN, which is a thing the model
-  // always has, rather than to a UV layout nobody has looked at.
+  // ---- painted, or not ----
+  // The wing was painted because the first model's baked map was ripstop -- a dense blue weave
+  // that at any distance read as a mesh of tiny squares rather than as a wing, the same flat
+  // blue tip to tip. Bands are what a canopy actually looks like, so the map came off and the
+  // colour went on per vertex instead, keyed to the vertex's own position ACROSS THE SPAN, which
+  // is a thing every model has, rather than to a UV layout nobody has looked at.
+  //
+  // GL_PAINT turns that off and flies the canopy in whatever it arrived wearing. It is a switch
+  // rather than a deletion because which one is wanted is a matter of taste and has changed
+  // once already, and because everything below it -- the fabric/rigging split, the normal
+  // smoothing -- is needed either way and would have to be rebuilt to bring the paint back.
   //
   // The rigging is in the same mesh as the canopy, so it cannot be coloured by name. It is
   // separated by height: the top of the model is fabric, everything below it is line, and the
@@ -19258,7 +19265,7 @@ loadModel('paraglider.glb',s3=>{
         const c=fab?FAB[Math.floor(((v.x-x0)/w)*FAB.length*2.4)%FAB.length]:LINE;
         col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
       }
-      o.geometry.setAttribute('color',new THREE.BufferAttribute(col,3));
+      if(GL_PAINT)o.geometry.setAttribute('color',new THREE.BufferAttribute(col,3));
       // ---- and the NORMALS get low-passed, which is what the squares actually were ----
       // Proved rather than guessed: the same frame rendered with an unlit flat material has no
       // squares in it at all, and rendered lit it is a grid from tip to tip. So they were never
@@ -19316,8 +19323,8 @@ loadModel('paraglider.glb',s3=>{
       }
       }catch(e){ console.warn('paraglider normal smoothing skipped',e&&e.message); }
       if(o.material){ o.material=o.material.clone();
-        o.material.map=null; o.material.vertexColors=true;
-        if(o.material.color)o.material.color.setHex(0xffffff);
+        if(GL_PAINT){ o.material.map=null; o.material.vertexColors=true;
+                      if(o.material.color)o.material.color.setHex(0xffffff); }
         o.material.needsUpdate=true; }
     });
   }
@@ -19331,7 +19338,11 @@ loadModel('paraglider.glb',s3=>{
   fitted.traverse(o=>{ if(o.isMesh&&o.material){
     const m=o.material;
     if('metalness' in m)m.metalness=0.0;
-    if('roughness' in m)m.roughness=0.86;
+    // 0.86 is a flat value for a canopy with no roughness map left on it. With the map kept it
+    // would be a multiplier over a channel already reading about 0.35, dulling to 0.30 and
+    // putting a sheen on the fabric -- so when the model keeps its maps the number goes to 1 and
+    // lets the baked variation through as authored.
+    if('roughness' in m)m.roughness=GL_PAINT?0.86:1.0;
     // and the same again for the other material type, because which one an import ends up as
     // depends on the loader path -- a check that silently matches nothing is the failure mode
     // that costs a debugging session, and covering both costs two lines
@@ -19352,12 +19363,19 @@ loadModel('paraglider.glb',s3=>{
     // canopy in the render are geometry, and they survive this. So the map is dropped rather
     // than scaled down -- a grid at a quarter strength is still a grid, and it had already been
     // asked about three times.
-    m.normalMap=null; m.bumpMap=null;
-    // ---- and the roughness map goes with it ----
-    // roughness is a MULTIPLIER over roughnessMap.g, and that channel measures about 0.35 across
-    // this scan -- so the 0.86 set above was really asking for 0.30, which is a satin, and the
-    // wing came back with a sheen on it. Dropping the map makes the number mean what it says.
-    m.roughnessMap=null; m.metalnessMap=null;
+    //
+    // Both of these go with the PAINT, though. Dropping a model's maps is only free when its
+    // colour is being replaced anyway; a canopy flying in its own texture wants the normal that
+    // was baked against that texture, and the roughness variation that goes with it. The
+    // parachute's normal map was opened before it shipped and is soft creases with no grid
+    // anywhere in it, which is the difference between this model and the one the paragraph
+    // above is about.
+    if(GL_PAINT){ m.normalMap=null; m.bumpMap=null;
+      // roughness is a MULTIPLIER over roughnessMap.g, and that channel measures about 0.35
+      // across these scans -- so the 0.86 set above is really asking for 0.30, which is a satin,
+      // and the wing comes back with a sheen on it. Dropping the map makes the number mean what
+      // it says. Kept when the texture is kept, for the same reason as the normal.
+      m.roughnessMap=null; m.metalnessMap=null; }
     m.side=THREE.FrontSide; m.needsUpdate=true;
   }});
   // the built wing and its string lines step aside; the model is the whole rig

@@ -39,7 +39,7 @@ to `RIDER_MODELS` in `index.html`.
 | `rat.glb` | Fatty the Rat |
 | `cow.glb` | Moo the Cow — what the saucer sends back, see the UFO in `index.html` |
 | `boat.glb` | The tow boat — comes down the lane and takes station ahead of you, see `updateBoat` |
-| `paraglider.glb` | The paraglide's wing — arrives WITH its lines, and is re-seated on the point they converge on rather than on its centre, because that point is the harness. Built at 45k tris with all three maps at 64px: the game paints the canopy per-vertex and nulls base, normal and roughness alike, so shipping them at size is megabytes nobody can see. It is fitted and painted from what the file MEASURES, not from ratios written down for an earlier one — so a replacement of different proportions lands correctly without a code change |
+| `paraglider.glb` | The paraglide's wing — arrives WITH its lines, and is re-seated on the point they converge on rather than on its centre, because that point is the harness. Built at 45k tris and flown in its own texture — `GL_PAINT` in `index.html` switches between that and the per-vertex bands, and the maps ship at size or at 64px to match. It is fitted from what the file MEASURES, not from ratios written down for an earlier one, so a replacement of different proportions lands correctly without a code change |
 | `buoy.glb` | the striped buoy |
 | `buoy2.glb` | a second buoy, picked at random against the first |
 | `log.glb` | the floating log |
