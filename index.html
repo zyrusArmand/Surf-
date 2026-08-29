@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.99.0';
+window.SURF_VERSION='6.0.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -2334,6 +2334,20 @@ const oceanUniforms={
   uShore:{value:-1}, uShoreW:{value:1},
   uWakeZ:{value:0}, uWakeA:{value:0}, uWakeX:{value:0},
   uWhX:{value:0}, uWhZ:{value:0}, uWhA:{value:0},
+  // ---- the wakes, drawn as FOAM ON THE WATER rather than as sprites ----
+  // The sprite cloud could not be made both thick and clean: stacked translucent quads round
+  // their blend to 8 bits and a phone shows the error as coloured speckle, so density fought
+  // cleanliness and there was no setting where both won. This is the barrel's own whitewater
+  // instead -- one shader pass over the surface, the same near-white and the same lace/fleck
+  // noise the impact pile uses. It cannot speckle, because nothing is blended over anything.
+  // Rider: x and z of the board, how far astern the foam starts, and how fast it widens.
+  uRdX:{value:0}, uRdZ:{value:0}, uRdA:{value:0}, uRdT:{value:3.4}, uRdW:{value:1.15},
+  // it opens out fast: a foot and a bit at the tail to over five feet by the bottom of the
+  // frame, which is the "starts small then gets bigger" that was asked for. 0.16 per foot was
+  // a band you could not see at all -- barely a foot across where the water leaves the board.
+  uRdS:{value:0.52}, uRdL:{value:24.0},
+  // Boat: where the stern is, which way it points, and the V it opens.
+  uBtX:{value:0}, uBtZ:{value:0}, uBtSn:{value:0}, uBtCs:{value:1}, uBtA:{value:0},
   uSwA:{value:0}, uSwX:{value:0}, uSwS:{value:1},
   uSun:{value:sunDir}, uLight:{value:1.0},
   // ---- the two bands of sky the water reflects ----
@@ -2494,6 +2508,10 @@ const oceanMat=new THREE.ShaderMaterial({
     uniform vec3 uGlow; uniform vec3 uGlitL;
     uniform float uT; uniform float uDist; uniform float uAmp; uniform float uPeak;
     uniform float uLight; uniform float uSwA;
+    uniform float uRdX; uniform float uRdZ; uniform float uRdA; uniform float uRdT;
+    uniform float uRdW; uniform float uRdS; uniform float uRdL;
+    uniform float uBtX; uniform float uBtZ; uniform float uBtSn; uniform float uBtCs;
+    uniform float uBtA;
     uniform sampler2D uChop; uniform float uChopK;
     varying vec3 vN; varying vec3 vW; varying float vH; varying vec2 vPh;
     varying float vSw; varying float vBrk; varying float vPa; varying float vDx;
@@ -2719,6 +2737,47 @@ const oceanMat=new THREE.ShaderMaterial({
         core *= vPa;
         col = mix(col, vec3(0.97,0.99,1.00),
                   clamp(core*(0.80+0.40*laceR+0.30*fleckR),0.0,1.0)*0.92);
+      }
+      // ---- THE RIDER'S WAKE ----
+      // Narrow where the water leaves the tail and opening out astern, which is the shape asked
+      // for and the shape a planing hull actually leaves. uRdT holds it clear of the board: the
+      // term simply does not exist forward of that line, so it cannot be drawn over the deck at
+      // any width -- which is what no amount of moving sprites backwards could guarantee, since
+      // a sprite is a billboard and has a radius in every direction.
+      if(uRdA>0.001){
+        float t = (vW.z-uRdZ) - uRdT;          // +z is astern; before the tail there is nothing
+        if(t>0.0){
+          float halfW = uRdW + t*uRdS;         // small at the tail, wider down the lane
+          float dx = abs(vW.x-uRdX);
+          float across = 1.0-smoothstep(halfW*0.55, halfW*1.05, dx);
+          // strongest just off the tail, thinning as it disperses
+          float fade = (1.0-smoothstep(0.0,uRdL,t))*(0.35+0.65*smoothstep(0.0,1.6,t));
+          // the noise MOTTLES it rather than gating it: a floor near one keeps the mass solid
+          // where it is meant to be solid, which is what the barrel's own pile does too
+          float f = across*fade*uRdA;
+          col = mix(col, vec3(0.96,0.99,1.0),
+                    clamp(f*(0.94+0.26*laceR+0.18*fleckR),0.0,1.0)*0.97);
+        }
+      }
+      // ---- AND THE BOAT'S V ----
+      // The same arithmetic boatBump already uses for the height field, so the ridge you can
+      // feel and the foam you can see are the same V rather than two that nearly agree: along
+      // and across the hull's heading, arms opening at BOAT_VEE per foot travelled, and the
+      // propeller's own churn straight astern.
+      if(uBtA>0.001){
+        vec2 d = vec2(vW.x-uBtX, vW.z-uBtZ);
+        float av =  d.x*uBtSn + d.y*uBtCs;     // along, astern positive
+        float cv =  d.x*uBtCs - d.y*uBtSn;     // across
+        if(av>-4.0 && av<150.0){
+          float ac = abs(cv);
+          float arm = 2.2 + max(av,0.0)*0.35;
+          float ridge = 1.0-smoothstep(1.5,4.6,abs(ac-arm));
+          float churn = (1.0-smoothstep(2.2,6.5,ac))*exp(-max(av,0.0)*0.026);
+          float fade = 1.0-smoothstep(0.0,132.0,max(av,0.0));
+          float f = clamp(ridge*fade+churn,0.0,1.0)*uBtA;
+          col = mix(col, vec3(0.96,0.99,1.0),
+                    clamp(f*(0.92+0.28*laceR+0.20*fleckR),0.0,1.0)*0.97);
+        }
       }
       col += vec3(1.0)*pow(max(dot(N,H),0.0),480.0)*0.6;
       float fog = smoothstep(70.0,230.0,length(cameraPosition-vW));
@@ -17019,6 +17078,7 @@ function updateWorldDuringWipeout(dt){
   oceanUniforms.uWakeZ.value=wkZ;oceanUniforms.uWakeA.value=wkA;oceanUniforms.uWakeX.value=wkX;
   oceanUniforms.uWhX.value=whX;oceanUniforms.uWhZ.value=whZ;oceanUniforms.uWhA.value=whA;
   oceanUniforms.uSwA.value=swA;oceanUniforms.uSwX.value=swX;oceanUniforms.uSwS.value=swS;
+  oceanUniforms.uRdA.value=0; oceanUniforms.uBtA.value=0;   // no wake on the menu's water
   placeCurl(dt);
   if(shake>0)shake-=dt*8;
   for(let i=splashes.length-1;i>=0;i--){
@@ -27425,6 +27485,30 @@ function update(dt){
   oceanUniforms.uWakeZ.value=wkZ;oceanUniforms.uWakeA.value=wkA;oceanUniforms.uWakeX.value=wkX;
   oceanUniforms.uWhX.value=whX;oceanUniforms.uWhZ.value=whZ;oceanUniforms.uWhA.value=whA;
   oceanUniforms.uSwA.value=swA;oceanUniforms.uSwX.value=swX;oceanUniforms.uSwS.value=swS;
+  // ---- and where the two wakes are, in the water's own coordinates ----
+  // vW is world space in the fragment shader, so these are the raw positions rather than the
+  // drift-shifted ones waveH takes. It fades with speed and goes out entirely when he is not on
+  // the water -- airborne, hanging, or up under the canopy -- so no foam is painted under a
+  // rider who is nowhere near it, which is the fault the sprite version had for a whole flight.
+  {
+    const onWater=!airborne&&!hanging&&!(glPh>=0&&py>1.6)&&!wipe;
+    oceanUniforms.uRdX.value=px;
+    oceanUniforms.uRdZ.value=pz;
+    oceanUniforms.uRdT.value=BOARD_HALF_L+0.55;
+    // ---- and it is driven by SPEED, not by the board's wake stat ----
+    // Multiplying by BS.wake floored at 0.45 put the whole term at a quarter strength on an
+    // ordinary board, which rendered as a barely-there smudge. The stat still counts, but as a
+    // modest widening rather than as most of the alpha.
+    oceanUniforms.uRdA.value=onWater
+      ?(0.58+0.42*Math.min(1,speed/22))*Math.min(1.25,Math.max(0.8,BS.wake)):0;
+    // and the V, alive only while the boat is actually making way
+    const btOn=(typeof btPh!=='undefined')&&btPh!==BTP.OFF&&boat.visible&&btSpd>7;
+    oceanUniforms.uBtX.value=btX;
+    oceanUniforms.uBtZ.value=btZ+8.4;              // the stern, which is where a wake starts
+    oceanUniforms.uBtSn.value=Math.sin(btYaw);
+    oceanUniforms.uBtCs.value=Math.cos(btYaw);
+    oceanUniforms.uBtA.value=btOn?(0.62+0.38*Math.min(1,btSpd/24)):0;
+  }
   placeCurl(dt);
 
   // camera: level horizon, smoothed follow, pulls back with speed
