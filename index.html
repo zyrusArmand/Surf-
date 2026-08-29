@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.69.0';
+window.SURF_VERSION='5.70.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -18784,6 +18784,14 @@ var glPh=GLP.OFF, glT=0, glVx=0, glRoll=0, glRollV=0, glPitch=0, glPitchV=0, glY
 // middle, the cells are coloured in bands because that is what the fabric panels do, and the
 // lines are real geometry down to a riser point above his head -- without them the wing is a
 // kite with nothing holding it on.
+// ---- everything is measured from the RISER, not from the canopy ----
+// The group's origin is the point the lines converge on, which is the point it hangs from --
+// so placing the group is placing the harness, and rotating it swings the canopy round the
+// pilot. That is what a pendulum does, and it means the swing needs no arithmetic at all: it
+// used to be faked by sliding the whole wing sideways by sin(roll)*L*0.55 to approximate the
+// same motion. Anchoring here also lets a MODEL drop in beside the built one, because a
+// modelled paraglider arrives with its lines and they converge on exactly this point.
+var GL_LINE=9.4;
 function buildGlider(){
   const g=new THREE.Group();
   const SPAN=17, CHORD=5.4, NC=16, ARC=0.66;
@@ -18813,7 +18821,7 @@ function buildGlider(){
     for(const p of [p0,p1]) for(let j=0;j<=1;j++){
       // a little camber: the trailing edge rides above the leading one, so the section is
       // not a plank seen edge-on when the wing is level with the camera
-      pos.push(p[0], p[1]+(j?0.42:0), (j-0.5)*CHORD);
+      pos.push(p[0], GL_LINE+p[1]+(j?0.42:0), (j-0.5)*CHORD);
       col.push(c.r,c.g,c.b);
     }
     idx.push(base,base+1,base+2, base+1,base+3,base+2);
@@ -18830,8 +18838,8 @@ function buildGlider(){
   for(let i=1;i<NC;i+=2){
     const u=i/NC, a=(u-0.5)*ARC*2;
     const x=R*Math.sin(a), y=R*Math.cos(a)-R;
-    lp.push(new THREE.Vector3(x,y,-CHORD*0.5), new THREE.Vector3(0,-9.4,0.2));
-    lp.push(new THREE.Vector3(x,y+0.42,CHORD*0.5), new THREE.Vector3(0,-9.4,0.2));
+    lp.push(new THREE.Vector3(x,GL_LINE+y,-CHORD*0.5), new THREE.Vector3(0,0,0.2));
+    lp.push(new THREE.Vector3(x,GL_LINE+y+0.42,CHORD*0.5), new THREE.Vector3(0,0,0.2));
   }
   const lines=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(lp),
     new THREE.LineBasicMaterial({color:0xe8e4d8, transparent:true, opacity:0.55}));
@@ -18841,6 +18849,47 @@ function buildGlider(){
 }
 const glider=buildGlider();
 glider.visible=false; scene.add(glider);
+// ---- and the modelled one, which brings its own lines ----
+// Its box is 1 : 0.69 : 0.36 -- a height two-thirds of the span, which no canopy on its own is.
+// That is a wing WITH its rigging, converging on a riser point at the bottom, so the whole
+// thing is dropped in and re-seated on that point rather than on its centre. The target box is
+// cut to the model's own proportions so fitToBox has nothing to correct: its longest side is
+// the span either way round, and a box of a different shape would spin it.
+const GL_SPAN=19;
+const PGL_BOX=new THREE.Box3(
+  new THREE.Vector3(-GL_SPAN*0.5,-GL_SPAN*0.691*0.5,-GL_SPAN*0.361*0.5),
+  new THREE.Vector3( GL_SPAN*0.5, GL_SPAN*0.691*0.5, GL_SPAN*0.361*0.5));
+loadModel('paraglider.glb',s3=>{
+  const fitted=skinAndFit('paraglider',s3,PGL_BOX);
+  // The lines end where they end. Measured off the fitted model rather than assumed, then slid
+  // down so that point lands on the group's origin -- which is the harness.
+  const b=new THREE.Box3().setFromObject(fitted);
+  if(isFinite(b.min.y)){ fitted.position.y-=b.min.y; GL_LINE=b.max.y-b.min.y; }
+  // ---- and it is FABRIC, whatever the exporter said ----
+  // It arrived with metallicFactor 1 and roughness 1. A fully metallic surface has no diffuse
+  // term at all -- every bit of its colour comes from reflections -- so ripstop nylon came out
+  // as a pane of tinted glass you could see the sky through. Nothing about the file is
+  // transparent; alphaMode is OPAQUE and the base colour alpha is 1. It just was not lit like a
+  // cloth. Double-sided as well, because the camera spends the whole flight under the canopy
+  // and a wing whose normals point up is a wing you are looking at from behind.
+  fitted.traverse(o=>{ if(o.isMesh&&o.material){
+    const m=o.material;
+    if('metalness' in m)m.metalness=0.0;
+    if('roughness' in m)m.roughness=0.86;
+    // and the same again for the other material type, because which one an import ends up as
+    // depends on the loader path -- a check that silently matches nothing is the failure mode
+    // that costs a debugging session, and covering both costs two lines
+    if('shininess' in m)m.shininess=8;
+    if(m.specular&&m.specular.setHex)m.specular.setHex(0x101010);
+    m.transparent=false; m.opacity=1; m.depthWrite=true;
+    m.side=THREE.DoubleSide; m.needsUpdate=true;
+  }});
+  // the built wing and its string lines step aside; the model is the whole rig
+  const w=glider.userData.wing, ln=glider.userData.lines;
+  if(w)w.visible=false; if(ln)ln.visible=false;
+  glider.add(fitted);
+  glider.userData.model=fitted;
+});
 // the tow line, which is a different rope from the plane's and outlives it by a phase
 const glRope=new THREE.Line(new THREE.BufferGeometry().setFromPoints(
   [new THREE.Vector3(),new THREE.Vector3()]),
@@ -18938,14 +18987,14 @@ function glideStep(dt,waterY){
   glPitch += glPitchV*dts;
   // the wing weathercocks into the way it is going, and lags doing it
   glYaw   += (Math.max(-0.5,Math.min(0.5,-glVx*0.055-glRoll*0.55))-glYaw)*Math.min(1,dts*2.4);
-  // ---- the wing sits over him, and it is where he hangs FROM ----
-  // 9.4 is the line length the risers were built at, so the canopy has to sit exactly that far
-  // above him or the lines end in mid-air -- but only when it hangs plumb. Once it swings, the
-  // pilot stays put and the WING moves out over him, which is the way round a pendulum works:
-  // the mass is the anchor and the light thing on the end does the travelling.
+  // ---- placed at the HARNESS, and the rotation does the rest ----
+  // The group hangs from its own origin, so this is the one point that has to be right: put it
+  // at the pilot's shoulders and every swing, pitch and turn below is a rotation about him,
+  // which is what a canopy on lines actually does. The old version placed the CANOPY and then
+  // slid it sideways by sin(roll)*L*0.55 to fake the arc the pilot's end should have described
+  // -- an approximation of exactly this, and one that came apart at any real bank angle.
   if(glider.visible){
-    const L=9.4;
-    glider.position.set(px+Math.sin(glRoll)*L*0.55, py+Math.cos(glRoll)*L, pz-0.3+Math.sin(glPitch)*2.2);
+    glider.position.set(px, py+2.6, pz-0.3);
     glider.rotation.order='YXZ';
     glider.rotation.set(glPitch, glYaw, glRoll);
   }
@@ -20902,7 +20951,8 @@ if(location.hash.includes('debug')){
               wing:glider.visible, rope:glRope.visible,
               wingAt:glider.visible?sc(glider):null,
               span:glider.visible?+(b.max.x-b.min.x).toFixed(2):null,
-              above:+(glider.position.y-py).toFixed(2), boatPh:btPh}; },
+              above:+(glider.position.y+GL_LINE-py).toFixed(2), line:+GL_LINE.toFixed(2),
+              modelled:!!(glider.userData&&glider.userData.model), boatPh:btPh}; },
     ufoNow(){ if(typeof ufoStart!=='function')return null;
       dayForce=UFO_TEST_HOUR; return ufoStart(); },
     ufoState(){ if(typeof ufo==='undefined'||!ufo)return null;
@@ -25991,7 +26041,9 @@ function update(dt){
   // before the ring engages, the chase aim blends to where the tube's axis WILL be at full
   // form — predicted, not current, so the lock does not inherit a target that then moves.
   // The lock captures that finished pose, and from the first barrel frame nothing changes.
-  let aimX=lookX, aimY=waterY+1.05+swCam*1.5+airH*(0.62+0.38*glCam)+glCam*5.0, aimZ=-14-swCam*10;
+  // the modelled canopy sits about sixteen feet over him rather than nine, so the aim goes up
+  // with it -- the wing is the thing worth framing and it is now higher above the pilot
+  let aimX=lookX, aimY=waterY+1.05+swCam*1.5+airH*(0.62+0.38*glCam)+glCam*7.5, aimZ=-14-swCam*10;
   if(swPh===SWP.RIDE&&!swTubeRide&&swCurlA>0.05){
     const pa1=swPeelA(pz), pb1=swPeelB(pz);
     const rad1=SW_R*(0.16+0.84*pa1)*(1-0.55*pb1), fold1=1-0.38*pb1;

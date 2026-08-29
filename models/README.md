@@ -18,7 +18,7 @@ at full white, which makes the model glow flat and ignore every light in the sce
 checking if an import looks oddly unlit.
 
 `board.glb`, `buoy.glb`, `chest.glb`, `log.glb`, `octopus.glb`, `palm.glb`, `pug.glb`,
-`buoy2.glb`, `cat.glb`, `frog.glb`, `monkey.glb`, `rat.glb`, `ramp.glb`, `sand.glb`, `jelly.glb`, `jelly2.glb`, `bigfin.glb`, `cow.glb`, `boat.glb` and `plane.glb` ship with the game; the rest of the table is
+`buoy2.glb`, `cat.glb`, `frog.glb`, `monkey.glb`, `rat.glb`, `ramp.glb`, `sand.glb`, `jelly.glb`, `jelly2.glb`, `bigfin.glb`, `cow.glb`, `boat.glb`, `paraglider.glb` and `plane.glb` ship with the game; the rest of the table is
 empty by design, and the 404s those file names produce are the documented path
 rather than a fault.
 
@@ -39,6 +39,7 @@ to `RIDER_MODELS` in `index.html`.
 | `rat.glb` | Fatty the Rat |
 | `cow.glb` | Moo the Cow — what the saucer sends back, see the UFO in `index.html` |
 | `boat.glb` | The tow boat — comes down the lane and takes station ahead of you, see `updateBoat` |
+| `paraglider.glb` | The paraglide's wing — arrives WITH its lines, and is re-seated on the point they converge on rather than on its centre, because that point is the harness |
 | `buoy.glb` | the striped buoy |
 | `buoy2.glb` | a second buoy, picked at random against the first |
 | `log.glb` | the floating log |
