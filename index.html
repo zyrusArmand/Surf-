@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.72.0';
+window.SURF_VERSION='5.73.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -18424,6 +18424,84 @@ function wakeRibbon(segs){
   return {geo,pos,al,uv,mesh:m,segs};
 }
 const boatArmL=wakeRibbon(BOAT_SEGS), boatArmR=wakeRibbon(BOAT_SEGS), boatChurn=wakeRibbon(BOAT_SEGS);
+// ---- and the wake is a CLOUD, which a ribbon can never be ----
+// Against the reference the ribbons get the shape right and the substance wrong: a boat's wake
+// is not a painted band, it is a mass of aerated water with lumps in it, bright and nearly solid
+// where the propeller has just been and dispersing for a hundred feet behind. A surface cannot
+// do that from the side, however good its shader -- it has one skin and no thickness.
+//
+// So the ribbons stay as the underlying shape and a cloud of soft sprites goes on top, which is
+// the same trick the board's own wash uses and the same reason. Its OWN pool, though: the
+// rider's holds 170 and lives 1.55s, which is right for a surfboard and nowhere near a boat --
+// sharing it would both starve his trail and cut the boat's off after thirty feet.
+// ---- and it is SHORT-LIVED but laid down LONG ----
+// The first cut emitted only near the transom and let a 4.6s life carry the foam back down the
+// lane. Two things went wrong with that: the far half of the wake was thin, because the packets
+// had spread out by the time they got there; and the survivors reached the camera as isolated
+// discs -- one lonely puff reads as a blob, a dozen overlapping read as foam, and the ones that
+// last longest are exactly the ones with no neighbours left. The wake is a pattern that stands
+// still relative to the BOAT, so it is laid down along its whole length at once and given a
+// life short enough that nothing outlives the crowd it was born into.
+const BF_N=240, BF_LIFE=3.0;
+// ---- small and many, not big and few ----
+// At three and a half feet a single packet is resolvable at fifty feet, so the tail of the
+// crowd -- the oldest third, faint and spread out -- read as separate dots on the water rather
+// than as anything. Foam is only foam when you cannot pick one out of it.
+const BF_R0=0.85, BF_R1=2.35;          // feet across, at the transom and at the far end
+let boatFoam=[], boatFoamPool=[], bfAcc=0;
+function bfGet(){
+  if(boatFoamPool.length)return boatFoamPool.pop();
+  const m=new THREE.Sprite(new THREE.SpriteMaterial({map:puffTexture(),transparent:true,
+    depthWrite:false, opacity:0, color:0xffffff}));
+  m.renderOrder=2; scene.add(m); return m;
+}
+function bfPush(x,y,z,w){
+  if(boatFoam.length>=BF_N)return;
+  const m=bfGet(); m.visible=true;
+  boatFoam.push({m, x, y, z, age:0,
+                 vx:(Math.random()*2-1)*0.55,
+                 w:w*(0.68+Math.random()*0.72),
+                 rot:Math.random()*6.283, spin:(Math.random()-0.5)*0.5});
+}
+function boatFoamClear(){
+  for(const p of boatFoam){ p.m.visible=false; p.m.material.opacity=0; boatFoamPool.push(p.m); }
+  boatFoam.length=0; bfAcc=0;
+}
+function updateBoatFoam(dt,eff){
+  for(let i=boatFoam.length-1;i>=0;i--){
+    const p=boatFoam[i]; p.age+=dt;
+    const k=p.age/BF_LIFE;
+    if(k>=1){ p.m.visible=false; p.m.material.opacity=0; boatFoamPool.push(p.m); boatFoam.splice(i,1); continue; }
+    p.x+=p.vx*dt; p.z+=eff*dt;
+    // ---- and it LIES on the water ----
+    // Given a rising velocity it drifted up off the surface, and a four-foot sprite a foot and a
+    // half in the air is not foam, it is a cloud. Foam floats: it sits on the sea and rides it.
+    const sea=waveH(p.x,dist*WAVE_DRIFT+p.z,waveClock);
+    p.m.position.set(p.x, sea+0.26, p.z);
+    const r=(BF_R0+(BF_R1-BF_R0)*k*k*(3-2*k))*p.w;
+    p.m.scale.set(r,r,1);
+    p.m.material.rotation=p.rot+p.spin*p.age;
+    // ---- nearly solid at the transom, and a LONG thin-out ----
+    // In the reference the water right behind the boat is opaque white and it is still clearly
+    // foam a hundred feet back. Up over the first eighth of its life, then a slow decay.
+    let a=Math.min(1,k*8)*Math.pow(1-k,1.30)*0.95;
+    // ---- AND IT GETS OUT OF THE LENS ----
+    // The wake drifts down the lane at the rider, so a puff born twenty feet ahead of him is
+    // thirty feet BEHIND him by the time it dies -- which means straight over the camera. At
+    // four feet across and a few feet from the lens that is a soft white disc covering a third
+    // of the screen, and a dozen of them read as blobs stuck to the glass rather than as sea.
+    // Exactly the trap the board's own spray hit, and the same fix: gone by ten feet out,
+    // untouched past twenty-four.
+    // A sprite is a flat billboard standing in the water, so one close enough to intersect the
+    // surface gets cut in half by it and reads as a hard-edged dome sitting on the sea -- which
+    // is what the near ones were. Gone well before that can happen: the wake itself lives
+    // thirty-five to ninety feet from the lens, so this only ever touches strays.
+    const dcam=camera.position.distanceTo(p.m.position);
+    a*=Math.max(0,Math.min(1,(dcam-20.0)/20.0));
+    // and no single packet is ever bright on its own -- the mass is what carries it
+    p.m.material.opacity=a*0.82;
+  }
+}
 const boatTrail=[];                    // {x,z,nx,nz,age,s} — n is across the hull's heading
 // ---- and the V is an ANGLE, which is not the same as a spread in feet ----
 // The arms first moved out a fixed 12.5ft over the wake's life. But how far BACK a piece of
@@ -18577,6 +18655,7 @@ function boatReset(){
   btPh=BTP.OFF; btT=0; boat.visible=false; bwA=0; glDone=false; btShoves=0;
   boatTrail.length=0;
   boatArmL.mesh.visible=false; boatArmR.mesh.visible=false; boatChurn.mesh.visible=false;
+  boatFoamClear();
 }
 function boatStart(){
   if(btPh!==BTP.OFF)return null;
@@ -18625,7 +18704,7 @@ function boatLayWake(dt,eff){
       rb.uv[ou]=-1; rb.uv[ou+1]=k; rb.uv[ou+2]=1; rb.uv[ou+3]=k;
       // eased in over the first couple of segments so the ribbon does not start at the
       // stern as a hard bright edge, and out over its life as the foam disperses
-      const a=Math.max(0,Math.pow(1-k,fade))*Math.min(1,i/2.0)*0.80;
+      const a=Math.max(0,Math.pow(1-k,fade))*Math.min(1,i/2.0)*0.96;
       rb.al[oa]=a; rb.al[oa+1]=a;
     }
     rb.geo.attributes.position.needsUpdate=true;
@@ -18634,9 +18713,12 @@ function boatLayWake(dt,eff){
   };
   // The arms hold their brightness (fade 1.0) so the V still reads when the boat is well
   // ahead; the churn between them is thrown up by the propeller and goes flat much sooner.
-  lay(boatArmL,-1, BOAT_ARM0, BOAT_VEE, 1.55, 1.15);
-  lay(boatArmR, 1, BOAT_ARM0, BOAT_VEE, 1.55, 1.15);
-  lay(boatChurn,0, 0.0, 0.0,      2.60, 2.2);
+  // Wider and brighter than before, and the churn band no longer thins to nothing: in the
+  // reference the water directly astern stays a broad opaque road for a long way rather than
+  // pinching shut a boat-length back. The cloud sits on top of these.
+  lay(boatArmL,-1, BOAT_ARM0, BOAT_VEE, 2.05, 1.05);
+  lay(boatArmR, 1, BOAT_ARM0, BOAT_VEE, 2.05, 1.05);
+  lay(boatChurn,0, 0.0, 0.0,      3.60, 1.45);
 }
 function updateBoat(dt,eff){
   if(btPh===BTP.OFF){ boatLayWake(dt,eff); return; }
@@ -18761,58 +18843,38 @@ function updateBoat(dt,eff){
   const push=Math.min(1,btSpd/26);
   bwA=2.55*push; bwX=btX; bwZ=dist*WAVE_DRIFT+btZ+7.0;
   bwSn=Math.sin(btYaw); bwCs=Math.cos(btYaw);
-  // ---- and the arms get PUFFS, which is the other half of "foamy" ----
-  // The ribbon is a surface: it can ride the ridge it made, but it is still one skin and from
-  // the side it has no thickness. The board's own wash is a cloud of soft sprites and reads as
-  // volume, so the crests of both arms get the same thing -- a few a frame, placed on the
-  // ridge line by the same arithmetic the ribbon and the height field use.
-  if(btSpd>10&&typeof pushPuff==='function'){
-    for(let i=0;i<4;i++){
-      const a=3+Math.random()*30;                // how far astern this one is born
-      const off=BOAT_ARM0+a*BOAT_VEE;
-      const side=(i&1)?1:-1;
-      const cx=btX+bwCs*side*off+bwSn*a, cz=btZ+(-bwSn)*side*off+bwCs*a;
-      const cy=waveH(cx,dist*WAVE_DRIFT+cz,waveClock);
-      pushPuff(cx, cy+0.26, cz, 0.85+Math.random()*0.5);
-    }
-  }
-  // ---- and things in its way get SHOVED OUT OF THE WAY ----
-  // A twenty-foot hull running over a buoy and leaving it sitting there is the one thing that
-  // gives away that the boat is scenery. Anything the bow reaches is pushed clear of the V and
-  // spun as it goes -- the shove is sized to how far it actually has to travel to get outside
-  // the arm at that point astern, rather than being a fixed nudge that leaves half of them
-  // still in the wake. Damped, so it slides out and settles instead of sailing off.
-  if(typeof obstacles!=='undefined'&&btSpd>6){
-    for(const o of obstacles){
-      if(!o||!o.position)continue;
-      const dz=o.position.z-btZ;
-      if(dz<-16||dz>70){ if(o.userData)o.userData.btHit=0; continue; }
-      const r=(o.userData&&o.userData.r)||1.2;
-      const dx=o.position.x-btX;
-      if(dz>-11&&dz<9&&Math.abs(dx)<3.4+r&&o.userData&&!o.userData.btHit){
-        o.userData.btHit=1; btShoves++;
-        const side=dx>=0?1:-1;
-        // where the arm of the V will be by the time it has drifted this far astern, plus its
-        // own radius and a bit of daylight -- that is the distance the shove has to cover
-        const clear=BOAT_ARM0+Math.max(0,dz)*BOAT_VEE+r+2.0;
-        const need=Math.max(1.5,clear-Math.abs(dx));
-        o.userData.btVX=side*(need*1.9+3.0);
-        o.userData.btSpin=side*(0.9+Math.random()*1.5);
-        o.userData.btRock=(Math.random()*2-1)*0.5;
-        if(typeof splash==='function')
-          splash(o.position.x,waveH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock),
-                 o.position.z,14);
+  // ---- the cloud, laid down where the water is actually churning ----
+  // Emitted per SECOND rather than per frame, so the density of the wake does not depend on the
+  // frame rate -- four a frame is a different wake at 30fps and at 60. Biased hard toward the
+  // transom by squaring the random, because that is where the reference is brightest and where
+  // the propeller actually is; the rest is spread down the churn band and along both arms, on
+  // the same arithmetic the ribbons and the height field use so all three agree.
+  if(btSpd>7){
+    bfAcc+=dt*(64+btSpd*1.5);
+    let guard=0;
+    while(bfAcc>=1&&guard++<20){
+      bfAcc-=1;
+      // the whole length of the wake every frame, leaning toward the stern rather than piling
+      // up there -- an even crowd is what makes it read as a mass instead of as dots
+      // ---- and never PAST him ----
+      // Eighty-four feet astern of a boat seventy-nine feet ahead is foam born behind the
+      // rider, which then drifts on into the lens. The span is cut to the room the boat
+      // actually has, keeping the far end well up the lane.
+      const room=Math.max(20,(pz-btZ)-22);
+      const a=8.5+Math.pow(Math.random(),0.75)*room;
+      const pick=Math.random();
+      let off;
+      if(pick<0.44){
+        // the propeller's own band: wide at the transom and spreading slowly
+        off=(Math.random()*2-1)*(2.6+(a-8.5)*0.075);
+      } else {
+        // and the two arms, on the ridge the height field raised
+        const side=pick<0.72?-1:1;
+        off=side*(BOAT_ARM0+(a-8.5)*BOAT_VEE)+(Math.random()*2-1)*1.25;
       }
-      if(o.userData&&o.userData.btVX){
-        o.position.x+=o.userData.btVX*dt;
-        o.userData.btVX*=Math.max(0,1-dt*1.7);
-        o.rotation.y+=(o.userData.btSpin||0)*dt;
-        // and it heels as it is pushed, then rights itself -- a thing shoved sideways in water
-        // does not stay level, and it does not stay tipped either
-        o.rotation.z=(o.userData.btRock||0)*Math.min(1,Math.abs(o.userData.btVX)/6);
-        o.userData.btSpin*=Math.max(0,1-dt*1.5);
-        if(Math.abs(o.userData.btVX)<0.06){ o.userData.btVX=0; o.userData.btSpin=0; o.rotation.z=0; }
-      }
+      const cx=btX+bwCs*off+bwSn*a, cz=btZ-bwSn*off+bwCs*a;
+      const sea=waveH(cx,dist*WAVE_DRIFT+cz,waveClock);
+      bfPush(cx, sea+0.30, cz, pick<0.44?1.20:0.92);
     }
   }
   // spray off the transom, at the same rate the ski throws it but in a wider fan
@@ -18828,6 +18890,7 @@ function updateBoat(dt,eff){
     }
   }
   boatLayWake(dt,eff);
+  updateBoatFoam(dt,eff);
 }
 
 // ---------- the paraglide ----------
@@ -21087,6 +21150,7 @@ if(location.hash.includes('debug')){
               screen:sc(boat), meshes, vis,
               size:boat.visible?[+(b.max.x-b.min.x).toFixed(2),+(b.max.y-b.min.y).toFixed(2),
                                  +(b.max.z-b.min.z).toFixed(2)]:null,
+              foam:(typeof boatFoam!=='undefined')?boatFoam.length:-1,
               bow:(typeof boatBowAt==='function'&&boatBowAt.last)||null,
               trail:boatTrail.length, bump:+bwA.toFixed(2), shoves:btShoves,
               shoving:(function(){let n=0;if(typeof obstacles!=='undefined')
