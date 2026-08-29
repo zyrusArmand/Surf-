@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.78.0';
+window.SURF_VERSION='5.79.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -13980,9 +13980,14 @@ function updateWake(dt,eff){
     // about a quarter opaque before the shader had its say — which is a pane of glass, not a
     // wake. Churned water right behind a board hides what is under it completely and only
     // thins as it disperses, so the near end starts near solid and the fade does the work.
+    // ---- and it is UNDER the cloud now, not instead of it ----
+    // At 0.70/0.88 this ribbon WAS the wake: a bright flat strip with a scatter of spray over
+    // it, which is the "line and sparkles" it read as. The foam cloud above is the wake; this
+    // is the darker, wetter water it is sitting on, so it drops to about a quarter and stops
+    // competing with it.
     const a=Math.max(0,(1-k))*0.95*Math.min(1,i/2);
-    wakeAlpha[oa]=a*0.70; wakeAlpha[oa+1]=a*0.70;  // soft edges
-    if(i>0){ wakeAlpha[oa]=a*0.88; wakeAlpha[oa+1]=a*0.88; }
+    wakeAlpha[oa]=a*0.20; wakeAlpha[oa+1]=a*0.20;  // soft edges
+    if(i>0){ wakeAlpha[oa]=a*0.26; wakeAlpha[oa+1]=a*0.26; }
   }
   wakeGeo.attributes.position.needsUpdate=true;
   wakeGeo.attributes.aAlpha.needsUpdate=true;
@@ -14904,6 +14909,7 @@ let trick=null; // rope backflip only
 let planeT=34+Math.random()*26,planeActive=false,hanging=false,spawnT=0.4;
 // var: read by the pose code, which runs on the title screen before this line would in a let
 var skiSit=0;                          // 0 standing on a board, 1 sat on the ski
+var _rideFoam=0;                       // the board's own cloud, emitted per second
 var glFace=0;                          // 0 side-on to the board, 1 square to the nose under the wing
 var _jsFoam=0, _jsTail=0;              // its wake and its rooster tail, per second not per frame
 let lastKind='',sameRun=0,bigFinCd=6,octCd=0,laneSlot=(Math.random()*5)|0;
@@ -19000,9 +19006,13 @@ function updateBoat(dt,eff){
 // the plane's rope tow taken the whole way: that one holds you five feet up so you can throw a
 // trick and puts you straight back down, this one takes you forty feet up and then LETS GO,
 // and what happens after it lets go is the point of it.
-const GL_TOP=44;                       // how high the tow takes you, in feet
-const GL_TOW=6.4;                      // seconds on the line -- a winch, not a catapult
-const GL_SINK=2.7;                     // feet a second down under canopy, which is a glide
+const GL_TOP=52;                       // how high the tow takes you, in feet
+const GL_TOW=8.0;                      // seconds on the line -- a winch, not a catapult
+// ---- and it lasts ----
+// 2.7 a second off 44 feet is about sixteen seconds of flight, and the whole sequence -- boat,
+// pass, tow, glide -- is the longest set piece in the game and the part worth watching. Down to
+// 1.5 off 52, which is nearer thirty-five: a glide rather than a descent.
+const GL_SINK=1.5;                     // feet a second down under canopy, which is a glide
 const GL_STEER=15;                     // how hard the wing turns
 // ---- and it flies like a wing on strings, which is a PENDULUM ----
 // The wing was pinned square over his head and stayed there, so forty feet of flight had no
@@ -26173,6 +26183,30 @@ function update(dt){
     // ...and the boil off the tail, at its own rate. Harder into a carve throws more of it,
     // which is the one thing that makes a wash read as coming off a board being worked rather
     // than as an emitter following him about.
+    // ---- and the accumulator has to see EVERY frame ----
+    // This sat inside the puff timer, which fires on a fraction of the frames -- so the dt it
+    // was handed was a fraction of the real one and the cloud came out at a third of the
+    // density it was asked for: 76 packets alive against the 122 the rate implies. Per-second
+    // emission only means per-second if it is added up every second.
+    // ---- and the SAME cloud the barrel throws ----
+    // The board's own wash was a ribbon with a thin scatter of spray on it, and a ribbon is a
+    // surface: what comes off a break is a mass of aerated water with volume in it. This is
+    // the identical emitter the boat and the jet ski use -- soft billowed sprites, dense
+    // enough that no one of them can be picked out -- laid down behind the tail. Its pool is
+    // idle unless a boat or a ski is actually out, and it hands nothing over once full, so
+    // the three can never fight over it.
+    if(typeof bfPush==='function'){
+      _rideFoam+=dt*(46+Math.min(54,speed*1.1))*Math.max(0.35,BS.wake);
+      let n=0;
+      while(_rideFoam>=1&&n++<10){
+        _rideFoam-=1;
+        const a=BOARD_HALF_L+0.3+Math.pow(Math.random(),0.85)*22;
+        const off=(Math.random()*2-1)*(0.85+a*0.13)+carve*1.1;
+        const fx=px+off, fz=a;
+        bfPush(fx, waveH(fx,dist*WAVE_DRIFT+fz,waveClock)+0.22, fz,
+               0.66*Math.max(0.5,BS.wake), true);
+      }
+    }
     puffT-=dt;
     if(puffT<=0){ puffT=0.018;
       const hard=0.55+Math.abs(carve)*0.85;
