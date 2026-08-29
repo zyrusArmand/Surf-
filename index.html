@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.66.0';
+window.SURF_VERSION='5.67.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -15835,6 +15835,7 @@ function reset(){
   if(typeof ufoGiveBack==='function')ufoGiveBack(true);
   // and no tow boat left in the lane from the last run, for the same reason
   if(typeof boatReset==='function')boatReset();
+  if(typeof glideReset==='function')glideReset();
   if(wipe){ scene.remove(rig); player.add(rig);
     player.remove(pug); rig.add(pug);
     pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
@@ -15897,6 +15898,7 @@ function respawn(){
   hanging=false;rope.visible=false;ropeBtn.style.display='none';ropeBtn.textContent='ROPE!';
   planeActive=false;plane.visible=false;planeT=30+Math.random()*24;
   if(typeof boatReset==='function')boatReset();
+  if(typeof glideReset==='function')glideReset();
   splatT=0;splat3D.visible=false;
   while(stars.length){const st=stars.pop();st.m.visible=false;STAR_POOL.push(st.m);}
   px=0;py=0;pz=0;vy=0;vx=0;airborne=false;trick=null;spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;
@@ -18499,11 +18501,12 @@ loadModel('boat.glb',s3=>{
 // to hold station at your speed. STATION is where the tow can start.
 const BTP={OFF:-1,RUN:0,PASS:1,SWING:2,STATION:3,AWAY:4};
 let btPh=BTP.OFF, btT=0, btSide=1, btX=0, btZ=0, btYaw=0, btSpd=0;
+let glDone=false;                      // one wing per pass, however long it holds station
 const BOAT_PASS_X=13.0;                // how far to the side it goes by
 const BOAT_STATION_Z=-34;              // where it settles ahead of you
 const BOAT_STATION=6.0;                // seconds it holds there before giving up on you
 function boatReset(){
-  btPh=BTP.OFF; btT=0; boat.visible=false; bwA=0;
+  btPh=BTP.OFF; btT=0; boat.visible=false; bwA=0; glDone=false;
   boatTrail.length=0;
   boatArmL.mesh.visible=false; boatArmR.mesh.visible=false; boatChurn.mesh.visible=false;
 }
@@ -18594,12 +18597,20 @@ function updateBoat(dt,eff){
     yawWant=Math.max(-0.5,Math.min(0.5,(px-btX)*0.055));
     if(Math.abs(btX-px)<2.2&&btZ<BOAT_STATION_Z+3){ btPh=BTP.STATION; btT=0; }
   } else if(btPh===BTP.STATION){
+    // ---- and THIS is what the pass was for ----
+    // On station and on your line, so the line can come tight. It waits a beat first, because
+    // a wing that opens the instant the boat arrives reads as the boat delivering it rather
+    // than as you being picked up.
+    if(btT>1.0&&typeof glideStart==='function'&&glPh===GLP.OFF&&!glDone){ if(glideStart())glDone=true; }
     // holding its place ahead of you rather than holding a fixed z: the world scrolls past,
     // so standing still in world space is the boat sliding backwards into your lap.
     btZ+=((pz+BOAT_STATION_Z)-btZ)*Math.min(1,dt*1.5);
     btX+=(px-btX)*Math.min(1,dt*1.2);
     yawWant=Math.max(-0.35,Math.min(0.35,(px-btX)*0.05));
-    if(btT>=BOAT_STATION){ btPh=BTP.AWAY; btT=0; }
+    // It does not leave while it is still towing somebody. Once the line is off it opens up
+    // and goes, which also gets it out of the way of the glide down.
+    if(glPh===GLP.TOW){ btT=Math.min(btT,BOAT_STATION-0.6); }
+    else if(btT>=BOAT_STATION){ btPh=BTP.AWAY; btT=0; }
   } else if(btPh===BTP.AWAY){
     btSpd+=(40-btSpd)*Math.min(1,dt*0.7);
     btZ-=btSpd*dt;
@@ -18637,6 +18648,166 @@ function updateBoat(dt,eff){
     }
   }
   boatLayWake(dt,eff);
+}
+
+// ---------- the paraglide ----------
+// The boat takes station, the line comes tight, and you leave the water under a wing. This is
+// the plane's rope tow taken the whole way: that one holds you five feet up so you can throw a
+// trick and puts you straight back down, this one takes you forty feet up and then LETS GO,
+// and what happens after it lets go is the point of it.
+const GL_TOP=44;                       // how high the tow takes you, in feet
+const GL_TOW=3.6;                      // seconds on the line
+const GL_SINK=3.0;                     // feet a second down under canopy, which is a glide
+const GL_STEER=15;                     // how hard the wing turns
+const GLP={OFF:-1,TOW:0,FLY:1,LAND:2};
+// var, on the same reasoning as boatBump's: these are read from the pose code and the ride
+// update, and being wrong about when those first run is the one mistake here that costs a
+// blank screen rather than a visible bug.
+var glPh=GLP.OFF, glT=0, glVx=0, glRoll=0;
+// ---- the wing, built rather than modelled ----
+// A paraglider is an arc, and the arc is most of what makes it read as one: a flat sheet over
+// somebody's head is a banner. Spanwise stations sit on a circle so the tips hang below the
+// middle, the cells are coloured in bands because that is what the fabric panels do, and the
+// lines are real geometry down to a riser point above his head -- without them the wing is a
+// kite with nothing holding it on.
+function buildGlider(){
+  const g=new THREE.Group();
+  const SPAN=17, CHORD=5.4, NC=16, ARC=0.66;
+  const R=SPAN*0.5/Math.sin(ARC);
+  const pos=[], col=[], idx=[];
+  // ---- and the fabric is LIT THROUGH, which is why it is over-bright ----
+  // What the camera sees is the underside, and the underside is the shaded face: through the
+  // tone map the first set of panels came out olive, brown and grey-blue -- the right colours,
+  // correctly shaded, and drab. Real canopy fabric is thin enough that the sun comes through
+  // it, so from below it is brighter than a lit surface has any business being. Pushing the
+  // vertex colours past one is that translucency, done where it costs nothing: they multiply
+  // into the lighting, so the wing still darkens at dusk and goes blue under the moon.
+  const GLOW=1.85;
+  const bands=[new THREE.Color(0xff5a3c), new THREE.Color(0xffd23f),
+               new THREE.Color(0xf7f7f4), new THREE.Color(0x35c8f0),
+               new THREE.Color(0x2b6fd6), new THREE.Color(0xf7f7f4)]
+              .map(c=>c.multiplyScalar(GLOW));
+  // ---- one panel per cell, with its OWN vertices ----
+  // Sharing a vertex between two panels means the two colours meet by interpolating across the
+  // whole cell, and four bands round a shared-vertex arc came out as a smeared green-to-brown
+  // wash with no panel anywhere in it. Fabric panels have seams: each cell gets four vertices
+  // of a single colour, so the colour changes AT the seam and the wing reads as sewn.
+  const st=(i)=>{ const a=(i/NC-0.5)*ARC*2; return [R*Math.sin(a), R*Math.cos(a)-R]; };
+  for(let i=0;i<NC;i++){
+    const p0=st(i), p1=st(i+1), c=bands[i%bands.length];
+    const base=pos.length/3;
+    for(const p of [p0,p1]) for(let j=0;j<=1;j++){
+      // a little camber: the trailing edge rides above the leading one, so the section is
+      // not a plank seen edge-on when the wing is level with the camera
+      pos.push(p[0], p[1]+(j?0.42:0), (j-0.5)*CHORD);
+      col.push(c.r,c.g,c.b);
+    }
+    idx.push(base,base+1,base+2, base+1,base+3,base+2);
+  }
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  geo.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+  geo.setIndex(idx); geo.computeVertexNormals();
+  const wing=new THREE.Mesh(geo,new THREE.MeshPhongMaterial({
+    vertexColors:true, shininess:18, side:THREE.DoubleSide, flatShading:false}));
+  g.add(wing);
+  // the lines, from under the wing down to the risers over his head
+  const lp=[];
+  for(let i=1;i<NC;i+=2){
+    const u=i/NC, a=(u-0.5)*ARC*2;
+    const x=R*Math.sin(a), y=R*Math.cos(a)-R;
+    lp.push(new THREE.Vector3(x,y,-CHORD*0.5), new THREE.Vector3(0,-9.4,0.2));
+    lp.push(new THREE.Vector3(x,y+0.42,CHORD*0.5), new THREE.Vector3(0,-9.4,0.2));
+  }
+  const lines=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(lp),
+    new THREE.LineBasicMaterial({color:0xe8e4d8, transparent:true, opacity:0.55}));
+  g.add(lines);
+  g.userData.wing=wing; g.userData.lines=lines;
+  return g;
+}
+const glider=buildGlider();
+glider.visible=false; scene.add(glider);
+// the tow line, which is a different rope from the plane's and outlives it by a phase
+const glRope=new THREE.Line(new THREE.BufferGeometry().setFromPoints(
+  [new THREE.Vector3(),new THREE.Vector3()]),
+  new THREE.LineBasicMaterial({color:0xfff4d8}));
+glRope.visible=false; scene.add(glRope);
+function glideReset(){
+  glPh=GLP.OFF; glT=0; glVx=0; glRoll=0;
+  glider.visible=false; glRope.visible=false;
+}
+function glideStart(){
+  if(glPh!==GLP.OFF||!running||wipe)return false;
+  if(typeof hanging!=='undefined'&&hanging&&typeof releaseRope==='function')releaseRope(false);
+  glPh=GLP.TOW; glT=0; glVx=0; glRoll=0;
+  glider.visible=true; glRope.visible=true;
+  glider.scale.setScalar(0.2);         // it inflates rather than appearing
+  if(typeof msg==='function')msg('PARAGLIDE! 🪂');
+  return true;
+}
+// Called from the ride update in place of the ordinary water physics, exactly where the plane
+// tow is: it owns py and px while it runs, so nothing below it gets to decide he has landed.
+function glideStep(dt,waterY){
+  glT+=dt;
+  // ---- the canopy inflates, and it does it in the first half second ----
+  const inf=Math.min(1,glT/0.55);
+  glider.scale.setScalar(0.2+0.8*inf*inf*(3-2*inf));
+  let sx=steer+(keys.KeyA||keys.ArrowLeft?-1:0)+(keys.KeyD||keys.ArrowRight?1:0);
+  sx=Math.max(-1,Math.min(1,sx));
+  if(glPh===GLP.TOW){
+    // up, on the line, and pulled in behind the boat -- the climb is eased rather than linear
+    // so it leaves the water hard and settles at the top instead of stopping dead
+    py+=(GL_TOP-py)*Math.min(1,dt*0.95);
+    px+=(btX-px)*Math.min(1,dt*0.9);
+    speed=Math.min(60,speed+10*dt);
+    score+=90*dt;
+    glRoll+=((px-btX)*0.03-glRoll)*Math.min(1,dt*3);
+    if(glT>=GL_TOW){
+      glPh=GLP.FLY; glT=0; glRope.visible=false;
+      if(typeof msg==='function')msg('LET GO — FLY! 🪂');
+    }
+  } else if(glPh===GLP.FLY){
+    // ---- and now it is a wing, not a tow ----
+    // Sinking slowly and steered by weight shift, which is the whole of paragliding. The turn
+    // is a velocity rather than a position so it banks into it and takes a moment to come out,
+    // and the bank is read straight off that velocity so the two can never disagree.
+    glVx+=sx*GL_STEER*dt;
+    glVx-=glVx*1.5*dt;
+    glVx=Math.max(-11,Math.min(11,glVx));
+    px+=glVx*dt;
+    if(px<-17){px=-17;glVx=0;}
+    if(px>17){px=17;glVx=0;}
+    py-=GL_SINK*dt;
+    // a wing hunts a little in pitch; without it the descent is a lift going down
+    py+=Math.sin(tNow*0.9)*dt*1.1;
+    glRoll+=(-glVx*0.055-glRoll)*Math.min(1,dt*3.4);
+    score+=45*dt;
+    if(py<=waterY+1.4){ glPh=GLP.LAND; glT=0; }
+  } else if(glPh===GLP.LAND){
+    // down on the water and the canopy falls in behind him
+    py+=(waterY-py)*Math.min(1,dt*6);
+    glRoll+=(0-glRoll)*Math.min(1,dt*5);
+    glider.scale.setScalar(Math.max(0.02,1-glT*1.9));
+    if(glT>0.62){
+      glideReset();
+      py=waterY; vy=0; airborne=false;
+      if(typeof msg==='function')msg('NICE LANDING!');
+    }
+  }
+  // ---- the wing sits over him, and it is where he hangs FROM ----
+  // 9.4 is the line length the risers were built at, so the canopy has to sit exactly that far
+  // above him or the lines end in mid-air. Rolled with the turn and pitched a touch nose-down,
+  // which is the attitude a wing under load actually flies at.
+  if(glider.visible){
+    glider.position.set(px, py+9.4, pz-0.3);
+    glider.rotation.order='YXZ';
+    glider.rotation.set(-0.13, 0, glRoll);
+  }
+  if(glRope.visible){
+    glRope.geometry.setFromPoints([
+      new THREE.Vector3(px, py+1.4, pz-0.4),
+      new THREE.Vector3(btX, boat.position.y+0.9, btZ+8.4)]);
+  }
 }
 
 // ---------- the set wave: a plane goes down, and what it throws you can ride ----------
@@ -20572,6 +20743,20 @@ if(location.hash.includes('debug')){
               trail:boatTrail.length, bump:+bwA.toFixed(2),
               hull:!!(boat.userData&&boat.userData.hull)}; },
     boatPh(p){ btPh=p; btT=0; return btPh; },
+    glideNow(){ if(typeof glideStart!=='function')return null;
+      if(!running&&typeof beginRun==='function')beginRun();
+      glideReset(); glideStart(); return {ph:glPh}; },
+    glideState(){
+      const sc=(o)=>{ const v=new THREE.Vector3(); o.updateWorldMatrix(true,false);
+        o.getWorldPosition(v); v.project(camera);
+        return [Math.round((v.x*0.5+0.5)*innerWidth),Math.round((-v.y*0.5+0.5)*innerHeight)]; };
+      const b=new THREE.Box3().setFromObject(glider);
+      return {ph:glPh, t:+glT.toFixed(2), py:+py.toFixed(2), px:+px.toFixed(2),
+              vx:+glVx.toFixed(2), roll:+glRoll.toFixed(3),
+              wing:glider.visible, rope:glRope.visible,
+              wingAt:glider.visible?sc(glider):null,
+              span:glider.visible?+(b.max.x-b.min.x).toFixed(2):null,
+              above:+(glider.position.y-py).toFixed(2), boatPh:btPh}; },
     ufoNow(){ if(typeof ufoStart!=='function')return null;
       dayForce=UFO_TEST_HOUR; return ufoStart(); },
     ufoState(){ if(typeof ufo==='undefined'||!ufo)return null;
@@ -24141,6 +24326,13 @@ function animateRig(dt,carve,grab,waterY){
     shF=[0.22, gs*0.18, gs*0.52]; elF=[0.30,0,0];
     shB=[-0.55,-0.25,-1.85];      elB=[-0.50,0,0];   // free paw thrown high behind
     armSpread=0;
+  } else if(typeof glPh!=='undefined'&&glPh>=0){
+    // Both arms up and out to the risers, which is the one pose that says "hanging from a
+    // wing" — the airborne branch below windmills them, and a paraglider pilot windmilling
+    // reads as somebody falling with a canopy that happens to be nearby.
+    shF=[0.10, 0.30,-2.05]; elF=[0.34,0,0];
+    shB=[0.10,-0.30, 2.05]; elB=[0.34,0,0];
+    armSpread=0;
   } else if(airborne||hanging){
     const w=tNow*8, k=rigTuck;
     // windmilling wide when he is just floating, wrapped tight around himself when a
@@ -24732,7 +24924,12 @@ function update(dt){
   // to the surface the whole way up now, so the only launch is the one at the top.
   const wakeRide=onWake&&skiWake&&!skiWake.hit;
 
-  if(hanging){
+  if(glPh>=0){
+    // The paraglide owns his position outright while it runs, which is why it sits at the top
+    // of this chain rather than in it: forty feet up passes every "is he clear of the water"
+    // test below, so anything reached after this would call it airborne and start landing him.
+    glideStep(dt,waterY);
+  } else if(hanging){
     py+=(5.4-py)*Math.min(1,dt*2.4);   // towed above the water, high enough to throw tricks
     px+=(plane.position.x-px)*Math.min(1,dt*1.5);
     score+=60*dt;
@@ -25441,7 +25638,7 @@ function update(dt){
       const harmful=['buoy','log','jelly','bigfin','octopus'].includes(o.userData.kind);
       // sideways clearance, so it is the sideways half-extent that counts
       const m=Math.abs(px-o.position.x)-((o.userData.hx===undefined?o.userData.r:o.userData.hx)+BOARD_HALF_W);
-      if(harmful&&!o.userData.used&&m>0&&m<1.5&&running&&!hanging&&!swTubeRide){
+      if(harmful&&!o.userData.used&&m>0&&m<1.5&&running&&!hanging&&glPh<0&&!swTubeRide){
         score+=25; msg('CLOSE CALL! +25'); buzz(12); goalEv('close',1);
         bump(stats,'closeCalls'); 
       }
@@ -25471,7 +25668,7 @@ function update(dt){
         shake=over?0.7:1.0;
         splash(o.position.x,o.position.y+0.5,o.position.z,over?14:20);
         if(o.userData.bell)o.userData.squash=1.0;      // the bell flattens under you
-      } else if(py<waterY+o.userData.h&&!hanging){
+      } else if(py<waterY+o.userData.h&&!hanging&&glPh<0){
         const topY=waterY+o.userData.h;
         // Dropping onto the top of it is not the same as driving into its side, and
         // until now the code could not tell the difference — both were instant death.
@@ -25602,6 +25799,15 @@ function update(dt){
   // a wake launch or the plane tow.
   const airH=Math.max(0,py-waterY);
   const flying=airborne||hanging||airH>0.6;
+  // ---- and the camera has to actually GO UP with him ----
+  // The air factors below are 0.80 on the eye and 0.62 on the aim, which is right for a jump:
+  // a few feet of height wants the camera to lift a little and keep the water in shot. Over
+  // the paraglide's forty they are a camera that stays near the sea looking up at nothing --
+  // measured, the wing rendered seven hundred pixels ABOVE the top of a 1500px frame for the
+  // whole flight, and the rider with it. Under canopy the eye tracks his height one for one
+  // and the aim goes a little past it, because the thing worth framing is the wing over his
+  // head; and it sits further back, because that wing is seventeen feet across.
+  const glCam=(typeof glPh!=='undefined'&&glPh>=0)?1:0;
   // Height is measured from the water under the rider, not from zero. On a big
   // swell the sea itself rises many units, and a camera anchored to zero ends up
   // underneath it looking out through the inside of the wave.
@@ -25617,11 +25823,11 @@ function update(dt){
   // against fourteen). What makes the board fill the frame in them is that the camera is
   // barely half as far away. Pulling back and pitching down had been trading the board's
   // apparent size for an angle nobody asked for.
-  camY+=((waterY+4.9-swCam*2.15+airH*0.80)-camY)*Math.min(1,dt*(flying?4.6:1.6));
+  camY+=((waterY+4.9-swCam*2.15+airH*(0.80+0.20*glCam))-camY)*Math.min(1,dt*(flying?4.6:1.6));
   camY=Math.max(camY,waterY+2.3);            // never let a fast-building face swallow it
   // follow his fore/aft travel only partly, so it reads on screen instead of the
   // camera cancelling it out and pinning him to one spot again
-  camZ+=((11.0+swCam*4.6+eff*0.05+airH*0.22+pz*0.42)-camZ)*Math.min(1,dt*2.4);
+  camZ+=((11.0+swCam*4.6+eff*0.05+airH*0.22+pz*0.42+glCam*16)-camZ)*Math.min(1,dt*2.4);
   // Inside the barrel the camera is FIXED. Not damped, not eased toward him — fixed. It is
   // set once when he joins the ring and then does not move again until he leaves it, so what
   // you watch is a still shot of a tube with a rider going round the inside of it.
@@ -25639,7 +25845,7 @@ function update(dt){
   // before the ring engages, the chase aim blends to where the tube's axis WILL be at full
   // form — predicted, not current, so the lock does not inherit a target that then moves.
   // The lock captures that finished pose, and from the first barrel frame nothing changes.
-  let aimX=lookX, aimY=waterY+1.05+swCam*1.5+airH*0.62, aimZ=-14-swCam*10;
+  let aimX=lookX, aimY=waterY+1.05+swCam*1.5+airH*(0.62+0.38*glCam)+glCam*5.0, aimZ=-14-swCam*10;
   if(swPh===SWP.RIDE&&!swTubeRide&&swCurlA>0.05){
     const pa1=swPeelA(pz), pb1=swPeelB(pz);
     const rad1=SW_R*(0.16+0.84*pa1)*(1-0.55*pb1), fold1=1-0.38*pb1;
