@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.63.0';
+window.SURF_VERSION='5.64.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -27283,9 +27283,19 @@ function layoutCoconuts(){
     // fronds took over, which is exactly the fact trunkLine was written to find
     const tip=trunk.length?trunk[trunk.length-1]:null;
     menuPalm.updateWorldMatrix(true,true);
-    const _cocoBox=new THREE.Box3().setFromObject(menuPalm);
-    if(!isFinite(_cocoBox.min.y))return;
+    // ---- AND NOT A BOUNDING BOX OF THE WHOLE TREE, EVERY FRAME ----
+    // This built a Box3 over the modelled palm -- a hundred thousand vertices, pushed through
+    // their world matrices -- and used it for one thing: an isFinite check on its min.y, to
+    // catch a tree that had not finished arriving. A NaN test costing a full bounds pass, sixty
+    // times a second, for the life of the title screen.
+    //
+    // Found by measuring something else. The wind readings made no sense until the tick counter
+    // showed the menu running at a fifth of a frame a second under software GL, and this is a
+    // large part of why. The things it actually needs -- the trunk line and the height the nuts
+    // hang at -- are both cheap and both already have to be right for any of the rest to work,
+    // so they are what is checked.
     const wy=palmHeightAt(MB_COCO_DROP);
+    if(!trunk.length||!isFinite(wy))return;
     const _cocoAt=trunkAt;
     for(let i=0;i<beachCocos.length;i++){
       const m=beachCocos[i];
