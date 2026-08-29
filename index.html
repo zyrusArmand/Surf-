@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.76.0';
+window.SURF_VERSION='5.77.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -5935,6 +5935,32 @@ const BOARDS=[
      paint:deckScheme({deck:0xe8edf2,hull:0xf6f8fa,rail:0x1b1f26,stringer:0x2ec8e0,
        pin:0x2ec8e0,sw:0.10,railAt:0.70,vstripes:[[0.20,0.030,0x2ec8e0],[0.26,0.016,0x1b1f26]]}),
      fins:[]}},
+  // ---- and the one thing in the rack that is not a board at all ----
+  // Half a million puka, which is more than the rest of the shop put together. What it buys is
+  // an engine: `top` is a straight addition to speed that sits OUTSIDE the stat budget -- the
+  // same door the eFoil goes through, opened wider. Everything else about it is paid for in the
+  // usual currency: it is nine feet of hull, so it is heavy, it floats like a cork and it does
+  // not carve. You sit on it rather than stand, and it leaves a wake like the one that crosses
+  // the lane, because it IS that.
+  {id:'skijet', name:'Kahuna 750', price:500000,
+   blurb:'A jet ski. Quicker than the eFoil, a wake you could ride, and a seat instead of a stance. It does not turn like a surfboard, because it is not one.',
+   spec:{L:8.40,W:3.20,T:1.30,noseA:1.500,tailA:0.900,noseW:0.200,tailW:0.900,
+     rockN:0.320,noseR:0.520,rockT:0.060,tailR:0.400,deckPow:0.70,hullPow:0.52,hullK:0.80,
+     padCol:0x191d22,finCol:0x14181d,padW:0.62,pads:[[0.34,0.78]],rough:0.42,
+     // the engine, and what it costs: it is a boat, so it will not turn and it will not fly
+     // ---- and it is only a BIT faster, which is what was asked for ----
+     // The eFoil is the fastest thing in the rack at 34 and says so on its card. 58 put this
+     // twenty-four clear of it, which is not "a bit" -- and it out-ran the lane: measured, the
+     // run ended at 239m because fifty miles an hour leaves no room to read a buoy. Ten over
+     // the foil is still the quickest thing out here by a clear margin.
+     top:44, wake:2.30, lift:0.55, seat:0.95, stat:{speed:10,tough:9,turn:2,air:2},
+     // the hull it is really wearing. The loft above is the fallback and the thing the rider
+     // is seated against; the model covers it once the file is in.
+     model:'jetski.glb',
+     paint:deckScheme({deck:0x11161c,hull:0xc9142a,rail:0x0d1116,pin:0xffd23f,stringer:0x1b6fd6,
+       sw:0.05,railAt:0.80,vivid:1.3,
+       bands:[[0.30,0.15,0xc9142a],[0.70,0.15,0x1b6fd6]]}),
+     fins:[]}},
 ];
 const BOARD_BY_ID={}; for(const b of BOARDS)BOARD_BY_ID[b.id]=b;
 // ---------------------------------------------------------------------------
@@ -5987,7 +6013,16 @@ function computeStats(){
     // Every board is then held to a budget set by its price. Without this the totals come
     // out wherever the geometry happens to land, and some board is simply better than a
     // dearer one — which makes the shop a lottery instead of a choice.
-    const target=18+Math.round(b.price/11000*4);      // 18 at the cheap end, 23 at the top
+    // ---- and the divisor moved when the PRICES did ----
+    // This read price/11000 against a rack that topped out at 15,000, which is the 18-to-23 the
+    // comment claims. Tripling every price to make the shop a grind tripled this too, silently:
+    // the dearest board's budget went from 23 to 34, which is every bar near full and the
+    // specialisation this exists to create gone flat. The divisor tracks the rack.
+    //
+    // And it is CAPPED, because the jet ski is 500,000 -- eleven times the dearest board -- and
+    // an uncapped budget would hand it 79 points across four stats that stop at 9. What makes it
+    // worth the money is `top`, which is raw speed and deliberately outside this budget.
+    const target=18+Math.round(Math.min(b.price,45000)/33000*4);   // 18 at the cheap end, 23 at the top
     let tot=STAT_KEYS.reduce((a2,k)=>a2+v[k],0);
     // Price buys SPECIALISATION, not a flat lift: spare points go to whatever the board
     // is already best at and cuts come off what it is already worst at. Spreading them
@@ -6092,6 +6127,24 @@ function boardArtFor(id){
     // its ends really are, and half its published length is not that.
     g.updateMatrixWorld(true);
     g.userData.mbox=new THREE.Box3().setFromObject(g);
+    // ---- a board may wear a MODEL over its loft ----
+    // Async, so the loft is what is there first and the model covers it when the file lands --
+    // same arrangement the plane and the boat use, and the reason the loft is not skipped: a
+    // board whose art depends on a network fetch is a board that is sometimes invisible.
+    const M=BOARD_BY_ID[id].spec.model;
+    if(M&&typeof loadModel==='function'){
+      const box=g.userData.mbox;
+      loadModel(M,s3=>{
+        const fitted=skinAndFit(id,s3,new THREE.Box3(box.min.clone(),box.max.clone()));
+        // it drives bow-first: the ride points local -z the way it travels, and half the time
+        // a fitted model's long axis lands the other way round
+        if(typeof skiBowAt==='function'&&skiBowAt(fitted)>0)fitted.rotation.y+=Math.PI;
+        g.traverse(o=>{ if(o.isMesh&&!o.userData.modelled)o.visible=false; });
+        fitted.traverse(o=>{ o.userData.modelled=true; });
+        g.add(fitted);
+        g.userData.model=fitted;
+      });
+    }
     _rack[id]=g;
   }
   if(boardDry)boardSheen(_rack[id],true);   // built while the beach is up, so it arrives matt
@@ -12725,8 +12778,15 @@ function setupModelRig(root,gltf,id){
     // does not hold it in PLACE, and nothing here can, short of solving the legs backwards
     // from the feet. So the lean lives entirely above the hips and the legs stay symmetrical,
     // which keeps both feet exactly where they were planted.
-    set('LeftUpLeg',  hip, 0, 0.06); set('RightUpLeg', hip, 0,-0.06);
-    set('LeftLeg',    knee,0,0); set('RightLeg', knee,0,0);
+    // ---- and on the jet ski he is SAT, which these bones have to be told ----
+    // The built rig's joints were bent for this and nothing happened, because the roster's
+    // riders are MODELS: their legs are bones driven here, and legFrontJ is a different
+    // skeleton entirely that only the procedural body uses. Blended in rather than switched,
+    // so getting on and off the ski is a movement.
+    const _sit=(typeof skiSit!=='undefined')?skiSit:0;
+    const sHip=hip*(1-_sit)+1.16*_sit, sKnee=knee*(1-_sit)+1.28*_sit;
+    set('LeftUpLeg',  sHip, 0, 0.06+0.34*_sit); set('RightUpLeg', sHip, 0,-0.06-0.34*_sit);
+    set('LeftLeg',    sKnee,0,0); set('RightLeg', sKnee,0,0);
     // ---- the lean, which is the whole of what a carve looks like ----
     // Rolled through the SPINE rather than the hips. Roll the hips and the legs go with them,
     // and then no amount of ankle work gets the soles back onto the deck; roll the spine and
@@ -14834,6 +14894,9 @@ const LAND_YAW=0.88, LAND_FLIP=0.72;
 const SPIN_RATE=Math.PI*2*1.35, FLIP_RATE=Math.PI*2*1.25;
 let trick=null; // rope backflip only
 let planeT=34+Math.random()*26,planeActive=false,hanging=false,spawnT=0.4;
+// var: read by the pose code, which runs on the title screen before this line would in a let
+var skiSit=0;                          // 0 standing on a board, 1 sat on the ski
+var _jsFoam=0, _jsTail=0;              // its wake and its rooster tail, per second not per frame
 let lastKind='',sameRun=0,bigFinCd=6,octCd=0,laneSlot=(Math.random()*5)|0;
 // The headless renderer draws about a frame a second, so anything the world scrolls past is
 // gone before a screenshot lands on it. This stops the world moving under the camera without
@@ -18478,10 +18541,14 @@ function bfGet(){
     depthWrite:false, opacity:0, color:0xffffff}));
   m.renderOrder=2; scene.add(m); return m;
 }
-function bfPush(x,y,z,w){
+// near: this packet belongs to something close to the camera -- the player's own wake -- so
+// the lens guard below has to let it through. The boat's fade starts at twenty feet because a
+// boat's wake is eighty feet away and anything nearer is a stray; the RIDER's wake lives right
+// there, and inherited that fade, which is why the jet ski threw foam nobody could see.
+function bfPush(x,y,z,w,near){
   if(boatFoam.length>=BF_N)return;
   const m=bfGet(); m.visible=true;
-  boatFoam.push({m, x, y, z, age:0,
+  boatFoam.push({m, x, y, z, age:0, f0:near?4.5:20.0, fs:near?7.0:20.0,
                  vx:(Math.random()*2-1)*0.55,
                  w:w*(0.68+Math.random()*0.72),
                  rot:Math.random()*6.283, spin:(Math.random()-0.5)*0.5});
@@ -18520,7 +18587,7 @@ function updateBoatFoam(dt,eff){
     // is what the near ones were. Gone well before that can happen: the wake itself lives
     // thirty-five to ninety feet from the lens, so this only ever touches strays.
     const dcam=camera.position.distanceTo(p.m.position);
-    a*=Math.max(0,Math.min(1,(dcam-20.0)/20.0));
+    a*=Math.max(0,Math.min(1,(dcam-p.f0)/p.fs));
     // and no single packet is ever bright on its own -- the mass is what carries it
     p.m.material.opacity=a*0.82;
   }
@@ -20422,6 +20489,19 @@ if(location.hash.includes('debug')){
         out[b.id]={grip:+BS.grip.toFixed(3), glide:+BS.glide.toFixed(3), float:+BS.float.toFixed(3)}; }
       applyBoardStats(keep); return out; },
     equip(id){ owned[id]=1; equipBoard(id); saveGame(); return id; },
+    // What the rack actually resolves to, so the stat budget can be checked across the whole
+    // fleet rather than eyeballed one card at a time -- the divisor is priced off the dearest
+    // board, so changing prices moves every bar in the shop at once.
+    rack(){ const o={};
+      for(const b of BOARDS)o[b.id]={price:b.price, top:(b.spec&&b.spec.top)||0,
+        stats:(typeof boardStats==='function')?boardStats(b.id):null};
+      return o; },
+    sit(){ return {skiSit:+skiSit.toFixed(3), equipped,
+                   top:BS.top, speedMul:+BS.speed.toFixed(3), wake:BS.wake,
+                   modelled:!!(_rack['skijet']&&_rack['skijet'].userData.model),
+                   pugY:+pug.position.y.toFixed(3), pugRotY:+pug.rotation.y.toFixed(3),
+                   hip:+legFrontJ.hip.rotation.x.toFixed(3),
+                   knee:+legFrontJ.knee.rotation.x.toFixed(3)}; },
     preview:id=>boardPreview(id),
     showBoard(id,spin){ closeViewer&&closeViewer(); openViewer('board',id);
       if(viewer){ viewer.spin=spin===undefined?0:spin; viewer.grab=true; } return id; },
@@ -24867,6 +24947,11 @@ function animateRig(dt,carve,grab,waterY){
   const flap=Math.sin(tNow*11)*(0.18+g*0.35);
   for(const e of charEars)e.rotation.x=e.userData.baseX+flap*(e.userData.side>0?1:-0.85);
 
+  // ---- and on the jet ski he SITS ----
+  // Eased rather than switched, so equipping it in the shop is somebody getting on rather than
+  // somebody teleporting into a seated pose. Same machinery as the helicopter's, which is the
+  // other whole-body override here.
+  skiSit=ease(skiSit,(equipped==='skijet'&&!wipe)?1:0,dt,5);
   // arms: reach for the rail on a grab, windmill for balance in the air, drop and counterweight on the wave
   let shF,elF,shB,elB,armSpread;
   if(grab){
@@ -24945,6 +25030,14 @@ function animateRig(dt,carve,grab,waterY){
       armSpread*=1-k;
     }
   }
+  if(skiSit>0.02){
+    // both hands on the bars: forward, low and close together, elbows soft
+    const h=skiSit, mx=(a2,b2)=>a2*(1-h)+b2*h;
+    shF=[mx(shF[0],1.30),mx(shF[1],0.22),mx(shF[2],-0.14)];
+    shB=[mx(shB[0],1.30),mx(shB[1],-0.22),mx(shB[2],0.14)];
+    elF=[mx(elF[0],0.36),0,0]; elB=[mx(elB[0],0.36),0,0];
+    armSpread*=1-h;
+  }
   if(heliPose>0.02){
     // Both arms straight out over the nose first, then hauling in until the elbows fold
     // and his face is at the tip. The pull tracks the spin, so the effort and the rotation
@@ -24990,7 +25083,33 @@ function animateRig(dt,carve,grab,waterY){
     straight(legBackJ.hip ,-0.30); straight(legBackJ.knee ,0.34); straight(legBackJ.ankle ,-0.20);
     headJ.rotation.x=headJ.rotation.x*(1-h)+0.66*h;    // chin up off the deck, eyes past the tip
     headJ.rotation.y*=1-h;
-  } else if(pug.rotation.x!==0){ pug.rotation.x=0; pug.position.set(PUG_X0,0,PUG_Z0); applyStance(); }
+  } else if(pug.rotation.x!==0&&skiSit<=0.02){ pug.rotation.x=0; pug.position.set(PUG_X0,0,PUG_Z0); applyStance(); }
+  // ---- astride, facing the bow ----
+  // AFTER the block above, not inside the same chain: that branch resets the body whenever the
+  // helicopter is not running, so a pose written before it is undone on the very next line. It
+  // is gated on skiSit instead, and this re-applies once it has let go.
+  if(skiSit>0.02&&heliPose<=0.02){
+    const h=skiSit;
+    // square to the nose. His stance is side-on to a board the rest of the time, and nobody
+    // rides a jet ski sideways.
+    pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0)+(-STANCE_ROT)*h;
+    pug.rotation.x=-0.20*h;                 // a little forward over the bars
+    // ---- and how far down is the BOARD'S business ----
+    // This is a delta, not a height: deckLift() is added to pug.position.y further down the
+    // frame, so whatever is written here lands on top of the deck the equipped board provides.
+    // The ski's deck is a foot and two thirds up, which is where his feet go on a surfboard and
+    // is a hand's breadth over the seat on this -- hence a drop, off the spec, so the number
+    // belongs to the board rather than to the pose.
+    const seat=(BOARD_BY_ID[equipped]&&BOARD_BY_ID[equipped].spec.seat)||0;
+    pug.position.y=-seat*h;                 // down onto the seat rather than standing on it
+    pug.position.z=PUG_Z0-0.30*h;
+    // hips folded, knees back, feet in the wells -- which is sitting, and is the whole
+    // difference between this and every other thing in the rack
+    const bend=(j,base)=>{ j.rotation.x=j.rotation.x*(1-h)+base*h; };
+    bend(legFrontJ.hip,1.18); bend(legFrontJ.knee,1.02); bend(legFrontJ.ankle,-0.34);
+    bend(legBackJ.hip ,1.18); bend(legBackJ.knee ,1.02); bend(legBackJ.ankle ,-0.34);
+    headJ.rotation.y*=1-h;                  // eyes down the lane, not over his shoulder
+  }
   if(lureMat){
     const flick=0.86+Math.sin(tNow*3.1)*0.08+Math.sin(tNow*7.9)*0.06;
     // nightAmt, not dayT: the phase runs to two now and this used to multiply straight by it
@@ -25937,6 +26056,36 @@ function update(dt){
     // where the water actually lets go, which is the tail -- and the tail moves, because the
     // coconut board is a different length, so it is taken off BOARD_HALF_L rather than fixed.
     if(trailT<=0){trailT=0.026;pushTrail(px,waterY,BOARD_HALF_L+0.20,(0.30+Math.abs(carve)*0.52)*BS.wake);}
+    // ---- the jet ski's own wake, which is what half a million buys ----
+    // Everything else in the rack leaves a ribbon and some wash. This throws a rooster tail off
+    // the pump and lays the same churned foam the boat does -- borrowed from the boat's pool,
+    // which is idle unless a boat is actually out, and which hands nothing over once it is
+    // full, so the two can never fight over it. You leave the wake instead of dodging it.
+    if(skiSit>0.5&&typeof bfPush==='function'){
+      _jsFoam+=dt*54;
+      let n=0;
+      while(_jsFoam>=1&&n++<10){
+        _jsFoam-=1;
+        const a=BOARD_HALF_L+0.6+Math.pow(Math.random(),0.8)*26;
+        const off=(Math.random()*2-1)*(1.3+a*0.16);
+        const fx=px+off, fz=a;
+        bfPush(fx, waveH(fx,dist*WAVE_DRIFT+fz,waveClock)+0.24, fz, 0.80, true);
+      }
+      // and the plume off the pump itself -- straight up and back, the way a ski throws it
+      _jsTail-=dt;
+      if(_jsTail<=0){
+        _jsTail=0.03;
+        for(let i=0;i<3;i++){
+          const m=(typeof takeDrop==='function')?takeDrop():null; if(!m)break;
+          m.material=SPLASH_MAT;
+          const sc=0.9+Math.random()*1.5; m.scale.setScalar(sc);
+          m.position.set(px+(Math.random()*2-1)*0.5, waterY+0.35, BOARD_HALF_L+0.5);
+          m.userData={vx:(Math.random()*2-1)*2.2, vy:5.5+Math.random()*6.5,
+                      vz:3.0+Math.random()*4.5, t:0.55+Math.random()*0.4, s:sc};
+          splashes.push(m);
+        }
+      }
+    }
     // ...and the boil off the tail, at its own rate. Harder into a carve throws more of it,
     // which is the one thing that makes a wash read as coming off a board being worked rather
     // than as an emitter following him about.
