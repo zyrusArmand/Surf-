@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.89.0';
+window.SURF_VERSION='5.90.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -5974,7 +5974,11 @@ const BOARDS=[
      // twenty-four clear of it, which is not "a bit" -- and it out-ran the lane: measured, the
      // run ended at 239m because fifty miles an hour leaves no room to read a buoy. Ten over
      // the foil is still the quickest thing out here by a clear margin.
-     top:44, wake:2.30, lift:0.55, seat:1.40, stat:{speed:10,tough:9,turn:2,air:2},
+     // seat is a drop below where the deck solver would stand him -- and with that solver
+     // released for the sit it is the ONLY term setting his height, so it is small and it is
+     // negative: measured with the solver off he sat 3.43ft under the hull top and his hips
+     // wanted to come up about two feet to meet the saddle.
+     top:44, wake:2.30, lift:0.55, seat:-0.28, stat:{speed:10,tough:9,turn:2,air:2},
      // the hull it is really wearing. The loft above is the fallback and the thing the rider
      // is seated against; the model covers it once the file is in.
      model:'jetski.glb',
@@ -12855,7 +12859,7 @@ function setupModelRig(root,gltf,id){
     // can be sat on it under the canopy -- and there he is holding a control bar, not bars.
     // _sk is scaled by (1-_gl) so the two weights can never sum past one and the surf pose is
     // never asked for a negative share of him.
-    const aSpread=spread*_base+1.30*_gl+0.30*_sk;
+    const aSpread=spread*_base+1.30*_gl+0.16*_sk;   // grips are 0.30 half-width, not 0.60
     const aUp=-0.02*_base+(-0.55)*_gl+(-0.95)*_sk;
     set('LeftArm',  aUp+(sw1*0.11-this.sway*0.26)*_base, (0.05+sw1*0.10)*_base, -aSpread-this.sway*0.18*_base);
     set('RightArm', aUp+(sw2*0.11+this.sway*0.26)*_base,(-0.05+sw2*0.10)*_base,  aSpread-this.sway*0.18*_base);
@@ -21032,6 +21036,57 @@ if(location.hash.includes('debug')){
                              // and how far his feet clear the deck: a rider sitting ON a saddle
                              // has them below the deck line, in the wells, not hovering over it
                              footY:+(pb.min.y-bb.max.y).toFixed(2),
+                             // ---- and where the BARS are, off the hull's own vertices ----
+                             // "Hands on the handles" cannot be tuned by eye across a five
+                             // minute render each time. The grips are the highest thing on the
+                             // forward third of a jet ski, so that is what is looked for: the
+                             // top of the front of the hull, then the lateral extremes of
+                             // everything level with it. Reported in the same board frame as
+                             // the hand bone, so the two are subtractable.
+                             bars:(function(){ if(!md)return null;
+                               const v=new THREE.Vector3(); let top=-1e9;
+                               const cut=hb.min.z+(hb.max.z-hb.min.z)*0.42;
+                               md.updateMatrixWorld(true);
+                               md.traverse(o=>{ if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+                                 const p=o.geometry.attributes.position;
+                                 for(let i=0;i<p.count;i+=3){
+                                   v.fromBufferAttribute(p,i).applyMatrix4(o.matrixWorld);
+                                   if(v.z<cut&&v.y>top)top=v.y; } });
+                               let lo=1e9, hi=-1e9, zs=0, n=0;
+                               md.traverse(o=>{ if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+                                 const p=o.geometry.attributes.position;
+                                 for(let i=0;i<p.count;i+=3){
+                                   v.fromBufferAttribute(p,i).applyMatrix4(o.matrixWorld);
+                                   if(v.z<cut&&v.y>top-0.16){ if(v.x<lo)lo=v.x; if(v.x>hi)hi=v.x; zs+=v.z; n++; } } });
+                               if(!n)return null;
+                               return {along:+((zs/n)-bb.min.z).toFixed(2),
+                                       halfW:+((hi-lo)*0.5).toFixed(2),
+                                       above:+(top-bb.max.y).toFixed(2)}; })(),
+                             // ---- and the SADDLE, the same way ----
+                             // Pixel-measuring a seat off a screenshot put it at 51%-76% of the
+                             // hull and the instrument disagreed by seven points, which is the
+                             // difference between sitting on it and sitting in front of it. The
+                             // seat is the top surface AFT of the bars, so that is what is read:
+                             // the highest thing behind the console, and how far it runs.
+                             saddle:(function(){ if(!md)return null;
+                               const v=new THREE.Vector3(); let top=-1e9;
+                               const cut=hb.min.z+(hb.max.z-hb.min.z)*0.46;
+                               md.traverse(o=>{ if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+                                 const p=o.geometry.attributes.position;
+                                 for(let i=0;i<p.count;i+=3){
+                                   v.fromBufferAttribute(p,i).applyMatrix4(o.matrixWorld);
+                                   if(v.z>cut&&Math.abs(v.x-(hb.min.x+hb.max.x)*0.5)<0.35&&v.y>top)top=v.y; } });
+                               let z0=1e9, z1=-1e9;
+                               md.traverse(o=>{ if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+                                 const p=o.geometry.attributes.position;
+                                 for(let i=0;i<p.count;i+=3){
+                                   v.fromBufferAttribute(p,i).applyMatrix4(o.matrixWorld);
+                                   if(v.z>cut&&Math.abs(v.x-(hb.min.x+hb.max.x)*0.5)<0.35&&v.y>top-0.10){
+                                     if(v.z<z0)z0=v.z; if(v.z>z1)z1=v.z; } } });
+                               if(z0>z1)return null;
+                               return {front:+(z0-bb.min.z).toFixed(2), back:+(z1-bb.min.z).toFixed(2),
+                                       top:+(top-bb.max.y).toFixed(2)}; })(),
+                             shoulder:bone('LeftArm'),
                              hips:bone('Hips'), foot:bone('LeftFoot'), hand:bone('LeftHand')};
                    })()}; },
     preview:id=>boardPreview(id),
@@ -25698,12 +25753,25 @@ function animateRig(dt,carve,grab,waterY){
     // belongs to the board rather than to the pose.
     const seat=(BOARD_BY_ID[equipped]&&BOARD_BY_ID[equipped].spec.seat)||0;
     pug.position.y=-seat*h;                 // down onto the seat rather than standing on it
-    // ---- and FORWARD onto the saddle, not perched on the back deck ----
-    // 0.30 left him sitting on the rear deck with the saddle and the bars both out in front of
-    // him -- rendered, his hips came out at 49% of the hull's length with his whole body clear
-    // above it. A rider sits ON the seat with the bars at arm's length, which is further up the
-    // hull and further down into it than a third of a foot buys.
-    pug.position.z=PUG_Z0-0.45*h;
+    // ---- and AFT onto the saddle, which is the opposite of where I first sent him ----
+    // A negative shift moves him toward the BOW -- measured, going from -0.30 to -0.78 took his
+    // hips from 3.24 to 2.80 along the hull from the nose. So the first two attempts at "put him
+    // on the seat" walked him further onto the foredeck, and the side-on shot shows the result:
+    // sat on the bars with the saddle behind him.
+    // Scaled off that shot rather than nudged again. The ski runs 660px for 6.46ft, so 102px to
+    // the foot: his hips were at 41% of the hull and the black saddle runs 51% to 76%, which
+    // puts the middle of the seat about three quarters of a foot AFT of him.
+    // ---- and how far aft is set by his REACH, not by the middle of the seat ----
+    // Measured with him sat properly: hips 3.89 along the hull, shoulder 3.66, grips 2.53. That
+    // is 1.13ft from shoulder to grip against a pug's arm of roughly 0.7 -- he cannot hold the
+    // bars from the middle of the saddle, because his arms are a dog's and the machine is a
+    // man's. Riders sit forward on the seat anyway, up against the console. 0.45 forward of the
+    // seat's middle brings the shoulder to about 0.68 from the grips, which is arm's length.
+    // Measured again from there: hands 0.42 aft of the grips and hips at 3.46 with the saddle
+    // front at 2.97. Both wanted the same 0.42 forward -- which is not a coincidence, it is a
+    // rider sitting hard up against the console with his arms out to the bars, and it is the
+    // only place on this hull where a dog's reach and a man's machine agree.
+    pug.position.z=PUG_Z0-0.58*h;
     // hips folded, knees back, feet in the wells -- which is sitting, and is the whole
     // difference between this and every other thing in the rack
     const bend=(j,base)=>{ j.rotation.x=j.rotation.x*(1-h)+base*h; };
@@ -25808,7 +25876,16 @@ function updateHandstand(dt,carve){
     // the one before it left, so the order is the whole of why they agree
     modelRig.faceLock(modelRig.rot);
     pug.updateMatrixWorld(true);
-    pug.position.y+=modelRig.deckLift();
+    // ---- and on the jet ski the deck solver has to LET GO ----
+    // deckLift is not an offset, it is a solver: it finds his lowest contact vertex and raises
+    // him until nothing is inside the board. That is exactly right for standing on a deck and
+    // exactly wrong for sitting in a seat, where his feet belong in the wells BELOW the deck
+    // line and his weight is on a saddle. Sitting bends his knees, which drops his feet, which
+    // makes the solver lift his whole body clear of the hull -- so he floated above the ski and
+    // no amount of tuning the seat drop moved him, because this ran afterwards and undid it.
+    // Three passes were spent on that seat number before this line was read.
+    // Blended, not switched, so getting on and off is still a movement.
+    pug.position.y+=modelRig.deckLift()*(1-(typeof skiSit!=='undefined'?skiSit:0));
     modelRig.deckSlide(modelRig.rot);
     handstandScore(dt,carve,want);
     return;
