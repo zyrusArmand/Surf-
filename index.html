@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.73.0';
+window.SURF_VERSION='5.74.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -18915,7 +18915,9 @@ const GLP={OFF:-1,TOW:0,FLY:1,LAND:2};
 // var, on the same reasoning as boatBump's: these are read from the pose code and the ride
 // update, and being wrong about when those first run is the one mistake here that costs a
 // blank screen rather than a visible bug.
-var glPh=GLP.OFF, glT=0, glVx=0, glRoll=0, glRollV=0, glPitch=0, glPitchV=0, glYaw=0;
+// glAge is the whole flight; glT is the current PHASE. Keeping them apart matters -- see the
+// inflation below, which used glT and so re-ran itself every time a phase changed.
+var glPh=GLP.OFF, glT=0, glAge=0, glVx=0, glRoll=0, glRollV=0, glPitch=0, glPitchV=0, glYaw=0;
 // ---- the wing, built rather than modelled ----
 // A paraglider is an arc, and the arc is most of what makes it read as one: a flat sheet over
 // somebody's head is a banner. Spanwise stations sit on a circle so the tips hang below the
@@ -18983,6 +18985,13 @@ function buildGlider(){
     new THREE.LineBasicMaterial({color:0xe8e4d8, transparent:true, opacity:0.55}));
   g.add(lines);
   g.userData.wing=wing; g.userData.lines=lines;
+  // ---- where the BRAKES come down from ----
+  // Every other line on a canopy is structure and ends at the riser. These two are the controls:
+  // they run from the outboard trailing edge to a toggle in each hand, and pulling one drops
+  // that wingtip and turns you. They are the difference between a pilot and a passenger, which
+  // is why they are drawn separately and why the hands go out to meet them.
+  g.userData.brake=[new THREE.Vector3(-SPAN*0.38, GL_LINE*0.90, CHORD*0.42),
+                    new THREE.Vector3( SPAN*0.38, GL_LINE*0.90, CHORD*0.42)];
   return g;
 }
 const glider=buildGlider();
@@ -19003,6 +19012,13 @@ loadModel('paraglider.glb',s3=>{
   // down so that point lands on the group's origin -- which is the harness.
   const b=new THREE.Box3().setFromObject(fitted);
   if(isFinite(b.min.y)){ fitted.position.y-=b.min.y; GL_LINE=b.max.y-b.min.y; }
+  // ---- and the brakes come off THIS canopy, not the built one's ----
+  // The anchors set in buildGlider are in the proportions of the wing it built, at the line
+  // length it had. This model is wider and hangs four feet lower, so they are re-taken off its
+  // own box -- otherwise the control lines start somewhere inside the fabric.
+  if(isFinite(b.min.x))
+    glider.userData.brake=[new THREE.Vector3(b.min.x*0.74, GL_LINE*0.88, b.max.z*0.55),
+                           new THREE.Vector3(b.max.x*0.74, GL_LINE*0.88, b.max.z*0.55)];
   // ---- and it is PAINTED, because the texture it came with is a grid ----
   // The baked map is ripstop: a dense blue weave that at any distance reads as a mesh of tiny
   // squares rather than as a wing, and it is the same flat blue from tip to tip. Bands are what
@@ -19100,14 +19116,35 @@ const glRope=new THREE.Line(new THREE.BufferGeometry().setFromPoints(
   [new THREE.Vector3(),new THREE.Vector3()]),
   new THREE.LineBasicMaterial({color:0xfff4d8}));
 glRope.visible=false; scene.add(glRope);
+// the two control lines, drawn as a pair so one geometry carries both
+const glBrake=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(
+  [new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3()]),
+  new THREE.LineBasicMaterial({color:0xf2ede0, transparent:true, opacity:0.8}));
+glBrake.visible=false; glBrake.frustumCulled=false; scene.add(glBrake);
+// ---- and they end in his HANDS, wherever those actually are ----
+// Taken off the paw meshes rather than worked out from the arm angles: the pose is eased toward
+// its target every frame, so the arm is never quite where the numbers say and a line drawn to
+// the number floats a few inches off the paw the whole flight. The roster's animals also have
+// very different arms -- a frog's reach is not a pug's -- so anything derived from one of them
+// would be wrong for the rest.
+const _glPawUnder=(m,root)=>{ let q=m; while(q){ if(q===root)return true; q=q.parent; } return false; };
+function glPaws(){
+  if(typeof handMesh==='undefined'||!handMesh||!handMesh.length)return null;
+  if(typeof armFrontJ==='undefined'||typeof armBackJ==='undefined')return null;
+  const f=handMesh.find(m=>_glPawUnder(m,armFrontJ.sh));
+  const b=handMesh.find(m=>_glPawUnder(m,armBackJ.sh));
+  return (f&&b)?{f,b}:null;
+}
+const _gb0=new THREE.Vector3(), _gb1=new THREE.Vector3(),
+      _gh0=new THREE.Vector3(), _gh1=new THREE.Vector3();
 function glideReset(){
-  glPh=GLP.OFF; glT=0; glVx=0; glRoll=0; glRollV=0; glPitch=0; glPitchV=0; glYaw=0;
-  glider.visible=false; glRope.visible=false;
+  glPh=GLP.OFF; glT=0; glAge=0; glVx=0; glRoll=0; glRollV=0; glPitch=0; glPitchV=0; glYaw=0;
+  glider.visible=false; glRope.visible=false; glBrake.visible=false;
 }
 function glideStart(){
   if(glPh!==GLP.OFF||!running||wipe)return false;
   if(typeof hanging!=='undefined'&&hanging&&typeof releaseRope==='function')releaseRope(false);
-  glPh=GLP.TOW; glT=0; glVx=0; glRoll=0; glRollV=0; glPitch=0; glPitchV=0; glYaw=0;
+  glPh=GLP.TOW; glT=0; glAge=0; glVx=0; glRoll=0; glRollV=0; glPitch=0; glPitchV=0; glYaw=0;
   glider.visible=true; glRope.visible=true;
   glider.scale.setScalar(0.2);         // it inflates rather than appearing
   if(typeof msg==='function')msg('PARAGLIDE! 🪂');
@@ -19117,10 +19154,17 @@ function glideStart(){
 // tow is: it owns py and px while it runs, so nothing below it gets to decide he has landed.
 var glTarget=0, glSwingTo=0;
 function glideStep(dt,waterY){
-  glT+=dt;
-  // ---- the canopy inflates, and it does it in the first half second ----
-  const inf=Math.min(1,glT/0.55);
-  glider.scale.setScalar(0.2+0.8*inf*inf*(3-2*inf));
+  glT+=dt; glAge+=dt;
+  // ---- the canopy inflates ONCE ----
+  // This read glT, which is the time in the current PHASE and is reset at every transition -- so
+  // the moment the tow let go the wing snapped back to a fifth of its size and blew up again.
+  // Caught by measuring the control lines: their length halved, 13.2ft to 6.2, at exactly the
+  // TOW-to-FLY frame and nowhere else, which is not something a canopy does. Off the whole
+  // flight's clock instead, and the landing sets its own scale below.
+  if(glPh!==GLP.LAND){
+    const inf=Math.min(1,glAge/0.55);
+    glider.scale.setScalar(0.2+0.8*inf*inf*(3-2*inf));
+  }
   let sx=steer+(keys.KeyA||keys.ArrowLeft?-1:0)+(keys.KeyD||keys.ArrowRight?1:0);
   sx=Math.max(-1,Math.min(1,sx));
   if(glPh===GLP.TOW){
@@ -19210,6 +19254,27 @@ function glideStep(dt,waterY){
     glider.rotation.order='YXZ';
     glider.rotation.set(glPitch, glYaw, glRoll);
   }
+  // ---- the control lines, canopy to hand ----
+  // Each hand is paired with the anchor on ITS OWN side by distance rather than by name. The
+  // rider stands side-on to the board, so his "front" and "back" arms are not reliably his left
+  // and right once the wing has yawed and he has turned -- and a control line crossing the
+  // pilot's chest to reach the far tip is worse than no line at all.
+  if(glider.visible&&glider.userData.brake){
+    const pw=glPaws();
+    if(pw){
+      glider.updateMatrixWorld(true);
+      _gb0.copy(glider.userData.brake[0]).applyMatrix4(glider.matrixWorld);
+      _gb1.copy(glider.userData.brake[1]).applyMatrix4(glider.matrixWorld);
+      pw.f.updateWorldMatrix(true,false); pw.b.updateWorldMatrix(true,false);
+      _gh0.setFromMatrixPosition(pw.f.matrixWorld);
+      _gh1.setFromMatrixPosition(pw.b.matrixWorld);
+      const straight=_gh0.distanceToSquared(_gb0)+_gh1.distanceToSquared(_gb1);
+      const crossed =_gh0.distanceToSquared(_gb1)+_gh1.distanceToSquared(_gb0);
+      glBrake.geometry.setFromPoints(crossed<straight
+        ? [_gb0,_gh1,_gb1,_gh0] : [_gb0,_gh0,_gb1,_gh1]);
+      glBrake.visible=true;
+    } else glBrake.visible=false;
+  } else glBrake.visible=false;
   // The rope runs from the harness -- the same point the canopy hangs from -- to the boat's
   // transom, so all three are one connected thing rather than a wing and a boat that happen to
   // be in the same shot.
@@ -21167,7 +21232,20 @@ if(location.hash.includes('debug')){
       const b=new THREE.Box3().setFromObject(glider);
       return {ph:glPh, t:+glT.toFixed(2), py:+py.toFixed(2), px:+px.toFixed(2),
               vx:+glVx.toFixed(2), roll:+glRoll.toFixed(3),
-              wing:glider.visible, rope:glRope.visible,
+              wing:glider.visible, rope:glRope.visible, brake:glBrake.visible,
+              paws:!!glPaws(),
+              // how far apart the two paws actually finish, and how high above the board --
+              // "the arms are out" is a claim about numbers, not about a 60ft-distant pug
+              hands:(function(){ const p=glPaws(); if(!p)return null;
+                p.f.updateWorldMatrix(true,false); p.b.updateWorldMatrix(true,false);
+                const a=new THREE.Vector3().setFromMatrixPosition(p.f.matrixWorld);
+                const b2=new THREE.Vector3().setFromMatrixPosition(p.b.matrixWorld);
+                return {apart:+a.distanceTo(b2).toFixed(2),
+                        up:+(((a.y+b2.y)*0.5)-py).toFixed(2)}; })(),
+              brakeLen:(function(){ const a=glBrake.geometry.attributes.position;
+                if(!a||a.count<4)return null;
+                const dx=a.getX(0)-a.getX(1), dy=a.getY(0)-a.getY(1), dz=a.getZ(0)-a.getZ(1);
+                return +Math.sqrt(dx*dx+dy*dy+dz*dz).toFixed(2); })(),
               wingAt:glider.visible?sc(glider):null,
               span:glider.visible?+(b.max.x-b.min.x).toFixed(2):null,
               above:+(glider.position.y+GL_LINE-py).toFixed(2), line:+GL_LINE.toFixed(2),
@@ -24742,11 +24820,20 @@ function animateRig(dt,carve,grab,waterY){
     shB=[-0.55,-0.25,-1.85];      elB=[-0.50,0,0];   // free paw thrown high behind
     armSpread=0;
   } else if(typeof glPh!=='undefined'&&glPh>=0){
-    // Both arms up and out to the risers, which is the one pose that says "hanging from a
-    // wing" — the airborne branch below windmills them, and a paraglider pilot windmilling
-    // reads as somebody falling with a canopy that happens to be nearby.
-    shF=[0.10, 0.30,-2.05]; elF=[0.34,0,0];
-    shB=[0.10,-0.30, 2.05]; elB=[0.34,0,0];
+    // ---- both arms out to the TOGGLES, which is what flying one looks like ----
+    // Raised is not the same as reaching. A pilot has a control line in each hand, held up and
+    // out at about shoulder height with the elbow nearly straight -- arms merely lifted read as
+    // somebody hanging on, and the airborne branch below windmills them, which reads as
+    // somebody falling with a canopy that happens to be nearby. Straightened at the elbow and
+    // opened out so the paws finish at the ends of the lines drawn to them.
+    // ---- and 2.28 was PAST the widest point ----
+    // The shoulder's z swings the arm out of plumb, so the sideways reach goes as sin of it and
+    // peaks at a right angle -- 2.28 radians is 131 degrees, well over the top, and the paws
+    // came out 1.30ft apart, barely wider than his shoulders. Just under a right angle instead:
+    // almost all of the reach still there in the lateral direction, with the hands a little
+    // above the shoulder, which is where a pilot holds the toggles anyway.
+    shF=[0.06, 0.34,-1.88]; elF=[0.04,0,0];
+    shB=[0.06,-0.34, 1.88]; elB=[0.04,0,0];
     armSpread=0;
   } else if(airborne||hanging){
     const w=tNow*8, k=rigTuck;
