@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.62.0';
+window.SURF_VERSION='5.63.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -7621,7 +7621,7 @@ function palmWindWeights(geo,trunk){
 // on the title screen the crown was moving about a third of a foot, which at that distance is
 // a few pixels and looks like a still photograph. Nearly double, and the gust below is what
 // stops that being frantic instead of breezy.
-let PALM_WIND=0.055;
+let PALM_WIND=0.062;
 const _pwU=[];            // every compiled copy's uniforms, so one clock drives them all
 let _pwT=0;
 function palmWindMaterial(mt){
@@ -7649,7 +7649,8 @@ function palmWindMaterial(mt){
           // drops, so the whole sway is scaled by something very slow -- and phased off the
           // tree's own position, so the two palms on the beach are not breathing in unison,
           // which is the other half of what gives a loop away.
-          float gust=0.68+0.52*sin(uWindT*0.21+wp.x*0.37+wp.z*0.19);
+          float gph=uWindT*0.21+wp.x*0.37+wp.z*0.19;
+          float gust=0.10+0.95*pow(0.5+0.5*sin(gph),1.5);
           float g=uWindA*aWind*gust;
           transformed.x+=g*sw*0.85;
           transformed.z+=g*sw*0.35;
@@ -7672,8 +7673,27 @@ function palmWindDepth(m){
   palmWindMaterial(d);
   m.customDepthMaterial=d;
 }
+// ---- ONE GUST, AND EVERYTHING ON THE TREE IS IN IT ----
+// The fronds had a gust in the shader and the coconuts had a gust of their own in JS, each
+// with its own phase -- so the nuts swung while the leaves were still and the leaves tossed
+// while the nuts hung dead. Two weathers in one tree, which is exactly the thing that makes an
+// animated scene read as animation. There is one now: computed here, from the same expression
+// the shader uses and at the menu palm's own position, and read by the nuts and the shells.
+let _pwGust=1;
+const _pwWp=new THREE.Vector3();
 function palmWindTick(t){
   _pwT=t;
+  if(typeof menuPalm!=='undefined'&&menuPalm){
+    menuPalm.updateWorldMatrix(true,false);
+    _pwWp.setFromMatrixPosition(menuPalm.matrixWorld);
+  }
+  const ph=t*0.21+_pwWp.x*0.37+_pwWp.z*0.19;
+  // ---- AND IT HAS LULLS ----
+  // The envelope ran 0.68 to 1.20, which is not a gust, it is a slightly uneven fan: the
+  // amplitude never came near nothing, so there was no moment of stillness for a gust to
+  // arrive INTO. Nearly to nothing at the bottom and raised to a power, so it spends longer
+  // low than high -- which is what wind does, and what makes the moment it picks up read.
+  _pwGust=0.10+0.95*Math.pow(0.5+0.5*Math.sin(ph),1.5);
   for(const u of _pwU){ if(u.uWindT)u.uWindT.value=t; if(u.uWindA)u.uWindA.value=PALM_WIND; }
 }
 function palm2Mesh(seed,prof){
@@ -20261,6 +20281,10 @@ if(location.hash.includes('debug')){
     // which is also how to check that what is moving in the crown is this and not the drift
     // of the shot.
     palmWind(a){ if(a!==undefined)PALM_WIND=a; return PALM_WIND; },
+    // The one gust, as the fronds, the nuts and the shells all see it. Sampled alongside the
+    // coconut positions this is what makes "they move together" checkable: if they are one
+    // wind, how far a nut travels between two samples rises and falls WITH this number.
+    windNow(){ return {t:+_pwT.toFixed(2), gust:+_pwGust.toFixed(3), amp:PALM_WIND}; },
     // Where the hanging nuts are, in feet. Sampled over a few seconds this answers "do they
     // move, and by how much" as a distance rather than as an impression -- and unlike the
     // fronds, which are displaced in a vertex shader where the CPU cannot see them, the nuts
@@ -27295,7 +27319,9 @@ function layoutCoconuts(){
       // Each one gets its own phase off its place round the trunk, and the three rates do not
       // divide into each other, so no two ever quite repeat together.
       if(typeof _pwT!=='undefined'){
-        const t=_pwT, gu=0.68+0.52*Math.sin(t*0.21+i*0.9);
+        // the SHARED gust -- see palmWindTick. Their own phase belongs on the fast sway, which
+        // is each nut's own wobble, and not on the weather, which is the tree's.
+        const t=_pwT, gu=_pwGust;
         const s1=Math.sin(t*0.83+a2*2.1), s2=Math.sin(t*1.45+a2*3.7);
         const amp=MB_COCO_SZ*0.15*gu/Math.max(1e-4,ps);
         m.position.x+=amp*(s1*0.80+s2*0.30);
@@ -27340,6 +27366,17 @@ function layoutCoconuts(){
       // and then dropped onto the sand that is drawn, AFTER the tip — a tipped shell's box is
       // taller than a level one, so seating it first and turning it afterwards buries one lip
       seatOnSand(m,0.13);
+      // ---- AND THE SHELLS ROCK IN IT TOO ----
+      // A half shell on sand does not sway, it ROCKS: it is sitting on a curve, so a gust tips
+      // it a degree or two and it settles back. No travel at all -- a coconut half that slides
+      // along the beach is a coconut half nobody put there. Same gust as the fronds and the
+      // nuts, so when the wind drops the whole picture goes still together, which is the only
+      // way any of it reads as one wind rather than three animations.
+      if(typeof _pwT!=='undefined'){
+        const t=_pwT, gu=_pwGust, ph=i*2.3+d.side*0.7;
+        m.rotateZ(0.055*gu*Math.sin(t*1.10+ph));
+        m.rotateX(0.045*gu*Math.sin(t*1.63+ph*1.4));
+      }
     }
   }
 }
