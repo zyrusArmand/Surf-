@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.95.0';
+window.SURF_VERSION='5.96.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -18660,7 +18660,11 @@ const BF_N=460, BF_LIFE=3.0;
 // 1.30 at birth is a two-and-a-half-foot lump appearing a few inches off the tail, which is
 // wide enough to cover the board it is supposed to be coming off. Foam leaves the hull tight
 // and opens out as it disperses, so it starts a third of the size and the growth does the rest.
-const BF_R0=0.42, BF_R1=2.85;          // feet across, at the transom and at the far end
+// 0.34 at birth is small enough to be nothing at all: it left a gap of open water between the
+// tail and where the trail became visible, so the wake read as detached lumps rather than as
+// something coming off the board. 0.55 still starts small -- a sixth of what it grows to -- and
+// is still born a foot astern, so it connects without ever reaching the deck.
+const BF_R0=0.55, BF_R1=3.30;          // feet across, at the transom and at the far end
 let boatFoam=[], boatFoamPool=[], bfAcc=0;
 function bfGet(){
   if(boatFoamPool.length)return boatFoamPool.pop();
@@ -18675,7 +18679,30 @@ function bfGet(){
 function bfPush(x,y,z,w,near){
   if(boatFoam.length>=BF_N)return;
   const m=bfGet(); m.visible=true;
-  boatFoam.push({m, x, y, z, age:0, f0:near?4.5:20.0, fs:near?7.0:20.0,
+  // ---- and the RIDER's guard has to be tiny, because his wake runs AT the lens ----
+  // 4.5 rising to 11.5 is right for a boat eighty feet up the lane, where nothing should ever
+  // be that close. The rider's own wake is laid down behind him, which is toward the camera --
+  // so most of a trail twenty feet long sat inside that fade and was drawn at nothing. The
+  // packets were there the whole time; 366 alive and almost none of them visible. What could be
+  // seen was the puff system, which has no guard at all, which is why removing the puffs
+  // appeared to remove the wake.
+  // ---- and the RIDER's packets have to DIE before they pass the lens ----
+  // This is what was actually wrong, and it took measuring a live packet to see: they drift
+  // astern at riding speed (p.z += eff*dt), so over a 3s life one travels about 45ft. The camera
+  // sits 11.3ft back. Every packet was behind it within roughly 0.7s of being born -- measured
+  // at z 26, 40 and 52 with the rider at 0.8 -- so 366 were alive, correct, and off-frame.
+  // A second of life carries one just past the lens and no further, which puts the whole crowd
+  // in the shot. It also means AGE now maps onto distance-behind within the visible band, so the
+  // growth from BF_R0 to BF_R1 IS the taper that was asked for, with nothing else needed.
+  // ---- and the rider's packets RISE, which is the only way they touch the tail on screen ----
+  // The camera is low and 11ft back, so the water immediately astern projects at or below the
+  // bottom edge: foam pinned flat to the sea is real, correct, and off-frame, leaving open water
+  // between the board and the first thing you can see. That gap is why the wake read as detached
+  // lumps. It is also exactly how the old puffs looked attached -- they carried a vy and climbed
+  // into the band the board occupies. The difference is where they start: those were born ON the
+  // tail and climbed onto the deck, these are born a foot astern and climb behind it.
+  boatFoam.push({m, x, y, z, age:0, lf:near?1.05:BF_LIFE, ry:0, vy:near?1.75:0,
+                 f0:near?1.5:20.0, fs:near?2.8:20.0,
                  vx:(Math.random()*2-1)*0.55,
                  // narrower size spread: a scatter of small ones between big ones is exactly
                  // what makes a mass read as separate lumps
@@ -18689,15 +18716,25 @@ function boatFoamClear(){
 function updateBoatFoam(dt,eff){
   for(let i=boatFoam.length-1;i>=0;i--){
     const p=boatFoam[i]; p.age+=dt;
-    const k=p.age/BF_LIFE;
+    const k=p.age/(p.lf||BF_LIFE);
     if(k>=1){ p.m.visible=false; p.m.material.opacity=0; boatFoamPool.push(p.m); boatFoam.splice(i,1); continue; }
     p.x+=p.vx*dt; p.z+=eff*dt;
     // ---- and it LIES on the water ----
     // Given a rising velocity it drifted up off the surface, and a four-foot sprite a foot and a
     // half in the air is not foam, it is a cloud. Foam floats: it sits on the sea and rides it.
     const sea=waveH(p.x,dist*WAVE_DRIFT+p.z,waveClock);
-    p.m.position.set(p.x, sea+0.26, p.z);
-    const r=(BF_R0+(BF_R1-BF_R0)*k*k*(3-2*k))*p.w;
+    // it lifts off the surface and settles rather than climbing away -- damped, so the rise is
+    // most of a foot over a packet's life and then stops
+    if(p.vy){ p.ry+=p.vy*dt; p.vy*=(1-Math.min(1,dt*1.7)); }
+    p.m.position.set(p.x, sea+0.26+p.ry, p.z);
+    // ---- and it opens FAST, because the frame only shows four feet of it ----
+    // Measured: a packet 8ft astern projects to y=1617 on a 932-tall screen -- below the frame
+    // entirely. The band of water actually on screen behind the board is about four feet deep,
+    // and a smoothstep spends most of its travel still small, so everything reached visible size
+    // only after it had left the shot. That is also how the old puffs stayed visible: not by
+    // rising, but by growing to 3.45ft, so their tops painted up into frame from below its edge.
+    // A front-loaded curve does the same thing honestly -- foam bursts open and then slows.
+    const r=(BF_R0+(BF_R1-BF_R0)*Math.pow(k,0.58))*p.w;
     p.m.scale.set(r,r,1);
     p.m.material.rotation=p.rot+p.spin*p.age;
     // ---- nearly solid at the transom, and a LONG thin-out ----
@@ -21986,6 +22023,30 @@ if(location.hash.includes('debug')){
               foam:(typeof boatFoam!=='undefined')?boatFoam.length:-1,
               bow:(typeof boatBowAt==='function'&&boatBowAt.last)||null,
               trail:boatTrail.length, bump:+bwA.toFixed(2), shoves:btShoves, grab:btGrab,
+              // how far the lens actually is behind him -- the rider's wake is laid down TOWARD
+              // the camera, so this is what decides how much of it the near-fade eats
+              camBack:+(camera.position.z-pz).toFixed(1),
+              // ---- and what a live packet is actually DOING ----
+              // Three changes have now been made on reasoning about why 366 live packets draw
+              // nothing. Reasoning has been wrong each time, so this reports the thing itself:
+              // where a packet is, where that lands on screen, how big it is drawn and how
+              // opaque. A packet that is off-frame, or scaled to nothing, or at zero alpha,
+              // says which of the three it is in one line instead of one render each.
+              foamAt:(function(){
+                if(!boatFoam.length)return null;
+                const out=[], v=new THREE.Vector3();
+                for(let i=0;i<Math.min(3,boatFoam.length);i++){
+                  const p=boatFoam[Math.floor(i*boatFoam.length/3)];
+                  v.copy(p.m.position).project(camera);
+                  out.push({z:+p.z.toFixed(1), age:+p.age.toFixed(2),
+                            scr:[Math.round((v.x*0.5+0.5)*innerWidth),
+                                 Math.round((-v.y*0.5+0.5)*innerHeight)],
+                            r:+p.m.scale.x.toFixed(2),
+                            op:+p.m.material.opacity.toFixed(3),
+                            vis:p.m.visible});
+                }
+                return out; })(),
+              pz:+pz.toFixed(1),
               shoving:(function(){let n=0;if(typeof obstacles!=='undefined')
                 for(const o of obstacles)if(o.userData&&o.userData.btVX)n++;return n;})(),
               hull:!!(boat.userData&&boat.userData.hull)}; },
@@ -26867,7 +26928,12 @@ function update(dt){
         // 0.3 behind BOARD_HALF_L put the CENTRE of a packet a few inches astern, and a packet
         // has a radius: half of it landed on the deck. It starts a foot back so its near edge
         // is at the tail rather than over it.
-        const a=BOARD_HALF_L+1.0+Math.pow(Math.random(),0.85)*22;
+        // ---- and it is all born AT THE TAIL, because the drift lays the trail ----
+        // Spreading births over twenty feet of lane was doing the drift's job badly: a packet
+        // already moves astern at riding speed, so emitting at one place and letting it travel
+        // is what makes a trail, and it is why the far end used to be a mix of new small packets
+        // and old big ones with no taper in it.
+        const a=BOARD_HALF_L+0.9+Math.random()*1.1;
         const off=(Math.random()*2-1)*(0.85+a*0.13)+carve*1.1;
         const fx=px+off, fz=a;
         // ---- and how big is set by how far BACK it is, not only by how old ----
@@ -26876,18 +26942,29 @@ function update(dt){
         // the trail had no shape to it. Scaling by distance behind the board is what actually
         // makes the thing narrow at the tail and open out down the lane, which is what a wake
         // does and what was asked for. Age still grows each packet on top of this.
-        const sz=0.30+Math.min(1,(a-BOARD_HALF_L)/17)*1.05;
+        // Size is left to AGE alone now. Scaling it by distance-behind was a patch for births
+        // being scattered down the lane, and with them all at the tail the two are the same
+        // thing: BF_R0 at the tail growing to BF_R1 as it drifts back IS small-to-big.
         bfPush(fx, waveH(fx,dist*WAVE_DRIFT+fz,waveClock)+0.22, fz,
-               0.66*Math.max(0.5,BS.wake)*sz, true);
+               1.05*Math.max(0.5,BS.wake), true);
       }
     }
     puffT-=dt;
     if(puffT<=0){ puffT=0.018;
       const hard=0.55+Math.abs(carve)*0.85;
-      // and these two start clear of the tail for the same reason as the cloud above
-      pushPuff(px,waterY+0.30,BOARD_HALF_L+0.70,hard*BS.wake*0.55);
-      pushPuff(px,waterY+0.22,BOARD_HALF_L+1.15,hard*BS.wake*0.70);
-      if(Math.abs(carve)>0.35)pushPuff(px,waterY+0.40,1.15,hard*BS.wake);
+      // ---- and the two tail puffs are GONE, because they climbed onto the board ----
+      // This is what was actually sitting on the deck, and moving it back a foot did not fix it
+      // because the problem is not where a puff is born, it is where it goes: a puff carries
+      // vy 0.22 to 0.57 and RISES off the water while growing from 0.58ft to 3.45. Born at the
+      // tail it lifts straight into the board's screen space and arrives there as a big white
+      // ball -- which is the thing circled twice now. The cloud sprites cannot do this; they are
+      // pinned to the sea surface every frame.
+      // They are dropped rather than moved because the dense cloud above now does the job they
+      // were added for, and two systems drawing the same wash is what let this hide.
+      // The carve puff stays: it fires only when the board is being worked hard, it is thrown
+      // out to the side rather than straight back, and it is the spray off a rail rather than
+      // the trail. Moved back off the tail all the same.
+      if(Math.abs(carve)>0.35)pushPuff(px,waterY+0.40,BOARD_HALF_L+1.5,hard*BS.wake);
     }
   }
 
