@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.67.0';
+window.SURF_VERSION='5.68.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -18431,7 +18431,12 @@ const boatTrail=[];                    // {x,z,nx,nz,age,s} — n is across the 
 // whatever it is doing, so what each piece of wake remembers is the distance travelled when it
 // was laid, and the spread is a fraction OF the distance behind. 0.35 is about nineteen
 // degrees, which is the angle a displacement hull actually makes.
-const BOAT_VEE=0.35;
+// var: both of these are now read by boatBump, and boatBump is reached from waveH during
+// boot. The bwA guard happens to protect them today; a const here is one reordering away from
+// a blank screen with no __surf, which is not a thing to leave resting on luck.
+var BOAT_VEE=0.35;
+// where the arms leave the stern, shared with boatBump so the foam sits ON the ridge it made
+var BOAT_ARM0=2.2;
 let boatRun=0;                         // path length the boat has covered this pass
 // ---- the water it pushes, in the height field rather than on top of it ----
 // A boat drawn onto flat water is a sticker of a boat however good the foam is. This is one
@@ -18446,13 +18451,38 @@ let boatRun=0;                         // path length the boat has covered this 
 // written !(a>x) rather than a<=x for the same reason: undefined<=0.001 is FALSE, so the early
 // return would not fire and the next line would reach the constants anyway.
 var BOAT_WK_S=3.4, BOAT_WK_HALF=7.0;
-var bwA=0, bwX=0, bwZ=0;
+var BOAT_WK_LEN=118;                   // how far astern the arms are still standing water
+var bwA=0, bwX=0, bwZ=0, bwSn=0, bwCs=1;
+// ---- and the V is WATER, not a stripe painted on it ----
+// It was one Gaussian mound behind the transom with the V drawn over the top as flat ribbons,
+// which is a wake decal: from sea level the arms read as paper laid on a flat surface, because
+// that is exactly what they were. Both arms go into the height field instead, as ridges whose
+// distance from the centreline grows with distance astern -- the same angle the foam uses, so
+// the foam now sits ON its own crest and comes out three-dimensional for free.
+//
+// Worked in the BOAT'S frame: `a` is how far astern a point is, `c` is how far across. Two
+// early-outs first, because this is called per ocean vertex and most of the ocean is nowhere
+// near the boat.
 function boatBump(x,z){
   if(!(bwA>0.001))return 0;
-  const dz=z-bwZ;
-  const ez=Math.exp(-(dz*dz)/(2*BOAT_WK_S*BOAT_WK_S));
-  const ax=Math.max(0,Math.min(1,1-Math.abs(x-bwX)/BOAT_WK_HALF));
-  return bwA*ez*ax*ax*(3-2*ax);
+  const dx=x-bwX, dz=z-bwZ;
+  const a=dx*bwSn+dz*bwCs;                       // + is behind the boat
+  if(a<-7||a>BOAT_WK_LEN)return 0;
+  const c=dx*bwCs-dz*bwSn, ac=c<0?-c:c;
+  const arm=BOAT_ARM0+Math.max(0,a)*BOAT_VEE;
+  if(ac>arm+9)return 0;
+  // the mound the transom pushes up, right behind the hull
+  const sx=Math.max(0,1-ac/BOAT_WK_HALF);
+  const stern=Math.exp(-(a*a)/(2*BOAT_WK_S*BOAT_WK_S))*sx*sx*(3-2*sx);
+  // ---- and each arm is a TRAIN of little waves, which is what a wake is ----
+  // A smooth rail either side reads as a moulding. A real bow wave is a row of crests marching
+  // out behind the hull, so the ridge is modulated along its length. No time term: the pattern
+  // stands still relative to the boat, which is what makes it a wake rather than a ripple.
+  const d=ac-arm;
+  const fade=Math.max(0,1-Math.max(0,a)/BOAT_WK_LEN);
+  const ridge=Math.exp(-(d*d)/(2*2.35*2.35))*fade*fade
+             *(0.74+0.26*Math.sin(a*0.62+ (c<0?0.9:0)));
+  return bwA*(stern*0.80+ridge*1.15);
 }
 const boat=new THREE.Group();
 boat.visible=false;
@@ -18505,6 +18535,9 @@ let glDone=false;                      // one wing per pass, however long it hol
 const BOAT_PASS_X=13.0;                // how far to the side it goes by
 const BOAT_STATION_Z=-34;              // where it settles ahead of you
 const BOAT_STATION=6.0;                // seconds it holds there before giving up on you
+// how much further ahead it sits once it has let go of you -- far enough to read as having
+// opened up, close enough to stay in a frame whose camera is now forty feet in the air
+const BOAT_FLY_BACK=26;
 function boatReset(){
   btPh=BTP.OFF; btT=0; boat.visible=false; bwA=0; glDone=false;
   boatTrail.length=0;
@@ -18566,8 +18599,8 @@ function boatLayWake(dt,eff){
   };
   // The arms hold their brightness (fade 1.0) so the V still reads when the boat is well
   // ahead; the churn between them is thrown up by the propeller and goes flat much sooner.
-  lay(boatArmL,-1, 2.2, BOAT_VEE, 1.55, 1.15);
-  lay(boatArmR, 1, 2.2, BOAT_VEE, 1.55, 1.15);
+  lay(boatArmL,-1, BOAT_ARM0, BOAT_VEE, 1.55, 1.15);
+  lay(boatArmR, 1, BOAT_ARM0, BOAT_VEE, 1.55, 1.15);
   lay(boatChurn,0, 0.0, 0.0,      2.60, 2.2);
 }
 function updateBoat(dt,eff){
@@ -18604,12 +18637,27 @@ function updateBoat(dt,eff){
     if(btT>1.0&&typeof glideStart==='function'&&glPh===GLP.OFF&&!glDone){ if(glideStart())glDone=true; }
     // holding its place ahead of you rather than holding a fixed z: the world scrolls past,
     // so standing still in world space is the boat sliding backwards into your lap.
-    btZ+=((pz+BOAT_STATION_Z)-btZ)*Math.min(1,dt*1.5);
-    btX+=(px-btX)*Math.min(1,dt*1.2);
+    // Once the line is off it runs a little further out and sits there -- "sped up a bit, then
+    // held" rather than "left". Eased, so the change reads as the throttle going on.
+    // ---- and how far ahead it needs to be depends on HOW HIGH HE IS ----
+    // Holding a fixed thirty-four feet was right at sea level and wrong by the top of the tow:
+    // the camera lifts and pitches down as he climbs, so a boat at a fixed distance walks down
+    // the frame and off the bottom -- measured, it left a 1500px frame at scrY 1537 during the
+    // climb and only came back when the glide pushed it out. The standoff grows with his
+    // height, which keeps it in the same part of the shot the whole way up.
+    const lift=Math.max(0,Math.min(1,(py-boat.position.y)/GL_TOP));
+    const want=pz+BOAT_STATION_Z-(glPh>=0?BOAT_FLY_BACK*lift:0);
+    btZ+=(want-btZ)*Math.min(1,dt*(glPh>=GLP.FLY?0.9:1.5));
+    btX+=(px-btX)*Math.min(1,dt*(glPh>=0?0.5:1.2));
+    if(glPh>=GLP.FLY)btSpd=Math.max(btSpd,22);   // it is making way, so it keeps its wake
     yawWant=Math.max(-0.35,Math.min(0.35,(px-btX)*0.05));
-    // It does not leave while it is still towing somebody. Once the line is off it opens up
-    // and goes, which also gets it out of the way of the glide down.
-    if(glPh===GLP.TOW){ btT=Math.min(btT,BOAT_STATION-0.6); }
+    // ---- and it does not leave while you are still up ----
+    // It used to go to AWAY the moment the line dropped, wind up to forty and be a hundred and
+    // ninety feet out within seconds -- gone off the top of the frame for the whole flight, so
+    // the thing that put you up there was not in the shot you spend the longest looking at. It
+    // opens up a little once it is not towing, and then holds THAT: further ahead than the tow
+    // station, still on screen, for as long as you are in the air.
+    if(glPh>=0){ btT=Math.min(btT,BOAT_STATION-0.6); }
     else if(btT>=BOAT_STATION){ btPh=BTP.AWAY; btT=0; }
   } else if(btPh===BTP.AWAY){
     btSpd+=(40-btSpd)*Math.min(1,dt*0.7);
@@ -18634,7 +18682,23 @@ function updateBoat(dt,eff){
   boat.rotation.z=-btYaw*0.45+Math.sin(tNow*1.3)*0.02;
   // the ridge it pushes, parked on the stern
   const push=Math.min(1,btSpd/26);
-  bwA=2.05*push; bwX=btX; bwZ=dist*WAVE_DRIFT+btZ+7.0;
+  bwA=2.55*push; bwX=btX; bwZ=dist*WAVE_DRIFT+btZ+7.0;
+  bwSn=Math.sin(btYaw); bwCs=Math.cos(btYaw);
+  // ---- and the arms get PUFFS, which is the other half of "foamy" ----
+  // The ribbon is a surface: it can ride the ridge it made, but it is still one skin and from
+  // the side it has no thickness. The board's own wash is a cloud of soft sprites and reads as
+  // volume, so the crests of both arms get the same thing -- a few a frame, placed on the
+  // ridge line by the same arithmetic the ribbon and the height field use.
+  if(btSpd>10&&typeof pushPuff==='function'){
+    for(let i=0;i<4;i++){
+      const a=3+Math.random()*30;                // how far astern this one is born
+      const off=BOAT_ARM0+a*BOAT_VEE;
+      const side=(i&1)?1:-1;
+      const cx=btX+bwCs*side*off+bwSn*a, cz=btZ+(-bwSn)*side*off+bwCs*a;
+      const cy=waveH(cx,dist*WAVE_DRIFT+cz,waveClock);
+      pushPuff(cx, cy+0.26, cz, 0.85+Math.random()*0.5);
+    }
+  }
   // spray off the transom, at the same rate the ski throws it but in a wider fan
   if(btSpd>8){
     for(let i=0;i<3;i++){
@@ -18656,14 +18720,23 @@ function updateBoat(dt,eff){
 // trick and puts you straight back down, this one takes you forty feet up and then LETS GO,
 // and what happens after it lets go is the point of it.
 const GL_TOP=44;                       // how high the tow takes you, in feet
-const GL_TOW=3.6;                      // seconds on the line
-const GL_SINK=3.0;                     // feet a second down under canopy, which is a glide
+const GL_TOW=6.4;                      // seconds on the line -- a winch, not a catapult
+const GL_SINK=2.7;                     // feet a second down under canopy, which is a glide
 const GL_STEER=15;                     // how hard the wing turns
+// ---- and it flies like a wing on strings, which is a PENDULUM ----
+// The wing was pinned square over his head and stayed there, so forty feet of flight had no
+// motion in it at all: a canopy sliding down an invisible rail. A paraglider is a mass hanging
+// under a wing on nine feet of line, and everything that reads as flight comes out of that --
+// it swings, it overshoots a turn and settles back, it pitches when the air changes, and the
+// pilot is always a beat behind the wing rather than under it. So the roll is a spring with a
+// mass on it instead of an ease, and the pitch and yaw have their own slower ones.
+const GL_SWING=3.1;                    // pendulum rate, radians a second
+const GL_DAMP=1.35;                    // how fast a swing dies away
 const GLP={OFF:-1,TOW:0,FLY:1,LAND:2};
 // var, on the same reasoning as boatBump's: these are read from the pose code and the ride
 // update, and being wrong about when those first run is the one mistake here that costs a
 // blank screen rather than a visible bug.
-var glPh=GLP.OFF, glT=0, glVx=0, glRoll=0;
+var glPh=GLP.OFF, glT=0, glVx=0, glRoll=0, glRollV=0, glPitch=0, glPitchV=0, glYaw=0;
 // ---- the wing, built rather than modelled ----
 // A paraglider is an arc, and the arc is most of what makes it read as one: a flat sheet over
 // somebody's head is a banner. Spanwise stations sit on a circle so the tips hang below the
@@ -18733,13 +18806,13 @@ const glRope=new THREE.Line(new THREE.BufferGeometry().setFromPoints(
   new THREE.LineBasicMaterial({color:0xfff4d8}));
 glRope.visible=false; scene.add(glRope);
 function glideReset(){
-  glPh=GLP.OFF; glT=0; glVx=0; glRoll=0;
+  glPh=GLP.OFF; glT=0; glVx=0; glRoll=0; glRollV=0; glPitch=0; glPitchV=0; glYaw=0;
   glider.visible=false; glRope.visible=false;
 }
 function glideStart(){
   if(glPh!==GLP.OFF||!running||wipe)return false;
   if(typeof hanging!=='undefined'&&hanging&&typeof releaseRope==='function')releaseRope(false);
-  glPh=GLP.TOW; glT=0; glVx=0; glRoll=0;
+  glPh=GLP.TOW; glT=0; glVx=0; glRoll=0; glRollV=0; glPitch=0; glPitchV=0; glYaw=0;
   glider.visible=true; glRope.visible=true;
   glider.scale.setScalar(0.2);         // it inflates rather than appearing
   if(typeof msg==='function')msg('PARAGLIDE! 🪂');
@@ -18747,6 +18820,7 @@ function glideStart(){
 }
 // Called from the ride update in place of the ordinary water physics, exactly where the plane
 // tow is: it owns py and px while it runs, so nothing below it gets to decide he has landed.
+var glTarget=0, glSwingTo=0;
 function glideStep(dt,waterY){
   glT+=dt;
   // ---- the canopy inflates, and it does it in the first half second ----
@@ -18757,11 +18831,19 @@ function glideStep(dt,waterY){
   if(glPh===GLP.TOW){
     // up, on the line, and pulled in behind the boat -- the climb is eased rather than linear
     // so it leaves the water hard and settles at the top instead of stopping dead
-    py+=(GL_TOP-py)*Math.min(1,dt*0.95);
-    px+=(btX-px)*Math.min(1,dt*0.9);
-    speed=Math.min(60,speed+10*dt);
+    // ---- and it is a WINCH, not a catapult ----
+    // At dt*0.95 he was through thirty feet in a second and a half and parked at the top for
+    // the rest of the tow, which is a lift rather than a climb. Slower, and with the last of
+    // it easing off, so the whole tow is spent going up.
+    py+=(GL_TOP-py)*Math.min(1,dt*0.34);
+    px+=(btX-px)*Math.min(1,dt*0.6);
+    speed=Math.min(60,speed+6*dt);
     score+=90*dt;
-    glRoll+=((px-btX)*0.03-glRoll)*Math.min(1,dt*3);
+    // the line pulling him along tips the wing nose-down and holds it there
+    // on the line it is pulled nose-down and held, but the tow bounces -- a boat over a swell
+    // is not a smooth winch, and the wing feels every bit of it
+    glTarget=-0.20+Math.sin(tNow*1.15)*0.035;
+    glSwingTo=(px-btX)*0.020+Math.sin(tNow*0.71)*0.045;
     if(glT>=GL_TOW){
       glPh=GLP.FLY; glT=0; glRope.visible=false;
       if(typeof msg==='function')msg('LET GO — FLY! 🪂');
@@ -18777,16 +18859,26 @@ function glideStep(dt,waterY){
     px+=glVx*dt;
     if(px<-17){px=-17;glVx=0;}
     if(px>17){px=17;glVx=0;}
-    py-=GL_SINK*dt;
-    // a wing hunts a little in pitch; without it the descent is a lift going down
-    py+=Math.sin(tNow*0.9)*dt*1.1;
-    glRoll+=(-glVx*0.055-glRoll)*Math.min(1,dt*3.4);
+    // ---- and a banked wing sinks faster, which is why you do not turn near the ground ----
+    const bank=Math.abs(glRoll);
+    py-=(GL_SINK+bank*4.2)*dt;
+    // the air is not still: two slow sinusoids well apart in period, so the descent breathes
+    // instead of ticking
+    py+=(Math.sin(tNow*0.63)*1.35+Math.sin(tNow*0.29+1.7)*0.9)*dt;
+    // ---- and it is never STILL ----
+    // The swing was driven by the steering alone, so a wing nobody was steering hung dead
+    // square for the whole flight: measured, the roll read 0.000 from release to splashdown.
+    // Air is not still and a canopy on nine feet of line shows it. Two slow terms well apart in
+    // period, so it wanders rather than ticking, on top of whatever the steering asks for.
+    glSwingTo=-glVx*0.075+Math.sin(tNow*0.53)*0.075+Math.sin(tNow*0.29+2.1)*0.045;
+    // pitch: a wing surges as it comes out of a turn and eases back as it settles
+    glTarget=-0.14-Math.abs(glVx)*0.012+Math.sin(tNow*0.47)*0.05;
     score+=45*dt;
     if(py<=waterY+1.4){ glPh=GLP.LAND; glT=0; }
   } else if(glPh===GLP.LAND){
     // down on the water and the canopy falls in behind him
     py+=(waterY-py)*Math.min(1,dt*6);
-    glRoll+=(0-glRoll)*Math.min(1,dt*5);
+    glSwingTo=0; glTarget=0.22;          // the canopy flares and falls in behind him
     glider.scale.setScalar(Math.max(0.02,1-glT*1.9));
     if(glT>0.62){
       glideReset();
@@ -18794,14 +18886,27 @@ function glideStep(dt,waterY){
       if(typeof msg==='function')msg('NICE LANDING!');
     }
   }
+  // ---- the pendulum, integrated rather than eased ----
+  // An ease cannot overshoot, and overshoot is the whole character of a thing on strings: it
+  // rolls PAST where the steering asked for and comes back. A spring towards the target with a
+  // damping term does that in two lines, and the same for pitch at a slower rate.
+  const dts=Math.min(0.05,dt);
+  glRollV += ((glSwingTo-glRoll)*GL_SWING*GL_SWING - glRollV*2*GL_DAMP*GL_SWING)*dts;
+  glRoll  += glRollV*dts;
+  glPitchV+= ((glTarget-glPitch)*4.4 - glPitchV*2.2)*dts;
+  glPitch += glPitchV*dts;
+  // the wing weathercocks into the way it is going, and lags doing it
+  glYaw   += (Math.max(-0.5,Math.min(0.5,-glVx*0.055-glRoll*0.55))-glYaw)*Math.min(1,dts*2.4);
   // ---- the wing sits over him, and it is where he hangs FROM ----
   // 9.4 is the line length the risers were built at, so the canopy has to sit exactly that far
-  // above him or the lines end in mid-air. Rolled with the turn and pitched a touch nose-down,
-  // which is the attitude a wing under load actually flies at.
+  // above him or the lines end in mid-air -- but only when it hangs plumb. Once it swings, the
+  // pilot stays put and the WING moves out over him, which is the way round a pendulum works:
+  // the mass is the anchor and the light thing on the end does the travelling.
   if(glider.visible){
-    glider.position.set(px, py+9.4, pz-0.3);
+    const L=9.4;
+    glider.position.set(px+Math.sin(glRoll)*L*0.55, py+Math.cos(glRoll)*L, pz-0.3+Math.sin(glPitch)*2.2);
     glider.rotation.order='YXZ';
-    glider.rotation.set(-0.13, 0, glRoll);
+    glider.rotation.set(glPitch, glYaw, glRoll);
   }
   if(glRope.visible){
     glRope.geometry.setFromPoints([
