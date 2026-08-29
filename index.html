@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.98.0';
+window.SURF_VERSION='5.99.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -14053,7 +14053,24 @@ function updatePuffs(dt,eff){
     p.m.material.opacity=0.92*Math.min(1,k*22)*(1-k)*(1-k*0.25);
   }
 }
-function pushTrail(x,y,z,w){ trail.unshift({x,y,z,w:w*(typeof cocoK!=='undefined'?cocoK:1),age:0});
+// ---- the rider's wake, switched off ----
+// Asked for the same way the boat's was: "remove all trails for now". Switched rather than
+// deleted, for the same reason -- the machinery underneath is worth keeping, and this is one
+// flag away from returning. It gates the ribbon here at its source rather than at the four
+// places that push to it, because three of those are not the ride wake at all: a wipeout
+// skipping across the water, a landing impact, and the hand drag. "All trails" is all of them.
+//
+// Worth writing down what beat me, so the next attempt does not start where this one did.
+// Density is what makes foam read as cloud, and density is also what produces the rainbow
+// speckle: stacked translucent sprites round their blend to 8 bits, and a phone's framebuffer
+// shows the accumulated error as coloured dots. Cutting the count to a fifth and turning
+// dithering on reduced it and did not remove it. The two pull against each other, so a wake
+// that is both thick and clean is not reachable by tuning this emitter. It wants something that
+// does not stack alpha at all, drawn once -- a mesh, or a single shader pass over the water like
+// the barrel's own whitewater already uses.
+var RIDE_WAKE_ON=false;
+function pushTrail(x,y,z,w){ if(!RIDE_WAKE_ON)return;
+  trail.unshift({x,y,z,w:w*(typeof cocoK!=='undefined'?cocoK:1),age:0});
   if(trail.length>WAKE_SEGS)trail.pop(); }
 function updateWake(dt,eff){
   for(const t of trail){ t.age+=dt; t.z+=eff*dt; }
@@ -26900,7 +26917,8 @@ function update(dt){
   // The test is his HEIGHT rather than the phase, so the tow keeps its wake for the moment he
   // is still planing before the wing lifts him. Written !(a>b) because py can arrive undefined
   // and `undefined>1.6` is false where `undefined<=1.6` is also false.
-  if(!airborne&&!hanging&&!(glPh>=0&&py>1.6)){
+  // the foam cloud, the ski's rooster tail and the carve spray go with the ribbon
+  if(RIDE_WAKE_ON&&!airborne&&!hanging&&!(glPh>=0&&py>1.6)){
     // water piles up on the inside rail of the turn and peels off the outside — no discs
     trailT-=dt;
     // ---- and it starts BEHIND the board, not under his feet ----
