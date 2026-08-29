@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.86.0';
+window.SURF_VERSION='5.87.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -18826,7 +18826,22 @@ function boatStart(){
 // remembers which way was across the hull when it was made. Without that the arms of the V
 // would swing round with the boat and the whole wake would pivot behind it like a rigid fork.
 const _btN=new THREE.Vector3();
+// ---- the boat's wake, which is off ----
+// Three painted ribbons and a cloud of foam sprites, and asked for as "remove all trails from
+// boat, they look awful". Switched rather than deleted: the V is a real bit of machinery -- it
+// spreads by distance travelled rather than by a fixed width, it shoves obstacles aside, and
+// boatBump lifts the water along both arms -- and none of that is worth rebuilding from scratch
+// when the objection is to how it LOOKS. Flip this back to true and it all returns.
+// The rider's own wash and the jet ski's are untouched; they share bfPush but not this flag.
+var BOAT_WAKE_ON=false;
 function boatLayWake(dt,eff){
+  if(!BOAT_WAKE_ON){
+    // the trail still ages out and the ribbons stay hidden, so nothing is left frozen on the
+    // water from before the switch was read
+    boatTrail.length=0;
+    boatArmL.mesh.visible=false; boatArmR.mesh.visible=false; boatChurn.mesh.visible=false;
+    return;
+  }
   for(const t of boatTrail){ t.age+=dt; t.z+=eff*dt; }
   while(boatTrail.length&&boatTrail[boatTrail.length-1].age>BOAT_LIFE)boatTrail.pop();
   if(boat.visible&&btPh!==BTP.OFF){
@@ -19011,7 +19026,10 @@ function updateBoat(dt,eff){
   boat.rotation.z=-btYaw*0.45+Math.sin(tNow*1.3)*0.02;
   // the ridge it pushes, parked on the stern
   const push=Math.min(1,btSpd/26);
-  bwA=2.55*push; bwX=btX; bwZ=dist*WAVE_DRIFT+btZ+7.0;
+  // and the height field's ridge with them. Leaving this on with the ribbons off would keep a
+  // V-shaped lift travelling through the water with nothing drawing it -- a wake you can feel
+  // and cannot see, which is worse than either.
+  bwA=BOAT_WAKE_ON?2.55*push:0; bwX=btX; bwZ=dist*WAVE_DRIFT+btZ+7.0;
   bwSn=Math.sin(btYaw); bwCs=Math.cos(btYaw);
   // ---- the cloud, laid down where the water is actually churning ----
   // Emitted per SECOND rather than per frame, so the density of the wake does not depend on the
@@ -19019,7 +19037,9 @@ function updateBoat(dt,eff){
   // transom by squaring the random, because that is where the reference is brightest and where
   // the propeller actually is; the rest is spread down the churn band and along both arms, on
   // the same arithmetic the ribbons and the height field use so all three agree.
-  if(btSpd>7){
+  // the foam goes with the ribbons -- "all trails" means the cloud too, and half a wake reads
+  // worse than either whole one
+  if(BOAT_WAKE_ON&&btSpd>7){
     bfAcc+=dt*(64+btSpd*1.5);
     let guard=0;
     while(bfAcc>=1&&guard++<20){
@@ -19048,7 +19068,7 @@ function updateBoat(dt,eff){
     }
   }
   // spray off the transom, at the same rate the ski throws it but in a wider fan
-  if(btSpd>8){
+  if(BOAT_WAKE_ON&&btSpd>8){
     for(let i=0;i<3;i++){
       const m=(typeof takeDrop==='function')?takeDrop():null; if(!m)break;
       m.material=SPLASH_MAT;
@@ -19265,6 +19285,8 @@ loadModel('paraglider.glb',s3=>{
     // out to the tips.
     const NB=64, colTop=new Float32Array(NB).fill(-1e9);
     const bin=(x)=>Math.max(0,Math.min(NB-1,Math.floor(((x-x0)/w)*NB)));
+    const _bkL=new THREE.Vector3(), _bkR=new THREE.Vector3();
+    let _bkSL=-1e9, _bkSR=-1e9;
     fitted.traverse(o=>{
       if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
       const p=o.geometry.attributes.position;
@@ -19324,6 +19346,20 @@ loadModel('paraglider.glb',s3=>{
         v.fromBufferAttribute(p,i).applyMatrix4(o.matrixWorld);
         const fab=(colTop[bin(v.x)]-v.y)<h*FAB_D;
         isFab[i]=fab?1:0;
+        // ---- and where the BRAKES come off, taken off the fabric itself ----
+        // The anchors were fractions of the bounding box -- min.x*0.74, GL_LINE*0.88 -- which is
+        // a point in the air near the wing rather than a point ON it. Measured on the parachute
+        // they landed at (7.03, 14.13) with the canopy 16.05 tall: inside the fabric's height
+        // band in the middle of the span, and well ABOVE the fabric out at the tip, because a
+        // dome falls away toward its edges. So each control line left the canopy and carried on
+        // into the sky, which is what a white thread through the wing and out the far side is.
+        // A brake ends at the outboard corner of the trailing edge, so that is what is looked
+        // for: among fabric vertices only, the one furthest out and furthest back on each side.
+        if(fab){
+          const sc=Math.abs(v.x)*0.75+v.z*0.35;
+          if(v.x<0){ if(sc>_bkSL){ _bkSL=sc; _bkL.copy(v); } }
+          else     { if(sc>_bkSR){ _bkSR=sc; _bkR.copy(v); } }
+        }
         const c=fab?FAB[Math.floor(((v.x-x0)/w)*FAB.length*2.4)%FAB.length]:LINE;
         col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
       }
@@ -19389,6 +19425,10 @@ loadModel('paraglider.glb',s3=>{
                       if(o.material.color)o.material.color.setHex(0xffffff); }
         o.material.needsUpdate=true; }
     });
+    // and the anchors found above replace the ones guessed off the box, if the sweep found a
+    // fabric vertex on each side. If it did not, the box-derived pair is still there -- a wrong
+    // anchor is a stray line, a missing one is a crash.
+    if(_bkSL>-1e8&&_bkSR>-1e8)glider.userData.brake=[_bkL,_bkR];
   }
   // ---- and it is FABRIC, whatever the exporter said ----
   // It arrived with metallicFactor 1 and roughness 1. A fully metallic surface has no diffuse
@@ -19548,9 +19588,14 @@ function aimRope(a,b){
   glRope.material.map.repeat.set(1,Math.max(1,len*0.9));
 }
 // the two control lines, drawn as a pair so one geometry carries both
+// ---- and they are the colour of the RIGGING, not of paper ----
+// Near-white at 0.8 opacity, against a canopy whose own thirty-odd lines are dark slate, made
+// these two read as something else entirely -- a pair of bright threads laid over the wing
+// rather than two of its lines. They are the same dark as the rest of the rig now, which is
+// also what stops them being the first thing the eye finds in the whole shot.
 const glBrake=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(
   [new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3()]),
-  new THREE.LineBasicMaterial({color:0xf2ede0, transparent:true, opacity:0.8}));
+  new THREE.LineBasicMaterial({color:0x2f353d, transparent:true, opacity:0.92}));
 glBrake.visible=false; glBrake.frustumCulled=false; scene.add(glBrake);
 // ---- the bar the whole thing meets at ----
 // A tow rope going to the harness and control lines going to the hands are two separate things
@@ -19746,7 +19791,16 @@ function glideStep(dt,waterY){
       glBar.userData.tube.scale.set(1,span,1);
       glBar.userData.gL.position.set(0, span*0.5-0.17, 0);
       glBar.userData.gR.position.set(0,-span*0.5+0.17, 0);
-      glBar.visible=true;
+      // ---- and it waits for the ARMS ----
+      // The bar is drawn between his two hands, and for the first second of the flight those
+      // hands are still in the surf stance -- one up by his head, one back and low -- because
+      // glFace eases the square-on pose in over about a second while this was already spanning
+      // them. The segment between two hands like that runs diagonally THROUGH him, and a pale
+      // steel tube across a fawn pug is the thing reported as sticking out of his body.
+      // It appears once the pose it belongs to has actually arrived. Measured either side of
+      // that: settled, the hands are 1.53ft apart and the bar sits clear across them; during
+      // the turn they are 1.42 apart with their midpoint off to one side of him entirely.
+      glBar.visible=(typeof glFace==='number')&&glFace>0.80;
     } else { glBrake.visible=false; glBar.visible=false; }
   } else { glBrake.visible=false; glBar.visible=false; }
   // The rope runs from the harness -- the same point the canopy hangs from -- to the boat's
@@ -21787,7 +21841,20 @@ if(location.hash.includes('debug')){
                 const a=new THREE.Vector3().setFromMatrixPosition(p.f.matrixWorld);
                 const b2=new THREE.Vector3().setFromMatrixPosition(p.b.matrixWorld);
                 return {apart:+a.distanceTo(b2).toFixed(2),
-                        up:+(((a.y+b2.y)*0.5)-py).toFixed(2)}; })(),
+                        up:+(((a.y+b2.y)*0.5)-py).toFixed(2),
+                        // and WHERE each one is, because "a bar through his chest" is a claim
+                        // about the segment between two points, not about how far apart they are
+                        f:[+(a.x-px).toFixed(2),+(a.y-py).toFixed(2),+(a.z-pz).toFixed(2)],
+                        b:[+(b2.x-px).toFixed(2),+(b2.y-py).toFixed(2),+(b2.z-pz).toFixed(2)]};
+                })(),
+              // the brake anchors in the glider's own space, against the canopy they are meant
+              // to be ON: a line that leaves the fabric and carries on into the sky is an
+              // anchor above the roof, which is two numbers side by side
+              brakeAt:(function(){ const B=glider.userData&&glider.userData.brake;
+                if(!B)return null;
+                return {a:[+B[0].x.toFixed(2),+B[0].y.toFixed(2),+B[0].z.toFixed(2)],
+                        b:[+B[1].x.toFixed(2),+B[1].y.toFixed(2),+B[1].z.toFixed(2)],
+                        line:+GL_LINE.toFixed(2)}; })(),
               brakeLen:(function(){ const a=glBrake.geometry.attributes.position;
                 if(!a||a.count<4)return null;
                 const dx=a.getX(0)-a.getX(1), dy=a.getY(0)-a.getY(1), dz=a.getZ(0)-a.getZ(1);
