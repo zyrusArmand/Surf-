@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.87.0';
+window.SURF_VERSION='5.88.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -15129,6 +15129,13 @@ function grabAction(){
   if(btGrab!==BTG.OPEN)return;
   btGrab=BTG.TAKEN;
   grabBtn.style.display='none';
+  // ---- and the line is IN HIS HANDS from this instant ----
+  // The rope used to appear with the canopy, which is several seconds later, at the point the
+  // boat reaches station -- so the whole gap between reaching for a line and being pulled by
+  // one had nothing connecting you to the boat. It is aimed on the spot as well as switched
+  // on, or the first frame draws it wherever it was last left.
+  glRope.visible=true;
+  if(typeof glRopeTrack==='function')glRopeTrack();
   if(typeof buzz==='function')buzz(14);
   if(typeof msg==='function')msg('HANG ON! 🪂');
 }
@@ -18987,7 +18994,9 @@ function updateBoat(dt,eff){
     // opens up a little once it is not towing, and then holds THAT: further ahead than the tow
     // station, still on screen, for as long as you are in the air.
     if(glPh>=0){ btT=Math.min(btT,BOAT_STATION-0.6); }
-    else if(btT>=BOAT_STATION){ btPh=BTP.AWAY; btT=0; }
+    else if(btT>=BOAT_STATION){ btPh=BTP.AWAY; btT=0;
+      // nothing else would clear it: glideReset only runs when there was a glide
+      if(glPh<0)glRope.visible=false; }
   } else if(btPh===BTP.AWAY){
     btSpd+=(40-btSpd)*Math.min(1,dt*0.7);
     mvZ=-btSpd*dt;
@@ -19024,6 +19033,12 @@ function updateBoat(dt,eff){
   // 1.5 here was a capsize on its own, before the euler order made it worse.
   boat.rotation.x=-0.055-0.035*Math.min(1,btSpd/30);
   boat.rotation.z=-btYaw*0.45+Math.sin(tNow*1.3)*0.02;
+  // ---- and the line he took is kept aimed from HERE until the wing opens ----
+  // Placed after the hull has been moved and turned for this frame, and outside the phase
+  // branches, because the line is taken during the pass and the boat then runs pass, swing and
+  // station before the glide exists to track it. Inside any one branch it would go slack for
+  // the other two.
+  if(glPh<0&&typeof glRopeTrack==='function')glRopeTrack();
   // the ridge it pushes, parked on the stern
   const push=Math.min(1,btSpd/26);
   // and the height field's ridge with them. Leaving this on with the ribbons off would keep a
@@ -19810,10 +19825,18 @@ function glideStep(dt,waterY){
   // It used to run to the harness, which put the thing pulling him and the thing he is holding
   // in two different places. It lands on the same bar the canopy's brakes do, so there is one
   // physical junction: boat, rope, bar, hands, wing.
-  if(glRope.visible){
-    const at=glBar.visible?_gbM:_gbF.set(px,py+1.0,pz-0.4);
-    aimRope(at,_rpB.set(btX, boat.position.y+0.9, btZ+8.4));
-  }
+  glRopeTrack();
+}
+// ---- and the rope is tracked OUTSIDE the glide, because it exists before it ----
+// This was inline at the end of glideStep, and glideStep only runs once glPh >= 0 -- which is
+// several seconds after you take the line, at the point the boat is finally on station. So the
+// rope could be switched on at the grab and would simply sit wherever it was last left until
+// the wing opened. It is its own function now, called from the glide when the glide is running
+// and from the boat when it is not, so the line is live from the moment it is taken.
+function glRopeTrack(){
+  if(!glRope.visible)return;
+  const at=glBar.visible?_gbM:_gbF.set(px,py+1.0,pz-0.4);
+  aimRope(at,_rpB.set(btX, boat.position.y+0.9, btZ+8.4));
 }
 
 // ---------- the set wave: a plane goes down, and what it throws you can ride ----------
