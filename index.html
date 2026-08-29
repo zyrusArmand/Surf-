@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.82.0';
+window.SURF_VERSION='5.83.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -19044,6 +19044,9 @@ var glPh=GLP.OFF, glT=0, glAge=0, glVx=0, glRoll=0, glRollV=0, glPitch=0, glPitc
 // same motion. Anchoring here also lets a MODEL drop in beside the built one, because a
 // modelled paraglider arrives with its lines and they converge on exactly this point.
 var GL_LINE=9.4;
+// what the wing MEASURED as on import -- the fabric depth and the box ratios are derived from
+// whatever file turns up, so they are reported rather than left to be inferred from a picture
+var GL_FABD=0, GL_RY=0, GL_RZ=0;
 function buildGlider(){
   const g=new THREE.Group();
   const SPAN=17, CHORD=5.4, NC=16, ARC=0.66;
@@ -19109,17 +19112,28 @@ function buildGlider(){
 const glider=buildGlider();
 glider.visible=false; scene.add(glider);
 // ---- and the modelled one, which brings its own lines ----
-// Its box is 1 : 0.69 : 0.36 -- a height two-thirds of the span, which no canopy on its own is.
-// That is a wing WITH its rigging, converging on a riser point at the bottom, so the whole
-// thing is dropped in and re-seated on that point rather than on its centre. The target box is
-// cut to the model's own proportions so fitToBox has nothing to correct: its longest side is
-// the span either way round, and a box of a different shape would spin it.
+// Its box is much taller than it is deep -- a height most of its span, which no canopy on its
+// own is. That is a wing WITH its rigging, converging on a riser point at the bottom, so the
+// whole thing is dropped in and re-seated on that point rather than on its centre. The target
+// box has to match the model's OWN proportions so fitToBox has nothing to correct: its longest
+// side is the span either way round, and a box of a different shape would spin it.
+//
+// ---- and those proportions are MEASURED, not written down ----
+// They were written down, as 0.691 and 0.361, which were right for exactly one file. The wing
+// has now been replaced three times and the third one is 0.845 tall -- a fifth taller, against
+// a box still cut for the old one, which is a wing squashed by a fifth or turned on its side.
+// A constant that has to be re-derived every time a model arrives is a constant that will be
+// forgotten once, so the box is built from whatever actually turns up instead.
 const GL_SPAN=19;
-const PGL_BOX=new THREE.Box3(
-  new THREE.Vector3(-GL_SPAN*0.5,-GL_SPAN*0.691*0.5,-GL_SPAN*0.361*0.5),
-  new THREE.Vector3( GL_SPAN*0.5, GL_SPAN*0.691*0.5, GL_SPAN*0.361*0.5));
+function pglBox(obj){
+  const b=new THREE.Box3().setFromObject(obj), s=b.getSize(new THREE.Vector3());
+  const L=Math.max(s.x,s.y,s.z)||1;              // the span, whichever axis it came down
+  const ry=s.y/L, rz=s.z/L; GL_RY=ry; GL_RZ=rz;
+  return new THREE.Box3(new THREE.Vector3(-GL_SPAN*0.5,-GL_SPAN*ry*0.5,-GL_SPAN*rz*0.5),
+                        new THREE.Vector3( GL_SPAN*0.5, GL_SPAN*ry*0.5, GL_SPAN*rz*0.5));
+}
 loadModel('paraglider.glb',s3=>{
-  const fitted=skinAndFit('paraglider',s3,PGL_BOX);
+  const fitted=skinAndFit('paraglider',s3,pglBox(s3));
   // The lines end where they end. Measured off the fitted model rather than assumed, then slid
   // down so that point lands on the group's origin -- which is the harness.
   const b=new THREE.Box3().setFromObject(fitted);
@@ -19194,13 +19208,52 @@ loadModel('paraglider.glb',s3=>{
     // neighbour's roof rather than reporting the rigging as the top of the wing
     { const c2=colTop.slice();
       for(let i=0;i<NB;i++) colTop[i]=Math.max(c2[Math.max(0,i-1)],c2[i],c2[Math.min(NB-1,i+1)]); }
+    // ---- and HOW DEEP the fabric goes is measured too ----
+    // This was a flat 0.26 of the model's height, tuned by eye on a wing 0.69 as tall as it was
+    // wide. On a parachute 0.845 as tall the same fraction reaches a fifth further down and
+    // paints the suspension lines in canopy colours -- which is exactly what the first render of
+    // it showed: a dome with orange and blue strings hanging off it.
+    //
+    // Vertex DENSITY is the obvious separator and it does not work. These lines are modelled as
+    // real tubes, so they carry plenty of vertices, the count never collapses, the search ran
+    // all the way to its clamp and half the rig came out painted.
+    //
+    // What does separate them is how much of the SPAN a height slice covers. A canopy is one
+    // continuous skin: at any height through it, nearly every column across the wing has
+    // something in it. Rigging is twenty-odd strands with air between them, so a slice through
+    // the lines lights up a fraction of the columns however many vertices those strands hold.
+    // The cut is the first slice below the roof whose coverage falls well under the canopy's.
+    // Clamped either side, because a model that is all canopy and no line (or the reverse)
+    // should degrade to roughly the old behaviour rather than to a wing painted entirely slate.
+    let FAB_D=0.26;
+    { const NR=48, seen=[];
+      for(let r=0;r<NR;r++)seen.push(new Uint8Array(NB));
+      fitted.traverse(o=>{ if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+        const p=o.geometry.attributes.position;
+        for(let i=0;i<p.count;i++){
+          v.fromBufferAttribute(p,i).applyMatrix4(o.matrixWorld);
+          const r=Math.max(0,Math.min(NR-1,Math.floor(((y1-v.y)/h)*NR)));  // 0 is the roof
+          seen[r][bin(v.x)]=1; } });
+      const cov=new Float64Array(NR);
+      for(let r=0;r<NR;r++){ let n=0; for(let b=0;b<NB;b++)n+=seen[r][b]; cov[r]=n/NB; }
+      // ---- and the walk starts at the WIDEST slice, not the top one ----
+      // Searching down from the roof tripped instantly and clamped at the floor: the widest part
+      // of a canopy is its skirt, so the slices just under the apex cover little of the span and
+      // read as a collapse before the fabric has even started. The peak is found first, and the
+      // collapse looked for below it.
+      let peak=0, at=0;
+      for(let r=0;r<NR;r++)if(cov[r]>peak){ peak=cov[r]; at=r; }
+      let drop=NR;
+      for(let r=at+1;r<NR;r++)if(cov[r]<peak*0.72){ drop=r; break; }
+      FAB_D=Math.max(0.12,Math.min(0.45,drop/NR)); GL_FABD=FAB_D;
+    }
     fitted.traverse(o=>{
       if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
       const p=o.geometry.attributes.position, col=new Float32Array(p.count*3);
       const isFab=new Uint8Array(p.count);
       for(let i=0;i<p.count;i++){
         v.fromBufferAttribute(p,i).applyMatrix4(o.matrixWorld);
-        const fab=(colTop[bin(v.x)]-v.y)<h*0.26;
+        const fab=(colTop[bin(v.x)]-v.y)<h*FAB_D;
         isFab[i]=fab?1:0;
         const c=fab?FAB[Math.floor(((v.x-x0)/w)*FAB.length*2.4)%FAB.length]:LINE;
         col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
@@ -21559,6 +21612,7 @@ if(location.hash.includes('debug')){
               wingAt:glider.visible?sc(glider):null,
               span:glider.visible?+(b.max.x-b.min.x).toFixed(2):null,
               above:+(glider.position.y+GL_LINE-py).toFixed(2), line:+GL_LINE.toFixed(2),
+              fabD:+GL_FABD.toFixed(3), ratio:[+GL_RY.toFixed(3),+GL_RZ.toFixed(3)],
               modelled:!!(glider.userData&&glider.userData.model), boatPh:btPh}; },
     ufoNow(){ if(typeof ufoStart!=='function')return null;
       dayForce=UFO_TEST_HOUR; return ufoStart(); },
