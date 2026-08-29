@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.60.0';
+window.SURF_VERSION='5.61.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -7616,7 +7616,12 @@ function palmWindWeights(geo,trunk){
   if(geo.boundingSphere)geo.boundingSphere.radius*=1.06;
 }
 // how far a frond tip travels, as a share of the tree's own height
-let PALM_WIND=0.030;
+// ---- ...AND ENOUGH OF IT TO SEE ----
+// 0.030 was tuned to be certain it never read as a wobble, and landed short of reading at all:
+// on the title screen the crown was moving about a third of a foot, which at that distance is
+// a few pixels and looks like a still photograph. Nearly double, and the gust below is what
+// stops that being frantic instead of breezy.
+let PALM_WIND=0.055;
 const _pwU=[];            // every compiled copy's uniforms, so one clock drives them all
 let _pwT=0;
 function palmWindMaterial(mt){
@@ -7638,11 +7643,18 @@ function palmWindMaterial(mt){
           // stops it reading as a loop.
           float ph=wp.x*0.7+wp.z*0.9+position.y*2.9+position.x*1.7;
           float sw=sin(uWindT*0.9+ph)+0.55*sin(uWindT*1.7+ph*1.6)+0.25*sin(uWindT*2.9+ph*0.7);
-          float g=uWindA*aWind;
+          // ---- AND IT COMES IN GUSTS ----
+          // A constant amplitude is a metronome: the crown swings the same distance every time
+          // and the eye reads it as a mechanism rather than as weather. Real wind arrives and
+          // drops, so the whole sway is scaled by something very slow -- and phased off the
+          // tree's own position, so the two palms on the beach are not breathing in unison,
+          // which is the other half of what gives a loop away.
+          float gust=0.68+0.52*sin(uWindT*0.21+wp.x*0.37+wp.z*0.19);
+          float g=uWindA*aWind*gust;
           transformed.x+=g*sw*0.85;
           transformed.z+=g*sw*0.35;
           // a frond dips as it swings out rather than travelling on a flat plane
-          transformed.y-=g*abs(sw)*0.22;
+          transformed.y-=g*abs(sw)*0.26;
         }`);
   };
   const prev=mt.onBeforeCompile;
@@ -20249,6 +20261,26 @@ if(location.hash.includes('debug')){
     // which is also how to check that what is moving in the crown is this and not the drift
     // of the shot.
     palmWind(a){ if(a!==undefined)PALM_WIND=a; return PALM_WIND; },
+    // Where the crown lands ON SCREEN. "Is the palm moving noticeably" is answerable by
+    // differencing two frames, but only over the fronds -- across the whole picture the sea
+    // and the clouds swamp it, and the answer comes out the same however still the tree is.
+    palmBox(){
+      if(typeof menuPalm==='undefined'||!menuPalm||!menuCam)return null;
+      menuPalm.updateWorldMatrix(true,true);
+      const b=new THREE.Box3().setFromObject(menuPalm);
+      if(!isFinite(b.min.x))return null;
+      let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+      const v=new THREE.Vector3();
+      for(let i=0;i<8;i++){
+        v.set(i&1?b.max.x:b.min.x, i&2?b.max.y:b.min.y, i&4?b.max.z:b.min.z).project(menuCam);
+        const px=(v.x*0.5+0.5)*innerWidth, py=(-v.y*0.5+0.5)*innerHeight;
+        x0=Math.min(x0,px); x1=Math.max(x1,px); y0=Math.min(y0,py); y1=Math.max(y1,py);
+      }
+      // the CROWN, not the trunk: the fronds are what moves and the bark is what does not,
+      // and including the bark only dilutes the number
+      return {x0:Math.round(x0),y0:Math.round(y0),x1:Math.round(x1),
+              y1:Math.round(y0+(y1-y0)*0.55)};
+    },
     // The bloom the RUN renders at, set straight onto the pass. Nothing rewrites these during
     // a run, unlike the title screen which reapplies its own two every frame — so this is the
     // way to look at a frame with the bloom taken off it and decide whether the pale edge
