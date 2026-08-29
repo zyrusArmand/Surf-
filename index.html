@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.84.0';
+window.SURF_VERSION='5.85.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -18751,7 +18751,20 @@ const BOAT_STATION_Z=-58;              // the floor on how far ahead it will sit
 const BOAT_STATION=6.0;                // seconds it holds there before giving up on you
 // how much further ahead it sits once it has let go of you -- far enough to read as having
 // opened up, close enough to stay in a frame whose camera is now forty feet in the air
-const BOAT_FLY_BACK=26;
+// ---- and 26 was nowhere near enough of it ----
+// The mechanism was right and the number was small by an order that guessing did not close.
+// Measured through a whole flight, the boat settled 82ft out and walked DOWN the frame the whole
+// climb -- scrY 405 on station, 677 at eight feet up, 769 at thirty-two -- until it sat at his
+// feet, small and mostly behind him.
+//
+// Raising it to 56 barely moved it, and the reason is geometry rather than tuning. The boat is
+// on the water and the camera climbs with him, so what sets its height in frame is the ANGLE
+// below the horizon, atan(cameraHeight / distance) -- and against a camera thirty-six feet up,
+// going from 82ft to 114ft only takes that from 24 degrees to 17. Distance has to move a long
+// way to buy a little angle. At 110 the standoff reaches about 120ft by mid-climb and 170 at
+// the top, which roughly halves the angle and puts the boat up where the rope has some length
+// to read along. It is still an easy 20ft boat at that range, not a speck.
+const BOAT_FLY_BACK=110;
 // how long the crossing takes. It is a duration rather than a rate because a smoothstep needs
 // to know where it is between two ends, which a per-frame ease never does.
 const BOAT_SWING_T=3.2;
@@ -19385,10 +19398,36 @@ loadModel('paraglider.glb',s3=>{
   glider.userData.model=fitted;
 });
 // the tow line, which is a different rope from the plane's and outlives it by a phase
-const glRope=new THREE.Line(new THREE.BufferGeometry().setFromPoints(
-  [new THREE.Vector3(),new THREE.Vector3()]),
-  new THREE.LineBasicMaterial({color:0xfff4d8}));
-glRope.visible=false; scene.add(glRope);
+// ---- and it is GEOMETRY, because a Line is one pixel wide ----
+// It was a THREE.Line. WebGL ignores linewidth entirely -- every Line is one pixel however
+// wide you ask for it -- so this was a single pale-cream pixel drawn against a bright sky with
+// the boat eighty feet out, which is to say nothing at all. It was reported as no rope.
+// A rope that is meant to be seen has to have thickness, so it is a thin cylinder re-aimed
+// between its two ends every frame. Unlit, so it does not lose itself against the sun.
+// ---- and it is TAPERED, deliberately the wrong way round ----
+// A rope of constant thickness is correct and illegible: the boat end is a hundred and seventy
+// feet out, where a foot is four pixels, so an honest rope thin enough not to be a hawser at
+// the rider's hands is under a pixel by the time it arrives. The far end is made wider than the
+// near one so the thing holds a roughly even width on screen -- the same lie a drawn power line
+// tells. Top is +Y, which aimRope points at the BOAT, so top is the fat end.
+const GL_ROPE_R=0.30;
+const glRope=new THREE.Mesh(new THREE.CylinderGeometry(1,0.25,1,6,1,true),
+  new THREE.MeshBasicMaterial({color:0xfff4d8, side:THREE.DoubleSide}));
+glRope.visible=false; glRope.frustumCulled=false;
+glRope.userData.a=new THREE.Vector3(); glRope.userData.b=new THREE.Vector3();
+scene.add(glRope);
+const _rpD=new THREE.Vector3(), _rpUp=new THREE.Vector3(0,1,0), _rpB=new THREE.Vector3();
+// The cylinder is built along +Y and one unit long, so it is scaled to the span and turned to
+// point down it. Length goes on Y and the radius on the other two, which is why the geometry
+// is a unit cylinder rather than one built at the rope's real size.
+function aimRope(a,b){
+  _rpD.subVectors(b,a);
+  const len=_rpD.length();
+  glRope.position.copy(a).addScaledVector(_rpD,0.5);
+  glRope.scale.set(GL_ROPE_R,Math.max(0.001,len),GL_ROPE_R);
+  if(len>1e-5)glRope.quaternion.setFromUnitVectors(_rpUp,_rpD.divideScalar(len));
+  glRope.userData.a.copy(a); glRope.userData.b.copy(b);
+}
 // the two control lines, drawn as a pair so one geometry carries both
 const glBrake=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(
   [new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3()]),
@@ -19600,9 +19639,7 @@ function glideStep(dt,waterY){
   // physical junction: boat, rope, bar, hands, wing.
   if(glRope.visible){
     const at=glBar.visible?_gbM:_gbF.set(px,py+1.0,pz-0.4);
-    glRope.geometry.setFromPoints([
-      new THREE.Vector3(at.x,at.y,at.z),
-      new THREE.Vector3(btX, boat.position.y+0.9, btZ+8.4)]);
+    aimRope(at,_rpB.set(btX, boat.position.y+0.9, btZ+8.4));
   }
 }
 
@@ -21607,11 +21644,17 @@ if(location.hash.includes('debug')){
               barAt:glBar.visible?[+(glBar.position.x-px).toFixed(2),
                                    +(glBar.position.y-py).toFixed(2),
                                    +(glBar.position.z-pz).toFixed(2)]:null,
-              ropeEnd:(function(){ const a=glRope.geometry.attributes.position;
-                if(!a||a.count<2||!glBar.visible)return null;
-                const dx=a.getX(0)-glBar.position.x, dy=a.getY(0)-glBar.position.y,
-                      dz=a.getZ(0)-glBar.position.z;
-                return +Math.sqrt(dx*dx+dy*dy+dz*dz).toFixed(3); })(),
+              // the rope is a cylinder now rather than a Line, so its ends are carried on the
+              // mesh rather than read back out of a geometry
+              ropeEnd:glBar.visible?+glRope.userData.a.distanceTo(glBar.position).toFixed(3):null,
+              ropeLen:glRope.visible
+                ?+glRope.userData.a.distanceTo(glRope.userData.b).toFixed(2):null,
+              // where the boat actually sits on screen while he is up: the whole complaint was
+              // that it is behind him and too low, which is two numbers, not an impression
+              boatScr:(function(){ if(!boat.visible)return null;
+                const v=new THREE.Vector3(); boat.getWorldPosition(v); v.project(camera);
+                return [Math.round((v.x*0.5+0.5)*innerWidth),
+                        Math.round((-v.y*0.5+0.5)*innerHeight)]; })(),
               modelHands:(function(){ const R=(typeof riderRig==='function')?riderRig():null;
                 return !!(R&&R.bones&&R.bones.LeftHand); })(),
               paws:!!glPaws(),
@@ -26314,7 +26357,16 @@ function update(dt){
   ufoLiftRider(dt);
 
   // whitewater under the board + wash trail behind it
-  if(!airborne&&!hanging){
+  // ---- and NOT while he is hanging under a canopy thirty feet up ----
+  // The paraglide is its own phase at the top of the physics chain, so it sets neither
+  // `airborne` nor `hanging` -- and this whole block kept running through the entire flight,
+  // laying wash, spray and foam on the water under a rider who is nowhere near it. From the
+  // ground that is a wake with nothing making it; from up in the canopy, where you spend the
+  // flight looking down at open water, it is a field of white specks scattered across the sea.
+  // The test is his HEIGHT rather than the phase, so the tow keeps its wake for the moment he
+  // is still planing before the wing lifts him. Written !(a>b) because py can arrive undefined
+  // and `undefined>1.6` is false where `undefined<=1.6` is also false.
+  if(!airborne&&!hanging&&!(glPh>=0&&py>1.6)){
     // water piles up on the inside rail of the turn and peels off the outside — no discs
     trailT-=dt;
     // ---- and it starts BEHIND the board, not under his feet ----
