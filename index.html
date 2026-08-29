@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.96.0';
+window.SURF_VERSION='5.97.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -13786,11 +13786,27 @@ for(let i=0;i<420;i++){
   const m=new THREE.Sprite(SPLASH_MAT.clone());
   m.visible=false;scene.add(m);POOL.push(m);
 }
+// ---- and a drop comes back from the pool WHITE ----
+// Reported as "little weird red spots" in the wake, and it is a pool-reuse bug with two halves.
+// splash() tints a drop by mutating m.material.color -- fine while that sprite owns its material,
+// which each one does when the pool is built. But half a dozen call sites do `m.material =
+// SPLASH_MAT`, which points the sprite at the SHARED white material. Let a red hit-splash land on
+// one of those and it repaints SPLASH_MAT itself, so every white drop in the game turns red --
+// including the wake's own spray, which is where they were seen.
+// So: each sprite keeps its own material for life, and takeDrop resets it to the white default.
+// A caller that wants a colour sets it after, which is what splash() already does.
+function dropReset(m){
+  if(!m.userData.own)m.userData.own=m.material;
+  m.material=m.userData.own;
+  m.material.map=SPLASH_MAT.map;
+  m.material.color.copy(SPLASH_MAT.color);
+  return m;
+}
 function takeDrop(){
   const m=POOL.pop();
-  if(m){m.visible=true;return m;}
+  if(m){m.visible=true;return dropReset(m);}
   const old=splashes.shift();          // recycle the oldest if we run dry
-  if(old)return old;
+  if(old)return dropReset(old);
   return null;
 }
 function freeDrop(m){m.visible=false;POOL.push(m);}
@@ -18534,7 +18550,7 @@ function updateJetSki(dt,eff){
     // rooster tail of spray behind it
     for(let i=0;i<4;i++){
       const m=takeDrop(); if(!m)break;
-      m.material=SPLASH_MAT;
+      // takeDrop has already reset this sprite to its own white material
       const sc=1.1+Math.random()*1.6;m.scale.setScalar(sc);
       m.position.set(jetSki.position.x-skiDir*1.8,sy+0.2,jetSki.position.z+0.4);
       m.userData={vx:-skiDir*(3+Math.random()*5),vy:3+Math.random()*6,vz:1.5+Math.random()*3,t:0.6+Math.random()*0.4,s:sc};
@@ -19210,7 +19226,7 @@ function updateBoat(dt,eff){
   if(BOAT_WAKE_ON&&btSpd>8){
     for(let i=0;i<3;i++){
       const m=(typeof takeDrop==='function')?takeDrop():null; if(!m)break;
-      m.material=SPLASH_MAT;
+      // takeDrop has already reset this sprite to its own white material
       const sc=1.0+Math.random()*1.5; m.scale.setScalar(sc);
       m.position.set(btX+(Math.random()*2-1)*2.4, sea+0.25, btZ+8.6);
       m.userData={vx:(Math.random()*2-1)*3.5, vy:2.5+Math.random()*5,
@@ -22026,6 +22042,12 @@ if(location.hash.includes('debug')){
               // how far the lens actually is behind him -- the rider's wake is laid down TOWARD
               // the camera, so this is what decides how much of it the near-fade eats
               camBack:+(camera.position.z-pz).toFixed(1),
+              // the shared white drop material, which a tinted splash used to repaint for the
+              // whole game. If this ever reads anything but ffffff the leak is back.
+              splashCol:SPLASH_MAT.color.getHexString(),
+              splashOwn:(function(){ let own=0;
+                for(const m of splashes)if(m.material===SPLASH_MAT)own++;
+                return own; })(),
               // ---- and what a live packet is actually DOING ----
               // Three changes have now been made on reasoning about why 366 live packets draw
               // nothing. Reasoning has been wrong each time, so this reports the thing itself:
@@ -26596,7 +26618,7 @@ function update(dt){
       const bside=-Math.sign(vx);
       for(let i=0;i<26;i++){
         const m=takeDrop();if(!m)break;
-        m.material=SPLASH_MAT;
+        // takeDrop has already reset this sprite to its own white material
         const sc=0.8+Math.random()*1.4;m.scale.setScalar(sc);
         m.position.set(px+bside*0.8,waterY+0.1,0.4+Math.random()*0.6);
         m.userData={vx:bside*(4+Math.random()*7),vy:2.5+Math.random()*5,vz:2+Math.random()*4,t:0.6+Math.random()*0.3,s:sc};
@@ -26627,7 +26649,7 @@ function update(dt){
       sprayAcc-=1;
       if(Math.abs(carve)<0.10)continue;
       const m=takeDrop();if(!m)break;
-      m.material=SPLASH_MAT;
+      // takeDrop has already reset this sprite to its own white material
       const sc=0.58+Math.random()*0.82;m.scale.setScalar(sc);
       m.position.set(px+side*(0.46+Math.abs(carve)*0.42),waterY-0.10,0.2+Math.random()*0.9);
       m.userData={vx:side*(1.9+Math.abs(carve)*6.2+Math.random()*1.8),vy:0.9+Math.random()*Math.abs(carve)*5.6,vz:1.0+Math.random()*2.0,t:0.30+Math.random()*0.24,s:sc};
@@ -26645,7 +26667,7 @@ function update(dt){
       while(sprayAcc>1){
         sprayAcc-=1;
         const m=takeDrop(); if(!m)break;
-        m.material=SPLASH_MAT;
+        // takeDrop has already reset this sprite to its own white material
         const sc=0.7+Math.random()*1.0; m.scale.setScalar(sc);
         m.position.set(px+dragSide*(0.95+Math.random()*0.2), waterY-0.12, -0.15+Math.random()*0.7);
         m.userData={vx:dragSide*(1.4+Math.random()*3),vy:1.8+Math.random()*4.2,vz:2.2+Math.random()*3,t:0.5+Math.random()*0.35,s:sc};
@@ -26671,7 +26693,7 @@ function update(dt){
       // a corkscrew of spray thrown off the rail, turning with him
       for(let i=0;i<2;i++){
         const m=takeDrop(); if(!m)break;
-        m.material=SPLASH_MAT;
+        // takeDrop has already reset this sprite to its own white material
         const sc=0.42+Math.random()*0.5; m.scale.setScalar(sc);
         const a2=flipRot*1.6+i*Math.PI, r=0.95+Math.random()*0.35;
         m.position.set(px+Math.cos(a2)*r, py+0.10+Math.random()*0.5, Math.sin(a2)*r*0.8);
@@ -26895,7 +26917,7 @@ function update(dt){
         _jsTail=0.03;
         for(let i=0;i<3;i++){
           const m=(typeof takeDrop==='function')?takeDrop():null; if(!m)break;
-          m.material=SPLASH_MAT;
+          // takeDrop has already reset this sprite to its own white material
           const sc=0.9+Math.random()*1.5; m.scale.setScalar(sc);
           m.position.set(px+(Math.random()*2-1)*0.5, waterY+0.35, BOARD_HALF_L+0.5);
           m.userData={vx:(Math.random()*2-1)*2.2, vy:5.5+Math.random()*6.5,
