@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.61.0';
+window.SURF_VERSION='5.62.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -20261,6 +20261,17 @@ if(location.hash.includes('debug')){
     // which is also how to check that what is moving in the crown is this and not the drift
     // of the shot.
     palmWind(a){ if(a!==undefined)PALM_WIND=a; return PALM_WIND; },
+    // Where the hanging nuts are, in feet. Sampled over a few seconds this answers "do they
+    // move, and by how much" as a distance rather than as an impression -- and unlike the
+    // fronds, which are displaced in a vertex shader where the CPU cannot see them, the nuts
+    // are whole objects, so their travel can simply be read off.
+    cocoAt(){
+      if(typeof beachCocos==='undefined'||!beachCocos.length)return null;
+      const v=new THREE.Vector3();
+      return beachCocos.map(m=>{ m.updateWorldMatrix(true,false);
+        m.getWorldPosition(v);
+        return [+v.x.toFixed(4),+v.y.toFixed(4),+v.z.toFixed(4)]; });
+    },
     // Where the crown lands ON SCREEN. "Is the palm moving noticeably" is answerable by
     // differencing two frames, but only over the fronds -- across the whole picture the sea
     // and the clouds swamp it, and the answer comes out the same however still the tree is.
@@ -27273,6 +27284,26 @@ function layoutCoconuts(){
       const ps=menuProps.getWorldScale(new THREE.Vector3()).x||1;
       m.scale.setScalar(MB_COCO_SZ/Math.max(1e-4,ps));
       m.rotation.set(0.3+a2*0.11,a2*1.7,0.2*Math.sin(a2*2.3));
+      // ---- AND THE NUTS MOVE WITH IT ----
+      // They hang off the same crown the fronds do. A tree whose leaves are in the wind and
+      // whose coconuts are welded to the trunk reads as a still tree with animated leaves --
+      // the eye notices the one thing that is not moving.
+      //
+      // Much less than a frond, and differently: a nut is heavy and on a short stem, so it
+      // NODS rather than swings, which is why the rotation carries more of this than the
+      // position does. On the same slow gust as the fronds, or the tree has two weathers in it.
+      // Each one gets its own phase off its place round the trunk, and the three rates do not
+      // divide into each other, so no two ever quite repeat together.
+      if(typeof _pwT!=='undefined'){
+        const t=_pwT, gu=0.68+0.52*Math.sin(t*0.21+i*0.9);
+        const s1=Math.sin(t*0.83+a2*2.1), s2=Math.sin(t*1.45+a2*3.7);
+        const amp=MB_COCO_SZ*0.15*gu/Math.max(1e-4,ps);
+        m.position.x+=amp*(s1*0.80+s2*0.30);
+        m.position.z+=amp*(s2*0.70-s1*0.25);
+        m.position.y-=amp*Math.abs(s1)*0.22;      // it dips as it swings out, like the fronds
+        m.rotation.x+=0.11*gu*s1;
+        m.rotation.z+=0.11*gu*s2;
+      }
     }
   }
   // ---- and the halves on the sand ----
