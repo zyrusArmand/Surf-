@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.88.0';
+window.SURF_VERSION='5.89.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -5957,7 +5957,15 @@ const BOARDS=[
   // the lane, because it IS that.
   {id:'skijet', name:'Kahuna 750', price:500000,
    blurb:'A jet ski. Quicker than the eFoil, a wake you could ride, and a seat instead of a stance. It does not turn like a surfboard, because it is not one.',
-   spec:{L:8.40,W:3.20,T:1.30,noseA:1.500,tailA:0.900,noseW:0.200,tailW:0.900,
+   // ---- and it is SIZED TO THE RIDER, not to a real jet ski ----
+   // At 8.40 the fitted hull measured 8.82ft long against a 2.47ft pug -- a ratio of 0.28, where
+   // a photograph of a man on a ski sits nearer 0.40. That is why he read as a passenger on
+   // somebody else's machine rather than as the rider of his own: correct scale, wrong picture.
+   // 6.30 brings the hull to about 6.6ft and the ratio to 0.37. A jet ski shorter than a
+   // longboard is not what the sea contains, and it is what reads, which is the trade this game
+   // makes everywhere else too. W, T and the seat drop come down with it so the collision box
+   // and the sit height stay in proportion rather than being left behind at the old size.
+   spec:{L:6.30,W:2.40,T:0.98,noseA:1.500,tailA:0.900,noseW:0.200,tailW:0.900,
      rockN:0.320,noseR:0.520,rockT:0.060,tailR:0.400,deckPow:0.70,hullPow:0.52,hullK:0.80,
      padCol:0x191d22,finCol:0x14181d,padW:0.62,pads:[[0.34,0.78]],rough:0.42,
      // the engine, and what it costs: it is a boat, so it will not turn and it will not fly
@@ -5966,7 +5974,7 @@ const BOARDS=[
      // twenty-four clear of it, which is not "a bit" -- and it out-ran the lane: measured, the
      // run ended at 239m because fifty miles an hour leaves no room to read a buoy. Ten over
      // the foil is still the quickest thing out here by a clear margin.
-     top:44, wake:2.30, lift:0.55, seat:0.95, stat:{speed:10,tough:9,turn:2,air:2},
+     top:44, wake:2.30, lift:0.55, seat:1.40, stat:{speed:10,tough:9,turn:2,air:2},
      // the hull it is really wearing. The loft above is the fallback and the thing the rider
      // is seated against; the model covers it once the file is in.
      model:'jetski.glb',
@@ -12805,9 +12813,21 @@ function setupModelRig(root,gltf,id){
     // and then no amount of ankle work gets the soles back onto the deck; roll the spine and
     // the lean happens above the legs, which is also where it happens on a real one.
     const lean=this.sway*0.30;
-    set('Spine',   0.05+this.bob*0.02, -this.sway*0.10, lean*0.45);
-    set('Spine01', 0.05,               -this.sway*0.08, lean*0.35);
-    set('Spine02', 0.03,               -this.sway*0.06, lean*0.25);
+    // ---- the two poses that override the surf stance, weighed out once ----
+    // Declared HERE, above the first thing that reads them, and not with a typeof guard further
+    // down: these are const, so a `typeof _sk` before this line does not return "undefined", it
+    // throws -- and a throw at module evaluation is the blank screen with no __surf at all.
+    // _sk is scaled by (1-_gl) so the two can never sum past one and the surf pose is never
+    // asked for a negative share of him. The glide wins where both are up, because the shop's
+    // jet ski is a BOARD and you can be sat on it under the canopy, holding a control bar.
+    const _gl=(typeof glFace!=='undefined')?glFace:0;
+    const _sk=(typeof skiSit!=='undefined')?skiSit*(1-_gl):0;
+    const _base=Math.max(0,1-_gl-_sk);
+    // and a fold forward at the waist on the ski, which is the other half of "he is riding it":
+    // sitting bolt upright with your arms out front is being carried, not driving
+    set('Spine',   0.05+this.bob*0.02+0.16*_sk, -this.sway*0.10, lean*0.45);
+    set('Spine01', 0.05+0.13*_sk,               -this.sway*0.08, lean*0.35);
+    set('Spine02', 0.03+0.09*_sk,               -this.sway*0.06, lean*0.25);
     // he looks down the line, and his head stays level while his body does not
     set('neck', -0.06, this.sway*0.20, -lean*0.30);
     set('Head', -0.10+this.bob*0.03, this.sway*0.26, -lean*0.45);
@@ -12824,13 +12844,24 @@ function setupModelRig(root,gltf,id){
     // and a rider who is a model does not use it. Same lesson the jet ski's legs taught: what
     // you can see on these characters is bones, and this is where they are set. 1.30 out is
     // most of a right angle, which is where the reach is widest.
-    const _gl=(typeof glFace!=='undefined')?glFace:0;
-    const aSpread=spread*(1-_gl)+1.30*_gl;
-    const aUp=-0.02*(1-_gl)+(-0.55)*_gl;
-    set('LeftArm',  aUp+(sw1*0.11-this.sway*0.26)*(1-_gl), (0.05+sw1*0.10)*(1-_gl), -aSpread-this.sway*0.18*(1-_gl));
-    set('RightArm', aUp+(sw2*0.11+this.sway*0.26)*(1-_gl),(-0.05+sw2*0.10)*(1-_gl),  aSpread-this.sway*0.18*(1-_gl));
-    set('LeftForeArm',  (fl*0.18-this.load*0.14)*(1-_gl),0,(-0.08-this.load*0.16)*(1-_gl));
-    set('RightForeArm',(-fl*0.18-this.load*0.14)*(1-_gl),0,( 0.08+this.load*0.16)*(1-_gl));
+    // ---- and ON THE SKI they go FORWARD, onto the bars ----
+    // The legs were told to sit and the arms were never told anything, so he sat on a jet ski
+    // with a surfer's arms hanging at his hips. Measured, his hands came out at 3.94 along the
+    // hull against hips at 4.30 -- BEHIND himself, and 0.7 off to one side, when the handlebars
+    // are forward of him and level. A rider grips bars: shoulders rotated forward and only
+    // slightly out, elbows carrying a little bend, both hands the same.
+    //
+    // The glide wins over this where both are up, because the shop's jet ski is a BOARD and you
+    // can be sat on it under the canopy -- and there he is holding a control bar, not bars.
+    // _sk is scaled by (1-_gl) so the two weights can never sum past one and the surf pose is
+    // never asked for a negative share of him.
+    const aSpread=spread*_base+1.30*_gl+0.30*_sk;
+    const aUp=-0.02*_base+(-0.55)*_gl+(-0.95)*_sk;
+    set('LeftArm',  aUp+(sw1*0.11-this.sway*0.26)*_base, (0.05+sw1*0.10)*_base, -aSpread-this.sway*0.18*_base);
+    set('RightArm', aUp+(sw2*0.11+this.sway*0.26)*_base,(-0.05+sw2*0.10)*_base,  aSpread-this.sway*0.18*_base);
+    // elbows: a rider's arms are not straight rods out to the grips, they carry a working bend
+    set('LeftForeArm',  (fl*0.18-this.load*0.14)*_base+0.42*_sk,0,(-0.08-this.load*0.16)*_base-0.16*_sk);
+    set('RightForeArm',(-fl*0.18-this.load*0.14)*_base+0.42*_sk,0,( 0.08+this.load*0.16)*_base+0.16*_sk);
     // ---- and the feet stay FLAT ON THE DECK, whatever the rest of him just did ----
     // Not posed — SOLVED. Every angle above accumulates down the leg into the foot, so a foot
     // given its own fixed angle tips off the board the moment the knees load or the body
@@ -20959,7 +20990,50 @@ if(location.hash.includes('debug')){
                    modelled:!!(_rack['skijet']&&_rack['skijet'].userData.model),
                    pugY:+pug.position.y.toFixed(3), pugRotY:+pug.rotation.y.toFixed(3),
                    hip:+legFrontJ.hip.rotation.x.toFixed(3),
-                   knee:+legFrontJ.knee.rotation.x.toFixed(3)}; },
+                   knee:+legFrontJ.knee.rotation.x.toFixed(3),
+                   // ---- and how big he is ON it, which is the whole question ----
+                   // "He does not look like he is riding it" is a claim about two boxes and
+                   // where one sits inside the other, so both are reported rather than judged
+                   // off a screenshot taken at whatever focal length the moment happened to be.
+                   fit:(function(){
+                     const bd=_rack[equipped]; if(!bd)return null;
+                     const bb=new THREE.Box3().setFromObject(bd);
+                     const pb=new THREE.Box3().setFromObject(pug);
+                     const R=(typeof riderRig==='function')?riderRig():null;
+                     const bone=(n)=>{ const b=R&&R.bones&&R.bones[n]; if(!b)return null;
+                       b.updateWorldMatrix(true,false);
+                       const v=new THREE.Vector3().setFromMatrixPosition(b.matrixWorld);
+                       // in the BOARD's frame: along its length, across it, and above its deck
+                       return [+(v.z-bb.min.z).toFixed(2),+(v.x-(bb.min.x+bb.max.x)*0.5).toFixed(2),
+                               +(v.y-bb.max.y).toFixed(2)]; };
+                     // ---- and the HULL on its own, which is not the rack group ----
+                     // The group's box swelled from 3.45 to 4.63 tall between two samples and
+                     // came out 6.3 wide on a hull that can only be about 2.1 -- it carries the
+                     // spray meshes and the fins. Every "how far above the deck is he" read off
+                     // that box was measured against whatever the spray was doing. The model
+                     // child is the actual ski.
+                     const md=bd.userData&&bd.userData.model;
+                     const hb=md?new THREE.Box3().setFromObject(md):null;
+                     return {board:[+(bb.max.x-bb.min.x).toFixed(2),+(bb.max.y-bb.min.y).toFixed(2),
+                                    +(bb.max.z-bb.min.z).toFixed(2)],
+                             hull:hb?[+(hb.max.x-hb.min.x).toFixed(2),+(hb.max.y-hb.min.y).toFixed(2),
+                                      +(hb.max.z-hb.min.z).toFixed(2)]:null,
+                             // his seat against the hull's top and its length: the two numbers
+                             // that say "on the saddle" rather than "hovering over the transom"
+                             hullTop:hb?+hb.max.y.toFixed(2):null,
+                             sitOn:hb?+(pb.min.y-hb.max.y).toFixed(2):null,
+                             alongHull:hb?+((pb.min.z+pb.max.z)*0.5-hb.min.z).toFixed(2):null,
+                             hullLen:hb?+(hb.max.z-hb.min.z).toFixed(2):null,
+                             pug:[+(pb.max.x-pb.min.x).toFixed(2),+(pb.max.y-pb.min.y).toFixed(2),
+                                  +(pb.max.z-pb.min.z).toFixed(2)],
+                             // his height against the hull's length -- the reference photo is
+                             // about 0.55, a seated man against a ten-foot ski
+                             ratio:+((pb.max.y-pb.min.y)/Math.max(0.01,bb.max.z-bb.min.z)).toFixed(3),
+                             // and how far his feet clear the deck: a rider sitting ON a saddle
+                             // has them below the deck line, in the wells, not hovering over it
+                             footY:+(pb.min.y-bb.max.y).toFixed(2),
+                             hips:bone('Hips'), foot:bone('LeftFoot'), hand:bone('LeftHand')};
+                   })()}; },
     preview:id=>boardPreview(id),
     showBoard(id,spin){ closeViewer&&closeViewer(); openViewer('board',id);
       if(viewer){ viewer.spin=spin===undefined?0:spin; viewer.grab=true; } return id; },
@@ -25624,7 +25698,12 @@ function animateRig(dt,carve,grab,waterY){
     // belongs to the board rather than to the pose.
     const seat=(BOARD_BY_ID[equipped]&&BOARD_BY_ID[equipped].spec.seat)||0;
     pug.position.y=-seat*h;                 // down onto the seat rather than standing on it
-    pug.position.z=PUG_Z0-0.30*h;
+    // ---- and FORWARD onto the saddle, not perched on the back deck ----
+    // 0.30 left him sitting on the rear deck with the saddle and the bars both out in front of
+    // him -- rendered, his hips came out at 49% of the hull's length with his whole body clear
+    // above it. A rider sits ON the seat with the bars at arm's length, which is further up the
+    // hull and further down into it than a third of a foot buys.
+    pug.position.z=PUG_Z0-0.45*h;
     // hips folded, knees back, feet in the wells -- which is sitting, and is the whole
     // difference between this and every other thing in the rack
     const bend=(j,base)=>{ j.rotation.x=j.rotation.x*(1-h)+base*h; };
