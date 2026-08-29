@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.68.0';
+window.SURF_VERSION='5.69.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -18533,11 +18533,20 @@ const BTP={OFF:-1,RUN:0,PASS:1,SWING:2,STATION:3,AWAY:4};
 let btPh=BTP.OFF, btT=0, btSide=1, btX=0, btZ=0, btYaw=0, btSpd=0;
 let glDone=false;                      // one wing per pass, however long it holds station
 const BOAT_PASS_X=13.0;                // how far to the side it goes by
-const BOAT_STATION_Z=-34;              // where it settles ahead of you
+// Where it ends up, which is now a description rather than an instruction: the crossing runs
+// for a fixed time and the boat cannot back up, so where it stops is wherever that put it.
+// Measured at about eighty feet with the swing speed below, and steady there -- which is well
+// inside the frame (screen y 607 to 1240 of 1500 across the whole sequence), so it is left
+// alone rather than tuned to hit a number nothing depends on.
+const BOAT_STATION_Z=-58;              // the floor on how far ahead it will sit
 const BOAT_STATION=6.0;                // seconds it holds there before giving up on you
 // how much further ahead it sits once it has let go of you -- far enough to read as having
 // opened up, close enough to stay in a frame whose camera is now forty feet in the air
 const BOAT_FLY_BACK=26;
+// how long the crossing takes. It is a duration rather than a rate because a smoothstep needs
+// to know where it is between two ends, which a per-frame ease never does.
+const BOAT_SWING_T=3.2;
+let btX0=0;
 function boatReset(){
   btPh=BTP.OFF; btT=0; boat.visible=false; bwA=0; glDone=false;
   boatTrail.length=0;
@@ -18609,26 +18618,43 @@ function updateBoat(dt,eff){
   boatRun+=btSpd*dt;
   const sea=waveH(btX,dist*WAVE_DRIFT+btZ,waveClock);
   let yawWant=0;
+  // ---- what the boat itself does this frame, before the lane's drift ----
+  // Kept apart from the position so the heading can be taken off it. The drift is the world
+  // scrolling past, not the boat moving through the water, and a heading that includes it
+  // points the hull slightly down the lane even when it is dead in the water.
+  let mvX=0, mvZ=0;
   if(btPh===BTP.RUN){
-    // overtaking, out to the side, still pointed straight down the lane
-    btSpd=30; btZ-=btSpd*dt; btZ+=eff*dt*0.30;
-    btX+=(px+btSide*BOAT_PASS_X-btX)*Math.min(1,dt*1.1);
+    // ---- A STRAIGHT LINE, which means no lateral term at all ----
+    // It used to ease btX toward the pass offset every frame, so the "straight" approach was
+    // actually a long curve -- and because the heading was taken off the lateral error, the
+    // hull was turned the whole way in. It holds the x it spawned at and simply comes down
+    // the lane on it.
+    btSpd=30; mvZ=-btSpd*dt;
     if(btZ<pz+6){ btPh=BTP.PASS; btT=0; }
   } else if(btPh===BTP.PASS){
-    // alongside and then past, throwing spray off the quarter
-    btSpd=26; btZ-=btSpd*dt; btZ+=eff*dt*0.30;
-    if(btZ<BOAT_STATION_Z+16){ btPh=BTP.SWING; btT=0; }
+    // alongside and then past, throwing spray off the quarter -- still straight
+    btSpd=26; mvZ=-btSpd*dt;
+    if(btZ<BOAT_STATION_Z+16){ btPh=BTP.SWING; btT=0; btX0=btX; }
   } else if(btPh===BTP.SWING){
-    // ---- and it comes into the MIDDLE, which is the point of the pass ----
-    // A tow boat has to be in front of you and on your line before it is any use, so once it
-    // is clear ahead it eases across the lane and slows to your speed. Both are eased rather
-    // than set: a hull that snaps onto the centreline has no wake worth the name, and the
-    // swing across is most of what draws the V.
-    btSpd+=(18-btSpd)*Math.min(1,dt*0.8);
-    btZ-=btSpd*dt; btZ+=eff*dt*0.30;
-    btX+=(px-btX)*Math.min(1,dt*0.85);
-    yawWant=Math.max(-0.5,Math.min(0.5,(px-btX)*0.055));
-    if(Math.abs(btX-px)<2.2&&btZ<BOAT_STATION_Z+3){ btPh=BTP.STATION; btT=0; }
+    // ---- and it comes into the MIDDLE the way a boat would ----
+    // The crossing was an exponential ease toward your lane, and an exponential ease is at its
+    // FASTEST on its first frame: the hull stepped sideways the instant the phase began, which
+    // -- with the heading coming off the lateral error, biggest at the same moment -- is the
+    // boat snapping round before it has gone anywhere. A hull cannot do that. It has to build
+    // the turn, carry it, and take it off again.
+    //
+    // So the crossing is a smoothstep over a fixed time instead: zero sideways speed at both
+    // ends, all of it in the middle. The heading is then never set at all -- it is READ OFF
+    // the movement below, so the hull points exactly where it is actually going and cannot
+    // turn before it moves, by construction rather than by tuning.
+    // It comes right down toward your speed through the turn -- a boat crossing your bow and
+    // then waiting for you is not still doing twenty knots. This also sets where it ends up:
+    // at eighteen it gained fifty feet during the crossing and settled eighty-four ahead.
+    btSpd+=(13-btSpd)*Math.min(1,dt*0.8);
+    mvZ=-btSpd*dt;
+    const u=Math.min(1,btT/BOAT_SWING_T), k=u*u*(3-2*u);
+    mvX=(btX0+(px-btX0)*k)-btX;
+    if(u>=1&&btZ<BOAT_STATION_Z+3){ btPh=BTP.STATION; btT=0; }
   } else if(btPh===BTP.STATION){
     // ---- and THIS is what the pass was for ----
     // On station and on your line, so the line can come tight. It waits a beat first, because
@@ -18647,10 +18673,16 @@ function updateBoat(dt,eff){
     // height, which keeps it in the same part of the shot the whole way up.
     const lift=Math.max(0,Math.min(1,(py-boat.position.y)/GL_TOP));
     const want=pz+BOAT_STATION_Z-(glPh>=0?BOAT_FLY_BACK*lift:0);
-    btZ+=(want-btZ)*Math.min(1,dt*(glPh>=GLP.FLY?0.9:1.5));
-    btX+=(px-btX)*Math.min(1,dt*(glPh>=0?0.5:1.2));
+    // ---- and it never BACKS UP ----
+    // The swing ends wherever the crossing ran out, which is further ahead than the station
+    // wants. Easing btZ toward that point both ways meant the boat surged astern to meet you:
+    // measured, it went from sixty feet ahead to forty-three in one step, and the heading -- now
+    // read off the movement -- correctly reported a hull going backwards and pinned itself at
+    // the clamp. A boat that is too far ahead comes off the throttle and lets you close the gap.
+    // Only the closing half of the correction is allowed through; the lane's drift does the rest.
+    mvZ=Math.min(0,(want-btZ)*Math.min(1,dt*(glPh>=GLP.FLY?0.9:1.5)))-eff*dt*0.30;
+    mvX=(px-btX)*Math.min(1,dt*(glPh>=0?0.5:1.2));
     if(glPh>=GLP.FLY)btSpd=Math.max(btSpd,22);   // it is making way, so it keeps its wake
-    yawWant=Math.max(-0.35,Math.min(0.35,(px-btX)*0.05));
     // ---- and it does not leave while you are still up ----
     // It used to go to AWAY the moment the line dropped, wind up to forty and be a hundred and
     // ninety feet out within seconds -- gone off the top of the frame for the whole flight, so
@@ -18661,9 +18693,18 @@ function updateBoat(dt,eff){
     else if(btT>=BOAT_STATION){ btPh=BTP.AWAY; btT=0; }
   } else if(btPh===BTP.AWAY){
     btSpd+=(40-btSpd)*Math.min(1,dt*0.7);
-    btZ-=btSpd*dt;
+    mvZ=-btSpd*dt;
     if(btZ<pz-190){ boatReset(); boatLayWake(dt,eff); return; }
   }
+  // ---- move, THEN look at where you went ----
+  btX+=mvX; btZ+=mvZ+eff*dt*0.30;
+  // The heading is the direction of travel and nothing else. A boat points where it is going;
+  // it has no way to point anywhere else. Taken from the movement the hull itself made, so the
+  // lane scrolling past underneath does not skew it. Below a threshold the direction of a tiny
+  // delta is noise, so the last good heading is kept.
+  if(mvX*mvX+mvZ*mvZ>1e-7)
+    yawWant=Math.max(-0.65,Math.min(0.65,Math.atan2(-mvX,-mvZ)));
+  else yawWant=btYaw;
   btYaw+=(yawWant-btYaw)*Math.min(1,dt*2.2);
   // ---- the keel at a measured depth, not the origin at a guessed height ----
   const keel=(boat.userData.keel!==undefined)?boat.userData.keel:-2.4;
