@@ -20278,19 +20278,26 @@ if(location.hash.includes('debug')){
       //
       // The centre and a radius cannot do that. One point in front of the camera, and the
       // radius carried out to the screen through the same projection.
-      const c=b.getCenter(new THREE.Vector3());
-      const rad=b.getSize(new THREE.Vector3()).length()*0.5;
+      // A sphere's radius is half the box's DIAGONAL, which on a tall tree is far wider than
+      // the tree -- the first version of this returned the full width of the canvas. Three
+      // single points instead, each one projected on its own so none of them can be the corner
+      // that is behind the lens: the middle, the top, and one half-width out along the camera's
+      // own right. That is a real rectangle around the tree.
+      const c=b.getCenter(new THREE.Vector3()), sz=b.getSize(new THREE.Vector3());
       const cv=c.clone().project(menuCam);
       if(!(cv.z<1))return null;                        // behind the lens: no honest answer
-      const edge=c.clone().add(new THREE.Vector3(rad,0,0).applyQuaternion(menuCam.quaternion))
-                  .project(menuCam);
-      const cx=(cv.x*0.5+0.5)*innerWidth, cy=(-cv.y*0.5+0.5)*innerHeight;
-      const rp=Math.abs(edge.x-cv.x)*0.5*innerWidth;
+      const R=new THREE.Vector3(1,0,0).applyQuaternion(menuCam.quaternion);
+      const tv=c.clone().add(new THREE.Vector3(0,sz.y*0.5,0)).project(menuCam);
+      const bv=c.clone().add(new THREE.Vector3(0,-sz.y*0.5,0)).project(menuCam);
+      const rv=c.clone().add(R.multiplyScalar(Math.max(sz.x,sz.z)*0.5)).project(menuCam);
+      const sx=v=>(v.x*0.5+0.5)*innerWidth, sy=v=>(-v.y*0.5+0.5)*innerHeight;
+      const cx=sx(cv), halfW=Math.abs(sx(rv)-cx);
+      const yTop=Math.min(sy(tv),sy(bv)), yBot=Math.max(sy(tv),sy(bv));
       const cl=(v,lo,hi)=>Math.round(Math.max(lo,Math.min(hi,v)));
       // the CROWN, not the trunk: the fronds are what moves and the bark is what does not,
       // and including the bark only dilutes the number
-      return {x0:cl(cx-rp,0,innerWidth), x1:cl(cx+rp,0,innerWidth),
-              y0:cl(cy-rp,0,innerHeight), y1:cl(cy+rp*0.25,0,innerHeight)};
+      return {x0:cl(cx-halfW,0,innerWidth), x1:cl(cx+halfW,0,innerWidth),
+              y0:cl(yTop,0,innerHeight), y1:cl(yTop+(yBot-yTop)*0.45,0,innerHeight)};
     },
     // The bloom the RUN renders at, set straight onto the pass. Nothing rewrites these during
     // a run, unlike the title screen which reapplies its own two every frame — so this is the
