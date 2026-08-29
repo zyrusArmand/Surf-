@@ -20269,17 +20269,28 @@ if(location.hash.includes('debug')){
       menuPalm.updateWorldMatrix(true,true);
       const b=new THREE.Box3().setFromObject(menuPalm);
       if(!isFinite(b.min.x))return null;
-      let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
-      const v=new THREE.Vector3();
-      for(let i=0;i<8;i++){
-        v.set(i&1?b.max.x:b.min.x, i&2?b.max.y:b.min.y, i&4?b.max.z:b.min.z).project(menuCam);
-        const px=(v.x*0.5+0.5)*innerWidth, py=(-v.y*0.5+0.5)*innerHeight;
-        x0=Math.min(x0,px); x1=Math.max(x1,px); y0=Math.min(y0,py); y1=Math.max(y1,py);
-      }
+      // ---- FROM THE SPHERE, NOT THE EIGHT CORNERS ----
+      // Projecting a box's corners blows up the moment any of them is behind the lens, and on
+      // this screen the palm is close enough that some always are: the first version returned
+      // x0 -946 to x1 8271 on a 900 pixel canvas, which after clamping is the whole picture.
+      // That does not fail loudly -- it quietly measures the sea and the clouds instead, and
+      // returns much the same number however still the tree is.
+      //
+      // The centre and a radius cannot do that. One point in front of the camera, and the
+      // radius carried out to the screen through the same projection.
+      const c=b.getCenter(new THREE.Vector3());
+      const rad=b.getSize(new THREE.Vector3()).length()*0.5;
+      const cv=c.clone().project(menuCam);
+      if(!(cv.z<1))return null;                        // behind the lens: no honest answer
+      const edge=c.clone().add(new THREE.Vector3(rad,0,0).applyQuaternion(menuCam.quaternion))
+                  .project(menuCam);
+      const cx=(cv.x*0.5+0.5)*innerWidth, cy=(-cv.y*0.5+0.5)*innerHeight;
+      const rp=Math.abs(edge.x-cv.x)*0.5*innerWidth;
+      const cl=(v,lo,hi)=>Math.round(Math.max(lo,Math.min(hi,v)));
       // the CROWN, not the trunk: the fronds are what moves and the bark is what does not,
       // and including the bark only dilutes the number
-      return {x0:Math.round(x0),y0:Math.round(y0),x1:Math.round(x1),
-              y1:Math.round(y0+(y1-y0)*0.55)};
+      return {x0:cl(cx-rp,0,innerWidth), x1:cl(cx+rp,0,innerWidth),
+              y0:cl(cy-rp,0,innerHeight), y1:cl(cy+rp*0.25,0,innerHeight)};
     },
     // The bloom the RUN renders at, set straight onto the pass. Nothing rewrites these during
     // a run, unlike the title screen which reapplies its own two every frame — so this is the
