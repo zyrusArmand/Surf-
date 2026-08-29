@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.70.0';
+window.SURF_VERSION='5.71.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -18532,6 +18532,7 @@ loadModel('boat.glb',s3=>{
 const BTP={OFF:-1,RUN:0,PASS:1,SWING:2,STATION:3,AWAY:4};
 let btPh=BTP.OFF, btT=0, btSide=1, btX=0, btZ=0, btYaw=0, btSpd=0;
 let glDone=false;                      // one wing per pass, however long it holds station
+let btShoves=0;                        // how many things the bow has put out of the way
 const BOAT_PASS_X=13.0;                // how far to the side it goes by
 // Where it ends up, which is now a description rather than an instruction: the crossing runs
 // for a fixed time and the boat cannot back up, so where it stops is wherever that put it.
@@ -18548,7 +18549,7 @@ const BOAT_FLY_BACK=26;
 const BOAT_SWING_T=3.2;
 let btX0=0;
 function boatReset(){
-  btPh=BTP.OFF; btT=0; boat.visible=false; bwA=0; glDone=false;
+  btPh=BTP.OFF; btT=0; boat.visible=false; bwA=0; glDone=false; btShoves=0;
   boatTrail.length=0;
   boatArmL.mesh.visible=false; boatArmR.mesh.visible=false; boatChurn.mesh.visible=false;
 }
@@ -18681,7 +18682,11 @@ function updateBoat(dt,eff){
     // the clamp. A boat that is too far ahead comes off the throttle and lets you close the gap.
     // Only the closing half of the correction is allowed through; the lane's drift does the rest.
     mvZ=Math.min(0,(want-btZ)*Math.min(1,dt*(glPh>=GLP.FLY?0.9:1.5)))-eff*dt*0.30;
-    mvX=(px-btX)*Math.min(1,dt*(glPh>=0?0.5:1.2));
+    // ---- and it does NOT follow you about ----
+    // It used to ease its x onto yours every frame, so steering under the canopy dragged the
+    // boat left and right with you -- which is a boat being flown by the passenger. It holds
+    // the line it settled on; you are the one on the end of the rope.
+    mvX=0;
     if(glPh>=GLP.FLY)btSpd=Math.max(btSpd,22);   // it is making way, so it keeps its wake
     // ---- and it does not leave while you are still up ----
     // It used to go to AWAY the moment the line dropped, wind up to forty and be a hundred and
@@ -18702,8 +18707,14 @@ function updateBoat(dt,eff){
   // it has no way to point anywhere else. Taken from the movement the hull itself made, so the
   // lane scrolling past underneath does not skew it. Below a threshold the direction of a tiny
   // delta is noise, so the last good heading is kept.
+  // ---- and it crosses SQUARE ----
+  // Reading the heading off the movement is what a boat does, and it looked like a boat doing
+  // it -- but a hull that swings its bow across your view is a hull that spends the crossing
+  // showing you its side. Held straight down the lane instead: it changes lane without changing
+  // heading. The derivation is kept, and kept to a token amount of it, so the bow still nods
+  // toward the new line rather than being welded dead ahead.
   if(mvX*mvX+mvZ*mvZ>1e-7)
-    yawWant=Math.max(-0.65,Math.min(0.65,Math.atan2(-mvX,-mvZ)));
+    yawWant=Math.max(-0.10,Math.min(0.10,Math.atan2(-mvX,-mvZ)*0.16));
   else yawWant=btYaw;
   btYaw+=(yawWant-btYaw)*Math.min(1,dt*2.2);
   // ---- the keel at a measured depth, not the origin at a guessed height ----
@@ -18738,6 +18749,45 @@ function updateBoat(dt,eff){
       const cx=btX+bwCs*side*off+bwSn*a, cz=btZ+(-bwSn)*side*off+bwCs*a;
       const cy=waveH(cx,dist*WAVE_DRIFT+cz,waveClock);
       pushPuff(cx, cy+0.26, cz, 0.85+Math.random()*0.5);
+    }
+  }
+  // ---- and things in its way get SHOVED OUT OF THE WAY ----
+  // A twenty-foot hull running over a buoy and leaving it sitting there is the one thing that
+  // gives away that the boat is scenery. Anything the bow reaches is pushed clear of the V and
+  // spun as it goes -- the shove is sized to how far it actually has to travel to get outside
+  // the arm at that point astern, rather than being a fixed nudge that leaves half of them
+  // still in the wake. Damped, so it slides out and settles instead of sailing off.
+  if(typeof obstacles!=='undefined'&&btSpd>6){
+    for(const o of obstacles){
+      if(!o||!o.position)continue;
+      const dz=o.position.z-btZ;
+      if(dz<-16||dz>70){ if(o.userData)o.userData.btHit=0; continue; }
+      const r=(o.userData&&o.userData.r)||1.2;
+      const dx=o.position.x-btX;
+      if(dz>-11&&dz<9&&Math.abs(dx)<3.4+r&&o.userData&&!o.userData.btHit){
+        o.userData.btHit=1; btShoves++;
+        const side=dx>=0?1:-1;
+        // where the arm of the V will be by the time it has drifted this far astern, plus its
+        // own radius and a bit of daylight -- that is the distance the shove has to cover
+        const clear=BOAT_ARM0+Math.max(0,dz)*BOAT_VEE+r+2.0;
+        const need=Math.max(1.5,clear-Math.abs(dx));
+        o.userData.btVX=side*(need*1.9+3.0);
+        o.userData.btSpin=side*(0.9+Math.random()*1.5);
+        o.userData.btRock=(Math.random()*2-1)*0.5;
+        if(typeof splash==='function')
+          splash(o.position.x,waveH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock),
+                 o.position.z,14);
+      }
+      if(o.userData&&o.userData.btVX){
+        o.position.x+=o.userData.btVX*dt;
+        o.userData.btVX*=Math.max(0,1-dt*1.7);
+        o.rotation.y+=(o.userData.btSpin||0)*dt;
+        // and it heels as it is pushed, then rights itself -- a thing shoved sideways in water
+        // does not stay level, and it does not stay tipped either
+        o.rotation.z=(o.userData.btRock||0)*Math.min(1,Math.abs(o.userData.btVX)/6);
+        o.userData.btSpin*=Math.max(0,1-dt*1.5);
+        if(Math.abs(o.userData.btVX)<0.06){ o.userData.btVX=0; o.userData.btSpin=0; o.rotation.z=0; }
+      }
     }
   }
   // spray off the transom, at the same rate the ski throws it but in a wider fan
@@ -18865,6 +18915,69 @@ loadModel('paraglider.glb',s3=>{
   // down so that point lands on the group's origin -- which is the harness.
   const b=new THREE.Box3().setFromObject(fitted);
   if(isFinite(b.min.y)){ fitted.position.y-=b.min.y; GL_LINE=b.max.y-b.min.y; }
+  // ---- and it is PAINTED, because the texture it came with is a grid ----
+  // The baked map is ripstop: a dense blue weave that at any distance reads as a mesh of tiny
+  // squares rather than as a wing, and it is the same flat blue from tip to tip. Bands are what
+  // a canopy actually looks like, so the map comes off and the colour is put on per vertex
+  // instead -- keyed to the vertex's own position ACROSS THE SPAN, which is a thing the model
+  // always has, rather than to a UV layout nobody has looked at.
+  //
+  // The rigging is in the same mesh as the canopy, so it cannot be coloured by name. It is
+  // separated by height: the top of the model is fabric, everything below it is line, and the
+  // lines get a dark neutral rather than a band. The cut is taken off the model's own box.
+  {
+    const bb=new THREE.Box3().setFromObject(fitted);
+    const y0=bb.min.y, y1=bb.max.y, h=Math.max(0.001,y1-y0);
+    const x0=bb.min.x, w=Math.max(0.001,bb.max.x-x0);
+    // ---- and they are DEEP, because the scene washes everything ----
+    // The first set were the colours I wanted the wing to be, and the wing came out pastel: the
+    // canopy is backlit, hazed and tone-mapped on the way to the screen, and all three lift and
+    // desaturate. So these are picked to survive that rather than to look right in a swatch --
+    // deeper and more saturated than the wing is meant to read, which is the same reason the
+    // built one's colours were pushed past one.
+    const FAB=[new THREE.Color(0xc23f08), new THREE.Color(0xdb8f06),
+               new THREE.Color(0xece4d2), new THREE.Color(0x9c0f30),
+               new THREE.Color(0x0d6f96), new THREE.Color(0xdb8f06)];
+    const LINE=new THREE.Color(0x3b4048);
+    const v=new THREE.Vector3();
+    fitted.updateMatrixWorld(true);
+    // ---- and the cut follows the ARC, because the canopy is one ----
+    // A flat "top quarter of the height" line is right in the middle and wrong at the tips: a
+    // wing droops, so its tips sit well below that line and were classified as rigging and
+    // painted slate. That is exactly what the render showed -- bands across the middle and two
+    // grey-blue glassy tips. The canopy's height is taken PER COLUMN across the span, so the
+    // test becomes "is this vertex near the top of the wing above it", which holds all the way
+    // out to the tips.
+    const NB=64, colTop=new Float32Array(NB).fill(-1e9);
+    const bin=(x)=>Math.max(0,Math.min(NB-1,Math.floor(((x-x0)/w)*NB)));
+    fitted.traverse(o=>{
+      if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+      const p=o.geometry.attributes.position;
+      for(let i=0;i<p.count;i++){
+        v.fromBufferAttribute(p,i).applyMatrix4(o.matrixWorld);
+        const b=bin(v.x); if(v.y>colTop[b])colTop[b]=v.y;
+      }
+    });
+    // one neighbour pass, so a column that happens to hold only line geometry takes its
+    // neighbour's roof rather than reporting the rigging as the top of the wing
+    { const c2=colTop.slice();
+      for(let i=0;i<NB;i++) colTop[i]=Math.max(c2[Math.max(0,i-1)],c2[i],c2[Math.min(NB-1,i+1)]); }
+    fitted.traverse(o=>{
+      if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+      const p=o.geometry.attributes.position, col=new Float32Array(p.count*3);
+      for(let i=0;i<p.count;i++){
+        v.fromBufferAttribute(p,i).applyMatrix4(o.matrixWorld);
+        const fab=(colTop[bin(v.x)]-v.y)<h*0.26;
+        const c=fab?FAB[Math.floor(((v.x-x0)/w)*FAB.length*1.5)%FAB.length]:LINE;
+        col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
+      }
+      o.geometry.setAttribute('color',new THREE.BufferAttribute(col,3));
+      if(o.material){ o.material=o.material.clone();
+        o.material.map=null; o.material.vertexColors=true;
+        if(o.material.color)o.material.color.setHex(0xffffff);
+        o.material.needsUpdate=true; }
+    });
+  }
   // ---- and it is FABRIC, whatever the exporter said ----
   // It arrived with metallicFactor 1 and roughness 1. A fully metallic surface has no diffuse
   // term at all -- every bit of its colour comes from reflections -- so ripstop nylon came out
@@ -18882,7 +18995,11 @@ loadModel('paraglider.glb',s3=>{
     if('shininess' in m)m.shininess=8;
     if(m.specular&&m.specular.setHex)m.specular.setHex(0x101010);
     m.transparent=false; m.opacity=1; m.depthWrite=true;
-    m.side=THREE.DoubleSide; m.needsUpdate=true;
+    // ---- and ONE side, which is what killed the tiny squares ----
+    // Double-sided was drawing the canopy's inside as well as its outside -- and this model has
+    // its cell walls modelled, so every internal rib came through the fabric and the wing read
+    // as a grid of little panes. Front faces only: the skin you can see is the skin you get.
+    m.side=THREE.FrontSide; m.needsUpdate=true;
   }});
   // the built wing and its string lines step aside; the model is the whole rig
   const w=glider.userData.wing, ln=glider.userData.lines;
@@ -18935,8 +19052,12 @@ function glideStep(dt,waterY){
     glTarget=-0.20+Math.sin(tNow*1.15)*0.035;
     glSwingTo=(px-btX)*0.020+Math.sin(tNow*0.71)*0.045;
     if(glT>=GL_TOW){
-      glPh=GLP.FLY; glT=0; glRope.visible=false;
-      if(typeof msg==='function')msg('LET GO — FLY! 🪂');
+      glPh=GLP.FLY; glT=0;
+      // ---- and the line STAYS ON ----
+      // Dropping it made this a free flight, and a free flight has nothing to do with the boat
+      // that is still sitting there in front of you. On the rope it is parasailing: the boat
+      // tows, the wing carries, and the two are visibly connected for the whole ride.
+      if(typeof msg==='function')msg('UP AND AWAY! 🪂');
     }
   } else if(glPh===GLP.FLY){
     // ---- and now it is a wing, not a tow ----
@@ -18969,6 +19090,7 @@ function glideStep(dt,waterY){
     // down on the water and the canopy falls in behind him
     py+=(waterY-py)*Math.min(1,dt*6);
     glSwingTo=0; glTarget=0.22;          // the canopy flares and falls in behind him
+    glRope.visible=false;                // and the line is cast off as he touches down
     glider.scale.setScalar(Math.max(0.02,1-glT*1.9));
     if(glT>0.62){
       glideReset();
@@ -18994,13 +19116,18 @@ function glideStep(dt,waterY){
   // slid it sideways by sin(roll)*L*0.55 to fake the arc the pilot's end should have described
   // -- an approximation of exactly this, and one that came apart at any real bank angle.
   if(glider.visible){
-    glider.position.set(px, py+2.6, pz-0.3);
+    // The riser is what he hangs off, so it belongs at the seat rather than over his head:
+    // 2.6 put the carabiner up by his ears with the harness attached to nothing.
+    glider.position.set(px, py+0.95, pz-0.3);
     glider.rotation.order='YXZ';
     glider.rotation.set(glPitch, glYaw, glRoll);
   }
+  // The rope runs from the harness -- the same point the canopy hangs from -- to the boat's
+  // transom, so all three are one connected thing rather than a wing and a boat that happen to
+  // be in the same shot.
   if(glRope.visible){
     glRope.geometry.setFromPoints([
-      new THREE.Vector3(px, py+1.4, pz-0.4),
+      new THREE.Vector3(px, py+1.0, pz-0.4),
       new THREE.Vector3(btX, boat.position.y+0.9, btZ+8.4)]);
   }
 }
@@ -20935,7 +21062,9 @@ if(location.hash.includes('debug')){
               screen:sc(boat), meshes, vis,
               size:boat.visible?[+(b.max.x-b.min.x).toFixed(2),+(b.max.y-b.min.y).toFixed(2),
                                  +(b.max.z-b.min.z).toFixed(2)]:null,
-              trail:boatTrail.length, bump:+bwA.toFixed(2),
+              trail:boatTrail.length, bump:+bwA.toFixed(2), shoves:btShoves,
+              shoving:(function(){let n=0;if(typeof obstacles!=='undefined')
+                for(const o of obstacles)if(o.userData&&o.userData.btVX)n++;return n;})(),
               hull:!!(boat.userData&&boat.userData.hull)}; },
     boatPh(p){ btPh=p; btT=0; return btPh; },
     glideNow(){ if(typeof glideStart!=='function')return null;
