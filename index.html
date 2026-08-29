@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='5.85.0';
+window.SURF_VERSION='5.86.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -448,6 +448,15 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   #jumpBtn { right:20px; bottom:30px; width:84px; height:84px; font-size:17px; border-width:2.5px; }
   #ropeBtn { right:20px; bottom:128px; width:84px; height:84px; font-size:15px; display:none;
     border-width:2.5px; }
+  /* Its own slot rather than the rope's, because the banner plane and the boat can be out at
+     the same time and two buttons in one place is a button you press by accident. Bigger than
+     either, and it pulses, because it is the one control in the game with a deadline on it. */
+  #grabBtn { right:16px; bottom:226px; width:92px; height:92px; font-size:16px; display:none;
+    border-width:3px; animation:grabPulse 0.72s ease-in-out infinite; }
+  @keyframes grabPulse {
+    0%,100% { transform:scale(1);    box-shadow:0 0 0 0 rgba(255,225,150,.55); }
+    50%     { transform:scale(1.07); box-shadow:0 0 0 13px rgba(255,225,150,0); }
+  }
   /* One thumb per side: every trick in a single column down the left, JUMP alone on the
      right. The old two-by-two pad put SPIN and HAND under the left thumb but ROLL and FLIP
      out at arm's reach, and the column keeps all five on the same short travel.
@@ -1262,7 +1271,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     border:var(--gold-ring-btn) solid var(--gold); }
   /* the 84px ones. Play already wore this; JUMP and ROPE are the same button on the other
      screen and had no reason to be a different object */
-  .hbtn.hb-play, #jumpBtn, #ropeBtn, #jumpBtn.glass, #ropeBtn.glass {
+  .hbtn.hb-play, #jumpBtn, #ropeBtn, #grabBtn, #jumpBtn.glass, #ropeBtn.glass, #grabBtn.glass {
     border:var(--gold-ring-hero) solid var(--gold); }
   /* the pills, every variant that sets a rim of its own named back at its own weight */
   .go, .go.alt, .go.teal, .go.sun, .go.calm,
@@ -1377,7 +1386,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   @media (max-width:430px){ #cocoBar { top:88px; width:min(210px,58vw); } }
   /* JUMP and ROPE are the ride's Play: same body, brighter gold, and the streak comes off
      so the bezel is the only thing on the rim */
-  #jumpBtn, #ropeBtn {
+  #jumpBtn, #ropeBtn, #grabBtn {
     box-shadow:0 5px 20px rgba(0,20,30,.46),
                inset 0 1.8px 0 rgba(198,240,236,.40),
                inset 0 0 26px rgba(20,110,116,.30),
@@ -1388,7 +1397,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   #jumpBtn .ges .dot, #ropeBtn .ges .dot { fill:#ffeec2; }
   #jumpBtn.glass::before, #jumpBtn.glass::after,
   #ropeBtn.glass::before, #ropeBtn.glass::after { display:none; }
-  #jumpBtn:active, #ropeBtn:active {
+  #jumpBtn:active, #ropeBtn:active, #grabBtn:active {
     box-shadow:0 3px 12px rgba(0,20,30,.5), inset 0 0 30px rgba(4,32,40,.62),
                inset 0 0 0 1.5px rgba(255,240,200,.36); }
   /* the ready cue keeps everything that makes it catchable, over the new body */
@@ -1489,6 +1498,9 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   <svg class="ges" viewBox="0 0 24 24"><circle class="dot" cx="12" cy="12" r="3.1"/><path d="M6.9 6.9a7.2 7.2 0 0 0 0 10.2M17.1 6.9a7.2 7.2 0 0 1 0 10.2"/></svg>
   JUMP</div>
 <div id="ropeBtn" class="btn glass">ROPE!</div>
+<!-- The boat's offer. It is a window, not an event: it opens as the boat comes past and shuts
+     when the boat gives up on you, and missing it means missing the whole flight. -->
+<div id="grabBtn" class="btn glass">GRAB!</div>
 <!-- Every trick keeps its gesture; the button is the same move with a picture of the
      finger movement on it, so one teaches the other. -->
 <div id="trickBar" class="hidden">
@@ -1718,6 +1730,7 @@ const hScore=document.getElementById('hScore'), hDist=document.getElementById('h
 const hSpeed=document.getElementById('hSpeed'), hBest=document.getElementById('hBest');
 const hBestD=document.getElementById('hBestD');
 const jumpBtn=document.getElementById('jumpBtn'), ropeBtn=document.getElementById('ropeBtn');
+const grabBtn=document.getElementById('grabBtn');
 const trickBar=document.getElementById('trickBar');
 const spinBtn=document.getElementById('spinBtn'), flipBtn=document.getElementById('flipBtn');
 const rollBtn=document.getElementById('rollBtn');
@@ -15110,6 +15123,17 @@ jumpBtn.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation()
 jumpBtn.addEventListener('mousedown',()=>{buzz(10);doJump();});
 ropeBtn.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();ropeAction();});
 ropeBtn.addEventListener('mousedown',ropeAction);
+// Taking the line. It only does anything inside the window -- a press before or after is not a
+// stored intention, it is a press at nothing.
+function grabAction(){
+  if(btGrab!==BTG.OPEN)return;
+  btGrab=BTG.TAKEN;
+  grabBtn.style.display='none';
+  if(typeof buzz==='function')buzz(14);
+  if(typeof msg==='function')msg('HANG ON! 🪂');
+}
+grabBtn.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();grabAction();});
+grabBtn.addEventListener('mousedown',grabAction);
 // A button does exactly what its gesture does — same call, same rotation, only the
 // recorded input source differs. Nothing is a second implementation of a trick.
 function pressBtn(el,fn){
@@ -16537,7 +16561,7 @@ function startWipeout(kind){
   const W=WIPE[kind]||WIPE.foam;
   running=false;                       // controls stop, but the world keeps running
   endMouseDrag();steer=0;weight=0;
-  jumpBtn.classList.add('hidden');ropeBtn.style.display='none';trickBar.classList.add('hidden');
+  jumpBtn.classList.add('hidden');ropeBtn.style.display='none';grabBtn.style.display='none';trickBar.classList.add('hidden');
   if(cocoBarEl)cocoBarEl.classList.add('hidden');cocoReset();
   hanging=false;rope.visible=false;
   msg(W.msg);
@@ -16931,7 +16955,7 @@ function gameOver(){
   const earned=coinsFor(dist,s)+goalRunEnd(dist,s);
   coins+=earned; saveGame(); showCoins();
   bump(stats,'earned',earned); bump(stats,'score',s); saveStats();
-  jumpBtn.classList.add('hidden');ropeBtn.style.display='none';trickBar.classList.add('hidden');
+  jumpBtn.classList.add('hidden');ropeBtn.style.display='none';grabBtn.style.display='none';trickBar.classList.add('hidden');
   if(cocoBarEl)cocoBarEl.classList.add('hidden');cocoReset();
   overlay.querySelector('h1').textContent='Wipeout!';
   // one row per line, all sharing a left edge, the whole block centred on the screen
@@ -18741,6 +18765,17 @@ const BTP={OFF:-1,RUN:0,PASS:1,SWING:2,STATION:3,AWAY:4};
 let btPh=BTP.OFF, btT=0, btSide=1, btX=0, btZ=0, btYaw=0, btSpd=0;
 let glDone=false;                      // one wing per pass, however long it holds station
 let btShoves=0;                        // how many things the bow has put out of the way
+// ---- the offer, which you can miss ----
+// The flight used to be a cutscene: the boat arrived, took station, and put you in the air
+// whether you were paying attention or not. It is a catch now. 0 nothing doing, 1 the line is
+// there to take, 2 you took it, 3 you let it go by.
+const BTG={NONE:0, OPEN:1, TAKEN:2, MISSED:3};
+var btGrab=BTG.NONE;
+// How long the boat keeps offering once it is on station. The window is much longer than this
+// -- it opens the moment the boat starts coming past -- but this is the part with a deadline
+// on it, and it is generous, because missing the flight should be a decision rather than a
+// reaction test.
+const BOAT_GRAB_HOLD=3.4;
 const BOAT_PASS_X=13.0;                // how far to the side it goes by
 // Where it ends up, which is now a description rather than an instruction: the crossing runs
 // for a fixed time and the boat cannot back up, so where it stops is wherever that put it.
@@ -18771,6 +18806,7 @@ const BOAT_SWING_T=3.2;
 let btX0=0;
 function boatReset(){
   btPh=BTP.OFF; btT=0; boat.visible=false; bwA=0; glDone=false; btShoves=0;
+  btGrab=BTG.NONE;
   boatTrail.length=0;
   boatArmL.mesh.visible=false; boatArmR.mesh.visible=false; boatChurn.mesh.visible=false;
   boatFoamClear();
@@ -18859,7 +18895,10 @@ function updateBoat(dt,eff){
     // hull was turned the whole way in. It holds the x it spawned at and simply comes down
     // the lane on it.
     btSpd=30; mvZ=-btSpd*dt;
-    if(btZ<pz+6){ btPh=BTP.PASS; btT=0; }
+    // the offer opens as it draws level, which is the moment there is a line within reach
+    if(btZ<pz+6){ btPh=BTP.PASS; btT=0;
+      if(!glDone&&btGrab===BTG.NONE){ btGrab=BTG.OPEN;
+        if(typeof msg==='function')msg('GRAB THE LINE!'); } }
   } else if(btPh===BTP.PASS){
     // alongside and then past, throwing spray off the quarter -- still straight
     btSpd=26; mvZ=-btSpd*dt;
@@ -18889,7 +18928,17 @@ function updateBoat(dt,eff){
     // On station and on your line, so the line can come tight. It waits a beat first, because
     // a wing that opens the instant the boat arrives reads as the boat delivering it rather
     // than as you being picked up.
-    if(btT>1.0&&typeof glideStart==='function'&&glPh===GLP.OFF&&!glDone){ if(glideStart())glDone=true; }
+    // ---- and it only picks you up if you TOOK the line ----
+    // This used to fire on a timer alone, which made the whole flight something that happened
+    // to you. The timer is still the pacing -- it waits a beat so the wing does not open the
+    // instant the boat arrives -- but the condition is now that you reached for it.
+    if(btT>1.0&&btGrab===BTG.TAKEN&&typeof glideStart==='function'&&glPh===GLP.OFF&&!glDone){
+      if(glideStart())glDone=true;
+    }
+    // and if you did not, it gives up on you: the offer shuts, and the phase below runs its
+    // clock out and sends the boat away with nobody on the end of the line
+    if(btGrab===BTG.OPEN&&btT>BOAT_GRAB_HOLD){ btGrab=BTG.MISSED;
+      if(typeof msg==='function')msg('MISSED IT'); }
     // holding its place ahead of you rather than holding a fixed z: the world scrolls past,
     // so standing still in world space is the boat sliding backwards into your lap.
     // Once the line is off it runs a little further out and sits there -- "sped up a bit, then
@@ -19411,22 +19460,92 @@ loadModel('paraglider.glb',s3=>{
 // near one so the thing holds a roughly even width on screen -- the same lie a drawn power line
 // tells. Top is +Y, which aimRope points at the BOAT, so top is the fat end.
 const GL_ROPE_R=0.30;
-const glRope=new THREE.Mesh(new THREE.CylinderGeometry(1,0.25,1,6,1,true),
-  new THREE.MeshBasicMaterial({color:0xfff4d8, side:THREE.DoubleSide}));
+// ---- and it is LAID, because a smooth tube is a rod ----
+// Thickness alone got it seen; it still read as a dowel. What makes rope look like rope is the
+// lay: three strands wound along it, catching light on their crowns and going dark in the
+// grooves between. That is a texture, and the tube's own UV makes it nearly free -- u runs
+// around the circumference and v along the length, so a DIAGONAL in that space is a helix on
+// the tube. Three of them, and the strands wind.
+//
+// The cylinder shading is baked in as well, along u. It cannot track the camera that way, but
+// the rope's frame below is derived from the chord, which barely moves, so its lit side stays
+// its lit side. That buys a round-looking rope out of an unlit material -- and unlit is what
+// keeps it readable against a sun it is often drawn straight across.
+function ropeTexture(){
+  const S=64, c=document.createElement('canvas'); c.width=c.height=S;
+  const x=c.getContext('2d'), im=x.createImageData(S,S), d=im.data;
+  for(let j=0;j<S;j++)for(let i=0;i<S;i++){
+    const u=i/S, v=j/S;
+    // three strands: one full turn of the lay every third of the tile
+    let ph=(u*3+v)%1; if(ph<0)ph+=1;
+    // bright along the crown of a strand, dark down the groove either side of it
+    const crown=Math.pow(Math.sin(Math.PI*ph),0.55);
+    // and the tube's own roundness, so the silhouette edges go off rather than ending flat
+    const limb=0.70+0.30*Math.cos((u-0.28)*6.2831853);
+    // The floors on both matter more than the contrast does. At 0.30 and 0.62 the two darkenings
+    // multiplied out to a mean near a third, and the rope came back a dark olive cord read
+    // against a bright sky -- legible, but not the colour of rope. Lifting the floors keeps the
+    // lay plainly visible and puts the average back up where hemp lives.
+    const g=(0.46+0.54*crown)*limb;
+    const o=(j*S+i)*4;
+    d[o  ]=Math.min(255,255*g*1.00);
+    d[o+1]=Math.min(255,255*g*0.95);
+    d[o+2]=Math.min(255,255*g*0.82);   // hemp, not paper
+    d[o+3]=255;
+  }
+  x.putImageData(im,0,0);
+  const t=new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.anisotropy=4;
+  if(THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding;
+  return t;
+}
+// ---- and it is BENT, which a single scaled cylinder cannot be ----
+// A tow line is near enough taut, but dead straight is the one thing that reads as a rod rather
+// than a rope. It is built with segments along its length so a little catenary can be put
+// through it, and the vertices are written in WORLD space each frame -- the mesh itself keeps
+// an identity transform. That is why the geometry is a plain unit cylinder and never scaled:
+// scaling a bent tube would squash the lay along with it.
+const RP_SEG=20;
+const glRopeGeo=new THREE.CylinderGeometry(1,1,1,7,RP_SEG,true);
+const glRope=new THREE.Mesh(glRopeGeo,
+  new THREE.MeshBasicMaterial({map:ropeTexture(), side:THREE.DoubleSide}));
 glRope.visible=false; glRope.frustumCulled=false;
 glRope.userData.a=new THREE.Vector3(); glRope.userData.b=new THREE.Vector3();
 scene.add(glRope);
-const _rpD=new THREE.Vector3(), _rpUp=new THREE.Vector3(0,1,0), _rpB=new THREE.Vector3();
-// The cylinder is built along +Y and one unit long, so it is scaled to the span and turned to
-// point down it. Length goes on Y and the radius on the other two, which is why the geometry
-// is a unit cylinder rather than one built at the rope's real size.
+// each vertex's place on the tube, taken off the geometry once: how far along it sits, and
+// where it stands around the ring. Radius is 1 at both ends, so x and z ARE the cosine and sine.
+{ const p=glRopeGeo.attributes.position, n=p.count, base=new Float32Array(n*3);
+  for(let i=0;i<n;i++){ base[i*3]=p.getY(i)+0.5; base[i*3+1]=p.getX(i); base[i*3+2]=p.getZ(i); }
+  glRope.userData.base=base; }
+const _rpD=new THREE.Vector3(), _rpB=new THREE.Vector3(), _rpP=new THREE.Vector3();
+const _rpN1=new THREE.Vector3(), _rpN2=new THREE.Vector3(), _rpT=new THREE.Vector3();
 function aimRope(a,b){
+  glRope.userData.a.copy(a); glRope.userData.b.copy(b);
   _rpD.subVectors(b,a);
   const len=_rpD.length();
-  glRope.position.copy(a).addScaledVector(_rpD,0.5);
-  glRope.scale.set(GL_ROPE_R,Math.max(0.001,len),GL_ROPE_R);
-  if(len>1e-5)glRope.quaternion.setFromUnitVectors(_rpUp,_rpD.divideScalar(len));
-  glRope.userData.a.copy(a); glRope.userData.b.copy(b);
+  if(!(len>1e-4))return;
+  _rpT.copy(_rpD).divideScalar(len);
+  // any pair of perpendiculars to the chord will do -- the rope has no preferred roll, and a
+  // fixed reference avoids the frame spinning when the chord passes near vertical
+  _rpN1.set(0,1,0); if(Math.abs(_rpT.y)>0.9)_rpN1.set(1,0,0);
+  _rpN2.crossVectors(_rpT,_rpN1).normalize();
+  _rpN1.crossVectors(_rpN2,_rpT).normalize();
+  const sag=len*0.016;
+  const pos=glRopeGeo.attributes.position, arr=pos.array, base=glRope.userData.base;
+  for(let i=0,j=0;j<arr.length;i+=3,j+=3){
+    const t=base[i], cs=base[i+1], sn=base[i+2];
+    // the same deliberate wrong-way taper as before: wider at the boat so the rope holds an
+    // even width on screen over a hundred and seventy feet of perspective
+    const r=GL_ROPE_R*(0.25+0.75*t);
+    _rpP.copy(a).addScaledVector(_rpD,t);
+    _rpP.y-=sag*4*t*(1-t);
+    arr[j  ]=_rpP.x+(_rpN1.x*cs+_rpN2.x*sn)*r;
+    arr[j+1]=_rpP.y+(_rpN1.y*cs+_rpN2.y*sn)*r;
+    arr[j+2]=_rpP.z+(_rpN1.z*cs+_rpN2.z*sn)*r;
+  }
+  pos.needsUpdate=true; glRopeGeo.computeBoundingSphere();
+  // one turn of the lay every foot or so, however long the rope happens to be
+  glRope.material.map.repeat.set(1,Math.max(1,len*0.9));
 }
 // the two control lines, drawn as a pair so one geometry carries both
 const glBrake=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(
@@ -21608,11 +21727,14 @@ if(location.hash.includes('debug')){
                                  +(b.max.z-b.min.z).toFixed(2)]:null,
               foam:(typeof boatFoam!=='undefined')?boatFoam.length:-1,
               bow:(typeof boatBowAt==='function'&&boatBowAt.last)||null,
-              trail:boatTrail.length, bump:+bwA.toFixed(2), shoves:btShoves,
+              trail:boatTrail.length, bump:+bwA.toFixed(2), shoves:btShoves, grab:btGrab,
               shoving:(function(){let n=0;if(typeof obstacles!=='undefined')
                 for(const o of obstacles)if(o.userData&&o.userData.btVX)n++;return n;})(),
               hull:!!(boat.userData&&boat.userData.hull)}; },
     boatPh(p){ btPh=p; btT=0; return btPh; },
+    // press the offer from a test, so "taking the line puts you in the air and ignoring it
+    // does not" can be run both ways without a thumb
+    grabNow(){ grabAction(); return btGrab; },
     glideNow(){ if(typeof glideStart!=='function')return null;
       if(!running&&typeof beginRun==='function')beginRun();
       glideReset(); glideStart(); return {ph:glPh}; },
@@ -26761,6 +26883,9 @@ function update(dt){
   }
   const ropeWindow=planeActive&&plane.position.z>-90&&plane.position.z<-4;
   ropeBtn.style.display=(ropeWindow||hanging)?'flex':'none';
+  // the boat's offer, on the same footing: a window drives the button rather than an event
+  // opening it and something else remembering to shut it
+  grabBtn.style.display=(btGrab===BTG.OPEN)?'flex':'none';
   if(hanging){
     rope.geometry.setFromPoints([
       new THREE.Vector3(px,py+1.2,-0.5),
