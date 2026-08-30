@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.4.0';
+window.SURF_VERSION='6.5.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -20533,7 +20533,7 @@ function stepSmoke(dt){
 // And spacing by distance rather than by a rate is what makes the density the same on a fast
 // phone and a slow one, and what bounds the count no matter the frame rate.
 const WSMOKE=[];
-for(let i=0;i<80;i++){
+for(let i=0;i<160;i++){
   const m=new THREE.Sprite(new THREE.SpriteMaterial({map:puffTexture(),color:0xf4fbff,
     transparent:true, opacity:0, depthWrite:false, dithering:true}));
   m.visible=false; m.renderOrder=2; scene.add(m);
@@ -20544,9 +20544,14 @@ function puffWake(x,y,z,r){
   p.t=1; p.r=r;
   // scattered off the centreline rather than strung down it, which is the other half of what
   // makes a line of puffs read as a volume rather than as beads on a string
-  p.x=x+(Math.random()-0.5)*0.80;
-  p.y=y+(Math.random()-0.5)*0.26;
-  p.z=z+(Math.random()-0.5)*1.30;
+  // ---- and barely scattered at all, because the ask is ONE LINE ----
+  // The scatter was +-0.80 across and +-1.30 along, against a spacing of 1.15 -- so a puff could
+  // land further from its neighbour than the gap it was meant to fill, and the trail came out as
+  // separate blobs however many were emitted. Enough jitter now to stop them looking stamped,
+  // and not enough to break the line.
+  p.x=x+(Math.random()-0.5)*0.30;
+  p.y=y+(Math.random()-0.5)*0.14;
+  p.z=z+(Math.random()-0.5)*0.22;
   p.vy=0.30+Math.random()*0.34;
   p.m.position.set(p.x,p.y,p.z); p.m.visible=true;
 }
@@ -20565,8 +20570,14 @@ function trailWake(dt,on,spd,eff){
     // change it.
     _wsAcc+=(Math.max(0,eff)*0.80+11.0)*dt;
     let guard=0;
-    while(_wsAcc>=1.15&&guard++<8){
-      _wsAcc-=1.15;
+    // ---- spaced CLOSER than they are wide, which is what continuous means ----
+    // A puff is about a foot across at birth and they were laid down every 1.15ft, so they only
+    // just touched and any jitter opened a gap. At 0.55 each one overlaps its neighbour properly
+    // and the line closes. Smaller puffs, more of them -- which is the trade that was offered,
+    // and it costs nothing in overdraw because the overlap is along the line rather than piled
+    // on one spot.
+    while(_wsAcc>=0.55&&guard++<18){
+      _wsAcc-=0.55;
       // ---- and it is born BEHIND him, with the scatter tightened ----
       // At 0.95 back with 1.15 of scatter the puffs grew up either side of the board and read as
       // a cloud around the rider rather than a trail off his tail. Narrowing the scatter is what
@@ -20576,20 +20587,22 @@ function trailWake(dt,on,spd,eff){
       const fz=pz+BOARD_HALF_L+1.10;
       const fx=px+(Math.random()-0.5)*0.4;
       puffWake(fx, waveH(fx,dist*WAVE_DRIFT+fz,waveClock)+0.30, fz,
-               0.74+Math.min(0.46,spd*0.011));
+               0.62+Math.min(0.34,spd*0.009));
     }
   } else _wsAcc=0;
   for(const p of WSMOKE){
     if(p.t<=0)continue;
-    p.t-=dt*0.80;                        // about a second and a quarter each
+    p.t-=dt*1.05;                        // about a second each, which bounds the count
     if(p.t<=0){ p.m.visible=false; p.m.material.opacity=0; continue; }
     const age=1-p.t;
     p.z+=eff*dt;                         // it stays where the water left it and falls astern
     p.y+=p.vy*dt; p.vy*=(1-Math.min(1,dt*1.6));
     p.m.position.set(p.x,p.y,p.z);
     // a sprite has no volume of its own, so it has to grow to fill the space
-    p.m.scale.setScalar(p.r*(0.85+age*2.5));
-    let a=0.88*p.t*Math.min(1,age*5.5);
+    p.m.scale.setScalar(p.r*(0.90+age*1.75));
+    // near enough solid at its core: a soft sprite spends most of its area in the thin part of
+    // its own falloff, so anything less than this reads as a wisp rather than as water
+    let a=1.00*p.t*Math.min(1,age*6.0);
     // ---- and it gets out of the lens ----
     // The wake drifts at the camera, eleven feet astern, and a four-foot puff two feet from the
     // glass is a white screen. This is both the look and the overdraw control: the packets that
