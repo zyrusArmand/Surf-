@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.5.2';
+window.SURF_VERSION='6.6.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -20558,46 +20558,44 @@ function puffWake(x,y,z,r){
   p.m.position.set(p.x,p.y,p.z); p.m.visible=true;
 }
 var _wsAcc=0;
+const _wsTail=new THREE.Vector3(), _wsPrev=new THREE.Vector3();
+var _wsHas=false;
 function trailWake(dt,on,spd,eff){
-  // ---- laid down per FOOT OF WATER PASSED, not per second ----
-  // The board barely moves in world space -- the sea scrolls past it -- so there is no path
-  // length to walk the way the plane's trail does. eff*dt is the same quantity: how much water
-  // went by. One puff every fourteen inches of it.
   if(on){
-    // ---- distance PLUS a base rate ----
-    // Pure distance-spacing bounds the count at speed, which is what it is for, but it also
-    // means the trail nearly vanishes at a crawl -- sixteen puffs alive at ten miles an hour
-    // against sixty-odd at forty. A constant term keeps it substantial when he is slow without
-    // costing anything when he is quick, and it is still per-second so the frame rate cannot
-    // change it.
-    _wsAcc+=(Math.max(0,eff)*0.80+8.0)*dt;
-    let guard=0;
-    // ---- spaced CLOSER than they are wide, which is what continuous means ----
-    // A puff is about a foot across at birth and they were laid down every 1.15ft, so they only
-    // just touched and any jitter opened a gap. At 0.55 each one overlaps its neighbour properly
-    // and the line closes. Smaller puffs, more of them -- which is the trade that was offered,
-    // and it costs nothing in overdraw because the overlap is along the line rather than piled
-    // on one spot.
-    while(_wsAcc>=0.70&&guard++<18){
-      _wsAcc-=0.70;
-      // ---- and it is born BEHIND him, with the scatter tightened ----
-      // At 0.95 back with 1.15 of scatter the puffs grew up either side of the board and read as
-      // a cloud around the rider rather than a trail off his tail. Narrowing the scatter is what
-      // fixed that; moving the birth point to 1.70 as well then pushed the whole thing under the
-      // bottom edge, because only about four feet of water astern is ever on screen. The scatter
-      // does the work, the birth point stays where it can be seen.
-      // ---- and it is laid down on his LINE, exactly ----
-      // A random +-0.4 here plus +-0.30 in the pool meant half a foot of lateral wander on every
-      // puff, so the trail snaked while he was going dead straight. The shape of a wake should
-      // come from where the board actually went and from nothing else: it is pinned to px at the
-      // moment it is laid, and it keeps that x for life, so a straight run gives a straight line
-      // and a carve bends it by exactly as much as he carved.
-      const fz=pz+BOARD_HALF_L+1.10;
-      const fx=px;
-      puffWake(fx, waveH(fx,dist*WAVE_DRIFT+fz,waveClock)+0.30, fz,
-               0.62+Math.min(0.34,spd*0.009));
+    // ---- where the tail actually IS ----
+    // px, pz+BOARD_HALF_L assumes the tail is dead astern of him. It is not: the board yaws
+    // through a carve, so the tail swings out sideways, and the trail went on appearing where
+    // the tail WOULD have been on a straight run -- detached from the board and off to one side,
+    // which is exactly what a turn looked like. Taken off the rig's own world matrix rather than
+    // rebuilt from an angle, so yaw, wobble and lean are all in it by construction.
+    _wsTail.set(0,0,BOARD_HALF_L+1.10);
+    if(typeof rig!=='undefined'&&rig){ rig.updateMatrixWorld(); _wsTail.applyMatrix4(rig.matrixWorld); }
+    else _wsTail.set(px,0,pz+BOARD_HALF_L+1.10);
+    const fx=_wsTail.x, fz=_wsTail.z;
+    if(!_wsHas){ _wsPrev.set(fx,0,fz); _wsHas=true; }
+    // ---- spaced along the PATH the tail took, not along one axis ----
+    // Water passed under the board is the whole story only while he runs straight. In a carve
+    // the tail also swings sideways, and fast: consecutive puffs land further apart ACROSS than
+    // they are wide, and the line breaks into dots exactly when it is being looked at hardest.
+    // So the lateral distance goes into the accumulator too, and the puffs are laid ALONG the
+    // segment the tail actually covered -- which is what trailSmoke does for the plane, and why
+    // that one stays continuous through a dive.
+    // The base rate is still there because pure distance nearly vanishes at a crawl, and it is
+    // per-second so the frame rate cannot change the density.
+    const segx=fx-_wsPrev.x, segz=fz-_wsPrev.z;
+    _wsAcc+=Math.sqrt(segx*segx+segz*segz)+(Math.max(0,eff)*0.80+8.0)*dt;
+    let n=0;
+    while(_wsAcc>=0.48&&n<22){ _wsAcc-=0.48; n++; }
+    for(let i=1;i<=n;i++){
+      const t=i/n;                       // spread evenly down the segment, nearest end last
+      const ex=_wsPrev.x+segx*t, ez=_wsPrev.z+segz*t;
+      // thinner: 0.62 growing 1.75x was a rope. Smaller puffs, and the spacing came down with
+      // them, because a line only stays closed while the gap is under the puff width.
+      puffWake(ex, waveH(ex,dist*WAVE_DRIFT+ez,waveClock)+0.30, ez,
+               0.42+Math.min(0.22,spd*0.006));
     }
-  } else _wsAcc=0;
+    _wsPrev.set(fx,0,fz);
+  } else { _wsAcc=0; _wsHas=false; }
   for(const p of WSMOKE){
     if(p.t<=0)continue;
     p.t-=dt*1.05;                        // about a second each, which bounds the count
@@ -20607,7 +20605,7 @@ function trailWake(dt,on,spd,eff){
     p.y+=p.vy*dt; p.vy*=(1-Math.min(1,dt*1.6));
     p.m.position.set(p.x,p.y,p.z);
     // a sprite has no volume of its own, so it has to grow to fill the space
-    p.m.scale.setScalar(p.r*(0.90+age*1.75));
+    p.m.scale.setScalar(p.r*(0.88+age*1.30));
     // near enough solid at its core: a soft sprite spends most of its area in the thin part of
     // its own falloff, so anything less than this reads as a wisp rather than as water
     let a=1.00*p.t*Math.min(1,age*6.0);
