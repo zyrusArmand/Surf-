@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.0.0';
+window.SURF_VERSION='6.0.1';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -13999,6 +13999,92 @@ const wakeMat=new THREE.ShaderMaterial({
 });
 const wakeMesh=new THREE.Mesh(wakeGeo,wakeMat);
 wakeMesh.frustumCulled=false;scene.add(wakeMesh);
+
+// ---------- the foam mound: the wake as a THING, not as a tint ----------
+// Everything before this drew the wake by colouring the water -- first with sprites, which
+// stack alpha and speckle, then with a term in the water's own shader, which cannot speckle and
+// also cannot have thickness. A surface tint has no volume by definition, so it reads as a
+// painted strip however it is shaded, and the straight edge where it ended gave it away. The
+// barrel's foam only looks three-dimensional because it lies on a near-vertical face you see
+// edge-on; laid flat on flat water at a grazing angle, the same recipe is a stripe.
+//
+// So this is geometry. A strip of mesh behind the tail, displaced upward into lumps by value
+// noise, LIT BY THE SCENE -- which is what gives it form: the crowns catch the sun and the
+// hollows go into shadow, and that shading is the whole of what makes something read as solid.
+// And it is OPAQUE, which is the other half of the point: nothing is blended over anything, so
+// the rainbow speckle is impossible here by construction rather than by tuning.
+const FM_L=34, FM_C=13;               // segments along the trail, and across it
+const FM_LEN=17.0;                    // how far astern it runs before it has faded to nothing
+const FM_W0=0.62, FM_SPREAD=0.30;     // half-width at the tail, and how fast it opens out
+const FM_H=1.25;                      // how high the crown of the mound stands off the water
+// A hash-based value noise. The lumps have to move with the water rather than with the screen,
+// so it is sampled in WORLD x/z and scrolled in time -- sample it in screen or board space and
+// the foam crawls with the camera, which reads as fog rather than as water.
+function fmHash(i,j){ const n=Math.sin(i*127.1+j*311.7)*43758.5453; return n-Math.floor(n); }
+function fmNoise(x,y){
+  const xi=Math.floor(x), yi=Math.floor(y), xf=x-xi, yf=y-yi;
+  const u=xf*xf*(3-2*xf), v=yf*yf*(3-2*yf);
+  const a=fmHash(xi,yi), b=fmHash(xi+1,yi), c=fmHash(xi,yi+1), d=fmHash(xi+1,yi+1);
+  return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v;
+}
+const fmGeo=new THREE.BufferGeometry();
+{
+  const pos=new Float32Array(FM_L*FM_C*3), idx=[];
+  for(let i=0;i<FM_L-1;i++)for(let j=0;j<FM_C-1;j++){
+    const a=i*FM_C+j, b=a+1, c=a+FM_C, d=c+1;
+    idx.push(a,c,b, b,c,d);
+  }
+  fmGeo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  fmGeo.setIndex(idx);
+}
+const foamMound=new THREE.Mesh(fmGeo,new THREE.MeshStandardMaterial({
+  // near-white rather than white: pure 1.0 clips under this scene's tone mapping and the
+  // lumps lose their shading at the top end, which is the one thing this exists to have
+  color:0xeef7fb, roughness:0.96, metalness:0.0, side:THREE.DoubleSide, flatShading:false}));
+foamMound.frustumCulled=false; foamMound.visible=false; scene.add(foamMound);
+var fmT=0;
+function updateFoamMound(dt,on,strength){
+  fmT+=dt;
+  if(!on||!(strength>0.02)){ foamMound.visible=false; return; }
+  foamMound.visible=true;
+  const arr=fmGeo.attributes.position.array;
+  const t0=BOARD_HALF_L+0.30;         // starts at the tail and not one inch forward of it
+  for(let i=0;i<FM_L;i++){
+    const s=i/(FM_L-1);
+    const d=t0+s*FM_LEN;
+    // ---- it opens out over the part you can SEE, then closes again ----
+    // The camera is eleven feet back, so only about the first five feet of this is ever on
+    // screen. The widening therefore has to happen inside that, and the taper back to nothing
+    // happens beyond it -- which is also what keeps the far end from ending on a straight edge
+    // lying flat in the water, where it would z-fight the surface it is sitting on.
+    const grow=Math.min(1,s/0.5);
+    const close=1-Math.max(0,(s-0.55)/0.45);
+    const halfW=(FM_W0+d*FM_SPREAD)*Math.max(0.06,close);
+    const hh=FM_H*Math.pow(grow,0.55)*Math.max(0,close)*strength;
+    for(let j=0;j<FM_C;j++){
+      const u=(j/(FM_C-1))*2-1;
+      const x=px+u*halfW, z=pz+d;
+      const sea=waveH(x, dist*WAVE_DRIFT+z, waveClock);
+      // full in the middle, meeting the water at both rails so there is no cliff down its side
+      const across=Math.pow(Math.max(0,1-u*u),0.62);
+      // ---- and it BREAKS, which is what stops it being a slab ----
+      // Two octaves, and the result is biased NEGATIVE: where the noise is low the vertex is
+      // pushed under the sea surface, and the water occludes it. So the mesh is not a sheet with
+      // bumps on it, it is a run of separate clumps standing out of the water with gaps between
+      // them -- a broken waterline rather than a lid. That is also what kills the straight edge
+      // the first attempt had, because the edge is now wherever the noise happens to cross zero
+      // rather than wherever the strip happens to start.
+      const n1=fmNoise(x*2.1, z*2.1-fmT*1.6);
+      const n2=fmNoise(x*5.3+11.0, z*5.3-fmT*2.7);
+      const lump=(n1*0.72+n2*0.28)*1.85-0.62;
+      const o=(i*FM_C+j)*3;
+      arr[o]=x; arr[o+1]=sea+hh*across*lump; arr[o+2]=z;
+    }
+  }
+  fmGeo.attributes.position.needsUpdate=true;
+  fmGeo.computeVertexNormals();       // 440 verts -- the normals are what light the lumps
+  fmGeo.computeBoundingSphere();
+}
 const trail=[];                       // {x,y,z,w,age}
 let trailT=0;
 // Scaled by the rider's own size at the moment it is laid down, not at the moment it is
@@ -17079,6 +17165,7 @@ function updateWorldDuringWipeout(dt){
   oceanUniforms.uWhX.value=whX;oceanUniforms.uWhZ.value=whZ;oceanUniforms.uWhA.value=whA;
   oceanUniforms.uSwA.value=swA;oceanUniforms.uSwX.value=swX;oceanUniforms.uSwS.value=swS;
   oceanUniforms.uRdA.value=0; oceanUniforms.uBtA.value=0;   // no wake on the menu's water
+  if(typeof foamMound!=='undefined')foamMound.visible=false;
   placeCurl(dt);
   if(shake>0)shake-=dt*8;
   for(let i=splashes.length-1;i>=0;i--){
@@ -27500,7 +27587,7 @@ function update(dt){
     // ordinary board, which rendered as a barely-there smudge. The stat still counts, but as a
     // modest widening rather than as most of the alpha.
     oceanUniforms.uRdA.value=onWater
-      ?(0.58+0.42*Math.min(1,speed/22))*Math.min(1.25,Math.max(0.8,BS.wake)):0;
+      ?(0.30+0.26*Math.min(1,speed/22))*Math.min(1.25,Math.max(0.8,BS.wake)):0;
     // and the V, alive only while the boat is actually making way
     const btOn=(typeof btPh!=='undefined')&&btPh!==BTP.OFF&&boat.visible&&btSpd>7;
     oceanUniforms.uBtX.value=btX;
@@ -27508,6 +27595,15 @@ function update(dt){
     oceanUniforms.uBtSn.value=Math.sin(btYaw);
     oceanUniforms.uBtCs.value=Math.cos(btYaw);
     oceanUniforms.uBtA.value=btOn?(0.62+0.38*Math.min(1,btSpd/24)):0;
+    // ---- the mound is OFF, and the code is left standing on purpose ----
+    // Geometry was the third attempt at this and it fails for its own reason. It does have
+    // volume and it cannot speckle, but a 34x13 grid is far too coarse at three feet from the
+    // lens: where the clumps cross the water you see the polygon edges, and it reads as broken
+    // glass rather than as foam. Making it fine enough to hide that is a real piece of work --
+    // and not something I can iterate on cheaply, because the artefact that started all this
+    // only shows on the phone and never in a headless render.
+    // Left in place, off, because the approach is sound and only the resolution is wrong.
+    updateFoamMound(dt,false,0);
   }
   placeCurl(dt);
 
