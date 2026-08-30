@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.1.1';
+window.SURF_VERSION='6.2.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -14030,7 +14030,7 @@ const fmGeo=new THREE.BufferGeometry();
   for(let i=0;i<FM_L;i++)for(let j=0;j<FM_C;j++){
     const o=i*FM_C+j;
     g[o*2]=i/(FM_L-1);                 // s: 0 at the tail, 1 at the far end
-    g[o*2+1]=(j/(FM_C-1))*2-1;         // u: -1 to 1 across
+    g[o*2+1]=(j/(FM_C-1))*6.2831853;   // th: all the way round the tube
   }
   for(let i=0;i<FM_L-1;i++)for(let j=0;j<FM_C-1;j++){
     const a=i*FM_C+j, b=a+1, c=a+FM_C, d=c+1;
@@ -14051,7 +14051,21 @@ const fmUniforms={
   // field. A wake is a defined thing with water either side of it, so it is tightened and the
   // lump bias is pushed further negative -- more of the noise falls under the waterline and is
   // discarded, which is what puts holes in it rather than making it a sheet with texture.
-  uTail:{value:3.4}, uLen:{value:15.0}, uW0:{value:0.45}, uSpread:{value:0.19}, uH:{value:1.05},
+  // uW0 and uSpread are the tube's RADIUS at the tail and how fast it opens: a foot across
+  // where the water leaves the board, better than three by the bottom of the frame.
+  // ---- and it has to be big enough to reach the frame ----
+  // The camera is eleven feet back and low, so only about four feet of water astern is ever on
+  // screen: a tube a foot and a half across sits almost entirely below the bottom edge. These
+  // are sized so the puffs stand up INTO the shot rather than being technically correct and
+  // invisible, which is the trap every version of this has fallen into once.
+  // ---- and it has to END before the lens does ----
+  // Sized up to reach the frame, it reached rather too far: 14ft of length opening at 0.36 a
+  // foot is a seven-foot radius by the end, and with the camera 11.4ft astern the tube simply
+  // swallowed it -- a white screen. The taper did not save it either, because it only began at
+  // s=0.58, which is 11.5ft back: exactly where the lens is.
+  // The whole cloud now lives inside the four feet of water that is actually on screen, and the
+  // radius is capped outright so no combination of noise and distance can grow it past that.
+  uTail:{value:3.3}, uLen:{value:5.6}, uW0:{value:0.44}, uSpread:{value:0.17}, uH:{value:1.0},
   uSun:{value:sunDir}, uLight:{value:1.0}, uSky:{value:new THREE.Color(0x9fd8ff)},
 };
 const foamMound=new THREE.Mesh(fmGeo,new THREE.ShaderMaterial({
@@ -14087,22 +14101,43 @@ const foamMound=new THREE.Mesh(fmGeo,new THREE.ShaderMaterial({
       float lump=(n1*0.72+n2*0.28)*1.95-0.82;
       return uH*pow(grow,0.55)*max(0.0,close)*uStr*across*lump;
     }
-    vec3 fmAt(float s,float u){
+    // ---- and it is a TUBE, not a crust lying on the water ----
+    // A strip with height on it is still a surface: from a camera almost level with the sea you
+    // see it edge-on and it reads as a rind. Clouds coming off the tail need to stand UP, which
+    // means the geometry has to wrap round -- so the grid is swept about a centreline running
+    // astern instead of laid flat, and u is an angle rather than a distance across.
+    // Its radius opens with distance and is chewed by noise, which is what makes it billow
+    // rather than taper like a cone.
+    vec3 fmAt(float s,float th){
       float d=uTail+s*uLen;
-      float close=1.0-max(0.0,(s-0.55)/0.45);
-      float halfW=(uW0+d*uSpread)*max(0.06,close);
-      float wx=uPX+u*halfW, wz=uPZ+d;
+      float grow=min(1.0,s/0.40);
+      float close=1.0-max(0.0,(s-0.42)/0.58);
+      float wz=uPZ+d;
+      float r=(uW0+d*uSpread)*max(0.0,close)*pow(grow,0.5)*uStr;
+      // two octaves around and along, so no two puffs are the same size or in step
+      float n1=fmNoise(vec2(d*1.35, th*1.30-uNT*0.85));
+      float n2=fmNoise(vec2(d*3.10+7.0, th*2.70+uNT*1.25));
+      r*=(0.42+0.86*n1)*(0.72+0.46*n2);
+      r=min(r,1.75);                     // a hard ceiling, so it can never reach the camera
+      float ca=cos(th), sa=sin(th);
+      float wx=uPX+ca*r;
       float sea=seaH(vec2(wx,wz+uDist));
-      return vec3(wx, sea+max(0.0,fmAmt(s,u,vec2(wx,wz))), wz);
+      // the centreline rides just above the surface, so the lower half of every puff is in the
+      // water and the sea occludes it -- which is what seats the cloud IN the wake rather than
+      // floating it over the top
+      // 0.42 buried most of every puff. At 0.78 the majority of the cloud stands proud of the
+      // surface and only its foot is in the water, which is both what foam does and what the
+      // camera can actually see.
+      return vec3(wx, sea+r*0.62+sa*r, wz);
     }
     void main(){
       vS=aG.x;
       vec3 wp=fmAt(aG.x,aG.y);
       // the normal is what lights the lumps, so it is taken from the surface itself rather
       // than from the flat grid: two neighbours a hand's breadth away in each direction
-      float eu=0.06;
+      float eu=0.16;                     // a step in ANGLE now, not across a strip
       vec3 pa=fmAt(min(1.0,aG.x+0.012), aG.y);
-      vec3 pb=fmAt(aG.x, min(1.0,aG.y+eu));
+      vec3 pb=fmAt(aG.x, aG.y+eu);
       vNrm=normalize(cross(pb-wp, pa-wp));
       vWp=wp;
       gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.0);
@@ -14133,21 +14168,22 @@ const foamMound=new THREE.Mesh(fmGeo,new THREE.ShaderMaterial({
       // still passed the test and got drawn: the whole far end lying flat on the water, and the
       // start of the strip at the tail, both of them full-width sheets. Hence a grey slab with
       // a straight edge across the bottom of the screen.
+      // ---- the holes, at pixel resolution ----
+      // The tube only has to be broken into separate puffs here; everything below the waterline
+      // is handled for free, because this is opaque and depth-tested and the sea is drawn in
+      // front of it. Sampled in world space so the holes belong to the water rather than
+      // crawling with the camera.
       float d=vWp.z-uPZ;
       float s=clamp((d-uTail)/uLen,0.0,1.0);
-      float grow=min(1.0,s/0.5);
-      float close=1.0-max(0.0,(s-0.55)/0.45);
-      float halfW=(uW0+d*uSpread)*max(0.06,close);
-      float u=clamp((vWp.x-uPX)/max(0.001,halfW),-1.0,1.0);
-      float across=pow(max(0.0,1.0-u*u),0.62);
-      float n1=fmNoise(vWp.xz*2.1+vec2(0.0,-uNT*1.6));
-      float n2=fmNoise(vWp.xz*5.3+vec2(11.0,-uNT*2.7));
-      float n3=fmNoise(vWp.xz*13.0+vec2(4.0,-uNT*4.1));
-      float lump=(n1*0.66+n2*0.24+n3*0.10)*1.95-0.82;
-      float amt=uH*pow(grow,0.55)*max(0.0,close)*uStr*across*lump;
-      if(amt<=0.012) discard;
+      float m1=fmNoise(vWp.xz*1.30+vec2(0.0,-uNT*1.1));
+      float m2=fmNoise(vWp.xz*3.40+vec2(9.0,-uNT*1.9));
+      float m3=fmNoise(vWp.xz*8.10+vec2(3.0,-uNT*3.0));
+      float amt=(m1*0.58+m2*0.28+m3*0.14)*1.70-0.60;
+      // and it thins out at both ends rather than stopping
+      amt*=smoothstep(0.0,0.10,s)*(1.0-smoothstep(0.48,1.0,s));
+      if(amt<=0.010) discard;
       // and a finer grain perturbs the normal, so the surface has texture between the lumps
-      vec3 N=normalize(vNrm+vec3((n3-0.5)*0.55,0.0,(n2-0.5)*0.45));
+      vec3 N=normalize(vNrm+vec3((m3-0.5)*0.55,0.0,(m2-0.5)*0.45));
       float diff=max(dot(N,normalize(uSun)),0.0);
       // aerated water is bright and almost flat, but not FLAT -- the shading is the whole
       // reason this exists, so the range from hollow to crown is kept wide enough to read
