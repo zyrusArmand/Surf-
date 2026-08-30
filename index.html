@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.0.1';
+window.SURF_VERSION='6.1.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -14013,77 +14013,157 @@ wakeMesh.frustumCulled=false;scene.add(wakeMesh);
 // hollows go into shadow, and that shading is the whole of what makes something read as solid.
 // And it is OPAQUE, which is the other half of the point: nothing is blended over anything, so
 // the rainbow speckle is impossible here by construction rather than by tuning.
-const FM_L=34, FM_C=13;               // segments along the trail, and across it
-const FM_LEN=17.0;                    // how far astern it runs before it has faded to nothing
-const FM_W0=0.62, FM_SPREAD=0.30;     // half-width at the tail, and how fast it opens out
-const FM_H=1.25;                      // how high the crown of the mound stands off the water
-// A hash-based value noise. The lumps have to move with the water rather than with the screen,
-// so it is sampled in WORLD x/z and scrolled in time -- sample it in screen or board space and
-// the foam crawls with the camera, which reads as fog rather than as water.
-function fmHash(i,j){ const n=Math.sin(i*127.1+j*311.7)*43758.5453; return n-Math.floor(n); }
-function fmNoise(x,y){
-  const xi=Math.floor(x), yi=Math.floor(y), xf=x-xi, yf=y-yi;
-  const u=xf*xf*(3-2*xf), v=yf*yf*(3-2*yf);
-  const a=fmHash(xi,yi), b=fmHash(xi+1,yi), c=fmHash(xi,yi+1), d=fmHash(xi+1,yi+1);
-  return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v;
-}
+// ---- and it is displaced on the GPU, with the SILHOUETTE CARVED PER PIXEL ----
+// The first cut of this built the strip in JS and let the polygon grid decide its outline, and
+// that is exactly why it faceted: the edge of a clump was an edge of a triangle, and three feet
+// from the lens a triangle is enormous. Resolution alone cannot fix that -- it only makes the
+// facets smaller.
+// So the shape does not come from the mesh at all. The grid is static and displaced in the
+// vertex shader; the fragment shader re-evaluates the same noise at its own pixel and DISCARDS
+// where the foam is under water. The outline is therefore as fine as the screen is, whatever
+// the grid is, and the mesh only has to be dense enough to carry the lumps' shading.
+// Opaque, so nothing is ever blended over anything, so the speckle cannot happen here.
+const FM_L=110, FM_C=46;              // segments along the trail, and across it
 const fmGeo=new THREE.BufferGeometry();
 {
-  const pos=new Float32Array(FM_L*FM_C*3), idx=[];
+  const n=FM_L*FM_C, pos=new Float32Array(n*3), g=new Float32Array(n*2), idx=[];
+  for(let i=0;i<FM_L;i++)for(let j=0;j<FM_C;j++){
+    const o=i*FM_C+j;
+    g[o*2]=i/(FM_L-1);                 // s: 0 at the tail, 1 at the far end
+    g[o*2+1]=(j/(FM_C-1))*2-1;         // u: -1 to 1 across
+  }
   for(let i=0;i<FM_L-1;i++)for(let j=0;j<FM_C-1;j++){
     const a=i*FM_C+j, b=a+1, c=a+FM_C, d=c+1;
     idx.push(a,c,b, b,c,d);
   }
   fmGeo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  fmGeo.setAttribute('aG',new THREE.BufferAttribute(g,2));
   fmGeo.setIndex(idx);
+  // it is rebuilt entirely in the vertex shader, so its bounds can never be derived from the
+  // positions attribute -- which is all zeros. Given a huge sphere so it is never culled.
+  fmGeo.boundingSphere=new THREE.Sphere(new THREE.Vector3(0,0,0),4000);
 }
-const foamMound=new THREE.Mesh(fmGeo,new THREE.MeshStandardMaterial({
-  // near-white rather than white: pure 1.0 clips under this scene's tone mapping and the
-  // lumps lose their shading at the top end, which is the one thing this exists to have
-  color:0xeef7fb, roughness:0.96, metalness:0.0, side:THREE.DoubleSide, flatShading:false}));
+const fmUniforms={
+  uT:{value:0}, uDist:{value:0}, uAmp:{value:1.35}, uNT:{value:0},
+  uPX:{value:0}, uPZ:{value:0}, uStr:{value:0},
+  uTail:{value:3.4}, uLen:{value:17.0}, uW0:{value:0.62}, uSpread:{value:0.30}, uH:{value:1.25},
+  uSun:{value:sunDir}, uLight:{value:1.0}, uSky:{value:new THREE.Color(0x9fd8ff)},
+};
+const foamMound=new THREE.Mesh(fmGeo,new THREE.ShaderMaterial({
+  uniforms:fmUniforms, side:THREE.DoubleSide,
+  vertexShader:`
+    attribute vec2 aG;
+    uniform float uT; uniform float uDist; uniform float uAmp; uniform float uNT;
+    uniform float uPX; uniform float uPZ; uniform float uStr;
+    uniform float uTail; uniform float uLen; uniform float uW0; uniform float uSpread;
+    uniform float uH;
+    varying vec3 vWp; varying vec3 vNrm; varying float vS;
+    // the sea, evaluated exactly as the ocean evaluates it, so the foam sits ON the water
+    // rather than near it -- the same generated wave list, so the two can never drift apart
+    float seaH(vec2 p){
+      float h=0.0, dhx=0.0, dhz=0.0, e=1.0;
+      ${glslWaves}
+      return h*uAmp;
+    }
+    float fmHash(vec2 q){ return fract(sin(q.x*127.1+q.y*311.7)*43758.5453); }
+    float fmNoise(vec2 q){
+      vec2 i=floor(q), f=fract(q);
+      vec2 u=f*f*(3.0-2.0*f);
+      return mix(mix(fmHash(i),fmHash(i+vec2(1.0,0.0)),u.x),
+                 mix(fmHash(i+vec2(0.0,1.0)),fmHash(i+vec2(1.0,1.0)),u.x),u.y);
+    }
+    // how much foam stands at this point: positive is above the water, negative is under it
+    float fmAmt(float s,float u,vec2 w){
+      float grow=min(1.0,s/0.5);
+      float close=1.0-max(0.0,(s-0.55)/0.45);
+      float across=pow(max(0.0,1.0-u*u),0.62);
+      float n1=fmNoise(w*2.1+vec2(0.0,-uNT*1.6));
+      float n2=fmNoise(w*5.3+vec2(11.0,-uNT*2.7));
+      float lump=(n1*0.72+n2*0.28)*1.85-0.62;
+      return uH*pow(grow,0.55)*max(0.0,close)*uStr*across*lump;
+    }
+    vec3 fmAt(float s,float u){
+      float d=uTail+s*uLen;
+      float close=1.0-max(0.0,(s-0.55)/0.45);
+      float halfW=(uW0+d*uSpread)*max(0.06,close);
+      float wx=uPX+u*halfW, wz=uPZ+d;
+      float sea=seaH(vec2(wx,wz+uDist));
+      return vec3(wx, sea+max(0.0,fmAmt(s,u,vec2(wx,wz))), wz);
+    }
+    void main(){
+      vS=aG.x;
+      vec3 wp=fmAt(aG.x,aG.y);
+      // the normal is what lights the lumps, so it is taken from the surface itself rather
+      // than from the flat grid: two neighbours a hand's breadth away in each direction
+      float eu=0.06;
+      vec3 pa=fmAt(min(1.0,aG.x+0.012), aG.y);
+      vec3 pb=fmAt(aG.x, min(1.0,aG.y+eu));
+      vNrm=normalize(cross(pb-wp, pa-wp));
+      vWp=wp;
+      gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.0);
+    }`,
+  fragmentShader:`
+    precision highp float;
+    uniform float uNT; uniform float uPX; uniform float uPZ; uniform float uStr;
+    uniform float uTail; uniform float uLen; uniform float uW0; uniform float uSpread;
+    uniform float uH; uniform vec3 uSun; uniform float uLight; uniform vec3 uSky;
+    varying vec3 vWp; varying vec3 vNrm; varying float vS;
+    float fmHash(vec2 q){ return fract(sin(q.x*127.1+q.y*311.7)*43758.5453); }
+    float fmNoise(vec2 q){
+      vec2 i=floor(q), f=fract(q);
+      vec2 u=f*f*(3.0-2.0*f);
+      return mix(mix(fmHash(i),fmHash(i+vec2(1.0,0.0)),u.x),
+                 mix(fmHash(i+vec2(0.0,1.0)),fmHash(i+vec2(1.0,1.0)),u.x),u.y);
+    }
+    void main(){
+      // ---- the outline, re-evaluated HERE ----
+      // The same noise the vertex shader displaced by, sampled at this pixel's own world
+      // position. Where the foam is below the waterline the pixel is thrown away, so the edge
+      // of every clump is drawn at screen resolution instead of at grid resolution. This one
+      // line is the difference between foam and broken glass.
+      float d=vWp.z-uPZ;
+      float u=clamp((vWp.x-uPX)/max(0.001,(uW0+d*uSpread)),-1.0,1.0);
+      float across=pow(max(0.0,1.0-u*u),0.62);
+      float n1=fmNoise(vWp.xz*2.1+vec2(0.0,-uNT*1.6));
+      float n2=fmNoise(vWp.xz*5.3+vec2(11.0,-uNT*2.7));
+      float n3=fmNoise(vWp.xz*13.0+vec2(4.0,-uNT*4.1));
+      float lump=(n1*0.66+n2*0.24+n3*0.10)*1.85-0.62;
+      float amt=across*lump;
+      if(amt<=0.006) discard;
+      // and a finer grain perturbs the normal, so the surface has texture between the lumps
+      vec3 N=normalize(vNrm+vec3((n3-0.5)*0.55,0.0,(n2-0.5)*0.45));
+      float diff=max(dot(N,normalize(uSun)),0.0);
+      // aerated water is bright and almost flat, but not FLAT -- the shading is the whole
+      // reason this exists, so the range from hollow to crown is kept wide enough to read
+      // ---- and these numbers are sRGB, because of the pow below ----
+      // 0.66 with a 0.40 floor came out as wet sand: everything here is converted to linear at
+      // the end of main, and 0.5^2.2 is 0.22. The ocean's own foam sits at 0.96-1.0 for exactly
+      // this reason. Aerated water is nearly white with SHADING on it, not a grey lit up -- so
+      // the base is near white and the sun only swings it a little.
+      vec3 col=vec3(0.90,0.95,0.99)*(0.72+0.34*diff);
+      col+=uSky*0.10;
+      // the thinnest edges go slightly translucent-looking by darkening toward the sea, which
+      // stops the outline reading as a cut-out
+      col=mix(col*0.86, col, smoothstep(0.006,0.10,amt));
+      col=pow(clamp(col,0.0,1.0),vec3(2.2));
+      gl_FragColor=vec4(col*uLight,1.0);
+    }`
+}));
 foamMound.frustumCulled=false; foamMound.visible=false; scene.add(foamMound);
 var fmT=0;
 function updateFoamMound(dt,on,strength){
   fmT+=dt;
   if(!on||!(strength>0.02)){ foamMound.visible=false; return; }
   foamMound.visible=true;
-  const arr=fmGeo.attributes.position.array;
-  const t0=BOARD_HALF_L+0.30;         // starts at the tail and not one inch forward of it
-  for(let i=0;i<FM_L;i++){
-    const s=i/(FM_L-1);
-    const d=t0+s*FM_LEN;
-    // ---- it opens out over the part you can SEE, then closes again ----
-    // The camera is eleven feet back, so only about the first five feet of this is ever on
-    // screen. The widening therefore has to happen inside that, and the taper back to nothing
-    // happens beyond it -- which is also what keeps the far end from ending on a straight edge
-    // lying flat in the water, where it would z-fight the surface it is sitting on.
-    const grow=Math.min(1,s/0.5);
-    const close=1-Math.max(0,(s-0.55)/0.45);
-    const halfW=(FM_W0+d*FM_SPREAD)*Math.max(0.06,close);
-    const hh=FM_H*Math.pow(grow,0.55)*Math.max(0,close)*strength;
-    for(let j=0;j<FM_C;j++){
-      const u=(j/(FM_C-1))*2-1;
-      const x=px+u*halfW, z=pz+d;
-      const sea=waveH(x, dist*WAVE_DRIFT+z, waveClock);
-      // full in the middle, meeting the water at both rails so there is no cliff down its side
-      const across=Math.pow(Math.max(0,1-u*u),0.62);
-      // ---- and it BREAKS, which is what stops it being a slab ----
-      // Two octaves, and the result is biased NEGATIVE: where the noise is low the vertex is
-      // pushed under the sea surface, and the water occludes it. So the mesh is not a sheet with
-      // bumps on it, it is a run of separate clumps standing out of the water with gaps between
-      // them -- a broken waterline rather than a lid. That is also what kills the straight edge
-      // the first attempt had, because the edge is now wherever the noise happens to cross zero
-      // rather than wherever the strip happens to start.
-      const n1=fmNoise(x*2.1, z*2.1-fmT*1.6);
-      const n2=fmNoise(x*5.3+11.0, z*5.3-fmT*2.7);
-      const lump=(n1*0.72+n2*0.28)*1.85-0.62;
-      const o=(i*FM_C+j)*3;
-      arr[o]=x; arr[o+1]=sea+hh*across*lump; arr[o+2]=z;
-    }
-  }
-  fmGeo.attributes.position.needsUpdate=true;
-  fmGeo.computeVertexNormals();       // 440 verts -- the normals are what light the lumps
-  fmGeo.computeBoundingSphere();
+  fmUniforms.uNT.value=fmT;
+  fmUniforms.uT.value=oceanUniforms.uT.value;
+  fmUniforms.uDist.value=oceanUniforms.uDist.value;
+  fmUniforms.uAmp.value=oceanUniforms.uAmp.value;
+  fmUniforms.uLight.value=oceanUniforms.uLight.value;
+  fmUniforms.uSky.value=oceanUniforms.uSky.value;
+  fmUniforms.uPX.value=px; fmUniforms.uPZ.value=pz;
+  fmUniforms.uTail.value=BOARD_HALF_L+0.30;
+  fmUniforms.uStr.value=strength;
 }
 const trail=[];                       // {x,y,z,w,age}
 let trailT=0;
@@ -27603,7 +27683,7 @@ function update(dt){
     // and not something I can iterate on cheaply, because the artefact that started all this
     // only shows on the phone and never in a headless render.
     // Left in place, off, because the approach is sound and only the resolution is wrong.
-    updateFoamMound(dt,false,0);
+    updateFoamMound(dt,onWater,Math.min(1,speed/15));
   }
   placeCurl(dt);
 
