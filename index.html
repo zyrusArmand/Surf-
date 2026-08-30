@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.5.0';
+window.SURF_VERSION='6.5.1';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -20549,9 +20549,11 @@ function puffWake(x,y,z,r){
   // land further from its neighbour than the gap it was meant to fill, and the trail came out as
   // separate blobs however many were emitted. Enough jitter now to stop them looking stamped,
   // and not enough to break the line.
-  p.x=x+(Math.random()-0.5)*0.30;
-  p.y=y+(Math.random()-0.5)*0.14;
-  p.z=z+(Math.random()-0.5)*0.22;
+  // the jitter that is left is along and up, never across: it stops them looking stamped
+  // without moving any of them off his line
+  p.x=x;
+  p.y=y+(Math.random()-0.5)*0.13;
+  p.z=z+(Math.random()-0.5)*0.20;
   p.vy=0.30+Math.random()*0.34;
   p.m.position.set(p.x,p.y,p.z); p.m.visible=true;
 }
@@ -20568,7 +20570,7 @@ function trailWake(dt,on,spd,eff){
     // against sixty-odd at forty. A constant term keeps it substantial when he is slow without
     // costing anything when he is quick, and it is still per-second so the frame rate cannot
     // change it.
-    _wsAcc+=(Math.max(0,eff)*0.80+11.0)*dt;
+    _wsAcc+=(Math.max(0,eff)*0.80+8.0)*dt;
     let guard=0;
     // ---- spaced CLOSER than they are wide, which is what continuous means ----
     // A puff is about a foot across at birth and they were laid down every 1.15ft, so they only
@@ -20576,16 +20578,22 @@ function trailWake(dt,on,spd,eff){
     // and the line closes. Smaller puffs, more of them -- which is the trade that was offered,
     // and it costs nothing in overdraw because the overlap is along the line rather than piled
     // on one spot.
-    while(_wsAcc>=0.55&&guard++<18){
-      _wsAcc-=0.55;
+    while(_wsAcc>=0.70&&guard++<18){
+      _wsAcc-=0.70;
       // ---- and it is born BEHIND him, with the scatter tightened ----
       // At 0.95 back with 1.15 of scatter the puffs grew up either side of the board and read as
       // a cloud around the rider rather than a trail off his tail. Narrowing the scatter is what
       // fixed that; moving the birth point to 1.70 as well then pushed the whole thing under the
       // bottom edge, because only about four feet of water astern is ever on screen. The scatter
       // does the work, the birth point stays where it can be seen.
+      // ---- and it is laid down on his LINE, exactly ----
+      // A random +-0.4 here plus +-0.30 in the pool meant half a foot of lateral wander on every
+      // puff, so the trail snaked while he was going dead straight. The shape of a wake should
+      // come from where the board actually went and from nothing else: it is pinned to px at the
+      // moment it is laid, and it keeps that x for life, so a straight run gives a straight line
+      // and a carve bends it by exactly as much as he carved.
       const fz=pz+BOARD_HALF_L+1.10;
-      const fx=px+(Math.random()-0.5)*0.4;
+      const fx=px;
       puffWake(fx, waveH(fx,dist*WAVE_DRIFT+fz,waveClock)+0.30, fz,
                0.62+Math.min(0.34,spd*0.009));
     }
