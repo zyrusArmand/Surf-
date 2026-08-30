@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.3.0';
+window.SURF_VERSION='6.4.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -20515,6 +20515,90 @@ function stepSmoke(dt){
     p.m.material.opacity=0.90*p.t*Math.min(1,age*6.0);
   }
 }
+// ---------- the board's wake, built like the plane's smoke ----------
+// Seven attempts at this failed, and the eighth is just a copy of something already in the game
+// that works: the burning engine's trail. It was worth asking why THAT one has never been
+// complained about, because the answer is not the shader or the shape, it is the arithmetic.
+//
+//   the plane's smoke        my sprite wake that speckled
+//   150 in the pool          460
+//   huge, growing 4.3x       small
+//   spaced by DISTANCE       spaced by a rate per second
+//
+// Few and huge, not many and small. That is the whole difference. A pixel under the plane's
+// trail is covered by a handful of sprites; under the old wake it was covered by forty, and
+// forty 8-bit blends is where the rainbow speckle came from. Coverage comes from each puff
+// being big rather than from there being lots of them -- which costs almost nothing per pixel.
+//
+// And spacing by distance rather than by a rate is what makes the density the same on a fast
+// phone and a slow one, and what bounds the count no matter the frame rate.
+const WSMOKE=[];
+for(let i=0;i<80;i++){
+  const m=new THREE.Sprite(new THREE.SpriteMaterial({map:puffTexture(),color:0xf4fbff,
+    transparent:true, opacity:0, depthWrite:false, dithering:true}));
+  m.visible=false; m.renderOrder=2; scene.add(m);
+  WSMOKE.push({m,t:0,r:1,x:0,y:0,z:0,vy:0});
+}
+function puffWake(x,y,z,r){
+  const p=WSMOKE.find(q=>q.t<=0); if(!p)return;
+  p.t=1; p.r=r;
+  // scattered off the centreline rather than strung down it, which is the other half of what
+  // makes a line of puffs read as a volume rather than as beads on a string
+  p.x=x+(Math.random()-0.5)*0.80;
+  p.y=y+(Math.random()-0.5)*0.26;
+  p.z=z+(Math.random()-0.5)*1.30;
+  p.vy=0.30+Math.random()*0.34;
+  p.m.position.set(p.x,p.y,p.z); p.m.visible=true;
+}
+var _wsAcc=0;
+function trailWake(dt,on,spd,eff){
+  // ---- laid down per FOOT OF WATER PASSED, not per second ----
+  // The board barely moves in world space -- the sea scrolls past it -- so there is no path
+  // length to walk the way the plane's trail does. eff*dt is the same quantity: how much water
+  // went by. One puff every fourteen inches of it.
+  if(on){
+    // ---- distance PLUS a base rate ----
+    // Pure distance-spacing bounds the count at speed, which is what it is for, but it also
+    // means the trail nearly vanishes at a crawl -- sixteen puffs alive at ten miles an hour
+    // against sixty-odd at forty. A constant term keeps it substantial when he is slow without
+    // costing anything when he is quick, and it is still per-second so the frame rate cannot
+    // change it.
+    _wsAcc+=(Math.max(0,eff)*0.80+11.0)*dt;
+    let guard=0;
+    while(_wsAcc>=1.15&&guard++<8){
+      _wsAcc-=1.15;
+      // ---- and it is born BEHIND him, with the scatter tightened ----
+      // At 0.95 back with 1.15 of scatter the puffs grew up either side of the board and read as
+      // a cloud around the rider rather than a trail off his tail. Narrowing the scatter is what
+      // fixed that; moving the birth point to 1.70 as well then pushed the whole thing under the
+      // bottom edge, because only about four feet of water astern is ever on screen. The scatter
+      // does the work, the birth point stays where it can be seen.
+      const fz=pz+BOARD_HALF_L+1.10;
+      const fx=px+(Math.random()-0.5)*0.4;
+      puffWake(fx, waveH(fx,dist*WAVE_DRIFT+fz,waveClock)+0.30, fz,
+               0.74+Math.min(0.46,spd*0.011));
+    }
+  } else _wsAcc=0;
+  for(const p of WSMOKE){
+    if(p.t<=0)continue;
+    p.t-=dt*0.80;                        // about a second and a quarter each
+    if(p.t<=0){ p.m.visible=false; p.m.material.opacity=0; continue; }
+    const age=1-p.t;
+    p.z+=eff*dt;                         // it stays where the water left it and falls astern
+    p.y+=p.vy*dt; p.vy*=(1-Math.min(1,dt*1.6));
+    p.m.position.set(p.x,p.y,p.z);
+    // a sprite has no volume of its own, so it has to grow to fill the space
+    p.m.scale.setScalar(p.r*(0.85+age*2.5));
+    let a=0.88*p.t*Math.min(1,age*5.5);
+    // ---- and it gets out of the lens ----
+    // The wake drifts at the camera, eleven feet astern, and a four-foot puff two feet from the
+    // glass is a white screen. This is both the look and the overdraw control: the packets that
+    // would cover the most pixels are exactly the ones faded out.
+    const dc=camera.position.distanceTo(p.m.position);
+    a*=Math.max(0,Math.min(1,(dc-1.7)/2.6));
+    p.m.material.opacity=a;
+  }
+}
 const swSplash=new THREE.Group(); swSplash.visible=false; scene.add(swSplash);
 (function buildSplash(){
   const w=PBR({color:0xf4fdff,roughness:0.30,vivid:1.3});
@@ -27757,7 +27841,13 @@ function update(dt){
     // and not something I can iterate on cheaply, because the artefact that started all this
     // only shows on the phone and never in a headless render.
     // Left in place, off, because the approach is sound and only the resolution is wrong.
-    updateFoamMound(dt,onWater,Math.min(1,speed/15));
+    // ---- the tube is OFF: it wrapped round him ----
+    // A swept surface behind the board became a shape the rider stands inside, and no amount of
+    // radius tuning fixes that -- it is what a tube IS. Left in place and never enabled.
+    updateFoamMound(dt,false,0);
+    // The wake is the PLANE'S SMOKE now, which is the one trail in this game nobody has ever
+    // objected to. See trailWake.
+    trailWake(dt,onWater,speed,eff);
   }
   placeCurl(dt);
 
