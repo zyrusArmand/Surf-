@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.6.0';
+window.SURF_VERSION='6.7.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -19260,7 +19260,11 @@ const BOAT_PASS_X=13.0;                // how far to the side it goes by
 // Measured at about eighty feet with the swing speed below, and steady there -- which is well
 // inside the frame (screen y 607 to 1240 of 1500 across the whole sequence), so it is left
 // alone rather than tuned to hit a number nothing depends on.
-const BOAT_STATION_Z=-58;              // the floor on how far ahead it will sit
+// ---- and it sits CLOSER than it did ----
+// 58 with a 110 standoff put it around 170ft out at the top of the climb, which is a long way
+// of rope for something you are supposed to be attached to. Both come down: about 112ft at the
+// top now, which still keeps it up the frame without it being a speck on the horizon.
+const BOAT_STATION_Z=-50;              // the floor on how far ahead it will sit
 const BOAT_STATION=6.0;                // seconds it holds there before giving up on you
 // how much further ahead it sits once it has let go of you -- far enough to read as having
 // opened up, close enough to stay in a frame whose camera is now forty feet in the air
@@ -19277,7 +19281,7 @@ const BOAT_STATION=6.0;                // seconds it holds there before giving u
 // way to buy a little angle. At 110 the standoff reaches about 120ft by mid-climb and 170 at
 // the top, which roughly halves the angle and puts the boat up where the rope has some length
 // to read along. It is still an easy 20ft boat at that range, not a speck.
-const BOAT_FLY_BACK=110;
+const BOAT_FLY_BACK=62;
 // how long the crossing takes. It is a duration rather than a rate because a smoothstep needs
 // to know where it is between two ends, which a per-frame ease never does.
 const BOAT_SWING_T=3.2;
@@ -20044,6 +20048,7 @@ scene.add(glRope);
   for(let i=0;i<n;i++){ base[i*3]=p.getY(i)+0.5; base[i*3+1]=p.getX(i); base[i*3+2]=p.getZ(i); }
   glRope.userData.base=base; }
 const _rpD=new THREE.Vector3(), _rpB=new THREE.Vector3(), _rpP=new THREE.Vector3();
+const _rpLift=new Float32Array(RP_SEG+1);
 const _rpN1=new THREE.Vector3(), _rpN2=new THREE.Vector3(), _rpT=new THREE.Vector3();
 function aimRope(a,b){
   glRope.userData.a.copy(a); glRope.userData.b.copy(b);
@@ -20056,15 +20061,32 @@ function aimRope(a,b){
   _rpN1.set(0,1,0); if(Math.abs(_rpT.y)>0.9)_rpN1.set(1,0,0);
   _rpN2.crossVectors(_rpT,_rpN1).normalize();
   _rpN1.crossVectors(_rpN2,_rpT).normalize();
-  const sag=len*0.016;
+  // ---- and it RIDES OVER the swell instead of through it ----
+  // A straight line between two points a foot above the water passes clean through any crest
+  // between them, and the sea out here is a metre and a half of swell -- so the rope kept
+  // disappearing into a wave and coming out the other side. The catenary made it worse by
+  // pulling the middle down into exactly the water it had to clear, so the sag halves too.
+  // The fix is a floor, not a shape: the centreline is lifted to sit above whatever the sea is
+  // doing beneath each point of it. Sampled once per ring rather than per vertex -- twenty-one
+  // waveH calls instead of a hundred and forty, and every vertex in a ring shares the answer.
+  const sag=len*0.008;
+  const SEG=RP_SEG, lift=_rpLift;
+  for(let k=0;k<=SEG;k++){
+    const t=k/SEG;
+    const lx=a.x+_rpD.x*t, lz=a.z+_rpD.z*t;
+    const ly=a.y+_rpD.y*t-sag*4*t*(1-t);
+    const sea=(typeof waveH==='function')?waveH(lx,dist*WAVE_DRIFT+lz,waveClock):0;
+    lift[k]=Math.max(0,(sea+0.55)-ly);
+  }
   const pos=glRopeGeo.attributes.position, arr=pos.array, base=glRope.userData.base;
   for(let i=0,j=0;j<arr.length;i+=3,j+=3){
     const t=base[i], cs=base[i+1], sn=base[i+2];
     // the same deliberate wrong-way taper as before: wider at the boat so the rope holds an
-    // even width on screen over a hundred and seventy feet of perspective
+    // even width on screen over a long run of perspective
     const r=GL_ROPE_R*(0.25+0.75*t);
     _rpP.copy(a).addScaledVector(_rpD,t);
     _rpP.y-=sag*4*t*(1-t);
+    _rpP.y+=lift[Math.round(t*SEG)];
     arr[j  ]=_rpP.x+(_rpN1.x*cs+_rpN2.x*sn)*r;
     arr[j+1]=_rpP.y+(_rpN1.y*cs+_rpN2.y*sn)*r;
     arr[j+2]=_rpP.z+(_rpN1.z*cs+_rpN2.z*sn)*r;
