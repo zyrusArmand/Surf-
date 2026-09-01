@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.7.0';
+window.SURF_VERSION='6.8.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -20152,6 +20152,8 @@ const _gb0=new THREE.Vector3(), _gb1=new THREE.Vector3(),
       _gh0=new THREE.Vector3(), _gh1=new THREE.Vector3(),
       _gbM=new THREE.Vector3(), _gbD=new THREE.Vector3(), _gbF=new THREE.Vector3(),
       _gbX=new THREE.Vector3(0,1,0);   // the tube is built along its own Y
+// the canopy's own attitude, kept apart from the trick so the two can be composed
+const _eGlP=new THREE.Euler(0,0,0,'YXZ'), _qGlP=new THREE.Quaternion();
 function glideReset(){
   glPh=GLP.OFF; glT=0; glAge=0; glVx=0; glRoll=0; glRollV=0; glPitch=0; glPitchV=0; glYaw=0;
   glider.visible=false; glRope.visible=false; glBrake.visible=false; glBar.visible=false;
@@ -20242,7 +20244,14 @@ function glideStep(dt,waterY){
     if(glT>0.62){
       glideReset();
       py=waterY; vy=0; airborne=false;
-      if(typeof msg==='function')msg('NICE LANDING!');
+      // whatever he threw up there is scored and squared up here, the same as any other
+      // landing -- without this the trick rotation is still on the player when the board
+      // touches down and he rides away sideways.
+      let pts=0;
+      if(typeof settleTricks==='function'&&(spinRot||flipRot||pitchRot))pts=settleTricks(true)||0;
+      else player.rotation.set(0,0,0);
+      // and the trick's own shout wins -- landing a spin should not be reported as a landing
+      if(!pts&&typeof msg==='function')msg('NICE LANDING!');
     }
   }
   // ---- the pendulum, integrated rather than eased ----
@@ -20266,8 +20275,18 @@ function glideStep(dt,waterY){
     // The riser is what he hangs off, so it belongs at the seat rather than over his head:
     // 2.6 put the carabiner up by his ears with the harness attached to nothing.
     glider.position.set(px, py+0.95, pz-0.3);
-    glider.rotation.order='YXZ';
-    glider.rotation.set(glPitch, glYaw, glRoll);
+    // ---- and the trick takes the WING with him ----
+    // The pendulum below is the canopy's own attitude relative to the pilot -- swing, pitch and
+    // the weathercock -- and that part is right. What was missing is that a spin turns the
+    // PILOT, and a pilot on nine feet of line cannot turn without the wing above him coming
+    // round too: it was left pointing down the course while he went past it backwards.
+    // The group's origin is at the harness, so left-multiplying by whatever the rider is doing
+    // rotates the whole canopy about him -- the one point the two share. Pose first, then the
+    // trick on top of it, which is the order the real thing happens in.
+    // player.quaternion covers every case at once (flat spin, roll, the tube's conjugated
+    // axes) and is identity whenever no trick is running, so a straight flight is untouched.
+    _qGlP.setFromEuler(_eGlP.set(glPitch, glYaw, glRoll));
+    glider.quaternion.copy(player.quaternion).multiply(_qGlP);
   }
   // ---- the control lines, canopy to hand ----
   // Each hand is paired with the anchor on ITS OWN side by distance rather than by name. The
@@ -22556,6 +22575,14 @@ if(location.hash.includes('debug')){
       const b=new THREE.Box3().setFromObject(glider);
       return {ph:glPh, t:+glT.toFixed(2), py:+py.toFixed(2), px:+px.toFixed(2),
               vx:+glVx.toFixed(2), roll:+glRoll.toFixed(3),
+              // the trick the rider is throwing, and the direction the WING is actually
+              // pointing while he throws it. "The canopy spins with him" is the claim that
+              // the second follows the first, which is two numbers rather than a look at it.
+              spin:+spinRot.toFixed(3), flip:+flipRot.toFixed(3),
+              bodyY:+player.rotation.y.toFixed(3),
+              wingDir:(function(){ const v=new THREE.Vector3(0,0,1)
+                  .applyQuaternion(glider.quaternion);
+                return +Math.atan2(v.x,v.z).toFixed(3); })(),
               wing:glider.visible, rope:glRope.visible, brake:glBrake.visible,
               bar:glBar.visible, face:+glFace.toFixed(3),
               // where the bar sits relative to him, and whether the rope reaches it: the
@@ -27133,7 +27160,11 @@ function update(dt){
     }
   }
   // spin / flip / grab all run at once while you're off the water
-  if(airborne||hanging){
+  // -- and under the canopy counts as off the water. It used to depend on whether he happened
+  // to be mid-jump when he caught the line, because glideStep owns py and so nothing ever
+  // clears airborne during a flight: grab it off a jump and you could spin, grab it off the
+  // water and the buttons did nothing. Stated outright instead.
+  if(airborne||hanging||glPh>=GLP.TOW){
     const SR=SPIN_RATE*BS.air, FR=FLIP_RATE*BS.air;   // a poppy board spins faster too
     if(heliAir){
       // flipRot is the roll axis — the board turning over the way it is going. spinRot
