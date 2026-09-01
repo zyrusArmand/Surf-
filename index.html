@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.8.0';
+window.SURF_VERSION='6.9.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -19371,6 +19371,136 @@ function boatLayWake(dt,eff){
   lay(boatArmR, 1, BOAT_ARM0, BOAT_VEE, 2.05, 1.05);
   lay(boatChurn,0, 0.0, 0.0,      3.60, 1.45);
 }
+// ---- the bow puts things ASIDE, not through ----
+// A forty-foot boat driving clean through a log with neither of them so much as flinching is
+// the one thing in the lane that reads as a rendering, and it was the last of it. What a hull
+// actually does to a floating object is decided by WHERE on the hull it touches: the wedge of
+// the bow is a wedge, so it splits, and which side of the centreline the thing is sitting on
+// is which side it goes -- with a slew, because the push arrives at one end of it and not at
+// its middle.
+//
+// Position is CORRECTED as well as accelerated. A velocity alone lets a heavy object sit inside
+// the hull for as long as it takes to build up speed, which is exactly the merge this is here
+// to stop; the correction is what guarantees nothing is ever seen inside the boat. It is rate
+// limited off the boat's own speed rather than snapped, so it reads as being shouldered out of
+// the way rather than teleporting.
+const BT_HL=10.0, BT_HB=2.9;           // the hull's own half-length and half-beam, from BOAT_BOX
+// How much of a shove each thing takes. A ramp is a raft and barely notices; a jellyfish is
+// mostly water and is thrown clear of it.
+const BT_MASS={ramp:3.4, octopus:2.4, bigfin:1.9, jelly:0.55, debris:0.7, log:1.25};
+// ---- the bow wave REACHES, which is what makes the correction invisible ----
+// First version tapered the hull's beam into the stem and tested against that, on the reasoning
+// that a hull is pointed. Measured, it was the bug: a log a foot off the centreline is outside a
+// beam of half a foot, so the stem passed it, and by the time the beam had widened to meet it
+// the thing was 3.85ft INSIDE the boat. The taper let the hull open around it instead of pushing
+// it. So the geometry is the full beam over the whole length -- what a boat sweeps is its
+// widest section, whatever shape the front of it is.
+//
+// And the push starts BEFORE the stem arrives, over a short lead that scales with how fast the
+// two are closing, because a correction that begins at the moment of contact has to be violent
+// to keep up with it. This is also just what water does: a bow wave moves a floating thing aside
+// slightly ahead of the hull. Short enough that it still reads as being hit rather than dodging.
+const BT_LEAD0=5.0, BT_LEADK=0.22, BT_RATE_CAP=30;
+function btLead(){ return BT_LEAD0+btSpd*BT_LEADK; }
+function boatShove(o,dt){
+  const u=o.userData;
+  if(u.btVX===undefined){ u.btVX=0; u.btVZ=0; u.btW=0; u.btRoll=0; u.btLift=0; }
+  let touching=false, rollT=0, liftT=0;
+  if(typeof btPh!=='undefined'&&btPh!==BTP.OFF&&boat.visible){
+    const dxw=o.position.x-btX, dzw=o.position.z-btZ;
+    if(dxw*dxw+dzw*dzw<900){                       // 30ft: outside the hull and its lead
+      const sn=Math.sin(btYaw), cs=Math.cos(btYaw);
+      // world -> hull. Local +x lies along (cs,-sn) in world, which is what the correction and
+      // the impulse below are both written along -- so this works at any heading the boat
+      // happens to be on, not just square down the lane.
+      const lx=dxw*cs-dzw*sn, lz=dxw*sn+dzw*cs;
+      const orad=Math.max((u.hx===undefined?u.r:u.hx)||0, (u.hz===undefined?u.r:u.hz)||0)||0.6;
+      const beam=BT_HB+orad, zEnd=BT_HL+orad, lead=btLead();
+      if(lz>-(zEnd+lead)&&lz<zEnd&&Math.abs(lx)<beam){
+        // 1 anywhere along the hull, easing in over the lead ahead of the stem. Squared, so it
+        // begins as a nudge rather than as a step the moment the zone is entered.
+        const ahead=Math.max(0,-lz-zEnd);
+        const g=lz>=-zEnd?1:Math.max(0,1-ahead/lead);
+        const grip=g*g;
+        touching=true;
+        // WHICH SIDE, latched. Something sitting on the centreline crosses zero every frame
+        // otherwise and shudders in place under the keel instead of being put out of the way.
+        // Dead ahead of the stem it goes to the side away from the rider, which is both what a
+        // bow wave does with a thing it has not committed to either way and the only version of
+        // this that cannot serve a log into the lane you are already in.
+        if(u.btSide===undefined)
+          u.btSide=Math.abs(lx)>0.35?(lx>=0?1:-1)
+                                    :((o.position.x>=px?1:-1)||1);
+        const side=u.btSide, m=BT_MASS[u.kind]||1;
+        const pen=beam-Math.abs(lx);               // how far inside the hull's line it is
+        // The sideways rate the hull can push at, off the boat's own way -- and harder the
+        // deeper in it is, because that is more of the shoulder bearing on it. Capped, or a
+        // deep contact is a teleport rather than a shove.
+        const rate=Math.min(BT_RATE_CAP,(6.0+btSpd*0.72)*(1+pen*0.85)/m);
+        // ---- inside the hull it is a FRACTION of what is left, not a speed ----
+        // A speed cap is a promise about feet per second, and what this has to promise is that
+        // nothing is ever seen inside the boat -- which is feet per FRAME against however fast
+        // the two are closing. Measured at a closing rate of 4.7ft a frame, the cap alone left a
+        // buoy 3.35ft inside the hull on the frame it arrived, because the lead ahead of the
+        // stem is only a frame and a half deep at that speed. Half of what remains, every frame,
+        // clears any depth in three or four of them whatever the closing rate was -- and on a
+        // light touch half of very little is still very little, so a graze is still a nudge.
+        // Ahead of the stem it stays a speed: that push is the bow wave, and it should not be
+        // able to whip something aside before the boat has reached it.
+        const inHull=lz>=-zEnd;
+        const step=inHull?Math.min(pen,Math.max(rate*dt,pen*0.50))
+                         :Math.min(pen,rate*dt*grip);
+        o.position.x+=side*step*cs;
+        o.position.z-=side*step*sn;
+        // and it keeps going after the hull has gone by, rather than stopping dead at its side
+        const kick=(0.55+pen*0.30)*rate*dt*1.9*grip;
+        u.btVX+=side*cs*kick; u.btVZ-=side*sn*kick;
+        // a thing off the bow rides forward on it before it slides off the shoulder
+        const carry=btSpd*0.30*dt*1.8*grip/m;
+        u.btVX-=sn*carry; u.btVZ-=cs*carry;
+        // ---- and it SLEWS ----
+        // The push lands on the end of it that met the bow, not on its middle, so there is a
+        // torque as well as a force and the thing swings round to lie along the hull. Sign is
+        // the cross product of that lever with the push: contact is on the object's +z end
+        // (the boat comes at it bow-first from -z), so a push to starboard turns it +y. Dead
+        // centre it is shouldered without turning; the further out on the shoulder it is
+        // caught, the more of the push becomes a slew.
+        // A RAMP is not slewed. It is ridden square -- the surface test below reads pz-o.z and
+        // px-o.x and knows nothing about the thing's heading -- so a kicker turned thirty
+        // degrees would still launch you straight up its old axis. It gets the shove and none
+        // of the turn, which is also about right for a raft that size.
+        if(!u.ramp){
+          u.btW+=side*(0.45+Math.min(1,Math.abs(lx)/beam)*1.75)*dt*3.0*grip/m;
+          u.btW=Math.max(-3.2,Math.min(3.2,u.btW));
+          // the bow wave lifts it and rolls it away from the side of the hull
+          rollT=side*0.30*grip/m;
+        }
+        liftT=0.32*grip/m;
+        if(!u.btOn&&grip>0.30){
+          u.btOn=true; btShoves++;
+          if(typeof splash==='function')
+            splash(o.position.x-side*0.5,o.position.y+0.35,o.position.z+0.4,7);
+        }
+      }
+    }
+  }
+  if(!touching){ u.btSide=undefined; u.btOn=false; }
+  if(!(u.btVX||u.btVZ||u.btW||u.btRoll||u.btLift))return;
+  o.position.x+=u.btVX*dt; o.position.z+=u.btVZ*dt;
+  const drag=Math.min(1,dt*1.7);
+  u.btVX-=u.btVX*drag; u.btVZ-=u.btVZ*drag;
+  // The turn is kept: a log the boat has slewed stays slewed. Only the RATE dies away.
+  o.rotation.y+=u.btW*dt;
+  if(u.yaw!==undefined)u.yaw+=u.btW*dt;            // the octopus rewrites its own y every frame
+  u.btW-=u.btW*Math.min(1,dt*1.3);
+  // roll and lift are offsets rather than accumulations -- the swell owns rotation.z and the
+  // float solver owns y, and both are rewritten above this every frame
+  u.btRoll+=(rollT-u.btRoll)*Math.min(1,dt*(touching?5.0:2.2));
+  u.btLift+=(liftT-u.btLift)*Math.min(1,dt*(touching?4.0:2.6));
+  o.rotation.z+=u.btRoll;
+  o.position.y+=u.btLift;
+  o.position.x=Math.max(-46,Math.min(46,o.position.x));
+}
 function updateBoat(dt,eff){
   // The foam pool is stepped even with the boat off, because the jet ski borrows it -- without
   // this, anything the ski laid down would be spawned and then never aged, faded or handed
@@ -22548,6 +22678,33 @@ if(location.hash.includes('debug')){
                 for(const o of obstacles)if(o.userData&&o.userData.btVX)n++;return n;})(),
               hull:!!(boat.userData&&boat.userData.hull)}; },
     boatPh(p){ btPh=p; btT=0; return btPh; },
+    // ---- is anything INSIDE the boat? ----
+    // "It merges through stuff" is a claim about overlap, and overlap is a number: every
+    // obstacle near the hull, put into the hull's own frame, against the beam at its own
+    // station. `pen` above zero at any time is the bug, and it is not something a screenshot
+    // of a forty-foot boat eighty feet up the lane can be trusted to show.
+    hullClear(){
+      if(btPh===BTP.OFF)return null;
+      const sn=Math.sin(btYaw), cs=Math.cos(btYaw), out=[];
+      for(const o of obstacles){
+        const dxw=o.position.x-btX, dzw=o.position.z-btZ;
+        const lx=dxw*cs-dzw*sn, lz=dxw*sn+dzw*cs;
+        if(Math.abs(lz)>26)continue;
+        const u=o.userData;
+        const orad=Math.max((u.hx===undefined?u.r:u.hx)||0,(u.hz===undefined?u.r:u.hz)||0)||0.6;
+        const beam=BT_HB+orad, zEnd=BT_HL+orad;
+        // pen is overlap with the HULL ITSELF and nothing else. The lead ahead of the stem is
+        // reported separately: being inside that is the bow wave doing its job, not a merge.
+        const inHull=Math.abs(lz)<zEnd;
+        out.push({kind:u.kind, lx:+lx.toFixed(2), lz:+lz.toFixed(2), beam:+beam.toFixed(2),
+                  pen:+(inHull?Math.max(0,beam-Math.abs(lx)):0).toFixed(2),
+                  lead:!inHull&&lz<=-zEnd&&lz>-(zEnd+btLead())&&Math.abs(lx)<beam,
+                  side:u.btSide===undefined?0:u.btSide,
+                  yaw:+o.rotation.y.toFixed(2), vx:+(u.btVX||0).toFixed(2),
+                  roll:+(u.btRoll||0).toFixed(3)});
+      }
+      return out;
+    },
     // press the offer from a test, so "taking the line puts you in the air and ignoring it
     // does not" can be run both ways without a thumb
     grabNow(){ grabAction(); return btGrab; },
@@ -27692,6 +27849,13 @@ function update(dt){
       o.position.y+=Math.sin(ph)*dt*0.35;          // bobs upward on each pulse
     }
     if(o.userData.wash){const w=1+Math.sin(tNow*3+o.position.x)*0.12;o.userData.wash.scale.set(w,w,1);o.userData.wash.material.opacity=0.4+Math.sin(tNow*3+o.position.x)*0.15;}
+
+    // The boat's bow, which is the last thing in the lane that anything passed through. Here
+    // rather than in updateBoat because this is where an obstacle's position and rotation are
+    // owned: the swell has just written x, y, rotation.x and rotation.z, so a shove applied
+    // any earlier is overwritten in the same frame. It is also before the rider's own contact
+    // test below, so what you hit is where the boat has actually left it.
+    if(typeof boatShove==='function')boatShove(o,dt);
 
     // Everything already on the water gets run over by the swell rather than vanishing:
     // it is pushed past you and culled by the normal rule.
