@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.9.0';
+window.SURF_VERSION='6.10.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -11765,7 +11765,14 @@ function standDown(){
 // and is honest for a surfer, but he is a pug, and in the reference he is drawn at about half
 // the length of the longboard he is standing on. At an adult's height he covered the deck end
 // to end and the board underneath him stopped reading as a board at all.
-const RIDER_FT=2.20;
+// ---- RE-ANCHORED to the pug once the normaliser started working ----
+// This is the height every rider is stood at, and until standingHeight was fixed it was a
+// height nobody was actually at: the number said 2.20 and the roster measured anywhere from
+// 1.56 to 2.13. With the measurement honest, every built-in body lands on this exactly and
+// the imported ones land on it through RIDER_SIZE -- so the value is no longer free. It is
+// the pug's own familiar size, because he is the one nobody has ever complained about and
+// the one the boards were cut around, and moving everyone else onto it is the entire point.
+const RIDER_FT=1.833;
 // measured in the rider's OWN frame, so it is the same answer mid-trick as it is standing
 // still — a world-space box turns with him and its height would be whatever the flip is
 // doing at the time
@@ -11788,12 +11795,16 @@ function localBox(root){
   });
   return [hi[0]-lo[0],hi[1]-lo[1],hi[2]-lo[2]];
 }
-function localBoxY(root){
+function localBoxY(root,skip){
   root.updateMatrixWorld(true);
   const inv=new THREE.Matrix4().copy(root.matrixWorld).invert(), m=new THREE.Matrix4();
   const p=new THREE.Vector3(); let lo=Infinity, hi=-Infinity;
+  // whole subtrees to leave out, by root -- see standingHeight
+  const out=skip&&skip.length?(o)=>{ for(let q=o;q;q=q.parent)if(skip.indexOf(q)>=0)return true;
+                                     return false; }:null;
   root.traverse(o=>{
     if(!o.isMesh||!o.geometry)return;
+    if(out&&out(o))return;
     const g=o.geometry; if(!g.boundingBox)g.computeBoundingBox();
     const b=g.boundingBox; m.multiplyMatrices(inv,o.matrixWorld);
     for(const X of [b.min.x,b.max.x])for(const Y of [b.min.y,b.max.y])for(const Z of [b.min.z,b.max.z]){
@@ -11810,9 +11821,29 @@ function localBoxY(root){
 // which screen had built it — 4.86 for the pug against 4.45 for the sloth, all of them
 // nominally the same. The standing pose is the one that means anything, so it is the one
 // everybody is measured in.
+// ---- and it measures HIM, not everybody who has ever been loaded ----
+// localBoxY walks every mesh under the group, and Box3-style walks do not care whether a mesh
+// is switched off. Every imported body lives under `pug` for the life of the session -- hidden
+// when somebody else is worn, but still there -- so the height this normalised against was the
+// union of the built rig AND all eleven files, which is not a measurement of anybody.
+//
+// It made RIDER_SIZE a GLOBAL knob by accident, which is how this was finally caught: raising
+// the angler's entry by 7.5% made the angler the tallest thing in the union, so the union grew,
+// so pug.scale came down -- and every character in the game, the pug included, got 7.5%
+// smaller. Two rounds of corrections chased that around before the measurement was doubted.
+// It also explains the built-in spread the roster has always had: eleven bodies normalised
+// against a box that has nothing to do with any of them came out anywhere from 92% to 124% of
+// each other, and the one line that was supposed to make them all the same height never once
+// looked at the body it was sizing.
+//
+// Skipping the imported bodies leaves the built rig, which is what buildChar has just built and
+// the only thing here that is posed by portraitPose. Deterministic, per character, and nothing
+// any other character does can move it.
 function standingHeight(){
   const undo=portraitPose();
-  const h=localBoxY(pug);
+  const skip=[];
+  for(const k in riderModels)if(riderModels[k])skip.push(riderModels[k]);
+  const h=localBoxY(pug,skip);
   undo();
   return h;
 }
@@ -13596,7 +13627,44 @@ const RIDER_YAW=-0.42;   // measured: takes the shared 69-degree stance to a squ
 // How big each model stands next to the others. The fit makes them all one size and one size
 // is not one HEIGHT — the frog is squat and the monkey is mostly arms, so both normalise
 // their span and come out short in the picture beside the pug.
-const RIDER_SIZE={frog:1.20, monkey:1.16, cow:1.14};
+// ---- every imported rider stands to the PUG, measured ----
+// fitToBox normalises a model's LONGEST side, and a longest side is not a height: a wide
+// stance, long arms or a tail carry the normalisation instead of the body, so the model is
+// correct by the numbers and small in the picture. This table is the correction, and until
+// now it held three values that had been eyeballed -- which turned out to be wrong in both
+// directions at once.
+//
+// Measured with __surf.riderPose / riderMeasure, which push every drawn vertex through its own
+// bones and read the height in the board's frame -- so an imported body and a built-in one are
+// read the same way -- with every character in the same static portrait stance.
+//
+// Posing and measuring are two calls with frames in between, and that is the whole reliability
+// of it. Done in one tick the reading catches a rig still easing into the stance: the pug came
+// out 1.833ft in one run and 1.705 in the next off identical code, and two rounds of
+// corrections computed from that overshot and then undershot. Settled and read twice, every
+// character now drifts under half a per cent between passes.
+//
+// Against the pug at 1.833ft the roster stood: angler 78%, alien 82%, squirrel/lizard 92%,
+// cat/pig/rat 98% -- and frog and monkey at 116%, overshot by the three eyeballed values this
+// table used to hold. Every number below is pug height over the model's own natural height, so
+// they all come out at 1.00.
+//
+// The cow is the one exception and she is deliberate. She rides on four legs, so her height is
+// not what her size reads as -- standing her to a biped's height would make her eight feet
+// long. Hers matches on the LONGEST dimension instead, which is the honest reading of "the
+// same size animal" for something that is honestly longer than it is tall.
+// EVERY imported rider is listed, the pug included. Before, an entry meant "this one needed
+// help" and a missing one meant "this one was fine" -- but no imported body arrives at the
+// right height by accident, and the three that used to be here were the three somebody had
+// noticed. The others were wrong by just as much and nobody had looked.
+//
+// These carry a factor of RIDER_FT in them, which is worth knowing before anyone moves it:
+// PUG_BOX is taken off the built rider AFTER sizeRider has scaled him, so the box the models
+// are fitted into is itself proportional to RIDER_FT, and the group they then hang in is
+// scaled by it a second time. Height goes as its SQUARE, and re-anchoring RIDER_FT once
+// without allowing for that put the whole imported half of the roster 17% under.
+const RIDER_SIZE={pug:1.30, cat:1.35, pig:1.33, rat:1.10, ant:1.33, monkey:1.15,
+                  squirrel:1.34, frog:1.41, angler:1.78, alien:1.69, cow:1.80};
 // Riders that are honestly longer than they are tall, and are meant to stay that way. Everyone
 // else in the cast stands on two legs, so their height IS their longest dimension and the fit
 // can work that out for itself -- see keepAxis in fitToBox.
@@ -22600,6 +22668,64 @@ if(location.hash.includes('debug')){
     // Which way round the board and the rider are standing. A half-turn leaves BOTH of them
     // facing the other way and the board itself reversed — fins and paint where the spin put
     // them — so the check is on the board's own rotation, not on the flag that set it.
+    // ---- how TALL each rider actually STANDS ----
+    // "Some of them are smaller than the rest" is one number per character, and it cannot be
+    // read off anything already here. fitToBox normalises a model's LONGEST side, which on a
+    // wide stance or a long tail is not its height; Box3 on a skinned mesh reports the bind
+    // pose forever; and skinBox only carries a contact set. So every drawn vertex is pushed
+    // through its own bones and measured in the board's frame, which reads a built-in body
+    // and an imported one the same way and is the only way the two can be compared at all.
+    //
+    // POSE AND MEASURE ARE SEPARATE CALLS, and that is the whole reliability of this. Doing
+    // both in one tick measured whatever the rig happened to be part-way through: the pug came
+    // out 1.833ft in one run and 1.705 in the next off identical code, and two rounds of
+    // corrections computed from that overshot and then undershot. An imported rig eases into
+    // the portrait stance over several frames, so the caller has to let those frames run --
+    // riderPose(id), wait, riderMeasure(). The height is reported with RIDER_SIZE divided back
+    // out as `nat`, so what comes back is the model's own natural height and the table it is
+    // used to fix cannot contaminate the reading that fixes it.
+    riderPose(id){ buildChar(id); riderPortrait(true); return id; },
+    riderMeasure(id){
+      const par=pug.parent, v=new THREE.Vector3();
+      const lohi=[Infinity,-Infinity,Infinity,-Infinity];
+      const walk=(o)=>{
+        if(!o.visible)return;
+        if(o.isMesh&&o.geometry&&o.geometry.attributes&&o.geometry.attributes.position){
+          const p=o.geometry.attributes.position;
+          const bone=o.isSkinnedMesh&&(o.applyBoneTransform||o.boneTransform);
+          if(o.isSkinnedMesh&&o.skeleton)o.skeleton.update();
+          // sampled: a 40k mesh measured whole is seconds per character, and the extremes of
+          // a body are not a handful of stray vertices
+          const step=Math.max(1,Math.floor(p.count/6000));
+          for(let i=0;i<p.count;i+=step){
+            v.fromBufferAttribute(p,i);
+            if(bone)o.applyBoneTransform?o.applyBoneTransform(i,v):o.boneTransform(i,v);
+            v.applyMatrix4(o.matrixWorld);
+            if(par)par.worldToLocal(v);
+            if(v.y<lohi[0])lohi[0]=v.y;
+            if(v.y>lohi[1])lohi[1]=v.y;
+            if(v.z<lohi[2])lohi[2]=v.z;
+            if(v.z>lohi[3])lohi[3]=v.z;
+          }
+        }
+        for(const c of o.children)walk(c);
+      };
+      pug.updateMatrixWorld(true);
+      walk(pug);
+      const mdl=riderModels[id], g=RIDER_SIZE[id]||1;
+      if(!isFinite(lohi[0]))return {id, err:'nothing drawn'};
+      const h=lohi[1]-lohi[0], len=lohi[3]-lohi[2];
+      return {id, model:!!(mdl&&mdl.visible), size:g,
+              // what sizeRider decided, and the built rig it decided it from -- the two
+              // numbers that say whether the normaliser is looking at the right body
+              sc:+pug.scale.x.toFixed(4),
+              built:+((typeof standingHeight==='function')?standingHeight():0).toFixed(4),
+              h:+h.toFixed(3), len:+len.toFixed(3), lo:+lohi[0].toFixed(3),
+              // what the file is before the table touches it -- the number a correction is
+              // computed FROM, so re-running this after a change still reports the same thing
+              nat:+(h/g).toFixed(3), natLen:+(len/g).toFixed(3)};
+    },
+    riderRestore(id){ buildChar(id); riderPortrait(false); return id; },
     wear(id){ ownedChars[id]=1; equipChar(id); saveGame(); return rider; },
     // The wash off the tail, as a SHAPE: how many puffs are alive, and how wide the trail is
     // at the board against how wide it is at the far end of its life. "Small at the tail and
