@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.12.1';
+window.SURF_VERSION='6.12.2';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -6254,10 +6254,33 @@ function boardArtFor(id){
 function equipBoard(id){
   if(!BOARD_BY_ID[id])id='astro';
   equipped=id;
-  boardArt.clear ? boardArt.clear() : (boardArt.children.length=0);
-  boardArt.add(boardArtFor(id));
+  boardArtSync();
   boardSheen(boardArt,boardDry);
   applyBoardStats(id);
+}
+// ---- boardArt holds EXACTLY the board being ridden, and this is what says so ----
+// It used to be a clear() and an add(), which is the same thing right up until somebody else
+// is holding the board. The title screen's beach does exactly that: while it is up it takes
+// the ridden board out into prevScene and leaves boardArt EMPTY, having noted where the board
+// came from so it can be handed back.
+//
+// Change board on the title screen and the two halves disagree. equipBoard clears an already
+// empty boardArt — so the old board, sitting in the beach's scene, is not touched — and adds
+// the new one. Then menuBeachOff hands its board back to the parent it recorded, and now
+// boardArt has BOTH. Two surfboards, same place, same frame, drawn through each other. It is
+// the same fault as the coloured board inside the jet ski, which was reported months ago and
+// written off as a debug-hook artefact; it is not, and the shop reaches it.
+//
+// Stated as an invariant instead of as a sequence of moves, so it is true after ANY route in
+// — the shop, board school, the viewer, the saucer — rather than only the ones anybody
+// thought to check. Anything that is not the equipped board comes off; the equipped board is
+// put on if it is not already there.
+function boardArtSync(){
+  const want=boardArtFor(equipped);
+  for(let i=boardArt.children.length-1;i>=0;i--)
+    if(boardArt.children[i]!==want)boardArt.remove(boardArt.children[i]);
+  if(want.parent!==boardArt)boardArt.add(want);
+  return boardArt.children.length;
 }
 
 loadSave(); loadStats(); noteOpen(); equipBoard(equipped);
@@ -21829,6 +21852,26 @@ if(location.hash.includes('debug')){
         out[b.id]={grip:+BS.grip.toFixed(3), glide:+BS.glide.toFixed(3), float:+BS.float.toFixed(3)}; }
       applyBoardStats(keep); return out; },
     equip(id){ owned[id]=1; equipBoard(id); saveGame(); return id; },
+    // ---- what is actually hanging off boardArt ----
+    // "surfboards merged" is a claim that more than one board is being drawn in the same
+    // place, and that is a question about the scene graph, not about how it looks. Every
+    // board in the rack, where it is parented and how many of its meshes are switched on --
+    // so a duplicate shows up as a second entry rather than as a guess.
+    boardStack(){
+      const idOf=g=>{ for(const k in _rack)if(_rack[k]===g)return k; return '?'; };
+      const nm=o=>o===boardArt?'boardArt':(o===prevScene?'prevScene':(o===scene?'scene':o.type));
+      const kids=boardArt.children.map(c=>{
+        let vis=0,tot=0; c.traverse(o=>{ if(o.isMesh){tot++; if(o.visible)vis++;} });
+        return {id:idOf(c), vis, tot, on:c.visible};
+      });
+      const racked=[];
+      for(const k in _rack){ const g=_rack[k]; if(!g.parent)continue;
+        let root=g; while(root.parent)root=root.parent;
+        let vis=0; g.traverse(o=>{ if(o.isMesh&&o.visible)vis++; });
+        racked.push({id:k, parent:nm(g.parent), root:nm(root), vis});
+      }
+      return {equipped, artKids:boardArt.children.length, kids, racked};
+    },
     // What the rack actually resolves to, so the stat budget can be checked across the whole
     // fleet rather than eyeballed one card at a time -- the divisor is priced off the dearest
     // board, so changing prices moves every bar in the shop at once.
@@ -30591,6 +30634,13 @@ function menuBeachOff(){
   if(k.bp)k.bp.add(m.board); else prevScene.remove(m.board);
   m.board.rotation.order=k.bord||'XYZ';
   m.board.position.copy(k.bpos); m.board.rotation.copy(k.brot);
+  // ---- and the board it hands back may no longer be the board being ridden ----
+  // This restores whatever was equipped when the beach went UP. Change board while it is
+  // standing — which is the whole point of the shop being one tap away — and handing that one
+  // back puts a second board in boardArt alongside the new one, and both get drawn, in the
+  // same place, through each other. Re-asserting the invariant here costs nothing when
+  // nothing has changed and is the entire fix when it has.
+  boardArtSync();
   if(k.rp)k.rp.add(pug); else prevScene.remove(pug);
   pug.position.copy(k.rpos); pug.rotation.copy(k.rrot);
   pug.scale.copy(k.rsc);          // he stands beside the board at pug size and rides at his own
