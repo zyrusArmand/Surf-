@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.17.0';
+window.SURF_VERSION='6.17.1';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -4120,17 +4120,72 @@ function loadTexture(file,onReady){
     e=>Boot.step(id,e),
     ()=>{ /* no such file — the caller keeps whatever it had */ Boot.settle(id); });
 }
-function loadModel(file,onReady){
+// ---- THE TITLE SCREEN GETS THE WIRE FIRST ----
+// models/ is 99 MB and every loadModel call used to fire its request the moment it ran, so a
+// cold start asked for all of it at once. On a desk that is invisible. On LTE it means the six
+// connections the browser will open are shared between ninety-nine megabytes, and the four
+// files the title screen is actually made of — the sand, the tree, the sign and the ONE rider
+// you have equipped, about 30 MB between them — arrive somewhere behind a 12 MB palm nobody
+// can see yet, a 6.4 MB flying saucer and ten characters you are not wearing.
+// That is the whole of the "tree and beach is missing, old file of the angler" report: nothing
+// was broken and nothing had regressed in the scene itself. The menu simply revealed itself at
+// its fifteen second cap with almost none of its own assets down, so the ground was missing,
+// the palm was missing, the sign the buttons mount on was missing, and the rider was still the
+// built-in stand-in body rather than his model. It was survivable while a procedural palm and
+// a pair of painted planks stood in for the missing files; with those gone it is just an empty
+// sea. The fallbacks are not coming back — the fix is to stop the queue starving the screen
+// you are looking at.
+// A queue, then, and a real concurrency limit. Priority 0 is the title screen; 1 is the rest of
+// the ride; 2 is the ten characters you are not currently wearing; 3 is the 12 MB in-game palm,
+// which is not needed until a run starts and is the single biggest thing that can be waited for.
+// Boot.issue still happens at ENQUEUE time so the progress bar counts the whole set and the
+// percentage stays honest — what is deferred is the request, not the accounting.
+const LOAD_HOT={'sand.glb':0,'palm2.glb':0,'sign.glb':0,'chest.glb':0,'board.glb':0};
+const LM_MAX=3;
+let _lmQ=[], _lmRun=0, _lmOpen=false, _lmArmed=false;
+// ---- AND A PRIORITY IS WORTH NOTHING IF THE SLOTS ARE ALREADY GONE ----
+// The first cut of this sorted the queue and stopped there, and measured on a throttled link
+// the 12 MB in-game palm still went out SECOND of thirty-five, ahead of the sand and the tree.
+// Sorting only ranks what is already waiting, and these requests are not waiting together:
+// they are made one at a time as the file is evaluated, top to bottom, so board.glb at line
+// 4221 and palm.glb at 7284 are queued and started long before palm2.glb at 8027 or sign.glb
+// at 16361 have been asked for at all. By the time the important ones arrive the connections
+// are held by whatever happened to be written higher up the file.
+// So the low-priority work is held until every request is IN. All the boot loads happen
+// during module evaluation, so a timeout armed by the first of them fires once the last of
+// them has been queued — at which point the ranking is over a complete set and means what it
+// says. Anything enqueued later, from a menu or a run, finds the gate already open.
+function _lmNext(){
+  while(_lmRun<LM_MAX&&_lmQ.length){
+    // pulled by priority rather than sorted in place, so a late high-priority request still
+    // overtakes a queue that was filled at boot
+    let b=-1;
+    for(let i=0;i<_lmQ.length;i++){
+      if(!_lmOpen&&_lmQ[i].p>0)continue;          // nothing but the title screen until the set is known
+      if(b<0||_lmQ[i].p<_lmQ[b].p)b=i;
+    }
+    if(b<0)return;
+    const j=_lmQ.splice(b,1)[0];
+    _lmRun++;
+    const done=()=>{ _lmRun--; Boot.settle(j.id); _lmNext(); };
+    new THREE.GLTFLoader().load('models/'+j.f,
+      g=>{ const root=g.scene||g.scenes[0];
+           // the whole gltf goes through, not just the scene: a rigged export carries its
+           // clips alongside the meshes and they are the entire point of it
+           try{ mendMirror(root); j.cb(root,g); }catch(e){ console.warn('model '+j.f+' failed to fit',e); }
+           done(); },
+      e=>Boot.step(j.id,e),
+      ()=>{ /* no such file — keep the built-in shape */ done(); });
+  }
+}
+function loadModel(file,onReady,pri){
   if(!THREE.GLTFLoader)return;
   const id=Boot.issue(file);
-  new THREE.GLTFLoader().load('models/'+file,
-    g=>{ const root=g.scene||g.scenes[0];
-         // the whole gltf goes through, not just the scene: a rigged export carries its
-         // clips alongside the meshes and they are the entire point of it
-         try{ mendMirror(root); onReady(root,g); }catch(e){ console.warn('model '+file+' failed to fit',e); }
-         Boot.settle(id); },
-    e=>Boot.step(id,e),
-    ()=>{ /* no such file — keep the built-in shape */ Boot.settle(id); });
+  _lmQ.push({f:file, cb:onReady, id,
+             p:(pri!==undefined)?pri:(LOAD_HOT[file]!==undefined?LOAD_HOT[file]:1)});
+  // armed by the first request, fires after the last one this script makes — see above
+  if(!_lmArmed){ _lmArmed=true; setTimeout(()=>{ _lmOpen=true; _lmNext(); },0); }
+  _lmNext();
 }
 // measured now, while everything is still at rest and unrotated, because the file
 // may not arrive until the rider is already carving
@@ -7320,7 +7375,13 @@ loadModel('palm.glb',(s3)=>{
              rest:chain.map(b=>b.quaternion.clone()),
              mat:mats.length===1?mats[0]:mats};
   repalm();
-});
+// ---- LAST, because nothing on the title screen is waiting for it ----
+// Twelve megabytes, and it is the palm that grows along the RIDE. The title screen's tree is
+// palm2, a different and larger file, so for the whole time you are looking at the menu this
+// one is twelve megabytes of nothing you can see — competing, on a phone, with the four files
+// that are the menu. It is wanted before the first run reaches a palm, which is a long way
+// further off than the fifteen seconds the menu gives itself.
+}, 3);
 // ---- one modelled piece of ground, scattered until it IS the ground ----
 // Every instance is placed the same way: a jittered spot on a grid, a free turn about the
 // vertical, a size within a fifth either way, and then dropped until the piece's own underside
@@ -14276,7 +14337,14 @@ for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
     if(sh&&!sh.classList.contains('hidden')&&typeof shopTab!=='undefined'&&shopTab==='riders'
        &&typeof drawShop==='function')drawShop();
   }catch(e){}
-});
+// ---- and the one you are WEARING comes first ----
+// All eleven used to be asked for together, which is about 25 MB to put one character on a
+// board. The other ten are wanted eventually — the shop draws a card for each — but not before
+// the screen you are looking at can draw itself, and not at the cost of the rider standing on
+// it arriving as the built-in stand-in body. `rider` is read here rather than in loadModel
+// because this loop runs long after the save has been parsed, where loadModel's first callers
+// run before it and would be reading a let that is still in its dead zone.
+}, id===rider?0:2);
 // Which body is on the board: an imported one belongs to the character it was exported for,
 // so anyone without a model gets the built-in rig back. Called after every rebuild, because
 // rebuilding is exactly when the two can get out of step.
@@ -22302,6 +22370,21 @@ if(location.hash.includes('debug')){
     whirlIn(sec){
       whTest=true; whirlT=(sec===undefined?2:sec);
       return {armed:whTest, t:+whirlT.toFixed(2), live:!!whirl}; },
+    // What the title screen actually HAS by the time it is shown. The bug this answers was
+    // reported as "tree and beach is missing, everything's off", and every part of that is a
+    // file that had not arrived yet — so the check is which of them are present at the moment
+    // the beach is revealed, not what a screenshot looks like.
+    beachHas(){ return {
+      sand:  typeof sandField!=='undefined'&&!!sandField,
+      palm:  typeof palm2!=='undefined'&&!!palm2,
+      sign:  typeof signModel!=='undefined'&&!!signModel,
+      posts: typeof beachPosts!=='undefined'&&!!beachPosts,
+      chest: typeof chestModel!=='undefined'&&!!chestModel,
+      // the rider you are WEARING, which is the one that was arriving as the built-in
+      // stand-in body and getting reported as an old file of the angler
+      rider: rider, riderModel: !!(riderModels&&riderModels[rider]),
+      ingamePalm: typeof palmModel!=='undefined'&&!!palmModel,
+      waited:+_mbWait.toFixed(1) }; },
     whirlState(){ return {live:!!whirl, t:+whirlT.toFixed(2), armed:whTest,
                           a:+whA.toFixed(2), dist:Math.round(dist),
                           // Whether it has hold of the rider at all, beside the three states
@@ -31339,7 +31422,11 @@ const MB_SHOW_HOLD=5;     // frames the picture has to be identical for
 // standing in it, and the real one then swapped in afterwards, in full view. Reported as
 // "delete that old palm tree" and "things changed, that's weird", which is exactly what it
 // looks like from outside: the title screen rearranging itself after it has finished loading.
-const MB_SHOW_CAP=15.0;   // ...and the longest it is ever waited for
+const MB_SHOW_CAP=15.0;   // ...and the longest the PICTURE is ever waited for
+// The two files the beach cannot be drawn without, once the palm fallback was removed: the
+// ground and the tree. A separate and much longer deadline, because this is not the same
+// question as "has the shot stopped moving" — see the gates in menuSettled.
+const MB_ASSET_CAP=50.0;
 // The camera is judged by whether it SPED UP, not by how far it went. A fixed distance is a
 // frame-rate test wearing a distance's clothes: the drift covers four times as much ground in
 // a frame at 15fps as at 60, so any threshold loose enough for a slow phone lets a re-solve
@@ -31379,15 +31466,24 @@ function menuSettled(dt){
   // that correction IS the character jumping up or down on the title screen.
   // So the picture is not called settled until the field he is standing on exists. The cap
   // still applies: a field that never comes cannot hold the menu for ever.
-  if(typeof sandField==='undefined'||!sandField){ _mbHold=0; return _mbWait>=MB_SHOW_CAP; }
+  if(typeof sandField==='undefined'||!sandField){ _mbHold=0; return _mbWait>=MB_ASSET_CAP; }
   // ---- and the PALM has to be the real palm ----
-  // Same argument as the sand, and more visible: the tree is the biggest thing on this
-  // screen. palm2.glb arrives long after the beach is built, and until it does every palm in
-  // the scene is the procedural fallback — a different tree, not a rougher version of the
-  // same one. Revealing before it lands means showing the wrong tree and then changing it.
-  // The cap still applies: a file that never comes cannot hold the menu for ever, and the
-  // fallback standing there for good is much better than a beach with nothing on it.
-  if(typeof palm2==='undefined'||!palm2){ _mbHold=0; return _mbWait>=MB_SHOW_CAP; }
+  // Same argument as the sand, and more visible: the tree is the biggest thing on this screen.
+  // ---- AND THE CAP THAT COVERS THEM IS NOT THE SETTLING CAP ----
+  // This used to read MB_SHOW_CAP, and the note under it said the cap was survivable because
+  // "the fallback standing there for good is much better than a beach with nothing on it".
+  // That was true when it was written and stopped being true the day the procedural palm was
+  // taken out: there is no fallback now, so what fifteen seconds buys on a slow connection is
+  // exactly the beach with nothing on it that the old note was ruling out. It shipped, and it
+  // is what a phone on LTE actually showed — no ground, no tree, no sign under the buttons.
+  // These two gates are not waiting for the picture to stop wobbling, which is all
+  // MB_SHOW_CAP was ever timing. They are waiting for two files, and with the loader now
+  // fetching them first they arrive far sooner than they did — but 23 MB of palm is still 23
+  // MB. So they get a deadline of their own, long enough that a slow link is waited out and
+  // short enough that a file which is never coming cannot hold the menu for ever.
+  // Waiting is also simply the better failure: the boot screen says "Loading the beach" with a
+  // percentage on it, which is honest, where the revealed-too-early menu just looks broken.
+  if(typeof palm2==='undefined'||!palm2){ _mbHold=0; return _mbWait>=MB_ASSET_CAP; }
   // identity first: a model arriving is a different object, not a moved one
   let same=(id===_mbId)&&!!_mbSig&&_mbSig.length===now.length;
   if(same)for(let i=0;i<now.length;i++){
