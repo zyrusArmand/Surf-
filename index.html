@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.12.0';
+window.SURF_VERSION='6.12.1';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -1029,17 +1029,20 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
      the middle of his own card as a ghost of himself. Opaque enough that nothing is
      recognisable through it, and blurred like every other full-screen panel in the game, so
      whatever does come through is a wash rather than a shape. */
-  /* GLASS OVER THE BEACH, not a lid on it. This was .955 to .975 opaque, which is opaque —
-     the comment above it has always said the scene should be recognisable through it and at
-     that alpha nothing ever was. It was also deep BLUE, fighting a sunset, so even the light
-     that did come through arrived the wrong colour. Now it is a neutral scrim at about half,
-     dark enough at top and bottom to hold white text against bright sand and open enough in
-     the middle to read as the same beach the player just left. */
+  /* ONE WORLD, done in PAINT rather than by sharing the scene. The old panel was a flat
+     mid-blue that belongs to no part of this game. Standing the actual beach up behind it
+     put dunes in every card photograph AND, at the blur needed to keep text legible, turned
+     sand and palm into brown-grey blobs — blurring away the detail is blurring away the only
+     reason the beach is nice to look at. This is the beach's own LIGHT instead: the dusk blue
+     it sits under, with the sunset glow sitting where the horizon would be. Costs nothing,
+     cannot contaminate a render, and reads as the same evening the player walked in from.
+     Opaque enough that white text and the stat bars stay crisp over it. */
   #shop { position:fixed; inset:0; z-index:12; color:#fff;
-    background:linear-gradient(180deg, rgba(10,28,46,.60) 0%, rgba(12,34,54,.44) 44%,
-      rgba(8,24,42,.64) 100%);
-    -webkit-backdrop-filter:blur(17px) saturate(118%) brightness(.86);
-    backdrop-filter:blur(17px) saturate(118%) brightness(.86);
+    background:
+      radial-gradient(128% 52% at 50% 63%, rgba(226,146,72,.26) 0%, rgba(226,146,72,0) 62%),
+      linear-gradient(180deg, rgba(9,33,60,.972) 0%, rgba(13,50,80,.968) 40%,
+        rgba(12,44,72,.972) 66%, rgba(7,26,46,.978) 100%);
+    -webkit-backdrop-filter:blur(14px) saturate(125%); backdrop-filter:blur(14px) saturate(125%);
     display:flex; align-items:center; justify-content:center; padding:16px; }
   #shop .shopwrap { width:min(620px,100%); max-height:100%; display:flex; flex-direction:column; }
   #shop .go { align-self:center; margin-top:12px; }
@@ -9344,7 +9347,9 @@ document.getElementById('gMatch').onclick=()=>{
 // beginner actually has — not "which one costs what" but "what ARE these", which the shop
 // cannot answer because a shop is sorted by price and shapes are not.
 function openShopOn(tab){
-  // The beach is NOT packed away any more — see menuBeachWanted. The shop is glass over it.
+  // Packed away on the way in, and it is load-bearing rather than tidy: prevScene is where
+  // the card photographs are taken from. See menuBeachWanted.
+  if(typeof menuBeachOff==='function')menuBeachOff();
   shopTab=tab; drawShop();
   shopMenuWasUp=!overlay.classList.contains('hidden');
   if(shopMenuWasUp)overlay.classList.add('hidden');
@@ -30627,27 +30632,26 @@ function menuBeachOff(){
 // Should the beach be up? Menu showing, nothing running, no crash playing out. Asking every
 // frame rather than hooking each way in and out is what makes it impossible to leave the
 // board or the rider stranded in the wrong scene.
-// ---- ...and the SHOP is on the beach too ----
-// It used to be excluded, and openShopOn tore the beach down on the way in, so buying
-// something meant leaving a lush sunset for a flat blue panel that looks like a different and
-// cheaper game. That matters more than it sounds: the shop is the money screen, and a paid
-// surface that is visibly the least-loved one in the build is telling the player something.
-// The beach stays up and the panel goes translucent over it, so it is one world throughout.
+// ---- the shop does NOT get the live beach, and the reason is prevScene ----
+// Tried it and took it out again, and not for a taste reason. The beach is built INTO
+// prevScene, and prevScene is the same scene snapshot() renders every card photograph from.
+// So with the beach standing, every board and every surfer in the rack was photographed with
+// dunes and a palm trunk smeared across the top of its tile. Packing the beach away is what
+// keeps that scene clean, and keeping it clean is what the call in openShopOn was always for.
 //
-// The card thumbnails borrow the rider and the ridden board to photograph them, which is why
-// the beach was being packed away in the first place. It is safe: snapshot() steals and
-// restores inside a single synchronous call, so the rider is always back on the sand before
-// the frame that draws him.
+// The check that missed it looked at whether the rider and the board came BACK -- they did,
+// every time -- which is a question about parenting and says nothing about what else happens
+// to be standing in shot. The continuity it was reaching for is real and worth having; it
+// just cannot be bought by sharing a scene. It is bought in the panel's own palette instead,
+// which costs nothing and cannot contaminate anything. See #shop.
 function menuBeachWanted(){
   // NOT gated on the wipe flag. It stays set after a crash until the next run begins, so
   // gating on it meant the beach appeared once and never again — and the wipeout card is
   // already excluded by asking for the class 'main', which only the main menu carries.
   // (The same flag is why the old sea menu had no rider on it after a crash: menuIdle bails
   // on wipe. The beach draws its own rider, so that goes away with it.)
-  if(running||viewer)return false;
-  // the shop, sitting over it as glass
-  if(shop&&!shop.classList.contains('hidden'))return true;
-  return !overlay.classList.contains('hidden') && overlay.classList.contains('main');
+  return !running && !viewer &&
+         !overlay.classList.contains('hidden') && overlay.classList.contains('main');
 }
 // The beach takes about half a second to stand up — sixty thousand vertices of dune and a
 // palm — and it is built on the first frame the menu asks for it, so the page has already
