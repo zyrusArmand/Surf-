@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.11.0';
+window.SURF_VERSION='6.12.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -1029,10 +1029,17 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
      the middle of his own card as a ghost of himself. Opaque enough that nothing is
      recognisable through it, and blurred like every other full-screen panel in the game, so
      whatever does come through is a wash rather than a shape. */
+  /* GLASS OVER THE BEACH, not a lid on it. This was .955 to .975 opaque, which is opaque —
+     the comment above it has always said the scene should be recognisable through it and at
+     that alpha nothing ever was. It was also deep BLUE, fighting a sunset, so even the light
+     that did come through arrived the wrong colour. Now it is a neutral scrim at about half,
+     dark enough at top and bottom to hold white text against bright sand and open enough in
+     the middle to read as the same beach the player just left. */
   #shop { position:fixed; inset:0; z-index:12; color:#fff;
-    background:linear-gradient(180deg, rgba(20,90,155,.955) 0%, rgba(12,60,114,.965) 46%,
-      rgba(6,34,68,.975) 100%);
-    -webkit-backdrop-filter:blur(14px) saturate(130%); backdrop-filter:blur(14px) saturate(130%);
+    background:linear-gradient(180deg, rgba(10,28,46,.60) 0%, rgba(12,34,54,.44) 44%,
+      rgba(8,24,42,.64) 100%);
+    -webkit-backdrop-filter:blur(17px) saturate(118%) brightness(.86);
+    backdrop-filter:blur(17px) saturate(118%) brightness(.86);
     display:flex; align-items:center; justify-content:center; padding:16px; }
   #shop .shopwrap { width:min(620px,100%); max-height:100%; display:flex; flex-direction:column; }
   #shop .go { align-self:center; margin-top:12px; }
@@ -9337,7 +9344,7 @@ document.getElementById('gMatch').onclick=()=>{
 // beginner actually has — not "which one costs what" but "what ARE these", which the shop
 // cannot answer because a shop is sorted by price and shapes are not.
 function openShopOn(tab){
-  if(typeof menuBeachOff==='function')menuBeachOff();
+  // The beach is NOT packed away any more — see menuBeachWanted. The shop is glass over it.
   shopTab=tab; drawShop();
   shopMenuWasUp=!overlay.classList.contains('hidden');
   if(shopMenuWasUp)overlay.classList.add('hidden');
@@ -16463,7 +16470,7 @@ function reset(){
     player.remove(pug); rig.add(pug);
     pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}}); rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null;
-  handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;_freeze=false;
+  handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;_freeze=false;wipeSlow=0;
   if(typeof standDown==='function')standDown();   // arms down, whatever the run left
   if(typeof puffClear==='function')puffClear();   // last run's wash does not follow him into this one
   switchRide=false;waveT=0;applyStance();
@@ -16508,7 +16515,7 @@ function respawn(){
     rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null;
   }
   player.rotation.set(0,0,0);
-  handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;_freeze=false;
+  handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;_freeze=false;wipeSlow=0;
   if(typeof standDown==='function')standDown();   // arms down, whatever the run left
   switchRide=false;waveT=0;applyStance();
   for(let i=obstacles.length-1;i>=0;i--)
@@ -17057,6 +17064,22 @@ function boardHit(o,topY){
 let wipe=null,overlayUp=false,revivesLeft=1;
 var _wipeLive=true;   // see the guard in showMenu: wipe is safe to read from here on
 let swInvuln=false;                     // tests only, and never on in a real run
+// ---- a crash has to LAND, not just happen ----
+// The most emotional second in the game was the calmest frame in it: a splash, a shake, and
+// the run was simply over. Everything needed to sell it was already there and none of it had
+// any weight behind it, because weight in an impact is not a bigger particle count — it is
+// TIME. Stopping the clock dead for a beat and letting it back up is the whole technique, and
+// it is why a fighting game's hits land and a runner's rarely do.
+//
+// wipeSlow runs 1 to 0 over WIPE_SLOW seconds of REAL time — decayed on raw rather than on
+// the scaled dt, or the slow motion would slow its own clock down and never finish. The curve
+// holds near a fifth speed at the moment of impact and eases back, so the crash is watched
+// rather than reported.
+// var, not let, on the same reasoning the rest of this file uses it: this is read from the
+// frame loop and written from a reset that is defined ABOVE it, and being wrong about which
+// runs first is the one mistake here that costs a blank screen rather than a visible bug.
+const WIPE_SLOW=0.85;
+var wipeSlow=0;
 function startWipeout(kind){
   if(wipe)return;
   // Held alive on purpose. Stepping the simulation without drawing it (see tick) means a
@@ -17077,9 +17100,13 @@ function startWipeout(kind){
   if(cocoBarEl)cocoBarEl.classList.add('hidden');cocoReset();
   hanging=false;rope.visible=false;
   msg(W.msg);
-  shake=W.kick;
+  wipeSlow=1;                                 // the clock stops, then comes back
+  shake=W.kick*1.35;                          // and the lens takes more of it
   if(kind==='jelly')zapFlash();               // stung: the screen cracks white-blue
-  splash(px,py,0,30,kind==='jelly'?0x9fe8ff:undefined);
+  // One burst is a puff. Two — a hard tight one at the board and a wider, slower one
+  // around it — is water being displaced by something arriving.
+  splash(px,py,0,44,kind==='jelly'?0x9fe8ff:undefined);
+  splash(px,py+0.35,0.8,22,kind==='jelly'?0x9fe8ff:undefined);
   // Everything is launched from what he was actually doing. Forward momentum
   // throws him over the obstacle, his lateral drift carries across, any vertical
   // speed he already had is kept, and if he was mid-rotation he keeps turning that
@@ -30600,14 +30627,27 @@ function menuBeachOff(){
 // Should the beach be up? Menu showing, nothing running, no crash playing out. Asking every
 // frame rather than hooking each way in and out is what makes it impossible to leave the
 // board or the rider stranded in the wrong scene.
+// ---- ...and the SHOP is on the beach too ----
+// It used to be excluded, and openShopOn tore the beach down on the way in, so buying
+// something meant leaving a lush sunset for a flat blue panel that looks like a different and
+// cheaper game. That matters more than it sounds: the shop is the money screen, and a paid
+// surface that is visibly the least-loved one in the build is telling the player something.
+// The beach stays up and the panel goes translucent over it, so it is one world throughout.
+//
+// The card thumbnails borrow the rider and the ridden board to photograph them, which is why
+// the beach was being packed away in the first place. It is safe: snapshot() steals and
+// restores inside a single synchronous call, so the rider is always back on the sand before
+// the frame that draws him.
 function menuBeachWanted(){
   // NOT gated on the wipe flag. It stays set after a crash until the next run begins, so
   // gating on it meant the beach appeared once and never again — and the wipeout card is
   // already excluded by asking for the class 'main', which only the main menu carries.
   // (The same flag is why the old sea menu had no rider on it after a crash: menuIdle bails
   // on wipe. The beach draws its own rider, so that goes away with it.)
-  return !running && !viewer &&
-         !overlay.classList.contains('hidden') && overlay.classList.contains('main');
+  if(running||viewer)return false;
+  // the shop, sitting over it as glass
+  if(shop&&!shop.classList.contains('hidden'))return true;
+  return !overlay.classList.contains('hidden') && overlay.classList.contains('main');
 }
 // The beach takes about half a second to stand up — sixty thousand vertices of dune and a
 // palm — and it is built on the first frame the menu asks for it, so the page has already
@@ -31133,7 +31173,14 @@ catch(e){ BOOT_WHY='threw: '+e.message; }
 BOOT_BEACH=!!menuBeach;
 requestAnimationFrame(loop);
   const raw=(now-last)/1000;
-  const dt=Math.min(0.033,raw);last=now;
+  let dt=Math.min(0.033,raw);last=now;
+  // The hit-stop. Decayed on RAW, so the slow motion cannot slow its own clock and stall;
+  // applied to dt, so everything downstream — the tumble, the spray, the camera, the water —
+  // slows together rather than one layer sliding against another. See startWipeout.
+  if(wipeSlow>0){
+    wipeSlow=Math.max(0,wipeSlow-raw/WIPE_SLOW);
+    dt*=0.20+0.80*Math.pow(1-wipeSlow,1.6);
+  }
   // ---- the menu is ANIMATION, not physics, and the physics clamp does it real harm ----
   // dt is capped at a thirtieth of a second so that one long frame cannot step the ride
   // THROUGH a wave. On the title screen there is nothing to step through, and the cap turns
