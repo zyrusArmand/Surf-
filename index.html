@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.15.1';
+window.SURF_VERSION='6.16.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -237,46 +237,16 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   /* ---- and they are MOUNTED on something ---- */
   /* Six discs hanging in the air over a beach is an interface. The same six on a plank of
      driftwood is furniture, and the scene stops being a backdrop that the buttons happen to
-     be in front of. The material is the carved sign's, because that is the one piece of
-     lettering on this screen that already belongs to the world.
-     Drawn as the dial's OWN pseudo-elements, which paint before its children — so the rails
-     sit behind the buttons without adding an element to the page and, more to the point,
-     without moving a single button by a pixel. Those positions match the trick bar exactly so
-     a thumb finds the same place on the menu as it does mid-ride, and no amount of scenery is
-     worth trading that for. */
-  #homeDial::before, #homeDial::after {
-    content:''; position:absolute; width:44px; height:238px;
-    bottom:calc(13% - 44px); pointer-events:none;
-    /* ---- CUT, not extruded ---- */
-    /* A rounded rectangle is a lozenge and reads as a UI shape however it is painted. The
-       sign it is meant to match is a sawn plank with chipped ends and edges that are not
-       quite parallel, so the silhouette is a polygon with the same faults. clip-path takes
-       the box-shadow with it, so the cast shadow moves to a drop-shadow filter, which
-       follows the clipped shape instead of the box. */
-    clip-path:polygon(7% 0.6%, 52% 0%, 95% 1.8%, 100% 11%, 96.5% 34%, 99.5% 55%,
-                      96% 79%, 98% 93%, 90% 100%, 46% 99.2%, 8% 100%, 1.5% 90%,
-                      4% 66%, 0.5% 41%, 3.5% 19%);
-    background:
-      /* the last of it goes into the sand rather than stopping in mid-air */
-      linear-gradient(180deg, rgba(30,18,8,0) 66%, rgba(46,29,13,.55) 85%, rgba(30,18,8,.90) 100%),
-      /* two cracks, off-vertical and not the same length — a plank splits along the grain */
-      linear-gradient(93.5deg, rgba(0,0,0,0) 27.4%, rgba(38,20,6,.55) 27.4% 28.1%, rgba(0,0,0,0) 28.1%),
-      linear-gradient(87deg, rgba(0,0,0,0) 68%, rgba(38,20,6,.42) 68% 68.6%, rgba(0,0,0,0) 68.6%),
-      /* grain: a fine dark set with a coarser pale set over it, so it reads as timber
-         rather than as pinstripe */
-      repeating-linear-gradient(92deg, rgba(46,26,10,0) 0 4px, rgba(46,26,10,.26) 4px 5.5px),
-      repeating-linear-gradient(87.5deg, rgba(255,222,176,0) 0 10px, rgba(255,222,176,.10) 10px 12.5px),
-      linear-gradient(90deg, rgba(255,226,176,.32), rgba(0,0,0,.03) 42%, rgba(0,0,0,.30)),
-      linear-gradient(180deg,#9d6a3c 0%,#845331 44%,#6b4026 100%);
-    box-shadow:inset 0 1.5px 0 rgba(255,232,192,.34),
-               inset 0 -3px 8px -3px rgba(28,16,6,.70);
-    filter:drop-shadow(7px 11px 9px rgba(70,46,22,.45));
-  }
-  /* leaned, and not by the same amount — two posts pushed into sand by hand are never
-     parallel, and being parallel is most of what made them read as chrome */
-  #homeDial::before { left:22px;  transform:rotate(-2.4deg); }
-  #homeDial::after  { right:22px; transform:rotate(1.7deg); }
-  /* ---- and now they can be GLASS, because there is something behind them ---- */
+     be in front of.
+     The planks used to be painted here, as the dial's own pseudo-elements — gradients doing
+     an impression of timber. They are now the REAL sign model, stood on its flat side and
+     placed in the world by layoutBeachPosts(), so they take the scene's light and the
+     scene's shadow instead of carrying a drop-shadow that only ever matched one time of day.
+     Nothing about the buttons moved: the posts are measured from the buttons' own rects and
+     unprojected to meet them. Those button positions match the trick bar exactly so a thumb
+     finds the same place on the menu as it does mid-ride, and no amount of scenery is worth
+     trading that for — which is why the scenery is what gets fitted to them, both times. */
+  /* ---- and they can be GLASS, because there is something behind them ---- */
   /* .hbtn is deliberately near-solid at .86/.93, and the note there is right: at six tenths
      the sea ran straight through and the buttons read as a tint over the beach rather than as
      objects on it. That reasoning held while there was nothing behind them but scenery. There
@@ -16324,7 +16294,11 @@ let beachChest=null;
 // The <h1> stays and is only hidden while this is up: it is also the "Wipeout!" heading, and
 // a missing models/sign.glb has to leave the title screen with a title on it.
 let signModel=null, beachSign=null, signFix=0;
-loadModel('sign.glb',(s3)=>{ signModel=s3; placeBeachSign(); });
+// The posts are cut from the same model, so they get the same second chance: whichever of the
+// beach and the file lands last is the one that builds them. Without this a slow connection
+// sets the beach up before sign.glb arrives, placeBeachPosts finds no model, and the dial
+// spends the whole session mounted on nothing — the ordering that has bitten the sign before.
+loadModel('sign.glb',(s3)=>{ signModel=s3; placeBeachSign(); placeBeachPosts(); });
 // ---- the group's own axes are the PLANK's, measured ----
 // Everything above works on the sign's bounding box: it is squared to the lens by its box, sized
 // by its box, and asked how level it is by its box. All of that is only a statement about the
@@ -16470,6 +16444,177 @@ function placeBeachSign(){
   // the word — it is not going to run again just because a model finished downloading.
   if(typeof ovTitle!=='undefined'&&ovTitle&&ovTitle.textContent!=='Wipeout!')
     ovTitle.style.visibility='hidden';
+}
+// ---- the posts the dial is mounted on ARE the sign ----
+// They were painted in CSS: a div with a wood gradient and a clip-path cut to look sawn. The
+// real thing is right there in models/sign.glb, so it may as well BE the sign — same timber,
+// same bevel, same carving under the same lights — turned onto its flat side and stood in the
+// sand. Two of them, one under each column of buttons.
+//
+// SOLVED AGAINST THE BUTTONS, not typed in. The dial's positions are fixed in CSS to the
+// pixel because they match the trick bar so a thumb lands in the same place mid-ride, so the
+// posts are what has to move: each one is placed by unprojecting its column's own screen rect
+// onto a plane a fixed distance in front of the lens. That holds on any screen shape without
+// a single hand-tuned offset.
+//
+// The beach camera sways — sin(t*0.09)*0.15 on the aim — which is a few pixels of drift the
+// posts cannot follow, since they are in the world and the buttons are not. So they are cut
+// WIDER than the buttons: the sway then moves the plank behind a button that is well inside
+// it, instead of exposing an edge.
+let beachPosts=null, _bpSig='', _bpDial=null;
+const MB_POST_D=7.4;        // how deep down the view axis the posts stand — see _bpAt
+const MB_POST_W=1.62;       // ...and how much wider than the button column they are cut
+// Leaned, and not by the same amount. Two posts pushed into sand by hand are never parallel,
+// and the painted version this replaces learned that the hard way: dead upright and dead
+// parallel was most of what made them read as chrome rather than as timber. Same two angles.
+const MB_POST_LEAN=[-0.042, 0.030];
+function placeBeachPosts(){
+  if(!signModel||typeof menuProps==='undefined'||!menuProps||beachPosts)return;
+  beachPosts=new THREE.Group();
+  for(let i=0;i<2;i++){
+    const inner=cloneModel(signModel);
+    dressSign(inner);
+    inner.quaternion.copy(planeFrame(inner));           // laid flat, facing its own +z
+    // centred on the group's origin, so the quarter turn below spins the plank about its own
+    // middle rather than about wherever the exporter left the file's origin. visBox, not
+    // Box3.setFromObject: setFromObject counts hidden meshes, the size the layout scales by
+    // does not, and a centre and a size measured off two different boxes drift apart.
+    inner.position.sub(visBox(inner).getCenter(new THREE.Vector3()));
+    // a plank is wider than it is tall, so standing it up is a quarter turn about the view
+    // axis; the half turn after it puts the carved face away from the lens and shows the
+    // plain back, which is the side that wants to be a post
+    const stand=new THREE.Group();
+    stand.add(inner);
+    stand.rotation.z=Math.PI/2;
+    stand.rotation.y=Math.PI;
+    const post=new THREE.Group();
+    post.add(stand);
+    post.userData.stand=stand;
+    beachPosts.add(post);
+  }
+  menuProps.add(beachPosts);
+  if(typeof layoutBeachPosts==='function')layoutBeachPosts();
+}
+const _bpV=new THREE.Vector3(), _bpA=new THREE.Vector3();
+const _bpM=new THREE.Matrix4(), _bpM2=new THREE.Matrix4(), _bpPM=new THREE.Matrix4();
+const _bpQ=new THREE.Quaternion(), _bpS=new THREE.Vector3();
+const _bpR=new THREE.Quaternion(), _bpZ=new THREE.Vector3(0,0,1);
+const _bpBox=new THREE.Box3(), _bpGeo=new THREE.Box3();
+// ---- DEPTH, not distance ----
+// The obvious way to do this is to unproject the screen point, normalise, and walk d along the
+// ray. That puts the post d feet from the lens as the crow flies — and how big a thing draws
+// does not depend on how far it is from the lens, it depends on its DEPTH down the view axis.
+// The two are the same only on the axis, and this is a 92 degree lens with the posts jammed
+// into the bottom corners: out there the ray runs 29% longer than its own depth, so the posts
+// stood nearer than the plane they were cut for and drew a third over size on both axes. The
+// tell was that the error was the same on both axes and the centres were exact — a placement
+// that is right in angle and wrong in distance.
+// Built in the camera's own space instead, where "depth d" is just z = -d and the frustum
+// height there is exactly the 2*tan(fov/2)*d that the sizing below assumes.
+function _bpAt(nx,ny,d,out){
+  const t=Math.tan(menuCam.fov*Math.PI/360);
+  out.set(nx*t*menuCam.aspect*d, ny*t*d, -d).applyMatrix4(menuCam.matrixWorld);
+  return out;
+}
+// ---- MEASURED IN THE FRAME THE SCALE ACTUALLY ACTS IN ----
+// Box3.setFromObject reports a box in WORLD axes, and a scale set on a node acts in that
+// node's LOCAL axes. Those are the same thing only for an unrotated node, and this one is
+// rotated twice: the plank is turned a quarter turn to stand it up and the post is turned to
+// face the lens. Dividing a world-axis measurement into a local scale therefore swaps the
+// plank's width for its height — a post lying down and several feet too wide. So the size is
+// taken in the node's own axes, by walking its geometry boxes back through its inverse.
+function _bpLocalSize(root,out){
+  root.updateWorldMatrix(true,true);
+  _bpM.copy(root.matrixWorld).invert();
+  _bpBox.makeEmpty();
+  root.traverse(o=>{
+    if(!o.isMesh||!o.geometry||!o.visible)return;
+    if(!o.geometry.boundingBox)o.geometry.computeBoundingBox();
+    if(!o.geometry.boundingBox)return;
+    _bpGeo.copy(o.geometry.boundingBox)
+          .applyMatrix4(_bpM2.multiplyMatrices(_bpM,o.matrixWorld));
+    _bpBox.union(_bpGeo);
+  });
+  return _bpBox.getSize(out);
+}
+function layoutBeachPosts(){
+  if(!beachPosts||typeof menuCam==='undefined'||!menuCam)return;
+  const ids=[['dBoard','dTricks'],['dQuests','dStats']];
+  menuCam.updateMatrixWorld(true);
+  // ---- AND THE ANSWER IS IN WORLD FEET, WHILE THE SLOT IT GOES IN IS NOT ----
+  // The posts hang off menuProps, which carries a transform of its own — the whole set is
+  // moved, turned and scaled to place the beach. Unprojecting the buttons gives a point in
+  // WORLD space, and writing that straight into post.position files it as a LOCAL one: the
+  // first build put the posts 42 feet from a lens they were asked to stand 7.4 feet in front
+  // of, and a third of the way across the screen from the buttons they were cut to fit. The
+  // same applies to the facing and to the size, so all three are brought back through the
+  // parent here. This is the exact trap the chest's placement comment warns about.
+  beachPosts.updateMatrixWorld(true);
+  _bpPM.copy(beachPosts.matrixWorld).invert();
+  beachPosts.getWorldQuaternion(_bpQ).invert();
+  const pscl=Math.max(1e-6, beachPosts.getWorldScale(_bpS).x);
+  for(let i=0;i<2;i++){
+    const post=beachPosts.children[i];
+    const top=document.getElementById(ids[i][0]), bot=document.getElementById(ids[i][1]);
+    if(!post||!top||!bot){ if(post)post.visible=false; continue; }
+    const rt=top.getBoundingClientRect(), rb=bot.getBoundingClientRect();
+    if(!rt.width||!rb.width){ post.visible=false; continue; }
+    post.visible=true;
+    const W=Math.max(1,innerWidth), H=Math.max(1,innerHeight);
+    const cx=(rt.left+rt.right)*0.5;
+    // a little proud of the column at the top, the way a post stands past whatever is nailed
+    // to it — and OFF THE BOTTOM OF THE FRAME at the foot. These stand a few feet from the
+    // lens and the sand under that part of the picture is thirty or forty feet back, so there
+    // is no height at which a foot drawn on screen is standing in it: it would hang in the
+    // air over a beach. A post whose foot leaves the frame is read as going into the ground
+    // out of shot, which is both true enough and the only version that survives the camera
+    // moving.
+    const yTop=rt.top-rt.height*0.42;
+    const yBot=Math.max(rb.bottom+rb.height*1.15, H+rb.height*0.55);
+    // Placed by ONE ray, through the middle of where it should appear. A ray through a screen
+    // point projects back to that point whatever distance you stop at, so this is exact.
+    // Taking the midpoint of two rays instead is not: the two diverge, and their chord is
+    // shorter than the span it is standing in for — which is also why the height below is
+    // measured off the frustum rather than off that chord. The first build did it the other
+    // way and the posts came out a sixth short, all of it at the bottom of the screen where
+    // the rays spread most.
+    _bpAt((cx/W)*2-1, -((yTop+yBot)*0.5/H)*2+1, MB_POST_D, _bpA);
+    post.position.copy(_bpA).applyMatrix4(_bpPM);
+    // square to the lens, then rolled about the view axis — which after the turn above IS the
+    // post's own z, so the lean happens in the picture rather than in the world
+    post.quaternion.copy(_bpQ).multiply(menuCam.quaternion)
+        .multiply(_bpR.setFromAxisAngle(_bpZ, MB_POST_LEAN[i]));
+    // its own drawn size, so the scale that follows is solved rather than guessed. Measured
+    // and scaled on the POST, whose axes — once it has been turned to face the lens — ARE
+    // screen right and screen up, so "this wide, this tall" needs no axis bookkeeping and
+    // stays correct however the plank inside it happens to be oriented.
+    const st=post.userData.stand;
+    st.position.set(0,0,0);          // so a re-cut measures the model, not the last cut
+    post.scale.setScalar(1);
+    const sz=_bpLocalSize(post,_bpV);
+    if(!(sz.y>1e-5)||!(sz.x>1e-5))continue;
+    const near=_bpBox.max.z;         // read before anything else touches the scratch box
+    // How big the picture is in world feet where the posts are standing: the frustum is
+    // 2*tan(fov/2)*d tall and aspect times that across. A fraction of the screen is that same
+    // fraction of it, so both sizes come off the one number.
+    const fh=2*Math.tan(menuCam.fov*Math.PI/360)*MB_POST_D;
+    const wantH=((yBot-yTop)/H)*fh;
+    const wantW=(rt.width*MB_POST_W/W)*fh*menuCam.aspect;
+    // divided by the set's own scale for the same reason the position was: sz is in the
+    // post's local units and wantW/wantH are in world feet
+    const kx=wantW/(sz.x*pscl), ky=wantH/(sz.y*pscl);
+    // the thickness follows the narrower of the two, so a post cut long and thin does not
+    // also become a slab
+    post.scale.set(kx, ky, Math.min(kx,ky));
+    // ---- AND THE FACE GOES AT THE DISTANCE, not the middle of the model ----
+    // sign.glb is not a bare plank: it carries its stakes, so the model is a couple of feet
+    // deep. Centred on that box, the board's FACE ends up nearer the lens than the distance
+    // it was scaled for, and near is big — both posts drew a third over size, on both axes,
+    // which is exactly what a face at 5.5 feet cut to fit at 7.4 looks like. So the model is
+    // slid back along the view axis until its nearest point sits on the plane it was cut for.
+    // The stakes then run away behind it, which is where stakes go.
+    st.position.z=-near;
+  }
 }
 function placeBeachChest(){
   if(!chestModel||typeof menuProps==='undefined'||!menuProps||beachChest)return;
@@ -23679,6 +23824,55 @@ if(location.hash.includes('debug')){
     // through either puts every reading a third of the way up the sky — which made a chest
     // that WAS on screen look lost, and cost a round of chasing a camera bug as a placement
     // bug. Whichever camera drew the frame is the only one that can say where a thing is.
+    // Where the two dial posts landed ON SCREEN, beside the button column each one is cut to
+    // fit. The whole point of the posts is that the buttons look mounted on them, and that is
+    // a claim about pixels: a post can be perfectly placed in the world and still sit an inch
+    // to the left of the discs it is carrying. So it is reported as the post's screen box next
+    // to the buttons' own rect, and "mounted" is cover, not a look at a screenshot.
+    postScreen(){ if(!beachPosts||!menuCam)return null;
+      const px=v=>[Math.round((v.x*0.5+0.5)*innerWidth),Math.round((-v.y*0.5+0.5)*innerHeight)];
+      const ids=[['dBoard','dTricks'],['dQuests','dStats']];
+      menuCam.updateMatrixWorld(true);
+      return beachPosts.children.map((p,i)=>{
+        // The post's OWN box, carried through its matrix — not a world-axis Box3. The plank is
+        // turned twice and stood a few feet from a wide lens, so the axis-aligned box around it
+        // is a good deal bigger than the plank, and projecting THAT reported a post half again
+        // as wide as the one on the screen.
+        _bpLocalSize(p,_bpV);
+        const lo=_bpBox.min.clone(), hi=_bpBox.max.clone();
+        const c=[]; for(const x of [lo.x,hi.x])for(const y of [lo.y,hi.y])
+          for(const z of [lo.z,hi.z])
+            c.push(new THREE.Vector3(x,y,z).applyMatrix4(p.matrixWorld).project(menuCam));
+        const xs=c.map(v=>(v.x*0.5+0.5)*innerWidth), ys=c.map(v=>(-v.y*0.5+0.5)*innerHeight);
+        const rt=document.getElementById(ids[i][0]), rb=document.getElementById(ids[i][1]);
+        const a=rt?rt.getBoundingClientRect():null, z=rb?rb.getBoundingClientRect():null;
+        // What a foot actually measures on this screen, taken by projecting two points a foot
+        // apart at the post's own distance rather than off the frustum formula — so "the post
+        // is the wrong size" and "the sum that sized it is wrong" stop being the same reading.
+        const o=p.getWorldPosition(new THREE.Vector3());
+        const up=new THREE.Vector3(0,1,0).applyQuaternion(menuCam.quaternion);
+        const rt2=new THREE.Vector3(1,0,0).applyQuaternion(menuCam.quaternion);
+        const pxY=Math.abs((o.clone().add(up).project(menuCam).y-o.clone().project(menuCam).y))*0.5*innerHeight;
+        const pxX=Math.abs((o.clone().add(rt2).project(menuCam).x-o.clone().project(menuCam).x))*0.5*innerWidth;
+        const lsz=_bpBox.getSize(new THREE.Vector3());
+        return {vis:p.visible,
+                post:[Math.round(Math.min(...xs)),Math.round(Math.min(...ys)),
+                      Math.round(Math.max(...xs)),Math.round(Math.max(...ys))],
+                fov:+menuCam.fov.toFixed(2), asp:+menuCam.aspect.toFixed(4),
+                vp:[innerWidth,innerHeight],
+                pxPerFt:[+pxX.toFixed(2),+pxY.toFixed(2)],
+                fhPx:+(innerHeight/(2*Math.tan(menuCam.fov*Math.PI/360)*MB_POST_D)).toFixed(2),
+                localSz:[lsz.x,lsz.y,lsz.z].map(v=>+v.toFixed(3)),
+                localZ:[+_bpBox.min.z.toFixed(3),+_bpBox.max.z.toFixed(3)],
+                scale:[p.scale.x,p.scale.y,p.scale.z].map(v=>+v.toFixed(4)),
+                worldSz:[lsz.x*p.scale.x,lsz.y*p.scale.y,lsz.z*p.scale.z]
+                          .map(v=>+(v*beachPosts.getWorldScale(new THREE.Vector3()).x).toFixed(3)),
+                btns:a&&z?[Math.round(a.left),Math.round(a.top),
+                           Math.round(z.right),Math.round(z.bottom)]:null,
+                world:px(p.getWorldPosition(new THREE.Vector3()).project(menuCam)),
+                dist:+menuCam.position.distanceTo(p.getWorldPosition(new THREE.Vector3())).toFixed(2)};
+      });
+    },
     chestScreen(){ if(!beachChest)return null;
       const onBeach=(typeof menuBeach!=='undefined'&&menuBeach&&menuCam);
       const cam=onBeach?menuCam:((typeof viewCam!=='undefined'&&viewCam)?viewCam:camera);
@@ -30054,6 +30248,7 @@ function layoutMenuBeach(){
   menuBeach.boardH=new THREE.Box3().setFromObject(board).getSize(new THREE.Vector3()).y;
   layoutBeachChest();
   placeBeachSign(); layoutBeachSign();
+  placeBeachPosts(); layoutBeachPosts();
 }
 // ---- the swell dies where the water shoals ----
 // WHERE the waterline is cannot be a number typed in here: it is wherever the beach's own
@@ -31498,6 +31693,25 @@ function renderMenuBeach(dt){
   // function has ever placed the camera, so the projection it would have solved against is the
   // one from the origin looking down -z, which is nowhere.
   if(beachSign&&!_sgReady){ _sgReady=true; layoutBeachSign(); }
+  // The posts are cut to the BUTTONS and unprojected against the lens, so like the sign they
+  // cannot be solved before this function has put the camera somewhere. Unlike the sign they
+  // also have to be re-cut when the window changes shape, because the column they stand
+  // behind is positioned in a mix of pixels and percentages that no single aspect ratio
+  // predicts — and a re-cut is four getBoundingClientRect calls and two Box3 walks, which is
+  // not a thing to do every frame. So it is keyed on the viewport actually changing, which is
+  // a string compare on the frames where it has not.
+  if(beachPosts){
+    // ---- and they go when the buttons go ----
+    // Two of the three states this beach is drawn in hide the dial outright, and a pair of
+    // planks standing in the sand with nothing nailed to them is worse than no posts at all.
+    // Read off the two classes that do the hiding rather than off the element's box: a rect
+    // read forces a layout, and this runs every frame where the re-cut below does not.
+    if(_bpDial===null)_bpDial=document.getElementById('overlay');
+    beachPosts.visible=!(document.body.classList.contains('panel')||
+                         (_bpDial&&_bpDial.classList.contains('over')));
+    const _sig=innerWidth+'x'+innerHeight;
+    if(_sig!==_bpSig){ _bpSig=_sig; layoutBeachPosts(); }
+  }
   // The board preview is shot at the renderer's own exposure and the menu was too, but the
   // menu is a whole beach rather than one object on a sweep — far more of it is sky and wet
   // light, and ACES pulls the top of that down hard. A tenth of a stop back is the
