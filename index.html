@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.10.0';
+window.SURF_VERSION='6.11.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -9522,7 +9522,30 @@ function menuRiderTapped(cx,cy){
 // TWO taps, not one. One tap on a character is the commonest accidental tap on this screen —
 // the beach is most of it and he is in the middle — and sending him at the camera every time
 // somebody puts a thumb down would make the title screen feel like it was flinching.
-let riderTapT=0;
+// ---- ...but ONE tap still has to land ----
+// Playtest: "I kept on trying to aggravate it, I couldn't tell if it just moved at its own
+// pace or I had an effect." The charge was already built and he never saw it, because the
+// first tap does nothing at all and the second has to arrive inside 420ms. Tap once: nothing.
+// Tap twice a shade too slow: nothing. From the outside that is indistinguishable from a
+// character who cannot be touched, so he stopped trying.
+//
+// So every tap on him now answers — a squash and a bounce, plus the phone in your hand — and
+// the double tap keeps the charge as the payoff. The reaction is written in SCALE alone and
+// deliberately: pug.rotation.y and pug.position.y are each written once rather than per frame,
+// so an offset added to either would accumulate on every poke, while scale is captured clean
+// on the first frame and restored exactly on the last. It also means it works for the whole
+// cast — a built-in body and an imported rig squash identically, and a character with no punch
+// clip in its file still visibly reacts.
+const POKE_RATE=3.0;                          // 1/POKE_RATE seconds of squash
+let riderTapT=0, pokeT=0, pokeS=0;
+function riderPoke(dt){
+  if(pokeT<=0)return;
+  if(!pokeS)pokeS=pug.scale.x;                // captured BEFORE the first change
+  pokeT=Math.max(0,pokeT-dt*POKE_RATE);
+  const u=Math.min(1,1-pokeT), k=Math.sin(Math.PI*u);
+  if(pokeT<=0){ pug.scale.setScalar(pokeS); pokeS=0; return; }
+  pug.scale.set(pokeS*(1+k*0.10), pokeS*(1-k*0.13), pokeS*(1+k*0.10));
+}
 overlay.addEventListener('pointerdown',e=>{
   // ---- THE VERSION IS ASKED FIRST ----
   // The rider used to be asked first and given the tap outright, and once he was seated
@@ -9537,11 +9560,16 @@ overlay.addEventListener('pointerdown',e=>{
   if(!onVer){
     if(menuBeach&&menuRiderTapped(e.clientX,e.clientY)){
       const now=performance.now();
-      if(now-riderTapT<420){
+      const R=typeof riderRig==='function'?riderRig():null;
+      // 560 rather than 420: a double tap on a phone held one-handed is slower than a
+      // double click, and the old window was tight enough to miss on purpose.
+      if(now-riderTapT<560){
         riderTapT=0;
-        const R=typeof riderRig==='function'?riderRig():null;
         if(R&&R.startCharge)R.startCharge();
       } else riderTapT=now;
+      // ...and he flinches EITHER WAY, which is the whole point -- but not mid-charge,
+      // where a squash would fight the run-in.
+      if(!(R&&R.charge)){ pokeT=1; if(typeof buzz==='function')buzz(8); }
       return;                                 // a tap on him is not a tap on the version
     }
     tapN=0; verEl.style.opacity=''; return;
@@ -15386,6 +15414,15 @@ let heliPh=-1, heliT=0, heliPose=0, heliUsed=false, heliAir=false, heliHeld=fals
 // "under-rotated" label can never drift apart again.
 const LAND_YAW=0.88, LAND_FLIP=0.72;
 const SPIN_RATE=Math.PI*2*1.35, FLIP_RATE=Math.PI*2*1.25;
+// ---- how fast it ever gets ----
+// SPD_LO is the start and has not moved: 16.2 reads as 10mph. SPD_HI is the ceiling the ride
+// approaches and never reaches — 52 is about 32mph, roughly where the lane stops being
+// readable. SPD_K is derived rather than chosen, at 210*(HI-LO), so the opening slope matches
+// the straight line this replaced. See the curve itself further down.
+//   500m 18.4   1km 20.4   3km 26.4   5km 30.5   8.7km 35.4   20km 42.2   ceiling 52
+// against the old line, which was 18.6 / 21.0 / 30.5 / 40.0 / 57.6 and rising.
+const SPD_LO=16.2, SPD_HI=52;
+const SPD_K=210*(SPD_HI-SPD_LO);
 let trick=null; // rope backflip only
 let planeT=34+Math.random()*26,planeActive=false,hanging=false,spawnT=0.4;
 // var: read by the pose code, which runs on the title screen before this line would in a let
@@ -26870,7 +26907,28 @@ function update(dt){
   // The HUD reads mph as eff*0.62, so 16.2 is 10 and 113 is 70. It never drops below
   // the first and never passes the second, and climbs the whole way between rather
   // than being most of the way there inside the first kilometre.
-  speed=Math.min(100+BS.top,(16.2+dist/210)*BS.speed+BS.top);
+  //
+  // ---- and it APPROACHES a ceiling instead of climbing forever ----
+  // This was 16.2 + dist/210: a straight line with no plateau anywhere a player can reach.
+  // At eight kilometres it is 57.6, which is 36mph, and it keeps going. Playtest, unprompted:
+  // "the pace is so crazy that I'm kinda like how can it become harder without having to keep
+  // increasing the speed, because it's getting to that point" — and the symptom that proves
+  // it, the jet ski that exists to ANNOUNCE a wave being overtaken by the rider before it can.
+  // The boat runs at 30. Anything scripted in this game was tuned against a speed the player
+  // now blows past, so the world stops reading as a world.
+  //
+  // Speed is also the cheapest difficulty knob and the one with a hard ceiling: past a point
+  // it stops being skill and becomes reaction-time lottery, and because fast obstacles have to
+  // be spaced further apart to be dodgeable at all, the lane gets EMPTIER as it gets harder.
+  // Difficulty past the plateau has to come from what is in the water — density, patterns, and
+  // things with their own agency — not from the clock.
+  //
+  // dist/(dist+K) rather than an exponential on purpose: it has a long tail, so it never quite
+  // arrives and there is always a little more to gain. K is set to 210*(HI-LO) so the slope at
+  // zero is exactly what it was — the first kilometre is within three per cent of the old
+  // curve, which is where retention is decided and where nothing should change at all.
+  speed=Math.min(100+BS.top,
+    (SPD_LO+(SPD_HI-SPD_LO)*dist/(dist+SPD_K))*BS.speed+BS.top);
 
   // momentum carving
   // Fore and aft is gone. leanW is kept at rest so everything that consulted it —
@@ -31119,6 +31177,11 @@ requestAnimationFrame(loop);
                 if(mr.idle)mr.idle(999); }
               else { const _fd=(typeof MB_FREEZE!=='undefined'&&MB_FREEZE)?0:mdt;
                      if(mr.show)mr.show(_fd); else if(mr.idle)mr.idle(_fd); } } }
+    // AFTER the show, which owns his pose -- this only borrows his scale for a third of a
+    // second and hands it straight back. On the show's own clock, so a frozen menu does not
+    // leave him mid-squash.
+    { const _pd=(typeof MB_FREEZE!=='undefined'&&MB_FREEZE)?0:mdt;
+      if(typeof riderPoke==='function')riderPoke(_pd); }
     updateDayCycle();
   }
   placeCeremonyChest(dt);
