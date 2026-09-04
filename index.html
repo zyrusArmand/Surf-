@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.15.0';
+window.SURF_VERSION='6.15.1';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -6852,7 +6852,20 @@ function PALM(seed,prof,menu){
 // Which tree this one is: the title screen's own if that file has arrived and this palm is
 // one of its two, the rigged grove model if that has, the procedural tree if neither.
 function palmFor(rec){
-  if(rec.menu&&palm2)return palm2Mesh(rec.seed,rec.prof);
+  // ---- the title screen gets palm2 or NOTHING ----
+  // It used to fall through to the grove's rigged tree, and that is a DIFFERENT tree, not a
+  // rougher version of the same one: the most prominent object on the screen was a stranger
+  // until the real file landed and then changed in full view. No stand-in, then. An empty
+  // group holds the place so everything that positions, scales, leans a board on and later
+  // re-makes this palm goes on working unchanged, and repalm swaps it for the real mesh the
+  // moment palm2 arrives. trunkAt already returns a default line when there is no trunk to
+  // read, so the board still finds somewhere to lean in the gap.
+  //
+  // The gap is normally invisible: the reveal waits for palm2 before it fades the beach in.
+  // If that file never comes at all, the title screen has a beach and no tree — which is the
+  // trade being asked for, and the honest one, because the alternative is showing the wrong
+  // tree and hoping nobody looks.
+  if(rec.menu)return palm2?palm2Mesh(rec.seed,rec.prof):new THREE.Group();
   return palmModel?modelPalm(rec.seed,rec.prof,rec.menu):buildPalm(rec.seed);
 }
 // How tall the title screen's palm stands against one of the grove's. Its own number because
