@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.17.1';
+window.SURF_VERSION='6.17.2';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -16590,12 +16590,30 @@ function placeBeachSign(){
 // WIDER than the buttons: the sway then moves the plank behind a button that is well inside
 // it, instead of exposing an edge.
 let beachPosts=null, _bpSig='', _bpDial=null;
-const MB_POST_D=7.4;        // how deep down the view axis the posts stand — see _bpAt
+// How deep down the view axis the posts stand — see _bpAt. Note that this number does NOT
+// change the size of the plank on screen: it is cut to fill the buttons' own footprint at
+// whatever depth it is given, so halving the depth halves the plank and the picture is
+// identical to the pixel. Measured, when 4.2 was tried against 7.4 to lift the posts clear of
+// the foreground sand: the projected box came back byte for byte the same and the sand still
+// covered them, which says the ground under the lower buttons is nearer than four feet. The
+// only thing this number moves is what the posts are in front of, so it stays where it was.
+const MB_POST_D=7.4;
 const MB_POST_W=1.62;       // ...and how much wider than the button column they are cut
 // Leaned, and not by the same amount. Two posts pushed into sand by hand are never parallel,
 // and the painted version this replaces learned that the hard way: dead upright and dead
 // parallel was most of what made them read as chrome rather than as timber. Same two angles.
-const MB_POST_LEAN=[-0.042, 0.030];
+const MB_POST_LEAN=[-0.055, 0.042];
+// ---- AND THE WHOLE PLANK STAYS IN THE PICTURE ----
+// Centring a post on its button column is right in principle and wrong at the edges of the
+// screen, which is the only place these columns are. The dial sits 14px from each side, so a
+// plank cut wider than the buttons — which is the entire point of it — hangs its outer third
+// off the side of the frame. What is left on screen is a sliver of timber beside the buttons
+// rather than a post they are mounted on, and that is what came back as "move them to where
+// I circled": the circle was drawn fully inside the screen, around the whole column.
+// So the centre is pulled inboard until the plank fits, lean included. The buttons stay well
+// covered because the plank is 1.62 times their width and only has to move about a sixth of
+// that; what changes is that all of it is visible.
+const MB_POST_PAD=6;        // how much frame is left outside the timber
 function placeBeachPosts(){
   if(!signModel||typeof menuProps==='undefined'||!menuProps||beachPosts)return;
   beachPosts=new THREE.Group();
@@ -16706,7 +16724,16 @@ function layoutBeachPosts(){
     // measured off the frustum rather than off that chord. The first build did it the other
     // way and the posts came out a sixth short, all of it at the bottom of the screen where
     // the rays spread most.
-    _bpAt((cx/W)*2-1, -((yTop+yBot)*0.5/H)*2+1, MB_POST_D, _bpA);
+    // ---- pulled inboard so none of it is off the side ---- see MB_POST_PAD
+    // The drawn width is the cut width plus what the lean throws sideways, which on a plank
+    // this tall is another fifteen pixels and not ignorable.
+    const wPx=rt.width*MB_POST_W+Math.abs(Math.sin(MB_POST_LEAN[i]))*(yBot-yTop);
+    const half=wPx*0.5;
+    // and if the frame is too narrow to hold it at all, centre it rather than letting the two
+    // clamps fight and throw it off the other side
+    const lo=half+MB_POST_PAD, hi=W-half-MB_POST_PAD;
+    const cxIn=(lo>hi)?W*0.5:Math.min(Math.max(cx,lo),hi);
+    _bpAt((cxIn/W)*2-1, -((yTop+yBot)*0.5/H)*2+1, MB_POST_D, _bpA);
     post.position.copy(_bpA).applyMatrix4(_bpPM);
     // square to the lens, then rolled about the view axis — which after the turn above IS the
     // post's own z, so the lean happens in the picture rather than in the world
@@ -16728,6 +16755,16 @@ function layoutBeachPosts(){
     const fh=2*Math.tan(menuCam.fov*Math.PI/360)*MB_POST_D;
     const wantH=((yBot-yTop)/H)*fh;
     const wantW=(rt.width*MB_POST_W/W)*fh*menuCam.aspect;
+    // ---- CACHED, because none of the above depends on where the lens is ----
+    // Everything measured in this loop is a fact about the BUTTONS and about the model: where
+    // the column sits as a fraction of the screen, how tall and wide it wants to be as a
+    // fraction of the frustum, and how big the plank is in its own units. None of it changes
+    // when the camera moves. What does change is the projection those fractions are pushed
+    // through, and that is the cheap half — so it is split out into aimBeachPosts and run
+    // every frame, leaving the rect reads and the geometry walk here on the viewport change.
+    post.userData.fit={nx:(cxIn/W)*2-1, ny:-((yTop+yBot)*0.5/H)*2+1,
+                       hf:(yBot-yTop)/H, wf:rt.width*MB_POST_W/W,
+                       szx:sz.x, szy:sz.y, near:near};
     // divided by the set's own scale for the same reason the position was: sz is in the
     // post's local units and wantW/wantH are in world feet
     const kx=wantW/(sz.x*pscl), ky=wantH/(sz.y*pscl);
@@ -16742,6 +16779,43 @@ function layoutBeachPosts(){
     // slid back along the view axis until its nearest point sits on the plane it was cut for.
     // The stakes then run away behind it, which is where stakes go.
     st.position.z=-near;
+  }
+}
+// ---- AND THE LENS DOES NOT HOLD STILL ----
+// Reported from a phone: the left post had walked off the side of the screen and the right one
+// was sitting beside its buttons instead of under them. Nothing had moved the posts — the
+// CAMERA moves. This beach breathes: the shot dollies sw*0.5 along its own axis, bobs sw2*0.12,
+// and swings its aim sw*0.15 sideways, on a seventy second cycle. The posts were solved once,
+// against whatever pose the lens happened to be in at that instant, and then left in the world
+// while the lens carried on moving around them.
+// Half a foot of dolly against a post standing 7.4 feet away is seven per cent of its depth,
+// and a post out at the edge of a 92 degree frame moves sideways by seven per cent of how far
+// off-centre it already is: about twelve pixels, with the aim swing adding seven more. Twenty
+// pixels is the whole width of the timber showing past a button, which is exactly why it read
+// as the post having come off its column. The screenshot was taken at one phase of that cycle
+// and my own capture at another, which is why it verified clean and still shipped broken.
+// The fix is not to stop the camera. It is that a post cut to a button has to be re-aimed
+// whenever the lens moves, which is every frame — and now costs a handful of floats, because
+// everything expensive about the fit was measured once and cached above.
+function aimBeachPosts(){
+  if(!beachPosts||typeof menuCam==='undefined'||!menuCam)return;
+  menuCam.updateMatrixWorld(true);
+  // ancestors and self, NOT the subtree: forcing the whole way down would re-walk both sign
+  // models every frame to learn something only the parent chain can tell us
+  beachPosts.updateWorldMatrix(true,false);
+  _bpPM.copy(beachPosts.matrixWorld).invert();
+  beachPosts.getWorldQuaternion(_bpQ).invert();
+  const pscl=Math.max(1e-6, beachPosts.getWorldScale(_bpS).x);
+  const fh=2*Math.tan(menuCam.fov*Math.PI/360)*MB_POST_D;
+  for(let i=0;i<beachPosts.children.length;i++){
+    const post=beachPosts.children[i], f=post.userData.fit;
+    if(!f||!post.visible)continue;
+    _bpAt(f.nx, f.ny, MB_POST_D, _bpA);
+    post.position.copy(_bpA).applyMatrix4(_bpPM);
+    post.quaternion.copy(_bpQ).multiply(menuCam.quaternion)
+        .multiply(_bpR.setFromAxisAngle(_bpZ, MB_POST_LEAN[i]));
+    const kx=(f.wf*fh*menuCam.aspect)/(f.szx*pscl), ky=(f.hf*fh)/(f.szy*pscl);
+    post.scale.set(kx, ky, Math.min(kx,ky));
   }
 }
 function placeBeachChest(){
@@ -23753,6 +23827,28 @@ if(location.hash.includes('debug')){
     // Hold the title screen absolutely still, so two frames differ ONLY by what was changed
     // between them. Without this every A/B here is measuring the drift of the shot.
     menuFreeze(v){ MB_FREEZE=v!==false; return MB_FREEZE; },
+    // Drive the title screen's own clock. The lens sways on a seventy second cycle and the
+    // posts are cut to buttons that do not move with it, so "do they stay on their column"
+    // is a question about the whole cycle and not about the instant a screenshot was taken.
+    // Waiting one out takes seventy seconds of menu time, which headless does not have; this
+    // steps straight to a phase so the sweep is a dozen samples instead of a dozen minutes.
+    menuClock(v){ if(menuBeach&&v!==undefined)menuBeach.t=v;
+                  return menuBeach?+menuBeach.t.toFixed(2):null; },
+    // Where the lens actually is. Reported alongside the post alignment because a post that
+    // holds its column across a sweep proves nothing unless the camera MOVED during it — an
+    // alignment test run against a stationary lens passes just as well when it is broken.
+    camInfo(){ if(!menuCam)return null;
+      const t=menuBeach?menuBeach.t:null;
+      return {p:[menuCam.position.x,menuCam.position.y,menuCam.position.z].map(v=>+v.toFixed(3)),
+              t:t===null?null:+t.toFixed(2),
+              sw:t===null?null:+Math.sin(t*0.09).toFixed(4),
+              // every switch that can pin this lens, so "the camera did not move" is
+              // attributable rather than a mystery
+              freeze:!!MB_FREEZE,
+              stage:(typeof stageOn!=='undefined')&&!!stageOn,
+              stFree:(typeof stCamFree!=='undefined')&&!!stCamFree,
+              stKeep:(typeof stCamKeep!=='undefined')&&!!stCamKeep,
+              camOn:(typeof MB_CAM_ON!=='undefined')&&!!MB_CAM_ON}; },
     // How far a frond tip travels, as a share of the tree's own height. Zero is a still day,
     // which is also how to check that what is moving in the crown is this and not the drift
     // of the shot.
@@ -31897,7 +31993,15 @@ function renderMenuBeach(dt){
     if(_bpDial===null)_bpDial=document.getElementById('overlay');
     beachPosts.visible=!(document.body.classList.contains('panel')||
                          (_bpDial&&_bpDial.classList.contains('over')));
-    const _sig=innerWidth+'x'+innerHeight;
+    // re-aimed every frame against the lens as it actually is now — see aimBeachPosts. The
+    // re-CUT below is still keyed on the viewport, because that is the half that reads rects.
+    if(beachPosts.visible)aimBeachPosts();
+    // The dial's own state is part of the signature, not just the window's. A layout that runs
+    // while the buttons are display:none reads four zero-width rects and switches each post off
+    // individually — and nothing would ever switch them back, because the window has not
+    // changed shape and that was the only thing being watched. Opening the shop once would
+    // have cost the posts for the rest of the session.
+    const _sig=innerWidth+'x'+innerHeight+(beachPosts.visible?'v':'h');
     if(_sig!==_bpSig){ _bpSig=_sig; layoutBeachPosts(); }
   }
   // The board preview is shot at the renderer's own exposure and the menu was too, but the
