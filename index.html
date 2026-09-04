@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.13.0';
+window.SURF_VERSION='6.13.1';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -1150,21 +1150,16 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   /* GTA-style: label on the left, a track of ten segments on the right, filled to the
      board's level. Segments rather than a smooth bar so a difference of one is countable
      at a glance instead of being judged by eye. */
-  /* the delta track: a centre line, and a bar growing out of it either way */
-  /* Written to sit inside the row the viewer already lays out, which is a FLEX row set by
-     `#viewer #vStats .st` — an id selector, so it outranks anything here and a grid declared
-     at this weight is quietly ignored. The track carries its own flex:1 instead, which works
-     either way round. */
-  .stats.dlt .dbar { position:relative; flex:1; min-width:0; height:9px; border-radius:3px;
-    background:rgba(255,255,255,.13); overflow:hidden; }
-  .stats.dlt .dbar u { position:absolute; top:0; bottom:0; left:50%; width:1px;
-    background:rgba(255,255,255,.34); }
-  .stats.dlt .dbar i { position:absolute; top:0; bottom:0; border-radius:3px; }
-  .stats.dlt .st b { font-size:11px; font-weight:800; font-variant-numeric:tabular-nums;
-    text-align:left; flex:none; width:32px; }
-  .stats.dlt .up i { background:#4fe0c8; } .stats.dlt .up b { color:#7ff0dd; }
-  .stats.dlt .dn i { background:#ef8f6c; } .stats.dlt .dn b { color:#ffab8e; }
-  .stats.dlt .eq b { opacity:.55; }
+  /* The change from the equipped board, sitting at the END of the real track rather than
+     replacing it. Written to fit the row the viewer already lays out, which is a FLEX row
+     set by `#viewer #vStats .st` — an id selector, so it outranks anything at class weight
+     and a grid declared here is silently ignored. Fixed width so four rows of numbers line
+     up down the right edge whatever their sign. */
+  .stats.dlt .st b.d { flex:none; width:26px; text-align:right; font-size:12px;
+    font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:-.2px; }
+  .stats.dlt b.d.up { color:#7ff0dd; }
+  .stats.dlt b.d.dn { color:#ffab8e; }
+  .stats.dlt b.d.eq { color:#fff; opacity:.34; }
   #vBuy { min-width:132px; }
   #vBuy .pk { width:14px; height:14px; margin-left:5px; }
   .card .stats { display:flex; flex-direction:column; gap:4px; margin:3px 0 1px; }
@@ -8408,9 +8403,36 @@ function buildBeach(){
 // card told you what you would get when you opened it. Same standing-up, same opening
 // angle, same beach, same framing maths; only the aspect and the padding differ, because a
 // card is landscape and has no chrome to work around.
-function frameObj(obj){
+// ---- the box of what is DRAWN, which is not what setFromObject gives you ----
+// Box3.setFromObject walks every child and does not care whether any of them is switched on.
+// `pug` carries every imported rider in the game as a permanently-parented, permanently-hidden
+// child — so the box taken off him is the union of all eleven animals, and the camera framing
+// a single one of them was backing off far enough to fit a crowd nobody can see. That is why
+// every surfer sat small in the middle of its card while the boards filled theirs, and why
+// they were inconsistent with each other: the union grows as the files land.
+//
+// Same trap that had the whole roster at different heights, in a different function. Worth
+// remembering that this is what setFromObject does, because it will be the answer next time
+// something is mysteriously framed too far away.
+const _vbA=new THREE.Box3(), _vbB=new THREE.Box3();
+function visBox(obj){
   obj.updateMatrixWorld(true);
-  const box=new THREE.Box3().setFromObject(obj), sz=box.getSize(new THREE.Vector3());
+  _vbA.makeEmpty();
+  const walk=o=>{
+    if(!o.visible)return;
+    if(o.isMesh&&o.geometry){
+      if(!o.geometry.boundingBox)o.geometry.computeBoundingBox();
+      _vbB.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+      _vbA.union(_vbB);
+    }
+    for(const c of o.children)walk(c);
+  };
+  walk(obj);
+  // nothing visible at all is not a framing question — fall back rather than divide by zero
+  return _vbA.isEmpty()?new THREE.Box3().setFromObject(obj):_vbA.clone();
+}
+function frameObj(obj){
+  const box=visBox(obj), sz=box.getSize(new THREE.Vector3());
   // about the axis it turns on, not about the middle of the box — see the note in openViewer
   let hr=0;
   for(const bx of [box.min.x,box.max.x])for(const bz of [box.min.z,box.max.z])
@@ -8551,7 +8573,33 @@ function snapshot(obj,kind){
   // now that a log is ten and a half feet and a fish five, the height binds on most of the
   // rack and the crop is on most of the rack with it.
   const LIFT=0.07;                       // how far above the middle the board sits
-  const d=Math.max(f.hy/(t*(0.86-LIFT)), f.hr/(aspect*t*0.84));
+  // ---- and a SURFER comes in closer than a board does ----
+  // One framing served both and it suited neither. A board is tall and narrow, so its height
+  // binds and it fills the tile; an animal is about as wide as it is tall, so the WIDTH term
+  // binds in a portrait frame and pushes the camera back until he is a small figure in the
+  // middle of a lot of sand. He is the subject — a whisker over the edge costs nothing, and
+  // being able to see his face is the entire point of the tile.
+  // A board is framed to fit whole — its outline is the entire point and a cropped nose is a
+  // different board. A surfer is framed to be SEEN: taller in the tile, and allowed to run
+  // past the sides, because the width that pushes him back is almost always a tail. The cat,
+  // the rat and the squirrel came out visibly smaller than everyone else for exactly that
+  // reason — their tails were being fitted into the frame and their faces were paying for it.
+  const d=kind==='board'
+    ? Math.max(f.hy/(t*(0.86-LIFT)), f.hr/(aspect*t*0.84))
+    : Math.max(f.hy/(t*(0.92-LIFT)), f.hr/(aspect*t*1.16));
+  // ---- and the card is the SUBJECT and the backdrop, and nothing else ----
+  // cardSet is a cyclorama built for exactly this — ground sweeping into sky in the beach's
+  // own colours, no horizon, no props — but it was only ever switched ON, and nothing was
+  // ever switched off. So whenever the title screen's beach happened to be standing, the
+  // photograph got that too: dunes and a palm trunk across the top of every tile, and the
+  // chest and the sign and whoever else was on the sand. Hiding the beach before opening the
+  // shop hid the symptom. Everything that is not the backdrop, the lights or the thing being
+  // photographed is switched off HERE, which makes it true whatever else is on screen.
+  const _hid=[];
+  for(const c of prevScene.children){
+    if(c===cardSet||c===obj||c.isLight)continue;
+    if(c.visible){ c.visible=false; _hid.push(c); }
+  }
   cardSet.visible=true;
   cardSet.scale.setScalar(d/9);
   cardSet.position.y=f.bottom+1.2*(d/9);
@@ -8574,6 +8622,7 @@ function snapshot(obj,kind){
   renderer.setClearColor(0x000000,1);
   renderer.autoClear=oldAC;
   cardSet.visible=false;
+  for(const c of _hid)c.visible=true;   // and whatever was standing goes back up
   if(kind!=='board')riderPortrait(false);
   else boardSheen(obj,false);            // and it goes back to being wet for the wave
   prevScene.remove(obj);
@@ -8669,23 +8718,27 @@ let CHAR_ORDER=null;
 let VIS_CHARS=null;
 function visibleChars(){ if(!VIS_CHARS)VIS_CHARS=CHARS.filter(c=>!c.hidden); return VIS_CHARS; }
 function charOrder(){ if(!CHAR_ORDER)CHAR_ORDER=visibleChars().slice().sort((a,b)=>a.price-b.price); return CHAR_ORDER; }
-// ---- AGAINST WHAT YOU ARE RIDING, which is the only question anyone asks ----
-// Ten segments filled five cannot answer "is this better than mine", because nothing on the
-// screen says what mine is. A player who has only ever ridden the starter board has no
-// reference for any of it, which is exactly why a tester with several sessions in still did
-// not know boards differed at all. Centred on zero: right of the line is a gain, left is
-// what it costs. Driftwood against Astro Original reads as +3 speed for -2 turn and -3 air,
-// in about a second, and the stat system finally teaches itself.
+// ---- the real bars, WITH the change alongside them ----
+// The first version replaced the whole track with a delta centred on zero, and that threw
+// away the thing the bars were good at: ten segments filled to a level is a fact about the
+// board that stands on its own, readable without knowing anything else. The comparison is
+// the other half, not a substitute for it — so the track stays exactly as it was and the
+// difference from what you are riding sits at the end of the row.
+//
+// Both halves matter for different reasons. The bar says what this board IS. The number says
+// what changes if you take it, which is the only question anyone actually asks and the one
+// nothing on this screen could answer before: a player who has only ever ridden the starter
+// board has no reference for a bar filled five, which is exactly why a tester several
+// sessions in still did not know boards differed at all.
 function statDelta(id){
-  if(id===equipped)return statBars(id);        // nothing to compare it against
-  const v=boardStats(id), c=boardStats(equipped);
+  const v=boardStats(id), c=(id===equipped)?null:boardStats(equipped);
   return '<div class="stats dlt">'+STAT_KEYS.map(k=>{
-    const d=v[k]-c[k], w=(Math.abs(d)/10*50).toFixed(1);
+    const d=c?v[k]-c[k]:0;
     const cls=d>0?'up':(d<0?'dn':'eq');
-    const bar=d>0?'left:50%;width:'+w+'%':(d<0?'right:50%;width:'+w+'%':'width:0');
-    return '<div class="st '+k+' '+cls+'"><span>'+STAT_LABEL[k]+'</span>'+
-      '<div class="dbar"><u></u><i style="'+bar+'"></i></div>'+
-      '<b>'+(d>0?'+'+d:(d<0?d:'—'))+'</b></div>';
+    return '<div class="st '+k+'"><span>'+STAT_LABEL[k]+'</span><div class="seg">'+
+      Array.from({length:10},(_,i)=>'<i'+(i<v[k]?' class="on"':'')+'></i>').join('')+
+      '</div><b class="d '+cls+'">'+
+      (c?(d>0?'+'+d:(d<0?String(d):'·')):'')+'</b></div>';
   }).join('')+'</div>';
 }
 function statBars(id){
@@ -8775,8 +8828,9 @@ function openViewer(kind,id){
   }
   // the box is measured AFTER it is stood up, so the framing is of the upright board and
   // not of the flat one it was lofted as
-  obj.updateMatrixWorld(true);
-  const box=new THREE.Box3().setFromObject(obj);
+  // visBox, not setFromObject: `pug` keeps every imported rider parented and hidden, so the
+  // plain box is the union of the whole cast and the viewer was framing a crowd. See visBox.
+  const box=visBox(obj);
   const sz=box.getSize(new THREE.Vector3());
   // It turns about the world's vertical through its own ORIGIN, so the framing has to be
   // taken about that axis and not about the middle of the box. A posed character does not
