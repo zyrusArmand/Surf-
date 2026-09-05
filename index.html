@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.18.0';
+window.SURF_VERSION='6.18.1';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -14131,7 +14131,20 @@ const RIDER_MODELS=['pug','cat','frog','monkey','rat','ant','angler','alien','pi
 // The rim the imported riders wear — see the note where it is attached. Cool and low: this is
 // a sky bounce picking out an edge, not a second key, and above about 0.7 it stops reading as
 // light on fur and starts reading as a neon outline around a sticker.
-const RIM_COL=new THREE.Color(0x9fd2ff), RIM_K=0.55, RIM_POW=2.6;
+// ---- AND IT ONLY BELONGS ON THE DARK ONES ----
+// Reported as "characters have a weird blueish white light to them", and they did: this rim.
+// It went on to make the near-black half of the roster keep its silhouette against wet sand,
+// and it worked for them — but it was added at one flat strength to EVERY imported rider, and
+// the pug is a pale fawn animal. Half a unit of cool blue laid over fur that is already close
+// to white does not pick out an edge, it just turns the edge blue, and on the character most
+// people see first.
+// So the rim is scaled by how dark the surface under it already is. A near-white pug keeps
+// almost none of it; the angler and the cat, which are the reason it exists, keep all of it.
+// One multiply, and it is the difference between a light that helps and a light that tints.
+// The colour warms a little at the same time. A sky bounce IS cool, but 0x9fd2ff is a cold
+// electric blue next to a sunset, and the low sun on this beach throws warm — halfway between
+// the two reads as light rather than as a colour.
+const RIM_COL=new THREE.Color(0xbcd8f0), RIM_K=0.50, RIM_POW=2.6;
 function riderRimShader(sh){
   sh.uniforms.uRimC={value:RIM_COL};
   sh.uniforms.uRimK={value:RIM_K};
@@ -14143,9 +14156,14 @@ function riderRimShader(sh){
     // rather than being fed back through the BRDF. `normal` and `vViewPosition` are both in
     // scope here — vViewPosition points from the fragment TOWARD the camera, so the dot is 1
     // face-on and 0 at the silhouette, and one minus it is the edge.
+    // The darkness term is read off the pixel the lighting just produced, so it follows the
+    // shading and not the texture: the shadowed side of a pale animal still gets its edge back,
+    // which is exactly where a pale animal actually needs one.
     .replace('#include <dithering_fragment>',
       'float _rf=1.0-clamp(dot(normalize(normal),normalize(vViewPosition)),0.0,1.0);\n'+
-      'gl_FragColor.rgb+=uRimC*(uRimK*pow(_rf,uRimP));\n'+
+      'float _rl=dot(gl_FragColor.rgb,vec3(0.2126,0.7152,0.0722));\n'+
+      'float _rd=clamp(1.0-_rl,0.0,1.0);\n'+
+      'gl_FragColor.rgb+=uRimC*(uRimK*pow(_rf,uRimP)*_rd*_rd);\n'+
       '#include <dithering_fragment>');
 }
 const RIDER_YAW=-0.42;   // measured: takes the shared 69-degree stance to a square 93
