@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.24.0';
+window.SURF_VERSION='6.25.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -1773,6 +1773,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     <button class="go alt sm st-md" data-md="rotx">Tilt</button>
     <button class="go alt sm st-md" data-md="roty">Turn</button>
     <button class="go alt sm st-md" data-md="rotz">Roll</button>
+    <button class="go alt sm st-md" data-md="size">Size</button>
     <button class="go sun sm" id="stageCam">Camera</button>
     <button class="go alt sm" id="stageCopy">Copy</button>
     <button class="go calm sm" id="stageOff">Done</button>
@@ -10384,6 +10385,9 @@ function stageCamApply(dx,dy){
   else if(stageMode==='roty'){ stCamYaw-=dx*0.004; }
   else if(stageMode==='rotx'){ stCamPitch=Math.max(-1.45,Math.min(1.45,stCamPitch-dy*0.004)); }
   else if(stageMode==='rotz'){ stCamPos.addScaledVector(_stF,-dy*K); }   // dolly
+  // A camera has no size. Saying so beats silently doing nothing, which is indistinguishable
+  // from the drag not working — and it points at the control that does the nearest thing.
+  else if(stageMode==='size'){ stageSay('Size is for props — walk the camera in with Roll'); return; }
   else {
     // PAN, and this is the one the whole rewrite is for: both the camera and what it is looking
     // at move together, so the focus goes where you put it instead of staying on the palm.
@@ -10396,6 +10400,31 @@ function stageApply(dx,dy){
   if(!stagePick)return;
   const o=stagePick.o;
   if(o.userData)o.userData.stageHeld=true;   // see the note below on the staged constants
+  // ---- SIZE, and the foot stays where it was ----
+  // Scaling about the origin is the obvious implementation and it is wrong for everything on
+  // this screen, because every one of these props is standing on a beach: the origin is
+  // wherever the exporter left it — the middle of the signpost, near the base of the chest —
+  // so growing one either buries it or lifts it off the sand, and the drag turns into a fight
+  // between the size you are choosing and the height you then have to fix. Measured before and
+  // after and the difference put back, the bottom of the object stays put and only the size
+  // changes, which is the thing being asked for.
+  // Multiplied rather than added, so a step is a fixed PERCENTAGE: the same drag is the same
+  // proportional change on a two-foot chest and a twenty-foot palm, and it can never cross
+  // zero and turn the object inside out. Clamped either side because a prop dragged to a
+  // millionth of its size cannot be picked up again to undo it.
+  if(stageMode==='size'){
+    o.updateMatrixWorld(true);
+    const y0=new THREE.Box3().setFromObject(o).min.y;
+    const k=Math.min(24,Math.max(1/24,(o.scale.x||1)*Math.exp(dx*0.0055)))/Math.max(1e-9,o.scale.x||1);
+    o.scale.multiplyScalar(k);
+    o.updateMatrixWorld(true);
+    const y1=new THREE.Box3().setFromObject(o).min.y;
+    o.position.y+=(y0-y1)/((o.parent&&o.parent.getWorldScale(_stV).y)||1);
+    // a size chosen by hand is a height chosen by hand: whatever re-seats this prop every
+    // layout must not put it back, or the drag ends the moment you let go
+    if(o.userData)o.userData.stageY=true;
+    stageSay(); return;
+  }
   if(stageMode.startsWith('rot')){ o.rotation[stageMode.slice(3)]+=dx*0.006; stageSay(); return; }
   const k=stagePx(o);
   const fwd=new THREE.Vector3(); menuCam.getWorldDirection(fwd);
@@ -10448,8 +10477,14 @@ function stageText(){
   o.updateMatrixWorld(true);
   const w=new THREE.Vector3().setFromMatrixPosition(o.matrixWorld);
   const f=v=>v.toFixed(3);
+  // the scale AND what it comes to in feet. The scale number on its own is unusable here: every
+  // one of these hangs off a group that is scaled, and several were resized once on the way in,
+  // so the same 1.4 means a different object on each of them. The height is the number that can
+  // be typed back into a constant, because that is the frame the constants are written in.
+  const sz=new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3());
   return stagePick.n+'  local '+f(p.x)+', '+f(p.y)+', '+f(p.z)+
          '   turn '+D(r.x)+'\u00b0, '+D(r.y)+'\u00b0, '+D(r.z)+'\u00b0'+
+         '   scale '+f(o.scale.x)+'  ('+sz.y.toFixed(2)+'ft tall, '+sz.x.toFixed(2)+' across)'+
          '   world '+w.x.toFixed(2)+', '+w.y.toFixed(2)+', '+w.z.toFixed(2);
 }
 function stageSay(msg){
