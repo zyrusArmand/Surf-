@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.20.3';
+window.SURF_VERSION='6.21.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -10339,9 +10339,14 @@ function stageTargets(){
   add('chest', typeof beachChest!=='undefined'?beachChest:null);
   add('board', (typeof menuBeach!=='undefined'&&menuBeach)?menuBeach.board:null);
   add('rider', typeof pug!=='undefined'?pug:null);
+  // The menu's own signpost. It is aimed from the lens every frame rather than laid out on the
+  // beach, so its constants — the depth, where its middle sits in frame, how much of the height
+  // it fills, how far it leans — are the ones hardest to guess at a desk and easiest to find by
+  // dragging. aimSignpost stands down while it is held; see the mark there.
+  add('signpost', typeof signPost!=='undefined'?signPost:null);
   return out;
 }
-// Nearest of the five under the finger, rather than the nearest thing in the scene: the sand
+// Nearest of the six under the finger, rather than the nearest thing in the scene: the sand
 // and the sea are in front of half of them and are not things you are laying out.
 function stageHit(cx,cy){
   if(!menuCam)return null;
@@ -10537,7 +10542,7 @@ overlay.addEventListener('pointerdown',e=>{
   stageDrag={x:e.clientX,y:e.clientY,x0:e.clientX,y0:e.clientY,
              arm:!stageCamOn&&!!t&&(!stagePick||t.o!==stagePick.o)};
   if(stagePick&&t&&t.o===stagePick.o)return;          // already held: drag it straight away
-  if(!t){ stageSay('nothing there — hold the palm, sign, chest, board or rider'); return; }
+  if(!t){ stageSay('nothing there — hold the palm, sign, signpost, chest, board or rider'); return; }
   // counted down out loud, because a five-second hold with nothing on screen saying it is
   // counting is indistinguishable from a button that does not work
   let left=Math.round(STAGE_HOLD/1000);
@@ -16858,7 +16863,7 @@ const MB_POST_PAD=0;        // how much frame is left outside the timber
 // sit where the trick bar's buttons sit, so a thumb no longer finds the menu and the ride in
 // the same place. That trade was made deliberately and on request.
 const _spV=new THREE.Vector3(), _spQ=new THREE.Quaternion(), _spM=new THREE.Matrix4();
-const _spA=new THREE.Vector3(), _spB=new THREE.Vector3();
+const _spA=new THREE.Vector3(), _spB=new THREE.Vector3(), _spC=new THREE.Vector3();
 const _bpP=new THREE.Quaternion(), _bpX=new THREE.Vector3(1,0,0);
 function placeSignpost(){
   if(!crossModel||typeof menuProps==='undefined'||!menuProps||signPost)return;
@@ -16901,6 +16906,13 @@ function placeSignpost(){
 // through a turned phone without a resize handler.
 function aimSignpost(){
   if(!signPost||typeof menuCam==='undefined'||!menuCam)return;
+  // ---- a hand on the stage beats the aim ----
+  // Everything below is written EVERY frame — where it stands, which way it faces and how big
+  // it is — so without this the Stage could move the sign and the next frame would put it
+  // straight back, which from the outside is a Stage that does nothing to the one prop you most
+  // want to nudge. Same mark the rider, the board and the palm already carry. The labels do not
+  // need telling: they are solved from matrixWorld, so they follow wherever the drag leaves it.
+  if(signPost.userData.stageHeld){ signPost.updateMatrixWorld(true); return; }
   menuCam.updateMatrixWorld(true);
   signPost.parent.updateWorldMatrix(true,false);
   _spM.copy(signPost.parent.matrixWorld).invert();
@@ -16959,8 +16971,18 @@ function layoutSignButtons(){
         .applyMatrix4(signPost.matrixWorld).project(menuCam);
     _spB.set((A.mx+A.dx*A.hl)*h, A.y*h, (A.mz+A.dz*A.hl)*h)
         .applyMatrix4(signPost.matrixWorld).project(menuCam);
-    const a=px(_spA), b=px(_spB);
-    arm.push({a, b, behind:(_spA.z>1||_spB.z>1),
+    // ---- the MIDDLE is projected, it is not the average of the two ends ----
+    // Halfway between the two projected ends is not where the middle of the plank lands, and on
+    // this sign the gap is visible: a board aimed at the lens has its near end spread wide and
+    // its far end squeezed, so the average of the pair sits well outboard of the middle — which
+    // is exactly the drift that had every word sitting off the end of its plank toward the
+    // camera. Perspective does not survive being averaged, so the middle is carried through the
+    // matrix and projected in its own right; the ends are still wanted, but only for the two
+    // things that ARE differences and so are safe to take from them: the bearing and the length.
+    _spC.set(A.mx*h, A.y*h, A.mz*h)
+        .applyMatrix4(signPost.matrixWorld).project(menuCam);
+    const a=px(_spA), b=px(_spB), c=px(_spC);
+    arm.push({a, b, c, behind:(_spA.z>1||_spB.z>1||_spC.z>1),
               len:Math.hypot(b[0]-a[0], b[1]-a[1])});
   }
   // the median arm is the house size; each word is pulled toward it (see SP_TYPE)
@@ -16969,7 +16991,7 @@ function layoutSignButtons(){
     const el=document.getElementById(SP_IDS[i]);
     if(!el)continue;
     const o=arm[i];
-    const cx=(o.a[0]+o.b[0])*0.5, cy=(o.a[1]+o.b[1])*0.5;
+    const cx=o.c[0], cy=o.c[1];
     if(o.behind||cx<-70||cx>W+70||cy<-40||cy>H+40){ el.style.visibility='hidden'; continue; }
     // the bearing of THIS board as it lands on the screen, so the writing lies along it. Kept
     // upright: a plank whose far end projects to the left would otherwise set its word upside
@@ -24502,14 +24524,23 @@ if(location.hash.includes('debug')){
           const _h=signPost.userData.h;
           const _A=SP_ARMS[i];
           const a=proj(new THREE.Vector3(_A.mx*_h,_A.y*_h,_A.mz*_h).applyMatrix4(signPost.matrixWorld));
-          if(!el)return {id,found:false};
+          // the two tips as well, because the arm table is only worth anything if these land on
+          // the ends of the painted plank — drawing them is the one check that tells you whether
+          // a label is misplaced or whether the arm it is placed from was measured wrong
+          const e0=proj(new THREE.Vector3((_A.mx-_A.dx*_A.hl)*_h,_A.y*_h,(_A.mz-_A.dz*_A.hl)*_h).applyMatrix4(signPost.matrixWorld));
+          const e1=proj(new THREE.Vector3((_A.mx+_A.dx*_A.hl)*_h,_A.y*_h,(_A.mz+_A.dz*_A.hl)*_h).applyMatrix4(signPost.matrixWorld));
+          if(!el)return {id,found:false,arm:[a[0],a[1]],ends:[[e0[0],e0[1]],[e1[0],e1[1]]]};
           const r=el.getBoundingClientRect();
-          return {id, arm:[a[0],a[1]],
+          return {id, arm:[a[0],a[1]], ends:[[e0[0],e0[1]],[e1[0],e1[1]]],
                   btn:[Math.round(r.left+r.width/2), Math.round(r.top+r.height/2)],
                   off:[Math.round(r.left+r.width/2-a[0]), Math.round(r.top+r.height/2-a[1])],
                   vis:getComputedStyle(el).visibility};
         })};
     },
+    // what the Stage can actually pick up. A prop that never made it into this list is a prop
+    // whose five-second hold does nothing, and from the outside that is indistinguishable from
+    // the tool being broken — so the list is worth being able to read without a touchscreen.
+    stageList(){ return stageTargets().map(t=>t.n); },
     signMat(){
       const grab=root=>{ const out=[]; if(root)root.traverse(o=>{ if(!o.isMesh||!o.material)return;
         for(const m of (Array.isArray(o.material)?o.material:[o.material]))
