@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.25.0';
+window.SURF_VERSION='6.26.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -727,7 +727,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
      picture; ramped in from nothing over the top half of the band it reads as focus falling
      off, which is what it is meant to be. */
   #nearBlur {
-    position:absolute; left:0; right:0; top:76%; bottom:0; pointer-events:none;
+    position:absolute; left:0; right:0; top:82%; bottom:0; pointer-events:none;
     backdrop-filter:blur(5px); -webkit-backdrop-filter:blur(5px);
     -webkit-mask-image:linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,.55) 50%,
                                        rgba(0,0,0,1) 78%, rgba(0,0,0,1) 100%);
@@ -24651,6 +24651,40 @@ if(location.hash.includes('debug')){
     // how far each thing on the beach is from the lens. Composition on this screen is mostly a
     // question of what is in front of what, and that is not answerable by eye from a render:
     // two props a foot apart in depth look identical until one of them occludes the other.
+    // ---- the composition, as numbers ----
+    // Where every prop actually lands on the screen, as a share of the frame. Laying out a
+    // title screen by looking at it is how the last few passes went wrong: "the bottom third is
+    // dead" and "the sign is too small" are both claims about proportions, and proportions read
+    // off a phone screenshot by eye are worth about as much as a guess. Each prop's world box is
+    // projected by all EIGHT corners, not two: two corners of a world-axis box describe the
+    // outline of nothing once the thing is turned, which is the mistake the older box field here
+    // makes and the reason ext exists beside it.
+    mbFrame(){ if(!menuCam)return null;
+      menuCam.updateMatrixWorld(true);
+      const W=innerWidth,H=innerHeight,out={};
+      const rect=o=>{
+        o.updateMatrixWorld(true);
+        const b=visBox(o); if(b.isEmpty())return null;
+        let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9,any=false;
+        for(let i=0;i<8;i++){
+          const v=new THREE.Vector3(i&1?b.max.x:b.min.x, i&2?b.max.y:b.min.y, i&4?b.max.z:b.min.z)
+                    .project(menuCam);
+          if(v.z>1)continue; any=true;
+          const px=(v.x*0.5+0.5)*W, py=(-v.y*0.5+0.5)*H;
+          if(px<x0)x0=px; if(px>x1)x1=px; if(py<y0)y0=py; if(py>y1)y1=py;
+        }
+        if(!any)return null;
+        const f=v=>+v.toFixed(3);
+        return {x:[Math.round(x0),Math.round(x1)], y:[Math.round(y0),Math.round(y1)],
+                fx:[f(x0/W),f(x1/W)], fy:[f(y0/H),f(y1/H)],
+                offL:x0<0, offR:x1>W, offB:y1>H};
+      };
+      for(const t of stageTargets())out[t.n]=rect(t.o);
+      if(typeof beachSign!=='undefined'&&beachSign)out.title=rect(beachSign);
+      let low=0; for(const k in out)if(out[k]&&out[k].y[1]>low)low=out[k].y[1];
+      return {screen:[W,H], props:out,
+              lowestProp:low, sandBelow:+((H-low)/H).toFixed(3)};
+    },
     mbDist(){ if(!menuCam)return null;
       const out={}; const P=new THREE.Vector3();
       for(const t of stageTargets()){
@@ -30211,7 +30245,18 @@ let MB_CAM_ON=1;
 // is the same bearing as +4.7, so this is nine degrees further round rather than the three
 // hundred and sixty-nine it looks like written down. Pitch is unchanged at 11.2.
 const MB_CAM=new THREE.Vector3(-11.68,4.75,-40.41);
-let MB_CAM_YAW=0.237365, MB_CAM_PITCH=0.195477;
+// ---- and it looks a little further UP than it was staged ----
+// Measured rather than eyeballed: with the lens where it was staged, everything on the beach
+// landed between 0.29 and 0.75 of the frame's height, so a quarter of a tall phone was empty
+// foreground sand under the props and the palm's crown was cropped off the top. Tilting the
+// lens up slides the whole picture DOWN the frame, which spends that dead sand on the top of
+// the tree — the one part of the shot that was being cut off and had something in it. Six
+// degrees, not sixteen: the sand under the props is what grounds them, and a set with its feet
+// on the bottom edge reads as falling out of the picture.
+// The near-sand blur moves down with it (see #nearBlur). It is a screen-space band standing in
+// for depth of field, so it does not know the picture moved, and left where it was it would
+// have taken the rider's feet with it.
+let MB_CAM_YAW=0.237365, MB_CAM_PITCH=0.2955;
 // Down from 21. At that distance the group read 0.36 to 0.74 across and 0.46 to 0.69 down —
 // correctly placed and much too far away, a third of the frame with sand and sky round it,
 // where the reference fills most of the picture with it. The camera is staged and cannot come
