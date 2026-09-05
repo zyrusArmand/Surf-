@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.17.2';
+window.SURF_VERSION='6.17.3';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -16636,6 +16636,30 @@ function placeBeachPosts(){
     const post=new THREE.Group();
     post.add(stand);
     post.userData.stand=stand;
+    // ---- AND IT STANDS OUT OF THE GROUND, not in it ----
+    // The plank is cut to the full height of its button column and it always was — the
+    // projected box covers all three buttons. What you SAW was a stub behind the top one,
+    // because the beach runs toward the lens and the sand under the lower two is nearer than
+    // the posts are: the ground was drawing over five sixths of the timber. Moving the posts
+    // forward does not fix it (4.2 feet was tried and measured: identical box, still buried),
+    // because the sand at the bottom of the frame is nearer than that again.
+    // So the depth test comes off these two objects and they are drawn last. That is not a
+    // cheat against the rest of the scene — the posts stand 7.4 feet out and the rider, the
+    // board and the chest are all ten or more, so drawing over them is the order they are
+    // already in. The one thing it overrides is the ground, which is the thing that was
+    // burying them. Depth writes go too, so nothing drawn afterwards is confused by planks
+    // that are deliberately lying about where they are.
+    // ON A COPY OF THE MATERIAL, and this matters: Object3D.clone shares materials by
+    // reference, so these planks arrive holding the very same material as the Surf sign
+    // hanging in the palm. Writing depthTest onto it would have taken the depth test off that
+    // sign as well and stood it in front of the whole beach — a clone of the model is not a
+    // clone of what it is painted with.
+    post.renderOrder=3;
+    post.traverse(o=>{ if(!o.isMesh||!o.material)return;
+      o.material=Array.isArray(o.material)?o.material.map(mt=>mt&&mt.clone()):o.material.clone();
+      for(const mt of (Array.isArray(o.material)?o.material:[o.material])){
+        if(!mt)continue; mt.depthTest=false; mt.depthWrite=false; mt.needsUpdate=true; }
+    });
     beachPosts.add(post);
   }
   menuProps.add(beachPosts);
@@ -24083,6 +24107,16 @@ if(location.hash.includes('debug')){
     // a claim about pixels: a post can be perfectly placed in the world and still sit an inch
     // to the left of the discs it is carrying. So it is reported as the post's screen box next
     // to the buttons' own rect, and "mounted" is cover, not a look at a screenshot.
+    // The posts have their depth test taken off so the sand cannot bury them, and they are cut
+    // from the SAME model as the sign hanging in the palm — which shares its material with them
+    // unless it is explicitly cloned. This reports both, so "the sign still tests depth" is a
+    // reading rather than a hope: posts false, sign true is the shape of a correct answer.
+    signMat(){
+      const grab=root=>{ const out=[]; if(root)root.traverse(o=>{ if(!o.isMesh||!o.material)return;
+        for(const m of (Array.isArray(o.material)?o.material:[o.material]))
+          if(m)out.push({dt:m.depthTest, dw:m.depthWrite, id:m.id}); }); return out; };
+      return {posts:grab(beachPosts), sign:grab(typeof beachSign!=='undefined'?beachSign:null)};
+    },
     postScreen(){ if(!beachPosts||!menuCam)return null;
       const px=v=>[Math.round((v.x*0.5+0.5)*innerWidth),Math.round((-v.y*0.5+0.5)*innerHeight)];
       const ids=[['dBoard','dTricks'],['dQuests','dStats']];
