@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.19.1';
+window.SURF_VERSION='6.19.2';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -277,11 +277,22 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
      own — that floor was most of the screen, which is exactly the complaint. Taking them to 38
      lets the post come down by a third and still leaves each label sitting clear on its own
      arm. The glyph grows as a share of the smaller box so it does not shrink with it. */
+  /* ---- LAID ALONG THE PLANK, because there is a plank ----
+     Stacked icon-over-name in a 38px square, these were a small square label floating in the
+     middle of a long arrow with all of its length unused — and a square of text on a signpost
+     reads as a button someone parked there, not as a sign. A signpost's writing runs the
+     LENGTH of the arm. So the glyph and the name sit side by side in a row, and the box is
+     sized in JS from the arm's own projected width, which means it fits its plank at whatever
+     size the post is drawn.
+     It also buys most of the shrink: a row is about half the height of a stack, and the six
+     arms' spacing is what sets the floor under how small the post can be. */
   #homeDial .hbtn:not(.hb-play) {
-    width:38px; height:38px; font-size:8px; letter-spacing:.35px; gap:0;
+    flex-direction:row; align-items:center; justify-content:center;
+    width:auto; height:auto; padding:2px 4px; gap:5px;
+    font-size:11px; letter-spacing:.2px; white-space:nowrap;
     background:none;
     border:0;
-    border-radius:12px;             /* nothing circular is left to clip, and a disc is the thing being removed */
+    border-radius:4px;              /* nothing circular is left to clip, and a disc is the thing being removed */
     /* ---- AND THE FROSTING GOES WITH IT ----
        These six carry the .glass class, which is a 13px backdrop blur. Take away the body, the
        ring and the shadow and leave that, and what remains is a circle of blurred timber with a
@@ -298,17 +309,19 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
        1px  1.2px 0 rgba(255,232,186,.30),      /* and the lit lip below it, catching the sun */
        0 0 7px rgba(18,9,1,.55);                /* the softness a cut edge has at this size */
   }
-  #homeDial .hbtn:not(.hb-play)::after {
-    content:''; position:absolute; inset:6px; border-radius:50%; pointer-events:none;
-    background:radial-gradient(ellipse at 50% 44%,
-                 rgba(26,13,3,.34), rgba(26,13,3,.15) 52%, rgba(26,13,3,0) 74%);
-    box-shadow:none;
-  }
+  /* ---- AND THE HOLLOW IS GONE, because it was the circle ----
+     There was a soft radial darkening behind each mark here — a routed pocket for the letters
+     to sit in, added while these were cut into brown driftwood, where it did its job. On a
+     painted arm it is a grubby round smudge across the paint, and it is precisely what came
+     back as "the buttons still read as shadowy circles". It was the last round thing left.
+     Nothing replaces it: on a red or a cyan plank the gold has all the contrast it needs, and
+     the carve is carried by the two edges on the letters themselves. */
+  #homeDial .hbtn:not(.hb-play)::after,
   #homeDial .hbtn:not(.hb-play)::before { display:none; }
   /* the glyph is cut the same way the lettering is, and at this size a two-pixel emboss is the
      whole of what makes it read as carved rather than printed */
   #homeDial .hbtn:not(.hb-play) svg {
-    width:46%; height:46%;      /* a bigger share of a smaller button, so the glyph holds */
+    width:1.45em; height:1.45em; flex:0 0 auto;   /* tied to the type, so both scale together */
     stroke:#edc880; stroke-width:2.1;
     filter:drop-shadow(1px 1.2px 0 rgba(255,232,186,.28))
            drop-shadow(-1px -1.2px 1px rgba(24,11,2,.95));
@@ -16562,7 +16575,16 @@ const SP_FACE=0.02;         // and a touch in front of the post, onto the face o
 const SP_IDS=['dBoard','dShop','dTricks','dQuests','dSettings','dStats'];
 // how it stands in the shot: depth down the view axis, where its middle sits on the screen,
 // and how much of the frame's height it fills
-const SP_D=6.2, SP_NX=-0.62, SP_NY=-0.36, SP_FILL=0.46;
+const SP_D=6.2, SP_NX=-0.50, SP_NY=-0.40, SP_FILL=0.30;
+// The arm's own width and where along it the writing sits, both as fractions of the model's
+// height (see SP_ARM_F for why fractions). The planks run out to about 0.54 of the height
+// across; the label takes a little over half of that, laid on the body of the arrow and
+// pushed off the post toward the pointed end, which is where a signpost is written.
+// SP_ARM_X is 0: the arms cross the post rather than hanging off one side of it, so the
+// middle of the plank IS the middle of the post. Pushing the writing toward the pointed
+// end sounded right and put it over the end of the timber and onto the sky, because the
+// label is sized to the whole arm and the arm is already centred.
+const SP_ARM_W=0.54, SP_LABEL=0.62, SP_ARM_X=0.0;
 // ---- AND IT KEEPS ITS COLOURS ----
 // It arrived with seven painted arms — red, purple, cyan, yellow, green, magenta, orange — and
 // the first version took them out, on the reasoning that a paint chart sits badly next to a
@@ -16794,6 +16816,7 @@ const MB_POST_PAD=0;        // how much frame is left outside the timber
 // sit where the trick bar's buttons sit, so a thumb no longer finds the menu and the ride in
 // the same place. That trade was made deliberately and on request.
 const _spV=new THREE.Vector3(), _spQ=new THREE.Quaternion(), _spM=new THREE.Matrix4();
+const _spA=new THREE.Vector3(), _spB=new THREE.Vector3();
 function placeSignpost(){
   if(!crossModel||typeof menuProps==='undefined'||!menuProps||signPost)return;
   const inner=cloneModel(crossModel);
@@ -16861,19 +16884,32 @@ function aimSignpost(){
 function layoutSignButtons(){
   if(!signPost||!menuCam)return;
   const W=Math.max(1,innerWidth), H=Math.max(1,innerHeight);
+  const h=signPost.userData.h;
+  // ---- THE TYPE IS SIZED BY THE PLANK, not by a number in the stylesheet ----
+  // How many pixels an arm is across right now, measured rather than assumed: two points a
+  // known distance apart on the post, projected, and the difference taken. That makes the
+  // label a fraction of its own plank instead of a fixed pixel size that only suits one
+  // setting of SP_FILL — move the post nearer or further and the writing follows it.
+  _spA.set(0,0,0).applyMatrix4(signPost.matrixWorld).project(menuCam);
+  _spB.set(SP_ARM_W*h,0,0).applyMatrix4(signPost.matrixWorld).project(menuCam);
+  const armPx=Math.abs(_spB.x-_spA.x)*0.5*W;
+  // the flat body of the arrow, inside its point and its fixings
+  const boxPx=Math.max(34, armPx*SP_LABEL);
+  const fontPx=Math.max(7, Math.min(15, boxPx*0.155));
   for(let i=0;i<SP_IDS.length;i++){
     const el=document.getElementById(SP_IDS[i]);
     if(!el)continue;
-    const h=signPost.userData.h;
-    _spV.set(0, SP_ARM_F[i]*h, SP_FACE*h).applyMatrix4(signPost.matrixWorld);
+    _spV.set(SP_ARM_X*h, SP_ARM_F[i]*h, SP_FACE*h).applyMatrix4(signPost.matrixWorld);
     const d=_spV.clone().project(menuCam);
     const behind=(d.z>1);
     const x=(d.x*0.5+0.5)*W, y=(-d.y*0.5+0.5)*H;
-    if(behind||x<-40||x>W+40||y<-40||y>H+40){ el.style.visibility='hidden'; continue; }
+    if(behind||x<-60||x>W+60||y<-40||y>H+40){ el.style.visibility='hidden'; continue; }
     el.style.visibility='';
     el.style.left=x.toFixed(1)+'px';
     el.style.top=y.toFixed(1)+'px';
     el.style.right='auto'; el.style.bottom='auto';
+    el.style.width=boxPx.toFixed(0)+'px';
+    el.style.fontSize=fontPx.toFixed(1)+'px';
     el.style.transform='translate(-50%,-50%)';
   }
 }
