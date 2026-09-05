@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.23.0';
+window.SURF_VERSION='6.24.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -16630,16 +16630,19 @@ const SP_IDS=['dShop','dBoard','dQuests','dPlay','dTricks','dStats','dSettings']
 const SP_ARM_HW=0.045;
 // how it stands in the shot: depth down the view axis, where its middle sits on the screen,
 // and how much of the frame's height it fills
-// ---- and it stands more nearly FACE ON than it did ----
-// The reference this is drawn from is a signpost seen square: boards across the frame, each one
-// showing its whole face, the word reading straight off it. Ours was pitched hard enough that
-// the arms fanned toward and away from the lens, and a board angled at the camera shows you a
-// narrow slice of itself — which is what made the words look badly placed even when they were
-// on the arm's true middle, because there was barely any board left to be in the middle of. The
-// lean stays, because a post somebody drove into the sand is the whole reason it is not a
-// billboard, but it is now a lean rather than a tilt: enough to sit in the beach, not enough to
-// turn seven boards edge-on. Bigger with it, since the words are the content now.
-const SP_D=6.2, SP_NX=-0.50, SP_NY=-0.40, SP_FILL=0.345;
+// ---- IT STANDS ON THE BEACH, it is not hung off the lens ----
+// This used to be a depth down the view axis and a point on the screen for its middle to sit
+// on: the post was placed six feet in front of the camera every frame, wearing the camera's own
+// orientation. That is a heads-up display, not a signpost. Everything genuinely on the beach
+// holds still while the shot breathes; a thing pinned to the lens slides against all of it, and
+// what that reads as is a separate item floating over the picture rather than an object in it.
+// It has an address on the sand now, in the set's own axes, exactly like the chest: so far to
+// one side of the trunk's axis, so far in front of it, standing upright on the ground that is
+// there. The camera can do what it likes and the post stays where it was driven in.
+let MB_SP_SIDE=3.23;      // feet to the camera's LEFT of the trunk's axis
+let MB_SP_FWD =5.60;      // ...and this far in front of it, out ahead of the chest
+let MB_SP_H   =6.40;      // and this tall, in feet, measured rather than scaled by a number
+let MB_SP_SINK=0.055;     // share of its own height driven under the sand
 // ---- THE WORDS ARE PAINTED ON THE MODEL NOW ----
 // Every one of them — the fill colour, the dark contour, the size, where it sits on its board,
 // which way it runs — was HTML text laid over the sign and solved every frame from the arms'
@@ -16655,7 +16658,6 @@ const SP_D=6.2, SP_NX=-0.50, SP_NY=-0.40, SP_FILL=0.345;
 // little costs nothing here because the boards are stacked in a fixed order — whereas a target
 // that stops at the paint means a tap just short of a board does nothing at all.
 const SP_HIT_L=0.94, SP_HIT_H=1.45;
-const SP_PITCH=0.11;        // how far the head leans away from the lens, radians
 // ---- AND IT KEEPS ITS COLOURS ----
 // It arrived with seven painted arms — red, purple, cyan, yellow, green, magenta, orange — and
 // the first version took them out, on the reasoning that a paint chart sits badly next to a
@@ -16888,28 +16890,30 @@ const MB_POST_PAD=0;        // how much frame is left outside the timber
 // the same place. That trade was made deliberately and on request.
 const _spV=new THREE.Vector3(), _spQ=new THREE.Quaternion(), _spM=new THREE.Matrix4();
 const _spA=new THREE.Vector3(), _spB=new THREE.Vector3(), _spC=new THREE.Vector3(), _spD=new THREE.Vector3();
+const _spV2=new THREE.Vector3(), _spP=new THREE.Vector3();
 const _bpP=new THREE.Quaternion(), _bpX=new THREE.Vector3(1,0,0);
 function placeSignpost(){
   if(!menuSignModel||typeof menuProps==='undefined'||!menuProps||signPost)return;
   const inner=cloneModel(menuSignModel);
   inner.traverse(o=>{ if(!o.isMesh||!o.material)return;
     o.material=Array.isArray(o.material)?o.material.map(m2=>m2&&m2.clone()):o.material.clone();
-    o.renderOrder=4;
+    o.renderOrder=0;   // no longer drawn last: it is IN the scene, not over it
     for(const mt of (Array.isArray(o.material)?o.material:[o.material])){
       if(!mt)continue;
-      mt.depthTest=false; mt.depthWrite=false;
       if(mt.roughness!==undefined){ mt.roughness=Math.max(mt.roughness,0.90); mt.metalness=0; }
-      // ---- AND THE SAND DOES NOT BURY ITS LOWER ARMS ----
-      // The same thing that buried the two planks buries this: the beach runs toward the lens,
-      // so the ground under the bottom of the frame is nearer than the post is, and it wins the
-      // depth test. What that looked like was the last two arms disappearing with Settings and
-      // Stats still projected where they should have been — two labels sitting on bare sand
-      // with nothing behind them, which reads as a bug rather than as a signpost.
-      // Depth test off and drawn last. Against the rest of the scene that is the order it is
-      // already in — the post stands about six feet out and the rider, board and chest are ten
-      // or more — so the only thing it overrides is the ground.
+      // ---- AND IT TAKES THE DEPTH BUFFER LIKE EVERYTHING ELSE ON THE BEACH ----
+      // This ran with depthTest and depthWrite off and renderOrder 4, drawn over the whole
+      // scene. That was the right answer to the wrong problem: the post was hung off the LENS
+      // at a fixed six feet, so the sand at the bottom of the frame was genuinely nearer than
+      // it was and genuinely won the depth test, and turning the test off was the only way to
+      // stop the lower arms disappearing.
+      // It stands on the beach now, so the depth buffer says what you want it to say: sand in
+      // front of the post covers the foot, which is what a post dug into a beach looks like,
+      // and everything far away is behind it. Drawn over the whole scene it could not be dug
+      // into anything — it was a sticker on the glass, in front of the sea and the clouds and
+      // the palm alike, which is exactly what "a separate item" means.
       // ON A CLONE of the material: cloneModel shares materials by reference, so writing this
-      // onto the loaded original would take the depth test off anything else ever cut from it.
+      // onto the loaded original would touch anything else ever cut from it.
       mt.envMapIntensity=0.18;
       mt.needsUpdate=true; }
   });
@@ -16937,25 +16941,46 @@ function aimSignpost(){
   // want to nudge. Same mark the rider, the board and the palm already carry. The labels do not
   // need telling: they are solved from matrixWorld, so they follow wherever the drag leaves it.
   if(signPost.userData.stageHeld){ signPost.updateMatrixWorld(true); return; }
+  if(typeof menuProps==='undefined'||!menuProps||typeof mbAxes!=='function')return;
   menuCam.updateMatrixWorld(true);
-  signPost.parent.updateWorldMatrix(true,false);
-  _spM.copy(signPost.parent.matrixWorld).invert();
-  signPost.parent.getWorldQuaternion(_spQ).invert();
+  menuProps.updateWorldMatrix(true,false);
   const pscl=Math.max(1e-6, signPost.parent.getWorldScale(_spV).x);
-  _bpAt(SP_NX, SP_NY, SP_D, _bpA);
-  signPost.position.copy(_bpA).applyMatrix4(_spM);
-  // square to the lens, then leaned a little so it is a post somebody drove in rather than a
-  // billboard hung in front of the camera
-  signPost.quaternion.copy(_spQ).multiply(menuCam.quaternion)
-    .multiply(_bpR.setFromAxisAngle(_bpZ,-0.035))
-    // ---- and it LEANS BACK ----
-    // Square to the lens, a signpost is a flat cut-out. Pitched about the camera's own x, the
-    // foot comes toward you and the head goes away, which is what puts it in the sand in front
-    // of the beach rather than pasted on the front of it. Negative because the post's local +z
-    // points back at the lens, so a positive turn about x would bring the TOP forward.
-    .multiply(_bpP.setFromAxisAngle(_bpX,-SP_PITCH));
-  const fh=2*Math.tan(menuCam.fov*Math.PI/360)*SP_D;
-  signPost.scale.setScalar((SP_FILL*fh)/(signPost.userData.h*pscl));
+  // ---- where on the BEACH it stands, in the set's own axes ----
+  // Same frame the chest and the board are placed in: out to one side of the trunk's axis and
+  // some way in front of it. Written in the set's axes rather than the world's because the set
+  // carries a turn of its own and the shot is angled along the beach, so world +x is not
+  // screen-right and a number that reads sensibly in one frame is nonsense in the other.
+  mbAxes();
+  const wx=_mbP.x-_mbR.x*MB_SP_SIDE-_mbF.x*MB_SP_FWD;
+  const wz=_mbP.z-_mbR.z*MB_SP_SIDE-_mbF.z*MB_SP_FWD;
+  // ---- STANDING UP, and turned to face the lens ----
+  // It used to take the camera's whole orientation and then lean off it, which made it a
+  // billboard: every roll and pitch of the shot went straight into the post, so it swam about
+  // the frame while everything genuinely on the beach held still. A post has one degree of
+  // freedom — which way it faces — so that is all it gets. Upright about Y, turned so its own
+  // +z (the painted face) looks at the camera, and nothing else.
+  _spV2.copy(menuCam.position); menuProps.worldToLocal(_spV2);
+  const lp=_spP.set(wx,0,wz); menuProps.worldToLocal(lp);
+  signPost.rotation.set(0, Math.atan2(_spV2.x-lp.x, _spV2.z-lp.z), 0);
+  // sized in FEET, by measurement, because it hangs off a scaled group and its own scale
+  // number therefore says nothing about how big it ends up
+  signPost.scale.setScalar(MB_SP_H/Math.max(1e-4, signPost.userData.h*pscl));
+  // ---- and then DUG IN ----
+  // Seated on the ground that is actually drawn, over its own footprint and taken at the
+  // highest point of it, for the reason the chest is: the sand is a field of tiles standing
+  // over the terrain curve, so a post set on the curve alone has its foot under a tile edge
+  // that comes through the side of it. Then pushed a share of its own height further down,
+  // which is the difference between a post somebody drove into a beach and a post standing on
+  // one. A share rather than a fixed drop, so it stays buried by the same amount if it is
+  // moved onto higher sand or resized.
+  const sand=(typeof beachSandH==='function'?beachSandH(wz/MB_K):(beachSand0||0))*MB_K;
+  signPost.position.copy(lp);
+  signPost.updateMatrixWorld(true);
+  const bb=visBox(signPost), bs=bb.getSize(_spV);
+  const foot=Math.max(bs.x,bs.z)*0.5;
+  const top=(typeof groundTopOver==='function')?groundTopOver(wx,wz,foot):null;
+  const rest=(top!==null)?top:sand;
+  signPost.position.y+=(rest-bb.min.y-(bs.y*MB_SP_SINK))/(menuProps.scale.y||1);
   signPost.updateMatrixWorld(true);
 }
 // ---- and the buttons follow the arms ----
@@ -24548,6 +24573,24 @@ if(location.hash.includes('debug')){
         worldH:+sz.y.toFixed(2), scale:+signPost.scale.x.toExponential(2), rawH:+signPost.userData.h.toFixed(1),
         dist:+menuCam.position.distanceTo(signPost.getWorldPosition(new THREE.Vector3())).toFixed(2),
         box:[bb.min,bb.max].map(v=>proj(v)),
+        // the real screen extent, over every arm tip and the two ends of the post. The box
+        // above is two CORNERS of a world-axis box projected one at a time, which is not the
+        // outline of anything once the post is turned — it reads narrower than the sign is and
+        // is no use for asking whether the thing fits on the screen.
+        ext:(()=>{
+          const _h=signPost.userData.h; const pts=[];
+          for(const A of SP_ARMS){
+            pts.push(new THREE.Vector3((A.mx-A.dx*A.hl)*_h,A.y*_h,(A.mz-A.dz*A.hl)*_h));
+            pts.push(new THREE.Vector3((A.mx+A.dx*A.hl)*_h,A.y*_h,(A.mz+A.dz*A.hl)*_h));
+          }
+          pts.push(new THREE.Vector3(0,-0.5*_h,0), new THREE.Vector3(0,0.5*_h,0));
+          let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+          for(const v of pts){ const q=proj(v.applyMatrix4(signPost.matrixWorld));
+            if(q[0]<x0)x0=q[0]; if(q[0]>x1)x1=q[0];
+            if(q[1]<y0)y0=q[1]; if(q[1]>y1)y1=q[1]; }
+          return {x0,x1,y0,y1,w:x1-x0,h:y1-y0,cx:Math.round((x0+x1)/2),
+                  screen:[innerWidth,innerHeight]};
+        })(),
         arms:SP_IDS.map((id,i)=>{
           const el=document.getElementById(id);
           const _h=signPost.userData.h;
@@ -24570,6 +24613,16 @@ if(location.hash.includes('debug')){
     // whose five-second hold does nothing, and from the outside that is indistinguishable from
     // the tool being broken — so the list is worth being able to read without a touchscreen.
     stageList(){ return stageTargets().map(t=>t.n); },
+    // how far each thing on the beach is from the lens. Composition on this screen is mostly a
+    // question of what is in front of what, and that is not answerable by eye from a render:
+    // two props a foot apart in depth look identical until one of them occludes the other.
+    mbDist(){ if(!menuCam)return null;
+      const out={}; const P=new THREE.Vector3();
+      for(const t of stageTargets()){
+        t.o.updateMatrixWorld(true);
+        out[t.n]=+menuCam.position.distanceTo(t.o.getWorldPosition(P)).toFixed(2);
+      }
+      return out; },
     signMat(){
       const grab=root=>{ const out=[]; if(root)root.traverse(o=>{ if(!o.isMesh||!o.material)return;
         for(const m of (Array.isArray(o.material)?o.material:[o.material]))
