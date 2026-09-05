@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.20.1';
+window.SURF_VERSION='6.20.3';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -16584,37 +16584,48 @@ loadModel('crossroads.glb',(s3)=>{ crossModel=s3; placeSignpost(); },0);
 // post itself scaled to 0.0002. Held as fractions of the model's own measured height, the
 // anchors survive the quantization, and they would survive the model being re-exported at a
 // different size too.
-// All SEVEN now, not six. Play joins the sign as the middle arm, which is what makes the
-// spare plank stop being spare: seven arms, seven things to press, and the one the screen is
-// for sitting dead centre where the post crosses itself.
-const SP_ARM_F=[0.738, 0.463, 0.237, -0.025, -0.238, -0.472, -0.703].map(v=>v/1.905);
-const SP_FACE=0.02;         // and a touch in front of the post, onto the face of the plank
-// Ids, not classes, and spelled out rather than derived: the class is hb-set and the element
-// is dSettings, and a loop that guessed one from the other would have left Settings sitting at
-// its old CSS position while the other five moved onto the post — a miss that looks like a
-// layout bug rather than a typo.
+// ---- EVERY PLANK MEASURED, not assumed ----
+// These were treated as seven identical boards running along the model's x axis and centred on
+// the post. They are not. They are arrows radiating in different compass directions, so each
+// one has its OWN middle, its own horizontal bearing and its own length — and projecting a
+// bearing of (0.63,-0.78) as though it were (1,0) is why the words sat across the boards
+// instead of along them.
+// Taken off the geometry rather than by eye: the vertex cloud is banded by height, the bands
+// whose horizontal spread is much wider than the post ARE the arms, and each one gives its
+// centre and its long axis from a 2D PCA of that band in the xz plane. The middle is the
+// midpoint of the EXTENT along that axis, not the centroid of the vertices, because an arrow
+// carries more mesh at its point than at its tail and the centroid is dragged toward it.
+// y, the middle in x and z, the unit bearing, and the half length — all as fractions of the
+// model's own height, so they survive a re-export at another size.
+// Ordered top to bottom to match SP_IDS.
+const SP_ARMS=[
+  {y:+0.3776, mx:-0.0041, mz:+0.0262, dx:+0.694, dz:+0.720, hl:0.2819},
+  {y:+0.2430, mx:-0.0223, mz:+0.0197, dx:+0.861, dz:-0.508, hl:0.2678},
+  {y:+0.1170, mx:+0.0007, mz:+0.0132, dx:+0.826, dz:+0.564, hl:0.2764},
+  {y:-0.0149, mx:-0.0048, mz:+0.0068, dx:+0.850, dz:-0.526, hl:0.2845},
+  {y:-0.1300, mx:-0.0072, mz:-0.0015, dx:+0.627, dz:-0.779, hl:0.3085},
+  {y:-0.2419, mx:-0.0115, mz:+0.0074, dx:+0.835, dz:+0.551, hl:0.2974},
+  {y:-0.3690, mx:+0.0260, mz:-0.0049, dx:+0.925, dz:-0.380, hl:0.2565}];
 const SP_IDS=['dBoard','dShop','dTricks','dPlay','dQuests','dSettings','dStats'];
 // how it stands in the shot: depth down the view axis, where its middle sits on the screen,
 // and how much of the frame's height it fills
 const SP_D=6.2, SP_NX=-0.50, SP_NY=-0.40, SP_FILL=0.30;
-// The arm's own width and where along it the writing sits, both as fractions of the model's
-// height (see SP_ARM_F for why fractions). The planks run out to about 0.54 of the height
-// across; the label takes a little over half of that, laid on the body of the arrow and
-// pushed off the post toward the pointed end, which is where a signpost is written.
-// SP_ARM_X is 0: the arms cross the post rather than hanging off one side of it, so the
-// middle of the plank IS the middle of the post. Pushing the writing toward the pointed
-// end sounded right and put it over the end of the timber and onto the sky, because the
-// label is sized to the whole arm and the arm is already centred.
 // ---- and the WRITING fills the board ----
-// SP_LABEL is how much of the arm the word is given, and SP_TYPE is the cap height as a share
-// of that arm. One type size for all seven, not one per word: a signpost's boards are painted
-// by the same hand, so the letters are the same size on every one and it is the WORDS that
-// come out different lengths. SP_TYPE is set from the longest of them — Settings, eight
-// characters — so that one just fits, and Play sits short and centred on its own plank.
-// 0.135, not 0.165: at the larger figure the longest words stood taller than the boards they
-// are painted on and the planks read as slivers behind the type. On the reference the letters
-// take a little over half the depth of the board, which is what this lands on.
-const SP_ARM_W=0.54, SP_LABEL=0.88, SP_ARM_X=0.0, SP_TYPE=0.135;
+// SP_LABEL is how much of a plank's own length the word is given; SP_TYPE is the cap height as
+// a share of it.
+// Sizing is per-arm, but NOT straight off each arm's projected length. The seven boards are all
+// about the same size in the world and only differ on screen because they point in different
+// compass directions: the ones aimed at or away from the lens foreshorten to half the pixels of
+// the ones running across it. Sizing straight off that gave a sign whose words ran from 10px to
+// 30px, which reads as seven separately-fitted labels rather than one signpost painted by one
+// hand. So each word is sized on the geometric mean of its own arm and the median arm — a board
+// that is genuinely short still gets a smaller word, but a board that is merely pointing at the
+// camera keeps most of the house size.
+// Every per-arm number that used to live here — the width, the bearing, the offset along the
+// plank — is gone, because all three were the same guess: that the arms are identical boards
+// running along the model's x axis and centred on the post. They are not, and SP_ARMS carries
+// what they actually are.
+const SP_LABEL=0.88, SP_TYPE=0.135;
 const SP_PITCH=0.20;        // how far the head leans away from the lens, radians
 // ---- AND IT KEEPS ITS COLOURS ----
 // It arrived with seven painted arms — red, purple, cyan, yellow, green, magenta, orange — and
@@ -16930,31 +16941,49 @@ function layoutSignButtons(){
   // and the width, the angle and the middle all read off the pair. A label then matches the
   // size, the scale AND the tilt of its own board rather than an average of seven.
   const px=v=>[(v.x*0.5+0.5)*W, (-v.y*0.5+0.5)*H];
+  // ---- solved for every arm first, THEN typeset ----
+  // Each plank's two ends are its measured middle plus and minus its own bearing, so the pair
+  // that comes back describes that board and no other.
+  // ---- AND EACH WORD IS SIZED BY ITS OWN BOARD ----
+  // One size for all seven was tried both ways and neither works here. Fitted to the longest
+  // arm it runs off the ends of the short ones; fitted to the SHORTEST it drags every word down
+  // to the size of the one plank that happens to be pointing away from the lens, which is what
+  // shrank the whole sign. The reference can hold one size because it is drawn flat on; these
+  // arms are in a scene, aimed in seven different compass directions, and a board turned away
+  // from you genuinely shows you smaller writing. So the word takes its size from the plank it
+  // is painted on, with a floor under it so a steeply-turned board is still legible.
+  const arm=[];
+  for(let i=0;i<SP_IDS.length;i++){
+    const A=SP_ARMS[i];
+    _spA.set((A.mx-A.dx*A.hl)*h, A.y*h, (A.mz-A.dz*A.hl)*h)
+        .applyMatrix4(signPost.matrixWorld).project(menuCam);
+    _spB.set((A.mx+A.dx*A.hl)*h, A.y*h, (A.mz+A.dz*A.hl)*h)
+        .applyMatrix4(signPost.matrixWorld).project(menuCam);
+    const a=px(_spA), b=px(_spB);
+    arm.push({a, b, behind:(_spA.z>1||_spB.z>1),
+              len:Math.hypot(b[0]-a[0], b[1]-a[1])});
+  }
+  // the median arm is the house size; each word is pulled toward it (see SP_TYPE)
+  const sorted=arm.map(o=>o.len).sort((p,q)=>p-q), med=sorted[sorted.length>>1]||1;
   for(let i=0;i<SP_IDS.length;i++){
     const el=document.getElementById(SP_IDS[i]);
     if(!el)continue;
-    const y=SP_ARM_F[i]*h, z=SP_FACE*h;
-    _spA.set(-SP_ARM_W*0.5*h, y, z).applyMatrix4(signPost.matrixWorld).project(menuCam);
-    _spB.set( SP_ARM_W*0.5*h, y, z).applyMatrix4(signPost.matrixWorld).project(menuCam);
-    const behind=(_spA.z>1||_spB.z>1);
-    const a=px(_spA), b=px(_spB);
-    const cx=(a[0]+b[0])*0.5+SP_ARM_X*h, cy=(a[1]+b[1])*0.5;
-    if(behind||cx<-70||cx>W+70||cy<-40||cy>H+40){ el.style.visibility='hidden'; continue; }
-    const armPx=Math.hypot(b[0]-a[0], b[1]-a[1]);
-    // the slope of THIS plank on the screen, so the writing lies along the board rather than
-    // across it. atan2 of the projected pair — no assumption that the arms are level, because
-    // once the post is pitched and turned they are not.
-    const ang=Math.atan2(b[1]-a[1], b[0]-a[0])*180/Math.PI;
-    // Play is the one the screen is for, so it takes a little more of its plank than the rest.
-    const em=(SP_IDS[i]==='dPlay')?1.16:1.0;
-    const boxPx=Math.max(30, armPx*SP_LABEL);
-    const fontPx=Math.max(8, Math.min(30, armPx*SP_TYPE*em));
+    const o=arm[i];
+    const cx=(o.a[0]+o.b[0])*0.5, cy=(o.a[1]+o.b[1])*0.5;
+    if(o.behind||cx<-70||cx>W+70||cy<-40||cy>H+40){ el.style.visibility='hidden'; continue; }
+    // the bearing of THIS board as it lands on the screen, so the writing lies along it. Kept
+    // upright: a plank whose far end projects to the left would otherwise set its word upside
+    // down, which is a real case here because the arrows point both ways off the post.
+    let dxp=o.b[0]-o.a[0], dyp=o.b[1]-o.a[1];
+    if(dxp<0){ dxp=-dxp; dyp=-dyp; }
+    const ang=Math.atan2(dyp, dxp)*180/Math.PI;
     el.style.visibility='';
     el.style.left=cx.toFixed(1)+'px';
     el.style.top=cy.toFixed(1)+'px';
     el.style.right='auto'; el.style.bottom='auto';
-    el.style.width=boxPx.toFixed(0)+'px';
-    el.style.fontSize=fontPx.toFixed(1)+'px';
+    const fit=Math.sqrt(o.len*med);
+    el.style.width=Math.max(30,fit*SP_LABEL).toFixed(0)+'px';
+    el.style.fontSize=Math.max(12,Math.min(28,fit*SP_TYPE)).toFixed(1)+'px';
     el.style.transform='translate(-50%,-50%) rotate('+ang.toFixed(2)+'deg)';
   }
 }
@@ -24471,7 +24500,8 @@ if(location.hash.includes('debug')){
         arms:SP_IDS.map((id,i)=>{
           const el=document.getElementById(id);
           const _h=signPost.userData.h;
-          const a=proj(new THREE.Vector3(0,SP_ARM_F[i]*_h,SP_FACE*_h).applyMatrix4(signPost.matrixWorld));
+          const _A=SP_ARMS[i];
+          const a=proj(new THREE.Vector3(_A.mx*_h,_A.y*_h,_A.mz*_h).applyMatrix4(signPost.matrixWorld));
           if(!el)return {id,found:false};
           const r=el.getBoundingClientRect();
           return {id, arm:[a[0],a[1]],
