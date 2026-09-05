@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.18.2';
+window.SURF_VERSION='6.19.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -16510,7 +16510,65 @@ let signModel=null, beachSign=null, signFix=0;
 // beach and the file lands last is the one that builds them. Without this a slow connection
 // sets the beach up before sign.glb arrives, placeBeachPosts finds no model, and the dial
 // spends the whole session mounted on nothing — the ordering that has bitten the sign before.
-loadModel('sign.glb',(s3)=>{ signModel=s3; placeBeachSign(); placeBeachPosts(); });
+loadModel('sign.glb',(s3)=>{ signModel=s3; placeBeachSign(); });
+// ---- THE DIAL IS A CROSSROADS SIGN NOW ----
+// The two planks are gone and the six buttons hang off the arms of one signpost standing in
+// the left foreground. The model arrived as a 27.8 MB, 999,170 triangle export — three times
+// the palm, which is already the heaviest thing in the game and the reason the title screen
+// had a loading problem at all. Simplified to 80k triangles and its textures cut to 1024 and
+// re-encoded, it is 2.4 MB, which is a file this screen can afford to wait for.
+// Priority 0: the dial is part of the title screen, so it queues with the sand and the tree
+// rather than behind the ten characters nobody is wearing.
+// ---- AND IT SHIPS DEQUANTIZED, which costs a megabyte and buys correctness ----
+// The export used KHR_mesh_quantization, so its positions are 16-bit integers and the GPU
+// denormalizes them as it draws. Three.js does not do the same on the CPU: computeBoundingBox
+// reports the RAW integers, so every box this file measures came back 65536 tall for a post
+// 1.9 units high. Scaled by that, the signpost rendered at four ten-thousandths of a foot —
+// invisible — while the arm anchors, which used the same number, spread themselves over twelve
+// feet of empty beach with the six buttons hanging off them. Nothing was wrong with the
+// placement code; it was measuring in one unit and drawing in another.
+// Dequantized the file is 3.7 MB rather than 2.4, and every box in the game means feet again.
+let crossModel=null, signPost=null;
+loadModel('crossroads.glb',(s3)=>{ crossModel=s3; placeSignpost(); },0);
+// Where each arm sits up the post, measured off the geometry rather than guessed: the vertex
+// cloud was banded by height and the seven bands whose horizontal spread is much wider than
+// the post ARE the seven arms. Model space, and the model stands 1.905 tall about its own
+// middle. Six are used, top to bottom, and the lowest is left blank — a signpost with a spare
+// arm reads as a signpost, where one filled to the last plank reads as a menu.
+// ---- AS FRACTIONS OF ITS HEIGHT, not in model units ----
+// The measured arm heights are +0.738 .. -0.472 in a model that stands 1.905 tall, and using
+// those numbers directly does not work: this export is KHR_mesh_quantization, so the mesh's
+// own coordinates are raw integers in the tens of thousands and the decode scale lives on the
+// node. A point at y=0.738 in that space is a fraction of a millimetre up a post 87,000 units
+// tall — which is exactly what happened, and all six buttons projected to one pixel while the
+// post itself scaled to 0.0002. Held as fractions of the model's own measured height, the
+// anchors survive the quantization, and they would survive the model being re-exported at a
+// different size too.
+const SP_ARM_F=[0.738, 0.463, 0.237, -0.025, -0.238, -0.472].map(v=>v/1.905);
+const SP_FACE=0.02;         // and a touch in front of the post, onto the face of the plank
+// Ids, not classes, and spelled out rather than derived: the class is hb-set and the element
+// is dSettings, and a loop that guessed one from the other would have left Settings sitting at
+// its old CSS position while the other five moved onto the post — a miss that looks like a
+// layout bug rather than a typo.
+const SP_IDS=['dBoard','dShop','dTricks','dQuests','dSettings','dStats'];
+// how it stands in the shot: depth down the view axis, where its middle sits on the screen,
+// and how much of the frame's height it fills
+const SP_D=6.2, SP_NX=-0.50, SP_NY=-0.32, SP_FILL=0.66;
+// ---- AND IT IS TIMBER, not a paint chart ----
+// The arms arrive in seven saturated colours — pillarbox red, purple, cyan, yellow, green,
+// magenta, orange — which is a fine signpost and completely wrong next to a driftwood sign, a
+// chest and a sunset. Repainting is not possible per arm: all seven share one material and
+// one texture, so there is nothing to address them by. So the colour is taken out in the
+// shader instead — the sampled pixel is reduced to its luminance and that drives a single warm
+// timber tone, which keeps every bevel, plank edge, screw head and weathered scuff the texture
+// was carrying and throws away only the hue.
+function crossWoodShader(sh){
+  sh.fragmentShader=sh.fragmentShader.replace('#include <dithering_fragment>',
+    'float _wl=dot(gl_FragColor.rgb,vec3(0.2126,0.7152,0.0722));\n'+
+    'gl_FragColor.rgb=mix(gl_FragColor.rgb,'+
+      'vec3(0.56,0.38,0.22)*(0.26+_wl*0.68), 0.95);\n'+
+    '#include <dithering_fragment>');
+}
 // ---- the group's own axes are the PLANK's, measured ----
 // Everything above works on the sign's bounding box: it is squared to the lens by its box, sized
 // by its box, and asked how level it is by its box. All of that is only a statement about the
@@ -16722,6 +16780,84 @@ const MB_POST_LEAN=[-0.030, 0.024];
 // back to being the guard it was meant to be for a window nobody has tried yet. Zero, because
 // a post is allowed to touch the side of the picture; what it is not allowed to do is leave.
 const MB_POST_PAD=0;        // how much frame is left outside the timber
+// ---- THE SIGNPOST, AND THE SIX BUTTONS THAT HANG OFF IT ----
+// This inverts what the two planks did. There, the buttons were fixed in CSS and the timber
+// was fitted to them; here the signpost is a thing standing in the scene at a place of its
+// own and the buttons are moved onto its arms. That is the ask — "move them onto one of these
+// planks" — and it is worth being explicit that it gives up something real: the six no longer
+// sit where the trick bar's buttons sit, so a thumb no longer finds the menu and the ride in
+// the same place. That trade was made deliberately and on request.
+const _spV=new THREE.Vector3(), _spQ=new THREE.Quaternion(), _spM=new THREE.Matrix4();
+function placeSignpost(){
+  if(!crossModel||typeof menuProps==='undefined'||!menuProps||signPost)return;
+  const inner=cloneModel(crossModel);
+  inner.traverse(o=>{ if(!o.isMesh||!o.material)return;
+    for(const mt of (Array.isArray(o.material)?o.material:[o.material])){
+      if(!mt)continue;
+      mt.onBeforeCompile=crossWoodShader;
+      if(mt.roughness!==undefined){ mt.roughness=Math.max(mt.roughness,0.90); mt.metalness=0; }
+      mt.envMapIntensity=0.18;
+      mt.needsUpdate=true; }
+  });
+  signPost=new THREE.Group();
+  signPost.add(inner);
+  // centred on its own middle so the scale and the facing below turn it about itself
+  inner.updateMatrixWorld(true);
+  const bb=visBox(inner), c=bb.getCenter(new THREE.Vector3());
+  inner.position.sub(c);
+  signPost.userData.h=Math.max(1e-4, bb.getSize(new THREE.Vector3()).y);
+  menuProps.add(signPost);
+  aimSignpost();
+}
+// Placed and sized the same way the planks were — one ray through the point on screen where
+// its middle should sit, at a fixed DEPTH down the view axis rather than a distance along the
+// ray, because at 92 degrees those are not the same thing and the difference is a third of
+// the size (see _bpAt). Re-solved every frame, so it holds through the camera's drift and
+// through a turned phone without a resize handler.
+function aimSignpost(){
+  if(!signPost||typeof menuCam==='undefined'||!menuCam)return;
+  menuCam.updateMatrixWorld(true);
+  signPost.parent.updateWorldMatrix(true,false);
+  _spM.copy(signPost.parent.matrixWorld).invert();
+  signPost.parent.getWorldQuaternion(_spQ).invert();
+  const pscl=Math.max(1e-6, signPost.parent.getWorldScale(_spV).x);
+  _bpAt(SP_NX, SP_NY, SP_D, _bpA);
+  signPost.position.copy(_bpA).applyMatrix4(_spM);
+  // square to the lens, then leaned a little so it is a post somebody drove in rather than a
+  // billboard hung in front of the camera
+  signPost.quaternion.copy(_spQ).multiply(menuCam.quaternion)
+    .multiply(_bpR.setFromAxisAngle(_bpZ,-0.035));
+  const fh=2*Math.tan(menuCam.fov*Math.PI/360)*SP_D;
+  signPost.scale.setScalar((SP_FILL*fh)/(signPost.userData.h*pscl));
+  signPost.updateMatrixWorld(true);
+}
+// ---- and the buttons follow the arms ----
+// Each arm's height is known in model space, so the anchor is that point carried through the
+// signpost's own matrix and projected. The button is then placed by its CENTRE, which is why
+// the transform carries a -50%,-50%: `left` and `top` put a box's corner somewhere, and the
+// thing that has to line up with a plank is the middle of the label.
+// Hidden rather than left stranded when the anchor goes behind the lens or off the side — a
+// button sitting on nothing is worse than a button that is not there, and at this distance a
+// wide lens will put an arm behind the camera long before the post leaves the shot.
+function layoutSignButtons(){
+  if(!signPost||!menuCam)return;
+  const W=Math.max(1,innerWidth), H=Math.max(1,innerHeight);
+  for(let i=0;i<SP_IDS.length;i++){
+    const el=document.getElementById(SP_IDS[i]);
+    if(!el)continue;
+    const h=signPost.userData.h;
+    _spV.set(0, SP_ARM_F[i]*h, SP_FACE*h).applyMatrix4(signPost.matrixWorld);
+    const d=_spV.clone().project(menuCam);
+    const behind=(d.z>1);
+    const x=(d.x*0.5+0.5)*W, y=(-d.y*0.5+0.5)*H;
+    if(behind||x<-40||x>W+40||y<-40||y>H+40){ el.style.visibility='hidden'; continue; }
+    el.style.visibility='';
+    el.style.left=x.toFixed(1)+'px';
+    el.style.top=y.toFixed(1)+'px';
+    el.style.right='auto'; el.style.bottom='auto';
+    el.style.transform='translate(-50%,-50%)';
+  }
+}
 function placeBeachPosts(){
   if(!signModel||typeof menuProps==='undefined'||!menuProps||beachPosts)return;
   beachPosts=new THREE.Group();
@@ -24219,6 +24355,31 @@ if(location.hash.includes('debug')){
     // from the SAME model as the sign hanging in the palm — which shares its material with them
     // unless it is explicitly cloned. This reports both, so "the sign still tests depth" is a
     // reading rather than a hope: posts false, sign true is the shape of a correct answer.
+    // Where the signpost is and where each of its six buttons ended up. Reported together so
+    // "the buttons are on the arms" is a comparison rather than an impression: every button
+    // should be found, visible, and sitting within a few pixels of its own arm's projection.
+    signpost(){ if(!signPost||!menuCam)return null;
+      menuCam.updateMatrixWorld(true); signPost.updateMatrixWorld(true);
+      const W=innerWidth,H=innerHeight;
+      const bb=visBox(signPost), sz=bb.getSize(new THREE.Vector3());
+      const proj=v=>{ const d=v.clone().project(menuCam);
+        return [Math.round((d.x*0.5+0.5)*W), Math.round((-d.y*0.5+0.5)*H), +d.z.toFixed(3)]; };
+      return {
+        worldH:+sz.y.toFixed(2), scale:+signPost.scale.x.toExponential(2), rawH:+signPost.userData.h.toFixed(1),
+        dist:+menuCam.position.distanceTo(signPost.getWorldPosition(new THREE.Vector3())).toFixed(2),
+        box:[bb.min,bb.max].map(v=>proj(v)),
+        arms:SP_IDS.map((id,i)=>{
+          const el=document.getElementById(id);
+          const _h=signPost.userData.h;
+          const a=proj(new THREE.Vector3(0,SP_ARM_F[i]*_h,SP_FACE*_h).applyMatrix4(signPost.matrixWorld));
+          if(!el)return {id,found:false};
+          const r=el.getBoundingClientRect();
+          return {id, arm:[a[0],a[1]],
+                  btn:[Math.round(r.left+r.width/2), Math.round(r.top+r.height/2)],
+                  off:[Math.round(r.left+r.width/2-a[0]), Math.round(r.top+r.height/2-a[1])],
+                  vis:getComputedStyle(el).visibility};
+        })};
+    },
     signMat(){
       const grab=root=>{ const out=[]; if(root)root.traverse(o=>{ if(!o.isMesh||!o.material)return;
         for(const m of (Array.isArray(o.material)?o.material:[o.material]))
@@ -30661,7 +30822,10 @@ function layoutMenuBeach(){
   menuBeach.boardH=new THREE.Box3().setFromObject(board).getSize(new THREE.Vector3()).y;
   layoutBeachChest();
   placeBeachSign(); layoutBeachSign();
-  placeBeachPosts(); layoutBeachPosts();
+  // the two planks are retired — placeBeachPosts and its layout are left in the file because
+  // they are the only worked example of fitting world geometry to a fixed DOM box, and the
+  // signpost below does the inverse. Nothing calls them.
+  placeSignpost();
 }
 // ---- the swell dies where the water shoals ----
 // WHERE the waterline is cannot be a number typed in here: it is wherever the beach's own
@@ -32126,25 +32290,20 @@ function renderMenuBeach(dt){
   // predicts — and a re-cut is four getBoundingClientRect calls and two Box3 walks, which is
   // not a thing to do every frame. So it is keyed on the viewport actually changing, which is
   // a string compare on the frames where it has not.
-  if(beachPosts){
-    // ---- and they go when the buttons go ----
-    // Two of the three states this beach is drawn in hide the dial outright, and a pair of
-    // planks standing in the sand with nothing nailed to them is worse than no posts at all.
-    // Read off the two classes that do the hiding rather than off the element's box: a rect
-    // read forces a layout, and this runs every frame where the re-cut below does not.
+  if(signPost){
+    // ---- and it goes when the buttons go ----
+    // Two of the three states this beach is drawn in hide the dial outright, and a signpost
+    // standing in the sand with nothing hanging off it is worse than no signpost at all.
+    // Read off the two classes that do the hiding rather than off an element's box: a rect
+    // read forces a layout, and this runs every frame.
     if(_bpDial===null)_bpDial=document.getElementById('overlay');
-    beachPosts.visible=!(document.body.classList.contains('panel')||
-                         (_bpDial&&_bpDial.classList.contains('over')));
-    // re-aimed every frame against the lens as it actually is now — see aimBeachPosts. The
-    // re-CUT below is still keyed on the viewport, because that is the half that reads rects.
-    if(beachPosts.visible)aimBeachPosts();
-    // The dial's own state is part of the signature, not just the window's. A layout that runs
-    // while the buttons are display:none reads four zero-width rects and switches each post off
-    // individually — and nothing would ever switch them back, because the window has not
-    // changed shape and that was the only thing being watched. Opening the shop once would
-    // have cost the posts for the rest of the session.
-    const _sig=innerWidth+'x'+innerHeight+(beachPosts.visible?'v':'h');
-    if(_sig!==_bpSig){ _bpSig=_sig; layoutBeachPosts(); }
+    signPost.visible=!(document.body.classList.contains('panel')||
+                       (_bpDial&&_bpDial.classList.contains('over')));
+    // Both halves run per frame now, and both are cheap: the post is one unproject and a
+    // scale, and the six buttons are six matrix-multiply-and-project with two style writes
+    // each. Nothing here reads geometry back or measures a DOM box, which is what made the
+    // old plank fit too expensive to do every frame.
+    if(signPost.visible){ aimSignpost(); layoutSignButtons(); }
   }
   // The board preview is shot at the renderer's own exposure and the menu was too, but the
   // menu is a whole beach rather than one object on a sweep — far more of it is sky and wet
