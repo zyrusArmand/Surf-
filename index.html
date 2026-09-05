@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.19.0';
+window.SURF_VERSION='6.19.1';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -270,7 +270,15 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
      keeps every bit of the carve (the mark is still a groove, still lit from below-right, still
      shadowed above-left) and gets the contrast from the gilding rather than from the depth.
      It also ties the dial to the two pieces of carved timber already in the shot. */
+  /* ---- AND THE SIX COME DOWN WITH THE POST ----
+     The signpost's size is not a free choice: the six arms span about 0.635 of its height, so
+     six buttons that must not overlap set a FLOOR under how small it can be drawn. At 54px a
+     side — the trick bar's size, which they kept while they were mounted on planks of their
+     own — that floor was most of the screen, which is exactly the complaint. Taking them to 38
+     lets the post come down by a third and still leaves each label sitting clear on its own
+     arm. The glyph grows as a share of the smaller box so it does not shrink with it. */
   #homeDial .hbtn:not(.hb-play) {
+    width:38px; height:38px; font-size:8px; letter-spacing:.35px; gap:0;
     background:none;
     border:0;
     border-radius:12px;             /* nothing circular is left to clip, and a disc is the thing being removed */
@@ -300,6 +308,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   /* the glyph is cut the same way the lettering is, and at this size a two-pixel emboss is the
      whole of what makes it read as carved rather than printed */
   #homeDial .hbtn:not(.hb-play) svg {
+    width:46%; height:46%;      /* a bigger share of a smaller button, so the glyph holds */
     stroke:#edc880; stroke-width:2.1;
     filter:drop-shadow(1px 1.2px 0 rgba(255,232,186,.28))
            drop-shadow(-1px -1.2px 1px rgba(24,11,2,.95));
@@ -16553,22 +16562,19 @@ const SP_FACE=0.02;         // and a touch in front of the post, onto the face o
 const SP_IDS=['dBoard','dShop','dTricks','dQuests','dSettings','dStats'];
 // how it stands in the shot: depth down the view axis, where its middle sits on the screen,
 // and how much of the frame's height it fills
-const SP_D=6.2, SP_NX=-0.50, SP_NY=-0.32, SP_FILL=0.66;
-// ---- AND IT IS TIMBER, not a paint chart ----
-// The arms arrive in seven saturated colours — pillarbox red, purple, cyan, yellow, green,
-// magenta, orange — which is a fine signpost and completely wrong next to a driftwood sign, a
-// chest and a sunset. Repainting is not possible per arm: all seven share one material and
-// one texture, so there is nothing to address them by. So the colour is taken out in the
-// shader instead — the sampled pixel is reduced to its luminance and that drives a single warm
-// timber tone, which keeps every bevel, plank edge, screw head and weathered scuff the texture
-// was carrying and throws away only the hue.
-function crossWoodShader(sh){
-  sh.fragmentShader=sh.fragmentShader.replace('#include <dithering_fragment>',
-    'float _wl=dot(gl_FragColor.rgb,vec3(0.2126,0.7152,0.0722));\n'+
-    'gl_FragColor.rgb=mix(gl_FragColor.rgb,'+
-      'vec3(0.56,0.38,0.22)*(0.26+_wl*0.68), 0.95);\n'+
-    '#include <dithering_fragment>');
-}
+const SP_D=6.2, SP_NX=-0.62, SP_NY=-0.36, SP_FILL=0.46;
+// ---- AND IT KEEPS ITS COLOURS ----
+// It arrived with seven painted arms — red, purple, cyan, yellow, green, magenta, orange — and
+// the first version took them out, on the reasoning that a paint chart sits badly next to a
+// driftwood sign and a sunset. That was my call and it was the wrong one: what it produced was
+// six identical putty-grey planks, which is duller than the beach behind it and reads as an
+// asset that failed to load rather than as a signpost. The colours are the whole character of
+// the thing, and they are also what makes six arms tell each other apart at a glance.
+// So the tint is gone and the model draws as it was painted. What survives from that attempt is
+// the note about WHY it could not be done per arm: all seven share one material and one
+// texture, so anything done to the colour here has to be done to all of them at once.
+// Only the lighting response is still touched, in placeSignpost — roughness up and reflection
+// down, so painted timber in a low sun does not come back as seven glossy plastic arms.
 // ---- the group's own axes are the PLANK's, measured ----
 // Everything above works on the sign's bounding box: it is squared to the lens by its box, sized
 // by its box, and asked how level it is by its box. All of that is only a statement about the
@@ -16792,10 +16798,23 @@ function placeSignpost(){
   if(!crossModel||typeof menuProps==='undefined'||!menuProps||signPost)return;
   const inner=cloneModel(crossModel);
   inner.traverse(o=>{ if(!o.isMesh||!o.material)return;
+    o.material=Array.isArray(o.material)?o.material.map(m2=>m2&&m2.clone()):o.material.clone();
+    o.renderOrder=4;
     for(const mt of (Array.isArray(o.material)?o.material:[o.material])){
       if(!mt)continue;
-      mt.onBeforeCompile=crossWoodShader;
+      mt.depthTest=false; mt.depthWrite=false;
       if(mt.roughness!==undefined){ mt.roughness=Math.max(mt.roughness,0.90); mt.metalness=0; }
+      // ---- AND THE SAND DOES NOT BURY ITS LOWER ARMS ----
+      // The same thing that buried the two planks buries this: the beach runs toward the lens,
+      // so the ground under the bottom of the frame is nearer than the post is, and it wins the
+      // depth test. What that looked like was the last two arms disappearing with Settings and
+      // Stats still projected where they should have been — two labels sitting on bare sand
+      // with nothing behind them, which reads as a bug rather than as a signpost.
+      // Depth test off and drawn last. Against the rest of the scene that is the order it is
+      // already in — the post stands about six feet out and the rider, board and chest are ten
+      // or more — so the only thing it overrides is the ground.
+      // ON A CLONE of the material: cloneModel shares materials by reference, so writing this
+      // onto the loaded original would take the depth test off anything else ever cut from it.
       mt.envMapIntensity=0.18;
       mt.needsUpdate=true; }
   });
