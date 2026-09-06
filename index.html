@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.40.0';
+window.SURF_VERSION='6.41.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -4355,6 +4355,18 @@ function loadTexture(file,onReady){
 const LOAD_HOT={'sand.glb':0,'palm2.glb':0,'sign.glb':0,'chest.glb':0,'board.glb':0};
 const LM_MAX=3;
 let _lmQ=[], _lmRun=0, _lmOpen=false, _lmArmed=false;
+// ---- what is in flight, and a deadline on it ----
+// There are three slots and they are handed out in priority order, which is only a queue as long
+// as every load eventually gives its slot back. One that never does is not slow — it is a wall,
+// and everything behind it waits forever. That is exactly what happened to the shop hut: it was
+// asked for, it sat in the queue, and no request for it was ever made, because three slots were
+// held by loads that had neither succeeded nor failed. GLTFLoader calls onLoad or onError for a
+// file it can resolve, but a parse that stalls part-way calls neither, and there was nothing here
+// to notice. The deadline is on SILENCE rather than on elapsed time: a load still reporting
+// progress keeps its slot however long it takes, which matters when one of these models is 24MB
+// on a phone. Releasing a slot never cancels the load — if it does arrive late it still lands.
+const _lmLive=new Map();
+const LM_STALL=20000;
 // ---- AND A PRIORITY IS WORTH NOTHING IF THE SLOTS ARE ALREADY GONE ----
 // The first cut of this sorted the queue and stopped there, and measured on a throttled link
 // the 12 MB in-game palm still went out SECOND of thirty-five, ahead of the sand and the tree.
@@ -4379,14 +4391,28 @@ function _lmNext(){
     if(b<0)return;
     const j=_lmQ.splice(b,1)[0];
     _lmRun++;
-    const done=()=>{ _lmRun--; Boot.settle(j.id); _lmNext(); };
+    _lmLive.set(j.f,{t:Date.now(), seen:0});
+    // guarded, because the slot can now be given back by either the loader or the deadline and
+    // whichever is second must do nothing — a double release would let the queue run four wide
+    let fin=false, tmr=0;
+    const done=()=>{ if(fin)return; fin=true;
+      clearTimeout(tmr); _lmLive.delete(j.f);
+      _lmRun--; Boot.settle(j.id); _lmNext(); };
+    const wait=()=>{ clearTimeout(tmr); tmr=setTimeout(()=>{
+      if(fin)return;
+      console.warn('model '+j.f+' went quiet for '+(LM_STALL/1000)+'s — releasing its loader slot');
+      done();                       // the load is not cancelled; if it lands late it still lands
+    },LM_STALL); };
+    wait();
     new THREE.GLTFLoader().load('models/'+j.f,
       g=>{ const root=g.scene||g.scenes[0];
            // the whole gltf goes through, not just the scene: a rigged export carries its
            // clips alongside the meshes and they are the entire point of it
            try{ mendMirror(root); j.cb(root,g); }catch(e){ console.warn('model '+j.f+' failed to fit',e); }
            done(); },
-      e=>Boot.step(j.id,e),
+      e=>{ const L=_lmLive.get(j.f); if(L){ L.seen=(e&&e.loaded)||0; L.t=Date.now(); }
+           wait();                  // still moving, so the deadline starts again
+           Boot.step(j.id,e); },
       ()=>{ /* no such file — keep the built-in shape */ done(); });
   }
 }
@@ -9980,15 +10006,21 @@ document.getElementById('dBoard').onclick   =()=>{ buzz(8); openGuide(); };
 document.getElementById('dShop').onclick    =()=>{
   buzz(8);
   if(typeof wantTiki==='function')wantTiki();
-  // ---- and if the hut is not here yet, do not walk to where it is not ----
-  // Belt as well as braces. The arrow now gets you back from an empty dune, but the better
-  // answer is not to send you to one: the hut is five megabytes fetched in the background, and
-  // on mobile data most of the first minute is spent without it. Pressing Shop in that window
-  // used to turn the lens ninety degrees onto bare sand. It opens the panel directly instead —
-  // which is exactly what Shop did before any of this existed, so the worst case is the old
-  // behaviour rather than a broken new one, and nobody waits on a download to buy a board.
-  if(!tikiHut){ openShopOn('boards'); return; }
+  // ---- Shop GOES to the shop, whether or not the hut has landed ----
+  // This used to open the panel instead whenever the model was not there yet. That reads as the
+  // tiki shop not existing — which is exactly how it was reported — and because the hut was
+  // queued behind every other model in the game it was not a rare edge but the ordinary case.
+  // The queue is fixed above; this is the half that stops a slow fetch from ever looking like a
+  // missing feature again. The lens goes now, always. A hut still in flight fades in when it
+  // lands rather than popping, and the way back has not depended on it since the empty-dune fix.
+  // The panel is still there as a floor, but on a timer rather than instead of: only if the hut
+  // has still not arrived once the walk has finished and a couple of seconds have passed does it
+  // open on its own, so a genuinely failed fetch ends somewhere useful instead of on bare sand.
   shopCamGo=1;
+  clearTimeout(_shopWalk);
+  if(!tikiHut)_shopWalk=setTimeout(()=>{
+    if(!tikiHut&&shopCamGo)openShopOn('boards');
+  },(SHOP_CAM.secs+2.2)*1000);
 };
 // ---- and the shop opens from the HUT, not from the walk ----
 // The walk used to end by opening the panel on a timer, which meant the hut existed for eight
@@ -16914,20 +16946,36 @@ loadModel('sign.glb',(s3)=>{ signModel=s3; placeBeachSign(); });
 // placement code; it was measuring in one unit and drawing in another.
 // Dequantized the file is 3.7 MB rather than 2.4, and every box in the game means feet again.
 let menuSignModel=null, signPost=null;
-// ---- the tiki shop, fetched only when somebody goes there ----
-// Asked for on the first press of Shop and never on its own. loadModel is the priority queue
-// the title screen uses, and this deliberately does NOT jump it: the beach the player is
-// looking at comes first, and by the time anyone has read seven boards and chosen one, a hut
-// has had several seconds it did not have to compete for. tikiWant survives the load so a
-// press that lands before the file does still opens the shop when it arrives.
+// ---- the tiki shop, fetched once the title screen is up ----
+// Not shipped with the boot set — a page that never reaches the menu never pays for it — and not
+// left until the press either, which was too late by seconds. It is asked for the moment the
+// reveal finishes, at the FRONT of the queue rather than the back; see wantTiki below for why
+// that number went the other way from what the first version of this note claimed.
 let tikiModel=null, tikiHut=null, tikiTrees=null, tikiSlots=null, _tikiAsked=0;
+// ---- and it is asked for FIRST, not last ----
+// This was priority 4, written as "last in the queue, always" on the reasoning that nothing the
+// player is looking at should wait on five megabytes. The reasoning was right and the number was
+// wrong, and the difference is what made Shop open the panel instead of walking anywhere. Last
+// does not mean "after the title screen" — it means after every other model in the game, and
+// that queue is twenty-five deep with creatures and props the menu never shows. Measured from a
+// cold load: three minutes in, the hut had not begun downloading. It was never slow; it was
+// never started, so `tikiHut` was still null on the press every single time and the fallback
+// fired exactly as written.
+// What the original note actually wanted is achieved by WHEN this is called, not by its rank:
+// it runs after the reveal, so the title screen is already painted and nothing on screen is
+// waiting on anything. From that moment the hut is the likeliest next thing needed — Shop is one
+// of seven buttons and the only one with a five-megabyte dependency — so it goes to the front.
 function wantTiki(){
   if(_tikiAsked)return; _tikiAsked=1;
-  if(typeof loadModel!=='function')return;
-  loadModel('tikihut.glb',(s)=>{ tikiModel=s; placeTiki(); },4);   // last in the queue, always
+  if(typeof loadModel!=='function'){ _tikiAsked=0; return; }   // asked too early; let it retry
+  loadModel('tikihut.glb',(s)=>{ tikiModel=s; placeTiki(); },0);
 }
 function placeTiki(){
-  if(!tikiModel||typeof menuProps==='undefined'||!menuProps||tikiHut)return;
+  if(!tikiModel||tikiHut)return;
+  // The hut now arrives early enough to beat the beach it stands on. Dropping it in that case is
+  // silent and permanent — the model is in memory, nothing ever asks again, and Shop walks to an
+  // empty dune forever — so a set that is not ready yet is a retry rather than a return.
+  if(typeof menuProps==='undefined'||!menuProps){ setTimeout(placeTiki,200); return; }
   const inner=cloneModel(tikiModel);
   inner.traverse(o=>{ if(!o.isMesh||!o.material)return;
     // cloned, because cloneModel shares materials by reference and this dulls them
@@ -17031,6 +17079,9 @@ function aimTiki(){
   const rest=(top!==null)?top:sand;
   tikiHut.position.y+=(rest-bb.min.y-(bs.y*MB_TIKI_SINK))/(menuProps.scale.y||1);
   tikiHut.updateMatrixWorld(true);
+  // the palms are cloned off the one on the title beach, which may not have existed when the hut
+  // was placed now that the hut can beat it in. Cheap to re-ask: it returns at once once made.
+  if(!tikiTrees)placeTikiTrees();
   aimTikiTrees();
 }
 // Each stood on the sand where it is, at its own size and turn, so two clones of one tree do
@@ -17066,7 +17117,7 @@ function aimTikiTrees(){
   }
 }
 // shown only while the lens is over there, and faded with the move
-function tikiShow(e){
+function tikiShow(e,dt){
   if(!tikiHut)return;
   const on=e>0.004;
   tikiHut.visible=on;
@@ -17074,7 +17125,20 @@ function tikiShow(e){
   // standing they would be two palms in the middle of the title screen's beach
   if(tikiTrees)tikiTrees.visible=on;
   if(!on)return;
-  const o=Math.min(1,Math.max(0,(e-0.05)/0.45));
+  // ---- and a LATE arrival is still a fade ----
+  // The opacity below is driven off the walk, which is fine while the hut is here before the
+  // press. A hut that lands while the lens is already standing at the shop finds e at 1 and
+  // appears at full strength in a single frame — a building popping into existence in front of
+  // you. Its own short ramp, started the first frame it is shown rather than when the walk
+  // began, costs nothing in the normal case (the walk is twice as long as this) and turns the
+  // slow-connection case from a pop into an arrival.
+  // Accumulated from the frame's own dt rather than read off a clock: this is the only thing
+  // standing between the hut and being drawn at all, and a clock that turned out not to advance
+  // on this screen would leave it permanently invisible. dt is what the walk itself is stepped
+  // by two lines from here, so the two cannot disagree about whether time is passing.
+  const _d=(typeof dt==='number'&&dt>0)?dt:0;
+  tikiHut.userData.inA=Math.min(1,(tikiHut.userData.inA||0)+_d/0.55);
+  const o=tikiHut.userData.inA*Math.min(1,Math.max(0,(e-0.05)/0.45));
   // ---- and it stops being TRANSPARENT the moment it has finished arriving ----
   // The fade needs transparency; everything after it is harmed by it. A transparent material
   // leaves the opaque pass, is sorted per object rather than per pixel, and stops taking part
@@ -17419,7 +17483,10 @@ let SHOP_SLOT={y:0.045, z:-0.34, w:0.25, h:0.17, col:0x18b6ff, glow:0.50, lit:0.
 // Brought in off the render: at 0.60 he stood against the right-hand roof post, half behind it
 // and reading as somebody who had wandered into shot rather than as the shop's keeper. A third
 // of the way over leaves the middle panel clear and still puts him to one side of the counter.
-let SHOP_KEEP={x:0.31, y:-0.50, z:-0.16, tall:2.45};
+// y follows the panels down by the same 0.055 they moved when the thatch turned out to clip
+// them: he is placed relative to the counter, but what reads badly is his head crossing a lit
+// sign, so the number that matters is the gap between the two rather than either on its own.
+let SHOP_KEEP={x:0.31, y:-0.555, z:-0.16, tall:2.45};
 // how the lens gets there: right, forward, up a little, turned a little, over this long
 // `rise` lifts the lens off the sand on the way over and `pitch` tilts it back down by the
 // amount that keeps the hut where it was — raise a camera without doing that and the subject
@@ -25563,6 +25630,16 @@ if(location.hash.includes('debug')){
         rows:[]};
       for(const y of ys)for(const z of zs)out.rows.push({y,z,l:at(-0.44,y,z),m:at(0,y,z),r:at(0.44,y,z)});
       return out; },
+    // ---- what the model loader is actually doing ----
+    // "The hut never arrived" has two very different causes — the request was never made, or it
+    // was made and never finished — and from outside they look identical. This separates them:
+    // `live` is what holds the three slots and for how long, `queued` is what is waiting behind
+    // them. A file sitting in `queued` while `run` is at `max` is a starved queue, not a slow
+    // network, and no amount of waiting will fix it.
+    loadQ(){ const now=Date.now();
+      return {run:_lmRun, max:LM_MAX, open:_lmOpen,
+              live:[..._lmLive].map(([f,v])=>({f, quiet:now-v.t, got:v.seen})),
+              queued:_lmQ.map(x=>({f:x.f, p:x.p}))}; },
     stageList(){ return stageTargets().map(t=>t.n); },
     // how far each thing on the beach is from the lens. Composition on this screen is mostly a
     // question of what is in front of what, and that is not answerable by eye from a render:
@@ -33586,7 +33663,7 @@ function renderMenuBeach(dt){
   { const _sd=(typeof MB_FREEZE!=='undefined'&&MB_FREEZE)?0:dt;
     const step=_sd/Math.max(0.05,SHOP_CAM.secs);
     shopCamE = shopCamGo ? Math.min(1,shopCamE+step) : Math.max(0,shopCamE-step);
-    if(tikiHut){ if(shopCamE>0.0001)aimTiki(); tikiShow(shopCamE); }
+    if(tikiHut){ if(shopCamE>0.0001)aimTiki(); tikiShow(shopCamE,_sd); }
     // the real progress, always — passing zero when the hut is missing was the other half of
     // the trap above, and it hid the arrow before the function could even be asked
     layoutTikiButton(shopCamE);
