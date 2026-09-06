@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.27.0';
+window.SURF_VERSION='6.28.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -13638,7 +13638,17 @@ function setupModelRig(root,gltf,id){
   //
   // The fade OUT begins before the clip ends rather than after it, because the last thing
   // worth blending out of is a frame that has already stopped moving.
-  const GEST={clip:'Stand_and_Chat', gap:[6.5,12.0], fadeIn:0.55, fadeOut:0.95, first:3.0};
+  // ---- and it only moves the part of him it FITS ----
+  // Stand_and_Chat drives all twenty-four joints, and it was drawn for a person: the arms come
+  // up and across the chest at about the height a human's do. A pug is a barrel with short
+  // legs, so retargeted straight it buries both forearms inside his own ribs and takes the
+  // muzzle with them — which is the folding-into-himself, and it is the clip being wrong about
+  // this body rather than anything wrong with the blend. Restricted to the spine, neck and
+  // head, the same performance reads as a dog shifting his weight and nodding at you, which is
+  // the half of it that was always going to work on this shape. Everything else is held at the
+  // stance, so his legs stay planted and his paws stay outside him.
+  const GEST={clip:'Stand_and_Chat', gap:[6.5,12.0], fadeIn:0.55, fadeOut:0.95, first:3.0,
+              only:{Spine:1, Spine01:1, Spine02:1, neck:1, Head:1, head_end:1, headfront:1}};
   R.gestA=null; R.gestT=GEST.first; R.gestE=0; R.gestD=0;
   R.loiter=function(dt){
     if(!this.gestA){
@@ -13674,7 +13684,7 @@ function setupModelRig(root,gltf,id){
           // touch, whether the stance has an opinion about it or not.
           this.gestFrom=[];
           for(const n in this.bones){ const b=this.bones[n];
-            if(b&&b.quaternion)this.gestFrom.push([b,b.quaternion.clone()]); }
+            if(b&&b.quaternion)this.gestFrom.push([b,b.quaternion.clone(),!!GEST.only[n]]); }
           // No special first frame, and that is deliberate. Two goes at making the opening
           // frame safe by hand — waking the mixer with a zero step, letting the stance have
           // that one frame outright — each fixed the first gesture of a session and broke the
@@ -13719,9 +13729,12 @@ function setupModelRig(root,gltf,id){
       }
       // the crossfade itself: every bone pulled back toward the pose he was standing in, by
       // however much of him the clip has not been given yet
-      if(this.gestFrom&&w<0.999){ const k=1-w;
-        for(let i=0;i<this.gestFrom.length;i++)
-          this.gestFrom[i][0].quaternion.slerp(this.gestFrom[i][1],k); }
+      // the crossfade, and the mask in the same pass: a bone the gesture is allowed to move is
+      // pulled back toward the stance by however much of him the clip has not been given yet,
+      // and one it is not is pulled all the way back, every frame.
+      if(this.gestFrom){ const k=1-w;
+        for(let i=0;i<this.gestFrom.length;i++){ const e=this.gestFrom[i];
+          const f=e[2]?k:1; if(f>0.0001)e[0].quaternion.slerp(e[1],f); } }
       if(t>=D){
         this.gestA.stop(); this.gestA=null; this.gestFrom=null; w=0;
         this.gestT=GEST.gap[0]+Math.random()*(GEST.gap[1]-GEST.gap[0]);
@@ -14363,6 +14376,10 @@ function riderRimShader(sh){
   sh.uniforms.uRimC={value:RIM_COL};
   sh.uniforms.uRimK={value:RIM_K};
   sh.uniforms.uRimP={value:RIM_POW};
+  // kept so the strength can be read and changed after the fact — three.js hands the shader
+  // object to onBeforeCompile once and never again, so a light with no way to be turned down
+  // is a light that can only be argued about
+  if(sh.__mat)sh.__mat.userData.rimSh=sh;
   sh.fragmentShader=sh.fragmentShader
     .replace('#include <common>',
       '#include <common>\nuniform vec3 uRimC;uniform float uRimK;uniform float uRimP;')
@@ -14375,7 +14392,16 @@ function riderRimShader(sh){
     // which is exactly where a pale animal actually needs one.
     .replace('#include <dithering_fragment>',
       'float _rf=1.0-clamp(dot(normalize(normal),normalize(vViewPosition)),0.0,1.0);\n'+
-      'float _rl=dot(gl_FragColor.rgb,vec3(0.2126,0.7152,0.0722));\n'+
+      // ---- read off the COAT, not off the lit pixel ----
+      // This took its darkness from the colour the lighting had just produced, so a pale animal
+      // still collected the full rim anywhere he was in shadow — and the shadowed side is most
+      // of a body on a beach with one low sun. That is a cream pug wearing a cool edge down his
+      // whole shaded flank, which is the "white-ish and blue-ish" of it. Taken off diffuseColor
+      // it is the animal's own coat that decides: a cream dog is barely touched at any angle or
+      // in any light, and a black cat, which is the reason this exists at all, still gets it
+      // everywhere. Measured on the pug the rim was worth 4.2 of blue-over-red out of 255 —
+      // real, small, and the only purely cool thing being ADDED to him, so it goes.
+      'float _rl=dot(diffuseColor.rgb,vec3(0.2126,0.7152,0.0722));\n'+
       'float _rd=clamp(1.0-_rl,0.0,1.0);\n'+
       'gl_FragColor.rgb+=uRimC*(uRimK*pow(_rf,uRimP)*_rd*_rd);\n'+
       '#include <dithering_fragment>');
@@ -14605,7 +14631,7 @@ for(const id of RIDER_MODELS)loadModel(id+'.glb',(s3,gltf)=>{
       m.roughness=Math.max(m.roughness,0.88); m.metalness=0;
       m.envMapIntensity=0.15;
       if(m.emissive)m.emissive.setRGB(0,0,0);
-      m.onBeforeCompile=riderRimShader;
+      m.onBeforeCompile=sh=>{ sh.__mat=m; riderRimShader(sh); };
       m.needsUpdate=true; } });
   riderModels[id]=fitted;
   fitted.userData.riderFor=id;
@@ -24793,6 +24819,15 @@ if(location.hash.includes('debug')){
               t:+((r.gestE||0)).toFixed(2), dur:+((r.gestD||0)).toFixed(2),
               next:+((r.gestT||0)).toFixed(2),
               lh:P('LeftHand'), rh:P('RightHand'), head:P('Head')}; },
+    // read or set the rider's rim strength at runtime, so "he looks blue" can be answered with
+    // two renders and a number instead of an opinion
+    rim(v){ const out=[]; const r=(typeof pug!=='undefined')?pug:null; if(!r)return null;
+      r.traverse(o=>{ if(!o.isMesh||!o.material)return;
+        for(const m of [].concat(o.material)){ const sh=m.userData&&m.userData.rimSh;
+          if(!sh||!sh.uniforms||!sh.uniforms.uRimK)continue;
+          if(v!==undefined)sh.uniforms.uRimK.value=v;
+          out.push(+sh.uniforms.uRimK.value.toFixed(3)); } });
+      return out; },
     stageList(){ return stageTargets().map(t=>t.n); },
     // how far each thing on the beach is from the lens. Composition on this screen is mostly a
     // question of what is in front of what, and that is not answerable by eye from a render:
