@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.29.0';
+window.SURF_VERSION='6.30.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -1867,6 +1867,11 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     <button class="hbtn glass hb-quests" id="dQuests" type="button" aria-label="Quests">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.4h12v17.2l-6-3.6-6 3.6z"/><path d="M9.2 8.6h5.6M9.2 12h5.6"/></svg>
       <span>Quests</span></button>
+    <!-- The shop counter itself. Lives in the dial so it disappears with everything else when
+         the Stage takes the screen, and is placed each frame from the hut's own projected box —
+         it only exists once somebody has walked over there. -->
+    <button class="hbtn" id="dTiki" type="button" aria-label="Open the surf shop"
+            style="visibility:hidden"></button>
     <button class="hbtn glass hb-set" id="dSettings" type="button" aria-label="Settings">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5"/></svg>
       <span>Settings</span></button>
@@ -9909,9 +9914,24 @@ document.getElementById('dShop').onclick    =()=>{
   buzz(8);
   if(typeof wantTiki==='function')wantTiki();
   shopCamGo=1;
-  clearTimeout(_shopWalk);
-  _shopWalk=setTimeout(()=>openShopOn('boards'), SHOP_CAM.secs*1000+140);
 };
+// ---- and the shop opens from the HUT, not from the walk ----
+// The walk used to end by opening the panel on a timer, which meant the hut existed for eight
+// tenths of a second and was then covered by the thing it was standing in for — and it made the
+// shop preview impossible to look at, or to stage, because a full-screen panel arrived on top
+// of it every time. So arriving is arriving. The counter is what you press.
+document.getElementById('dTiki').onclick=()=>{ buzz(8); openShopOn('boards'); };
+// ...and a tap on the beach around it walks you back, so somebody who came over to look is not
+// stranded at a counter with no way home. Only while the lens is actually over there, only when
+// the tap misses the hut, and never while the Stage has the screen.
+overlay.addEventListener('pointerdown',e=>{
+  if(shopCamE<0.6||!shopCamGo)return;
+  if(typeof stageOn!=='undefined'&&stageOn)return;
+  const t=document.getElementById('dTiki');
+  if(t&&t.style.visibility!=='hidden'&&t.contains(e.target))return;
+  if(e.target.closest&&e.target.closest('button'))return;
+  shopCamGo=0;
+});
 document.getElementById('dPlay').onclick    =()=>{ buzz(12); startBtn.click(); };
 const questsPanel=document.getElementById('quests'), setPanel=document.getElementById('settings');
 // Watched rather than hooked into each open and close. There are four of these and several
@@ -16898,6 +16918,39 @@ function tikiShow(e){
     for(const m of (Array.isArray(x.material)?x.material:[x.material]))
       if(m)m.opacity=o; });
 }
+// ---- and the counter takes a tap ----
+// Laid out from the hut's own projected box, the same way the seven boards are laid out from
+// their planks — a hit area over a thing in the scene rather than a button parked on the glass.
+// It appears only once the walk is most of the way there, so it cannot be pressed by somebody
+// who is still looking at the signpost, and it is sized to the LOWER half of the hut: the roof
+// is most of its height and none of its counter, and a target that covers the thatch is a tap
+// on the sky as far as the player is concerned.
+const _tkV=new THREE.Vector3();
+function layoutTikiButton(e){
+  const el=document.getElementById('dTiki');
+  if(!el)return;
+  if(!tikiHut||!menuCam||e<0.55){ el.style.visibility='hidden'; return; }
+  menuCam.updateMatrixWorld(true); tikiHut.updateMatrixWorld(true);
+  const b=visBox(tikiHut);
+  if(b.isEmpty()){ el.style.visibility='hidden'; return; }
+  const W=Math.max(1,innerWidth), H=Math.max(1,innerHeight);
+  let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9,any=false;
+  for(let i=0;i<8;i++){
+    _tkV.set(i&1?b.max.x:b.min.x, i&2?b.max.y:b.min.y, i&4?b.max.z:b.min.z).project(menuCam);
+    if(_tkV.z>1)continue; any=true;
+    const px=(_tkV.x*0.5+0.5)*W, py=(-_tkV.y*0.5+0.5)*H;
+    if(px<x0)x0=px; if(px>x1)x1=px; if(py<y0)y0=py; if(py>y1)y1=py;
+  }
+  if(!any||x1<=x0||y1<=y0){ el.style.visibility='hidden'; return; }
+  const w=(x1-x0)*0.62, h=(y1-y0)*0.42;          // the counter, not the thatch
+  el.style.visibility='';
+  el.style.left=((x0+x1)/2).toFixed(1)+'px';
+  el.style.top=(y1-(y1-y0)*0.30).toFixed(1)+'px';
+  el.style.right='auto'; el.style.bottom='auto';
+  el.style.width=Math.max(60,w).toFixed(0)+'px';
+  el.style.height=Math.max(48,h).toFixed(0)+'px';
+  el.style.transform='translate(-50%,-50%)';
+}
 loadModel('menusign.glb',(s3)=>{ menuSignModel=s3; placeSignpost(); },0);
 // Where each arm sits up the post, measured off the geometry rather than guessed: the vertex
 // cloud was banded by height and the seven bands whose horizontal spread is much wider than
@@ -16974,12 +17027,12 @@ let MB_SP_SINK=0.055;     // share of its own height driven under the sand
 // It is loaded the FIRST TIME Shop is pressed and never before. A hut nobody has walked over
 // to is four megabytes and ninety thousand triangles of nothing, and the title screen already
 // waits on a palm, a rider, a board, a chest and a signpost before it can show itself.
-let MB_TIKI_SIDE=7.20;    // feet to the camera's RIGHT of the trunk's axis — where the lens goes
+let MB_TIKI_SIDE=9.90;    // feet to the camera's RIGHT of the trunk's axis — where the lens goes
 let MB_TIKI_FWD =1.30;    // ...and this far in front of it — up the beach, not in the sea
 let MB_TIKI_H   =8.20;    // and this tall, in feet, measured rather than scaled by a number
-let MB_TIKI_SINK=0.030;   // share of its own height dug into the sand
+let MB_TIKI_SINK=0.085;   // share of its own height dug into the sand
 // how the lens gets there: right, forward, up a little, turned a little, over this long
-const SHOP_CAM={right:4.10, fwd:-1.90, rise:0.15, yaw:-0.355, secs:0.85};
+const SHOP_CAM={right:6.30, fwd:-1.20, rise:1.05, yaw:-0.355, secs:0.85};
 // ---- THE WORDS ARE PAINTED ON THE MODEL NOW ----
 // Every one of them — the fill colour, the dark contour, the size, where it sits on its board,
 // which way it runs — was HTML text laid over the sign and solved every frame from the arms'
@@ -32987,7 +33040,8 @@ function renderMenuBeach(dt){
   { const _sd=(typeof MB_FREEZE!=='undefined'&&MB_FREEZE)?0:dt;
     const step=_sd/Math.max(0.05,SHOP_CAM.secs);
     shopCamE = shopCamGo ? Math.min(1,shopCamE+step) : Math.max(0,shopCamE-step);
-    if(tikiHut){ if(shopCamE>0.0001)aimTiki(); tikiShow(shopCamE); } }
+    if(tikiHut){ if(shopCamE>0.0001)aimTiki(); tikiShow(shopCamE); }
+    layoutTikiButton(tikiHut?shopCamE:0); }
   // The board preview is shot at the renderer's own exposure and the menu was too, but the
   // menu is a whole beach rather than one object on a sweep — far more of it is sky and wet
   // light, and ACES pulls the top of that down hard. A tenth of a stop back is the
