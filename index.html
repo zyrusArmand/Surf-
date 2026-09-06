@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.35.0';
+window.SURF_VERSION='6.36.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -16856,7 +16856,7 @@ let menuSignModel=null, signPost=null;
 // looking at comes first, and by the time anyone has read seven boards and chosen one, a hut
 // has had several seconds it did not have to compete for. tikiWant survives the load so a
 // press that lands before the file does still opens the shop when it arrives.
-let tikiModel=null, tikiHut=null, _tikiAsked=0;
+let tikiModel=null, tikiHut=null, tikiTrees=null, _tikiAsked=0;
 function wantTiki(){
   if(_tikiAsked)return; _tikiAsked=1;
   if(typeof loadModel!=='function')return;
@@ -16896,7 +16896,24 @@ function placeTiki(){
   tikiHut.userData.h=Math.max(1e-4, bb.getSize(new THREE.Vector3()).y);
   tikiHut.visible=false;
   menuProps.add(tikiHut);
+  placeTikiTrees();
   aimTiki();
+}
+// Cloned off the palm that is already on the beach rather than loaded again: same geometry,
+// same materials, one more matrix. clone(true) shares materials by reference, which is a trap
+// everywhere something gets recoloured and is exactly what is wanted here — nothing about
+// these differs from the tree they came from except where they stand.
+function placeTikiTrees(){
+  if(tikiTrees||typeof menuPalm==='undefined'||!menuPalm||!menuProps)return;
+  tikiTrees=new THREE.Group();
+  for(const t of MB_TIKI_TREES){
+    const c=menuPalm.clone(true);
+    c.userData.tiki=t;
+    c.traverse(o=>{ if(o.isMesh){ o.castShadow=true; o.receiveShadow=true; } });
+    tikiTrees.add(c);
+  }
+  tikiTrees.visible=false;
+  menuProps.add(tikiTrees);
 }
 // Placed the way the signpost is, and for the same reasons — see aimSignpost. It stands on the
 // beach in the set's own axes, upright, turned to face the lens, sized in feet by measurement
@@ -16924,12 +16941,33 @@ function aimTiki(){
   const rest=(top!==null)?top:sand;
   tikiHut.position.y+=(rest-bb.min.y-(bs.y*MB_TIKI_SINK))/(menuProps.scale.y||1);
   tikiHut.updateMatrixWorld(true);
+  aimTikiTrees();
+}
+// Each stood on the sand where it is, at its own size and turn, so two clones of one tree do
+// not read as two copies of one tree.
+function aimTikiTrees(){
+  if(!tikiTrees||!menuProps)return;
+  const base=(typeof menuPalm!=='undefined'&&menuPalm)?menuPalm.scale.x:1;
+  for(const c of tikiTrees.children){
+    const t=c.userData.tiki; if(!t)continue;
+    const wx=_mbP.x+_mbR.x*t.side-_mbF.x*t.fwd;
+    const wz=_mbP.z+_mbR.z*t.side-_mbF.z*t.fwd;
+    const gy=(typeof beachSandH==='function'?beachSandH(wz/MB_K):(beachSand0||0))*MB_K;
+    const lp=_spP.set(wx,gy,wz); menuProps.worldToLocal(lp);
+    c.position.copy(lp);
+    c.rotation.set(0,t.turn,0);
+    c.scale.setScalar(base*t.scale);
+    c.updateMatrixWorld(true);
+  }
 }
 // shown only while the lens is over there, and faded with the move
 function tikiShow(e){
   if(!tikiHut)return;
   const on=e>0.004;
   tikiHut.visible=on;
+  // the trees come and go with it — they are scenery for this view and nothing else, and left
+  // standing they would be two palms in the middle of the title screen's beach
+  if(tikiTrees)tikiTrees.visible=on;
   if(!on)return;
   const o=Math.min(1,Math.max(0,(e-0.05)/0.45));
   // ---- and it stops being TRANSPARENT the moment it has finished arriving ----
@@ -16946,6 +16984,46 @@ function tikiShow(e){
       m.opacity=o;
       if(m.transparent===clear){ m.transparent=!clear; m.needsUpdate=true; }
     } });
+}
+// ---- and the SUN follows the lens over there ----
+// The hut cast nothing on the sand and the reason is not that it was not marked as a caster —
+// it is. The key light's shadow camera is a thirteen-foot box centred on the title set, sized
+// that tightly on purpose: the box IS the resolution, and every foot of it spent on sand
+// nobody can see is texels taken off the palm's fronds. The hut stands eighteen and a half
+// feet away, so it was simply outside the frustum, and a caster outside the frustum casts
+// nothing at all.
+// It is handed over rather than widened. At the shop the title set is not in shot — the lens
+// has turned ninety degrees away from it — so nothing is lost by aiming the same box at the
+// hut instead, and a box that covered both would be twice as wide and half as sharp for the
+// screen people actually spend their time on. The light MOVES with its target so the sun keeps
+// its direction; only what it is looking at changes. Everything is put back on the way home.
+let _shopShKeep=null;
+const _shopShV=new THREE.Vector3(), _shopShO=new THREE.Vector3();
+function shopShadow(e){
+  if(typeof prevKey==='undefined'||!prevKey||!prevKey.castShadow||!prevKey.shadow)return;
+  const sc=prevKey.shadow.camera; if(!sc)return;
+  const want=(e>0.30)&&!!tikiHut;
+  if(want){
+    if(!_shopShKeep){
+      _shopShKeep={t:prevKey.target.position.clone(), p:prevKey.position.clone(),
+                   l:sc.left, r:sc.right, tp:sc.top, b:sc.bottom};
+    }
+    // the offset from target to light IS the sun's direction; carry it across unchanged
+    _shopShO.copy(_shopShKeep.p).sub(_shopShKeep.t);
+    tikiHut.getWorldPosition(_shopShV);
+    prevKey.target.position.copy(_shopShV); prevKey.target.updateMatrixWorld();
+    prevKey.position.copy(_shopShV).add(_shopShO);
+    const half=15.5;
+    sc.left=-half; sc.right=half; sc.top=half; sc.bottom=-half;
+    sc.updateProjectionMatrix();
+  }else if(_shopShKeep){
+    prevKey.target.position.copy(_shopShKeep.t); prevKey.target.updateMatrixWorld();
+    prevKey.position.copy(_shopShKeep.p);
+    sc.left=_shopShKeep.l; sc.right=_shopShKeep.r;
+    sc.top=_shopShKeep.tp; sc.bottom=_shopShKeep.b;
+    sc.updateProjectionMatrix();
+    _shopShKeep=null;
+  }
 }
 // ---- and the counter takes a tap ----
 // Laid out from the hut's own projected box, the same way the seven boards are laid out from
@@ -17075,6 +17153,15 @@ let MB_TIKI_SIDE=14.928;    // feet to the camera's RIGHT of the trunk's axis �
 let MB_TIKI_FWD =10.876;    // ...and this far in front of it — up the beach, not in the sea
 let MB_TIKI_H   =8.20;    // and this tall, in feet, measured rather than scaled by a number
 let MB_TIKI_SINK=0.085;   // share of its own height dug into the sand
+// ---- and two palms stand behind it ----
+// The hut on bare dune had nothing to be in front of: an empty sky, an empty beach, and a
+// building floating in the middle of both. These are placed BEHIND it as seen from the shop's
+// own viewpoint, which is not a direction the set's axes name — the lens has turned ninety
+// degrees by then — so the positions are solved from that heading and written here in set axes
+// like everything else. They are the palm already standing on the title screen, cloned, so this
+// costs a matrix and not a download.
+let MB_TIKI_TREES=[{side:24.042, fwd:14.111, scale:1.00, turn:0.7},
+                   {side:26.971, fwd: 3.732, scale:0.86, turn:2.3}];
 // how the lens gets there: right, forward, up a little, turned a little, over this long
 // `rise` lifts the lens off the sand on the way over and `pitch` tilts it back down by the
 // amount that keeps the hut where it was — raise a camera without doing that and the subject
@@ -33193,7 +33280,8 @@ function renderMenuBeach(dt){
     const step=_sd/Math.max(0.05,SHOP_CAM.secs);
     shopCamE = shopCamGo ? Math.min(1,shopCamE+step) : Math.max(0,shopCamE-step);
     if(tikiHut){ if(shopCamE>0.0001)aimTiki(); tikiShow(shopCamE); }
-    layoutTikiButton(tikiHut?shopCamE:0); }
+    layoutTikiButton(tikiHut?shopCamE:0);
+    shopShadow(shopCamE); }
   // The board preview is shot at the renderer's own exposure and the menu was too, but the
   // menu is a whole beach rather than one object on a sweep — far more of it is sky and wet
   // light, and ACES pulls the top of that down hard. A tenth of a stop back is the
