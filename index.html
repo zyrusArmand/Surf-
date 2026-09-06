@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.26.0';
+window.SURF_VERSION='6.27.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -13585,10 +13585,29 @@ function setupModelRig(root,gltf,id){
   // modelled in. For this rig that is an A-pose with his arms out sideways, which is a
   // modelling convention and not a thing any animal does. Arms down, weight settled, and a
   // slow breath so he is not a statue either.
-  R.idle=function(dt){
+  // ---- and it can hand him to a clip without either of them snatching ----
+  // `auth` is how much of him this stance is entitled to on this frame, and it is the whole
+  // answer to the pop at the end of an animation. The stance writes every bone it cares about
+  // every frame; so does a clip. Whoever runs last wins the frame outright, so a clip that
+  // simply ends gives the stance back the entire skeleton between two frames — his hands are
+  // where the animator left them on one frame and where the stance wants them on the next.
+  // Scaling the EASE rather than the target is what makes the handover continuous: at 0 the
+  // stance does not touch him and the clip is all there is, at 1 it settles him exactly as it
+  // always did, and in between the two are genuinely mixed rather than taking turns.
+  // Defaulting to 1 keeps every existing caller — the shop card asks for idle(999) and means
+  // it — behaving as it did.
+  // `hard` says to treat `auth` as the MIX ITSELF rather than as a scale on the ease. The ease
+  // is right for settling him into the stance out of whatever a run left him in — it is a rate,
+  // and a rate has no idea where it started. It is wrong for crossfading against a clip, where
+  // what is wanted is a stated ratio of two poses on this frame and no memory at all. So a
+  // gesture asks for the mix and everything else keeps the ease.
+  R.idle=function(dt,auth,hard){
+    const A=(auth===undefined)?1:Math.max(0,Math.min(1,auth));
+    if(A<=0.002)return;                      // the clip owns him outright this frame
+    const _w=hard?A:Math.min(1,dt*6)*A;
     const q=new THREE.Quaternion(), e=new THREE.Euler();
     const set=(n,x,y,z)=>{ const b=this.bones[n], r=this.rest[n]; if(!b||!r)return;
-      e.set(x,y,z); q.setFromEuler(e).premultiply(r); b.quaternion.slerp(q,Math.min(1,dt*6)); };
+      e.set(x,y,z); q.setFromEuler(e).premultiply(r); b.quaternion.slerp(q,_w); };
     const T=(typeof tNow==='number'?tNow:0), br=Math.sin(T*1.25);
     // ARMS DOWN. The rig ships them out at shoulder height, so this is most of a right angle
     // at each shoulder — the single biggest difference between "modelled" and "standing".
@@ -13600,8 +13619,119 @@ function setupModelRig(root,gltf,id){
     set('LeftLeg',    0.10,0,0);    set('RightLeg',  0.10,0,0);
     set('Spine',      0.02+br*0.012,0,0);
     set('Head',      -0.04+br*0.02,0,0);
-    this.plant('LeftUpLeg','LeftLeg','LeftFoot',Math.min(1,dt*6));
-    this.plant('RightUpLeg','RightLeg','RightFoot',Math.min(1,dt*6));
+    this.plant('LeftUpLeg','LeftLeg','LeftFoot',_w);
+    this.plant('RightUpLeg','RightLeg','RightFoot',_w);
+  };
+  // ---- HE HAS A WORD WITH YOU, NOW AND AGAIN ----
+  // The full show below is off, and deliberately: those nine beats walk and run him clean
+  // across a composition that is laid out around where he stands. But the file ships a
+  // standing chat that was going entirely unused, and a character who never does anything
+  // reads as a still image of a character. So: one clip, on his mark, every few seconds.
+  //
+  // THE WHOLE PROBLEM HERE IS THE HANDOVER, not the playing. See the note on idle's `auth`.
+  // The clip is faded in and out on its own envelope and the stance is given exactly the
+  // authority the clip is not using, so control is never handed over — it is always shared, in
+  // a ratio that moves. The action is started at weight ZERO and faded up, because three.js
+  // snapshots the pose a clip blends back toward at the moment it goes live: start it at zero
+  // while he is standing and the weight means "this far from standing to chatting", which is a
+  // blend of two real poses. Start it at one and there is nothing to come back to.
+  //
+  // The fade OUT begins before the clip ends rather than after it, because the last thing
+  // worth blending out of is a frame that has already stopped moving.
+  const GEST={clip:'Stand_and_Chat', gap:[6.5,12.0], fadeIn:0.55, fadeOut:0.95, first:3.0};
+  R.gestA=null; R.gestT=GEST.first; R.gestE=0; R.gestD=0;
+  R.loiter=function(dt){
+    if(!this.gestA){
+      this.gestT-=dt;
+      if(this.gestT<=0){
+        const a=this.clip&&this.clip(GEST.clip);
+        if(a){
+          // ---- ONLY what is actually running gets stopped ----
+          // This stopped every other action outright, copied from the show's beat change where
+          // that is right. Here it was the entire bug. stop() does not merely disable an
+          // action: three.js drops the binding's use count with it, and the last one out
+          // RESTORES the pose that binding saved when it first went live — writing it straight
+          // onto the bones, that frame, at full strength. The handstand is armed at load, at
+          // weight zero and paused, against the model's rest pose; stopping it here therefore
+          // stamped the rest pose over the standing one, which measured as 0.163ft of hand in a
+          // single frame on the first gesture of a session and nothing on any after it, because
+          // by then the binding had been re-saved against the stance. A paused action at zero
+          // weight contributes nothing anyway, so there was never anything to gain by it.
+          for(const k in this.clips){ const c=this.clips[k];
+            if(c!==a&&c!==this.stand&&c.isRunning&&c.isRunning())c.stop(); }
+          a.reset(); a.setLoop(THREE.LoopOnce,1); a.clampWhenFinished=true;
+          a.timeScale=1; a.setEffectiveWeight(1); a.play();
+          this.gestA=a; this.gestE=0; this.gestD=Math.max(0.2,a.getClip().duration);
+          // ---- and the pose to come BACK to is taken here, off every bone ----
+          // The stance names ten bones. The clip drives twenty-four channels, so the shoulders,
+          // the spine above the first joint, the neck and the hips are moved by the animation
+          // and by nothing else — which is why blending the stance against the clip still left
+          // a jump: the bones the stance never mentions were not being blended at all, they
+          // were simply taking the clip's first frame whole. Measured, that alone was 0.566ft
+          // of hand on the opening frame of the first gesture, and nearly nothing on the
+          // second, because by then those bones had been left where the last gesture put them.
+          // Snapshotting the whole skeleton makes the crossfade cover everything the clip can
+          // touch, whether the stance has an opinion about it or not.
+          this.gestFrom=[];
+          for(const n in this.bones){ const b=this.bones[n];
+            if(b&&b.quaternion)this.gestFrom.push([b,b.quaternion.clone()]); }
+          // No special first frame, and that is deliberate. Two goes at making the opening
+          // frame safe by hand — waking the mixer with a zero step, letting the stance have
+          // that one frame outright — each fixed the first gesture of a session and broke the
+          // second, or the other way round, because both were reasoning about WHICH pose
+          // three.js had snapshotted rather than removing the question. It falls straight
+          // through into the block below instead, on elapsed time of exactly zero, where the
+          // envelope is zero and the stance is applied at full strength — so whatever the
+          // mixer just wrote is completely overwritten on the frame it is written, every time,
+          // without anything here needing to know what it was.
+        }else{
+          // this rider does not carry it — ask again in a while rather than every frame
+          this.gestT=6;
+        }
+      }
+    }
+    let w=0, mixing=false;
+    if(this.gestA){
+      mixing=true;
+      // Read BEFORE the clock advances, so the frame a gesture is created is a frame at zero
+      // elapsed and therefore at zero envelope. See the note in the start block.
+      const t=this.gestE, D=this.gestD;
+      w = t<GEST.fadeIn            ? t/GEST.fadeIn
+        : t>D-GEST.fadeOut         ? Math.max(0,(D-t)/GEST.fadeOut)
+        : 1;
+      this.gestE+=dt;
+      // ---- FULL WEIGHT, ALWAYS: the fade is not the mixer's job ----
+      // Fading the action's own weight is the obvious way to do this and it is the wrong one
+      // here. A sub-one weight in three.js does not blend toward the pose on screen, it blends
+      // toward the one the binding SNAPSHOTTED when it first went live — and the handstand is
+      // armed at load, against the model's rest pose, so that is the pose every partial weight
+      // reached for. Measured, the first frame of a fade-in threw his hands 0.177ft toward an
+      // A-pose before the gesture had started. At weight one the mixer writes the clip and
+      // nothing but the clip, and the crossfade is done below where both poses are real.
+      this.gestA.setEffectiveWeight(1);
+      this.mixer.update(dt);
+      // ...and he does it ON THE SPOT. The chat's root drifts the way any authored clip's
+      // does, and on a title screen there is nowhere for him to go. Same cancellation the
+      // show uses, for the same reason, and taken every frame rather than corrected after.
+      if(this.hipHome&&this.bones&&this.bones.Hips){
+        this.bones.Hips.position.x=this.hipHome.x;
+        this.bones.Hips.position.z=this.hipHome.z;
+      }
+      // the crossfade itself: every bone pulled back toward the pose he was standing in, by
+      // however much of him the clip has not been given yet
+      if(this.gestFrom&&w<0.999){ const k=1-w;
+        for(let i=0;i<this.gestFrom.length;i++)
+          this.gestFrom[i][0].quaternion.slerp(this.gestFrom[i][1],k); }
+      if(t>=D){
+        this.gestA.stop(); this.gestA=null; this.gestFrom=null; w=0;
+        this.gestT=GEST.gap[0]+Math.random()*(GEST.gap[1]-GEST.gap[0]);
+      }
+    }
+    this.gestW=w;
+    // Mixing while a gesture is live, and on the frame one ends: stopping an action restores
+    // the pose its binding saved, so the stance has to be applied at full strength that frame
+    // to write over it. Every other frame keeps the ordinary ease.
+    return mixing ? this.idle(dt,1-w,true) : this.idle(dt);
   };
   // ---- the title screen show ----
   // He used to stand on the beach doing nothing, because the only thing driving him was a
@@ -13930,7 +14060,10 @@ function setupModelRig(root,gltf,id){
     // walk, the handstand, the run at the lens.
     // Same path a model with no clips at all already takes, so this is a route the show was
     // built to handle rather than a new one bolted on.
-    if(!this.clips||!MB_AUTOPLAY){ const r=this.idle&&this.idle(dt); hold(); return r; }
+    // ...but he is not a statue while it is off. loiter keeps him on his mark and plays the
+    // standing chat every few seconds, blended both ways — see GEST.
+    if(!this.clips||!MB_AUTOPLAY){
+      const r=this.loiter?this.loiter(dt):(this.idle&&this.idle(dt)); hold(); return r; }
     const start=i=>{
       const st=SHOW[i], a=this.clip(st.clip);
       if(!a)return 0;
@@ -24647,6 +24780,19 @@ if(location.hash.includes('debug')){
     // what the Stage can actually pick up. A prop that never made it into this list is a prop
     // whose five-second hold does nothing, and from the outside that is indistinguishable from
     // the tool being broken — so the list is worth being able to read without a touchscreen.
+    // the gesture, and where his hands actually are. The pop this was written to avoid is a
+    // one-frame jump, and a one-frame jump is invisible in a screenshot and obvious in a
+    // number: sample the hands every frame and the bad version shows a step an order of
+    // magnitude bigger than anything the animator drew.
+    gesture(){ const r=(typeof riderRig==='function')?riderRig():null;
+      if(!r||!r.bones)return null;
+      const P=n=>{ const b=r.bones[n]; if(!b)return null;
+        const v=b.getWorldPosition(new THREE.Vector3());
+        return [+v.x.toFixed(4),+v.y.toFixed(4),+v.z.toFixed(4)]; };
+      return {on:!!r.gestA, w:+(r.gestW||0).toFixed(3),
+              t:+((r.gestE||0)).toFixed(2), dur:+((r.gestD||0)).toFixed(2),
+              next:+((r.gestT||0)).toFixed(2),
+              lh:P('LeftHand'), rh:P('RightHand'), head:P('Head')}; },
     stageList(){ return stageTargets().map(t=>t.n); },
     // how far each thing on the beach is from the lens. Composition on this screen is mostly a
     // question of what is in front of what, and that is not answerable by eye from a render:
