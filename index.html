@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.37.0';
+window.SURF_VERSION='6.38.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -9924,6 +9924,14 @@ document.getElementById('dBoard').onclick   =()=>{ buzz(8); openGuide(); };
 document.getElementById('dShop').onclick    =()=>{
   buzz(8);
   if(typeof wantTiki==='function')wantTiki();
+  // ---- and if the hut is not here yet, do not walk to where it is not ----
+  // Belt as well as braces. The arrow now gets you back from an empty dune, but the better
+  // answer is not to send you to one: the hut is five megabytes fetched in the background, and
+  // on mobile data most of the first minute is spent without it. Pressing Shop in that window
+  // used to turn the lens ninety degrees onto bare sand. It opens the panel directly instead —
+  // which is exactly what Shop did before any of this existed, so the worst case is the old
+  // behaviour rather than a broken new one, and nobody waits on a download to buy a board.
+  if(!tikiHut){ openShopOn('boards'); return; }
   shopCamGo=1;
 };
 // ---- and the shop opens from the HUT, not from the walk ----
@@ -17035,9 +17043,16 @@ function shopShadow(e){
 const _tkV=new THREE.Vector3();
 function layoutTikiButton(e){
   const el=document.getElementById('dTiki'), bk=document.getElementById('dBack');
-  // the way out appears and goes with the way in, so there is never a counter you cannot
-  // leave nor an arrow pointing back from the middle of the walk
-  if(bk)bk.style.visibility=(tikiHut&&e>=0.55)?'':'hidden';
+  // ---- THE WAY BACK DOES NOT DEPEND ON THE HUT ----
+  // It did, and that was a trap with no floor under it. The hut is five megabytes fetched in
+  // the background; press Shop before it lands — which on a phone on mobile data is most of the
+  // first minute — and the lens turns its ninety degrees to a bare dune with the title screen
+  // now behind it, no counter to tap, and, because this line asked for the hut too, no arrow
+  // either. Nothing on the screen did anything. The only way out was to reload the game.
+  // The arrow is the way back out of a CAMERA MOVE, and the camera moves whether or not a
+  // model has arrived, so that is the only thing it may ask about. The counter still waits for
+  // the hut, because a hit area over a building that is not there is worse than none.
+  if(bk)bk.style.visibility=(e>=0.55)?'':'hidden';
   if(!el)return;
   if(!tikiHut||!menuCam||e<0.55){ el.style.visibility='hidden'; return; }
   menuCam.updateMatrixWorld(true); tikiHut.updateMatrixWorld(true);
@@ -33285,7 +33300,9 @@ function renderMenuBeach(dt){
     const step=_sd/Math.max(0.05,SHOP_CAM.secs);
     shopCamE = shopCamGo ? Math.min(1,shopCamE+step) : Math.max(0,shopCamE-step);
     if(tikiHut){ if(shopCamE>0.0001)aimTiki(); tikiShow(shopCamE); }
-    layoutTikiButton(tikiHut?shopCamE:0);
+    // the real progress, always — passing zero when the hut is missing was the other half of
+    // the trap above, and it hid the arrow before the function could even be asked
+    layoutTikiButton(shopCamE);
     shopShadow(shopCamE); }
   // The board preview is shot at the renderer's own exposure and the menu was too, but the
   // menu is a whole beach rather than one object on a sweep — far more of it is sky and wet
