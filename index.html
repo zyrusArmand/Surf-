@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.28.0';
+window.SURF_VERSION='6.29.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -355,15 +355,47 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
        carry are still scoped to .hbtn.hb-play for the game-over card's buttons. */
     color:transparent;
   }
-    /* pressed, a cut gets DEEPER — the shadow wall widens and the lit lip narrows. It does not
-     move, because a groove in a plank cannot; the old scale() was a button being pushed. */
+    /* ---- pressing a board lights it ----
+     The old rule here deepened the carved lettering on press, which was right while the words
+     were drawn in HTML. They are painted on the model now and these are invisible hit areas
+     over them, so every one of those declarations addressed something that is no longer drawn:
+     a press did nothing at all, and a press that does nothing reads as a button you missed.
+     A WASH, not a fill and not an outline. The target is an upright rectangle rotated onto an
+     arrow-shaped plank, so anything with an edge — a border, a panel, a rounded box — shows its
+     own corners hanging off the tip and the tail of the board. A radial that fades to nothing
+     well inside the box never reaches an edge to show one.
+     And not a transform: the layout writes transform inline every frame to place and angle the
+     target, and an inline style beats anything set here, so a scale or a nudge would silently
+     do nothing. Warm rather than white, so it reads as the board catching the low sun rather
+     than a grey panel dropped over the paint. */
   #homeDial .hbtn:active {
-    transform:none; background:none; box-shadow:none;
-    color:#d8ae63;
-    text-shadow:
-      -1.5px -1.6px 1.6px rgba(14,6,0,.98),
-       0.7px 0.8px 0 rgba(255,232,186,.16),
-       0 0 8px rgba(14,6,0,.6);
+    /* Sized to the BOARD, not to the box. The tap target is deliberately about half again the
+       plank's thickness, because a thumb is wider than a plank — so a wash that fills the box
+       lights up the neighbours above and below as well, which is worse than no feedback: it
+       says you pressed the wrong thing. These radii keep it inside the timber. */
+    /* ---- and the OLD pressed disc has to be turned off here, not upstream ----
+       There is an earlier `#homeDial .hbtn:active` from the glass-disc dial that still sets a
+       box-shadow: a bright inset top edge and a wide pale inner glow. The base rule turns it
+       off, but a base rule cannot beat a rule carrying :active, so on every press that disc
+       came back — a hard rectangle the size of the tap target with a lit rim, tilted with the
+       plank, which is what a press actually looked like. Declaring these here is what removes
+       it, because only a rule at this specificity can. The blur goes with it for the same
+       reason: .glass is still on these elements and its backdrop-filter is disabled in the base
+       rule alone. */
+    box-shadow:none; border:0;
+    -webkit-backdrop-filter:none; backdrop-filter:none;
+    background:radial-gradient(46% 32% at 50% 50%,
+                 rgba(255,247,210,.62) 0%, rgba(255,240,180,.36) 46%,
+                 rgba(255,236,160,.13) 74%, rgba(255,236,160,0) 100%);
+  }
+  /* A pointer press on a <button> also draws the browser's focus ring, and on these that ring
+     is a hard white rectangle the size of the tap target — which is bigger than the plank and
+     square to the screen rather than to the board, so it reads as a bug rather than as a press.
+     It never appears on a touchscreen, which is where this game is played, and it took a
+     desktop test to see it at all. Suppressed for pointer presses only: :focus-visible still
+     gets its ring, so anything driven from a keyboard keeps the outline it needs. */
+  #homeDial .hbtn:focus:not(:focus-visible) { outline:none; }
+  #homeDial .hbtn::-moz-focus-inner { border:0; }
   }
     /* ---- the home dial is teal glass with gold on it ---- */
   /* Scoped to .hbtn on purpose, not folded into .glass. The ride's controls share that class and
@@ -9390,6 +9422,9 @@ function shopCard(item,have,on,buy,use,thumb,stats,kind){
 // the pictures are taken one per frame afterwards, so the list is scrollable while
 // they arrive and an already-cached shot fills in immediately.
 let shopFillId=0, shopMenuWasUp=false;
+// how far the lens has walked toward the tiki shop (0 home, 1 there), and where it is
+// headed. `var`, because the render loop reads them from thousands of lines above here.
+var shopCamE=0, shopCamGo=0, _shopWalk=null;
 // ---- only photograph what somebody is looking at ----
 // This walked the whole rack the moment the shop opened: forty-seven boards, each one a
 // render into an off-screen target followed by readRenderTargetPixels — which is a
@@ -9863,7 +9898,20 @@ function openShopOn(tab){
   shop.classList.remove('hidden');
 }
 document.getElementById('dBoard').onclick   =()=>{ buzz(8); openGuide(); };
-document.getElementById('dShop').onclick    =()=>{ buzz(8); openShopOn('boards'); };
+// ---- Shop is somewhere you GO ----
+// The hut is asked for on this press and never before it, the lens starts over to it, and the
+// panel opens when the move lands. openShopOn is untouched and still does everything it did —
+// this is a beat in front of it.
+// The wait is the move's own length plus a breath, not a number picked to feel right: tie it to
+// SHOP_CAM.secs and retiming the move retimes this with it, which is the failure that leaves a
+// panel opening over a camera still sliding.
+document.getElementById('dShop').onclick    =()=>{
+  buzz(8);
+  if(typeof wantTiki==='function')wantTiki();
+  shopCamGo=1;
+  clearTimeout(_shopWalk);
+  _shopWalk=setTimeout(()=>openShopOn('boards'), SHOP_CAM.secs*1000+140);
+};
 document.getElementById('dPlay').onclick    =()=>{ buzz(12); startBtn.click(); };
 const questsPanel=document.getElementById('quests'), setPanel=document.getElementById('settings');
 // Watched rather than hooked into each open and close. There are four of these and several
@@ -9998,6 +10046,10 @@ document.getElementById('vClose').onclick=closeViewer;
 document.getElementById('shopClose').onclick=()=>{
   shop.classList.add('hidden');
   if(shopMenuWasUp)overlay.classList.remove('hidden');
+  // ...and the lens walks back. Cleared here rather than on every path that can close the
+  // shop, because this is the one the player actually uses; the frame loop eases it home from
+  // wherever it had got to, so an interrupted walk is not a state that has to be handled.
+  clearTimeout(_shopWalk); shopCamGo=0;
 };
 
 // ---------- the panel behind the version number ----------
@@ -10346,6 +10398,8 @@ function stageTargets(){
   // it fills, how far it leans — are the ones hardest to guess at a desk and easiest to find by
   // dragging. aimSignpost stands down while it is held; see the mark there.
   add('signpost', typeof signPost!=='undefined'?signPost:null);
+  // only there once somebody has been to the shop, which is exactly when it is worth dragging
+  add('tiki', typeof tikiHut!=='undefined'?tikiHut:null);
   return out;
 }
 // Nearest of the six under the finger, rather than the nearest thing in the scene: the sand
@@ -16769,6 +16823,81 @@ loadModel('sign.glb',(s3)=>{ signModel=s3; placeBeachSign(); });
 // placement code; it was measuring in one unit and drawing in another.
 // Dequantized the file is 3.7 MB rather than 2.4, and every box in the game means feet again.
 let menuSignModel=null, signPost=null;
+// ---- the tiki shop, fetched only when somebody goes there ----
+// Asked for on the first press of Shop and never on its own. loadModel is the priority queue
+// the title screen uses, and this deliberately does NOT jump it: the beach the player is
+// looking at comes first, and by the time anyone has read seven boards and chosen one, a hut
+// has had several seconds it did not have to compete for. tikiWant survives the load so a
+// press that lands before the file does still opens the shop when it arrives.
+let tikiModel=null, tikiHut=null, _tikiAsked=0;
+function wantTiki(){
+  if(_tikiAsked)return; _tikiAsked=1;
+  if(typeof loadModel!=='function')return;
+  loadModel('tikihut.glb',(s)=>{ tikiModel=s; placeTiki(); },2);
+}
+function placeTiki(){
+  if(!tikiModel||typeof menuProps==='undefined'||!menuProps||tikiHut)return;
+  const inner=cloneModel(tikiModel);
+  inner.traverse(o=>{ if(!o.isMesh||!o.material)return;
+    // cloned, because cloneModel shares materials by reference and this dulls them
+    o.material=Array.isArray(o.material)?o.material.map(m=>m&&m.clone()):o.material.clone();
+    for(const mt of (Array.isArray(o.material)?o.material:[o.material])){
+      if(!mt)continue;
+      if(mt.roughness!==undefined){ mt.roughness=Math.max(mt.roughness,0.86); mt.metalness=0; }
+      mt.envMapIntensity=0.15;
+      // faded in rather than popped in: it may finish loading while the lens is already on
+      // its way over, and a hut that appears between two frames undoes the whole move
+      mt.transparent=true; mt.opacity=0;
+      mt.needsUpdate=true; }
+  });
+  tikiHut=new THREE.Group();
+  tikiHut.add(inner);
+  inner.updateMatrixWorld(true);
+  const bb=visBox(inner), c=bb.getCenter(new THREE.Vector3());
+  inner.position.sub(c);
+  tikiHut.userData.h=Math.max(1e-4, bb.getSize(new THREE.Vector3()).y);
+  tikiHut.visible=false;
+  menuProps.add(tikiHut);
+  aimTiki();
+}
+// Placed the way the signpost is, and for the same reasons — see aimSignpost. It stands on the
+// beach in the set's own axes, upright, turned to face the lens, sized in feet by measurement
+// and seated on the ground that is actually drawn.
+function aimTiki(){
+  if(!tikiHut||typeof menuCam==='undefined'||!menuCam)return;
+  if(tikiHut.userData.stageHeld){ tikiHut.updateMatrixWorld(true); return; }
+  if(typeof menuProps==='undefined'||!menuProps||typeof mbAxes!=='function')return;
+  menuCam.updateMatrixWorld(true);
+  menuProps.updateWorldMatrix(true,false);
+  const pscl=Math.max(1e-6, tikiHut.parent.getWorldScale(_spV).x);
+  mbAxes();
+  const wx=_mbP.x+_mbR.x*MB_TIKI_SIDE-_mbF.x*MB_TIKI_FWD;
+  const wz=_mbP.z+_mbR.z*MB_TIKI_SIDE-_mbF.z*MB_TIKI_FWD;
+  _spV2.copy(menuCam.position); menuProps.worldToLocal(_spV2);
+  const lp=_spP.set(wx,0,wz); menuProps.worldToLocal(lp);
+  tikiHut.rotation.set(0, Math.atan2(_spV2.x-lp.x, _spV2.z-lp.z), 0);
+  tikiHut.scale.setScalar(MB_TIKI_H/Math.max(1e-4, tikiHut.userData.h*pscl));
+  const sand=(typeof beachSandH==='function'?beachSandH(wz/MB_K):(beachSand0||0))*MB_K;
+  tikiHut.position.copy(lp);
+  tikiHut.updateMatrixWorld(true);
+  const bb=visBox(tikiHut), bs=bb.getSize(_spV);
+  const foot=Math.max(bs.x,bs.z)*0.5;
+  const top=(typeof groundTopOver==='function')?groundTopOver(wx,wz,foot):null;
+  const rest=(top!==null)?top:sand;
+  tikiHut.position.y+=(rest-bb.min.y-(bs.y*MB_TIKI_SINK))/(menuProps.scale.y||1);
+  tikiHut.updateMatrixWorld(true);
+}
+// shown only while the lens is over there, and faded with the move
+function tikiShow(e){
+  if(!tikiHut)return;
+  const on=e>0.004;
+  tikiHut.visible=on;
+  if(!on)return;
+  const o=Math.min(1,Math.max(0,(e-0.05)/0.45));
+  tikiHut.traverse(x=>{ if(!x.isMesh||!x.material)return;
+    for(const m of (Array.isArray(x.material)?x.material:[x.material]))
+      if(m)m.opacity=o; });
+}
 loadModel('menusign.glb',(s3)=>{ menuSignModel=s3; placeSignpost(); },0);
 // Where each arm sits up the post, measured off the geometry rather than guessed: the vertex
 // cloud was banded by height and the seven bands whose horizontal spread is much wider than
@@ -16837,6 +16966,20 @@ let MB_SP_SIDE=3.23;      // feet to the camera's LEFT of the trunk's axis
 let MB_SP_FWD =5.60;      // ...and this far in front of it, out ahead of the chest
 let MB_SP_H   =6.40;      // and this tall, in feet, measured rather than scaled by a number
 let MB_SP_SINK=0.055;     // share of its own height driven under the sand
+// ---- THE SHOP IS A PLACE ON THIS BEACH, not a screen that replaces it ----
+// Pressing Shop used to cut: the beach was torn down and a panel appeared. So the hut stands
+// further along the sand and the lens walks over to it, which turns the shop from a menu into
+// somewhere you go. The panel still opens at the end of the move and still works exactly as it
+// did — this is a beat in front of it, not a replacement for it.
+// It is loaded the FIRST TIME Shop is pressed and never before. A hut nobody has walked over
+// to is four megabytes and ninety thousand triangles of nothing, and the title screen already
+// waits on a palm, a rider, a board, a chest and a signpost before it can show itself.
+let MB_TIKI_SIDE=7.20;    // feet to the camera's RIGHT of the trunk's axis — where the lens goes
+let MB_TIKI_FWD =1.30;    // ...and this far in front of it — up the beach, not in the sea
+let MB_TIKI_H   =8.20;    // and this tall, in feet, measured rather than scaled by a number
+let MB_TIKI_SINK=0.030;   // share of its own height dug into the sand
+// how the lens gets there: right, forward, up a little, turned a little, over this long
+const SHOP_CAM={right:4.10, fwd:-1.90, rise:0.15, yaw:-0.355, secs:0.85};
 // ---- THE WORDS ARE PAINTED ON THE MODEL NOW ----
 // Every one of them — the fill colour, the dark contour, the size, where it sits on its board,
 // which way it runs — was HTML text laid over the sign and solved every frame from the arms'
@@ -24828,6 +24971,13 @@ if(location.hash.includes('debug')){
           if(v!==undefined)sh.uniforms.uRimK.value=v;
           out.push(+sh.uniforms.uRimK.value.toFixed(3)); } });
       return out; },
+    // the walk over to the tiki shop: how far along it is, and a way to drive it without the
+    // panel opening on top of the thing being looked at
+    shopWalk(go){ if(go!==undefined)shopCamGo=go?1:0;
+      return {e:+shopCamE.toFixed(3), go:shopCamGo,
+              loaded:!!tikiHut, asked:!!_tikiAsked,
+              visible:tikiHut?tikiHut.visible:null,
+              at:tikiHut?tikiHut.getWorldPosition(new THREE.Vector3()).toArray().map(v=>+v.toFixed(2)):null}; },
     stageList(){ return stageTargets().map(t=>t.n); },
     // how far each thing on the beach is from the lens. Composition on this screen is mostly a
     // question of what is in front of what, and that is not answerable by eye from a render:
@@ -32649,6 +32799,26 @@ function renderMenuBeach(dt){
       Math.min(MB_CAM_DOLLY_MAX,
         Math.max(0,(menuCam.aspect||MB_CAM_ASP)-MB_CAM_ASP)*MB_CAM_DOLLY));
   }
+  // ---- and it walks over to the shop ----
+  // Applied here, after the staged pose and the dolly and before the stage's own lens, because
+  // this is an offset FROM the shot rather than a shot of its own: whatever the staged pose and
+  // the aspect walk-in have just decided, the move to the hut is measured from there, so it
+  // arrives in the same relation to the set on every screen shape.
+  // Smoothstepped rather than linear. A camera that starts and stops at full speed reads as a
+  // cut with the frames left in; the ease at both ends is the whole difference between the lens
+  // being carried over and being dragged.
+  // Taken along the lens's OWN flattened axes, so "right and a bit forward" means what it looks
+  // like from the chair rather than what it means to the world's x and z.
+  if(shopCamE>0.0001){
+    const e=shopCamE*shopCamE*(3-2*shopCamE);
+    const f=new THREE.Vector3(0,0,-1).applyQuaternion(menuCam.quaternion); f.y=0;
+    if(f.lengthSq()<1e-8)f.set(0,0,-1); else f.normalize();
+    menuCam.position.addScaledVector(new THREE.Vector3(-f.z,0,f.x),SHOP_CAM.right*e)
+                    .addScaledVector(f,SHOP_CAM.fwd*e);
+    menuCam.position.y+=SHOP_CAM.rise*e;
+    menuCam.quaternion.setFromEuler(
+      _stEul.set(MB_CAM_PITCH,MB_CAM_YAW+SHOP_CAM.yaw*e,0,'YXZ'));
+  }
   // the stage's own lens — see stCamFree. Held through Done as well as during, which is why the
   // condition is the lens itself rather than whether the bar happens to be on the screen.
   if(typeof stCamFree!=='undefined'&&stCamFree&&
@@ -32809,6 +32979,15 @@ function renderMenuBeach(dt){
     // old plank fit too expensive to do every frame.
     if(signPost.visible){ aimSignpost(); layoutSignButtons(); }
   }
+  // ---- the walk to the shop, one step per frame ----
+  // On the MENU's own clock, so a frozen title screen does not creep across the sand. Advanced
+  // here rather than in the camera block because the camera runs before this and would spend a
+  // frame behind; and clamped rather than eased toward the target, so the move always takes
+  // SHOP_CAM.secs whatever the frame rate is doing.
+  { const _sd=(typeof MB_FREEZE!=='undefined'&&MB_FREEZE)?0:dt;
+    const step=_sd/Math.max(0.05,SHOP_CAM.secs);
+    shopCamE = shopCamGo ? Math.min(1,shopCamE+step) : Math.max(0,shopCamE-step);
+    if(tikiHut){ if(shopCamE>0.0001)aimTiki(); tikiShow(shopCamE); } }
   // The board preview is shot at the renderer's own exposure and the menu was too, but the
   // menu is a whole beach rather than one object on a sweep — far more of it is sky and wet
   // light, and ACES pulls the top of that down hard. A tenth of a stop back is the
