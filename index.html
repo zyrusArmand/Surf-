@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.34.0';
+window.SURF_VERSION='6.35.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -16860,7 +16860,7 @@ let tikiModel=null, tikiHut=null, _tikiAsked=0;
 function wantTiki(){
   if(_tikiAsked)return; _tikiAsked=1;
   if(typeof loadModel!=='function')return;
-  loadModel('tikihut.glb',(s)=>{ tikiModel=s; placeTiki(); },2);
+  loadModel('tikihut.glb',(s)=>{ tikiModel=s; placeTiki(); },4);   // last in the queue, always
 }
 function placeTiki(){
   if(!tikiModel||typeof menuProps==='undefined'||!menuProps||tikiHut)return;
@@ -16871,11 +16871,22 @@ function placeTiki(){
     for(const mt of (Array.isArray(o.material)?o.material:[o.material])){
       if(!mt)continue;
       if(mt.roughness!==undefined){ mt.roughness=Math.max(mt.roughness,0.86); mt.metalness=0; }
-      mt.envMapIntensity=0.15;
+      // ---- and it is given somewhere to go ----
+      // Pale straw under a low sun on white sand has nowhere left to brighten: the map arrives
+      // near the top of the range, the beach's fill lifts it further, and ACES rolls the result
+      // toward white — so the roof, the posts and the counter all landed on the same value and
+      // the thing read as a cut-out. Taking the albedo down is not making it darker for its own
+      // sake, it is making room above it, and the shading that was always there comes back.
+      // The sky fill comes down with it: a hut is thatch and bamboo, and 0.15 of a bright
+      // environment on a matte surface is mostly just more of the same lift.
+      if(mt.color)mt.color.multiplyScalar(0.74);
+      mt.envMapIntensity=0.06;
       // faded in rather than popped in: it may finish loading while the lens is already on
       // its way over, and a hut that appears between two frames undoes the whole move
       mt.transparent=true; mt.opacity=0;
       mt.needsUpdate=true; }
+    // the sun has to know about it, and it is built long after the beach decided who casts
+    o.castShadow=true; o.receiveShadow=true;
   });
   tikiHut=new THREE.Group();
   tikiHut.add(inner);
@@ -16921,9 +16932,20 @@ function tikiShow(e){
   tikiHut.visible=on;
   if(!on)return;
   const o=Math.min(1,Math.max(0,(e-0.05)/0.45));
+  // ---- and it stops being TRANSPARENT the moment it has finished arriving ----
+  // The fade needs transparency; everything after it is harmed by it. A transparent material
+  // leaves the opaque pass, is sorted per object rather than per pixel, and stops taking part
+  // properly in the depth the shadows are resolved from — on a building with a deep roof over
+  // an open counter that is most of its modelling, and it is why this read as one flat pale
+  // shape rather than a lit thatched box. Flipped rather than left on, so it is only ever
+  // transparent while it is actually part-way in.
+  const clear=(o>=0.999);
   tikiHut.traverse(x=>{ if(!x.isMesh||!x.material)return;
-    for(const m of (Array.isArray(x.material)?x.material:[x.material]))
-      if(m)m.opacity=o; });
+    for(const m of (Array.isArray(x.material)?x.material:[x.material])){
+      if(!m)continue;
+      m.opacity=o;
+      if(m.transparent===clear){ m.transparent=!clear; m.needsUpdate=true; }
+    } });
 }
 // ---- and the counter takes a tap ----
 // Laid out from the hut's own projected box, the same way the seven boards are laid out from
@@ -25139,7 +25161,14 @@ if(location.hash.includes('debug')){
       return {e:+shopCamE.toFixed(3), go:shopCamGo,
               loaded:!!tikiHut, asked:!!_tikiAsked,
               visible:tikiHut?tikiHut.visible:null,
-              at:tikiHut?tikiHut.getWorldPosition(new THREE.Vector3()).toArray().map(v=>+v.toFixed(2)):null}; },
+              at:tikiHut?tikiHut.getWorldPosition(new THREE.Vector3()).toArray().map(v=>+v.toFixed(2)):null,
+              mats:(()=>{ if(!tikiHut)return null;
+                const o={mesh:0,cast:0,recv:0,clear:0,op:0};
+                tikiHut.traverse(x=>{ if(!x.isMesh)return; o.mesh++;
+                  if(x.castShadow)o.cast++; if(x.receiveShadow)o.recv++;
+                  for(const m of [].concat(x.material)){ if(!m)continue;
+                    if(!m.transparent)o.clear++; o.op=+m.opacity.toFixed(2); } });
+                return o; })()}; },
     stageList(){ return stageTargets().map(t=>t.n); },
     // how far each thing on the beach is from the lens. Composition on this screen is mostly a
     // question of what is in front of what, and that is not answerable by eye from a render:
@@ -30603,6 +30632,11 @@ function menuBeachOn(){
   casts(menuBeach&&menuBeach.board);
   casts(typeof beachChest!=='undefined'?beachChest:null);
   casts(typeof beachSign!=='undefined'?beachSign:null);
+  // ...and the shop hut, which was left out and looked it: no shadow under the eaves, none
+  // thrown on the sand, and nothing of the roof falling across the counter, so a deep thatched
+  // box lit from one side came out as an evenly pale silhouette. It is not built when this
+  // first runs — it is fetched later — so it is marked again when it is placed.
+  casts(typeof tikiHut!=='undefined'?tikiHut:null);
   if(beachSand)beachSand.receiveShadow=true;
   // The board on this beach is standing under a noon sky over hot pale sand, which is a
   // different world from the one the ride reflects — bluer above, far brighter at the
@@ -32754,6 +32788,15 @@ function renderMenuBeach(dt){
       // and the loading screen can go now, but not before: this is the frame the beach starts
       // fading in on, and leaving any earlier shows the thing it was put up to hide
       if(typeof Boot!=='undefined')Boot.painted=true;
+      // ---- and the shop hut is fetched NOW, not when Shop is pressed ----
+      // Asking for it on the press was too late by seconds: it is five megabytes, and the walk
+      // over is under a second, so the lens arrived and then the hut faded up in front of you —
+      // which is the one thing the fade was written to prevent. It is asked for here instead,
+      // the moment the title screen has finished arriving, at the back of the queue: nothing
+      // the player is currently looking at is waiting on it, and by the time anyone has read
+      // seven boards and chosen one it has been there for a while. Still not fetched on a page
+      // that never reaches the menu, which was the point of not shipping it up front.
+      setTimeout(()=>{ if(typeof wantTiki==='function')wantTiki(); },900);
       setTimeout(()=>{ cv.style.transition=ov.style.transition=vr.style.transition=''; },420);
     });
   }
