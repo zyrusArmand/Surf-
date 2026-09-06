@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.38.0';
+window.SURF_VERSION='6.39.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -16953,9 +16953,23 @@ function aimTiki(){
 }
 // Each stood on the sand where it is, at its own size and turn, so two clones of one tree do
 // not read as two copies of one tree.
+const _tkF=new THREE.Vector3(), _tkQ=new THREE.Quaternion(), _tkW=new THREE.Quaternion(),
+      _tkY=new THREE.Vector3(0,1,0);
 function aimTikiTrees(){
   if(!tikiTrees||!menuProps)return;
   const base=(typeof menuPalm!=='undefined'&&menuPalm)?menuPalm.scale.x:1;
+  // the lens's forward, flattened and brought into the group's own space — the lean has to be
+  // taken about the axis pointing away from the viewer or it is not a lean on the screen, and
+  // this group carries a turn of its own, so a world axis would arrive rotated
+  let haveAxis=false;
+  if(menuCam){
+    menuCam.getWorldDirection(_tkF); _tkF.y=0;
+    if(_tkF.lengthSq()>1e-8){
+      _tkF.normalize();
+      menuProps.getWorldQuaternion(_tkW).invert();
+      _tkF.applyQuaternion(_tkW); haveAxis=true;
+    }
+  }
   for(const c of tikiTrees.children){
     const t=c.userData.tiki; if(!t)continue;
     const wx=_mbP.x+_mbR.x*t.side-_mbF.x*t.fwd;
@@ -16963,7 +16977,8 @@ function aimTikiTrees(){
     const gy=(typeof beachSandH==='function'?beachSandH(wz/MB_K):(beachSand0||0))*MB_K;
     const lp=_spP.set(wx,gy,wz); menuProps.worldToLocal(lp);
     c.position.copy(lp);
-    c.rotation.set(0,t.turn,0);
+    c.quaternion.setFromAxisAngle(_tkY,t.turn);
+    if(t.lean&&haveAxis)c.quaternion.premultiply(_tkQ.setFromAxisAngle(_tkF,t.lean));
     c.scale.setScalar(base*t.scale);
     c.updateMatrixWorld(true);
   }
@@ -17175,8 +17190,11 @@ let MB_TIKI_SINK=0.085;   // share of its own height dug into the sand
 // degrees by then — so the positions are solved from that heading and written here in set axes
 // like everything else. They are the palm already standing on the title screen, cloned, so this
 // costs a matrix and not a download.
-let MB_TIKI_TREES=[{side:24.042, fwd:14.111, scale:1.00, turn:0.7},
-                   {side:26.971, fwd: 3.732, scale:0.86, turn:2.3}];
+// `lean` tilts a tree in the VIEW plane — about the lens's own flattened forward axis — so it
+// leans left or right on the screen rather than along some world axis that means nothing from
+// here. A palm that stands perfectly plumb is the one thing on a beach that never happens.
+let MB_TIKI_TREES=[{side:24.042, fwd:14.111, scale:1.00, turn:0.7, lean: 0.00},
+                   {side:26.971, fwd: 3.732, scale:1.18, turn:2.3, lean:-0.20}];
 // how the lens gets there: right, forward, up a little, turned a little, over this long
 // `rise` lifts the lens off the sand on the way over and `pitch` tilts it back down by the
 // amount that keeps the hut where it was — raise a camera without doing that and the subject
@@ -17196,7 +17214,10 @@ let MB_TIKI_TREES=[{side:24.042, fwd:14.111, scale:1.00, turn:0.7},
 // reproduce it from the title screen's own pose. The yaw came out at exactly -90.00 degrees,
 // which is the quarter turn kept untouched — what was adjusted was where it stands and how far
 // up it looks, and those are the two numbers that changed.
-const SHOP_CAM={right:3.508, fwd:1.785, rise:1.950, pitch:-0.0145, yaw:-Math.PI/2, secs:0.95};
+// Restaged: -8.76, 6.79, -43.25 looking -79.4 by 16.1. The yaw comes out at -93.00 degrees now
+// rather than a clean -90 — three degrees past square, which is a real choice and not drift, so
+// it is written as the measured number rather than snapped back to the tidy one.
+const SHOP_CAM={right:3.506, fwd:2.074, rise:2.040, pitch:-0.0145, yaw:-1.623156, secs:0.95};
 // ---- THE WORDS ARE PAINTED ON THE MODEL NOW ----
 // Every one of them — the fill colour, the dark contour, the size, where it sits on its board,
 // which way it runs — was HTML text laid over the sign and solved every frame from the arms'
