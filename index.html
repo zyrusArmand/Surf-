@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.93.0';
+window.SURF_VERSION='6.94.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -10880,6 +10880,13 @@ function onVersion(ev){
 // go. If nothing on screen should have to be guessed at, the arrow is the answer and this is
 // not.
 addEventListener('pointerdown',(ev)=>{
+  // ---- AND NOT WHILE THE WORKSHOP IS OPEN ----
+  // Every drag in stage mode is a pointerdown on the scene: that is how a piece is moved,
+  // turned and resized. This listener saw those as "a tap on the sand", walked the lens home,
+  // and the workshop's own gesture became the way out of the room -- so resizing the quest
+  // board dropped you on the title screen mid-drag. stageOn is the whole condition: while the
+  // workshop is up, the scene is a workbench and nothing on it is a way out.
+  if(typeof stageOn!=='undefined'&&stageOn)return;
   const q=questCamGo&&questCamE>=0.55, h=shopCamGo&&shopCamE>=0.55;
   if(!q&&!h)return;
   // ---- WHAT A TAP IS NOT ----
@@ -10892,7 +10899,7 @@ addEventListener('pointerdown',(ev)=>{
   // trying to arrange. That is the same fault a tap-anywhere had on the title beach, and it is
   // why tap-anywhere was taken off the shop in the first place.
   if(ev.target&&ev.target.closest&&
-     ev.target.closest('#homeBar,#quests,#settings,#shop,#viewer,.hbtn,.varr,.slotb,.qbNote'))return;
+     ev.target.closest('#homeBar,#quests,#settings,#shop,#viewer,#stageBar,.hbtn,.varr,.slotb,.qbNote'))return;
   if(onVersion(ev))return;
   buzz(6);
   // ---- and a tap while you are reading one notice steps BACK, not out ----
@@ -10907,6 +10914,8 @@ addEventListener('pointerdown',(ev)=>{
 // A second tap on the sheet you are already reading steps back out of it, so the same finger
 // that went in comes out without having to find anywhere else to put itself.
 addEventListener('click',(ev)=>{
+  // same for the notices: while the workshop is up a tap on the board is aimed at the board
+  if(typeof stageOn!=='undefined'&&stageOn)return;
   const n=ev.target&&ev.target.closest?ev.target.closest('.qbNote'):null;
   if(!n||!questCamGo||questCamE<0.55)return;
   // ...and a notice lying over the version number does not get to eat it either. Measured: a
