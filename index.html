@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.52.0';
+window.SURF_VERSION='6.54.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -18492,6 +18492,16 @@ function aimSignpost(){
   // want to nudge. Same mark the rider, the board and the palm already carry. The labels do not
   // need telling: they are solved from matrixWorld, so they follow wherever the drag leaves it.
   if(signPost.userData.stageHeld){ signPost.updateMatrixWorld(true); return; }
+  // ---- PINNED, so none of the aiming below runs ----
+  // Everything after this re-derives the post's place, facing and size from the lens on every
+  // frame, which is the single largest source of the drift this pin exists to remove. With the
+  // camera itself fixed the solve would land in the same place each time in principle, but it
+  // reads the sand under the post through groundTopOver on the way, and that answer is not
+  // stable. A written pose is.
+  // MB_SP_SIDE, MB_SP_FWD, MB_SP_TILT, MB_SP_ROLL and MB_SP_H are all still live — they are
+  // what puts the post somewhere sane if the pin is ever taken off, and they are what the
+  // Stage starts from.
+  if(MB_STAGED&&MB_PIN.signpost){ pinPiece(signPost, MB_PIN.signpost); return; }
   if(typeof menuProps==='undefined'||!menuProps||typeof mbAxes!=='function')return;
   menuCam.updateMatrixWorld(true);
   menuProps.updateWorldMatrix(true,false);
@@ -26331,6 +26341,23 @@ if(location.hash.includes('debug')){
                 st, tot:STAT_KEYS.reduce((a,k)=>a+(st[k]||0),0)};
       });
     },
+    // Where the pinned pieces actually ARE, local and world. Added because a check written as
+    // page.evaluate(()=>pug.position) returns null every time: these all live in the game's
+    // closure, and that is the third time that has cost a probe run. A hook is the only way in.
+    pinned(){
+      const g=o=>{ if(!o)return null; o.updateMatrixWorld(true);
+        const w=new THREE.Vector3().setFromMatrixPosition(o.matrixWorld);
+        const sz=new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3());
+        const D=v=>+(v*180/Math.PI).toFixed(1);
+        return {local:[+o.position.x.toFixed(3),+o.position.y.toFixed(3),+o.position.z.toFixed(3)],
+                turn:[D(o.rotation.x),D(o.rotation.y),D(o.rotation.z)],
+                scale:+o.scale.x.toFixed(3),
+                tall:+sz.y.toFixed(2), across:+sz.x.toFixed(2),
+                world:[+w.x.toFixed(2),+w.y.toFixed(2),+w.z.toFixed(2)]}; };
+      return {rider:g(typeof pug!=='undefined'?pug:null),
+              chest:g(typeof beachChest!=='undefined'?beachChest:null),
+              signpost:g(typeof signPost!=='undefined'?signPost:null)};
+    },
     // openShopOn lives in the game's closure, so an evaluate() cannot reach it — the same
     // trap wantTiki was behind. The panel is the only place the locks are visible.
     openShop(tab){ openShopOn(tab||'boards'); return shopTab; },
@@ -32004,6 +32031,51 @@ const MB_STAGE={
   // against the sand every layout and this rides on top of it.
   palm :{p:[-4.103,-2.539,-7.121],  r:[0.0,19.5,7.8]},
 };
+// ---- AND THESE THREE ARE PINNED, WHICH IS NOT THE SAME AS STAGED ----
+// MB_STAGE above is a starting pose: it is written once per layout and then several solvers
+// are allowed to have an opinion afterwards — the rider is seated on the sand, his yaw is
+// aimed at the lens, the chest is re-sunk, and the signpost is re-aimed off the camera EVERY
+// FRAME. Each of those is defensible on its own and together they mean the title screen is
+// not the same picture twice: come back to it from a run and things have moved.
+// Reported as exactly that, and it is real rather than imagined. Two sources of drift are
+// named in the code already: groundTopOver's answer "flickers between the tiled field and the
+// painted beach beneath it as the frustum cull rewrites the field's instance count", and the
+// seat solve and the rig's own hold() disagreeing by 0.446ft over who owns his height.
+// So these are POSITIONS, in the parent's own frame, written last and every frame. A pinned
+// piece cannot drift because nothing downstream of the pin is allowed to touch it.
+// Local rather than world on purpose: the set carries a transform, so a local pose keeps its
+// place ON the beach if the beach is ever moved, where a world one would be left behind.
+const MB_PIN={
+  // Position only. His yaw is SOLVED per character — ten rigs arrive with ten built-in turns,
+  // so a pinned angle would be right for the pug and wrong for nine others — and his scale is
+  // whatever fitToBox made it, for the same reason. With the lens now fixed, that solve is
+  // deterministic anyway: it already lands on the -99.2 that was staged.
+  // ---- HIS YAW IS PINNED TOO, AND IT HAD TO BE ----
+  // This started as position-only, on the reasoning that ten rigs arrive with ten built-in
+  // turns so a written angle would be right for the pug and wrong for nine others. The check
+  // then caught the thing that reasoning missed: his yaw read -121.7 on arrival and -134.5
+  // after a trip to the shop and back. Nearly thirteen degrees, on the one piece I had left
+  // to a solver.
+  // It is not the camera moving. faceRiderAtCamera solves against riderFaceDir, which reads
+  // the facing off the ANIMATED skeleton — so as he breathes, the direction it reports moves,
+  // and a solve run every frame chases it. The solver is not wrong, it is being asked a
+  // question whose answer changes.
+  // So the staged angle is written down, and it is tagged with the character it was staged
+  // ON. Anyone else still gets the solve, because the reason it exists is real — but once,
+  // cached, instead of every frame.
+  rider   :{p:[-15.292, 2.880,-49.622], r:[0.0,-99.2,0.0], rFor:'pug'},
+  chest   :{p:[  0.909, 0.268, -5.032], r:[0.0, 243.8, 0.0], s:2.305},
+  signpost:{p:[ -5.206, 1.190, -7.315], r:[-3.6,-160.5,-7.4], s:1.122},
+};
+// A hand on the Stage still beats the pin, or the tool that produced these numbers could not
+// be used to produce the next ones.
+function pinPiece(o,st){
+  if(!o||!st||(o.userData&&o.userData.stageHeld))return;
+  o.position.set(st.p[0],st.p[1],st.p[2]);
+  if(st.r)o.rotation.set(st.r[0]*Math.PI/180,st.r[1]*Math.PI/180,st.r[2]*Math.PI/180);
+  if(st.s!==undefined)o.scale.setScalar(st.s);
+  o.updateMatrixWorld(true);
+}
 // the spare board pose, kept for the trade it was staged for: further round to make room for
 // the pug without either of them reaching the button columns
 const MB_STAGE_BOARD2={p:[-14.358,5.276,-51.280], r:[90.4,-5.7,33.0]};
@@ -34220,7 +34292,19 @@ function renderMenuBeach(dt){
     // this particular body is looking and the line to the lens, taken off his own rig rather
     // than off a constant that happened to fit the first three models.
     // ...and the solved yaw stands down too, or Turn on the rider is overwritten every frame
-    if(MB_FACE_CAM&&typeof pug!=='undefined'&&pug&&menuCam&&!pug.userData.stageHeld)faceRiderAtCamera();
+    // ---- SOLVED ONCE PER CHARACTER, NOT ONCE PER FRAME ----
+    // See MB_PIN.rider: the staged character wears the staged angle, and everyone else gets
+    // the solve exactly once and then holds it. Re-solving every frame is what made him
+    // wander, because the facing it solves against is read off a skeleton that is moving.
+    if(MB_FACE_CAM&&typeof pug!=='undefined'&&pug&&menuCam&&!pug.userData.stageHeld){
+      const _pin=(MB_STAGED&&MB_PIN.rider.r&&rider===MB_PIN.rider.rFor)?MB_PIN.rider.r[1]:null;
+      if(_pin!==null){ pug.rotation.y=_pin*Math.PI/180; pug.updateMatrixWorld(true); }
+      else if(pug.userData.faceFor===rider&&pug.userData.faceYaw!==undefined){
+        pug.rotation.y=pug.userData.faceYaw; pug.updateMatrixWorld(true);
+      } else if(faceRiderAtCamera()!==null){
+        pug.userData.faceFor=rider; pug.userData.faceYaw=pug.rotation.y;
+      }
+    }
     put(menuBeach.board, MB_BOARD_ALT?MB_STAGE_BOARD2:MB_STAGE.board);
     // The palm by its WORLD x,z — converted here, once menuProps has been placed and turned,
     // so it does not matter where the anchor landed or which way the set faces. Its y stays
@@ -34313,6 +34397,16 @@ function renderMenuBeach(dt){
         }
       }
     }
+  }
+  // ---- AND THE PIN GOES ON LAST, AFTER EVERY SOLVER HAS HAD ITS SAY ----
+  // Last in the function and the function runs every frame, so this is the final word on where
+  // these stand however the picture was arrived at — a cold load, a return from a run, or a
+  // relayout on a turned phone. The solvers above are left in place rather than deleted: they
+  // are what a piece falls back on when it is not pinned, and they are still what places the
+  // palm and the board.
+  if(MB_STAGED){
+    pinPiece(typeof pug!=='undefined'?pug:null, MB_PIN.rider);
+    pinPiece(typeof beachChest!=='undefined'?beachChest:null, MB_PIN.chest);
   }
   layoutCoconuts();
   menuCam.updateProjectionMatrix();
