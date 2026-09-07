@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.87.0';
+window.SURF_VERSION='6.88.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -10839,6 +10839,22 @@ document.getElementById('dShop').onclick    =()=>{
 // The arrow is the same one the board viewer turns pages with, and nothing else listens.
 document.getElementById('dBack').onclick=()=>{ buzz(6); shopCamGo=0;
   clearTimeout(_questWalk); questCamGo=0; };
+// ---- IS THIS TAP ON THE VERSION NUMBER? ----
+// By GEOMETRY, not by selector, and that distinction is the whole of a bug this caught. #ver is
+// pointer-events:none -- it is a label, it never receives a click -- so ev.target is always
+// whatever lies UNDER it, and closest('#ver') can never match however the listener is written.
+// The five taps that open the workshop have always been found by comparing the point against
+// the label's rect, and anything else that wants to leave those taps alone has to ask the same
+// question the same way. Measured before this existed: a tap on the version while reading a
+// quest was swallowed by the notice lying over it, so the workshop could not be opened from the
+// one screen it was just asked to be reachable from.
+// Same 14px of padding the overlay uses, so the two agree about where the target is.
+function onVersion(ev){
+  if(typeof verEl==='undefined'||!verEl)return false;
+  const r=verEl.getBoundingClientRect(), pad=14;
+  const x=(ev.clientX!==undefined)?ev.clientX:-1e9, y=(ev.clientY!==undefined)?ev.clientY:-1e9;
+  return !(x<r.left-pad||x>r.right+pad||y<r.top-pad||y>r.bottom+pad);
+}
 // ---- AND THE QUEST BOARD IS LEFT BY TAPPING IT ----
 // A tap anywhere was pulled out of the SHOP for two stated reasons: it gave no sign it was
 // there, and it swallowed every tap on the title beach, which is where the five taps on the
@@ -10861,7 +10877,8 @@ addEventListener('pointerdown',(ev)=>{
   // trying to arrange. That is the same fault a tap-anywhere had on the title beach, and it is
   // why tap-anywhere was taken off the shop in the first place.
   if(ev.target&&ev.target.closest&&
-     ev.target.closest('#homeBar,#quests,#settings,#shop,#viewer,#ver,.hbtn,.varr,.slotb,.qbNote'))return;
+     ev.target.closest('#homeBar,#quests,#settings,#shop,#viewer,.hbtn,.varr,.slotb,.qbNote'))return;
+  if(onVersion(ev))return;
   buzz(6);
   // ---- and a tap while you are reading one notice steps BACK, not out ----
   // Zoomed in, the way out of the sheet is the way you came. Only from the whole board does a
@@ -10877,6 +10894,9 @@ addEventListener('pointerdown',(ev)=>{
 addEventListener('click',(ev)=>{
   const n=ev.target&&ev.target.closest?ev.target.closest('.qbNote'):null;
   if(!n||!questCamGo||questCamE<0.55)return;
+  // ...and a notice lying over the version number does not get to eat it either. Measured: a
+  // tap on the version while zoomed into sheet one moved the focus to sheet three.
+  if(onVersion(ev))return;
   const i=+String(n.id||'').replace('qbNote','');
   if(!(i>=0&&i<5))return;
   buzz(8);
