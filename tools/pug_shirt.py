@@ -16,13 +16,16 @@ bones={b.name:(arm.matrix_world@b.head_local) for b in arm.data.bones}
 
 # ---- WHERE A SHIRT ENDS ----
 # Measured off his own skeleton rather than picked: Hips sit at z 0.438 and Spine02 at 0.597, so
-# a hem at 0.495 is above the hip joint with the belly covered. That is the whole of the
+# The first version stopped at 0.495, just above the hip joint, on a literal reading of "pants
+# have to fit". That is a waistcoat. A shirt is worn OVER the waistband -- the reference has the
+# hem below the belly at the top of the thighs -- so it goes to 0.352 and the trousers go under
+# it, which is how a shirt and trousers have always worked. That is the whole of the
 # "trousers have to fit under it" requirement -- anything lower and the waistband has nowhere to
 # go; anything higher is a crop top on a pug.
-HEM=0.495
-SLEEVE=0.62          # share of the upper arm the sleeve covers, shoulder to elbow
-LIFT=0.013           # how far it stands off the fur
-THICK=0.009          # cloth thickness
+HEM=0.560
+SLEEVE=0.78          # share of the upper arm the sleeve covers, shoulder to elbow
+LIFT=0.021           # how far it stands off the fur
+THICK=0.010          # cloth thickness
 
 # ---- the shirt IS his torso, copied ----
 # Built from the pug's own mesh rather than modelled beside it. Two things fall out of that for
@@ -60,10 +63,10 @@ keep=set(); why={'low':0,'high':0,'head':0,'legs':0,'fore':0,'kept':0}
 # body away, and two rounds have now been spent guessing at that instead of asking.
 for v in sh.data.vertices:
     w=(sh.matrix_world@v.co)
-    if w.z < HEM-0.14: why['low']+=1; continue
+    if w.z < HEM-0.10: why['low']+=1; continue
     if w.z > 1.12: why['high']+=1; continue
     if wsum(v,HEAD)>0.52: why['head']+=1; continue
-    if wsum(v,LEGS)>0.88: why['legs']+=1; continue
+    if wsum(v,LEGS)>0.93: why['legs']+=1; continue
     if wsum(v,FORE)>0.55: why['fore']+=1; continue
     keep.add(v.index); why['kept']+=1
 print('vertex filter',why)
@@ -106,6 +109,39 @@ for side in ('Left','Right'):
     cut=a+d*(L*SLEEVE)
     bisect(Mi@cut, (Mi.to_3x3()@d).normalized(), True)
 
+# ---- AND THE HEM IS BUILT, NOT COPIED ----
+# This is the thing four rounds of threshold-tuning could not reach. Below the waist his body is
+# not one volume, it is two legs -- so a shirt COPIED from his surface down there wraps each
+# thigh separately and can never be a hem that hangs across both. The copy has to stop where he
+# is still one shape, and the rest of the shirt has to be made.
+# So the boundary loop at the waist is extruded downward in rings, each one wider and further
+# out than the last: a skirt that hangs over the legs instead of around them. The rings inherit
+# the vertex weights of the loop they came from, so the hem is driven by the spine and swings
+# with his body rather than with either leg -- which is also what real cloth does.
+bm.edges.ensure_lookup_table(); bm.verts.ensure_lookup_table()
+Mw=sh.matrix_world
+# Selected against the HEM PLANE, not against the mesh's lowest point. Keyed off zmin it found
+# only the edges nearest the single lowest vertex -- a local patch of the ring -- and the skirt
+# extruded down one side of him. The hem boundary is the one that was just cut flat; the neck
+# and the two sleeve openings are the other boundaries and they are all far above it, so a
+# height test separates them cleanly.
+loop=[e for e in bm.edges if e.is_boundary and
+      all((Mw@v.co).z < HEM+0.075 for v in e.verts)]
+print('hem loop edges',len(loop))
+RINGS=[(0.060,0.022),(0.062,0.030),(0.058,0.034),(0.046,0.030)]   # (drop, flare) per ring
+Minv=Mw.inverted().to_3x3()
+for drop,flare in RINGS:
+    if not loop: break
+    r=bmesh.ops.extrude_edge_only(bm,edges=loop)
+    nv=[g for g in r['geom'] if isinstance(g,bmesh.types.BMVert)]
+    ne=[g for g in r['geom'] if isinstance(g,bmesh.types.BMEdge)]
+    for v in nv:
+        w=Mw@v.co
+        rad=Vector((w.x,w.y,0.0))
+        out=Minv@(rad.normalized() if rad.length>1e-6 else Vector((0,1,0)))
+        v.co += Minv@Vector((0,0,-drop)) + out*flare
+    bm.verts.ensure_lookup_table(); bm.edges.ensure_lookup_table()
+    loop=[e for e in ne if e.is_boundary]
 bm.to_mesh(sh.data); bm.free()
 sh.data.update()
 
@@ -117,7 +153,22 @@ me=sh.data
 me.calc_normals_split() if hasattr(me,'calc_normals_split') else None
 nrm={}
 bm=bmesh.new(); bm.from_mesh(me); bm.verts.ensure_lookup_table()
-for v in bm.verts: v.co += v.normal*LIFT
+# ---- IT HANGS OFF HIM ----
+# A constant offset along the normal is a second skin: it follows every dip of his belly, which
+# is what made the first one read as body paint with a pattern on it. Cloth does not do that. It
+# clears more the further it is from where it is held up, so the lift grows toward the hem and
+# the hem also swings OUT from his axis -- that flare is most of what makes a shirt look like
+# fabric rather than like a decal.
+zt=[ (sh.matrix_world@v.co).z for v in bm.verts ]
+zlo,zhi=min(zt),max(zt)
+for v in bm.verts:
+    w=sh.matrix_world@v.co
+    t=1.0-(w.z-zlo)/max(1e-6,zhi-zlo)          # 0 at the collar, 1 at the hem
+    v.co += v.normal*(LIFT*(1.0+1.5*t*t))
+    rad=Vector((w.x,w.y,0.0))
+    if rad.length>1e-6:
+        out=(sh.matrix_world.inverted().to_3x3()@(rad.normalized()))
+        v.co += out*(0.026*t*t)
 bm.to_mesh(me); bm.free()
 sd=sh.modifiers.new('s','SOLIDIFY'); sd.thickness=THICK; sd.offset=1.0
 C.view_layer.objects.active=sh
@@ -132,70 +183,118 @@ bpy.ops.uv.smart_project(angle_limit=1.15, island_margin=0.02)
 bpy.ops.object.mode_set(mode='OBJECT')
 
 # ================= THE PRINT =================
-# Drawn here rather than fetched: four colours, hibiscus and monstera, and it TILES -- every
-# motif is stamped with wraparound so the pattern can repeat across the cloth without a seam.
+# Redrawn against the reference. Three things were wrong with the first one and all three are
+# what made it read as clip art: it was BLUE where the reference is cream, its motifs were flat
+# fills with hard edges, and it was sparse enough that the ground dominated. Hawaiian prints are
+# dense -- the flowers overlap and the ground is a gap between them, not a background.
+# Every motif is drawn with a SOFT edge now: a distance field blended in rather than a boolean
+# mask stamped down. Hard masks alias into jagged petals the moment the cloth is seen at an
+# angle, which on a shirt is always.
 N=1024
-BG   =np.array([0.055,0.180,0.365])     # deep blue ground
-LEAF =np.array([0.110,0.360,0.560])     # a lighter blue for the foliage
-LEAF2=np.array([0.180,0.520,0.470])
-PINK =np.array([0.960,0.400,0.600])
-PINK2=np.array([0.870,0.250,0.470])
-YELL =np.array([0.980,0.780,0.220])
-CREAM=np.array([1.000,0.930,0.720])
-img=np.tile(BG,(N,N,1))
+CREAMBG=np.array([0.960,0.930,0.845])
+GREEN  =np.array([0.215,0.430,0.185])
+GREEN2 =np.array([0.330,0.560,0.250])
+GREEN3 =np.array([0.160,0.340,0.170])
+PINK   =np.array([0.890,0.330,0.470])
+PINK2  =np.array([0.960,0.560,0.650])
+RED    =np.array([0.800,0.180,0.290])
+WHITE  =np.array([0.990,0.975,0.940])
+YELL   =np.array([0.960,0.800,0.280])
+NUT    =np.array([0.470,0.310,0.170])
+img=np.tile(CREAMBG,(N,N,1))
 
-yy,xx=np.mgrid[0:N,0:N]
-def stamp(mask,col):
-    img[mask]=col
-
-def wrapped(cx,cy,R,fn):
-    """apply fn over a window round (cx,cy), wrapping at the edges so the tile has no seam"""
-    R=int(R)+2
+def paint(cx,cy,R,fn):
+    """draw one motif with wraparound, so the tile repeats without a seam"""
+    R=int(R)+3
     ys=(np.arange(cy-R,cy+R)%N); xs=(np.arange(cx-R,cx+R)%N)
     gy,gx=np.meshgrid(np.arange(-R,R),np.arange(-R,R),indexing='ij')
-    m,c=fn(gx,gy)
-    sub=img[np.ix_(ys,xs)]
-    for k in range(len(m)):
-        sub[m[k]]=c[k]
+    sub=img[np.ix_(ys,xs)].copy()
+    for a,col in fn(gx,gy):
+        a=np.clip(a,0,1)[...,None]
+        sub=sub*(1-a)+np.asarray(col)*a
     img[np.ix_(ys,xs)]=sub
 
-def hibiscus(size,pinkish=True):
+def soft(d,w=1.6):
+    """a 0..1 coverage from a signed distance -- positive inside"""
+    return np.clip(d/w+0.5,0,1)
+
+def hibiscus(S,ang,pink=True):
+    ca,sa=math.cos(ang),math.sin(ang)
+    A,B=(PINK,PINK2) if pink else (RED,PINK)
     def f(gx,gy):
-        r=np.hypot(gx,gy); th=np.arctan2(gy,gx)
-        petal=size*(0.62+0.38*np.cos(5*th))
-        body=r<petal
-        edge=(r<petal)&(r>petal-size*0.10)
-        core=r<size*0.20
-        dot =r<size*0.085
-        a,b=(PINK,PINK2) if pinkish else (YELL,np.array([0.93,0.62,0.15]))
-        return [body,edge,core,dot],[a,b,CREAM if pinkish else PINK,YELL if pinkish else PINK2]
+        x= gx*ca+gy*sa; y=-gx*sa+gy*ca
+        r=np.hypot(x,y); th=np.arctan2(y,x)
+        # five overlapping petals, each a lobe, with a notch at the tip
+        edge=S*(0.60+0.40*np.cos(5*th))*(1-0.08*np.cos(10*th))
+        out=[(soft(edge-r),A)]
+        out.append((soft((edge*0.97-r))*soft(r-edge*0.62)*0.34,B))     # lighter mid-petal
+        # veins radiating from the throat
+        vein=np.abs(np.sin(5*th*2.0))
+        out.append((soft(edge*0.92-r)*np.clip((vein-0.86)*7,0,1)*0.5,B*0.85))
+        out.append((soft(S*0.20-r),YELL))                              # throat
+        out.append((soft(S*0.085-r),np.array([0.99,0.90,0.55])))       # stamen tip
+        return out
     return f
 
-def monstera(size,ang):
+def plumeria(S,ang):
     ca,sa=math.cos(ang),math.sin(ang)
     def f(gx,gy):
         x= gx*ca+gy*sa; y=-gx*sa+gy*ca
-        r=np.hypot(x,y*1.55)
-        blade=r<size*(0.95-0.25*np.cos(2*np.arctan2(y*1.55,x)))
-        # the splits that make a monstera a monstera
-        cut=(np.abs(np.sin(y*math.pi/(size*0.42)))<0.30)&(np.abs(x)>size*0.16)
-        rib=(np.abs(x)<size*0.045)
-        c1=LEAF if (int(ang*7)%3) else YELL*0.92
-        return [blade&~cut, blade&rib],[c1,LEAF2]
+        r=np.hypot(x,y); th=np.arctan2(y,x)
+        # five fat rounded petals that overlap like a pinwheel
+        edge=S*(0.70+0.30*np.cos(5*th-0.55))
+        return [(soft(edge-r),WHITE),
+                (soft(S*0.34-r)*0.9,YELL),
+                (soft(S*0.13-r),np.array([0.95,0.72,0.25]))]
     return f
 
-# a jittered grid, so it reads as a print rather than as wallpaper
-S=N//6
-for iy in range(6):
-    for ix in range(6):
-        cx=int(ix*S+S*0.5+random.uniform(-0.22,0.22)*S)
-        cy=int(iy*S+S*0.5+random.uniform(-0.22,0.22)*S)
-        wrapped(cx,cy,S*0.46,monstera(S*0.40,random.uniform(0,math.pi)))
-for iy in range(6):
-    for ix in range(6):
-        cx=int(ix*S+random.uniform(-0.18,0.18)*S)
-        cy=int(iy*S+random.uniform(-0.18,0.18)*S)
-        wrapped(cx,cy,S*0.44,hibiscus(S*0.40,(ix+iy)%2==0))
+def frond(S,ang):
+    ca,sa=math.cos(ang),math.sin(ang)
+    def f(gx,gy):
+        x= gx*ca+gy*sa; y=-gx*sa+gy*ca
+        # a long blade with feathered edges -- the serration is what says palm
+        along=np.clip(x/(S*1.75)+0.5,0,1)
+        halfw=S*0.30*np.sin(np.pi*np.clip(along,0,1))**0.75
+        serr=1-0.30*np.abs(np.sin(y*0+x*math.pi/(S*0.14)))
+        d=halfw*serr-np.abs(y)
+        rib=soft(S*0.030-np.abs(y))*soft(halfw-np.abs(y))
+        return [(soft(d),GREEN),(rib,GREEN3),
+                (soft(d)*np.clip((y/(halfw+1e-6)+1)*0.5,0,1)*0.22,GREEN2)]
+    return f
+
+def monstera(S,ang):
+    ca,sa=math.cos(ang),math.sin(ang)
+    def f(gx,gy):
+        x= gx*ca+gy*sa; y=-gx*sa+gy*ca
+        r=np.hypot(x,y*1.45); th=np.arctan2(y*1.45,x)
+        blade=S*(0.92-0.22*np.cos(2*th))-r
+        cut=(np.abs(np.sin(y*math.pi/(S*0.40)))<0.26)&(np.abs(x)>S*0.14)
+        a=soft(blade); a=np.where(cut,0,a)
+        return [(a,GREEN2),(soft(S*0.035-np.abs(x))*a,GREEN3)]
+    return f
+
+def coconut(S):
+    def f(gx,gy):
+        r=np.hypot(gx,gy)
+        return [(soft(S-r),NUT),(soft(S*0.72-r)*0.4,NUT*0.72),
+                (soft(S*0.16-np.hypot(gx-S*0.28,gy+S*0.20))*0.8,NUT*0.55)]
+    return f
+
+# Layered back to front the way the reference is: foliage first as a bed, then the blooms on
+# top of it. Densities chosen so the cream shows through as gaps rather than as background.
+rnd=random.Random(5)
+S=N//5
+for _ in range(46):
+    paint(rnd.randrange(N),rnd.randrange(N),S*1.05,frond(S*0.58,rnd.uniform(0,math.pi*2)))
+for _ in range(26):
+    paint(rnd.randrange(N),rnd.randrange(N),S*0.80,monstera(S*0.60,rnd.uniform(0,math.pi*2)))
+for _ in range(38):
+    paint(rnd.randrange(N),rnd.randrange(N),S*0.72,
+          hibiscus(S*0.56,rnd.uniform(0,math.pi*2),rnd.random()<0.6))
+for _ in range(13):
+    paint(rnd.randrange(N),rnd.randrange(N),S*0.52,plumeria(S*0.38,rnd.uniform(0,math.pi*2)))
+for _ in range(12):
+    paint(rnd.randrange(N),rnd.randrange(N),S*0.18,coconut(S*0.13))
 
 pix=np.dstack([img,np.ones((N,N))]).astype(np.float32)
 tex=D.images.new('hawaii',N,N,alpha=False)
@@ -208,7 +307,7 @@ nt=mat.node_tree; bsdf=nt.nodes['Principled BSDF']
 ti=nt.nodes.new('ShaderNodeTexImage'); ti.image=tex; ti.location=(-420,240)
 mp=nt.nodes.new('ShaderNodeMapping'); mp.location=(-620,240)
 tc=nt.nodes.new('ShaderNodeTexCoord'); tc.location=(-820,240)
-mp.inputs['Scale'].default_value=(5.0,5.0,5.0)
+mp.inputs['Scale'].default_value=(4.2,4.2,4.2)
 nt.links.new(tc.outputs['UV'],mp.inputs['Vector'])
 nt.links.new(mp.outputs['Vector'],ti.inputs['Vector'])
 nt.links.new(ti.outputs['Color'],bsdf.inputs['Base Color'])
