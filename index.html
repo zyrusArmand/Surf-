@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.85.0';
+window.SURF_VERSION='6.86.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -626,7 +626,8 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   .qbNote {
     position:absolute; transform:translate(-50%,-50%);
     display:flex; flex-direction:column; align-items:center; justify-content:center;
-    gap:.16em; text-align:center; pointer-events:none;
+      gap:.16em; text-align:center; pointer-events:auto; cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
     color:#6b4a25; font-weight:800; line-height:1.12; letter-spacing:.2px;
     text-shadow:0 1px 0 rgba(255,248,228,.55); overflow:hidden;
   }
@@ -10234,6 +10235,13 @@ let shopFillId=0, shopMenuWasUp=false;
 var shopCamE=0, shopCamGo=0, _shopWalk=null;
 var questCamE=0, questCamGo=0, _questWalk=null;
 var _qbRgh=null, _qbEnv=null, _qbSnd=0;
+// ---- WHICH SHEET YOU ARE READING, AND HOW FAR IN ----
+// -1 is the whole board. Anything else is one notice, and the lens goes and stands in front of
+// it. Eased rather than cut for the same reason the walk to the board is: a lens that arrives
+// between two frames has not moved, it has jumped.
+var qbFocus=-1, qbZoomE=0;
+const _qbW=new THREE.Vector3(), _qbT=new THREE.Vector3(), _qbF=new THREE.Vector3();
+const QB_ZOOM_D=1.72, QB_ZOOM_SECS=0.42;
 // ---- only photograph what somebody is looking at ----
 // This walked the whole rack the moment the shop opened: forty-seven boards, each one a
 // render into an off-screen target followed by readRenderTargetPixels — which is a
@@ -10843,13 +10851,36 @@ document.getElementById('dBack').onclick=()=>{ buzz(6); shopCamGo=0;
 addEventListener('pointerdown',(ev)=>{
   const q=questCamGo&&questCamE>=0.55, h=shopCamGo&&shopCamE>=0.55;
   if(!q&&!h)return;
-  // the counter's three lit panels are the whole point of standing at the hut, and the top bar
-  // and any open panel belong to themselves
+  // ---- WHAT A TAP IS NOT ----
+  // The counter's three lit panels are the whole point of standing at the hut. The notices are
+  // the whole point of standing at the board, and they take you INTO a quest rather than out of
+  // the room -- see their own handler. The top bar and any open panel belong to themselves.
+  // And #ver, which is the five taps that open the workshop: it sits at the bottom of every
+  // screen including this one, and a listener that swallowed it would make the workshop
+  // unreachable from the two places it is most wanted -- standing in front of the set you are
+  // trying to arrange. That is the same fault a tap-anywhere had on the title beach, and it is
+  // why tap-anywhere was taken off the shop in the first place.
   if(ev.target&&ev.target.closest&&
-     ev.target.closest('#homeBar,#quests,#settings,#shop,#viewer,.hbtn,.varr,.slotb'))return;
+     ev.target.closest('#homeBar,#quests,#settings,#shop,#viewer,#ver,.hbtn,.varr,.slotb,.qbNote'))return;
   buzz(6);
+  // ---- and a tap while you are reading one notice steps BACK, not out ----
+  // Zoomed in, the way out of the sheet is the way you came. Only from the whole board does a
+  // tap leave the room, so there is one gesture and it unwinds one level at a time.
+  if(q&&qbFocus>=0){ qbFocus=-1; return; }
   if(q){ clearTimeout(_questWalk); questCamGo=0; }
   if(h){ clearTimeout(_shopWalk); shopCamGo=0; }
+},{passive:true});
+// ---- the notices take you closer ----
+// Bound once, by delegation, rather than five listeners rebuilt whenever the text changes.
+// A second tap on the sheet you are already reading steps back out of it, so the same finger
+// that went in comes out without having to find anywhere else to put itself.
+addEventListener('click',(ev)=>{
+  const n=ev.target&&ev.target.closest?ev.target.closest('.qbNote'):null;
+  if(!n||!questCamGo||questCamE<0.55)return;
+  const i=+String(n.id||'').replace('qbNote','');
+  if(!(i>=0&&i<5))return;
+  buzz(8);
+  qbFocus=(qbFocus===i)?-1:i;
 },{passive:true});
 document.getElementById('dPlay').onclick    =()=>{ buzz(12); startBtn.click(); };
 const questsPanel=document.getElementById('quests'), setPanel=document.getElementById('settings');
@@ -35264,6 +35295,19 @@ function renderMenuBeach(dt){
     menuCam.quaternion.setFromEuler(
       _stEul.set(MB_CAM_PITCH+QB_CAM.pitch*e,MB_CAM_YAW+QB_CAM.yaw*e,0,'YXZ'));
   }
+  // ---- ...AND THEN IN, ONTO ONE NOTICE ----
+  // Applied after the walk, because it is an offset from where the walk put the lens -- the
+  // same relationship the walk has to the staged shot. The aim is not touched: the sheet is put
+  // ON the forward axis by moving there rather than by turning to look, so it lands dead centre
+  // at any aspect for the same reason the board does, and the board stays square to the lens
+  // instead of being seen from an angle.
+  if(qbZoomE>0.0001&&qbFocus>=0&&qbSlots&&qbSlots[qbFocus]){
+    const z=qbZoomE*qbZoomE*(3-2*qbZoomE);
+    const g=qbSlots[qbFocus]; g.updateWorldMatrix(true,false);
+    const w=g.getWorldPosition(_qbW);
+    const f=_qbF.set(0,0,-1).applyQuaternion(menuCam.quaternion);
+    menuCam.position.lerp(_qbT.copy(w).addScaledVector(f,-QB_ZOOM_D), z);
+  }
   // the stage's own lens — see stCamFree. Held through Done as well as during, which is why the
   // condition is the lens itself rather than whether the bar happens to be on the screen.
   if(typeof stCamFree!=='undefined'&&stCamFree&&
@@ -35482,6 +35526,10 @@ function renderMenuBeach(dt){
         _qbSnd=0;
       }
     }
+    { const zs=_sd/Math.max(0.05,QB_ZOOM_SECS);
+      const wantZ=(questCamGo&&qbFocus>=0)?1:0;
+      qbZoomE = wantZ ? Math.min(1,qbZoomE+zs) : Math.max(0,qbZoomE-zs);
+      if(qbZoomE<=0&&qbFocus>=0&&!questCamGo)qbFocus=-1; }
     if(questCamE>0.0001)drawQuestNotes(false);
     layoutQuestNotes(questCamE);
     questShadow(questCamE);
