@@ -336,7 +336,6 @@ if os.environ.get('RENDER'):
     sc=C.scene
     cam_d=D.cameras.new('c'); cam=D.objects.new('cam',cam_d); sc.collection.objects.link(cam)
     cam_d.lens=52
-    cam.location=(-2.6,-3.5,1.15); cam.rotation_euler=Euler((1.42,0,-0.64))
     sc.camera=cam
     for pos,en in (((-2.4,-3.0,3.0),700),((2.6,-2.4,1.8),380),((0,2.6,2.2),260)):
         l=D.lights.new('l','AREA'); l.energy=en; l.size=3.0
@@ -345,9 +344,14 @@ if os.environ.get('RENDER'):
     w=D.worlds.new('w'); sc.world=w; w.use_nodes=True
     w.node_tree.nodes['Background'].inputs[0].default_value=(0.90,0.92,0.95,1)
     w.node_tree.nodes['Background'].inputs[1].default_value=0.7
-    sc.render.engine='CYCLES'; sc.cycles.device='CPU'; sc.cycles.samples=48
+    sc.render.engine='CYCLES'; sc.cycles.device='CPU'; sc.cycles.samples=44
     sc.cycles.use_denoising=True; sc.view_settings.view_transform='Standard'
-    sc.render.resolution_x=740; sc.render.resolution_y=900
-    sc.render.filepath=SHOT
-    bpy.ops.render.render(write_still=True)
-    print('rendered',SHOT)
+    sc.render.resolution_x=680; sc.render.resolution_y=860
+    base=os.path.splitext(SHOT)[0]
+    for nm,loc,rot in [('front',(0.0,-4.3,0.86),(1.5708,0,0)),
+                       ('three',(-2.6,-3.5,1.15),(1.42,0,-0.64)),
+                       ('side',(-4.2,-0.9,1.00),(1.50,0,-1.36))]:
+        cam.location=loc; cam.rotation_euler=Euler(rot)
+        sc.render.filepath=base+'_'+nm+'.png'
+        bpy.ops.render.render(write_still=True)
+        print('rendered',sc.render.filepath)
