@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.43.0';
+window.SURF_VERSION='6.44.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -144,6 +144,62 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
      pushing them apart, and sized off vw so the ring holds its shape on any phone. */
   #homeDial { position:absolute; left:0; right:0; bottom:0; top:0; pointer-events:none; }
   #overlay.over #homeDial { display:none; }
+  /* ---- the top bar ---- */
+  /* A four column grid rather than a flex row, because the second row has to line up with the
+     first: the XP bar sits in the SAME column as the level pill, so it stays under it however
+     wide the purse gets. A flex row would need the bar to guess that width. The bar is wider
+     than the pill on purpose — it is the thing being read, the pill is the label on it.
+     env(safe-area-inset-top) is what keeps it off the notch; the 10px floor is for everything
+     that reports no inset. */
+  #homeBar {
+    position:absolute; z-index:7;
+    top:calc(10px + env(safe-area-inset-top,0px));
+    left:calc(12px + env(safe-area-inset-left,0px));
+    right:calc(12px + env(safe-area-inset-right,0px));
+    display:grid; grid-template-columns:auto minmax(0,1fr) auto auto;
+    align-items:center; gap:7px 9px; pointer-events:none;
+  }
+  #homeBar .hbPill, #homeBar .hbIcon { pointer-events:auto; }
+  /* the same glass the dial wears, so the screen is one material and not two */
+  #homeBar .hbPill {
+    display:flex; align-items:center; justify-content:center; gap:6px;
+    padding:6px 14px; border-radius:999px; min-height:34px;
+    background:linear-gradient(157deg, rgba(19,84,90,.86), rgba(7,44,50,.93) 52%, rgba(15,72,78,.89));
+    border:1.5px solid rgba(151,214,209,.42);
+    box-shadow:0 4px 16px rgba(0,20,30,.40), inset 0 1.4px 0 rgba(198,240,236,.34);
+    color:#f2d391; font-weight:900; letter-spacing:.4px; font-size:min(4.2vw,17px);
+    text-shadow:0 1px 3px rgba(0,16,22,.9);
+  }
+  #homeBar .hbLv { justify-self:center; padding:6px 18px; }
+  #homeBar .hbIcon {
+    width:38px; height:38px; border-radius:50%; padding:0; display:grid; place-items:center;
+    background:linear-gradient(157deg, rgba(19,84,90,.86), rgba(7,44,50,.93) 52%, rgba(15,72,78,.89));
+    border:1.5px solid rgba(151,214,209,.42);
+    box-shadow:0 4px 16px rgba(0,20,30,.40), inset 0 1.4px 0 rgba(198,240,236,.34);
+    -webkit-tap-highlight-color:transparent; cursor:pointer;
+  }
+  #homeBar .hbIcon svg { width:21px; height:21px; fill:none; stroke:#f2d391; stroke-width:1.8;
+    stroke-linecap:round; stroke-linejoin:round;
+    filter:drop-shadow(0 1px 3px rgba(0,16,22,.9)); }
+  #homeBar .hbIcon:active { background:linear-gradient(157deg, rgba(28,104,110,.72), rgba(12,62,70,.80)); }
+  /* row two, in the level pill's column. Same fill as the goals and level bars on the run
+     card — it is the same fact in a second place, and a third gradient would say otherwise. */
+  /* ---- the fill is the track's own BACKGROUND, not a child ---- */
+  /* It was an inner <i> at a percentage width, and that measured zero however the rule was
+     written: a percentage width only resolves on an element the layout gives a box to, and
+     one wrong assumption about display anywhere in the chain leaves an empty inline element
+     that paints nothing. A background-size on the track cannot fail that way — there is no
+     second element to have the wrong display, and the value is a length the paint reads
+     directly. It also animates on the compositor rather than through layout. */
+  #homeBar .hbXp { grid-column:2; height:9px; border-radius:99px;
+    background-color:rgba(6,26,48,.34);
+    background-image:linear-gradient(90deg,#6fdcff,#ffdf2e);
+    background-repeat:no-repeat; background-size:0% 100%;
+    transition:background-size .35s ease-out;
+    box-shadow:inset 0 1px 2px rgba(0,16,34,.45), 0 1px 0 rgba(255,255,255,.12); }
+  /* goes with the dial: the run card and every panel own the whole screen when they are up */
+  #overlay.over #homeBar { display:none; }
+  body.panel #homeBar { display:none; }
   #overlay.main #ovBtns { display:none; }
   .hbtn {
     position:absolute; pointer-events:auto; overflow:hidden;
@@ -1896,6 +1952,24 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   </div>
   <!-- The home dial: five round glass buttons around the rider instead of a stack of pills.
        Only ever shown on the main menu; the run card uses the same buttons in a row. -->
+  <!-- ---- the status bar across the top of the title screen ---- -->
+  <!-- What you have, what level you are, and the two things that are about you rather than
+       about surfing. Deliberately NOT the reference's palette: that is a layout to copy, not
+       a skin, and navy-and-blue pills over this beach would read as a second game's UI dropped
+       on top. Same teal glass and gold as the dial below it, so the screen has one material.
+       No gem row. There is one currency in this game and inventing a second on the strength
+       of a screenshot would be a whole economy nobody asked for. No "+" beside the purse
+       either — it buys currency in the game that came from, and there is nothing here to buy
+       it with, so it would be a button that does nothing on the busiest corner of the screen. -->
+  <div id="homeBar">
+    <div class="hbPill hbPuka"><i class="pk"></i><span id="hbPuka">0</span></div>
+    <div class="hbPill hbLv"><span id="hbLv">Level 1</span></div>
+    <button class="hbIcon" id="hbSet" type="button" aria-label="Settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5"/></svg></button>
+    <button class="hbIcon" id="hbProf" type="button" aria-label="Your surfing so far">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.6" r="3.6"/><path d="M5 20.2c0-3.9 3.1-6.8 7-6.8s7 2.9 7 6.8"/></svg></button>
+    <div class="hbXp" id="hbXp"></div>
+  </div>
   <div id="homeDial">
     <button class="hbtn glass hb-board" id="dBoard" type="button" aria-label="Boards">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6c4.4 3.6 6.4 8.2 6.4 11.4 0 4.2-3 7.4-6.4 7.4s-6.4-3.2-6.4-7.4c0-3.2 2-7.8 6.4-11.4Z"/><path d="M12 5.4v13.2"/></svg>
@@ -6763,6 +6837,20 @@ function showCoins(){
   // to "can I have this": one says what it costs and the other says whether it is open yet
   const lv=document.getElementById('shopLv');
   if(lv)lv.textContent='Lv '+level;
+  syncHomeBar();
+}
+// ---- the top bar reads the same three facts every other surface reads ----
+// Driven from showCoins rather than given its own update path: every route that changes what
+// you own already ends there — a pickup, a purchase, a goal, the end of a run — and a second
+// path would be a second set of places to remember. The level and the bar come along because
+// they change on exactly the same events.
+function syncHomeBar(){
+  const pk=document.getElementById('hbPuka');
+  if(pk)pk.textContent=coins.toLocaleString();
+  const lv=document.getElementById('hbLv');
+  if(lv)lv.textContent='Level '+level;
+  const fx=document.getElementById('hbXp');
+  if(fx)fx.style.backgroundSize=(xpBand().frac*100).toFixed(1)+'% 100%';
 }
 // ---- WHAT YOU CAN OWN, WHICH IS NOT EVERYTHING THAT EXISTS ----
 // The saucer's pair are marked hidden: they are a thing that HAPPENS to you for thirty-five
@@ -10169,6 +10257,10 @@ function drawSettings(){
   if(t)t.onclick=()=>{ const was=buzzOn; buzzOn=true; buzz([25,35,90]); buzzOn=was; };
 }
 document.getElementById('dSettings').onclick=()=>{ buzz(8); drawSettings(); setPanel.classList.remove('hidden'); };
+// The bar's two icons are the dial's two buttons, fired rather than reimplemented: one handler
+// each, so a change to what Settings or Stats does cannot leave the copy up here behind.
+document.getElementById('hbSet').onclick =()=>document.getElementById('dSettings').click();
+document.getElementById('hbProf').onclick=()=>document.getElementById('dStats').click();
 document.getElementById('setClose').onclick =()=>setPanel.classList.add('hidden');
 // ---- the trick sheet ----
 // The gestures were only ever written on the buttons, which you meet for the first time
@@ -25760,6 +25852,11 @@ if(location.hash.includes('debug')){
     // the card's own row, built for real. It runs inside gameOver, so a throw here is not a
     // missing line — it is the entire wipeout card, on the one screen you cannot avoid.
     lvlRow(g,u){ return levelRowHTML(g===undefined?1800:g,u||0); },
+    // fills the top bar with a plausible purse and level so the LAYOUT can be looked at —
+    // a bar tested at 0 puka and level 1 is a bar tested at its narrowest strings
+    bar(c,x){ if(c!==undefined)coins=Math.max(0,c|0);
+      if(x!==undefined){ xp=Math.max(0,x|0); syncLevel(); }
+      showCoins(); return {coins, xp, level, frac:+xpBand().frac.toFixed(3)}; },
     // Banks xp the way a run does, writes, re-reads, and reports both sides. A level derived
     // from a number that did not round-trip is the one failure this system can have that
     // nothing on screen would show until somebody lost a level by closing the tab.
