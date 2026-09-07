@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.71.0';
+window.SURF_VERSION='6.72.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -10223,6 +10223,7 @@ let shopFillId=0, shopMenuWasUp=false;
 // headed. `var`, because the render loop reads them from thousands of lines above here.
 var shopCamE=0, shopCamGo=0, _shopWalk=null;
 var questCamE=0, questCamGo=0, _questWalk=null;
+var _qbSandN=null, _qbSandE=null, _qbSandOn=0;
 // ---- only photograph what somebody is looking at ----
 // This walked the whole rack the moment the shop opened: forty-seven boards, each one a
 // render into an off-screen target followed by readRenderTargetPixels — which is a
@@ -35235,6 +35236,36 @@ function renderMenuBeach(dt){
     if(tikiHut){ if(shopCamE>0.0001)aimTiki(); tikiShow(shopCamE,_sd); }
     const qstep=_sd/Math.max(0.05,QB_CAM.secs);
     questCamE = questCamGo ? Math.min(1,questCamE+qstep) : Math.max(0,questCamE-qstep);
+    // ---- AND THE SAND IS CALMED DOWN FOR THIS ONE VIEW ----
+    // The ripples are pushed to normalScale 1.35, and the file says why: "a sun at ten degrees
+    // rakes the ripples and produces that contrast for free". That is tuned for the title shot
+    // and for the walk to the shop, which look ACROSS the beach. This view looks the other way
+    // down it, and the same relief that reads as polished dune from there reads as glitter from
+    // here -- a hard white sheen across the whole foreground, which is what makes it look
+    // nothing like the main screen.
+    // Eased with the walk rather than switched, and restored exactly once when the walk is fully
+    // out, so the title screen and the shop are untouched by it. There is precedent: the menu
+    // already swaps this material's colour and envMapIntensity for its own view and puts them
+    // back -- see menuDay.sand.
+    if(typeof beachSand!=='undefined'&&beachSand&&beachSand.material){
+      const _sm=beachSand.material;
+      if(_qbSandN===null&&_sm.normalScale)_qbSandN=_sm.normalScale.x;
+      if(_qbSandE===null)_qbSandE=(_sm.envMapIntensity!==undefined)?_sm.envMapIntensity:null;
+      if(questCamE>0.0001){
+        const q=questCamE*questCamE*(3-2*questCamE);
+        if(_sm.normalScale&&_qbSandN!==null){
+          const n=_qbSandN*(1-0.58*q); _sm.normalScale.set(n,n);
+        }
+        if(_qbSandE!==null)_sm.envMapIntensity=_qbSandE*(1-0.55*q);
+        _qbSandOn=1;
+      }else if(_qbSandOn){
+        // put back once, not every frame: the menu writes envMapIntensity too and two writers
+        // on the same value every frame is how one of them silently wins
+        if(_sm.normalScale&&_qbSandN!==null)_sm.normalScale.set(_qbSandN,_qbSandN);
+        if(_qbSandE!==null)_sm.envMapIntensity=_qbSandE;
+        _qbSandOn=0;
+      }
+    }
     if(questBoard){ if(questCamE>0.0001)aimBoard(); boardShow(questCamE,_sd); }
     if(questCamE>0.0001)drawQuestNotes(false);
     layoutQuestNotes(questCamE);
