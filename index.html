@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.80.0';
+window.SURF_VERSION='6.81.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -14301,6 +14301,9 @@ function setupModelRig(root,gltf,id){
       this.stand.setEffectiveWeight(0); this.stand.play(); }
     for(const n in this.bind){ const b=this.bones[n], r=this.bind[n];
       b.position.copy(r.p); b.quaternion.copy(r.q); b.scale.copy(r.s); }
+    // ...and the charge's saved pre-bend pose with them, or the next charge restores bones to
+    // a pose from before this reset happened
+    this._bent=null;
     this.step=-1; this.stepT=0; this.ground=null; this.groundFromSand=false; this.groundGen=-1;
     this.groundX=undefined; this.groundZ=undefined;
     this.phase='idle'; this.t=0; this.aw=0; this.rot=0; this.brh=1;
@@ -15153,6 +15156,21 @@ function setupModelRig(root,gltf,id){
         pug.rotation.order='YXZ';
         pug.rotation.y=STANCE_ROT+MENU_FACE+Math.PI*(Q.phase==='out'?Q.turn:0);
         pug.rotation.x=CHARGE_PITCH*Q.lean;
+        // ---- AND THE BEND IS PUT BACK BEFORE THE CLIP RUNS AGAIN ----
+        // This is the fold. The spine tilt and the head aim below are written onto the skeleton
+        // AFTER the mixer, and each of them builds its new rotation by reading the bone's
+        // CURRENT one -- so the correction is only ever safe if something overwrites that bone
+        // first. A clip that animates the head does exactly that, and the ones that do not
+        // leave last frame's aim sitting there to be aimed again. Sixty times a second, that is
+        // not a look at the camera, it is a bone winding itself up until the skin folds through
+        // itself, which is precisely what it looks like.
+        // The clamp added earlier bounds ONE frame's correction. It cannot bound a hundred of
+        // them, and that is why it did not fix this.
+        // So every bone this touches is put back to what the clip last said before the clip is
+        // asked again. The bend then means the same thing on every frame -- the pose is a
+        // function of the clip, not of how long you have been looking at it.
+        if(this._bent){ for(let i=0;i<this._bent.length;i+=2)
+          this._bent[i].quaternion.copy(this._bent[i+1]); }
         this.mixer.update(dt);
         if(this.hipHome&&this.bones&&this.bones.Hips){
           this.bones.Hips.position.x=this.hipHome.x;
@@ -15181,6 +15199,11 @@ function setupModelRig(root,gltf,id){
           const f=menuCam.getWorldDirection(new THREE.Vector3()); f.y=0; f.normalize();
           const rgt=new THREE.Vector3(-f.z,0,f.x);           // the axis a forward fold turns about
           const sp=[this.bones.Spine,this.bones.Spine01,this.bones.Spine02].filter(Boolean);
+          // taken here, after the mixer and before anything is bent: this is the clip's own
+          // pose, and it is what next frame is restored to
+          this._bent=[];
+          for(const b of sp){ this._bent.push(b, b.quaternion.clone()); }
+          if(this.bones.Head)this._bent.push(this.bones.Head, this.bones.Head.quaternion.clone());
           if(sp.length)for(const b of sp)tilt(b,rgt,CHARGE_SPINE*Q.lean/sp.length);
           // and the head put on you. Solved rather than dialled: the line from his head bone to
           // his muzzle bone IS where he is looking, the line from his head to the lens is where
@@ -15193,7 +15216,11 @@ function setupModelRig(root,gltf,id){
             const hp=hd.getWorldPosition(new THREE.Vector3());
             const cur=fr.getWorldPosition(new THREE.Vector3()).sub(hp).normalize();
             const want=menuCam.position.clone().sub(hp).normalize();
-            if(cur.lengthSq()>0.5&&want.lengthSq()>0.5){
+            // ...and not when he is facing exactly away. setFromUnitVectors on two opposed
+            // vectors picks an arbitrary perpendicular axis to turn about, so the head snaps to
+            // a different random 180 every frame it happens. Nothing to aim there worth having.
+            const _dot=cur.dot(want);
+            if(cur.lengthSq()>0.5&&want.lengthSq()>0.5&&_dot>-0.985){
               _dq.setFromUnitVectors(cur,want);
               // clamped BEFORE the blend, so the stop is on the neck itself rather than on
               // how much of an already-impossible angle is being faded in
@@ -27177,6 +27204,19 @@ if(location.hash.includes('debug')){
     startCharge(){ const R=(typeof riderRig==='function')?riderRig():null;
       if(R&&R.startCharge){ R.startCharge(); return true; } return false; },
     poke(){ pokeT=1; return true; },
+    // The head and spine as the SKELETON has them, local, which is the only place the winding
+    // is visible: the group's own rotation is fine throughout and the mesh looks folded because
+    // the bones under it are. A number that walks in one direction across samples IS the bug.
+    riderBones(){
+      const R=(typeof riderRig==='function')?riderRig():null;
+      if(!R||!R.bones)return null;
+      const g=n=>{ const b=R.bones[n]; if(!b)return null;
+        const q=b.quaternion; const ang=2*Math.acos(Math.min(1,Math.abs(q.w)));
+        return +(ang*180/Math.PI).toFixed(2); };
+      return {charge:!!R.charge, phase:R.charge?R.charge.phase:null,
+              Head:g('Head'), Spine:g('Spine'), Spine01:g('Spine01'), Spine02:g('Spine02'),
+              bent:R._bent?R._bent.length/2:0};
+    },
     // Where the hut lands in the frame, as a fraction of the screen. "Centred" is a claim
     // about the picture, so it is measured in the picture rather than nudged toward by eye.
     hutScreen(){
