@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.42.0';
+window.SURF_VERSION='6.43.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -1310,6 +1310,11 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   #shop h2 { font-size:min(6.5vw,26px); color:#ffdf2e; text-shadow:2px 2px 0 #b8641c; margin-bottom:12px;
     display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
   #shop h2 span { color:#ffe9a8; font-size:min(4.6vw,19px); text-shadow:none; }
+  /* The heading is space-between with a bare text node for the title, so a third child would
+     otherwise float on its own in the middle. The auto margin collapses the gap before it and
+     parks the badge against the purse: together they are the answer to "can I have this". */
+  #shop h2 #shopLv { margin-left:auto; font-size:min(3.9vw,16px); opacity:.92;
+    border:1px solid rgba(255,233,168,.42); border-radius:99px; padding:1px 9px; }
   /* Three across on a phone rather than two. Nothing was made smaller to get there — the
      tiles are TALLER, the board fills them, and what came out is the empty space around a
      board that was being photographed in a landscape frame. Four boards visible at once
@@ -2012,7 +2017,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
 </div>
 <div id="shop" class="hidden">
   <div class="shopwrap">
-    <h2>Beach shop <span id="shopCoins">0 puka</span></h2>
+    <h2>Beach shop <span id="shopLv">Lv 1</span><span id="shopCoins">0 puka</span></h2>
     <div id="shopTabs"><button class="tab on" data-tab="boards">Boards</button><button class="tab" data-tab="riders">Surfers</button></div>
     <div id="shopList"></div>
     <button class="go calm" id="shopClose"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg><span>Back</span></button>
@@ -4528,6 +4533,40 @@ loadModel('board.glb',s=>{
 // ---------- what carries between runs ----------
 const SAVE_KEY='pugSurfSave1';
 let coins=0, owned={astro:1}, equipped='astro', ownedChars={pug:1}, rider='pug';
+// ---------- level ----------
+// XP is the only thing written down. The level is DERIVED from it every time it is needed and
+// stored nowhere, which is what makes the pacing retunable: change the two numbers below and
+// every existing save moves to its new level on the next load, with no migration and nothing
+// to get out of step. Storing the level as well would mean two facts that can disagree, and
+// the one on disk winning.
+// A run pays its distance in metres plus its trick score, so the two things the card already
+// reports are the two things that level you — there is no third currency to explain.
+// 400*(L-1)^1.65: L2 at 400, L5 at 3.9k, L10 at 15k, L20 at 51k, L50 at 256k. Early levels
+// land inside the first run or two and then stretch, which is the shape that suits a ladder
+// per board family: the first rung of every family should be reachable, the last should not.
+let xp=0, level=1;
+const XP_CAP=50;
+const XP_AT=(()=>{ const a=[0,0];
+  for(let L=2;L<=XP_CAP;L++)a[L]=Math.round(400*Math.pow(L-1,1.65));
+  return a; })();
+function levelAt(x){ let L=1; while(L<XP_CAP&&x>=XP_AT[L+1])L++; return L; }
+function syncLevel(){ level=levelAt(xp); return level; }
+// where you are inside the current level, for the bar. At the cap the band is full rather
+// than a division by zero, so the last level reads as finished instead of as broken.
+function xpBand(){
+  const a=XP_AT[level];
+  if(level>=XP_CAP)return {into:0, span:1, frac:1, capped:true};
+  const b=XP_AT[level+1], span=Math.max(1,b-a);
+  return {into:xp-a, span, frac:Math.max(0,Math.min(1,(xp-a)/span)), capped:false};
+}
+// returns how many levels this took you up, so the card can say so
+function addXp(n){
+  n=Math.max(0,Math.round(n||0));
+  if(!n)return 0;
+  const was=level;
+  xp+=n; syncLevel();
+  return level-was;
+}
 // ---------- rider perks ----------
 // One small, legible bonus per animal, so the chest's character drop is treasure rather
 // than a skin. Applied on top of the board's stats; the pug stays the honest baseline.
@@ -4676,6 +4715,21 @@ function goalRoll(){
   ensureGoals();
   for(let i=0;i<goals.length;i++) if(goals[i].done) goals[i]=freshGoal();
 }
+// The level row on the run card. Two states: an ordinary run, which shows what it paid and
+// how far through the level that leaves you, and a run that took you up, which says so and
+// fills the bar — a level gained is the one thing on this card worth interrupting the format
+// for, and it is also the moment the next rung of a family ladder becomes reachable.
+function levelRowHTML(gain,up){
+  const bnd=xpBand();
+  const pct=(bnd.frac*100).toFixed(1);
+  const paid=`+${Math.max(0,Math.round(gain||0)).toLocaleString()} XP`;
+  if(up>0)
+    return `<div class="tr goal done"><span>★ Level ${level}${up>1?` (+${up})`:''}</span>`+
+      `<b>${paid}</b><div class="bar"><i style="width:${pct}%"></i></div></div>`;
+  const to=bnd.capped?'MAX':`${bnd.into.toLocaleString()} / ${bnd.span.toLocaleString()}`;
+  return `<div class="tr goal"><span>Level ${level}</span>`+
+    `<b>${paid} &middot; ${to}</b><div class="bar"><i style="width:${pct}%"></i></div></div>`;
+}
 function goalRowsHTML(){
   ensureGoals();
   return goals.map(g=>{ const d=goalDef(g);
@@ -4692,6 +4746,9 @@ function loadSave(){
   try{
     const v=JSON.parse(localStorage.getItem(SAVE_KEY)||'{}');
     coins=Math.max(0,v.coins|0);
+    // Clamped and floored rather than trusted: a hand-edited or half-written save that puts a
+    // string or a negative here would otherwise make levelAt loop against NaN forever.
+    xp=Math.max(0,Math.floor(+v.xp||0));
     owned=Object.assign({astro:1},v.owned||{});
     equipped=v.equipped||'astro';
     // ---- AND THE BORROWED PAIR IS SCRUBBED OUT OF ANY SAVE THAT HAS THEM ----
@@ -4717,6 +4774,8 @@ function loadSave(){
   // of the very first run was counted against nothing and thrown away — the goals only
   // came into existence at the wipeout screen, already showing zero.
   ensureGoals();
+  // derived from whatever xp survived the load, including a save written before xp existed
+  syncLevel();
 }
 function saveGame(){
   // ---- WHAT THE BEAM LENT YOU IS NEVER WRITTEN DOWN ----
@@ -4727,7 +4786,7 @@ function saveGame(){
   // actually riding and that is what goes to disk.
   const r=(typeof ufoWas!=='undefined'&&ufoWas)?ufoWas.rider:rider;
   const b=(typeof ufoWas!=='undefined'&&ufoWas)?ufoWas.board:equipped;
-  try{localStorage.setItem(SAVE_KEY,JSON.stringify({coins,owned,equipped:b,ownedChars,rider:r,goals}));}catch(e){}
+  try{localStorage.setItem(SAVE_KEY,JSON.stringify({coins,xp,owned,equipped:b,ownedChars,rider:r,goals}));}catch(e){}
 }
 
 // ---------- telemetry ----------
@@ -6700,6 +6759,10 @@ function showCoins(){
   if(hCoins)hCoins.textContent=t;
   if(ovCoins)ovCoins.textContent=t;
   if(shopCoins)shopCoins.innerHTML=t+'<i class="pk"></i>';
+  // beside the purse, because from the next batch on the two of them together are the answer
+  // to "can I have this": one says what it costs and the other says whether it is open yet
+  const lv=document.getElementById('shopLv');
+  if(lv)lv.textContent='Lv '+level;
 }
 // ---- WHAT YOU CAN OWN, WHICH IS NOT EVERYTHING THAT EXISTS ----
 // The saucer's pair are marked hidden: they are a thing that HAPPENS to you for thirty-five
@@ -9654,6 +9717,14 @@ for(const t of document.querySelectorAll('#shopTabs .tab'))
 // in inches — the two numbers every shaper publishes and the two the outline curve was
 // fitted to. They are carried here rather than left in the workings so the mesh can be held
 // against them: see the audit in the suite, which measures the built board and compares.
+// ---- AND THE JET SKI IS DELIBERATELY NOT IN HERE ----
+// It is the one thing in the shop with no entry in any family, and that is a decision rather
+// than an omission: board school is about what is under your feet and how much of it there is,
+// and a machine you sit on is not on that scale at all. The eFoil earns its place because it
+// is still a board being ridden standing up; the ski is a vehicle. When the family ladders
+// land it gets its own category OUTSIDE this table, and nothing here should grow an entry for
+// it — the page reads as one continuous rule from a fifty inch skimboard to a nine foot log,
+// and a jet ski in the middle of that is a second list pretending to be part of the first.
 const B_TYPES=[
  // ---- the three that are not surfboards at all, and are the shortest things here ----
  {key:'skim', tag:'Skim', name:'Skimboard', real:{L:50,W:20.00,T:0.55,n12:17.0,t12:18.0,rockN:2.0,rockT:0.6,noseR:0.28,tailR:0.22,noseA:2.690,tailA:3.200,noseW:0.55,tailW:0.650},
@@ -9990,7 +10061,7 @@ function openShopOn(tab){
   // Packed away on the way in, and it is load-bearing rather than tidy: prevScene is where
   // the card photographs are taken from. See menuBeachWanted.
   if(typeof menuBeachOff==='function')menuBeachOff();
-  shopTab=tab; drawShop();
+  shopTab=tab; drawShop(); showCoins();   // the purse and the level badge, before it is seen
   shopMenuWasUp=!overlay.classList.contains('hidden');
   if(shopMenuWasUp)overlay.classList.add('hidden');
   shop.classList.remove('hidden');
@@ -19633,6 +19704,11 @@ function gameOver(){
   const newScore=s>best, newDist=bestDistBeat;
   if(newScore){best=s;saveBest();}
   const earned=coinsFor(dist,s)+goalRunEnd(dist,s);
+  // ---- and the run pays XP as well as puka ----
+  // The same two figures the card already reports, added rather than weighted: a metre and a
+  // point are worth the same, so nobody has to be told the exchange rate. Banked BEFORE the
+  // save below, so the level that the card is about to draw is the level that is on disk.
+  const xpGain=d+s, lvUp=addXp(xpGain);
   coins+=earned; saveGame(); showCoins();
   bump(stats,'earned',earned); bump(stats,'score',s); saveStats();
   jumpBtn.classList.add('hidden');ropeBtn.style.display='none';grabBtn.style.display='none';trickBar.classList.add('hidden');
@@ -19659,6 +19735,12 @@ function gameOver(){
         tr('Best tricks',best.toLocaleString(),newScore?'<i class="nu">NEW</i>':'')+
       `</div>`+
       `<div class="grp"><div class="ghead">Goals</div>`+goalRowsHTML()+`</div>`+
+      // ---- and where that run left you ----
+      // Borrowing .tr.goal wholesale rather than styling a second bar: this is the same
+      // shape of fact as a goal — a thing part-done, with a bar that IS the answer and the
+      // figures kept small beside it — and a second bar drawn a second way on the same card
+      // would read as two systems where there is one.
+      `<div class="grp"><div class="ghead">Level</div>`+levelRowHTML(xpGain,lvUp)+`</div>`+
     `</div>`;
   showMenu('over');
   if(crateHeld)crateCeremony();
@@ -25672,6 +25754,22 @@ if(location.hash.includes('debug')){
       return {run:_lmRun, max:LM_MAX, open:_lmOpen,
               live:[..._lmLive].map(([f,v])=>({f, quiet:now-v.t, got:v.seen})),
               queued:_lmQ.map(x=>({f:x.f, p:x.p}))}; },
+    // ---- the level, and whether it survives a save ----
+    lvl(){ return {xp, level, cap:XP_CAP, band:xpBand()}; },
+    lvlTable(){ return XP_AT.map((v,L)=>L<2?null:[L,v]).filter(Boolean); },
+    // the card's own row, built for real. It runs inside gameOver, so a throw here is not a
+    // missing line — it is the entire wipeout card, on the one screen you cannot avoid.
+    lvlRow(g,u){ return levelRowHTML(g===undefined?1800:g,u||0); },
+    // Banks xp the way a run does, writes, re-reads, and reports both sides. A level derived
+    // from a number that did not round-trip is the one failure this system can have that
+    // nothing on screen would show until somebody lost a level by closing the tab.
+    lvlPoke(n){
+      const up=addXp(n), before={xp, level};
+      saveGame();
+      const raw=JSON.parse(localStorage.getItem(SAVE_KEY)||'{}');
+      xp=0; level=1; loadSave();
+      return {up, before, onDisk:raw.xp, after:{xp, level}, ok:(raw.xp===before.xp&&level===before.level)};
+    },
     stageList(){ return stageTargets().map(t=>t.n); },
     // how far each thing on the beach is from the lens. Composition on this screen is mostly a
     // question of what is in front of what, and that is not answerable by eye from a render:
