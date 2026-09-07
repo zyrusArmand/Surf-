@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.76.0';
+window.SURF_VERSION='6.77.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -10223,7 +10223,6 @@ let shopFillId=0, shopMenuWasUp=false;
 // headed. `var`, because the render loop reads them from thousands of lines above here.
 var shopCamE=0, shopCamGo=0, _shopWalk=null;
 var questCamE=0, questCamGo=0, _questWalk=null;
-var _qbSandR=null, _qbSandE=null, _qbSandOn=0;
 // ---- only photograph what somebody is looking at ----
 // This walked the whole rack the moment the shop opened: forty-seven boards, each one a
 // render into an off-screen target followed by readRenderTargetPixels — which is a
@@ -10821,6 +10820,20 @@ document.getElementById('dShop').onclick    =()=>{
 // The arrow is the same one the board viewer turns pages with, and nothing else listens.
 document.getElementById('dBack').onclick=()=>{ buzz(6); shopCamGo=0;
   clearTimeout(_questWalk); questCamGo=0; };
+// ---- AND THE QUEST BOARD IS LEFT BY TAPPING IT ----
+// A tap anywhere was pulled out of the SHOP for two stated reasons: it gave no sign it was
+// there, and it swallowed every tap on the title beach, which is where the five taps on the
+// version number live. Neither applies here. The board fills the frame, so a tap lands on the
+// thing you are looking at rather than on empty sand; and this listener only exists while the
+// quest walk is out, so the beach and its version number are untouched.
+// It is still the weaker affordance of the two, and it is here because the arrow was asked to
+// go. If nothing on screen should have to be guessed at, the arrow is the answer and this is
+// not.
+addEventListener('pointerdown',(ev)=>{
+  if(!questCamGo||questCamE<0.55)return;
+  if(ev.target&&ev.target.closest&&ev.target.closest('#homeBar,#quests,#settings,.hbtn,.varr'))return;
+  buzz(6); clearTimeout(_questWalk); questCamGo=0;
+},{passive:true});
 document.getElementById('dPlay').onclick    =()=>{ buzz(12); startBtn.click(); };
 const questsPanel=document.getElementById('quests'), setPanel=document.getElementById('settings');
 // Watched rather than hooked into each open and close. There are four of these and several
@@ -18392,6 +18405,42 @@ function shopShadow(e){
     _shopShKeep=null;
   }
 }
+// ---- AND THE SAME FOR THE QUEST BOARD ----
+// This is what was actually wrong with the sand over there, after two attempts at it that both
+// went at the material. The material was never the problem: it is the title screen's own sand
+// and the title screen looks right. The shadow camera is 44 feet across and centred on the
+// title set, and the board stands about thirty feet outside it -- so nothing near the board
+// casts anything. No shadow under the board, none under its two palms, no contact darkening at
+// all, and unshadowed sand under a ten-degree sun is exactly the flat pale plastic it looked
+// like. Same move as the shop's, same restore.
+let _qbShKeep=null;
+const _qbShV=new THREE.Vector3(), _qbShO=new THREE.Vector3();
+function questShadow(e){
+  if(typeof prevKey==='undefined'||!prevKey||!prevKey.castShadow||!prevKey.shadow)return;
+  const sc=prevKey.shadow.camera; if(!sc)return;
+  const want=(e>0.30)&&!!questBoard;
+  if(want){
+    if(!_qbShKeep){
+      _qbShKeep={t:prevKey.target.position.clone(), p:prevKey.position.clone(),
+                 l:sc.left, r:sc.right, tp:sc.top, b:sc.bottom};
+    }
+    // the offset from target to light IS the sun's direction; carried across unchanged
+    _qbShO.copy(_qbShKeep.p).sub(_qbShKeep.t);
+    questBoard.getWorldPosition(_qbShV);
+    prevKey.target.position.copy(_qbShV); prevKey.target.updateMatrixWorld();
+    prevKey.position.copy(_qbShV).add(_qbShO);
+    const half=15.5;
+    sc.left=-half; sc.right=half; sc.top=half; sc.bottom=-half;
+    sc.updateProjectionMatrix();
+  }else if(_qbShKeep){
+    prevKey.target.position.copy(_qbShKeep.t); prevKey.target.updateMatrixWorld();
+    prevKey.position.copy(_qbShKeep.p);
+    sc.left=_qbShKeep.l; sc.right=_qbShKeep.r;
+    sc.top=_qbShKeep.tp; sc.bottom=_qbShKeep.b;
+    sc.updateProjectionMatrix();
+    _qbShKeep=null;
+  }
+}
 // ---- THE CARVED SIGN IS A SIGN ----
 // There used to be a second hit area here, sized to the lower 42% of the hut's projected box,
 // which opened Boards. It covered the whole counter front — and the carved SURF SHOP plank is
@@ -18412,11 +18461,11 @@ function shopShadow(e){
 // model has arrived, so that is the only thing it may ask about.
 function layoutShopBack(e){
   const bk=document.getElementById('dBack');
-  // ...and it is the way back out of EITHER camera move now. Passed the shop's progress and
-  // asked about the quest board's here rather than being called twice, because there is one
-  // arrow and two rooms, and two callers would fight over it every frame the lens is crossing.
-  const q=(typeof questCamE==='number')?questCamE:0;
-  if(bk)bk.style.visibility=(Math.max(e,q)>=0.55)?'':'hidden';
+  // ...and it belongs to the SHOP only. It was shown for the quest board too and it sat across
+  // the palm trunk in front of a board that already fills the frame. The way back from the
+  // quest board is a tap on the scene -- see qbTapBack, and see the note there about why that
+  // pattern was removed from the shop and why it is defensible here.
+  if(bk)bk.style.visibility=(e>=0.55)?'':'hidden';
 }
 // ---- and the quest board's five sheets get their words ----
 // Placed from each panel's OWN four corners, projected -- the same method the shop's lit panels
@@ -35263,36 +35312,10 @@ function renderMenuBeach(dt){
     if(tikiHut){ if(shopCamE>0.0001)aimTiki(); tikiShow(shopCamE,_sd); }
     const qstep=_sd/Math.max(0.05,QB_CAM.secs);
     questCamE = questCamGo ? Math.min(1,questCamE+qstep) : Math.max(0,questCamE-qstep);
-    // ---- AND THE SAND'S SHINE IS CUT, NOT ITS TEXTURE ----
-    // The first attempt at this pulled normalScale down 58%, and that was the wrong knob in the
-    // most direct way possible: the ripple detail is what BREAKS UP a specular highlight, so
-    // taking it away turned a harsh glitter into a broad smooth sheen -- "shiny and fake" is
-    // exactly right, and it is a fair description of what removing the texture from sand does.
-    // The relief is left alone now. It is the same sand as the title screen and it should look
-    // like it. What changes is only how hard it reflects: this view faces down the beach into a
-    // ten-degree sun, so the same roughness that reads as matte from the title shot reads as wet
-    // from here. Roughness up toward matte, environment down, relief untouched.
-    // Eased with the walk and restored once when it is fully out, on a flag rather than every
-    // frame -- the menu writes envMapIntensity on this same material for its own view, and two
-    // writers on one value every frame is how one of them silently wins.
-    if(typeof beachSand!=='undefined'&&beachSand&&beachSand.material){
-      const _sm=beachSand.material;
-      if(_qbSandR===null&&_sm.roughness!==undefined)_qbSandR=_sm.roughness;
-      if(_qbSandE===null)_qbSandE=(_sm.envMapIntensity!==undefined)?_sm.envMapIntensity:null;
-      if(questCamE>0.0001){
-        const q=questCamE*questCamE*(3-2*questCamE);
-        if(_qbSandR!==null)_sm.roughness=_qbSandR+(1.0-_qbSandR)*0.85*q;
-        if(_qbSandE!==null)_sm.envMapIntensity=_qbSandE*(1-0.62*q);
-        _qbSandOn=1;
-      }else if(_qbSandOn){
-        if(_qbSandR!==null)_sm.roughness=_qbSandR;
-        if(_qbSandE!==null)_sm.envMapIntensity=_qbSandE;
-        _qbSandOn=0;
-      }
-    }
     if(questBoard){ if(questCamE>0.0001)aimBoard(); boardShow(questCamE,_sd); }
     if(questCamE>0.0001)drawQuestNotes(false);
     layoutQuestNotes(questCamE);
+    questShadow(questCamE);
     // the real progress, always — passing zero when the hut is missing was the other half of
     // the trap above, and it hid the arrow before the function could even be asked
     layoutShopBack(shopCamE);
