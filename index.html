@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.74.0';
+window.SURF_VERSION='6.75.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -18456,7 +18456,18 @@ function layoutQuestNotes(e){
     el.style.height=(bh*0.92).toFixed(0)+'px';
     // capped as well as floored: on a wide screen the board can be drawn large enough that a
     // proportional size would set the goal text bigger than the game's own headings
-    el.style.fontSize=Math.max(9,Math.min(18,bh*0.155)).toFixed(1)+'px';
+    const want=Math.max(9,Math.min(20,bh*0.245));
+    const ck=bh.toFixed(0)+'|'+(el.dataset.qk||'');
+    if(el.dataset.fitk===ck){ el.style.fontSize=el.dataset.fitv; }
+    else{
+      let f=want;
+      el.style.fontSize=f.toFixed(1)+'px';
+      for(let t=0;t<5&&el.scrollHeight>el.clientHeight+1;t++){
+        f*=0.90; if(f<9){ f=9; el.style.fontSize='9px'; break; }
+        el.style.fontSize=f.toFixed(1)+'px';
+      }
+      el.dataset.fitk=ck; el.dataset.fitv=el.style.fontSize;
+    }
   }
 }
 // ---- what is written on them ----
@@ -18477,17 +18488,18 @@ function drawQuestNotes(force){
     if(!g){
       // The board has five pins and the game deals three goals. Rather than leave two sheets
       // blank -- which reads as something that failed to load -- they say what they are.
-      el.className='qbNote soon';
+      el.dataset.qk='soon'; el.className='qbNote soon';
       el.innerHTML='<span class="qt">Next quest<br>after a run</span>';
       continue;
     }
     const d=goalDef(g);
+    const t=String(d.text).replace(/\s+in (?:one|a) run$/i,'');
     const n=Math.min(g.n,d.target), p=Math.max(0,Math.min(100,n/d.target*100));
-    el.className='qbNote'+(g.done?' done':'');
+    el.dataset.qk=g.id+':'+n+':'+(g.done?1:0); el.className='qbNote'+(g.done?' done':'');
     el.innerHTML=g.done
-      ? '<span class="qt">'+d.text+'</span><span class="qn">DONE &nbsp;+100</span>'+
+      ? '<span class="qt">'+t+'</span><span class="qn">DONE &nbsp;+100</span>'+
         '<span class="qbar"><i style="width:100%"></i></span>'
-      : '<span class="qt">'+d.text+'</span><span class="qn">'+
+      : '<span class="qt">'+t+'</span><span class="qn">'+
         n.toLocaleString()+' / '+d.target.toLocaleString()+'</span>'+
         '<span class="qbar"><i style="width:'+p.toFixed(1)+'%"></i></span>';
   }
