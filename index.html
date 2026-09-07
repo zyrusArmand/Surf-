@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.92.0';
+window.SURF_VERSION='6.93.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -8257,7 +8257,22 @@ loadModel('palm.glb',(s3)=>{
     // so everything that asks about it agrees and only the picture disagrees.
     if(sk&&own)for(const mm of [].concat(sk.material)){
       if(!mm)continue;
-      mm.skinning=true; mm.needsUpdate=true;
+      mm.skinning=true;
+      // ---- AND THE ROUGHNESS MAP IS DROPPED, BECAUSE IT HAS HOLES IN IT ----
+      // Those white specks over the fronds are not in the colour texture -- that is a baked
+      // photoscan atlas with no white anywhere in it. They are specular. The file's
+      // metallic-roughness map carries about a dozen pure BLACK blobs, and black in the green
+      // channel is roughness ZERO: mirror-smooth. A perfectly smooth dielectric under a
+      // ten-degree sun returns a hard white highlight, which is exactly what they are. They are
+      // holes in the scan, not shading.
+      // There is no way to floor a texture-driven roughness per texel from here -- the material
+      // factor multiplies the map, it cannot raise it -- so the map goes and a flat value takes
+      // its place. Almost nothing is lost: away from the artifacts the map is near-uniform
+      // green, around 0.6 to 0.7, so it was carrying holes and not much else.
+      if(mm.roughnessMap){ mm.roughnessMap=null; mm.roughness=0.72; }
+      if(mm.metalnessMap){ mm.metalnessMap=null; }
+      mm.metalness=0;
+      mm.needsUpdate=true;
       mm.userData.authored=true;
     }
   }
