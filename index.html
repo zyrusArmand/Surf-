@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.63.0';
+window.SURF_VERSION='6.64.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -751,6 +751,10 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
      grid the card gives it or the fill lands on its own line */
   #profile .tr.goal, #levelInfo .tr.goal { display:grid; grid-template-columns:1fr auto; align-items:baseline;
     padding:6px 0 10px; text-align:left; }
+  /* the title, set as the headline it is */
+  #levelInfo .rank { font-size:min(6.4vw,25px); font-weight:900; letter-spacing:.2px;
+    color:#ffd24a; text-align:center; padding:2px 0 14px;
+    text-shadow:0 2px 10px rgba(255,170,40,.28), 0 1px 2px rgba(4,16,40,.5); }
   #levelInfo .ghead { font-size:min(3vw,11px); font-weight:800; letter-spacing:.12em;
     text-transform:uppercase; opacity:.62; text-align:left; margin:16px 2px 2px; }
   #settings .sw.on { border-color:rgba(196,252,246,.85);
@@ -4799,10 +4803,72 @@ function setUname(v){
   saveGame();
 }
 function unameOr(){ return uname||'Surfer'; }
-const XP_CAP=50;
+// ---- THE LADDER GOT LONGER AND STEEPER, AND BOTH ARE THE POINT ----
+// 111 rungs instead of 50, and 480*(L-1)^1.80 instead of 400*(L-1)^1.65. Levelling was
+// reported as too easy and it was: the old curve handed you level 10 for 15,016 XP, which at
+// the 1,800 or so a middling run pays is eight runs, and level 20 for fifty thousand.
+//     level      2       5        10        20        28         50          111
+//     was      400   3,940    15,016    51,523    92,005    245,971      934,024
+//     now      480   5,820    25,054    96,161   181,007    529,169    2,268,549
+// The exponent is what does the work. Raising the multiplier alone would have made the first
+// rung a grind without ever making the hundredth mean anything; a steeper power leaves the
+// opening nearly where it was and stretches everything above it, which is the shape a rank
+// ladder wants — the early ones are a tutorial, the late ones are the achievement.
+// ---- AND AN EXISTING SAVE WILL DROP A COUPLE OF LEVELS ----
+// Measured: 16,000 XP was level 10 and is now 8; 50,000 was 19 and is now 14. That is what
+// "too easy" costs to fix, and it costs it to everyone who already played. Nothing is taken
+// away, because a board already owned is never re-locked — see boardLocked, which asks about
+// BUYING and not about riding. What moves is how far off the next unbought board is.
+// The level is derived and never stored, which is what makes this a two-number edit instead
+// of a migration: every save re-reads its own level from its XP on the next load.
+const XP_CAP=111;
+// Named, because the panel EXPLAINS this curve in words and a sentence that repeats a
+// constant is a sentence that goes stale the moment the constant moves. It already did:
+// the copy was still quoting 400 and 1.65 after the numbers here had changed. The panel
+// reads these now, so the explanation cannot disagree with the ladder again.
+const XP_MUL=480, XP_POW=1.80;
 const XP_AT=(()=>{ const a=[0,0];
-  for(let L=2;L<=XP_CAP;L++)a[L]=Math.round(400*Math.pow(L-1,1.65));
+  for(let L=2;L<=XP_CAP;L++)a[L]=Math.round(XP_MUL*Math.pow(L-1,XP_POW));
   return a; })();
+// ---- AND A LEVEL IS A TITLE, NOT ONLY A NUMBER ----
+// Twenty of them across the hundred and eleven, because a hundred and eleven names is a
+// hundred and eleven things nobody reads and most of them would be filler. A band means the
+// title survives a few levels, which is what makes arriving at the next one an event.
+// The wording climbs the way a surfer actually would — off the sand, into the whitewater, out
+// past the break, then into the things only a few people do — so the rank says where you are
+// in the sport rather than only how much you have played.
+const RANKS=[
+  [1,  'Sandcastle Kid'],
+  [4,  'Beach Grom'],
+  [8,  'Rookie Surfer'],
+  [13, 'Whitewater Rider'],
+  [19, 'Green Wave Rider'],
+  [25, 'Line-up Regular'],
+  [32, 'Solid Surfer'],
+  [39, 'Wave Hunter'],
+  [46, 'Rail Carver'],
+  [53, 'Great Surfer'],
+  [60, 'Barrel Dodger'],
+  [67, 'Awesome Shredder'],
+  [74, 'Reef Breaker'],
+  [81, 'Point Break Local'],
+  [87, 'Storm Chaser'],
+  [93, 'Big Wave Charger'],
+  [99, 'Tube Master'],
+  [104,'Legend of the Point'],
+  [108,'The Big Kahuna'],
+  [111,'Wave Whisperer'],
+];
+function rankAt(L){
+  let n=RANKS[0][1];
+  for(const [at,name] of RANKS){ if(L>=at)n=name; else break; }
+  return n;
+}
+// the next title and the level it lands on, or null at the top of the ladder
+function nextRank(L){
+  for(const [at,name] of RANKS)if(at>L)return {at,name};
+  return null;
+}
 function levelAt(x){ let L=1; while(L<XP_CAP&&x>=XP_AT[L+1])L++; return L; }
 function syncLevel(){ level=levelAt(xp); return level; }
 // where you are inside the current level, for the bar. At the cap the band is full rather
@@ -4977,8 +5043,12 @@ function levelRowHTML(gain,up){
   const bnd=xpBand();
   const pct=(bnd.frac*100).toFixed(1);
   const paid=`+${Math.max(0,Math.round(gain||0)).toLocaleString()} XP`;
+  // A level-up is the one moment the TITLE is news, so the card says it then and only then.
+  // Every run showing it would make it wallpaper; the run you earn it on is the run it means
+  // something.
   if(up>0)
-    return `<div class="tr goal done"><span>★ Level ${level}${up>1?` (+${up})`:''}</span>`+
+    return `<div class="tr goal done"><span>★ ${rankAt(level)} &middot; Level ${level}`+
+      `${up>1?` (+${up})`:''}</span>`+
       `<b>${paid}</b><div class="bar"><i style="width:${pct}%"></i></div></div>`;
   const to=bnd.capped?'MAX':`${bnd.into.toLocaleString()} / ${bnd.span.toLocaleString()}`;
   return `<div class="tr goal"><span>Level ${level}</span>`+
@@ -10786,6 +10856,7 @@ function drawProfile(){
   document.getElementById('profBody').innerHTML=
     '<div class="row"><span>Name</span><button class="sw" id="profName">'+
       unameOr().replace(/[<&]/g,c=>c==='<'?'&lt;':'&amp;')+'</button></div>'+
+    '<div class="row"><span>Rank</span><b>'+rankAt(level)+'</b></div>'+
     '<div class="row"><span>Level</span><b>'+level+'</b></div>'+
     '<div class="tr goal"><span>Progress</span><b>'+to+'</b>'+
       '<div class="bar"><i style="width:'+pct+'%"></i></div></div>'+
@@ -10809,6 +10880,10 @@ function drawProfile(){
 function drawLevelInfo(){
   const b=xpBand(), pct=(b.frac*100).toFixed(1);
   const r=[];
+  // The title leads, because it is the answer to "what am I" and the number is only the
+  // answer to "how far in". Twenty of them across a hundred and eleven levels, so it holds
+  // for a while and changing it is an event.
+  r.push('<div class="rank">'+rankAt(level)+'</div>');
   r.push('<div class="row"><span>Level</span><b>'+level+'</b></div>');
   r.push('<div class="row"><span>Total XP</span><b>'+xp.toLocaleString()+'</b></div>');
   r.push('<div class="tr goal"><span>'+(b.capped?'At the cap':'Toward level '+(level+1))+'</span>'+
@@ -10816,6 +10891,9 @@ function drawLevelInfo(){
          '<div class="bar"><i style="width:'+pct+'%"></i></div></div>');
   if(!b.capped){
     r.push('<div class="row"><span>Still to go</span><b>'+(b.span-b.into).toLocaleString()+' XP</b></div>');
+    const nr=nextRank(level);
+    if(nr)r.push('<div class="row"><span>Next title</span><b>'+nr.name+
+      ' <span style="opacity:.6;font-weight:600">at '+nr.at+'</span></b></div>');
     r.push('<div class="row"><span>Level '+level+' began at</span><b>'+XP_AT[level].toLocaleString()+'</b></div>');
     r.push('<div class="row"><span>Level '+(level+1)+' needs</span><b>'+XP_AT[level+1].toLocaleString()+'</b></div>');
   }
@@ -10824,8 +10902,9 @@ function drawLevelInfo(){
          'straight together — the same two figures the wipeout card already shows you. '+
          'Nothing else pays, so a long quiet run and a short showy one are worth the same '+
          'when those numbers match. The rungs get further apart as you climb: each one is '+
-         '400 &times; (level &minus; 1)<sup>1.65</sup>, which is why the first few arrive '+
-         'inside a run or two and the later ones take a session.</p>');
+         XP_MUL+' &times; (level &minus; 1)<sup>'+XP_POW.toFixed(2)+'</sup>, which is why '+
+         'the first few arrive inside a run or two and the later ones take a session. '+
+         'There are '+XP_CAP+' of them.</p>');
   // What it is FOR. Read off the same table the shop locks against, so this page cannot drift
   // away from what the rack actually does.
   const nx=[];
