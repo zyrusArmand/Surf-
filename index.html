@@ -26686,6 +26686,32 @@ if(location.hash.includes('debug')){
       }
       return {side:MB_QB_SIDE, fwd:MB_QB_FWD, h:MB_QB_H, sink:MB_QB_SINK};
     },
+    // ---- and the placement is SOLVED, not stepped toward ----
+    // A measured 2x2 Jacobian on (side, fwd) asked for 0.500 across and 0.580 tall and
+    // delivered 0.097 and 0.955: the step needed is far too big for the linearisation to
+    // survive, because both knobs swing the board around the lens rather than sliding it
+    // across the frame. So this does the geometry instead. The camera's final pose is fixed and
+    // known; put the board on the lens's own forward axis at the distance that gives the wanted
+    // size, then convert that world point back into the set's axes, which is the only reason
+    // side and fwd exist. Centred by construction rather than by iteration.
+    qbFit(tH){
+      if(!questBoard||!menuCam)return null;
+      const now=this.qbScreen(); if(!now||!now.h)return null;
+      const C=menuCam.getWorldPosition(new THREE.Vector3());
+      const f=new THREE.Vector3(0,0,-1).applyQuaternion(menuCam.getWorldQuaternion(new THREE.Quaternion()));
+      f.y=0; if(f.lengthSq()<1e-8)return null; f.normalize();
+      const W0=questBoard.getWorldPosition(new THREE.Vector3());
+      const D0=Math.hypot(W0.x-C.x, W0.z-C.z);
+      const D=D0*(now.h/Math.max(1e-4,tH));       // apparent size goes as 1/distance
+      const W=new THREE.Vector3(C.x+f.x*D, 0, C.z+f.z*D);
+      mbAxes();
+      const dx=W.x-_mbP.x, dz=W.z-_mbP.z;
+      const side=dx*_mbR.x+dz*_mbR.z;
+      const fwd =-(dx*_mbF.x+dz*_mbF.z);
+      MB_QB_SIDE=+side.toFixed(3); MB_QB_FWD=+fwd.toFixed(3);
+      aimBoard();
+      return {D0:+D0.toFixed(2), D:+D.toFixed(2), side:MB_QB_SIDE, fwd:MB_QB_FWD};
+    },
     shopWalk(go){ if(go){ try{ wantTiki(); }catch(e){} }
       if(go!==undefined)shopCamGo=go?1:0;
       return {e:+shopCamE.toFixed(3), go:shopCamGo,
