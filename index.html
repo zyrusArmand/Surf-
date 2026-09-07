@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.64.0';
+window.SURF_VERSION='6.65.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -10727,7 +10727,17 @@ document.getElementById('gMatch').onclick=()=>{
 // Shop is the till: the rack and the cast, on two tabs. Board is the other question a
 // beginner actually has — not "which one costs what" but "what ARE these", which the shop
 // cannot answer because a shop is sorted by price and shapes are not.
+// ---- WHERE YOU CAME FROM DECIDES WHERE BACK GOES ----
+// Closing the shop always walked the lens home, which is right when the panel was opened from
+// the dial and wrong when it was opened by pressing a panel on the counter: you had walked to
+// the hut, tapped Boards, and Back put you on the main menu — two steps away from where you
+// were standing. Board school never had the problem, because gClose only ever hid the panel.
+// The hut has to actually EXIST for this, not just be on order. dShop's fallback timer opens
+// the panel on its own when the model never arrives, and treating that as "came from the hut"
+// would leave Back standing on a bare dune.
+let shopFromTiki=0;
 function openShopOn(tab){
+  shopFromTiki=(typeof tikiHut!=='undefined'&&tikiHut&&typeof shopCamGo!=='undefined'&&shopCamGo)?1:0;
   // Packed away on the way in, and it is load-bearing rather than tidy: prevScene is where
   // the card photographs are taken from. See menuBeachWanted.
   if(typeof menuBeachOff==='function')menuBeachOff();
@@ -11038,7 +11048,11 @@ document.getElementById('shopClose').onclick=()=>{
   // ...and the lens walks back. Cleared here rather than on every path that can close the
   // shop, because this is the one the player actually uses; the frame loop eases it home from
   // wherever it had got to, so an interrupted walk is not a state that has to be handled.
-  clearTimeout(_shopWalk); shopCamGo=0;
+  // ...and the lens only walks back if this is where the walk started. Opened from the
+  // counter, Back is one step: the panel closes and you are at the hut again, with the arrow
+  // still there to leave by. See shopFromTiki.
+  if(!shopFromTiki){ clearTimeout(_shopWalk); shopCamGo=0; }
+  shopFromTiki=0;
   try{ prevTrim(); }catch(e){}
 };
 
@@ -26646,6 +26660,31 @@ if(location.hash.includes('debug')){
     startCharge(){ const R=(typeof riderRig==='function')?riderRig():null;
       if(R&&R.startCharge){ R.startCharge(); return true; } return false; },
     poke(){ pokeT=1; return true; },
+    // Where the hut lands in the frame, as a fraction of the screen. "Centred" is a claim
+    // about the picture, so it is measured in the picture rather than nudged toward by eye.
+    hutScreen(){
+      if(typeof tikiHut==='undefined'||!tikiHut||!menuCam)return null;
+      menuCam.updateMatrixWorld(true); tikiHut.updateMatrixWorld(true);
+      const bb=new THREE.Box3().setFromObject(tikiHut);
+      let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+      for(let i=0;i<8;i++){
+        const v=new THREE.Vector3(i&1?bb.max.x:bb.min.x, i&2?bb.max.y:bb.min.y,
+                                  i&4?bb.max.z:bb.min.z).project(menuCam);
+        const fx=v.x*0.5+0.5, fy=-v.y*0.5+0.5;
+        if(fx<x0)x0=fx; if(fx>x1)x1=fx; if(fy<y0)y0=fy; if(fy>y1)y1=fy;
+      }
+      // The hut is WIDER THAN THE FRAME — measured, its box projects 3.1 screens across — so
+      // the centre of that box is a point well behind the lens and it does not move linearly
+      // with the camera. What "centred" means here is the hut's own axis on the middle of the
+      // screen, which is one point and behaves.
+      const o=new THREE.Vector3().setFromMatrixPosition(tikiHut.matrixWorld).project(menuCam);
+      return {ox:+(o.x*0.5+0.5).toFixed(3), oy:+(-o.y*0.5+0.5).toFixed(3),
+              cx:+((x0+x1)/2).toFixed(3), cy:+((y0+y1)/2).toFixed(3),
+              w:+(x1-x0).toFixed(3), h:+(y1-y0).toFixed(3),
+              left:+x0.toFixed(3), right:+x1.toFixed(3),
+              camRight:SHOP_CAM.right, e:+shopCamE.toFixed(3)};
+    },
+    shopCam(k,v){ if(v!==undefined)SHOP_CAM[k]=v; return SHOP_CAM; },
     // Where the pinned pieces actually ARE, local and world. Added because a check written as
     // page.evaluate(()=>pug.position) returns null every time: these all live in the game's
     // closure, and that is the third time that has cost a probe run. A hook is the only way in.
