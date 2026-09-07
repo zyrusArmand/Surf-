@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.91.0';
+window.SURF_VERSION='6.92.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -11565,6 +11565,11 @@ function stageTargets(){
   add('signpost', typeof signPost!=='undefined'?signPost:null);
   // only there once somebody has been to the shop, which is exactly when it is worth dragging
   add('tiki', typeof tikiHut!=='undefined'?tikiHut:null);
+  // ...and the quest board, for the same reason and by the same argument. It was left out when
+  // it was added to the game, which is why it could not be picked: this list IS what the
+  // workshop can touch, and a piece that is not in it is not merely hard to grab, it is
+  // invisible to the raycast however accurately you tap it.
+  add('quests', typeof questBoard!=='undefined'?questBoard:null);
   return out;
 }
 // Nearest of the six under the finger, rather than the nearest thing in the scene: the sand
@@ -18350,6 +18355,11 @@ function placeBoard(){
 // board seen at an angle is a notice board you cannot read.
 function aimBoard(){
   if(!questBoard||!menuProps||!menuCam)return;
+  // The drag beats the placement, exactly as it does for the hut and the signpost. Without this
+  // the board would appear in the workshop's pick list and still be immovable: aimBoard runs
+  // every frame the lens is over there and would put it straight back, so every drag would end
+  // where it started and look like the pick had failed rather than the write.
+  if(questBoard.userData.stageHeld){ questBoard.updateMatrixWorld(true); return; }
   const pscl=menuProps.scale.x||1;
   mbAxes();
   const wx=_mbP.x+_mbR.x*MB_QB_SIDE-_mbF.x*MB_QB_FWD;
@@ -27104,6 +27114,12 @@ if(location.hash.includes('debug')){
     // Which sheet is being read and how far in. Needed as a hook for the same reason every
     // other one here is: these live in the game's closure, so a probe reaching for questCamGo
     // by name gets a ReferenceError. That has now cost five probe runs in this session.
+    // What the workshop can pick, and what a tap at a point actually finds. Added because
+    // "it will not let me select it" has two causes that look identical from outside -- the
+    // piece is not in the list at all, or it is and the ray misses -- and only one of them is
+    // fixed by adding it to the list.
+    stageList(){ return stageTargets().map(t=>t.n); },
+    stageHit(x,y){ const t=stageHit(x,y); return t?t.n:null; },
     qbZoom(i){ if(i!==undefined)qbFocus=i;
       return {go:questCamGo, e:+questCamE.toFixed(3), focus:qbFocus, z:+qbZoomE.toFixed(3),
               shop:shopCamGo}; },
