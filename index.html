@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.83.0';
+window.SURF_VERSION='6.84.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -10223,6 +10223,7 @@ let shopFillId=0, shopMenuWasUp=false;
 // headed. `var`, because the render loop reads them from thousands of lines above here.
 var shopCamE=0, shopCamGo=0, _shopWalk=null;
 var questCamE=0, questCamGo=0, _questWalk=null;
+var _qbRgh=null, _qbEnv=null, _qbSnd=0;
 // ---- only photograph what somebody is looking at ----
 // This walked the whole rack the moment the shop opened: forty-seven boards, each one a
 // render into an off-screen target followed by readRenderTargetPixels — which is a
@@ -35197,9 +35198,25 @@ function renderMenuBeach(dt){
     // itself to within a couple of feet of the board: the focus distance came out at 2.57ft,
     // the chest left the frame at x 972 of 1024, and the whole shot was somebody's chin. A
     // wider frame does let the camera come in, but not by most of the distance to the subject.
+    // ---- ...AND IT DOES NOT FOLLOW YOU INTO THE OTHER ROOMS ----
+    // This is why the quest board would not stay centred, three attempts running. The dolly
+    // moves the lens along the TITLE camera's forward, by an amount that depends on the screen's
+    // aspect -- and the quest camera has turned a hundred and eight degrees from that forward,
+    // so what is a walk-in on the title screen is a SIDESTEP over there. Half a foot of it at
+    // seven feet of subject distance is four degrees, which is nine per cent of the frame.
+    // Every measurement was taken at 0.461, where this term is exactly zero because the stage
+    // aspect is 0.462 -- so the board was genuinely centred in every render, and genuinely off
+    // centre on any phone wider than the one it was staged at. Measuring at one aspect could
+    // never have caught it.
+    // Both other rooms have staged poses of their own, framed by hand, and a walk-in meant for
+    // the title shot has no business in either. Eased out with the walk rather than switched, so
+    // a wide screen still gets its title framing and still arrives at the pose that was chosen.
+    const _dOut=Math.max((typeof shopCamE==='number')?shopCamE:0,
+                         (typeof questCamE==='number')?questCamE:0);
     menuCam.position.addScaledVector(fwd,
       Math.min(MB_CAM_DOLLY_MAX,
-        Math.max(0,(menuCam.aspect||MB_CAM_ASP)-MB_CAM_ASP)*MB_CAM_DOLLY));
+        Math.max(0,(menuCam.aspect||MB_CAM_ASP)-MB_CAM_ASP)*MB_CAM_DOLLY)
+      *(1-_dOut*_dOut*(3-2*_dOut)));
   }
   // ---- and it walks over to the shop ----
   // Applied here, after the staged pose and the dolly and before the stage's own lens, because
@@ -35431,6 +35448,30 @@ function renderMenuBeach(dt){
     const qstep=_sd/Math.max(0.05,QB_CAM.secs);
     questCamE = questCamGo ? Math.min(1,questCamE+qstep) : Math.max(0,questCamE-qstep);
     if(questBoard){ if(questCamE>0.0001)aimBoard(); boardShow(questCamE,_sd); }
+    // ---- and the sand's SHINE comes down a little over there ----
+    // Third go at this and the smallest. The first cut normalScale, which removed the grain that
+    // breaks up a highlight and made it a smooth sheen; the second went at it again the same
+    // way. Both were reverted and the real gap was shadow -- questShadow -- and that fixed most
+    // of it. What is left is specular from a ten-degree sun on a wide open expanse seen from a
+    // high camera, and roughness is the only knob that touches that without touching the grain.
+    // A tenth, not a wholesale push. The relief is not touched at all.
+    if(typeof beachSand!=='undefined'&&beachSand&&beachSand.material){
+      const _sm=beachSand.material;
+      if(_qbRgh===null&&_sm.roughness!==undefined)_qbRgh=_sm.roughness;
+      if(_qbEnv===null&&_sm.envMapIntensity!==undefined)_qbEnv=_sm.envMapIntensity;
+      if(questCamE>0.0001){
+        const q=questCamE*questCamE*(3-2*questCamE);
+        if(_qbRgh!==null)_sm.roughness=Math.min(1,_qbRgh+0.12*q);
+        if(_qbEnv!==null)_sm.envMapIntensity=_qbEnv*(1-0.20*q);
+        _qbSnd=1;
+      }else if(_qbSnd){
+        // restored on a flag, not every frame: the menu writes envMapIntensity on this same
+        // material for its own view and two writers would fight
+        if(_qbRgh!==null)_sm.roughness=_qbRgh;
+        if(_qbEnv!==null)_sm.envMapIntensity=_qbEnv;
+        _qbSnd=0;
+      }
+    }
     if(questCamE>0.0001)drawQuestNotes(false);
     layoutQuestNotes(questCamE);
     questShadow(questCamE);
