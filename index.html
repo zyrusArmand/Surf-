@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.41.0';
+window.SURF_VERSION='6.42.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -17010,15 +17010,20 @@ function placeTiki(){
   // Children of the hut's own group, so they are written in the model's units and carried by
   // whatever the aim decides about where it stands and how big it is — nothing here has to know
   // about the beach. Two quads each: a solid face, and a wider, dimmer one behind it that is
-  // the glow. Additive and unlit, so they read as light coming OUT of the wall rather than as
-  // blue paint on it, and toneMapped off so the grade cannot roll the blue toward white the way
-  // it does everything else bright on this beach.
+  // the glow, both unlit and with toneMapped off so the grade cannot roll the blue toward white.
+  // ---- the FACE is not additive; the glow still is ----
+  // Additive was right while these floated on the shadowed beam and wrong the moment they moved
+  // onto the wall they belong on: that bamboo is the brightest surface in the shot, and adding
+  // blue to something already near white just makes white. Three panels went pale and stopped
+  // reading as lit at all. Normal blending puts the blue ON the wall, which is what a lit panel
+  // recessed into a wall actually looks like, and the halo behind it stays additive because a
+  // glow spilling past an edge IS light added to what is behind it.
   tikiSlots=[];
   for(const sl of SHOP_SLOTS){
     const g=new THREE.Group();
     const face=new THREE.Mesh(new THREE.PlaneGeometry(SHOP_SLOT.w,SHOP_SLOT.h),
       new THREE.MeshBasicMaterial({color:SHOP_SLOT.col, transparent:true, opacity:0,
-        blending:THREE.AdditiveBlending, depthWrite:false, toneMapped:false, side:THREE.DoubleSide}));
+        depthWrite:false, toneMapped:false, side:THREE.DoubleSide}));
     const halo=new THREE.Mesh(new THREE.PlaneGeometry(SHOP_SLOT.w*1.5,SHOP_SLOT.h*1.5),
       new THREE.MeshBasicMaterial({color:SHOP_SLOT.col, transparent:true, opacity:0,
         blending:THREE.AdditiveBlending, depthWrite:false, toneMapped:false, side:THREE.DoubleSide}));
@@ -17456,10 +17461,14 @@ let MB_TIKI_TREES=[{side:24.042, fwd:14.111, scale:1.00, turn:0.7, lean: 0.00},
 // Ordered left to right as the lens sees it. The hut is turned so its local +z faces the
 // camera, and with +y up that puts local +x on the screen's right — so the leftmost slot is
 // the most negative x, and school comes first because that is the order asked for.
+// Shifted left of the hut's middle rather than centred on it. Three panels and a shopkeeper all
+// want the same stretch of back wall, and the counter is not wide enough for four abreast if the
+// panels are centred — he ended up standing over two of them. The three take the left and centre
+// of the opening and he takes the right end, which is where somebody serving would stand anyway.
 const SHOP_SLOTS=[
-  {id:'dSlotSchool', x:-0.44, label:'School',  act:()=>openGuide()},
-  {id:'dSlotBoards', x: 0.00, label:'Boards',  act:()=>openShopOn('boards')},
-  {id:'dSlotSurfer', x: 0.44, label:'Surfers', act:()=>openShopOn('riders')}];
+  {id:'dSlotSchool', x:-0.50, label:'School',  act:()=>openGuide()},
+  {id:'dSlotBoards', x:-0.19, label:'Boards',  act:()=>openShopOn('boards')},
+  {id:'dSlotSurfer', x: 0.12, label:'Surfers', act:()=>openShopOn('riders')}];
 // Wired here rather than beside the layout, off the same table, so the id, the word on the panel
 // and the screen it opens cannot drift apart — and here specifically because SHOP_SLOTS is a
 // const declared below that code and reading it from up there is a temporal-dead-zone throw.
@@ -17473,20 +17482,26 @@ for(const _sl of SHOP_SLOTS){
 // blue came down with them for the same reason. Additive light at nearly full strength is white
 // wherever two quads overlap or the wall behind is already pale, and a cyan that goes white is
 // just a blown highlight; a deeper blue at two thirds stays blue at its brightest.
-// y came down again because the thatch overhangs: at 0.10 the roof's shadow line cut across the
-// top of all three, and a lit panel with its top edge sliced off reads as a gap in the building
-// rather than as a sign on it. Width went back up because the WORD has to fit inside the light —
-// "SURFERS" is the longest of the three and at 0.20 it hung over both edges onto the timber.
-let SHOP_SLOT={y:0.045, z:-0.34, w:0.25, h:0.17, col:0x18b6ff, glow:0.50, lit:0.66};
-// where the shopkeeper stands, in the hut's own axes: behind the counter and a little to one
-// side, so he is serving rather than blocking the middle slot
-// Brought in off the render: at 0.60 he stood against the right-hand roof post, half behind it
-// and reading as somebody who had wandered into shot rather than as the shop's keeper. A third
-// of the way over leaves the middle panel clear and still puts him to one side of the counter.
-// y follows the panels down by the same 0.055 they moved when the thatch turned out to clip
-// them: he is placed relative to the counter, but what reads badly is his head crossing a lit
-// sign, so the number that matters is the gap between the two rather than either on its own.
-let SHOP_KEEP={x:0.31, y:-0.555, z:-0.16, tall:2.45};
+// ---- y IS MEASURED, and it is nowhere near where it was guessed ----
+// Every earlier number here was invented. The hut has no modelled recesses to sit these on — the
+// geometry is ten X-sliced strips with no named parts, and the base-colour atlas is bamboo and
+// thatch with no panels painted into it — so "the three squares" are the back wall itself, the
+// sunlit bamboo behind the counter between the roof beam and the counter top.
+// That band was measured off a render of the hut with these quads HIDDEN, which is the one view
+// that can check them and the one nobody had taken: it sits at 0.649..0.744 of the frame. The
+// panels were at 0.553..0.590 — a tenth of the screen high, on the shadowed beam ABOVE the wall,
+// which is exactly the "not lining up" that was reported.
+// The number below is not a nudge toward that band, it is solved into it: hutMap gives frame Y
+// for a run of hut y at the wall's depth, and this is that table inverted for the band's top and
+// bottom. Frame Y barely depends on z here (three thousandths across the hut's whole depth), so
+// the solve is in y alone and the depth stays where it keeps the quads on the wall.
+let SHOP_SLOT={y:-0.407, z:-0.34, w:0.22, h:0.222, col:0x0c86cf, glow:0.34, lit:0.90};
+// Where the shopkeeper stands, in the hut's own axes: behind the counter, at the right-hand end.
+// He was a third of the way over while the panels were up on the beam and there was no conflict.
+// Now that they are down on the wall where they belong, they are at his chest height and the two
+// want the same stretch of counter — at 0.31 he stood over Boards and most of Surfers. The
+// panels took the left and centre (see SHOP_SLOTS) and he took the end.
+let SHOP_KEEP={x:0.56, y:-0.555, z:-0.16, tall:2.45};
 // how the lens gets there: right, forward, up a little, turned a little, over this long
 // `rise` lifts the lens off the sand on the way over and `pitch` tilts it back down by the
 // amount that keeps the hut where it was — raise a camera without doing that and the subject
@@ -25597,6 +25612,23 @@ if(location.hash.includes('debug')){
     // land on the screen is not answerable by eye — they are painted on a wall seen at an angle,
     // and "a bit left" is the whole difference between a sign on the building and a sign in the
     // air beside it. Rects are frame fractions so they mean the same thing at any window size.
+    // Hides the lit quads so the wall UNDER them can be looked at. The panels were placed by
+    // guessing where the model's own recesses are, which is the one thing a render with the
+    // quads already on top cannot check — they cover exactly what needs measuring.
+    slotShow(v){ if(tikiSlots)for(const g of tikiSlots)g.visible=!!v;
+      return tikiSlots?tikiSlots.length:0; },
+    // Moves the panels live so a placement can be solved and SEEN in one run rather than one
+    // render per guess. Rebuilds the quads' geometry, because w and h are baked into it.
+    slotSet(o){
+      for(const k in o)SHOP_SLOT[k]=o[k];
+      if(tikiSlots)for(const g of tikiSlots){
+        const f=g.userData.face, h=g.userData.halo;
+        f.geometry.dispose(); h.geometry.dispose();
+        f.geometry=new THREE.PlaneGeometry(SHOP_SLOT.w,SHOP_SLOT.h);
+        h.geometry=new THREE.PlaneGeometry(SHOP_SLOT.w*1.5,SHOP_SLOT.h*1.5);
+        g.position.set(g.userData.slot.x,SHOP_SLOT.y,SHOP_SLOT.z);
+      }
+      return {y:SHOP_SLOT.y,z:SHOP_SLOT.z,w:SHOP_SLOT.w,h:SHOP_SLOT.h}; },
     shopSlots(){
       const W=Math.max(1,innerWidth), H=Math.max(1,innerHeight);
       const r=el=>{ if(!el)return null; const b=el.getBoundingClientRect();
