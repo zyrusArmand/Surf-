@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.67.0';
+window.SURF_VERSION='6.68.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -10190,6 +10190,7 @@ let shopFillId=0, shopMenuWasUp=false;
 // how far the lens has walked toward the tiki shop (0 home, 1 there), and where it is
 // headed. `var`, because the render loop reads them from thousands of lines above here.
 var shopCamE=0, shopCamGo=0, _shopWalk=null;
+var questCamE=0, questCamGo=0, _questWalk=null;
 // ---- only photograph what somebody is looking at ----
 // This walked the whole rack the moment the shop opened: forty-seven boards, each one a
 // render into an off-screen target followed by readRenderTargetPixels — which is a
@@ -10767,6 +10768,8 @@ document.getElementById('dShop').onclick    =()=>{
   // has still not arrived once the walk has finished and a couple of seconds have passed does it
   // open on its own, so a genuinely failed fetch ends somewhere useful instead of on bare sand.
   shopCamGo=1;
+  // the mirror of what dQuests does to this one: one room at a time
+  clearTimeout(_questWalk); questCamGo=0;
   clearTimeout(_shopWalk);
   if(!tikiHut)_shopWalk=setTimeout(()=>{
     if(!tikiHut&&shopCamGo)openShopOn('boards');
@@ -10783,7 +10786,8 @@ document.getElementById('dShop').onclick    =()=>{
 // the beach, which is where the five on the version live — so the workshop could not be opened
 // at the one place it is most wanted, standing in front of the thing you came to arrange.
 // The arrow is the same one the board viewer turns pages with, and nothing else listens.
-document.getElementById('dBack').onclick=()=>{ buzz(6); shopCamGo=0; };
+document.getElementById('dBack').onclick=()=>{ buzz(6); shopCamGo=0;
+  clearTimeout(_questWalk); questCamGo=0; };
 document.getElementById('dPlay').onclick    =()=>{ buzz(12); startBtn.click(); };
 const questsPanel=document.getElementById('quests'), setPanel=document.getElementById('settings');
 // Watched rather than hooked into each open and close. There are four of these and several
@@ -10800,11 +10804,33 @@ const questsPanel=document.getElementById('quests'), setPanel=document.getElemen
 }
 document.getElementById('dQuests').onclick  =()=>{
   buzz(8);
-  // the same three goals the run card shows, readable before a run instead of only after it
-  document.getElementById('questBody').innerHTML=goalRowsHTML();
-  questsPanel.classList.remove('hidden');
+  // ---- QUESTS IS A PLACE NOW, NOT A PANEL ----
+  // It used to open a full-screen card over the title beach. The board is somewhere you go,
+  // ninety degrees to the left, the way the shop is somewhere you go ninety degrees to the
+  // right -- so the press turns the lens and the panel comes up when you get there.
+  // The two walks are made mutually exclusive here rather than defended against everywhere
+  // else: pressing one while the other is out means the lens crosses the title screen once,
+  // which is what it should look like.
+  shopCamGo=0; clearTimeout(_shopWalk);
+  questCamGo=1;
+  try{ wantBoard(); }catch(e){}
+  // The card still opens, on the same timer the shop's fallback uses, because the notices on
+  // the board are blank until the quest text is laid over them -- arriving at a board you
+  // cannot read would be worse than the panel it replaced. When the words go on the paper this
+  // timer is what comes out.
+  clearTimeout(_questWalk);
+  _questWalk=setTimeout(()=>{
+    if(!questCamGo)return;
+    document.getElementById('questBody').innerHTML=goalRowsHTML();
+    questsPanel.classList.remove('hidden');
+  },(QB_CAM.secs+0.35)*1000);
 };
-document.getElementById('qClose').onclick   =()=>questsPanel.classList.add('hidden');
+document.getElementById('qClose').onclick   =()=>{
+  questsPanel.classList.add('hidden');
+  // and the lens comes back with it -- unlike the shop, where Back from a tab returns you to
+  // the counter, there is nothing to return TO here until the board itself is readable
+  clearTimeout(_questWalk); questCamGo=0;
+};
 // "The toggle is on and I feel nothing" has four different causes on an iPhone and from
 // the outside they are indistinguishable, so the panel says which one it is instead of
 // leaving you to guess:
@@ -18074,6 +18100,102 @@ function tikiShow(e,dt){
     }
   }
 }
+// ================= THE QUEST BOARD, NINETY DEGREES THE OTHER WAY =================
+// Everything here mirrors the tiki hut deliberately, because it is the same job: a prop that
+// only exists once the lens has turned to look at it, placed from the camera's own axes rather
+// than the world's, stood on the sand it is actually over, and faded in rather than popped.
+// What it does NOT copy is the hut's five-megabyte problem. The board is 1.1 MB with no
+// textures, so it is fetched on the first press and that is fast enough to need no fallback
+// panel standing in for it.
+let qbModel=null, questBoard=null, qbSlots=null, _qbAsked=0;
+function wantBoard(){
+  if(_qbAsked)return; _qbAsked=1;
+  if(typeof loadModel!=='function'){ _qbAsked=0; return; }   // asked too early; let it retry
+  loadModel('questboard.glb',(s)=>{ qbModel=s; placeBoard(); },0);
+}
+function placeBoard(){
+  if(!qbModel||questBoard)return;
+  // Same retry as the hut: the board can beat the beach it stands on, and dropping it in that
+  // case is silent and permanent.
+  if(typeof menuProps==='undefined'||!menuProps){ setTimeout(placeBoard,200); return; }
+  const inner=cloneModel(qbModel);
+  // The five notices are named in the model. Found here, once, rather than searched for every
+  // frame -- this is what the quest text will be projected against.
+  qbSlots=[];
+  inner.traverse(o=>{ if(o.name&&/^quest_slot_\d+$/.test(o.name))qbSlots.push(o); });
+  qbSlots.sort((a,b)=>a.name.localeCompare(b.name));
+  inner.traverse(o=>{ if(!o.isMesh||!o.material)return;
+    // cloned, because cloneModel shares materials BY REFERENCE -- a lesson this file has paid
+    // for once already -- and everything below writes to them
+    o.material=Array.isArray(o.material)?o.material.map(m=>m&&m.clone()):o.material.clone();
+    for(const mt of (Array.isArray(o.material)?o.material:[o.material])){
+      if(!mt)continue;
+      if(mt.roughness!==undefined){ mt.roughness=Math.max(mt.roughness,0.80); mt.metalness=0; }
+      // The hut's albedo is taken down 0.74 because pale thatch under a low sun has nowhere
+      // left to brighten. The board has the same problem in one place only -- the notices are
+      // near-white paper -- and the rest of it is dark wood that would go muddy, so this is a
+      // gentler pull applied to everything and the grade does the rest.
+      if(mt.color)mt.color.multiplyScalar(0.86);
+      mt.envMapIntensity=0.08;
+      mt.transparent=true; mt.opacity=0;
+      mt.needsUpdate=true; }
+    o.castShadow=true; o.receiveShadow=true;
+  });
+  questBoard=new THREE.Group();
+  questBoard.add(inner);
+  inner.updateMatrixWorld(true);
+  const bb=visBox(inner), c=bb.getCenter(new THREE.Vector3());
+  inner.position.sub(c);
+  questBoard.userData.h=Math.max(1e-4, bb.getSize(new THREE.Vector3()).y);
+  questBoard.visible=false;
+  menuProps.add(questBoard);
+  aimBoard();
+}
+// Turned to face the lens and stood on the ground under it, exactly as aimTiki does. The board
+// is a flat face, so facing the camera matters more here than it does for a building: a notice
+// board seen at an angle is a notice board you cannot read.
+function aimBoard(){
+  if(!questBoard||!menuProps||!menuCam)return;
+  const pscl=menuProps.scale.x||1;
+  mbAxes();
+  const wx=_mbP.x+_mbR.x*MB_QB_SIDE-_mbF.x*MB_QB_FWD;
+  const wz=_mbP.z+_mbR.z*MB_QB_SIDE-_mbF.z*MB_QB_FWD;
+  _spV2.copy(menuCam.position); menuProps.worldToLocal(_spV2);
+  const lp=_spP.set(wx,0,wz); menuProps.worldToLocal(lp);
+  questBoard.rotation.set(0, Math.atan2(_spV2.x-lp.x, _spV2.z-lp.z), 0);
+  questBoard.scale.setScalar(MB_QB_H/Math.max(1e-4, questBoard.userData.h*pscl));
+  const sand=(typeof beachSandH==='function'?beachSandH(wz/MB_K):(beachSand0||0))*MB_K;
+  questBoard.position.copy(lp);
+  questBoard.updateMatrixWorld(true);
+  const bb=visBox(questBoard), bs=bb.getSize(_spV);
+  const foot=Math.max(bs.x,bs.z)*0.5;
+  const top=(typeof groundTopOver==='function')?groundTopOver(wx,wz,foot):null;
+  const rest=(top!==null)?top:sand;
+  questBoard.position.y+=(rest-bb.min.y-(bs.y*MB_QB_SINK))/(menuProps.scale.y||1);
+  questBoard.updateMatrixWorld(true);
+}
+// Shown only while the lens is over there, faded with the move, and given its own short ramp
+// for the case where it lands after the walk has already finished -- see tikiShow, which paid
+// for that lesson.
+function boardShow(e,dt){
+  if(!questBoard)return;
+  const on=e>0.004;
+  questBoard.visible=on;
+  if(!on)return;
+  const _d=(typeof dt==='number'&&dt>0)?dt:0;
+  questBoard.userData.inA=Math.min(1,(questBoard.userData.inA||0)+_d/0.55);
+  const o=questBoard.userData.inA*Math.min(1,Math.max(0,(e-0.05)/0.45));
+  // transparency is dropped the moment it has finished arriving: it costs the opaque pass and
+  // proper depth, and this board is mostly flat panels stacked a fraction of an inch apart,
+  // which is the worst possible case for per-object sorting
+  const clear=(o>=0.999);
+  questBoard.traverse(x=>{ if(!x.isMesh||!x.material)return;
+    for(const m of (Array.isArray(x.material)?x.material:[x.material])){
+      if(!m)continue;
+      m.opacity=o;
+      if(m.transparent===clear){ m.transparent=!clear; m.needsUpdate=true; }
+    } });
+}
 // ---- AND SOMEBODY IS SERVING ----
 // The rider himself, sent round the back of the counter, rather than a second animal loaded to
 // stand there. Three reasons and the third is the one that decides it: he is already here, he
@@ -18186,7 +18308,11 @@ function shopShadow(e){
 // model has arrived, so that is the only thing it may ask about.
 function layoutShopBack(e){
   const bk=document.getElementById('dBack');
-  if(bk)bk.style.visibility=(e>=0.55)?'':'hidden';
+  // ...and it is the way back out of EITHER camera move now. Passed the shop's progress and
+  // asked about the quest board's here rather than being called twice, because there is one
+  // arrow and two rooms, and two callers would fight over it every frame the lens is crossing.
+  const q=(typeof questCamE==='number')?questCamE:0;
+  if(bk)bk.style.visibility=(Math.max(e,q)>=0.55)?'':'hidden';
 }
 // ---- and the three panels take a tap ----
 // Each one is placed from the four corners of its OWN quad, projected. Not from a guessed
@@ -18360,6 +18486,15 @@ let MB_TIKI_SINK=0.085;   // share of its own height dug into the sand
 // here. A palm that stands perfectly plumb is the one thing on a beach that never happens.
 let MB_TIKI_TREES=[{side:24.042, fwd:14.111, scale:1.00, turn:0.7, lean: 0.00},
                    {side:26.971, fwd: 3.732, scale:1.18, turn:2.3, lean:-0.20}];
+// ---- AND THE QUEST BOARD STANDS THE OTHER WAY ----
+// Shop is ninety degrees to the lens's right; quests is ninety degrees to its LEFT, so the
+// title beach has a room on either side of it and the middle stays the title screen. The
+// numbers mirror the hut's: the side offset is negated, the forward reach is the hut's, and
+// the height is the board's own eight feet rather than the hut's eight-two.
+let MB_QB_SIDE=-14.928;   // feet to the camera's LEFT of the trunk's axis
+let MB_QB_FWD =10.876;    // ...and this far up the beach
+let MB_QB_H   =8.00;      // as tall as it was modelled, in feet
+let MB_QB_SINK=0.010;     // barely dug in: this has feet, the hut has posts
 // ---- THE THREE LIT PANELS IN THE BACK WALL ----
 // The hut is modelled with three recessed squares behind the counter, which is a shop counter
 // asking to have things on it. They are lit blue and take a tap each. In the hut's OWN units:
@@ -18450,6 +18585,13 @@ let SHOP_KEEP={x:0.56, y:-0.555, z:-0.16, tall:2.45};
 // 0.490 down — a little above centre, because the origin sits at the counter rather than in the
 // middle of the mass — and the check came back 0.500 / 0.492.
 const SHOP_CAM={right:2.000, fwd:2.295, rise:2.500, pitch:-0.2685, yaw:-1.655968, secs:0.95};
+// The same move, mirrored. right is negated because it is a dolly along the lens's own right
+// axis -- that was measured, not assumed -- so the negative walks it out to the left instead;
+// yaw is negated so the turn is ninety degrees the other way. pitch and rise are NOT mirrored:
+// they are corrections for the menu camera looking up, and the menu camera looks up whichever
+// way it has turned. The board is eight feet of flat face rather than a building with a roof
+// over a counter, so it wants a shade less lift than the hut did.
+const QB_CAM={right:-2.000, fwd:2.295, rise:2.200, pitch:-0.2685, yaw:1.655968, secs:0.95};
 // ---- THE WORDS ARE PAINTED ON THE MODEL NOW ----
 // Every one of them — the fill colour, the dark contour, the size, where it sits on its board,
 // which way it runs — was HTML text laid over the sign and solved every frame from the arms'
@@ -26503,6 +26645,36 @@ if(location.hash.includes('debug')){
     // Asks for the model too, the way the Shop button does. Without that this hook could only
     // ever walk to a bare dune from a test: wantTiki lives inside the game's closure and an
     // evaluate() runs in the page's global scope, where it does not exist.
+    // The quest board's half of the same three hooks the shop has: walk there, read where the
+    // board lands in the frame, retune the move live. Written because the alternative -- a
+    // page.evaluate reaching for questBoard -- returns null every time: these live in the
+    // game's closure, and that has now cost four probe runs across this session.
+    questWalk(go){ if(go){ try{ wantBoard(); }catch(e){} }
+      if(go!==undefined){ questCamGo=go?1:0; if(go){ shopCamGo=0; } }
+      return {e:+questCamE.toFixed(3), go:questCamGo,
+              loaded:!!questBoard, asked:!!_qbAsked,
+              visible:questBoard?questBoard.visible:null,
+              slots:qbSlots?qbSlots.length:0,
+              at:questBoard?questBoard.getWorldPosition(new THREE.Vector3()).toArray().map(v=>+v.toFixed(2)):null};
+    },
+    qbScreen(){
+      if(!questBoard||!menuCam)return null;
+      menuCam.updateMatrixWorld(true); questBoard.updateMatrixWorld(true);
+      const bb=new THREE.Box3().setFromObject(questBoard);
+      let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+      for(let i=0;i<8;i++){
+        const v=new THREE.Vector3(i&1?bb.max.x:bb.min.x, i&2?bb.max.y:bb.min.y,
+                                  i&4?bb.max.z:bb.min.z).project(menuCam);
+        const fx=v.x*0.5+0.5, fy=-v.y*0.5+0.5;
+        if(fx<x0)x0=fx; if(fx>x1)x1=fx; if(fy<y0)y0=fy; if(fy>y1)y1=fy;
+      }
+      const o=new THREE.Vector3().setFromMatrixPosition(questBoard.matrixWorld).project(menuCam);
+      return {ox:+(o.x*0.5+0.5).toFixed(3), oy:+(-o.y*0.5+0.5).toFixed(3),
+              cx:+((x0+x1)/2).toFixed(3), cy:+((y0+y1)/2).toFixed(3),
+              w:+(x1-x0).toFixed(3), h:+(y1-y0).toFixed(3),
+              camRight:QB_CAM.right, e:+questCamE.toFixed(3)};
+    },
+    qbCam(k,v){ if(v!==undefined)QB_CAM[k]=v; return QB_CAM; },
     shopWalk(go){ if(go){ try{ wantTiki(); }catch(e){} }
       if(go!==undefined)shopCamGo=go?1:0;
       return {e:+shopCamE.toFixed(3), go:shopCamGo,
@@ -34607,6 +34779,22 @@ function renderMenuBeach(dt){
     menuCam.quaternion.setFromEuler(
       _stEul.set(MB_CAM_PITCH+SHOP_CAM.pitch*e,MB_CAM_YAW+SHOP_CAM.yaw*e,0,'YXZ'));
   }
+  // ---- and it walks the other way to the quest board ----
+  // The identical offset with QB_CAM's numbers. Written as a second block rather than folded
+  // into the first with a ternary because the two are never both moving except for the fraction
+  // of a second one is easing out while the other eases in -- and during that fraction, adding
+  // both is exactly right: the lens passes back through the title screen on its way across
+  // instead of cutting. A ternary would have picked one and jumped.
+  if(questCamE>0.0001){
+    const e=questCamE*questCamE*(3-2*questCamE);
+    const f=new THREE.Vector3(0,0,-1).applyQuaternion(menuCam.quaternion); f.y=0;
+    if(f.lengthSq()<1e-8)f.set(0,0,-1); else f.normalize();
+    menuCam.position.addScaledVector(new THREE.Vector3(-f.z,0,f.x),QB_CAM.right*e)
+                    .addScaledVector(f,QB_CAM.fwd*e);
+    menuCam.position.y+=QB_CAM.rise*e;
+    menuCam.quaternion.setFromEuler(
+      _stEul.set(MB_CAM_PITCH+QB_CAM.pitch*e,MB_CAM_YAW+QB_CAM.yaw*e,0,'YXZ'));
+  }
   // the stage's own lens — see stCamFree. Held through Done as well as during, which is why the
   // condition is the lens itself rather than whether the bar happens to be on the screen.
   if(typeof stCamFree!=='undefined'&&stCamFree&&
@@ -34798,6 +34986,9 @@ function renderMenuBeach(dt){
     const step=_sd/Math.max(0.05,SHOP_CAM.secs);
     shopCamE = shopCamGo ? Math.min(1,shopCamE+step) : Math.max(0,shopCamE-step);
     if(tikiHut){ if(shopCamE>0.0001)aimTiki(); tikiShow(shopCamE,_sd); }
+    const qstep=_sd/Math.max(0.05,QB_CAM.secs);
+    questCamE = questCamGo ? Math.min(1,questCamE+qstep) : Math.max(0,questCamE-qstep);
+    if(questBoard){ if(questCamE>0.0001)aimBoard(); boardShow(questCamE,_sd); }
     // the real progress, always — passing zero when the hut is missing was the other half of
     // the trap above, and it hid the arrow before the function could even be asked
     layoutShopBack(shopCamE);
