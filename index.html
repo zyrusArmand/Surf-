@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.56.0';
+window.SURF_VERSION='6.57.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -7122,48 +7122,6 @@ function applyBoardStats(id){
   }
 }
 const _rack={};
-// ---- AND THE RACK LETS GO OF WHAT IT IS NOT USING ----
-// Measured, because "the game crashes after a while in the shop" deserved a number rather
-// than a theory. One visit that scrolls the rack and then the surfers tab:
-//     geometries 118 -> 393, boards held 1 -> 59, JS heap 126MB -> 247MB
-// and NOT ONE BYTE of it was ever given back. Every board you scroll past is lofted into a
-// full mesh and kept for the life of the page. On desktop the heap ceiling is four gigabytes
-// and it simply never bites; on a phone the WebGL context is dropped long before that, and a
-// dropped context is the game reloading to the boot screen and landing you back on the menu.
-// Sixteen boards went into the rack this session, 47 to 63, so the ceiling went up by a third
-// at the same time. That is very likely why this started when it did.
-// So the cache is bounded and keeps the ones most recently looked at. A board that falls out
-// is not lost, it is REBUILT the next time it is asked for — buildBoardMesh is the same code
-// that made it the first time, so nothing about how any of this looks can change.
-const _rackLRU=[];
-function _rackTouch(id){
-  const i=_rackLRU.indexOf(id); if(i>=0)_rackLRU.splice(i,1);
-  _rackLRU.push(id);
-}
-// Geometry and material only. The TEXTURES are deliberately left alone: bakedNormal and
-// bakedGrey hand the same texture object to every board that asks for the same surface, so
-// disposing one here would pull the grain out from under boards that are still on screen.
-function _rackFree(g){
-  g.traverse(o=>{
-    if(!o.isMesh)return;
-    if(o.geometry&&o.geometry.dispose)o.geometry.dispose();
-    const ms=Array.isArray(o.material)?o.material:[o.material];
-    for(const m of ms)if(m&&m.dispose)m.dispose();
-  });
-}
-const RACK_KEEP=14;
-function rackTrim(keep){
-  keep=keep||RACK_KEEP;
-  let freed=0;
-  for(let i=0;i<_rackLRU.length&&_rackLRU.length-i>keep;){
-    const id=_rackLRU[i], g=_rack[id];
-    // never the one being ridden, and never one that is standing in a scene right now —
-    // freeing a mesh somebody is looking at is how you get an invisible board
-    if(!g||id===equipped||g.parent||(g.userData&&g.userData.model)){ i++; continue; }
-    _rackFree(g); delete _rack[id]; _rackLRU.splice(i,1); freed++;
-  }
-  return freed;
-}
 function boardArtFor(id){
   // Astro's board used to be the one board in the rack that was not lofted — a flat model
   // with no rocker, no rail and no foil, which is exactly why it read as a plank next to
@@ -7197,7 +7155,6 @@ function boardArtFor(id){
     }
     _rack[id]=g;
   }
-  _rackTouch(id);
   if(boardDry)boardSheen(_rack[id],true);   // built while the beach is up, so it arrives matt
   return _rack[id];
 }
@@ -7290,10 +7247,8 @@ const PREV_W=164, PREV_H=250;
 let prevTarget=null, prevScene=null, prevCam=null, beachSet=null;
 let prevKey=null, prevHemi=null, prevFill=null;
 const prevCache={};
-// The photographs are bounded for the same reason the meshes are, though they are the smaller
-// half of it: 59 of them measured 3.83MB as data URLs, plus a decoded bitmap apiece that the
-// heap figure does not even count. A dropped one is re-photographed the next time its card
-// scrolls into view, which is work already paced by the thumbnail pump.
+// The card photographs are bounded — strings and decoded bitmaps only, nothing on the GPU.
+// The MESH cache is deliberately not bounded here: see the note on _rack.
 const _prevLRU=[];
 const PREV_KEEP=28;
 function prevTouch(k){ const i=_prevLRU.indexOf(k); if(i>=0)_prevLRU.splice(i,1); _prevLRU.push(k); }
@@ -10137,13 +10092,10 @@ function thumbPump(mine){
     if(mine!==shopFillId)return;                 // a redraw superseded this pass
     // ---- NOT WHILE THE CAMERA IS MOVING ----
     // A snapshot is an offscreen render, then readRenderTargetPixels — which stalls the CPU
-    // until the GPU catches up — then a PNG encode. Tens of milliseconds, and twelve of them
-    // are queued the instant the shop opens, which is exactly when the lens is walking to the
-    // counter. That is the whole of why the move feels clunky: the frames it needs are being
-    // spent photographing surfboards.
-    // The budget below cannot save it, because it only checks the clock BEFORE starting a job
-    // and one job overruns the entire frame on its own. So during the walk nothing is taken at
-    // all; the tiles hold their placeholder for the half second it lasts and fill in after.
+    // until the GPU catches up — then a PNG encode. Twelve are queued the instant the shop
+    // opens, which is exactly when the lens is walking to the counter, and the budget below
+    // cannot save it because it only checks the clock BEFORE starting a job while one job
+    // overruns the whole frame on its own. Nothing is taken during the walk.
     const _moving=(typeof shopCamE!=='undefined')&&shopCamE>0.001&&shopCamE<0.999;
     if(_moving){ if(thumbQ.length)thumbPump(mine); return; }
     const t0=performance.now();
@@ -10900,11 +10852,7 @@ document.getElementById('shopClose').onclick=()=>{
   // shop, because this is the one the player actually uses; the frame loop eases it home from
   // wherever it had got to, so an interrupted walk is not a state that has to be handled.
   clearTimeout(_shopWalk); shopCamGo=0;
-  // ---- and the shop gives back what it borrowed ----
-  // Leaving is the moment nothing on screen needs any of it, so it is the one place a trim
-  // cannot take a mesh out from under something. See _rack: a visit that scrolls the whole
-  // rack was leaving 275 geometries and 120MB of heap behind it, permanently.
-  try{ rackTrim(); prevTrim(); }catch(e){}
+  try{ prevTrim(); }catch(e){}
 };
 
 // ---------- the panel behind the version number ----------
@@ -26462,22 +26410,6 @@ if(location.hash.includes('debug')){
                 lv:boardLvl(b.id), hidden:!!b.hidden, mesh, err,
                 st, tot:STAT_KEYS.reduce((a,k)=>a+(st[k]||0),0)};
       });
-    },
-    // What the shop is actually costing, in the two currencies that end a session on a phone:
-    // GPU objects the renderer is holding, and JS heap. Nothing here is ever disposed — the
-    // board meshes live in _rack for the life of the page and the card photographs live in
-    // prevCache as PNG data URLs — so the honest question is not whether it grows but how far.
-    mem(){
-      const r=(typeof renderer!=='undefined'&&renderer&&renderer.info)?renderer.info:null;
-      let pn=0, pb=0;
-      try{ for(const k in prevCache){ const v=prevCache[k]; if(v){ pn++; pb+=v.length; } } }catch(e){}
-      const M=(typeof performance!=='undefined'&&performance.memory)?performance.memory:null;
-      return {geometries:r?r.memory.geometries:null, textures:r?r.memory.textures:null,
-              programs:(r&&r.programs)?r.programs.length:null,
-              rack:(typeof _rack!=='undefined')?Object.keys(_rack).length:null,
-              previews:pn, previewMB:+(pb/1048576).toFixed(2),
-              heapMB:M?+(M.usedJSHeapSize/1048576).toFixed(1):null,
-              heapLimitMB:M?+(M.jsHeapSizeLimit/1048576).toFixed(1):null};
     },
     // Where the pinned pieces actually ARE, local and world. Added because a check written as
     // page.evaluate(()=>pug.position) returns null every time: these all live in the game's
