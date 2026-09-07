@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.81.0';
+window.SURF_VERSION='6.82.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -27201,8 +27201,22 @@ if(location.hash.includes('debug')){
               uniform:(Math.abs(s.x-s.y)<1e-4&&Math.abs(s.x-s.z)<1e-4),
               charging:!!(R.charge), phase:R.charge?R.charge.phase:null};
     },
+    // ---- AND IT REPORTS WHETHER THE CHARGE STARTED, NOT WHETHER THE HOOK RAN ----
+    // This returned true whenever R.startCharge merely EXISTED, throwing away its own answer.
+    // So a probe could call it, read "start true", sample fourteen times, and conclude the bend
+    // no longer winds up -- from a run in which the charge was refused on the first line and
+    // never happened at all. A check that cannot fail is not a check.
+    // R.startCharge refuses for two knowable reasons and both are reported: a charge already
+    // running, or the clips it needs not being in this character's file.
     startCharge(){ const R=(typeof riderRig==='function')?riderRig():null;
-      if(R&&R.startCharge){ R.startCharge(); return true; } return false; },
+      if(!R||!R.startCharge)return {ok:false,why:'no rig'};
+      const already=!!R.charge;
+      const run=!!(R.clip&&R.clip('Running'));
+      const hit=!!(R.clip&&(R.clip('Punch_Combo')||R.clip('Punch')));
+      const ok=!!R.startCharge();
+      return {ok, charge:!!R.charge, already, running:run, punch:hit,
+              clips:R.clips?Object.keys(R.clips).slice(0,14):null};
+    },
     poke(){ pokeT=1; return true; },
     // The head and spine as the SKELETON has them, local, which is the only place the winding
     // is visible: the group's own rotation is fine throughout and the mesh looks folded because
