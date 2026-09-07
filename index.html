@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.57.0';
+window.SURF_VERSION='6.58.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -10939,6 +10939,16 @@ overlay.addEventListener('pointerdown',e=>{
       // double click, and the old window was tight enough to miss on purpose.
       if(now-riderTapT<560){
         riderTapT=0;
+        // ---- AND THE SQUASH IS PUT AWAY, not merely not restarted ----
+        // riderPoke scales him 1.10 / 0.87 / 1.10, which is the flinch and is meant to be
+        // uneven. A non-uniform scale on the PARENT of a skinned mesh SHEARS it, which is
+        // harmless while he stands still and very much not while a spine fold and a head turn
+        // run underneath. The guard below only stopped a NEW poke starting mid-charge — the
+        // one the first tap of this double tap started was still running, because a double
+        // tap lands well inside the poke's own length. Ended here, with his scale restored,
+        // before the charge is allowed to begin.
+        if(pokeS){ pug.scale.setScalar(pokeS); pokeS=0; }
+        pokeT=0;
         if(R&&R.startCharge)R.startCharge();
       } else riderTapT=now;
       // ...and he flinches EITHER WAY, which is the whole point -- but not mid-charge,
@@ -13835,6 +13845,17 @@ let CHARGE_PITCH=0.00;
 let CHARGE_SPINE=0.55;
 // and how much of the way his head turns onto the lens. One is looking straight at you.
 let CHARGE_LOOK=0.85;
+// ---- AND HIS NECK HAS A LIMIT, BECAUSE A NECK HAS A LIMIT ----
+// The head is aimed by solving the rotation from where he is looking to where the lens is,
+// which is the right way to do it and was missing the only thing that makes it a HEAD turn
+// rather than an arbitrary one: a stop. The solve returns whatever angle closes the gap, so
+// when he charges past the camera and the lens ends up behind his shoulder it returned most
+// of a half turn, and he wore it — muzzle pointing one way, body the other, neck stretched
+// between them. Reported as the double tap distorting him, and that is the picture.
+// Fifty-four degrees is about as far as an animal turns its head without the shoulders
+// following. Past that he simply stops turning and watches you out of the corner of his eye,
+// which is what a real one does and reads as him being unable to keep up rather than broken.
+const LOOK_MAX=0.95;
 const CHARGE_LEAN_RATE=2.6;  // how fast the lean comes on, per second
 // How far off the camera's own axis his mark sits, so his HEAD lands centred. Centring his
 // bounding box was the first go and it reads wrong: an arm thrown out to one side drags the
@@ -14899,6 +14920,10 @@ function setupModelRig(root,gltf,id){
             const want=menuCam.position.clone().sub(hp).normalize();
             if(cur.lengthSq()>0.5&&want.lengthSq()>0.5){
               _dq.setFromUnitVectors(cur,want);
+              // clamped BEFORE the blend, so the stop is on the neck itself rather than on
+              // how much of an already-impossible angle is being faded in
+              const _ang=2*Math.acos(Math.min(1,Math.abs(_dq.w)));
+              if(_ang>LOOK_MAX)_dq.slerp(new THREE.Quaternion(),1-LOOK_MAX/_ang);
               _dq.slerp(new THREE.Quaternion(),1-CHARGE_LOOK*Q.lean);   // toward identity
               hd.getWorldQuaternion(_wq);
               _dq.multiply(_wq);
@@ -26411,6 +26436,29 @@ if(location.hash.includes('debug')){
                 st, tot:STAT_KEYS.reduce((a,k)=>a+(st[k]||0),0)};
       });
     },
+    // How far his head is turned off his own body, in degrees, and whether his scale is
+    // still uniform. Both are what "distorted" means when it is written down as a number: a
+    // neck past about sixty degrees reads as broken, and a non-uniform scale on the parent of
+    // a skinned mesh shears every vertex in it.
+    riderBend(){
+      const R=(typeof riderRig==='function')?riderRig():null;
+      if(!R||!R.bones)return null;
+      const hd=R.bones.Head, fr=R.bones.headfront, sp=R.bones.Spine02||R.bones.Spine01||R.bones.Spine;
+      if(!hd||!fr)return null;
+      pug.updateMatrixWorld(true);
+      const hp=hd.getWorldPosition(new THREE.Vector3());
+      const look=fr.getWorldPosition(new THREE.Vector3()).sub(hp).normalize();
+      const bq=new THREE.Quaternion(); (sp||pug).getWorldQuaternion(bq);
+      const fwd=new THREE.Vector3(0,0,1).applyQuaternion(bq).normalize();
+      const s=pug.scale;
+      return {neckDeg:+(Math.acos(Math.max(-1,Math.min(1,look.dot(fwd))))*180/Math.PI).toFixed(1),
+              scale:[+s.x.toFixed(3),+s.y.toFixed(3),+s.z.toFixed(3)],
+              uniform:(Math.abs(s.x-s.y)<1e-4&&Math.abs(s.x-s.z)<1e-4),
+              charging:!!(R.charge), phase:R.charge?R.charge.phase:null};
+    },
+    startCharge(){ const R=(typeof riderRig==='function')?riderRig():null;
+      if(R&&R.startCharge){ R.startCharge(); return true; } return false; },
+    poke(){ pokeT=1; return true; },
     // Where the pinned pieces actually ARE, local and world. Added because a check written as
     // page.evaluate(()=>pug.position) returns null every time: these all live in the game's
     // closure, and that is the third time that has cost a probe run. A hook is the only way in.
