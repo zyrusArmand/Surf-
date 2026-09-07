@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.70.0';
+window.SURF_VERSION='6.71.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -18157,13 +18157,17 @@ function placeBoard(){
     o.material=Array.isArray(o.material)?o.material.map(m=>m&&m.clone()):o.material.clone();
     for(const mt of (Array.isArray(o.material)?o.material:[o.material])){
       if(!mt)continue;
-      if(mt.roughness!==undefined){ mt.roughness=Math.max(mt.roughness,0.80); mt.metalness=0; }
-      // The hut's albedo is taken down 0.74 because pale thatch under a low sun has nowhere
-      // left to brighten. The board has the same problem in one place only -- the notices are
-      // near-white paper -- and the rest of it is dark wood that would go muddy, so this is a
-      // gentler pull applied to everything and the grade does the rest.
-      if(mt.color)mt.color.multiplyScalar(0.86);
-      mt.envMapIntensity=0.08;
+      // ---- AND IT IS NOT GIVEN THE HUT'S TREATMENT ----
+      // It was, and that is why it came out muddy. Three lines copied from the hut each did the
+      // opposite of what they do there. The hut is pale straw that blows out, so its albedo is
+      // pulled down, its roughness floored and its sky fill cut almost to nothing. This board is
+      // mid-brown wood that was ALREADY at the bottom of the range: pulling it down again took
+      // the last of the contrast out, flooring the roughness threw away the metallic-roughness
+      // map the model actually ships -- which is where the varnish on the sign and the sheen on
+      // the paper live -- and 0.08 of sky left nothing to lift the side facing away from the sun.
+      // So the albedo is left alone, the map is left alone, and the fill is real.
+      if(mt.roughness!==undefined)mt.metalness=0;
+      mt.envMapIntensity=0.55;
       mt.transparent=true; mt.opacity=0;
       mt.needsUpdate=true; }
     o.castShadow=true; o.receiveShadow=true;
@@ -18220,6 +18224,55 @@ function aimBoard(){
   const rest=(top!==null)?top:sand;
   questBoard.position.y+=(rest-bb.min.y-(bs.y*MB_QB_SINK))/(menuProps.scale.y||1);
   questBoard.updateMatrixWorld(true);
+  // the palms may not have existed when the board was placed -- cheap to re-ask, it returns at
+  // once once made
+  if(!qbTrees)placeBoardTrees();
+  aimBoardTrees();
+}
+// Cloned off the palm already standing on the title beach -- same geometry, same materials, one
+// more matrix. clone(true) sharing materials by reference is a trap everywhere something gets
+// recoloured and is exactly what is wanted here.
+let qbTrees=null;
+function placeBoardTrees(){
+  if(qbTrees||typeof menuPalm==='undefined'||!menuPalm||!menuProps)return;
+  qbTrees=new THREE.Group();
+  for(const t of MB_QB_TREES){
+    const c=menuPalm.clone(true);
+    c.userData.qb=t;
+    c.traverse(o=>{ if(o.isMesh){ o.castShadow=true; o.receiveShadow=true; } });
+    qbTrees.add(c);
+  }
+  qbTrees.visible=false;
+  menuProps.add(qbTrees);
+}
+const _qtF=new THREE.Vector3(), _qtQ=new THREE.Quaternion(), _qtW=new THREE.Quaternion(),
+      _qtY=new THREE.Vector3(0,1,0);
+function aimBoardTrees(){
+  if(!qbTrees||!menuProps)return;
+  const base=(typeof menuPalm!=='undefined'&&menuPalm)?menuPalm.scale.x:1;
+  // the lean is taken about the lens's own flattened forward, so it reads as a lean ON SCREEN
+  // rather than along a world axis that means nothing from here
+  let haveAxis=false;
+  if(menuCam){
+    menuCam.getWorldDirection(_qtF); _qtF.y=0;
+    if(_qtF.lengthSq()>1e-8){
+      _qtF.normalize();
+      menuProps.getWorldQuaternion(_qtW).invert();
+      _qtF.applyQuaternion(_qtW); haveAxis=true;
+    }
+  }
+  for(const c of qbTrees.children){
+    const t=c.userData.qb; if(!t)continue;
+    const wx=_mbP.x+_mbR.x*t.side-_mbF.x*t.fwd;
+    const wz=_mbP.z+_mbR.z*t.side-_mbF.z*t.fwd;
+    const gy=(typeof beachSandH==='function'?beachSandH(wz/MB_K):(beachSand0||0))*MB_K;
+    const lp=_spP.set(wx,gy,wz); menuProps.worldToLocal(lp);
+    c.position.copy(lp);
+    c.quaternion.setFromAxisAngle(_qtY,t.turn);
+    if(t.lean&&haveAxis)c.quaternion.premultiply(_qtQ.setFromAxisAngle(_qtF,t.lean));
+    c.scale.setScalar(base*t.scale);
+    c.updateMatrixWorld(true);
+  }
 }
 // Shown only while the lens is over there, faded with the move, and given its own short ramp
 // for the case where it lands after the walk has already finished -- see tikiShow, which paid
@@ -18228,6 +18281,9 @@ function boardShow(e,dt){
   if(!questBoard)return;
   const on=e>0.004;
   questBoard.visible=on;
+  // scenery for this view and nothing else: left standing they would be two palms in the middle
+  // of the title screen's beach
+  if(qbTrees)qbTrees.visible=on;
   if(!on)return;
   const _d=(typeof dt==='number'&&dt>0)?dt:0;
   questBoard.userData.inA=Math.min(1,(questBoard.userData.inA||0)+_d/0.55);
@@ -18618,10 +18674,21 @@ let MB_TIKI_TREES=[{side:24.042, fwd:14.111, scale:1.00, turn:0.7, lean: 0.00},
 // the set's side axis, so measured against the screen, fwd is the horizontal knob (-0.094 of a
 // screen per foot) and side is the distance knob (0.013). They swing the board around the
 // camera; neither slides it across the frame.
-let MB_QB_SIDE=-8.880;    // feet along the set's side axis -- in this shot, mostly DISTANCE
-let MB_QB_FWD =14.140;    // ...and along its forward -- in this shot, mostly ACROSS THE FRAME
+let MB_QB_SIDE=-6.700;    // feet along the set's side axis -- in this shot, mostly DISTANCE
+let MB_QB_FWD =13.960;    // ...and along its forward -- in this shot, mostly ACROSS THE FRAME
 let MB_QB_H   =8.00;      // as tall as it was modelled, in feet
 let MB_QB_SINK=0.010;     // barely dug in: this has feet, the hut has posts
+// ---- AND TWO PALMS STAND BEHIND IT ----
+// The hut got these for exactly the reason this board needed them: standing on bare dune it had
+// nothing to be in front of -- an empty sky, an empty beach, and an object floating in the
+// middle of both. That note is in the file above and I did not apply it here, which is most of
+// why the shot read as a sticker on a photograph. Same clone of the same palm, so it costs a
+// matrix and not a download.
+// Written in the set's axes like everything else, and remember what those mean in this shot:
+// side is mostly DISTANCE and fwd is mostly ACROSS. So a tree further back and off to one side
+// is a more negative side and an fwd either way of the board's 14.14.
+let MB_QB_TREES=[{side:-16.10, fwd: 9.90, scale:1.02, turn:0.9, lean: 0.00},
+                 {side:-18.40, fwd:18.60, scale:1.22, turn:2.6, lean:-0.17}];
 // ---- THE FIVE RULED PANELS, AS FRACTIONS OF THE BOARD'S OWN BOX ----
 // The model is ONE welded mesh with one material -- no named nodes to hang anything off -- so
 // these were found by rendering it flat, orthographic, framed exactly to its bounding box, and
