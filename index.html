@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.65.0';
+window.SURF_VERSION='6.66.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -2140,11 +2140,10 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
       <path class="a" d="M34 8 C26 18.2 6 35.8 6 40 C6 44.2 26 61.8 34 72 C27 61.8 10.5 44.2 10.5 40 C10.5 35.8 27 18.2 34 8 Z"/>
       <path class="b" d="M34 8 C26 18.2 6 35.8 6 40 C6 44.2 26 61.8 34 72 C27 61.8 10.5 44.2 10.5 40 C10.5 35.8 27 18.2 34 8 Z"/>
       <path class="c" d="M34 8 C26 18.2 6 35.8 6 40 C6 44.2 26 61.8 34 72 C27 61.8 10.5 44.2 10.5 40 C10.5 35.8 27 18.2 34 8 Z"/></svg></button>
-    <!-- The shop counter itself. Lives in the dial so it disappears with everything else when
-         the Stage takes the screen, and is placed each frame from the hut's own projected box —
-         it only exists once somebody has walked over there. -->
-    <button class="hbtn" id="dTiki" type="button" aria-label="Open the surf shop"
-            style="visibility:hidden"></button>
+    <!-- The counter front is not a control. It used to carry a hit area covering its lower
+         half, which meant the carved SURF SHOP plank — the biggest thing on it — behaved like a
+         button. A shop sign says what the building is; the three lit panels below say what you
+         can do in it, and those are the only things here that take a tap. -->
     <!-- The three lit panels on the counter wall. The GLOW is in the scene — three additive
          quads parented to the hut, so it moves and scales and is occluded with the building —
          and these are the icons and the hit areas laid over exactly where those quads project.
@@ -10778,7 +10777,6 @@ document.getElementById('dShop').onclick    =()=>{
 // tenths of a second and was then covered by the thing it was standing in for — and it made the
 // shop preview impossible to look at, or to stage, because a full-screen panel arrived on top
 // of it every time. So arriving is arriving. The counter is what you press.
-document.getElementById('dTiki').onclick=()=>{ buzz(8); openShopOn('boards'); };
 // ---- and there is an ARROW to leave by, not a tap on the sand ----
 // A tap anywhere was standing in for this, and it cost two things. It gave no sign it was
 // there, so the way out was something you had to already know; and it swallowed every tap on
@@ -18168,48 +18166,27 @@ function shopShadow(e){
     _shopShKeep=null;
   }
 }
-// ---- and the counter takes a tap ----
-// Laid out from the hut's own projected box, the same way the seven boards are laid out from
-// their planks — a hit area over a thing in the scene rather than a button parked on the glass.
-// It appears only once the walk is most of the way there, so it cannot be pressed by somebody
-// who is still looking at the signpost, and it is sized to the LOWER half of the hut: the roof
-// is most of its height and none of its counter, and a target that covers the thatch is a tap
-// on the sky as far as the player is concerned.
-const _tkV=new THREE.Vector3();
-function layoutTikiButton(e){
-  const el=document.getElementById('dTiki'), bk=document.getElementById('dBack');
-  // ---- THE WAY BACK DOES NOT DEPEND ON THE HUT ----
-  // It did, and that was a trap with no floor under it. The hut is five megabytes fetched in
-  // the background; press Shop before it lands — which on a phone on mobile data is most of the
-  // first minute — and the lens turns its ninety degrees to a bare dune with the title screen
-  // now behind it, no counter to tap, and, because this line asked for the hut too, no arrow
-  // either. Nothing on the screen did anything. The only way out was to reload the game.
-  // The arrow is the way back out of a CAMERA MOVE, and the camera moves whether or not a
-  // model has arrived, so that is the only thing it may ask about. The counter still waits for
-  // the hut, because a hit area over a building that is not there is worse than none.
+// ---- THE CARVED SIGN IS A SIGN ----
+// There used to be a second hit area here, sized to the lower 42% of the hut's projected box,
+// which opened Boards. It covered the whole counter front — and the carved SURF SHOP plank is
+// the biggest thing on that front, so the sign read as the button. It is not one. It is the
+// name of the place, the same way the shopfront lettering on a real hut is not a doorbell, and
+// a player who taps it and lands in Boards has been told the wrong thing about how this screen
+// works. The three lit panels are the buttons; they are lit precisely so you can tell.
+// Losing it costs nothing: the panels come up at e>=0.72 against this one's 0.55, so the only
+// window it ever owned alone was a fifth of a second of the walk still easing in, and they are
+// floored at 44px each, so the reach was never the problem either.
+// ---- THE WAY BACK DOES NOT DEPEND ON THE HUT ----
+// It did, and that was a trap with no floor under it. The hut is five megabytes fetched in
+// the background; press Shop before it lands — which on a phone on mobile data is most of the
+// first minute — and the lens turns its ninety degrees to a bare dune with the title screen
+// now behind it, no counter to tap, and, because this line asked for the hut too, no arrow
+// either. Nothing on the screen did anything. The only way out was to reload the game.
+// The arrow is the way back out of a CAMERA MOVE, and the camera moves whether or not a
+// model has arrived, so that is the only thing it may ask about.
+function layoutShopBack(e){
+  const bk=document.getElementById('dBack');
   if(bk)bk.style.visibility=(e>=0.55)?'':'hidden';
-  if(!el)return;
-  if(!tikiHut||!menuCam||e<0.55){ el.style.visibility='hidden'; return; }
-  menuCam.updateMatrixWorld(true); tikiHut.updateMatrixWorld(true);
-  const b=visBox(tikiHut);
-  if(b.isEmpty()){ el.style.visibility='hidden'; return; }
-  const W=Math.max(1,innerWidth), H=Math.max(1,innerHeight);
-  let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9,any=false;
-  for(let i=0;i<8;i++){
-    _tkV.set(i&1?b.max.x:b.min.x, i&2?b.max.y:b.min.y, i&4?b.max.z:b.min.z).project(menuCam);
-    if(_tkV.z>1)continue; any=true;
-    const px=(_tkV.x*0.5+0.5)*W, py=(-_tkV.y*0.5+0.5)*H;
-    if(px<x0)x0=px; if(px>x1)x1=px; if(py<y0)y0=py; if(py>y1)y1=py;
-  }
-  if(!any||x1<=x0||y1<=y0){ el.style.visibility='hidden'; return; }
-  const w=(x1-x0)*0.62, h=(y1-y0)*0.42;          // the counter, not the thatch
-  el.style.visibility='';
-  el.style.left=((x0+x1)/2).toFixed(1)+'px';
-  el.style.top=(y1-(y1-y0)*0.30).toFixed(1)+'px';
-  el.style.right='auto'; el.style.bottom='auto';
-  el.style.width=Math.max(60,w).toFixed(0)+'px';
-  el.style.height=Math.max(48,h).toFixed(0)+'px';
-  el.style.transform='translate(-50%,-50%)';
 }
 // ---- and the three panels take a tap ----
 // Each one is placed from the four corners of its OWN quad, projected. Not from a guessed
@@ -34805,7 +34782,7 @@ function renderMenuBeach(dt){
     if(tikiHut){ if(shopCamE>0.0001)aimTiki(); tikiShow(shopCamE,_sd); }
     // the real progress, always — passing zero when the hut is missing was the other half of
     // the trap above, and it hid the arrow before the function could even be asked
-    layoutTikiButton(shopCamE);
+    layoutShopBack(shopCamE);
     layoutShopSlots(shopCamE);
     shopShadow(shopCamE); shopKeeper(shopCamE); }
   // The board preview is shot at the renderer's own exposure and the menu was too, but the
