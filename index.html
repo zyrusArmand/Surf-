@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.68.0';
+window.SURF_VERSION='6.69.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -607,6 +607,28 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
      screen. Moved rather than the brace deleted — deleting it would revive the .hbtn block
      that has been sitting in that dead slot for as long as the words have been painted on
      the sign, and reviving it would put teal glass plates back over the planks. */
+  /* ---- the words on the quest board's five sheets ---- */
+  /* Ink on paper. Brown rather than black because it is meant to read as written on the sheet
+     the model already draws, and that sheet is warm cream -- black on cream reads as a screenshot
+     pasted over the board. No background of any kind: the paper IS the background, and a card
+     drawn on top of a drawing of a card is just two cards. Sized in em off a font-size the layout
+     sets per frame from the panel's projected height, so every line scales with the board. */
+  .qbNote {
+    position:absolute; transform:translate(-50%,-50%);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:.28em; text-align:center; pointer-events:none;
+    color:#6b4a25; font-weight:800; line-height:1.12; letter-spacing:.2px;
+    text-shadow:0 1px 0 rgba(255,248,228,.55); overflow:hidden;
+  }
+  .qbNote .qt { font-size:1em; }
+  .qbNote .qn { font-size:.86em; opacity:.86; font-variant-numeric:tabular-nums; }
+  .qbNote .qbar { width:78%; height:.34em; border-radius:.2em; overflow:hidden;
+    background:rgba(107,74,37,.20); box-shadow:inset 0 1px 1px rgba(80,52,22,.22); }
+  .qbNote .qbar i { display:block; height:100%; border-radius:.2em;
+    background:linear-gradient(90deg,#e08a2c,#f6bf4d); }
+  .qbNote.done { color:#4f7a33; }
+  .qbNote.done .qbar i { background:linear-gradient(90deg,#5c9a3c,#8fd06a); }
+  .qbNote.soon { color:#8a6b45; opacity:.6; font-weight:700; font-style:italic; }
   /* ---- the three lit panels on the shop counter ---- */
   /* No plate of its own. The blue is a light in the SCENE — additive quads parented to the hut —
      and all this contributes is the glyph, the word, and somewhere to press. Given a background
@@ -2151,6 +2173,16 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
          them already reads as a lit surface, and a glass pill on top of it would be a button on
          a screen in front of a building rather than a sign ON the building.
          Order left to right is School, Boards, Surfers — see SHOP_SLOTS. -->
+    <!-- The words on the quest board's five pinned sheets. Not buttons and not a panel: they are
+         laid over the ruled panel of each sheet and projected from that panel's own transform
+         every frame, so they foreshorten and travel with the board rather than floating in front
+         of it. The paper is the background -- these carry no plate, no border and no backdrop,
+         because putting a card on top of a drawing of a card is how you end up with two. -->
+    <div class="qbNote" id="qbNote0" style="visibility:hidden"></div>
+    <div class="qbNote" id="qbNote1" style="visibility:hidden"></div>
+    <div class="qbNote" id="qbNote2" style="visibility:hidden"></div>
+    <div class="qbNote" id="qbNote3" style="visibility:hidden"></div>
+    <div class="qbNote" id="qbNote4" style="visibility:hidden"></div>
     <button class="slotb" id="dSlotSchool" type="button" aria-label="Surfboard school"
             style="visibility:hidden">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.2 2.6 8.6 12 13l9.4-4.4z"/><path d="M6.2 10.6v4.9c0 1.6 2.6 2.9 5.8 2.9s5.8-1.3 5.8-2.9v-4.9"/><path d="M21.4 8.6v5.1"/></svg>
@@ -10814,16 +10846,14 @@ document.getElementById('dQuests').onclick  =()=>{
   shopCamGo=0; clearTimeout(_shopWalk);
   questCamGo=1;
   try{ wantBoard(); }catch(e){}
-  // The card still opens, on the same timer the shop's fallback uses, because the notices on
-  // the board are blank until the quest text is laid over them -- arriving at a board you
-  // cannot read would be worse than the panel it replaced. When the words go on the paper this
-  // timer is what comes out.
+  // ---- AND NOTHING OPENS OVER IT ----
+  // The card used to come up on a timer once the walk finished, which was a placeholder for the
+  // board being unreadable. The words are on the paper now, so the placeholder goes: arriving IS
+  // arriving, exactly as it is at the hut. The panel markup stays where it is and nothing opens
+  // it -- it is not deleted, because the goal rows it renders are still the same three goals and
+  // the run card uses them.
   clearTimeout(_questWalk);
-  _questWalk=setTimeout(()=>{
-    if(!questCamGo)return;
-    document.getElementById('questBody').innerHTML=goalRowsHTML();
-    questsPanel.classList.remove('hidden');
-  },(QB_CAM.secs+0.35)*1000);
+  drawQuestNotes(true);
 };
 document.getElementById('qClose').onclick   =()=>{
   questsPanel.classList.add('hidden');
@@ -18121,9 +18151,6 @@ function placeBoard(){
   const inner=cloneModel(qbModel);
   // The five notices are named in the model. Found here, once, rather than searched for every
   // frame -- this is what the quest text will be projected against.
-  qbSlots=[];
-  inner.traverse(o=>{ if(o.name&&/^quest_slot_\d+$/.test(o.name))qbSlots.push(o); });
-  qbSlots.sort((a,b)=>a.name.localeCompare(b.name));
   inner.traverse(o=>{ if(!o.isMesh||!o.material)return;
     // cloned, because cloneModel shares materials BY REFERENCE -- a lesson this file has paid
     // for once already -- and everything below writes to them
@@ -18146,7 +18173,27 @@ function placeBoard(){
   inner.updateMatrixWorld(true);
   const bb=visBox(inner), c=bb.getCenter(new THREE.Vector3());
   inner.position.sub(c);
-  questBoard.userData.h=Math.max(1e-4, bb.getSize(new THREE.Vector3()).y);
+  const _qs=bb.getSize(new THREE.Vector3());
+  questBoard.userData.h=Math.max(1e-4, _qs.y);
+  // ---- and the five panels get a marker each ----
+  // Empty Object3Ds, not meshes: nothing is drawn here. They exist to be a transform the DOM can
+  // be projected through, which is the same trick the shop's lit panels use -- the difference is
+  // that the hut's are real quads in the model and these have to be built from measurements,
+  // because this model has no separate parts to point at.
+  // Children of the group, so they carry every decision the aim makes about where the board
+  // stands, which way it faces and how big it was drawn. The geometry was recentred on its own
+  // box a line above, so local coordinates run from -size/2 to +size/2.
+  // The model faces +z in three's axes -- Blender's -Y front becomes +Z through the y-up
+  // conversion -- so the markers sit a hair proud of the front face.
+  qbSlots=[];
+  for(const q of QB_SLOTS){
+    const g=new THREE.Object3D();
+    g.position.set(((q[0]+q[1])*0.5-0.5)*_qs.x, (0.5-(q[2]+q[3])*0.5)*_qs.y, _qs.z*0.5+_qs.z*0.02);
+    g.userData.hw=(q[1]-q[0])*0.5*_qs.x;
+    g.userData.hh=(q[3]-q[2])*0.5*_qs.y;
+    questBoard.add(g);
+    qbSlots.push(g);
+  }
   questBoard.visible=false;
   menuProps.add(questBoard);
   aimBoard();
@@ -18313,6 +18360,80 @@ function layoutShopBack(e){
   // arrow and two rooms, and two callers would fight over it every frame the lens is crossing.
   const q=(typeof questCamE==='number')?questCamE:0;
   if(bk)bk.style.visibility=(Math.max(e,q)>=0.55)?'':'hidden';
+}
+// ---- and the quest board's five sheets get their words ----
+// Placed from each panel's OWN four corners, projected -- the same method the shop's lit panels
+// use, and for the same reason: the markers are children of the board, so they already carry
+// every decision the aim made about where it stands, which way it faces and how big it was
+// drawn. A guessed fraction of the board's screen box would come apart the moment any of those
+// changed.
+// The font is set per frame from the panel's projected HEIGHT, and everything inside the note is
+// sized in em off it, so one number scales the whole sheet. It has to be per frame because the
+// board grows as the walk comes in; a size chosen once would be right for one instant of it.
+// They come up at 0.72 rather than with the board, for the same reason the shop's do: words
+// arriving before the thing they are written on is a row of floating glyphs.
+const _qnV=new THREE.Vector3();
+function layoutQuestNotes(e){
+  const live=!!questBoard&&!!menuCam&&!!qbSlots&&e>=0.72;
+  const W=Math.max(1,innerWidth), H=Math.max(1,innerHeight);
+  if(live){ menuCam.updateMatrixWorld(true); questBoard.updateMatrixWorld(true); }
+  for(let i=0;i<5;i++){
+    const el=document.getElementById('qbNote'+i);
+    if(!el)continue;
+    const g=live?qbSlots[i]:null;
+    if(!g){ el.style.visibility='hidden'; continue; }
+    const hw=g.userData.hw, hh=g.userData.hh;
+    let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9,any=false;
+    for(let k=0;k<4;k++){
+      _qnV.set(k&1?hw:-hw, k&2?hh:-hh, 0).applyMatrix4(g.matrixWorld).project(menuCam);
+      if(_qnV.z>1)continue; any=true;
+      const px=(_qnV.x*0.5+0.5)*W, py=(-_qnV.y*0.5+0.5)*H;
+      if(px<x0)x0=px; if(px>x1)x1=px; if(py<y0)y0=py; if(py>y1)y1=py;
+    }
+    if(!any||x1<=x0||y1<=y0){ el.style.visibility='hidden'; continue; }
+    const bw=x1-x0, bh=y1-y0;
+    el.style.visibility='';
+    el.style.left=((x0+x1)/2).toFixed(1)+'px';
+    el.style.top=((y0+y1)/2).toFixed(1)+'px';
+    el.style.width=(bw*0.90).toFixed(0)+'px';
+    el.style.height=(bh*0.88).toFixed(0)+'px';
+    // capped as well as floored: on a wide screen the board can be drawn large enough that a
+    // proportional size would set the goal text bigger than the game's own headings
+    el.style.fontSize=Math.max(7,Math.min(19,bh*0.19)).toFixed(1)+'px';
+  }
+}
+// ---- what is written on them ----
+// Rebuilt only when the text would actually differ, because this is otherwise five innerHTML
+// writes a frame for a string that changes about once a run. The key is the whole rendered
+// state, so a goal ticking over by one still refreshes and nothing else does.
+let _qnKey='';
+function drawQuestNotes(force){
+  if(typeof ensureGoals!=='function')return;
+  ensureGoals();
+  const key=goals.map(g=>g.id+':'+g.n+':'+(g.done?1:0)).join('|');
+  if(!force&&key===_qnKey)return;
+  _qnKey=key;
+  for(let i=0;i<5;i++){
+    const el=document.getElementById('qbNote'+i);
+    if(!el)continue;
+    const g=goals[i];
+    if(!g){
+      // The board has five pins and the game deals three goals. Rather than leave two sheets
+      // blank -- which reads as something that failed to load -- they say what they are.
+      el.className='qbNote soon';
+      el.innerHTML='<span class="qt">Pinned<br>after<br>the next<br>run</span>';
+      continue;
+    }
+    const d=goalDef(g);
+    const n=Math.min(g.n,d.target), p=Math.max(0,Math.min(100,n/d.target*100));
+    el.className='qbNote'+(g.done?' done':'');
+    el.innerHTML=g.done
+      ? '<span class="qt">'+d.text+'</span><span class="qn">DONE &nbsp;+100</span>'+
+        '<span class="qbar"><i style="width:100%"></i></span>'
+      : '<span class="qt">'+d.text+'</span><span class="qn">'+
+        n.toLocaleString()+' / '+d.target.toLocaleString()+'</span>'+
+        '<span class="qbar"><i style="width:'+p.toFixed(1)+'%"></i></span>';
+  }
 }
 // ---- and the three panels take a tap ----
 // Each one is placed from the four corners of its OWN quad, projected. Not from a guessed
@@ -18501,6 +18622,22 @@ let MB_QB_SIDE=-9.580;    // feet along the set's side axis -- in this shot, mos
 let MB_QB_FWD =14.312;    // ...and along its forward -- in this shot, mostly ACROSS THE FRAME
 let MB_QB_H   =8.00;      // as tall as it was modelled, in feet
 let MB_QB_SINK=0.010;     // barely dug in: this has feet, the hut has posts
+// ---- THE FIVE RULED PANELS, AS FRACTIONS OF THE BOARD'S OWN BOX ----
+// The model is ONE welded mesh with one material -- no named nodes to hang anything off -- so
+// these were found by rendering it flat, orthographic, framed exactly to its bounding box, and
+// picking out the regions that are bright and colourless. Wood and bamboo are saturated orange;
+// paper is not. Finding them by connectivity was tried first and shattered into 1486 fragments,
+// because a million-triangle mesh has no useful notion of "one sheet".
+// They are the INNER ruled rectangles rather than the whole sheets, which is what you want: it
+// is the panel the words are meant to sit inside.
+// u runs left to right, v runs DOWN from the top, both 0..1 of the box the game measures.
+const QB_SLOTS=[
+  [0.1923,0.4577,0.1989,0.3097],
+  [0.5577,0.8519,0.2263,0.3474],
+  [0.1885,0.4615,0.4366,0.5451],
+  [0.5558,0.8500,0.5714,0.6869],
+  [0.1788,0.4731,0.6789,0.7840],
+];
 // ---- THE THREE LIT PANELS IN THE BACK WALL ----
 // The hut is modelled with three recessed squares behind the counter, which is a shop counter
 // asking to have things on it. They are lit blue and take a tap each. In the hut's OWN units:
@@ -35032,6 +35169,8 @@ function renderMenuBeach(dt){
     const qstep=_sd/Math.max(0.05,QB_CAM.secs);
     questCamE = questCamGo ? Math.min(1,questCamE+qstep) : Math.max(0,questCamE-qstep);
     if(questBoard){ if(questCamE>0.0001)aimBoard(); boardShow(questCamE,_sd); }
+    if(questCamE>0.0001)drawQuestNotes(false);
+    layoutQuestNotes(questCamE);
     // the real progress, always — passing zero when the hut is missing was the other half of
     // the trap above, and it hid the arrow before the function could even be asked
     layoutShopBack(shopCamE);
