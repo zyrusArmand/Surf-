@@ -27198,6 +27198,23 @@ if(location.hash.includes('debug')){
               camRight:SHOP_CAM.right, e:+shopCamE.toFixed(3)};
     },
     shopCam(k,v){ if(v!==undefined)SHOP_CAM[k]=v; return SHOP_CAM; },
+    // Slide the pinned hut sideways onto the lens's own forward axis, keeping its distance and
+    // therefore its size. Centred that way is centred at ANY aspect -- the alternative, nudging
+    // it until it looks right on one viewport, is centred on that viewport and nowhere else.
+    // Only x and z move; the height stays exactly as it was placed by hand.
+    hutFit(){
+      if(!tikiHut||!menuCam||!menuProps)return null;
+      const C=menuCam.getWorldPosition(new THREE.Vector3());
+      const f=new THREE.Vector3(0,0,-1).applyQuaternion(menuCam.getWorldQuaternion(new THREE.Quaternion()));
+      f.y=0; if(f.lengthSq()<1e-8)return null; f.normalize();
+      const W0=tikiHut.getWorldPosition(new THREE.Vector3());
+      const D=Math.hypot(W0.x-C.x, W0.z-C.z);
+      const W=new THREE.Vector3(C.x+f.x*D, W0.y, C.z+f.z*D);
+      const L=menuProps.worldToLocal(W.clone());
+      MB_TIKI_PIN.p[0]=+L.x.toFixed(3); MB_TIKI_PIN.p[2]=+L.z.toFixed(3);
+      aimTiki();
+      return {D:+D.toFixed(2), local:MB_TIKI_PIN.p.slice(), world:[+W.x.toFixed(2),+W.y.toFixed(2),+W.z.toFixed(2)]};
+    },
     // Where the pinned pieces actually ARE, local and world. Added because a check written as
     // page.evaluate(()=>pug.position) returns null every time: these all live in the game's
     // closure, and that is the third time that has cost a probe run. A hook is the only way in.
