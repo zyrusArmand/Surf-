@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.82.0';
+window.SURF_VERSION='6.83.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -11193,7 +11193,22 @@ function riderPoke(dt){
   pokeT=Math.max(0,pokeT-dt*POKE_RATE);
   const u=Math.min(1,1-pokeT), k=Math.sin(Math.PI*u);
   if(pokeT<=0){ pug.scale.setScalar(pokeS); pokeS=0; return; }
-  pug.scale.set(pokeS*(1+k*0.10), pokeS*(1-k*0.13), pokeS*(1+k*0.10));
+  // ---- AND IT IS UNIFORM, BECAUSE HE IS A SKINNED MESH ----
+  // This was 1.10 / 0.87 / 1.10 -- a squash, and the whole character of the flinch. It is also
+  // what folds him. A non-uniform scale on the parent of a SkinnedMesh does not squash it: the
+  // skinning multiplies each bone's world matrix, and a bone that is ROTATED relative to the
+  // scale axes comes out sheared rather than scaled. The head is the most rotated bone he has,
+  // so the head shears hardest, which is exactly the fold in the picture -- muzzle driven down
+  // through the chest while the body merely looks squat.
+  // The note above this function says a non-uniform parent scale shears a skinned mesh. It was
+  // written when the same thing was found in the double-tap path and the guard added there put
+  // the squash away before the CHARGE started. The squash on its own was left running, and for
+  // this character there is no charge to guard against -- his file has no punch clip, so the
+  // double tap is only ever this.
+  // Uniform costs the squash and keeps the flinch. There is no version of a non-uniform scale
+  // on this object that is safe.
+  const kk=1+k*0.085;
+  pug.scale.set(pokeS*kk, pokeS*kk, pokeS*kk);
 }
 overlay.addEventListener('pointerdown',e=>{
   // ---- THE VERSION IS ASKED FIRST ----
