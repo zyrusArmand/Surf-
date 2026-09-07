@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.49.0';
+window.SURF_VERSION='6.50.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -17959,38 +17959,52 @@ loadModel('menusign.glb',(s3)=>{ menuSignModel=s3; placeSignpost(); },0);
 // one has its OWN middle, its own horizontal bearing and its own length — and projecting a
 // bearing of (0.63,-0.78) as though it were (1,0) is why the words sat across the boards
 // instead of along them.
-// ---- measured off the PAINT, which is what finally worked ----
-// Three earlier attempts to separate the arms all failed on this mesh and are worth naming so
-// they are not tried again: the primitives are index-buffer slabs cut across the model, not
-// parts, so they do not separate anything; every arm is welded to the post, so a connected-
-// component pass returns one component; and the boards overlap in height, so banding the vertex
-// cloud by y merges them. What does separate them is that each board is painted its own colour.
-// Every vertex is coloured from the texel its uv lands on, bucketed by hue, and each bucket is
-// one board — validated by the seven coming out in the same top-to-bottom order the render
-// shows. A median-height filter runs first, because every hue also turns up on a nail head or
-// in shadow up the pole and a handful of strays drag a centroid clean off its board.
+// ---- measured off the MESH, in Blender, because this sign is all one timber ----
+// The seven-arm sign had to be separated by PAINT: its boards overlapped in height and each was
+// a different colour, so hue was the only thing that told them apart. None of that applies now.
+// This sign's three arms are one walnut, so hue separates nothing — and they do not overlap in
+// height, so the very thing that failed on the old mesh is the thing that works on this one.
+// The vertex cloud is banded by height, the post is excluded by radius, and each band is one
+// plank. Done in Blender rather than through the browser: a headless WebGL probe renders at
+// about a third of a frame per second, so every look at this model used to cost minutes, and
+// bpy answers the same question in under a second.
 // Each arm gives its centre and long axis from a 2D PCA of its bucket in the xz plane. The
 // middle is the midpoint of the EXTENT along that axis, not the centroid, because an arrow
 // carries more mesh at its point than at its tail and the centroid is dragged toward it.
 // y, the middle in x and z, the unit bearing and the half length — all as fractions of the
 // model's own height, so they survive a re-export at another size.
-// Ordered top to bottom to match SP_IDS.
+// Ordered top to bottom to match SP_IDS. Measured on the TRIMMED model, not the raw upload.
 const SP_ARMS=[
-  {y:+0.3497, mx:-0.0071, mz:+0.0440, dx:+0.9022, dz:+0.4314, hl:0.2130},
-  {y:+0.2465, mx:-0.0173, mz:+0.0248, dx:+0.8004, dz:-0.5994, hl:0.2858},
-  {y:+0.1141, mx:+0.0169, mz:+0.0309, dx:+0.9804, dz:+0.1968, hl:0.2437},
-  {y:-0.0014, mx:+0.0050, mz:+0.0228, dx:+0.8767, dz:-0.4810, hl:0.2311},
-  {y:-0.1008, mx:+0.0045, mz:+0.0081, dx:+0.5908, dz:-0.8068, hl:0.3191},
-  {y:-0.2156, mx:-0.0100, mz:+0.0286, dx:+0.9205, dz:+0.3906, hl:0.2727},
-  {y:-0.3446, mx:+0.0190, mz:+0.0307, dx:+0.9503, dz:-0.3112, hl:0.2514}];
+  {y:+0.2955, mx:-0.0007, mz:+0.0039, dx:+1.0000, dz:-0.0074, hl:0.4142},
+  {y:+0.0184, mx:+0.0130, mz:+0.0325, dx:+0.9795, dz:+0.2016, hl:0.4018},
+  {y:-0.2809, mx:-0.0216, mz:+0.0138, dx:+0.9376, dz:-0.3476, hl:0.4140}];
 // ---- and the ORDER is the model's, not ours ----
-// The boards come painted in the order the artist nailed them on — Shop, Board school, Quests,
-// Play, Tricks, Stats, Settings from the top — and that order is baked into the texture, so it
-// is not something this file gets to choose any more. Getting this list wrong does not look
+// Play, Shop, Quests from the top, because that is the order the words are painted in and the
+// texture is not something this file gets to argue with. Getting this list wrong does not LOOK
 // wrong: every board still lights up and still takes a tap, it just opens the wrong screen.
-const SP_IDS=['dShop','dBoard','dQuests','dPlay','dTricks','dStats','dSettings'];
+// ---- AND THERE ARE ONLY THREE, WHICH IS THE WHOLE CHANGE ----
+// The sign this replaced carried seven. Four of those words are not painted on this one, so
+// they cannot have an arm.
+const SP_IDS=['dPlay','dShop','dQuests'];
 // how thick a board is, as a share of the model's height — for the size of the tap target
-const SP_ARM_HW=0.045;
+const SP_ARM_HW=0.107;
+// ---- the four the new sign has no plank for ----
+// Board school, Tricks, Stats and Settings. These are invisible tap targets — colour
+// transparent, font-size zero — placed by layoutSignButtons from SP_IDS. Dropping them out of
+// that list does not make them harmless: nothing moves them any more, so they keep whatever
+// left/top they last had and go on taking taps in a corner of the screen with nothing to see.
+// An invisible button over nothing is worse than no button, so they are hidden explicitly
+// rather than by omission.
+// The ELEMENTS and their handlers stay, because other doors fire them: the top bar's gear
+// clicks dSettings and the profile clicks dStats. Removing either would break both of those,
+// and a programmatic .click() does not care that the element is hidden.
+const SP_GONE=['dBoard','dTricks','dStats','dSettings'];
+// Hidden HERE, once, and not only from layoutSignButtons — that is called from the frame loop
+// behind `if(signPost.visible)`, so on any path where the sign does not stand up (the model
+// fails to load, the menu beach is never raised) the hide would never run and four stranded
+// targets would be exactly the thing this is meant to prevent. Measured: they came back
+// reporting visibility 'visible' the first time, for precisely that reason.
+for(const _id of SP_GONE){ const _e=document.getElementById(_id); if(_e)_e.style.visibility='hidden'; }
 // how it stands in the shot: depth down the view axis, where its middle sits on the screen,
 // and how much of the frame's height it fills
 // ---- IT STANDS ON THE BEACH, it is not hung off the lens ----
@@ -18010,9 +18024,19 @@ const SP_ARM_HW=0.045;
 // the render looked like the screenshot, is how a layout ends up almost right on one screen.
 // The signpost crosses to the RIGHT of the trunk and the chest to the left, which swaps the two
 // halves of the composition: the menu now stands on the side the reading eye ends on.
-let MB_SP_SIDE=-1.124;    // feet to the camera's LEFT of the trunk's axis — negative, so right
+// ---- RESIZED AND SHIFTED FOR THE CROSSWAY'S ASPECT ----
+// These two were fitted to the seven-arm sign, which was 1.9 units tall and 1.0 wide — arms
+// radiating in seven compass directions, so it was nearly as deep as it was broad. The crossway
+// is 1.04 tall and 0.86 wide once its bare post is trimmed, an aspect of 1.2 against 1.9, and
+// all three arms point the same way. MB_SP_H sizes the model by its HEIGHT, so at the old value
+// the same number of feet bought a far wider sign: measured, it projected 255px across on a
+// 430px screen with its right tip at 447 — seventeen pixels off the edge of the phone.
+// So the height comes down and the post moves in off the rail. Both are measured against the
+// projected extent the debug hook reports, not guessed: 3.80 puts the sign 231px wide, and
+// -0.80 centres that at 301 for roughly equal margins either side.
+let MB_SP_SIDE=-0.80;     // feet to the camera's LEFT of the trunk's axis — negative, so right
 let MB_SP_FWD =7.488;      // ...and this far in front of it, out ahead of the chest
-let MB_SP_H   =4.19;      // and this tall, in feet, measured rather than scaled by a number
+let MB_SP_H   =3.80;      // and this tall, in feet, measured rather than scaled by a number
 let MB_SP_SINK=0.055;     // share of its own height driven under the sand
 // the lean it was staged with: a post somebody drove in is never plumb. Applied in the same
 // order the Stage reports them, so the numbers off the readout go straight in.
@@ -18372,80 +18396,20 @@ function placeSignpost(){
     for(const mt of (Array.isArray(o.material)?o.material:[o.material])){
       if(!mt)continue;
       if(mt.roughness!==undefined){ mt.roughness=Math.max(mt.roughness,0.90); mt.metalness=0; }
-      // ---- AND IT IS THE SAME SIGN AS THE ONE IN THE TREE ----
-      // Seven boards of saturated paint next to a walnut plank with gilt letters read as two
-      // different props from two different games. This makes them one: the same SGN_WOOD and
-      // SGN_GOLD the hanging sign uses, so they cannot drift apart later — change the tree's
-      // sign and this follows it.
-      // The hanging sign can find its letters GEOMETRICALLY, because they are raised off the
-      // face and it gilds whatever faces front. These letters are painted into the map, so the
-      // test has to be the paint itself: the lettering is yellow on every board and no board is
-      // yellow except one, so a hue window between the orange plank at 28 degrees and the
-      // yellow-green one at 64 catches every letter and no timber. Done in the shader rather
-      // than by repainting the texture, which was tried and could not separate the letters on
-      // the one board whose paint is nearly their colour — a window either side of them can.
-      // The board is not tinted, it is REPLACED, driven by its own luminance: multiplying a
-      // cyan plank by brown gives dark cyan, not wood. Taking the walnut and letting the
-      // texel's brightness drive it keeps the grain, the plank edges and the dark outlines
-      // around the letters, and throws away only the hue — which is the whole point.
-      mt.onBeforeCompile=sh=>{
-        sh.uniforms.uMsWood={value:SGN_WOOD.clone()};
-        sh.uniforms.uMsGold={value:SGN_GOLD.clone()};
-        sh.fragmentShader=sh.fragmentShader
-          .replace('#include <common>','#include <common>\nuniform vec3 uMsWood;uniform vec3 uMsGold;')
-          .replace('#include <map_fragment>','#include <map_fragment>\n'+
-            'vec3 mc=diffuseColor.rgb;\n'+
-            'float mMx=max(mc.r,max(mc.g,mc.b)), mMn=min(mc.r,min(mc.g,mc.b)), mD=mMx-mMn;\n'+
-            'float mH=0.0;\n'+
-            'if(mD>0.0001){ if(mMx==mc.r)mH=mod((mc.g-mc.b)/mD,6.0);\n'+
-            '  else if(mMx==mc.g)mH=(mc.b-mc.r)/mD+2.0; else mH=(mc.r-mc.g)/mD+4.0; mH*=60.0; }\n'+
-            'float mS=mMx>0.0001?mD/mMx:0.0;\n'+
-            'float mGild=smoothstep(34.0,41.0,mH)*(1.0-smoothstep(57.0,63.0,mH))\n'+
-            '           *smoothstep(0.26,0.36,mS)*smoothstep(0.34,0.46,mMx);\n'+
-            'float mL=dot(mc,vec3(0.299,0.587,0.114));\n'+
-            // The two ranges are what makes it read, and the first attempt got both wrong: a
-            // board driven 0.58..1.63 came out pale pine rather than walnut, and letters driven
-            // 0.40..1.25 landed at almost the same brightness as it, so the words vanished into
-            // the plank. The timber is compressed and pushed DOWN — the brightest board still
-            // lands below the walnut itself — and the gilding is pushed UP, so the contrast
-            // between them is carried by lightness as well as hue, the way it is on the sign in
-            // the tree.
-            // ---- and the brightness of the OLD paint is thrown away with its hue ----
-            // Driving the timber off each board's own luminance kept exactly the thing that had
-            // to go: a pale cyan plank became pale wood and a dark purple one dark wood, so the
-            // seven came out as seven different timbers stacked up a post. The range is
-            // compressed hard now, so every board lands on the same walnut and mL is left with
-            // only the job it should have — the grain, the plank edges and the dark outline
-            // around each letter. The scene's own light is applied after this and is what still
-            // makes the boards differ from each other, which is the difference you want.
-            // The LEVEL is set from what the hanging sign actually resolves to, not from the
-            // constant it shares. There, uWood multiplies a map that is already brown — about
-            // 0.42,0.31,0.23 — so the timber lands near 0.175,0.081,0.034. Here it multiplies
-            // nothing, so the same constant at full strength came out around two and a half
-            // times lighter and the boards read as pale driftwood beside a walnut plank. Scaled
-            // to meet it, the two are the same timber.
-            // ---- and the grain term is KNEED, or the old paint comes through as brightness ----
-            // Three of the seven boards kept arriving pale next to four dark ones, in the order
-            // the paint had been: orange, green and red are bright in the map and purple, cyan
-            // and magenta are not, so driving the timber off luminance carried the old scheme
-            // straight through in greyscale. Everything above the knee is one value, so every
-            // board's FACE lands on the same walnut; everything below it still varies, which is
-            // where the grain, the plank gaps and the dark outline around each letter live. The
-            // detail is all in the dark end — it was only the mid-tones that were telling on us.
-            'float mK=min(mL,0.30)*3.3333, mKg=min(mL,0.55)*1.8182;\n'+
-            // The level is set low on purpose. Measured, the seven boards' paints sit between
-            // 0.31 and 0.46 luminance — near enough identical — so the light and dark boards in
-            // the render are not the old scheme showing through at all, they are the low sun:
-            // the arms point in seven compass directions and roughly half of them face it. That
-            // is correct and worth keeping, but it means the SUNLIT boards set how deep this
-            // has to be, not the shaded ones, and at a level that suited the shaded ones the
-            // lit ones came out as pale driftwood next to a walnut plank.
-            'diffuseColor.rgb=mix(uMsWood*(0.20+0.16*mK), uMsGold*(0.78+0.34*mKg), mGild);')
-          .replace('#include <roughnessmap_fragment>','#include <roughnessmap_fragment>\n'+
-                   'roughnessFactor=mix(roughnessFactor,0.34,mGild);')
-          .replace('#include <metalnessmap_fragment>','#include <metalnessmap_fragment>\n'+
-                   'metalnessFactor=mix(metalnessFactor,0.80,mGild);');
-      };
+      // ---- AND THE WOOD-AND-GOLD SHADER IS GONE, BECAUSE THE SIGN ARRIVED WEARING IT ----
+      // Fifty lines used to live here turning seven boards of saturated paint into walnut with
+      // gilt letters: a hue window between the orange plank and the yellow-green one caught
+      // every letter and no timber, each board was REPLACED rather than tinted so a cyan plank
+      // did not come back as dark cyan, and the grain term was kneed so the old colour scheme
+      // did not come through in greyscale. It worked, and every word of why is in the history.
+      // It is deleted rather than kept because this sign is ALREADY walnut with gilt letters —
+      // painted that way, with grain, plank edges, carved outlines and a normal map that the
+      // shader could only ever flatten. Running it would take an artist's timber, throw the hue
+      // away, and rebuild a worse version of the same thing off a luminance ramp.
+      // What it was FOR is still true: this sign and the one hanging in the tree have to read
+      // as one prop. They do on their own — the model's timber is the same walnut and its
+      // lettering the same gold — so that agreement is now a fact about the asset instead of
+      // something enforced every frame in a fragment shader.
       // ---- AND IT TAKES THE DEPTH BUFFER LIKE EVERYTHING ELSE ON THE BEACH ----
       // This ran with depthTest and depthWrite off and renderOrder 4, drawn over the whole
       // scene. That was the right answer to the wrong problem: the post was hung off the LENS
@@ -18537,6 +18501,7 @@ function aimSignpost(){
 // button sitting on nothing is worse than a button that is not there, and at this distance a
 // wide lens will put an arm behind the camera long before the post leaves the shot.
 function layoutSignButtons(){
+  for(const id of SP_GONE){ const e=document.getElementById(id); if(e)e.style.visibility='hidden'; }
   if(!signPost||!menuCam)return;
   const W=Math.max(1,innerWidth), H=Math.max(1,innerHeight);
   const h=signPost.userData.h;
