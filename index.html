@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.78.0';
+window.SURF_VERSION='6.79.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -10830,9 +10830,15 @@ document.getElementById('dBack').onclick=()=>{ buzz(6); shopCamGo=0;
 // go. If nothing on screen should have to be guessed at, the arrow is the answer and this is
 // not.
 addEventListener('pointerdown',(ev)=>{
-  if(!questCamGo||questCamE<0.55)return;
-  if(ev.target&&ev.target.closest&&ev.target.closest('#homeBar,#quests,#settings,.hbtn,.varr'))return;
-  buzz(6); clearTimeout(_questWalk); questCamGo=0;
+  const q=questCamGo&&questCamE>=0.55, h=shopCamGo&&shopCamE>=0.55;
+  if(!q&&!h)return;
+  // the counter's three lit panels are the whole point of standing at the hut, and the top bar
+  // and any open panel belong to themselves
+  if(ev.target&&ev.target.closest&&
+     ev.target.closest('#homeBar,#quests,#settings,#shop,#viewer,.hbtn,.varr,.slotb'))return;
+  buzz(6);
+  if(q){ clearTimeout(_questWalk); questCamGo=0; }
+  if(h){ clearTimeout(_shopWalk); shopCamGo=0; }
 },{passive:true});
 document.getElementById('dPlay').onclick    =()=>{ buzz(12); startBtn.click(); };
 const questsPanel=document.getElementById('quests'), setPanel=document.getElementById('settings');
@@ -18036,6 +18042,25 @@ function placeTikiTrees(){
 // beach in the set's own axes, upright, turned to face the lens, sized in feet by measurement
 // and seated on the ground that is actually drawn.
 function aimTiki(){
+  if(!tikiHut)return;
+  // The workshop's drag wins over the pin, or the pin could never be changed: stageHeld is set
+  // while a piece is being moved by hand, and writing the stored numbers back every frame would
+  // pull it out from under the finger doing the moving. Checked BEFORE the pin, not after --
+  // this is exactly the guard MB_PIN carries on the title screen for the same reason.
+  if(tikiHut.userData.stageHeld){ tikiHut.updateMatrixWorld(true); return; }
+  // pinned: the placement below is skipped entirely, but the trees still want aiming and the
+  // matrix still has to be current for the hit areas that project against it
+  if(MB_TIKI_PIN){
+    tikiHut.position.set(MB_TIKI_PIN.p[0],MB_TIKI_PIN.p[1],MB_TIKI_PIN.p[2]);
+    tikiHut.rotation.set(MB_TIKI_PIN.r[0]*Math.PI/180,MB_TIKI_PIN.r[1]*Math.PI/180,
+                         MB_TIKI_PIN.r[2]*Math.PI/180);
+    tikiHut.scale.setScalar(MB_TIKI_PIN.s);
+    tikiHut.updateMatrixWorld(true);
+    mbAxes();
+    if(!tikiTrees)placeTikiTrees();
+    aimTikiTrees();
+    return;
+  }
   if(!tikiHut||typeof menuCam==='undefined'||!menuCam)return;
   if(tikiHut.userData.stageHeld){ tikiHut.updateMatrixWorld(true); return; }
   if(typeof menuProps==='undefined'||!menuProps||typeof mbAxes!=='function')return;
@@ -18461,11 +18486,11 @@ function questShadow(e){
 // model has arrived, so that is the only thing it may ask about.
 function layoutShopBack(e){
   const bk=document.getElementById('dBack');
-  // ...and it belongs to the SHOP only. It was shown for the quest board too and it sat across
-  // the palm trunk in front of a board that already fills the frame. The way back from the
-  // quest board is a tap on the scene -- see qbTapBack, and see the note there about why that
-  // pattern was removed from the shop and why it is defensible here.
-  if(bk)bk.style.visibility=(e>=0.55)?'':'hidden';
+  // ...and it is gone from both rooms now. It was asked to go from the quest board, then from
+  // the hut, and in both places for the same reason: the set fills the frame and a glowing
+  // chevron laid over it is a piece of screen furniture in front of a picture. A tap on the
+  // scene is the way out of either -- see the listener below dBack's handler.
+  if(bk)bk.style.visibility='hidden';
 }
 // ---- and the quest board's five sheets get their words ----
 // Placed from each panel's OWN four corners, projected -- the same method the shop's lit panels
@@ -18713,6 +18738,15 @@ let MB_TIKI_SIDE=14.928;    // feet to the camera's RIGHT of the trunk's axis �
 let MB_TIKI_FWD =10.876;    // ...and this far in front of it — up the beach, not in the sea
 let MB_TIKI_H   =8.20;    // and this tall, in feet, measured rather than scaled by a number
 let MB_TIKI_SINK=0.085;   // share of its own height dug into the sand
+// ---- AND THE HUT IS PINNED WHERE IT WAS PUT ----
+// Everything above still computes a placement, and none of it is used while this is set. The
+// hut was dragged into position in the workshop and these are its numbers, read off the same
+// readout: local -15.999, 4.983, -1.405, turned 124.8 degrees, scaled 4.304, which is the
+// 8.20ft it was already asked to be. Local rather than world because that is the space it
+// lives in -- menuProps carries a transform of its own and a world position would fight it.
+// Same pattern as MB_PIN on the title screen: placed by hand beats derived, and the derivation
+// stays underneath for the day the pin comes off.
+const MB_TIKI_PIN={p:[-15.999,4.983,-1.405], r:[0,124.8,0], s:4.304};
 // ---- and two palms stand behind it ----
 // The hut on bare dune had nothing to be in front of: an empty sky, an empty beach, and a
 // building floating in the middle of both. These are placed BEHIND it as seen from the shop's
@@ -18841,25 +18875,19 @@ let SHOP_KEEP={x:0.56, y:-0.555, z:-0.16, tall:2.45};
 // Restaged: -8.76, 6.79, -43.25 looking -79.4 by 16.1. The yaw comes out at -93.00 degrees now
 // rather than a clean -90 — three degrees past square, which is a real choice and not drift, so
 // it is written as the measured number rather than snapped back to the tidy one.
-// ---- AND THEN THE HUT WAS PUT IN THE MIDDLE OF IT ----
-// It was cropped on three sides: the roof ran off both edges, the base ran off the bottom, the
-// carved plank was cut by the frame, and the top forty-five per cent of the screen was empty
-// sky. Two things were wrong with the old numbers and only one of them was obvious.
-// right is a DOLLY, not a pan. Measured across 2.0 / 3.4 / 4.804 it moved the hut sideways by
-// 0.025 of the screen and moved its projected width by 1.3 screens — it drives the lens TOWARD
-// the building along its own right axis. So 4.804 was not aiming off-centre, it was standing
-// too close, and solving for a centred picture by pushing that number walked the camera ten
-// feet sideways and left a small distant hut. 2.0 is where the whole building fits.
-// The offset that actually read as "not in the middle" was VERTICAL, and it was inherited: the
-// menu camera looks up, because looking up is what sells the signpost and the palms, and the
-// shop move only trimmed that by 0.0145. Pitching down lifts the picture without moving the
-// lens, so the hut keeps its size and stays head-on — the one knob here that costs nothing.
-// Both slopes measured in the running scene rather than derived from an assumed field of view:
-// 0.500 of a screen per radian of pitch, 1.067 per radian of yaw. An assumed fov is what put
-// the two earlier solves in the wrong place. Solved for the hut's own axis at 0.500 across and
-// 0.490 down — a little above centre, because the origin sits at the counter rather than in the
-// middle of the mass — and the check came back 0.500 / 0.492.
-const SHOP_CAM={right:2.000, fwd:2.295, rise:2.500, pitch:-0.2685, yaw:-1.655968, secs:0.95};
+// ---- STAGED, NOT SOLVED ----
+// These were measured -- right is a dolly not a pan, the vertical offset was inherited from a
+// menu camera that looks up, both slopes read off the running scene -- and that solve is what
+// found the framing. It has now been set by hand in the workshop instead, which is the better
+// authority: -8.05, 6.98, -43.79 looking -81.3 by 15.6 degrees.
+// Converted into offsets rather than stored as a world pose, for the reason the whole block
+// exists: this is an offset FROM the staged shot and the aspect walk-in, so it arrives in the
+// same relation to the set on every screen shape. A world pose would be right on the phone it
+// was framed on and wrong on everything else.
+// The yaw lands at -1.656318 against the solved -1.655968, which is two hundredths of a degree
+// apart -- so the ninety-five degree turn was already right and what actually moved is the
+// height and the reach.
+const SHOP_CAM={right:2.8673, fwd:3.8831, rise:2.1400, pitch:-0.0733, yaw:-1.656318, secs:0.95};
 // ---- STAGED, NOT MIRRORED ----
 // These started as the shop's numbers with right and yaw negated, which put the lens somewhere
 // plausible and nowhere chosen. This pose was set by hand in the workshop and read off its own
