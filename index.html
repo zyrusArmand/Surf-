@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.44.0';
+window.SURF_VERSION='6.45.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -1416,6 +1416,13 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   .card .foot .pr { font-size:11px; font-weight:800; opacity:.92;
     font-variant-numeric:tabular-nums; display:flex; align-items:center; gap:3px; }
   .card .foot .pr.have { color:#ffdf2e; }
+  /* A lock is not a price and must not be mistaken for one at tile size, so it is the one
+     figure on this card that is not gold: cool and quieter, and it reads as a condition. */
+  .card .foot .pr.lock { color:#9fd8ea; opacity:.85; letter-spacing:.4px; }
+  /* board school's button when the family has not opened yet. Flat and unlit — the amber buy
+     button and the teal owned button both say "you may"; this one has to say the opposite. */
+  .card .act button.lock { background:rgba(10,42,58,.55); color:#9fd8ea; border:1px solid rgba(120,190,215,.30);
+    box-shadow:none; text-shadow:none; letter-spacing:.5px; }
   .card .foot .pr .pk { width:11px; height:11px; }
   /* The full-screen preview was only reachable by tapping the picture or the name, and
      nothing on the tile said so. This is the same thing with a handle on it — an eye in
@@ -9455,12 +9462,17 @@ function vShowBuy(kind,id){
   if(has){ b.innerHTML='<span>Ride it</span>';
     b.onclick=()=>{ buzz(10); if(board)equipBoard(id); else equipChar(id);
       saveGame(); vShowBuy(kind,id); vRedrawList(); }; return; }
+  // the level is asked BEFORE the purse, because it is the harder no: being short of shells
+  // is a thing this run can fix and a locked family is not
+  if(board&&boardLocked(id,has)){ b.className='go alt'; b.disabled=true;
+    b.innerHTML='<span>Level '+boardLvl(id)+'</span>'; return; }
   if(coins<item.price){ b.className='go alt'; b.disabled=true;
     b.innerHTML='<span>'+(item.price-coins).toLocaleString()+' more</span>'+
       '<i class="pk"></i>'; return; }
   b.innerHTML='<span>Buy '+item.price.toLocaleString()+'</span><i class="pk"></i>';
   b.onclick=()=>{
     if(coins<item.price)return;
+    if(board&&boardLocked(id,has))return;   // belt as well as braces; the button is disabled
     coins-=item.price; buzz(16);
     if(board){ owned[id]=1; noteBuy('board',id,item.price); equipBoard(id); }
     else { ownedChars[id]=1; noteBuy('rider',id,item.price); equipChar(id); }
@@ -9634,6 +9646,8 @@ function shopCard(item,have,on,buy,use,thumb,stats,kind){
     else {
       const btn=document.createElement('button');
       if(have){ btn.className='own'; btn.textContent='Ride it'; btn.onclick=use; }
+      else if(kind==='board'&&boardLocked(item.id,have)){
+        btn.disabled=true; btn.className='lock'; btn.textContent='Level '+boardLvl(item.id); }
       else {
         btn.innerHTML=item.price.toLocaleString()+'<i class="pk"></i>';
         if(coins<item.price){ btn.disabled=true;
@@ -9656,6 +9670,11 @@ function shopCard(item,have,on,buy,use,thumb,stats,kind){
   const pr=document.createElement('div'); pr.className='pr';
   if(on){ pr.className='pr have'; pr.textContent='RIDING'; }
   else if(have){ pr.className='pr have'; pr.textContent='OWNED'; }
+  // A locked tile shows what it is waiting for INSTEAD of the price, not as well as it: the
+  // price is not the answer to "why can I not have this" and showing both invites the reading
+  // that you are short of shells when you are not.
+  else if(kind==='board'&&boardLocked(item.id,have)){
+    pr.className='pr lock'; pr.textContent='Lv '+boardLvl(item.id); }
   else pr.innerHTML=item.price.toLocaleString()+'<i class="pk"></i>';
   foot.appendChild(pr);
   card.appendChild(foot);
@@ -9759,7 +9778,8 @@ function drawShop(){
   } else {
     for(const b of RACK_ORDER){
       const card=shopCard(b,!!owned[b.id],equipped===b.id,
-        ()=>{ if(coins<b.price)return; coins-=b.price; owned[b.id]=1; noteBuy('board',b.id,b.price);
+        ()=>{ if(coins<b.price||boardLocked(b.id,!!owned[b.id]))return;
+          coins-=b.price; owned[b.id]=1; noteBuy('board',b.id,b.price);
           equipBoard(b.id); saveGame(); showCoins(); drawShop(); },
         ()=>{ equipBoard(b.id); saveGame(); drawShop(); },
         prevCache['b:'+b.id], false, 'board');
@@ -9873,6 +9893,54 @@ const B_TYPES=[
   bad:'A handful to get out through the surf, and it hurts whatever it hits.',
   ids:['driftwood','noserider','quilt','bubblegum']},
 ];
+
+
+// ---------- the family ladders ----------
+// Levels gate boards by their position in their OWN family, not by price across the whole
+// rack. Ranked globally, a beginner saving up would be handed the shop in price order and
+// every family would be a stretch of the same one ladder; ranked inside a family, whichever
+// shape you like has a next rung, and "starts not that good and gets better" is true of each
+// kind rather than only of the shop as a whole.
+// The rank comes from PRICE within the family, because price is already the ladder each of
+// these families was priced along — a second opinion about which fish is better than which
+// would only be a chance to disagree with the numbers already on the cards.
+// Bands rather than one span for everybody. A four board family and a thirteen board family
+// spread over the same L1..L20 would put the fourth rung of one against the thirteenth of the
+// other; giving each family a first and last rung says where the WHOLE family sits. fun opens
+// at 1 because the free board you start on lives in it, and foil and the ski are late because
+// they are the two fastest things in the game and being handed either early is the end of the
+// difficulty curve rather than a step up it.
+const FAM_BAND={
+  fun:  [1,18],   // astro is in here, and it has to be reachable at level one
+  skim: [1,14],
+  fish: [2,18],
+  long: [2,18],
+  short:[3,20],
+  wake: [3,20],
+  gun:  [5,22],
+  foil: [12,28],  // one board today; the band is what the rest of the family will fill
+};
+const SKI_LVL=18;  // outside B_TYPES on purpose — see the note above it
+const BOARD_LVL=(()=>{
+  const m={};
+  for(const t of B_TYPES){
+    const band=FAM_BAND[t.key]||[1,20];
+    const ids=(t.ids||[]).slice().sort((a,b)=>
+      (((BOARD_BY_ID[a]||{}).price)||0)-(((BOARD_BY_ID[b]||{}).price)||0));
+    const n=ids.length;
+    ids.forEach((id,k)=>{
+      m[id]= n<2 ? band[0] : Math.round(band[0]+(band[1]-band[0])*k/(n-1));
+    });
+  }
+  m.skijet=SKI_LVL;
+  return m;
+})();
+function boardLvl(id){ return BOARD_LVL[id]||1; }
+// ---- and nothing you already own is ever taken away ----
+// The gate asks about buying, not about riding. A save from before levels existed may hold a
+// board whose family now says level twenty, and re-locking it would be removing something
+// somebody already paid for on the strength of a rule that did not exist when they did.
+function boardLocked(id,have){ return !have && level<boardLvl(id); }
 // svg units: a foot, the sand line every board stands on, and the height of the box
 const G_FT=26, G_IN=26/12, G_BASE=270, G_TOP=300;
 // The rack is drawn from SPEC SHEETS, not from the game's boards and not by hand. Each type
@@ -25867,6 +25935,24 @@ if(location.hash.includes('debug')){
       xp=0; level=1; loadSave();
       return {up, before, onDisk:raw.xp, after:{xp, level}, ok:(raw.xp===before.xp&&level===before.level)};
     },
+    // every family's ladder, in order, so the pacing can be read rather than trusted. The
+    // things that would strand somebody are all visible here: a free board that is not level
+    // one, a family whose first rung is out of reach, a level above the cap.
+    ladders(){
+      const out={};
+      for(const t of B_TYPES){
+        out[t.key]=(t.ids||[]).slice()
+          .sort((a,b)=>(((BOARD_BY_ID[a]||{}).price)||0)-(((BOARD_BY_ID[b]||{}).price)||0))
+          .map(id=>({id, lv:boardLvl(id), price:(BOARD_BY_ID[id]||{}).price}));
+      }
+      out.__ski=[{id:'skijet', lv:boardLvl('skijet'), price:(BOARD_BY_ID.skijet||{}).price}];
+      out.__cap=XP_CAP;
+      out.__start={board:equipped, lv:boardLvl(equipped), locked:boardLocked(equipped,!!owned[equipped])};
+      return out;
+    },
+    // openShopOn lives in the game's closure, so an evaluate() cannot reach it — the same
+    // trap wantTiki was behind. The panel is the only place the locks are visible.
+    openShop(tab){ openShopOn(tab||'boards'); return shopTab; },
     stageList(){ return stageTargets().map(t=>t.n); },
     // how far each thing on the beach is from the lens. Composition on this screen is mostly a
     // question of what is in front of what, and that is not answerable by eye from a render:
