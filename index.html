@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.105.0';
+window.SURF_VERSION='6.106.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -20409,6 +20409,22 @@ function beginRun(){
   // argument rather than the variable and must not be skipped by its own guard.
   shopCamGo=0; questCamGo=0; shopCamE=0; questCamE=0; qbFocus=-1; qbZoomE=0;
   if(typeof shopKeeper==='function')shopKeeper(0);
+  // ---- AND HE STANDS BACK UP, if he was in the middle of charging the lens ----
+  // The keeper runs at the camera, throws a punch and runs back. The lean that folds him over is
+  // written straight onto the SPINE after the mixer has had its say, so it is only ever undone by
+  // something writing over it -- and a clip that does not animate a bone does not write to it.
+  // The charge ends by standing him up explicitly for exactly that reason; the trouble is that
+  // ending it is the only thing that does, and a run beginning mid-charge is not an ending. The
+  // menu loop simply stops, with the fold still on the skeleton and this.charge still set.
+  // Measured on the way in: with a run started mid-charge the rig reached the ride still reading
+  // charge true, phase "in". So a run stands him up the same way finishing the charge does.
+  { const _R=(typeof riderRig==='function')?riderRig():null;
+    if(_R&&_R.charge){
+      _R.charge=null; _R.step=-1; _R.stepT=0; _R._bent=null;
+      if(typeof pug!=='undefined'&&pug){
+        pug.rotation.x=0; pug.rotation.z=0; pug.rotation.order='XYZ'; }
+      if(_R.reset)_R.reset();
+    } }
   player.visible=true; rig.visible=true; hud.style.display='';
   overlay.classList.add('hidden');jumpBtn.classList.remove('hidden');
   if(cocoBarEl)cocoBarEl.classList.remove('hidden');cocoReset();
