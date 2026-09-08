@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.111.0';
+window.SURF_VERSION='6.112.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -4737,6 +4737,48 @@ const LM_STALL=20000;
 // during module evaluation, so a timeout armed by the first of them fires once the last of
 // them has been queued — at which point the ranking is over a complete set and means what it
 // says. Anything enqueued later, from a menu or a run, finds the gate already open.
+// ---- AND NO MAP ARRIVES BIGGER THAN A PHONE CAN USE ----
+// Measured with mem(): the game held 839 MB of geometry and textures, 574 of it textures, and
+// the crash people were reporting was that ceiling rather than any leak -- eight round trips
+// between the rooms moved not one byte. Fourteen maps were over 1024 and they were most of it:
+// two 4096-square textures are 134 MB between them, and the roster keeps every character loaded
+// for the whole session whether it is worn or not.
+// Capping them takes the total to 552 MB. Compared side by side on one frozen frame the pug is
+// indistinguishable and everything else all but; the palm's fronds soften, which is the price and
+// it was accepted knowingly.
+// HALVED A STEP AT A TIME rather than in one jump. A single drawImage from 4096 to 1024 asks the
+// browser to keep one pixel in sixteen, and successive halving averages instead -- on a photoscan
+// crown, which is the asset here with the most fine detail to lose, that is the difference between
+// soft and stippled.
+const TEX_MAX=1024;
+function capTextures(root){
+  if(!root||!root.traverse||typeof document==='undefined')return 0;
+  const seen=new Set(); let n=0;
+  root.traverse(o=>{
+    const ms=Array.isArray(o.material)?o.material:(o.material?[o.material]:[]);
+    for(const m of ms)for(const k in m){
+      const t=m[k];
+      if(!t||!t.isTexture||seen.has(t.uuid))continue;
+      seen.add(t.uuid);
+      const im=t.image;
+      let w=im&&(im.width||im.videoWidth)||0, h=im&&(im.height||im.videoHeight)||0;
+      if(!w||!h||Math.max(w,h)<=TEX_MAX)continue;
+      let src=im, ok=true;
+      while(Math.max(w,h)>TEX_MAX){
+        const cw=Math.max(1,Math.round(w/2)), ch=Math.max(1,Math.round(h/2));
+        const c=document.createElement('canvas'); c.width=cw; c.height=ch;
+        try{ c.getContext('2d').drawImage(src,0,0,cw,ch); }
+        catch(e){ ok=false; break; }              // tainted or compressed: leave it exactly as it came
+        src=c; w=cw; h=ch;
+      }
+      if(!ok||src===im)continue;
+      t.image=src; t.needsUpdate=true; n++;
+      // and the decoded original is let go rather than left pinned behind the smaller copy
+      if(im&&im.close)try{ im.close(); }catch(e){}
+    }
+  });
+  return n;
+}
 function _lmNext(){
   while(_lmRun<LM_MAX&&_lmQ.length){
     // pulled by priority rather than sorted in place, so a late high-priority request still
@@ -4766,6 +4808,9 @@ function _lmNext(){
       g=>{ const root=g.scene||g.scenes[0];
            // the whole gltf goes through, not just the scene: a rigged export carries its
            // clips alongside the meshes and they are the entire point of it
+           // Before the callback, so nothing downstream ever sees the full-size map -- several of
+           // these hand their textures straight on to a material they build themselves.
+           try{ capTextures(root); }catch(e){ console.warn('model '+j.f+' texture cap failed',e); }
            try{ mendMirror(root); j.cb(root,g); }catch(e){ console.warn('model '+j.f+' failed to fit',e); }
            done(); },
       e=>{ const L=_lmLive.get(j.f); if(L){ L.seen=(e&&e.loaded)||0; L.t=Date.now(); }
