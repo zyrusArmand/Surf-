@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.119.0';
+window.SURF_VERSION='6.120.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -17790,9 +17790,27 @@ let shake=0,boost=0,carrySpin=0,carryFlip=0,wobRoll=0,wobYaw=0,dayT=0;
 // something rather than the moment the animation runs out.
 // 17.2 of pop is 1.72s of air, and three turns at 2.15 a second takes 1.40s of it — so
 // three is comfortably on and a fourth is not, without throwing him halfway to the clouds.
-const HELI_RATE=Math.PI*2*2.15, HELI_POP=17.2;
-const HELI_CROUCH=0.34, HELI_PULL=0.34, HELI_HOP=0.26, HELI_DIVE=0.62, HELI_SURF=0.26;
-const HELI_PHASE=[HELI_CROUCH,HELI_PULL,HELI_HOP,HELI_DIVE,HELI_SURF];
+const HELI_RATE=Math.PI*2*2.15;
+// Up from 17.2. The rotation no longer starts the instant he leaves the water — he comes out
+// at forty-five degrees and levels off first — and that beat has to be paid for out of the
+// air or the third turn stops fitting. 18.6 is 1.86s up, which leaves 1.52s of spinning
+// after the settle: three turns take 1.40s of it, so three is still comfortably on. It also
+// buys eight inches more height, which is the whole of what this costs.
+const HELI_POP=18.6;
+// ---- the beats, and they are a sequence rather than a switch ----
+// He drops onto the deck, lays himself out flat along it, hops, goes in NOSE FIRST, stays
+// under for two seconds, and comes back out leaning back at forty-five degrees.
+// The dive used to slide under at a shallow angle tail-first, on purpose; it goes in nose
+// down now, which is what a board does when you drive the front of it under.
+// DIVE + DEEP + SURF is exactly 2.00, which is the two seconds under the water.
+const HELI_CROUCH=0.42, HELI_LAY=0.50, HELI_HOP=0.28,
+      HELI_DIVE=0.52, HELI_DEEP=0.96, HELI_SURF=0.52;
+const HELI_PHASE=[HELI_CROUCH,HELI_LAY,HELI_HOP,HELI_DIVE,HELI_DEEP,HELI_SURF];
+const HELI_PH={CROUCH:0,LAY:1,HOP:2,DIVE:3,DEEP:4,SURF:5};
+const HELI_UNDER=HELI_PH.DIVE;          // from this beat on he is in the water, not on it
+const HELI_OUT=-0.785;                  // the forty-five degrees he breaks the surface at
+const HELI_SETTLE=0.34;                 // ...and how long he takes to level off before spinning
+let heliSet=0, heliLay=0;
 // heliAir means the launch has happened and he is still up there. It is NOT a latch on
 // the rotation — the rotation is simply heliAir AND held, so letting go stops the roll and
 // taking hold again starts it turning from wherever it stopped. You can work the button as
@@ -18093,32 +18111,65 @@ function heliStep(dt2,waterY){
   heliT+=dt2;
   const dur=HELI_PHASE[heliPh], k=Math.min(1,heliT/dur);
   const smooth=k*k*(3-2*k);
-  if(heliPh===0){                                   // crouch
-    rigCrouch=Math.max(rigCrouch,0.30+smooth*0.55);
+  if(heliPh===HELI_PH.CROUCH){
+    // ---- HE GETS DOWN FIRST ----
+    // The lie-down used to be a blind exponential ease started at the second beat, so the
+    // opening of the trick was a rider who went flat in a third of a second with nothing to
+    // watch. It is a TIMED animation now: this beat is him dropping onto the deck, and the
+    // next is him laying himself out along it. heliLay is the whole pose in one number and
+    // it is driven straight off the beat's own progress, so the thing on screen and the
+    // thing in the clock are the same thing.
+    rigCrouch=Math.max(rigCrouch,0.30+smooth*0.62);
+    heliLay=smooth*0.34;
     py=waterY;
-  } else if(heliPh===1){                            // pull himself onto the nose
+  } else if(heliPh===HELI_PH.LAY){                  // flat along the deck, hands to the nose
+    rigCrouch=Math.max(rigCrouch,0.92);
+    heliLay=0.34+smooth*0.66;
     py=waterY;
-  } else if(heliPh===2){                            // a small hop off the deck
-    py=waterY+Math.sin(k*Math.PI)*0.62;
-    heliIncline=-smooth*0.18;
-  } else if(heliPh===3){                            // sinks under, board and all
-    // A shallower angle but far deeper: he does not spear in nose-first, he slides under
-    // and keeps going until the whole thing is below the surface.
-    py=waterY-smooth*2.30;
-    heliIncline=-0.18-smooth*0.30;
+  } else if(heliPh===HELI_PH.HOP){                  // a small hop, and the nose comes down
+    heliLay=1;
+    py=waterY+Math.sin(k*Math.PI)*0.66;
+    heliIncline=smooth*0.24;
+  } else if(heliPh===HELI_PH.DIVE){                 // NOSE FIRST, and only slightly angled
+    heliLay=1;
+    py=waterY-smooth*2.45;
+    heliIncline=0.24+smooth*0.21;
     if(heliT-dt2<=0)splash(px,waterY,0,26);
-    if(Math.random()<dt2*16)splash(px+(Math.random()-0.5)*0.8,waterY,0.2,1);
-  } else if(heliPh===4){                            // and is fired back out of it
+    if(smooth>0.35)pushTrail(px,waterY,0.2,1.2+smooth*0.8);
+    if(Math.random()<dt2*30)splash(px+(Math.random()-0.5)*0.9,waterY,0.2,1);
+  } else if(heliPh===HELI_PH.DEEP){                 // ...and stays down there
+    heliLay=1;
+    // ---- AND THE SURFACE HAS TO SHOW WHERE HE IS ----
+    // Two seconds under is what was asked for and two seconds under is what this does, but
+    // the sea is opaque from a camera above it: rendered, the middle of this trick was an
+    // empty stretch of water with the rider simply gone, which is a long time to be looking
+    // at nothing in a game this fast. He is not brought shallower to fix it -- that would
+    // give back the depth the trick is about -- the WATER is made to report him instead. A
+    // wake mark every frame and a hard boil of bubbles track him the whole way along, so
+    // the beat reads as something big moving just under the surface.
+    // He also climbs back toward it across the beat rather than sitting at the bottom, so
+    // the eruption starts from somewhere near it instead of from nowhere.
+    const climb=Math.sin(Math.PI*(0.5+k*0.5));      // 1 at the bottom, 0 at the top
+    py=waterY-1.25-climb*1.20;
+    // levelling out under the water, which is the turn that sets up the way he comes out
+    heliIncline=0.45-smooth*0.35;
+    pushTrail(px,waterY,0.2,1.5+0.9*(1-climb));
+    if(Math.random()<dt2*46)splash(px+(Math.random()-0.5)*1.5,waterY,0.2+Math.random()*0.9,1);
+  } else if(heliPh===HELI_PH.SURF){                 // fired back out, leaning back at 45
+    heliLay=1;
     const shot=k*k;                                 // slow to leave, then all at once
-    py=waterY-2.30+shot*2.65;
-    heliIncline=-0.48+shot*0.48;
-    if(k>0.35&&Math.random()<dt2*40)splash(px+(Math.random()-0.5)*1.2,waterY,0.3,2);
+    py=waterY-1.25+shot*1.75;
+    heliIncline=0.10+(HELI_OUT-0.10)*shot;
+    pushTrail(px,waterY,0.2,2.4);
+    if(Math.random()<dt2*(18+k*44))splash(px+(Math.random()-0.5)*1.2,waterY,0.3,2);
   }
   if(k>=1){
     heliPh++; heliT=0;
     if(heliPh>=HELI_PHASE.length){                  // hand over to the launch
       heliPh=-1; heliAir=true;
       vy=HELI_POP*BS.air; airborne=true;
+      // out of the water already leaning back, and the rotation waits for him to level
+      heliIncline=HELI_OUT; heliSet=HELI_SETTLE;
       splash(px,waterY,0,34);
       shake=Math.max(shake,0.7);
     }
@@ -20455,7 +20506,7 @@ function settleTricks(landed,keepPose){
     const ri=names.findIndex(n=>n.endsWith('\u00b0 ROLL'));
     if(ri>=0)names[ri]=names[ri].replace('ROLL','HELICOPTER');
   }
-  heliUsed=false; heliAir=false; heliPh=-1; heliHeld=false;
+  heliUsed=false; heliAir=false; heliPh=-1; heliHeld=false; heliSet=0; heliLay=0;
   if(landed&&pts>0){
     if(names.length>1)pts=Math.round(pts*1.5);          // combo bonus
     // How square he came down. Releasing on the beat is the whole skill now, so it is
@@ -20526,7 +20577,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   player.rotation.set(0,0,0);
   for(const o of obstacles)scene.remove(o);obstacles.length=0;
   dist=0;speed=13.5;score=0;px=0;py=0;pz=0;vy=0;vx=0;sprayCd=0;airborne=false;trick=null;
-  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=4.9;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;clearCracks();heliPh=-1;heliT=0;heliPose=0;heliUsed=false;heliAir=false;heliHeld=false;heliIncline=0;
+  boardYaw=0;boardLean=0;boardPitch=0;camX=0;camY=4.9;camZ=11.0;lookX=0;sprayAcc=0;leanW=0;pearlT=0;releaseKick=0;boost=0;clearCracks();heliPh=-1;heliT=0;heliPose=0;heliUsed=false;heliAir=false;heliHeld=false;heliIncline=0;heliSet=0;heliLay=0;
   trail.length=0;trailT=0;
   skiOn=false;skiWake=null;skiT=16;jetSki.visible=false;skiGlint.visible=false;wkA=0;
   splatT=0;splatCd=0;if(zapEl)zapEl.classList.remove('on');
@@ -20584,7 +20635,7 @@ function respawn(){
   px=0;py=0;pz=0;vy=0;vx=0;airborne=false;trick=null;spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;
   spinHeld=false;flipHeld=false;pitchHeld=false;grabOn=false;grabPts=0;spinQ=0;flipQ=0;spinSign=1;flipSign=1;
   pitchRot=0;pitchQ=0;pitchSign=1;
-  boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;sprayCd=0;clearCracks();heliPh=-1;heliT=0;heliPose=0;heliUsed=false;heliAir=false;heliHeld=false;heliIncline=0;
+  boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;sprayCd=0;clearCracks();heliPh=-1;heliT=0;heliPose=0;heliUsed=false;heliAir=false;heliHeld=false;heliIncline=0;heliSet=0;heliLay=0;
   spawnT=1.8;
   overlayUp=false;running=true;last=performance.now();
   player.visible=true; rig.visible=true; hud.style.display='';
@@ -26946,6 +26997,19 @@ if(location.hash.includes('debug')){
       return out;
     },
     obsTemplate(k){ const t=OBST_TEMPLATES[k]; return t?{variant:t.userData.variant||null}:null; },
+    // ---- the helicopter, beat by beat ----
+    // Six timed beats and a settle, and every one of them is a thing you are supposed to be
+    // able to SEE: the lie-down, the hop, the nose going under, two seconds beneath it, the
+    // forty-five degrees he comes out at, and the roll starting only once he is level.
+    // `depth` is signed against the water rather than absolute, because the whole question
+    // in the middle of it is how far under he actually is.
+    heliGo(){ if(typeof startHeli!=='function')return null; startHeli('debug'); return this.heli(); },
+    heli(){ const wY=(typeof waveH==='function')?waveH(px,dist*WAVE_DRIFT,waveClock):0;
+      return {ph:heliPh, beat:heliPh>=0?Object.keys(HELI_PH)[heliPh]:(heliAir?'AIR':'off'),
+              t:+heliT.toFixed(3), lay:+heliLay.toFixed(3), pose:+heliPose.toFixed(3),
+              incline:+heliIncline.toFixed(3), deg:+(heliIncline*180/Math.PI).toFixed(1),
+              depth:+(py-wY).toFixed(2), air:!!heliAir, settle:+heliSet.toFixed(3),
+              turns:+(flipRot/(Math.PI*2)).toFixed(2), held:!!heliHeld}; },
     // ---- what the sharks' jaws are actually doing ----
     // The angle alone would not prove anything: it is a number this code wrote, and the whole
     // question is whether the BONE follows it. So a point a foot off the hinge is pushed
@@ -31498,8 +31562,12 @@ function animateRig(dt,carve,grab,waterY){
   // spine/chest counter-rotate against the board like a real surfer
   // He turns to face down the board, goes flat over the deck and pulls himself up on the
   // nose — elbows bent, head up past the tip — and holds that while it spins under him.
+  // Scripted while the beats are running and eased only on the way out. An ease toward a
+  // moving target lags it, so the lie-down would always arrive after the beat that is
+  // supposed to be showing it; heliLay is already smoothed and already timed.
   const heliOnNow=heliAir||heliPh>=1;
-  heliPose=ease(heliPose,heliOnNow?1:0,dt,heliOnNow?12:6);
+  if(heliPh>=0)heliPose=heliLay;
+  else heliPose=ease(heliPose,heliOnNow?1:0,dt,heliOnNow?12:6);
   const gSide = grab ? grabSide : 0;
   const dragLean = dragging ? dragSide*0.42 : 0;
   spine.rotation.z=ease(spine.rotation.z,carve*0.16+gSide*0.58+dragLean,dt,8);   // stays stacked over the rail he is on
@@ -32522,12 +32590,18 @@ function update(dt){
       // would have been a flat spin, which is a different trick entirely. The wind-up is
       // scripted, but the rotation is yours: it turns for as long as you hold, and where
       // it is pointing when you let go is the attitude he lands in.
-      if(heliHeld)flipRot+=dt*HELI_RATE*BS.air;
+      // ---- ...BUT NOT UNTIL HE IS STRAIGHT ----
+      // He leaves the water leaning back at forty-five degrees, and starting the roll from
+      // there reads as a board tumbling out of a crash rather than a trick being started.
+      // The settle is a beat, not a lockout: holding through it still counts, the rotation
+      // simply begins when the board is level. HELI_POP was raised to pay for the time.
+      if(heliSet>0)heliSet=Math.max(0,heliSet-dt);
+      if(heliHeld&&heliSet<=0)flipRot+=dt*HELI_RATE*BS.air;
       // Dead level through the rolls. Tipping it forward looked right in principle and
       // wrong on screen: the camera sits behind him, so any pitch turns the roll into a
       // view of the board's underside swinging past instead of a clean turn. Level, it
       // reads as exactly what it is — the board going over and over.
-      heliIncline=ease(heliIncline,0,dt,6);
+      heliIncline=ease(heliIncline,0,dt,heliSet>0?9:6);
       // a corkscrew of spray thrown off the rail, turning with him
       for(let i=0;i<2;i++){
         const m=takeDrop(); if(!m)break;
@@ -33200,7 +33274,14 @@ function update(dt){
       }
     }
     if(contact){
-      if(o.userData.atk==='leap'||o.userData.atk==='miss'||o.userData.atk==='bite'){
+      if(heliPh>=HELI_UNDER){
+        // ---- UNDER THE WATER, and these things float ON it ----
+        // The helicopter owns py outright and drives him nearly three feet under for two
+        // seconds. The obstacle test is `py < waterY + its height`, which is emphatically
+        // true down there — so every buoy and log he passed beneath while submerged killed
+        // him, from below, with the whole animal above his head. It was survivable at the
+        // old eight tenths of a second only because there was less water to be under.
+      } else if(o.userData.atk==='leap'||o.userData.atk==='miss'||o.userData.atk==='bite'){
         // ---- A SHARK IN THE AIR IS NOT AN OBSTACLE IN THE WATER ----
         // `contact` is a footprint on the surface — x and z — and the height test below is
         // against the WATER's height plus the obstacle's own, which knows nothing about an
