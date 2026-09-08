@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.115.0';
+window.SURF_VERSION='6.116.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -11957,6 +11957,16 @@ function menuHealth(){
       const R=(typeof riderRig==='function')?riderRig():null;
       if(R&&R.charge)bits.push('CHARGING');
     }
+    // A crash still live on the TITLE screen is the whole of the drowning bug and it is invisible
+    // from outside: the pose is rewritten every frame, so restoring the bones looks like it did
+    // nothing. And the arms are where that pose lives -- the bone readout only ever covered the
+    // head and the spine, which is why three reproductions of it came back looking clean.
+    if(typeof wipe!=='undefined'&&wipe)bits.push('WIPE LIVE');
+    { const R=(typeof riderRig==='function')?riderRig():null;
+      const a=R&&R.bones&&(R.bones.LeftArm||R.bones.RightArm);
+      if(a){ const v=new THREE.Vector3(0,1,0).applyQuaternion(
+               a.getWorldQuaternion(new THREE.Quaternion()));
+        if(v.y<0.1)bits.push('arms up '+v.y.toFixed(2)); } }
     bits.push('q '+(questCamGo|0)+'/'+questCamE.toFixed(2)
              +' s '+(shopCamGo|0)+'/'+shopCamE.toFixed(2));
     if(typeof equipped!=='undefined')bits.push(equipped);
@@ -35549,7 +35559,23 @@ function renderMenuBeach(dt){
   // He is not allowed to stand here drowning. Cleared on the beach rather than on the way in,
   // because "the beach is up" is true of every route to it and no route can skip it.
   { const _R=(typeof riderRig==='function')?riderRig():null;
-    if(_R&&_R.wipePosed){ _R.wipePosed=false; if(_R.reset)_R.reset(); } }
+    // ---- AND THE CRASH IS OVER, not merely tidied up after ----
+    // Restoring his bones is only half of it. The wipeout runs from the main loop for as long as
+    // `wipe` is set -- `if(!running && wipe) updateWipeout(dt)` -- and it writes the drowning pose
+    // straight onto the skeleton every frame. So a wipe that survives onto the title screen beats
+    // any amount of restoring: the reset below runs, and the crash writes the arms straight back
+    // up on the very same frame, forever. That is exactly what "stuck in the drowning position"
+    // looks like, and it is why clearing the flag was never enough on its own.
+    // showMenu already ends the crash on the way through. This ends it at the beach, which is
+    // where every route actually arrives, and it cannot fire while the run card is up because the
+    // card is not the title screen -- a crash still playing under the card is the crash playing,
+    // and it is meant to.
+    if(overlay.classList.contains('main')&&!overlay.classList.contains('hidden')&&
+       typeof wipe!=='undefined'&&wipe){
+      wipe=null;
+      if(_R){ _R.wipePosed=false; if(_R.reset)_R.reset(); }
+    }
+    else if(_R&&_R.wipePosed){ _R.wipePosed=false; if(_R.reset)_R.reset(); } }
   // ---- AND HE IS ON THE BEACH AT ALL, which is not something to take on trust ----
   // Reported: the keeper vanishes from the title screen after a run and comes back on the next
   // press. I could not reproduce it -- a ride and back, on a board and on the ski, both come back
