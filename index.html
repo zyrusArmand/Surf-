@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.98.0';
+window.SURF_VERSION='6.99.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -10269,6 +10269,7 @@ var _qbRgh=null, _qbEnv=null, _qbSnd=0;
 // between two frames has not moved, it has jumped.
 var qbFocus=-1, qbZoomE=0;
 const _qbW=new THREE.Vector3(), _qbT=new THREE.Vector3(), _qbF=new THREE.Vector3();
+const _qbCamP=new THREE.Vector3(), _qbCamQ=new THREE.Quaternion();
 const QB_ZOOM_D=2.85, QB_ZOOM_SECS=0.42;
 // ---- only photograph what somebody is looking at ----
 // This walked the whole rack the moment the shop opened: forty-seven boards, each one a
@@ -18974,7 +18975,7 @@ let MB_QB_SINK=0.010;     // barely dug in: this has feet, the hut has posts
 // Same as the hut. Everything above still computes a placement and none of it is used while
 // this is set; the derivation stays underneath for the day the pin comes off. Local rather than
 // world because menuProps carries a transform of its own that a world position would fight.
-const MB_QB_PIN={p:[-4.560,4.432,-17.343], r:[0.1,-42.6,-1.0], s:2.331};
+const MB_QB_PIN={p:[-6.513,4.309,-16.887], r:[-0.9,-42.6,-1.0], s:2.331};
 // ---- AND TWO PALMS STAND BEHIND IT ----
 // The hut got these for exactly the reason this board needed them: standing on bare dune it had
 // nothing to be in front of -- an empty sky, an empty beach, and an object floating in the
@@ -19099,19 +19100,20 @@ let SHOP_KEEP={x:0.56, y:-0.555, z:-0.16, tall:2.45};
 // apart -- so the ninety-five degree turn was already right and what actually moved is the
 // height and the reach.
 const SHOP_CAM={right:2.8673, fwd:3.8831, rise:2.1400, pitch:-0.0733, yaw:-1.656318, secs:0.95};
-// ---- STAGED, NOT MIRRORED ----
-// These started as the shop's numbers with right and yaw negated, which put the lens somewhere
-// plausible and nowhere chosen. This pose was set by hand in the workshop and read off its own
-// camera readout: -13.50, 9.07, -43.02 looking 110.8 by 1.5 degrees. Converted here rather than
-// stored as a world pose, because the shop move is an OFFSET from whatever the staged shot and
-// the aspect walk-in have already decided -- so it arrives in the same relation to the set on
-// every screen shape, and this one has to work the same way or it breaks on anything but the
-// phone it was framed on.
-// The conversion: the delta from MB_CAM is projected onto the staged camera's own flattened
-// right and forward, the height difference is the rise, and the two angles are differences from
-// MB_CAM_YAW and MB_CAM_PITCH. Nine feet higher and nearly level, where the mirrored guess was
-// four feet up and tilted.
-const QB_CAM={right:-1.0973, fwd:-4.9056, rise:2.9700, pitch:-0.2129, yaw:1.696460, secs:0.95};
+// ---- THIS ONE IS A PLACE, NOT AN OFFSET ----
+// The shop's move is stored as a delta from whatever the staged shot and the aspect walk-in have
+// already decided, so it arrives in the same relation to the set on every screen shape. This one
+// used to be stored the same way and it was the wrong choice for it, because it made the quest
+// view a FUNCTION of three other things: restage the title shot, or change the dolly, or open it
+// on a differently shaped screen, and the board is framed differently. It is meant to be one
+// fixed shot of one fixed board, every time.
+// So it is an absolute pose now, read straight off the workshop camera readout, and the walk
+// eases the lens onto it rather than adding to what came before. At the end of the ease the
+// position and the aim ARE these numbers, whatever the lens was doing beforehand -- which is what
+// makes it unchanging. Vertical field of view does not depend on aspect, so a wider screen sees
+// more to the sides of the board and exactly as much of the board itself.
+// Set by hand in the workshop; the readout gave -11.66, 8.29, -35.66 looking 110.8 by 3.6.
+const QB_CAM={x:-11.66, y:8.29, z:-35.66, yaw:110.8, pitch:3.6, secs:0.95};
 // ---- THE WORDS ARE PAINTED ON THE MODEL NOW ----
 // Every one of them — the fill colour, the dark contour, the size, where it sits on its board,
 // which way it runs — was HTML text laid over the sign and solved every frame from the arms'
@@ -27175,7 +27177,13 @@ if(location.hash.includes('debug')){
               loaded:!!questBoard, asked:!!_qbAsked,
               visible:questBoard?questBoard.visible:null,
               slots:qbSlots?qbSlots.length:0,
-              at:questBoard?questBoard.getWorldPosition(new THREE.Vector3()).toArray().map(v=>+v.toFixed(2)):null};
+              at:questBoard?questBoard.getWorldPosition(new THREE.Vector3()).toArray().map(v=>+v.toFixed(2)):null,
+              // Where the lens actually ended up, in the same numbers the workshop readout prints,
+              // so "it is the staged shot" can be checked rather than believed -- and so the claim
+              // that it does not move with the screen shape can be tested at two aspects.
+              cam:menuCam?menuCam.position.toArray().map(v=>+v.toFixed(2)):null,
+              aim:menuCam?(()=>{const e=new THREE.Euler().setFromQuaternion(menuCam.quaternion,'YXZ');
+                    return [+(e.y*180/Math.PI).toFixed(1),+(e.x*180/Math.PI).toFixed(1)];})():null};
     },
     qbScreen(){
       if(!questBoard||!menuCam)return null;
@@ -27192,7 +27200,7 @@ if(location.hash.includes('debug')){
       return {ox:+(o.x*0.5+0.5).toFixed(3), oy:+(-o.y*0.5+0.5).toFixed(3),
               cx:+((x0+x1)/2).toFixed(3), cy:+((y0+y1)/2).toFixed(3),
               w:+(x1-x0).toFixed(3), h:+(y1-y0).toFixed(3),
-              camRight:QB_CAM.right, e:+questCamE.toFixed(3)};
+              camAt:[QB_CAM.x,QB_CAM.y,QB_CAM.z], e:+questCamE.toFixed(3)};
     },
     qbCam(k,v){ if(v!==undefined)QB_CAM[k]=v; return QB_CAM; },
     // Which sheet is being read and how far in. Needed as a hook for the same reason every
@@ -35430,20 +35438,19 @@ function renderMenuBeach(dt){
       _stEul.set(MB_CAM_PITCH+SHOP_CAM.pitch*e,MB_CAM_YAW+SHOP_CAM.yaw*e,0,'YXZ'));
   }
   // ---- and it walks the other way to the quest board ----
-  // The identical offset with QB_CAM's numbers. Written as a second block rather than folded
-  // into the first with a ternary because the two are never both moving except for the fraction
-  // of a second one is easing out while the other eases in -- and during that fraction, adding
-  // both is exactly right: the lens passes back through the title screen on its way across
-  // instead of cutting. A ternary would have picked one and jumped.
+  // Kept as a second block rather than folded into the shop's with a ternary because the two are
+  // never both moving except for the fraction of a second one is easing out while the other eases
+  // in -- and during that fraction running both is exactly right: the lens passes back through the
+  // title screen on its way across instead of cutting. A ternary would have picked one and jumped.
+  // Not an offset like the shop's: this eases the lens onto a FIXED pose, so however the title
+  // shot was framed on this screen -- staged pose, aspect walk-in, dolly, all of it -- the board
+  // is seen from the same place at the same angle every time. At e=1 the lerp lands exactly on
+  // QB_CAM and nothing that ran above this line survives into the shot.
   if(questCamE>0.0001){
     const e=questCamE*questCamE*(3-2*questCamE);
-    const f=new THREE.Vector3(0,0,-1).applyQuaternion(menuCam.quaternion); f.y=0;
-    if(f.lengthSq()<1e-8)f.set(0,0,-1); else f.normalize();
-    menuCam.position.addScaledVector(new THREE.Vector3(-f.z,0,f.x),QB_CAM.right*e)
-                    .addScaledVector(f,QB_CAM.fwd*e);
-    menuCam.position.y+=QB_CAM.rise*e;
-    menuCam.quaternion.setFromEuler(
-      _stEul.set(MB_CAM_PITCH+QB_CAM.pitch*e,MB_CAM_YAW+QB_CAM.yaw*e,0,'YXZ'));
+    menuCam.position.lerp(_qbCamP.set(QB_CAM.x,QB_CAM.y,QB_CAM.z),e);
+    menuCam.quaternion.slerp(_qbCamQ.setFromEuler(
+      _stEul.set(QB_CAM.pitch*Math.PI/180,QB_CAM.yaw*Math.PI/180,0,'YXZ')),e);
   }
   // ---- ...AND THEN IN, ONTO ONE NOTICE ----
   // Applied after the walk, because it is an offset from where the walk put the lens -- the
