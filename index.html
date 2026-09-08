@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.97.0';
+window.SURF_VERSION='6.98.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -624,6 +624,8 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
      drawn on top of a drawing of a card is just two cards. Sized in em off a font-size the layout
      sets per frame from the panel's projected height, so every line scales with the board. */
   .qbNote {
+    /* the transform is written per frame by layoutQuestNotes, which carries the sheet's turn as
+       well as the centring -- an inline transform beats this rule, so it is only the fallback */
     position:absolute; transform:translate(-50%,-50%);
     display:flex; flex-direction:column; align-items:center; justify-content:center;
       gap:.16em; text-align:center; pointer-events:auto; cursor:pointer;
@@ -18386,9 +18388,12 @@ function placeBoard(){
   qbSlots=[];
   for(const q of QB_SLOTS){
     const g=new THREE.Object3D();
-    g.position.set(((q[0]+q[1])*0.5-0.5)*_qs.x, (0.5-(q[2]+q[3])*0.5)*_qs.y, _qs.z*0.5+_qs.z*0.02);
-    g.userData.hw=(q[1]-q[0])*0.5*_qs.x;
-    g.userData.hh=(q[3]-q[2])*0.5*_qs.y;
+    g.position.set((q[0]-0.5)*_qs.x, (0.5-q[1])*_qs.y, _qs.z*0.5+_qs.z*0.02);
+    // the sheet's own tilt, about the board's normal, so the marker lies ON the drawn rectangle
+    // rather than square to a rectangle that is not
+    g.rotation.z=-q[4]*Math.PI/180;
+    g.userData.hw=q[2]*_qs.x;
+    g.userData.hh=q[3]*_qs.y;
     questBoard.add(g);
     qbSlots.push(g);
   }
@@ -18405,7 +18410,19 @@ function aimBoard(){
   // the board would appear in the workshop's pick list and still be immovable: aimBoard runs
   // every frame the lens is over there and would put it straight back, so every drag would end
   // where it started and look like the pick had failed rather than the write.
+  // Checked BEFORE the pin, or the pin could never be changed by dragging it.
   if(questBoard.userData.stageHeld){ questBoard.updateMatrixWorld(true); return; }
+  if(MB_QB_PIN){
+    questBoard.position.set(MB_QB_PIN.p[0],MB_QB_PIN.p[1],MB_QB_PIN.p[2]);
+    questBoard.rotation.set(MB_QB_PIN.r[0]*Math.PI/180,MB_QB_PIN.r[1]*Math.PI/180,
+                            MB_QB_PIN.r[2]*Math.PI/180);
+    questBoard.scale.setScalar(MB_QB_PIN.s);
+    questBoard.updateMatrixWorld(true);
+    mbAxes();
+    if(!qbTrees)placeBoardTrees();
+    aimBoardTrees();
+    return;
+  }
   const pscl=menuProps.scale.x||1;
   mbAxes();
   const wx=_mbP.x+_mbR.x*MB_QB_SIDE-_mbF.x*MB_QB_FWD;
@@ -18464,7 +18481,12 @@ function aimBoardTrees(){
     const t=c.userData.qb; if(!t)continue;
     const wx=_mbP.x+_mbR.x*t.side-_mbF.x*t.fwd;
     const wz=_mbP.z+_mbR.z*t.side-_mbF.z*t.fwd;
-    const gy=(typeof beachSandH==='function'?beachSandH(wz/MB_K):(beachSand0||0))*MB_K;
+    // ---- and they are DUG IN ----
+    // Stood exactly on the sand a trunk meets the ground as a hard line, which reads as a tree
+    // resting on the beach rather than growing out of it. A few inches under buries that line in
+    // the dune and the base gets the contact shadow it should have had.
+    const gy=(typeof beachSandH==='function'?beachSandH(wz/MB_K):(beachSand0||0))*MB_K
+             - MB_QB_TREE_SINK;
     const lp=_spP.set(wx,gy,wz); menuProps.worldToLocal(lp);
     c.position.copy(lp);
     c.quaternion.setFromAxisAngle(_qtY,t.turn);
@@ -18674,20 +18696,30 @@ function layoutQuestNotes(e){
     const g=live?qbSlots[i]:null;
     if(!g){ el.style.visibility='hidden'; continue; }
     const hw=g.userData.hw, hh=g.userData.hh;
-    let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9,any=false;
-    for(let k=0;k<4;k++){
-      _qnV.set(k&1?hw:-hw, k&2?hh:-hh, 0).applyMatrix4(g.matrixWorld).project(menuCam);
-      if(_qnV.z>1)continue; any=true;
-      const px=(_qnV.x*0.5+0.5)*W, py=(-_qnV.y*0.5+0.5)*H;
-      if(px<x0)x0=px; if(px>x1)x1=px; if(py<y0)y0=py; if(py>y1)y1=py;
-    }
-    if(!any||x1<=x0||y1<=y0){ el.style.visibility='hidden'; continue; }
-    const bw=x1-x0, bh=y1-y0;
+    // ---- THE NOTE IS TURNED WITH THE SHEET ----
+    // The four corners are projected as before, but the box they give is the AXIS-ALIGNED bound
+    // of a rectangle that is not axis-aligned -- so sizing to it makes the note wider and
+    // shorter than the panel and the words sit across the rule rather than inside it. The panel's
+    // own two edges are projected instead: their screen lengths are its width and height, and
+    // the angle of the top edge is the angle to turn the note by. The hit area turns with it,
+    // because the note IS the hit area.
+    let any=true;
+    const P=(sx,sy)=>{ _qnV.set(sx*hw,sy*hh,0).applyMatrix4(g.matrixWorld).project(menuCam);
+      if(_qnV.z>1)any=false;
+      return [(_qnV.x*0.5+0.5)*W, (-_qnV.y*0.5+0.5)*H]; };
+    const c=P(0,0), rx=P(1,0), ry=P(0,1);
+    if(!any){ el.style.visibility='hidden'; continue; }
+    const bw=Math.hypot(rx[0]-c[0],rx[1]-c[1])*2;
+    const bh=Math.hypot(ry[0]-c[0],ry[1]-c[1])*2;
+    const ang=Math.atan2(rx[1]-c[1],rx[0]-c[0])*180/Math.PI;
+    const x0=c[0]-bw/2, x1=c[0]+bw/2, y0=c[1]-bh/2, y1=c[1]+bh/2;
+    if(bw<2||bh<2){ el.style.visibility='hidden'; continue; }
     el.style.visibility='';
-    el.style.left=((x0+x1)/2).toFixed(1)+'px';
-    el.style.top=((y0+y1)/2).toFixed(1)+'px';
+    el.style.left=c[0].toFixed(1)+'px';
+    el.style.top=c[1].toFixed(1)+'px';
     el.style.width=(bw*0.90).toFixed(0)+'px';
     el.style.height=(bh*0.92).toFixed(0)+'px';
+    el.style.transform='translate(-50%,-50%) rotate('+ang.toFixed(2)+'deg)';
     // capped as well as floored: on a wide screen the board can be drawn large enough that a
     // proportional size would set the goal text bigger than the game's own headings
     const want=Math.max(9,Math.min(20,bh*0.245));
@@ -18938,6 +18970,11 @@ let MB_QB_SIDE=-8.756;    // feet along the set's side axis -- in this shot, mos
 let MB_QB_FWD =14.838;    // ...and along its forward -- in this shot, mostly ACROSS THE FRAME
 let MB_QB_H   =8.00;      // as tall as it was modelled, in feet
 let MB_QB_SINK=0.010;     // barely dug in: this has feet, the hut has posts
+// ---- AND IT IS PINNED WHERE IT WAS PUT ----
+// Same as the hut. Everything above still computes a placement and none of it is used while
+// this is set; the derivation stays underneath for the day the pin comes off. Local rather than
+// world because menuProps carries a transform of its own that a world position would fight.
+const MB_QB_PIN={p:[-4.560,4.432,-17.343], r:[0.1,-42.6,-1.0], s:2.331};
 // ---- AND TWO PALMS STAND BEHIND IT ----
 // The hut got these for exactly the reason this board needed them: standing on bare dune it had
 // nothing to be in front of -- an empty sky, an empty beach, and an object floating in the
@@ -18947,6 +18984,7 @@ let MB_QB_SINK=0.010;     // barely dug in: this has feet, the hut has posts
 // Written in the set's axes like everything else, and remember what those mean in this shot:
 // side is mostly DISTANCE and fwd is mostly ACROSS. So a tree further back and off to one side
 // is a more negative side and an fwd either way of the board's 14.14.
+let MB_QB_TREE_SINK=0.42;   // feet of trunk below the sand
 let MB_QB_TREES=[{side:-16.10, fwd: 9.90, scale:1.02, turn:0.9, lean: 0.00},
                  {side:-18.40, fwd:18.60, scale:1.22, turn:2.6, lean:-0.17}];
 // ---- THE FIVE RULED PANELS, AS FRACTIONS OF THE BOARD'S OWN BOX ----
@@ -18958,24 +18996,24 @@ let MB_QB_TREES=[{side:-16.10, fwd: 9.90, scale:1.02, turn:0.9, lean: 0.00},
 // They are the INNER ruled rectangles rather than the whole sheets, which is what you want: it
 // is the panel the words are meant to sit inside.
 // u runs left to right, v runs DOWN from the top, both 0..1 of the box the game measures.
-// u carries +0.041, measured off a render taken at the ZOOMED distance where a panel is four
-// times the size it is on the board. v carries nothing: it was given +0.021 from a board-scale
-// render and that was an over-read of a small offset in a small picture -- the correction moved
-// the markers from roughly right to as far below the rule as they had appeared above it. The
-// segmenter's own v values were correct, and the whole real error is sideways.
-// The middle-left sheet is the exception and carries -0.019 of its own, measured at zoom where
-// it sat about a fifth of a panel below its rule while the top-left one sat on it. So the
-// remaining error is PER SHEET rather than shared, which no single correction reaches.
-// Trying to measure all five at once by finding the ruled line in a flat render failed twice --
-// a fixed dark threshold found two pixels a sheet because the rule is mid-brown ink and not
-// black, and an adaptive one found the same because the render was blown out to a median of
-// 1.00. The three unchecked sheets are unverified at close range and stay as segmented.
+// ---- MEASURED, NOT NUDGED ----
+// Taken from the model itself: an orthographic render framed to the bounding box, the bright
+// panels segmented out of it, and each one's centre, half-extents and TILT read from its own
+// second moments -- for a rectangle the principal axis is its long side, so the angle is a
+// measurement rather than a look at a picture.
+// This also settles two corrections that were added earlier and were both wrong. u was shifted
+// +0.041 and v +0.021 on the strength of renders in which the panels were ninety pixels tall,
+// and the measured centres come back at the values the original segmentation gave. Reading a
+// two-per-cent offset off a small picture produced a two-per-cent error, twice, in both axes.
+// The tilts come out under half a degree, so the sheets are pinned straighter than they look --
+// the slant you see is the board's own turn and perspective, not the paper.
 const QB_SLOTS=[
-  [0.2333,0.4987,0.1989,0.3097],
-  [0.5987,0.8929,0.2263,0.3474],
-  [0.2295,0.5025,0.4176,0.5261],   // this one measured low at zoom: v -0.019
-  [0.5968,0.8910,0.5714,0.6869],
-  [0.2198,0.5141,0.6789,0.7840],
+  // cx, cy, half-width, half-height, tilt in degrees -- all fractions of the board's own box.
+  [0.3250,0.2543,0.1327,0.0554, 0.0],
+  [0.7033,0.2867,0.1467,0.0606, 0.0],
+  [0.3257,0.4903,0.1370,0.0550, 0.4],
+  [0.7018,0.6291,0.1477,0.0579, 0.5],
+  [0.3246,0.7306,0.1465,0.0523, 0.0],
 ];
 // ---- THE THREE LIT PANELS IN THE BACK WALL ----
 // The hut is modelled with three recessed squares behind the counter, which is a shop counter
@@ -19073,7 +19111,7 @@ const SHOP_CAM={right:2.8673, fwd:3.8831, rise:2.1400, pitch:-0.0733, yaw:-1.656
 // right and forward, the height difference is the rise, and the two angles are differences from
 // MB_CAM_YAW and MB_CAM_PITCH. Nine feet higher and nearly level, where the mirrored guess was
 // four feet up and tilted.
-const QB_CAM={right:-2.2488, fwd:1.8532, rise:4.2300, pitch:-0.3194, yaw:1.696460, secs:0.95};
+const QB_CAM={right:-1.0973, fwd:-4.9056, rise:2.9700, pitch:-0.2129, yaw:1.696460, secs:0.95};
 // ---- THE WORDS ARE PAINTED ON THE MODEL NOW ----
 // Every one of them — the fill colour, the dark contour, the size, where it sits on its board,
 // which way it runs — was HTML text laid over the sign and solved every frame from the arms'
