@@ -1,8 +1,21 @@
+# ============================================================================
+# A LOFTED HAWAIIAN SHIRT FOR THE PUG
+#
+# The previous one was carved out of a copy of his body, and that could never be
+# this: a garment needs topology a body has not got. A hem ring that spans both
+# legs, a collar that folds outward, a placket down the front, cuffs -- none of
+# those exist anywhere in his mesh to be selected out of it.
+#
+# So the shirt is BUILT. Rings are sampled from his cross-sections by casting
+# rays at his surface, which keeps the fit honest, and then joined into clean
+# quads. Everything a shirt has that a dog has not is added as its own piece.
+# Weights come from his nearest vertex, so it still bends when he bends.
+# ============================================================================
 import bpy, bmesh, math, os, random
 import numpy as np
-from mathutils import Vector, Euler, Matrix
+from mathutils import Vector, Euler, kdtree
+from mathutils.bvhtree import BVHTree
 
-random.seed(11)
 D=bpy.data; C=bpy.context
 OUT=os.environ.get('OUT','/home/user/Surf-/models/shirt_hawaii.glb')
 SHOT=os.environ.get('SHOT','/home/user/Surf-/shirt_preview.png')
@@ -12,175 +25,197 @@ bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath='/home/user/Surf-/models/pug.glb')
 pug=[o for o in C.scene.objects if o.type=='MESH'][0]
 arm=[o for o in C.scene.objects if o.type=='ARMATURE'][0]
-bones={b.name:(arm.matrix_world@b.head_local) for b in arm.data.bones}
+B={b.name:(arm.matrix_world@b.head_local) for b in arm.data.bones}
+M=pug.matrix_world
 
-# ---- WHERE A SHIRT ENDS ----
-# Measured off his own skeleton rather than picked: Hips sit at z 0.438 and Spine02 at 0.597, so
-# The first version stopped at 0.495, just above the hip joint, on a literal reading of "pants
-# have to fit". That is a waistcoat. A shirt is worn OVER the waistband -- the reference has the
-# hem below the belly at the top of the thighs -- so it goes to 0.352 and the trousers go under
-# it, which is how a shirt and trousers have always worked. That is the whole of the
-# "trousers have to fit under it" requirement -- anything lower and the waistband has nowhere to
-# go; anything higher is a crop top on a pug.
-HEM=0.560
-SLEEVE=0.78          # share of the upper arm the sleeve covers, shoulder to elbow
-LIFT=0.021           # how far it stands off the fur
-THICK=0.010          # cloth thickness
+# ---- his surface, to measure against, IN WORLD UNITS ----
+# BVHTree.FromObject builds the tree in the object's LOCAL space, and this pug carries a 0.01
+# scale in his world matrix -- so a tree built that way is a hundred times the size of the rays
+# fired at it. Every cast missed, every radius fell back to the 0.05 minimum, and the shirt came
+# out entirely inside the dog. Built from world-space polygons instead, so the rays and the
+# surface are in the same units.
+dg=C.evaluated_depsgraph_get()
+_ev=pug.evaluated_get(dg); _me=_ev.to_mesh()
+_wv=[pug.matrix_world@v.co for v in _me.vertices]
+_wp=[list(p.vertices) for p in _me.polygons]
+bvh=BVHTree.FromPolygons(_wv,_wp)
+_ev.to_mesh_clear()
 
-# ---- the shirt IS his torso, copied ----
-# Built from the pug's own mesh rather than modelled beside it. Two things fall out of that for
-# free and neither is easy the other way: it fits exactly, because it IS the shape it has to fit
-# over, and it carries his vertex groups, so it bends when he bends instead of hovering while he
-# moves inside it. A shirt modelled by hand would need weight painting to get there and would
-# still be a guess at his silhouette.
-bpy.ops.object.select_all(action='DESELECT')
-pug.select_set(True); C.view_layer.objects.active=pug
-bpy.ops.object.duplicate()
-sh=C.object; sh.name='shirt'
-sh.modifiers.clear()
+# and his vertices, to take weights from
+kd=kdtree.KDTree(len(pug.data.vertices))
+for i,v in enumerate(pug.data.vertices): kd.insert(M@v.co,i)
+kd.balance()
 
-gi={vg.name:vg.index for vg in sh.vertex_groups}
-def wsum(v,names):
-    t=0.0
-    for g in v.groups:
-        for n in names:
-            if gi.get(n)==g.group: t+=g.weight
-    return t
-# ---- WHAT IS SHIRT, BY WEIGHT AND BY HEIGHT ----
-# The first pass excluded anything weighted to Hips, on the reasoning that Hips is the pelvis.
-# It is not: on this rig Hips is the ROOT of the spine and it carries most of the belly, so that
-# test deleted the whole lower torso and left a collar round his neck. Height does the job Hips
-# was wrongly asked to do -- the hem is a stated z -- and weight is left to the three things a
-# height cannot separate: the head (which is above the shoulders AND in front of them), the legs
-# (which start below the hem but reach up past it), and the forearms.
-HEAD=['Head','head_end','headfront','neck']
-LEGS=['LeftUpLeg','RightUpLeg','LeftLeg','RightLeg','LeftFoot','RightFoot',
-      'LeftToeBase','RightToeBase']
-FORE=['LeftForeArm','RightForeArm','LeftHand','RightHand']
+AXIS_Y=-0.10                 # his body's centre line in plan; the spine bones sit near -0.11
+NSEG=32                      # segments round the shirt
+COLLAR_Z=1.030
+HEM_Z=0.320
+CLEAR=0.028                  # how far the cloth stands off the fur
 
-keep=set(); why={'low':0,'high':0,'head':0,'legs':0,'fore':0,'kept':0}
-# Counted per reason, because "the shirt came out as a collar" does not say WHICH test threw the
-# body away, and two rounds have now been spent guessing at that instead of asking.
-for v in sh.data.vertices:
-    w=(sh.matrix_world@v.co)
-    if w.z < HEM-0.10: why['low']+=1; continue
-    if w.z > 1.12: why['high']+=1; continue
-    if wsum(v,HEAD)>0.52: why['head']+=1; continue
-    if wsum(v,LEGS)>0.93: why['legs']+=1; continue
-    if wsum(v,FORE)>0.55: why['fore']+=1; continue
-    keep.add(v.index); why['kept']+=1
-print('vertex filter',why)
-zs=sorted((sh.matrix_world@sh.data.vertices[i].co).z for i in keep)
-print('kept z %.3f .. %.3f'%(zs[0],zs[-1]))
-# and the height histogram of what survived, which says where the hem actually is
-zs=sorted((sh.matrix_world@sh.data.vertices[i].co).z for i in keep)
-if zs: print('kept z %.3f .. %.3f  median %.3f'%(zs[0],zs[-1],zs[len(zs)//2]))
+def surface_r(z,th,lo=0.05):
+    """how far his surface is from the body axis at this height and bearing"""
+    o=Vector((0.0,AXIS_Y,z)); d=Vector((math.cos(th),math.sin(th),0.0))
+    hit=bvh.ray_cast(o+d*lo, d, 3.0)
+    if hit[0] is None:
+        hit=bvh.ray_cast(o+d*0.001, d, 3.0)
+    return (hit[0]-o).length if hit[0] is not None else lo
 
-bm=bmesh.new(); bm.from_mesh(sh.data); bm.verts.ensure_lookup_table()
-# ---- a face belongs if MOST of it does ----
-# Requiring every vertex of a face to pass left the lower belly empty even though its vertices
-# were kept: down there the weight tests alternate vertex to vertex, so no face had all of them
-# and none survived. The mesh ended at 0.567 against a hem asked for at 0.495, the bisect had
-# nothing to cut, and the hem followed the triangulation. A majority test fills the patchy
-# region and lets the plane do what it was there for.
-drop=[f for f in bm.faces
-      if sum(1 for v in f.verts if v.index in keep)*2 < len(f.verts)]
-bmesh.ops.delete(bm,geom=drop,context='FACES')
+# What the casts actually return, before anything is built on them. "The shirt came out inside
+# the dog" has several possible causes and the radii tell you which in one line.
+print('BVH polys',len(_wp))
+print('arm world scale',[round(v,4) for v in arm.matrix_world.to_scale()])
+for z in (1.00,0.86,0.66,0.50,0.38):
+    rs=[surface_r(z,i/8*math.tau) for i in range(8)]
+    print('  z %.2f  r  '%z+' '.join('%.3f'%r for r in rs))
+
+# ---- the body of the shirt ----
+# Ring heights are closer together at the top, where the shape changes fastest (shoulder into
+# chest), and open out toward the hem where it is just falling.
+HS=[1.030,1.000,0.965,0.925,0.880,0.830,0.775,0.715,0.655,0.600,0.545,0.490,0.435,0.380,0.320]
+rings=[]
+for z in HS:
+    t=max(0.0,(0.62-z)/(0.62-HEM_Z))          # 0 at the waist, 1 at the hem
+    row=[]
+    for i in range(NSEG):
+        th=i/NSEG*math.tau
+        # widest of a small arc, so a ring below the crotch spans BOTH legs instead of dipping
+        # into the gap between them -- that gap is why a copied surface could never make a hem
+        r=max(surface_r(z,th+dth) for dth in (-0.22,-0.11,0.0,0.11,0.22))
+        r=r+CLEAR+0.042*t*t                    # and it flares as it falls
+        row.append(Vector((math.cos(th)*r, AXIS_Y+math.sin(th)*r, z)))
+    rings.append(row)
+
+bm=bmesh.new()
+vgrid=[[bm.verts.new(p) for p in row] for row in rings]
 bm.verts.ensure_lookup_table()
-loose=[v for v in bm.verts if not v.link_faces]
-if loose: bmesh.ops.delete(bm,geom=loose,context='VERTS')
+for r in range(len(vgrid)-1):
+    for i in range(NSEG):
+        j=(i+1)%NSEG
+        bm.faces.new((vgrid[r][i],vgrid[r][j],vgrid[r+1][j],vgrid[r+1][i]))
 
-# ---- and the hem is a CUT, not a ragged edge ----
-# Dropping whole faces by vertex test leaves the boundary following the triangulation, which on
-# a 9000-poly body is a zigzag you can see. Bisecting gives a straight hem at a stated height.
-M=sh.matrix_world
-def bisect(co,no,clear_outer=True):
-    geom=bm.verts[:]+bm.edges[:]+bm.faces[:]
-    bmesh.ops.bisect_plane(bm,geom=geom,dist=1e-5,plane_co=co,plane_no=no,
-                           clear_outer=clear_outer,clear_inner=not clear_outer)
-    bm.verts.ensure_lookup_table(); bm.faces.ensure_lookup_table()
-Mi=M.inverted()
-bisect(Mi@Vector((0,0,HEM)), (Mi.to_3x3()@Vector((0,0,-1))).normalized(), True)
+# ---- the collar ----
+# Two rings above the neckline: one standing up and out, one folded back down over it. That fold
+# is the whole reason a collar reads as a collar rather than as a hoop of cloth.
+top=vgrid[0]
+def ring_from(src,dr,dz,scale=1.0):
+    out=[]
+    for i,v in enumerate(src):
+        p=v.co.copy()
+        rad=Vector((p.x,p.y-AXIS_Y,0.0))
+        n=rad.normalized() if rad.length>1e-6 else Vector((0,1,0))
+        out.append(bm.verts.new(Vector((p.x+n.x*dr, p.y+n.y*dr, p.z+dz))))
+    return out
+c1=ring_from(top, 0.012, 0.055)
+c2=ring_from(top, 0.075, 0.020)
+for a,b in ((top,c1),(c1,c2)):
+    for i in range(NSEG):
+        j=(i+1)%NSEG
+        bm.faces.new((a[i],a[j],b[j],b[i]))
 
-# short sleeves: cut square across each arm, so far along it from the shoulder
-for side in ('Left','Right'):
-    a=bones[side+'Arm']; e=bones[side+'ForeArm']
-    d=(e-a); L=d.length; d=d.normalized()
-    cut=a+d*(L*SLEEVE)
-    bisect(Mi@cut, (Mi.to_3x3()@d).normalized(), True)
+# ---- the placket, and its buttons ----
+# A raised band down the centre front. In the reference it is the strongest vertical in the whole
+# garment and it is most of what says "shirt" rather than "smock".
+FRONT=int(NSEG*0.75)                    # -Y is the front, which is index 3/4 of the way round
+def placket():
+    idx=[(FRONT-1)%NSEG,FRONT%NSEG,(FRONT+1)%NSEG]
+    left=[]; right=[]
+    for r in range(len(vgrid)):
+        row=vgrid[r]
+        a=row[idx[0]].co; b=row[idx[2]].co
+        na=Vector((a.x,a.y-AXIS_Y,0)).normalized()
+        nb=Vector((b.x,b.y-AXIS_Y,0)).normalized()
+        left.append(bm.verts.new(a+na*0.010))
+        right.append(bm.verts.new(b+nb*0.010))
+    for r in range(len(vgrid)-1):
+        bm.faces.new((left[r],right[r],right[r+1],left[r+1]))
+placket()
 
-# ---- AND THE HEM IS BUILT, NOT COPIED ----
-# This is the thing four rounds of threshold-tuning could not reach. Below the waist his body is
-# not one volume, it is two legs -- so a shirt COPIED from his surface down there wraps each
-# thigh separately and can never be a hem that hangs across both. The copy has to stop where he
-# is still one shape, and the rest of the shirt has to be made.
-# So the boundary loop at the waist is extruded downward in rings, each one wider and further
-# out than the last: a skirt that hangs over the legs instead of around them. The rings inherit
-# the vertex weights of the loop they came from, so the hem is driven by the spine and swings
-# with his body rather than with either leg -- which is also what real cloth does.
-bm.edges.ensure_lookup_table(); bm.verts.ensure_lookup_table()
-Mw=sh.matrix_world
-# Selected against the HEM PLANE, not against the mesh's lowest point. Keyed off zmin it found
-# only the edges nearest the single lowest vertex -- a local patch of the ring -- and the skirt
-# extruded down one side of him. The hem boundary is the one that was just cut flat; the neck
-# and the two sleeve openings are the other boundaries and they are all far above it, so a
-# height test separates them cleanly.
-loop=[e for e in bm.edges if e.is_boundary and
-      all((Mw@v.co).z < HEM+0.075 for v in e.verts)]
-print('hem loop edges',len(loop))
-RINGS=[(0.060,0.022),(0.062,0.030),(0.058,0.034),(0.046,0.030)]   # (drop, flare) per ring
-Minv=Mw.inverted().to_3x3()
-for drop,flare in RINGS:
-    if not loop: break
-    r=bmesh.ops.extrude_edge_only(bm,edges=loop)
-    nv=[g for g in r['geom'] if isinstance(g,bmesh.types.BMVert)]
-    ne=[g for g in r['geom'] if isinstance(g,bmesh.types.BMEdge)]
-    for v in nv:
-        w=Mw@v.co
-        rad=Vector((w.x,w.y,0.0))
-        out=Minv@(rad.normalized() if rad.length>1e-6 else Vector((0,1,0)))
-        v.co += Minv@Vector((0,0,-drop)) + out*flare
-    bm.verts.ensure_lookup_table(); bm.edges.ensure_lookup_table()
-    loop=[e for e in ne if e.is_boundary]
-bm.to_mesh(sh.data); bm.free()
-sh.data.update()
+# ---- sleeves ----
+# Built along the arm's own axis rather than sliced out of the torso, so they are round, they
+# taper, and they end in a cuff.
+def sleeve(side):
+    a=B[side+'Arm']; e=B[side+'ForeArm']
+    d=(e-a).normalized(); L=(e-a).length
+    up=Vector((0,0,1)); u=d.cross(up).normalized(); w=u.cross(d).normalized()
+    prev=None; first=None
+    for k,(t,scale) in enumerate([(0.02,1.00),(0.30,0.98),(0.58,0.98),(0.80,1.06),(0.86,1.02)]):
+        c=a+d*(L*t)
+        row=[]
+        for i in range(NSEG//2):
+            th=i/(NSEG//2)*math.tau
+            dirv=(u*math.cos(th)+w*math.sin(th))
+            hit=bvh.ray_cast(c+dirv*0.02, dirv, 1.0)
+            r=((hit[0]-c).length if hit[0] is not None else 0.11)
+            r=(r+CLEAR*0.85)*scale
+            row.append(bm.verts.new(c+dirv*r))
+        if prev:
+            n=len(row)
+            for i in range(n):
+                j=(i+1)%n
+                bm.faces.new((prev[i],prev[j],row[j],row[i]))
+        prev=row
+        if first is None: first=row
+sleeve('Left'); sleeve('Right')
 
-# ---- stood off the fur, then given thickness ----
-# Pushed along each vertex's own normal rather than scaled: scaling a torso from its centre moves
-# the shoulders further than the belly and the shirt ends up baggy at the top and tight at the
-# bottom. Along the normal, every part of it clears by the same amount.
-me=sh.data
-me.calc_normals_split() if hasattr(me,'calc_normals_split') else None
-nrm={}
-bm=bmesh.new(); bm.from_mesh(me); bm.verts.ensure_lookup_table()
-# ---- IT HANGS OFF HIM ----
-# A constant offset along the normal is a second skin: it follows every dip of his belly, which
-# is what made the first one read as body paint with a pattern on it. Cloth does not do that. It
-# clears more the further it is from where it is held up, so the lift grows toward the hem and
-# the hem also swings OUT from his axis -- that flare is most of what makes a shirt look like
-# fabric rather than like a decal.
-zt=[ (sh.matrix_world@v.co).z for v in bm.verts ]
-zlo,zhi=min(zt),max(zt)
-for v in bm.verts:
-    w=sh.matrix_world@v.co
-    t=1.0-(w.z-zlo)/max(1e-6,zhi-zlo)          # 0 at the collar, 1 at the hem
-    v.co += v.normal*(LIFT*(1.0+1.5*t*t))
-    rad=Vector((w.x,w.y,0.0))
-    if rad.length>1e-6:
-        out=(sh.matrix_world.inverted().to_3x3()@(rad.normalized()))
-        v.co += out*(0.026*t*t)
-bm.to_mesh(me); bm.free()
-sd=sh.modifiers.new('s','SOLIDIFY'); sd.thickness=THICK; sd.offset=1.0
+bm.normal_update()
+me=D.meshes.new('shirt'); bm.to_mesh(me); bm.free()
+sh=D.objects.new('shirt',me); C.collection.objects.link(sh)
+
+# thickness, and a bevel so the hem and cuffs are edges rather than paper
+sd=sh.modifiers.new('s','SOLIDIFY'); sd.thickness=0.011; sd.offset=0.0
 C.view_layer.objects.active=sh
 bpy.ops.object.modifier_apply(modifier=sd.name)
+bpy.ops.object.shade_smooth()
 
-# ---- its own UVs ----
-# The copy arrives wearing the pug's UVs, which map into his fur atlas -- correct for fur and
-# meaningless for a repeating print. Unwrapped fresh so the pattern lies on the cloth.
-bpy.ops.object.mode_set(mode='EDIT')
-bpy.ops.mesh.select_all(action='SELECT')
-bpy.ops.uv.smart_project(angle_limit=1.15, island_margin=0.02)
-bpy.ops.object.mode_set(mode='OBJECT')
+# ---- weights, taken from whoever he is nearest ----
+# The shirt is new geometry, so it has no weights of its own. Each vertex borrows the groups of
+# the closest vertex on him -- which is the right answer for cloth lying on a body, and it means
+# the sleeves follow the arms and the hem follows the spine without any of it being painted.
+for g in pug.vertex_groups: sh.vertex_groups.new(name=g.name)
+gname={g.index:g.name for g in pug.vertex_groups}
+for v in sh.data.vertices:
+    co=sh.matrix_world@v.co
+    _,idx,_=kd.find(co)
+    for g in pug.data.vertices[idx].groups:
+        sh.vertex_groups[gname[g.group]].add([v.index], g.weight, 'REPLACE')
+am=sh.modifiers.new('Armature','ARMATURE'); am.object=arm
+# ---- PARENTED WITHOUT INHERITING HIS SCALE ----
+# The armature carries the same 0.01 in its world matrix that the mesh does. Parenting to it
+# without cancelling that shrinks the shirt a hundredfold the instant the line runs -- which is
+# what put it inside the dog even after the ray casts were returning correct radii. The measured
+# radii were right and the object was still wrong, one line later, for the same reason.
+sh.parent=arm
+sh.matrix_parent_inverse=arm.matrix_world.inverted()
+
+# ---- UVs: round the shirt, not scattered over islands ----
+# Cylindrical, so the print runs continuously at ONE scale. Smart-project gave every island its
+# own orientation and the pattern came out at a different size on every panel, which is a large
+# part of why it read as noise rather than as fabric.
+me=sh.data
+if not me.uv_layers: me.uv_layers.new(name='UVMap')
+uv=me.uv_layers.active.data
+for poly in me.polygons:
+    for li in poly.loop_indices:
+        vi=me.loops[li].vertex_index
+        p=me.vertices[vi].co
+        th=math.atan2(p.y-AXIS_Y,p.x)
+        # ---- and the two axes are scaled to the CLOTH, not to 0..1 ----
+        # The shirt is about 2.5ft round and 0.77ft tall, so its circumference is roughly 3.2
+        # times its height. Mapping both axes to similar ranges stretches every motif sideways
+        # by that factor, which is the smearing -- flowers pulled into streaks. Matching the
+        # ratio makes a texel square and a hibiscus round.
+        uv[li].uv=((th/math.tau)%1.0*3.2, (p.z-HEM_Z)/(COLLAR_Z-HEM_Z)*1.0)
+# seam fix: any face straddling the wrap gets pulled back to one side
+for poly in me.polygons:
+    us=[uv[li].uv[0] for li in poly.loop_indices]
+    if max(us)-min(us)>1.6:
+        for li in poly.loop_indices:
+            if uv[li].uv[0]<1.6: uv[li].uv[0]+=3.2
+
+print('shirt verts',len(me.vertices),'polys',len(me.polygons))
+bb=[sh.matrix_world@Vector(c) for c in sh.bound_box]
+print('shirt z %.3f .. %.3f  (hips %.3f neck %.3f)'%(
+    min(v.z for v in bb),max(v.z for v in bb),B['Hips'].z,B['neck'].z))
 
 # ================= THE PRINT =================
 # Redrawn against the reference. Three things were wrong with the first one and all three are
@@ -315,15 +350,15 @@ bsdf.inputs['Roughness'].default_value=0.78
 if 'Specular IOR Level' in bsdf.inputs: bsdf.inputs['Specular IOR Level'].default_value=0.35
 sh.data.materials.clear(); sh.data.materials.append(mat)
 
-# the armature modifier back, so it exports as a skinned mesh bound to his own bones
-am=sh.modifiers.new('Armature','ARMATURE'); am.object=arm
-sh.parent=arm
 
-me=sh.data; me.calc_loop_triangles()
-print('shirt tris',len(me.loop_triangles),'verts',len(me.vertices))
-bb=[sh.matrix_world@Vector(c) for c in sh.bound_box]
-print('shirt z %.3f .. %.3f  (hips %.3f, spine02 %.3f, neck %.3f)'%(
-    min(v.z for v in bb),max(v.z for v in bb),bones['Hips'].z,bones['Spine02'].z,bones['neck'].z))
+# ---------- material ----------
+mat=D.materials.new('hawaii'); mat.use_nodes=True
+nt=mat.node_tree; bsdf=nt.nodes['Principled BSDF']
+ti=nt.nodes.new('ShaderNodeTexImage'); ti.image=tex; ti.location=(-420,240)
+nt.links.new(ti.outputs['Color'],bsdf.inputs['Base Color'])
+bsdf.inputs['Roughness'].default_value=0.80
+if 'Specular IOR Level' in bsdf.inputs: bsdf.inputs['Specular IOR Level'].default_value=0.30
+sh.data.materials.clear(); sh.data.materials.append(mat)
 
 bpy.ops.object.select_all(action='DESELECT')
 sh.select_set(True); arm.select_set(True); C.view_layer.objects.active=sh
@@ -331,12 +366,10 @@ bpy.ops.export_scene.gltf(filepath=OUT, export_format='GLB', use_selection=True,
                           export_apply=False, export_yup=True, export_skins=True)
 print('wrote',OUT,os.path.getsize(OUT))
 
-# ---------- preview: him wearing it ----------
 if os.environ.get('RENDER'):
     sc=C.scene
     cam_d=D.cameras.new('c'); cam=D.objects.new('cam',cam_d); sc.collection.objects.link(cam)
-    cam_d.lens=52
-    sc.camera=cam
+    cam_d.lens=52; sc.camera=cam
     for pos,en in (((-2.4,-3.0,3.0),700),((2.6,-2.4,1.8),380),((0,2.6,2.2),260)):
         l=D.lights.new('l','AREA'); l.energy=en; l.size=3.0
         ob=D.objects.new('l',l); sc.collection.objects.link(ob); ob.location=pos
