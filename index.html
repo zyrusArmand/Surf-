@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.108.0';
+window.SURF_VERSION='6.109.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -11013,6 +11013,49 @@ addEventListener('click',(ev)=>{
   if(!(i>=0&&i<5))return;
   buzz(8);
   qbFocus=(qbFocus===i)?-1:i;
+},{passive:true});
+// ---- AND THE TWO ROOMS ARE A SWIPE AWAY, not only a plank ----
+// The set is laid out as a place: the hut is ninety degrees to the RIGHT of the title shot and the
+// quest board ninety degrees to the LEFT. Once that is true, dragging the beach is the gesture the
+// arrangement is already asking for, and it costs nothing to add because nothing else on this
+// screen uses a horizontal drag -- the only pointermove on the overlay is the workshop's, and it
+// returns immediately unless the workshop is up.
+// WHICH WAY ROUND: a swipe LEFT takes you to the shop. Both conventions agree for once -- dragging
+// the world left the way you would drag a map turns you to the right, and a leftward swipe is
+// "next" in every carousel ever built. So left goes to the hut and right goes to the board, which
+// is the same direction their planks point.
+// Only OUT of the title screen, not back: while you are standing in a room a tap already brings
+// you home, and it fires on pointerdown, so it would answer the beginning of a swipe before the
+// swipe existed. Changing that is a change to a gesture that works, and it was not what was asked.
+const SWIPE_MIN=56;      // px across before it counts as a swipe rather than a sloppy tap
+const SWIPE_MS=700;      // ...and it has to be a flick, not a slow drag that changed its mind
+let _swX=0,_swY=0,_swT=0,_swLive=false;
+addEventListener('pointerdown',(ev)=>{
+  _swLive=false;
+  if(typeof stageOn!=='undefined'&&stageOn)return;          // the workshop owns every drag
+  if(document.body.classList.contains('panel'))return;      // a panel is open over the beach
+  if(!overlay.classList.contains('main')||overlay.classList.contains('hidden'))return;
+  if(questCamGo||shopCamGo)return;                          // already in a room, or on the way
+  // the same list the tap-to-return uses: a swipe that starts on a control belongs to the control
+  if(ev.target&&ev.target.closest&&
+     ev.target.closest('#homeBar,#quests,#settings,#shop,#viewer,#stageBar,.hbtn,.varr,.slotb,.qbNote'))return;
+  if(onVersion(ev))return;                                  // and never the five taps
+  _swX=ev.clientX; _swY=ev.clientY; _swT=performance.now(); _swLive=true;
+},{passive:true});
+addEventListener('pointerup',(ev)=>{
+  if(!_swLive)return; _swLive=false;
+  if(typeof stageOn!=='undefined'&&stageOn)return;
+  const dx=ev.clientX-_swX, dy=ev.clientY-_swY;
+  if(performance.now()-_swT>SWIPE_MS)return;
+  if(Math.abs(dx)<SWIPE_MIN)return;
+  // and it has to be ACROSS. Without this every scroll-ish drag down the beach that wandered a
+  // little sideways would open a room.
+  if(Math.abs(dx)<Math.abs(dy)*1.5)return;
+  // Fired through the buttons' own handlers rather than by setting the walk gates here, so a swipe
+  // and a plank do exactly the same thing -- the board still gets asked for, the notices still get
+  // drawn, and there is one place to change what arriving means.
+  const el=document.getElementById(dx<0?'dShop':'dQuests');
+  if(el&&el.onclick)el.onclick();
 },{passive:true});
 document.getElementById('dPlay').onclick    =()=>{ buzz(12); startBtn.click(); };
 const questsPanel=document.getElementById('quests'), setPanel=document.getElementById('settings');
