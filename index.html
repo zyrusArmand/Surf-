@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.96.0';
+window.SURF_VERSION='6.97.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -10877,7 +10877,18 @@ document.getElementById('dBack').onclick=()=>{ buzz(6); shopCamGo=0;
 // Same 14px of padding the overlay uses, so the two agree about where the target is.
 function onVersion(ev){
   if(typeof verEl==='undefined'||!verEl)return false;
-  const r=verEl.getBoundingClientRect(), pad=14;
+  // ---- AND A RUN ALREADY UNDER WAY COUNTS ----
+  // The workshop is opened by five taps on a label about sixty pixels wide. In these two rooms
+  // a tap that is not on the version walks the lens home -- so ONE near miss out of five ejects
+  // you to the title screen, and from the outside that is "staging the quest view sends me back
+  // to the main menu". It is not the staging that fails; it is never being allowed to start.
+  // Once a run has begun, every tap for the next second and a half is an attempt at the
+  // workshop wherever it lands, and none of them may leave the room.
+  if(typeof tapN!=='undefined'&&tapN>0&&typeof tapT!=='undefined'&&
+     (performance.now()-tapT)<1500)return true;
+  // and the target itself is generous, because it is a forty-pixel label being hit five times
+  // in a row rather than once with care
+  const r=verEl.getBoundingClientRect(), pad=30;
   const x=(ev.clientX!==undefined)?ev.clientX:-1e9, y=(ev.clientY!==undefined)?ev.clientY:-1e9;
   return !(x<r.left-pad||x>r.right+pad||y<r.top-pad||y>r.bottom+pad);
 }
