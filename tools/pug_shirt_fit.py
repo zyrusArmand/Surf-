@@ -50,9 +50,10 @@ print('his torso over the shirt band: %.3f deep, %.3f wide'%(TORSO_D,TORSO_W))
 # so it gets taken in and let out on each axis separately. That is what tailoring is, and it is
 # safe here in a way it would not be on him: this is a static prop, so a non-uniform scale is
 # just a wider shirt rather than a sheared skin.
-CLOSE_DEG=float(os.environ.get('CLOSE','62'))   # how far the panels swing toward each other
+CLOSE_DEG=float(os.environ.get('CLOSE','30'))   # how far the panels swing toward each other
 TARGET_H=COLLAR-0.360
-TARGET_W=abs(B['LeftForeArm'].x-B['RightForeArm'].x)*1.08
+EASE=float(os.environ.get('EASE','1.14'))       # how loose it hangs: 1.0 would be skin-tight
+AXIS=Vector((0.0,-0.10,0.0))                    # his spine -- not x=0, he sits back a little
 
 # ---- THE FRONT IS CLOSED OVER HIM *FIRST* ----
 # The garment is modelled worn OPEN -- the two front panels are spread wide, which is why his
@@ -90,75 +91,246 @@ _me.update()
 C.view_layer.update()
 print('front drawn in by %.0f degrees'%CLOSE_DEG)
 
-for _ in range(6):
+def place():
+    """Centre it on his spine and hang it from his collar."""
     mn,mx=wbb(sh)
-    kx=TARGET_W/max(1e-6,mx.x-mn.x)
-    # Depth is NOT fitted. Forcing it to a target stretched the garment front-to-back to chase a
-    # number, and it never bought anything: the outward push below guarantees the girth by putting
-    # the cloth on his actual skin. So the plan shape is left alone -- y follows x.
-    ky=kx
-    kz=TARGET_H/max(1e-6,mx.z-mn.z)
-    if max(abs(kx-1),abs(ky-1),abs(kz-1))<1e-4: break
-    sh.scale=(sh.scale.x*kx, sh.scale.y*ky, sh.scale.z*kz)
+    sh.location=(sh.location.x-(mn.x+mx.x)*0.5+AXIS.x,
+                 sh.location.y-(mn.y+mx.y)*0.5+AXIS.y,
+                 sh.location.z+(COLLAR-mx.z))
     C.view_layer.update()
 
-mn,mx=wbb(sh)
-sh.location=(sh.location.x-(mn.x+mx.x)*0.5,
-             sh.location.y-(mn.y+mx.y)*0.5-0.10,      # his spine sits at y -0.10, not 0
-             sh.location.z+(COLLAR-mx.z))
-C.view_layer.update()
-mn,mx=wbb(sh)
-print('fitted  h %.3f  w %.3f  d %.3f   z %.3f .. %.3f'%(mx.z-mn.z,mx.x-mn.x,mx.y-mn.y,mn.z,mx.z))
+for _ in range(6):                       # height first: collar to hem, nothing else
+    mn,mx=wbb(sh)
+    kz=TARGET_H/max(1e-6,mx.z-mn.z)
+    if abs(kz-1)<1e-4: break
+    sh.scale.z*=kz; C.view_layer.update()
+place()
 
-# ---- AND THEN IT IS PUT *ON* HIM, NOT NEAR HIM ----
-# Every fit up to here sized a BOX around a garment and a box around a dog and made the numbers
-# agree. They agreed and the shirt was still inside him, because his chest is round and its
-# bounding box is not: the box clears him at the corners and cuts straight through him at the
-# front. Matching numbers was the wrong test -- the right one is whether any cloth is inside the
-# skin, and it was.
-# So the last step asks that question of every vertex and fixes the ones that fail. A ray goes out
-# from his spine through the vertex; wherever it crosses his skin is where the cloth may sit, plus
-# a little air. Cloth already outside is left alone -- this only ever pushes out, so the drape,
-# the collar and the hanging panels keep their shape and simply stop being underneath him.
+# ---- SIZED BY MEASURING THE HOLE HE GOES THROUGH ----
+# Two bad assumptions lived here, and both came from sizing the garment by its BOUNDING BOX.
+#
+# First, the horizontal scale matched the garment's laid-open WIDTH to his arm span. On a shirt
+# modelled flat and open that width is the WRAP-AROUND -- how far the cloth travels all the way
+# round a body -- not a shoulder measurement. That squashed it to about a third of the girth he
+# needs; three quarters of its vertices ended up buried, the push had to re-model the shirt rather
+# than settle it, and cloth shoved that far comes out looking like crushed paper. It did.
+#
+# Second, and worse, the box does not measure the part that matters. Looked at from above this
+# garment is a horseshoe: a torso tube with SLEEVES standing out either side. The box is mostly
+# sleeve. The tube he actually goes through is 0.62 across and 0.92 front-to-back -- DEEPER than
+# it is wide -- while he is 1.28 wide and 0.91 deep. The two cross-sections are all but at right
+# angles to each other, so no uniform scale can fit this, and a mean radius reads the sleeves
+# standing off to the sides as girth the body does not have. It read 0.578 against his 0.375 and
+# told me to shrink a shirt that was already too narrow.
+#
+# So the hole gets measured directly, on both of them, the same way: fire a ray out from his spine
+# and stop at the FIRST surface it crosses. On him that is his ribs -- vertex positions would have
+# included his front legs. On the garment it is the inside of the tube, sleeves ignored. Sideways
+# rays give the width, rays out his back give the depth, and the front is skipped because it is
+# open by design.
+def _ring(bv,z,a0,a1,n=9):
+    rs=[]
+    for i in range(n):
+        a=math.radians(a0+(a1-a0)*i/max(1,n-1))
+        hit=bv.ray_cast(Vector((AXIS.x,AXIS.y,z)), Vector((math.sin(a),-math.cos(a),0.0)))
+        if hit[0] is not None: rs.append(hit[3])
+    return sum(rs)/len(rs) if rs else 0.0
+
+def _rings(bv,zs,spans):
+    v=[_ring(bv,z,a0,a1) for z in zs for (a0,a1) in spans]
+    v=[x for x in v if x>0]
+    return sum(v)/len(v) if v else 0.0
+
+def _shirt_bvh():
+    # FromObject would build this in the object's LOCAL space and every distance would be wrong.
+    bm=bmesh.new(); bm.from_mesh(sh.data); bm.transform(sh.matrix_world)
+    t=BVHTree.FromBMesh(bm); bm.free(); return t
+
+SIDES=[(70,110),(250,290)]      # out his flanks -> width
+BACK=[(155,205)]                # out his back   -> depth (his front is where the shirt opens)
+
 import bmesh
 from mathutils.bvhtree import BVHTree
 
 # Down to a shippable triangle count first: a million tris is unusable in the game, and it also
 # makes the loop below take minutes instead of seconds. Done BEFORE the push so the push has the
 # final word on the silhouette -- decimating afterwards would sink vertices back into him.
-dec=sh.modifiers.new('dec','DECIMATE'); dec.ratio=50000.0/max(1,len(sh.data.polygons))
+dec=sh.modifiers.new('dec','DECIMATE'); dec.ratio=70000.0/max(1,len(sh.data.polygons))
 C.view_layer.objects.active=sh
 bpy.ops.object.modifier_apply(modifier=dec.name)
 print('shirt decimated to %d tris'%len(sh.data.polygons))
+
+# glTF ships CUSTOM SPLIT NORMALS, which are baked to the shape as modelled. Every vertex below is
+# about to move, and the stored normals would keep shading the garment as though it had not --
+# lighting that disagrees with the silhouette, which looks like bad geometry and is not.
+for o in (sh,):
+    C.view_layer.objects.active=o
+    try: bpy.ops.mesh.customdata_custom_splitnormals_clear()
+    except Exception as e: print('  (no custom normals to clear: %s)'%e)
+for p in sh.data.polygons: p.use_smooth=True
+
+# Decimating a million triangles leaves slivers and coincident vertices behind. Corrective Smooth
+# divides by edge length, so a zero-length edge sends a vertex to infinity -- which it did, and the
+# tell was a bounding box of 4e11 rather than anything visible in a render.
+_bc=bmesh.new(); _bc.from_mesh(sh.data)
+bmesh.ops.remove_doubles(_bc, verts=_bc.verts, dist=1e-5)
+bmesh.ops.dissolve_degenerate(_bc, dist=1e-6, edges=_bc.edges[:])
+_bc.to_mesh(sh.data); _bc.free()
+sh.data.update()
+print('cleaned to %d tris / %d verts'%(len(sh.data.polygons),len(sh.data.vertices)))
+
+if os.environ.get('DUMP'):
+    # Snapshot before anything touches the shape, so a broken garment can be blamed on the right
+    # step instead of the last one.
+    for o in C.scene.objects: o.select_set(o is sh)
+    C.view_layer.objects.active=sh
+    bpy.ops.export_scene.gltf(filepath=os.environ['DUMP'], use_selection=True, export_format='GLB',
+                              export_draco_mesh_compression_enable=False)
+    print('dumped mid-pipeline to '+os.environ['DUMP'])
 
 _dg=C.evaluated_depsgraph_get()
 _bm=bmesh.new(); _bm.from_mesh(pug.evaluated_get(_dg).to_mesh())
 _bm.transform(pug.matrix_world)
 bvh=BVHTree.FromBMesh(_bm)
 
-CLEAR=0.020          # air between skin and cloth
-MAXPUSH=0.30         # never drag a vertex further than this (his legs are separate down low)
-AXIS=Vector((0.0,-0.10,0.0))    # his spine
-mw=sh.matrix_world.copy(); mwi=mw.inverted()
+ZS=[0.58,0.68,0.78,0.88]
+_pw=_rings(bvh,ZS,SIDES); _pd=_rings(bvh,ZS,BACK)
+print('his chest: %.3f half-width, %.3f half-depth'%(_pw,_pd))
+for _ in range(5):
+    _sb=_shirt_bvh()
+    _sw=_rings(_sb,ZS,SIDES); _sd=_rings(_sb,ZS,BACK)
+    kx=(_pw*EASE)/max(1e-6,_sw); ky=(_pd*EASE)/max(1e-6,_sd)
+    print('  hole: shirt %.3f x %.3f -> x%.2f y%.2f'%(_sw,_sd,kx,ky))
+    if max(abs(kx-1),abs(ky-1))<0.01: break
+    sh.scale.x*=kx; sh.scale.y*=ky
+    C.view_layer.update(); place()
+
+mn,mx=wbb(sh)
+print('fitted  h %.3f  w %.3f  d %.3f   z %.3f .. %.3f'%(mx.z-mn.z,mx.x-mn.x,mx.y-mn.y,mn.z,mx.z))
+
+# ---- AND THEN IT IS SETTLED ONTO HIM ----
+# Sized right, only a little cloth is left inside him -- seams, the underarm, wherever he is
+# lumpier than the garment. Those get moved to the NEAREST point on his skin plus a little air.
+# This used to fire a horizontal ray out from his spine instead, and that is a cylinder, not a dog:
+# everywhere his body is not vertical -- the slope of his chest, the shoulders, the tuck under the
+# hem -- a horizontal ray shoves cloth sideways rather than outward, which read as a stiff barrel
+# with a flat skirt hem. Nearest-point-on-surface follows the body it is actually lying on.
+
+CLEAR=float(os.environ.get('CLEAR','0.022'))    # air between skin and cloth
+
+def _inside(tag):
+    """How much cloth is still buried. The only honest measure of whether this worked."""
+    n=0; mwl=sh.matrix_world
+    for v in sh.data.vertices:
+        p=mwl@v.co
+        loc,nrm,idx,dist=bvh.find_nearest(p)
+        if loc is not None and (p-loc).dot(nrm)<0.0: n+=1
+    print('  %-14s %d of %d vertices inside him (%.0f%%)'%(tag,n,len(sh.data.vertices),
+                                                           100.0*n/max(1,len(sh.data.vertices))))
+    return n
+
+_inside('as sized:')
+
+# There WAS a step here that took the slack out of the garment -- drawing any cloth standing too
+# far off his skin back in, to stop the side profile reading as a boxy slab. It is gone, because it
+# was destroying the shirt: it snapped each vertex onto the offset surface individually, and since
+# the nearest-surface normal swings wildly around his neck, neighbouring vertices were thrown in
+# different directions and the collar came apart into foil. It cost four wrong diagnoses -- I
+# blamed the decimate, z-fighting between the garment's two cloth layers, and the size of the
+# push's step -- because an early A/B test of this step ran while a second bug was shredding BOTH
+# arms of the comparison, so it looked innocent. Rendering the finished shirt with no dog in
+# frame, and bisecting the two stages against that, settled it in a minute.
+# The boxy side profile is the lesser problem and it stays.
+
+# Shrinkwrap in OUTSIDE mode moves only the cloth that is buried and leaves the rest alone, and
+# Corrective Smooth then undoes the distortion that causes by comparing against the garment's
+# ORIGINAL shape -- so the cloth ends up lying on him while still looking like the shirt it was.
+# This replaces a hand-rolled push/relax loop that did the same job badly: it drove every moved
+# vertex exactly onto the offset surface, so the garment took on his lumps and came out looking
+# like crushed paper. These two are the same idea done properly, in C, and they are also 30x faster.
+# Cloth that is buried gets moved out to his skin -- but NEVER FAR IN ONE STEP, and that cap is the
+# whole trick. Blender's Shrinkwrap in OUTSIDE mode does this in C and did it beautifully across
+# the chest and back, then tore the collar into confetti, because "nearest point on his skin" is
+# discontinuous in a concavity: the hollow where his neck meets his chest is nearest to his jowl
+# for one vertex and to his sternum for the vertex beside it, so the triangle between them is
+# stretched across the gap and bursts. The modifier offers no way to limit that jump.
+# Capping the step per pass bounds how far two neighbours can diverge, so the cloth walks out over
+# several passes instead of teleporting, and a light smoothing between passes heals what strain is
+# left. It ends on a push, so nothing is smoothed back under his skin afterwards.
+#
+# AND IT MOVES THE CLOTH AS CLOTH, NOT AS LOOSE VERTICES.
+# This garment is a solid: every part of it is two surfaces, an outside and a lining, about 5mm
+# apart. Moving each vertex to exactly CLEAR from his skin puts BOTH of those surfaces on the same
+# offset surface, and two coincident surfaces z-fight -- which renders as a spray of shards and
+# holes that looks exactly like shattered geometry. I read it as shattered geometry and spent
+# three fixes on tearing that was never happening: capping the step, binding the smooth, blaming
+# the decimate. What gave it away was turning the push OFF and seeing the same shards, there
+# because the buried shirt was poking through his skin in slivers.
+# So the displacement is computed as a FIELD OVER SPACE rather than per vertex: each vertex moves
+# by the largest displacement any cloth near it needs. The lining and the outer face sit within
+# that radius of each other, so they move together and stay 5mm apart.
+CAP=float(os.environ.get('CAP','0.05'))
+PASSES=int(os.environ.get('PASSES','7'))
+BLUR=int(os.environ.get('BLUR','90'))    # how far strain is spread along the cloth
+_mwl=sh.matrix_world; _mwli=_mwl.inverted()
+_n=len(sh.data.vertices)
+_ea=_np.empty(len(sh.data.edges),dtype=_np.int64); _eb=_np.empty_like(_ea)
+for i,e in enumerate(sh.data.edges): _ea[i],_eb[i]=e.vertices[0],e.vertices[1]
+_deg=_np.bincount(_np.concatenate([_ea,_eb]),minlength=_n).astype(_np.float64)
+_deg[_deg==0]=1.0
+
+def _blur(a,iters):
+    """Average a per-vertex quantity along the cloth itself."""
+    for _ in range(iters):
+        acc=_np.zeros_like(a)
+        _np.add.at(acc,_ea,a[_eb]); _np.add.at(acc,_eb,a[_ea])
+        a=0.5*a+0.5*(acc/(_deg[:,None] if a.ndim>1 else _deg))
+    return a
+
+# Blurring the displacement is what stops the cloth crumpling, but it also carries the big push
+# needed at his widest point out over the whole garment, so the shirt inflates -- 1.56 wide against
+# a dog 1.28 wide -- and any single bad direction gets smeared into a flag of cloth standing off
+# his shoulder. Both are the same failure: cloth travelling further than a fitting should move it.
+# So nothing is ever allowed more than MAXTOT from where it started.
+MAXTOT=float(os.environ.get('MAXTOT','0.085'))
+_P0=[_mwl@v.co for v in sh.data.vertices]
+
+for _k in range(PASSES):
+    P=[_mwl@v.co for v in sh.data.vertices]
+    need=_np.zeros(_n); dirs=_np.zeros((_n,3))
+    for i,p in enumerate(P):
+        loc,nrm,idx,dist=bvh.find_nearest(p)
+        if loc is None: continue
+        dirs[i]=(nrm.x,nrm.y,nrm.z)
+        s=(p-loc).dot(nrm)
+        if s<CLEAR: need[i]=CLEAR-s
+    if not need.any(): break
+    # BOTH the amount and the DIRECTION get averaged along the cloth before anything moves. The
+    # direction is the half that matters: "nearest point on his skin" points one way for a vertex
+    # beside his neck and quite another for the vertex next to it, and following that field
+    # literally is what crumples cloth. Averaging it turns a field with cliffs in it into one a
+    # sheet can actually follow.
+    need=_blur(need,BLUR)
+    dirs=_blur(dirs,BLUR)
+    _ln=_np.linalg.norm(dirs,axis=1); _ln[_ln<1e-9]=1.0
+    dirs/=_ln[:,None]
+    step=_np.minimum(need,CAP)
+    hit=int((step>1e-6).sum())
+    for i,p in enumerate(P):
+        if step[i]<=1e-6: continue
+        q=Vector((p.x+dirs[i,0]*step[i], p.y+dirs[i,1]*step[i], p.z+dirs[i,2]*step[i]))
+        off=q-_P0[i]
+        if off.length>MAXTOT: q=_P0[i]+off.normalized()*MAXTOT
+        sh.data.vertices[i].co=_mwli@q
+    sh.data.update()
+    print('    pass %d: %d vertices moved'%(_k+1,hit))
+C.view_layer.update()
+moved=_inside('settled:')
+mw=sh.matrix_world.copy()
 _n=len(sh.data.vertices)
 _lo=_np.empty(_n*3,dtype=_np.float32); sh.data.vertices.foreach_get('co',_lo)
 _lo=_lo.reshape(-1,3)
-moved=0
-for i in range(_n):
-    p=mw@Vector((float(_lo[i,0]),float(_lo[i,1]),float(_lo[i,2])))
-    dx=p.x-AXIS.x; dy=p.y-AXIS.y
-    r=math.hypot(dx,dy)
-    if r<1e-4: continue
-    d=Vector((dx/r,dy/r,0.0))
-    hit=bvh.ray_cast(Vector((AXIS.x,AXIS.y,p.z)), d)
-    if hit[0] is None: continue
-    want=min(hit[3]+CLEAR, r+MAXPUSH)
-    if want<=r: continue
-    q=mwi@Vector((AXIS.x+d.x*want, AXIS.y+d.y*want, p.z))
-    _lo[i]=(q.x,q.y,q.z); moved+=1
-sh.data.vertices.foreach_set('co',_lo.reshape(-1))
-sh.data.update(); C.view_layer.update()
-print('pushed %d of %d vertices out of his skin (%.0f%%)'%(moved,_n,100.0*moved/max(1,_n)))
+C.view_layer.update()
 mn,mx=wbb(sh)
 print('worn    h %.3f  w %.3f  d %.3f   z %.3f .. %.3f'%(mx.z-mn.z,mx.x-mn.x,mx.y-mn.y,mn.z,mx.z))
 
@@ -208,10 +380,11 @@ sc.render.engine='CYCLES'; sc.cycles.device='CPU'; sc.cycles.samples=40
 sc.cycles.use_denoising=True; sc.view_settings.view_transform='Standard'
 sc.render.resolution_x=680; sc.render.resolution_y=860
 base=os.path.splitext(SHOT)[0]
-for nm,loc,rot in [('front',(0.0,-4.1,0.86),(1.5708,0,0)),
-                   ('three',(-2.5,-3.3,1.12),(1.42,0,-0.64)),
-                   ('side',(-4.0,-0.9,1.00),(1.50,0,-1.36))]:
-    cam.location=loc; cam.rotation_euler=Euler(rot)
+for nm,loc,rot,lens in [('front',(0.0,-4.1,0.86),(1.5708,0,0),54),
+                        ('three',(-2.5,-3.3,1.12),(1.42,0,-0.64),54),
+                        ('side',(-4.0,-0.9,1.00),(1.50,0,-1.36),54),
+                        ('collar',(0.0,-1.55,0.95),(1.5708,0,0),85)]:
+    cam.location=loc; cam.rotation_euler=Euler(rot); cam_d.lens=lens
     sc.render.filepath=base+'_'+nm+'.png'
     bpy.ops.render.render(write_still=True)
     print('rendered',sc.render.filepath)
