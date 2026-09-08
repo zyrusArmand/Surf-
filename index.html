@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.106.0';
+window.SURF_VERSION='6.107.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -18925,6 +18925,18 @@ const SP_ARMS=[
 // ---- AND THERE ARE ONLY THREE, WHICH IS THE WHOLE CHANGE ----
 // The sign this replaced carried seven. Four of those words are not painted on this one, so
 // they cannot have an arm.
+// ---- AND THE TABLE SITS ABOVE THE PAINT, so everything reading it is dropped ----
+// The three y values above are honestly measured, and they do not land on the boards you can see:
+// projected, the arm centres come out about 26px above the words on a 402px screen, which is more
+// than half the gap between planks. So every target straddled the gap into its neighbour and taps
+// opened the wrong screen -- reported as the buttons being off, and it is not the buttons. The
+// signpost hook reports the button centre minus the arm centre as [0,0] on all three: they are
+// exactly where the table says, and the table is what is wrong.
+// Applied as one shift in the MODEL's own units rather than as a nudge in pixels, so it holds at
+// any camera distance and on any screen shape -- a pixel fudge would be right on one phone.
+// Solved from the render: the words sit 24, 24 and 30px below the arm centres, against a local
+// scale of 159, 159 and 164px per model unit.
+const SP_ARM_DY=-0.152;
 const SP_IDS=['dPlay','dShop','dQuests'];
 // how thick a board is, as a share of the model's height — for the size of the tap target
 const SP_ARM_HW=0.107;
@@ -19211,7 +19223,12 @@ const QB_CAM={x:-11.66, y:8.29, z:-35.66, yaw:110.8, pitch:3.6, secs:0.95};
 // the most obviously tappable-looking part of the board. Measured: a tap at 0.94 along the
 // Shop plank fell through to the overlay. Widening cannot cost anything here, because the arms
 // are stacked vertically and no two of them share a row.
-const SP_HIT_L=1.00, SP_HIT_H=1.45;
+// The target is the PLANK, which is what the sign looks like it is offering: the word sits on a
+// board and the board is the button. Length was already the plank's own; the height was 1.45 times
+// its thickness, half as tall again as the thing you can see, and that surplus is what reached
+// into the boards above and below. A thumb is still bigger than a plank is thick, so the floor
+// below (20px) is what buys the reach rather than a multiplier that inflates every target.
+const SP_HIT_L=1.00, SP_HIT_H=1.06;
 // ---- AND IT KEEPS ITS COLOURS ----
 // It arrived with seven painted arms — red, purple, cyan, yellow, green, magenta, orange — and
 // the first version took them out, on the reasoning that a paint chart sits badly next to a
@@ -19595,9 +19612,9 @@ function layoutSignButtons(){
   const arm=[];
   for(let i=0;i<SP_IDS.length;i++){
     const A=SP_ARMS[i];
-    _spA.set((A.mx-A.dx*A.hl)*h, A.y*h, (A.mz-A.dz*A.hl)*h)
+    _spA.set((A.mx-A.dx*A.hl)*h, (A.y+SP_ARM_DY)*h, (A.mz-A.dz*A.hl)*h)
         .applyMatrix4(signPost.matrixWorld).project(menuCam);
-    _spB.set((A.mx+A.dx*A.hl)*h, A.y*h, (A.mz+A.dz*A.hl)*h)
+    _spB.set((A.mx+A.dx*A.hl)*h, (A.y+SP_ARM_DY)*h, (A.mz+A.dz*A.hl)*h)
         .applyMatrix4(signPost.matrixWorld).project(menuCam);
     // ---- the MIDDLE is projected, it is not the average of the two ends ----
     // Halfway between the two projected ends is not where the middle of the plank lands, and on
@@ -19607,14 +19624,14 @@ function layoutSignButtons(){
     // camera. Perspective does not survive being averaged, so the middle is carried through the
     // matrix and projected in its own right; the ends are still wanted, but only for the two
     // things that ARE differences and so are safe to take from them: the bearing and the length.
-    _spC.set(A.mx*h, A.y*h, A.mz*h)
+    _spC.set(A.mx*h, (A.y+SP_ARM_DY)*h, A.mz*h)
         .applyMatrix4(signPost.matrixWorld).project(menuCam);
     // and how THICK the board lands, which is the target's height. Taken by projecting a point
     // a board's half-thickness above the middle rather than assumed from the length: the arms
     // are aimed in seven directions, so length foreshortens per board while thickness barely
     // does, and one derived from the other would give the steeply-turned boards a target as
     // squat as they are short.
-    _spD.set(A.mx*h, (A.y+SP_ARM_HW)*h, A.mz*h)
+    _spD.set(A.mx*h, (A.y+SP_ARM_DY+SP_ARM_HW)*h, A.mz*h)
         .applyMatrix4(signPost.matrixWorld).project(menuCam);
     const a=px(_spA), b=px(_spB), c=px(_spC), d=px(_spD);
     arm.push({a, b, c, behind:(_spA.z>1||_spB.z>1||_spC.z>1),
@@ -19637,7 +19654,6 @@ function layoutSignButtons(){
     el.style.left=cx.toFixed(1)+'px';
     el.style.top=cy.toFixed(1)+'px';
     el.style.right='auto'; el.style.bottom='auto';
-    el.style.width=Math.max(34,o.len*SP_HIT_L).toFixed(0)+'px';
     // ---- AND A TARGET MAY NOT REACH INTO ITS NEIGHBOUR ----
     // SP_HIT_H is deliberately generous — a thumb is wider than a plank is thick — and on the
     // seven-arm sign that was free, because overlapping a neighbour by a little only cost you
@@ -19652,8 +19668,22 @@ function layoutSignButtons(){
     let _gap=Infinity;
     for(let k=0;k<arm.length;k++){ if(k===i)continue;
       const dd=Math.abs(arm[k].c[1]-o.c[1]); if(dd>1&&dd<_gap)_gap=dd; }
-    const _hWant=Math.max(20,o.thick*SP_HIT_H);
-    el.style.height=(isFinite(_gap)?Math.min(_hWant,_gap*0.94):_hWant).toFixed(0)+'px';
+    // ---- AND THE CAP HAS TO ALLOW FOR THE FACT THAT IT IS TURNED ----
+    // The previous cap limited the element's HEIGHT and then this line rotated it, which is not
+    // the same thing: a box W wide and H tall, turned by t, reaches (W*|sin t| + H*|cos t|)/2
+    // above and below its middle. These planks are ~100px long and sit at eight or ten degrees,
+    // so the width term alone is 14-17px of vertical reach -- more than the whole height cap was
+    // trying to control. The corners went on overlapping the neighbouring board however small the
+    // height got, the overlap landed mid-plank rather than at an edge, and stacking order decided
+    // which one answered. That is the wrong button taking the tap.
+    // So the cap is solved on the reach the rotation actually produces, and the width term comes
+    // out of the budget before the height is allowed to use what is left.
+    const _w=Math.max(34,o.len*SP_HIT_L);
+    const _t=Math.abs(ang)*Math.PI/180, _s=Math.abs(Math.sin(_t)), _co=Math.max(0.20,Math.abs(Math.cos(_t)));
+    let _h=Math.max(20,o.thick*SP_HIT_H);
+    if(isFinite(_gap)) _h=Math.max(16,Math.min(_h,(_gap*0.94-_w*_s)/_co));
+    el.style.width=_w.toFixed(0)+'px';
+    el.style.height=_h.toFixed(0)+'px';
     el.style.transform='translate(-50%,-50%) rotate('+ang.toFixed(2)+'deg)';
   }
 }
@@ -27238,8 +27268,8 @@ if(location.hash.includes('debug')){
         ext:(()=>{
           const _h=signPost.userData.h; const pts=[];
           for(const A of SP_ARMS){
-            pts.push(new THREE.Vector3((A.mx-A.dx*A.hl)*_h,A.y*_h,(A.mz-A.dz*A.hl)*_h));
-            pts.push(new THREE.Vector3((A.mx+A.dx*A.hl)*_h,A.y*_h,(A.mz+A.dz*A.hl)*_h));
+            pts.push(new THREE.Vector3((A.mx-A.dx*A.hl)*_h,(A.y+SP_ARM_DY)*_h,(A.mz-A.dz*A.hl)*_h));
+            pts.push(new THREE.Vector3((A.mx+A.dx*A.hl)*_h,(A.y+SP_ARM_DY)*_h,(A.mz+A.dz*A.hl)*_h));
           }
           pts.push(new THREE.Vector3(0,-0.5*_h,0), new THREE.Vector3(0,0.5*_h,0));
           let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
@@ -27253,12 +27283,12 @@ if(location.hash.includes('debug')){
           const el=document.getElementById(id);
           const _h=signPost.userData.h;
           const _A=SP_ARMS[i];
-          const a=proj(new THREE.Vector3(_A.mx*_h,_A.y*_h,_A.mz*_h).applyMatrix4(signPost.matrixWorld));
+          const a=proj(new THREE.Vector3(_A.mx*_h,(_A.y+SP_ARM_DY)*_h,_A.mz*_h).applyMatrix4(signPost.matrixWorld));
           // the two tips as well, because the arm table is only worth anything if these land on
           // the ends of the painted plank — drawing them is the one check that tells you whether
           // a label is misplaced or whether the arm it is placed from was measured wrong
-          const e0=proj(new THREE.Vector3((_A.mx-_A.dx*_A.hl)*_h,_A.y*_h,(_A.mz-_A.dz*_A.hl)*_h).applyMatrix4(signPost.matrixWorld));
-          const e1=proj(new THREE.Vector3((_A.mx+_A.dx*_A.hl)*_h,_A.y*_h,(_A.mz+_A.dz*_A.hl)*_h).applyMatrix4(signPost.matrixWorld));
+          const e0=proj(new THREE.Vector3((_A.mx-_A.dx*_A.hl)*_h,(_A.y+SP_ARM_DY)*_h,(_A.mz-_A.dz*_A.hl)*_h).applyMatrix4(signPost.matrixWorld));
+          const e1=proj(new THREE.Vector3((_A.mx+_A.dx*_A.hl)*_h,(_A.y+SP_ARM_DY)*_h,(_A.mz+_A.dz*_A.hl)*_h).applyMatrix4(signPost.matrixWorld));
           if(!el)return {id,found:false,arm:[a[0],a[1]],ends:[[e0[0],e0[1]],[e1[0],e1[1]]]};
           const r=el.getBoundingClientRect();
           return {id, arm:[a[0],a[1]], ends:[[e0[0],e0[1]],[e1[0],e1[1]]],
