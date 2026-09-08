@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.124.0';
+window.SURF_VERSION='6.125.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -4751,7 +4751,20 @@ const LM_STALL=20000;
 // crown, which is the asset here with the most fine detail to lose, that is the difference between
 // soft and stippled.
 const TEX_MAX=1024;
-function capTextures(root){
+// ---- ...EXCEPT the title palm, whose big map is the whole point of it ----
+// palm2.glb was deliberately rebuilt from source with its colour atlas left at 4096, and the
+// commit that did it says why: at 1024 across 181k triangles that is about six texels a
+// triangle, and the trunk comes out as green camouflage with no bark in it. It also says how
+// it got to 1024 in the first place -- an earlier downsize during texture-memory work, with
+// the note "I checked the memory number and not the picture".
+// The blanket cap then did exactly that again, to the same model, for the same reason. This
+// is the same mistake twice, so the exemption is written down rather than remembered: the
+// tree is the biggest thing on the title screen and its bark is most of what that screen is.
+// One texture at 4096 is about 89MB with its mips, which is real, and it is one texture
+// shared by every palm on the beach rather than one per tree.
+const TEX_KEEP={'palm2.glb':1};
+function capTextures(root,file){
+  if(file&&TEX_KEEP[file])return 0;
   if(!root||!root.traverse||typeof document==='undefined')return 0;
   const seen=new Set(); let n=0;
   root.traverse(o=>{
@@ -4810,7 +4823,7 @@ function _lmNext(){
            // clips alongside the meshes and they are the entire point of it
            // Before the callback, so nothing downstream ever sees the full-size map -- several of
            // these hand their textures straight on to a material they build themselves.
-           try{ capTextures(root); }catch(e){ console.warn('model '+j.f+' texture cap failed',e); }
+           try{ capTextures(root,j.f); }catch(e){ console.warn('model '+j.f+' texture cap failed',e); }
            try{ mendMirror(root); j.cb(root,g); }catch(e){ console.warn('model '+j.f+' failed to fit',e); }
            done(); },
       e=>{ const L=_lmLive.get(j.f); if(L){ L.seen=(e&&e.loaded)||0; L.t=Date.now(); }
@@ -27173,6 +27186,7 @@ if(location.hash.includes('debug')){
               phase:R.phase, step:R.step, vis:!!(riderModels[builtChar]&&riderModels[builtChar].visible),
               rigNull:!riderRig(), cls:overlay.className}; },
     overlayClass(){ return overlay.className; },
+    menuPalmNode(){ return (typeof menuPalm!=='undefined')?menuPalm:null; },
     forceRigReset(){ const R=riderRig()||modelRigs[builtChar]; if(!R||!R.reset)return null;
       R.reset(); const b=R.bones.RightArm, r=R.bind&&R.bind.RightArm;
       return {ran:true, offAfter:(b&&r)?+b.quaternion.angleTo(r.q).toFixed(3):null,
