@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.117.0';
+window.SURF_VERSION='6.118.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -20479,7 +20479,12 @@ function reset(){
   // and no tow boat left in the lane from the last run, for the same reason
   if(typeof boatReset==='function')boatReset();
   if(typeof glideReset==='function')glideReset();
-  if(wipe){ scene.remove(rig); player.add(rig);
+  // `wipeDirty` and not `wipe`: the title screen ends the crash so the drowning pose cannot
+  // stick, and that left this block with nothing to test. What it undoes is not the crash --
+  // it is what the crash DID to the rider -- and that is still done whether or not the crash
+  // itself is still playing.
+  if(wipe||wipeDirty){ wipeDirty=false;
+    scene.remove(rig); player.add(rig);
     player.remove(pug); rig.add(pug);
     pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}}); rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null;
@@ -20521,7 +20526,9 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
 // water ahead cleared so he is not handed straight back to whatever got him, and
 // everything he had — score, distance, the shells earned so far — kept.
 function respawn(){
-  if(wipe){
+  // asked the same way reset() asks it, and for the same reason: the rider being off his
+  // board is the crash's DAMAGE, which outlasts the crash itself
+  if(wipe||wipeDirty){ wipeDirty=false;
     scene.remove(rig); player.add(rig);
     player.remove(pug); rig.add(pug);
     pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
@@ -21107,6 +21114,18 @@ function boardHit(o,topY){
   msg('CRACKED! '+(BS.lives-cracks)+' LEFT');
 }
 let wipe=null,overlayUp=false,revivesLeft=1;
+// ---- a crash leaves a MESS behind it, and the mess outlives the crash ----
+// startWipeout takes the rider off the board and hands him to the player group, drops the
+// board into the scene on its own, and leaves a tumble on pug.rotation and the arms wherever
+// the fall put them. All of that is undone in one block in reset(), and that block was gated
+// on `wipe` still being set -- which was true right up until v6.116 ended the crash on the
+// title screen to stop the drowning pose sticking. From then on the pose was cleared and the
+// MESS was not: `wipe` was null by the time reset() looked, so the rider was never put back
+// on his board, the arms were never stood down and the fold was never taken off him. One bug
+// traded for another, and the second one looks enough like the first to be reported as it.
+// This is the flag that block should always have been asking: it says the crash's damage is
+// still on the rider, and it outlives `wipe` on purpose.
+let wipeDirty=false;
 var _wipeLive=true;   // see the guard in showMenu: wipe is safe to read from here on
 let swInvuln=false;                     // tests only, and never on in a real run
 // ---- a crash has to LAND, not just happen ----
@@ -21228,6 +21247,7 @@ function startWipeout(kind){
   // rider is lifted out of it onto the player group, which is what gets thrown.
   // He was a child of the board, so without this he rode it all the way down.
   const keep={x:rig.rotation.x,y:rig.rotation.y,z:rig.rotation.z};
+  wipeDirty=true;                 // ...and it stays true until reset() puts all of this back
   player.remove(rig); scene.add(rig);
   rig.remove(pug); player.add(pug);
   pug.position.set(0,0.12,0);
@@ -25030,7 +25050,10 @@ function updateSetWave(dt,eff){
     if(swTest||dist>SET_WAVE_AT){
       if(!swTest&&!swArmed){ swArmed=true; swNext=Math.min(swNext,1.8); }   // fires AT the mark
       swNext-=dt;
-      if(swNext<=0&&!skiOn&&!whirl&&!hanging)startSetWave();
+      // ...and not while the saucer has him, which is the same exclusion from the other side.
+      // Gating only the UFO would still allow the wave to arrive under an abduction already
+      // in progress, and then it is the set wave that has landed on top of something.
+      if(swNext<=0&&!skiOn&&!whirl&&!hanging&&ufoPh===UFOP.OFF)startSetWave();
     }
     return;
   }
@@ -31013,8 +31036,19 @@ function updateUfo(dt,eff){
   if(ufoPh===UFOP.OFF){
     // dark AND the moon up -- see UFO_MOON_UP. The clock only runs while both hold, so a
     // sunset that never quite becomes night never counts toward it.
+    // ---- ...AND NOT ON TOP OF THE SET WAVE ----
+    // The saucer was the one big event in the game that never asked what else was happening.
+    // The crate, the coconut, the jet ski and the tow plane all wait for SWP.IDLE and the
+    // whirlpool asks whirlHolds(); this asked only whether it was dark. So it came down
+    // through the roof of the barrel and put the rider in its beam mid-ride — and once the
+    // beam has him he is lifted out of the tube while the camera is still locked to the
+    // barrel, which is why "the barrel camera is way off" and "abduction during the barrel"
+    // are one report and not two. Framed on its own the tube camera is fine.
+    // The CLOCK still runs; only the moment it fires waits. Same rule the set wave gives
+    // itself — freezing the countdown instead would mean a run that meets a set wave late
+    // could end without the saucer ever coming, which is the bug that rule was written for.
     if(running&&nightAmt>=UFO_NIGHT_AMT&&moonAmt>=UFO_MOON_UP){
-      ufoDark+=dt; if(ufoDark>=UFO_WAIT)ufoStart(); }
+      ufoDark+=dt; if(ufoDark>=UFO_WAIT&&swPh===SWP.IDLE)ufoStart(); }
     else ufoDark=0;
     if(!ufoDrips.length)return;
   }
@@ -35655,12 +35689,20 @@ function renderMenuBeach(dt){
     // where every route actually arrives, and it cannot fire while the run card is up because the
     // card is not the title screen -- a crash still playing under the card is the crash playing,
     // and it is meant to.
+    // ...and the TUMBLE comes off him too, which the bones alone do not carry. The crash
+    // turns the whole rider group -- reset() and respawn() both take pug.rotation.x off him
+    // by hand -- and neither of those has run yet when he is stood on the beach looking at
+    // you. Bones restored under a body still folded over is most of "he is folded": the pose
+    // measures correct and the picture is wrong, which is this project's whole recurring
+    // shape. Only x and z: y is his facing, and R.show owns that every frame.
+    const _unfold=()=>{ if(typeof pug!=='undefined'&&pug){ pug.rotation.x=0; pug.rotation.z=0; } };
     if(overlay.classList.contains('main')&&!overlay.classList.contains('hidden')&&
        typeof wipe!=='undefined'&&wipe){
-      wipe=null;
+      wipe=null;                       // wipeDirty stays set: reset() still owes him his board
+      _unfold();
       if(_R){ _R.wipePosed=false; if(_R.reset)_R.reset(); }
     }
-    else if(_R&&_R.wipePosed){ _R.wipePosed=false; if(_R.reset)_R.reset(); } }
+    else if(_R&&_R.wipePosed){ _R.wipePosed=false; _unfold(); if(_R.reset)_R.reset(); } }
   // ---- AND HE IS ON THE BEACH AT ALL, which is not something to take on trust ----
   // Reported: the keeper vanishes from the title screen after a run and comes back on the next
   // press. I could not reproduce it -- a ride and back, on a board and on the ski, both come back
