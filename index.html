@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.113.0';
+window.SURF_VERSION='6.114.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -11350,7 +11350,7 @@ const HOWTO=[
   ['<ellipse cx="12" cy="12.4" rx="8.7" ry="4.5"/><path class="dot" d="M11.3 8.2 15.3 7.5 13.4 11.1Z" stroke="none"/>',
    'Spin','Draw a circle with one finger. Half a turn lands you switch, and that counts.'],
   ['<circle class="dot" cx="8.2" cy="12" r="2.9"/><circle class="dot" cx="15.8" cy="12" r="2.9"/><path d="M19.8 6.7a8.1 8.1 0 0 1 0 10.6"/>',
-   'Handstand','Hold a second finger down. It pays while it is held — and a hard carve on your hands ends badly.'],
+   'Handstand','Hold a second finger down. It pays while it is held, and carving pays more — but your arms give out if you stay up there.'],
   ['<path d="M12 4.6c4.2 0 7.4 3.1 7.4 7.2s-3.2 7.6-7.4 7.6-7.4-3.3-7.4-7.1c0-3 2-5.3 4.5-5.3"/><path class="dot" d="M8.4 3.7 12.6 6.1 8.7 8.6Z" stroke="none"/>',
    'Helicopter','Grab the nose and roll the board three times over. The whole move is one press.'],
 ];
@@ -31606,12 +31606,17 @@ function handstandScore(dt,carve,want){
     const tire=Math.max(0,1-Math.max(0,handHold-3.4)/2.6);
     const rate=(airborne?46:26)*(1+Math.min(1,Math.abs(carve))*0.4)*tire;
     score+=rate*dt; handPts+=rate*dt;
-    // hands are not feet: lay it right over on the rail and he goes over the front,
-    // and the longer he has been up there the less it takes
-    if(!airborne&&Math.abs(carve)>0.72-Math.min(0.34,handHold*0.05)){
-      handRisk+=dt*(1+handHold*0.30);
-      if(handRisk>0.55){handRisk=0;startWipeout('foam');return;}
-    } else handRisk=Math.max(0,handRisk-dt*1.6);
+    // ---- and steering on his hands no longer throws him ----
+    // There was a rule here that a hard carve during a handstand built a risk timer and wiped you
+    // out at 0.55 of it, tightening the longer you held the stand -- past three seconds it fired
+    // at a carve of 0.38, which is not a hard carve, it is steering. Hands are not feet was the
+    // argument and it is a fair one; what it produced in play was a trick that killed you for
+    // using the only control you have while it is running, which reads as the handstand being
+    // broken rather than as a rule.
+    // Carving still PAYS more, which is the half of the exchange worth keeping, and his arms
+    // still give out below -- the stand is still a thing you cannot hold forever, it is just not
+    // a thing that punishes you for steering out of the way of a buoy while you are up there.
+    handRisk=0;
     // and past nine seconds his arms simply give out
     if(handHold>9.0){ startWipeout('foam'); msg('ARMS GAVE OUT!'); return; }
   } else handHold=Math.max(0,handHold-dt*2.2);
