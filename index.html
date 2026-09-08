@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.122.0';
+window.SURF_VERSION='6.123.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -14970,6 +14970,7 @@ function setupModelRig(root,gltf,id){
            if(this.hipQ)h.quaternion.copy(this.hipQ); }
   };
   R.update=function(dt,want){
+    this.upd=(this.upd||0)+1;
     this.leaveShow();
     // MEASURED off this rig's own clip when there is one. The constants below were read off
     // one file's Hips track, and every other file has a clip of its own length — the cat's
@@ -20828,6 +20829,9 @@ function showMenu(mode){
     const R=(typeof riderRig==='function')?riderRig():null;
     if(R&&R.reset)R.reset();                            // ...and a rigged one goes back to bind
   }
+  // arm the beach's arm check: whatever route the crash took to get here, the next couple of
+  // seconds of title screen will notice if it left the rider posed
+  if(!over)menuArmFix=2.5;   // see MENU_ARM_OFF: var, because this line runs during boot
   overlay.classList.toggle('over',over);
   overlay.classList.toggle('main',!over);
   ovTitle.textContent = over ? 'Wipeout!' : 'Surf';
@@ -27138,6 +27142,32 @@ if(location.hash.includes('debug')){
     // the gesture is dead for the session with nothing on screen to say so. Neither slot is
     // visible from anywhere else, and "it stopped working" is the only symptom either of
     // them produces, so they are worth being able to read directly.
+    // ---- WHICH pose is on his arms, which is not a thing you can settle by looking ----
+    // The drowning pose and the title screen's wave both put a paw over his head, and from
+    // behind a treasure chest at phone size they are the same picture. The difference is that
+    // one of them MOVES: the wave rocks at about a turn a second and a stranded crash pose is
+    // a photograph. So both arms are reported as raw bone angles, sampled over several frames
+    // by whoever is asking, plus the flags that would explain a stuck one.
+    riderArms(){ const R=riderRig()||modelRigs[builtChar]; if(!R||!R.bones)return null;
+      const g=n=>{ const b=R.bones[n]; return b?[+b.rotation.x.toFixed(3),+b.rotation.y.toFixed(3),
+                                                 +b.rotation.z.toFixed(3)]:null; };
+      // ...and whether the rig is being DRIVEN at all, plus how far the arms sit from the
+      // bind pose reset() restores them to. A frozen arm is either a reset that did not run
+      // or a rig nothing is updating, and those are different bugs.
+      const off=n=>{ const b=R.bones[n], r=R.bind&&R.bind[n]; if(!b||!r)return null;
+        return +b.quaternion.angleTo(r.q).toFixed(3); };
+      return {upd:R.upd|0, offRt:off('RightArm'), offL:off('LeftArm'),
+              shown:R.step, cur:!!R.cur, mixT:+((R.mixer&&R.mixer.time)||0).toFixed(2),
+              L:g('LeftArm'), Rt:g('RightArm'), LF:g('LeftForeArm'), RF:g('RightForeArm'),
+              head:g('Head'), wipePosed:!!R.wipePosed, wipe:(typeof wipe!=='undefined')&&!!wipe,
+              dirty:(typeof wipeDirty!=='undefined')&&!!wipeDirty,
+              phase:R.phase, step:R.step, vis:!!(riderModels[builtChar]&&riderModels[builtChar].visible),
+              rigNull:!riderRig(), cls:overlay.className}; },
+    overlayClass(){ return overlay.className; },
+    forceRigReset(){ const R=riderRig()||modelRigs[builtChar]; if(!R||!R.reset)return null;
+      R.reset(); const b=R.bones.RightArm, r=R.bind&&R.bind.RightArm;
+      return {ran:true, offAfter:(b&&r)?+b.quaternion.angleTo(r.q).toFixed(3):null,
+              hasBind:!!(R.bind&&R.bind.RightArm)}; },
     touchSlots(){ return {steer:touchId, aux:auxId, auxHand:!!auxHand,
                           handOn:!!handOn, grab:!!gGrab, handT:+handT.toFixed(3)}; },
     // ---- the helicopter, beat by beat ----
@@ -36201,6 +36231,16 @@ function menuSettled(dt){
   return _mbHold>=MB_SHOW_HOLD||_mbWait>=MB_SHOW_CAP;
 }
 let MB_FREEZE=false;   // holds the shot still, so two frames differ only by what was toggled
+// How long after a run the beach keeps checking that the rider is not still wearing the
+// crash, and how far from his bind pose counts as wearing it. The title screen's own idle
+// sits about a fifth of a radian off bind; the drowning pose measures 1.88. One radian is
+// clear of the first and nowhere near the second.
+const MENU_ARM_OFF=1.0;
+// `var`, and for the reason showMenu already documents about `wipe`: showMenu is CALLED
+// during boot, hundreds of lines above this, and it arms this timer. A `let` read from up
+// there is in the temporal dead zone and throws "Cannot access 'menuArmFix' before
+// initialization", which takes the whole page down. A var is hoisted and merely undefined.
+var menuArmFix=0;
 function renderMenuBeach(dt){
   const m=menuBeach;
   // He is not allowed to stand here drowning. Cleared on the beach rather than on the way in,
@@ -36230,7 +36270,31 @@ function renderMenuBeach(dt){
       _unfold();
       if(_R){ _R.wipePosed=false; if(_R.reset)_R.reset(); }
     }
-    else if(_R&&_R.wipePosed){ _R.wipePosed=false; _unfold(); if(_R.reset)_R.reset(); } }
+    else if(_R&&_R.wipePosed){ _R.wipePosed=false; _unfold(); if(_R.reset)_R.reset(); }
+    // ---- and then the same thing again, as a FACT rather than an event ----
+    // Both branches above are one-shots: they fire on a flag, and if the flag is gone by the
+    // time the beach is up they never run at all. Measured on the title screen after a run
+    // that ended in the water, that is exactly what happens -- `wipe` false, `wipePosed`
+    // false, and the arms still sitting 1.88 radians from their bind pose, frozen, because
+    // R.update is called four times in a whole session out here and nothing else ever writes
+    // them again. Calling R.reset() by hand at that moment puts them back instantly, which is
+    // the proof it is not the reset that is broken; it is that nothing calls it.
+    // So this asks the question the flags were standing in for -- is he wearing a pose he
+    // should not be -- and it asks it every frame instead of once. Bounded to a couple of
+    // seconds after a run so it can never argue with the title screen's own performance,
+    // and to a rig nothing is currently driving.
+    if(menuArmFix>0){
+      menuArmFix=Math.max(0,menuArmFix-dt);
+      if(_R&&_R.bind&&_R.bones&&_R.step<0&&!_R.cur&&
+         !(typeof wipe!=='undefined'&&wipe)&&
+         overlay.classList.contains('main')&&!overlay.classList.contains('hidden')){
+        const b=_R.bones.RightArm||_R.bones.LeftArm;
+        const r=_R.bind[_R.bones.RightArm?'RightArm':'LeftArm'];
+        if(b&&r&&b.quaternion.angleTo(r.q)>MENU_ARM_OFF){
+          _R.wipePosed=false; _unfold(); if(_R.reset)_R.reset();
+        }
+      }
+    } }
   // ---- AND HE IS ON THE BEACH AT ALL, which is not something to take on trust ----
   // Reported: the keeper vanishes from the title screen after a run and comes back on the next
   // press. I could not reproduce it -- a ride and back, on a board and on the ski, both come back
