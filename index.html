@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.112.0';
+window.SURF_VERSION='6.113.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -930,7 +930,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
      becomes a tab the screen itself cuts: flat where it meets the edge, capped on the side your
      thumb comes from. It also buys back the 14px of reach and puts the tap target hard against
      the bezel, which is the easiest place on a phone to hit without looking. */
-  #trickBar { position:fixed; bottom:46px; left:0; z-index:9;
+  #trickBar { position:fixed; bottom:96px; left:0; z-index:9;
     width:70px;
     display:flex; flex-direction:column; gap:6px; }
   .tbtn {
@@ -15823,6 +15823,18 @@ function setupModelRig(root,gltf,id){
         hp.getWorldQuaternion(new THREE.Quaternion())).y:-1;
       if(over<0.15&&y<low){ low=y; best=t; }
     }
+    // ---- AND WHETHER IT IS A HANDSTAND AT ALL IS REMEMBERED, not just noted here ----
+    // `low` stays infinite when no frame of the clip has his body past upright. The comment
+    // above already says what that means -- a clip that never inverts is not a handstand -- and
+    // the fallback then picks the frame where a hand comes nearest the deck ANYWHERE, which on an
+    // upright body is a rider leaning forward onto one paw. That pose was being held and called a
+    // handstand: measured on this rig, plantT lands at 1.384 with the body still the right way up,
+    // and what you see is the dog face down over the nose of the board.
+    // The reason it was never caught by the code that draws him is one line at the other end --
+    // the group is turned over only for a rider WITHOUT a clip of its own, on the reasoning that a
+    // clip that inverts him would otherwise invert him twice. Sound, and it assumed the clip
+    // inverts him. This is the measurement that says whether it does.
+    this.standInverts=isFinite(low);
     if(!isFinite(low))best=bestAny;
     a.time=keepT; a.setEffectiveWeight(keep);
     this.reset();
@@ -25387,6 +25399,9 @@ if(location.hash.includes('debug')){
         out.xFix=+((modelRig.xFix||0).toFixed(4));
         out.yawFix=+((modelRig.yawFix||0).toFixed(4));
         out.stand=!!modelRig.stand; out.surf=!!modelRig.surf;
+        // whether that clip actually turns him over, which is the difference between a handstand
+        // and a dog leaning on one paw
+        out.standInverts=modelRig.standInverts===undefined?null:!!modelRig.standInverts;
         const st=modelRig.stand;
         if(st)out.act={run:st.isRunning(),t:+st.time.toFixed(2),w:+st.getEffectiveWeight().toFixed(2),
                        dur:+(st.getClip()?st.getClip().duration:0).toFixed(2)};
@@ -31541,7 +31556,11 @@ function updateHandstand(dt,carve){
     // ...and the group is turned only for a rider whose file brought no handstand of its own.
     // Turning one that did puts him on his head twice: the clip inverts the body and this
     // inverts the body the clip is in.
-    pug.rotation.x=modelRig.stand?0:modelRig.rot*Math.PI;
+    // ...and turned over unless the clip demonstrably does it itself. A borrowed clip that never
+    // gets his body past upright cannot be trusted with the inversion, and measureStand has
+    // already asked. Turn the group in that case and the clip still animates his limbs on top,
+    // which is a handstand with the arm movement rather than a dog lying on the board.
+    pug.rotation.x=(modelRig.stand&&modelRig.standInverts)?0:modelRig.rot*Math.PI;
     // side-on first, then stood on the deck, then slid onto it — each one measures the pose
     // the one before it left, so the order is the whole of why they agree
     modelRig.faceLock(modelRig.rot);
