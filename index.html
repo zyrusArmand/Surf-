@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.109.0';
+window.SURF_VERSION='6.110.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -10989,13 +10989,28 @@ addEventListener('pointerdown',(ev)=>{
   if(ev.target&&ev.target.closest&&
      ev.target.closest('#homeBar,#quests,#settings,#shop,#viewer,#stageBar,.hbtn,.varr,.slotb,.qbNote'))return;
   if(onVersion(ev))return;
+  // ---- AND IT WAITS TO SEE WHETHER IT IS A TAP AT ALL ----
+  // This used to act right here, on the way down. That is the more responsive thing to do and it
+  // is not compatible with swiping between the rooms: a swipe BEGINS with a pointerdown on the
+  // sand, so the room was left before the finger had travelled far enough to say where it was
+  // going. Held until the finger comes up and only acted on if it stayed put, which is what a tap
+  // is. ROOM_TAP_SLOP is well under SWIPE_MIN, so the two cannot both answer the same finger.
+  _tapArm={x:ev.clientX, y:ev.clientY, q, h};
+},{passive:true});
+const ROOM_TAP_SLOP=14;  // px of wander still counts as a tap rather than a drag
+let _tapArm=null;
+addEventListener('pointerup',(ev)=>{
+  const a=_tapArm; _tapArm=null;
+  if(!a)return;
+  if(typeof stageOn!=='undefined'&&stageOn)return;
+  if(Math.hypot(ev.clientX-a.x, ev.clientY-a.y)>ROOM_TAP_SLOP)return;   // that was a drag
   buzz(6);
   // ---- and a tap while you are reading one notice steps BACK, not out ----
   // Zoomed in, the way out of the sheet is the way you came. Only from the whole board does a
   // tap leave the room, so there is one gesture and it unwinds one level at a time.
-  if(q&&qbFocus>=0){ qbFocus=-1; return; }
-  if(q){ clearTimeout(_questWalk); questCamGo=0; }
-  if(h){ clearTimeout(_shopWalk); shopCamGo=0; }
+  if(a.q&&qbFocus>=0){ qbFocus=-1; return; }
+  if(a.q){ clearTimeout(_questWalk); questCamGo=0; }
+  if(a.h){ clearTimeout(_shopWalk); shopCamGo=0; }
 },{passive:true});
 // ---- the notices take you closer ----
 // Bound once, by delegation, rather than five listeners rebuilt whenever the text changes.
@@ -11035,7 +11050,6 @@ addEventListener('pointerdown',(ev)=>{
   if(typeof stageOn!=='undefined'&&stageOn)return;          // the workshop owns every drag
   if(document.body.classList.contains('panel'))return;      // a panel is open over the beach
   if(!overlay.classList.contains('main')||overlay.classList.contains('hidden'))return;
-  if(questCamGo||shopCamGo)return;                          // already in a room, or on the way
   // the same list the tap-to-return uses: a swipe that starts on a control belongs to the control
   if(ev.target&&ev.target.closest&&
      ev.target.closest('#homeBar,#quests,#settings,#shop,#viewer,#stageBar,.hbtn,.varr,.slotb,.qbNote'))return;
@@ -11051,11 +11065,23 @@ addEventListener('pointerup',(ev)=>{
   // and it has to be ACROSS. Without this every scroll-ish drag down the beach that wandered a
   // little sideways would open a room.
   if(Math.abs(dx)<Math.abs(dy)*1.5)return;
-  // Fired through the buttons' own handlers rather than by setting the walk gates here, so a swipe
-  // and a plank do exactly the same thing -- the board still gets asked for, the notices still get
-  // drawn, and there is one place to change what arriving means.
-  const el=document.getElementById(dx<0?'dShop':'dQuests');
-  if(el&&el.onclick)el.onclick();
+  // ---- ONE STOP AT A TIME, and the title screen is one of the stops ----
+  // The three rooms are a strip -- board, title, hut -- and a swipe steps along it rather than
+  // jumping to an end. Swiping left from the board brings you home; swiping left again takes you
+  // on to the hut. Without the middle stop there is no way to swipe back to the title at all, and
+  // the set's own layout says it is a place between two others rather than a menu behind them.
+  // Going to a room is fired through the button's own handler, so a swipe and a plank do exactly
+  // the same thing -- the board still gets asked for, the notices still get drawn, and there is
+  // one place to change what arriving means. Coming back to the middle is the same pair of lines
+  // the tap uses, for the same reason.
+  const go=id=>{ const el=document.getElementById(id); if(el&&el.onclick)el.onclick(); };
+  if(dx<0){                                   // leftward: board -> title -> hut
+    if(questCamGo){ buzz(6); qbFocus=-1; clearTimeout(_questWalk); questCamGo=0; }
+    else if(!shopCamGo) go('dShop');
+  }else{                                      // rightward: hut -> title -> board
+    if(shopCamGo){ buzz(6); clearTimeout(_shopWalk); shopCamGo=0; }
+    else if(!questCamGo) go('dQuests');
+  }
 },{passive:true});
 document.getElementById('dPlay').onclick    =()=>{ buzz(12); startBtn.click(); };
 const questsPanel=document.getElementById('quests'), setPanel=document.getElementById('settings');
