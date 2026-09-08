@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.99.0';
+window.SURF_VERSION='6.100.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -19028,10 +19028,13 @@ const QB_SLOTS=[
 // want the same stretch of back wall, and the counter is not wide enough for four abreast if the
 // panels are centred — he ended up standing over two of them. The three take the left and centre
 // of the opening and he takes the right end, which is where somebody serving would stand anyway.
+// Spread to the three bays of the back wall rather than bunched left of centre. The old spacing
+// put all three in the left half with the right-hand bay empty, which is why they read as sitting
+// beside the openings instead of in them.
 const SHOP_SLOTS=[
-  {id:'dSlotSchool', x:-0.50, label:'School',  act:()=>openGuide()},
-  {id:'dSlotBoards', x:-0.19, label:'Boards',  act:()=>openShopOn('boards')},
-  {id:'dSlotSurfer', x: 0.12, label:'Surfers', act:()=>openShopOn('riders')}];
+  {id:'dSlotSchool', x:-0.4050, label:'School',  act:()=>openGuide()},
+  {id:'dSlotBoards', x:-0.0064, label:'Boards',  act:()=>openShopOn('boards')},
+  {id:'dSlotSurfer', x: 0.4017, label:'Surfers', act:()=>openShopOn('riders')}];
 // Wired here rather than beside the layout, off the same table, so the id, the word on the panel
 // and the screen it opens cannot drift apart — and here specifically because SHOP_SLOTS is a
 // const declared below that code and reading it from up there is a temporal-dead-zone throw.
@@ -19058,7 +19061,19 @@ for(const _sl of SHOP_SLOTS){
 // for a run of hut y at the wall's depth, and this is that table inverted for the band's top and
 // bottom. Frame Y barely depends on z here (three thousandths across the hut's whole depth), so
 // the solve is in y alone and the depth stays where it keeps the quads on the wall.
-let SHOP_SLOT={y:-0.407, z:-0.34, w:0.22, h:0.222, col:0x0c86cf, glow:0.34, lit:0.90};
+// ---- AND THEN SOLVED AGAINST THE BAYS THEMSELVES, NOT AGAINST A SCREENSHOT ----
+// Second solve. The panels were still landing BELOW the dark wall, on the pale bamboo of the
+// counter top -- the band above reads 0.474..0.543 of the frame and they were sitting at
+// 0.545..0.582, which is entirely on the counter.
+// The first attempt at this fitted them to boxes drawn on a phone screenshot, and the vertical
+// came out 35 pixels low: a phone screenshot is the whole DEVICE screen, so image Y carries the
+// status bar as an offset the page never sees, while image X does not. The horizontal landed
+// within six pixels and the vertical was wrong by half a bay, which is exactly that offset.
+// So the height was measured off the model instead, in a render with these quads hidden -- a row
+// profile across the wall puts the dark band's edges at frame Y 474 and 543 -- and the panels are
+// solved to its centre. Measured against the model, this is right at any aspect; measured against
+// a screenshot, it was only ever right on one phone, and not even on that one.
+let SHOP_SLOT={y:-0.0561, z:-0.34, w:0.3064, h:0.2732, col:0x0c86cf, glow:0.34, lit:0.90};
 // Where the shopkeeper stands, in the hut's own axes: behind the counter, at the right-hand end.
 // He was a third of the way over while the panels were up on the beam and there was no conflict.
 // Now that they are down on the wall where they belong, they are at his chest height and the two
@@ -27285,7 +27300,11 @@ if(location.hash.includes('debug')){
     // Moves the panels live so a placement can be solved and SEEN in one run rather than one
     // render per guess. Rebuilds the quads' geometry, because w and h are baked into it.
     slotSet(o){
-      for(const k in o)SHOP_SLOT[k]=o[k];
+      // xs moves them ALONG the wall as well as up it. Without this the sideways placement was the
+      // one number that still needed a reload per guess, so a run could solve the height and then
+      // have to start over for the spacing.
+      if(o&&o.xs)for(let i=0;i<SHOP_SLOTS.length&&i<o.xs.length;i++)SHOP_SLOTS[i].x=o.xs[i];
+      for(const k in o)if(k!=='xs')SHOP_SLOT[k]=o[k];
       if(tikiSlots)for(const g of tikiSlots){
         const f=g.userData.face, h=g.userData.halo;
         f.geometry.dispose(); h.geometry.dispose();
@@ -27293,16 +27312,34 @@ if(location.hash.includes('debug')){
         h.geometry=new THREE.PlaneGeometry(SHOP_SLOT.w*1.5,SHOP_SLOT.h*1.5);
         g.position.set(g.userData.slot.x,SHOP_SLOT.y,SHOP_SLOT.z);
       }
-      return {y:SHOP_SLOT.y,z:SHOP_SLOT.z,w:SHOP_SLOT.w,h:SHOP_SLOT.h}; },
+      return {y:SHOP_SLOT.y,z:SHOP_SLOT.z,w:SHOP_SLOT.w,h:SHOP_SLOT.h,
+              xs:SHOP_SLOTS.map(s=>+s.x.toFixed(4))}; },
     shopSlots(){
       const W=Math.max(1,innerWidth), H=Math.max(1,innerHeight);
       const r=el=>{ if(!el)return null; const b=el.getBoundingClientRect();
         return {vis:getComputedStyle(el).visibility, x:+(b.x/W).toFixed(3), y:+(b.y/H).toFixed(3),
                 w:+(b.width/W).toFixed(3), h:+(b.height/H).toFixed(3)}; };
+      // The panel's TRUE projected box in CSS pixels, before the 44px thumb floor. The button's
+      // own rect cannot answer "how big is the light on screen", because the floor is exactly what
+      // hides that -- so sizing the panels off the button was measuring the floor.
+      const raw=g=>{
+        if(!menuCam||!tikiHut)return null;
+        menuCam.updateMatrixWorld(true); tikiHut.updateMatrixWorld(true);
+        const f=g.userData.face, hw=SHOP_SLOT.w/2, hh=SHOP_SLOT.h/2, v=new THREE.Vector3();
+        let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+        for(let i=0;i<4;i++){
+          v.set(i&1?hw:-hw,i&2?hh:-hh,0).applyMatrix4(f.matrixWorld).project(menuCam);
+          const px=(v.x*0.5+0.5)*W, py=(-v.y*0.5+0.5)*H;
+          if(px<x0)x0=px; if(px>x1)x1=px; if(py<y0)y0=py; if(py>y1)y1=py;
+        }
+        return {cx:+((x0+x1)/2).toFixed(1), cy:+((y0+y1)/2).toFixed(1),
+                w:+(x1-x0).toFixed(1), h:+(y1-y0).toFixed(1)};
+      };
       return {e:+shopCamE.toFixed(3),
         slots:(tikiSlots||[]).map(g=>({id:g.userData.slot.id,
           op:+g.userData.face.material.opacity.toFixed(3),
           at:g.getWorldPosition(new THREE.Vector3()).toArray().map(v=>+v.toFixed(2)),
+          raw:raw(g),
           btn:r(document.getElementById(g.userData.slot.id))})),
         keeper:(typeof pug==='undefined'||!pug)?null:{
           held:!!_keepHeld, scl:+pug.scale.x.toFixed(4), keptScl:+_keepScl.toFixed(4),
