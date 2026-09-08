@@ -50,7 +50,7 @@ AXIS_Y=-0.10                 # his body's centre line in plan; the spine bones s
 NSEG=32                      # segments round the shirt
 COLLAR_Z=1.030
 HEM_Z=0.320
-CLEAR=0.028                  # how far the cloth stands off the fur
+CLEAR=0.013                  # how far the cloth stands off the fur
 
 def surface_r(z,th,lo=0.05):
     """how far his surface is from the body axis at this height and bearing"""
@@ -78,10 +78,16 @@ for z in HS:
     row=[]
     for i in range(NSEG):
         th=i/NSEG*math.tau
-        # widest of a small arc, so a ring below the crotch spans BOTH legs instead of dipping
-        # into the gap between them -- that gap is why a copied surface could never make a hem
-        r=max(surface_r(z,th+dth) for dth in (-0.22,-0.11,0.0,0.11,0.22))
-        r=r+CLEAR+0.042*t*t                    # and it flares as it falls
+        # ---- widened ONLY where it has to be ----
+        # Taking the widest hit over an arc is what lets a ring below the crotch span both legs.
+        # Applied all the way up it also inflates the chest and the waist to the width of the
+        # broadest thing near them, which is most of why this came out as a barrel standing off
+        # him rather than a shirt lying on him. Above the waist it follows the surface exactly.
+        if z<0.56:
+            r=max(surface_r(z,th+dth) for dth in (-0.22,-0.11,0.0,0.11,0.22))
+        else:
+            r=surface_r(z,th)
+        r=r+CLEAR+0.020*t*t                    # and it falls a little loose, not a lot
         row.append(Vector((math.cos(th)*r, AXIS_Y+math.sin(th)*r, z)))
     rings.append(row)
 
@@ -105,11 +111,16 @@ def ring_from(src,dr,dz,scale=1.0):
         n=rad.normalized() if rad.length>1e-6 else Vector((0,1,0))
         out.append(bm.verts.new(Vector((p.x+n.x*dr, p.y+n.y*dr, p.z+dz))))
     return out
-c1=ring_from(top, 0.012, 0.055)
-c2=ring_from(top, 0.075, 0.020)
+c1=ring_from(top, 0.006, 0.030)
+c2=ring_from(top, 0.030, -0.006)      # folded DOWN over the shoulder, not out sideways
+FRONT0=int(NSEG*0.75)
+GAP=[ (FRONT0+k)%NSEG for k in (-2,-1,0,1) ]   # the V at the throat
 for a,b in ((top,c1),(c1,c2)):
     for i in range(NSEG):
         j=(i+1)%NSEG
+        # left open at the front: a collar that closes all the way round is a polo neck, and the
+        # notch is what makes the two halves read as lapels
+        if i in GAP: continue
         bm.faces.new((a[i],a[j],b[j],b[i]))
 
 # ---- the placket, and its buttons ----
@@ -138,7 +149,7 @@ def sleeve(side):
     d=(e-a).normalized(); L=(e-a).length
     up=Vector((0,0,1)); u=d.cross(up).normalized(); w=u.cross(d).normalized()
     prev=None; first=None
-    for k,(t,scale) in enumerate([(0.02,1.00),(0.30,0.98),(0.58,0.98),(0.80,1.06),(0.86,1.02)]):
+    for k,(t,scale) in enumerate([(0.02,1.00),(0.26,0.96),(0.50,0.94),(0.64,1.00),(0.69,0.96)]):
         c=a+d*(L*t)
         row=[]
         for i in range(NSEG//2):
@@ -146,7 +157,7 @@ def sleeve(side):
             dirv=(u*math.cos(th)+w*math.sin(th))
             hit=bvh.ray_cast(c+dirv*0.02, dirv, 1.0)
             r=((hit[0]-c).length if hit[0] is not None else 0.11)
-            r=(r+CLEAR*0.85)*scale
+            r=(r+CLEAR*0.9)*scale
             row.append(bm.verts.new(c+dirv*r))
         if prev:
             n=len(row)
@@ -204,13 +215,13 @@ for poly in me.polygons:
         # times its height. Mapping both axes to similar ranges stretches every motif sideways
         # by that factor, which is the smearing -- flowers pulled into streaks. Matching the
         # ratio makes a texel square and a hibiscus round.
-        uv[li].uv=((th/math.tau)%1.0*3.2, (p.z-HEM_Z)/(COLLAR_Z-HEM_Z)*1.0)
+        uv[li].uv=((th/math.tau)%1.0*2.5, (p.z-HEM_Z)/(COLLAR_Z-HEM_Z)*0.78)
 # seam fix: any face straddling the wrap gets pulled back to one side
 for poly in me.polygons:
     us=[uv[li].uv[0] for li in poly.loop_indices]
-    if max(us)-min(us)>1.6:
+    if max(us)-min(us)>1.25:
         for li in poly.loop_indices:
-            if uv[li].uv[0]<1.6: uv[li].uv[0]+=3.2
+            if uv[li].uv[0]<1.25: uv[li].uv[0]+=2.5
 
 print('shirt verts',len(me.vertices),'polys',len(me.polygons))
 bb=[sh.matrix_world@Vector(c) for c in sh.bound_box]
@@ -319,15 +330,15 @@ def coconut(S):
 # top of it. Densities chosen so the cream shows through as gaps rather than as background.
 rnd=random.Random(5)
 S=N//5
-for _ in range(46):
-    paint(rnd.randrange(N),rnd.randrange(N),S*1.05,frond(S*0.58,rnd.uniform(0,math.pi*2)))
 for _ in range(26):
-    paint(rnd.randrange(N),rnd.randrange(N),S*0.80,monstera(S*0.60,rnd.uniform(0,math.pi*2)))
-for _ in range(38):
+    paint(rnd.randrange(N),rnd.randrange(N),S*1.05,frond(S*0.72,rnd.uniform(0,math.pi*2)))
+for _ in range(15):
+    paint(rnd.randrange(N),rnd.randrange(N),S*0.80,monstera(S*0.74,rnd.uniform(0,math.pi*2)))
+for _ in range(20):
     paint(rnd.randrange(N),rnd.randrange(N),S*0.72,
-          hibiscus(S*0.56,rnd.uniform(0,math.pi*2),rnd.random()<0.6))
-for _ in range(13):
-    paint(rnd.randrange(N),rnd.randrange(N),S*0.52,plumeria(S*0.38,rnd.uniform(0,math.pi*2)))
+          hibiscus(S*0.78,rnd.uniform(0,math.pi*2),rnd.random()<0.6))
+for _ in range(11):
+    paint(rnd.randrange(N),rnd.randrange(N),S*0.52,plumeria(S*0.52,rnd.uniform(0,math.pi*2)))
 for _ in range(12):
     paint(rnd.randrange(N),rnd.randrange(N),S*0.18,coconut(S*0.13))
 
