@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.123.0';
+window.SURF_VERSION='6.124.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -7561,6 +7561,14 @@ function previewSetup(){
   prevHemi=new THREE.HemisphereLight(0xffffff,0x8fa6bd,1.05); prevScene.add(prevHemi);
   prevKey=new THREE.DirectionalLight(0xfff3e0,1.8); prevKey.position.set(-1.4,2.2,2.6); prevScene.add(prevKey);
   prevFill=new THREE.DirectionalLight(0xbfd8ff,0.55); prevFill.position.set(2.0,0.7,-1.8); prevScene.add(prevFill);
+  // ---- and a RIM, which is the whole reason a backlit thing reads as backlit ----
+  // The brightest part of this sky is behind the set, so everything standing in it should be
+  // catching a warm edge along the side turned away from the camera -- the palm fronds, the
+  // rail of the board, the line of the rider's back. Without it the key does all the work
+  // from the front and the objects sit ON the picture instead of in it. It casts nothing:
+  // a rim is an edge, and a second shadow map for it would cost real time for no picture.
+  prevRim=new THREE.DirectionalLight(0xffc98a,0); prevRim.position.set(0,3,-6);
+  prevScene.add(prevRim); prevScene.add(prevRim.target);
   prevCam=new THREE.PerspectiveCamera(32,PREV_W/PREV_H,0.05,90);
   const _t1=performance.now();
   beachSet=buildBeach(); prevScene.add(beachSet);
@@ -7627,6 +7635,7 @@ function previewSetup(){
 // rolls rather than standing still.
 // ---------------------------------------------------------------------------
 let prevOcean=null, prevSky=null, beachLife=null, cardSet=null, cardShadow=null;
+let prevRim=null;
 // The title screen's sea is a CLONE of the game's material, and cloning a ShaderMaterial
 // deep-copies its uniforms — textures included. So handing the map to oceanUniforms alone
 // reaches the sea you play on and not the one on the home screen, which is the sea most of
@@ -34037,6 +34046,9 @@ function menuBeachOn(){
     prevKey.shadow.normalBias=0.06;
     prevKey.shadow.camera.near=1;
     prevKey.shadow.camera.far=140;
+    // (The frustum's SIDES are not set here on purpose: layoutMenuBeach sizes them off the
+    // set's own radius every layout -- see SH_W/SH_T/SH_B -- and anything written here is
+    // overwritten before a frame is drawn.)
     if(!prevKey.target.parent)prevScene.add(prevKey.target);
   }
   // ---- and EVERYTHING standing on this beach casts ----
@@ -34103,6 +34115,9 @@ function menuBeachOn(){
   // and cancels the low sun that was just set.
   if(prevHemi){ prevHemi.color.set(0xbcd6ef); prevHemi.groundColor.set(0xe0b078);
                 prevHemi.intensity=0.46; }
+  // the sun is an hour off the water and behind the set, so the rim is the same gold as the
+  // glow on the dome rather than a white edge light
+  if(prevRim){ prevRim.color.set(0xffbb72); prevRim.intensity=1.55; }
   // Sand: warm and light, the colour of dry tropical beach. It carries a dark multiplier
   // over its vertex colours because the previews look at it from above in full daylight —
   // under the old low sun that went to mud, and under this one it can come most of the way
@@ -34865,11 +34880,36 @@ function layoutMenuBeach(){
     // touches the water. This is the number that makes it that hour: everything standing on the
     // beach is lit along one side and throws a shadow most of the way across the frame, and no
     // amount of warm paint on the dome does that on its own.
-    const dir=_mbS.copy(_mbUp).multiplyScalar(0.185)
+    // ---- and the SUN'S HEIGHT is what decides whether a shadow is a shadow ----
+    // This was walked down to 0.185 chasing the last hour before sunset, and measured off the
+    // vector to the target that is about seven degrees. At seven degrees a two-foot rider
+    // throws a seventeen-foot shadow: it leaves the shadow box, it leaves the frame, and what
+    // is left under him is nothing at all. Everything else was already right -- the map is
+    // made, the casters are marked, the sand receives, the box is sized -- and the picture
+    // still had a chest and a rider sitting on lit sand with no weight, which is exactly the
+    // "they appear to be floating because they aren't casting shadows" in the note.
+    // Tried at 0.46 -- about twenty-five degrees -- and it gave shadows and took the evening
+    // with it: the whole set came back pale and hazy and the warmth was gone, which is a
+    // worse picture than the one with no shadows in it. 0.30 is about sixteen degrees, which
+    // is the most height that can be bought before the hour starts to change: a shadow a bit
+    // over three times the height of what threw it, which stays under its own object and
+    // inside the box, against seventeen times at the 0.185 this was.
+    const dir=_mbS.copy(_mbUp).multiplyScalar(0.30)
                   .addScaledVector(_mbR,-0.96).addScaledVector(_mbF,-0.22).normalize();
     prevKey.position.set(_mbP.x+dir.x*54,_mbP.y+dir.y*54,_mbP.z+dir.z*54);
     prevKey.target.position.set(_mbP.x-_mbR.x*2.4,_mbP.y+4,_mbP.z-_mbR.z*2.4);
     prevKey.target.updateMatrixWorld();
+  }
+  // The rim goes on the OTHER side of the set, off the same camera axes so it holds wherever
+  // the shot is turned: behind everything and low, shining back toward the lens. Slightly to
+  // the right, opposite the key over the left shoulder, so the two edges do not land on the
+  // same side of every object and cancel into a flat wash.
+  if(prevRim){
+    const rd=_mbS.copy(_mbUp).multiplyScalar(0.24)
+                 .addScaledVector(_mbR,0.30).addScaledVector(_mbF,0.92).normalize();
+    prevRim.position.set(_mbP.x+rd.x*60,_mbP.y+rd.y*60,_mbP.z+rd.z*60);
+    prevRim.target.position.set(_mbP.x,_mbP.y+3.2,_mbP.z);
+    prevRim.target.updateMatrixWorld();
   }
   // Tilted, the way a board propped against a tree actually stands: the tilt is taken about
   // the camera's own forward axis, so it leans across the PICTURE by a known angle however
@@ -36085,6 +36125,7 @@ function menuBeachOff(){
     prevHemi.groundColor.copy(menuDay.hemiG); prevHemi.intensity=menuDay.hemiI; }
   if(prevFill&&menuDay.fill){ prevFill.color.copy(menuDay.fill);
     prevFill.intensity=menuDay.fillI; prevFill.position.copy(menuDay.fillP); }
+  if(prevRim)prevRim.intensity=0;      // the shop's cards are lit flat on purpose
   if(beachSand&&menuDay.sand){ beachSand.material.color.copy(menuDay.sand);
     beachSand.material.envMapIntensity=menuDay.sandEnv; }
   if(beachSea&&menuDay.seaY!==undefined){ beachSea.position.y=menuDay.seaY; shoreTaper(); }
