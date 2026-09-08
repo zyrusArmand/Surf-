@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.114.0';
+window.SURF_VERSION='6.115.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -36144,7 +36144,21 @@ function renderMenuBeach(dt){
   // feet from the lens, which puts the plane of focus somewhere between the camera and its
   // own front element and softens the entire picture. The subject is the board; this is how
   // far away the board actually is.
-  present(prevScene,menuCam,null,MENU_DOF?{focus:menuCam.position.distanceTo(
+  // ---- AND THE DEPTH OF FIELD STANDS DOWN WHILE THE LENS IS MOVING ----
+  // Reported as the walks between the rooms being slow and stuttery. Depth of field is not one
+  // cheap pass: present() renders the WHOLE SCENE a second time into a depth target with an
+  // override material, and then runs three more full-screen passes to blur and composite it.
+  // The menu also carries a 2048 shadow map, four times the ride's, re-rendered every frame.
+  // That is affordable on a still picture and it is the frame rate that a pan spends -- a static
+  // screen at twenty-five frames looks perfect and a camera move at twenty-five looks broken,
+  // which is exactly the shape of the complaint.
+  // So the blur is spent where it can be seen and not where it cannot. Nobody reads bokeh during
+  // a three-quarter-second turn; everybody sees the turn stutter. It comes back the moment the
+  // lens settles, so the framed shots -- which are what the depth of field was put there for --
+  // are untouched.
+  const _mbPan=(shopCamE>0.002&&shopCamE<0.998)||(questCamE>0.002&&questCamE<0.998)||
+               (qbZoomE>0.002&&qbZoomE<0.998);
+  present(prevScene,menuCam,null,(MENU_DOF&&!_mbPan)?{focus:menuCam.position.distanceTo(
                                              m.board.getWorldPosition(_dofP)),
                                            range:MB_DOF}:null,MENU_FISH,MENU_GRADE);
   if(fxOn&&bT0!==null){ fxBright.uniforms.uT.value=bT0; fxComp.uniforms.uAmt.value=bA0; }
