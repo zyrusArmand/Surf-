@@ -280,7 +280,19 @@ the tip of the jaw sits at y = 0.06 at rest and y = 0.90 at sixty degrees.
 Re-rigging made the file *smaller*: 1.50 MB to 1.27 MB, nine bones and nine vertex groups
 lighter, with the geometry and all three textures untouched.
 
-**What you can see of it today: the fin, and nothing else.** `BIGFIN_SHOW` keeps the animal
+**And it uses that jaw.** Some sharks (two in three) leave the water at you: they commit a
+beat before they would have reached your lane, aim at where you were AT THAT INSTANT, and
+arc over it with the mouth gaping. Nothing in the flight re-reads your position, which is
+what makes the dodge real — steer out of the line and it lands where you used to be, and you
+are paid for it. Fail to and the jaws shut on you at the top of the arc, and it worries you
+at the surface before taking you under; the run ends there.
+
+Two things that had to be true for the leap to work at all, both of which were wrong first:
+the model was swimming BACKWARDS (see the quarter turn above), and the mouth hangs several
+feet below the object's origin because `BIGFIN_SHOW` sinks the whole animal inside its frame,
+so every height in the leap is written against the mouth rather than the origin.
+
+**What you can see of it while it is swimming: the fin, and nothing else.** `BIGFIN_SHOW` keeps the animal
 under the surface on purpose, and the water is not clear enough to read a body through, so the
 bite is currently below the waterline the whole time it happens. The rig is right and the game
 drives it; making it *visible* is a separate decision — a lunge that lifts the head clear at

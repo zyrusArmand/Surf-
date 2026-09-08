@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.118.0';
+window.SURF_VERSION='6.119.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -17343,7 +17343,26 @@ const SHARK_JAW_EASE=13;      // how hard it chases the angle it wants
 const SHARK_BITE_SECS=0.85;   // shut, hold, fall open again
 const SHARK_BITE_LEAD=0.55;   // seconds before it reaches you that it commits to the bite
 const SHARK_BITE_X=5.0;       // ...and how near your lane it has to be to bother
+// ---- AND IT COMES OUT OF THE WATER AFTER YOU ----
+// The leap is aimed at where you were WHEN IT LAUNCHED and then committed to, which is the
+// whole of the dodge: a shark that keeps tracking you while it is in the air cannot be beaten
+// and is not a mechanic, it is a coin toss. It picks its spot, you get the flight time to be
+// somewhere else, and it lands where you used to be.
+const SHK_LEAD=1.15;     // seconds out that it commits and leaves the water
+const SHK_ARC=1.30;      // how long the leap lasts, launch to splashdown
+const SHK_APEX=5.4;      // feet clear of the water at the top of it
+const SHK_DODGE=3.2;     // lateral feet that get you out of the jaws
+const SHK_OVER=3.4;      // ...or clear it over the top, if you are high enough
+const SHK_REACH=7.5;     // how near your lane it has to be to try at all
+// ...and not every one of them. A hazard that does its whole party piece every single time
+// stops being an event by the third one; two thirds go for you and the rest just swim past,
+// which is also what keeps the plain crossing fin meaningful instead of a tell.
+const SHK_CHANCE=0.66;
+const SHK_PAST=2.2;      // feet beyond you it lands, so it crosses your line rather than stopping on it
+const SHK_CHEW=1.75;     // seconds in the mouth before it takes you under
+const SHK_CHEW_RATE=13;  // how fast the jaw works while it has you
 const _shkY=new THREE.Vector3(0,1,0), _shkQ=new THREE.Quaternion();
+const _shkZ=new THREE.Vector3(0,0,1), _shkQ2=new THREE.Quaternion(), _shkV=new THREE.Vector3();
 // The bone of THIS clone, found once and kept. Returns null for the built-in procedural fin,
 // which is a blade with no bones at all — every caller has to cope with that, because the
 // model is one of the documented absences and the game runs without it.
@@ -17432,6 +17451,8 @@ function makeObstacle(kind,x,z){
   if(kind==='bigfin'){
     const d=Math.random()<0.5?1:-1;
     m.rotation.y=d*Math.PI/2;
+    m.userData.dir=d;                 // which way its nose points, for the leap's pitch
+    m.userData.hunts=Math.random()<SHK_CHANCE;
     // start just off your side of the field and sweep across your line
     m.userData.startX=px-d*(11+Math.random()*5);
     m.userData.targetX=px+d*(0.5+Math.random()*2.5);
@@ -17634,7 +17655,16 @@ for(const kind of ['buoy','jelly','log','bigfin','ramp','octopus'])(k=>{
       // given to point it along its sweep; an imported model has no such turn, so it crossed
       // your line sideways. A quarter turn back, and the clone's own turn lands it head-first
       // in both directions it can come from.
-      fitted.userData.frame.rotation.y-=Math.PI/2;
+      // ---- ...AND THE TURN WENT THE WRONG WAY ----
+      // It was -PI/2, which is a half turn from head-first: every shark in this game has
+      // been swimming BACKWARDS since the model was dropped in, crossing your line tail
+      // first. Nothing could show it. A shark under water is a dorsal fin and a dark shape,
+      // and a dorsal fin is near enough symmetrical that the picture is the same either way
+      // round -- so the fault sat in plain sight behind the one detail that hides it.
+      // Measured off the JAW BONE rather than reasoned through: the head direction is where
+      // that bone sits relative to the body, one reading instead of three quarter-turns
+      // argued in a row. It came back at (-1, 0) against a heading of +1. See __surf.sharks.
+      fitted.userData.frame.rotation.y+=Math.PI/2;
       // Beam only, and applied to the frame INSIDE the turn above, so it squashes the animal
       // across its own width rather than across whichever way the world happens to face.
       fitted.userData.frame.scale.z*=BIGFIN_BEAM;
@@ -21255,8 +21285,141 @@ function startWipeout(kind){
   rig.rotation.set(keep.x+player.rotation.x,keep.y+player.rotation.y,keep.z+player.rotation.z);
   spinHeld=false;flipHeld=false;pitchHeld=false;spinRot=0;flipRot=0;pitchRot=0;pitchQ=0;grabOn=false;dragOn=false;
 }
+// ---- EATEN, which is a different death from every other one ----
+// Every other crash throws the rider: startWipeout gives him a launch velocity and a spin and
+// updateWipeout flies him through it. This one does the opposite — he does not move under his
+// own power at all from the moment the jaws close. He is carried. So the whole of the normal
+// tumble is skipped and his position is written from the shark's jaw every frame instead.
+//
+// It still goes through startWipeout rather than around it. That function is where the run
+// actually ends: the costume is handed back, the board is dropped, the stats are counted, the
+// rider is taken off the board and onto the player group. Reimplementing any of that here is
+// how you end up eaten AND still wearing a cow.
+function startEaten(o){
+  if(wipe)return;
+  startWipeout('bigfin');
+  if(!wipe)return;
+  const w=wipe;
+  w.eaten=o; w.chew=0;
+  // he is not thrown anywhere; the velocities would only fight the jaw for his position
+  w.vx=0; w.vy=0; w.vz=0; w.sx=0; w.sy=0; w.sz=0;
+}
+// where the mouth actually is, taken off the jaw bone and the animal's own heading rather
+// than off a local offset — the bone sits at the HINGE, which is the back of the mouth, and
+// the pitch of the leap turns the whole animal, so a fixed offset points somewhere different
+// at every moment of the fall.
+const _eatJ=new THREE.Vector3(), _eatO=new THREE.Vector3(), _eatN=new THREE.Vector3(),
+      _eatM=new THREE.Vector3();
+// ---- how far the MOUTH hangs below the origin, which is not a small number ----
+// BIGFIN_SHOW sinks the whole model inside its own frame so that only the fin clears the
+// water, so the object's origin is up at the surface and the head is several feet under it.
+// Everything that wants the mouth somewhere — the top of the leap, the worry at the surface,
+// the drag under — has to be written against the mouth and not against the origin, or the
+// leap lifts the fin clear and leaves the jaws in the sea, and the rider held in them is
+// placed seven feet underwater at the moment he is supposed to be thrashing on the surface.
+// Measured off the animal at rest and kept: it moves with the jaw and the pitch, but only by
+// inches against a figure of feet, and re-measuring it mid-leap would chase its own tail.
+function sharkLift(o){
+  const u=o.userData;
+  if(u.mouthDy===undefined){
+    o.updateMatrixWorld(true);
+    sharkMouth(o,_eatM);
+    u.mouthDy=Math.max(0,o.position.y-_eatM.y);
+  }
+  return u.mouthDy;
+}
+function sharkMouth(o,out){
+  const b=sharkJaw(o); if(!b)return out.copy(o.position);
+  b.updateWorldMatrix(true,false);
+  b.getWorldPosition(_eatJ); o.getWorldPosition(_eatO);
+  _eatN.copy(_eatJ).sub(_eatO);
+  if(_eatN.lengthSq()>1e-6)_eatN.normalize(); else _eatN.set(1,0,0);
+  return out.copy(_eatJ).addScaledVector(_eatN,1.15).addScaledVector(_shkY,0.28);
+}
+function eatenStep(dt,w){
+  const o=w.eaten;
+  w.chew+=dt;
+  const sea=waveH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock);
+  const dir=o.userData.dir||1;
+  if(w.chew<SHK_CHEW){
+    // ---- the worrying ----
+    // It comes down out of the leap and lies in the water shaking you, which is the part
+    // everybody has seen on television and the reason this is not just a hit. The shake is
+    // eased in over the first fifth of a second so it does not start mid-swing.
+    const f=Math.min(1,w.chew/0.55);
+    // ...with the JAWS at the surface, half the animal out of the water, which is where a
+    // shark worrying something actually is
+    const rest=sea+sharkLift(o)+0.55+(1-f)*1.8+Math.sin(w.chew*7)*0.22*f;
+    o.position.y+=(rest-o.position.y)*Math.min(1,dt*6);
+    const th=Math.sin(w.chew*11)*0.34*Math.min(1,w.chew*2.4);
+    o.quaternion.setFromAxisAngle(_shkY,dir*Math.PI/2+th*0.55);
+    o.quaternion.premultiply(_shkQ2.setFromAxisAngle(_shkZ,th));
+    if(Math.random()<dt*24)splash(o.position.x+(Math.random()-0.5)*2.4,sea,o.position.z+(Math.random()-0.5)*2,2);
+    shake=Math.max(shake,0.34);
+  } else {
+    // ---- and under ----
+    const g=Math.min(1,(w.chew-SHK_CHEW)/1.15);
+    o.position.y+=((sea+sharkLift(o)+0.55-4.2*g*g)-o.position.y)*Math.min(1,dt*5);
+    o.quaternion.setFromAxisAngle(_shkY,dir*Math.PI/2);
+    o.quaternion.premultiply(_shkQ2.setFromAxisAngle(_shkZ,-dir*0.62*g));
+    if(!w.splashed&&g>0.10){
+      w.splashed=true;
+      splash(o.position.x,sea,o.position.z,30); pushTrail(o.position.x,sea,o.position.z,2.0);
+      shake=Math.max(shake,1.3);
+    }
+  }
+  // the jaw works the whole time, and he goes wherever it goes
+  { const jw=sharkJaw(o);
+    if(jw){
+      const a=SHARK_JAW_SHUT*(0.26+0.24*(0.5+0.5*Math.sin(w.chew*SHK_CHEW_RATE)));
+      o.userData.jaw=a;
+      jw.quaternion.copy(o.userData.jawRest)
+        .multiply(_shkQ.setFromAxisAngle(_shkY,a*Math.PI/180));
+    } }
+  o.updateMatrixWorld(true);
+  sharkMouth(o,_shkV);
+  px=_shkV.x; py=_shkV.y;
+  player.position.copy(_shkV);
+  // limp, and shaken about by the animal rather than turning under his own momentum
+  player.rotation.set(0.9+Math.sin(w.chew*9)*0.22, dir*Math.PI/2, Math.sin(w.chew*11)*0.30);
+  if(!rigPosed&&typeof armFrontJ!=='undefined'&&armFrontJ){
+    const f=w.chew*9.0;
+    armFrontJ.sh.rotation.x=0.9+Math.sin(f)*1.1;   armFrontJ.sh.rotation.z=1.0+Math.cos(f*0.9)*0.5;
+    armBackJ.sh.rotation.x=0.9+Math.sin(f+2.1)*1.1; armBackJ.sh.rotation.z=-1.0+Math.cos(f*0.9+1)*0.5;
+    legFrontJ.hip.rotation.x=-0.4+Math.sin(f*0.8)*0.7;
+    legBackJ.hip.rotation.x=0.4+Math.sin(f*0.8+2.4)*0.7;
+    headJ.rotation.set(0,0,Math.sin(f*0.6)*0.5);
+  }
+  // the shot watches the ANIMAL, not the spot the rider used to be: he is inside it now, so
+  // framing him is framing a shark's cheek
+  const ease=Math.min(1,dt*3.0);
+  // EACH of the three, separately. startWipeout seeds atX and atY and leaves atZ out -- the
+  // ordinary path fills it in with `w.atZ===undefined?mz:...` at the point of use -- so a
+  // guard keyed on atX alone never fired for atZ, and `undefined + n` made the look-at target
+  // NaN. That does not stay local: a NaN camera matrix makes a NaN shadow matrix, and three
+  // uploads shadow matrices as an ARRAY uniform, where its flatten() reads element zero and
+  // asks it for .toArray -- and NaN answers false to both `<=0` and `>0`, so it walks
+  // straight past the number check and throws on every draw call. Twelve errors a frame from
+  // one missing initialiser, and none of them anywhere near the camera.
+  if(w.atX===undefined)w.atX=o.position.x;
+  if(w.atY===undefined)w.atY=o.position.y;
+  if(w.atZ===undefined)w.atZ=o.position.z;
+  // ON THE MOUTH, and far enough back to see it. Framed on the animal's ORIGIN at ten feet
+  // it filled the screen corner to corner with the jaws — the one thing worth looking at —
+  // half off the left edge. The head is where he is, so the head is what the shot is for.
+  w.camX+=(_shkV.x*0.80-w.camX)*ease;
+  w.camY+=(Math.max(sea+2.6,_shkV.y+1.7)-w.camY)*ease;
+  w.camZ+=(o.position.z+17.0-w.camZ)*ease;
+  camera.position.set(w.camX,w.camY,w.camZ);
+  w.atX+=(_shkV.x-w.atX)*ease;
+  w.atY+=(_shkV.y-w.atY)*ease;
+  w.atZ+=(_shkV.z-w.atZ)*ease;
+  camera.lookAt(w.atX,w.atY,w.atZ);
+  if(w.t>3.2)gameOver();
+}
 function updateWipeout(dt){
   const w=wipe; w.t+=dt;
+  if(w.eaten){ eatenStep(dt,w); return; }
   // pug: thrown, tumbling, then splashdown
   // REAL GRAVITY. 22 is not an acceleration anybody has ever fallen under: a world unit
   // here is a FOOT, so gravity is 32.2, and at 22 he hung in the air two-thirds too long
@@ -26795,7 +26958,18 @@ if(location.hash.includes('debug')){
       return obstacles.filter(o=>o.userData.kind==='bigfin').map(o=>{
         const b=(typeof sharkJaw==='function')?sharkJaw(o):null;
         if(b)b.updateWorldMatrix(true,false);
-        return {bone:!!b, z:+o.position.z.toFixed(1),
+        // WHICH WAY IT IS POINTING, taken off the jaw rather than off the maths. The model is
+        // turned by the fit, then again by the frame, then again per clone, and reasoning
+        // through three quarter-turns is how you get a shark swimming backwards. The jaw bone
+        // is in its head, so the head direction is just where that bone sits relative to the
+        // body — one measurement instead of three assumptions.
+        let nose=null;
+        if(b){ const h=b.getWorldPosition(v).clone().sub(o.getWorldPosition(new THREE.Vector3()));
+          h.y=0; if(h.lengthSq()>1e-6)h.normalize();
+          nose=[+h.x.toFixed(2),+h.z.toFixed(2)]; }
+        return {bone:!!b, z:+o.position.z.toFixed(1), x:+o.position.x.toFixed(1),
+                ry:+o.rotation.y.toFixed(2), nose, vx:o.userData.targetX>o.position.x?1:-1,
+                atk:o.userData.atk||null,
                 jaw:o.userData.jaw===undefined?null:+o.userData.jaw.toFixed(1),
                 bite:o.userData.bite===undefined?null:+o.userData.bite.toFixed(2),
                 tipY:b?+v.set(0,0,1).applyMatrix4(b.matrixWorld).y.toFixed(3):null}; }); },
@@ -32760,8 +32934,70 @@ function update(dt){
     if(o.userData.kind==='bigfin'){
       // pace the crossing so it arrives in your lane just as you reach it
       const togo=Math.max(0.35,(-o.position.z)/Math.max(8,eff));
-      o.position.x+=((o.userData.targetX-o.position.x)/togo)*dt;
-      if(Math.random()<dt*14)splash(o.position.x,o.position.y+0.1,o.position.z+1.4,1);
+      const _u=o.userData;
+      if(!_u.atk){
+        o.position.x+=((_u.targetX-o.position.x)/togo)*dt;
+        if(Math.random()<dt*14)splash(o.position.x,o.position.y+0.1,o.position.z+1.4,1);
+      }
+      // ---- IT LEAVES THE WATER ----
+      // Committed a beat before it would have reached you, and only if it is near enough
+      // your lane to have a chance -- a shark two lanes over lunging at nothing looks
+      // broken, not scary. Everything about the leap is fixed at this instant: where it
+      // launched, where it is aiming, and how long it has. Nothing in the flight re-reads
+      // where you are, which is what makes the dodge a real one.
+      if(!_u.atk && _u.hunts && togo<SHK_LEAD && running && !hanging && !swTubeRide &&
+         glPh===GLP.OFF && swPh===SWP.IDLE && o.position.z<0 &&
+         Math.abs(o.position.x-px)<SHK_REACH){
+        _u.atk='leap'; _u.at=0; _u.bite=0;          // the jaw opens on the way up
+        _u.x0=o.position.x; _u.z0=o.position.z;
+        _u.aimX=px; _u.aimZ=pz;
+        _u.by=undefined;                            // it is off the swell now; do not fight it
+        splash(o.position.x,o.position.y,o.position.z,18);
+        buzz(22); shake=Math.max(shake,0.5);
+      }
+      if(_u.atk==='leap'||_u.atk==='miss'){
+        _u.at+=dt;
+        const k=Math.min(1,_u.at/SHK_ARC);
+        // it travels through where you were and out the far side, so it crosses your line
+        // rather than stopping dead on it
+        const tx=_u.aimX+(_u.aimX-_u.x0>0?SHK_PAST:-SHK_PAST);
+        o.position.x=_u.x0+(tx-_u.x0)*k;
+        o.position.z=_u.z0+((_u.aimZ+1.6)-_u.z0)*k;
+        const sea=swellH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock);
+        const arc=Math.sin(Math.PI*k);
+        // the lift is carried by the arc as well, so it leaves the water where it was
+        // swimming and SHK_APEX is what the jaws actually clear rather than what the fin does
+        o.position.y=sea+FLOAT_OFF.bigfin+(sharkLift(o)+SHK_APEX)*arc;
+        // nose up out of the water and nose down back into it, off the slope of the arc
+        // itself rather than a curve of its own -- so the animal always points the way it
+        // is actually going. A rotation about world Z tips the nose, and the sign is the
+        // way the nose faces: +x up for dir +1, the other way for -1.
+        const dyk=Math.PI*Math.cos(Math.PI*k)*SHK_APEX, dxk=Math.abs(tx-_u.x0)+0.001;
+        const pitch=Math.atan2(dyk,dxk*1.35)*(_u.dir||1);
+        o.quaternion.setFromAxisAngle(_shkY,o.rotation.y===0?(_u.dir||1)*Math.PI/2:o.rotation.y);
+        o.quaternion.premultiply(_shkQ2.setFromAxisAngle(_shkZ,pitch));
+        // ---- DID IT GET YOU ----
+        // Tested once, at the apex, where the jaws are actually at you. Testing every frame
+        // of the flight means the wide part of the arc counts as a hit and there is no dodge
+        // at all; testing at the end means it bites you on the way down behind your head.
+        if(_u.atk==='leap'&&k>=0.5){
+          const off=Math.abs(px-o.position.x);
+          if(off<SHK_DODGE && py<o.position.y+SHK_OVER && running && !hanging){
+            _u.atk='bite'; _u.jaw=SHARK_JAW_SHUT*0.35;
+            startEaten(o); return;
+          }
+          _u.atk='miss';
+          score+=60; msg('DODGED THE SHARK! +60'); buzz(14); goalEv('close',1);
+          bump(stats,'closeCalls');
+        }
+        if(k>=1){
+          // back in the water, and back to being an obstacle that swims past
+          splash(o.position.x,o.position.y,o.position.z,26);
+          shake=Math.max(shake,0.45);
+          _u.atk='done'; _u.by=undefined;
+          _u.targetX=o.position.x;                  // no second run at you
+        }
+      }
       // ---- and it BITES on the way past ----
       // The same togo the crossing is paced by, used a second time: it is already the number
       // of seconds until this thing is level with you, so the bite is committed off that
@@ -32774,9 +33010,21 @@ function update(dt){
       const jw=sharkJaw(o), u=o.userData;
       if(jw){
         u.jawT=(u.jawT||0)+dt;
-        if(u.bite===undefined&&togo<SHARK_BITE_LEAD&&Math.abs(o.position.x-px)<SHARK_BITE_X)u.bite=0;
+        if(u.bite===undefined&&!u.atk&&togo<SHARK_BITE_LEAD&&Math.abs(o.position.x-px)<SHARK_BITE_X)u.bite=0;
         let want;
-        if(u.bite!==undefined&&u.bite<SHARK_BITE_SECS){
+        // ---- the LEAP owns the jaw while it is in the air ----
+        // The cruising bite curve is a clock, and the leap is a shape: the mouth has to be
+        // wide open on the way up, shut AT THE APEX where the strike is tested, and hanging
+        // open again on the way down. Run off the same k the arc is, so the snap cannot
+        // drift out of step with the moment it is deciding whether it got you.
+        if(u.atk==='leap'||u.atk==='miss'){
+          const k=Math.min(1,u.at/SHK_ARC);
+          // gape wider than the model's own rest on the climb, then snap
+          want=(k<0.5) ? (-14+ -6*Math.sin(Math.PI*k))
+             : SHARK_JAW_SHUT*Math.max(0,1-(k-0.5)/0.34);
+        }
+        else if(u.atk==='bite'){ want=SHARK_JAW_SHUT*0.42; }
+        else if(u.bite!==undefined&&u.bite<SHARK_BITE_SECS){
           u.bite+=dt;
           const b=u.bite/SHARK_BITE_SECS;
           // shut over the first third, HOLD it shut to just past halfway, then let it fall
@@ -32952,7 +33200,16 @@ function update(dt){
       }
     }
     if(contact){
-      if(o.userData.ramp){
+      if(o.userData.atk==='leap'||o.userData.atk==='miss'||o.userData.atk==='bite'){
+        // ---- A SHARK IN THE AIR IS NOT AN OBSTACLE IN THE WATER ----
+        // `contact` is a footprint on the surface — x and z — and the height test below is
+        // against the WATER's height plus the obstacle's own, which knows nothing about an
+        // animal five feet above it. A leaping shark passes directly over the rider by
+        // design, so the ordinary collision fired the instant the arc crossed his lane and
+        // killed him before the apex was ever reached. That is the dodge gone: it did not
+        // matter where you steered, because you were dead at the start of the leap.
+        // The leap tests itself, once, at the top, and owns the outcome either way.
+      } else if(o.userData.ramp){
         /* handled as a surface above, not as something to hit */
       } else if(o.userData.kind==='jelly'&&py<o.position.y+o.userData.h+0.35){
         // You have to actually reach it. `contact` above is a footprint on the water — x and
