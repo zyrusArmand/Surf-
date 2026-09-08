@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.104.0';
+window.SURF_VERSION='6.105.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -5269,10 +5269,23 @@ function noteOpen(){
 // own. That also picks up the streak when somebody plays either side of midnight.
 let hidAt=0;
 document.addEventListener('visibilitychange',()=>{
-  if(document.hidden){ hidAt=Date.now(); return; }
+  if(document.hidden){ hidAt=Date.now(); saveNow(); return; }
   if(hidAt&&Date.now()-hidAt>30*60*1000)noteOpen();
   hidAt=0;
 });
+// ---- and whatever you had is on disk before the phone can take the tab away ----
+// A phone does not ask. Under memory pressure iOS discards the tab and the next visit is a
+// fresh page load, which is what "it crashed and started me over" is: not lost data exactly,
+// but everything since the last save gone. Saving happened at the points that CHANGE something
+// -- a purchase, the coins at the end of a run -- and that is right, but it leaves a window
+// open for as long as somebody is playing, and the tab is likeliest to be taken exactly then.
+// pagehide is the one event iOS reliably delivers before it does that; visibilitychange covers
+// switching apps, which is the same risk with a warning. Both are cheap and neither can hurt.
+function saveNow(){
+  try{ saveGame(); }catch(e){}
+  try{ saveStats(); }catch(e){}
+}
+addEventListener('pagehide',saveNow);
 function noteTrick(name,src){
   bump(stats.tricks,name);
   bump(stats.src,src||'gesture');
@@ -20380,6 +20393,22 @@ function showMenu(mode){
 function beginRun(){
   // the board and the rider have been standing on the menu's beach; they ride now
   if(typeof menuBeachOff==='function')menuBeachOff();
+  // ---- AND THE ROOM YOU WERE IN IS LEFT BEHIND ----
+  // A run can start from anywhere the menu can be: the title, or standing at the hut, or at the
+  // quest board. Both walks are eased by the MENU's loop, and that loop stops the instant a run
+  // begins -- so whatever they were part-way through is still part-way through when it comes back,
+  // and picks up from there.
+  // The keeper is the one that shows. shopKeeper grabs the pug once the shop ease passes 0.30:
+  // it marks him stageHeld, resizes him to counter height and drives his position from the hut
+  // every frame. stageHeld is precisely the flag the title screen checks before placing him or
+  // turning him to face the lens, so a pug still held is a pug the menu will not touch -- left
+  // standing at shop scale in a shop pose on a beach with no shop on it. And the only thing that
+  // ever puts him down is a LATER call with a low ease, from the loop that just stopped.
+  // So the rooms are closed here, where the run begins, rather than left to a loop that is not
+  // running. Zeroing the eases first and putting him down second, because the release reads the
+  // argument rather than the variable and must not be skipped by its own guard.
+  shopCamGo=0; questCamGo=0; shopCamE=0; questCamE=0; qbFocus=-1; qbZoomE=0;
+  if(typeof shopKeeper==='function')shopKeeper(0);
   player.visible=true; rig.visible=true; hud.style.display='';
   overlay.classList.add('hidden');jumpBtn.classList.remove('hidden');
   if(cocoBarEl)cocoBarEl.classList.remove('hidden');cocoReset();
@@ -24926,6 +24955,27 @@ if(location.hash.includes('debug')){
               beachVis:beachSet?beachSet.visible:null,
               riderOnBeach:pug.parent===prevScene,
               boardOnBeach:!!b&&b.parent===prevScene}; },
+    // Everything a run is allowed to write onto the keeper, read back in one place. He is posed,
+    // scaled, turned, nudged sideways and re-parented over the course of a ride, by the ride, by
+    // the wipeout and by the menu's own charge animation -- so "he looks wrong on the menu" has
+    // about eight candidate causes and no way to tell them apart by looking. This says which of
+    // them is still set after the run, which is the difference between reading code and knowing.
+    pugState(){
+      if(typeof pug==='undefined'||!pug)return null;
+      const f=v=>+v.toFixed(4);
+      return {
+        pos:[f(pug.position.x),f(pug.position.y),f(pug.position.z)],
+        rot:[f(pug.rotation.x),f(pug.rotation.y),f(pug.rotation.z)],
+        order:pug.rotation.order,
+        scale:[f(pug.scale.x),f(pug.scale.y),f(pug.scale.z)],
+        parent:pug.parent?(pug.parent===prevScene?'prevScene':(pug.parent===rig?'rig':
+                (pug.parent===player?'player':(pug.parent.name||'other')))):null,
+        vis:pug.visible, rigVis:rig?rig.visible:null, playerVis:player?player.visible:null,
+        wipe:(typeof wipe!=='undefined')&&!!wipe,
+        pokeS:(typeof pokeS!=='undefined')?pokeS:null,
+        stance:(typeof STANCE_ROT!=='undefined')?f(STANCE_ROT):null,
+        menuFace:(typeof MENU_FACE!=='undefined')?f(MENU_FACE):null };
+    },
     hideSand:v=>{ if(beachSand)beachSand.visible=!v; return !!beachSand; },
     // Stand the title screen's beach up on demand. It is raised lazily off the menu coming
     // up, so a check that clicks Menu and then waits is really waiting on a scheduler.
