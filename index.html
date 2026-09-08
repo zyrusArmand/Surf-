@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.125.0';
+window.SURF_VERSION='6.126.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -2120,6 +2120,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     <button class="go teal sm" id="stStage">Stage</button>
     <button class="go teal sm" id="stUfo">UFO</button>
     <button class="go teal sm" id="stBoat">Boat</button>
+    <button class="go teal sm" id="stFork">Fork</button>
     <button class="go sm" id="stClose">Close</button>
   </div>
 </div></div>
@@ -12132,6 +12133,14 @@ document.getElementById('stWave').onclick=()=>{
 // hundred metres however short its timer is -- that gate is the whole reason the hazard does
 // not turn up while a player is still finding the controls -- so a test that only shortened
 // the clock would sit there doing nothing and look like a broken button.
+// ---- the fork, from the secret menu ----
+// Armed AFTER beginRun for the same reason the whirlpool test is: beginRun clears every
+// hazard on its way through, so anything set before it is set and then thrown away.
+document.getElementById('stFork').onclick=()=>{
+  document.getElementById('stats').classList.add('hidden');
+  beginRun();
+  if(typeof forkArm==='function')forkArm();
+};
 document.getElementById('stWhirl').onclick=()=>{
   document.getElementById('stats').classList.add('hidden');
   beginRun();
@@ -20745,6 +20754,7 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   while(splashes.length){const d=splashes.pop();freeDrop(d);}
   for(const o of seaLife)scene.remove(o);seaLife.length=0;lifeT=6;
   whirl=null;whA=0;whirlArt.visible=false;whirlT=34+Math.random()*40;whTest=false;
+  if(typeof forkClear==='function')forkClear();
   planeT=34+Math.random()*26;planeActive=false;plane.visible=false;hanging=false;rope.visible=false;
   ropeBtn.style.display='none';ropeBtn.textContent='ROPE!';
   player.rotation.set(0,0,0);
@@ -20785,6 +20795,7 @@ function respawn(){
   for(const p of SMOKE){p.t=0;p.m.visible=false;} _smkHas=false; plane.userData.prev=null;
   curl.visible=false;swSplash.visible=false;
   whirl=null;whA=0;whirlArt.visible=false;whirlT=40+Math.random()*45;whTest=false;
+  if(typeof forkClear==='function')forkClear();
   hanging=false;rope.visible=false;ropeBtn.style.display='none';ropeBtn.textContent='ROPE!';
   planeActive=false;plane.visible=false;planeT=30+Math.random()*24;
   if(typeof boatReset==='function')boatReset();
@@ -27186,6 +27197,13 @@ if(location.hash.includes('debug')){
               phase:R.phase, step:R.step, vis:!!(riderModels[builtChar]&&riderModels[builtChar].visible),
               rigNull:!riderRig(), cls:overlay.className}; },
     overlayClass(){ return overlay.className; },
+    // z and x are for the harness: a fork armed at its real distance takes nine seconds of
+    // game time to arrive, which is minutes of wall clock in a headless render
+    forkNow(z,x){ if(typeof forkArm!=='function')return null; if(!running)return null;
+      forkArm(); if(z!==undefined)forkZ=z; if(x!==undefined)px=x; return this.fork(); },
+    fork(){ return {on:!!forkOn, ph:forkPh, z:+forkZ.toFixed(1), side:forkSide,
+                    t:+forkT.toFixed(2), px:+px.toFixed(2), py:+py.toFixed(2),
+                    half:FORK_HALF, vis:!!(forkArt&&forkArt.visible)}; },
     menuPalmNode(){ return (typeof menuPalm!=='undefined')?menuPalm:null; },
     forceRigReset(){ const R=riderRig()||modelRigs[builtChar]; if(!R||!R.reset)return null;
       R.reset(); const b=R.bones.RightArm, r=R.bind&&R.bind.RightArm;
@@ -30813,6 +30831,99 @@ let whirl=null, whirlT=34+Math.random()*40;
 // whirlpool is a one-off and not a mode, so it is put down again the moment it spawns.
 let whTest=false;
 const whirlArt=makeWhirlArt(); whirlArt.visible=false; scene.add(whirlArt);
+// ---------- THE FORK: an island in the lane, with a channel either side ----------
+// A test-mode piece. Everything else out here is something to dodge inside one lane; this
+// splits the lane in two and makes the dodge a CHOICE -- left or right -- with a third
+// option of not choosing at all, which beaches you on the sand in the middle.
+// Built as its own system rather than as an obstacle kind: an obstacle is a footprint and a
+// height, and this is a wall thirteen feet across with two gaps in it and a beach on the
+// front of it. None of the obstacle machinery would say anything useful about that.
+const FORK_HALF=6.4;      // half the island's width -- the channels start outside this
+const FORK_LEN=30;        // how far down the lane it runs
+const FORK_SPAWN=-165;    // where it is put when armed
+const FORK_RUNUP=1.35;    // seconds the board takes to run up the sand and stop
+const FORK_LANE=17;       // the lane's own half-width, so the channels are what is left
+let forkOn=false, forkZ=0, forkPh=0, forkT=0, forkSide=0, forkArt=null, forkDone=false;
+function makeForkIsland(){
+  const g=new THREE.Group();
+  const sand=PBR({color:0xe4cf9e,roughness:0.93,metalness:0.0});
+  const wet =PBR({color:0xcbb182,roughness:0.80,metalness:0.0});
+  const scrub=PBR({color:0x5f7a4a,roughness:0.92});   // dune grass, not jungle
+  // ---- the BEACH is the front of it, and it is what you ride up ----
+  // A dome alone gives a wall: seen from astern its near face is as steep as its sides and
+  // there is nothing to run up. The near end is a long shallow wedge instead -- one radius
+  // out and a quarter of it high -- so the board meets a slope rather than a cliff.
+  const beach=new THREE.Mesh(new THREE.SphereGeometry(1,26,14),sand);
+  beach.scale.set(FORK_HALF*1.02, 2.6, FORK_LEN*0.5);
+  beach.position.set(0,-1.5,0);
+  g.add(beach);
+  // a darker band at the waterline, which is what wet sand is and what stops the island
+  // reading as a biscuit sitting on the sea
+  const rim=new THREE.Mesh(new THREE.SphereGeometry(1,26,12),wet);
+  rim.scale.set(FORK_HALF*1.06, 2.1, FORK_LEN*0.52);
+  rim.position.set(0,-1.85,0);
+  g.add(rim);
+  // a few humps of scrub along the spine so it is not a bare mound
+  // Small, and set back. At close range this is scenery a few feet from the lens, not an
+  // island seen from the horizon: the first pass used the distant-island's hump sizes and
+  // filled the screen with green boulders.
+  for(let i=0;i<9;i++){
+    const t=(i/8-0.42)*FORK_LEN*0.52;
+    const k=1-Math.abs(t)/(FORK_LEN*0.5);
+    const m=new THREE.Mesh(new THREE.SphereGeometry(0.34+Math.random()*0.30,8,6),scrub);
+    m.position.set((Math.random()-0.5)*FORK_HALF*1.1, 0.35+k*0.45, t);
+    m.scale.set(1,1.5,1);
+    g.add(m);
+  }
+  g.traverse(o=>{ if(o.isMesh){ o.castShadow=false; o.receiveShadow=false; } });
+  return g;
+}
+function forkArm(){
+  if(!forkArt){ forkArt=makeForkIsland(); scene.add(forkArt); }
+  forkOn=true; forkDone=false; forkPh=0; forkT=0; forkSide=0;
+  forkZ=FORK_SPAWN;
+  forkArt.visible=true;
+  msg('FORK AHEAD — PICK A SIDE');
+}
+function forkClear(){
+  forkOn=false; forkPh=0; forkT=0; forkSide=0; forkDone=false;
+  if(forkArt)forkArt.visible=false;
+}
+// Runs before the rider moves, so the beaching decision is made against the island's
+// position this frame rather than last frame's.
+function updateFork(dt,eff){
+  if(!forkOn||!forkArt)return;
+  if(forkPh===0)forkZ+=eff*dt;
+  const wy=waveH(0,dist*WAVE_DRIFT+forkZ,waveClock);
+  forkArt.position.set(0,wy-0.2,forkZ);
+  // ---- the LEADING edge is the one with the LARGER z ----
+  // Everything in this lane runs from -170 UP past the rider, so the end of the island that
+  // reaches him first is forkZ PLUS half its length. Taken as minus, the trigger did not fire
+  // until the island's far end had arrived -- by which time the whole thing, and the camera
+  // eleven feet behind him, was already inside it. The render was a screen full of scrub.
+  const near=forkZ+FORK_LEN*0.5;
+  if(forkPh===0){
+    // ---- the moment of the choice ----
+    // Taken when the leading edge reaches him and not before: steering across the front of
+    // it is exactly the move this is for, and judging it early would take the choice away
+    // while there was still water to cross.
+    if(near>=pz-BOARD_HALF_L){
+      if(Math.abs(px)<FORK_HALF){ forkPh=1; forkT=0; forkBeach(); }
+      else { forkSide=px<0?-1:1; forkPh=2;
+             score+=120; msg((forkSide<0?'LEFT':'RIGHT')+' CHANNEL! +120'); buzz(12); }
+    }
+  }
+  if(forkPh===2&&forkZ>pz+FORK_LEN*0.5+12){ forkClear(); }
+}
+// ---- and running aground, which is not a crash ----
+// The board does not stop dead and he does not come off it: it rides up the wet sand,
+// slows over its own length and stops, and he carries his own momentum a few feet further
+// on his feet. Nothing here ends the run -- that is the whole point of the piece.
+function forkBeach(){
+  buzz(26); shake=Math.max(shake,0.9);
+  splash(px,waveH(px,dist*WAVE_DRIFT+pz,waveClock),pz,22);
+  msg('BEACHED!');
+}
 function spawnWhirl(){
   whirl={x:Math.max(-4,Math.min(4,px+(Math.random()-0.5)*7)), z:-112,
          spin:(Math.random()<0.5?-1:1), hit:false};
@@ -32589,6 +32700,28 @@ function update(dt){
     score+=60*dt;
     speed=Math.min(60,speed+14*dt);
     if(!planeActive||plane.position.z>2)releaseRope(false);
+  } else if(forkPh===1){
+    // ---- RUN AGROUND, and it owns him outright while it lasts ----
+    // Above the ordinary float test for the same reason the paraglide is: he is ON SAND,
+    // which is above the water, and every test below this would call that airborne and
+    // start landing him back in the sea he has just left.
+    forkT+=dt;
+    const k=Math.min(1,forkT/FORK_RUNUP), e=k*k*(3-2*k);
+    // the board keeps its line and sheds its speed over its own run up the beach
+    speed=Math.max(0,speed*(1-Math.min(1,dt*2.6)));
+    pz-=(1-e)*eff*dt*0.55;                         // still travelling, less each frame
+    // ...and climbs the wedge as it goes, so he ends up standing ON the island rather than
+    // in the water beside it
+    const sandY=waveH(px,dist*WAVE_DRIFT+pz,waveClock)+e*2.05;
+    py+=(sandY-py)*Math.min(1,dt*7);
+    boardPitch+=((-0.16*e)-boardPitch)*Math.min(1,dt*5);
+    if(Math.random()<dt*26*(1-e))splash(px+(Math.random()-0.5)*2.2,sandY-0.3,pz+1.2,1);
+    if(k>=1&&!forkDone){ forkDone=true; forkPh=3; msg('ON THE ISLAND'); }
+  } else if(forkPh===3){
+    // stood on the sand with the board stopped. Walking it around and opening the chest is
+    // the next piece; for now he holds here so the arrival can be looked at.
+    speed=0;
+    py+=((waveH(px,dist*WAVE_DRIFT+pz,waveClock)+2.05)-py)*Math.min(1,dt*6);
   } else if(heliPh>=0){ heliStep(dt,waterY);           // the helicopter drives him itself
   } else if(swTubeRide){
     // The tube put him exactly where he belongs on the ring already. Nothing more to do —
@@ -33656,6 +33789,7 @@ function update(dt){
   updateCrate(dt,eff);
   updateCocos(dt,eff);
   updateWhirl(dt,eff);
+  updateFork(dt,eff);
   updateStars(dt,eff);
   updatePuffs(dt,eff);
   updateSplat(dt);
