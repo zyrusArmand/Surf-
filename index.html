@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.116.0';
+window.SURF_VERSION='6.117.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -17323,6 +17323,39 @@ const OBST_SPEC={};
 // sixth of a foot under, the crown just breaking the surface, and the raised arms above it
 // doing the work the head used to.
 const FLOAT_OFF={buoy:0.36,jelly:0.34,log:0.40,bigfin:0.28,ramp:0.02,octopus:-0.10};
+// ---- THE SHARK HAS A JAW, and it is a bone rather than a second mesh ----
+// bigfin.glb arrived with its mouth modelled wide open and an eleven-bone auto-rig that had
+// no jaw in it — a spine's worth of bones scattered through the head, none of them named for
+// anything, none of them ever posed. It is rigged properly now: two bones, Body and Jaw,
+// with the lower jaw and its teeth weighted off the hinge the mouth actually turns on.
+//
+// The bone points along +Y, which is the Blender convention glTF keeps, so the bone's OWN
+// local Y is the hinge axis and the rotation below is one axis-angle whatever the export did
+// to the model's world frame. That was measured rather than assumed: rotating a loaded copy
+// and reading the skinned vertex back through boneTransform put the tip of the jaw at
+// y=0.06 at rest and y=0.90 at sixty degrees, so positive SHUTS it and the rest pose is the
+// gape the model was built in. Past sixty the lips meet; negative opens it wider still.
+const SHARK_JAW_SHUT=58;      // degrees: mouth closed, teeth interleaved
+const SHARK_JAW_IDLE=17;      // where it cruises — the modelled gape is a frozen 0 and reads dead
+const SHARK_JAW_SWING=11;     // how far it works open and shut on the way in
+const SHARK_JAW_RATE=1.7;     // radians/sec of that idle working
+const SHARK_JAW_EASE=13;      // how hard it chases the angle it wants
+const SHARK_BITE_SECS=0.85;   // shut, hold, fall open again
+const SHARK_BITE_LEAD=0.55;   // seconds before it reaches you that it commits to the bite
+const SHARK_BITE_X=5.0;       // ...and how near your lane it has to be to bother
+const _shkY=new THREE.Vector3(0,1,0), _shkQ=new THREE.Quaternion();
+// The bone of THIS clone, found once and kept. Returns null for the built-in procedural fin,
+// which is a blade with no bones at all — every caller has to cope with that, because the
+// model is one of the documented absences and the game runs without it.
+function sharkJaw(o){
+  const u=o.userData;
+  if(u.jawBone!==undefined)return u.jawBone;
+  let b=null;
+  o.traverse(n=>{ if(!b&&n.isBone&&n.name==='Jaw')b=n; });
+  u.jawBone=b;
+  if(b)u.jawRest=b.quaternion.clone();
+  return b;
+}
 // clear the cached buoyancy state on a fresh clone so a new spawn doesn't inherit it
 function makeObstacle(kind,x,z){
   if(!OBST_TEMPLATES[kind])OBST_TEMPLATES[kind]=buildObstacle(kind);
@@ -17333,7 +17366,12 @@ function makeObstacle(kind,x,z){
   // rx/rz are the per-instance TILT on the swell and are deliberately cleared; hx/hz are
   // the collision half-extents and must survive the clone. Naming the hitbox rx/rz put the
   // two in the same slot, and the tilt would have overwritten the hitbox every frame.
-  m.userData={...t.userData,used:false,by:undefined,bv:0,rx:undefined,rz:undefined};
+  // jawBone/jawRest are looked up lazily and point at the bones of ONE object. They are
+  // cleared here for the same reason rx/rz are: this spread copies the TEMPLATE's userData,
+  // so a bone cached on the template would be handed to every clone after it and they would
+  // all chew the template's skeleton — the octopus-on-top-of-the-rider fault, one field over.
+  m.userData={...t.userData,used:false,by:undefined,bv:0,rx:undefined,rz:undefined,
+              jawBone:undefined,jawRest:undefined,jaw:undefined,bite:undefined,jawT:0};
   // re-link animated sub-parts (indexes survive cloning; object references do not)
   if(t.userData.washIdx!==undefined)m.userData.wash=m.children[t.userData.washIdx];
   if(t.userData.bellIdx!==undefined)m.userData.bell=m.children[t.userData.bellIdx];
@@ -26722,6 +26760,22 @@ if(location.hash.includes('debug')){
       return out;
     },
     obsTemplate(k){ const t=OBST_TEMPLATES[k]; return t?{variant:t.userData.variant||null}:null; },
+    // ---- what the sharks' jaws are actually doing ----
+    // The angle alone would not prove anything: it is a number this code wrote, and the whole
+    // question is whether the BONE follows it. So a point a foot off the hinge is pushed
+    // through the bone's world matrix and reported — the hinge itself is the pivot and never
+    // moves however far the mouth swings, which would read as a jaw that does nothing.
+    // Off the bone's OWN axis, for the same reason: the rotation is about local Y, so a point
+    // along local Y sits on the axis and is just as blind. `bone:false` is the built-in
+    // procedural fin, which is a blade and has nothing to open.
+    sharks(){ const v=new THREE.Vector3();
+      return obstacles.filter(o=>o.userData.kind==='bigfin').map(o=>{
+        const b=(typeof sharkJaw==='function')?sharkJaw(o):null;
+        if(b)b.updateWorldMatrix(true,false);
+        return {bone:!!b, z:+o.position.z.toFixed(1),
+                jaw:o.userData.jaw===undefined?null:+o.userData.jaw.toFixed(1),
+                bite:o.userData.bite===undefined?null:+o.userData.bite.toFixed(2),
+                tipY:b?+v.set(0,0,1).applyMatrix4(b.matrixWorld).y.toFixed(3):null}; }); },
     // Put scenery sharks in the water on demand — they arrive on a five-to-twelve second
     // clock otherwise, which is a long wait to look at one.
     // Crash on demand, so what a wipeout looks like can be watched instead of waited for.
@@ -32674,6 +32728,37 @@ function update(dt){
       const togo=Math.max(0.35,(-o.position.z)/Math.max(8,eff));
       o.position.x+=((o.userData.targetX-o.position.x)/togo)*dt;
       if(Math.random()<dt*14)splash(o.position.x,o.position.y+0.1,o.position.z+1.4,1);
+      // ---- and it BITES on the way past ----
+      // The same togo the crossing is paced by, used a second time: it is already the number
+      // of seconds until this thing is level with you, so the bite is committed off that
+      // rather than off a distance that means something different at every speed.
+      // Driven here and not from the collision, because obstacles do not update once a
+      // wipeout starts — updateWorldDuringWipeout moves the water and the spray and nothing
+      // else. A jaw that waited for contact would still be open in the one frame that
+      // matters. Shutting on the approach means the mouth is closed when it reaches you
+      // whether it takes you down or misses.
+      const jw=sharkJaw(o), u=o.userData;
+      if(jw){
+        u.jawT=(u.jawT||0)+dt;
+        if(u.bite===undefined&&togo<SHARK_BITE_LEAD&&Math.abs(o.position.x-px)<SHARK_BITE_X)u.bite=0;
+        let want;
+        if(u.bite!==undefined&&u.bite<SHARK_BITE_SECS){
+          u.bite+=dt;
+          const b=u.bite/SHARK_BITE_SECS;
+          // shut over the first third, HOLD it shut to just past halfway, then let it fall
+          // open again. Clamped at both ends: without the upper clamp the ramp back down
+          // reads greater than one for the whole of the hold — 1-(b-0.55)/0.45 is 1.56 at
+          // b=0.30 — and the jaw drove to ninety degrees, well past the sixty where the lips
+          // meet, folding the lower jaw up through the snout. It measured as a bite the
+          // whole time; only the angle it reported gave it away.
+          want=SHARK_JAW_SHUT*Math.max(0,Math.min(1,b<0.30?b/0.30:1-(b-0.55)/0.45));
+        }else{
+          want=SHARK_JAW_IDLE+Math.sin(u.jawT*SHARK_JAW_RATE)*SHARK_JAW_SWING;
+        }
+        u.jaw=(u.jaw===undefined)?want:u.jaw+(want-u.jaw)*Math.min(1,dt*SHARK_JAW_EASE);
+        jw.quaternion.copy(u.jawRest)
+          .multiply(_shkQ.setFromAxisAngle(_shkY,u.jaw*Math.PI/180));
+      }
     }
     if(o.userData.kind==='octopus'){
       const u=o.userData;

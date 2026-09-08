@@ -47,7 +47,7 @@ to `RIDER_MODELS` in `index.html`.
 | `jelly2.glb` | the jellyfish, blue — one of the two at random per spawn |
 | `ramp.glb` | the wooden ramp |
 | `octopus.glb` | the octopus |
-| `bigfin.glb` | the shark — swims submerged, only the fin above water |
+| `bigfin.glb` | the shark — swims submerged, only the fin above water; rigged `Body`+`Jaw` so the mouth bites |
 | `jetski.glb` | the jet ski — turned bow-first by measurement, see below |
 | `plane.glb` | the tow plane and the set-wave aircraft |
 | `palm2.glb` | a DIFFERENT tree for the title screen, in place of `palm.glb` there — not shipped |
@@ -250,6 +250,41 @@ Two more things the shark needs, both because it is an animal rather than a fin:
 - **It swims the way it is going.** The built-in fin carries a quarter turn inside its own
   template, which cancels the quarter turn every `bigfin` clone is given to point it along its
   sweep. An imported model has no such turn, so it crossed the line sideways.
+
+#### The jaw
+
+`bigfin.glb` is rigged for a bite. It arrived from its generator with the mouth modelled wide
+open and an eleven-bone auto-rig that had no jaw in it — generic `Bone_000`..`Bone_010`
+scattered through the head, one of them owning the entire body, none of them ever posed by
+anything. That rig is gone. In its place are **two bones, `Body` and `Jaw`**, with the lower
+jaw, its teeth and the floor of the mouth weighted off the hinge the mouth actually turns on.
+
+The hinge was measured rather than eyeballed. Casting rays up through the head at a spread of
+widths gives four surface crossings wherever the mouth is open — chin, mouth floor, roof, skull
+— and two wherever it has closed, so the gap between the middle pair *is* the mouth, and the
+slice where it vanishes is the corner. That puts the hinge at (−0.78, 0, 0.555) and the split
+between the jaws on a near-flat plane at z ≈ 0.52–0.56.
+
+The corner is **not** a straight line across the head: it sits at x = −0.77 on the midline and
+runs forward to −0.94 at the cheeks. Weighted off the midline value the cheek gets dragged into
+the rotation and folds — a visible crease and a dark notch at the corner at anything past about
+thirty degrees. The boundary follows the measured arc instead.
+
+Both bones point along **+Y**, which is the convention glTF keeps, so the jaw bone's own local Y
+is the hinge axis and one axis-angle drives it whatever the export did to the model's world
+frame. Positive **shuts** it: the rest pose is the gape the model was built in, about sixty
+degrees closes the lips, and negative opens it wider still. That sign was checked by loading the
+exported file, turning the bone and reading the skinned vertex back through `boneTransform` —
+the tip of the jaw sits at y = 0.06 at rest and y = 0.90 at sixty degrees.
+
+Re-rigging made the file *smaller*: 1.50 MB to 1.27 MB, nine bones and nine vertex groups
+lighter, with the geometry and all three textures untouched.
+
+**What you can see of it today: the fin, and nothing else.** `BIGFIN_SHOW` keeps the animal
+under the surface on purpose, and the water is not clear enough to read a body through, so the
+bite is currently below the waterline the whole time it happens. The rig is right and the game
+drives it; making it *visible* is a separate decision — a lunge that lifts the head clear at
+the moment it commits, rather than raising `BIGFIN_SHOW` and undoing the reason it is 0.36.
 
 ### Which end is the bow
 
