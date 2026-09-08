@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.110.0';
+window.SURF_VERSION='6.111.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -28341,6 +28341,49 @@ if(location.hash.includes('debug')){
               menu:+(_clkMdt*1000).toFixed(1),
               menuShare:_clkRaw>0?+(_clkMdt/_clkRaw).toFixed(3):null,
               rideShare:_clkRaw>0?+(_clkDt/_clkRaw).toFixed(3):null};
+    },
+    // ---- WHAT THE GAME IS ACTUALLY HOLDING, in bytes, by owner ----
+    // A phone does not report an out-of-memory kill; the tab simply comes back as a fresh page
+    // load, which is what "it crashed" looks like from the outside. So the only way to reason
+    // about it is to know the footprint, and renderer.info counts OBJECTS -- 153 geometries, 74
+    // textures -- which says nothing about whether that is ten megabytes or two hundred.
+    // Textures are counted at their own mip level 0 size, four bytes a pixel, times 1.33 for the
+    // mip chain the GPU builds; geometry is the real byte length of every attribute buffer.
+    // Counted per unique resource, because one texture shared by forty materials is one upload.
+    mem(){
+      const seenG=new Set(), seenT=new Set(), by={};
+      const add=(k,n)=>{ by[k]=(by[k]||0)+n; };
+      const texBytes=t=>{
+        if(!t||!t.image)return 0;
+        const w=t.image.width||t.image.videoWidth||0, h=t.image.height||t.image.videoHeight||0;
+        return Math.round(w*h*4*(t.generateMipmaps===false?1:1.33));
+      };
+      const eat=(o,tag)=>{
+        if(o.geometry&&!seenG.has(o.geometry.uuid)){
+          seenG.add(o.geometry.uuid);
+          let n=0; for(const k in o.geometry.attributes){ const a=o.geometry.attributes[k];
+            if(a&&a.array)n+=a.array.byteLength; }
+          if(o.geometry.index&&o.geometry.index.array)n+=o.geometry.index.array.byteLength;
+          add(tag+' geo',n);
+        }
+        const mats=Array.isArray(o.material)?o.material:(o.material?[o.material]:[]);
+        for(const m of mats)for(const k in m){
+          const t=m[k];
+          if(t&&t.isTexture&&!seenT.has(t.uuid)){ seenT.add(t.uuid); add(tag+' tex',texBytes(t)); }
+        }
+      };
+      const walk=(root,tag)=>{ if(!root)return; root.traverse(o=>{ if(o.isMesh||o.isPoints||o.isLine){
+        let n=o, name=tag;
+        while(n){ if(n.name){ name=tag+':'+n.name; break; } n=n.parent; }
+        eat(o,name); } }); };
+      walk(typeof scene!=='undefined'?scene:null,'ride');
+      walk(typeof prevScene!=='undefined'?prevScene:null,'menu');
+      const rows=Object.entries(by).sort((a,b)=>b[1]-a[1]).slice(0,14)
+        .map(([k,v])=>[k,+(v/1048576).toFixed(2)]);
+      const total=Object.values(by).reduce((a,b)=>a+b,0);
+      return {totalMB:+(total/1048576).toFixed(1),
+              heapMB:performance.memory?+(performance.memory.usedJSHeapSize/1048576).toFixed(1):null,
+              geometries:seenG.size, textures:seenT.size, topMB:rows};
     },
     menuCost(){
       if(typeof prevScene==='undefined'||!prevScene||!renderer)return null;
