@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.121.0';
+window.SURF_VERSION='6.122.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -14519,6 +14519,7 @@ function setupModelRig(root,gltf,id){
     const mine={}; for(const k in this.clips)mine[clipKey(k)]=1;
     for(const k in CLIP_LIB)if(!mine[k])this.clips[k]=this.mixer.clipAction(CLIP_LIB[k]);
     this.arm();
+    if(this.armLie)this.armLie();      // a borrowed lie-down arms on the same terms
     if(this.measureStand)this.measureStand();
   };
   const find=re=>{ for(const k in R.clips)if(re.test(k))return R.clips[k]; return null; };
@@ -14560,6 +14561,42 @@ function setupModelRig(root,gltf,id){
     // is the same moment for the same reason: nothing has run yet.
   };
   R.arm();
+  // ---- and the LIE-DOWN, which is the helicopter's pose ----
+  // The heli lays the rider flat along the deck, and that pose was written entirely against
+  // the BUILT-IN rider's joints -- armFrontJ, legFrontJ, the pelvis. A model rider has none
+  // of them: its bones are driven by its own rig, which put the surfing stance back over the
+  // top every frame, so the pug rode the whole trick stood bolt upright while the board went
+  // under him. There was nothing wrong with the beats; nobody was animating the animal.
+  // These files already ship the pose -- Lie_Down_Hands_Spread, which the title screen's show
+  // uses -- so it is scrubbed here the same way the handstand is, rather than hand-posed a
+  // second time in bone angles that would have to be guessed per skeleton.
+  // Armed at rest for the same reason R.arm is: three.js snapshots each bound property the
+  // first time an action goes live, and a weight below one blends back toward that snapshot.
+  R.armLie=function(){
+    if(this.lieA)return;
+    const a=find(/lie[_ ]?down/i);
+    if(!a)return;
+    this.lieA=a;
+    a.setLoop(THREE.LoopRepeat,Infinity);
+    a.paused=true;                                  // time comes from R.update, like the stand
+    a.setEffectiveWeight(0);
+    a.play();
+  };
+  R.armLie();
+  R.heliW=0; R.lieT=0;
+  // ---- both SCRUBBED actions are re-armed together, always ----
+  // stop() takes an action out of the mixer entirely and a stopped action is not evaluated
+  // however its time is set. The handstand had a note about this and five separate places
+  // that put it back; the lie-down had none, so the title screen's show -- which stops every
+  // clip on its way past -- disarmed it before the first run of every session and it never
+  // came back. The pose weight measured 1 the whole way through the trick and not one bone
+  // moved, which is the same shape of bug the note was written about.
+  R.scrubArm=function(){
+    const fix=a=>{ if(!a)return;
+      a.setLoop(THREE.LoopRepeat,Infinity); a.clampWhenFinished=false;
+      a.timeScale=1; a.paused=true; a.setEffectiveWeight(0); a.play(); };
+    fix(this.stand); fix(this.lieA);
+  };
   // The surfing pose is the model's own REST, with a stance laid over it — not a clip. An
   // export often carries a bind or T-pose clip called something like `clip0`, and playing
   // that drives every bone the stance does not touch into a pose nobody asked for. The rest
@@ -14646,9 +14683,7 @@ function setupModelRig(root,gltf,id){
     // of the mixer entirely, and a stopped action is not evaluated however its time is set —
     // so every reset (a shop card opening, a run starting) quietly disarmed the handstand and
     // the measurement that reads the clip came back with every frame identical.
-    if(this.stand){ this.stand.setLoop(THREE.LoopRepeat,Infinity);
-      this.stand.clampWhenFinished=false; this.stand.timeScale=1; this.stand.paused=true;
-      this.stand.setEffectiveWeight(0); this.stand.play(); }
+    this.scrubArm();
     for(const n in this.bind){ const b=this.bones[n], r=this.bind[n];
       b.position.copy(r.p); b.quaternion.copy(r.q); b.scale.copy(r.s); }
     // ...and the charge's saved pre-bend pose with them, or the next charge restores bones to
@@ -14659,8 +14694,7 @@ function setupModelRig(root,gltf,id){
     this.phase='idle'; this.t=0; this.aw=0; this.rot=0; this.brh=1;
     if(this.yawFix){ pug.rotation.y-=this.yawFix; this.yawFix=0; }
     if(this.xFix){ pug.position.x-=this.xFix; this.xFix=0; }
-    if(this.stand){ this.stand.setLoop(THREE.LoopRepeat,Infinity); this.stand.clampWhenFinished=false;
-      this.stand.timeScale=1; this.stand.paused=true; this.stand.setEffectiveWeight(0); this.stand.play(); }
+    this.scrubArm();
   };
   R.hipHome=R.bones.Hips?R.bones.Hips.position.clone():null;
   R.hipQ=R.bones.Hips?R.bones.Hips.quaternion.clone():null;
@@ -14857,6 +14891,60 @@ function setupModelRig(root,gltf,id){
       if(d>lift)lift=d; }
     return isFinite(lift)?lift:0;
   };
+  // ---- ...and LYING DOWN is neither feet nor hands ----
+  // The contact pool above is exactly six bones: two feet, two toes, two hands. That is the
+  // right set for standing and for a handstand, and it has nothing at all to say about a
+  // rider lying flat -- his belly is the lowest part of him and it hangs between the paws,
+  // so the deck solver planted his four feet correctly and left the whole body inside the
+  // board with only his head showing above it.
+  // Every vertex, strided. That is more work than the six-bone pool, which is why it is not
+  // what runs the rest of the time; it runs for the two and a half seconds of a helicopter.
+  // It also generalises the standing case for free -- upright, the lowest vertex of the whole
+  // body IS a sole -- so the two do not have to be blended across the change.
+  // every vertex of him, strided, in the frame the board lives in. Two questions are asked
+  // of it -- how far he has to come up to clear the deck, and how TALL the pose is -- and
+  // they are the same walk, so it is one function with a flag.
+  R.bodyScan=function(wantLift){
+    let sm=this.skin;
+    if(!sm){ root.traverse(o=>{ if(o.isSkinnedMesh&&!sm)sm=o; }); this.skin=sm; }
+    if(!sm||!(sm.applyBoneTransform||sm.boneTransform))return null;
+    pug.updateMatrixWorld(true); sm.skeleton.update();
+    const p=sm.geometry.attributes.position, v=new THREE.Vector3(), par=pug.parent;
+    let lift=-Infinity, lo=Infinity, hi=-Infinity;
+    for(let i=0;i<p.count;i+=11){
+      v.fromBufferAttribute(p,i);
+      sm.applyBoneTransform?sm.applyBoneTransform(i,v):sm.boneTransform(i,v);
+      v.applyMatrix4(sm.matrixWorld);
+      if(par)par.worldToLocal(v);
+      if(v.y<lo)lo=v.y; if(v.y>hi)hi=v.y;
+      if(wantLift){ const d=deckUnder(v.x,v.z)+0.015-v.y; if(d>lift)lift=d; } }
+    return isFinite(lo)?{lo,hi,lift:isFinite(lift)?lift:0}:null;
+  };
+  R.lieLift=function(){ const b=this.bodyScan(true); return b?b.lift:0; };
+  // ---- WHICH FRAME of the lie-down is actually lying down ----
+  // Scrubbed from the start of the clip he came out 1.25ft tall against 1.81 standing, which
+  // is a crouch and not a rider flat on his board. The clip is named for the pose but it is
+  // still an animation with a beginning: the table on the title screen runs it floor-to-floor
+  // and nothing in it promised that frame zero is the flattest one.
+  // So it is measured, the same way the handstand's plant is: pose him at two dozen points
+  // across the clip and keep the one where he is SHORTEST. Once, the first time a helicopter
+  // needs it -- it costs a couple of dozen mixer updates and it is the difference between a
+  // pose that reads and a pose that nearly does.
+  R.measureLie=function(){
+    const a=this.lieA; if(!a||!a.getClip||this.lieBest!==undefined)return;
+    const dur=a.getClip().duration||1;
+    const keepT=a.time, keepW=a.getEffectiveWeight();
+    a.setEffectiveWeight(1);
+    let best=0, low=Infinity;
+    for(let i=0;i<=24;i++){
+      const t=dur*i/24;
+      a.time=t; this.mixer.update(0);
+      const b=this.bodyScan(false);
+      if(b&&(b.hi-b.lo)<low){ low=b.hi-b.lo; best=t; }
+    }
+    a.time=keepT; a.setEffectiveWeight(keepW); this.mixer.update(0);
+    this.lieBest=best; this.lieLow=low;
+  };
   // Leaving the title screen has to UNDO the show, and that is not just stopping it. A clip
   // was driving the whole body including the root, so whatever frame it stopped on is where
   // the hips stay — and the riding stance never touches the root, so he would carry the last
@@ -14872,7 +14960,7 @@ function setupModelRig(root,gltf,id){
     if(this.step<0)return;
     for(const k in this.clips){ const a=this.clips[k];
       a.stop();
-      if(a===this.stand){ // the trick action goes back to being scrubbed by hand
+      if(a===this.stand||a===this.lieA){ // the scrubbed actions go back to being scrubbed
         a.setLoop(THREE.LoopRepeat,Infinity); a.clampWhenFinished=false;
         a.timeScale=1; a.paused=true; a.setEffectiveWeight(0); a.play(); }
     }
@@ -14941,13 +15029,40 @@ function setupModelRig(root,gltf,id){
       this.rot=s*s*(3-2*s);
       if(a){ a.time=this.t; a.setEffectiveWeight(this.aw); }
     }
+    // ---- the helicopter's lie-down rides alongside the handstand's ----
+    // Same shape as `aw` above: a weight the game sets and a time this scrubs. It is set
+    // BEFORE the mixer update so the pose lands on this frame's bones rather than the last
+    // frame's, which is the difference between the rider lying down and the rider lagging
+    // one frame behind the board he is lying on.
+    const hw=Math.max(0,Math.min(1,this.heliW||0));
+    if(this.lieA){
+      // it drifts rather than parks: one frame held is a photograph, and this pose is worn
+      // for two and a half seconds
+      if(this.lieBest===undefined&&hw>0.002)this.measureLie();
+      const mid=(this.lieBest===undefined)?0:this.lieBest;
+      const dur=Math.max(0.2,this.lieA.getClip().duration);
+      // parked on the flattest frame and breathing a tenth of a second either side of it,
+      // for the same reason the handstand's hold does: one frame held is a photograph
+      this.lieT=Math.max(0,Math.min(dur,mid+Math.sin((this._lieB=(this._lieB||0)+dt*2.1))*0.10));
+      this.lieA.time=this.lieT; this.lieA.setEffectiveWeight(hw);
+    }
     this.mixer.update(dt);
     this.hold(this.rot);
+    // ---- and the lie-down KEEPS its root, which the handstand does not ----
+    // The handstand's root is thrown away because the game turns him over itself. The
+    // instinct to do the same here was wrong and measured wrong: the lie-down's Hips track
+    // coming DOWN is most of the pose, so cancelling it left him at 1.25ft against 1.81
+    // standing -- a crouch, not a rider lying flat. What that cancel was really for is him
+    // ending up through the deck, and lieLift already solves that from the other end by
+    // raising him until no part of him is inside the board.
     // The clip owns the body while he is up. Below that the surfing stance is laid over
     // whatever the mixer left, faded by exactly the amount the clip is NOT contributing, so
     // the two never fight and the changeover is a blend rather than a snap. SLERP, not copy:
     // copying would throw the mixer's work away at every weight instead of meeting it.
-    const w=1-this.aw;
+    // The stance is faded by what the clips ARE contributing -- both of them. Left at
+    // 1-aw it fought the lie-down at full strength and the two averaged into a rider
+    // half way to standing up again, which is neither pose.
+    const w=(1-this.aw)*(1-hw);
     if(w<=0.001)return;
     this.stance(dt,w);
   };
@@ -15174,7 +15289,7 @@ function setupModelRig(root,gltf,id){
           // by then the binding had been re-saved against the stance. A paused action at zero
           // weight contributes nothing anyway, so there was never anything to gain by it.
           for(const k in this.clips){ const c=this.clips[k];
-            if(c!==a&&c!==this.stand&&c.isRunning&&c.isRunning())c.stop(); }
+            if(c!==a&&c!==this.stand&&c!==this.lieA&&c.isRunning&&c.isRunning())c.stop(); }
           a.reset(); a.setLoop(THREE.LoopOnce,1); a.clampWhenFinished=true;
           a.timeScale=1; a.setEffectiveWeight(1); a.play();
           this.gestA=a; this.gestE=0; this.gestD=Math.max(0.2,a.getClip().duration);
@@ -15426,7 +15541,7 @@ function setupModelRig(root,gltf,id){
       C.t+=dt;
       const play=(name,loop)=>{
         const a=this.clip(name); if(!a||a===this.cur)return a;
-        for(const k in this.clips)if(this.clips[k]!==a)this.clips[k].stop();
+        for(const k in this.clips)if(this.clips[k]!==a&&this.clips[k]!==this.lieA)this.clips[k].stop();
         a.reset(); a.setLoop(loop?THREE.LoopRepeat:THREE.LoopOnce,loop?Infinity:1);
         a.clampWhenFinished=!loop; a.timeScale=1; a.setEffectiveWeight(1); a.play();
         this.cur=a; this.prev=null; this.fadeT=0;
@@ -15616,7 +15731,7 @@ function setupModelRig(root,gltf,id){
       if(!a)return 0;
       // everything that is neither the incoming clip nor the one still fading out is stopped
       // outright; the outgoing one keeps its pose and its weight and is taken down over FADE
-      for(const k in this.clips){ const c=this.clips[k]; if(c!==a&&c!==this.cur)c.stop(); }
+      for(const k in this.clips){ const c=this.clips[k]; if(c!==a&&c!==this.cur&&c!==this.lieA)c.stop(); }
       if(this.cur&&this.cur!==a){ this.prev=this.cur; this.fadeT=FADE; }
       else { this.prev=null; this.fadeT=0; }
       a.reset(); a.setLoop(THREE.LoopOnce,1); a.clampWhenFinished=true;
@@ -27037,6 +27152,29 @@ if(location.hash.includes('debug')){
               t:+heliT.toFixed(3), lay:+heliLay.toFixed(3), pose:+heliPose.toFixed(3),
               incline:+heliIncline.toFixed(3), deg:+(heliIncline*180/Math.PI).toFixed(1),
               depth:+(py-wY).toFixed(2), air:!!heliAir, settle:+heliSet.toFixed(3),
+              rig:(function(){ const R=riderRig(); if(!R)return null;
+                const o={heliW:+(R.heliW||0).toFixed(2), lieA:!!R.lieA,
+                         lieW:R.lieA?+R.lieA.getEffectiveWeight().toFixed(2):null,
+                         lieT:+(R.lieT||0).toFixed(2),
+                         py:+pug.position.y.toFixed(3), pz:+pug.position.z.toFixed(3),
+                         rx:+pug.rotation.x.toFixed(3), ry:+pug.rotation.y.toFixed(3)};
+                if(R.lieLift)o.lift=+R.lieLift().toFixed(3);
+                // the WHOLE body, not the six-bone contact pool: where every part of him
+                // actually sits against the deck under it
+                (function(){ let sm=R.skin; if(!sm)return;
+                  pug.updateMatrixWorld(true); sm.skeleton.update();
+                  const pa=sm.geometry.attributes.position, v=new THREE.Vector3(), par=pug.parent;
+                  let lo=Infinity,hi=-Infinity,dk=0,ax=0,az=0;
+                  for(let i=0;i<pa.count;i+=11){ v.fromBufferAttribute(pa,i);
+                    sm.applyBoneTransform?sm.applyBoneTransform(i,v):sm.boneTransform(i,v);
+                    v.applyMatrix4(sm.matrixWorld); if(par)par.worldToLocal(v);
+                    if(v.y<lo){lo=v.y;dk=deckUnder(v.x,v.z);ax=v.x;az=v.z;}
+                    if(v.y>hi)hi=v.y; }
+                  o.bodyY=[+lo.toFixed(3),+hi.toFixed(3)];
+                  o.deckAtLow=+dk.toFixed(3); o.lowAt=[+ax.toFixed(2),+az.toFixed(2)]; })();
+                const sb=R.skinBox&&R.skinBox();
+                if(sb)o.contactY=[+sb.lo[1].toFixed(2),+sb.hi[1].toFixed(2)];
+                return o; })(),
               turns:+(flipRot/(Math.PI*2)).toFixed(2), held:!!heliHeld}; },
     // ---- what the sharks' jaws are actually doing ----
     // The angle alone would not prove anything: it is a number this code wrote, and the whole
@@ -31747,8 +31885,19 @@ function animateRig(dt,carve,grab,waterY){
     // Flat ALONG the deck. At 0.95 he was still half upright, which read as perched on
     // the nose leaning over it rather than lying on the board; the body goes down to the
     // deck and the head comes up instead, which is how anyone actually lies on one.
+    // ...and ONLY for the built-in body. A model rider is laid down by its own Lie_Down clip,
+    // inside its bones, so turning the whole group as well lays him down twice and he ends up
+    // face down through the deck. The turn to face the nose above is still wanted either way:
+    // no clip in these files turns him, and lying along a board he is side-on to is the pose
+    // read from the wrong angle.
+    // ---- and the GROUP turn is wanted for both bodies after all ----
+    // The first cut of this left it to the model's Lie_Down clip on the assumption the clip
+    // lays him down. Measured, it does not: at full weight it takes him from 1.81ft tall to
+    // 1.15, which is a crouch. It is posing his LIMBS -- the spread hands, the slack legs --
+    // and leaving his spine near enough upright, so the turn onto his chest still has to be
+    // done here. The clip on top of it is what stops that being a standing dog tipped over.
     pug.rotation.x=-1.36*h;
-    pelvis.position.y+=0.13*h;                       // down on the deck, not hovering over it
+    if(!riderRig())pelvis.position.y+=0.13*h;        // down on the deck, not hovering over it
     // and he hauls himself UP the board as he pulls, so his face finishes at the tip
     // rather than over the middle of it
     // forward on the board without hanging off the end of it
@@ -31918,6 +32067,8 @@ function updateHandstand(dt,carve){
   const modelRig=riderRig();
   if(modelRig){
     modelRig.on=!!want;
+    // the helicopter's pose, handed over before the rig runs so it lands this frame
+    modelRig.heliW=(typeof heliPose!=='undefined')?heliPose:0;
     modelRig.update(dt,!!want);
     // turned over first, THEN stood on the deck: which part of him is lowest depends on
     // which way up he is, so measuring before the turn measures the wrong end
@@ -31928,7 +32079,13 @@ function updateHandstand(dt,carve){
     // gets his body past upright cannot be trusted with the inversion, and measureStand has
     // already asked. Turn the group in that case and the clip still animates his limbs on top,
     // which is a handstand with the arm movement rather than a dog lying on the board.
-    pug.rotation.x=(modelRig.stand&&modelRig.standInverts)?0:modelRig.rot*Math.PI;
+    // ---- and the two poses do not both get to own the body ----
+    // This line forced rotation.x every frame for a model rider, which is what wiped the
+    // helicopter's lie-down off him: the beats set the turn, and a line further down the
+    // same frame set it straight back to zero. While the lie-down has him, the CLIP is
+    // laying him out and the group is left where the heli put it.
+    if(modelRig.heliW<=0.02)
+      pug.rotation.x=(modelRig.stand&&modelRig.standInverts)?0:modelRig.rot*Math.PI;
     // side-on first, then stood on the deck, then slid onto it — each one measures the pose
     // the one before it left, so the order is the whole of why they agree
     modelRig.faceLock(modelRig.rot);
@@ -31942,7 +32099,12 @@ function updateHandstand(dt,carve){
     // no amount of tuning the seat drop moved him, because this ran afterwards and undid it.
     // Three passes were spent on that seat number before this line was read.
     // Blended, not switched, so getting on and off is still a movement.
-    pug.position.y+=modelRig.deckLift()*(1-(typeof skiSit!=='undefined'?skiSit:0));
+    pug.position.y+=((modelRig.heliW>0.02&&modelRig.lieLift)?modelRig.lieLift():modelRig.deckLift())
+                    *(1-(typeof skiSit!=='undefined'?skiSit:0));
+    // (A constant used to be added here to lift him clear of the deck. It was compensating
+    // for the group turn being missing -- with the body left upright the solver had nothing
+    // sensible to rest on -- and with the turn back it double-corrects and leaves him
+    // hovering a third of a foot over the board. The whole-body solver is enough on its own.)
     modelRig.deckSlide(modelRig.rot);
     handstandScore(dt,carve,want);
     return;
