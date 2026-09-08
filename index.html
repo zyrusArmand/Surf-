@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.107.0';
+window.SURF_VERSION='6.108.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -11823,10 +11823,36 @@ function stageText(){
          '   scale '+f(o.scale.x)+'  ('+sz.y.toFixed(2)+'ft tall, '+sz.x.toFixed(2)+' across)'+
          '   world '+w.x.toFixed(2)+', '+w.y.toFixed(2)+', '+w.z.toFixed(2);
 }
+// ---- WHAT THE TITLE SCREEN THINKS IS TRUE, in one line you can photograph ----
+// For bugs that only happen on a phone. Twice now something has gone wrong on the beach -- the
+// keeper missing, a walk that does not walk -- that a headless run of the same sequence will not
+// reproduce, and the gap between "it looks wrong" and a cause is exactly the handful of flags
+// below. They are unreachable from a phone: everything here lives in a closure, so there is no
+// console to read them from. Now the workshop prints them, and a screenshot of that line says
+// more than a screenshot of the beach.
+function menuHealth(){
+  const bits=[];
+  try{
+    bits.push('beach '+((typeof menuBeach!=='undefined'&&menuBeach)?'up':'down'));
+    if(typeof pug!=='undefined'&&pug){
+      bits.push('pug '+(pug.visible?'vis':'HIDDEN')
+        +'/'+((typeof prevScene!=='undefined'&&pug.parent===prevScene)?'beach'
+             :(pug.parent?(pug.parent===rig?'rig':(pug.parent===player?'player':'other')):'none'))
+        +(pug.userData&&pug.userData.stageHeld?'/held':'')
+        +' s'+pug.scale.x.toFixed(2));
+      const R=(typeof riderRig==='function')?riderRig():null;
+      if(R&&R.charge)bits.push('CHARGING');
+    }
+    bits.push('q '+(questCamGo|0)+'/'+questCamE.toFixed(2)
+             +' s '+(shopCamGo|0)+'/'+shopCamE.toFixed(2));
+    if(typeof equipped!=='undefined')bits.push(equipped);
+  }catch(e){ bits.push('read failed: '+e.message); }
+  return bits.join('  ');
+}
 function stageSay(msg){
   const el=document.getElementById('stageOut'); if(!el)return;
   el.textContent = msg || ((stageCamOn||stagePick) ? stageText()
-                                     : 'press and hold anything on the beach for 5s');
+                                     : menuHealth());
 }
 function stageShow(on){
   stageOn=!!on;
@@ -11843,7 +11869,13 @@ function stageShow(on){
   const hd=document.getElementById('homeDial');
   if(hd)hd.style.display=stageOn?'none':'';
   stageSay();
+  // and kept live while it is open, because the state this reports is the state that MOVES --
+  // a walk easing, the keeper coming and going. A line written once on open is a line that is
+  // already stale by the time anybody reads it.
+  clearInterval(_stHealthTick);
+  if(stageOn)_stHealthTick=setInterval(()=>{ if(!stagePick&&!stageCamOn)stageSay(); },400);
 }
+var _stHealthTick=null;
 // ---- the visitor, on demand ----
 // It wants a night sky and several kilometres of riding to turn up by itself, so the only way
 // to look at it is to be put in the scene it plays in: a run under way, the sky forced to the
@@ -35337,6 +35369,19 @@ function renderMenuBeach(dt){
   // because "the beach is up" is true of every route to it and no route can skip it.
   { const _R=(typeof riderRig==='function')?riderRig():null;
     if(_R&&_R.wipePosed){ _R.wipePosed=false; if(_R.reset)_R.reset(); } }
+  // ---- AND HE IS ON THE BEACH AT ALL, which is not something to take on trust ----
+  // Reported: the keeper vanishes from the title screen after a run and comes back on the next
+  // press. I could not reproduce it -- a ride and back, on a board and on the ski, both come back
+  // with him parented to the beach and visible -- so this does not name a cause. What it does is
+  // make the symptom self-correcting wherever the cause turns out to be, in the same place and for
+  // the same reason the drowning pose above is cleared here: "the beach is up" is true of every
+  // route to this screen and no route can skip it.
+  // Left alone if something is deliberately holding him: the workshop mid-drag, or the shop, which
+  // legitimately takes him off to stand behind its counter.
+  if(typeof pug!=='undefined'&&pug&&prevScene&&!(pug.userData&&pug.userData.stageHeld)){
+    if(pug.parent!==prevScene){ prevScene.add(pug); }
+    if(!pug.visible) pug.visible=true;
+  }
   // Everything on this screen moves — the lens drifts, the rider breathes, the fronds blow —
   // so two screenshots never differ by only the thing being tested. Comparing them was how
   // "the bloom and the depth of field matter equally" got believed once; it was the scene
