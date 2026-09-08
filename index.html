@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.120.0';
+window.SURF_VERSION='6.121.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -17946,6 +17946,19 @@ addEventListener('touchstart',e=>{
     for(const t of e.touches)if(t.identifier===touchId){alive=true;break;}
     if(!alive)dropSteerTouch();
   }
+  // ---- AND THE SECOND FINGER'S SLOT, which is the handstand's ----
+  // The recovery above was written for the steering finger and never given to the aux one,
+  // and the aux one is the whole of the two-finger handstand: `else if(auxId===null)` is the
+  // only way into it. Leave that slot claimed by an id that no longer exists -- iOS cancels
+  // touches for notifications and system swipes, and endTouch had its own way of leaking one
+  // besides -- and no second finger can ever claim it again. The gesture then does nothing,
+  // for the rest of the session, while the button beside it still works: "the handstand
+  // stops working after a while" exactly.
+  if(auxId!==null){
+    let alive=false;
+    for(const t of e.touches)if(t.identifier===auxId){alive=true;break;}
+    if(!alive){ clearAux(); auxId=null; if(auxHand){handOn=false;auxHand=false;} }
+  }
   for(const t of e.changedTouches){
     if(t.target.closest&&(t.target.closest('.btn')||t.target.closest('.tbtn')))continue;
     if(touchId===null){
@@ -17989,7 +18002,10 @@ function endTouch(e){
   for(const t of e.changedTouches){
     if(t.identifier===auxId){
       clearAux();
-      if(auxHand)handOn=false;                 // spin moved to a one-finger circle
+      // auxHand goes back with the slot. Cleared only in the all-fingers-up branch below, it
+      // survived the finger that set it -- and then every later all-up event forced handOn
+      // false on a handstand this gesture had nothing to do with.
+      if(auxHand){handOn=false;auxHand=false;}  // spin moved to a one-finger circle
       auxId=null;
     }
   }
@@ -18006,8 +18022,13 @@ function endTouch(e){
       else if((airborne||hanging)&&Math.abs(dx)>innerWidth*0.19&&Math.abs(dx)>Math.abs(dy)*1.3)
         addFlip(dx>0?1:-1);
     }
-    dropSteerTouch();return;
+    dropSteerTouch();break;
   }
+  // BREAK, not return. This used to bail out of the whole handler the moment the steering
+  // finger was found in the ended list -- which is most touchends -- so the release below
+  // was skipped and the aux slot and its flag were left set with no fingers on the glass at
+  // all. That is the leak that strands auxId, and the recovery in touchstart is the net
+  // under it rather than a substitute for this.
   if(e.touches.length===0){clearTimeout(gHoldT);dropSteerTouch();clearAux();auxId=null;
     if(auxHand){handOn=false;auxHand=false;}}
 }
@@ -26997,6 +27018,13 @@ if(location.hash.includes('debug')){
       return out;
     },
     obsTemplate(k){ const t=OBST_TEMPLATES[k]; return t?{variant:t.userData.variant||null}:null; },
+    // ---- the touch SLOTS, which is where the handstand actually lives ----
+    // The two-finger handstand is `else if(auxId===null)`: one stranded id in that slot and
+    // the gesture is dead for the session with nothing on screen to say so. Neither slot is
+    // visible from anywhere else, and "it stopped working" is the only symptom either of
+    // them produces, so they are worth being able to read directly.
+    touchSlots(){ return {steer:touchId, aux:auxId, auxHand:!!auxHand,
+                          handOn:!!handOn, grab:!!gGrab, handT:+handT.toFixed(3)}; },
     // ---- the helicopter, beat by beat ----
     // Six timed beats and a settle, and every one of them is a thing you are supposed to be
     // able to SEE: the lie-down, the hop, the nose going under, two seconds beneath it, the
