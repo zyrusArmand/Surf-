@@ -563,3 +563,58 @@ Five things went wrong on the way, all worth keeping:
   points right.
 
 **`menusign.glb` is not modified.** This writes a separate file.
+
+---
+
+## `turtle.glb` — the underwater turtle, built by `turtle.py`
+
+682 KB, 9,000 tris, 4,683 verts, one 512² JPEG, 17 joints. **It arrived at 25 MB** — 305,850
+triangles, a 2048² base colour and a 4096² metallic-roughness map costing 9.4 MB on its own.
+
+Source: `turtle_MAX.glb` (supplied). It is rigged and it ships **no animation clips**, so the
+swimming is written in `index.html` (`turtleStep`) against the bones directly.
+
+### The bones have no names worth the word
+
+Seventeen joints called `Bone_000` … `Bone_016`. Nothing in the file says which is a leg. They
+are mapped by where they sit in the bind pose, in three.js space (x across, y up, z back; the
+model faces **−Z**, which is the game's forward, and its origin is at its belly):
+
+| role | bone | head position |
+|---|---|---|
+| neck → head | `Bone_003` → `Bone_002` | (0, 0.60, −1.30) → (0, 0.49, −1.56) |
+| front left / right leg | `Bone_007` / `Bone_009` | (∓0.53, 0.24, −1.03) |
+| rear left / right leg | `Bone_011` / `Bone_013` | (∓0.58, 0.42, +0.69) |
+| tail | `Bone_016` → `015` → `014` | (0, 0.73, +0.78) running back and up |
+
+Overall 1.93 wide × 1.70 tall × 3.58 long in its own units. `TURT_LEN` in the game is that 3.58,
+which is how a wanted size in feet becomes a scale.
+
+The leg bones hang straight down out of the shell and have no useful axis of their own, so the
+stroke is applied with `premultiply` — a rotation in the **parent's** frame, which is near enough
+the body's: x swings a leg fore and aft, z swings it out and in, and a quarter turn between them
+is the figure of eight that stops it reading as a windscreen wiper.
+
+### Four traps, all of which were walked into
+
+- **Merge before you decimate.** 268,380 verts for 305,850 tris is not a surface, it is a
+  shattered one — near enough every face carrying its own copies of its corners. Collapse cannot
+  cross a seam it believes is a boundary, so on that mesh it does not simplify the shape, it eats
+  **holes** in it. `remove_doubles` first takes it to 153k verts and the collapse then behaves:
+  9,000 tris from 4,683 verts, which is the ratio a closed mesh should give.
+- **Re-unwrap, then re-bake.** The file's UVs address an atlas baked for the dense mesh. Simplify
+  the mesh and those islands are still addressing texels that belonged to faces a hundredth of
+  the size, and it arrives looking like **camouflage** — a scatter of unrelated colours. Smart UV
+  Project on the decimated mesh, then bake the original's colour onto the new UVs, selected-to-
+  active.
+- **A bake target is not a linked texture.** An image node only has to be *active* to be baked
+  into, so the node sat unconnected through a bake that worked perfectly. The exporter writes the
+  material it can see, and an unlinked texture is not part of the shader: the turtle came out with
+  a `baseColorFactor` of grey and no map at all — a clean white tortoise. Link it after baking.
+- **The metallic-roughness map is 9.4 MB describing how shiny a turtle is** to a scene lit by one
+  sun through thirty feet of fog. It is dropped for a constant roughness of 0.72.
+
+### And it is cloned, not re-loaded
+
+`cloneModel()` — three.js copies a `SkinnedMesh`'s skeleton **by reference**, so a bare
+`clone(true)` deforms to the original's bones and arrives inside out.

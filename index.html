@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.152.0';
+window.SURF_VERSION='6.153.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -27640,6 +27640,38 @@ if(location.hash.includes('debug')){
     // down" needs the shape: a pug on his feet is about 1.8 tall and 0.9 long, and the same pug
     // swimming is 0.6 tall and 2.0 long. Box3 cannot tell them apart -- for a skinned mesh it
     // reads the BIND box, which is why it called a rider mid-dive two and a half feet tall.
+    // spawned / where / how fast / is the rig actually moving. The last one is the only way to
+    // tell a turtle swimming from a turtle being slid along, and it does not read off a picture.
+    // Headless runs at a third of a frame a second and the game clamps its delta, so the
+    // spawn timer takes six minutes of wall clock to count two seconds down. A test that
+    // cannot make the thing happen is a test that only ever reports "not yet".
+    turtleNow(n){
+      turtleAsk();
+      if(!turtleTpl)return {loaded:false};
+      if(!turtleGrp){ turtleGrp=new THREE.Group(); scene.add(turtleGrp); }
+      turtleGrp.visible=true;
+      for(let i=turtles.length;i<Math.min(TURT_MAX,n||1);i++){
+        const g=turtleMake(); if(!g)break;
+        turtleGrp.add(g); turtles.push(g); turtleLay(g);
+        g.position.z=-26-i*13;                 // close enough to actually see
+      }
+      return {loaded:true, n:turtles.length};
+    },
+    turtles(){
+      const out={loaded:!!turtleTpl, asked:turtleAsked, n:turtles.length,
+                 next:+_turtT.toFixed(1), list:[]};
+      for(const g of turtles){
+        const u=g.userData, b=u.b||{};
+        out.list.push({x:+g.position.x.toFixed(1), y:+g.position.y.toFixed(1),
+                       z:+g.position.z.toFixed(1), ft:+(g.scale.x*TURT_LEN).toFixed(2),
+                       hz:+u.hz.toFixed(1), hx:+u.hx.toFixed(1),
+                       // the flipper's angle off its own rest, in degrees: zero every frame
+                       // means the bones were found by a name that does not exist
+                       flap:(b.frontL&&u.rest.frontL)
+                         ?+(b.frontL.quaternion.angleTo(u.rest.frontL)*57.3).toFixed(1):null});
+      }
+      return out;
+    },
     swimScan(){
       const R=riderRig(); if(!R)return {model:false};
       let sm=R.skin;
@@ -32131,6 +32163,157 @@ function fishSchool(seed){
   g.userData.ph=R()*6.283;
   return g;
 }
+// ============================ THE TURTLES ============================
+// One thing down here that is alive and is not a decoration: a turtle every few seconds, on its
+// own errand, crossing the lane at its own speed. Some of them you overtake and some come past
+// you, which is the difference between scenery scrolling and something swimming.
+//
+// The file arrived at 25MB -- 306k triangles and a 4096-square metallic-roughness map, which is
+// a description of how shiny a turtle is to a scene lit by one sun through thirty feet of fog.
+// It is 682KB now: merged (268k verts for 306k tris is not a surface, it is a shattered one, and
+// collapse cannot cross a seam it thinks is a boundary, so on that mesh it ate holes instead of
+// simplifying), decimated to nine thousand, re-unwrapped, and its colour baked onto the new UVs.
+// Re-unwrapping is not optional: the file's UVs address an atlas made for the dense mesh, and
+// simplifying the mesh leaves those islands addressing texels that belong to faces a hundredth
+// of the size -- which arrives looking like camouflage.
+//
+// It is RIGGED but ships no clips, so the swimming is written here: seventeen bones, named
+// Bone_000 to Bone_016 and nothing else, mapped by where they sit in the bind pose rather than
+// by their names, because their names say nothing.
+const TURT_MAX=3;                       // how many can be out at once
+const TURT_GAP_MIN=2.6, TURT_GAP_MAX=9.0;   // seconds between arrivals
+const TURT_AHEAD=-165, TURT_BEHIND=38;      // laid this far ahead, taken back this far behind
+const TURT_SPREAD=27, TURT_LANE=3.4;        // ...and never closer than this to the lane centre
+const TURT_LEN=3.58;                    // the model's own nose-to-tail, in its own units
+const TURT_FT_MIN=1.7, TURT_FT_MAX=3.9;     // and in feet, once it is scaled
+const TURT_MID=0.85;                    // its origin is at its belly; this is half its height
+// Bones by ROLE, read off the bind pose (x across, y up, z back; the model faces -Z):
+//   Bone_003 neck  (0, 0.60, -1.30) -> Bone_002 head at the -Z end
+//   Bone_007 front-left leg (-0.53, 0.24, -1.03)   Bone_009 front-right (+0.54)
+//   Bone_011 rear-left      (-0.58, 0.42, +0.69)   Bone_013 rear-right  (+0.59)
+//   Bone_016 tail   (0, 0.73, +0.78), running back and up
+const TURT_BONES={neck:'Bone_003', head:'Bone_002', tail:'Bone_016',
+                  frontL:'Bone_007', frontR:'Bone_009',
+                  rearL:'Bone_011',  rearR:'Bone_013'};
+let turtleTpl=null, turtleAsked=false, turtleGrp=null, turtles=[], _turtT=2.0;
+const _tq=new THREE.Quaternion(), _te=new THREE.Euler();
+function turtleAsk(){
+  if(turtleAsked||typeof loadModel!=='function')return;
+  turtleAsked=true;
+  // asked for on the first dive rather than at boot: nobody who never goes under should pay
+  // two thirds of a megabyte for it
+  loadModel('turtle.glb',root=>{ turtleTpl=root; },9);
+}
+function turtleMake(){
+  if(!turtleTpl)return null;
+  const m=cloneModel(turtleTpl);          // rebinds the skeleton -- a bare clone(true) shares
+  m.position.y=-TURT_MID;                 // the original's bones and arrives inside out
+  const g=new THREE.Group(); g.add(m);
+  const b={}, rest={};
+  m.traverse(o=>{ if(o.isBone&&o.name)b[o.name]=o; });
+  for(const k in TURT_BONES){
+    const bone=b[TURT_BONES[k]];
+    if(bone){ b[k]=bone; rest[k]=bone.quaternion.clone(); }
+  }
+  g.userData.b=b; g.userData.rest=rest;
+  return g;
+}
+function turtleLay(g){
+  const R=Math.random;
+  const sgn=R()<0.5?-1:1;
+  g.position.z=TURT_AHEAD*(0.45+R()*0.55);
+  g.position.x=sgn*(TURT_LANE+R()*(TURT_SPREAD-TURT_LANE));
+  // anywhere in the column with a little clearance top and bottom -- a turtle scraping the sand
+  // and a turtle breaking the surface are both things you would notice for the wrong reason
+  const bed=bedH(g.position.x,g.position.z);
+  g.position.y=bed+2.2+R()*Math.max(2,(0-bed)-5.5);
+  const ft=TURT_FT_MIN+R()*(TURT_FT_MAX-TURT_FT_MIN);
+  g.scale.setScalar(ft/TURT_LEN);
+  const u=g.userData;
+  // ---- its own speed, which is the point of it ----
+  // Negative is swimming the way the player is, so it slides past slowly and you overtake it;
+  // positive is coming the other way and it is gone in a second. Both, mixed, is what stops
+  // them reading as one more layer of the scenery scrolling.
+  u.hz=-6.0+R()*9.0;
+  u.hx=(R()-0.5)*3.4;                     // and a slow angle across the lane
+  u.ph=R()*6.283;
+  u.rate=0.8+R()*0.9;                     // how fast it strokes -- a small one works harder
+  u.roll=R()*6.283;
+  g.rotation.y=Math.atan2(-u.hx,-u.hz);
+  g.visible=true;
+  return g;
+}
+function turtleStep(dt,eff){
+  const on=diveOn||diveDepth>0.5;
+  if(on)turtleAsk();
+  if(!turtleGrp){
+    if(!on||!turtleTpl)return;
+    turtleGrp=new THREE.Group(); scene.add(turtleGrp);
+  }
+  turtleGrp.visible=on;
+  if(!on){ _turtT=1.2; return; }
+  _turtT-=dt;
+  if(_turtT<=0&&turtles.length<TURT_MAX&&turtleTpl){
+    _turtT=TURT_GAP_MIN+Math.random()*(TURT_GAP_MAX-TURT_GAP_MIN);
+    const g=turtleMake();
+    if(g){ turtleGrp.add(g); turtles.push(g); turtleLay(g); }
+  }
+  for(let i=turtles.length-1;i>=0;i--){
+    const g=turtles[i], u=g.userData;
+    // its own swimming PLUS the world going past: eff is the player's speed down the lane, and
+    // a turtle that did not carry it would hang in the water like a sticker on the lens
+    g.position.z+=(eff+u.hz)*dt;
+    g.position.x+=u.hx*dt;
+    if(g.position.z>TURT_BEHIND||Math.abs(g.position.x)>TURT_SPREAD+14){
+      turtleLay(g); continue;
+    }
+    u.ph+=dt*3.1*u.rate;
+    u.roll+=dt*0.7;
+    // it banks and rises a little as it strokes, which is most of what says an animal is
+    // swimming rather than being slid along
+    g.rotation.z=Math.sin(u.roll)*0.11;
+    g.rotation.x=Math.sin(u.roll*0.83+1.1)*0.07;
+    g.position.y+=Math.sin(u.ph*0.5)*dt*0.55;
+    // ---- and it clears the sand it is swimming over ----
+    // Its depth is picked once, at a z a hundred and sixty feet ahead, over sand that has
+    // scrolled somewhere else entirely by the time it gets here -- and the bed has dunes in it.
+    // Measured, one spawned at -16.4 with the sand at -16.6, which is a turtle buried to the
+    // shell. Eased rather than clamped, so it rises OVER a dune instead of stepping up it.
+    const fl=bedH(g.position.x,g.position.z)+1.5;
+    if(g.position.y<fl)g.position.y+=(fl-g.position.y)*Math.min(1,dt*2.4);
+    const top=-2.4;                       // ...and does not break the surface from underneath
+    if(g.position.y>top)g.position.y+=(top-g.position.y)*Math.min(1,dt*2.0);
+    const b=u.b, rest=u.rest;
+    if(!b)continue;
+    const s=Math.sin(u.ph), s2=Math.sin(u.ph+Math.PI);
+    // ---- the stroke ----
+    // Rotated in the PARENT's frame (premultiply), not the bone's own: these bones hang
+    // straight down out of the shell with no useful axis of their own, and the parent's frame
+    // is near enough the body's, so x swings a leg fore and aft and z swings it out and in.
+    // A leg does both at once, a quarter turn apart, which is the figure of eight a paddle
+    // makes and the reason it does not read as a windscreen wiper.
+    const pose=(k,ax,az)=>{ const o=b[k]; if(!o||!rest[k])return;
+      _te.set(ax,0,az); o.quaternion.copy(rest[k]).premultiply(_tq.setFromEuler(_te)); };
+    pose('frontL', s*0.62,  Math.cos(u.ph)*0.26);
+    pose('frontR', s2*0.62, -Math.cos(u.ph+Math.PI)*0.26);
+    // the back legs trail the front by a beat and do less -- they steer more than they drive
+    const r=Math.sin(u.ph-0.9), r2=Math.sin(u.ph-0.9+Math.PI);
+    pose('rearL', r*0.30,  0.05);
+    pose('rearR', r2*0.30, -0.05);
+    // and the head looks around: a slow sway on its own clock, nothing to do with the stroke,
+    // because a head that nods in time with the legs reads as one machine
+    const hb=b.neck;
+    if(hb&&rest.neck){
+      _te.set(Math.sin(u.roll*0.61)*0.10, Math.sin(u.roll*0.44+2.0)*0.26, 0);
+      hb.quaternion.copy(rest.neck).premultiply(_tq.setFromEuler(_te));
+    }
+    const tb=b.tail;
+    if(tb&&rest.tail){
+      _te.set(0, Math.sin(u.ph*0.5+0.7)*0.16, 0);
+      tb.quaternion.copy(rest.tail).premultiply(_tq.setFromEuler(_te));
+    }
+  }
+}
 function buildDiveProps(){
   if(diveProps)return;
   diveProps=new THREE.Group(); diveProps.visible=false; scene.add(diveProps);
@@ -36096,6 +36279,7 @@ function update(dt){
   // camera is finished being placed, which is the thing it is following.
   if(typeof bedUpdate==='function')bedUpdate();
   if(typeof diveScenery==='function')diveScenery(_clkDt||0.016,lastEff||0);
+  if(typeof turtleStep==='function')turtleStep(_clkDt||0.016,lastEff||0);
   if(typeof jetUpdate==='function')jetUpdate(_clkDt||0.016);
   // The camera does NOT roll with the ring. A loop camera was tried and taken back out: it
   // keeps the tube wrapped around the view, but the whole shot turning over is disorienting
