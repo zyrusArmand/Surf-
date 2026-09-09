@@ -61,19 +61,52 @@ def outer(t):
     run = min(OPEN, t*LEN)
     return HALF*0.5 + math.tan(SPLAY)*run + HALF*min(1.0, t*8)
 
+# ---- and each SHORE wanders on its own ----
+# The coastline was the wall arithmetic exactly, plus a wobble applied to the whole row -- which
+# moves BOTH edges the same way at the same time, so the island stayed a smooth taper that
+# occasionally slid sideways. A real shore has bays cut into one side while the other pushes out;
+# the two are unrelated. Two independent noises, at a long wavelength for headlands and a shorter
+# one on top for the smaller bites, and the wall keeps the arithmetic it always had -- this is
+# the sand you can SEE, and it is allowed to be wider or narrower than the line that holds you.
+# ---- and it only ever cuts IN ----
+# The wall that holds the rider is outer() plus a margin, and it is not going to be re-derived
+# from a noise field. So a shore that BULGED past outer() would be sand he rides straight
+# through -- held off the arithmetic while the beach is drawn a foot inside him. Bays only:
+# every wobble takes sand away, so the wall is always at or outside the real shore and the worst
+# it can do is hold him a little wide of a cove, which is what a cove looks like from the water.
+BAY_LONG, BAY_SHORT = 0.24, 0.10
+def _cut(t, side):
+    return ((0.5 + 0.5*fbm(0.0, t*LEN*0.021, 21.0 + side*7)*1.6)*BAY_LONG
+          + (0.5 + 0.5*noise(0.0, t*LEN*0.055, 33.0 + side*7)*1.8)*BAY_SHORT)
+# ---- NORMALISED, by sampling, not by a guessed multiplier ----
+# The cut is always positive, so without this the island simply comes out narrower than the wall
+# everywhere. Widening it back by a number picked by eye overshot and put sand past the wall in
+# twenty-two rows out of twenty-eight -- beach he would ride straight through. The smallest cut
+# the field actually produces is measured here, over a fine sampling of both shores, and taken
+# off: the widest point of the island then touches the wall exactly and every other point is
+# inside it, by construction rather than by hope.
+MINCUT = min(_cut(i/2000.0, sd) for i in range(2001) for sd in (0, 1))
+def shore(t, side):
+    # ...and it closes back to the arithmetic at both ends, so the point is still a point and
+    # the far end still runs out straight
+    ends = min(1.0, t/0.16) * min(1.0, (1.0-t)/0.10)
+    return 1.0 - (_cut(t, side) - MINCUT)*ends
+
 bm = bmesh.new()
 ring = []
 for j in range(NZ+1):
     t = j/NZ
     y = t*LEN
-    e = outer(t)
+    e  = outer(t)
+    eL = e*shore(t, 0)          # the two shores, each its own shape
+    eR = e*shore(t, 1)
     # the crown is low at the point and full height once the island has opened
     crown = CROWN*(TIP + (1.0-TIP)*min(1.0, t*4))
     row = []
     for i in range(NX+1):
         u = i/NX
         k = u*2 - 1                       # -1 at one rim, +1 at the other
-        x = k*e
+        x = k*(eL if k < 0 else eR)
         # ---- the cross section ----
         # Flat through the middle and rolling over to the water at the rim, rather than a dome:
         # a dome has no beach on it, and the whole of the near half of this is beach.
@@ -119,7 +152,8 @@ for j in range(NZ+1):
         z += fbm(x*0.045, y*0.045, 0.0)*1.70*up
         z += noise(x*0.11, y*0.11, 3.0)*0.62*up
         # ...and the rim wanders, so the waterline is not a drawn curve
-        row.append(bm.verts.new((x + fbm(0.0, y*0.06, 9.0)*1.5*(1-up), y, z)))
+        # the whole-row shift is gone: the shores above do that job, and independently
+        row.append(bm.verts.new((x, y, z)))
     ring.append(row)
 for j in range(NZ):
     a, b = ring[j], ring[j+1]
@@ -154,6 +188,7 @@ bpy.context.scene.collection.objects.link(obj)
 bpy.context.view_layer.objects.active = obj; obj.select_set(True)
 bpy.ops.object.shade_smooth()
 me.materials.clear()
+print('MINCUT %.4f'%MINCUT)
 print('isle verts', len(me.vertices), 'faces', len(me.polygons))
 DST = '/home/user/Surf-/models/isle.glb'
 bpy.ops.export_scene.gltf(filepath=DST, export_format='GLB', export_image_format='NONE',

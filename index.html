@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.145.0';
+window.SURF_VERSION='6.146.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -31736,9 +31736,9 @@ let forkFace=0, forkLandX=0, forkEndZ=0;
 // own signpost is untouched.
 let forkSign=null, forkSignSet=false;
 loadModel('forksign.glb',s2=>{ forkSign=s2; },9);
-const ISLE_SIGN_H=7.2;        // how tall the post stands, in feet
+const ISLE_SIGN_H=5.6;        // how tall the post stands, in feet
 const ISLE_SIGN_BURY=0.8;     // ...and how much of its foot is in the sand
-const ISLE_SIGN_Z=-21.0;      // how far up the island from the point it stands
+const ISLE_SIGN_Z=-26.0;      // how far up the island from the point it stands
 const ISLE_SIGN_OUT=0.92;     // ...and how far out toward the left shore, as a fraction of it
 function forkPlaceSign(){
   if(forkSignSet||!forkSign||!forkArt||!forkArt.userData.field)return;
@@ -31783,9 +31783,18 @@ const ISLE_CHEST_SPIN=0.75;   // radians a second
 let forkChestSet=false;
 function forkPlaceChest(){
   if(forkChestSet||!forkArt||!forkArt.userData.field)return;
+  // ---- and it is the MODELLED chest, not the built one ----
+  // buildChest() makes the fallback: five Phong boxes and some brass-coloured trim, which is
+  // what stands in until chest.glb lands. Everything else in the game that shows a chest --
+  // the one in the water, the one on the menu beach, the one the run card opens -- gets
+  // dressed with the model afterwards, and this one never was, so the island had the box on
+  // it. Waits for the file rather than settling for the fallback: there is no hurry, the
+  // chest is placed the moment he is aground and the model loads long before that.
+  if(!chestModel)return;
   if(!forkChest){
-    forkChest=(typeof buildChest==='function')?buildChest():null;
+    forkChest=buildChest();
     if(!forkChest)return;
+    dressChest(forkChest,cloneModel(chestModel));
     forkChest.scale.setScalar(0.9);
   }
   if(forkChest.parent!==forkArt)forkArt.add(forkChest);

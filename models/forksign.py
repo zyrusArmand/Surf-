@@ -48,6 +48,12 @@ def glb_images(path):
 j, IMGS = glb_images(SRC)
 # material: normalTexture 0, baseColor 1, metallicRoughness 2
 BASE, NRM, RGH = IMGS[1], IMGS[0], IMGS[2]
+# ---- and the colour map is doubled before anything is written to it ----
+# A plank's reading face lands on a few hundred texels of a 1024 atlas, so words baked into it
+# come out at about the resolution of a stencil -- which is what they looked like. Upscaling the
+# base map first costs one texture at 2048 and gives the lettering four times the pixels. Only
+# the colour map: the normal and roughness carry nothing that needs the detail.
+BASE = BASE.resize((2048, 2048), Image.LANCZOS)
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=SRC)
@@ -154,16 +160,25 @@ class Panel:
                 if not add: break
                 for x, y, c in add: op[x, y] = c; got[x][y] = True
         return out
-    def write(self, img, panel):
-        """bake the panel back into the atlas, grown a touch so island seams close"""
+    def write(self, img, panel, grows=(0.40, 0.16, 0.05)):
+        """bake the panel back into the atlas.
+
+        Written THREE TIMES, widest first. A UV triangle rasterised at its exact size leaves the
+        texels along every island border uncovered -- and an uncovered texel keeps whatever the
+        original atlas had there, which next to a word is a piece of that word. Those were the
+        dark bites out of the middle of RIGHT and the pale speckle along the planks. The wide
+        pass floods the seams and the gaps between islands (which nothing samples anyway), the
+        narrow one then lays the exact texels over the top."""
         W, H = img.size; dp = img.load(); pp = panel.load()
-        for P, U in self.tris():
+        for g in grows:
+          for P, U in self.tris():
             UP = [(U[i][0]*W, (1-U[i][1])*H) for i in range(3)]
-            for X, Y, a, b, c in self._raster(UP, W, H, grow=0.09):
+            for X, Y, a, b, c in self._raster(UP, W, H, grow=g):
                 s = a*P[0][0]+b*P[1][0]+c*P[2][0]
                 t = a*P[0][1]+b*P[1][1]+c*P[2][1]
                 si = int(min(self.OW-1, max(0, s))); ti = int(min(self.OH-1, max(0, t)))
                 dp[X, Y] = pp[si, ti]
+
 
 # ---------------------------------------------------------------- the repaint
 def font(sz):
@@ -185,23 +200,36 @@ def clone_out(img, box, tag=None):
             px[x, y] = px[sx, y]
     return img
 
+# where each word sat, and the paint it was in, read off the atlas BEFORE any of it is touched
+WAS, INK = {}, {}
+for band, tag in ((UPPER, 'upper'), (LOWER, 'lower')):
+    f0 = Panel(band_faces(*band)).read(BASE)
+    W0, H0 = f0.size; p0 = f0.load()
+    pts = [(x, y) for y in range(H0) for x in range(W0) if is_yellow(p0[x, y])]
+    if not pts: raise SystemExit('no lettering found on ' + tag)
+    WAS[tag] = pts
+    INK[tag] = tuple(sum(p0[p][i] for p in pts)//len(pts) for i in range(3))
+    print('%s: word at %d..%d x %d..%d, ink %s' % (tag, min(p[0] for p in pts),
+          max(p[0] for p in pts), min(p[1] for p in pts), max(p[1] for p in pts), INK[tag]))
+
 def repaint(pan, word, arrow, tag):
     """clone the old word out along the grain, paint the new one in its place"""
     img = pan.read(BASE)
     img.save(SCR + 'was_%s.png' % tag)
     W, H = img.size; px = img.load()
-    ys = [(x, y) for y in range(H) for x in range(W) if is_yellow(px[x, y])]
-    if not ys: raise SystemExit('no lettering found on ' + tag)
+    # The wipe above has already taken the old word off, so there is no yellow left to find and
+    # the letter box has to come from the ORIGINAL atlas instead -- read once, before anything
+    # was written, and kept.
+    ys = WAS[tag]
     lx0 = min(p[0] for p in ys); lx1 = max(p[0] for p in ys)
     ly0 = min(p[1] for p in ys); ly1 = max(p[1] for p in ys)
-    ink = tuple(sum(px[p][i] for p in ys)//len(ys) for i in range(3))
+    ink = INK[tag]
     # ---- the old word goes, along the grain ----
     # Wood grain on these planks runs the length of the board, so a HORIZONTAL clone keeps every
     # grain line at the height it was already at and there is no seam to see. Vertical or
     # blurred fills both showed as a smudge exactly where the word had been.
     pad = 14
     box = (max(0, lx0-pad), max(0, ly0-pad), min(W, lx1+pad), min(H, ly1+pad))
-    clone_out(img, box)
     # ---- and the new one is painted in the same place, in the same paint ----
     dr = ImageDraw.Draw(img)
     # a little under the old word's height: DejaVu Serif Bold is a heavier face than the
@@ -244,6 +272,24 @@ def repaint(pan, word, arrow, tag):
 # better one than anything paintable because it is the model's own geometry. So the words follow
 # the wood rather than the wood being argued with, and the painted arrow agrees with the point
 # instead of contradicting it -- the first pass had LEFT on the plank that points right.
+# ---- EVERY face of the plank is wiped first, then the reading face is written ----
+# The bake only ever touched faces pointing at the viewer, which left the old word alive on the
+# plank's ROUNDED EDGES: little fragments of "Shop" and "Quests" catching the light along the
+# top and bottom of each board, and reading as pale speckle from any distance. Wiped across the
+# whole band, any normal, before the new word goes on the front of it.
+for band, tag in ((UPPER, 'upper'), (LOWER, 'lower')):
+    every = Panel(band_faces(band[0], band[1], front_only=False))
+    flat = every.read(BASE)
+    W2, H2 = flat.size; q = flat.load()
+    ys = [(x, y) for y in range(H2) for x in range(W2) if is_yellow(q[x, y])]
+    if not ys: continue
+    ebox = (max(0, min(p[0] for p in ys)-16), max(0, min(p[1] for p in ys)-16),
+            min(W2, max(p[0] for p in ys)+16), min(H2, max(p[1] for p in ys)+16))
+    every.write(BASE, clone_out(flat, ebox))
+    for m in (NRM, RGH):
+        every.write(m, clone_out(every.read(m), ebox))
+    print('wiped %s across every face, box %s' % (tag, ebox))
+
 for band, word, arrow, tag in ((UPPER, 'RIGHT', +1, 'upper'), (LOWER, 'LEFT', -1, 'lower')):
     fs = band_faces(*band)
     pan = Panel(fs)
@@ -330,8 +376,12 @@ bm.to_mesh(me); bm.free()
 print('faces', len(me.polygons))
 
 # ---------------------------------------------------------------- write it out
+# ---- written as JPEG, which is what the file shipped as ----
+# Saved as PNG the three maps came to seven megabytes for a signpost, most of it the doubled
+# colour map. Every one of these was a JPEG in menusign.glb to begin with; there is nothing in a
+# wood grain, a nearly-flat normal map or a roughness mask that needs lossless.
 for nm, im in (('base', BASE), ('nrm', NRM), ('rgh', RGH)):
-    im.save(SCR + 'fs_%s.png' % nm)
+    im.save(SCR + 'fs_%s.jpg' % nm, quality=92, subsampling=0)
 mat = obj.data.materials[0]
 bsdf = [n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'][0]
 # ---- rebind ALL THREE, BY THE SOCKET THEY DRIVE ----
@@ -346,9 +396,9 @@ def feeder(sock):
         ins = [l for l in mat.node_tree.links if l.to_node == node]
         node = ins[0].from_node if ins else None
     return node
-for sock, path in (('Base Color', SCR+'fs_base.png'),
-                   ('Roughness',  SCR+'fs_rgh.png'),
-                   ('Normal',     SCR+'fs_nrm.png')):
+for sock, path in (('Base Color', SCR+'fs_base.jpg'),
+                   ('Roughness',  SCR+'fs_rgh.jpg'),
+                   ('Normal',     SCR+'fs_nrm.jpg')):
     n = feeder(bsdf.inputs[sock])
     if n is None: print('no image behind', sock); continue
     n.image = bpy.data.images.load(path)
