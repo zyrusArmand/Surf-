@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.153.0';
+window.SURF_VERSION='6.154.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -27657,6 +27657,22 @@ if(location.hash.includes('debug')){
       }
       return {loaded:true, n:turtles.length};
     },
+    sharksUnder(){
+      return {n:dshks.length, next:+_dshkT.toFixed(1), face:_dshkFace,
+              list:dshks.map(g=>({x:+g.position.x.toFixed(1), y:+g.position.y.toFixed(1),
+                z:+g.position.z.toFixed(1), ph:g.userData.ph,
+                aim:[+g.userData.aimX.toFixed(1),+g.userData.aimY.toFixed(1)],
+                jaw:+(g.userData.jaw||0).toFixed(1),
+                ft:+(g.scale.x).toFixed(3)}))};
+    },
+    sharkUnderNow(dz){
+      if(!dshkGrp){ dshkGrp=new THREE.Group(); scene.add(dshkGrp); }
+      dshkGrp.visible=true;
+      const g=dshkMake(); if(!g)return {made:false};
+      dshkGrp.add(g); dshks.push(g); dshkLay(g);
+      g.position.z=pz+(dz===undefined?-34:dz);
+      return {made:true, n:dshks.length};
+    },
     turtles(){
       const out={loaded:!!turtleTpl, asked:turtleAsked, n:turtles.length,
                  next:+_turtT.toFixed(1), list:[]};
@@ -32251,7 +32267,9 @@ function turtleStep(dt,eff){
     turtleGrp=new THREE.Group(); scene.add(turtleGrp);
   }
   turtleGrp.visible=on;
-  if(!on){ _turtT=1.2; return; }
+  // same as the sharks: a hidden turtle keeps its position, and the next dive would start with
+  // one already halfway past
+  if(!on){ if(turtles.length)for(const g of turtles)turtleLay(g); _turtT=1.2; return; }
   _turtT-=dt;
   if(_turtT<=0&&turtles.length<TURT_MAX&&turtleTpl){
     _turtT=TURT_GAP_MIN+Math.random()*(TURT_GAP_MAX-TURT_GAP_MIN);
@@ -32312,6 +32330,158 @@ function turtleStep(dt,eff){
       _te.set(0, Math.sin(u.ph*0.5+0.7)*0.16, 0);
       tb.quaternion.copy(rest.tail).premultiply(_tq.setFromEuler(_te));
     }
+  }
+}
+// ============================ THE SHARKS, UNDER ============================
+// The same animal as the one on the surface and a completely different hazard. Up there it is a
+// LEAP: it commits, leaves the water, and the whole trick is that it is aimed at where you were
+// when it launched. Down here there is no surface to leave, so the leap is gone and what is left
+// is the part that made the leap fair -- it picks its spot, and then it cannot change its mind.
+//
+// A shark that homes on you all the way in is not a mechanic, it is a coin toss with teeth. So:
+// it stalks, tracking you while it is far enough out that tracking does not matter; at a second
+// out it LOCKS -- aim frozen, jaws open, and it stops steering. From that moment the dodge is
+// entirely yours, in any direction, because down here you have all of them.
+const DSHK_MAX=2;                       // how many can be hunting at once
+const DSHK_GAP_MIN=8.0, DSHK_GAP_MAX=17.0;  // seconds between arrivals
+const DSHK_AHEAD=-155, DSHK_BEHIND=30;
+const DSHK_SPREAD=17;                   // how wide it can come in from
+const DSHK_FT=8.5;                      // how long a shark is, in feet
+const DSHK_CRUISE=10.0;                 // ft/s it closes at while it is still stalking
+const DSHK_CHARGE=25.0;                 // ...and once it has committed
+const DSHK_LOCK=1.00;                   // seconds out that it commits and stops tracking
+const DSHK_TRACK=3.0;                   // ft/s it can correct by, per foot of error, while stalking
+const DSHK_BITE=2.3;                    // how near its aim has to land -- and so, the dodge
+const DSHK_YAW=0;                       // set from the measured template; see dshkFace()
+let dshkGrp=null, dshks=[], _dshkT=6.0, _dshkFace=null;
+function dshkTpl(){
+  if(typeof buildObstacle!=='function')return null;
+  if(!OBST_TEMPLATES.bigfin){ try{ OBST_TEMPLATES.bigfin=buildObstacle('bigfin'); }catch(e){ return null; } }
+  const vs=OBST_VARIANTS.bigfin;
+  return (vs&&vs.length)?vs[(Math.random()*vs.length)|0]:OBST_TEMPLATES.bigfin;
+}
+// ---- which way the template already faces, measured once ----
+// The fitted model carries a quarter turn inside its own frame so that the surface spawn's
+// `rotation.y = dir * PI/2` lands it head-first crossing your lane. That turn is a fact about
+// the file, and the built-in fallback -- a bare dorsal blade with no body -- has a different one
+// again. Rather than carry a constant per variant, the box is measured: whichever of x and z it
+// is longer along is the way it is lying, and the wrapper is turned by the difference.
+function dshkFace(m){
+  if(_dshkFace!==null)return _dshkFace;
+  m.updateMatrixWorld(true);
+  const b=new THREE.Box3().setFromObject(m);
+  const dx=b.max.x-b.min.x, dz=b.max.z-b.min.z;
+  _dshkFace=(dx>dz)?Math.PI/2:0;        // lying along x: a quarter turn puts it along z
+  return _dshkFace;
+}
+function dshkMake(){
+  const t=dshkTpl(); if(!t)return null;
+  const m=cloneModel(t);
+  const g=new THREE.Group();
+  m.rotation.y+=dshkFace(m);
+  g.add(m);
+  // ---- and it is lifted back out of its own hole ----
+  // BIGFIN_SHOW sinks the whole model inside its frame until only the top of the fin clears the
+  // water, because on the surface that is the entire read. Under it there is no waterline to
+  // hide behind and the sink just buries the animal below its own origin, so the box is measured
+  // and the body re-centred on the wrapper.
+  g.updateMatrixWorld(true);
+  const b=new THREE.Box3().setFromObject(g);
+  if(isFinite(b.min.y))m.position.y-=(b.min.y+b.max.y)/2;
+  const len=Math.max(b.max.z-b.min.z,b.max.x-b.min.x)||1;
+  g.scale.setScalar(DSHK_FT/len);
+  g.userData.mdl=m;
+  return g;
+}
+function dshkLay(g){
+  const R=Math.random, u=g.userData;
+  g.position.z=DSHK_AHEAD*(0.75+R()*0.25);
+  g.position.x=(R()-0.5)*2*DSHK_SPREAD;
+  g.position.y=Math.max(bedH(g.position.x,g.position.z)+3.0,-13+R()*8);
+  u.ph='stalk'; u.jaw=SHARK_JAW_IDLE; u.jawT=R()*6; u.t=0;
+  u.aimX=px; u.aimY=py; u.done=false;
+  g.visible=true;
+  return g;
+}
+function dshkStep(dt,eff){
+  const on=diveOn&&running;
+  if(!dshkGrp){
+    if(!on)return;
+    dshkGrp=new THREE.Group(); scene.add(dshkGrp);
+  }
+  dshkGrp.visible=diveOn;
+  // ---- and they are LAID OUT AGAIN when the dive ends ----
+  // Hiding the group is not resetting it: every shark keeps the position it was hidden at, so
+  // the next dive resumes one four feet off his nose in mid-lunge. The run that follows was
+  // never given a chance to see it coming, which is the one thing this hazard is built not to do.
+  if(!on){
+    if(!diveOn&&dshks.length){ for(const g of dshks)dshkLay(g); _dshkT=DSHK_GAP_MIN; }
+    return;
+  }
+  _dshkT-=dt;
+  if(_dshkT<=0&&dshks.length<DSHK_MAX){
+    _dshkT=DSHK_GAP_MIN+Math.random()*(DSHK_GAP_MAX-DSHK_GAP_MIN);
+    const g=dshkMake();
+    if(g){ dshkGrp.add(g); dshks.push(g); dshkLay(g); }
+  }
+  for(const g of dshks){
+    const u=g.userData;
+    u.t+=dt;
+    // closing speed is the world going past PLUS its own swimming: it is coming the other way
+    const own=(u.ph==='stalk')?DSHK_CRUISE:DSHK_CHARGE;
+    g.position.z+=(eff+own)*dt;
+    const togo=(pz-g.position.z)/Math.max(1,eff+own);   // seconds until it is level with him
+    if(u.ph==='stalk'){
+      // it steers toward you while it is far enough out that steering is not the same as
+      // cheating -- and the rate is capped, so coming in from the far side of the lane costs
+      // it the angle rather than being free
+      g.position.x+=Math.max(-DSHK_TRACK*dt*3,Math.min(DSHK_TRACK*dt*3,(px-g.position.x)*dt*1.3));
+      g.position.y+=Math.max(-DSHK_TRACK*dt*3,Math.min(DSHK_TRACK*dt*3,(py-g.position.y)*dt*1.3));
+      u.aimX=px; u.aimY=py;
+      if(togo<DSHK_LOCK&&togo>-1){
+        u.ph='lock'; u.aimX=px; u.aimY=py;
+        msg('SHARK!'); buzz([30,40,30]);
+      }
+    } else if(u.ph==='lock'){
+      // committed. It runs at the spot it chose and nothing it learns from here changes it.
+      g.position.x+=(u.aimX-g.position.x)*Math.min(1,dt*6);
+      g.position.y+=(u.aimY-g.position.y)*Math.min(1,dt*6);
+      if(!u.done&&g.position.z>pz-1.0){
+        u.done=true;
+        const off=Math.hypot(px-u.aimX,py-u.aimY);
+        if(off<DSHK_BITE&&running&&!wipe){
+          u.ph='bite';
+          // ends the run the way the surface shark does. He is not surfaced first: the fog and
+          // the sand are what say where this happened, and snapping them off at the moment of
+          // the bite would end the run somewhere the player was never standing.
+          startWipeout('bigfin');
+        } else {
+          u.ph='miss';
+          msg('CLOSE!');
+        }
+      }
+    }
+    // it swims along its own line, nose first
+    const dx=u.aimX-g.position.x, dz=Math.max(0.5,(eff+own));
+    g.rotation.y=Math.atan2(dx,dz);
+    g.rotation.z=Math.sin(u.t*1.6)*0.10;
+    // the tail beat, and the jaw
+    const jw=sharkJaw(g.userData.mdl||g);
+    if(jw){
+      u.jawT+=dt;
+      // gaping on the run in is the tell that it has committed, and it is the only warning
+      // there is: a hazard you cannot see deciding is a hazard you cannot dodge
+      let want;
+      if(u.ph==='lock')      want=-8-10*Math.min(1,u.t*0.6);
+      else if(u.ph==='bite') want=SHARK_JAW_SHUT*0.5;
+      else if(u.ph==='miss') want=SHARK_JAW_SHUT*Math.max(0,1-(u.t%1.4)/0.9);
+      else                   want=SHARK_JAW_IDLE+Math.sin(u.jawT*SHARK_JAW_RATE)*SHARK_JAW_SWING;
+      u.jaw=(u.jaw===undefined)?want:u.jaw+(want-u.jaw)*Math.min(1,dt*SHARK_JAW_EASE);
+      if(u.jawRest===undefined&&jw)u.jawRest=(g.userData.mdl||g).userData.jawRest;
+      const rest=(g.userData.mdl||g).userData.jawRest;
+      if(rest)jw.quaternion.copy(rest).multiply(_shkQ.setFromAxisAngle(_shkY,u.jaw*Math.PI/180));
+    }
+    if(g.position.z>DSHK_BEHIND)dshkLay(g);
   }
 }
 function buildDiveProps(){
@@ -36280,6 +36450,7 @@ function update(dt){
   if(typeof bedUpdate==='function')bedUpdate();
   if(typeof diveScenery==='function')diveScenery(_clkDt||0.016,lastEff||0);
   if(typeof turtleStep==='function')turtleStep(_clkDt||0.016,lastEff||0);
+  if(typeof dshkStep==='function')dshkStep(_clkDt||0.016,lastEff||0);
   if(typeof jetUpdate==='function')jetUpdate(_clkDt||0.016);
   // The camera does NOT roll with the ring. A loop camera was tried and taken back out: it
   // keeps the tube wrapped around the view, but the whole shot turning over is disorienting
