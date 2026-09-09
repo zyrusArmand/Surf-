@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.141.0';
+window.SURF_VERSION='6.142.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -18151,6 +18151,13 @@ const TAP_MS=270, TAP_SLOP=24, HOLD_MS=235;
 function clearAux(){ clearTimeout(auxHoldT); auxHoldT=null; }
 addEventListener('touchstart',e=>{
   touchMode=true;
+  // ---- and ASHORE the glass is not a steering wheel ----
+  // These handlers exist to steer a board and to start tricks, and they claim the first finger
+  // on the screen for it. On the island there is no board: a tap anywhere read as a carve and
+  // he leaned into it, which is "unless I press the joystick it thinks I'm still surfing". The
+  // walk ring has its own captured pointer and is unaffected -- it stops the event before this
+  // ever sees it.
+  if(forkOn&&forkPh>=3)return;
   // If the steering finger disappeared without a touchend — iOS cancels touches for
   // notifications, Control Centre swipes and other system gestures — the slot would
   // stay claimed by a dead id and steering would never come back. Reclaim it.
@@ -27330,6 +27337,10 @@ if(location.hash.includes('debug')){
     // Drives the walk ring from a test: ph 3 is the only part of this piece with no
     // automatic motion in it at all, so without this the island's own ending is unreachable.
     walk(x,z){ walkVX=x||0; walkVZ=z||0; return {vx:walkVX,vz:walkVZ,ph:forkPh}; },
+    // Holds the steering over, which is the only way a test can answer "can he actually get
+    // to the channel" -- the lane's limit is the thing being checked and nothing else moves
+    // him across it.
+    steer(v){ steer=Math.max(-1,Math.min(1,v||0)); return {steer,px:+px.toFixed(2)}; },
     hud(){ return {trick:trickBar.className, stick:walkStick?walkStick.className:null,
                    jump:jumpBtn.className, running:!!running, ov:overlay.className}; },
     fork(){ return {on:!!forkOn, ph:forkPh, z:+forkZ.toFixed(1), side:forkSide,
@@ -31214,7 +31225,12 @@ function isleSandMat(){
   if(ISLE_MAT||!SAND_MAT)return ISLE_MAT;
   ISLE_MAT=new THREE.MeshStandardMaterial({
     color:new THREE.Color(ISLE_SAND[0],ISLE_SAND[1],ISLE_SAND[2]),
-    roughness:SAND_MAT.roughness, metalness:0, side:THREE.FrontSide});
+    // DoubleSide, and not for the sand you walk on -- for the SKIRT under it. The island now
+    // carries a wall dropped from its whole boundary to fourteen feet down, so there is nothing
+    // to see through; getting the winding of that wall wrong would be a hole again, and this
+    // makes the question moot for the cost of not culling twenty-seven thousand back faces
+    // that are underwater anyway.
+    roughness:SAND_MAT.roughness, metalness:0, side:THREE.DoubleSide});
   // ---- and it takes less of the sky than the beach does ----
   // The menu is lit by a white hemisphere at 1.05 and a warm key at 1.8; the ride by a BLUE
   // hemisphere at 0.39 and a sun ten degrees off the water. A big surface of open sand catches
@@ -31287,7 +31303,9 @@ function forkDress(root){
     // the lane he lands in and walks up, kept clear: a tree standing in it is a tree he
     // walks through, and there is no collision out here to stop him
     if(Math.abs(lx)<ISLE_LANE&&lz>-ISLE_LANE_Z)continue;
-    const gap=(Math.random()<ISLE_CLUMP)?ISLE_GAP_TIGHT:ISLE_GAP;
+    // cubed, so most candidates want a lot of room and a few will squeeze in beside a neighbour
+    const gr=Math.random();
+    const gap=ISLE_GAP_TIGHT+(ISLE_GAP-ISLE_GAP_TIGHT)*gr*gr*gr;
     let near=false;
     for(const q of put)if(Math.hypot(q.x-lx,q.z-lz)<gap){ near=true; break; }
     if(near)continue;
@@ -31317,7 +31335,7 @@ function forkDress(root){
     // first pass ended up with a row of flagpoles.
     // squared, so most take a moderate lean and a few are properly bent over
     const lw=Math.random();
-    const lean=ISLE_PALM_LEAN*(0.18+0.82*lw*lw), dir=Math.random()*6.283;
+    const lean=ISLE_PALM_LEAN*(0.10+0.90*lw*lw), dir=Math.random()*6.283;
     c.rotation.set(Math.cos(dir)*lean, Math.random()*6.283, Math.sin(dir)*lean);
     c.scale.setScalar(src.scale.x*(ISLE_PALM_MIN+c0*(ISLE_PALM_MAX-ISLE_PALM_MIN)));
     c.traverse(o=>{ if(o.isMesh){ o.castShadow=false; o.receiveShadow=false;
@@ -31346,7 +31364,7 @@ function forkDress(root){
 // HEAVY is the count used if palmlod.glb has not arrived and the menu's own tree is all
 // there is: twenty of THAT would be six million triangles of scenery, which is the exact
 // thing this is here to stop.
-const ISLE_PALMS=15, ISLE_PALMS_HEAVY=5;
+const ISLE_PALMS=16, ISLE_PALMS_HEAVY=5;
 // ---- spread out, and allowed to CLUMP ----
 // Twenty-eight of them at eight and a half feet was a plantation: enough trees, close enough
 // together, that the island read as a nursery rather than as somewhere a few things had got a
@@ -31356,15 +31374,19 @@ const ISLE_PALMS=15, ISLE_PALMS_HEAVY=5;
 // distance applied uniformly puts every tree the same distance from the next, which is the one
 // arrangement that never happens in nature. A fifth of them get a much closer allowance, so a
 // couple grow in pairs and the rest of the island is open.
-const ISLE_GAP=19.0, ISLE_GAP_TIGHT=5.5, ISLE_CLUMP=0.22;
+// The gap is now DRAWN rather than picked from two values: a fixed pair still produces two
+// populations at two spacings, which reads as deliberate. Anywhere from five feet to twenty-six.
+const ISLE_GAP=26.0, ISLE_GAP_TIGHT=5.0, ISLE_CLUMP=1.0;
 const ISLE_LANE=10.5, ISLE_LANE_Z=78, ISLE_SHORE=1.15;
 // Widened, because at 0.80 to 1.55 with the sink on top they still read as one tree at one
 // size. This is a factor of TWO and a half between the smallest and the largest.
-const ISLE_PALM_MIN=0.62, ISLE_PALM_MAX=1.62;
+const ISLE_PALM_MIN=0.52, ISLE_PALM_MAX=1.78;
 // Feet of trunk that can be buried, and radians of lean. The lean is up to twenty-two degrees
 // now, from thirteen: on a windward shore that is an ordinary palm, and thirteen was small
 // enough that with the trunks upright behind it the whole stand still read as vertical.
-const ISLE_PALM_SINK=4.6, ISLE_PALM_LEAN=0.39;
+// Lean out to thirty degrees at the extreme, which on a windward shore is an ordinary palm
+// and is what stops a stand of them reading as a colonnade.
+const ISLE_PALM_SINK=5.0, ISLE_PALM_LEAN=0.52;
 let forkPalmSrc=null;
 loadModel('palmlod.glb',s=>{ forkPalmSrc=s; },9);
 function islePalmSource(){
@@ -31667,7 +31689,9 @@ const FORK_ISLE_END=8;
 const ISLE_CAM_BACK=11.0, ISLE_CAM_UP=4.9, ISLE_AIM_UP=1.05, ISLE_AIM_AHEAD=14.0;
 // ...and how far above mean water sand has to be before he will stand on it. Above the surf,
 // so the shoreline holds him without him paddling about in the wash.
-const ISLE_WALK_MIN=0.55;
+// Raised with the shore. A long shallow beach means a wide band that the swell walks over, and
+// he should be held above that band rather than paddling about in the wash.
+const ISLE_WALK_MIN=1.30;
 let forkFace=0, forkLandX=0, forkEndZ=0;
 // ---- A CHEST, BOLTED TO THE ISLAND ----
 // There was one before and it went out because it was doing two bad jobs: it was the run's old
@@ -33245,8 +33269,18 @@ function update(dt){
   // its line and travels about ten a second; a fish lets go and runs to twenty-five.
   vx-=vx*3.4*BS.grip*dt;
   px+=vx*dt;
-  if(px<-17){px=-17;vx=0;}      // slide out to the far lanes and stop there
-  if(px>17){px=17;vx=0;}
+  // ---- and the lane OPENS for the fork ----
+  // Seventeen feet either side is the whole width of the water this game is played on, and the
+  // island grows to thirty-nine. So from the moment it had opened past seventeen the island
+  // filled the entire lane and the channel either side of it was somewhere you could not
+  // steer to -- the choice was a choice between two places you could not reach, and the only
+  // reason he ever ended up in one was the wall shoving him there. That is the whole of "make
+  // me actually be able to go right or left".
+  // Widened to the island's own edge plus the channel, measured at HIS position down it rather
+  // than fixed, so the lane opens exactly as fast as the island does.
+  const _lim=forkOn?Math.max(17,forkSandEdge(forkZ-pz)+FORK_WALL+FORK_CHAN+2):17;
+  if(px<-_lim){px=-_lim;vx=0;}   // slide out to the far lanes and stop there
+  if(px>_lim){px=_lim;vx=0;}
   // Inside the barrel the lane stops being a line across the water and becomes the tube's
   // own circumference. Steering no longer slides you left and right along a face — it
   // carries you round the ring: up the face, over the roof, down the curtain and back.
@@ -33609,7 +33643,9 @@ function update(dt){
     // arrival. He keeps the momentum, on his own legs, and spends it: a real run that decays
     // to a walk to a stop over about a second and a half and eleven feet of sand. The board
     // stays where it stopped, behind him, which is the other half of reading as a dismount.
-    speed=0;
+    // ...and whatever the steering finger was holding when he grounded is let go of here,
+    // once, rather than left to lean him over for the rest of the walk
+    speed=0; vx=0; steer=0; if(typeof dropSteerTouch==='function')dropSteerTouch();
     forkOff=Math.max(0,forkOff-FORK_OFF_DRAG*dt);
     pz-=forkOff*dt;
     py+=(forkStandY()-py)*Math.min(1,dt*6);
@@ -33632,7 +33668,7 @@ function update(dt){
     // came out of, and steering is steering -- the same finger, moving a body instead of a
     // hull. Held inside the sand either side, because walking off the edge of an island into
     // the sea is not a thing this piece is about.
-    speed=0;
+    speed=0; vx=0; steer=0;
     // the stick, not the steering. Pushing up the ring walks him away from the water.
     const wx=walkVX, wz=walkVZ;
     // ---- and he can go ANYWHERE there is sand ----

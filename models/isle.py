@@ -31,7 +31,13 @@ RIM   = -3.20         # how far the edge runs under it, so the waterline is on t
 # the island. Dropping the whole of the crown-to-rim height across a third of the half-width
 # instead puts the face at about one in two and a half -- a steep little beach, but the swell
 # moves the line under three feet on it, and that reads as surf rather than as flooding.
-FACE0, FACE1 = 0.62, 0.95
+# Widened from 0.62/0.95. That put the whole crown-to-rim drop across a third of the half-width
+# -- about one in two and a half, which is a cliff with sand on it rather than a beach, and it
+# looked like one. Over seven tenths of the half-width instead it is about one in four: a long
+# curved shore that rolls into the water. The swell then walks further up and down it, which is
+# what surf is; what matters is that the PLATEAU stays dry, and at a crown of 4.2 against a sea
+# of 0.75 it has three feet in hand.
+FACE0, FACE1 = 0.34, 1.00
 NZ, NX = 220, 62      # ~27k triangles, about 0.75 ft between vertices across the arms
 
 # ---- smooth value noise, so the dunes are dunes and not static ----
@@ -74,10 +80,10 @@ for j in range(NZ+1):
         a = abs(k)
         # flat-ish top with a little camber, then the face
         if a <= FACE0:
-            prof = 1.0 - 0.16*(a/FACE0)**2
+            prof = 1.0 - 0.10*(a/FACE0)**2
         else:
             w = min(1.0, (a-FACE0)/(FACE1-FACE0))
-            prof = 0.84*(1.0 - w*w*(3-2*w))
+            prof = 0.90*(1.0 - w*w*(3-2*w))
         z = RIM + (crown - RIM)*prof
         # how far above the water this point is, which is what decides how much dune it gets:
         # sand is rippled where it is dry and the sea irons it flat where it has been over it
@@ -108,6 +114,24 @@ for j in range(NZ):
     for i in range(NX):
         try: bm.faces.new((a[i], a[i+1], b[i+1], b[i]))
         except ValueError: pass
+
+# ---- AND IT HAS A BOTTOM ----
+# The island was an open surface: a single sheet of sand with nothing underneath it and nothing
+# closing its ends. From a low camera at the near end you looked straight in under the rim and
+# out the other side, which is the little hole at the front of the beach. A skirt is dropped
+# from the whole boundary to well below the sea, so there is no angle that sees through it.
+SKIRT = -14.0
+def skirt(a, b):
+    lo_a = bm.verts.new((a.co.x, a.co.y, SKIRT))
+    lo_b = bm.verts.new((b.co.x, b.co.y, SKIRT))
+    try: bm.faces.new((a, b, lo_b, lo_a))
+    except ValueError: pass
+for j in range(NZ):                      # the two long shores
+    skirt(ring[j][0],  ring[j+1][0])
+    skirt(ring[j+1][NX], ring[j][NX])
+for i in range(NX):                      # the point, and the far end
+    skirt(ring[0][i+1], ring[0][i])
+    skirt(ring[NZ][i],  ring[NZ][i+1])
 
 me = bpy.data.meshes.new('isle'); bm.to_mesh(me); bm.free()
 bpy.ops.wm.read_factory_settings(use_empty=True) if False else None
