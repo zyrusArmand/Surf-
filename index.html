@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.154.0';
+window.SURF_VERSION='6.155.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -27683,6 +27683,25 @@ if(location.hash.includes('debug')){
                        hz:+u.hz.toFixed(1), hx:+u.hx.toFixed(1),
                        // the flipper's angle off its own rest, in degrees: zero every frame
                        // means the bones were found by a name that does not exist
+                       // ---- which way is it actually POINTING ----
+                       // Not "which way did I assume the file faces": the head bone and the
+                       // tail bone are asked where they are in the world, and the vector
+                       // between them is the animal's own nose. Dotted against the direction
+                       // it is travelling, +1 is head-first and -1 is being dragged tail-first.
+                       nose:(function(){
+                         const H=b.head, T=b.tail; if(!H||!T)return null;
+                         const a=new THREE.Vector3(), c=new THREE.Vector3();
+                         H.getWorldPosition(a); T.getWorldPosition(c);
+                         a.sub(c).setY(0); if(a.lengthSq()<1e-6)return null;
+                         a.normalize();
+                         const v=new THREE.Vector3(u.hx,0,u.hz);
+                         if(v.lengthSq()<1e-6)return null;
+                         v.normalize();
+                         // ...and against where it is going ON SCREEN, which carries the
+                         // world scrolling past as well as its own swimming
+                         const w=new THREE.Vector3(u.hx,0,u.hz+(lastEff||0)).normalize();
+                         return {water:+a.dot(v).toFixed(2), screen:+a.dot(w).toFixed(2)};
+                       })(),
                        flap:(b.frontL&&u.rest.frontL)
                          ?+(b.frontL.quaternion.angleTo(u.rest.frontL)*57.3).toFixed(1):null});
       }
@@ -32246,18 +32265,30 @@ function turtleLay(g){
   const ft=TURT_FT_MIN+R()*(TURT_FT_MAX-TURT_FT_MIN);
   g.scale.setScalar(ft/TURT_LEN);
   const u=g.userData;
-  // ---- its own speed, which is the point of it ----
-  // Negative is swimming the way the player is, so it slides past slowly and you overtake it;
-  // positive is coming the other way and it is gone in a second. Both, mixed, is what stops
-  // them reading as one more layer of the scenery scrolling.
-  u.hz=-6.0+R()*9.0;
+  // ---- its own speed, and it has to BEAT THE TREADMILL ----
+  // This was -6 to +3 feet a second, which is a turtle's speed and is the wrong quantity. The
+  // water here does not move: the player does, at eighteen, and the sea bed scrolls past to say
+  // so. A turtle paddling forward at two is therefore carried backwards across the screen at
+  // sixteen -- head-first through the water and tail-first past the lens, stroking hard the
+  // whole way. Measured: pointing along its own heading scored a perfect 1.0, and against the
+  // direction it was actually travelling, -0.78. Both true, and the second is the only one
+  // anybody can see.
+  // So most of them come the OTHER way, where the two agree at any player speed; the rest are
+  // quick enough to outrun him, which is the only honest way to be overtaken on a treadmill.
+  u.hz=(R()<0.72)?(2.5+R()*10.0):(-31.0+R()*7.0);
   u.hx=(R()-0.5)*3.4;                     // and a slow angle across the lane
   u.ph=R()*6.283;
   u.rate=0.8+R()*0.9;                     // how fast it strokes -- a small one works harder
   u.roll=R()*6.283;
-  g.rotation.y=Math.atan2(-u.hx,-u.hz);
+  g.rotation.y=turtleYaw(u,(typeof lastEff!=='undefined'?lastEff:18));
   g.visible=true;
   return g;
+}
+// Where it points: along where it is going ON SCREEN, which carries the world scrolling past
+// as well as its own swimming. The model's head is its -Z, so a heading of (vx,vz) wants
+// -sin(y) = vx and -cos(y) = vz.
+function turtleYaw(u,eff){
+  return Math.atan2(-u.hx, -(u.hz+eff));
 }
 function turtleStep(dt,eff){
   const on=diveOn||diveDepth>0.5;
@@ -32287,6 +32318,13 @@ function turtleStep(dt,eff){
     }
     u.ph+=dt*3.1*u.rate;
     u.roll+=dt*0.7;
+    // ...and it re-aims every frame, eased. eff climbs the whole run, so a turtle that was
+    // outrunning him at the start is being overtaken by the end -- and when that crossover
+    // happens it should turn round over about a second rather than flip on one frame.
+    { const want=turtleYaw(u,eff);
+      let d=want-g.rotation.y;
+      while(d>Math.PI)d-=Math.PI*2; while(d<-Math.PI)d+=Math.PI*2;
+      g.rotation.y+=d*Math.min(1,dt*1.6); }
     // it banks and rises a little as it strokes, which is most of what says an animal is
     // swimming rather than being slid along
     g.rotation.z=Math.sin(u.roll)*0.11;
