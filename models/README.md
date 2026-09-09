@@ -450,11 +450,21 @@ field — but it cannot get the same *pieces*: `sandFieldBuild` instances the fu
 the same field at the same density is three and a half million triangles on a screen that is
 also drawing the ride.
 
-`sandlod.glb` is that chunk collapsed to 1,200 triangles with **no images**, laid at eight
+`sandlod.glb` is that chunk collapsed to 2,400 triangles with **no images**, laid at eight
 feet a piece (the beach's fourteen spans a whole thirteen-foot arm, and one repeat is not a
-texture). About 580 pieces, 700k triangles. The dune-scale relief is in the SHAPE and survives
-the collapse; the grain-scale relief was never in the geometry at all — it is in the normal
-map, which is the beach's own and untouched.
+texture). About 580 pieces at ~1,100 triangles each once prepared, so ~640k. The dune-scale
+relief is in the SHAPE and survives the collapse; the grain-scale relief was never in the
+geometry at all — it is in the normal map, which is the beach's own and untouched.
+
+**It must go through `sandPrepare()`, the same function the beach's piece goes through.**
+That was the whole of why the island read as cracked plates while the beach reads as sand:
+a raw scan curls up where it ran out of surface, and its rim is square. `sandPrepare` turns
+the thin axis up, centres the piece, crops the outer eighth away, and feathers the cut rim
+*down* so every tile is a shallow dish that buries its own edge under whatever it overlaps.
+Overlap alone can never fix a rim — the tiles are turned at random, so whichever way they
+are laid some edge is the top one, and it lies there as a flat plane with a straight side.
+The crop keeps only triangles with all three corners inside, so on a collapsed mesh it takes
+well over the eighth it nominally cuts: 2,400 in, ~1,100 laid.
 
 The tiles wear a clone of `SAND_MAT` with `vertexTangents` turned **off** — the collapsed
 piece carries no TANGENT accessor, and this is the third time that mismatch has come up in

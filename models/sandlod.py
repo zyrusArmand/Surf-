@@ -9,10 +9,16 @@
 #
 # Materials are cleared and no images are written: the tiles wear SAND_MAT in the game, so
 # there is one sand texture and the island can never drift away from the beach.
+#
+# The ratio is set for what SURVIVES sandPrepare, not for what comes out of here. That crops
+# the scan's curled lip off by keeping only triangles with all three corners inside, and on a
+# collapsed mesh the triangles are big enough that it takes rather more than the eighth it is
+# nominally cutting: 2,400 out of here is about 1,100 laid. Check __surf.forkLook().tileTris
+# after a rebuild rather than the number this prints.
 import bpy, sys, os
 SRC='/home/user/Surf-/models/sand.glb'
 DST='/home/user/Surf-/models/sandlod.glb'
-RATIO=float(sys.argv[-1]) if sys.argv[-1].replace('.','').isdigit() else 0.15
+RATIO=float(sys.argv[-1]) if sys.argv[-1].replace('.','').isdigit() else 0.30
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=SRC)
 for o in [o for o in bpy.context.scene.objects if o.type=='MESH']:

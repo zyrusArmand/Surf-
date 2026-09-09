@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.135.0';
+window.SURF_VERSION='6.136.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -8794,13 +8794,23 @@ function sandFieldBuild(){
   // ...and only now does the generation move on, with the field standing.
   sandGen++;
 }
-loadModel('sand.glb',(s3)=>{
-  let mm=null; s3.traverse(o=>{ if(o.isMesh&&!mm)mm=o; });
-  if(!mm)return;
-  mm.updateWorldMatrix(true,false);
-  const geo=mm.geometry.clone();
-  geo.applyMatrix4(mm.matrixWorld);        // whatever the file wrapped it in, baked in
-  geo.computeBoundingBox();
+// ---- HOW A SCANNED SAND PIECE IS MADE READY TO TILE ----
+// Lifted out of the sand.glb loader whole, unchanged, so that the island's piece can go
+// through it too. It had to: sandlod.glb is the same scan collapsed, and it was going into
+// the island's field RAW -- with the scan's curled lip still on it and its rim still square.
+// The beach has never looked like that and the island did, and the reason was not the
+// decimation and not the lighting, it was these hundred lines never being asked.
+// Four things happen here, and the last two are the ones you can see:
+//   the thin axis is measured and turned up, because a slab on its edge reports a short side
+//     of a fifth of a foot and the field then tries to lay eight thousand tiles;
+//   the piece is centred on its own middle in the plane;
+//   the outer eighth is CUT AWAY, because a scan curls up where it ran out of surface and a
+//     lip stands over its neighbour whichever way round the tile is turned;
+//   and the cut rim is FEATHERED DOWN, so every piece is a shallow dish and every rim is
+//     buried under the middle of whatever it overlaps.
+// Without the last two a field of these reads as cracked plates with straight edges, which is
+// exactly what the island was.
+function sandPrepare(geo){
   // ---- and laid FLAT, whichever way up the file was ----
   // This is a slab, and the one thing that is certainly true about a slab is that its thinnest
   // axis is the one pointing at the sky. The rest of this function assumes that axis is Y, and
@@ -8910,6 +8920,17 @@ loadModel('sand.glb',(s3)=>{
       }
     }
   }
+  geo.computeBoundingBox&&(geo.boundingBox||geo.computeBoundingBox());
+  return geo;
+}
+loadModel('sand.glb',(s3)=>{
+  let mm=null; s3.traverse(o=>{ if(o.isMesh&&!mm)mm=o; });
+  if(!mm)return;
+  mm.updateWorldMatrix(true,false);
+  const geo=mm.geometry.clone();
+  geo.applyMatrix4(mm.matrixWorld);        // whatever the file wrapped it in, baked in
+  geo.computeBoundingBox();
+  sandPrepare(geo);
   const mat=Array.isArray(mm.material)?mm.material[0]:mm.material;
   // the same rule every imported surface here follows: matt, and never emissive
   if(mat){
@@ -31192,7 +31213,16 @@ function forkDress(root){
 // and is untouched.
 let isleTile=null, forkSand=null, ISLE_SAND_MAT=null;
 loadModel('sandlod.glb',s2=>{ let g=null;
-  s2.traverse(o=>{ if(!g&&o.isMesh)g=o.geometry; }); isleTile=g; },9);
+  s2.traverse(o=>{ if(!g&&o.isMesh){ o.updateWorldMatrix(true,false);
+    g=o.geometry.clone(); g.applyMatrix4(o.matrixWorld); g.computeBoundingBox(); } });
+  // ---- through the SAME mill the beach's piece goes through ----
+  // This was the whole of why the island read as cracked plates and the beach reads as
+  // sand. Both are the same scan; the beach's is cropped of its curled lip and feathered
+  // down at the rim so every piece is a shallow dish that buries its own edge, and the
+  // island's was going in raw. Overlap cannot fix a rim -- the tiles are turned at random,
+  // so whichever way they are laid SOME edge is the top one, and it lies there as a flat
+  // plane with a straight side. It is not the decimation and it is not the lighting.
+  isleTile=g?sandPrepare(g):null; },9);
 function isleSandMat(){
   if(ISLE_SAND_MAT||!SAND_MAT)return ISLE_SAND_MAT;
   ISLE_SAND_MAT=SAND_MAT.clone();
