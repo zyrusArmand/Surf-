@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.129.0';
+window.SURF_VERSION='6.130.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -7754,6 +7754,7 @@ const SAND_X=34, SAND_Z0=14, SAND_Z1=-68;   // the patch of beach worth covering
 const beachPalms=[];
 let beachPalmsBuild=null;   // the far palms, built the first time anything looks at them
 let beachSea=null, beachSand=null;   // set by measurement, see the note on the sand
+let SAND_MAT=null;                   // the beach's own material, shared with the fork island
 let beachHorizon=null;
 // ---- one palm, built as a single buffer geometry ----
 // Trunk, frond spines and every leaflet go into one set of arrays and come out as one
@@ -8940,6 +8941,12 @@ loadModel('sand.glb',(s3)=>{
     };
     mat.needsUpdate=true;
   }
+  // ---- kept, so the fork's island can be made of the same sand ----
+  // This is the beach's own material: the scan's maps, its normal scale, the warm colour it
+  // was walked to over four passes, and the grain shader patched into it. Anything else in
+  // the game that wants to look like this beach should use THIS rather than a second sand
+  // tuned separately to match it, which is how two sands drift apart.
+  SAND_MAT=mat;
   // where this piece's ground sits inside its own box, measured off the vertices rather than
   // guessed from the box: a slab's mean height is not the middle of its bounds when most of
   // the surface is up near the top and only the flat backing is at the bottom.
@@ -27221,6 +27228,40 @@ if(location.hash.includes('debug')){
     // game time to arrive, which is minutes of wall clock in a headless render
     forkNow(z,x){ if(typeof forkArm!=='function')return null; if(!running)return null;
       forkArm(); if(z!==undefined)forkZ=z; if(x!==undefined)px=x; return this.fork(); },
+    // ---- what the island is actually MADE of ----
+    // The island went out flat black for a whole session, and every guess about why was wrong
+    // until this reported the two things that mattered together: that the mesh really was
+    // wearing the beach's material, and that the material wanted vertex tangents the geometry
+    // did not carry. `same` and `tan` are the pair — a material shared with the beach is only
+    // safe on geometry that carries what that material reads.
+    forkLook(){ const out={sand:null,isle:[],palms:0,lights:null};
+      if(SAND_MAT)out.sand={type:SAND_MAT.type,col:SAND_MAT.color&&SAND_MAT.color.getHexString(),
+        rough:SAND_MAT.roughness,metal:SAND_MAT.metalness,
+        map:!!SAND_MAT.map,nrm:!!SAND_MAT.normalMap,ao:!!SAND_MAT.aoMap,rgh:!!SAND_MAT.roughnessMap,
+        envI:SAND_MAT.envMapIntensity,side:SAND_MAT.side,vis:SAND_MAT.visible,op:SAND_MAT.opacity,
+        vc:SAND_MAT.vertexColors,fog:SAND_MAT.fog,
+        wrap:SAND_MAT.map?[SAND_MAT.map.wrapS,SAND_MAT.map.wrapT]:null,
+        nwrap:SAND_MAT.normalMap?[SAND_MAT.normalMap.wrapS,SAND_MAT.normalMap.wrapT]:null,
+        ft:+beachFeetPerUV().toFixed(2)};
+      if(forkArt)forkArt.traverse(o=>{ if(!o.isMesh)return;
+        const m=o.material, g=o.geometry;
+        const uvA=g.attributes&&g.attributes.uv; let uvR=null;
+        if(uvA){ let a=1e9,b=-1e9,c=1e9,d=-1e9;
+          for(let i=0;i<uvA.count;i++){ const u=uvA.getX(i),v=uvA.getY(i);
+            if(u<a)a=u; if(u>b)b=u; if(v<c)c=v; if(v>d)d=v; }
+          uvR=[+a.toFixed(2),+b.toFixed(2),+c.toFixed(2),+d.toFixed(2)]; }
+        out.isle.push({n:o.name,same:m===SAND_MAT,mt:m&&m.type,
+          uvFix:!!o.userData.uvFixed,uvR,
+          wantTan:!!(m&&m.vertexTangents),tan:!!(g.attributes&&g.attributes.tangent),
+          uv:!!(g.attributes&&g.attributes.uv),uv2:!!(g.attributes&&g.attributes.uv2),
+          nor:!!(g.attributes&&g.attributes.normal),vis:o.visible,
+          wy:+o.getWorldPosition(new THREE.Vector3()).y.toFixed(2)}); });
+      out.palms=forkPalms?forkPalms.children.length:0;
+      out.lights={hemi:hemi.intensity,sun:sun.intensity,
+        sunPos:sun.position.toArray().map(v=>+v.toFixed(1)),
+        env:!!scene.environment,fog:!!scene.fog,
+        fogFar:scene.fog?scene.fog.far:null,fogNear:scene.fog?scene.fog.near:null};
+      return out; },
     fork(){ return {on:!!forkOn, ph:forkPh, z:+forkZ.toFixed(1), side:forkSide,
                     t:+forkT.toFixed(2), px:+px.toFixed(2), py:+py.toFixed(2),
                     half:FORK_HALF, len:FORK_LEN, vis:!!(forkArt&&forkArt.visible),
@@ -30946,15 +30987,98 @@ function makeForkIsland(){
 // ---- the MODELLED island, when it is there ----
 // isle.glb is the same V the maths above describes -- its arms are swept off the game's own
 // HALF, OPEN, STRAIGHT and SPLAY, so the sand you can see and the wall that holds you are the
-// same shape rather than two guesses at one. Built in Blender with a baked sand map, palms,
-// rocks and grass tufts on it. Loaded low priority: it is a test-mode piece and it must not
+// same shape rather than two guesses at one. Built in Blender as bare geometry -- no material
+// and no props, fifty kilobytes -- and dressed here out of what the game already owns, see
+// forkDress. Loaded low priority: it is a test-mode piece and it must not
 // sit in front of the board or the rider on a cold start.
 // The primitives stay as the fallback for exactly the reason every other model here has one:
 // if the file is not there the piece still works, it just looks like blocks.
-let forkModel=null;
+let forkModel=null, forkPalms=null;
+// ---- the island is dressed with what the game already owns ----
+// It ships as bare sand -- no material, no props, fifty kilobytes -- and gets the BEACH's own
+// material and the TITLE palm here. One sand and one palm in the whole game rather than a
+// second of each built to look like them, which is how two of anything drift apart. It also
+// means the island inherits every pass ever spent on that sand: the scan's maps, its normal
+// scale, the colour walked over four passes, and the grain shader patched into it.
+// ---- the island is re-projected to the beach's UV scale, and given TANGENTS ----
+// Two things had to be built here before the island could wear the beach's material.
+//
+// The scale: the exporter's unwrap ran the whole 165 ft island across 0..1, which stretches
+// the sand scan a hundred and sixty feet wide and stops it reading as sand at all. Projecting
+// x and z straight down at the beach's own feet-per-tile puts the grain at beach size, and
+// the number is MEASURED off sandTile rather than typed in, so the island follows the beach
+// if that tile is ever retuned.
+//
+// The tangents, which is what actually turned the island BLACK. sand.glb ships a TANGENT
+// accessor, so GLTFLoader sets `vertexTangents` on the material, and that flag is a property
+// of the MATERIAL while tangents are an attribute of the GEOMETRY. Put that material on a
+// mesh with no tangent attribute and the attribute defaults to (0,0,0,1): the shader does
+// `normalize( normalMatrix * tangent.xyz )` on a zero vector, gets NaN, and NaN propagates
+// through every lighting term to a pixel that is black BEFORE tone mapping -- which is why
+// it was flat #000000 rather than merely dark, and why it went away the moment the normal
+// map was taken off, that being the only thing in the shader that reads the tangent frame.
+// Because the UVs above are a flat projection down y, the matching tangent is exact rather
+// than fitted: u runs along +x, so T is x orthogonalised against the vertex normal, and the
+// handedness is -1 because cross(N,T) comes out along -z where v increases along +z.
+let _beachFtUV=0;
+function beachFeetPerUV(){
+  if(_beachFtUV)return _beachFtUV;
+  if(typeof sandTile==='undefined'||!sandTile||!sandTile.geo)return 0;
+  const g=sandTile.geo, p=g.attributes.position, t=g.attributes.uv;
+  if(!p||!t)return 0;
+  let x0=1e9,x1=-1e9,u0=1e9,u1=-1e9;
+  for(let i=0;i<p.count;i++){ const x=p.getX(i), u=t.getX(i);
+    if(x<x0)x0=x; if(x>x1)x1=x; if(u<u0)u0=u; if(u>u1)u1=u; }
+  const du=u1-u0;
+  _beachFtUV=(du>1e-4)?(x1-x0)/du:0;
+  return _beachFtUV;
+}
+function forkDress(root){
+  if(!root)return;
+  const ft=beachFeetPerUV();
+  // The palms are children of the island by the time this is asked a second time, and they
+  // are NOT sand: dress only what was in the file.
+  root.traverse(o=>{ if(o.isMesh&&!o.userData.isPalm){
+    o.castShadow=false; o.receiveShadow=true;
+    if(SAND_MAT&&ft>0&&o.geometry&&o.geometry.attributes.position&&!o.userData.uvFixed){
+      const p=o.geometry.attributes.position, n=o.geometry.attributes.normal;
+      const uv=new Float32Array(p.count*2), tg=new Float32Array(p.count*4);
+      for(let i=0;i<p.count;i++){
+        uv[i*2]=p.getX(i)/ft; uv[i*2+1]=p.getZ(i)/ft;
+        // x, with whatever the surface tilts away taken back out of it
+        let tx=1,ty=0,tz=0;
+        if(n){ const nx=n.getX(i), ny=n.getY(i), nz=n.getZ(i);
+          tx=1-nx*nx; ty=-nx*ny; tz=-nx*nz;
+          const L=Math.hypot(tx,ty,tz);
+          if(L>1e-5){ tx/=L; ty/=L; tz/=L; } else { tx=0; ty=0; tz=1; } }
+        tg[i*4]=tx; tg[i*4+1]=ty; tg[i*4+2]=tz; tg[i*4+3]=-1;
+      }
+      o.geometry.setAttribute('uv',new THREE.BufferAttribute(uv,2));
+      o.geometry.setAttribute('tangent',new THREE.BufferAttribute(tg,4));
+      o.userData.uvFixed=true;
+    }
+    if(SAND_MAT)o.material=SAND_MAT; } });
+  if(forkPalms||typeof menuPalm==='undefined'||!menuPalm)return;
+  // Down both edges, thinning toward the point, and FEW: the title palm is the heaviest model
+  // in the game and this is scenery half a lane away. Six reads as a lined shore; a dozen is
+  // the same picture at twice the cost.
+  forkPalms=new THREE.Group();
+  for(let i=0;i<6;i++){
+    const run=26+(i/5)*(FORK_OPEN+FORK_STRAIGHT-40);
+    const sgn=(i%2)?1:-1;
+    const e=FORK_HALF*0.5+Math.tan(FORK_SPLAY)*Math.min(FORK_OPEN,run)+FORK_HALF;
+    const c=menuPalm.clone(true);
+    c.position.set(sgn*e*0.72, 0.4, -run);
+    c.rotation.y=Math.random()*6.28;
+    c.scale.setScalar(0.62+Math.random()*0.22);
+    c.traverse(o=>{ if(o.isMesh){ o.castShadow=false; o.receiveShadow=false;
+                                  o.userData.isPalm=true; } });
+    forkPalms.add(c);
+  }
+  root.add(forkPalms);
+}
 loadModel('isle.glb',s3=>{ forkModel=s3;
-  forkModel.traverse(o=>{ if(o.isMesh){ o.castShadow=false; o.receiveShadow=false;
-    if(o.material)o.material.side=THREE.DoubleSide; } });
+  forkDress(forkModel);
   if(forkArt&&forkArt.userData.proc){ const v=forkArt.visible, pz2=forkArt.position.clone();
     scene.remove(forkArt); forkArt=null;
     if(forkOn){ forkArt=forkModel; forkArt.userData.proc=false; scene.add(forkArt);
@@ -30966,6 +31090,10 @@ function forkArm(){
     forkArt.userData.proc=!forkModel;
     scene.add(forkArt);
   }
+  // Asked again here: sand.glb and the palm both load on their own schedule and either may
+  // land after the island did. Dressing only at load meant a fork armed early got bare grey
+  // geometry and no trees, and nothing ever went back for it.
+  if(!forkArt.userData.proc)forkDress(forkArt);
   forkOn=true; forkDone=false; forkPh=0; forkT=0; forkSide=0;
   forkZ=FORK_SPAWN;
   forkArt.visible=true;

@@ -397,3 +397,24 @@ built-in jellyfish and octopus are animated by hand too — the bell pulses, the
 flow on jointed chains — and an imported mesh for either has none of that, so both
 drift and float rigidly. Everything else — the board, buoy, log, ramp, fin, jet ski —
 was never animated internally and looks exactly as intended.
+
+## isle.glb — bare geometry, dressed in the game
+
+The fork's island ships as **bare geometry**: no material, no textures, no props, fifty
+kilobytes for a thousand triangles. It gets the BEACH's own material and clones of the
+title screen's palm at load time (`forkDress`), so there is one sand and one palm in the
+whole game rather than a second of each built to look like them.
+
+Sharing a material across files has one trap, and it cost a session. `sand.glb` ships a
+TANGENT accessor, so `GLTFLoader` sets `vertexTangents` on its material — and that flag
+lives on the MATERIAL while tangents are an attribute of the GEOMETRY. Put that material
+on a mesh with no tangents and the attribute defaults to `(0,0,0,1)`; the shader runs
+`normalize( normalMatrix * tangent.xyz )` on a zero vector, gets NaN, and NaN carries
+through every lighting term. The island came out flat `#000000` — black *before* tone
+mapping, which is the tell, because dim lighting can never reach exactly zero.
+
+So: **if you hand an imported mesh a material that came from another file, check what
+that material reads.** The island's UVs and tangents are both generated in `forkDress` —
+a flat projection down y at the beach's own feet-per-tile, measured off `sandTile` rather
+than typed in, which fixes the texture scale at the same time. `__surf.forkLook()` reports
+`wantTan` and `tan` side by side for exactly this reason.
