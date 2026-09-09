@@ -440,36 +440,43 @@ Note that `palm2.glb` carries no TANGENT accessor (it has a normal map but no ta
 its material uses three's screen-space derivative tangent frame and works on any geometry
 with UVs. That is why this one needs no tangent work, and `isle.glb` did — see above.
 
-## sandlod.glb — the beach's sand piece, for the island's field
+## isle.glb — the fork's island, dunes and all
 
-The menu beach does not look like sand because of its texture. It looks like sand because
-`sandFieldBuild` lays a field of scanned dune chunks over each other at free angles, deep
-enough that no border in it is ever the top of anything. The fork's island now gets the same
-field — but it cannot get the same *pieces*: `sandFieldBuild` instances the full
-8,000-triangle chunk about 336 times, and the island is more than twice the beach's area, so
-the same field at the same density is three and a half million triangles on a screen that is
-also drawing the ride.
+The island is **one dune surface**, 27k triangles for the whole thing, built by
+`models/isle.py` from the game's own constants so the model and the collision agree.
 
-`sandlod.glb` is that chunk collapsed to 2,400 triangles with **no images**, laid at eight
-feet a piece (the beach's fourteen spans a whole thirteen-foot arm, and one repeat is not a
-texture). About 580 pieces at ~1,100 triangles each once prepared, so ~640k. The dune-scale
-relief is in the SHAPE and survives the collapse; the grain-scale relief was never in the
-geometry at all — it is in the normal map, which is the beach's own and untouched.
+It was not always. The first version was a strip of 64 sections with **five vertices across
+its whole 78-foot width** — twenty feet between vertices on a surface you stand on — so it had
+no relief of its own, and the relief had to come from a field of six hundred overlapping
+scanned sand tiles laid on top of it. That was the right idea for the wrong surface: the menu
+beach needs a tile field because it is a flat painted plane with no relief of its own, whereas
+the island is a mesh and the honest place to put dunes in a mesh is *in* it. The field cost
+640k triangles and, at any range you could actually see it from, read as cracked plates.
 
-**It must go through `sandPrepare()`, the same function the beach's piece goes through.**
-That was the whole of why the island read as cracked plates while the beach reads as sand:
-a raw scan curls up where it ran out of surface, and its rim is square. `sandPrepare` turns
-the thin axis up, centres the piece, crops the outer eighth away, and feathers the cut rim
-*down* so every tile is a shallow dish that buries its own edge under whatever it overlaps.
-Overlap alone can never fix a rim — the tiles are turned at random, so whichever way they
-are laid some edge is the top one, and it lies there as a flat plane with a straight side.
-The crop keeps only triangles with all three corners inside, so on a collapsed mesh it takes
-well over the eighth it nominally cuts: 2,400 in, ~1,100 laid.
+Two things carry the look now:
 
-The tiles wear a clone of `SAND_MAT` with `vertexTangents` turned **off** — the collapsed
-piece carries no TANGENT accessor, and this is the third time that mismatch has come up in
-this file. Turning the flag off is the cheap fix wherever the geometry has UVs: three then
-builds the tangent frame from screen-space derivatives, which is indistinguishable at sand's
-scale. Generate tangents (as `isle.glb` does) only when you can derive them exactly.
+- **Dunes in the geometry.** Layered smooth value noise at eighteen feet, seven feet and two
+  feet, damped toward the waterline because the sea irons sand flat where it has been over it.
+  Use coherent noise, not `random.uniform` per vertex — white noise at this resolution is
+  sandpaper, not sand.
+- **A steep beach face.** The island is static and the sea is not, so the waterline walks up
+  and down the sand as the swell passes, and how far it walks is set entirely by how steep the
+  sand is where it meets the water. On a nearly flat outer half, a foot of swell floods fifteen
+  feet of beach and then drains it — the sea reads as a sheet of blue sliding about on top of
+  the island. The whole crown-to-rim height now drops across a third of the half-width, about
+  one in two and a half, and the swell moves the line under three feet.
 
-Rebuild with `models/sandlod.py`.
+The mesh ships with no material and no images: it wears the beach's own `SAND_MAT`, with UVs
+and tangents generated in `forkDress`. Two traps there, both of which shipped broken once:
+
+- **Tangents.** `sand.glb` carries a TANGENT accessor, so GLTFLoader sets `vertexTangents` on
+  its material — a flag on the MATERIAL, where tangents are an attribute of the GEOMETRY. On a
+  mesh without them the shader normalizes a zero vector and the NaN carries through every
+  lighting term: the island rendered flat `#000000`, black *before* tone mapping, which is the
+  tell, since no amount of dim lighting reaches exactly zero.
+- **Texture scale.** `beachFeetPerUV()` measured the tile in FILE units — 1.9 across for one
+  turn of the texture — and handed that back as feet. The beach never draws the piece at file
+  size: every instance is scaled by `SAND_TILE` over its long side, very nearly ten. So the
+  beach turns its sand over about every nineteen feet and the island was turning it over every
+  1.9 — a texture ten times too fine, which reads as sandpaper. Same scan, same map, same
+  material, and nothing like the same beach.
