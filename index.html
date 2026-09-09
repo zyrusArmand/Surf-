@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.149.0';
+window.SURF_VERSION='6.150.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -2813,7 +2813,7 @@ const hemi=new THREE.HemisphereLight(0xdfeeff,0x2a7ba8,0.62);scene.add(hemi);
 // does nothing whatever.
 const DIVE_FOG=new THREE.Fog(0x1d5f7a, 1e6, 2e6);
 scene.fog=DIVE_FOG;
-const DIVE_FOG_NEAR=2.0, DIVE_FOG_FAR=95.0;   // how far you can see down there
+const DIVE_FOG_NEAR=2.0, DIVE_FOG_FAR=118.0;  // how far you can see down there
 const DIVE_FOG_OFF=4000;                      // far enough that the fog does nothing at all
 function diveFog(depth){
   // ---- and it closes in FAST ----
@@ -16615,6 +16615,43 @@ function splash(x,y,z,n=8,col){
     splashes.push(m);
   }
 }
+// ---- BUBBLES: the same sprites, run backwards ----
+// The jet's plume was not badly tuned, it was never drawn. A splash drop is pulled DOWN at
+// 14 ft/s^2 and killed the frame it finds itself below the sea -- and underwater that is every
+// drop, on its first frame, four inches from the nozzle. So a bubble is its own kind of drop:
+// it climbs at a terminal rate instead of falling, wobbles on its own clock, lives a couple of
+// seconds instead of a third of one, and dies AT the surface rather than under it. The `bub`
+// flag is what the two splash loops branch on.
+function bubble(x,y,z,n=2,sc=1){
+  for(let i=0;i<n;i++){
+    const m=takeDrop(); if(!m)return;
+    m.material.map=SPLASH_MAT.map; m.material.color.copy(SPLASH_MAT.color);
+    m.material.opacity=1;
+    m.position.set(x+(Math.random()-0.5)*0.14,y,z+(Math.random()-0.5)*0.14);
+    const s=(0.09+Math.random()*0.15)*sc;
+    m.scale.set(s,s,1);
+    m.userData={bub:1,vx:(Math.random()-0.5)*0.5,vy:0.5+Math.random()*0.7,
+                vz:(Math.random()-0.5)*0.5,rise:1.9+Math.random()*1.5,
+                ph:Math.random()*6.283,t:1.5+Math.random()*1.3,s};
+    splashes.push(m);
+  }
+}
+// one step of one bubble; false means it is finished. `eff` is the speed the world is scrolling
+// past, because a bubble that keeps station with the rider is not a plume, it is jewellery.
+function bubStep(m,u,dt,eff){
+  u.t-=dt;
+  u.vy+=(u.rise-u.vy)*Math.min(1,dt*2.2);
+  u.ph+=dt*5.0;
+  m.position.x+=(u.vx+Math.cos(u.ph)*0.32)*dt;
+  m.position.y+=u.vy*dt;
+  m.position.z+=u.vz*dt+eff*dt;
+  const k=Math.max(0,Math.min(1,u.t*1.4));
+  const g=u.s*(1.0+(1-k)*0.55);        // they swell a little on the way up, as they do
+  m.scale.set(g,g,1);
+  m.material.opacity=k*0.80;
+  const sea=waveH(m.position.x,dist*WAVE_DRIFT+m.position.z,waveClock);
+  return !(u.t<=0||m.position.y>sea-0.10);
+}
 // soft contact shadows so nothing floats — the water shader can't receive real ones
 const shadowGeo=new THREE.CircleGeometry(1,20);
 function makeContactShadow(size){
@@ -20924,6 +20961,8 @@ function reset(){
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}}); rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null;
   handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;_freeze=false;wipeSlow=0;
   diveOn=false;diveT=0;diveRise=0;diveDepth=0;jumpHeld=false;diveFog(0);
+  if(diveProps)diveProps.visible=false; if(diveFish)diveFish.visible=false;
+  if(diveJet)diveJet.visible=false; diveJetOn=0;
   if(typeof standDown==='function')standDown();   // arms down, whatever the run left
   if(typeof puffClear==='function')puffClear();   // last run's wash does not follow him into this one
   switchRide=false;waveT=0;applyStance();
@@ -20973,6 +21012,8 @@ function respawn(){
   player.rotation.set(0,0,0);
   handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;_freeze=false;wipeSlow=0;
   diveOn=false;diveT=0;diveRise=0;diveDepth=0;jumpHeld=false;diveFog(0);
+  if(diveProps)diveProps.visible=false; if(diveFish)diveFish.visible=false;
+  if(diveJet)diveJet.visible=false; diveJetOn=0;
   if(typeof standDown==='function')standDown();   // arms down, whatever the run left
   switchRide=false;waveT=0;applyStance();
   for(let i=obstacles.length-1;i>=0;i--)
@@ -22095,6 +22136,7 @@ function updateWorldDuringWipeout(dt){
   if(shake>0)shake-=dt*8;
   for(let i=splashes.length-1;i>=0;i--){
     const s2=splashes[i],u=s2.userData;
+    if(u.bub){ if(!bubStep(s2,u,dt,0)){freeDrop(s2);splashes.splice(i,1);} continue; }
     u.t-=dt;u.vy-=14*dt;
     s2.position.x+=u.vx*dt;s2.position.y+=u.vy*dt;s2.position.z+=u.vz*dt;
     // it does not shrink to nothing any more, it goes OUT — a drop keeps its size and stops
@@ -31822,6 +31864,151 @@ function bedUpdate(){
   bedMesh.position.x=camera.position.x;
   bedMesh.position.z=camera.position.z-120;
 }
+// ---------------------------- WHAT LIVES DOWN THERE ----------------------------
+// Rocks, reef and fish, all RECYCLED rather than spawned: a fixed pool laid out ahead, carried
+// past at the run's own speed and picked up again once it is behind the lens. That is how the
+// obstacles work and it is the only shape that does not accumulate -- a dive is open ended, and
+// anything that allocates per second eventually costs the frame.
+// Built from primitives on purpose. Fogged to ninety-five feet and lit by almost nothing, a
+// rock is a silhouette and a reef is a colour; a scanned model would be four megabytes of
+// detail that the water eats before it reaches the lens.
+const DIVE_ROCKS=13, DIVE_REEFS=18, DIVE_FISH=10;
+const DIVE_AHEAD=-200, DIVE_BEHIND=30;      // where a prop is laid, and where it is taken back
+const DIVE_SPREAD=46;                       // how far either side of the lane things go
+let diveProps=null, diveFish=null;
+function _dr(sd){ let r=sd; return ()=>{ r=(r*1103515245+12345)&0x7fffffff; return r/0x7fffffff; }; }
+function rockGeo(seed){
+  const g=new THREE.IcosahedronGeometry(1,1);
+  const p=g.attributes.position, R=_dr(seed), seen={};
+  for(let i=0;i<p.count;i++){
+    const k=p.getX(i).toFixed(3)+','+p.getY(i).toFixed(3)+','+p.getZ(i).toFixed(3);
+    // welded vertices have to move TOGETHER or the rock comes apart along every seam it has
+    if(seen[k]===undefined)seen[k]=0.60+R()*0.80;
+    const f=seen[k];
+    p.setXYZ(i,p.getX(i)*f,p.getY(i)*f*0.70,p.getZ(i)*f);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+function reefGroup(seed){
+  // a head of coral: a lumpy base with a handful of fingers off it, which at this range is
+  // every reef there has ever been
+  const R=_dr(seed), g=new THREE.Group();
+  // ---- and coral holds its COLOUR through the fog ----
+  // Fog is a mix toward the fog colour, so anything lit only by the little light that gets down
+  // here arrives grey however bright its albedo: the first pass put five hot colours on the reef
+  // and every one of them came back blue. Emissive is added BEFORE the fog, so a quarter of the
+  // colour glowing is what survives thirty feet of water -- and a reef being the one thing down
+  // there with any colour in it is most of why you would look at one.
+  const C=[0xe8604f,0xf09a34,0xd06aa0,0xf0d451,0x46b0bc];
+  const col=C[(R()*C.length)|0];
+  const mat=new THREE.MeshLambertMaterial({color:col,
+    emissive:new THREE.Color(col).multiplyScalar(0.42), emissiveIntensity:1.0});
+  const base=new THREE.Mesh(new THREE.IcosahedronGeometry(1,1),mat);
+  base.scale.set(1,0.62,1); g.add(base);
+  const n=3+((R()*4)|0);
+  for(let i=0;i<n;i++){
+    const h=0.9+R()*1.5;
+    const f=new THREE.Mesh(new THREE.ConeGeometry(0.20+R()*0.16,h,6),mat);
+    const a=R()*6.283, rr=0.35+R()*0.55;
+    f.position.set(Math.cos(a)*rr, 0.35+h*0.45, Math.sin(a)*rr);
+    f.rotation.set((R()-0.5)*0.5,R()*6.283,(R()-0.5)*0.5);
+    g.add(f);
+  }
+  return g;
+}
+function fishSchool(seed){
+  // one school is one object with a dozen bodies in it, so it moves as a shoal and costs one
+  // matrix to steer. The bodies only ever wobble in place.
+  const R=_dr(seed), g=new THREE.Group();
+  const C=[0xf0c04a,0x6fd0e0,0xe8875a,0xd8e0e8];
+  const fc=C[(R()*C.length)|0];
+  const mat=new THREE.MeshLambertMaterial({color:fc,
+    emissive:new THREE.Color(fc).multiplyScalar(0.44), emissiveIntensity:1.0});
+  const body=new THREE.SphereGeometry(0.16,7,5);
+  for(let i=0;i<12;i++){
+    const f=new THREE.Mesh(body,mat);
+    f.scale.set(1,0.72,2.3);                       // a lozenge, which is a fish at ten feet
+    f.position.set((R()-0.5)*3.2,(R()-0.5)*1.5,(R()-0.5)*3.6);
+    f.userData.ph=R()*6.283;
+    g.add(f);
+  }
+  g.userData.ph=R()*6.283;
+  return g;
+}
+function buildDiveProps(){
+  if(diveProps)return;
+  diveProps=new THREE.Group(); diveProps.visible=false; scene.add(diveProps);
+  diveFish=new THREE.Group();  diveFish.visible=false;  scene.add(diveFish);
+  const rockMat=[new THREE.MeshLambertMaterial({color:0x6f7168}),
+                 new THREE.MeshLambertMaterial({color:0x585c58}),
+                 new THREE.MeshLambertMaterial({color:0x7a6f60})];
+  for(let i=0;i<DIVE_ROCKS;i++){
+    const m=new THREE.Mesh(rockGeo(9001+i*77),rockMat[i%3]);
+    m.userData.big=1.6+((i*0.37)%1)*3.4;
+    diveProps.add(m); diveLay(m,i/DIVE_ROCKS);
+  }
+  for(let i=0;i<DIVE_REEFS;i++){
+    const m=reefGroup(4001+i*53);
+    m.userData.big=0.9+((i*0.61)%1)*1.6;
+    diveProps.add(m); diveLay(m,i/DIVE_REEFS);
+  }
+  for(let i=0;i<DIVE_FISH;i++){
+    const m=fishSchool(7001+i*91);
+    diveFish.add(m); diveLay(m,i/DIVE_FISH,true);
+  }
+}
+function diveLay(o,t,fish){
+  // laid at a z spread evenly over the run-up so they arrive in a stream rather than a wall
+  const R=_dr(((t*100000)|0)+o.id*13);
+  o.position.z=DIVE_AHEAD*(0.10+t*0.90)-R()*30;
+  // ---- and NOT down the middle ----
+  // Nothing down here collides yet, so a boulder laid on the lane does not stop him, it goes
+  // straight through him -- a rock passing out of the pug's chest, which is worse than either
+  // hitting it or missing it. Until there is collision to write, the lane is kept clear: a
+  // corridor either side of centre that rock and coral are laid outside of. Fish get a narrower
+  // one, because a fish that swims close is a fish and a boulder that does is a bug.
+  const sgn=R()<0.5?-1:1, keep=fish?4.0:7.5;
+  o.position.x=sgn*(keep+R()*(DIVE_SPREAD-keep));
+  if(fish){
+    // fish are anywhere in the water column, most of them near the sand
+    o.position.y=bedH(o.position.x,o.position.z)+1.5+R()*R()*13;
+    o.userData.drift=(R()-0.5)*1.6;
+  } else {
+    const b=o.userData.big;
+    o.scale.setScalar(b);
+    o.rotation.set((R()-0.5)*0.3,R()*6.283,(R()-0.5)*0.3);
+    // sunk into the sand by a third, so nothing sits on the floor like a dropped prop
+    o.position.y=bedH(o.position.x,o.position.z)+b*0.34;
+  }
+}
+function diveScenery(dt,eff){
+  const on=diveOn||diveDepth>0.5;
+  if(on&&!diveProps)buildDiveProps();
+  if(!diveProps)return;
+  diveProps.visible=on; diveFish.visible=on;
+  if(!on)return;
+  for(const o of diveProps.children){
+    o.position.z+=eff*dt;
+    if(o.position.z>DIVE_BEHIND)diveLay(o,Math.random());
+    // ...and it rides the sand rather than a plane, because the sand it was laid on has since
+    // scrolled underneath it
+    o.position.y=bedH(o.position.x,o.position.z)+o.userData.big*0.34;
+  }
+  for(const g of diveFish.children){
+    g.position.z+=eff*dt;
+    g.position.x+=g.userData.drift*dt;
+    if(g.position.z>DIVE_BEHIND)diveLay(g,Math.random(),true);
+    g.userData.ph+=dt*1.7;
+    // the school sways as a body and every fish in it wags on its own clock
+    g.rotation.y=Math.sin(g.userData.ph)*0.4;
+    g.position.y+=Math.sin(g.userData.ph*0.8)*dt*0.9;
+    for(const f of g.children){
+      f.userData.ph+=dt*7.5;
+      f.rotation.y=Math.sin(f.userData.ph)*0.22;
+    }
+  }
+}
 // ============================ THE DIVE ============================
 // A first pass at playing UNDER the water rather than on it. Deliberately built as a mode that
 // owns py and nothing else: he keeps his board, his steering and his speed, and the only thing
@@ -31852,6 +32039,95 @@ const DIVE_TOP=1.1;         // how far under the surface counts as still being u
 // It is also what the entry should look like: you do not sink into a dive, you kick into one.
 const DIVE_PLUNGE=1.95, DIVE_PLUNGE_V=7.0;    // about thirteen feet, which is most of the way down
 const DIVE_CLEAR=1.5;       // how far above the sand he is held off it
+// ---- THE JET ON HIS BACK ----
+// Two little pods and a pair of nozzles, hung off the rider and shown only while he is under.
+// Built rather than modelled for the same reason the reef is: at this range and through this
+// much water it is a shape with a light on it. What it is really for is the BUBBLES -- a jet
+// that does nothing visible is just a rucksack, and the plume is the thing that says the button
+// is doing something, which is the one piece of feedback a dive otherwise has none of.
+let diveJet=null, diveJetOn=0, _jetT=0;
+const _jetV=new THREE.Vector3();
+// ---- and it is measured in FEET ----
+// The rider is scaled at load so that whatever the model's own units are he comes out RIDER_FT
+// tall, which means anything parented to him and authored in his local units is a different size
+// for every character in the game. So the jet is built at true size and the group carries the
+// inverse of his scale: 0.95 here is 0.95 feet up his spine on the pug, on the shark, and on
+// whoever gets added next.
+const JET_UP=0.95, JET_BACK=0.34, JET_SIDE=0.135;
+function buildJet(){
+  if(diveJet)return diveJet;
+  const g=new THREE.Group();
+  const shell=new THREE.MeshStandardMaterial({color:0x27313a,roughness:0.45,metalness:0.35});
+  const trim =new THREE.MeshStandardMaterial({color:0x2fd6c0,roughness:0.35,metalness:0.2,
+                                              emissive:0x2fd6c0,emissiveIntensity:0.7});
+  g.userData.noz=[];
+  for(const sx of [-1,1]){
+    // A cylinder with rounded caps rather than a CapsuleGeometry: three did not have one until
+    // r140 and this is r128. The guard that was here -- `new THREE.CapsuleGeometry ? ... : ...`
+    // -- is not a guard at all, because `new` binds before the ternary does: it constructs
+    // undefined and throws, every frame, taking the whole frame's remaining work with it.
+    const pod=new THREE.Mesh(new THREE.CylinderGeometry(0.098,0.098,0.40,10,1),shell);
+    pod.rotation.x=Math.PI/2;
+    pod.position.set(sx*JET_SIDE,0,0);
+    g.add(pod);
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(0.075,0.024,6,12),trim);
+    ring.position.set(sx*JET_SIDE,0,0.20);
+    g.add(ring);
+    for(const ez of [-0.20,0.20]){                 // the rounded ends
+      const cap=new THREE.Mesh(new THREE.SphereGeometry(0.098,10,7),shell);
+      cap.position.set(sx*JET_SIDE,0,ez); g.add(cap);
+    }
+    const noz=new THREE.Mesh(new THREE.ConeGeometry(0.072,0.13,8),shell);
+    noz.rotation.x=-Math.PI/2;
+    noz.position.set(sx*JET_SIDE,0,0.27);
+    g.add(noz); g.userData.noz.push(noz);
+  }
+  // the yoke across his shoulders, which is what makes two pods read as one thing worn
+  const yoke=new THREE.Mesh(new THREE.BoxGeometry(JET_SIDE*2+0.08,0.075,0.13),shell);
+  yoke.position.set(0,0.10,-0.02); g.add(yoke);
+  g.visible=false;
+  diveJet=g;
+  return g;
+}
+function jetUpdate(dt){
+  const g=buildJet();
+  const want=(diveOn||diveDepth>0.5);
+  if(g.parent!==pug&&want)pug.add(g);
+  g.visible=want;
+  if(!want){ diveJetOn=0; return; }
+  // on his back: up his spine and behind him, in the rider's own frame, so it turns with him --
+  // and divided through by his scale, so the numbers above stay feet
+  const k=1/(pug.scale.x||1);
+  g.scale.setScalar(k);
+  g.position.set(0,JET_UP*k,JET_BACK*k);
+  g.rotation.set(0,0,0);
+  // the thrust reads on the trim before it reads in the bubbles, which is what makes the
+  // button feel connected rather than delayed
+  const th=(jumpHeld||keys.Space)?1:0;
+  diveJetOn+=(th-diveJetOn)*Math.min(1,dt*8);
+  for(const c of g.children)
+    if(c.material&&c.material.emissiveIntensity!==undefined)
+      c.material.emissiveIntensity=0.35+diveJetOn*1.5;
+  // ---- and it blows bubbles ----
+  // Off the nozzles' ACTUAL positions, asked of the scene graph rather than guessed at from px
+  // and pz: he rides side-on, so his back faces across the lane and not down it, and a plume
+  // placed a foot behind the board came out of his hip. They are spawned in world space and
+  // left there, so the trail stays where it was made instead of riding along on his shoulders.
+  _jetT-=dt;
+  // idle is a trickle and thrust is a stream -- the CONTRAST is the feedback, not the count
+  const rate=0.20-diveJetOn*0.168;
+  if(_jetT<=0){
+    _jetT=rate;
+    const n=1+(diveJetOn>0.5?1:0);
+    const noz=g.userData.noz||[];
+    for(let i=0;i<n;i++){
+      const nz=noz[(Math.random()*noz.length)|0];
+      if(!nz)break;
+      nz.getWorldPosition(_jetV);
+      bubble(_jetV.x,_jetV.y,_jetV.z,1,0.9+diveJetOn*0.7);
+    }
+  }
+}
 function diveGo(on){
   if(!!on===diveOn)return diveOn;
   diveOn=!!on; diveT=0;
@@ -31881,9 +32157,7 @@ function diveStep(dt,waterY){
   // the board tips the way he is going, which is most of what says "swimming" without a
   // second animation
   boardPitch+=((diveRise*0.045)-boardPitch)*Math.min(1,dt*3.2);
-  // a thin string of bubbles off the tail the whole time, thicker the harder he is climbing
-  if(Math.random()<dt*(6+Math.max(0,diveRise)*2.2))
-    splash(px+(Math.random()-0.5)*1.3, py+0.4+Math.random()*1.2, pz+1.0, 1);
+  // the jet does the bubbles now, off its own nozzles, which is a plume rather than a fog
   // ---- and he comes OUT by swimming out ----
   // Breaking the surface ends it rather than bouncing him off the underside: the way out of a
   // dive is up, and holding up until you are out is a thing a player works out without being
@@ -35160,6 +35434,7 @@ function update(dt){
   // splashes
   for(let i=splashes.length-1;i>=0;i--){
     const s2=splashes[i],u=s2.userData;
+    if(u.bub){ if(!bubStep(s2,u,dt,eff)){freeDrop(s2);splashes.splice(i,1);} continue; }
     u.t-=dt;u.vy-=14*dt;
     s2.position.x+=u.vx*dt;s2.position.y+=u.vy*dt;s2.position.z+=u.vz*dt+eff*dt*0.4;
     const k=Math.max(0,Math.min(1,u.t*2.4));
@@ -35487,6 +35762,8 @@ function update(dt){
   // and not the game's -- the frame goes through drawScene. Here it is one line after the
   // camera is finished being placed, which is the thing it is following.
   if(typeof bedUpdate==='function')bedUpdate();
+  if(typeof diveScenery==='function')diveScenery(_clkDt||0.016,lastEff||0);
+  if(typeof jetUpdate==='function')jetUpdate(_clkDt||0.016);
   // The camera does NOT roll with the ring. A loop camera was tried and taken back out: it
   // keeps the tube wrapped around the view, but the whole shot turning over is disorienting
   // and it throws away the one stable reference — the horizon — that tells you where you are
