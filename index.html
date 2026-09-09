@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.138.0';
+window.SURF_VERSION='6.139.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -8776,11 +8776,10 @@ function sandFieldBuild(){
   sandGen++;
 }
 // ---- HOW A SCANNED SAND PIECE IS MADE READY TO TILE ----
-// Lifted out of the sand.glb loader whole, unchanged, so that the island's piece can go
-// through it too. It had to: sandlod.glb is the same scan collapsed, and it was going into
-// the island's field RAW -- with the scan's curled lip still on it and its rim still square.
-// The beach has never looked like that and the island did, and the reason was not the
-// decimation and not the lighting, it was these hundred lines never being asked.
+// Lifted out of the sand.glb loader whole and unchanged. It was lifted for the island, whose
+// tile field had to go through the same mill; that field is gone now and the beach is the only
+// caller left, so this is a function with one user. Left as one anyway: it is the definition of
+// what "a piece ready to tile" means, and it reads better named than inline.
 // Four things happen here, and the last two are the ones you can see:
 //   the thin axis is measured and turned up, because a slab on its edge reports a short side
 //     of a fifth of a foot and the field then tries to lay eight thousand tiles;
@@ -16495,7 +16494,12 @@ function takeDrop(){
   return null;
 }
 function freeDrop(m){m.visible=false;POOL.push(m);}
+// ---- and none of it once he is off the water entirely ----
+// Every splash in the game is water being displaced. Phase 1 still throws it, because running
+// aground through the shallows displaces a great deal of it; from the moment he is on his own
+// legs on dry sand there is nothing left to displace.
 function splash(x,y,z,n=8,col){
+  if(typeof forkPh!=='undefined'&&forkOn&&forkPh>=3)return;
   const mtl=col===0xffc23e?SPLASH_MAT_WARN:(col===0xff5f5f?SPLASH_MAT_HIT:
             (col===0x9fe8ff?SPLASH_MAT_ZAP:SPLASH_MAT));
   for(let i=0;i<n;i++){
@@ -16994,7 +16998,14 @@ function updatePuffs(dt,eff){
 // does not stack alpha at all, drawn once -- a mesh, or a single shader pass over the water like
 // the barrel's own whitewater already uses.
 var RIDE_WAKE_ON=false;
+// ---- and NOTHING is laid on the island ----
+// Every caller of this is a thing the board does to WATER: the ribbon off the tail, the wash
+// off a landing, the churn a shark leaves. Once he is aground there is no water under him to
+// disturb, and what was being drawn was a white wake ribbon lying along the top of a beach and
+// a landing splash going off in the middle of dry sand. Gated in the one place rather than at
+// eleven call sites, because the rule is about where he IS and not about which of them fired.
 function pushTrail(x,y,z,w){ if(!RIDE_WAKE_ON)return;
+  if(typeof forkPh!=='undefined'&&forkOn&&forkPh>=1)return;
   trail.unshift({x,y,z,w:w*(typeof cocoK!=='undefined'?cocoK:1),age:0});
   if(trail.length>WAKE_SEGS)trail.pop(); }
 function updateWake(dt,eff){
@@ -25495,7 +25506,14 @@ function updateSetWave(dt,eff){
       // ...and not while the saucer has him, which is the same exclusion from the other side.
       // Gating only the UFO would still allow the wave to arrive under an abduction already
       // in progress, and then it is the set wave that has landed on top of something.
-      if(swNext<=0&&!skiOn&&!whirl&&!hanging&&ufoPh===UFOP.OFF)startSetWave();
+      // ---- and not while the island is in the lane ----
+      // The set wave is a seven-metre face built across the whole lane. Rolled through the
+      // fork it goes straight over a quarter mile of sand -- the island keeps its own height
+      // because land does not bob, so the wave simply passes through it -- and it takes the
+      // camera and the rider with it. Held off for the length of the piece, the way the
+      // obstacle spawner is, rather than fought with afterwards.
+      if(forkOn)swNext=Math.max(swNext,2.5);
+      if(swNext<=0&&!skiOn&&!whirl&&!hanging&&ufoPh===UFOP.OFF&&!forkOn)startSetWave();
     }
     return;
   }
@@ -27322,6 +27340,13 @@ if(location.hash.includes('debug')){
                     run:+forkRun.toFixed(0), yaw:+(forkYaw*180/Math.PI).toFixed(1),
                     obs:obstacles.filter(o=>o.position.z>-175).length,
                     endZ:+forkEndZ.toFixed(1), toGo:+(pz-forkEndZ).toFixed(1),
+                    gnd:+forkGround().toFixed(2),
+                    field:!!(forkArt&&forkArt.userData.field),
+                    walkOK:[forkWalkable(px,pz),forkWalkable(px+40,pz),forkWalkable(px,pz-40)],
+                    face:+(forkFace*180/Math.PI).toFixed(0),
+                    cam:[+camera.position.x.toFixed(1),+camera.position.y.toFixed(1),
+                         +camera.position.z.toFixed(1)],
+
                     kinds:obstacles.map(o=>o.userData.kind).filter((v,i,a)=>a.indexOf(v)===i)}; },
     menuPalmNode(){ return (typeof menuPalm!=='undefined')?menuPalm:null; },
     forceRigReset(){ const R=riderRig()||modelRigs[builtChar]; if(!R||!R.reset)return null;
@@ -31100,6 +31125,105 @@ function beachFeetPerUV(){
   _beachFtUV=((x1-x0)/du)*(SAND_TILE/Math.max(sx,sz));
   return _beachFtUV;
 }
+// ---- THE ISLAND'S OWN HEIGHT, as a grid ----
+// Three separate things were guessing at this and all three were guessing wrong. The board rode
+// up the beach at a fixed height above MEAN WATER and sank into a dune surface that is nowhere
+// near flat. The rider stood at that same constant. And the walk was bounded by a lane
+// FORK_HALF either side of where he landed, because there was no way to ask whether a step
+// would put him in the sea.
+// Rasterised once out of the mesh's own triangles, at load. Twenty-seven thousand of them into
+// a grid a foot and a half across is arithmetic afterwards, and it answers all three: how high
+// the sand is here, and -- by coming back NaN -- whether there is any sand here at all.
+const ISLE_CELL=1.5;
+function isleField(mesh){
+  const g=mesh.geometry, p=g.attributes.position, idx=g.index;
+  if(!p)return null;
+  let x0=1e9,x1=-1e9,z0=1e9,z1=-1e9;
+  for(let i=0;i<p.count;i++){ const x=p.getX(i), z=p.getZ(i);
+    if(x<x0)x0=x; if(x>x1)x1=x; if(z<z0)z0=z; if(z>z1)z1=z; }
+  const nx=Math.ceil((x1-x0)/ISLE_CELL)+2, nz=Math.ceil((z1-z0)/ISLE_CELL)+2;
+  if(nx<2||nz<2||nx*nz>120000)return null;
+  const H=new Float32Array(nx*nz).fill(NaN);
+  const n=idx?idx.count:p.count, ax=[0,0,0], ay=[0,0,0], az=[0,0,0];
+  for(let t=0;t<n;t+=3){
+    for(let v=0;v<3;v++){ const i=idx?idx.getX(t+v):(t+v);
+      ax[v]=p.getX(i); ay[v]=p.getY(i); az[v]=p.getZ(i); }
+    const cx0=Math.max(0,Math.floor((Math.min(ax[0],ax[1],ax[2])-x0)/ISLE_CELL));
+    const cx1=Math.min(nx-1,Math.ceil((Math.max(ax[0],ax[1],ax[2])-x0)/ISLE_CELL));
+    const cz0=Math.max(0,Math.floor((Math.min(az[0],az[1],az[2])-z0)/ISLE_CELL));
+    const cz1=Math.min(nz-1,Math.ceil((Math.max(az[0],az[1],az[2])-z0)/ISLE_CELL));
+    const d=(az[1]-az[2])*(ax[0]-ax[2])+(ax[2]-ax[1])*(az[0]-az[2]);
+    if(Math.abs(d)<1e-9)continue;
+    for(let cx=cx0;cx<=cx1;cx++)for(let cz=cz0;cz<=cz1;cz++){
+      const X=x0+cx*ISLE_CELL, Z=z0+cz*ISLE_CELL;
+      const w0=((az[1]-az[2])*(X-ax[2])+(ax[2]-ax[1])*(Z-az[2]))/d;
+      const w1=((az[2]-az[0])*(X-ax[2])+(ax[0]-ax[2])*(Z-az[2]))/d;
+      const w2=1-w0-w1;
+      if(w0<-0.001||w1<-0.001||w2<-0.001)continue;
+      const y=w0*ay[0]+w1*ay[1]+w2*ay[2], k=cz*nx+cx;
+      if(!(H[k]>=y))H[k]=y;                        // NaN answers false, so the first hit wins
+    }
+  }
+  return {x0,z0,nx,nz,H};
+}
+// World x/z in, world y out, NaN where there is no island under the point.
+function isleH(x,z){
+  const F=forkArt&&forkArt.userData.field;
+  if(!F||!forkArt)return NaN;
+  const lx=x-forkArt.position.x, lz=z-forkArt.position.z;
+  const fx=(lx-F.x0)/ISLE_CELL, fz=(lz-F.z0)/ISLE_CELL;
+  const cx=Math.floor(fx), cz=Math.floor(fz);
+  if(cx<0||cz<0||cx>=F.nx-1||cz>=F.nz-1)return NaN;
+  const tx=fx-cx, tz=fz-cz, H=F.H, n=F.nx;
+  const a=H[cz*n+cx], b=H[cz*n+cx+1], c=H[(cz+1)*n+cx], d=H[(cz+1)*n+cx+1];
+  if(a!==a||b!==b||c!==c||d!==d)return NaN;
+  return ((a*(1-tx)+b*tx)*(1-tz)+(c*(1-tx)+d*tx)*tz)+forkArt.position.y;
+}
+// ---- WHAT THE ISLAND IS ACTUALLY MADE OF ----
+// It wore SAND_MAT itself, on the principle that one sand in the game cannot drift into two.
+// The principle is right and the material was the wrong thing to share, because of what is
+// actually IN it. Pulled out and looked at:
+//   the base colour map is not a photograph of sand. It is a chaotic patchwork of angular
+//     shards and chevrons, two thousand pixels of them;
+//   the normal map is very nearly flat -- a uniform #7f7fff with a whisper of noise on it. It
+//     is not where the beach's grain comes from.
+// On the menu that map never reads as shards because no piece of it is ever seen whole: the
+// beach is six hundred small scanned chunks, overlapped and turned to random angles, so the
+// texture is broken up by the geometry before you can see what it is. Tiled continuously
+// across an island, at nineteen feet a repeat, you can read every shard -- and that is the
+// pattern that has been all over the near beach for three versions, which I spent a while
+// blaming on the normal map, on aliasing, and on the mesh's own noise in turn. Shading it flat
+// made it vanish, which is the test that finally said "the map".
+// So the island takes what is worth taking and leaves the rest: the colour (the ALBEDO'S OWN
+// MEAN, measured off the file rather than picked, so it is still the beach's sand), the
+// roughness, and the grain shader -- which is where the beach's fine surface has always
+// actually come from, and which is scaled in UV space so it lands at the same size here.
+// It needs no tangents either, having no normal map to read them.
+const ISLE_SAND=[0.400,0.310,0.178];   // the base map's mean, in linear
+let ISLE_MAT=null;
+function isleSandMat(){
+  if(ISLE_MAT||!SAND_MAT)return ISLE_MAT;
+  ISLE_MAT=new THREE.MeshStandardMaterial({
+    color:new THREE.Color(ISLE_SAND[0],ISLE_SAND[1],ISLE_SAND[2]),
+    roughness:SAND_MAT.roughness, metalness:0, side:THREE.FrontSide});
+  // ---- and it takes less of the sky than the beach does ----
+  // The menu is lit by a white hemisphere at 1.05 and a warm key at 1.8; the ride by a BLUE
+  // hemisphere at 0.39 and a sun ten degrees off the water. A big surface of open sand catches
+  // a great deal of the first out here, and the env reflection is the part of that which is not
+  // lighting the sand so much as tinting it grey.
+  ISLE_MAT.envMapIntensity=0.04;
+  // ---- and the grain patch needs a vUv that a material with NO MAPS does not have ----
+  // three only declares and computes vUv when something asks for it, and USE_UV is switched on
+  // by the presence of a map. Take every map off and the varying is gone -- but the grain
+  // shader patched in below still reads it, so the program fails to compile. A failed program
+  // is not an exception and not a page error: three logs it and the mesh is simply not drawn,
+  // which rendered as an island-shaped hole with the sea showing through it and the palms
+  // standing in the water. Asked for explicitly.
+  ISLE_MAT.defines={USE_UV:''};
+  ISLE_MAT.onBeforeCompile=SAND_MAT.onBeforeCompile;
+  ISLE_MAT.needsUpdate=true;
+  return ISLE_MAT;
+}
 function forkDress(root){
   if(!root)return;
   const ft=beachFeetPerUV();
@@ -31124,7 +31248,7 @@ function forkDress(root){
       o.geometry.setAttribute('tangent',new THREE.BufferAttribute(tg,4));
       o.userData.uvFixed=true;
     }
-    if(SAND_MAT)o.material=SAND_MAT; } });
+    const im=isleSandMat(); if(im)o.material=im; } });
   if(forkPalms)return;
   const src=islePalmSource(); if(!src)return;
   // ---- SCATTERED ONTO THE SAND, not laid out along a formula ----
@@ -31138,6 +31262,7 @@ function forkDress(root){
   root.updateMatrixWorld(true);
   let isle=null;
   root.traverse(o=>{ if(!isle&&o.isMesh&&!o.userData.isPalm)isle=o; });
+  if(isle&&!root.userData.field)root.userData.field=isleField(isle);
   const box=new THREE.Box3().setFromObject(root);
   const ray=new THREE.Raycaster(), down=new THREE.Vector3(0,-1,0);
   const at=new THREE.Vector3(), put=[];
@@ -31181,7 +31306,9 @@ function forkDress(root){
     // plumb. The lean is taken as a DIRECTION and an amount rather than as two independent
     // angles: two small numbers on x and z average out to nearly upright, which is how the
     // first pass ended up with a row of flagpoles.
-    const lean=ISLE_PALM_LEAN*(0.25+Math.random()*0.75), dir=Math.random()*6.283;
+    // squared, so most take a moderate lean and a few are properly bent over
+    const lw=Math.random();
+    const lean=ISLE_PALM_LEAN*(0.18+0.82*lw*lw), dir=Math.random()*6.283;
     c.rotation.set(Math.cos(dir)*lean, Math.random()*6.283, Math.sin(dir)*lean);
     c.scale.setScalar(src.scale.x*(ISLE_PALM_MIN+c0*(ISLE_PALM_MAX-ISLE_PALM_MIN)));
     c.traverse(o=>{ if(o.isMesh){ o.castShadow=false; o.receiveShadow=false;
@@ -31210,20 +31337,25 @@ function forkDress(root){
 // HEAVY is the count used if palmlod.glb has not arrived and the menu's own tree is all
 // there is: twenty of THAT would be six million triangles of scenery, which is the exact
 // thing this is here to stop.
-const ISLE_PALMS=28, ISLE_PALMS_HEAVY=6;
-// ---- and they are allowed to CLUMP ----
-// A minimum spacing of eleven and a half feet, rejected uniformly, is a rule that produces an
-// orchard: every tree the same distance from the next one, which reads as planted. Palms come
-// up in stands, so the gap is halved and each candidate gets a second, closer allowance a third
-// of the time -- most stay apart, some grow in threes, and a few stretches are empty.
-const ISLE_GAP=8.5, ISLE_GAP_TIGHT=3.6, ISLE_CLUMP=0.34;
+const ISLE_PALMS=15, ISLE_PALMS_HEAVY=5;
+// ---- spread out, and allowed to CLUMP ----
+// Twenty-eight of them at eight and a half feet was a plantation: enough trees, close enough
+// together, that the island read as a nursery rather than as somewhere a few things had got a
+// hold. Fifteen at nineteen feet leaves real ground between them and lets you see the island
+// they are standing on, which is the thing that was actually built.
+// The clump allowance stays and matters more now that there are fewer: a single minimum
+// distance applied uniformly puts every tree the same distance from the next, which is the one
+// arrangement that never happens in nature. A fifth of them get a much closer allowance, so a
+// couple grow in pairs and the rest of the island is open.
+const ISLE_GAP=19.0, ISLE_GAP_TIGHT=5.5, ISLE_CLUMP=0.22;
 const ISLE_LANE=10.5, ISLE_LANE_Z=78, ISLE_SHORE=1.15;
 // Widened, because at 0.80 to 1.55 with the sink on top they still read as one tree at one
 // size. This is a factor of TWO and a half between the smallest and the largest.
 const ISLE_PALM_MIN=0.62, ISLE_PALM_MAX=1.62;
-// feet of trunk that can be buried, and radians of lean -- about thirteen degrees at the
-// worst, which is a palm on a windward shore and not a fallen one
-const ISLE_PALM_SINK=4.2, ISLE_PALM_LEAN=0.23;
+// Feet of trunk that can be buried, and radians of lean. The lean is up to twenty-two degrees
+// now, from thirteen: on a windward shore that is an ordinary palm, and thirteen was small
+// enough that with the trunks upright behind it the whole stand still read as vertical.
+const ISLE_PALM_SINK=4.6, ISLE_PALM_LEAN=0.39;
 let forkPalmSrc=null;
 loadModel('palmlod.glb',s=>{ forkPalmSrc=s; },9);
 function islePalmSource(){
@@ -31478,17 +31610,8 @@ function forkDismount(){
   // under him is a dune surface that is nowhere near flat. Asked of the island instead -- one
   // ray, once, at the moment he steps off -- and the board lies on whatever is actually there.
   const bx=px, bz=pz+1.1;
-  let by=py-1.55;
-  if(forkArt){
-    forkArt.updateMatrixWorld(true);
-    let isle=null; forkArt.traverse(o=>{ if(!isle&&o.isMesh&&!o.userData.isPalm)isle=o; });
-    if(isle){
-      const r=new THREE.Raycaster(new THREE.Vector3(bx,py+18,bz),new THREE.Vector3(0,-1,0));
-      const h=r.intersectObject(isle,false)[0];
-      if(h)by=h.point.y+BOARD_ON_SAND;
-    }
-  }
-  b.position.set(bx,by,bz);
+  const gh=isleH(bx,bz);
+  b.position.set(bx,(gh===gh)?gh+BOARD_ON_SAND:py-1.55,bz);
   rig.remove(pug); player.add(pug);              // ...and the rider onto his own legs
   // his old local offset PLUS the board's, so the reparent is invisible: he is standing where
   // he was standing, and the only thing that changed is what he is standing on
@@ -31520,10 +31643,18 @@ const BOARD_ON_SAND=0.16;
 // How far the island's surface stands above MEAN water, and a CONSTANT on purpose: the
 // island no longer rides the swell, so neither does anyone standing on it.
 const FORK_SAND=2.05;
-// How far up the sand the walk goes before the island is done with him. About five seconds at
-// walking pace, which is long enough to look around and short enough that there is no point at
-// which you are waiting for it to end.
-const FORK_ISLE_WALK=38;
+// How far short of the island's far end the walk ends -- he steps off the top of the beach
+// rather than walking to the last vertex of it.
+const FORK_ISLE_END=8;
+// The shot he is walked in: how far behind him the lens sits, how far above the sand, how high
+// up him it looks and how far past him. The first pass at these put the lens ten feet back and
+// four up, which is the surfing camera's geometry -- and it framed a dog and a great deal of
+// sand, because there is no wave in front of him to fill the rest of it. Back and up, and
+// aiming well past him, so what is in the frame is the island.
+const ISLE_CAM_BACK=13.5, ISLE_CAM_UP=6.4, ISLE_AIM_UP=1.5, ISLE_AIM_AHEAD=11.0;
+// ...and how far above mean water sand has to be before he will stand on it. Above the surf,
+// so the shoreline holds him without him paddling about in the wash.
+const ISLE_WALK_MIN=0.55;
 let forkFace=0, forkLandX=0, forkEndZ=0;
 // ---- and there is NO CHEST on it ----
 // There was, and it was doing two bad jobs. As a prop it is the game's old crate, which is not
@@ -31535,8 +31666,21 @@ let forkFace=0, forkLandX=0, forkEndZ=0;
 // crate to touch on the way is a fetch quest laid over it. So the walk simply ENDS a set
 // distance up the sand, and what the chest used to pay is paid for getting there.
 function forkLand(){
-  forkLandX=px;             // the walk is bounded around where he came ashore, not around x=0
-  forkEndZ=pz-FORK_ISLE_WALK;
+  forkLandX=px;
+  // The far end of the island, not a distance from where he landed: he can walk all of it now,
+  // and a line drawn thirty feet up the sand would end the run in the middle of the thing it
+  // is there to let him look at. forkZ stops advancing the moment he is aground, so this is a
+  // fixed point for the rest of the run.
+  forkEndZ=forkZ-FORK_LEN+FORK_ISLE_END;
+}
+// How high the ground is where he is standing, and whether he may stand there at all. Both fall
+// back to the flat constant, which is what the primitive island gets -- it carries no field.
+function forkGround(){ const h=isleH(px,pz); return (h===h)?h:FORK_SAND; }
+function forkWalkable(x,z){
+  if(!(forkArt&&forkArt.userData.field))
+    return Math.abs(x-forkLandX)<=FORK_HALF;      // primitive island: the old lane
+  const h=isleH(x,z);
+  return h===h&&h>ISLE_WALK_MIN;
 }
 function forkIslandDone(){
   const n=150+25*((Math.random()*7)|0);
@@ -31547,6 +31691,12 @@ function forkIslandDone(){
 }
 function forkBeach(){
   forkLand();
+  // ---- and the wash he arrived on does not come up the beach with him ----
+  // pushTrail is gated from here on, but the ribbon already laid is a live object with a
+  // second and a half of life left in it, and it does not care that the ground under it has
+  // become sand: it sat there as a dashed white wake running up the middle of the beach.
+  // Dropped outright, which is also what happens to it in the water.
+  trail.length=0;
   buzz(26); shake=Math.max(shake,0.9);
   splash(px,waveH(px,dist*WAVE_DRIFT+pz,waveClock),pz,22);
   msg('BEACHED!');
@@ -33351,13 +33501,23 @@ function update(dt){
     // in the water beside it
     // blended off the wave rather than swapped: at e=0 he is still on the water he arrived
     // on, at e=1 he is on land that does not move, and there is no step between them
-    const sandY=waveH(px,dist*WAVE_DRIFT+pz,waveClock)*(1-e)+e*FORK_SAND;
+    // ---- and the target is the SAND UNDER HIM, not a constant ----
+    // This blended to FORK_SAND, which is the height of the island's crown. The beach he is
+    // riding up is nowhere near the crown, so the board sank into it as it climbed -- he
+    // arrived looking like he was still standing on a board buried in the dune. Asked of the
+    // island's own surface now, with the constant left as the fallback for the primitive
+    // island, which has no height field.
+    const gh1=isleH(px,pz);
+    const sandY=waveH(px,dist*WAVE_DRIFT+pz,waveClock)*(1-e)+e*((gh1===gh1)?gh1:FORK_SAND);
     py+=(sandY-py)*Math.min(1,dt*7);
     boardPitch+=((-0.16*e)-boardPitch)*Math.min(1,dt*5);
     if(Math.random()<dt*26*(1-e))splash(px+(Math.random()-0.5)*2.2,sandY-0.3,pz+1.2,1);
     // The board has shed everything by now -- its slide rate is (1-e) and e is 1. So the board
     // is STOPPED, and what happens next happens to him and not to it.
-    if(k>=1&&!forkDone){ forkDone=true; forkPh=4; forkFace=Math.PI; forkDismount();
+    // forkFace 0 is the way he was already going. It used to be PI, which spun him round to
+    // face the camera at the exact moment he stepped off -- he came ashore walking backwards
+    // up his own island.
+    if(k>=1&&!forkDone){ forkDone=true; forkPh=4; forkFace=0; forkDismount();
       forkOff=FORK_OFF_V; msg('OFF THE BOARD!'); }
   } else if(forkPh===4){
     // ---- HE RUNS OFF IT ----
@@ -33369,12 +33529,12 @@ function update(dt){
     speed=0;
     forkOff=Math.max(0,forkOff-FORK_OFF_DRAG*dt);
     pz-=forkOff*dt;
-    px=Math.max(forkLandX-FORK_HALF,Math.min(forkLandX+FORK_HALF,px));
-    py+=(FORK_SAND-py)*Math.min(1,dt*6);
+    py+=(forkGround()-py)*Math.min(1,dt*6);
     pug.rotation.y=forkFace;
-    // sand kicked up behind a running foot, thinning as he slows
-    if(Math.random()<dt*14*(forkOff/FORK_OFF_V))
-      splash(px+(Math.random()-0.5)*1.4,py-1.6,pz+0.9,1);
+    // No sand kicked up behind him. It was drawn with splash(), which is a water drop -- white,
+    // wet, and lit like water -- and a line of those laid up a dry beach behind a running dog is
+    // the same mistake as the wake ribbon: the effect is about water and there is none here.
+    // A real sand puff is worth having and is not this.
     // ---- and the ring is simply THERE ----
     // It used to arrive behind a SHOES button in JUMP's slot, on the reasoning that a control
     // appearing on its own needs announcing. It does not: he has visibly stepped off a board
@@ -33391,21 +33551,28 @@ function update(dt){
     speed=0;
     // the stick, not the steering. Pushing up the ring walks him away from the water.
     const wx=walkVX, wz=walkVZ;
-    px+=wx*FORK_WALK*dt;
-    pz+=wz*FORK_WALK*dt;
-    px=Math.max(forkLandX-FORK_HALF,Math.min(forkLandX+FORK_HALF,px));
+    // ---- and he can go ANYWHERE there is sand ----
+    // The walk used to be clamped to a lane FORK_HALF either side of where he landed, because
+    // there was nothing to ask whether a step would put him in the sea. There is now, so the
+    // island is simply walkable: the two axes are tested SEPARATELY, which is what lets him
+    // slide along a shoreline he is pushing into instead of sticking to it.
+    { const nx2=px+wx*FORK_WALK*dt, nz2=pz+wz*FORK_WALK*dt;
+      if(forkWalkable(nx2,pz))px=nx2;
+      if(forkWalkable(px,nz2))pz=nz2; }
     // turned to face the way he is going, eased, because a body that changes heading between
     // two frames has not turned round
     if(Math.hypot(wx,wz)>0.12){
-      const want=Math.atan2(wx,wz)+Math.PI;
+      // 0 is facing away from the lens, which is the way he arrives, so the heading is taken
+      // against -z rather than +z. The old +PI form was the other half of the about-turn.
+      const want=Math.atan2(-wx,-wz);
       let d=want-forkFace; while(d>Math.PI)d-=Math.PI*2; while(d<-Math.PI)d+=Math.PI*2;
       forkFace+=d*Math.min(1,dt*7);
     }
     pug.rotation.y=forkFace;
-    py+=(FORK_SAND-py)*Math.min(1,dt*6);
-
-    // ...and the island ends either way. Gated only on having got the chest, a walk that
-    // missed it carried on up the sand forever with nothing left to reach.
+    py+=(forkGround()-py)*Math.min(1,dt*6);
+    // ...and it ends when he walks off the far end of it. He cannot leave it any other way --
+    // the sand test above holds him -- so this is the one exit, and it is his to take when he
+    // is finished looking around rather than a line drawn across the beach.
     if(pz<forkEndZ)forkIslandDone();
   } else if(heliPh>=0){ heliStep(dt,waterY);           // the helicopter drives him itself
   } else if(swTubeRide){
@@ -33620,7 +33787,9 @@ function update(dt){
     // It was reading as a wall of white either side of the board rather than a rail
     // throwing spray. Less of it, thrown less far, and gone sooner — the board should be
     // the thing you are looking at, not the wash.
-    const sprayRate=(Math.abs(carve)*104+8)*(eff/40)*BS.wake;
+    // ...and no rail spray on sand either, for the same reason: a rail throws water because
+    // there is water at the rail
+    const sprayRate=(forkOn&&forkPh>=1)?0:(Math.abs(carve)*104+8)*(eff/40)*BS.wake;
     sprayAcc+=dt*sprayRate;
     const side=-Math.sign(vx||1);
     while(sprayAcc>1){
@@ -34626,6 +34795,12 @@ function update(dt){
   // the modelled canopy sits about sixteen feet over him rather than nine, so the aim goes up
   // with it -- the wing is the thing worth framing and it is now higher above the pilot
   let aimX=lookX, aimY=waterY+1.05+swCam*1.5+airH*(0.62+0.38*glCam)+glCam*7.5, aimZ=-14-swCam*10;
+  // ...and it looks at HIM rather than at a point fourteen feet in front of the origin, which
+  // is where the aim sits for the whole of the rest of the game and is a hundred and fifty feet
+  // behind him by the time he reaches the top of the island.
+  if(forkOn&&(forkPh===3||forkPh===4)){
+    aimY=forkGround()+ISLE_AIM_UP; aimZ=pz-ISLE_AIM_AHEAD;
+  }
   if(swPh===SWP.RIDE&&!swTubeRide&&swCurlA>0.05){
     const pa1=swPeelA(pz), pb1=swPeelB(pz);
     const rad1=SW_R*(0.16+0.84*pa1)*(1-0.55*pb1), fold1=1-0.38*pb1;
@@ -34697,6 +34872,21 @@ function update(dt){
     // there is nothing left for the clamp to save.
     camY=swCamLock.y;
   } else swCamLock=null;
+  // ---- ASHORE THE CHASE CAMERA HAS TO ACTUALLY CHASE ----
+  // Everything above is written for a rider pinned near the origin: camX is never moved off
+  // zero at all, camZ follows forty-two per cent of his fore-and-aft travel, and camY is
+  // measured off the WATER. That is exactly right for surfing, where the world comes to him.
+  // On the island he comes to the world -- he walks a hundred and sixty feet up a beach and
+  // wanders across seventy of it -- and under those three rules the camera stayed by the board
+  // and watched him shrink into the distance, at a height set by a sea he is no longer on.
+  // So ashore it simply follows: his x, a fixed distance behind him, at a fixed height above
+  // the SAND he is standing on. Eased rather than pinned, so a step does not jerk the frame.
+  if(forkOn&&(forkPh===3||forkPh===4)){
+    const g=forkGround(), k=Math.min(1,dt*3.2);
+    camX+=(px-camX)*k;
+    camZ+=((pz+ISLE_CAM_BACK)-camZ)*k;
+    camY+=((g+ISLE_CAM_UP)-camY)*k;
+  }
   camera.position.set(camX,camY,camZ);
   // In the tube the aim is nailed down too. It used to track a fifth of the climb, on the
   // reasoning that a rigidly held shot looks past him once he is up in the roof — but the

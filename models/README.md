@@ -466,8 +466,36 @@ Two things carry the look now:
   the island. The whole crown-to-rim height now drops across a third of the half-width, about
   one in two and a half, and the swell moves the line under three feet.
 
-The mesh ships with no material and no images: it wears the beach's own `SAND_MAT`, with UVs
-and tangents generated in `forkDress`. Two traps there, both of which shipped broken once:
+### What the island wears, and why it is not `SAND_MAT`
+
+It wore the beach's material outright, on the principle that one sand in the game cannot drift
+into two. The principle is right and the material was the wrong thing to share, because of
+what is actually inside it. Pulled out and looked at:
+
+- the **base colour map is not a photograph of sand.** It is a chaotic patchwork of angular
+  shards and chevrons, 2048px of them.
+- the **normal map is very nearly flat** — a uniform `#7f7fff` with a whisper of noise. It is
+  not where the beach's grain comes from; the grain is the separate `sandGrain` texture patched
+  in through `onBeforeCompile`.
+
+On the menu that colour map never reads as shards because no piece of it is ever seen whole:
+the beach is six hundred small scanned chunks, overlapped and turned to random angles, so the
+texture is broken up by the geometry before you can read it. Tiled continuously across an
+island at nineteen feet a repeat you can read every shard — and that pattern sat all over the
+near beach for three versions while I blamed the normal map, then aliasing, then the mesh's own
+noise. **Shading the island with a flat Lambert made it vanish. That is the test that said
+"the map".**
+
+So the island takes what is worth taking and leaves the rest: the colour (the albedo's own
+*mean*, measured off the file rather than picked, so it is still the beach's sand), the
+roughness, and the grain shader. One trap in doing that — three only declares `vUv` when
+something asks for it, and `USE_UV` is switched on by the presence of a map. Take every map off
+and the varying is gone, but the grain patch still reads it, so the program fails to compile.
+A failed program is not an exception and not a page error: three logs it and the mesh is not
+drawn, which rendered as an island-shaped hole with the sea showing through and the palms
+standing in the water. `material.defines = {USE_UV:''}` asks for it explicitly.
+
+Historical, and still worth knowing if the maps ever go back on:
 
 - **Tangents.** `sand.glb` carries a TANGENT accessor, so GLTFLoader sets `vertexTangents` on
   its material — a flag on the MATERIAL, where tangents are an attribute of the GEOMETRY. On a

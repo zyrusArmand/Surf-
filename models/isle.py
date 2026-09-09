@@ -40,7 +40,7 @@ def noise(x, y, s=0.0):
     c, d = h2(i, j+1, s), h2(i+1, j+1, s)
     return (a*(1-ux)+b*ux)*(1-uy) + (c*(1-ux)+d*ux)*uy - 0.5
 def fbm(x, y, s=0.0):
-    return noise(x, y, s) + 0.5*noise(x*2.07, y*2.07, s+1) + 0.25*noise(x*4.11, y*4.11, s+2)
+    return noise(x, y, s) + 0.5*noise(x*2.07, y*2.07, s+1)
 
 def outer(t):
     """half-width of the island at t along its length -- the game's own wall arithmetic"""
@@ -74,10 +74,18 @@ for j in range(NZ+1):
         # how far above the water this point is, which is what decides how much dune it gets:
         # sand is rippled where it is dry and the sea irons it flat where it has been over it
         up = max(0.0, min(1.0, (z + 0.15)/CROWN))
-        # dunes at eighteen feet, a second set at seven across them, and a ripple at two
-        z += fbm(x*0.055, y*0.055, 0.0)*0.62*up
-        z += fbm(x*0.145, y*0.145, 3.0)*0.26*up
-        z += fbm(x*0.44,  y*0.44,  6.0)*0.075*(0.35+0.65*up)
+        # ---- and NOTHING FINER THAN THE VERTEX GRID ----
+        # The first pass had three octaves of noise at three scales, the smallest of them a
+        # two-foot ripple. The grid is 0.75 ft along the island and 1.26 ft across it at the
+        # widest, so that ripple had barely three vertices to a period: it could not be a
+        # ripple, it came out as zigzag facets, and the material's sheen picked every one of
+        # them out as a dark chevron. The whole near beach was covered in them. Shading them
+        # flat hid it, which is what made it look like a texture problem for a while -- it is
+        # not, the geometry really is that shape.
+        # Twenty-two feet and nine feet, both well sampled. Anything smaller than that belongs
+        # in the normal map, which is where the beach's grain has always lived.
+        z += fbm(x*0.045, y*0.045, 0.0)*0.70*up
+        z += noise(x*0.11, y*0.11, 3.0)*0.24*up
         # ...and the rim wanders, so the waterline is not a drawn curve
         row.append(bm.verts.new((x + fbm(0.0, y*0.06, 9.0)*1.5*(1-up), y, z)))
     ring.append(row)
