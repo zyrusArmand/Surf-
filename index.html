@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.137.0';
+window.SURF_VERSION='6.138.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -27321,8 +27321,7 @@ if(location.hash.includes('debug')){
                     half:FORK_HALF, len:FORK_LEN, vis:!!(forkArt&&forkArt.visible),
                     run:+forkRun.toFixed(0), yaw:+(forkYaw*180/Math.PI).toFixed(1),
                     obs:obstacles.filter(o=>o.position.z>-175).length,
-                    chest:forkChest?{got:!!forkGot,x:+forkChestX.toFixed(1),z:+forkChestZ.toFixed(1),
-                      d:+Math.hypot(px-forkChestX,pz-forkChestZ).toFixed(1)}:null,
+                    endZ:+forkEndZ.toFixed(1), toGo:+(pz-forkEndZ).toFixed(1),
                     kinds:obstacles.map(o=>o.userData.kind).filter((v,i,a)=>a.indexOf(v)===i)}; },
     menuPalmNode(){ return (typeof menuPalm!=='undefined')?menuPalm:null; },
     forceRigReset(){ const R=riderRig()||modelRigs[builtChar]; if(!R||!R.reset)return null;
@@ -31266,7 +31265,7 @@ function forkArm(){
 }
 function forkClear(){
   forkOn=false; forkPh=0; forkT=0; forkSide=0; forkDone=false; forkSpawn=0; forkRun=0;
-  forkGot=false; forkOff=0; if(forkChest)forkChest.visible=false;
+  forkOff=0; forkEndZ=0;
   walkShow(false); forkRemount(); forkFace=0;
   { const R=(typeof riderRig==='function')?riderRig():null; if(R)R.walkW=0; }
   if(forkArt)forkArt.visible=false;
@@ -31521,36 +31520,33 @@ const BOARD_ON_SAND=0.16;
 // How far the island's surface stands above MEAN water, and a CONSTANT on purpose: the
 // island no longer rides the swell, so neither does anyone standing on it.
 const FORK_SAND=2.05;
-// Generous, and the chest is set near the line he is already walking. Off at four feet of
-// lateral offset with a three-foot reach he walks straight past it at six and a half and
-// there is no turning round on a walk that only goes one way -- which is a dead end, not a
-// choice. Steering toward it is the flourish, not the requirement.
-const FORK_REACH=4.2;
-let forkChest=null, forkChestZ=0, forkChestX=0, forkGot=false, forkFace=0, forkLandX=0;
-function forkPlaceChest(){
-  forkLandX=px;   // the walk is bounded around where he came ashore, not around x=0
-  if(!forkChest){
-    forkChest=(typeof buildChest==='function')?buildChest():null;
-    if(!forkChest)return;
-    forkChest.scale.setScalar(0.9);
-    scene.add(forkChest);
-  }
-  forkChestX=px+forkSide*-1*(0.6+Math.random()*1.4);   // just inland of where he landed
-  forkChestZ=pz-(16+Math.random()*14);        // up the island, away from the water
-  forkGot=false;
-  forkChest.visible=true;
+// How far up the sand the walk goes before the island is done with him. About five seconds at
+// walking pace, which is long enough to look around and short enough that there is no point at
+// which you are waiting for it to end.
+const FORK_ISLE_WALK=38;
+let forkFace=0, forkLandX=0, forkEndZ=0;
+// ---- and there is NO CHEST on it ----
+// There was, and it was doing two bad jobs. As a prop it is the game's old crate, which is not
+// what anybody wants to find at the top of a beach. As a mechanic it had a real bug in it: it
+// was made visible the moment he ran aground but its position was only written in the walking
+// phase, so for the whole beaching and run-off it sat at the world origin -- a chest bobbing in
+// the sea beside the board, which is what got noticed.
+// The island did not need it. Walking up a beach you have just surfed onto is the thing; a
+// crate to touch on the way is a fetch quest laid over it. So the walk simply ENDS a set
+// distance up the sand, and what the chest used to pay is paid for getting there.
+function forkLand(){
+  forkLandX=px;             // the walk is bounded around where he came ashore, not around x=0
+  forkEndZ=pz-FORK_ISLE_WALK;
 }
-function forkTakeChest(){
-  if(forkGot)return;
-  forkGot=true;
-  if(forkChest)forkChest.visible=false;
+function forkIslandDone(){
   const n=150+25*((Math.random()*7)|0);
   coins+=n; try{ saveGame(); showCoins(); }catch(e){}
   score+=600; buzz(30);
-  msg('CHEST! +'+n+' PUKA');
+  msg('NICE ISLAND! +'+n+' PUKA');
+  gameOver();
 }
 function forkBeach(){
-  forkPlaceChest();
+  forkLand();
   buzz(26); shake=Math.max(shake,0.9);
   splash(px,waveH(px,dist*WAVE_DRIFT+pz,waveClock),pz,22);
   msg('BEACHED!');
@@ -33407,14 +33403,10 @@ function update(dt){
     }
     pug.rotation.y=forkFace;
     py+=(FORK_SAND-py)*Math.min(1,dt*6);
-    if(forkChest&&!forkGot){
-      forkChest.position.set(forkChestX, py-0.55, forkChestZ);
-      forkChest.rotation.y=0.4;
-      if(Math.hypot(px-forkChestX,pz-forkChestZ)<FORK_REACH)forkTakeChest();
-    }
+
     // ...and the island ends either way. Gated only on having got the chest, a walk that
     // missed it carried on up the sand forever with nothing left to reach.
-    if(pz<forkChestZ-16){ msg(forkGot?'NICE ISLAND':'MISSED THE CHEST'); gameOver(); }
+    if(pz<forkEndZ)forkIslandDone();
   } else if(heliPh>=0){ heliStep(dt,waterY);           // the helicopter drives him itself
   } else if(swTubeRide){
     // The tube put him exactly where he belongs on the ring already. Nothing more to do —
