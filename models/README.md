@@ -618,3 +618,40 @@ is the figure of eight that stops it reading as a windscreen wiper.
 
 `cloneModel()` — three.js copies a `SkinnedMesh`'s skeleton **by reference**, so a bare
 `clone(true)` deforms to the original's bones and arrives inside out.
+
+---
+
+## `kelp.glb` — the sea-bed kelp, built by `kelp.py`
+
+541 KB, 6,972 tris, one 512² JPEG, no rig and no clips. **It arrived at 30 MB** — 1,244,748
+triangles, 700,151 verts and three 2048² JPEGs (3.7 + 2.7 + 1.9 MB).
+
+Source: `kelp_MAX.glb` (supplied). Same pipeline as `turtle.glb` — merge, decimate, Smart UV
+Project, bake the original's colour onto the new UVs — and every note there applies here. Read
+that section first; only what is different is below.
+
+### 3,347 islands
+
+That is the number that decides the triangle budget. It is a clump of stalks and **every leaf is
+its own piece of surface**, so there is a floor under how far a collapse can usefully go: past it
+the decimator stops simplifying leaves and starts deleting them. 12,000 and 7,000 were both baked
+and rendered side by side and are not tellable apart at any range the game shows them at, so it
+ships at 7,000. Much below that and the fronds start dropping out.
+
+The merge still matters and matters more: 700,151 verts for 1,244,748 tris is a shattered
+surface, and collapse cannot cross a seam it believes is a boundary.
+
+### Geometry, and where its roots are
+
+1.90 wide × **1.17 tall** × 1.90 deep in its own units, centred on itself — `min.y` is −0.59, so
+its origin is at its middle and **not** at the ground. The stalks run up +Y, so no reorientation
+is needed. Two numbers in `index.html` come straight off this box:
+
+- `KELP_H` = 1.173 — turns a wanted height in feet into a scale.
+- `KELP_BASE` = 0.59 — how far below the origin the roots sit.
+
+In the game each clump is lifted by `KELP_BASE` inside a wrapper group, so **the wrapper's origin
+is where it meets the sand**. That is what lets it sway: rotate a self-centred model and the roots
+swing through the ground while the tips stay put, which is the opposite of a plant.
+
+`doubleSided` is true in the exported material and needs to stay that way — the fronds are thin.
