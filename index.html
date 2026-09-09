@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.159.0';
+window.SURF_VERSION='6.160.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -1373,8 +1373,13 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
      arrived at. The numbers stay, smaller, for anyone who wants the exact figure. */
   /* the bar IS the separator between goals — leaving the row's hairline underneath it as
      well drew two lines a few pixels apart and read as a mistake */
-  #ovText .tr.goal, #quests .tr.goal { grid-template-columns:1fr auto; padding:4px 2px 9px;
-    border-bottom:none; }
+  #ovText .tr.goal, #quests .tr.goal { grid-template-columns:23px 1fr auto; padding:4px 2px 9px;
+    border-bottom:none; column-gap:9px; }
+  /* the icon takes the ROW's colour, so a finished goal turns its drawing gold with the text */
+  .tr.goal .qi { align-self:center; display:flex; }
+  .tr.goal .qi svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.7;
+    stroke-linecap:round; stroke-linejoin:round; opacity:.9; }
+  .tr.goal.done .qi svg { opacity:1; }
   #quests .tr.goal { display:grid; align-items:baseline; }
   .tr.goal span { text-align:left; }
   .tr.goal .bar { grid-column:1 / -1; height:5px; border-radius:99px; margin-top:7px;
@@ -5252,15 +5257,85 @@ function buzz(p){
 // ---------- session goals ----------
 // Three standing goals, persisted with the save, paid in puka. Event goals count across
 // runs; run goals (distance, tricks) are judged against a single run at the card.
+// ---- QUEST ICONS ----
+// Line drawings, one per goal, from the set the artwork was handed over as. Authored as SVG
+// rather than shipped as the images they arrived as: at the size they are actually used -- a
+// nineteen-pixel cell in a quest row -- a bitmap of a thin black line is a grey smudge, and it
+// cannot take the row's colour. These are stroked with currentColor, so a goal that is done
+// turns its icon gold along with the rest of the row for nothing.
+//
+// A value starting with '<' is markup (it needs a transform, or several paths); anything else is
+// a bare `d` and gets wrapped in one path. Adding one is adding a line here and naming it on a
+// goal -- there are five in the set with no goal yet, waiting for the quests that want them.
+const _BD="M0 -9.1c2.6 3 3.8 6.3 3.8 9.1s-1.2 6.1-3.8 9.1c-2.6-3-3.8-6.3-3.8-9.1s1.2-6.1 3.8-9.1Z";
+const QICON={
+ // a curling wave inside a ring: the barrel
+ wave:'M12 2.6a9.4 9.4 0 1 0 0 18.8 9.4 9.4 0 0 0 0-18.8M4.2 17.1c3.5-.5 5-7 9.3-7.4 2.2-.2 3.7 1.3 3.8 3.1M8.9 18.2c3 0 5.2-2.3 5.2-5.1',
+ // scallop: an arc over a hinge, with ribs fanning to it
+ shell:'M2.9 13.7A9.1 9.1 0 0 1 21.1 13.7L12 20.9ZM12 20.9 6.4 13.6M12 20.9 9.1 12.7M12 20.9 12 12.3M12 20.9 14.9 12.7M12 20.9 17.6 13.6',
+ // a dorsal fin cutting two wakes
+ fin:'M4.8 12.4C9.2 11.2 12.8 8 14.8 4.3c.4 3.5-.2 6.1-1.8 8.1M2.4 15.6c2.4-1.3 4.6-1.3 6.6 0 2 1.2 4.2 1.2 6.6 0 1.9-1 3.8-1.1 5.6-.3M2.9 19c2.3-1.3 4.4-1.3 6.4 0 2 1.2 4.2 1.2 6.6 0 1.8-1 3.6-1.1 5.3-.4',
+ // starfish
+ star:'M12 2.4c.8 2.6 1.6 4.4 2.6 5.4 1 1 2.9 1.5 5.6 1.6-2.1 1.6-3.3 3.1-3.6 4.5-.3 1.4.2 3.2 1.5 5.6-2.5-1.1-4.3-1.5-5.4-1.2-1.2.3-2.6 1.5-4.3 3.4.4-2.7.3-4.6-.3-5.8-.6-1.2-2-2.4-4.3-3.6 2.7-.6 4.4-1.3 5.3-2.2.9-.9 1.6-2.5 2.1-4.9ZM12 8.3v0M12 11.5v0M9.6 13.1v0M14.4 13.1v0M10.4 16v0M13.6 16v0',
+ // ---- the dolphin, as a SILHOUETTE ----
+ // Four separate strokes for a back, a fin, a snout and a belly read as four separate strokes.
+ // One closed outline reads as an animal, which at twenty pixels is the only thing that matters.
+ dolphin:'<path d="M21.1 6.4c-1-.5-2.2-.3-3 .5-2.3-1.2-5.3-1-7.5.7-.9-1.2-1.1-2.6-.6-4-2 1.4-2.9 3.4-2.6 5.7-1.9 1.9-2.7 4.2-2.3 6.6 1-1.4 2-2.3 3.1-2.8-.2 1.2 0 2.3.6 3.2.6-1.7 1.5-2.9 2.7-3.6 3.5-.3 6.3-2.4 7.7-5.3.9-.2 1.6-.9 1.7-1.7.1-.5-.2-1-.6-1.2Z"/>'
+        +'<path d="M2.4 18.6c2.7-1.6 5.2-1.6 7.6 0 2.4 1.7 5 1.7 7.9 0 1.7-1 3.3-1.3 4.9-1"/>'
+        +'<path d="M4.4 21.6c2.3-1.4 4.4-1.4 6.5 0 2.1 1.4 4.4 1.4 6.8-.1"/>',
+ // sun going down over the water, with birds
+ sunset:'M6.6 12.5a5.4 5.4 0 0 1 10.8 0M2.3 12.5h19.4M5.6 15.4h12.8M7.8 18h8.4M10.3 20.4h3.4M14.6 4.4c.8-.9 1.7-.9 2.4 0 .8-.9 1.7-.9 2.5 0M18.2 7.6c.6-.7 1.3-.7 1.9 0 .6-.7 1.3-.7 1.9 0',
+ // ...and coming up, with rays: the same water, a bigger claim
+ sunrays:'M7 13.1a5 5 0 0 1 10 0M2.4 13.1h19.2M5.7 15.9h12.6M8 18.4h8M10.4 20.7h3.2M12 2.2v2.6M6.6 4.1 8 6.3M17.4 4.1 16 6.3M2.9 7.7l2.4 1.2M21.1 7.7l-2.4 1.2M1.9 12h1.6M20.5 12h1.6',
+ // ---- TWO boards, crossed ----
+ // The first pass drew one and never rotated a second: an X needs two paths and a transform,
+ // which a bare `d` string cannot carry.
+ boards:'<g transform="translate(12 12)">'
+       +'<g transform="rotate(44)"><path d="'+_BD+'"/></g>'
+       +'<g transform="rotate(-44)"><path d="'+_BD+'"/></g></g>',
+ // ---- the tower, with its duplicates gone ----
+ // It carried the same diagonal twice and four legs where two read better; at twenty pixels
+ // every extra line is a smudge rather than a detail.
+ tower:'<path d="M4.4 8.4 12 3.2l7.6 5.2"/><path d="M8.8 8.8h6.4v6.2H8.8Z"/>'
+      +'<path d="M3.4 11.9h3.2v3.2M20.6 11.9h-3.2v3.2"/><path d="M3.4 15.1h17.2"/>'
+      +'<path d="M6.4 15.1 4.6 21.2M17.6 15.1l1.8 6.1M6.4 15.1l11.2 6.1"/>'
+      +'<path d="M2.4 21.6h19.2"/>'
+      +'<path d="M17.4 8.4V2.2c1.7-.9 3.4.9 5.1 0v3.3c-1.7.9-3.4-.9-5.1 0"/>',
+ // turtle from above
+ turtle:'M12 6.6c3 0 5.2 2.6 5.2 6 0 3.4-2.2 6.2-5.2 6.2s-5.2-2.8-5.2-6.2c0-3.4 2.2-6 5.2-6ZM12 6.4c-1.2 0-2-1-2-2.2 0-1.2.9-2.2 2-2.2s2 1 2 2.2c0 1.2-.8 2.2-2 2.2M7.3 9.6C5.6 8.2 3.6 7.4 2 7.6c-.6.1-.7.7-.2 1.2 1.3 1.3 3 2.2 4.6 2.6M16.7 9.6c1.7-1.4 3.7-2.2 5.3-2 .6.1.7.7.2 1.2-1.3 1.3-3 2.2-4.6 2.6M8.2 16.9c-1.6.9-2.8 2.2-3.2 3.4-.2.6.3 1 .9.8 1.4-.5 2.7-1.6 3.5-2.8M15.8 16.9c1.6.9 2.8 2.2 3.2 3.4.2.6-.3 1-.9.8-1.4-.5-2.7-1.6-3.5-2.8M9.8 11.2h4.4M9.4 14.4h5.2M11 17.4h2',
+ // ---- and the palm crowns are THREE STROKES each, not an outline ----
+ // Drawn as outlines the fronds closed into blobs the moment they were small. Bold single
+ // strokes keep the star shape a palm crown actually has.
+ palms:'<path d="M13.4 20.8c-.6-4.6-1-8.3-1.2-11.2"/><path d="M6.6 20.9c.3-3.3.8-6 1.4-8.2"/>'
+      +'<path d="M12.2 9.4C10.4 7.3 8.2 6.3 5.6 6.6M12.2 9.4c-.6-2.8 0-5.1 1.8-6.9M12.2 9.4c2-1.9 4.3-2.6 6.9-2.1M12.2 9.4c1-1.4 2.4-2.4 4.2-3"/>'
+      +'<path d="M8 12.3c-1.4-1.6-3-2.3-4.9-2.1M8 12.3c-.4-2.1 0-3.8 1.3-5.1M8 12.3c1.5-1.4 3.2-2 5.1-1.6"/>'
+      +'<path d="M2.2 21.6c5-1.5 13.6-1.5 19.6 0"/>'
+      +'<path d="M18.9 15.4a3 3 0 1 0 0-6 3 3 0 0 0 0 6"/>',
+ // a board planted in the sand
+ boardsand:'M12 1.8c2.4 3.9 3.3 8 3.3 11.4 0 1.8-.2 3.4-.6 4.9H9.3c-.4-1.5-.6-3.1-.6-4.9C8.7 9.8 9.6 5.7 12 1.8ZM12 3.6v14.5M8.8 18.1C7.6 16.4 6.1 15 4.4 14c1.4 2 2.5 3.4 3.4 4.2M8.6 18.4C6.4 17.6 4.1 17.4 2 17.8c2.3.6 4.2 1 5.8 1.2M15.2 18.1c1.2-1.7 2.7-3.1 4.4-4.1-1.4 2-2.5 3.4-3.4 4.2M15.4 18.4c2.2-.8 4.5-1 6.6-.6-2.3.6-4.2 1-5.8 1.2M2.6 21h18.8',
+ // the island: two palms, a sun going down, water
+ island:'<path d="M12.8 15.9c-.5-3.8-.8-6.9-1-9.2"/><path d="M16.9 16.1c.2-2.7.5-4.9.9-6.6"/>'
+       +'<path d="M11.8 6.6C10.1 4.6 8 3.6 5.6 3.9M11.8 6.6c-.6-2.6 0-4.8 1.7-6.4M11.8 6.6c1.9-1.8 4-2.4 6.5-2M11.8 6.6c.9-1.3 2.2-2.2 3.9-2.8"/>'
+       +'<path d="M17.8 9.5c1.3-1.5 2.8-2.1 4.5-1.9M17.8 9.5c-.4-2 0-3.5 1.2-4.7M17.8 9.5c-1.2-1.3-2.6-1.8-4.2-1.6"/>'
+       +'<path d="M3.8 16.6c4.6-2.7 12-2.7 16.4 0"/>'
+       +'<path d="M1.6 18.6h20.8M4.6 20.6h14.8M8 22.2h8"/>'
+       +'<path d="M6.6 13.6a2.4 2.4 0 1 0 0-4.8 2.4 2.4 0 0 0 0 4.8"/>'
+};
+
+function qIcon(n){
+  const v=QICON[n]||QICON.wave;
+  return `<span class="qi"><svg viewBox="0 0 24 24" aria-hidden="true">`+
+         (v[0]==='<'?v:`<path d="${v}"/>`)+`</svg></span>`;
+}
 const GOAL_POOL=[
-  {id:'barrel1', text:'Ride a barrel',            target:1,    ev:'barrel'},
-  {id:'chest1',  text:'Catch a treasure chest',   target:1,    ev:'chest'},
-  {id:'close3',  text:'Shave 3 close calls',      target:3,    ev:'close'},
-  {id:'jelly3',  text:'Bounce 3 jellyfish',       target:3,    ev:'jelly'},
-  {id:'ramp3',   text:'Launch off 3 ramps',       target:3,    ev:'ramp'},
-  {id:'dist800', text:'Surf 800 m in one run',    target:800,  ev:'dist',  run:true},
-  {id:'dist1500',text:'Surf 1,500 m in one run',  target:1500, ev:'dist',  run:true},
-  {id:'trick1500',text:'1,500 trick points in a run', target:1500, ev:'score', run:true},
+  {id:'barrel1', text:'Ride a barrel',            target:1,    ev:'barrel', icon:'wave'},
+  {id:'chest1',  text:'Catch a treasure chest',   target:1,    ev:'chest', icon:'shell'},
+  {id:'close3',  text:'Shave 3 close calls',      target:3,    ev:'close', icon:'fin'},
+  {id:'jelly3',  text:'Bounce 3 jellyfish',       target:3,    ev:'jelly', icon:'star'},
+  {id:'ramp3',   text:'Launch off 3 ramps',       target:3,    ev:'ramp', icon:'dolphin'},
+  {id:'dist800', text:'Surf 800 m in one run',    target:800,  ev:'dist',  run:true, icon:'sunset'},
+  {id:'dist1500',text:'Surf 1,500 m in one run',  target:1500, ev:'dist',  run:true, icon:'sunrays'},
+  {id:'trick1500',text:'1,500 trick points in a run', target:1500, ev:'score', run:true, icon:'boards'},
 ];
 let goals=null;
 function freshGoal(){
@@ -5330,9 +5405,10 @@ function goalRowsHTML(){
     const n=Math.min(g.n,d.target), p=Math.max(0,Math.min(100,n/d.target*100));
     // the bar carries the answer and the figures stay for anyone who wants the exact one
     const bar=`<div class="bar"><i style="width:${p.toFixed(1)}%"></i></div>`;
-    if(g.done)return `<div class="tr goal done"><span>✓ ${d.text}</span><b>DONE +100</b>`+
+    const ic=qIcon(d.icon);
+    if(g.done)return `<div class="tr goal done">${ic}<span>${d.text}</span><b>DONE +100</b>`+
       `<div class="bar"><i style="width:100%"></i></div></div>`;
-    return `<div class="tr goal"><span>✦ ${d.text}</span>`+
+    return `<div class="tr goal">${ic}<span>${d.text}</span>`+
       `<b>${n.toLocaleString()} / ${d.target.toLocaleString()}</b>${bar}</div>`;
   }).join('');
 }
@@ -27656,6 +27732,25 @@ if(location.hash.includes('debug')){
         g.position.z=-26-i*13;                 // close enough to actually see
       }
       return {loaded:true, n:turtles.length};
+    },
+    // the goal rows exactly as the run card draws them, so the icons can be looked at without
+    // playing a run out to the card. Also answers "did every goal in the pool get an icon".
+    goalRows(){
+      // THREE AT A TIME, because ensureGoals() throws away any array that is not three long --
+      // handing it the whole pool got the pool replaced with a fresh random three and the sheet
+      // came back with three rows and no explanation.
+      const keep=goals; let html='';
+      for(let i=0;i<GOAL_POOL.length;i+=3){
+        goals=GOAL_POOL.slice(i,i+3).map((d,k)=>
+          ({id:d.id, n:(i+k)%2?d.target:Math.round(d.target*0.4), done:(i+k)%2===1}));
+        while(goals.length<3)goals.push({id:GOAL_POOL[0].id,n:0});
+        html+=goalRowsHTML();
+      }
+      goals=keep;
+      return html;
+    },
+    goalIcons(){
+      return GOAL_POOL.map(d=>({id:d.id, icon:d.icon||null, known:!!(d.icon&&QICON[d.icon])}));
     },
     floor(){
       return {kinds:FLOOR_KINDS.map(k=>({f:k.f, on:!!k.tpl, h:k.h?+k.h.toFixed(2):null,
