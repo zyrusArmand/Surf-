@@ -670,3 +670,28 @@ by `KELP_BASE × its y scale`), so the sway hinges where it should.
 
 Height is asked of the **water column above that spot**, not taken from a constant — the bed rolls
 by a couple of feet, so how far "almost the surface" is depends on the dune it is standing on.
+
+---
+
+## `searock.glb`, `coral1.glb`, `coral2.glb` — the sea-floor props, built by `prop.py`
+
+| file | from | tris | size |
+|---|---|---|---|
+| `searock.glb` | 28.9 MB, 1,298,066 tris | 4,500 | 274 KB |
+| `coral1.glb` | 28.8 MB, 896,142 tris | 5,999 | 463 KB |
+| `coral2.glb` | 29.1 MB, 947,506 tris | 5,999 | 479 KB |
+
+`prop.py` is `kelp.py` with the source path taken as an argument — same pipeline, same traps, and
+the notes under `kelp.glb` and `turtle.glb` are the ones to read. Every one of these three is a
+single static mesh with no rig, three 2048² maps, and a vert:tri ratio saying the surface is
+shattered; all three needed the merge before the collapse would behave.
+
+### Nothing in `index.html` is hard-coded off these boxes
+
+They are scans, so their origins are wherever the scanner's was — `searock` is 1.20 tall with its
+underside 0.60 below the origin, `coral1` 1.03/0.52, `coral2` 1.65/0.83. `floorAsk()` measures
+both on load and the placement works off that, so re-baking one at a different size or
+re-centring it needs no code change.
+
+Rotation is **yaw only**, plus a couple of degrees of tilt. A free rotation stands a boulder on a
+corner; yaw is the axis that leaves a scan sitting the way it was scanned.

@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.158.0';
+window.SURF_VERSION='6.159.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -27657,6 +27657,17 @@ if(location.hash.includes('debug')){
       }
       return {loaded:true, n:turtles.length};
     },
+    floor(){
+      return {kinds:FLOOR_KINDS.map(k=>({f:k.f, on:!!k.tpl, h:k.h?+k.h.toFixed(2):null,
+                                        base:k.base!==undefined?+k.base.toFixed(2):null})),
+              n:floorProps.length,
+              // the nearest one laid: if this is ever inside the fog, something arrived in shot
+              nearest:floorProps.length?+Math.max.apply(null,floorProps.map(g=>g.position.z)).toFixed(1):null,
+              list:floorProps.map(g=>({f:g.userData.k.f, x:+g.position.x.toFixed(1),
+                z:+g.position.z.toFixed(1), ft:+(g.userData.ft||0).toFixed(2),
+                sink:+(g.userData.sink||0).toFixed(2),
+                tilt:+(Math.hypot(g.rotation.x,g.rotation.z)*57.3).toFixed(1)}))};
+    },
     kelp(){
       return {loaded:!!kelpTpl, n:kelps.length,
               list:kelps.map(g=>({x:+g.position.x.toFixed(1), z:+g.position.z.toFixed(1),
@@ -32241,7 +32252,11 @@ function bedUpdate(){
 // Built from primitives on purpose. Fogged to ninety-five feet and lit by almost nothing, a
 // rock is a silhouette and a reef is a colour; a scanned model would be four megabytes of
 // detail that the water eats before it reaches the lens.
-const DIVE_ROCKS=13, DIVE_REEFS=18, DIVE_FISH=10;
+// Rocks and reefs down from 13 and 18. These are built from primitives -- an icosahedron and
+// a handful of cones -- and they were standing in for exactly the scanned rock and coral that
+// now share the field with them. Kept, thinned, because past the fog they are free distance
+// filler and the fog is where they still hold up.
+const DIVE_ROCKS=5, DIVE_REEFS=7, DIVE_FISH=10;
 const DIVE_AHEAD=-200, DIVE_BEHIND=30;      // where a prop is laid, and where it is taken back
 const DIVE_SPREAD=46;                       // how far either side of the lane things go
 let diveProps=null, diveFish=null;
@@ -32479,6 +32494,86 @@ function turtleStep(dt,eff){
       _te.set(0, Math.sin(u.ph*0.5+0.7)*0.16, 0);
       tb.quaternion.copy(rest.tail).premultiply(_tq.setFromEuler(_te));
     }
+  }
+}
+// ============================ THE SEA FLOOR, FURNISHED ============================
+// Scanned rock and two corals, scattered on the sand. Same treatment as the kelp and the turtle:
+// each arrived at about 29 MB with roughly a million triangles and three 2048 maps, and each is
+// a few hundred kilobytes now. See models/README.md -- merge, decimate, re-unwrap, re-bake.
+//
+// ---- and they are laid where NOBODY CAN SEE THEM ARRIVE ----
+// The whole trick of a recycled field is that the seam is out of shot. The depth fog closes at
+// about forty feet and these are laid at two hundred, so a clump is a hundred and sixty feet of
+// swimming away from being visible at the moment it is placed: it fades UP out of the murk the
+// way everything else down there does, rather than blinking into being. Nothing is ever laid
+// inside the fog, which is the one rule this system has.
+const FLOOR_KINDS=[
+  {f:'searock.glb', n:5, ft:[3.6,9.5], sink:[0.06,0.34], tilt:0.20},
+  {f:'coral1.glb',  n:4, ft:[2.6,6.4], sink:[0.03,0.18], tilt:0.13},
+  {f:'coral2.glb',  n:4, ft:[2.6,6.4], sink:[0.03,0.18], tilt:0.13}
+];
+let floorAsked=false, floorGrp=null, floorProps=[];
+function floorAsk(){
+  if(floorAsked||typeof loadModel!=='function')return;
+  floorAsked=true;
+  for(const k of FLOOR_KINDS)
+    loadModel(k.f,root=>{
+      // measured on the way in, not guessed at: how tall it is decides the scale, and where its
+      // underside sits decides how far to drop it so the base meets the sand rather than the
+      // origin doing. A scan's origin is wherever the scanner's was.
+      root.updateMatrixWorld(true);
+      const b=new THREE.Box3().setFromObject(root);
+      k.tpl=root;
+      k.h=Math.max(0.01,b.max.y-b.min.y);
+      k.base=-b.min.y;
+    },9);
+}
+function floorMake(k){
+  if(!k.tpl)return null;
+  const m=cloneModel(k.tpl);
+  m.position.y=k.base;            // its underside on the wrapper's origin
+  const g=new THREE.Group(); g.add(m);
+  g.userData.k=k;
+  return g;
+}
+function floorLay(g){
+  const R=Math.random, u=g.userData, k=u.k;
+  g.position.z=DIVE_AHEAD*(0.55+R()*0.45);       // never nearer than a hundred and ten feet
+  const sgn=R()<0.5?-1:1;
+  g.position.x=sgn*(3.0+R()*(DIVE_SPREAD-3.0));
+  const ft=k.ft[0]+Math.pow(R(),1.3)*(k.ft[1]-k.ft[0]);
+  g.scale.setScalar(ft/k.h);
+  u.ft=ft;
+  u.sink=ft*(k.sink[0]+R()*(k.sink[1]-k.sink[0]));
+  // ---- turned on its flat side, which is a turn about UP and nothing else ----
+  // A free rotation would stand a boulder on a corner. Yaw is the axis that leaves it sitting
+  // the way it was scanned; the tilt either side of that is a couple of degrees of settling, not
+  // a tumble, so it looks like it came to rest rather than like it was dropped.
+  g.rotation.set((R()-0.5)*k.tilt, R()*6.283, (R()-0.5)*k.tilt);
+  g.visible=true;
+  return g;
+}
+function floorStep(dt,eff){
+  const on=diveOn||diveDepth>0.5;
+  if(on)floorAsk();
+  if(!floorGrp){
+    if(!on)return;
+    floorGrp=new THREE.Group(); scene.add(floorGrp);
+  }
+  floorGrp.visible=on;
+  if(!on){ if(floorProps.length)for(const g of floorProps)floorLay(g); return; }
+  // filled in as the three files land, rather than waiting for all of them
+  for(const k of FLOOR_KINDS){
+    if(!k.tpl)continue;
+    let have=0; for(const g of floorProps)if(g.userData.k===k)have++;
+    while(have<k.n){ const g=floorMake(k); if(!g)break;
+      floorGrp.add(g); floorProps.push(g); floorLay(g); have++; }
+  }
+  for(const g of floorProps){
+    g.position.z+=eff*dt;
+    if(g.position.z>DIVE_BEHIND)floorLay(g);
+    // it sits on the sand it is actually over, which has scrolled under it since it was laid
+    g.position.y=bedH(g.position.x,g.position.z)-g.userData.sink;
   }
 }
 // ============================ THE KELP ============================
@@ -36744,6 +36839,7 @@ function update(dt){
   if(typeof turtleStep==='function')turtleStep(_clkDt||0.016,lastEff||0);
   if(typeof dshkStep==='function')dshkStep(_clkDt||0.016,lastEff||0);
   if(typeof kelpStep==='function')kelpStep(_clkDt||0.016);
+  if(typeof floorStep==='function')floorStep(_clkDt||0.016,lastEff||0);
   if(typeof jetUpdate==='function')jetUpdate(_clkDt||0.016);
   // The camera does NOT roll with the ring. A loop camera was tried and taken back out: it
   // keeps the tube wrapped around the view, but the whole shot turning over is disorienting
