@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.148.0';
+window.SURF_VERSION='6.149.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -2813,7 +2813,7 @@ const hemi=new THREE.HemisphereLight(0xdfeeff,0x2a7ba8,0.62);scene.add(hemi);
 // does nothing whatever.
 const DIVE_FOG=new THREE.Fog(0x1d5f7a, 1e6, 2e6);
 scene.fog=DIVE_FOG;
-const DIVE_FOG_NEAR=2.0, DIVE_FOG_FAR=62.0;   // how far you can see down there
+const DIVE_FOG_NEAR=2.0, DIVE_FOG_FAR=95.0;   // how far you can see down there
 const DIVE_FOG_OFF=4000;                      // far enough that the fog does nothing at all
 function diveFog(depth){
   // ---- and it closes in FAST ----
@@ -27467,7 +27467,14 @@ if(location.hash.includes('debug')){
       return {on:!!diveOn, t:+diveT.toFixed(2), depth:+diveDepth.toFixed(2),
               rise:+diveRise.toFixed(2), py:+py.toFixed(2), sea:+wY.toFixed(2),
               held:!!jumpHeld, fogNear:+DIVE_FOG.near.toFixed(1), fogFar:+DIVE_FOG.far.toFixed(1),
-              camY:+camera.position.y.toFixed(2), camUnder:camera.position.y<wY}; },
+              camY:+camera.position.y.toFixed(2), camUnder:camera.position.y<wY,
+              bed:{vis:bedMesh.visible, y:+bedMesh.position.y.toFixed(1),
+                   z:+bedMesh.position.z.toFixed(1), uD:+bedUniforms.uDist.value.toFixed(1),
+                   h:+bedH(px,pz).toFixed(2),
+                   inScene:!!bedMesh.parent,
+                   // how far the nearest sand is against how far you can see: the pair that
+                   // says whether the floor is drawn or merely present
+                   reach:+(py-bedH(px,pz)).toFixed(1)}}; },
     // Holds the steering over, which is the only way a test can answer "can he actually get
     // to the channel" -- the lane's limit is the thing being checked and nothing else moves
     // him across it.
@@ -31716,6 +31723,105 @@ function updateFork(dt,eff){
     }
   }
 }
+// ---------------------------- THE SEABED ----------------------------
+// Sand all the way across the floor, and it scrolls the way the OCEAN scrolls rather than by
+// being moved: a plane whose vertex shader displaces by a function of (x, z + uDist), with
+// uDist handed the same dist*WAVE_DRIFT the ocean gets. That is the one trick in this file that
+// makes an endless surface work -- a mesh that is physically moved has to wrap somewhere, and a
+// wrap in a dune field is a seam that slides toward you forever.
+// The height function is duplicated in GLSL and in JS on purpose. The shader needs it to draw
+// the sand and the game needs it to stand him on it, and they have to agree to the foot or he
+// sinks into a dune. Changing one means changing the other; there is no third place to put it.
+// ---- and it is SHALLOW ----
+// 27 feet down, with the fog closing at 62, meant the whole bed was further away than you could
+// see: it rendered perfectly and every pixel of it came back as fog colour, which is
+// indistinguishable from open water. Correct, and useless. A reef flat at seventeen puts the
+// sand inside the visible distance and inside the plunge, so there is somewhere to BE down
+// there rather than a blue room with a floor rumoured beneath it.
+const BED_DEPTH=17.0;                 // how far under mean water the bed sits
+const BED_A1=2.30, BED_A2=0.85;       // dune heights, long and short
+const BED_F1=0.0125, BED_F2=0.047;    // ...and how close together they are
+function bedH(x,z){
+  const d=(typeof dist!=='undefined'?dist:0)*WAVE_DRIFT;
+  const zz=z+d;
+  return -BED_DEPTH
+    + Math.sin(x*BED_F1*1.7+zz*BED_F1)*Math.cos(zz*BED_F1*1.3-x*BED_F1*0.6)*BED_A1
+    + Math.sin(x*BED_F2-zz*BED_F2*1.4)*Math.sin(zz*BED_F2*0.9)*BED_A2;
+}
+const bedUniforms=THREE.UniformsUtils.merge([
+  THREE.UniformsLib.fog,
+  { uDist:{value:0}, uSand:{value:new THREE.Color(0.40,0.31,0.178)},
+    uSun:{value:sunDir}, uLight:{value:1.0} }
+]);
+const bedMat=new THREE.ShaderMaterial({
+  uniforms:bedUniforms, fog:true, side:THREE.FrontSide,
+  vertexShader:`
+    uniform float uDist;
+    varying vec3 vN; varying vec3 vP; varying float vD;
+    ${'#include <fog_pars_vertex>'}
+    float bedH(vec2 p){
+      float zz=p.y;
+      return sin(p.x*${BED_F1.toFixed(5)}*1.7+zz*${BED_F1.toFixed(5)})
+             *cos(zz*${BED_F1.toFixed(5)}*1.3-p.x*${BED_F1.toFixed(5)}*0.6)*${BED_A1.toFixed(3)}
+           + sin(p.x*${BED_F2.toFixed(5)}-zz*${BED_F2.toFixed(5)}*1.4)
+             *sin(zz*${BED_F2.toFixed(5)}*0.9)*${BED_A2.toFixed(3)};
+    }
+    void main(){
+      // the plane is built in XY and laid flat by the mesh's rotation, so its own y is world z
+      vec2 p=vec2(position.x, -position.y + uDist);
+      float h=bedH(p);
+      // the normal, from the height field either side -- a metre apart, which is the scale the
+      // light should read, not the scale of a vertex
+      float e=3.0;
+      float hx=bedH(p+vec2(e,0.0))-bedH(p-vec2(e,0.0));
+      float hz=bedH(p+vec2(0.0,e))-bedH(p-vec2(0.0,e));
+      vN=normalize(vec3(-hx/(2.0*e), 1.0, hz/(2.0*e)));
+      vec3 tp=vec3(position.x, position.y, position.z + h);
+      vec4 wp=modelMatrix*vec4(tp,1.0);
+      vP=wp.xyz; vD=h;
+      vec4 mvPosition=viewMatrix*wp;
+      gl_Position=projectionMatrix*mvPosition;
+      ${'#include <fog_vertex>'}
+    }`,
+  fragmentShader:`
+    uniform vec3 uSand, uSun; uniform float uLight;
+    varying vec3 vN; varying vec3 vP; varying float vD;
+    ${'#include <fog_pars_fragment>'}
+    void main(){
+      // ---- lit like sand and not like a floor ----
+      // A single lambert term on a nearly flat surface gives one value across the whole bed and
+      // it reads as a painted plane. The crests are picked out instead: sand that stands up
+      // catches more of the light coming down through the water, so the dune tops are brighter
+      // and the troughs hold the colour.
+      float d=clamp(dot(vN,normalize(uSun))*0.5+0.62,0.0,1.4);
+      float crest=clamp(vD*0.16+0.5,0.0,1.0);
+      vec3 col=uSand*(0.72+0.55*crest)*d;
+      // a fine ripple, cheap, so the near sand is not a flat wash
+      float rip=sin(vP.x*2.6+vP.z*1.3)*sin(vP.z*3.1-vP.x*0.7);
+      col*=1.0+rip*0.045;
+      gl_FragColor=vec4(col*uLight,1.0);
+      ${'#include <fog_fragment>'}
+    }`
+});
+// 300 across and 420 along: wider than the ocean plane, because from the bottom you are looking
+// along it rather than down at it and the far edge has to be beyond where the fog closes.
+const bedMesh=new THREE.Mesh(new THREE.PlaneGeometry(300,420,150,210),bedMat);
+bedMesh.rotation.x=-Math.PI/2;
+bedMesh.position.y=-BED_DEPTH;
+bedMesh.frustumCulled=false;
+bedMesh.visible=false;                 // only drawn while there is somebody down there to see it
+scene.add(bedMesh);
+function bedUpdate(){
+  const on=diveOn||diveDepth>0.5;
+  bedMesh.visible=on;
+  if(!on)return;
+  bedUniforms.uDist.value=dist*WAVE_DRIFT;
+  bedUniforms.uLight.value=oceanUniforms.uLight.value;
+  // it follows the camera in x and z so the plane is always centred on what can be seen; the
+  // dunes do not move with it, because they are a function of world position
+  bedMesh.position.x=camera.position.x;
+  bedMesh.position.z=camera.position.z-120;
+}
 // ============================ THE DIVE ============================
 // A first pass at playing UNDER the water rather than on it. Deliberately built as a mode that
 // owns py and nothing else: he keeps his board, his steering and his speed, and the only thing
@@ -31729,17 +31835,28 @@ function updateFork(dt,eff){
 // control scheme, and a new control scheme is a thing to decide on purpose rather than to
 // arrive at while proving the camera can get wet.
 let diveOn=false, diveT=0, diveRise=0, diveDepth=0;
-const DIVE_SINK=3.2;        // feet a second he settles at, hands off
-const DIVE_LIFT=9.0;        // ...and climbs at, holding the button
+// ---- he does not SINK, he hangs ----
+// 3.2 ft/s hands-off was a stone going down: let go for two seconds and you were on the bottom,
+// and holding the button became something you did constantly rather than something you did to
+// climb. With a jet on his back he is neutral -- a slow settle you can ignore for a while and
+// use on purpose when you want to get down to the sand.
+const DIVE_SINK=0.65;       // feet a second he settles at, hands off: near enough to neutral
+const DIVE_LIFT=8.0;        // ...and climbs at, holding the button
 const DIVE_EASE=3.4;        // how fast the vertical speed answers the button
-const DIVE_FLOOR=26.0;      // as deep as it goes, for now
 const DIVE_TOP=1.1;         // how far under the surface counts as still being under
-const DIVE_ENTER=1.9;       // how hard he is thrown down going in
+// ---- and going IN is a kick, not a drift ----
+// With neutral buoyancy the entry velocity is all he has, and it eases away in half a second:
+// he got a foot under, the surface test found him inside its own foot and a bit, and the dive
+// ended before it started. So there is a plunge -- a second and a half driven down at six and a
+// half, which is about ten feet -- and only after it does the button and the buoyancy take over.
+// It is also what the entry should look like: you do not sink into a dive, you kick into one.
+const DIVE_PLUNGE=1.95, DIVE_PLUNGE_V=7.0;    // about thirteen feet, which is most of the way down
+const DIVE_CLEAR=1.5;       // how far above the sand he is held off it
 function diveGo(on){
   if(!!on===diveOn)return diveOn;
   diveOn=!!on; diveT=0;
   if(diveOn){
-    diveRise=-DIVE_ENTER;
+    diveRise=-DIVE_PLUNGE_V*0.6;
     msg('UNDER!');
     // a burst of white where he punches through, so the entry has a moment
     for(let i=0;i<26;i++)
@@ -31752,10 +31869,12 @@ function diveStep(dt,waterY){
   diveT+=dt;
   // hands off he settles, holding the button he climbs -- eased, because a diver has mass and
   // a step change in vertical speed reads as a lift rather than a swimmer
-  const want=(jumpHeld||keys.Space)?DIVE_LIFT:-DIVE_SINK;
+  const plunge=diveT<DIVE_PLUNGE;
+  const want=plunge?-DIVE_PLUNGE_V:((jumpHeld||keys.Space)?DIVE_LIFT:-DIVE_SINK);
   diveRise+=(want-diveRise)*Math.min(1,dt*DIVE_EASE);
   py+=diveRise*dt;
-  const floorY=waterY-DIVE_FLOOR;
+  // the sand under him, not a flat number: the bed has dunes in it and he lands on them
+  const floorY=bedH(px,pz)+DIVE_CLEAR;
   if(py<floorY){ py=floorY; diveRise=Math.max(diveRise,0); }
   diveDepth=Math.max(0,waterY-py);
   diveFog(diveDepth);
@@ -31769,7 +31888,7 @@ function diveStep(dt,waterY){
   // Breaking the surface ends it rather than bouncing him off the underside: the way out of a
   // dive is up, and holding up until you are out is a thing a player works out without being
   // told.
-  if(py>waterY-DIVE_TOP&&diveT>0.6){
+  if(!plunge&&py>waterY-DIVE_TOP){
     diveGo(false);
     py=waterY; vy=Math.max(0,diveRise*0.35); airborne=false;
     msg('UP!'); splash(px,waterY,pz,22);
@@ -35362,6 +35481,12 @@ function update(dt){
     const a=rot(_fx,_fz); _fx=a[0]; _fz=a[1];
   }
   camera.lookAt(_fx,_fy,_fz);
+  // ---- the bed is placed AFTER the camera, because it follows it ----
+  // Put next to the ocean's own uDist first, which is a different function and runs a frame
+  // earlier; then next to renderer.render, which turned out to be the CHEST CEREMONY's render
+  // and not the game's -- the frame goes through drawScene. Here it is one line after the
+  // camera is finished being placed, which is the thing it is following.
+  if(typeof bedUpdate==='function')bedUpdate();
   // The camera does NOT roll with the ring. A loop camera was tried and taken back out: it
   // keeps the tube wrapped around the view, but the whole shot turning over is disorienting
   // and it throws away the one stable reference — the horizon — that tells you where you are
