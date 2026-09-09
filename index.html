@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.134.0';
+window.SURF_VERSION='6.135.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -27285,6 +27285,14 @@ if(location.hash.includes('debug')){
       out.palms=forkPalms?forkPalms.children.length:0;
       out.lod=!!forkPalmSrc;
       out.tiles=forkSand?forkSand.count:0;
+      // every obstacle, and whether the island is under it -- the one number that answers
+      // "is there a buoy standing on the beach"
+      out.obs=obstacles.filter(o=>o.position.z>forkZ-FORK_LEN&&o.position.z<forkZ+2)
+        .map(o=>({k:o.userData.kind,x:+o.position.x.toFixed(1),z:+o.position.z.toFixed(1),
+                  sand:forkOnSand(o.position.x,o.position.z)}));
+      out.onSand=out.obs.filter(o=>o.sand).length;
+      if(forkPalms&&forkPalms.children.length)
+        out.lean=forkPalms.children.map(c=>+Math.hypot(c.rotation.x,c.rotation.z).toFixed(3));
       out.tileTris=(isleTile&&isleTile.index)?isleTile.index.count/3:0;
       if(forkPalms&&forkPalms.children.length){
         let tris=0; forkPalms.children[0].traverse(o=>{ if(o.isMesh&&o.geometry.index)
@@ -30966,6 +30974,8 @@ const FORK_LEN=165;       // = FORK_OPEN + FORK_STRAIGHT, and nothing may disagr
 const FORK_SPAWN=-210;    // where it is put when armed
 const FORK_RUNUP=1.35;    // seconds the board takes to run up the sand and stop
 const FORK_LANE=17;       // the lane's own half-width, so the channels are what is left
+const FORK_CHAN=13;       // how wide a band outboard of the sand things are put in
+const FORK_SWEEP=45;      // how far ahead of him something has to be to be taken off the sand
 const FORK_WALL=0.9;      // how far off the sand the channel holds you
 // ---- and it is a V, which is what makes it a TURN and not a corridor ----
 // Two arms diverging from a point. The arm you are outside of pushes you sideways for as long
@@ -31142,10 +31152,22 @@ function forkDress(root){
     if(!hit)continue;                              // over water
     if(hit.point.y<box.max.y-ISLE_SHORE)continue;  // down the wet face of the beach
     const c=src.clone(true);
-    c.position.set(lx,hit.point.y-oy,lz);
-    // a real grove leans: turned any way at all, and off vertical by a few degrees, which is
-    // the difference between six of one tree and six trees
-    c.rotation.set((Math.random()-0.5)*0.15, Math.random()*6.283, (Math.random()-0.5)*0.15);
+    // ---- and how DEEP it stands, which is the other half of how big it looks ----
+    // Scale alone was not selling it. A palm is mostly trunk, and a tree scaled to three
+    // quarters is the same tree with the same amount of trunk showing -- the eye reads that as
+    // the same tree further away, not as a smaller one. Burying the foot of it changes the
+    // amount you can SEE, which is what height actually is when you are standing next to
+    // something. So each one goes in to its own depth, and the two together give a grove with
+    // real short ones and real tall ones in it rather than one tree at several zooms.
+    const sink=Math.random()*Math.random()*ISLE_PALM_SINK;   // most shallow, a few deep
+    c.position.set(lx,hit.point.y-oy-sink,lz);
+    // ---- leaning, and each one its own way ----
+    // Palms grow toward the light and away from the wind and essentially none of them are
+    // plumb. The lean is taken as a DIRECTION and an amount rather than as two independent
+    // angles: two small numbers on x and z average out to nearly upright, which is how the
+    // first pass ended up with a row of flagpoles.
+    const lean=ISLE_PALM_LEAN*(0.25+Math.random()*0.75), dir=Math.random()*6.283;
+    c.rotation.set(Math.cos(dir)*lean, Math.random()*6.283, Math.sin(dir)*lean);
     c.scale.setScalar(src.scale.x*(ISLE_PALM_MIN+Math.random()*(ISLE_PALM_MAX-ISLE_PALM_MIN)));
     c.traverse(o=>{ if(o.isMesh){ o.castShadow=false; o.receiveShadow=false;
                                   o.userData.isPalm=true; } });
@@ -31365,6 +31387,9 @@ function forkSandField(root){
 const ISLE_PALMS=20, ISLE_PALMS_HEAVY=6;
 const ISLE_GAP=11.5, ISLE_LANE=10.5, ISLE_LANE_Z=78, ISLE_SHORE=1.15;
 const ISLE_PALM_MIN=0.80, ISLE_PALM_MAX=1.55;
+// feet of trunk that can be buried, and radians of lean -- about thirteen degrees at the
+// worst, which is a palm on a windward shore and not a fallen one
+const ISLE_PALM_SINK=4.2, ISLE_PALM_LEAN=0.23;
 let forkPalmSrc=null;
 loadModel('palmlod.glb',s=>{ forkPalmSrc=s; },9);
 function islePalmSource(){
@@ -31411,6 +31436,33 @@ function forkClear(){
   { const R=(typeof riderRig==='function')?riderRig():null; if(R)R.walkW=0; }
   if(forkArt)forkArt.visible=false;
 }
+// ---- WHERE THE SAND IS, at any point down the lane ----
+// The one description of the island's plan that everything else asks: the wall the rider is
+// held against, where an obstacle is allowed to be, and what has to be swept off it. `run` is
+// how far down the island a point is -- the tip is the origin, so that is forkZ minus its z.
+// ---- and it is SOLID, which is not what the wall's arithmetic reads like ----
+// Everything about the wall is written in terms of an arm centreline that walks outward, which
+// sounds like two arms with water between them, and the first version of this test excluded a
+// middle on exactly that reading. The model is not built that way. Rasterised out of isle.glb
+// and printed, its plan is a widening WEDGE with nothing missing out of it:
+//     z= -20  .......#######.......
+//     z= -60  ...###############...
+//     z=-164  .###################.
+//             x = -40 .. +40
+// which is also what the far edge of the arithmetic says: outer comes to 15.8 at twenty feet
+// against a measured 12, 28.7 at sixty against 28, and 39 at the far end against 36. So the
+// outer edge is the whole description, and a thing is on the island if it is inside it.
+// Getting this wrong is not academic: it is what left a buoy standing on dry sand a hundred
+// and sixty feet down the beach, in the exact middle of the island, with the sweep below
+// looking at it every frame and calling it water.
+function forkSandEdge(run){
+  return FORK_HALF*0.5+Math.tan(FORK_SPLAY)*Math.min(FORK_OPEN,Math.max(0,run))+FORK_HALF;
+}
+function forkOnSand(x,z){
+  const run=forkZ-z;
+  if(run<0||run>FORK_LEN)return false;
+  return Math.abs(x)<=forkSandEdge(run);
+}
 // Runs before the rider moves, so the beaching decision is made against the island's
 // position this frame rather than last frame's.
 function updateFork(dt,eff){
@@ -31427,6 +31479,20 @@ function updateFork(dt,eff){
   // is held to the same static height once he is aground (see FORK_SAND) — a bobbing rider
   // on a still island sinks into it, and getting one of these two right is getting neither.
   forkArt.position.set(0,-0.2,forkZ);
+  // ---- and NOTHING STANDS ON IT ----
+  // The channel spawner is fixed above, but it is not the only way something ends up on the
+  // sand: the ordinary spawner is stood down when the fork arms and whatever it had already
+  // put in the lane is still coming, and the island slides in UNDER it. So the island is swept
+  // every frame -- anything inside the sand's own band goes.
+  // Only well ahead of him, which is the difference between a thing that was never there and a
+  // thing that vanished: at forty-five feet it is a speck near the horizon, and by the time it
+  // is close enough to read it has either been taken or is in the water where it belongs.
+  for(let i=obstacles.length-1;i>=0;i--){
+    const o=obstacles[i];
+    if(o.position.z>pz-FORK_SWEEP)continue;
+    if(!forkOnSand(o.position.x,o.position.z))continue;
+    scene.remove(o); obstacles.splice(i,1);
+  }
   // ---- the LEADING edge is the one with the LARGER z ----
   // Everything in this lane runs from -170 UP past the rider, so the end of the island that
   // reaches him first is forkZ PLUS half its length. Taken as minus, the trigger did not fire
@@ -31484,15 +31550,28 @@ function updateFork(dt,eff){
     forkSpawn-=dt;
     if(forkSpawn<=0){
       forkSpawn=(forkSide<0?1.55:0.95)*(0.72+Math.random()*0.56);
-      const lo=forkSide<0?-FORK_LANE:FORK_HALF+1.4;
-      const hi=forkSide<0?-(FORK_HALF+1.4):FORK_LANE;
-      const x=lo+Math.random()*(hi-lo);
+      // ---- OUTBOARD OF THE SAND AT THE POINT THEY SPAWN AT ----
+      // These used to be laid in a fixed band -- somewhere between FORK_HALF and FORK_LANE --
+      // and then CLAMPED to +/-17. The arm splays out to thirty-nine, so from the moment the
+      // island had opened past seventeen feet every single one of them was clamped onto the
+      // beach: sharks in the dunes, buoys standing on dry sand. The band was written for a
+      // channel that does not move and the whole point of the piece is that it does.
+      // Asked of the island instead. An obstacle spawns a hundred and seventy feet ahead and
+      // travels at the same rate the island does, so it keeps the position DOWN THE ISLAND
+      // that it spawns with -- and the rider, who is also carried down the island at that
+      // rate, is at the same one when they meet. So the edge computed here for the spawn
+      // point is the edge the rider will be against, and neither of them has to look the
+      // other up.
+      const near=forkSandEdge(forkZ+170)+FORK_WALL+1.0;
+      const x=forkSide*(near+Math.random()*FORK_CHAN);
       const kind=forkSide<0?'bigfin'
                 : (Math.random()<0.55?'log':(Math.random()<0.6?'jelly':'buoy'));
-      const o=makeObstacle(kind,Math.max(-FORK_LANE,Math.min(FORK_LANE,x)),-170);
-      // a shark in the channel has nowhere else to be: it crosses the water you are in
+      const o=makeObstacle(kind,x,-170);
+      // a shark in the channel has nowhere else to be: it crosses the water you are in.
+      // Aimed at the wall rather than at px, which is where he is NOW and not where he will
+      // be in nine seconds -- by then the arm has carried him out to the edge.
       if(o&&kind==='bigfin'){ o.userData.startX=x; o.position.x=x;
-        o.userData.targetX=Math.max(-FORK_LANE,Math.min(FORK_LANE,px)); }
+        o.userData.targetX=forkSide*near; }
     }
     if(forkZ>pz+FORK_LEN+14){
       score+=400; msg('THROUGH THE CHANNEL! +400'); buzz(16);
