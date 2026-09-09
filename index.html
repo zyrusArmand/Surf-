@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.146.0';
+window.SURF_VERSION='6.147.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -2141,6 +2141,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     <button class="go teal sm" id="stUfo">UFO</button>
     <button class="go teal sm" id="stBoat">Boat</button>
     <button class="go teal sm" id="stFork">Fork</button>
+    <button class="go teal sm" id="stDive">Dive</button>
     <button class="go sm" id="stClose">Close</button>
   </div>
 </div></div>
@@ -2772,6 +2773,32 @@ addEventListener('resize',()=>{
   fxResize();
 });
 const hemi=new THREE.HemisphereLight(0xdfeeff,0x2a7ba8,0.62);scene.add(hemi);
+// ---- THE WATER'S OWN DISTANCE, armed at boot and left switched off ----
+// Fog is the single cheapest thing that says "underwater", and the ride scene had none at all.
+// It is created HERE, before any material is built, and parked at a distance nothing can reach:
+// fog is a shader DEFINE, so switching it on later would recompile every material in the game
+// at the moment the player goes under, which is a hitch exactly where it would be felt. Armed
+// once and driven by its numbers instead -- above water the far plane is a mile away and it
+// does nothing whatever.
+const DIVE_FOG=new THREE.Fog(0x1d5f7a, 1e6, 2e6);
+scene.fog=DIVE_FOG;
+const DIVE_FOG_NEAR=2.0, DIVE_FOG_FAR=62.0;   // how far you can see down there
+const DIVE_FOG_OFF=4000;                      // far enough that the fog does nothing at all
+function diveFog(depth){
+  // ---- and it closes in FAST ----
+  // Lerping the far plane from a million down to sixty-two was useless: six feet under it was
+  // still at eight hundred thousand and the water was as clear as air. Water does not work like
+  // that -- visibility collapses over the first few feet and then changes slowly -- so the far
+  // plane is DIVIDED by the depth rather than mixed toward it. Two feet down you can see a long
+  // way; twelve feet down you can see sixty.
+  if(depth<=0.05){ DIVE_FOG.near=1e6; DIVE_FOG.far=2e6; skyUniforms.uDive.value=0; return; }
+  const k=Math.max(0.02,Math.min(1,depth/12));
+  DIVE_FOG.near=DIVE_FOG_NEAR;
+  DIVE_FOG.far =Math.min(DIVE_FOG_OFF,DIVE_FOG_FAR/k);
+  // ...and the sky goes under with him. Full by three feet: the surface is a ceiling from
+  // below and there should be no open sky in the frame at all past the first foot or so.
+  skyUniforms.uDive.value=Math.min(1,depth/3.0);
+}
 const HEMI_I=0.62;
 // bake the sky + ocean colours into an environment map — this is what gives every
 // surface real reflections instead of flat shading
@@ -3478,8 +3505,31 @@ const oceanMat=new THREE.ShaderMaterial({
         }
       }
       col += vec3(1.0)*pow(max(dot(N,H),0.0),480.0)*0.6;
+      // ---- AND THE SAME SURFACE, SEEN FROM UNDERNEATH ----
+      // Everything above this line is a shader for looking DOWN at water: a reflection of the
+      // sky, a specular sun, foam lying on top. None of it is true from below, where the
+      // surface is not a mirror at all but a lit ceiling -- and where the sky is not reflected
+      // in it, it is coming THROUGH it.
+      // The plane was single-sided, so from below it simply vanished and you saw the sky
+      // straight through the sea. DoubleSide plus this branch is what makes underwater a place
+      // rather than a hole in the world.
+      float under = gl_FrontFacing ? 0.0 : 1.0;
+      if(under > 0.5){
+        vec3 V = normalize(vW - cameraPosition);
+        // Snell's window: looking straight up the surface is nearly clear and the sky pours
+        // through it; toward the horizontal it turns into a mirror of the dark water below.
+        float win = pow(clamp(V.y,0.0,1.0), 2.2);
+        vec3 ceil = mix(uDeep*0.42, uShallow*0.95, 0.25 + 0.5*clamp(vH*0.3+0.5,0.0,1.0));
+        col = mix(ceil, uSkyHi, win*0.78);
+        // the sun, read through the surface rather than off it -- a broad soft disc, not a
+        // specular point, because you are looking at it through a moving lens
+        col += uSkyHi * pow(max(dot(-V,uSun),0.0), 26.0) * win * 0.55;
+        // foam still shows, from the other side, as the bright torn patches it is
+        col = mix(col, vec3(0.88,0.95,1.0), foam*0.55);
+      }
       float fog = smoothstep(70.0,230.0,length(cameraPosition-vW));
-      col = mix(col,uSky,fog);
+      // ...and it fogs into the WATER from below, not into the sky
+      col = mix(col, mix(uSky, uDeep*0.5, under), fog);
       // hand-picked colours are sRGB — convert to linear so the renderer's single
       // tone-map + encode returns exactly the intended shade
       col = pow(clamp(col,0.0,1.0), vec3(2.2));
@@ -3488,6 +3538,11 @@ const oceanMat=new THREE.ShaderMaterial({
     }
   `,
 });
+// ---- and it is drawn from both sides ----
+// FrontSide was free while the camera could never get under it. The camera can now, and a
+// back-face-culled sea from below is not "dark", it is ABSENT: you look up through the ocean
+// at the sky. One flag, and the branch in the fragment shader above does the rest.
+oceanMat.side=THREE.DoubleSide;
 const oceanGeo=new THREE.PlaneGeometry(220,300,300,340);
 const ocean=new THREE.Mesh(oceanGeo,oceanMat);
 ocean.rotation.x=-Math.PI/2;
@@ -12179,6 +12234,15 @@ document.getElementById('stFork').onclick=()=>{
   beginRun();
   if(typeof forkArm==='function')forkArm();
 };
+// ---- and the dive, from the same menu ----
+// Armed after beginRun like everything else here. It goes in a second and a half later rather
+// than immediately: entering while the run is still settling put him under before the camera
+// had finished easing into the shot, and the whole entry read as a cut.
+document.getElementById('stDive').onclick=()=>{
+  document.getElementById('stats').classList.add('hidden');
+  beginRun();
+  setTimeout(()=>{ if(running&&typeof diveGo==='function')diveGo(true); },1500);
+};
 document.getElementById('stWhirl').onclick=()=>{
   document.getElementById('stats').classList.add('hidden');
   beginRun();
@@ -18283,8 +18347,20 @@ function endMouseDrag(){ if(mouseDrag){mouseDrag=false;steer=0;weight=0;} }
 addEventListener('mouseleave',endMouseDrag);
 // buzzed HERE rather than inside doJump, because the point of a tap you can feel is that it
 // answers the finger — and on iOS it only fires at all because this is a real touch handler
-jumpBtn.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();buzz(10);doJump();});
-jumpBtn.addEventListener('mousedown',()=>{buzz(10);doJump();});
+// ---- JUMP is a tap on the water and a HOLD under it ----
+// Everywhere else in the game this is a one-shot: you tap it and he leaves the surface. A dive
+// needs the opposite -- a button you lean on to climb -- and rather than add a second control
+// under the same thumb, the held state is simply recorded alongside the tap. Nothing above
+// water reads it, so the button behaves exactly as it always did.
+let jumpHeld=false;
+const _jumpDown=()=>{ jumpHeld=true; buzz(10); if(!diveOn)doJump(); };
+const _jumpUp=()=>{ jumpHeld=false; };
+jumpBtn.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();_jumpDown();});
+jumpBtn.addEventListener('touchend',e=>{e.preventDefault();_jumpUp();});
+jumpBtn.addEventListener('touchcancel',_jumpUp);
+jumpBtn.addEventListener('mousedown',_jumpDown);
+jumpBtn.addEventListener('mouseup',_jumpUp);
+jumpBtn.addEventListener('mouseleave',_jumpUp);
 ropeBtn.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();ropeAction();});
 ropeBtn.addEventListener('mousedown',ropeAction);
 // Taking the line. It only does anything inside the window -- a press before or after is not a
@@ -20816,6 +20892,7 @@ function reset(){
     pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}}); rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null;
   handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;_freeze=false;wipeSlow=0;
+  diveOn=false;diveT=0;diveRise=0;diveDepth=0;jumpHeld=false;diveFog(0);
   if(typeof standDown==='function')standDown();   // arms down, whatever the run left
   if(typeof puffClear==='function')puffClear();   // last run's wash does not follow him into this one
   switchRide=false;waveT=0;applyStance();
@@ -20864,6 +20941,7 @@ function respawn(){
   }
   player.rotation.set(0,0,0);
   handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;_freeze=false;wipeSlow=0;
+  diveOn=false;diveT=0;diveRise=0;diveDepth=0;jumpHeld=false;diveFog(0);
   if(typeof standDown==='function')standDown();   // arms down, whatever the run left
   switchRide=false;waveT=0;applyStance();
   for(let i=obstacles.length-1;i>=0;i--)
@@ -22071,6 +22149,8 @@ function gameOver(){
 // ---------- time of day: starts at dawn, sinks toward a permanent golden sunset ----------
 // gradient sky dome: blue up top, sunset bands near the horizon. Ocean colors are NOT touched.
 const skyUniforms={
+  // driven by diveFog: 0 above water, 1 once he is properly under
+  uDive:{value:0}, uDiveCol:{value:new THREE.Color(0x11405a)},
   uTop:{value:new THREE.Color(0x3f8fd6)},
   uMid:{value:new THREE.Color(0x8fd2f5)},
   uHorizon:{value:new THREE.Color(0xd8eefb)},
@@ -22093,6 +22173,13 @@ const skyDome=new THREE.Mesh(
     vertexShader:`varying vec3 vP; void main(){vP=normalize(position); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
     fragmentShader:`
       uniform vec3 uTop,uMid,uHorizon,uGlow; uniform float uSunX,uGlowAmt,uBlend;
+      // ---- and how far under the water you are looking at it from ----
+      // The dome is three hundred units across and the ocean plane is 220 by 300, so from
+      // below the sea simply RUNS OUT and the sky fills the view: a flat cream field with a
+      // strip of dark water along the top of it. Scene fog cannot help -- this is a custom
+      // shader and does not receive it -- so the depth is handed in and the sky is drowned
+      // here, toward the same colour the fog goes to.
+      uniform float uDive; uniform vec3 uDiveCol;
       varying vec3 vP;
       void main(){
         float h=clamp(vP.y,0.0,1.0);
@@ -22137,6 +22224,7 @@ const skyDome=new THREE.Mesh(
         // and removes the single artefact that most reads as computer graphics rather than sky.
         float dz=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453);
         c+=(dz-0.5)/255.0;
+        c=mix(c,uDiveCol,clamp(uDive,0.0,1.0));
         gl_FragColor=vec4(c,1.0);
       }`
   })
@@ -27341,6 +27429,14 @@ if(location.hash.includes('debug')){
     // Drives the walk ring from a test: ph 3 is the only part of this piece with no
     // automatic motion in it at all, so without this the island's own ending is unreachable.
     walk(x,z){ walkVX=x||0; walkVZ=z||0; return {vx:walkVX,vz:walkVZ,ph:forkPh}; },
+    // ---- the dive, and the button that flies it ----
+    dive(on){ return diveGo(on===undefined?!diveOn:!!on); },
+    rise(on){ jumpHeld=!!on; return jumpHeld; },
+    diveState(){ const wY=(typeof waveH==='function')?waveH(px,dist*WAVE_DRIFT+pz,waveClock):0;
+      return {on:!!diveOn, t:+diveT.toFixed(2), depth:+diveDepth.toFixed(2),
+              rise:+diveRise.toFixed(2), py:+py.toFixed(2), sea:+wY.toFixed(2),
+              held:!!jumpHeld, fogNear:+DIVE_FOG.near.toFixed(1), fogFar:+DIVE_FOG.far.toFixed(1),
+              camY:+camera.position.y.toFixed(2), camUnder:camera.position.y<wY}; },
     // Holds the steering over, which is the only way a test can answer "can he actually get
     // to the channel" -- the lane's limit is the thing being checked and nothing else moves
     // him across it.
@@ -31589,6 +31685,65 @@ function updateFork(dt,eff){
     }
   }
 }
+// ============================ THE DIVE ============================
+// A first pass at playing UNDER the water rather than on it. Deliberately built as a mode that
+// owns py and nothing else: he keeps his board, his steering and his speed, and the only thing
+// that changes is which side of the surface he is on. Everything that makes it read as
+// underwater is in three places and none of them is here -- the sea drawn from beneath
+// (oceanMat, gl_FrontFacing), the depth fog (diveFog), and the camera clamp that no longer
+// fires. This part is just the swimming.
+//
+// The control is the JUMP button, held. Up is the only axis a diver actually needs and the
+// game already has a button under that thumb; adding a second stick for depth would be a new
+// control scheme, and a new control scheme is a thing to decide on purpose rather than to
+// arrive at while proving the camera can get wet.
+let diveOn=false, diveT=0, diveRise=0, diveDepth=0;
+const DIVE_SINK=3.2;        // feet a second he settles at, hands off
+const DIVE_LIFT=9.0;        // ...and climbs at, holding the button
+const DIVE_EASE=3.4;        // how fast the vertical speed answers the button
+const DIVE_FLOOR=26.0;      // as deep as it goes, for now
+const DIVE_TOP=1.1;         // how far under the surface counts as still being under
+const DIVE_ENTER=1.9;       // how hard he is thrown down going in
+function diveGo(on){
+  if(!!on===diveOn)return diveOn;
+  diveOn=!!on; diveT=0;
+  if(diveOn){
+    diveRise=-DIVE_ENTER;
+    msg('UNDER!');
+    // a burst of white where he punches through, so the entry has a moment
+    for(let i=0;i<26;i++)
+      splash(px+(Math.random()-0.5)*3.2, waveH(px,dist*WAVE_DRIFT+pz,waveClock),
+             pz+(Math.random()-0.5)*3.0, 1);
+  } else { diveRise=0; diveFog(0); }
+  return diveOn;
+}
+function diveStep(dt,waterY){
+  diveT+=dt;
+  // hands off he settles, holding the button he climbs -- eased, because a diver has mass and
+  // a step change in vertical speed reads as a lift rather than a swimmer
+  const want=(jumpHeld||keys.Space)?DIVE_LIFT:-DIVE_SINK;
+  diveRise+=(want-diveRise)*Math.min(1,dt*DIVE_EASE);
+  py+=diveRise*dt;
+  const floorY=waterY-DIVE_FLOOR;
+  if(py<floorY){ py=floorY; diveRise=Math.max(diveRise,0); }
+  diveDepth=Math.max(0,waterY-py);
+  diveFog(diveDepth);
+  // the board tips the way he is going, which is most of what says "swimming" without a
+  // second animation
+  boardPitch+=((diveRise*0.045)-boardPitch)*Math.min(1,dt*3.2);
+  // a thin string of bubbles off the tail the whole time, thicker the harder he is climbing
+  if(Math.random()<dt*(6+Math.max(0,diveRise)*2.2))
+    splash(px+(Math.random()-0.5)*1.3, py+0.4+Math.random()*1.2, pz+1.0, 1);
+  // ---- and he comes OUT by swimming out ----
+  // Breaking the surface ends it rather than bouncing him off the underside: the way out of a
+  // dive is up, and holding up until you are out is a thing a player works out without being
+  // told.
+  if(py>waterY-DIVE_TOP&&diveT>0.6){
+    diveGo(false);
+    py=waterY; vy=Math.max(0,diveRise*0.35); airborne=false;
+    msg('UP!'); splash(px,waterY,pz,22);
+  }
+}
 // ---- and running aground, which is not a crash ----
 // The board does not stop dead and he does not come off it: it rides up the wet sand,
 // slows over its own length and stops, and he carries his own momentum a few feet further
@@ -31699,6 +31854,9 @@ const FORK_ISLE_END=8;
 // 1.05 up and about fourteen ahead. Taken from there rather than chosen, so stepping off the
 // board does not change the shot the game is played in -- only what it is following.
 const ISLE_CAM_BACK=11.0, ISLE_CAM_UP=4.9, ISLE_AIM_UP=1.05, ISLE_AIM_AHEAD=14.0;
+// The dive's shot: a little lower and a little closer than the ride's, because the fog
+// swallows anything further out and there is no horizon down there to give it scale.
+const DIVE_CAM_UP=3.2, DIVE_CAM_BACK=9.5, DIVE_AIM_UP=0.9, DIVE_AIM_AHEAD=12.0;
 // ...and how far above mean water sand has to be before he will stand on it. Above the surf,
 // so the shoreline holds him without him paddling about in the wash.
 // Raised with the shore. A long shallow beach means a wide band that the swell walks over, and
@@ -33693,7 +33851,13 @@ function update(dt){
   // to the surface the whole way up now, so the only launch is the one at the top.
   const wakeRide=onWake&&skiWake&&!skiWake.hit;
 
-  if(glPh>=0){
+  if(diveOn){
+    // ---- UNDER THE WATER, and it owns him outright ----
+    // At the top of the chain for the same reason the paraglide is, and for the opposite
+    // reason: every test below this reads "below the surface" as having fallen in, and would
+    // spend the whole dive trying to float him back up and land him.
+    diveStep(dt,waterY);
+  } else if(glPh>=0){
     // The paraglide owns his position outright while it runs, which is why it sits at the top
     // of this chain rather than in it: forty feet up passes every "is he clear of the water"
     // test below, so anything reached after this would call it airborne and start landing him.
@@ -35008,7 +35172,12 @@ function update(dt){
   const _isle=forkOn&&(forkPh===3||forkPh===4);
   if(!_isle){
   camY+=((waterY+4.9-swCam*2.15+airH*(0.80+0.20*glCam))-camY)*Math.min(1,dt*(flying?4.6:1.6));
-  camY=Math.max(camY,waterY+2.3);            // never let a fast-building face swallow it
+  // ---- ...unless he is UNDER it ----
+  // This one line is what made underwater impossible. It is here so a fast-building face cannot
+  // close over the lens, which is right for every second of surfing and exactly wrong for a
+  // dive: it teleported the camera back to the surface the instant he went below it and left
+  // him swimming away underneath the shot.
+  if(!diveOn)camY=Math.max(camY,waterY+2.3);
   // follow his fore/aft travel only partly, so it reads on screen instead of the
   // camera cancelling it out and pinning him to one spot again
   camZ+=((11.0+swCam*4.6+eff*0.05+airH*0.22+pz*0.42+glCam*16)-camZ)*Math.min(1,dt*2.4);
@@ -35037,6 +35206,8 @@ function update(dt){
   // is where the aim sits for the whole of the rest of the game and is a hundred and fifty feet
   // behind him by the time he reaches the top of the island.
   if(_isle){ aimY=forkGround()+ISLE_AIM_UP; aimZ=pz-ISLE_AIM_AHEAD; }
+  // ...and it looks at HIM rather than at the waterline he is no longer on
+  if(diveOn){ aimY=py+DIVE_AIM_UP; aimZ=pz-DIVE_AIM_AHEAD; }
   if(swPh===SWP.RIDE&&!swTubeRide&&swCurlA>0.05){
     const pa1=swPeelA(pz), pb1=swPeelB(pz);
     const rad1=SW_R*(0.16+0.84*pa1)*(1-0.55*pb1), fold1=1-0.38*pb1;
@@ -35117,6 +35288,18 @@ function update(dt){
   // and watched him shrink into the distance, at a height set by a sea he is no longer on.
   // So ashore it simply follows: his x, a fixed distance behind him, at a fixed height above
   // the SAND he is standing on. Eased rather than pinned, so a step does not jerk the frame.
+  // ---- UNDERWATER THE CAMERA GOES DOWN WITH HIM ----
+  // The whole chase camera is written against the SURFACE: camY targets waterY plus a height,
+  // and the only thing that lifts it is airH, which is max(0, py - waterY) and therefore zero
+  // for every foot he is below it. So it sat on the sea while he swam away underneath the shot
+  // -- eight feet down and still framing the waterline. Underwater the same geometry is
+  // measured off HIM instead, which is the identical fix the island needed for the same reason.
+  if(diveOn){
+    const kd=Math.min(1,dt*3.0);
+    camY+=((py+DIVE_CAM_UP)-camY)*kd;
+    camZ+=((pz+DIVE_CAM_BACK)-camZ)*kd;
+    camX+=(px*0.35-camX)*kd;
+  }
   if(_isle){
     // The ride's own geometry -- 4.9 above the surface, 11.0 behind -- because that is the
     // shot the whole game is played in and there is no reason for the island to be a different
