@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.128.0';
+window.SURF_VERSION='6.129.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -930,7 +930,22 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
      becomes a tab the screen itself cuts: flat where it meets the edge, capped on the side your
      thumb comes from. It also buys back the 14px of reach and puts the tap target hard against
      the bezel, which is the easiest place on a phone to hit without looking. */
-  #trickBar { position:fixed; bottom:96px; left:0; z-index:9;
+  /* ---- the walking stick, which only exists when he is off the board ---- */
+/* A thumb ring rather than a d-pad: he is walking round an island, not driving, so the input
+   is a direction and a lean on it and nothing else. Hidden outright the rest of the time --
+   an empty ring sitting over the water during a ride would read as a control that is broken
+   rather than one that is not needed yet. */
+#walkStick { position:fixed; left:26px; bottom:120px; width:132px; height:132px; z-index:11;
+  border-radius:50%; display:none; touch-action:none;
+  background:radial-gradient(circle at 50% 50%, rgba(255,255,255,.16), rgba(255,255,255,.05) 62%,
+             rgba(255,255,255,0) 72%);
+  border:2px solid rgba(255,255,255,.42); box-shadow:0 4px 18px rgba(0,0,0,.28); }
+#walkStick.on { display:block; }
+#walkNub { position:absolute; left:50%; top:50%; width:56px; height:56px; margin:-28px 0 0 -28px;
+  border-radius:50%; background:radial-gradient(circle at 40% 34%, rgba(255,255,255,.92),
+  rgba(255,255,255,.55) 60%, rgba(255,255,255,.35));
+  border:2px solid rgba(255,255,255,.75); box-shadow:0 3px 10px rgba(0,0,0,.32); }
+#trickBar { position:fixed; bottom:96px; left:0; z-index:9;
     width:70px;
     display:flex; flex-direction:column; gap:6px; }
   .tbtn {
@@ -2091,6 +2106,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
          ring rather than an upright one — which is also the circle your finger draws -->
     <svg class="ges" viewBox="0 0 24 24"><ellipse cx="12" cy="12.4" rx="8.7" ry="4.5"/><path class="dot" d="M11.3 8.2 15.3 7.5 13.4 11.1Z" stroke="none"/></svg>
     SPIN</div>
+  <div id="walkStick" aria-label="Walk"><div id="walkNub"></div></div>
   <div class="tbtn glass" id="handBtn" aria-label="Handstand — hold a second finger down">
     <svg class="ges" viewBox="0 0 24 24"><circle class="dot" cx="8.2" cy="12" r="2.9"/><circle class="dot" cx="15.8" cy="12" r="2.9"/><path d="M19.8 6.7a8.1 8.1 0 0 1 0 10.6"/></svg>
     HAND</div>
@@ -27208,6 +27224,7 @@ if(location.hash.includes('debug')){
     fork(){ return {on:!!forkOn, ph:forkPh, z:+forkZ.toFixed(1), side:forkSide,
                     t:+forkT.toFixed(2), px:+px.toFixed(2), py:+py.toFixed(2),
                     half:FORK_HALF, len:FORK_LEN, vis:!!(forkArt&&forkArt.visible),
+                    run:+forkRun.toFixed(0), yaw:+(forkYaw*180/Math.PI).toFixed(1),
                     obs:obstacles.filter(o=>o.position.z>-175).length,
                     chest:forkChest?{got:!!forkGot,x:+forkChestX.toFixed(1),z:+forkChestZ.toFixed(1),
                       d:+Math.hypot(px-forkChestX,pz-forkChestZ).toFixed(1)}:null,
@@ -30852,12 +30869,27 @@ const FORK_HALF=6.4;      // half the island's width -- the channels start outsi
 // it registered as one. At two hundred and forty the island runs past you for the better part
 // of a quarter-mile, so committing to a side is a decision you then have to live in -- which
 // is the difference between an obstacle and a route.
-const FORK_LEN=240;
-const FORK_NOSE=26;       // the tapered splitter at the near end, where the choice is made
+// ---- and its ORIGIN is its TIP ----
+// Both the model and the fallback are built running from z=0 back to -(OPEN+STRAIGHT), so the
+// point of the V is at the object's own origin. The collision was written for an older build
+// that was centred and still asked for forkZ+LEN/2, which put the sand a hundred and twenty
+// feet further away than the wall that was holding him: the turn worked, the wall worked, and
+// there was no island anywhere in the picture. One convention, stated once, used by both.
+const FORK_LEN=165;       // = FORK_OPEN + FORK_STRAIGHT, and nothing may disagree with that
 const FORK_SPAWN=-210;    // where it is put when armed
 const FORK_RUNUP=1.35;    // seconds the board takes to run up the sand and stop
 const FORK_LANE=17;       // the lane's own half-width, so the channels are what is left
 const FORK_WALL=0.9;      // how far off the sand the channel holds you
+// ---- and it is a V, which is what makes it a TURN and not a corridor ----
+// Two arms diverging from a point. The arm you are outside of pushes you sideways for as long
+// as it is opening, and being pushed sideways down a lane with the camera following you IS a
+// turn -- there is nothing else out here to turn against. Then the arms stop opening and run
+// parallel, and the run straightens out on the new heading.
+const FORK_SPLAY=0.30;    // radians each arm opens by: about seventeen degrees
+const FORK_OPEN=95;       // feet of island over which it opens
+const FORK_STRAIGHT=70;   // ...and then this much of it running dead straight
+const FORK_YAW_EASE=1.6;  // how fast the shot swings onto the new heading
+let forkYaw=0, forkRun=0;
 let forkOn=false, forkZ=0, forkPh=0, forkT=0, forkSide=0, forkArt=null, forkDone=false;
 let forkSpawn=0;
 function makeForkIsland(){
@@ -30870,64 +30902,86 @@ function makeForkIsland(){
   // over a hundred feet each and there is no middle to it. The body is a box with rounded
   // shoulders laid on top instead, so the island has flanks that stay put the whole way past
   // you, and the shaping is spent where it is seen -- at the nose.
-  const body=new THREE.Mesh(new THREE.BoxGeometry(FORK_HALF*2, 3.4, FORK_LEN),sand);
-  body.position.set(0,-0.6,-FORK_NOSE*0.5);
-  g.add(body);
-  const crown=new THREE.Mesh(new THREE.SphereGeometry(1,20,10),sand);
-  crown.scale.set(FORK_HALF*0.92, 1.5, FORK_LEN*0.46);
-  crown.position.set(0,0.35,-FORK_NOSE*0.5);
-  g.add(crown);
-  // ---- the NOSE is the splitter, and it is what makes it a fork ----
-  // Tapered to a point at the near end and laid almost flat, so the thing that arrives is a
-  // wedge dividing the water rather than a wall across it. It is also the run-up: a board
-  // meeting this meets a slope, and a board meeting the flanks meets a beach it is already
-  // travelling along.
-  const nose=new THREE.Mesh(new THREE.ConeGeometry(FORK_HALF,FORK_NOSE,16),sand);
-  nose.rotation.x=-Math.PI/2;
-  nose.position.set(0,-0.55,FORK_LEN*0.5-FORK_NOSE*0.5);
-  nose.scale.set(1,1,0.30);            // squashed flat: a sandbar, not a spike
-  g.add(nose);
-  // a darker band at the waterline, which is what wet sand is and what stops the island
-  // reading as a biscuit sitting on the sea
-  const rim=new THREE.Mesh(new THREE.BoxGeometry(FORK_HALF*2.12, 1.5, FORK_LEN),wet);
-  rim.position.set(0,-1.5,-FORK_NOSE*0.5);
-  g.add(rim);
-  const rimN=new THREE.Mesh(new THREE.ConeGeometry(FORK_HALF*1.06,FORK_NOSE*1.04,16),wet);
-  rimN.rotation.x=-Math.PI/2; rimN.scale.set(1,1,0.26);
-  rimN.position.set(0,-1.35,FORK_LEN*0.5-FORK_NOSE*0.5);
-  g.add(rimN);
+  // Each arm is a run of slabs stepped outward, so the island opens from the point and then
+  // runs parallel. Built out of pieces rather than one rotated box because the arms have to
+  // STOP opening partway along, and a single rotated box opens forever.
+  // One island widening into a V, matching isle.glb: the V is the shape of its outer EDGES
+  // and everything between them is land. Built as two separate arms it was a wishbone with
+  // open water down the middle, and running straight at the point beached you on the sea.
+  {
+    const N=18, seg=(FORK_OPEN+FORK_STRAIGHT)/N;
+    for(let i=0;i<N;i++){
+      const z0=-i*seg, run=Math.min(FORK_OPEN,i*seg);
+      const e=FORK_HALF*0.5+Math.tan(FORK_SPLAY)*run+FORK_HALF*Math.min(1,(i+1)/3);
+      const sl=new THREE.Mesh(new THREE.BoxGeometry(e*2,3.4,seg*1.06),sand);
+      sl.position.set(0,-0.6,z0-seg*0.5);
+      g.add(sl);
+      const cr=new THREE.Mesh(new THREE.SphereGeometry(1,12,8),sand);
+      cr.scale.set(e*0.9,1.3,seg*0.6); cr.position.set(0,0.35,z0-seg*0.5);
+      g.add(cr);
+      const rm=new THREE.Mesh(new THREE.BoxGeometry(e*2.12,1.5,seg*1.06),wet);
+      rm.position.set(0,-1.5,z0-seg*0.5);
+      g.add(rm);
+    }
+  }
+  // (The old centred build had a cone nose and a slab rim here. The V's arms carry their own
+  // point and their own waterline band, and both of those were still being placed against
+  // FORK_LEN*0.5 -- a centre this island no longer has.)
   // a few humps of scrub along the spine so it is not a bare mound
   // Small, and set back. At close range this is scenery a few feet from the lens, not an
   // island seen from the horizon: the first pass used the distant-island's hump sizes and
   // filled the screen with green boulders.
   // scattered the length of it, thinning toward the nose so the splitter stays a clean wedge
-  for(let i=0;i<44;i++){
-    const t=FORK_LEN*0.5-FORK_NOSE-Math.random()*(FORK_LEN-FORK_NOSE);
+  for(let i=0;i<52;i++){
+    const run=Math.random()*(FORK_OPEN+FORK_STRAIGHT);
+    const e=FORK_HALF*0.5+Math.tan(FORK_SPLAY)*Math.min(FORK_OPEN,run)+FORK_HALF;
     const m=new THREE.Mesh(new THREE.SphereGeometry(0.34+Math.random()*0.34,7,5),scrub);
-    m.position.set((Math.random()-0.5)*FORK_HALF*1.5, 0.55+Math.random()*0.4, t);
+    m.position.set((Math.random()*2-1)*e*0.85, 0.55+Math.random()*0.4, -run);
     m.scale.set(1,1.4+Math.random()*0.5,1);
     g.add(m);
   }
   g.traverse(o=>{ if(o.isMesh){ o.castShadow=false; o.receiveShadow=false; } });
   return g;
 }
+// ---- the MODELLED island, when it is there ----
+// isle.glb is the same V the maths above describes -- its arms are swept off the game's own
+// HALF, OPEN, STRAIGHT and SPLAY, so the sand you can see and the wall that holds you are the
+// same shape rather than two guesses at one. Built in Blender with a baked sand map, palms,
+// rocks and grass tufts on it. Loaded low priority: it is a test-mode piece and it must not
+// sit in front of the board or the rider on a cold start.
+// The primitives stay as the fallback for exactly the reason every other model here has one:
+// if the file is not there the piece still works, it just looks like blocks.
+let forkModel=null;
+loadModel('isle.glb',s3=>{ forkModel=s3;
+  forkModel.traverse(o=>{ if(o.isMesh){ o.castShadow=false; o.receiveShadow=false;
+    if(o.material)o.material.side=THREE.DoubleSide; } });
+  if(forkArt&&forkArt.userData.proc){ const v=forkArt.visible, pz2=forkArt.position.clone();
+    scene.remove(forkArt); forkArt=null;
+    if(forkOn){ forkArt=forkModel; forkArt.userData.proc=false; scene.add(forkArt);
+      forkArt.position.copy(pz2); forkArt.visible=v; } }
+},9);
 function forkArm(){
-  if(!forkArt){ forkArt=makeForkIsland(); scene.add(forkArt); }
+  if(!forkArt){
+    forkArt=forkModel||makeForkIsland();
+    forkArt.userData.proc=!forkModel;
+    scene.add(forkArt);
+  }
   forkOn=true; forkDone=false; forkPh=0; forkT=0; forkSide=0;
   forkZ=FORK_SPAWN;
   forkArt.visible=true;
   msg('FORK AHEAD — PICK A SIDE');
 }
 function forkClear(){
-  forkOn=false; forkPh=0; forkT=0; forkSide=0; forkDone=false; forkSpawn=0;
+  forkOn=false; forkPh=0; forkT=0; forkSide=0; forkDone=false; forkSpawn=0; forkRun=0;
   forkGot=false; if(forkChest)forkChest.visible=false;
+  walkShow(false); forkRemount(); forkFace=0;
   { const R=(typeof riderRig==='function')?riderRig():null; if(R)R.walkW=0; }
   if(forkArt)forkArt.visible=false;
 }
 // Runs before the rider moves, so the beaching decision is made against the island's
 // position this frame rather than last frame's.
 function updateFork(dt,eff){
-  if(!forkOn||!forkArt)return;
+  if(!forkOn||!forkArt){ if(forkYaw)forkYaw*=Math.max(0,1-dt*2.2); return; }
   // It keeps coming while you are still choosing AND the whole way down the channel -- the
   // island sliding past is the channel. It stops only once he is aground on it, where the
   // island is no longer passing him because he is standing on it.
@@ -30939,7 +30993,7 @@ function updateFork(dt,eff){
   // reaches him first is forkZ PLUS half its length. Taken as minus, the trigger did not fire
   // until the island's far end had arrived -- by which time the whole thing, and the camera
   // eleven feet behind him, was already inside it. The render was a screen full of scrub.
-  const near=forkZ+FORK_LEN*0.5;
+  const near=forkZ;
   if(forkPh===0){
     // ---- the moment of the choice ----
     // Taken when the leading edge reaches him and not before: steering across the front of
@@ -30959,9 +31013,29 @@ function updateFork(dt,eff){
     // wall you die on for a steering mistake made twenty seconds ago, and the piece is about
     // the route rather than about punishing the entry. He rides the beach, and the beach
     // pushes back.
-    const inner=forkSide*(FORK_HALF+FORK_WALL);
+    // ---- the wall OPENS, and that is the turn ----
+    // How far down the arm he has come, in feet. The arm splays for FORK_OPEN of it and then
+    // runs parallel, so the wall walks outward and then stops -- and he goes with it, because
+    // it is behind him the whole way.
+    forkRun+=eff*dt;
+    const open=Math.min(FORK_OPEN,forkRun);
+    // ---- and the wall goes OUTSIDE the sand, which is not where the arm's centre is ----
+    // The arm's centreline walks out by tan(SPLAY)*open from a start of HALF/2, and the sand
+    // reaches a further HALF beyond that on each side. Held against the centreline he was
+    // parked in the middle of the island with the beach drawn straight through him: correct
+    // by the number, wrong in every frame. The outer edge is the thing to be outside of.
+    const armOff=FORK_HALF*0.5+Math.tan(FORK_SPLAY)*open;
+    const inner=forkSide*(armOff+FORK_HALF+FORK_WALL);
     if(forkSide<0&&px>inner){ px=inner; if(vx>0)vx*=-0.25; }
     if(forkSide>0&&px<inner){ px=inner; if(vx<0)vx*=-0.25; }
+    // ---- and the SHOT goes round with him ----
+    // Being pushed sideways is a drift; being pushed sideways with the camera swinging onto
+    // the new line is a turn. There is nothing else out here to turn against -- the sea is
+    // the same in every direction and the horizon is a ring -- so the island IS the reference
+    // and the camera following its arm is what sells the bend. It eases off again once the
+    // arm stops opening, which is the run straightening out on its new heading.
+    const wantYaw=(forkRun<FORK_OPEN)?forkSide*FORK_SPLAY:0;
+    forkYaw+=(wantYaw-forkYaw)*Math.min(1,dt*FORK_YAW_EASE);
     // ---- what is IN the channel you took ----
     // Two different runs down the two sides, which is what makes the choice worth making.
     // Left is sharks and nothing else -- they leap, so it is a channel of timing. Right is
@@ -30981,7 +31055,7 @@ function updateFork(dt,eff){
       if(o&&kind==='bigfin'){ o.userData.startX=x; o.position.x=x;
         o.userData.targetX=Math.max(-FORK_LANE,Math.min(FORK_LANE,px)); }
     }
-    if(forkZ>pz+FORK_LEN*0.5+14){
+    if(forkZ>pz+FORK_LEN+14){
       score+=400; msg('THROUGH THE CHANNEL! +400'); buzz(16);
       forkClear();
     }
@@ -30991,6 +31065,60 @@ function updateFork(dt,eff){
 // The board does not stop dead and he does not come off it: it rides up the wet sand,
 // slows over its own length and stops, and he carries his own momentum a few feet further
 // on his feet. Nothing here ends the run -- that is the whole point of the piece.
+// ---- the walking stick ----
+// Its own pointer, kept off the ride's touch handlers entirely: those exist to steer a board
+// and they claim the first finger on the glass for steering, which would fight a thumb held
+// on a ring. Captured on the element, so a thumb that slides outside the ring keeps driving
+// it -- letting go of a walk because your thumb drifted twenty pixels is not a control.
+const walkStick=document.getElementById('walkStick'), walkNub=document.getElementById('walkNub');
+let walkVX=0, walkVZ=0, walkId=null;
+function walkShow(on){
+  if(!walkStick)return;
+  walkStick.classList.toggle('on',!!on);
+  if(!on){ walkVX=0; walkVZ=0; walkId=null; if(walkNub)walkNub.style.transform=''; }
+}
+if(walkStick){
+  const R=52;                      // how far the nub travels, in screen pixels
+  const set=e=>{
+    const b=walkStick.getBoundingClientRect();
+    let dx=e.clientX-(b.left+b.width/2), dy=e.clientY-(b.top+b.height/2);
+    const d=Math.hypot(dx,dy)||1, k=Math.min(1,d/R);
+    dx=dx/d*R*k; dy=dy/d*R*k;
+    if(walkNub)walkNub.style.transform='translate('+dx.toFixed(1)+'px,'+dy.toFixed(1)+'px)';
+    walkVX=dx/R; walkVZ=dy/R;      // screen down is INTO the picture, which is -z out here
+  };
+  walkStick.addEventListener('pointerdown',e=>{ e.preventDefault(); e.stopPropagation();
+    walkId=e.pointerId; try{ walkStick.setPointerCapture(e.pointerId); }catch(x){}
+    buzz(6); set(e); });
+  walkStick.addEventListener('pointermove',e=>{ if(e.pointerId!==walkId)return;
+    e.preventDefault(); e.stopPropagation(); set(e); });
+  const up=e=>{ if(walkId!==null&&e.pointerId!==walkId)return;
+    walkId=null; walkVX=0; walkVZ=0; if(walkNub)walkNub.style.transform=''; };
+  walkStick.addEventListener('pointerup',up);
+  walkStick.addEventListener('pointercancel',up);
+}
+// ---- and he GETS OFF the board ----
+// It stays where it beached, lying on the wet sand where he stepped off it, and he walks away
+// from it. Riding it around on his feet was the one thing about the arrival that read as a
+// bug rather than as a scene.
+let forkBoard=null;
+function forkDismount(){
+  const b=(typeof rig!=='undefined')?rig:null;
+  if(!b||forkBoard)return;
+  forkBoard={p:b.parent, x:b.position.x, y:b.position.y, z:b.position.z,
+             rx:b.rotation.x, ry:b.rotation.y, rz:b.rotation.z};
+  scene.add(b);                                  // out of the player group, onto the world
+  b.position.set(px,py-0.42,pz);
+  b.rotation.set(0.12, forkSide*0.5, 0.22);      // dropped, not parked
+}
+function forkRemount(){
+  if(!forkBoard)return;
+  const b=(typeof rig!=='undefined')?rig:null;
+  if(b&&forkBoard.p){ forkBoard.p.add(b);
+    b.position.set(forkBoard.x,forkBoard.y,forkBoard.z);
+    b.rotation.set(forkBoard.rx,forkBoard.ry,forkBoard.rz); }
+  forkBoard=null;
+}
 // ---- what he walks to once he is ashore ----
 // Put out on the sand ahead of where he lands, off to one side so reaching it is a walk with
 // a direction in it rather than a straight line he is already on.
@@ -31000,15 +31128,16 @@ const FORK_WALK=7.4;      // feet a second on his own legs, which is not surfing
 // there is no turning round on a walk that only goes one way -- which is a dead end, not a
 // choice. Steering toward it is the flourish, not the requirement.
 const FORK_REACH=4.2;
-let forkChest=null, forkChestZ=0, forkChestX=0, forkGot=false;
+let forkChest=null, forkChestZ=0, forkChestX=0, forkGot=false, forkFace=0, forkLandX=0;
 function forkPlaceChest(){
+  forkLandX=px;   // the walk is bounded around where he came ashore, not around x=0
   if(!forkChest){
     forkChest=(typeof buildChest==='function')?buildChest():null;
     if(!forkChest)return;
     forkChest.scale.setScalar(0.9);
     scene.add(forkChest);
   }
-  forkChestX=(Math.random()<0.5?-1:1)*(0.6+Math.random()*1.6);
+  forkChestX=px+forkSide*-1*(0.6+Math.random()*1.4);   // just inland of where he landed
   forkChestZ=pz-(16+Math.random()*14);        // up the island, away from the water
   forkGot=false;
   forkChest.visible=true;
@@ -32337,7 +32466,8 @@ function updateHandstand(dt,carve){
     modelRig.on=!!want;
     // the helicopter's pose, handed over before the rig runs so it lands this frame
     modelRig.heliW=(typeof heliPose!=='undefined')?heliPose:0;
-    modelRig.walkW=(typeof forkPh!=='undefined'&&forkPh===3)?1:0;   // ashore, on his legs
+    modelRig.walkW=(typeof forkPh!=='undefined'&&forkPh===3
+                    &&Math.hypot(walkVX,walkVZ)>0.08)?1:0;   // ashore, and actually moving
     modelRig.update(dt,!!want);
     // turned over first, THEN stood on the deck: which part of him is lowest depends on
     // which way up he is, so measuring before the turn measures the wrong end
@@ -32821,7 +32951,8 @@ function update(dt){
     py+=(sandY-py)*Math.min(1,dt*7);
     boardPitch+=((-0.16*e)-boardPitch)*Math.min(1,dt*5);
     if(Math.random()<dt*26*(1-e))splash(px+(Math.random()-0.5)*2.2,sandY-0.3,pz+1.2,1);
-    if(k>=1&&!forkDone){ forkDone=true; forkPh=3; msg('ON THE ISLAND'); }
+    if(k>=1&&!forkDone){ forkDone=true; forkPh=3; forkFace=Math.PI; forkDismount(); walkShow(true);
+      msg('ON THE ISLAND'); }
   } else if(forkPh===3){
     // ---- ASHORE, on his own legs ----
     // The board is out of it now: he walks. Forward is up the island, away from the water he
@@ -32829,9 +32960,19 @@ function update(dt){
     // hull. Held inside the sand either side, because walking off the edge of an island into
     // the sea is not a thing this piece is about.
     speed=0;
-    pz-=FORK_WALK*dt;
-    px+=steer*FORK_WALK*0.85*dt;
-    px=Math.max(-FORK_HALF+0.7,Math.min(FORK_HALF-0.7,px));
+    // the stick, not the steering. Pushing up the ring walks him away from the water.
+    const wx=walkVX, wz=walkVZ;
+    px+=wx*FORK_WALK*dt;
+    pz+=wz*FORK_WALK*dt;
+    px=Math.max(forkLandX-FORK_HALF,Math.min(forkLandX+FORK_HALF,px));
+    // turned to face the way he is going, eased, because a body that changes heading between
+    // two frames has not turned round
+    if(Math.hypot(wx,wz)>0.12){
+      const want=Math.atan2(wx,wz)+Math.PI;
+      let d=want-forkFace; while(d>Math.PI)d-=Math.PI*2; while(d<-Math.PI)d+=Math.PI*2;
+      forkFace+=d*Math.min(1,dt*7);
+    }
+    pug.rotation.y=forkFace;
     py+=((waveH(px,dist*WAVE_DRIFT+pz,waveClock)+2.05)-py)*Math.min(1,dt*6);
     if(forkChest&&!forkGot){
       forkChest.position.set(forkChestX, py-0.55, forkChestZ);
@@ -32840,7 +32981,7 @@ function update(dt){
     }
     // ...and the island ends either way. Gated only on having got the chest, a walk that
     // missed it carried on up the sand forever with nothing left to reach.
-    if(pz<forkChestZ-13){ msg(forkGot?'NICE ISLAND':'MISSED THE CHEST'); gameOver(); }
+    if(pz<forkChestZ-16){ msg(forkGot?'NICE ISLAND':'MISSED THE CHEST'); gameOver(); }
   } else if(heliPh>=0){ heliStep(dt,waterY);           // the helicopter drives him itself
   } else if(swTubeRide){
     // The tube put him exactly where he belongs on the ring already. Nothing more to do —
@@ -34121,9 +34262,22 @@ function update(dt){
   // reasoning that a rigidly held shot looks past him once he is up in the roof — but the
   // shell is wide enough that he stays in frame anyway, and a fifth of seven metres is a
   // visible drift of the whole picture every time he goes round. "Fixed" has to mean fixed.
-  camera.lookAt(swCamLock?swCamLock.lx:aimX,
-                swCamLock?swCamLock.at:aimY,
-                swCamLock?swCamLock.atZ:aimZ);
+  // ---- the fork's turn, applied to the SHOT ----
+  // Both the eye and what it is looking at are swung about the rider, so the camera keeps its
+  // distance and its height and only its bearing changes -- which is a turn rather than a
+  // slide. Done here, last, on top of whatever else placed the camera, so the barrel and the
+  // crash keep their own framing untouched when the fork is not running.
+  let _fx=swCamLock?swCamLock.lx:aimX, _fy=swCamLock?swCamLock.at:aimY,
+      _fz=swCamLock?swCamLock.atZ:aimZ;
+  if(Math.abs(forkYaw)>0.001){
+    const c=Math.cos(forkYaw), sn=Math.sin(forkYaw);
+    const rot=(x,z)=>{ const dx=x-px, dz=z-pz;
+      return [px+dx*c-dz*sn, pz+dx*sn+dz*c]; };
+    const e=rot(camera.position.x,camera.position.z);
+    camera.position.x=e[0]; camera.position.z=e[1];
+    const a=rot(_fx,_fz); _fx=a[0]; _fz=a[1];
+  }
+  camera.lookAt(_fx,_fy,_fz);
   // The camera does NOT roll with the ring. A loop camera was tried and taken back out: it
   // keeps the tube wrapped around the view, but the whole shot turning over is disorienting
   // and it throws away the one stable reference — the horizon — that tells you where you are
