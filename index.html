@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.144.0';
+window.SURF_VERSION='6.145.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -18062,6 +18062,10 @@ let lastKind='',sameRun=0,bigFinCd=6,octCd=0,laneSlot=(Math.random()*5)|0;
 // gone before a screenshot lands on it. This stops the world moving under the camera without
 // stopping anything else — the animals keep animating, which is the whole point of looking.
 let _freeze=false, _pinL=null;
+let _walkPrevZ=0;                 // his z last frame, so a step ashore can be measured
+// A walked foot is worth rather less than a surfed one: eff runs 16 to 70 and he walks at 7.4,
+// so at parity the island would pay out like a slow ride. A third of a metre a foot.
+const FORK_STEP_M=0.34;
 // base curl, tip curl, base sway, tip sway, and the two rates. An arm is a CHAIN, so every
 // one of these accumulates down it — a number that looks small on one joint is most of a
 // half turn by the last, and that is how a wave becomes an animal tying itself in a knot.
@@ -31284,6 +31288,12 @@ function forkDress(root){
   // what makes the planting follow the V for free, including round the inside of the bend,
   // without the placement code knowing anything about the shape.
   forkPalms=new THREE.Group();
+  // The tree's own scale, kept so the trunk radius can be worked out per tree. Taken from the
+  // SOURCE that actually made them, not from forkPalmSrc: on the fallback path the source is
+  // menuPalm at a scale of seventeen, and dividing by one instead would have given every trunk
+  // a thirty-six foot collision radius -- the whole island unwalkable, and only on the path
+  // that runs when a file has not loaded.
+  forkPalms.userData.base=src.scale.x;
   root.updateMatrixWorld(true);
   let isle=null;
   root.traverse(o=>{ if(!isle&&o.isMesh&&!o.userData.isPalm)isle=o; });
@@ -31364,7 +31374,7 @@ function forkDress(root){
 // HEAVY is the count used if palmlod.glb has not arrived and the menu's own tree is all
 // there is: twenty of THAT would be six million triangles of scenery, which is the exact
 // thing this is here to stop.
-const ISLE_PALMS=16, ISLE_PALMS_HEAVY=5;
+const ISLE_PALMS=12, ISLE_PALMS_HEAVY=5;
 // ---- spread out, and allowed to CLUMP ----
 // Twenty-eight of them at eight and a half feet was a plantation: enough trees, close enough
 // together, that the island read as a nursery rather than as somewhere a few things had got a
@@ -31693,7 +31703,14 @@ const ISLE_CAM_BACK=11.0, ISLE_CAM_UP=4.9, ISLE_AIM_UP=1.05, ISLE_AIM_AHEAD=14.0
 // so the shoreline holds him without him paddling about in the wash.
 // Raised with the shore. A long shallow beach means a wide band that the swell walks over, and
 // he should be held above that band rather than paddling about in the wash.
-const ISLE_WALK_MIN=1.30;
+// Lowered from 1.30. The island's tip now comes in at sea level and rises over its first
+// twenty feet, which is what makes the near end a beach instead of a bluff -- and 1.30 would
+// have made the ground he actually lands on unwalkable. Still clear of the wash.
+const ISLE_WALK_MIN=0.75;
+// How wide a trunk is to walk into, at the palm's base size. Generous against the visible
+// trunk, because a palm's fronds and its buried lean both make the tree read wider than its
+// stem and stopping a foot short of it looks right where stopping exactly at it looks late.
+const ISLE_TRUNK=2.1;
 let forkFace=0, forkLandX=0, forkEndZ=0;
 // ---- A CHEST, BOLTED TO THE ISLAND ----
 // There was one before and it went out because it was doing two bad jobs: it was the run's old
@@ -31719,7 +31736,7 @@ let forkFace=0, forkLandX=0, forkEndZ=0;
 // own signpost is untouched.
 let forkSign=null, forkSignSet=false;
 loadModel('forksign.glb',s2=>{ forkSign=s2; },9);
-const ISLE_SIGN_H=11.0;       // how tall the post stands, in feet
+const ISLE_SIGN_H=7.2;        // how tall the post stands, in feet
 const ISLE_SIGN_BURY=0.8;     // ...and how much of its foot is in the sand
 const ISLE_SIGN_Z=-21.0;      // how far up the island from the point it stands
 const ISLE_SIGN_OUT=0.92;     // ...and how far out toward the left shore, as a fraction of it
@@ -31834,7 +31851,21 @@ function forkWalkable(x,z){
   if(!(forkArt&&forkArt.userData.field))
     return Math.abs(x-forkLandX)<=FORK_HALF;      // primitive island: the old lane
   const h=isleH(x,z);
-  return h===h&&h>ISLE_WALK_MIN;
+  if(!(h===h&&h>ISLE_WALK_MIN))return false;
+  // ---- and a trunk is a solid thing ----
+  // Scenery you can stand inside stops being scenery. Each palm keeps a radius scaled by how
+  // big that particular tree was planted -- they run from half size to nearly twice -- and the
+  // test is against the trunk's own x/z, which is where it went in rather than where the model
+  // happens to lean to.
+  if(forkPalms&&forkArt){
+    const lx=x-forkArt.position.x, lz=z-forkArt.position.z;
+    for(const c of forkPalms.children){
+      const r=ISLE_TRUNK*(c.scale.x/Math.max(1e-4,forkPalms.userData.base||1));
+      const dx=lx-c.position.x, dz=lz-c.position.z;
+      if(dx*dx+dz*dz<r*r)return false;
+    }
+  }
+  return true;
 }
 function forkIslandDone(){
   const n=150+25*((Math.random()*7)|0);
@@ -33595,9 +33626,20 @@ function update(dt){
   // Glide: how long the speed you earned stays with you. A log carries it most of the way
   // down the line; a small high-rockered board has spent it by the next section.
   boost=Math.max(0,boost-dt*3.0/BS.glide);
-  const eff=_freeze?0:Math.max(16.2,Math.min(113+BS.top,speed+Math.abs(vx)*0.3+trim+boost));   // 10 mph floor, 70 ceiling
+  // ---- ASHORE THE WORLD STOPS ----
+  // eff has a floor of 16.2 -- a ten mile an hour minimum that exists so a stalled rider still
+  // drifts down the line -- and it does not care that he is standing on sand. So the metres kept
+  // climbing while he walked about the island, and the puka with them: a thousand metres of run
+  // banked for standing still. The floor is right for surfing and wrong for a beach.
+  const eff=(_freeze||(forkOn&&forkPh>=3))?0
+            :Math.max(16.2,Math.min(113+BS.top,speed+Math.abs(vx)*0.3+trim+boost));
   lastEff=eff;
-  dist+=eff*dt;
+  // ...and the metres come from HIS FEET instead. Walking up the island earns distance and
+  // walking back down it gives distance up, which is the only honest way round: the number is
+  // how far he has got, not how long he has been out.
+  if(forkOn&&forkPh>=3){ dist=Math.max(0,dist+(_walkPrevZ-pz)*FORK_STEP_M); }
+  else dist+=eff*dt;
+  _walkPrevZ=pz;
   // No score for covering ground. Distance is its own number with its own record, and
   // paying it into the trick score too meant the score was mostly a second, worse
   // distance readout: 0.6 a metre came to six hundred points over a kilometre, several

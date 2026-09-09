@@ -28,7 +28,7 @@ DST  = HERE + '/forksign.glb'
 SCR  = '/tmp/claude-0/-home-user-Surf-/7480d8db-fb33-5a1b-a73b-0e83e5c3db08/scratchpad/'
 
 # ---- the three bands, measured (see the yellow-face pass) ----
-PLAY   = (0.632, 0.868)        # the plank that goes
+PLAY   = (0.600, 0.880)        # the plank that goes -- a shade wider than it measures, both ends
 UPPER  = (0.358, 0.522)        # becomes LEFT
 LOWER  = (0.055, 0.212)        # becomes RIGHT
 
@@ -64,9 +64,12 @@ def is_yellow(c):
 # measured a footprint 0.45 across -- half the width of the sign -- because that band is not
 # plank-free at all, and the result was that most of the Play plank counted as post and stayed
 # on. That is why it was still saying Play after seven thousand faces had been deleted.
-# 0.095, not 0.12. At 0.12 a strip of the Play plank right at the post survived the cut and
-# the sign still read "la" up there. The bare post above every plank measures 0.09.
-POST_CX, POST_CY, POST_R = 0.0, 0.07, 0.095
+# MEASURED where the post is bare -- above every plank, z 0.88..0.99 -- rather than guessed at.
+# Two earlier guesses were both wrong and both left a strip of the Play plank standing: a footprint
+# taken from a band BETWEEN planks (which is not plank-free at all), then a centre 0.013 off with a
+# radius slightly too big. Where the post is genuinely alone it is 0.085 across, centred here, and
+# the Play plank occupies z 0.615..0.865 exactly -- 0.58 and 0.86 upward are pure post.
+POST_CX, POST_CY, POST_R = -0.001, 0.083, 0.085
 print('post axis %.3f,%.3f r %.3f' % (POST_CX, POST_CY, POST_R))
 
 def band_faces(z0, z1, front_only=True):
@@ -268,16 +271,63 @@ print('baked')
 # ---------------------------------------------------------------- take the Play plank off
 bm = bmesh.new(); bm.from_mesh(me)
 bm.faces.ensure_lookup_table()
-def off_post(c):
-    return math.hypot(c.x-POST_CX, c.y-POST_CY) > POST_R
-gone = [f for f in bm.faces
-        if PLAY[0] <= f.calc_center_median().z <= PLAY[1] and off_post(f.calc_center_median())]
-print('removing', len(gone), 'faces of the Play plank')
-bmesh.ops.delete(bm, geom=gone, context='FACES')
-loose = [v for v in bm.verts if not v.link_faces]
-bmesh.ops.delete(bm, geom=loose, context='VERTS')
+# ---- the Play plank is COLLAPSED INTO the post, not cut out of it ----
+# Deleting its faces left a hole: the plank was covering that part of the post, and the scan has
+# no post surface behind it to fall back on -- so taking the plank away opened a window straight
+# through the top of the post. Which is what "has a hole on the top part of it" is.
+# Pulled in to the axis instead. Every vertex of the plank is moved onto the post's surface, so
+# the plank becomes a sleeve of degenerate geometry lying inside the post: nothing sticks out,
+# nothing is missing, and the post's own silhouette is untouched. It costs a few thousand
+# triangles that draw as nothing, which is a great deal cheaper than reconstructing a scan.
+moved = 0
+for v in bm.verts:
+    if not (PLAY[0] <= v.co.z <= PLAY[1]): continue
+    dx, dy = v.co.x-POST_CX, v.co.y-POST_CY
+    r = math.hypot(dx, dy)
+    if r <= POST_R*1.01: continue            # the post's own skin, left exactly as it is
+    k = (POST_R*0.92)/r                      # ...and everything else tucked just inside it
+    v.co.x = POST_CX + dx*k
+    v.co.y = POST_CY + dy*k
+    moved += 1
+print('collapsed', moved, 'vertices of the Play plank into the post')
+
+# ---- AND THE POST IS PATCHED WHERE THE PLANK WAS ----
+# Collapsing the plank inward is not enough on its own, and neither was deleting it: the scan has
+# NO POST SURFACE behind a plank -- the plank was covering that part of it -- so either way there
+# is a hole straight through the post at that height, and through the hole you could still read
+# "Play" on the collapsed sleeve inside. A sleeve of post is built over it: a plain cylinder at
+# the post's own measured radius, spanning the band, its UVs pinned to the cleanest patch of
+# plain wood in the atlas -- found by scanning it for the 64px square with no lettering, no
+# black and the lowest variance, which is at u 0.656..0.719, v 0.500..0.562.
+CLEAN_U0, CLEAN_U1, CLEAN_V0, CLEAN_V1 = 0.660, 0.715, 0.504, 0.559
+SEG = 24
+uvlay = bm.loops.layers.uv.active or bm.loops.layers.uv.new('UVMap')
+rings = []
+for iz, zz in enumerate((PLAY[0]-0.012, PLAY[1]+0.012)):
+    ring = []
+    for i in range(SEG):
+        a_ = i/SEG*math.tau
+        ring.append(bm.verts.new((POST_CX + math.cos(a_)*POST_R*1.008,
+                                  POST_CY + math.sin(a_)*POST_R*1.008, zz)))
+    rings.append(ring)
+made = 0
+for i in range(SEG):
+    k = (i+1) % SEG
+    try:
+        f = bm.faces.new((rings[0][i], rings[0][k], rings[1][k], rings[1][i]))
+    except ValueError:
+        continue
+    made += 1
+    # a slice of the clean patch per quad, turned every other one so it does not stripe
+    u0 = CLEAN_U0 + (CLEAN_U1-CLEAN_U0)*(i % 4)/4
+    u1 = u0 + (CLEAN_U1-CLEAN_U0)/4
+    if i % 2: u0, u1 = u1, u0
+    for lp, uv in zip(f.loops, ((u0, CLEAN_V0), (u1, CLEAN_V0), (u1, CLEAN_V1), (u0, CLEAN_V1))):
+        lp[uvlay].uv = uv
+    f.normal_update()
+print('patched the post with', made, 'quads')
 bm.to_mesh(me); bm.free()
-print('faces left', len(me.polygons))
+print('faces', len(me.polygons))
 
 # ---------------------------------------------------------------- write it out
 for nm, im in (('base', BASE), ('nrm', NRM), ('rgh', RGH)):

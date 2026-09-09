@@ -84,7 +84,19 @@ for j in range(NZ+1):
         else:
             w = min(1.0, (a-FACE0)/(FACE1-FACE0))
             prof = 0.90*(1.0 - w*w*(3-2*w))
-        z = RIM + (crown - RIM)*prof
+        # ---- and the near END rises out of the sea rather than off a cliff ----
+        # At t=0 the island stood at 72 per cent of its crown already, so its first cross section
+        # was three feet of sand with a skirt dropping straight to fourteen under it: a little
+        # rectangular bluff sticking out of the water where the beach should start.
+        # Only the part ABOVE water is ramped. Scaling the whole span from the rim was the first
+        # try and it put the entire tip UNDERWATER -- he then ran aground on a submerged bar and
+        # stood in the sea, because the beaching triggers at the leading edge whatever is there.
+        # Ramping from the waterline instead leaves the underwater shape alone, brings the tip in
+        # at exactly sea level, and lifts it into a beach over the first twenty feet.
+        base = RIM + (crown - RIM)*prof
+        em = min(1.0, t/0.12)
+        em = 0.06 + 0.94*em*em*(3-2*em)
+        z = base if base <= 0.0 else base*em
         # how far above the water this point is, which is what decides how much dune it gets:
         # sand is rippled where it is dry and the sea irons it flat where it has been over it
         up = max(0.0, min(1.0, (z + 0.15)/CROWN))

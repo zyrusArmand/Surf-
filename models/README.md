@@ -426,8 +426,15 @@ screen, where there is ONE of it filling a third of the frame, and the wrong one
 twenty of half a lane away — six clones of it on the fork's island were already 1.8 million
 triangles of scenery.
 
-`palmlod.glb` is that tree collapsed to 18,344 triangles and shipped with **no images at
-all**. It wears the menu palm's own material, assigned in `islePalmSource()`, so there is
+`palmlod.glb` is that tree collapsed to ~46,000 triangles and shipped with **no images at
+all**.
+
+It started at 18,344 (6% of the original), which read as a palm from forty feet and, once he
+could *walk under one*, read as torn leaves with bark hanging off the trunk in flakes and white
+specular sparks all over the wreckage. The sparks are the tell: they are the material's sheen
+catching normals the collapse left pointing in random directions. Two things were needed and
+neither alone was enough — enough triangles that a frond is still a frond (15%), and
+`normals_make_consistent` + shade-smooth afterwards so what survives is shaded as one surface. It wears the menu palm's own material, assigned in `islePalmSource()`, so there is
 still one palm texture in the game and the two trees can never drift apart. Twenty of these
 come to 350k triangles: three times as many trees for a fifth of the geometry.
 
