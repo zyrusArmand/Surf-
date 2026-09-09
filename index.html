@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.156.0';
+window.SURF_VERSION='6.157.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -27661,6 +27661,11 @@ if(location.hash.includes('debug')){
       return {loaded:!!kelpTpl, n:kelps.length,
               list:kelps.map(g=>({x:+g.position.x.toFixed(1), z:+g.position.z.toFixed(1),
                 ft:+(g.userData.ft||0).toFixed(2), dig:+(g.userData.dig||0).toFixed(2),
+                n:g.userData.n||0,
+                // the measured tip against the surface -- "almost hits the top" is a claim about
+                // where the leaves actually end up, which a target height does not answer
+                top:+(function(){ const b=new THREE.Box3().setFromObject(g);
+                                  return isFinite(b.max.y)?b.max.y:0; })().toFixed(2),
                 // the root's height against the sand it stands on: negative is buried, which
                 // is the whole ask, and zero every time would mean it is sitting on a plane
                 sink:+((bedH(g.position.x,g.position.z)-g.position.y)).toFixed(2),
@@ -32395,29 +32400,61 @@ function turtleStep(dt,eff){
 // them lived and died as a ghost at the limit of sight, and the near water was empty sand. The
 // same idea in a third of the area is six times the density in the only part of it anybody
 // looks at, and costs four more clumps rather than a whole field of them.
-const KELP_MAX=13;                      // how many clumps are alive at once
+const KELP_MAX=11;                      // how many clumps are alive at once
 const KELP_AHEAD=-135, KELP_BEHIND=34;
 const KELP_SPREAD=30, KELP_LANE=2.6;
 const KELP_H=1.173;                     // the model's own height, in its own units
+const KELP_W=1.90;                      // ...and how wide it is across
 const KELP_BASE=0.59;                   // ...and how far below its origin the roots sit
-const KELP_FT_MIN=2.4, KELP_FT_MAX=7.0; // how tall a clump stands, in feet
-const KELP_DIG_MIN=0.04, KELP_DIG_MAX=0.26;   // and how much of that is buried
+// ---- tall ones are STACKED, not scaled ----
+// The clump is 1.9 across and 1.17 high, so scaling it up to reach a fifteen-foot water column
+// gives a plant twenty-four feet wide: a hedge, not kelp. Stacked instead, each length keeps the
+// proportions it was modelled with and only the count changes -- which is also what a real stipe
+// is, the same frond repeated up a stem.
+const KELP_SEG=5.5;                     // feet of clump per length, roughly
+const KELP_SEG_MAX=3;                   // ...and never more lengths than this, for the triangles
+const KELP_TAPER=0.86;                  // each length above is this much narrower
+const KELP_THIN_MIN=0.52, KELP_THIN_MAX=0.80;  // narrower than its modelled girth: kelp is thin
+const KELP_TOP=1.0;                     // how far under the surface even the tallest stops
+const KELP_MIN_FT=3.2;                  // the shortest a clump comes
+// 1.7 put one plant in eleven up near the surface and left the mean at eight feet, which is a
+// bed with an exception in it rather than a tall bed. Flatter: still more short than tall,
+// because a stand where everything reaches the top has no shape to it.
+const KELP_TALL=1.15;                   // bias: >1 makes tall ones rarer than short ones
+const KELP_DIG_MIN=0.04, KELP_DIG_MAX=0.26;   // and how much of it is buried
 let kelpTpl=null, kelpAsked=false, kelpGrp=null, kelps=[];
 function kelpAsk(){
   if(kelpAsked||typeof loadModel!=='function')return;
   kelpAsked=true;
   loadModel('kelp.glb',root=>{ kelpTpl=root; },9);
 }
+// One clump: a chain of lengths, each one a child of the one below it.
+// ---- NESTED, not laid side by side ----
+// Siblings would each pivot about their own base and slide apart at every joint. Chained, a bend
+// low down carries everything above it -- which is what a stem does, and it comes free from the
+// scene graph rather than from any code here. Each length's own origin is its BASE, so the sway
+// hinges where it should: the model is centred on itself, and lifted by KELP_BASE inside its
+// wrapper the wrapper's origin is where that length starts.
+function kelpBuild(g,n,segH,thin){
+  for(const s of (g.userData.seg||[]))if(s.parent)s.parent.remove(s);
+  const segs=[];
+  let par=g, wide=thin;
+  for(let i=0;i<n;i++){
+    const p=new THREE.Group();
+    p.position.y=(i===0)?0:segH;            // ...measured from the length below it
+    const m=cloneModel(kelpTpl);
+    const sy=segH/KELP_H, sx=segH*wide/KELP_W;
+    m.scale.set(sx,sy,sx);
+    m.position.y=KELP_BASE*sy;
+    m.rotation.y=Math.random()*6.283;       // so a stack does not read as one tile repeated
+    p.add(m); par.add(p);
+    segs.push(p); par=p; wide*=KELP_TAPER;
+  }
+  g.userData.seg=segs;
+}
 function kelpMake(){
   if(!kelpTpl)return null;
-  const m=cloneModel(kelpTpl);
-  // ---- the group's origin is the ROOT, not the middle ----
-  // The model is centred on itself, so turning it to sway would swing the roots through the sand
-  // and plant the tips. Lifted by half its height inside a wrapper, the wrapper's origin is where
-  // it meets the ground: rotate that and the base stays put while the tops lean, which is the
-  // whole of what kelp does.
-  m.position.y=KELP_BASE;
-  const g=new THREE.Group(); g.add(m);
+  const g=new THREE.Group(); g.userData.seg=[];
   return g;
 }
 function kelpLay(g){
@@ -32425,9 +32462,16 @@ function kelpLay(g){
   g.position.z=KELP_AHEAD*(0.06+R()*0.94);
   const sgn=R()<0.5?-1:1;
   g.position.x=sgn*(KELP_LANE+R()*(KELP_SPREAD-KELP_LANE));
-  const ft=KELP_FT_MIN+R()*R()*(KELP_FT_MAX-KELP_FT_MIN);   // squared: mostly small, a few big
-  g.scale.setScalar(ft/KELP_H);
-  u.ft=ft;
+  // ---- how tall, against the water there rather than against a constant ----
+  // The tallest are meant to almost reach the surface, and how far that is depends on the dune it
+  // is standing on: the bed rolls by a couple of feet. Asked of the column above this spot, less
+  // a little, so nothing ever breaks through from below.
+  const bed=bedH(g.position.x,g.position.z);
+  const colH=Math.max(KELP_MIN_FT+1.0,(0-bed)-KELP_TOP);
+  const ft=KELP_MIN_FT+Math.pow(R(),KELP_TALL)*(colH-KELP_MIN_FT);
+  const n=Math.max(1,Math.min(KELP_SEG_MAX,Math.round(ft/KELP_SEG)));
+  kelpBuild(g,n,ft/n,KELP_THIN_MIN+R()*(KELP_THIN_MAX-KELP_THIN_MIN));
+  u.ft=ft; u.n=n;
   // ---- dug in, by a random amount ----
   // A clump sitting exactly on the surface reads as a model placed on a plane. Sunk a little,
   // and by a different little each time, it reads as something that grew where it is.
@@ -32464,9 +32508,18 @@ function kelpStep(dt){
     u.ph+=dt*0.9;
     // it leans on its own clock and sways about the lean, which is a plant in a current rather
     // than a plant on a metronome
-    const s=Math.sin(u.ph)*u.sway, c=Math.cos(u.ph*0.77+1.3)*u.sway*0.7;
-    g.rotation.x=Math.sin(u.leanA)*u.lean+s;
-    g.rotation.z=Math.cos(u.leanA)*u.lean+c;
+    const sw=Math.sin(u.ph)*u.sway, cw=Math.cos(u.ph*0.77+1.3)*u.sway*0.7;
+    g.rotation.x=Math.sin(u.leanA)*u.lean+sw;
+    g.rotation.z=Math.cos(u.leanA)*u.lean+cw;
+    // ...and the lengths above the first bend a little further than the one below, each on a
+    // beat of lag. Rigid, a tall stack is a mast; hinged, it is a whip -- and because they are
+    // chained the deflections add up the way a stem's do.
+    const seg=u.seg;
+    if(seg&&seg.length>1)for(let i=1;i<seg.length;i++){
+      const k=0.85+i*0.28, lag=i*0.7;
+      seg[i].rotation.x=Math.sin(u.ph-lag)*u.sway*k;
+      seg[i].rotation.z=Math.cos(u.ph*0.77+1.3-lag)*u.sway*k*0.7;
+    }
   }
 }
 // ============================ THE SHARKS, UNDER ============================

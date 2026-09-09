@@ -655,3 +655,18 @@ is where it meets the sand**. That is what lets it sway: rotate a self-centred m
 swing through the ground while the tips stay put, which is the opposite of a plant.
 
 `doubleSided` is true in the exported material and needs to stay that way — the fronds are thin.
+
+### Tall clumps are STACKED, not scaled
+
+The model is 1.9 across and 1.17 high. Scaling it to reach a fifteen-foot water column gives a
+plant **twenty-four feet wide** — a hedge, not kelp. So `kelpBuild()` chains lengths of it
+instead: each length keeps the proportions it was modelled with and only the count changes, which
+is also what a real stipe is — the same frond repeated up a stem.
+
+They are **nested, not siblings**. Siblings each pivot about their own base and slide apart at
+every joint; chained, a bend low down carries everything above it, which is what a stem does and
+comes free from the scene graph. Each length's wrapper origin is its own base (the model lifted
+by `KELP_BASE × its y scale`), so the sway hinges where it should.
+
+Height is asked of the **water column above that spot**, not taken from a constant — the bed rolls
+by a couple of feet, so how far "almost the surface" is depends on the dune it is standing on.
