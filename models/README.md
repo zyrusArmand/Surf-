@@ -509,29 +509,50 @@ Historical, and still worth knowing if the maps ever go back on:
   1.9 — a texture ten times too fine, which reads as sandpaper. Same scan, same map, same
   material, and nothing like the same beach.
 
-## forksign.glb — the LEFT / RIGHT signpost at the fork
+## forksign.glb — the LEFT / RIGHT signpost, cut from the real one
 
-Two planks on a post, standing on the left shore right where the island starts, so the choice
-is announced by the place rather than by a line of text across the screen.
+It is `menusign.glb` **edited**, not a lookalike. The first attempt built a post and two planks
+out of boxes with a painted texture, and it looked exactly like boxes with a painted texture —
+the real sign is a 61k-triangle scan of carved wood with hand-painted lettering, and nothing
+built from primitives sits beside it.
 
-**It is not `menusign.glb` with a plank removed**, which was the plan. That file does not allow
-it: its three words are baked into a shared UV atlas — 1024px of wood with `PL`, `AY` and the
-rest scattered across islands — so deleting a plank leaves its letters in the texture, and
-writing `LEFT` and `RIGHT` means reconstructing wood grain underneath the old ones by hand on a
-layout nothing describes. This is built instead, by `models/forksign.py`, with its wood palette
-and its yellow **sampled off `menusign.glb`'s own base map** so it belongs to the same signpost.
-The menu's signpost is untouched.
+The obstacle is that its three words are baked into a **shared UV atlas**: 1024px of wood with
+`PL`, `AY` and the rest scattered across fragment islands in no order anything describes. You
+cannot edit that by eye. The way through is to go via the geometry, and `models/forksign.py`
+does four things:
 
-The UVs are set per face rather than unwrapped: the texture is three bands (LEFT, RIGHT, plain
-wood) and each plank's lane-facing face gets a whole band, planar and explicit, because the
-point of the exercise is knowing exactly where the word lands. Three traps, all of which shipped
-broken once each:
+1. **Find the words in 3D** by asking which *faces* sample yellow texels. That gives three clean
+   bands of z, one per plank, all reading toward −y.
+2. **Flatten a plank** — rasterise its triangles in plank-local coordinates, sampling the atlas
+   through their UVs — which reconstructs the board as a rectangle you can look at and edit.
+   Run on the top plank, this is what identified it as `Play`.
+3. **Edit the rectangle**: clone the old word out *horizontally*, along the grain, so every
+   grain line stays at the height it already was and there is no seam (vertical and blurred
+   fills both showed as a smudge exactly where the word had been). Paint the new one in its
+   place, in ink sampled from the old letters.
+4. **Bake it back** the other way, rasterising the same triangles into the atlas, then **read it
+   back again** and count surviving yellow texels — because a texel the read missed is a texel
+   the write misses too, and that would leave a fragment of the old word behind.
 
-- **Blender is Z-up.** Built with Y as height — the game's convention, not Blender's — the post
-  lay on its side and both planks pointed at the camera. The mesh is rotated a quarter turn
-  about X before export. Third time this file has caught someone out that way; see `isle.glb`.
-- **The arrow taper was on the wrong axis.** Tapering the *thickness* (0.3 ft) reads as nothing;
-  the plank still ended square. It tapers the height.
-- **A `u` flip on the LEFT plank.** Added on the reasoning that it faces the other way. It does
-  not — both planks present the same face down the lane — so all the flip did was mirror the
-  word and turn its arrow round: the top plank read `TFEL` with an arrow pointing right.
+Five things went wrong on the way, all worth keeping:
+
+- **A flattened panel has holes.** A scan's atlas is islands with space between them, so the
+  triangles never cover some texels — harmless to look at, and *not* harmless to write back:
+  those holes bake into the texture as black patches. They are grown outward from what was
+  covered before anything is written.
+- **The old lettering has relief.** The normal map carries the raised edge of the paint and the
+  roughness map its sheen. Repaint the colour alone and the old word is still there in the light
+  — a ghost of `Shop` embossed under the new letters. All three maps get the same clone.
+- **The post was mis-measured.** Taking a z band *between* two planks and calling whatever is
+  there "post" gave a footprint 0.45 across — half the width of the sign — because that band is
+  not plank-free. Most of the `Play` plank then counted as post and stayed on. Measure *above*
+  every plank: the bare post is 0.095.
+- **Textures rebound by guesswork.** Matching each image node to a file by its corner pixel
+  mis-assigned two of the three, putting the normal map on Base Color — pale blue patches across
+  the planks. Which socket a node feeds is a fact; walk it.
+- **The word must follow the wood.** These planks are cut to a point at one end: flattened, the
+  upper comes to a head on the right and the lower on the left. That carved point *is* the
+  arrow, and a better one than anything paintable. The first pass put `LEFT` on the plank that
+  points right.
+
+**`menusign.glb` is not modified.** This writes a separate file.

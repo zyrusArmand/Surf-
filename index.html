@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.143.0';
+window.SURF_VERSION='6.144.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -31719,8 +31719,10 @@ let forkFace=0, forkLandX=0, forkEndZ=0;
 // own signpost is untouched.
 let forkSign=null, forkSignSet=false;
 loadModel('forksign.glb',s2=>{ forkSign=s2; },9);
-const ISLE_SIGN_Z=-15.0;      // how far up the island from the point it stands
-const ISLE_SIGN_OUT=0.80;     // ...and how far out toward the left shore, as a fraction of it
+const ISLE_SIGN_H=11.0;       // how tall the post stands, in feet
+const ISLE_SIGN_BURY=0.8;     // ...and how much of its foot is in the sand
+const ISLE_SIGN_Z=-21.0;      // how far up the island from the point it stands
+const ISLE_SIGN_OUT=0.92;     // ...and how far out toward the left shore, as a fraction of it
 function forkPlaceSign(){
   if(forkSignSet||!forkSign||!forkArt||!forkArt.userData.field)return;
   const lz=ISLE_SIGN_Z;
@@ -31730,7 +31732,19 @@ function forkPlaceSign(){
     const h=isleH(lx+forkArt.position.x,lz+forkArt.position.z);
     if(!(h===h)||h<ISLE_WALK_MIN)continue;
     if(forkSign.parent!==forkArt)forkArt.add(forkSign);
-    forkSign.position.set(lx,h-forkArt.position.y,lz);   // base at the sand; the model buries its own foot
+    // ---- sized by MEASUREMENT, because the file is a scan and knows nothing about feet ----
+    // menusign.glb stands about one unit tall in its own file. The menu scales it to fit a
+    // title screen; out here it has to be a real signpost beside a real dog, so it is measured
+    // and scaled to a height in feet. Its origin is at its foot, so the same box gives the drop
+    // onto the sand for free.
+    if(!forkSign.userData.sized){
+      const bb=new THREE.Box3().setFromObject(forkSign);
+      const hh=bb.max.y-bb.min.y;
+      if(hh>0.01){ const k=ISLE_SIGN_H/hh; forkSign.scale.setScalar(k);
+        forkSign.userData.foot=-bb.min.y*k; }
+      forkSign.userData.sized=true;
+    }
+    forkSign.position.set(lx,h-forkArt.position.y+(forkSign.userData.foot||0)-ISLE_SIGN_BURY,lz);   // base at the sand; the model buries its own foot
     // turned a little off square to the lane, so it reads as planted rather than placed
     forkSign.rotation.set(0,0.26,0);
     forkSign.visible=true; forkSignSet=true;
