@@ -418,3 +418,24 @@ that material reads.** The island's UVs and tangents are both generated in `fork
 a flat projection down y at the beach's own feet-per-tile, measured off `sandTile` rather
 than typed in, which fixes the texture scale at the same time. `__surf.forkLook()` reports
 `wantTan` and `tan` side by side for exactly this reason.
+
+## palmlod.glb — the same tree, twenty times cheaper
+
+`palm2.glb` is 305,735 triangles and 24 MB of texture. That is the right tree for the title
+screen, where there is ONE of it filling a third of the frame, and the wrong one to plant
+twenty of half a lane away — six clones of it on the fork's island were already 1.8 million
+triangles of scenery.
+
+`palmlod.glb` is that tree collapsed to 18,344 triangles and shipped with **no images at
+all**. It wears the menu palm's own material, assigned in `islePalmSource()`, so there is
+still one palm texture in the game and the two trees can never drift apart. Twenty of these
+come to 350k triangles: three times as many trees for a fifth of the geometry.
+
+It is sized by MEASUREMENT against the tree it stands in for — both bounding boxes, ratio of
+heights — rather than by a typed scale, so it stays the same tree at the same size whichever
+file is rebuilt next. Rebuild it with `palmlod.py`: import, one Collapse decimate, clear the
+materials, export with `export_image_format='NONE'`.
+
+Note that `palm2.glb` carries no TANGENT accessor (it has a normal map but no tangents), so
+its material uses three's screen-space derivative tangent frame and works on any geometry
+with UVs. That is why this one needs no tangent work, and `isle.glb` did — see above.

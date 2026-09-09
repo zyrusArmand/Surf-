@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.132.0';
+window.SURF_VERSION='6.133.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -27283,6 +27283,14 @@ if(location.hash.includes('debug')){
           nor:!!(g.attributes&&g.attributes.normal),vis:o.visible,
           wy:+o.getWorldPosition(new THREE.Vector3()).y.toFixed(2)}); });
       out.palms=forkPalms?forkPalms.children.length:0;
+      out.lod=!!forkPalmSrc;
+      if(forkPalms&&forkPalms.children.length){
+        let tris=0; forkPalms.children[0].traverse(o=>{ if(o.isMesh&&o.geometry.index)
+          tris+=o.geometry.index.count/3; });
+        out.palmTris=tris;
+        out.palmScale=+forkPalms.children[0].scale.x.toFixed(3);
+        out.palmY=forkPalms.children.map(c=>+c.position.y.toFixed(2));
+      }
       out.lights={hemi:hemi.intensity,sun:sun.intensity,
         sunPos:sun.position.toArray().map(v=>+v.toFixed(1)),
         env:!!scene.environment,fog:!!scene.fog,
@@ -31095,24 +31103,85 @@ function forkDress(root){
       o.userData.uvFixed=true;
     }
     if(SAND_MAT)o.material=SAND_MAT; } });
-  if(forkPalms||typeof menuPalm==='undefined'||!menuPalm)return;
-  // Down both edges, thinning toward the point, and FEW: the title palm is the heaviest model
-  // in the game and this is scenery half a lane away. Six reads as a lined shore; a dozen is
-  // the same picture at twice the cost.
+  if(forkPalms)return;
+  const src=islePalmSource(); if(!src)return;
+  // ---- SCATTERED ONTO THE SAND, not laid out along a formula ----
+  // The first version walked two rows down the arms at computed offsets, which is a diagram of
+  // an island rather than an island: evenly spaced, alternating sides, all the same way up.
+  // These are thrown at the bounding box and DROPPED onto the surface -- a ray straight down,
+  // and a candidate that misses the mesh is a candidate over water and is discarded. That is
+  // what makes the planting follow the V for free, including round the inside of the bend,
+  // without the placement code knowing anything about the shape.
   forkPalms=new THREE.Group();
-  for(let i=0;i<6;i++){
-    const run=26+(i/5)*(FORK_OPEN+FORK_STRAIGHT-40);
-    const sgn=(i%2)?1:-1;
-    const e=FORK_HALF*0.5+Math.tan(FORK_SPLAY)*Math.min(FORK_OPEN,run)+FORK_HALF;
-    const c=menuPalm.clone(true);
-    c.position.set(sgn*e*0.72, 0.4, -run);
-    c.rotation.y=Math.random()*6.28;
-    c.scale.setScalar(0.62+Math.random()*0.22);
+  root.updateMatrixWorld(true);
+  let isle=null;
+  root.traverse(o=>{ if(!isle&&o.isMesh&&!o.userData.isPalm)isle=o; });
+  const box=new THREE.Box3().setFromObject(root);
+  const ray=new THREE.Raycaster(), down=new THREE.Vector3(0,-1,0);
+  const at=new THREE.Vector3(), put=[];
+  // Chosen in the island's OWN axes and converted out to cast, because the island slides up
+  // the lane all run: its world z is wherever it has got to this frame, and a lane kept clear
+  // in world coordinates would be kept clear somewhere else by the time he arrived.
+  const ox=root.position.x, oy=root.position.y, oz=root.position.z;
+  const want=(src===forkPalmSrc)?ISLE_PALMS:ISLE_PALMS_HEAVY;
+  for(let tries=0; tries<460 && put.length<want; tries++){
+    const lx=(box.min.x-ox)+Math.random()*(box.max.x-box.min.x);
+    const lz=(box.min.z-oz)+Math.random()*(box.max.z-box.min.z);
+    // the lane he lands in and walks up, kept clear: a tree standing in it is a tree he
+    // walks through, and there is no collision out here to stop him
+    if(Math.abs(lx)<ISLE_LANE&&lz>-ISLE_LANE_Z)continue;
+    let near=false;
+    for(const q of put)if(Math.hypot(q.x-lx,q.z-lz)<ISLE_GAP){ near=true; break; }
+    if(near)continue;
+    at.set(lx+ox,box.max.y+12,lz+oz);
+    ray.set(at,down);
+    const hit=isle?ray.intersectObject(isle,false)[0]:null;
+    if(!hit)continue;                              // over water
+    if(hit.point.y<box.max.y-ISLE_SHORE)continue;  // down the wet face of the beach
+    const c=src.clone(true);
+    c.position.set(lx,hit.point.y-oy,lz);
+    // a real grove leans: turned any way at all, and off vertical by a few degrees, which is
+    // the difference between six of one tree and six trees
+    c.rotation.set((Math.random()-0.5)*0.15, Math.random()*6.283, (Math.random()-0.5)*0.15);
+    c.scale.setScalar(src.scale.x*(ISLE_PALM_MIN+Math.random()*(ISLE_PALM_MAX-ISLE_PALM_MIN)));
     c.traverse(o=>{ if(o.isMesh){ o.castShadow=false; o.receiveShadow=false;
                                   o.userData.isPalm=true; } });
     forkPalms.add(c);
+    put.push({x:lx,z:lz});
   }
   root.add(forkPalms);
+}
+// ---- ONE light palm, standing in for the heavy one ----
+// palm2.glb is three hundred thousand triangles and twenty-four megabytes of texture. That is
+// the right tree for the title screen, where there is one of it filling a third of the frame,
+// and the wrong one to plant twenty of half a lane away: six clones of it were already 1.8
+// million triangles of scenery. palmlod.glb is the same tree collapsed to eighteen thousand
+// and shipped with NO images at all -- it wears the menu palm's own material, so there is
+// still one palm texture in the game, and twenty of these cost a fifth of what six of those
+// did. Sized by MEASUREMENT against the tree it stands in for rather than by a typed number,
+// so it is the same tree at the same size whatever either file is later rebuilt at.
+// HEAVY is the count used if palmlod.glb has not arrived and the menu's own tree is all
+// there is: twenty of THAT would be six million triangles of scenery, which is the exact
+// thing this is here to stop.
+const ISLE_PALMS=20, ISLE_PALMS_HEAVY=6;
+const ISLE_GAP=11.5, ISLE_LANE=10.5, ISLE_LANE_Z=78, ISLE_SHORE=1.15;
+const ISLE_PALM_MIN=0.80, ISLE_PALM_MAX=1.55;
+let forkPalmSrc=null;
+loadModel('palmlod.glb',s=>{ forkPalmSrc=s; },9);
+function islePalmSource(){
+  const menu=(typeof menuPalm!=='undefined')?menuPalm:null;
+  if(!forkPalmSrc)return menu;                     // the file has not landed yet
+  if(!forkPalmSrc.userData.dressed){
+    if(!menu)return null;                          // ...and neither has the material it wears
+    let mat=null; menu.traverse(o=>{ if(!mat&&o.isMesh)mat=o.material; });
+    if(!mat)return null;
+    forkPalmSrc.traverse(o=>{ if(o.isMesh)o.material=mat; });
+    const a=new THREE.Box3().setFromObject(menu).getSize(new THREE.Vector3()).y;
+    const b=new THREE.Box3().setFromObject(forkPalmSrc).getSize(new THREE.Vector3()).y;
+    if(a>0.01&&b>0.01)forkPalmSrc.scale.setScalar(forkPalmSrc.scale.x*a/b);
+    forkPalmSrc.userData.dressed=true;
+  }
+  return forkPalmSrc;
 }
 loadModel('isle.glb',s3=>{ forkModel=s3;
   forkDress(forkModel);
