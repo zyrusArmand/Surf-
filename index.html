@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.142.0';
+window.SURF_VERSION='6.143.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -27354,7 +27354,7 @@ if(location.hash.includes('debug')){
                     run:+forkRun.toFixed(0), yaw:+(forkYaw*180/Math.PI).toFixed(1),
                     obs:obstacles.filter(o=>o.position.z>-175).length,
                     endZ:+forkEndZ.toFixed(1), toGo:+(pz-forkEndZ).toFixed(1),
-                    gnd:+forkGround().toFixed(2),
+                    gnd:+forkGround().toFixed(2), sign:!!forkSignSet,
                     chest:forkChest&&forkChest.visible?{got:!!forkChestGot,
                       y:+forkChest.position.y.toFixed(2),
                       d:+Math.hypot(px-forkChest.position.x-forkArt.position.x,
@@ -31428,8 +31428,9 @@ function forkArm(){
 }
 function forkClear(){
   forkOn=false; forkPh=0; forkT=0; forkSide=0; forkDone=false; forkSpawn=0; forkRun=0;
-  forkOff=0; forkEndZ=0; forkChestGot=false; forkChestSet=false;
+  forkOff=0; forkEndZ=0; forkChestGot=false; forkChestSet=false; forkSignSet=false;
   if(forkChest)forkChest.visible=false;
+  if(forkSign)forkSign.visible=false;
   walkShow(false); forkRemount(); forkFace=0;
   { const R=(typeof riderRig==='function')?riderRig():null; if(R)R.walkW=0; }
   if(forkArt)forkArt.visible=false;
@@ -31497,6 +31498,7 @@ function updateFork(dt,eff){
   // until the island's far end had arrived -- by which time the whole thing, and the camera
   // eleven feet behind him, was already inside it. The render was a screen full of scrub.
   const near=forkZ;
+  if(!forkSignSet)forkPlaceSign();
   if(forkPh===0){
     // ---- the moment of the choice ----
     // Taken when the leading edge reaches him and not before: steering across the front of
@@ -31703,6 +31705,38 @@ let forkFace=0, forkLandX=0, forkEndZ=0;
 // not have to be re-placed every frame, which is what let the old one drift. It turns on the
 // spot, because a thing you are meant to walk to should catch the eye, and turning is the one
 // motion that does not make it look like it is floating.
+// ---- AND A SIGNPOST AT THE HEAD OF IT ----
+// Two planks -- LEFT over RIGHT, each with its arrow -- standing on the left shore right where
+// the island starts, so the choice is announced by the place rather than by a line of text
+// across the middle of the screen. Parented to the island for the same reason the chest is:
+// travelling with it is then something it does by being attached rather than something a
+// frame has to keep doing.
+// It is NOT menusign.glb with a plank taken off. That was the plan and the file does not allow
+// it: its three words are baked into a shared UV atlas, so removing a plank leaves its letters
+// in the texture and writing new ones means rebuilding wood grain under the old ones by hand.
+// forksign.glb is built instead (models/forksign.py) with its wood palette and its yellow
+// SAMPLED off menusign's own base map, so it belongs to the same signpost family. The menu's
+// own signpost is untouched.
+let forkSign=null, forkSignSet=false;
+loadModel('forksign.glb',s2=>{ forkSign=s2; },9);
+const ISLE_SIGN_Z=-15.0;      // how far up the island from the point it stands
+const ISLE_SIGN_OUT=0.80;     // ...and how far out toward the left shore, as a fraction of it
+function forkPlaceSign(){
+  if(forkSignSet||!forkSign||!forkArt||!forkArt.userData.field)return;
+  const lz=ISLE_SIGN_Z;
+  // out along the left shore, and pulled in until it is standing on sand rather than in the sea
+  for(let k=0;k<8;k++){
+    const lx=-forkSandEdge(-lz)*(ISLE_SIGN_OUT-k*0.07);
+    const h=isleH(lx+forkArt.position.x,lz+forkArt.position.z);
+    if(!(h===h)||h<ISLE_WALK_MIN)continue;
+    if(forkSign.parent!==forkArt)forkArt.add(forkSign);
+    forkSign.position.set(lx,h-forkArt.position.y,lz);   // base at the sand; the model buries its own foot
+    // turned a little off square to the lane, so it reads as planted rather than placed
+    forkSign.rotation.set(0,0.26,0);
+    forkSign.visible=true; forkSignSet=true;
+    return;
+  }
+}
 let forkChest=null, forkChestGot=false, forkChestSpin=0;
 const ISLE_CHEST_UP=0.10;     // sat on the sand rather than in it
 // ...and it goes UP ON the island, not down the beach face. Asking only that the spot be out
@@ -31742,6 +31776,7 @@ function forkPlaceChest(){
 }
 function forkChestStep(dt){
   if(!forkChestSet)forkPlaceChest();
+  if(!forkSignSet)forkPlaceSign();
   if(!forkChest||!forkChest.visible||forkChestGot)return;
   forkChestSpin+=dt*ISLE_CHEST_SPIN;
   forkChest.rotation.y=forkChestSpin;

@@ -508,3 +508,30 @@ Historical, and still worth knowing if the maps ever go back on:
   beach turns its sand over about every nineteen feet and the island was turning it over every
   1.9 — a texture ten times too fine, which reads as sandpaper. Same scan, same map, same
   material, and nothing like the same beach.
+
+## forksign.glb — the LEFT / RIGHT signpost at the fork
+
+Two planks on a post, standing on the left shore right where the island starts, so the choice
+is announced by the place rather than by a line of text across the screen.
+
+**It is not `menusign.glb` with a plank removed**, which was the plan. That file does not allow
+it: its three words are baked into a shared UV atlas — 1024px of wood with `PL`, `AY` and the
+rest scattered across islands — so deleting a plank leaves its letters in the texture, and
+writing `LEFT` and `RIGHT` means reconstructing wood grain underneath the old ones by hand on a
+layout nothing describes. This is built instead, by `models/forksign.py`, with its wood palette
+and its yellow **sampled off `menusign.glb`'s own base map** so it belongs to the same signpost.
+The menu's signpost is untouched.
+
+The UVs are set per face rather than unwrapped: the texture is three bands (LEFT, RIGHT, plain
+wood) and each plank's lane-facing face gets a whole band, planar and explicit, because the
+point of the exercise is knowing exactly where the word lands. Three traps, all of which shipped
+broken once each:
+
+- **Blender is Z-up.** Built with Y as height — the game's convention, not Blender's — the post
+  lay on its side and both planks pointed at the camera. The mesh is rotated a quarter turn
+  about X before export. Third time this file has caught someone out that way; see `isle.glb`.
+- **The arrow taper was on the wrong axis.** Tapering the *thickness* (0.3 ft) reads as nothing;
+  the plank still ended square. It tapers the height.
+- **A `u` flip on the LEFT plank.** Added on the reasoning that it faces the other way. It does
+  not — both planks present the same face down the lane — so all the flip did was mirror the
+  word and turn its arrow round: the top plank read `TFEL` with an arrow pointing right.
