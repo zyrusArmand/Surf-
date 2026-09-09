@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.133.0';
+window.SURF_VERSION='6.134.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -27284,6 +27284,8 @@ if(location.hash.includes('debug')){
           wy:+o.getWorldPosition(new THREE.Vector3()).y.toFixed(2)}); });
       out.palms=forkPalms?forkPalms.children.length:0;
       out.lod=!!forkPalmSrc;
+      out.tiles=forkSand?forkSand.count:0;
+      out.tileTris=(isleTile&&isleTile.index)?isleTile.index.count/3:0;
       if(forkPalms&&forkPalms.children.length){
         let tris=0; forkPalms.children[0].traverse(o=>{ if(o.isMesh&&o.geometry.index)
           tris+=o.geometry.index.count/3; });
@@ -31083,7 +31085,7 @@ function forkDress(root){
   const ft=beachFeetPerUV();
   // The palms are children of the island by the time this is asked a second time, and they
   // are NOT sand: dress only what was in the file.
-  root.traverse(o=>{ if(o.isMesh&&!o.userData.isPalm){
+  root.traverse(o=>{ if(o.isMesh&&!o.userData.isPalm&&!o.userData.isSand){
     o.castShadow=false; o.receiveShadow=true;
     if(SAND_MAT&&ft>0&&o.geometry&&o.geometry.attributes.position&&!o.userData.uvFixed){
       const p=o.geometry.attributes.position, n=o.geometry.attributes.normal;
@@ -31103,6 +31105,7 @@ function forkDress(root){
       o.userData.uvFixed=true;
     }
     if(SAND_MAT)o.material=SAND_MAT; } });
+  forkSandField(root);
   if(forkPalms)return;
   const src=islePalmSource(); if(!src)return;
   // ---- SCATTERED ONTO THE SAND, not laid out along a formula ----
@@ -31115,7 +31118,7 @@ function forkDress(root){
   forkPalms=new THREE.Group();
   root.updateMatrixWorld(true);
   let isle=null;
-  root.traverse(o=>{ if(!isle&&o.isMesh&&!o.userData.isPalm)isle=o; });
+  root.traverse(o=>{ if(!isle&&o.isMesh&&!o.userData.isPalm&&!o.userData.isSand)isle=o; });
   const box=new THREE.Box3().setFromObject(root);
   const ray=new THREE.Raycaster(), down=new THREE.Vector3(0,-1,0);
   const at=new THREE.Vector3(), put=[];
@@ -31150,6 +31153,202 @@ function forkDress(root){
     put.push({x:lx,z:lz});
   }
   root.add(forkPalms);
+}
+// ---- THE ISLAND IS COVERED IN THE BEACH'S OWN PIECES ----
+// The island was one modelled surface wearing the beach's texture, which gets the colour right
+// and the RELIEF wrong: the menu beach does not look like sand because of its map, it looks
+// like sand because it is a field of scanned dune chunks laid over each other at a free angle,
+// and no border in it is ever the top of anything. Same idea here, over the V.
+//
+// It cannot be the same field. sandFieldBuild instances the full 8,000-triangle piece about
+// 336 times, and the island is more than twice the beach's area -- three and a half million
+// triangles, on a screen that is also drawing the ride. So the piece is collapsed to 1,200
+// (sandlod.glb, no images at all, see models/sandlod.py) and laid at a little less overlap
+// than the beach uses, which lands at about four hundred pieces and a third of a million
+// triangles. The dune-scale relief is in the SHAPE and survives the collapse; the grain-scale
+// relief was never in the geometry at all, it is in the normal map, which is the beach's own
+// and is untouched.
+let isleTile=null, forkSand=null, ISLE_SAND_MAT=null;
+loadModel('sandlod.glb',s2=>{ let g=null;
+  s2.traverse(o=>{ if(!g&&o.isMesh)g=o.geometry; }); isleTile=g; },9);
+function isleSandMat(){
+  if(ISLE_SAND_MAT||!SAND_MAT)return ISLE_SAND_MAT;
+  ISLE_SAND_MAT=SAND_MAT.clone();
+  // The collapsed piece carries no TANGENT accessor and this material wants one, because the
+  // file it came from had one -- the same mismatch that turned the island flat black. Turned
+  // OFF rather than generated: with the flag off r128 builds the tangent frame out of
+  // screen-space derivatives instead, which needs nothing but UVs and is indistinguishable at
+  // sand's scale. Every map, the colour, the roughness and the grain patch are the beach's own
+  // objects shared by reference, so the island still cannot drift away from it.
+  ISLE_SAND_MAT.vertexTangents=false;
+  ISLE_SAND_MAT.onBeforeCompile=SAND_MAT.onBeforeCompile;
+  // ---- and it takes LESS of the sky than the beach does ----
+  // The menu beach is lit by a white hemisphere at 1.05 and a warm key at 1.8. The ride is
+  // lit by a BLUE hemisphere at 0.39 and a sun ten degrees off the water, and a field of
+  // broken dune faces catches far more of the first than a smooth surface at one angle
+  // does -- so the same sand that reads warm on the menu came out grey out here, next to a
+  // modelled island surface that was still warm. Nothing is wrong with the material: it is
+  // the relief doing exactly what relief does under a cold sky. The env reflection is the
+  // part of that which is not lighting the sand so much as tinting it, and it is the one
+  // knob here that is not shared with the beach.
+  ISLE_SAND_MAT.envMapIntensity=0.04;
+  ISLE_SAND_MAT.needsUpdate=true;
+  return ISLE_SAND_MAT;
+}
+// ---- the island's own height, as a grid rather than as a ray ----
+// Everything below wants the surface height at a few thousand points: a centre per piece, four
+// more for the slope it lies along, eight more for the crest it has to clear. Asked as rays
+// that is six thousand casts against the mesh at load. Rasterised once from the 1,024 triangles
+// it actually has, it is arithmetic afterwards and costs nothing to ask again.
+const ISLE_CELL=2.0;
+function isleHeightField(mesh,ox,oy,oz){
+  const g=mesh.geometry, p=g.attributes.position, idx=g.index;
+  if(!p)return null;
+  let x0=1e9,x1=-1e9,z0=1e9,z1=-1e9;
+  for(let i=0;i<p.count;i++){ const x=p.getX(i), z=p.getZ(i);
+    if(x<x0)x0=x; if(x>x1)x1=x; if(z<z0)z0=z; if(z>z1)z1=z; }
+  const nx=Math.ceil((x1-x0)/ISLE_CELL)+2, nz=Math.ceil((z1-z0)/ISLE_CELL)+2;
+  if(nx<2||nz<2||nx*nz>60000)return null;
+  const H=new Float32Array(nx*nz).fill(NaN);
+  const n=idx?idx.count:p.count;
+  const ax=[0,0,0], ay=[0,0,0], az=[0,0,0];
+  for(let t=0;t<n;t+=3){
+    for(let v=0;v<3;v++){ const i=idx?idx.getX(t+v):(t+v);
+      ax[v]=p.getX(i); ay[v]=p.getY(i); az[v]=p.getZ(i); }
+    const cx0=Math.max(0,Math.floor((Math.min(ax[0],ax[1],ax[2])-x0)/ISLE_CELL));
+    const cx1=Math.min(nx-1,Math.ceil((Math.max(ax[0],ax[1],ax[2])-x0)/ISLE_CELL));
+    const cz0=Math.max(0,Math.floor((Math.min(az[0],az[1],az[2])-z0)/ISLE_CELL));
+    const cz1=Math.min(nz-1,Math.ceil((Math.max(az[0],az[1],az[2])-z0)/ISLE_CELL));
+    const d=(az[1]-az[2])*(ax[0]-ax[2])+(ax[2]-ax[1])*(az[0]-az[2]);
+    if(Math.abs(d)<1e-9)continue;                 // edge-on in plan, covers no cell
+    for(let cx=cx0;cx<=cx1;cx++)for(let cz=cz0;cz<=cz1;cz++){
+      const X=x0+cx*ISLE_CELL, Z=z0+cz*ISLE_CELL;
+      const w0=((az[1]-az[2])*(X-ax[2])+(ax[2]-ax[1])*(Z-az[2]))/d;
+      const w1=((az[2]-az[0])*(X-ax[2])+(ax[0]-ax[2])*(Z-az[2]))/d;
+      const w2=1-w0-w1;
+      if(w0<-0.001||w1<-0.001||w2<-0.001)continue;
+      const y=w0*ay[0]+w1*ay[1]+w2*ay[2];
+      const k=cz*nx+cx;
+      if(!(H[k]>=y))H[k]=y;                       // NaN answers false, so the first hit wins
+    }
+  }
+  return {x0,z0,nx,nz,H,
+    // NaN off the island, which is how "is this candidate over water" gets answered
+    at(lx,lz){
+      const fx=(lx-this.x0)/ISLE_CELL, fz=(lz-this.z0)/ISLE_CELL;
+      const cx=Math.floor(fx), cz=Math.floor(fz);
+      if(cx<0||cz<0||cx>=this.nx-1||cz>=this.nz-1)return NaN;
+      const tx=fx-cx, tz=fz-cz, H=this.H, nxx=this.nx;
+      const a=H[cz*nxx+cx], b=H[cz*nxx+cx+1], c=H[(cz+1)*nxx+cx], d2=H[(cz+1)*nxx+cx+1];
+      if(a!==a||b!==b||c!==c||d2!==d2)return NaN;
+      return (a*(1-tx)+b*tx)*(1-tz)+(c*(1-tx)+d2*tx)*tz;
+    }};
+}
+// The beach's numbers, with the SIZE changed. The beach lays a 14-unit piece across a patch
+// 68 wide; the island's arms are thirteen feet across, so a piece that size spans a whole arm
+// and the field reads as plates rather than as sand -- one repeat is not a texture. At eight
+// feet there are five across an arm with the overlap the beach uses, which is the same look
+// at the scale the thing is actually built at. GAP is the beach's own: less overlap was the
+// first thing tried and it opened straight-edged gaps between the pieces, which is exactly
+// what sandFieldBuild's comments say it would.
+// RELIEF is the beach's own, and was briefly cut to 0.24 to take the cold sky off the piece
+// faces. It worked and it cost more than it bought: DEPTH is what hides the borders between
+// pieces -- they only disappear into one another if there is something to disappear into --
+// and at 0.24 the field went back to reading as a tray of flat plates with straight edges,
+// which is the one thing sand is not. The sky is dealt with on the material instead.
+const ISLE_TILE=8.0, ISLE_TGAP=0.54, ISLE_TJIT=0.34, ISLE_TRELIEF=0.32, ISLE_TTILT=0.9;
+// How many of the eight ring samples have to land on sand for a piece to be laid at FULL
+// size: all eight, so a full-size piece is one that is wholly inland. Seven and six were
+// both tried and both put slabs out over the water at every edge -- a piece with even one
+// corner off the island has nothing under an eighth of it, and at close range on a
+// thirteen-foot arm that is the first thing you see. Between EDGE and here the piece is
+// laid smaller instead (see shrink), which is what covers the shoreline without hanging
+// off it; below EDGE there is nothing worth laying at any size.
+const ISLE_TON=8, ISLE_TEDGE=5;
+function forkSandField(root){
+  if(forkSand||!isleTile||!SAND_MAT)return;
+  const mat=isleSandMat(); if(!mat)return;
+  let isle=null;
+  root.traverse(o=>{ if(!isle&&o.isMesh&&!o.userData.isPalm&&o!==forkSand)isle=o; });
+  if(!isle)return;
+  const ox=root.position.x, oy=root.position.y, oz=root.position.z;
+  const F=isleHeightField(isle,ox,oy,oz); if(!F)return;
+  const bb=isleTile.boundingBox||(isleTile.computeBoundingBox(),isleTile.boundingBox);
+  const spanX=(bb.max.x-bb.min.x)||1, spanZ=(bb.max.z-bb.min.z)||1;
+  const base=ISLE_TILE/Math.max(spanX,spanZ);
+  // the piece's SHORT side, because it is turned to a free angle and that is what it is
+  // guaranteed to cover whichever way it ends up facing -- see sandFieldBuild
+  const stepX=Math.max(0.6,Math.min(spanX,spanZ)*base*ISLE_TGAP), stepZ=stepX*0.866;
+  const gx0=F.x0-stepX, gz0=F.z0-stepZ;
+  const nx=Math.ceil(((F.nx-1)*ISLE_CELL+stepX*2)/stepX);
+  const nz=Math.ceil(((F.nz-1)*ISLE_CELL+stepZ*2)/stepZ);
+  const N=nx*nz;
+  if(!N||N>4200)return;
+  const mesh=new THREE.InstancedMesh(isleTile,mat,N);
+  const m=new THREE.Matrix4(), q=new THREE.Quaternion(), q2=new THREE.Quaternion();
+  const e=new THREE.Euler(), pos=new THREE.Vector3(), scl=new THREE.Vector3();
+  const up=new THREE.Vector3(0,1,0), nrm=new THREE.Vector3();
+  // a fixed sequence, for the reason the beach's is fixed: an island that reshuffles on every
+  // rebuild makes every screenshot a different picture
+  let rs=20260909;
+  const R=()=>{ rs=(rs*1103515245+12345)&0x7fffffff; return rs/0x7fffffff; };
+  let i=0;
+  for(let ix=0; ix<nx; ix++)for(let iz=0; iz<nz; iz++){
+    const x=gx0+(ix+0.5+(iz&1?0.5:0))*stepX+(R()-0.5)*stepX*ISLE_TJIT;
+    const z=gz0+(iz+0.5)*stepZ+(R()-0.5)*stepZ*ISLE_TJIT;
+    const h0=F.at(x,z);
+    if(h0!==h0)continue;                          // NaN: this one is over water
+    const k=base*(0.90+R()*0.26);
+    const d=Math.max(0.6,ISLE_TILE*0.35);
+    // the slope read over a third of the piece's own width, not at a point: a piece lying
+    // across a dune should follow the dune rather than the ripple under its middle
+    const hxp=F.at(x+d,z), hxm=F.at(x-d,z), hzp=F.at(x,z+d), hzm=F.at(x,z-d);
+    let gx=0, gz=0;
+    if(hxp===hxp&&hxm===hxm)gx=(hxp-hxm)/(2*d);
+    if(hzp===hzp&&hzm===hzm)gz=(hzp-hzm)/(2*d);
+    nrm.set(-gx*ISLE_TTILT,1,-gz*ISLE_TTILT).normalize();
+    // ...and LIFTED clear of the crest it lies across, or the modelled surface underneath
+    // comes up through the middle of the field -- which on the beach was a yellow band with
+    // straight edges across the foreground, and here would be the low-poly island showing
+    // through its own sand
+    const r2=ISLE_TILE*0.5;
+    let lift=0, on=0;
+    for(let a=0;a<8;a++){
+      const dx=Math.cos(a*Math.PI/4)*r2, dz=Math.sin(a*Math.PI/4)*r2;
+      const hs=F.at(x+dx,z+dz);
+      if(hs!==hs)continue;                      // that corner of it is over water
+      on++;
+      const plane=h0+ISLE_TTILT*(gx*dx+gz*dz);
+      if(hs-plane>lift)lift=hs-plane;
+    }
+    // ---- and a piece near the water gets SMALLER rather than dropped ----
+    // A piece is eight feet across and the arms are thirteen, so one centred a foot inside
+    // the waterline hangs three feet out over the sea with nothing under it: angular shards
+    // floating off the shore, which is what the first pass looked like. Dropping those left
+    // the other hole -- the point of the V, the narrowest part and the part he lands on and
+    // then stands next to, bare down to the modelled surface, which at that range is a big
+    // smooth wedge and reads as a plate.
+    // Both of those are the same mistake: treating the size of a piece as fixed and its
+    // existence as the variable. Shrink it toward the shore instead and it covers the ground
+    // it is over and none of the water beside it -- which is also what sand does at a
+    // tideline, where the sea flattens it out. Below half the ring on land there is nothing
+    // worth laying and it is dropped.
+    if(on<ISLE_TEDGE)continue;
+    const shrink=(on>=ISLE_TON)?1:(0.42+0.58*(on-ISLE_TEDGE)/(ISLE_TON-ISLE_TEDGE));
+    e.set(0,R()*6.283,0); q2.setFromEuler(e);
+    q.setFromUnitVectors(up,nrm); q.multiply(q2);
+    pos.set(x,h0+lift,z);
+    scl.set(k*shrink,k*shrink*ISLE_TRELIEF,k*shrink);
+    m.compose(pos,q,scl);
+    mesh.setMatrixAt(i++,m);
+  }
+  mesh.count=i;
+  mesh.instanceMatrix.needsUpdate=true;
+  mesh.castShadow=false; mesh.receiveShadow=true;
+  mesh.frustumCulled=false;                       // one object spanning a quarter mile
+  mesh.userData.isSand=1;
+  forkSand=mesh;
+  root.add(mesh);
 }
 // ---- ONE light palm, standing in for the heavy one ----
 // palm2.glb is three hundred thousand triangles and twenty-four megabytes of texture. That is

@@ -439,3 +439,27 @@ materials, export with `export_image_format='NONE'`.
 Note that `palm2.glb` carries no TANGENT accessor (it has a normal map but no tangents), so
 its material uses three's screen-space derivative tangent frame and works on any geometry
 with UVs. That is why this one needs no tangent work, and `isle.glb` did — see above.
+
+## sandlod.glb — the beach's sand piece, for the island's field
+
+The menu beach does not look like sand because of its texture. It looks like sand because
+`sandFieldBuild` lays a field of scanned dune chunks over each other at free angles, deep
+enough that no border in it is ever the top of anything. The fork's island now gets the same
+field — but it cannot get the same *pieces*: `sandFieldBuild` instances the full
+8,000-triangle chunk about 336 times, and the island is more than twice the beach's area, so
+the same field at the same density is three and a half million triangles on a screen that is
+also drawing the ride.
+
+`sandlod.glb` is that chunk collapsed to 1,200 triangles with **no images**, laid at eight
+feet a piece (the beach's fourteen spans a whole thirteen-foot arm, and one repeat is not a
+texture). About 580 pieces, 700k triangles. The dune-scale relief is in the SHAPE and survives
+the collapse; the grain-scale relief was never in the geometry at all — it is in the normal
+map, which is the beach's own and untouched.
+
+The tiles wear a clone of `SAND_MAT` with `vertexTangents` turned **off** — the collapsed
+piece carries no TANGENT accessor, and this is the third time that mismatch has come up in
+this file. Turning the flag off is the cheap fix wherever the geometry has UVs: three then
+builds the tangent frame from screen-space derivatives, which is indistinguishable at sand's
+scale. Generate tangents (as `isle.glb` does) only when you can derive them exactly.
+
+Rebuild with `models/sandlod.py`.
