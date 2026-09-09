@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.151.0';
+window.SURF_VERSION='6.152.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -14748,6 +14748,16 @@ function setupModelRig(root,gltf,id){
   };
   R.armLie();
   R.heliW=0; R.lieT=0; R.walkW=0; R.walkRate=1;
+  // ---- and the DIVE is not the helicopter, however alike they look ----
+  // Both lay him flat, so the dive was first wired straight into heliW to borrow the
+  // lie-down clip. Measured, that turns him over TWICE: in his own frame the clip already
+  // has him 2.44 long against 1.73 tall -- half way down on its own -- and the group turn
+  // adds a further ninety on top, which carries him past flat and back up the other side.
+  // In the world he came out 1.37 long and 1.73 tall, which is to say standing, which is
+  // exactly what it looked like. So the dive gets its own weight: it suppresses the surfing
+  // stance and the rotation reset the same way heliW does, and drives no clip at all. The
+  // model rests, the group lays it out, and one rotation happens once.
+  R.swimW=0;
   // ---- both SCRUBBED actions are re-armed together, always ----
   // stop() takes an action out of the mixer entirely and a stopped action is not evaluated
   // however its time is set. The handstand had a note about this and five separate places
@@ -14870,6 +14880,26 @@ function setupModelRig(root,gltf,id){
   // and bring it back through the parent, which is the frame a bone's quaternion lives in. It
   // costs nothing per skeleton and it cannot be wrong about a bind pose it never looks at.
   // Run AFTER the mixer, every frame, because the clip writes these bones again every frame.
+  // Which bone is the thigh is a question about THIS file, so it is asked of this file rather
+  // than assumed: these skeletons call the spine Spine01/Spine02 where the guess was Spine1,
+  // and a guessed leg name fails silently -- the pose simply does not happen and there is
+  // nothing to see but a dog with its legs down.
+  R.limbNames=function(){
+    if(this._limbs)return this._limbs;
+    const names=Object.keys(this.bones||{});
+    const pick=(side,re)=>names.find(n=>new RegExp('^'+side,'i').test(n)&&re.test(n))||null;
+    this._limbs={
+      thighL:pick('L',/upleg|thigh|femur|upperleg|leg0?1$/i),
+      thighR:pick('R',/upleg|thigh|femur|upperleg|leg0?1$/i),
+      // Mixamo-style: UpLeg -> Leg -> Foot. So the shin is the one ENDING in 'Leg' that is
+      // not the thigh -- 'LeftLeg' matches, 'LeftUpLeg' does not, and neither does 'ForeArm'.
+      shinL :pick('L',/[^p]leg$|leg0?2$|shin|calf|lowerleg/i),
+      shinR :pick('R',/[^p]leg$|leg0?2$|shin|calf|lowerleg/i),
+      footL :pick('L',/foot|ankle|toe/i),
+      footR :pick('R',/foot|ankle|toe/i)
+    };
+    return this._limbs;
+  };
   R.swim=function(w){
     if(!(w>0.01)||!this.bones)return;
     const V=THREE.Vector3, Q=THREE.Quaternion;
@@ -14899,6 +14929,35 @@ function setupModelRig(root,gltf,id){
       // aimed forward is a punch, not a glide.
       const fa=this.bones[s+'ForeArm'];
       if(fa&&this.bind&&this.bind[s+'ForeArm'])fa.quaternion.slerp(this.bind[s+'ForeArm'].q,w*0.9);
+    }
+    // ---- and the back legs TRAIL ----
+    // Left in their rest pose they hang straight down his own frame, which once he is turned
+    // face down is straight out at ninety degrees to him -- two legs sticking down at the sea
+    // bed off a body that is otherwise flat. Aimed down the length of him instead, which is
+    // where a swimming dog's back legs are, and the whole silhouette closes up.
+    const L=this.limbNames();
+    const back=new V().copy(head).multiplyScalar(-1);       // the other way along his length
+    for(const s of ['L','R']){
+      const th=this.bones[L['thigh'+s]], kn=this.bones[L['shin'+s]]||this.bones[L['foot'+s]];
+      if(!th||!kn)continue;
+      const S=new V(), K=new V();
+      th.getWorldPosition(S); kn.getWorldPosition(K);
+      const d=new V().subVectors(K,S);
+      if(d.lengthSq()<1e-8)continue;
+      d.normalize();
+      const sgn=(s==='L')?-1:1;
+      // a slow flutter, and out a little either side -- a swimming dog kicks, and two legs on
+      // one line read as a tail
+      const t=new V().copy(back)
+                     .addScaledVector(right,sgn*0.20)
+                     .addScaledVector(new V(0,1,0),Math.sin((typeof tNow==='number'?tNow:0)*3.2+(sgn>0?0:2.1))*0.10)
+                     .normalize();
+      const pq=new Q(); if(th.parent)th.parent.getWorldQuaternion(pq);
+      const thW=new Q(); th.getWorldQuaternion(thW);
+      th.quaternion.slerp(pq.invert().multiply(new Q().setFromUnitVectors(d,t).multiply(thW)),w);
+      th.updateMatrixWorld(true);
+      const sh2=L['shin'+s];
+      if(sh2&&this.bind&&this.bind[sh2])this.bones[sh2].quaternion.slerp(this.bind[sh2].q,w*0.85);
     }
   };
   R.hipHome=R.bones.Hips?R.bones.Hips.position.clone():null;
@@ -15284,7 +15343,8 @@ function setupModelRig(root,gltf,id){
     // The stance is faded by what the clips ARE contributing -- both of them. Left at
     // 1-aw it fought the lie-down at full strength and the two averaged into a rider
     // half way to standing up again, which is neither pose.
-    const w=(1-this.aw)*(1-hw)*(1-ww);
+    const sw=Math.max(0,Math.min(1,this.swimW||0));
+    const w=(1-this.aw)*(1-hw)*(1-ww)*(1-sw);
     if(w<=0.001)return;
     this.stance(dt,w);
   };
@@ -27575,6 +27635,48 @@ if(location.hash.includes('debug')){
     // ---- the dive, and the button that flies it ----
     dive(on){ return diveGo(on===undefined?!diveOn:!!on); },
     rise(on){ jumpHeld=!!on; return jumpHeld; },
+    // ---- WHERE THE POSED BODY ACTUALLY IS, in all three ----
+    // bodyScan answers the vertical because that is all standing on a deck needs. "Is he lying
+    // down" needs the shape: a pug on his feet is about 1.8 tall and 0.9 long, and the same pug
+    // swimming is 0.6 tall and 2.0 long. Box3 cannot tell them apart -- for a skinned mesh it
+    // reads the BIND box, which is why it called a rider mid-dive two and a half feet tall.
+    swimScan(){
+      const R=riderRig(); if(!R)return {model:false};
+      let sm=R.skin;
+      if(!sm){ pug.traverse(o=>{ if(o.isSkinnedMesh&&!sm)sm=o; }); }
+      if(!sm||!(sm.applyBoneTransform||sm.boneTransform))return {model:true,skin:false};
+      pug.updateMatrixWorld(true); sm.skeleton.update();
+      const p=sm.geometry.attributes.position, v=new THREE.Vector3();
+      const lo=[1e9,1e9,1e9], hi=[-1e9,-1e9,-1e9];
+      const lo2=[1e9,1e9,1e9], hi2=[-1e9,-1e9,-1e9];
+      const inv=new THREE.Matrix4().copy(pug.matrixWorld).invert();
+      const u=new THREE.Vector3();
+      for(let i=0;i<p.count;i+=7){
+        v.fromBufferAttribute(p,i);
+        sm.applyBoneTransform?sm.applyBoneTransform(i,v):sm.boneTransform(i,v);
+        v.applyMatrix4(sm.matrixWorld);
+        const c=[v.x,v.y,v.z];
+        for(let k=0;k<3;k++){ if(c[k]<lo[k])lo[k]=c[k]; if(c[k]>hi[k])hi[k]=c[k]; }
+        // ...and again in HIS frame. If he is standing here too then the clip left him upright
+        // and the group turn simply is not reaching him; if he is flat here and upright in the
+        // world, the turn is being undone above him. One of those is a bug in a different file.
+        u.copy(v).applyMatrix4(inv);
+        const c2=[u.x,u.y,u.z];
+        for(let k=0;k<3;k++){ if(c2[k]<lo2[k])lo2[k]=c2[k]; if(c2[k]>hi2[k])hi2[k]=c2[k]; }
+      }
+      const w=+(hi[0]-lo[0]).toFixed(2), h=+(hi[1]-lo[1]).toFixed(2), d=+(hi[2]-lo[2]).toFixed(2);
+      return {model:true, wide:w, tall:h, long:d,
+              own:{wide:+(hi2[0]-lo2[0]).toFixed(2), tall:+(hi2[1]-lo2[1]).toFixed(2),
+                   long:+(hi2[2]-lo2[2]).toFixed(2),
+                   y:[+lo2[1].toFixed(2),+hi2[1].toFixed(2)],
+                   z:[+lo2[2].toFixed(2),+hi2[2].toFixed(2)]},
+              // taller than he is long means he is on his feet, whatever the group says
+              flat:d>h*1.5, rx:+pug.rotation.x.toFixed(2),
+              pose:+((typeof divePose!=='undefined')?divePose:0).toFixed(2),
+              limbs:R.limbNames?R.limbNames():null,
+              lieBest:R.lieBest===undefined?null:+R.lieBest.toFixed(2),
+              lieLow:R.lieLow===undefined?null:+R.lieLow.toFixed(2)};
+    },
     diveState(){ const wY=(typeof waveH==='function')?waveH(px,dist*WAVE_DRIFT+pz,waveClock):0;
       return {on:!!diveOn, t:+diveT.toFixed(2), depth:+diveDepth.toFixed(2),
               rise:+diveRise.toFixed(2), py:+py.toFixed(2), sea:+wY.toFixed(2),
@@ -34007,8 +34109,8 @@ function updateHandstand(dt,carve){
     // such. The file already ships the pose: Lie_Down is a body laid out flat and face down,
     // which is a swimmer as much as it is a rider on his chest. So the dive drives the same
     // weight, and the group turn set for it survives for the same reason the heli's does.
-    modelRig.heliW=Math.max((typeof heliPose!=='undefined')?heliPose:0,
-                            (typeof divePose!=='undefined')?divePose:0);
+    modelRig.heliW=(typeof heliPose!=='undefined')?heliPose:0;
+    modelRig.swimW=(typeof divePose!=='undefined')?divePose:0;
     // ---- the legs run in phase 4 and walk in phase 3 ----
     // Phase 4 is the momentum off the board, so it is on outright -- there is no stick to
     // consult and he is moving whether or not anyone is asking him to. Phase 3 is the stick.
@@ -34034,7 +34136,7 @@ function updateHandstand(dt,carve){
     // helicopter's lie-down off him: the beats set the turn, and a line further down the
     // same frame set it straight back to zero. While the lie-down has him, the CLIP is
     // laying him out and the group is left where the heli put it.
-    if(modelRig.heliW<=0.02)
+    if(modelRig.heliW<=0.02&&modelRig.swimW<=0.02)
       pug.rotation.x=(modelRig.stand&&modelRig.standInverts)?0:modelRig.rot*Math.PI;
     // side-on first, then stood on the deck, then slid onto it — each one measures the pose
     // the one before it left, so the order is the whole of why they agree
