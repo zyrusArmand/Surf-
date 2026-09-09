@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.150.0';
+window.SURF_VERSION='6.151.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -14860,6 +14860,47 @@ function setupModelRig(root,gltf,id){
     if(this.xFix){ pug.position.x-=this.xFix; this.xFix=0; }
     this.scrubArm();
   };
+  // ---- SUPERMAN, laid over whatever the clip left ----
+  // The lie-down these files ship is Lie_Down_Hands_Spread: flat and face down, which is most
+  // of a swimmer, with the arms out sideways, which is the half that is a skydiver instead. The
+  // arms are not hand-posed in bone angles here -- that would be a different guess per skeleton,
+  // and this rig loads several. They are AIMED, by exactly the trick normaliseArms above uses to
+  // agree five different exports on where a dog's arms hang: measure where the upper arm
+  // actually points in the world, build the rotation that takes that to where it should point,
+  // and bring it back through the parent, which is the frame a bone's quaternion lives in. It
+  // costs nothing per skeleton and it cannot be wrong about a bind pose it never looks at.
+  // Run AFTER the mixer, every frame, because the clip writes these bones again every frame.
+  R.swim=function(w){
+    if(!(w>0.01)||!this.bones)return;
+    const V=THREE.Vector3, Q=THREE.Quaternion;
+    const rq=new Q(); pug.getWorldQuaternion(rq);
+    // The direction he is GOING is the length of him -- local +Y, up his spine -- because the
+    // group is turned face down. Local -Z, which is his face, is pointing at the sea bed.
+    const head =new V(0,1,0).applyQuaternion(rq).normalize();
+    const right=new V(1,0,0).applyQuaternion(rq).normalize();
+    for(const s of ['Left','Right']){
+      const sh=this.bones[s+'Arm'], hd=this.bones[s+'Hand']||this.bones[s+'ForeArm'];
+      if(!sh||!hd)continue;
+      const S=new V(), H=new V();
+      sh.getWorldPosition(S); hd.getWorldPosition(H);
+      const d=new V().subVectors(H,S);
+      if(d.lengthSq()<1e-8)continue;
+      d.normalize();
+      const sgn=(s==='Left')?-1:1;
+      // out front and opened a touch wider than his shoulders: two arms on exactly the same
+      // line read as one arm
+      const t=new V().copy(head).addScaledVector(right,sgn*0.24).normalize();
+      const pq=new Q(); if(sh.parent)sh.parent.getWorldQuaternion(pq);
+      const shW=new Q(); sh.getWorldQuaternion(shW);
+      const want=pq.invert().multiply(new Q().setFromUnitVectors(d,t).multiply(shW));
+      sh.quaternion.slerp(want,w);
+      sh.updateMatrixWorld(true);
+      // ...and the elbow goes back to its bind, which is straight. A bent elbow on an arm
+      // aimed forward is a punch, not a glide.
+      const fa=this.bones[s+'ForeArm'];
+      if(fa&&this.bind&&this.bind[s+'ForeArm'])fa.quaternion.slerp(this.bind[s+'ForeArm'].q,w*0.9);
+    }
+  };
   R.hipHome=R.bones.Hips?R.bones.Hips.position.clone():null;
   R.hipQ=R.bones.Hips?R.bones.Hips.quaternion.clone():null;
   R.paint=paintRiderFace(root,R.bones,(CHAR_BY_ID[id]||{}).fur);
@@ -18227,11 +18268,18 @@ addEventListener('keyup',e=>{
   if(e.code==='KeyH')handOn=false;
 });
 let steer=0;
+// ---- and UNDER the water there is a second axis ----
+// On the surface the finger steers one thing, because a board has one thing to steer: up and
+// down are what the wave is doing, not what you are doing. Swimming is the opposite -- the
+// water is the same in every direction and the whole of the movement is deciding which way to
+// go through it. So the same swipe carries a vertical component too, live only while he is
+// under, and every trick gesture layered on this handler stands down for the duration.
+let steerY=0;
 // swipe steering: swipe the way you want him to go — the swipe keeps steering, and
 // the anchor drifts back so you can keep swiping in the same direction.
 let touchId=null,touchX0=0,touchY0=0;
 let weight=0;   // vestigial: the ride is side to side only now
-function dropSteerTouch(){touchId=null;steer=0;weight=0;}
+function dropSteerTouch(){touchId=null;steer=0;steerY=0;weight=0;}
 // Tricks are gestures on the water itself rather than buttons. Tap to jump, tap
 // again in the air for a flip and keep tapping for more; swipe up or down for a
 // front or back flip; hold to grab; a second finger tapped is a spin, held is a
@@ -18323,7 +18371,7 @@ addEventListener('touchstart',e=>{
       circleReset();cLast=0;gFireT=0;
       clearTimeout(gHoldT);
       gHoldT=setTimeout(()=>{                       // held still: take hold of the rail
-        if(touchId===null||gMove>TAP_SLOP||gSwiped)return;
+        if(touchId===null||gMove>TAP_SLOP||gSwiped||diveOn)return;
         gGrab=true;
         if(airborne||hanging)startTrick('grab'); else startDrag();
       },HOLD_MS);
@@ -18342,6 +18390,17 @@ addEventListener('touchmove',e=>{
       if(v>1){touchX0=t.clientX-range;v=1;}       // let the swipe keep going
       if(v<-1){touchX0=t.clientX+range;v=-1;}
       steer=v;    // side to side and nothing else: up and down do not steer him
+      if(diveOn){
+        // ...except under it, where they are the other half of the movement. Screen up is
+        // world up, so the sign flips. Same rebasing trick as the horizontal: hold the swipe
+        // at the stop and the anchor follows, so a long climb does not run out of glass.
+        const rangeY=innerHeight*0.13;
+        let w=-(t.clientY-touchY0)/rangeY;
+        if(w>1){touchY0=t.clientY+rangeY;w=1;}
+        if(w<-1){touchY0=t.clientY-rangeY;w=-1;}
+        steerY=w;
+        continue;                       // and no gesture on this finger is a trick down here
+      }
       const dx=t.clientX-gX0, dy=t.clientY-gY0;
       gMove=Math.max(gMove,Math.hypot(dx,dy));
       // Loops fire as they are drawn, so you can keep circling. A straight swipe is
@@ -18368,6 +18427,9 @@ function endTouch(e){
   for(const t of e.changedTouches)if(t.identifier===touchId){
     clearTimeout(gHoldT);
     const dx=t.clientX-gX0, dy=t.clientY-gY0;
+    // Under the water this finger was swimming, not performing. A tap is not a jump, an up
+    // swipe is not a roll and a circle is not a spin -- they are all just where he went.
+    if(diveOn){ dropSteerTouch(); break; }
     if(gGrab){ endGrab(); endDrag(); }
     else if(!gSwiped&&performance.now()-gT0<TAP_MS&&gMove<TAP_SLOP){
       if(airborne||hanging)addRoll(flipSign);    // keep tapping, keep rolling
@@ -18406,12 +18468,20 @@ addEventListener('mousemove',e=>{
   if(v>1){mouseX0=e.clientX-range;v=1;}
   if(v<-1){mouseX0=e.clientX+range;v=-1;}
   steer=v;
+  if(diveOn){
+    const rangeY=innerHeight*0.13;
+    let w=-(e.clientY-mouseY0)/rangeY;
+    if(w>1){mouseY0=e.clientY+rangeY;w=1;}
+    if(w<-1){mouseY0=e.clientY-rangeY;w=-1;}
+    steerY=w; lastMouseX=e.clientX; lastMouseY=e.clientY;
+    return;                                   // no circles, no spins: he is swimming
+  }
   const dxg=e.clientX-gX0, dyg=e.clientY-gY0;
   gMove=Math.max(gMove,Math.hypot(dxg,dyg));lastMouseX=e.clientX;lastMouseY=e.clientY;
   const loopM=circleFeed(e.clientX,e.clientY);
   if(loopM&&canFire()){ gSwiped=true; addSpin(loopM); fired(e.clientX,e.clientY); }
 });
-function endMouseDrag(){ if(mouseDrag){mouseDrag=false;steer=0;weight=0;} }
+function endMouseDrag(){ if(mouseDrag){mouseDrag=false;steer=0;steerY=0;weight=0;} }
 addEventListener('mouseleave',endMouseDrag);
 // buzzed HERE rather than inside doJump, because the point of a tap you can feel is that it
 // answers the finger — and on iOS it only fires at all because this is a real touch handler
@@ -21641,7 +21711,7 @@ function startWipeout(kind){
   if(kind==='snap')snapBoard();
   const W=WIPE[kind]||WIPE.foam;
   running=false;                       // controls stop, but the world keeps running
-  endMouseDrag();steer=0;weight=0;
+  endMouseDrag();steer=0;steerY=0;weight=0;
   jumpBtn.classList.add('hidden');ropeBtn.style.display='none';grabBtn.style.display='none';trickBar.classList.add('hidden');walkShow(false);
   if(cocoBarEl)cocoBarEl.classList.add('hidden');cocoReset();
   hanging=false;rope.visible=false;
@@ -27509,6 +27579,29 @@ if(location.hash.includes('debug')){
       return {on:!!diveOn, t:+diveT.toFixed(2), depth:+diveDepth.toFixed(2),
               rise:+diveRise.toFixed(2), py:+py.toFixed(2), sea:+wY.toFixed(2),
               held:!!jumpHeld, fogNear:+DIVE_FOG.near.toFixed(1), fogFar:+DIVE_FOG.far.toFixed(1),
+              // the pose, because "he still looks upright" has been diagnosed by eye twice and
+              // by a number none: which of the four things that write his attitude actually won
+              pose:{w:+divePose.toFixed(2), rx:+pug.rotation.x.toFixed(2),
+                    ry:+pug.rotation.y.toFixed(2),
+                    model:!!riderRig(), heliW:riderRig()?+(riderRig().heliW||0).toFixed(2):null,
+                    tall:+(function(){const b=new THREE.Box3().setFromObject(pug);
+                                      return b.max.y-b.min.y;})().toFixed(2),
+                    long:+(function(){const b=new THREE.Box3().setFromObject(pug);
+                                      return b.max.z-b.min.z;})().toFixed(2),
+                    jet:!!(diveJet&&diveJet.visible), board:!!(boardArt&&boardArt.visible),
+                    // where the jet actually IS against where his body actually is -- "on his
+                    // back" and "buried in his back" look identical from behind and are one
+                    // number apart
+                    jetAt:(function(){ if(!diveJet)return null;
+                      const v=new THREE.Vector3(); diveJet.getWorldPosition(v);
+                      const sk=[]; pug.traverse(o=>{ if(o.isMesh||o.isSkinnedMesh)sk.push(o); });
+                      const b=new THREE.Box3();
+                      for(const o of sk){ if(diveJet.getObjectById(o.id))continue;
+                        b.union(new THREE.Box3().setFromObject(o)); }
+                      return {x:+v.x.toFixed(2),y:+v.y.toFixed(2),z:+v.z.toFixed(2),
+                              body:b.isEmpty()?null:[+b.min.y.toFixed(2),+b.max.y.toFixed(2),
+                                                     +b.min.z.toFixed(2),+b.max.z.toFixed(2)]};
+                    })()},
               camY:+camera.position.y.toFixed(2), camUnder:camera.position.y<wY,
               bed:{vis:bedMesh.visible, y:+bedMesh.position.y.toFixed(1),
                    z:+bedMesh.position.z.toFixed(1), uD:+bedUniforms.uDist.value.toFixed(1),
@@ -32027,18 +32120,30 @@ let diveOn=false, diveT=0, diveRise=0, diveDepth=0;
 // and holding the button became something you did constantly rather than something you did to
 // climb. With a jet on his back he is neutral -- a slow settle you can ignore for a while and
 // use on purpose when you want to get down to the sand.
-const DIVE_SINK=0.65;       // feet a second he settles at, hands off: near enough to neutral
+const DIVE_SINK=0.0;        // feet a second he settles at, hands off: NONE. He hangs.
 const DIVE_LIFT=8.0;        // ...and climbs at, holding the button
 const DIVE_EASE=3.4;        // how fast the vertical speed answers the button
 const DIVE_TOP=1.1;         // how far under the surface counts as still being under
+// ---- and he hangs in the MIDDLE of it ----
+// Hands off he used to settle at two thirds of a foot a second, which over a long stretch is
+// the sea bed: the only place a dive could end up if you stopped asking for anything was lying
+// on the sand. Neutral means the water holds him wherever he left off, and where he goes from
+// there is entirely the swipe -- up, down, left, right and every diagonal between them, which
+// is the whole of the control. The floor and the surface are the two ends of the column, not
+// places he drifts to.
+const DIVE_SWIM_V=9.0;      // feet a second he swims at, full stick, on either axis
+const DIVE_SWIM_EASE=4.6;   // how fast that answers -- a body has mass, a cursor does not
 // ---- and going IN is a kick, not a drift ----
 // With neutral buoyancy the entry velocity is all he has, and it eases away in half a second:
 // he got a foot under, the surface test found him inside its own foot and a bit, and the dive
 // ended before it started. So there is a plunge -- a second and a half driven down at six and a
 // half, which is about ten feet -- and only after it does the button and the buoyancy take over.
 // It is also what the entry should look like: you do not sink into a dive, you kick into one.
-const DIVE_PLUNGE=1.95, DIVE_PLUNGE_V=7.0;    // about thirteen feet, which is most of the way down
-const DIVE_CLEAR=1.5;       // how far above the sand he is held off it
+// ...and it stops HALF WAY DOWN, not on the bottom. Thirteen feet of a seventeen-foot column
+// put him on the sand before he had touched the controls, which is the one place the dive is
+// not supposed to start.
+const DIVE_PLUNGE=1.35, DIVE_PLUNGE_V=5.6;    // about seven feet: the middle of the water
+const DIVE_CLEAR=2.2;       // how far above the sand he is held off it
 // ---- THE JET ON HIS BACK ----
 // Two little pods and a pair of nozzles, hung off the rider and shown only while he is under.
 // Built rather than modelled for the same reason the reef is: at this range and through this
@@ -32046,6 +32151,7 @@ const DIVE_CLEAR=1.5;       // how far above the sand he is held off it
 // that does nothing visible is just a rucksack, and the plume is the thing that says the button
 // is doing something, which is the one piece of feedback a dive otherwise has none of.
 let diveJet=null, diveJetOn=0, _jetT=0;
+let _boardStowed=false, _boardVis0=true;
 const _jetV=new THREE.Vector3();
 // ---- and it is measured in FEET ----
 // The rider is scaled at load so that whatever the model's own units are he comes out RIDER_FT
@@ -32053,11 +32159,15 @@ const _jetV=new THREE.Vector3();
 // for every character in the game. So the jet is built at true size and the group carries the
 // inverse of his scale: 0.95 here is 0.95 feet up his spine on the pug, on the shark, and on
 // whoever gets added next.
-const JET_UP=0.95, JET_BACK=0.34, JET_SIDE=0.135;
+const JET_UP=0.95, JET_BACK=0.42, JET_SIDE=0.175;
+// how far along the spine from the bone the pack sits -- toward the shoulders, where a
+// rucksack rides rather than over the kidneys
+const JET_ALONG=0.10;
 function buildJet(){
   if(diveJet)return diveJet;
   const g=new THREE.Group();
-  const shell=new THREE.MeshStandardMaterial({color:0x27313a,roughness:0.45,metalness:0.35});
+  const shell=new THREE.MeshStandardMaterial({color:0x3d4a56,roughness:0.42,metalness:0.35,
+                                              emissive:0x0d151c,emissiveIntensity:1.0});
   const trim =new THREE.MeshStandardMaterial({color:0x2fd6c0,roughness:0.35,metalness:0.2,
                                               emissive:0x2fd6c0,emissiveIntensity:0.7});
   g.userData.noz=[];
@@ -32066,25 +32176,25 @@ function buildJet(){
     // r140 and this is r128. The guard that was here -- `new THREE.CapsuleGeometry ? ... : ...`
     // -- is not a guard at all, because `new` binds before the ternary does: it constructs
     // undefined and throws, every frame, taking the whole frame's remaining work with it.
-    const pod=new THREE.Mesh(new THREE.CylinderGeometry(0.098,0.098,0.40,10,1),shell);
+    const pod=new THREE.Mesh(new THREE.CylinderGeometry(0.128,0.128,0.52,10,1),shell);
     pod.rotation.x=Math.PI/2;
     pod.position.set(sx*JET_SIDE,0,0);
     g.add(pod);
-    const ring=new THREE.Mesh(new THREE.TorusGeometry(0.075,0.024,6,12),trim);
-    ring.position.set(sx*JET_SIDE,0,0.20);
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(0.098,0.032,6,12),trim);
+    ring.position.set(sx*JET_SIDE,0,0.26);
     g.add(ring);
-    for(const ez of [-0.20,0.20]){                 // the rounded ends
-      const cap=new THREE.Mesh(new THREE.SphereGeometry(0.098,10,7),shell);
+    for(const ez of [-0.26,0.26]){                 // the rounded ends
+      const cap=new THREE.Mesh(new THREE.SphereGeometry(0.128,10,7),shell);
       cap.position.set(sx*JET_SIDE,0,ez); g.add(cap);
     }
-    const noz=new THREE.Mesh(new THREE.ConeGeometry(0.072,0.13,8),shell);
+    const noz=new THREE.Mesh(new THREE.ConeGeometry(0.094,0.17,8),shell);
     noz.rotation.x=-Math.PI/2;
-    noz.position.set(sx*JET_SIDE,0,0.27);
+    noz.position.set(sx*JET_SIDE,0,0.35);
     g.add(noz); g.userData.noz.push(noz);
   }
   // the yoke across his shoulders, which is what makes two pods read as one thing worn
-  const yoke=new THREE.Mesh(new THREE.BoxGeometry(JET_SIDE*2+0.08,0.075,0.13),shell);
-  yoke.position.set(0,0.10,-0.02); g.add(yoke);
+  const yoke=new THREE.Mesh(new THREE.BoxGeometry(JET_SIDE*2+0.10,0.095,0.17),shell);
+  yoke.position.set(0,0.13,-0.02); g.add(yoke);
   g.visible=false;
   diveJet=g;
   return g;
@@ -32094,16 +32204,53 @@ function jetUpdate(dt){
   const want=(diveOn||diveDepth>0.5);
   if(g.parent!==pug&&want)pug.add(g);
   g.visible=want;
+  // ---- and the BOARD goes ----
+  // He is not riding it, he is swimming, and a surfboard welded under a man doing the crawl is
+  // the single loudest thing in the frame saying this is still the surf game with the water
+  // turned up. It comes straight back the moment he surfaces.
+  // ...on the TRANSITIONS only. Written every frame this would be a second owner of a flag the
+  // beach, the shop and the fork all set for their own reasons, and the last writer each frame
+  // wins: the board would come back on in places that had deliberately put it away.
+  if(typeof boardArt!=='undefined'&&boardArt){
+    if(want&&!_boardStowed){ _boardStowed=true; _boardVis0=boardArt.visible; boardArt.visible=false; }
+    else if(!want&&_boardStowed){ boardArt.visible=_boardVis0; _boardStowed=false; }
+  }
   if(!want){ diveJetOn=0; return; }
   // on his back: up his spine and behind him, in the rider's own frame, so it turns with him --
   // and divided through by his scale, so the numbers above stay feet
   const k=1/(pug.scale.x||1);
   g.scale.setScalar(k);
-  g.position.set(0,JET_UP*k,JET_BACK*k);
-  g.rotation.set(0,0,0);
+  // ---- and it is hung off his SPINE, not off a number ----
+  // "Up the spine and out the back" as a fixed offset from the group origin is only right while
+  // he is standing on it, because the origin is the ground between his feet: it is an offset
+  // from the FLOOR pretending to be an offset from his body. Lay him out flat and his back is
+  // no longer above that origin at all -- measured, the pack sat at his own mid-height, which is
+  // to say inside him. So the spine bone is asked where it is, brought back into the group's
+  // frame, and the pack is set out from THERE. The one number left is how far a dog is from his
+  // spine to his skin, which is a fact about a dog and not about a pose.
+  const _R=(typeof riderRig==='function')?riderRig():null;
+  const _sp=_R&&_R.bones&&(_R.bones.Spine02||_R.bones.Spine2||_R.bones.Spine01||_R.bones.Spine1
+                            ||_R.bones.Spine||_R.bones.Chest);
+  if(_sp){
+    _sp.getWorldPosition(_jetV);
+    pug.worldToLocal(_jetV);
+    g.position.set(_jetV.x, _jetV.y+JET_ALONG*k, _jetV.z+JET_BACK*k);
+  } else {
+    g.position.set(0,JET_UP*k,JET_BACK*k);
+  }
+  // ---- and it points AFT, which once he is face down is not where it was ----
+  // The offset needs no fixing in either pose: local +Y runs up his spine and local +Z out
+  // through his back, so "up the spine, out the back" lands mid-back standing and on top of him
+  // lying down, which is both times right. The NOZZLES are the part that moves. Stood up they
+  // fire out behind him along +Z; laid flat, +Z is straight up at the sky and a jetpack aimed
+  // at the surface is driving him into the sand. A quarter turn about X takes the nozzle
+  // direction from +Z to -Y -- down the spine, past his feet -- which lying down is astern.
+  g.rotation.set(1.5708*divePose,0,0);
   // the thrust reads on the trim before it reads in the bubbles, which is what makes the
-  // button feel connected rather than delayed
-  const th=(jumpHeld||keys.Space)?1:0;
+  // button feel connected rather than delayed -- and swimming hard counts as thrust, so the
+  // plume answers the swipe as well as the button
+  const swim=Math.min(1,Math.hypot(steer||0,steerY||0));
+  const th=Math.max((jumpHeld||keys.Space)?1:0,swim);
   diveJetOn+=(th-diveJetOn)*Math.min(1,dt*8);
   for(const c of g.children)
     if(c.material&&c.material.emissiveIntensity!==undefined)
@@ -32138,7 +32285,17 @@ function diveGo(on){
     for(let i=0;i<26;i++)
       splash(px+(Math.random()-0.5)*3.2, waveH(px,dist*WAVE_DRIFT+pz,waveClock),
              pz+(Math.random()-0.5)*3.0, 1);
-  } else { diveRise=0; diveFog(0); }
+  } else {
+    diveRise=0;
+    // ---- and the DEPTH is cleared, which is not the same as the dive ending ----
+    // diveDepth is written by diveStep and diveStep stops running the moment this flag goes
+    // false, so it was left frozen at however deep he was when he broke the surface -- eight
+    // feet, for ever. Everything downstream reads it as "still basically under": the fog, the
+    // jet, and the line that puts the surfboard away. He surfaced onto a board that never came
+    // back and rode the rest of the run sitting on nothing, wearing the pack.
+    diveDepth=0;
+    diveFog(0);
+  }
   return diveOn;
 }
 function diveStep(dt,waterY){
@@ -32146,8 +32303,16 @@ function diveStep(dt,waterY){
   // hands off he settles, holding the button he climbs -- eased, because a diver has mass and
   // a step change in vertical speed reads as a lift rather than a swimmer
   const plunge=diveT<DIVE_PLUNGE;
-  const want=plunge?-DIVE_PLUNGE_V:((jumpHeld||keys.Space)?DIVE_LIFT:-DIVE_SINK);
-  diveRise+=(want-diveRise)*Math.min(1,dt*DIVE_EASE);
+  // ---- the vertical is the SWIPE now ----
+  // It used to be the JUMP button held, which is one direction: you could climb or you could
+  // sink, and sinking was what happened when you let go. Up and down on the same finger that
+  // already goes left and right is what turns "surfing without the surface" into swimming --
+  // the diagonals come free, and they are most of what a dodge is.
+  let sy=steerY+(keys.KeyW||keys.ArrowUp?1:0)-(keys.KeyS||keys.ArrowDown?1:0);
+  if(jumpHeld||keys.Space)sy=1;                 // the button still climbs, for anyone holding it
+  sy=Math.max(-1,Math.min(1,sy));
+  const want=plunge?-DIVE_PLUNGE_V:(sy*DIVE_SWIM_V-DIVE_SINK);
+  diveRise+=(want-diveRise)*Math.min(1,dt*(plunge?DIVE_EASE:DIVE_SWIM_EASE));
   py+=diveRise*dt;
   // the sand under him, not a flat number: the bed has dunes in it and he lands on them
   const floorY=bedH(px,pz)+DIVE_CLEAR;
@@ -32280,7 +32445,11 @@ const FORK_ISLE_END=8;
 const ISLE_CAM_BACK=11.0, ISLE_CAM_UP=4.9, ISLE_AIM_UP=1.05, ISLE_AIM_AHEAD=14.0;
 // The dive's shot: a little lower and a little closer than the ride's, because the fog
 // swallows anything further out and there is no horizon down there to give it scale.
-const DIVE_CAM_UP=3.2, DIVE_CAM_BACK=9.5, DIVE_AIM_UP=0.9, DIVE_AIM_AHEAD=12.0;
+// Lower. At 3.2 up and aiming 0.9 above him the lens was looking DOWN at a swimmer, which puts
+// the sea bed across the whole frame and the water column -- the thing he is actually moving
+// through -- out of shot above it. Down near his own level the floor sits at the bottom of the
+// screen where a floor goes, and there is water in front of him to swim into.
+const DIVE_CAM_UP=1.9, DIVE_CAM_BACK=9.5, DIVE_AIM_UP=0.35, DIVE_AIM_AHEAD=12.0;
 // ...and how far above mean water sand has to be before he will stand on it. Above the surf,
 // so the shoreline holds him without him paddling about in the wash.
 // Raised with the shore. A long shallow beach means a wide band that the swell walks over, and
@@ -33345,6 +33514,7 @@ function splatOnScreen(tint){
 
 // ---------- character animation: waves, g-force, jump crouch, grab reach ----------
 let rigCrouch=0,rigAir=0,releaseKick=0;
+let divePose=0;     // 0 riding, 1 flat out face-down underwater
 let rigTuck=0;      // 0 riding, 1 folded up mid-rotation
 // how far each thigh must lean to carry the foot from its socket out to the stance
 const LEG_LEN=0.25+0.20+0.08;
@@ -33584,6 +33754,22 @@ function animateRig(dt,carve,grab,waterY){
     elF=[mx(elF[0],teF),0,0]; elB=[mx(elB[0],teB),0,0];
     armSpread*=1-h;
   }
+  // ---- SUPERMAN, which is what a swimmer is ----
+  // Not a variation on the surf stance: the surf stance is a man standing sideways, and there
+  // is nothing under him to stand on down here. Both arms straight out ahead, elbows locked --
+  // the helicopter's pose without the pull that folds them -- and the legs trailing straight
+  // behind. It runs LAST of the arm targets so it beats every one of them; nothing else in
+  // this function can be true at the same time as being underwater.
+  divePose=ease(divePose,diveOn?1:0,dt,diveOn?7:5);
+  if(divePose>0.02){
+    const h=divePose, mx=(a2,b2)=>a2*(1-h)+b2*h;
+    // the small y and z terms open the hands a little wider than his shoulders, which is what
+    // stops two straight arms reading as one arm
+    shF=[mx(shF[0],2.28),mx(shF[1], 0.20),mx(shF[2],-0.34)];
+    shB=[mx(shB[0],2.28),mx(shB[1],-0.20),mx(shB[2], 0.34)];
+    elF=[mx(elF[0],0.10),0,0]; elB=[mx(elB[0],0.10),0,0];
+    armSpread*=1-h;
+  }
   const A=armFrontJ,B=armBackJ;
   A.sh.rotation.x=ease(A.sh.rotation.x,shF[0]+armSpread,dt,10);
   A.sh.rotation.y=ease(A.sh.rotation.y,shF[1]+Math.sin(tNow*1.9)*0.10,dt,10);
@@ -33632,6 +33818,32 @@ function animateRig(dt,carve,grab,waterY){
   // AFTER the block above, not inside the same chain: that branch resets the body whenever the
   // helicopter is not running, so a pose written before it is undone on the very next line. It
   // is gated on skiSit instead, and this re-applies once it has let go.
+  // ...and the body half of it, AFTER the branch above that zeroes pug.rotation.x whenever the
+  // helicopter is not running -- written before it, it would be undone on the very next line.
+  // Same reason glFace re-applies down here.
+  if(divePose>0.02){
+    const h=divePose;
+    // square to where he is going. He is side-on to a board the rest of the time and there is
+    // no board.
+    pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0)+(-STANCE_ROT)*h;
+    // Flat, face down. Further over than the helicopter's 1.36: that one is lying ON something
+    // and keeps a little of the arch that comes of a deck under your ribs. This is level.
+    pug.rotation.x=-1.54*h;
+    // ...and he TILTS the way he is swimming, so a climb is a climb and not a level body
+    // rising like a lift. Small: past about fifteen degrees a face-down body reads as tumbling.
+    pug.rotation.x+=Math.max(-0.30,Math.min(0.30,diveRise*0.035))*h;
+    if(!riderRig())pelvis.position.y+=0.13*h;
+    pug.position.z=PUG_Z0*(1-h);
+    pug.position.x=PUG_X0*(1-h);
+    // legs trailing straight out behind him, with a slow flutter -- a swimmer's legs are never
+    // quite still, and two rigid sticks read as a corpse
+    const kick=Math.sin(tNow*3.4)*0.13*h;
+    const straight=(j,base)=>{ j.rotation.x=j.rotation.x*(1-h)+base*h; };
+    straight(legFrontJ.hip,-0.26+kick); straight(legFrontJ.knee,0.20); straight(legFrontJ.ankle,-0.16);
+    straight(legBackJ.hip ,-0.26-kick); straight(legBackJ.knee ,0.20); straight(legBackJ.ankle ,-0.16);
+    headJ.rotation.x=headJ.rotation.x*(1-h)+0.74*h;   // chin up, eyes where he is going
+    headJ.rotation.y*=1-h;
+  }
   if(glFace>0.02&&heliPose<=0.02&&skiSit<=0.02){
     const h=glFace;
     // square to the nose, and hanging: the legs come forward and down rather than braced on a
@@ -33787,7 +33999,16 @@ function updateHandstand(dt,carve){
   if(modelRig){
     modelRig.on=!!want;
     // the helicopter's pose, handed over before the rig runs so it lands this frame
-    modelRig.heliW=(typeof heliPose!=='undefined')?heliPose:0;
+    // ---- and the DIVE borrows it ----
+    // An imported rider is not posed by the arm targets up in the pose function -- those move
+    // the built-in body's joints, and this one is moved by its own clips. Every hand-authored
+    // Superman in the world is wiped by the line below that forces rotation.x back for a model
+    // rider, which is the same trap the helicopter's lie-down fell into and is commented as
+    // such. The file already ships the pose: Lie_Down is a body laid out flat and face down,
+    // which is a swimmer as much as it is a rider on his chest. So the dive drives the same
+    // weight, and the group turn set for it survives for the same reason the heli's does.
+    modelRig.heliW=Math.max((typeof heliPose!=='undefined')?heliPose:0,
+                            (typeof divePose!=='undefined')?divePose:0);
     // ---- the legs run in phase 4 and walk in phase 3 ----
     // Phase 4 is the momentum off the board, so it is on outright -- there is no stick to
     // consult and he is moving whether or not anyone is asking him to. Phase 3 is the stick.
@@ -33819,6 +34040,8 @@ function updateHandstand(dt,carve){
     // the one before it left, so the order is the whole of why they agree
     modelRig.faceLock(modelRig.rot);
     pug.updateMatrixWorld(true);
+    // ...and the swim arms go on last, over the clip, because the clip rewrites them every frame
+    if(modelRig.swim&&typeof divePose!=='undefined')modelRig.swim(divePose);
     // ---- and on the jet ski the deck solver has to LET GO ----
     // deckLift is not an offset, it is a solver: it finds his lowest contact vertex and raises
     // him until nothing is inside the board. That is exactly right for standing on a deck and
@@ -33828,13 +34051,16 @@ function updateHandstand(dt,carve){
     // no amount of tuning the seat drop moved him, because this ran afterwards and undid it.
     // Three passes were spent on that seat number before this line was read.
     // Blended, not switched, so getting on and off is still a movement.
+    // ...and underwater it lets go entirely, for the reason the seat does: both of these solve
+    // "how far up to put him so no part of him is inside the board", and there is no board.
+    const _dw=1-((typeof divePose!=='undefined')?divePose:0);
     pug.position.y+=((modelRig.heliW>0.02&&modelRig.lieLift)?modelRig.lieLift():modelRig.deckLift())
-                    *(1-(typeof skiSit!=='undefined'?skiSit:0));
+                    *(1-(typeof skiSit!=='undefined'?skiSit:0))*_dw;
     // (A constant used to be added here to lift him clear of the deck. It was compensating
     // for the group turn being missing -- with the body left upright the solver had nothing
     // sensible to rest on -- and with the turn back it double-corrects and leaves him
     // hovering a third of a foot over the board. The whole-body solver is enough on its own.)
-    modelRig.deckSlide(modelRig.rot);
+    if(_dw>0.02)modelRig.deckSlide(modelRig.rot);   // nor is there a deck to slide along
     handstandScore(dt,carve,want);
     return;
   }
@@ -34540,13 +34766,18 @@ function update(dt){
   // ...and not while he is ashore either. There is nothing to roll, flip, spin, handstand or
   // helicopter when you are standing on sand with the board twenty feet behind you, and the
   // column sits under the walk ring — five dead buttons crowding the one live control.
-  const _ashore=(forkPh===3||forkPh===4);
+  // ...and not underwater either, for the same reason: there is no board to roll, flip or spin
+  // and no air to do it in. Down here the finger is a swim stick and nothing else, and five
+  // dead buttons down the left is five things to press by accident while dodging.
+  const _ashore=(forkPh===3||forkPh===4)||diveOn;
   if(running&&!_ashore)trickBar.classList.remove('hidden');
   else if(_ashore)trickBar.classList.add('hidden');
   // JUMP goes with them, and for the plainer reason that SHOES is drawn in its slot: two
   // buttons in one place is a button you press by accident, which is the note already written
   // against GRAB a hundred lines up in the stylesheet.
-  if(running)jumpBtn.classList.toggle('hidden',_ashore);
+  // JUMP stays under the water though -- it is the one button down there, and holding it is
+  // still the quickest way up and out.
+  if(running)jumpBtn.classList.toggle('hidden',_ashore&&!diveOn);
   // the button lights while that axis is squared up — this is what teaches the timing
   const sqr=a2=>Math.abs(((a2+Math.PI)%(Math.PI*2))-Math.PI)<0.45;
   rollBtn.classList.toggle('ready',flipHeld &&flipRot >0.5&&sqr(flipRot));
