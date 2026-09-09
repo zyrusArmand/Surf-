@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.140.0';
+window.SURF_VERSION='6.141.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -27344,6 +27344,10 @@ if(location.hash.includes('debug')){
                     obs:obstacles.filter(o=>o.position.z>-175).length,
                     endZ:+forkEndZ.toFixed(1), toGo:+(pz-forkEndZ).toFixed(1),
                     gnd:+forkGround().toFixed(2),
+                    chest:forkChest&&forkChest.visible?{got:!!forkChestGot,
+                      y:+forkChest.position.y.toFixed(2),
+                      d:+Math.hypot(px-forkChest.position.x-forkArt.position.x,
+                                    pz-forkChest.position.z-forkArt.position.z).toFixed(1)}:null,
                     sea:+waveH(px,dist*WAVE_DRIFT+pz,waveClock).toFixed(2),
                     pugY:+((typeof pug!=='undefined'&&pug)?pug.position.y:0).toFixed(2),
                     field:!!(forkArt&&forkArt.userData.field),
@@ -31402,7 +31406,8 @@ function forkArm(){
 }
 function forkClear(){
   forkOn=false; forkPh=0; forkT=0; forkSide=0; forkDone=false; forkSpawn=0; forkRun=0;
-  forkOff=0; forkEndZ=0;
+  forkOff=0; forkEndZ=0; forkChestGot=false; forkChestSet=false;
+  if(forkChest)forkChest.visible=false;
   walkShow(false); forkRemount(); forkFace=0;
   { const R=(typeof riderRig==='function')?riderRig():null; if(R)R.walkW=0; }
   if(forkArt)forkArt.visible=false;
@@ -31664,6 +31669,67 @@ const ISLE_CAM_BACK=11.0, ISLE_CAM_UP=4.9, ISLE_AIM_UP=1.05, ISLE_AIM_AHEAD=14.0
 // so the shoreline holds him without him paddling about in the wash.
 const ISLE_WALK_MIN=0.55;
 let forkFace=0, forkLandX=0, forkEndZ=0;
+// ---- A CHEST, BOLTED TO THE ISLAND ----
+// There was one before and it went out because it was doing two bad jobs: it was the run's old
+// drifting crate, and it was made visible the moment he grounded but only POSITIONED once he
+// was walking, so for the whole beaching it sat at the world origin bobbing in the sea beside
+// the board. Neither of those is a reason not to have a chest on an island.
+// This one is placed once, on the sand, at a height taken from the island's own surface, and
+// then never moved again -- it is parented to the island group so it travels with it and does
+// not have to be re-placed every frame, which is what let the old one drift. It turns on the
+// spot, because a thing you are meant to walk to should catch the eye, and turning is the one
+// motion that does not make it look like it is floating.
+let forkChest=null, forkChestGot=false, forkChestSpin=0;
+const ISLE_CHEST_UP=0.10;     // sat on the sand rather than in it
+// ...and it goes UP ON the island, not down the beach face. Asking only that the spot be out
+// of the surf put it at 1.75 -- technically dry, but on the wet slope with the sea a few feet
+// away, which is the half of the old chest's problem that was not about it drifting.
+const ISLE_CHEST_MIN=2.4;
+const ISLE_CHEST_REACH=5.0;   // how close he has to get, generous -- this is not a precision test
+const ISLE_CHEST_SPIN=0.75;   // radians a second
+// Placed on demand rather than at the moment he grounds. The island's file loads on its own
+// schedule and the fork can arm before it lands, in which case forkArt is the primitive island
+// and there is no height field to ask -- the first version placed nothing at all in that case
+// and there was simply never a chest. Asked again every frame until it takes.
+let forkChestSet=false;
+function forkPlaceChest(){
+  if(forkChestSet||!forkArt||!forkArt.userData.field)return;
+  if(!forkChest){
+    forkChest=(typeof buildChest==='function')?buildChest():null;
+    if(!forkChest)return;
+    forkChest.scale.setScalar(0.9);
+  }
+  if(forkChest.parent!==forkArt)forkArt.add(forkChest);
+  // Somewhere up the island he has to walk to, off the line he arrives on so that getting
+  // there is a walk with a direction in it. Tried until it lands on sand that is properly out
+  // of the water -- there is a whole island to choose from and no reason to accept the first
+  // guess if it falls in the surf.
+  for(let i=0;i<40;i++){
+    const wz=pz-(20+Math.random()*30);
+    const wx=px+(Math.random()<0.5?-1:1)*(5+Math.random()*14);
+    const h=isleH(wx,wz);
+    if(!(h===h)||h<ISLE_CHEST_MIN)continue;
+    forkChest.position.set(wx-forkArt.position.x, h-forkArt.position.y+ISLE_CHEST_UP,
+                           wz-forkArt.position.z);
+    forkChestGot=false; forkChest.visible=true; forkChestSpin=0; forkChestSet=true;
+    return;
+  }
+  forkChest.visible=false;
+}
+function forkChestStep(dt){
+  if(!forkChestSet)forkPlaceChest();
+  if(!forkChest||!forkChest.visible||forkChestGot)return;
+  forkChestSpin+=dt*ISLE_CHEST_SPIN;
+  forkChest.rotation.y=forkChestSpin;
+  const wx=forkChest.position.x+forkArt.position.x, wz=forkChest.position.z+forkArt.position.z;
+  if(Math.hypot(px-wx,pz-wz)<ISLE_CHEST_REACH){
+    forkChestGot=true; forkChest.visible=false;
+    const n=150+25*((Math.random()*7)|0);
+    coins+=n; try{ saveGame(); showCoins(); }catch(e){}
+    score+=600; buzz(30);
+    msg('CHEST! +'+n+' PUKA');
+  }
+}
 // ---- and there is NO CHEST on it ----
 // There was, and it was doing two bad jobs. As a prop it is the game's old crate, which is not
 // what anybody wants to find at the top of a beach. As a mechanic it had a real bug in it: it
@@ -31701,11 +31767,12 @@ function forkIslandDone(){
   const n=150+25*((Math.random()*7)|0);
   coins+=n; try{ saveGame(); showCoins(); }catch(e){}
   score+=600; buzz(30);
-  msg('NICE ISLAND! +'+n+' PUKA');
+  msg((forkChestGot?'NICE ISLAND! +':'ISLAND! +')+n+' PUKA');
   gameOver();
 }
 function forkBeach(){
   forkLand();
+  forkPlaceChest();
   // ---- and the wash he arrived on does not come up the beach with him ----
   // pushTrail is gated from here on, but the ribbon already laid is a live object with a
   // second and a half of life left in it, and it does not care that the ground under it has
@@ -33557,6 +33624,7 @@ function update(dt){
     // and stopped, the ring comes up under his thumb where the trick column was, and a button
     // whose only job is to reveal the control next to it is a step between the player and the
     // one thing there is to do here.
+    forkChestStep(dt);
     if(forkOff<=FORK_OFF_STOP){ forkOff=0; forkPh=3; walkShow(true); msg('ON THE ISLAND'); }
   } else if(forkPh===3){
     // ---- ASHORE, on his own legs ----
@@ -33589,6 +33657,7 @@ function update(dt){
     // ...and it ends when he walks off the far end of it. He cannot leave it any other way --
     // the sand test above holds him -- so this is the one exit, and it is his to take when he
     // is finished looking around rather than a line drawn across the beach.
+    forkChestStep(dt);
     if(pz<forkEndZ)forkIslandDone();
   } else if(heliPh>=0){ heliStep(dt,waterY);           // the helicopter drives him itself
   } else if(swTubeRide){
