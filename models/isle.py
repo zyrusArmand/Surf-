@@ -13,7 +13,15 @@ import bpy, bmesh, math, os
 
 HALF, OPEN, STRAIGHT, SPLAY = 6.4, 95.0, 70.0, 0.30
 LEN   = OPEN + STRAIGHT
-CROWN = 2.05          # FORK_SAND: how far the middle stands above mean water
+# ---- how high it STANDS OUT of the sea ----
+# 2.05 was measured against nothing. The swell at the fork's own distance runs to about 0.7 ft
+# and grows through a run, and the island's TIP -- which is where he actually comes ashore --
+# was only three tenths of the crown, so he landed on sand about a foot above mean water and
+# the sea washed straight over the top of it. It is an island: it wants to be plainly out of
+# the water everywhere you can stand on it, with a couple of feet in hand for the biggest
+# swell the run ever builds.
+CROWN = 4.20          # how far the middle stands above mean water
+TIP   = 0.72          # ...and how much of that the point already has, where he comes ashore
 RIM   = -3.20         # how far the edge runs under it, so the waterline is on the model
 # ---- where the beach FACE is, as a fraction of the half-width ----
 # The island is static and the sea is not, so the waterline walks up and down the sand as the
@@ -54,7 +62,7 @@ for j in range(NZ+1):
     y = t*LEN
     e = outer(t)
     # the crown is low at the point and full height once the island has opened
-    crown = CROWN*(0.30 + 0.70*min(1.0, t*5))
+    crown = CROWN*(TIP + (1.0-TIP)*min(1.0, t*4))
     row = []
     for i in range(NX+1):
         u = i/NX
@@ -84,8 +92,14 @@ for j in range(NZ+1):
         # not, the geometry really is that shape.
         # Twenty-two feet and nine feet, both well sampled. Anything smaller than that belongs
         # in the normal map, which is where the beach's grain has always lived.
-        z += fbm(x*0.045, y*0.045, 0.0)*0.70*up
-        z += noise(x*0.11, y*0.11, 3.0)*0.24*up
+        # ---- and it has HILLS in it, not a whisper ----
+        # 0.70 and 0.24 of a foot across a seventy-foot island is a surface you have to be told
+        # is not flat. The menu beach reads as sand largely because it has real relief at the
+        # scale of a few paces -- little dunes you walk over and round -- and that is the thing
+        # this was missing. Two and a half feet at twenty-two feet across, most of a foot at
+        # nine, both still damped to nothing at the waterline where the sea irons sand flat.
+        z += fbm(x*0.045, y*0.045, 0.0)*1.70*up
+        z += noise(x*0.11, y*0.11, 3.0)*0.62*up
         # ...and the rim wanders, so the waterline is not a drawn curve
         row.append(bm.verts.new((x + fbm(0.0, y*0.06, 9.0)*1.5*(1-up), y, z)))
     ring.append(row)

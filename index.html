@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.139.0';
+window.SURF_VERSION='6.140.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -20458,7 +20458,8 @@ function updateCrate(dt,eff){
   if(!crateOn){
     if(!crateHeld&&running&&swPh===SWP.IDLE&&dist>120){
       crateT-=dt;
-      if(crateT<=0){
+      if(forkOn)crateT=Math.max(crateT,2.0);
+      if(crateT<=0&&!forkOn){
         crateOn=true; crateObj.visible=true;
         crateObj.position.set(Math.max(-14,Math.min(14,px+(Math.random()-0.5)*16)),0,-170);
       }
@@ -23009,7 +23010,8 @@ function spawnSeaLife(){
 }
 function updateSeaLife(dt,eff){
   lifeT-=dt;
-  if(lifeT<=0){lifeT=5+Math.random()*7;spawnSeaLife();}
+  if(forkOn)lifeT=Math.max(lifeT,2.0);            // ...and nothing surfaces through the sand
+  if(lifeT<=0&&!forkOn){lifeT=5+Math.random()*7;spawnSeaLife();}
   for(let i=seaLife.length-1;i>=0;i--){
     const o=seaLife[i],u=o.userData;
     u.t+=dt;
@@ -23485,7 +23487,8 @@ function updateJetSki(dt,eff){
     // And spread further apart besides: 40-64 s came round often enough that two could
     // bracket a single set wave, one on the way in and one on the way out.
     if(swPh!==SWP.IDLE)skiT=Math.max(skiT,8);
-    if(skiT<=0&&dist>480&&swPh===SWP.IDLE){skiT=62+Math.random()*38;spawnJetSki();}
+    if(forkOn)skiT=Math.max(skiT,3.0);
+    if(skiT<=0&&dist>480&&swPh===SWP.IDLE&&!forkOn){skiT=62+Math.random()*38;spawnJetSki();}
   } else {
     // rips across the field
     jetSki.position.x+=skiDir*15*dt;      // slower, so it is on screen long enough to see
@@ -27341,6 +27344,8 @@ if(location.hash.includes('debug')){
                     obs:obstacles.filter(o=>o.position.z>-175).length,
                     endZ:+forkEndZ.toFixed(1), toGo:+(pz-forkEndZ).toFixed(1),
                     gnd:+forkGround().toFixed(2),
+                    sea:+waveH(px,dist*WAVE_DRIFT+pz,waveClock).toFixed(2),
+                    pugY:+((typeof pug!=='undefined'&&pug)?pug.position.y:0).toFixed(2),
                     field:!!(forkArt&&forkArt.userData.field),
                     walkOK:[forkWalkable(px,pz),forkWalkable(px+40,pz),forkWalkable(px,pz-40)],
                     face:+(forkFace*180/Math.PI).toFixed(0),
@@ -31642,7 +31647,7 @@ const FORK_OFF_V=14.5, FORK_OFF_DRAG=9.4, FORK_OFF_STOP=1.1;
 const BOARD_ON_SAND=0.16;
 // How far the island's surface stands above MEAN water, and a CONSTANT on purpose: the
 // island no longer rides the swell, so neither does anyone standing on it.
-const FORK_SAND=2.05;
+const FORK_SAND=4.00;
 // How far short of the island's far end the walk ends -- he steps off the top of the beach
 // rather than walking to the last vertex of it.
 const FORK_ISLE_END=8;
@@ -31651,7 +31656,10 @@ const FORK_ISLE_END=8;
 // four up, which is the surfing camera's geometry -- and it framed a dog and a great deal of
 // sand, because there is no wave in front of him to fill the rest of it. Back and up, and
 // aiming well past him, so what is in the frame is the island.
-const ISLE_CAM_BACK=13.5, ISLE_CAM_UP=6.4, ISLE_AIM_UP=1.5, ISLE_AIM_AHEAD=11.0;
+// The ride camera's own numbers: camY is waterY+4.9 and camZ is 11.0 behind, and the aim sits
+// 1.05 up and about fourteen ahead. Taken from there rather than chosen, so stepping off the
+// board does not change the shot the game is played in -- only what it is following.
+const ISLE_CAM_BACK=11.0, ISLE_CAM_UP=4.9, ISLE_AIM_UP=1.05, ISLE_AIM_AHEAD=14.0;
 // ...and how far above mean water sand has to be before he will stand on it. Above the surf,
 // so the shoreline holds him without him paddling about in the wash.
 const ISLE_WALK_MIN=0.55;
@@ -31676,6 +31684,13 @@ function forkLand(){
 // How high the ground is where he is standing, and whether he may stand there at all. Both fall
 // back to the flat constant, which is what the primitive island gets -- it carries no field.
 function forkGround(){ const h=isleH(px,pz); return (h===h)?h:FORK_SAND; }
+// ---- and py is not where his FEET are ----
+// py is the board's line, and the rider hangs off it: he was a child of the board and keeps
+// that offset when he is lifted onto the player group, so driving py to the ground height put
+// his feet a foot and a half above the sand. He floated up the beach with a shadow under him,
+// which is what it looked like. Taken off whatever offset he actually ended up with rather
+// than a constant, since it is the sum of two the dismount happens to have moved.
+function forkStandY(){ return forkGround()-((typeof pug!=='undefined'&&pug)?pug.position.y:0); }
 function forkWalkable(x,z){
   if(!(forkArt&&forkArt.userData.field))
     return Math.abs(x-forkLandX)<=FORK_HALF;      // primitive island: the old lane
@@ -31739,7 +31754,8 @@ function updateWhirl(dt,eff){
     // earliest a whirlpool can form is that long AFTER the wave has finished -- and the gap
     // between whirlpools is much wider and much less even than it was, so you cannot learn it.
     if(swPh!==SWP.IDLE)whirlT=Math.max(whirlT,WH_AFTER_SET);
-    if(whirlT<=0&&(dist>700||whTest)){whirlT=WH_GAP+Math.random()*WH_GAP_R;whTest=false;spawnWhirl();}
+    if(forkOn)whirlT=Math.max(whirlT,3.0);
+    if(whirlT<=0&&(dist>700||whTest)&&!forkOn){whirlT=WH_GAP+Math.random()*WH_GAP_R;whTest=false;spawnWhirl();}
     if(whA>0){whA=Math.max(0,whA-dt*5);whirlArt.scale.y=Math.max(0.001,whA);}
     if(whA<=0)whirlArt.visible=false;
     return;
@@ -33529,7 +33545,7 @@ function update(dt){
     speed=0;
     forkOff=Math.max(0,forkOff-FORK_OFF_DRAG*dt);
     pz-=forkOff*dt;
-    py+=(forkGround()-py)*Math.min(1,dt*6);
+    py+=(forkStandY()-py)*Math.min(1,dt*6);
     pug.rotation.y=forkFace;
     // No sand kicked up behind him. It was drawn with splash(), which is a water drop -- white,
     // wet, and lit like water -- and a line of those laid up a dry beach behind a running dog is
@@ -33569,7 +33585,7 @@ function update(dt){
       forkFace+=d*Math.min(1,dt*7);
     }
     pug.rotation.y=forkFace;
-    py+=(forkGround()-py)*Math.min(1,dt*6);
+    py+=(forkStandY()-py)*Math.min(1,dt*6);
     // ...and it ends when he walks off the far end of it. He cannot leave it any other way --
     // the sand test above holds him -- so this is the one exit, and it is his to take when he
     // is finished looking around rather than a line drawn across the beach.
@@ -34586,7 +34602,15 @@ function update(dt){
 
   // plane — the tow only runs when the set piece is not flying the same aircraft
   if(swPh===SWP.IDLE)planeT-=dt;
-  if(swPh===SWP.IDLE&&planeT<=0&&!planeActive){
+  // ---- and nothing comes past while the island is in the lane ----
+  // The banner plane, the jet ski, the whirlpool and the treasure crate are all events that
+  // happen ON THE WATER, and the fork replaces the water with a quarter mile of sand. A plane
+  // towing a rope over a beach, a jet ski crossing a dune and a crate drifting up the sand on
+  // the swell are each their own kind of wrong, and the crate is the one that was reported.
+  // Held off for the length of the piece, the way the obstacle spawner and the set wave are,
+  // rather than fought with once they have started.
+  if(forkOn){ planeT=Math.max(planeT,2.0); }
+  if(swPh===SWP.IDLE&&planeT<=0&&!planeActive&&!forkOn){
     planeActive=true;plane.visible=true;
     plane.scale.setScalar(1);          // the banner tow passes close; it needs no help
     plane.position.set(Math.random()*16-8,11,-190);
@@ -34770,11 +34794,20 @@ function update(dt){
   // against fourteen). What makes the board fill the frame in them is that the camera is
   // barely half as far away. Pulling back and pitching down had been trading the board's
   // apparent size for an angle nobody asked for.
+  // ---- and it stands down entirely once he is ashore ----
+  // These two lines and the ashore block further down were both easing camZ every frame, to
+  // two different targets: this one toward 11 + 42% of his travel, the other toward eleven feet
+  // behind him. They met somewhere in between, and the gap between the two targets grows with
+  // pz -- so the further up the island he walked the further behind him the camera settled,
+  // which is exactly what it looked like. One of them has to own the camera at a time.
+  const _isle=forkOn&&(forkPh===3||forkPh===4);
+  if(!_isle){
   camY+=((waterY+4.9-swCam*2.15+airH*(0.80+0.20*glCam))-camY)*Math.min(1,dt*(flying?4.6:1.6));
   camY=Math.max(camY,waterY+2.3);            // never let a fast-building face swallow it
   // follow his fore/aft travel only partly, so it reads on screen instead of the
   // camera cancelling it out and pinning him to one spot again
   camZ+=((11.0+swCam*4.6+eff*0.05+airH*0.22+pz*0.42+glCam*16)-camZ)*Math.min(1,dt*2.4);
+  }
   // Inside the barrel the camera is FIXED. Not damped, not eased toward him — fixed. It is
   // set once when he joins the ring and then does not move again until he leaves it, so what
   // you watch is a still shot of a tube with a rider going round the inside of it.
@@ -34798,9 +34831,7 @@ function update(dt){
   // ...and it looks at HIM rather than at a point fourteen feet in front of the origin, which
   // is where the aim sits for the whole of the rest of the game and is a hundred and fifty feet
   // behind him by the time he reaches the top of the island.
-  if(forkOn&&(forkPh===3||forkPh===4)){
-    aimY=forkGround()+ISLE_AIM_UP; aimZ=pz-ISLE_AIM_AHEAD;
-  }
+  if(_isle){ aimY=forkGround()+ISLE_AIM_UP; aimZ=pz-ISLE_AIM_AHEAD; }
   if(swPh===SWP.RIDE&&!swTubeRide&&swCurlA>0.05){
     const pa1=swPeelA(pz), pb1=swPeelB(pz);
     const rad1=SW_R*(0.16+0.84*pa1)*(1-0.55*pb1), fold1=1-0.38*pb1;
@@ -34881,8 +34912,12 @@ function update(dt){
   // and watched him shrink into the distance, at a height set by a sea he is no longer on.
   // So ashore it simply follows: his x, a fixed distance behind him, at a fixed height above
   // the SAND he is standing on. Eased rather than pinned, so a step does not jerk the frame.
-  if(forkOn&&(forkPh===3||forkPh===4)){
-    const g=forkGround(), k=Math.min(1,dt*3.2);
+  if(_isle){
+    // The ride's own geometry -- 4.9 above the surface, 11.0 behind -- because that is the
+    // shot the whole game is played in and there is no reason for the island to be a different
+    // one. The only difference is what "the surface" and "behind" are measured from: the SAND
+    // he is standing on rather than the sea, and HIM rather than the origin.
+    const g=forkGround(), k=Math.min(1,dt*3.4);
     camX+=(px-camX)*k;
     camZ+=((pz+ISLE_CAM_BACK)-camZ)*k;
     camY+=((g+ISLE_CAM_UP)-camY)*k;
