@@ -713,3 +713,39 @@ re-centring it needs no code change.
 
 Rotation is **yaw only**, plus a couple of degrees of tilt. A free rotation stands a boulder on a
 corner; yaw is the axis that leaves a scan sitting the way it was scanned.
+
+---
+
+## `tube.glb` — the swim tube, built by `tube.py` + `tube_tex.py`
+
+626 KB, 24,064 tris, one 2048×1024 JPEG. Built from nothing rather than decimated from a scan —
+it is a torus, and a torus is cheaper to write than to reduce.
+
+### The UV is the whole design
+
+`tube.py` builds the ring vertex by vertex instead of using the torus primitive, because the one
+thing that has to be true is where V runs: **V=0 at the outer equator, 0.25 over the top, 0.5 into
+the hole, 0.75 underneath.** `tube_tex.py` paints against exactly that, so "teal below this line"
+is a single number appearing in two files and cannot drift.
+
+**V is measured from the BOTTOM of the image.** PIL writes row 0 at the top and GL samples V=0 at
+the bottom, so a band drawn at rows 0.40H–0.94H is V 0.06–0.60 — outer, over the top, into the
+hole. Which is exactly what came out first time: a teal tube with a yellow underside, inside out.
+
+### Proportions came off the photograph, not off the eye
+
+The hole is about 0.30 of the outer diameter, and `(R−r)/(R+r) = 0.30` puts `r` at 0.54 of `R`.
+Built at 0.365 first, which makes the hole 0.46 of the outer — a life ring, not a pool tube, and
+too thin to sit in.
+
+The moulded ribs are strongest on the outer wall and fade over the top, which is where they are on
+the real thing; applied evenly all the way round they read as corrugation.
+
+### Regenerating
+
+```
+python3 models/tube_tex.py models/tube_tex.png   # the print
+python3 models/tube.py models/tube.glb           # the ring, the handles and the export
+```
+
+The texture is written beside the script and read by it; the exporter embeds it.

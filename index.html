@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.171.0';
+window.SURF_VERSION='6.172.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -7436,6 +7436,30 @@ const BOARDS=[
   // usual currency: it is nine feet of hull, so it is heavy, it floats like a cork and it does
   // not carve. You sit on it rather than stand, and it leaves a wake like the one that crosses
   // the lane, because it IS that.
+  {id:'tube', name:'Turtle Bay Tube', price:900000,
+   blurb:'A printed pool tube. It is not a surfboard, it does not pretend to be one, and it costs more than the jet ski. You sit in the hole with your legs in the water and your arms over the side, and the sea takes you wherever it is going.',
+   // ---- NOT A BOARD, and deliberately not in board school ----
+   // Board school is one continuous rule from a fifty-inch skimboard to a nine-foot log, and it
+   // is about how much board is under your feet. A ring you sit inside is not on that scale at
+   // all -- the same argument the jet ski entry makes, and the same answer: it has no entry in
+   // any family's ids, which is all that is needed to keep it out. It is in the shop and it is
+   // claimable with the boards, and that is the whole of where it appears.
+   //
+   // The loft below is a flat round slab, and it exists to be the collision box and the thing
+   // the rider is seated against. L is a hair over W on purpose: fitToBox lays a model's longest
+   // side along the box's longest, and for a torus those are equal -- a tie it would break
+   // arbitrarily, differently on different runs.
+   spec:{L:3.40,W:3.34,T:0.95,noseA:2.400,tailA:2.400,noseW:0.880,tailW:0.880,
+     rockN:0.100,noseR:0.480,rockT:0.100,tailR:0.480,deckPow:0.90,hullPow:0.90,hullK:0.30,
+     padCol:0x2db4ac,finCol:0x2db4ac,rough:0.44,
+     // Slow, hopeless in a turn, and it will not leave the water. Tough, because it is a bag of
+     // air -- there is nothing on it to break.
+     top:26, wake:1.10, lift:0.10, seat:-0.34, stat:{speed:2,tough:10,turn:1,air:1},
+     tube:true,
+     model:'tube.glb',
+     paint:deckScheme({deck:0xf3be3a,hull:0x2db4ac,rail:0x2db4ac,pin:0xf3be3a,stringer:0xf3be3a,
+       sw:0.04,railAt:0.72,vivid:1.15}),
+     fins:[]}},
   {id:'skijet', name:'Kahuna 750', price:500000,
    blurb:'A jet ski. Quicker than the eFoil, a wake you could ride, and a seat instead of a stance. It does not turn like a surfboard, because it is not one.',
    // ---- and it is SIZED TO THE RIDER, not to a real jet ski ----
@@ -15061,6 +15085,50 @@ function setupModelRig(root,gltf,id){
       if(sh2&&this.bind&&this.bind[sh2])this.bones[sh2].quaternion.slerp(this.bind[sh2].q,w*0.85);
     }
   };
+  // ---- SAT IN A RING ----
+  // Same aiming as R.swim and for the same reason -- a model rider's limbs come from its clips
+  // and there is no clip for this. Arms out to the sides and a little behind him, which is where
+  // they go when you are holding yourself up on a rim; legs straight down through the hole with
+  // a slow swing, because they are in the water.
+  R.tube=function(w){
+    if(!(w>0.01)||!this.bones)return;
+    const V=THREE.Vector3, Q=THREE.Quaternion;
+    const rq=new Q(); pug.getWorldQuaternion(rq);
+    const up   =new V(0,1,0).applyQuaternion(rq).normalize();
+    const right=new V(1,0,0).applyQuaternion(rq).normalize();
+    const back =new V(0,0,1).applyQuaternion(rq).normalize();
+    const aim=(bone,child,t)=>{
+      if(!bone||!child)return;
+      const S=new V(), C=new V();
+      bone.getWorldPosition(S); child.getWorldPosition(C);
+      const d=new V().subVectors(C,S);
+      if(d.lengthSq()<1e-8)return;
+      d.normalize();
+      const pq=new Q(); if(bone.parent)bone.parent.getWorldQuaternion(pq);
+      const bw=new Q(); bone.getWorldQuaternion(bw);
+      bone.quaternion.slerp(pq.invert().multiply(new Q().setFromUnitVectors(d,t).multiply(bw)),w);
+      bone.updateMatrixWorld(true);
+    };
+    for(const s of ['Left','Right']){
+      const sgn=(s==='Left')?-1:1;
+      const t=new V().addScaledVector(right,sgn*0.92).addScaledVector(back,0.30)
+                     .addScaledVector(up,-0.24).normalize();
+      aim(this.bones[s+'Arm'], this.bones[s+'Hand']||this.bones[s+'ForeArm'], t);
+      const fa=this.bones[s+'ForeArm'];
+      if(fa&&this.bind&&this.bind[s+'ForeArm'])fa.quaternion.slerp(this.bind[s+'ForeArm'].q,w*0.7);
+    }
+    const L=this.limbNames();
+    const T=(typeof tNow==='number')?tNow:0;
+    for(const s of ['L','R']){
+      const sgn=(s==='L')?-1:1;
+      const kick=Math.sin(T*1.5+(sgn>0?0:1.7))*0.13;
+      const t=new V().addScaledVector(up,-1).addScaledVector(back,kick)
+                     .addScaledVector(right,sgn*0.10).normalize();
+      aim(this.bones[L['thigh'+s]], this.bones[L['shin'+s]]||this.bones[L['foot'+s]], t);
+      const sh=L['shin'+s];
+      if(sh&&this.bind&&this.bind[sh])this.bones[sh].quaternion.slerp(this.bind[sh].q,w*0.8);
+    }
+  };
   R.hipHome=R.bones.Hips?R.bones.Hips.position.clone():null;
   R.hipQ=R.bones.Hips?R.bones.Hips.quaternion.clone():null;
   R.paint=paintRiderFace(root,R.bones,(CHAR_BY_ID[id]||{}).fur);
@@ -15445,7 +15513,8 @@ function setupModelRig(root,gltf,id){
     // 1-aw it fought the lie-down at full strength and the two averaged into a rider
     // half way to standing up again, which is neither pose.
     const sw=Math.max(0,Math.min(1,this.swimW||0));
-    const w=(1-this.aw)*(1-hw)*(1-ww)*(1-sw);
+    const tw=Math.max(0,Math.min(1,this.tubeW||0));
+    const w=(1-this.aw)*(1-hw)*(1-ww)*(1-sw)*(1-tw);
     if(w<=0.001)return;
     this.stance(dt,w);
   };
@@ -18391,6 +18460,7 @@ let trick=null; // rope backflip only
 let planeT=34+Math.random()*26,planeActive=false,hanging=false,spawnT=0.4;
 // var: read by the pose code, which runs on the title screen before this line would in a let
 var skiSit=0;                          // 0 standing on a board, 1 sat on the ski
+var tubeSit=0;                         // 0 standing on a board, 1 sat inside the tube
 var _rideFoam=0;                       // the board's own cloud, emitted per second
 var glFace=0;                          // 0 side-on to the board, 1 square to the nose under the wing
 var _jsFoam=0, _jsTail=0;              // its wake and its rooster tail, per second not per frame
@@ -35112,6 +35182,8 @@ function animateRig(dt,carve,grab,waterY){
   // somebody teleporting into a seated pose. Same machinery as the helicopter's, which is the
   // other whole-body override here.
   skiSit=ease(skiSit,(equipped==='skijet'&&!wipe)?1:0,dt,5);
+  // ...and the tube is the same idea with a different pose: sat IN it rather than on it
+  tubeSit=ease(tubeSit,(equipped==='tube'&&!wipe)?1:0,dt,5);
   // ---- and under the canopy he faces FORWARD ----
   // His stance is side-on to a board, which is right for surfing and wrong for hanging in a
   // harness: a parasailer faces the way he is going. Same eased whole-body turn the ski uses.
@@ -35221,6 +35293,15 @@ function animateRig(dt,carve,grab,waterY){
   // the helicopter's pose without the pull that folds them -- and the legs trailing straight
   // behind. It runs LAST of the arm targets so it beats every one of them; nothing else in
   // this function can be true at the same time as being underwater.
+  // arms out and back over the rim, elbows soft, palms down on it -- the shape of somebody
+  // holding themselves up in a ring rather than reaching for anything
+  if(tubeSit>0.02){
+    const h=tubeSit, mx=(a2,b2)=>a2*(1-h)+b2*h;
+    shF=[mx(shF[0],0.34),mx(shF[1], 0.30),mx(shF[2],-1.34)];
+    shB=[mx(shB[0],0.34),mx(shB[1],-0.30),mx(shB[2], 1.34)];
+    elF=[mx(elF[0],0.46),0,0]; elB=[mx(elB[0],0.46),0,0];
+    armSpread*=1-h;
+  }
   divePose=ease(divePose,diveOn?1:0,dt,diveOn?7:5);
   if(divePose>0.02){
     const h=divePose, mx=(a2,b2)=>a2*(1-h)+b2*h;
@@ -35313,6 +35394,26 @@ function animateRig(dt,carve,grab,waterY){
     const hang=(j,base)=>{ j.rotation.x=j.rotation.x*(1-h)+base*h; };
     hang(legFrontJ.hip,0.34); hang(legFrontJ.knee,0.30); hang(legFrontJ.ankle,-0.12);
     hang(legBackJ.hip ,0.34); hang(legBackJ.knee ,0.30); hang(legBackJ.ankle ,-0.12);
+    headJ.rotation.y*=1-h;
+  }
+  // ---- SAT IN THE RING ----
+  // Not a variation on the ski's pose: on a ski he is astride a hull with his weight forward
+  // over bars. Here he is dropped through a hole with nothing under him, so the whole thing is
+  // legs hanging straight down and arms out over the rim taking his weight. Square to the front
+  // for the same reason the ski is -- his stance is side-on to a board and there is no board.
+  if(tubeSit>0.02&&heliPose<=0.02&&skiSit<=0.02){
+    const h=tubeSit;
+    pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0)+(-STANCE_ROT)*h;
+    pug.rotation.x=0.06*h;                       // the faintest lean back, as anyone sitting has
+    const seat=(BOARD_BY_ID[equipped]&&BOARD_BY_ID[equipped].spec.seat)||0;
+    pug.position.y=-seat*h;
+    pug.position.x=PUG_X0*(1-h);
+    pug.position.z=PUG_Z0*(1-h);
+    // legs straight down through the hole, swinging a little because they are in the water
+    const sw=Math.sin(tNow*1.5)*0.10*h, sw2=Math.sin(tNow*1.5+1.7)*0.10*h;
+    const hang=(j,base)=>{ j.rotation.x=j.rotation.x*(1-h)+base*h; };
+    hang(legFrontJ.hip,1.28+sw); hang(legFrontJ.knee,0.22); hang(legFrontJ.ankle,-0.10);
+    hang(legBackJ.hip ,1.28+sw2); hang(legBackJ.knee ,0.22); hang(legBackJ.ankle ,-0.10);
     headJ.rotation.y*=1-h;
   }
   if(skiSit>0.02&&heliPose<=0.02){
@@ -35470,6 +35571,9 @@ function updateHandstand(dt,carve){
     // weight, and the group turn set for it survives for the same reason the heli's does.
     modelRig.heliW=(typeof heliPose!=='undefined')?heliPose:0;
     modelRig.swimW=(typeof divePose!=='undefined')?divePose:0;
+    // the tube's sit is hand-posed too, so the surfing stance has to stand down for it in
+    // exactly the way it does for the dive -- otherwise the clip puts his legs back under him
+    modelRig.tubeW=(typeof tubeSit!=='undefined')?tubeSit:0;
     // ---- the legs run in phase 4 and walk in phase 3 ----
     // Phase 4 is the momentum off the board, so it is on outright -- there is no stick to
     // consult and he is moving whether or not anyone is asking him to. Phase 3 is the stick.
@@ -35495,7 +35599,7 @@ function updateHandstand(dt,carve){
     // helicopter's lie-down off him: the beats set the turn, and a line further down the
     // same frame set it straight back to zero. While the lie-down has him, the CLIP is
     // laying him out and the group is left where the heli put it.
-    if(modelRig.heliW<=0.02&&modelRig.swimW<=0.02)
+    if(modelRig.heliW<=0.02&&modelRig.swimW<=0.02&&(modelRig.tubeW||0)<=0.02)
       pug.rotation.x=(modelRig.stand&&modelRig.standInverts)?0:modelRig.rot*Math.PI;
     // side-on first, then stood on the deck, then slid onto it — each one measures the pose
     // the one before it left, so the order is the whole of why they agree
@@ -35503,6 +35607,7 @@ function updateHandstand(dt,carve){
     pug.updateMatrixWorld(true);
     // ...and the swim arms go on last, over the clip, because the clip rewrites them every frame
     if(modelRig.swim&&typeof divePose!=='undefined')modelRig.swim(divePose);
+    if(modelRig.tube&&typeof tubeSit!=='undefined')modelRig.tube(tubeSit);
     // ---- and on the jet ski the deck solver has to LET GO ----
     // deckLift is not an offset, it is a solver: it finds his lowest contact vertex and raises
     // him until nothing is inside the board. That is exactly right for standing on a deck and
@@ -35514,7 +35619,8 @@ function updateHandstand(dt,carve){
     // Blended, not switched, so getting on and off is still a movement.
     // ...and underwater it lets go entirely, for the reason the seat does: both of these solve
     // "how far up to put him so no part of him is inside the board", and there is no board.
-    const _dw=1-((typeof divePose!=='undefined')?divePose:0);
+    const _dw=(1-((typeof divePose!=='undefined')?divePose:0))*
+              (1-((typeof tubeSit!=='undefined')?tubeSit:0));   // nor is he standing on a ring
     pug.position.y+=((modelRig.heliW>0.02&&modelRig.lieLift)?modelRig.lieLift():modelRig.deckLift())
                     *(1-(typeof skiSit!=='undefined'?skiSit:0))*_dw;
     // (A constant used to be added here to lift him clear of the deck. It was compensating
