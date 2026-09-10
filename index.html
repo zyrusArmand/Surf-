@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.178.0';
+window.SURF_VERSION='6.179.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -15102,9 +15102,12 @@ function setupModelRig(root,gltf,id){
       if(d.lengthSq()<1e-8)continue;
       d.normalize();
       const sgn=(s==='Left')?-1:1;
-      // out front and opened wider than his shoulders: two arms on exactly the same line read
-      // as one arm, and at 0.24 they were close enough to it that from behind he had no arms.
-      const t=new V().copy(head).addScaledVector(right,sgn*0.38).normalize();
+      // ---- out IN FRONT OF HIS HEAD, opened just enough to be two arms ----
+      // 0.38 sideways is 21 degrees off his centreline, and at that angle a camera sitting
+      // behind him sees two arms held out to the SIDES -- which is a skydiver, not a swimmer.
+      // The whole point of this pose is that his hands lead and his head is between them.
+      // 0.20 keeps them off each other's line without taking them out of the picture.
+      const t=new V().copy(head).addScaledVector(right,sgn*0.20).normalize();
       const pq=new Q(); if(sh.parent)sh.parent.getWorldQuaternion(pq);
       const shW=new Q(); sh.getWorldQuaternion(shW);
       const want=pq.invert().multiply(new Q().setFromUnitVectors(d,t).multiply(shW));
@@ -28197,6 +28200,8 @@ if(location.hash.includes('debug')){
       if(out.hands.L&&out.hands.R)out.handGap=f(Math.abs(out.hands.L.side-out.hands.R.side));
       return out;
     },
+    // stand this many feet to his side and point at him; 0 puts the game's camera back
+    lookSide(ft){ _sideCam=(ft===undefined)?8:(+ft||0); return _sideCam; },
     jetBubbles(){
       const g=(typeof diveJet!=='undefined')?diveJet:null;
       const noz=(g&&g.userData&&g.userData.noz)||[];
@@ -34156,8 +34161,14 @@ function jetUpdate(dt){
 // slows down at the top looks like it ran out.
 let diveLaunch=0;                 // seconds into it; 0 when there is no launch
 const LAUNCH_T=1.55;              // surface to surface
-const LAUNCH_UP=9.5;              // feet of air at the apex
-const LAUNCH_FWD=12.0;            // ...and feet down the lane over the whole arc
+// ---- an ARCH, not a hop ----
+// 9.5 up against 12 forward is barely a lean: he went up, hung, and came down almost on the
+// spot, and coming down on the spot head-first is a pencil dive however it is rotated. What
+// makes a dive read as a dive is the TRAJECTORY -- out across the water and down, travelling
+// while it falls. 7.2 up against 19 forward is a two-and-a-half-to-one arch, which is the
+// shape somebody leaving a board actually makes.
+const LAUNCH_UP=7.2;              // feet of air at the apex
+const LAUNCH_FWD=19.0;            // ...and feet down the lane over the whole arc
 const LAUNCH_BOARD=0.30;          // how far up he is when he lets the board go
 // ---- and at the top of it he PIKES ----
 // A dive is not a body that turns over evenly on the way up. He goes up standing, holds it,
@@ -34165,11 +34176,18 @@ const LAUNCH_BOARD=0.30;          // how far up he is when he lets the board go
 // smoothstep across the BACK of the arc, not a ramp across all of it. Ending a shade before
 // the water (0.92) means he is already committed and pointing down when he goes in rather
 // than still turning as he hits, which is what a late-rotating dive looks like: a fall.
-const LAUNCH_PIKE_A=0.40, LAUNCH_PIKE_B=0.92;
-// ...and how far PAST flat he goes. The face-down swim pose is -1.50 (level); another 1.26 on
-// top of it is about seventy degrees nose-down, which is a dive entry. A full ninety looks
-// stiff at this camera, and past it he is over-rotated and going in on his back.
-const LAUNCH_DIVE=1.26;
+// ...and it starts turning EARLY and finishes early, so the rotation is spread along the arch
+// instead of being a flick at the bottom of it. A dive that is still turning as it hits is a
+// fall; a dive that turns all at once at the end is a pencil.
+const LAUNCH_PIKE_A=0.28, LAUNCH_PIKE_B=0.90;
+// ...and how far PAST flat he goes. The face-down swim pose is -1.50, which is level; this is
+// what gets added on top for the entry.
+// 1.26 was seventy degrees nose-down and, seen from the side, that is vertical: head straight
+// at the sea bed, hind legs folded over the top of him, going in like a dropped stone. That is
+// the pencil. 0.72 is about forty degrees past level -- steep enough that he plainly goes in
+// head first, shallow enough that he is still travelling forwards when he does, which is the
+// difference between diving into water and being dropped into it.
+const LAUNCH_DIVE=0.72;
 let launchPike=0;
 // ...and he turns to face where he is going BEFORE any of that. The pike squares him up as a
 // side effect of the swim pose, but that only starts at 0.40 -- so for the first half of the
@@ -34396,6 +34414,7 @@ const ISLE_CAM_BACK=11.0, ISLE_CAM_UP=4.9, ISLE_AIM_UP=1.05, ISLE_AIM_AHEAD=14.0
 // small. 1.15 up, 7.2 back, 0.15 up and 6 ahead puts it at 0.60 -- his chest -- and closer in
 // with it, which is the rest of the note.
 let _dvCam=0,_dvX=0,_dvY=0,_dvZ=0;
+let _sideCam=0;              // debug: feet to his side to look at, 0 = the game's own shot
 // Higher again, and looking down on him. Same solve every time -- the view ray passes his z at
 // U + (B/(B+F))*(V-U) above him, and that wants to stay near 0.6 so he stays centred -- run
 // backwards from whatever eye height is wanted. At 2.6 up it puts the aim at -1.07, which is a
@@ -38114,6 +38133,17 @@ function update(dt){
     const e=rot(camera.position.x,camera.position.z);
     camera.position.x=e[0]; camera.position.z=e[1];
     const a=rot(_fx,_fz); _fx=a[0]; _fz=a[1];
+  }
+  // ---- and a way to STAND TO ONE SIDE and look at him ----
+  // "Is he horizontal" cannot be answered from the shot the game gives you. The dive camera
+  // sits directly behind him and looks very nearly along his own length, and from there a body
+  // lying flat and a body standing upright project to almost the same silhouette -- head at the
+  // top, limbs out, feet at the bottom. That ambiguity has now cost three rounds of arguing
+  // with a screenshot. Debug only, off unless something asks for it.
+  if(_sideCam){
+    const v=new THREE.Vector3(); pug.getWorldPosition(v);
+    camera.position.set(v.x+_sideCam,v.y+0.6,v.z);
+    _fx=v.x; _fy=v.y; _fz=v.z;
   }
   camera.lookAt(_fx,_fy,_fz);
   // ---- the bed is placed AFTER the camera, because it follows it ----
