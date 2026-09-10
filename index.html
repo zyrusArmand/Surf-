@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.176.0';
+window.SURF_VERSION='6.177.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -15062,8 +15062,32 @@ function setupModelRig(root,gltf,id){
     return this._limbs;
   };
   R.swim=function(w){
-    if(!(w>0.01)||!this.bones)return;
+    this.swimRan=(this.swimRan||0);
+    if(!(w>0.01)||!this.bones){ this.swimWhy=!this.bones?'no bones':'weight '+(+w||0).toFixed(2); return; }
+    this.swimRan++; this.swimWhy='';
     const V=THREE.Vector3, Q=THREE.Quaternion;
+    // ---- and the TORSO goes STRAIGHT first ----
+    // Only the arms and legs were ever aimed here. The thing between them was nobody's job --
+    // and it is not left at rest, it is left at the last frame of the RIDE: the surfing stance
+    // is faded out by exactly (1-swimW), so as the swim weight comes up the stance stops
+    // writing, and "stops writing" means the spine keeps whatever the last riding frame put on
+    // it. He rides side-on with a lean, so he swam side-on with a lean. Measured in his own
+    // frame mid-dive: his two shoulders 0.70ft apart along his belly-to-back axis and only
+    // 0.29ft across it, which is a body rolled about seventy degrees -- and a body rolled
+    // seventy degrees, seen from a camera sitting straight behind it, is a dog standing up.
+    // That is the "he is not in the Superman pose" that was diagnosed by eye three times and
+    // by pug.rotation.x never, because pug.rotation.x was right the whole time.
+    if(this.bind){
+      // The clavicles are on this list for the same reason the spine is: they are torso, the
+      // stance writes them, and the aim below starts from wherever they left the shoulder.
+      for(const nm of ['Hips','Spine','Spine01','Spine1','Spine02','Spine2','Chest','neck','Neck',
+                       'LeftShoulder','RightShoulder']){
+        const b=this.bones[nm], r=this.bind[nm];
+        if(b&&r)b.quaternion.slerp(r.q,w);
+      }
+      const hp=this.bones.Hips||this.bones.hips;
+      if(hp)hp.updateMatrixWorld(true); else pug.updateMatrixWorld(true);
+    }
     const rq=new Q(); pug.getWorldQuaternion(rq);
     // The direction he is GOING is the length of him -- local +Y, up his spine -- because the
     // group is turned face down. Local -Z, which is his face, is pointing at the sea bed.
@@ -15078,18 +15102,48 @@ function setupModelRig(root,gltf,id){
       if(d.lengthSq()<1e-8)continue;
       d.normalize();
       const sgn=(s==='Left')?-1:1;
-      // out front and opened a touch wider than his shoulders: two arms on exactly the same
-      // line read as one arm
-      const t=new V().copy(head).addScaledVector(right,sgn*0.24).normalize();
+      // out front and opened wider than his shoulders: two arms on exactly the same line read
+      // as one arm, and at 0.24 they were close enough to it that from behind he had no arms.
+      const t=new V().copy(head).addScaledVector(right,sgn*0.38).normalize();
       const pq=new Q(); if(sh.parent)sh.parent.getWorldQuaternion(pq);
       const shW=new Q(); sh.getWorldQuaternion(shW);
       const want=pq.invert().multiply(new Q().setFromUnitVectors(d,t).multiply(shW));
       sh.quaternion.slerp(want,w);
       sh.updateMatrixWorld(true);
-      // ...and the elbow goes back to its bind, which is straight. A bent elbow on an arm
-      // aimed forward is a punch, not a glide.
+      // ---- and the FOREARM is aimed too, not sent back to its bind ----
+      // The upper arm is aimed by measuring shoulder-to-HAND, so where the hand ends up depends
+      // on the elbow -- and putting the elbow back to its bind afterwards bends the hand straight
+      // back off the line that was just solved for. Bind elbows are not symmetric, so the two
+      // arms landed in different places: measured mid-dive, his left hand sat 0.55ft BELOW his
+      // hips and his right 0.13ft above, which is a dog falling rather than a dog flying. Aimed
+      // along the same vector as the upper arm, the arm is straight, and both of them are
+      // straight in the same direction.
       const fa=this.bones[s+'ForeArm'];
-      if(fa&&this.bind&&this.bind[s+'ForeArm'])fa.quaternion.slerp(this.bind[s+'ForeArm'].q,w*0.9);
+      // ...and if there is a bone below the elbow, aim that at the same vector. These skeletons
+      // do not have one -- there is no LeftHand, the chain stops at the forearm -- which is also
+      // why the upper arm is aimed shoulder-to-ELBOW and everything past the elbow was left
+      // wherever its bind put it. Bind elbows mirror, so the two hands came off the aimed line
+      // in OPPOSITE directions: measured in his own frame, 0.44 toward his back on one side and
+      // 0.25 toward his belly on the other, which is a dog with one arm up and one arm down.
+      const tip=this.bones[s+'Hand']||((fa&&fa.children)?fa.children.find(c=>c.isBone):null);
+      if(fa&&tip){
+        const F=new V(), H2=new V();
+        fa.getWorldPosition(F); tip.getWorldPosition(H2);
+        const d2=new V().subVectors(H2,F);
+        if(d2.lengthSq()>1e-8){
+          d2.normalize();
+          const pq2=new Q(); if(fa.parent)fa.parent.getWorldQuaternion(pq2);
+          const faW=new Q(); fa.getWorldQuaternion(faW);
+          fa.quaternion.slerp(pq2.invert().multiply(new Q().setFromUnitVectors(d2,t).multiply(faW)),w);
+          fa.updateMatrixWorld(true);
+        }
+      } else if(fa){
+        // Nothing below it to aim, so the elbow is STRAIGHTENED instead of being put back to a
+        // bind that is not straight: identity against its parent puts the forearm on the upper
+        // arm's own axis, and an arm on one axis is an arm pointing where it was aimed.
+        fa.quaternion.slerp(new Q(),w);
+        fa.updateMatrixWorld(true);
+      }
     }
     // ---- and the back legs TRAIL ----
     // Left in their rest pose they hang straight down his own frame, which once he is turned
@@ -15110,15 +15164,35 @@ function setupModelRig(root,gltf,id){
       // a slow flutter, and out a little either side -- a swimming dog kicks, and two legs on
       // one line read as a tail
       const t=new V().copy(back)
-                     .addScaledVector(right,sgn*0.34)
+                     .addScaledVector(right,sgn*0.78)
                      .addScaledVector(new V(0,1,0),Math.sin((typeof tNow==='number'?tNow:0)*3.2+(sgn>0?0:2.1))*0.10)
                      .normalize();
       const pq=new Q(); if(th.parent)th.parent.getWorldQuaternion(pq);
       const thW=new Q(); th.getWorldQuaternion(thW);
       th.quaternion.slerp(pq.invert().multiply(new Q().setFromUnitVectors(d,t).multiply(thW)),w);
       th.updateMatrixWorld(true);
+      // ...and the shin along the same line, for the reason the forearm is: the thigh is aimed
+      // by thigh-to-KNEE, so everything below the knee is still wherever the bind left it, and
+      // a bind pose with its hocks tucked pulls both feet back to the centreline. Measured, his
+      // two feet were 0.23ft apart -- touching, on an animal 1.8ft long -- and both of them off
+      // to the same side of him. Straight legs, and the spread the thigh was given survives to
+      // the foot.
+      const sn=this.bones[L['shin'+s]], ft=this.bones[L['foot'+s]];
+      let aimed=false;
+      if(sn&&ft){
+        const N=new V(), F2=new V();
+        sn.getWorldPosition(N); ft.getWorldPosition(F2);
+        const d2=new V().subVectors(F2,N);
+        if(d2.lengthSq()>1e-8){
+          d2.normalize();
+          const pq2=new Q(); if(sn.parent)sn.parent.getWorldQuaternion(pq2);
+          const snW=new Q(); sn.getWorldQuaternion(snW);
+          sn.quaternion.slerp(pq2.invert().multiply(new Q().setFromUnitVectors(d2,t).multiply(snW)),w);
+          sn.updateMatrixWorld(true); aimed=true;
+        }
+      }
       const sh2=L['shin'+s];
-      if(sh2&&this.bind&&this.bind[sh2])this.bones[sh2].quaternion.slerp(this.bind[sh2].q,w*0.85);
+      if(!aimed&&sh2&&this.bind&&this.bind[sh2])this.bones[sh2].quaternion.slerp(this.bind[sh2].q,w*0.85);
     }
   };
   // ---- SAT IN A RING ----
@@ -28044,6 +28118,87 @@ if(location.hash.includes('debug')){
                      top:f(pb.max.y-rimY), bot:f(pb.min.y-rimY)},
               hands, pugY:f(pug.position.y)};
     },
+    // ---- is the exhaust actually BLOWING, and on which side of the water ----
+    // "no bubbles" has three completely different causes that look identical: the pack is not
+    // being asked for thrust, the nozzles are being read as above the surface so it throws
+    // spray instead (and spray underwater is deleted on its first frame), or they are spawning
+    // and dying. This says which.
+    // ---- WHICH WAY HE IS ACTUALLY POINTING, and where his limbs actually are ----
+    // Box3 cannot answer this: for a skinned mesh it reports the BIND box, so it has called a
+    // pug mid-dive both 2.58ft tall and 1.71ft tall while the pose was fine and while it was
+    // not. Bones do not lie. His long axis is hips-to-head in the world, and the angle that
+    // makes with the horizontal is the whole question -- 0 is flat out, 90 is standing up.
+    // The limbs are then reported in HIS frame: ahead is down the lane, side is across it, so
+    // "arms out front" and "arms out sideways" are two different numbers instead of two
+    // readings of the same photograph.
+    swimAxis(){
+      const R=(typeof riderRig==='function')?riderRig():null;
+      const f=v=>+v.toFixed(3);
+      const V=THREE.Vector3;
+      pug.updateMatrixWorld(true);
+      const out={model:!!R, pose:+((typeof divePose!=='undefined')?divePose:0).toFixed(2),
+                 rx:+pug.rotation.x.toFixed(2), ry:+pug.rotation.y.toFixed(2)};
+      if(R){ out.swimRan=R.swimRan||0; out.swimWhy=R.swimWhy||''; out.swimW=+(R.swimW||0).toFixed(2);
+             out.aw=+(R.aw||0).toFixed(2); out.clip=R.phase||''; }
+      const B=R&&R.bones;
+      const W=n2=>{ const b=B&&B[n2]; if(!b)return null; const v=new V(); b.getWorldPosition(v); return v; };
+      const hips=W('Hips')||W('hips'), head=W('neck')||W('Neck')||W('Head')||W('head');
+      if(hips&&head){
+        const d=new V().subVectors(head,hips);
+        out.len=f(d.length());
+        d.normalize();
+        // 0 = laid out flat, 90 = stood up. Sign says nose-up or nose-down.
+        out.tilt=f(Math.asin(Math.max(-1,Math.min(1,d.y)))*180/Math.PI);
+        out.axis={x:f(d.x),y:f(d.y),z:f(d.z)};
+      }
+      // ---- HIS frame, not the world's ----
+      // Fixed world axes cannot tell a lopsided pose from a body that is simply rolled: both
+      // put one hand higher than the other and the numbers look identical. Taken through his
+      // own quaternion, "ahead" is the way he is going whatever he is rolled to, and a
+      // difference between his two arms is a difference between his two arms.
+      const _rq=new THREE.Quaternion(); pug.getWorldQuaternion(_rq);
+      const ahead=new V(0,1,0).applyQuaternion(_rq).normalize();   // up his spine = where he goes
+      const side =new V(1,0,0).applyQuaternion(_rq).normalize();
+      const up   =new V(0,0,-1).applyQuaternion(_rq).normalize();  // his face is down; this is his back
+      out.rig={x:+rig.rotation.x.toFixed(2),y:+rig.rotation.y.toFixed(2),z:+rig.rotation.z.toFixed(2)};
+      const rel=(nm,o)=>{ const v=W(nm); if(!v||!o)return null; const q=new V().subVectors(v,o);
+        return {ahead:f(q.dot(ahead)), side:f(q.dot(side)), up:f(q.dot(up))}; };
+      const L=R&&R.limbNames?R.limbNames():null;
+      // ---- the WHOLE chain, named, because the fallback lied ----
+      // This used to report LeftHand or, failing that, LeftForeArm -- and these skeletons have
+      // no hand, so it was reporting the ELBOW and calling it the hand. The elbow's position
+      // cannot depend on the forearm's rotation, so a change to the elbow bend moved nothing
+      // and looked like the change had not applied. Shoulder, elbow and whatever is below it,
+      // each said separately, with the names that actually resolved.
+      const arm=side2=>{
+        const o={};
+        for(const [k,nm] of [['sh',side2+'Arm'],['el',side2+'ForeArm'],['hd',side2+'Hand']]){
+          o[k]=rel(nm,hips); if(o[k])o[k].bone=nm;
+        }
+        const fa=B&&B[side2+'ForeArm'];
+        const tip=fa&&fa.children&&fa.children.find(c=>c.isBone);
+        if(!o.hd&&tip){ o.hd=rel(tip.name,hips); if(o.hd)o.hd.bone=tip.name; }
+        return o;
+      };
+      out.arm={L:arm('Left'), R:arm('Right')};
+      out.hands={L:(out.arm.L.hd||out.arm.L.el), R:(out.arm.R.hd||out.arm.R.el)};
+      out.feet=L?{L:rel(L.footL,hips), R:rel(L.footR,hips)}:null;
+      if(out.feet&&out.feet.L&&out.feet.R)out.footGap=f(Math.abs(out.feet.L.side-out.feet.R.side));
+      if(out.hands.L&&out.hands.R)out.handGap=f(Math.abs(out.hands.L.side-out.hands.R.side));
+      return out;
+    },
+    jetBubbles(){
+      const g=(typeof diveJet!=='undefined')?diveJet:null;
+      const noz=(g&&g.userData&&g.userData.noz)||[];
+      const v=new THREE.Vector3(), out=[];
+      for(const n of noz){ n.getWorldPosition(v);
+        const sea=waveH(v.x,dist*WAVE_DRIFT+v.z,waveClock);
+        out.push({y:+v.y.toFixed(2), sea:+sea.toFixed(2), under:v.y<sea+0.06}); }
+      return {pack:!!g, vis:!!(g&&g.visible), real:!!(g&&g.userData.real), noz:out,
+              thrust:+diveJetOn.toFixed(2), every:+(0.20-diveJetOn*0.168).toFixed(3),
+              bub:splashes.reduce((c,m)=>c+(m.userData.bub?1:0),0),
+              spray:splashes.reduce((c,m)=>c+(m.userData.bub?0:1),0)};
+    },
     jetFit(){
       const g=(typeof diveJet!=='undefined')?diveJet:null;
       if(!g)return {pack:false};
@@ -33957,10 +34112,14 @@ function jetUpdate(dt){
   // left there, so the trail stays where it was made instead of riding along on his shoulders.
   _jetT-=dt;
   // idle is a trickle and thrust is a stream -- the CONTRAST is the feedback, not the count
-  const rate=0.20-diveJetOn*0.168;
+  // ...but a trickle of one small bubble every fifth of a second is not a trickle, it is
+  // nothing: at swimming speed they are half a foot apart and there is never more than a
+  // handful in frame, which is why the pack read as switched off. Idle is a steady stream of
+  // fat bubbles now and thrust is a torrent; the contrast survives and the pack is plainly on.
+  const rate=0.085-diveJetOn*0.055;
   if(_jetT<=0){
     _jetT=rate;
-    const n=1+(diveJetOn>0.5?1:0);
+    const n=2+(diveJetOn>0.5?1:0);
     const noz=g.userData.noz||[];
     for(let i=0;i<n;i++){
       const nz=noz[(Math.random()*noz.length)|0];
@@ -33970,7 +34129,7 @@ function jetUpdate(dt){
       // the arc he is folded head-down and the pack is the highest thing on him
       const _sea=waveH(_jetV.x,dist*WAVE_DRIFT+_jetV.z,waveClock);
       if(_jetV.y>_sea+0.06)jetPuff(_jetV.x,_jetV.y,_jetV.z,2,0.9+diveJetOn*0.7);
-      else bubble(_jetV.x,_jetV.y,_jetV.z,1,0.9+diveJetOn*0.7);
+      else bubble(_jetV.x,_jetV.y,_jetV.z,1,1.45+diveJetOn*0.85);
     }
   }
 }
@@ -35649,6 +35808,12 @@ function animateRig(dt,carve,grab,waterY){
     const straight=(j,base)=>{ j.rotation.x=j.rotation.x*(1-h)+base*h; };
     straight(legFrontJ.hip,-0.26+kick); straight(legFrontJ.knee,0.20); straight(legFrontJ.ankle,-0.16);
     straight(legBackJ.hip ,-0.26-kick); straight(legBackJ.knee ,0.20); straight(legBackJ.ankle ,-0.16);
+    // ...and APART. Trailing straight back off a body means both legs on one line, and two legs
+    // on one line read as a tail rather than as legs -- the same thing the model rig's aim was
+    // already correcting for and this one was not. Splayed at the hip, which is the joint that
+    // opens sideways; the knee and ankle below it carry the spread out to the feet.
+    legFrontJ.hip.rotation.z=legFrontJ.hip.rotation.z*(1-h)+(-0.30)*h;
+    legBackJ.hip.rotation.z =legBackJ.hip.rotation.z *(1-h)+( 0.30)*h;
     headJ.rotation.x=headJ.rotation.x*(1-h)+0.74*h;   // chin up, eyes where he is going
     headJ.rotation.y*=1-h;
     // ---- ...and the dive carries on PAST level ----
@@ -36946,7 +37111,12 @@ function update(dt){
   // rig carries the rider as well as the board, so a leaned rig tips the LIFT below out of
   // vertical and he arcs off sideways. Nobody is standing on it to lean it anyway: an empty
   // board on flat water sits flat. Yaw is kept -- it is pointing down the lane, which it was.
-  if(diveLaunch>0)rig.rotation.set(0,boardYaw,0);
+  // ...and underwater as well as through the launch. rig carries the rider, and its roll is
+  // the BOARD's lean answering a carve -- so every steer under the water rolled him about the
+  // lane like a plane banking, on a board that is not there and is not even drawn. It also made
+  // his two arms sit at visibly different heights, which reads as a lopsided pose rather than
+  // as a roll and was diagnosed as one twice.
+  if(diveLaunch>0||diveOn)rig.rotation.set(0,boardYaw,0);
   animateRig(dt,carve,grab,waterY);
   updateHandstand(dt,carve);
   // last, after everything that stands him on the deck has had its say — otherwise the
