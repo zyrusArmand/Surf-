@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.172.0';
+window.SURF_VERSION='6.173.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -15074,7 +15074,7 @@ function setupModelRig(root,gltf,id){
       // a slow flutter, and out a little either side -- a swimming dog kicks, and two legs on
       // one line read as a tail
       const t=new V().copy(back)
-                     .addScaledVector(right,sgn*0.20)
+                     .addScaledVector(right,sgn*0.34)
                      .addScaledVector(new V(0,1,0),Math.sin((typeof tNow==='number'?tNow:0)*3.2+(sgn>0?0:2.1))*0.10)
                      .normalize();
       const pq=new Q(); if(th.parent)th.parent.getWorldQuaternion(pq);
@@ -33561,7 +33561,7 @@ const _jetV=new THREE.Vector3();
 // for every character in the game. So the jet is built at true size and the group carries the
 // inverse of his scale: 0.95 here is 0.95 feet up his spine on the pug, on the shark, and on
 // whoever gets added next.
-const JET_UP=0.95, JET_BACK=0.42, JET_SIDE=0.175;
+const JET_UP=0.95, JET_BACK=0.52, JET_SIDE=0.175;   // ...and proud of his back, not level with it
 // how far along the spine from the bone the pack sits -- toward the shoulders, where a
 // rucksack rides rather than over the kidneys
 const JET_ALONG=0.10;
@@ -33591,7 +33591,10 @@ function jetAsk(){
 // How the model is worn. Its own box is measured and it is scaled to span his shoulders, so the
 // numbers here are about the POSE and not about the file -- a different jetpack dropped in the
 // same place would need none of them changed.
-const JET_SPAN=0.80;              // feet across his back
+// Measured against him rather than picked: his body is about 0.9ft across lying flat, and at
+// 0.80 the pod was nearly as wide as the animal wearing it -- which from above reads as a disc
+// he is lying on rather than a pack he is wearing, whatever its height says.
+const JET_SPAN=0.54;              // feet across his back
 // A quarter turn about X. The pod is authored lying flat -- 1.90 across, 0.86 deep and only 0.61
 // through, which is the thin axis -- so worn as it comes it stands out from his spine edge-on.
 // Turned, the thin axis is the one pointing away from his back and the pod lies against it, with
@@ -33616,11 +33619,16 @@ function jetReal(g){
   // no cone anybody can name, so two empties are hung where the exhaust is instead: in the
   // WRAPPER's frame, as fractions of the span, which is a frame this code decides and therefore
   // one it cannot be wrong about.
+  // ---- and they blow at the LENS ----
+  // Aft is -Y in this frame -- down his spine, past his feet -- and once he is face down under
+  // the water that is straight at the camera, which is where a plume wants to go: bubbles
+  // leaving sideways or into the sand are bubbles nobody sees. The markers sit at the back edge
+  // of the pod rather than at whatever the modeller called a nozzle, because a scan has no part
+  // this code can name and the back edge is a fact about the box.
   const noz=[];
   for(const sx of [-1,1]){
     const e=new THREE.Object3D();
-    // out at the ends of the pod where the thrusters are, and a little below and behind it
-    e.position.set(sx*JET_SPAN*0.44, -JET_SPAN*0.12, JET_SPAN*0.20);
+    e.position.set(sx*JET_SPAN*0.30, -JET_SPAN*0.46, JET_SPAN*0.26);
     g.add(e); noz.push(e);
   }
   g.userData.noz=noz;
@@ -33712,14 +33720,15 @@ function jetUpdate(dt){
   } else {
     g.position.set(0,JET_UP*k,JET_BACK*k);
   }
-  // ---- and it points AFT, which once he is face down is not where it was ----
-  // The offset needs no fixing in either pose: local +Y runs up his spine and local +Z out
-  // through his back, so "up the spine, out the back" lands mid-back standing and on top of him
-  // lying down, which is both times right. The NOZZLES are the part that moves. Stood up they
-  // fire out behind him along +Z; laid flat, +Z is straight up at the sky and a jetpack aimed
-  // at the surface is driving him into the sand. A quarter turn about X takes the nozzle
-  // direction from +Z to -Y -- down the spine, past his feet -- which lying down is astern.
-  g.rotation.set(1.5708*divePose,0,0);
+  // ---- ONE rotation, not two ----
+  // This turned the wrapper a quarter with divePose while the model inside it was ALSO turned a
+  // quarter by JET_ROT, and the two composed to a half turn: the pack came out standing on edge
+  // against his back with its thrusters pointing at the sky. The built pack needed the wrapper
+  // turn because its cones were modelled along +Z; the model needs it in its own holder, because
+  // it is authored lying flat. Whichever is worn, the orientation is decided in exactly one
+  // place -- and it is the same in both poses, because +Y up the spine and +Z out through his
+  // back are his back whether he is standing on a board or lying face down under the water.
+  g.rotation.set(g.userData.real?0:(1.5708*divePose),0,0);
   // the thrust reads on the trim before it reads in the bubbles, which is what makes the
   // button feel connected rather than delayed -- and swimming hard counts as thrust, so the
   // plume answers the swipe as well as the button
@@ -33974,13 +33983,12 @@ const ISLE_CAM_BACK=11.0, ISLE_CAM_UP=4.9, ISLE_AIM_UP=1.05, ISLE_AIM_AHEAD=14.0
 // small. 1.15 up, 7.2 back, 0.15 up and 6 ahead puts it at 0.60 -- his chest -- and closer in
 // with it, which is the rest of the note.
 let _dvCam=0,_dvX=0,_dvY=0,_dvZ=0;
-// Higher, and tilted down onto him. Same solve as before -- the ray passes his z at
-// U + (B/(B+F))*(V-U) above him and that wants to stay at about 0.6, his chest -- but run
-// backwards from a higher eye. At 1.75 up it puts the aim at -0.36, which is BELOW the board
-// line six feet ahead of him, and that negative number is the tilt: nine degrees down against
-// the four and a bit it had, with him still dead centre. (2.0 was tried first and is a foot
-// of extra sand in the bottom of the frame -- more than "a tad" asked for.)
-const DIVE_CAM_UP=1.75, DIVE_CAM_BACK=7.2, DIVE_AIM_UP=-0.36, DIVE_AIM_AHEAD=6.0;
+// Higher again, and looking down on him. Same solve every time -- the view ray passes his z at
+// U + (B/(B+F))*(V-U) above him, and that wants to stay near 0.6 so he stays centred -- run
+// backwards from whatever eye height is wanted. At 2.6 up it puts the aim at -1.07, which is a
+// point BELOW the board line six feet ahead of him: fifteen and a half degrees of down-tilt
+// against the nine it had, and he is still dead centre because the solve is what decides V.
+const DIVE_CAM_UP=2.6, DIVE_CAM_BACK=7.2, DIVE_AIM_UP=-1.07, DIVE_AIM_AHEAD=6.0;
 // ...and how far above mean water sand has to be before he will stand on it. Above the surf,
 // so the shoreline holds him without him paddling about in the wash.
 // Raised with the shore. A long shallow beach means a wide band that the swell walks over, and
@@ -35370,10 +35378,13 @@ function animateRig(dt,carve,grab,waterY){
     pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0)+(-STANCE_ROT)*h;
     // Flat, face down. Further over than the helicopter's 1.36: that one is lying ON something
     // and keeps a little of the arch that comes of a deck under your ribs. This is level.
-    pug.rotation.x=-1.54*h;
+    // 1.54 is 88 degrees, which is a whisker past flat and reads as nose-down at this camera
+    // angle. 1.50 leaves him two degrees nose-UP, which is what level looks like when you are
+    // being looked down on.
+    pug.rotation.x=-1.50*h;
     // ...and he TILTS the way he is swimming, so a climb is a climb and not a level body
     // rising like a lift. Small: past about fifteen degrees a face-down body reads as tumbling.
-    pug.rotation.x+=Math.max(-0.30,Math.min(0.30,diveRise*0.035))*h;
+    pug.rotation.x+=Math.max(-0.22,Math.min(0.22,diveRise*0.024))*h;
     if(!riderRig())pelvis.position.y+=0.13*h;
     pug.position.z=PUG_Z0*(1-h);
     pug.position.x=PUG_X0*(1-h);
