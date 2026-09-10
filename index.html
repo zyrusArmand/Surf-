@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.186.0';
+window.SURF_VERSION='6.187.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -15168,7 +15168,12 @@ function setupModelRig(root,gltf,id){
       // one line read as a tail
       const t=new V().copy(back)
                      .addScaledVector(right,sgn*0.78)
-                     .addScaledVector(new V(0,1,0),Math.sin((typeof tNow==='number'?tNow:0)*3.2+(sgn>0?0:2.1))*0.10)
+                     // quick and shallow, and exactly out of phase: one foot goes down as the
+                     // other comes up, which is the half of a flutter that reads. 3.2 rad/s at
+                     // 0.10 was half a beat a second and an inch of travel -- a twitch. And PI
+                     // rather than 2.1, because the two legs share one oscillator and anything
+                     // that is not exactly out of phase drifts into flapping together.
+                     .addScaledVector(new V(0,1,0),Math.sin((typeof tNow==='number'?tNow:0)*7.4+(sgn>0?0:Math.PI))*0.26)
                      .normalize();
       const pq=new Q(); if(th.parent)th.parent.getWorldQuaternion(pq);
       const thW=new Q(); th.getWorldQuaternion(thW);
@@ -21439,6 +21444,7 @@ function reset(){
   _lbX=0; _lbZ=0;
   if(typeof boardArt!=='undefined'&&boardArt){ boardArt.position.x=0; boardArt.position.z=0; }
   if(typeof divePose!=='undefined')divePose=0;
+  if(typeof diveTurn!=='undefined')diveTurn=0;
   if(diveProps)diveProps.visible=false; if(diveFish)diveFish.visible=false;
   if(diveJet)diveJet.visible=false; diveJetOn=0;
   // `wipeDirty` and not `wipe`: the title screen ends the crash so the drowning pose cannot
@@ -28338,6 +28344,28 @@ if(location.hash.includes('debug')){
       const pb=new THREE.Box3().setFromObject(pug);
       const ps=proj(b), rs=proj(pb);
       const f=n=>+n.toFixed(3);
+      // ---- is it ON his spine, and SQUARE to him ----
+      // Checked against his shoulder bones rather than by re-running the basis that built it:
+      // offSpine is how far the pack's centre sits off the midpoint between his shoulders,
+      // along the shoulder line, and square is its own across-axis dotted with that line -- 1
+      // is flat on his back, 0 is on its edge.
+      const _R2=(typeof riderRig==='function')?riderRig():null, B2=_R2&&_R2.bones;
+      let offSpine=null, square=null, tailGap=null;
+      if(B2&&B2.LeftArm&&B2.RightArm){
+        const L=new THREE.Vector3(), Rt=new THREE.Vector3(), C=new THREE.Vector3();
+        B2.LeftArm.getWorldPosition(L); B2.RightArm.getWorldPosition(Rt);
+        const mid=L.clone().add(Rt).multiplyScalar(0.5);
+        const across=L.clone().sub(Rt).normalize();
+        b.getCenter(C);
+        offSpine=f(C.clone().sub(mid).dot(across));
+        const q=new THREE.Quaternion(); g.getWorldQuaternion(q);
+        square=f(Math.abs(new THREE.Vector3(1,0,0).applyQuaternion(q).dot(across)));
+        // ...and how far its bottom edge stops short of his hips, up his own spine
+        const H=new THREE.Vector3(); if(B2.Hips)B2.Hips.getWorldPosition(H);
+        const up=new THREE.Vector3(); g.getWorldQuaternion(q);
+        up.set(0,1,0).applyQuaternion(q);
+        if(B2.Hips)tailGap=f(C.clone().addScaledVector(up,-JET_TALL*0.5).sub(H).dot(up));
+      }
       // where it is HUNG, and where his spine and his body actually are in his own frame --
       // the three numbers that decide whether a pack sits on a back or on a rib
       const bl=new THREE.Box3().setFromObject(pug);   // world
@@ -28350,6 +28378,7 @@ if(location.hash.includes('debug')){
       const sp=new THREE.Vector3();
       if(_sp){ _sp.getWorldPosition(sp); pug.worldToLocal(sp); }
       return {pack:true, real:!!g.userData.real, vis:!!g.visible,
+              offSpine, square, tailGap,
               hung:{x:f(g.position.x),y:f(g.position.y),z:f(g.position.z)},
               spine:_sp?{n:_sp.name,x:f(sp.x),y:f(sp.y),z:f(sp.z)}:null,
               bodyMid:{x:f(c.x),y:f(c.y),z:f(c.z)},
@@ -34068,6 +34097,8 @@ const DIVE_CLEAR=2.2;       // how far above the sand he is held off it
 let diveJet=null, diveJetOn=0, _jetT=0;
 let _boardStowed=false, _boardVis0=true;
 const _jetV=new THREE.Vector3();
+const _jU=new THREE.Vector3(), _jR=new THREE.Vector3(), _jB=new THREE.Vector3();
+const _jT=new THREE.Vector3(), _jM=new THREE.Matrix4();
 // ---- and it is measured in FEET ----
 // The rider is scaled at load so that whatever the model's own units are he comes out RIDER_FT
 // tall, which means anything parented to him and authored in his local units is a different size
@@ -34077,6 +34108,9 @@ const _jetV=new THREE.Vector3();
 const JET_UP=0.95, JET_BACK=0.52, JET_SIDE=0.175;   // ...and proud of his back, not level with it
 // how far along the spine from the bone the pack sits -- toward the shoulders, where a
 // rucksack rides rather than over the kidneys
+// ...and far enough up it that it is not sitting on his tail. 0.24 put it over his shoulders
+// and up the back of his head; the shorter pack alone lifts the bottom edge by a twentieth of
+// a foot, which was what the tail actually needed.
 const JET_ALONG=0.16;
 // ---- and it is the MODEL, once the model is here ----
 // Built from primitives first because a shape with a light on it is most of what reads through
@@ -34109,7 +34143,7 @@ function jetAsk(){
 // lengthwise and the wrong one the moment it stood up. A jetpack is a tall thing; how far up
 // his back it reaches is what says how big it is, and its width follows from the model rather
 // than being a second number that can disagree with the first.
-const JET_TALL=1.02;              // feet up his spine, shoulder blades to the base of his back
+const JET_TALL=0.92;              // feet up his spine, shoulder blades to the base of his back
 // ...and the tanks are fattened a quarter. Scaled true, the pod comes out 0.46 across against
 // 1.02 tall, which is narrower than it wants to look on a barrel-chested dog -- the note drawn
 // over the screenshot asked for about two thirds of his back. This is the only axis that is not
@@ -34276,7 +34310,40 @@ function jetUpdate(dt){
   if(_sp){
     _sp.getWorldPosition(_jetV);
     pug.worldToLocal(_jetV);
-    g.position.set(_jetV.x, _jetV.y+JET_ALONG*k, _jetV.z+JET_BACK*k);
+    // ---- and it is SQUARED TO HIM, not to the group he hangs in ----
+    // The wrapper's orientation was fixed in pug space, so the pack stayed level while his torso
+    // did whatever the pose left on it -- and there is about a fifth of a radian of roll on his
+    // spine even laid out flat. Level against a rolled back reads as a rucksack put on crooked,
+    // which is what it was: not a mounting error, a disagreement between the pack's frame and
+    // his. Built from his own bones instead, the same way R.swim aims his limbs:
+    //   up    = spine to neck            -- the line the tanks run along
+    //   right = right shoulder to left   -- the line they sit either side of
+    //   back  = right x up               -- and out through his back
+    // so the pack is flat on his back and centred on his spine whatever the spine is doing.
+    const _nk=_R.bones&&(_R.bones.neck||_R.bones.Neck||_R.bones.Head||_R.bones.head);
+    const _lA=_R.bones&&_R.bones.LeftArm, _rA=_R.bones&&_R.bones.RightArm;
+    let _basis=false;
+    if(_nk&&_lA&&_rA){
+      _jU.copy(_nk.getWorldPosition(_jT)); pug.worldToLocal(_jU); _jU.sub(_jetV);
+      _jR.copy(_lA.getWorldPosition(_jT)); pug.worldToLocal(_jR);
+      _jB.copy(_rA.getWorldPosition(_jT)); pug.worldToLocal(_jB); _jR.sub(_jB);
+      if(_jU.lengthSq()>1e-8&&_jR.lengthSq()>1e-8){
+        _jU.normalize(); _jR.normalize();
+        _jB.crossVectors(_jR,_jU);
+        // ...and if that came out through his chest, the shoulder line was the other way round
+        if(_jB.z<0){ _jR.multiplyScalar(-1); _jB.crossVectors(_jR,_jU); }
+        if(_jB.lengthSq()>1e-8){
+          _jB.normalize();
+          _jR.crossVectors(_jU,_jB).normalize();   // re-square it; the shoulder line is not exact
+          _jM.makeBasis(_jR,_jU,_jB);
+          g.quaternion.setFromRotationMatrix(_jM);
+          g.position.copy(_jetV).addScaledVector(_jU,JET_ALONG*k).addScaledVector(_jB,JET_BACK*k);
+          _basis=true;
+        }
+      }
+    }
+    if(!_basis){ g.rotation.set(0,0,0);
+      g.position.set(_jetV.x, _jetV.y+JET_ALONG*k, _jetV.z+JET_BACK*k); }
   } else {
     g.position.set(0,JET_UP*k,JET_BACK*k);
   }
@@ -35729,6 +35796,7 @@ function splatOnScreen(tint){
 // ---------- character animation: waves, g-force, jump crouch, grab reach ----------
 let rigCrouch=0,rigAir=0,releaseKick=0;
 let divePose=0;     // 0 riding, 1 flat out face-down underwater
+let diveTurn=0;     // -1..1, eased, which way he is swimming across the lane
 let rigTuck=0;      // 0 riding, 1 folded up mid-rotation
 // how far each thigh must lean to carry the foot from its socket out to the stance
 const LEG_LEN=0.25+0.20+0.08;
@@ -36077,6 +36145,29 @@ function animateRig(dt,carve,grab,waterY){
     // angle. 1.50 leaves him two degrees nose-UP, which is what level looks like when you are
     // being looked down on.
     pug.rotation.x=-1.50*h;
+    // ---- ...and he TURNS INTO the way he is going ----
+    // Swimming sideways while pointing straight down the lane is a body being slid, not a body
+    // swimming. The board's lean used to roll him about the lane, which was wrong for a rider
+    // with no board under him and was taken out; this is the right version of the same idea,
+    // off the steering rather than off the board.
+    //
+    // Which Euler term does what is not obvious with a group already pitched flat. rotation is
+    // XYZ, so the matrix is Rx*Ry*Rz and Rz reaches the vector FIRST: with rotation.x at -1.50
+    // his local +z has been swung to world UP, so Rz is a yaw about the vertical -- the turn --
+    // and Ry, about his own spine, is the bank. They are the opposite way round to the guess.
+    const _lat=Math.max(-1,Math.min(1,(typeof steer==='number'?steer:0)));
+    diveTurn=ease(diveTurn,_lat,dt,4.2);
+    pug.rotation.z=-0.40*diveTurn*h;    // nose across the lane, toward where he is going
+    // ---- and rolled into it ----
+    // (An attempt to also cancel the roll his SKELETON arrives with lives in the history and not
+    // here. His shoulder line sits about 23 degrees off level even with every torso bone slerped
+    // to its bind, and taking that out on the group's y broke the turn instead: with all three
+    // Euler terms non-zero on a body already pitched flat, XYZ does not decompose into pitch,
+    // yaw and roll any more, and the correction came back out of the other two. It also could
+    // not be measured -- swimAxis reads the shoulders in HIS frame, which a rotation of the
+    // group carries along with it, so the number was invariant to the very thing being changed.
+    // The pack is square to his back either way, which is what was actually wrong.)
+    pug.rotation.y= 0.50*diveTurn*h;
     // ...and he TILTS the way he is swimming, so a climb is a climb and not a level body
     // rising like a lift. Small: past about fifteen degrees a face-down body reads as tumbling.
     pug.rotation.x+=Math.max(-0.22,Math.min(0.22,diveRise*0.024))*h;
@@ -36085,10 +36176,18 @@ function animateRig(dt,carve,grab,waterY){
     pug.position.x=PUG_X0*(1-h);
     // legs trailing straight out behind him, with a slow flutter -- a swimmer's legs are never
     // quite still, and two rigid sticks read as a corpse
-    const kick=Math.sin(tNow*3.4)*0.13*h;
+    // ---- and he KICKS ----
+    // 3.4 and 0.13 is a twitch you have to be told about: half a beat a second, an inch of
+    // travel. A swimming dog flutters -- quick, shallow, and one foot down as the other comes
+    // up, which is the alternation and not the speed that reads. Exactly out of phase, because
+    // the two legs share one oscillator and a fudge factor either side of it drifts.
+    const kick=Math.sin(tNow*7.4)*0.30*h;
     const straight=(j,base)=>{ j.rotation.x=j.rotation.x*(1-h)+base*h; };
-    straight(legFrontJ.hip,-0.26+kick); straight(legFrontJ.knee,0.20); straight(legFrontJ.ankle,-0.16);
-    straight(legBackJ.hip ,-0.26-kick); straight(legBackJ.knee ,0.20); straight(legBackJ.ankle ,-0.16);
+    // the knee trails a little behind the hip, which is what makes a kick a kick and not a
+    // pair of rigid sticks waving
+    const kick2=Math.sin(tNow*7.4-0.7)*0.16*h;
+    straight(legFrontJ.hip,-0.26+kick); straight(legFrontJ.knee,0.20+kick2); straight(legFrontJ.ankle,-0.16);
+    straight(legBackJ.hip ,-0.26-kick); straight(legBackJ.knee ,0.20-kick2); straight(legBackJ.ankle ,-0.16);
     // ...and APART. Trailing straight back off a body means both legs on one line, and two legs
     // on one line read as a tail rather than as legs -- the same thing the model rig's aim was
     // already correcting for and this one was not. Splayed at the hip, which is the joint that
