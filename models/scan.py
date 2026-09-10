@@ -4,12 +4,19 @@ TEX=int(sys.argv[4]) if len(sys.argv)>4 else 1024
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=SRC)
 
+# ---- one photogrammetry scan in, one cheap textured glb out ----
+#   python3 models/scan.py <source>.glb <out>.glb <tris> [<colour map px>]
+# Every scan that has come through here arrives the same way: quantised positions, one material
+# carrying base colour + metallic/roughness + normal, TEXCOORD_0 already on the mesh, and the
+# whole thing split into primitives by the 65535-vertex limit. So there is nothing to unwrap and
+# nothing to bake -- decimate, shrink the maps, ship it.
+#
 # ---- JOIN FIRST ----
-# The first pack was one mesh and this script took [0] and got the whole model. jetpack2 is a
-# photogrammetry scan split into thirteen primitives by the 65535-vertex limit, so [0] is a
-# thirteenth of a jetpack -- and decimating a thirteenth to the whole model's budget produces a
-# perfectly clean object that is one slice of the thing you wanted. Everything is joined into
-# one mesh before anything else touches it.
+# The first pack through here was one mesh and this script took [0] and got the whole model.
+# The second was thirteen primitives, so [0] was a thirteenth of a jetpack -- and decimating a
+# thirteenth to the whole model's budget produces a perfectly clean object that is one slice of
+# the thing you wanted, with nothing anywhere saying so. Everything is joined into one mesh
+# before anything else touches it.
 ms=[x for x in bpy.data.objects if x.type=='MESH']
 print("meshes in", len(ms), "tris in", sum(sum(len(p.vertices)-2 for p in m.data.polygons) for m in ms))
 bpy.context.view_layer.objects.active=ms[0]

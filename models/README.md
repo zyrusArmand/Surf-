@@ -750,11 +750,11 @@ python3 models/tube.py models/tube.glb           # the ring, the handles and the
 
 The texture is written beside the script and read by it; the exporter embeds it.
 
-## `jetpack.glb` — the worn jetpack, built by `jetpack.py`
+## `jetpack.glb` — the worn jetpack, built by `scan.py`
 
 A photogrammetry scan, decimated to 16,000 triangles and keeping its own texture set. Rebuild:
 
-    python3 models/jetpack.py <source>.glb models/jetpack.glb 16000 1024
+    python3 models/scan.py <source>.glb models/jetpack.glb 16000 1024
 
 (last argument is the colour map's size; the other two maps get half it)
 
@@ -807,3 +807,48 @@ axis is not the tanks comes out lying across his back like a plank.
 fattens the across-the-back axis alone. A rebuild at different proportions changes how wide the
 pack lands without changing its height: this scan is wider than the last, so it comes out 0.66
 across where the old one was 0.57.
+
+
+## `coraltunnel.glb` — the arch you can swim through, built by `scan.py`
+
+    python3 models/scan.py <source>.glb models/coraltunnel.glb 9000 1024
+
+30 MB and 1,295,722 triangles in, 9,000 and 686 KB out, texture set intact. It is the fourth
+entry in `FLOOR_KINDS` and the only one carrying `tunnel:true`.
+
+### It is sized by its HEIGHT and it is wider than it is tall
+
+`ft` in a floor kind is the height, and this model is **2.13 times as wide as it is tall**, so
+`ft:[4.0,6.8]` lays an archway between eight and fifteen feet across. That is a landmark, which
+is why there are four of them against thirty-four of everything else, and why its `tilt` and
+`sink` are near zero: it stands on its feet, and burying it closes the doorway.
+
+### Where the hole is, measured rather than guessed
+
+Sliced at 22 heights and taking the widest empty run through the middle:
+
+| height (of its own) | doorway width (of its own) |
+|---|---|
+| 0.00 – 0.55 | 0.19 – 0.28 |
+| 0.64 | 0.10 |
+| 0.68 and up | solid |
+
+So the passage runs through the **short** axis and the opening is a gap in the long one.
+`ARCH_GAP` (0.085 half-width), `ARCH_MID` (0.024 off-centre) and `ARCH_TOP` (0.60 of its height)
+are the numbers that survive the whole passable band, not the ones at its widest point, and they
+are fractions of the model's own box — so a rebuild at a different aspect cannot silently move
+the door.
+
+They are deliberately a shade **generous**. Everywhere else the rule is that the hit shape sits
+inside the silhouette; here the same instinct means the doorway is slightly wider than the gap
+you can see, because dying in an arch you are visibly flying through is worse than clipping a
+fringe of coral.
+
+### Two things about testing this
+
+The hit shape is a **box in the prop's own frame with a hole in it** — un-turned by the yaw
+first, which is why `floorLay` now keeps `u.yaw` (nothing needed it while every prop was a
+cylinder). And `__surf.archTry(kind)` flies the rider at a named point and steps the game, but
+it has to step **`floorStep`, not `update`** — `update()` does not test the floor at all, it is
+called from the render tail. A version of that harness that stepped `update()` reported every
+case as clear and looked exactly like a hit box wired up wrong.

@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.182.0';
+window.SURF_VERSION='6.183.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -28218,6 +28218,59 @@ if(location.hash.includes('debug')){
     },
     // stand this many feet to his side and point at him; 0 puts the game's camera back
     lookSide(ft){ _sideCam=(ft===undefined)?8:(+ft||0); return _sideCam; },
+    // ---- fly him AT the arch and see what happens ----
+    // Not a re-run of the hit arithmetic against itself, which would agree with itself whatever
+    // it said: this puts the rider at a real world position worked out from the prop's own frame
+    // and steps the game, so the answer comes from the code the player meets.
+    //
+    // Two things the first version of this got wrong, both in the harness rather than the game.
+    // It picked the prop again on every sample, so the point it aimed at was computed from one
+    // arch and fired at another; and it left the other thirty-four rocks and corals collidable,
+    // so "he died at the arch" was not a fact about the arch. The case is named and the point is
+    // worked out INSIDE one call now, and everything else on the floor has its hit box switched
+    // off for the frame -- so a wipeout here is this arch or it is nothing.
+    archTry(kind){
+      const g=floorProps.find(q=>q.userData.k&&q.userData.k.tunnel&&q.userData.halfW>0);
+      if(!g)return {found:false, on:FLOOR_KINDS.map(k=>({f:k.f,on:!!k.tpl}))};
+      const u=g.userData;
+      const P={
+        'door'    :[u.mid,            0,               u.arch*0.45],
+        'edge-in' :[u.mid+u.gap*0.80, 0,               u.arch*0.45],
+        'edge-out':[u.mid+u.gap*1.40, 0,               u.arch*0.45],
+        'leg'     :[u.halfW*FLOOR_HIT*0.70, 0,         u.arch*0.45],
+        'high'    :[u.mid,            0,               u.arch*1.25],
+        'over'    :[u.mid,            0,               u.top*1.05],
+        'ahead'   :[u.halfW*FLOOR_HIT*0.70, u.halfD*1.6, u.arch*0.45],
+        // not a test -- a place to stand and look at one from, square through the doorway
+        'view'    :[u.mid,           -(u.halfD+15),    u.arch*0.50]
+      }[kind]||[u.mid,0,u.arch*0.45];
+      const [lx,lz,hy]=P;
+      const c=Math.cos(u.yaw), sn=Math.sin(u.yaw);
+      px=g.position.x+c*lx+sn*lz;
+      pz=g.position.z-sn*lx+c*lz;
+      py=g.position.y+hy;
+      const off=[];
+      for(const q of floorProps) if(q!==g && q.userData.hit>0){ off.push([q,q.userData.hit]); q.userData.hit=0; }
+      const kOff=(typeof kelps!=='undefined'&&kelps)?kelps.slice():[];
+      const kHit=kOff.map(q=>q.userData&&q.userData.hit);
+      for(const q of kOff) if(q.userData) q.userData.hit=0;
+      // ---- and it steps floorStep, NOT update ----
+      // update() does not test the floor at all: floorStep is called from the render tail, one
+      // line after the camera is placed, because it follows the camera. So an earlier version of
+      // this that stepped update() exercised nothing, reported every case as clear, and looked
+      // exactly like a hit box that had been wired up wrong. dt of zero so the props do not
+      // drift a third of a foot down the lane between the point being computed and being tested.
+      const was=!!wipe;
+      floorStep(0,lastEff||0);
+      const wiped=(!!wipe)&&!was;
+      for(const [q,h] of off) q.userData.hit=h;
+      kOff.forEach((q,i)=>{ if(q.userData&&kHit[i]!==undefined) q.userData.hit=kHit[i]; });
+      return {found:true, kind, lx:+lx.toFixed(2), lz:+lz.toFixed(2), hy:+hy.toFixed(2), wiped,
+              ft:+u.ft.toFixed(2), arch:+u.arch.toFixed(2), gap:+u.gap.toFixed(2),
+              mid:+u.mid.toFixed(2), halfW:+u.halfW.toFixed(2), halfD:+u.halfD.toFixed(2),
+              hitW:+(u.halfW*FLOOR_HIT).toFixed(2), passable:u.arch>=ARCH_MIN,
+              yaw:+u.yaw.toFixed(2)};
+    },
     jetBubbles(){
       const g=(typeof diveJet!=='undefined')?diveJet:null;
       const noz=(g&&g.userData&&g.userData.noz)||[];
@@ -33296,8 +33349,33 @@ const FLOOR_KINDS=[
   // through, which is the "just not too small" the corals were asked for in the first place.
   {f:'searock.glb', n:12, ft:[2.4,13.0], bias:1.9, sink:[0.06,0.34], tilt:0.20},
   {f:'coral1.glb',  n:11, ft:[2.0, 8.6], bias:1.6, sink:[0.03,0.18], tilt:0.13},
-  {f:'coral2.glb',  n:11, ft:[2.0, 8.6], bias:1.6, sink:[0.03,0.18], tilt:0.13}
+  {f:'coral2.glb',  n:11, ft:[2.0, 8.6], bias:1.6, sink:[0.03,0.18], tilt:0.13},
+  // ---- and the ARCH, which you can go through ----
+  // ft is the HEIGHT and this one is 2.13 times as wide as it is tall, so 4.0 to 6.8 lays an
+  // archway between eight and fifteen feet across -- a landmark rather than another boulder,
+  // which is why there are four of them and thirty-four of everything else. Barely any tilt and
+  // barely any sink: it is an arch, it stands on its feet, and burying it closes the doorway.
+  {f:'coraltunnel.glb', n:4, ft:[4.0,6.8], bias:1.3, sink:[0.02,0.10], tilt:0.05, tunnel:true}
 ];
+// ---- the hole in it, measured off the file rather than guessed ----
+// Sliced at 22 heights, the widest empty run through the middle of the model: a doorway from the
+// sand up to about 0.64 of its height, between 0.19 and 0.28 of its width, narrowing as it goes
+// and closing into solid coral at 0.68. So the passage runs through the SHORT axis and the
+// opening is a gap in the long one.
+// The numbers here are the ones that survive the whole passable height rather than the ones at
+// its widest point, and they are fractions of the model's own box so a rebuild at a different
+// aspect cannot silently move the door. Generous rather than tight: the house rule everywhere
+// else is that the hit shape sits inside the silhouette, and the same instinct here means the
+// doorway is a little WIDER than the gap you can see -- being killed by an arch you are clearly
+// flying through is worse than clipping a fringe of coral.
+const ARCH_GAP=0.085;    // half the doorway, as a fraction of the model's full width
+const ARCH_MID=0.024;    // ...and how far its centre sits off the box's, same units
+const ARCH_TOP=0.60;     // the doorway's ceiling, as a fraction of the model's height
+// ...and it is only a doorway if he FITS. A tunnel laid small has a small hole -- at the bottom
+// of the size range the opening is about 2.7ft -- and a rider 1.83ft tall going through a hole
+// shorter than he is would be swimming through coral. Under this, the arch is simply solid,
+// which is the "if that specific one is tall enough" the whole feature was asked with.
+const ARCH_MIN=2.30;
 const FLOOR_BAND=72;     // ...laid across this much depth on a recycle, out past the fog
 const FLOOR_HIT=0.62;    // of its own half-width: inside the silhouette, in the player's favour
 const FLOOR_CLEAR=0.92;  // ...and how much of its height you have to be under to be inside it
@@ -33318,6 +33396,11 @@ function floorAsk(){
       // how wide it is against how tall, so a hit radius can be derived from the size it is
       // laid at rather than carried as a second constant per file
       k.rad=Math.max(b.max.x-b.min.x, b.max.z-b.min.z)*0.5/k.h;
+      // ...and the two of them separately, for anything that is not round enough for a cylinder.
+      // The arch is 2.13 wide to 0.85 deep: a circle round that either lets you walk through its
+      // legs or kills you a body-length in front of it, depending which radius you pick.
+      k.wid=(b.max.x-b.min.x)/k.h;
+      k.dep=(b.max.z-b.min.z)/k.h;
     },9);
 }
 function floorMake(k){
@@ -33347,11 +33430,22 @@ function floorLay(g,seed){
   // side to be wrong on.
   u.hit=ft*(k.rad||0.5)*FLOOR_HIT;
   u.top=ft;
+  if(k.tunnel){
+    // a box in its own frame with a hole in it, all in feet at the size it was just laid at
+    u.halfW=ft*(k.wid||2)*0.5; u.halfD=ft*(k.dep||1)*0.5;
+    u.gap  =ft*(k.wid||2)*ARCH_GAP;
+    u.mid  =ft*(k.wid||2)*ARCH_MID;
+    u.arch =ft*ARCH_TOP;
+  }
   // ---- turned on its flat side, which is a turn about UP and nothing else ----
   // A free rotation would stand a boulder on a corner. Yaw is the axis that leaves it sitting
   // the way it was scanned; the tilt either side of that is a couple of degrees of settling, not
   // a tumble, so it looks like it came to rest rather than like it was dropped.
-  g.rotation.set((R()-0.5)*k.tilt, R()*6.283, (R()-0.5)*k.tilt);
+  // ...and the yaw is KEPT, because the arch's hit shape is not round and has to be tested in
+  // the frame it was turned into. For everything else it is a cylinder and the turn does not
+  // matter, which is why nothing needed it until now.
+  u.yaw=R()*6.283;
+  g.rotation.set((R()-0.5)*k.tilt, u.yaw, (R()-0.5)*k.tilt);
   g.visible=true;
   return g;
 }
@@ -33397,7 +33491,22 @@ function floorStep(dt,eff){
     const u=g.userData;
     if(!wipe&&running&&diveOn&&u.hit>0){
       const dx=px-g.position.x, dz=pz-g.position.z;
-      if(dx*dx+dz*dz < u.hit*u.hit && py < g.position.y+u.top*FLOOR_CLEAR){
+      if(u.k.tunnel){
+        // ---- the arch, tested in its OWN frame ----
+        // A box rather than a cylinder, because it is two and a half times wider than it is
+        // deep; and un-turned first, because it is laid at a random yaw and the doorway faces
+        // wherever that put it. three.js turns local to world by (cos,sin;-sin,cos), so world to
+        // local is its transpose -- which is the whole of this arithmetic.
+        const c=Math.cos(u.yaw), sn=Math.sin(u.yaw);
+        const lx=c*dx-sn*dz, lz=sn*dx+c*dz;
+        if(Math.abs(lx)<u.halfW*FLOOR_HIT && Math.abs(lz)<u.halfD*FLOOR_HIT
+           && py < g.position.y+u.top*FLOOR_CLEAR){
+          const through=(u.arch>=ARCH_MIN)
+                        && Math.abs(lx-u.mid)<u.gap
+                        && py < g.position.y+u.arch;
+          if(!through)startWipeout('rock');
+        }
+      } else if(dx*dx+dz*dz < u.hit*u.hit && py < g.position.y+u.top*FLOOR_CLEAR){
         startWipeout('rock');
       }
     }
