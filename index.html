@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.165.0';
+window.SURF_VERSION='6.166.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -17845,6 +17845,9 @@ const OBST_SPEC={};
 // sixth of a foot under, the crown just breaking the surface, and the raised arms above it
 // doing the work the head used to.
 const FLOAT_OFF={buoy:0.36,jelly:0.34,log:0.40,bigfin:0.28,ramp:0.02,octopus:-0.10};
+// How far below the waterline the deepest of them reaches. Under this and the surface lane
+// stops existing for him -- see the contact loop.
+const OBST_DRAFT=1.9;
 // ---- THE SHARK HAS A JAW, and it is a bone rather than a second mesh ----
 // bigfin.glb arrived with its mouth modelled wide open and an eleven-bone auto-rig that had
 // no jaw in it — a spine's worth of bones scattered through the head, none of them named for
@@ -32886,7 +32889,9 @@ function floorStep(dt,eff){
 // Born past the fog they travel further before they are picked up again, so the same count is
 // thinner in the part you can see: the band they are laid across is kept narrow to make up for
 // it, and the count goes up rather than the spawn coming back inside the fog.
-const KELP_MAX=14;                      // how many clumps are alive at once
+// Eleven at sixteen thousand triangles each is about what fourteen at twelve thousand cost,
+// and the difference is entirely in how a leaf reads rather than in how many there are.
+const KELP_MAX=11;                      // how many clumps are alive at once
 const KELP_BAND=70;                     // ...laid across this much depth, out past the fog
 const KELP_AHEAD=-135, KELP_BEHIND=34;
 const KELP_SPREAD=30, KELP_LANE=2.6;
@@ -36770,6 +36775,16 @@ function update(dt){
     // it is pushed past you and culled by the normal rule.
     if(swSweep&&o.userData.kind!=='debris')o.position.z+=42*dt;
     if(o.position.z>18){scene.remove(o);obstacles.splice(i,1);continue;}
+    // ---- ...and NONE of it can reach him once he is under it ----
+    // Every one of these floats at the waterline. The contact test below gates on
+    // `py < waterY + h` -- is he below the top of it -- which is the right question for a rider
+    // ON the surface and is unconditionally true for one eight feet beneath it. So diving took
+    // him under a buoy and the buoy still ended the run, out of clear water, with the thing that
+    // hit him drawn somewhere up near the sky.
+    // Not switched off outright by diveOn: a foot under is still within reach of a log's draft,
+    // and swimming just below the surface should not be a way to pass through the whole lane.
+    // Past the draft of anything that floats, they simply are not there.
+    if(diveDepth>OBST_DRAFT)continue;
     // the jelly closes fast and is only "at" you for a couple of frames, so its
     // window grows with speed — otherwise a jump can pass clean over the contact
     // The board is a 5m plank, not a point. Test it as a capsule running nose to

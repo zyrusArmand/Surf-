@@ -623,7 +623,7 @@ is the figure of eight that stops it reading as a windscreen wiper.
 
 ## `kelp.glb` — the sea-bed kelp, built by `kelp.py`
 
-1.0 MB, 12,000 tris, one 1024² JPEG, no rig and no clips. (It was 7,000 tris and a 512 map, which
+1.2 MB, 16,000 tris, one 1024² JPEG, no rig and no clips. (It was 7,000 tris and a 512 map, which
 is fine for a clump five feet tall and not for one fifteen feet tall standing next to the lens:
 3,347 leaf islands across a 512 atlas is about eight texels a leaf.) **It arrived at 30 MB** — 1,244,748
 triangles, 700,151 verts and three 2048² JPEGs (3.7 + 2.7 + 1.9 MB).
@@ -631,6 +631,22 @@ triangles, 700,151 verts and three 2048² JPEGs (3.7 + 2.7 + 1.9 MB).
 Source: `kelp_MAX.glb` (supplied). Same pipeline as `turtle.glb` — merge, decimate, Smart UV
 Project, bake the original's colour onto the new UVs — and every note there applies here. Read
 that section first; only what is different is below.
+
+### Thin the leaves BEFORE simplifying them
+
+The clump is a mass of separate leaf surfaces. Spending a triangle budget on *keeping every
+leaf* gives each of them about three triangles, and three triangles is not a leaf, it is a
+shard — which is what "the leaves look wrong" was. `KEEP` in `prop.py`/`kelpbake.py` drops a
+fraction of the small islands first (components at or above a quarter of the largest are stalks
+and are always kept), and the decimator then has a much smaller mesh to spend the same budget
+on. Same size, same shape, less dense, and every leaf still there reads as a leaf. Shipped at
+`KEEP=0.34`.
+
+Note the island count *after* `remove_doubles` is 199, not 3,347 — the weld joins leaves that
+touch. Thin after the merge, not before, or the fractions mean something else entirely.
+
+Leaf edges also keep their crease: `shade_auto_smooth` rather than a blanket `shade_smooth`,
+which smears normals across the boundary between two leaves that the weld joined.
 
 ### 3,347 islands
 
