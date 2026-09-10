@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.179.0';
+window.SURF_VERSION='6.180.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -28153,6 +28153,22 @@ if(location.hash.includes('debug')){
                  rx:+pug.rotation.x.toFixed(2), ry:+pug.rotation.y.toFixed(2)};
       if(R){ out.swimRan=R.swimRan||0; out.swimWhy=R.swimWhy||''; out.swimW=+(R.swimW||0).toFixed(2);
              out.aw=+(R.aw||0).toFixed(2); out.clip=R.phase||''; }
+      // ---- everything else that is allowed to write his attitude ----
+      // pug.rotation.x has at least six owners and the last one each frame wins. updateHandstand
+      // is the one that runs AFTER animateRig, so whatever it says is final -- and it says
+      // something on every frame where handT is not exactly zero, including the frame it resets.
+      const g2=n2=>{ try{ return eval(n2); }catch(e){ return null; } };
+      out.own={handT:+((typeof handT!=='undefined'?handT:0)||0).toFixed(3),
+               handOn:!!(typeof handOn!=='undefined'&&handOn),
+               heli:+((typeof heliPose!=='undefined'?heliPose:0)||0).toFixed(2),
+               glFace:+((typeof glFace!=='undefined'?glFace:0)||0).toFixed(2),
+               ski:+((typeof skiSit!=='undefined'?skiSit:0)||0).toFixed(2),
+               tube:+((typeof tubeSit!=='undefined'?tubeSit:0)||0).toFixed(2),
+               wipe:!!(typeof wipe!=='undefined'&&wipe),
+               trick:(typeof trick!=='undefined'&&trick)?String(trick):null,
+               air:!!(typeof airborne!=='undefined'&&airborne),
+               diveOn:!!diveOn, depth:+diveDepth.toFixed(2),
+               pike:+((typeof launchPike!=='undefined')?launchPike:0).toFixed(2)};
       const B=R&&R.bones;
       const W=n2=>{ const b=B&&B[n2]; if(!b)return null; const v=new V(); b.getWorldPosition(v); return v; };
       const hips=W('Hips')||W('hips'), head=W('neck')||W('Neck')||W('Head')||W('head');
@@ -34420,7 +34436,19 @@ let _sideCam=0;              // debug: feet to his side to look at, 0 = the game
 // backwards from whatever eye height is wanted. At 2.6 up it puts the aim at -1.07, which is a
 // point BELOW the board line six feet ahead of him: fifteen and a half degrees of down-tilt
 // against the nine it had, and he is still dead centre because the solve is what decides V.
-const DIVE_CAM_UP=2.6, DIVE_CAM_BACK=7.2, DIVE_AIM_UP=-1.07, DIVE_AIM_AHEAD=6.0;
+// ---- and the shot has to be able to SHOW the pose ----
+// 2.6 up and 7.2 back, aiming 1.07 below the eye, is a look direction 15 degrees off level --
+// which is very nearly straight along his own length. From there the projection destroys the
+// pose: the AHEAD component of every limb collapses to nothing while the SIDE component stays
+// full size, so arms aimed twenty degrees off his centreline draw as arms held straight out to
+// the sides, and a body lying flat draws with the same silhouette as a body standing up. His
+// shoulders are 0.35ft either side of his spine before the arms even start, so no amount of
+// posing fixes it -- it was reported as "not rotated" four times while swimAxis measured him
+// 6.6 degrees off flat, and both were true.
+// 4.6 up and 6.4 back aiming 2.6 below is 30 degrees down: enough that his length reads, close
+// enough that he stays big in frame. This is also the "a tad bit up and tilted down toward the
+// character" that was asked for earlier and answered with 2.6.
+const DIVE_CAM_UP=4.6, DIVE_CAM_BACK=6.4, DIVE_AIM_UP=-2.6, DIVE_AIM_AHEAD=6.0;
 // ...and how far above mean water sand has to be before he will stand on it. Above the surf,
 // so the shoreline holds him without him paddling about in the wash.
 // Raised with the shore. A long shallow beach means a wide band that the swell walks over, and
