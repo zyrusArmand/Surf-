@@ -749,3 +749,47 @@ python3 models/tube.py models/tube.glb           # the ring, the handles and the
 ```
 
 The texture is written beside the script and read by it; the exporter embeds it.
+
+## `jetpack.glb` — the worn jetpack, built by `jetpack.py`
+
+A photogrammetry scan, decimated to 16,000 triangles and painted one flat white. Rebuild:
+
+    python3 models/jetpack.py <source>.glb models/jetpack.glb 16000
+
+### Join before you do anything else
+
+The first pack was a single mesh and the script took `[0]`, which was the whole model. The
+second arrived as **thirteen primitives** — a scan split by the 65,535-vertex limit — and `[0]`
+is a thirteenth of a jetpack. Decimating that to the whole model's budget gives you a perfectly
+clean object which is one slice of the thing you wanted, with nothing anywhere saying so. Every
+mesh is joined first, and the node scale is applied so the exported units are the model's own
+rather than a number the mount code has to know about.
+
+### It is white on purpose
+
+Three JPEGs come in with the scan and none of them survive. The pack is worn at about a foot
+across, thirty feet down, in fog; it was asked for as solid white, and that means there is
+nothing to unwrap and nothing to bake. Every material is dropped for one `jet_white`.
+
+### The axes are what the mount reads, so check them after a rebuild
+
+`index.html` does not look at any name in this file. It measures the box and assumes the
+model's **longest** axis is the length of the tanks:
+
+| model axis | worn as | jetpack (old) | jetpack2 (current) |
+|---|---|---|---|
+| x — longest | down his spine | 1.903 | 1.904 |
+| z — middle  | across his back | 0.854 | 0.984 |
+| y — shortest| out of his back | 0.605 | 0.528 |
+
+Both scans happened to arrive on the same axes, which is luck and not a rule. If a future one
+does not, `JET_ROT` (an Euler in `'ZYX'` order, so the X turn happens first) is the one place
+that decides it — and `JET_TALL` scales by the model's longest axis, so a model whose longest
+axis is not the tanks comes out lying across his back like a plank.
+
+### Size is set in `index.html`, not here
+
+`JET_TALL` (1.02 ft up his spine) is the only number that sets the size, and `JET_WIDE` (1.25)
+fattens the across-the-back axis alone. A rebuild at different proportions changes how wide the
+pack lands without changing its height: this scan is wider than the last, so it comes out 0.66
+across where the old one was 0.57.
