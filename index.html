@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.170.0';
+window.SURF_VERSION='6.171.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -21197,6 +21197,7 @@ function reset(){
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}}); rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null;
   handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;_freeze=false;wipeSlow=0;
   diveOn=false;diveT=0;diveRise=0;diveDepth=0;jumpHeld=false;diveFog(0);
+  diveLaunch=0;jetOn=0;   // ...and no run starts half way through a launch
   if(diveProps)diveProps.visible=false; if(diveFish)diveFish.visible=false;
   if(diveJet)diveJet.visible=false; diveJetOn=0;
   if(typeof standDown==='function')standDown();   // arms down, whatever the run left
@@ -21248,6 +21249,7 @@ function respawn(){
   player.rotation.set(0,0,0);
   handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;_freeze=false;wipeSlow=0;
   diveOn=false;diveT=0;diveRise=0;diveDepth=0;jumpHeld=false;diveFog(0);
+  diveLaunch=0;jetOn=0;   // ...and no run starts half way through a launch
   if(diveProps)diveProps.visible=false; if(diveFish)diveFish.visible=false;
   if(diveJet)diveJet.visible=false; diveJetOn=0;
   if(typeof standDown==='function')standDown();   // arms down, whatever the run left
@@ -27743,6 +27745,14 @@ if(location.hash.includes('debug')){
     walk(x,z){ walkVX=x||0; walkVZ=z||0; return {vx:walkVX,vz:walkVZ,ph:forkPh}; },
     // ---- the dive, and the button that flies it ----
     dive(on){ return diveGo(on===undefined?!diveOn:!!on); },
+    // the launch, which is now what a dive begins with: where he is in the arc, whether the pack
+    // is the model or the built fallback, and whether the board has been let go yet
+    launch(){ return {t:+diveLaunch.toFixed(2), k:+(diveLaunch/LAUNCH_T).toFixed(2),
+      on:diveLaunch>0, under:!!diveOn, py:+py.toFixed(2), pz:+pz.toFixed(2),
+      sea:+((typeof waveH==='function')?waveH(px,dist*WAVE_DRIFT+pz,waveClock):0).toFixed(2),
+      pack:!!(diveJet&&diveJet.visible), model:!!(diveJet&&diveJet.userData.real),
+      tpl:!!jetTpl, board:!!(boardArt&&boardArt.visible),
+      thrust:+diveJetOn.toFixed(2)}; },
     rise(on){ jumpHeld=!!on; return jumpHeld; },
     // ---- WHERE THE POSED BODY ACTUALLY IS, in all three ----
     // bodyScan answers the vertical because that is all standing on a deck needs. "Is he lying
@@ -33485,6 +33495,70 @@ const JET_UP=0.95, JET_BACK=0.42, JET_SIDE=0.175;
 // how far along the spine from the bone the pack sits -- toward the shoulders, where a
 // rucksack rides rather than over the kidneys
 const JET_ALONG=0.10;
+// ---- and it is the MODEL, once the model is here ----
+// Built from primitives first because a shape with a light on it is most of what reads through
+// thirty feet of fog, and kept as the fallback for exactly that reason: the file is asked for on
+// the first dive and a dive that happens before it lands still has a jetpack on his back rather
+// than nothing. Swapped in place the moment it arrives.
+let jetTpl=null, jetAsked=false, jetOn=0;
+function jetAsk(){
+  if(jetAsked||typeof loadModel!=='function')return;
+  jetAsked=true;
+  loadModel('jetpack.glb',root=>{
+    root.updateMatrixWorld(true);
+    const b=new THREE.Box3().setFromObject(root);
+    root.userData.box=b.clone();
+    // The cyan strip is the only part meant to glow and glTF's emissive strength extension is
+    // not read by this build of three, so it arrives at intensity 1 -- which under one dim sun
+    // thirty feet down is a pale green stripe rather than a light. Put back here, by name.
+    root.traverse(n=>{ if(!n.isMesh||!n.material)return;
+      const m=n.material;
+      if(/glow/i.test(m.name||'')){ m.emissiveIntensity=2.6; m.userData.glow=1; }
+      m.envMapIntensity=0.35; });
+    jetTpl=root;
+  },9);
+}
+// How the model is worn. Its own box is measured and it is scaled to span his shoulders, so the
+// numbers here are about the POSE and not about the file -- a different jetpack dropped in the
+// same place would need none of them changed.
+const JET_SPAN=0.80;              // feet across his back
+// A quarter turn about X. The pod is authored lying flat -- 1.90 across, 0.86 deep and only 0.61
+// through, which is the thin axis -- so worn as it comes it stands out from his spine edge-on.
+// Turned, the thin axis is the one pointing away from his back and the pod lies against it, with
+// a thruster at each end of his shoulders, which is the shape it plainly is.
+const JET_ROT=[Math.PI/2,0,0];
+function jetReal(g){
+  if(!jetTpl||g.userData.real)return;
+  for(let i=g.children.length-1;i>=0;i--)g.remove(g.children[i]);
+  const m=cloneModel(jetTpl), b=jetTpl.userData.box;
+  const w=Math.max(1e-4,b.max.x-b.min.x);
+  const s=JET_SPAN/w;
+  const holder=new THREE.Group();
+  m.scale.setScalar(s);
+  // centred on the wrapper's origin, so the mounting numbers do not have to know where the
+  // modeller happened to put theirs
+  m.position.set(-(b.min.x+b.max.x)*0.5*s,-(b.min.y+b.max.y)*0.5*s,-(b.min.z+b.max.z)*0.5*s);
+  holder.add(m);
+  holder.rotation.set(JET_ROT[0],JET_ROT[1],JET_ROT[2]);
+  g.add(holder);
+  // ---- and the bubbles come off MARKERS, not off geometry ----
+  // The built pack had two cones and the plume was taken from their world positions. A scan has
+  // no cone anybody can name, so two empties are hung where the exhaust is instead: in the
+  // WRAPPER's frame, as fractions of the span, which is a frame this code decides and therefore
+  // one it cannot be wrong about.
+  const noz=[];
+  for(const sx of [-1,1]){
+    const e=new THREE.Object3D();
+    // out at the ends of the pod where the thrusters are, and a little below and behind it
+    e.position.set(sx*JET_SPAN*0.44, -JET_SPAN*0.12, JET_SPAN*0.20);
+    g.add(e); noz.push(e);
+  }
+  g.userData.noz=noz;
+  g.userData.real=1;
+  g.userData.glow=[];
+  g.traverse(n=>{ if(n.isMesh&&n.material&&n.material.userData&&n.material.userData.glow)
+    g.userData.glow.push(n.material); });
+}
 function buildJet(){
   if(diveJet)return diveJet;
   const g=new THREE.Group();
@@ -33523,7 +33597,10 @@ function buildJet(){
 }
 function jetUpdate(dt){
   const g=buildJet();
-  const want=(diveOn||diveDepth>0.5);
+  const want=(diveOn||diveDepth>0.5||diveLaunch>0||jetOn>0);
+  if(want)jetAsk();
+  // ...and the model takes over from the built shape the first frame it is available
+  if(jetTpl&&!g.userData.real)jetReal(g);
   if(g.parent!==pug&&want)pug.add(g);
   g.visible=want;
   // ---- and the BOARD goes ----
@@ -33533,9 +33610,14 @@ function jetUpdate(dt){
   // ...on the TRANSITIONS only. Written every frame this would be a second owner of a flag the
   // beach, the shop and the fork all set for their own reasons, and the last writer each frame
   // wins: the board would come back on in places that had deliberately put it away.
+  // ---- ...and the board goes when he is CLEAR of it, not when the pack lights ----
+  // During the launch he is still standing on it for the first moment. Stowing it the frame the
+  // pack appears is the board vanishing from under his feet; a third of the way up the arc it is
+  // the board being left behind, which is the same code and the whole difference.
+  const stow=(diveOn||diveDepth>0.5||(diveLaunch>0&&diveLaunch/LAUNCH_T>LAUNCH_BOARD));
   if(typeof boardArt!=='undefined'&&boardArt){
-    if(want&&!_boardStowed){ _boardStowed=true; _boardVis0=boardArt.visible; boardArt.visible=false; }
-    else if(!want&&_boardStowed){ boardArt.visible=_boardVis0; _boardStowed=false; }
+    if(stow&&!_boardStowed){ _boardStowed=true; _boardVis0=boardArt.visible; boardArt.visible=false; }
+    else if(!stow&&_boardStowed){ boardArt.visible=_boardVis0; _boardStowed=false; }
   }
   if(!want){ diveJetOn=0; return; }
   // on his back: up his spine and behind him, in the rider's own frame, so it turns with him --
@@ -33572,11 +33654,16 @@ function jetUpdate(dt){
   // button feel connected rather than delayed -- and swimming hard counts as thrust, so the
   // plume answers the swipe as well as the button
   const swim=Math.min(1,Math.hypot(steer||0,steerY||0));
-  const th=Math.max((jumpHeld||keys.Space)?1:0,swim);
+  // full through the launch: it is the reason he is in the air and it should look like it
+  const th=(diveLaunch>0)?1:Math.max((jumpHeld||keys.Space)?1:0,swim);
   diveJetOn+=(th-diveJetOn)*Math.min(1,dt*8);
-  for(const c of g.children)
-    if(c.material&&c.material.emissiveIntensity!==undefined)
-      c.material.emissiveIntensity=0.35+diveJetOn*1.5;
+  if(g.userData.real){
+    for(const m of (g.userData.glow||[]))m.emissiveIntensity=1.5+diveJetOn*3.2;
+  } else {
+    for(const c of g.children)
+      if(c.material&&c.material.emissiveIntensity!==undefined)
+        c.material.emissiveIntensity=0.35+diveJetOn*1.5;
+  }
   // ---- and it blows bubbles ----
   // Off the nozzles' ACTUAL positions, asked of the scene graph rather than guessed at from px
   // and pz: he rides side-on, so his back faces across the lane and not down it, and a plume
@@ -33597,9 +33684,43 @@ function jetUpdate(dt){
     }
   }
 }
+// ---- THE LAUNCH ----
+// The arc is a sine from the water back to the water, which is one line and has the two
+// properties that matter: it leaves and arrives at exactly the surface, and its steepest part is
+// at both ends, so the departure and the entry are the fast bits and the apex hangs. Forward
+// travel is flat over the whole thing -- he is under thrust, not in free fall, and a jetpack that
+// slows down at the top looks like it ran out.
+let diveLaunch=0;                 // seconds into it; 0 when there is no launch
+const LAUNCH_T=1.55;              // surface to surface
+const LAUNCH_UP=9.5;              // feet of air at the apex
+const LAUNCH_FWD=12.0;            // ...and feet down the lane over the whole arc
+const LAUNCH_BOARD=0.30;          // how far up he is when he lets the board go
+function diveLaunchStep(dt,waterY){
+  diveLaunch+=dt;
+  const k=Math.min(1,diveLaunch/LAUNCH_T);
+  py=waterY+Math.sin(Math.PI*k)*LAUNCH_UP;
+  pz-=LAUNCH_FWD*dt/LAUNCH_T;
+  airborne=true; vy=0;
+  // nose up out of the water, over at the top, down on the way in -- the derivative of the arc,
+  // so the attitude is the path rather than a second animation timed against it
+  boardPitch+=((Math.cos(Math.PI*k)*0.62)-boardPitch)*Math.min(1,dt*8);
+  if(k>=1){ diveLaunch=0; diveUnder(); }
+}
 function diveGo(on){
-  if(!!on===diveOn)return diveOn;
-  diveOn=!!on; diveT=0;
+  // Asking to go under starts the LAUNCH, not the dive: the dive begins when he hits the water
+  // at the end of it. Asking to come up is unchanged and immediate.
+  if(on){
+    if(diveOn||diveLaunch>0)return diveOn;
+    diveLaunch=1e-6; jetOn=1;
+    msg('JETPACK!'); buzz([14,26,14]);
+    return false;
+  }
+  return diveUnder(false);
+}
+function diveUnder(on){
+  const want=(on===undefined)?true:!!on;
+  if(want===diveOn)return diveOn;
+  diveOn=want; diveT=0;
   if(diveOn){
     diveRise=-DIVE_PLUNGE_V*0.6;
     msg('UNDER!');
@@ -33617,6 +33738,7 @@ function diveGo(on){
     // back and rode the rest of the run sitting on nothing, wearing the pack.
     diveDepth=0;
     diveFog(0);
+    diveLaunch=0; jetOn=0;
   }
   return diveOn;
 }
@@ -35840,7 +35962,14 @@ function update(dt){
   // to the surface the whole way up now, so the only launch is the one at the top.
   const wakeRide=onWake&&skiWake&&!skiWake.hit;
 
-  if(diveOn){
+  if(diveLaunch>0){
+    // ---- ...and going under starts ABOVE the water ----
+    // He does not blink from riding to swimming: the pack lights on his back, he leaves the
+    // board, arcs up and down the lane, and goes in nose first. It sits above the dive in this
+    // chain for the same reason the dive sits above everything else -- it owns py outright, and
+    // every test below reads ten feet of air as a jump it has to land.
+    diveLaunchStep(dt,waterY);
+  } else if(diveOn){
     // ---- UNDER THE WATER, and it owns him outright ----
     // At the top of the chain for the same reason the paraglide is, and for the opposite
     // reason: every test below this reads "below the surface" as having fallen in, and would
@@ -36349,7 +36478,11 @@ function update(dt){
   // his station in the lane, which is exactly right for a rider on water and exactly wrong
   // for one who has left it: the walk moved him up the sand and this pulled him straight back
   // down it every frame, so the distance to the chest closed by two feet and then stopped.
-  if(!(forkOn&&forkPh>=1))pz+=(pzT-pz)*Math.min(1,dt*(swTubeRide?1.3:2.2));
+  // ...and not while he is in the air on the pack either. This eases him back toward the ride's
+  // own station at 2.2 a second, which during a launch is a spring fighting the arc: twelve feet
+  // of forward travel arrived as four and then crept back. Suspended, the same as the fork
+  // suspends it for the same reason -- something else is deciding where he is.
+  if(!(forkOn&&forkPh>=1)&&!(diveLaunch>0))pz+=(pzT-pz)*Math.min(1,dt*(swTubeRide?1.3:2.2));
   // A foil rides ON its mast, with the hull clear of the surface and only the wing in
   // the water — which is the whole look of the thing. The lift is VISUAL: py still drives
   // the collisions, because the mast and the wing are down there in the water whatever
