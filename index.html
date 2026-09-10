@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.173.0';
+window.SURF_VERSION='6.174.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -16907,6 +16907,27 @@ function bubble(x,y,z,n=2,sc=1){
     splashes.push(m);
   }
 }
+// ---- ...and ABOVE the water it is not bubbles ----
+// A bubble climbs and is killed the moment it finds itself at the surface, which in open air
+// is its first frame -- so the whole launch, which is nine feet of climb out of the sea and is
+// the one moment the pack is the reason anything is happening, threw a plume that was deleted
+// before it drew. In air the nozzles throw SPRAY: the falling branch of the same sprites,
+// aimed down and back out of the exhaust instead of up off a rail, big enough to read as
+// vapour and short enough to leave a column under him rather than a trail across the sky.
+function jetPuff(x,y,z,n=2,sc=1){
+  for(let i=0;i<n;i++){
+    const m=takeDrop(); if(!m)return;
+    m.material.map=SPLASH_MAT.map; m.material.color.copy(SPLASH_MAT.color);
+    m.material.opacity=1;
+    m.position.set(x+(Math.random()-0.5)*0.12,y,z+(Math.random()-0.5)*0.12);
+    const s=(0.17+Math.random()*0.24)*sc;
+    m.scale.set(s,s,1);
+    m.userData={vx:(Math.random()-0.5)*1.7,vy:-3.2-Math.random()*2.8,
+                vz:(Math.random()-0.5)*1.7+1.5,
+                t:0.40+Math.random()*0.28,s,y0:y};
+    splashes.push(m);
+  }
+}
 // one step of one bubble; false means it is finished. `eff` is the speed the world is scrolling
 // past, because a bubble that keeps station with the rider is not a plume, it is jewellery.
 function bubStep(m,u,dt,eff){
@@ -21256,6 +21277,20 @@ function reset(){
   // and no tow boat left in the lane from the last run, for the same reason
   if(typeof boatReset==='function')boatReset();
   if(typeof glideReset==='function')glideReset();
+  // ---- and no run starts UNDERWATER ----
+  // Same trap as the saucer a dozen lines up, and it was walked into anyway: every one of these
+  // lines used to live inside the if(wipe) below, so the dive was only ever put away by a run
+  // that ended in a CRASH. End one any other way -- the secret menu, the title screen, a run
+  // simply restarted -- and the next one began with diveOn still true: green fog, no board, the
+  // pack still on his back and the rider laid out flat swimming down a wave. It also made the
+  // launch unpressable for the rest of the session, because diveGo returns early when he is
+  // already under, so the button that starts the whole thing silently did nothing.
+  diveOn=false; diveT=0; diveRise=0; diveDepth=0; jumpHeld=false;
+  if(typeof diveFog==='function')diveFog(0);
+  diveLaunch=0; jetOn=0; launchLift=0; launchPike=0; launchFace=0;
+  if(typeof divePose!=='undefined')divePose=0;
+  if(diveProps)diveProps.visible=false; if(diveFish)diveFish.visible=false;
+  if(diveJet)diveJet.visible=false; diveJetOn=0;
   // `wipeDirty` and not `wipe`: the title screen ends the crash so the drowning pose cannot
   // stick, and that left this block with nothing to test. What it undoes is not the crash --
   // it is what the crash DID to the rider -- and that is still done whether or not the crash
@@ -21266,10 +21301,6 @@ function reset(){
     pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}}); rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null;
   handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;_freeze=false;wipeSlow=0;
-  diveOn=false;diveT=0;diveRise=0;diveDepth=0;jumpHeld=false;diveFog(0);
-  diveLaunch=0;jetOn=0;   // ...and no run starts half way through a launch
-  if(diveProps)diveProps.visible=false; if(diveFish)diveFish.visible=false;
-  if(diveJet)diveJet.visible=false; diveJetOn=0;
   if(typeof standDown==='function')standDown();   // arms down, whatever the run left
   if(typeof puffClear==='function')puffClear();   // last run's wash does not follow him into this one
   switchRide=false;waveT=0;applyStance();
@@ -27822,7 +27853,19 @@ if(location.hash.includes('debug')){
       sea:+((typeof waveH==='function')?waveH(px,dist*WAVE_DRIFT+pz,waveClock):0).toFixed(2),
       pack:!!(diveJet&&diveJet.visible), model:!!(diveJet&&diveJet.userData.real),
       tpl:!!jetTpl, board:!!(boardArt&&boardArt.visible),
-      thrust:+diveJetOn.toFixed(2)}; },
+      thrust:+diveJetOn.toFixed(2),
+      // the three things the arc is MADE of, so a launch that looks wrong can be read as
+      // numbers: how high the rider is off the board, how far over he has folded, and where
+      // his own body actually is in the world.
+      lift:+launchLift.toFixed(2), pike:+launchPike.toFixed(2),
+      pose:+((typeof divePose!=='undefined')?divePose:0).toFixed(2),
+      rx:+pug.rotation.x.toFixed(2),
+      pugY:+pug.position.y.toFixed(2),
+      // the rider's world height, which is the only number that says he actually left the board
+      manY:+(function(){ const v=new THREE.Vector3(); pug.getWorldPosition(v); return v.y; })().toFixed(2),
+      drops:splashes.length,
+      // spray above the line vs bubbles below it
+      air:splashes.reduce((c,m)=>c+(m.userData.bub?0:1),0)}; },
     rise(on){ jumpHeld=!!on; return jumpHeld; },
     // ---- WHERE THE POSED BODY ACTUALLY IS, in all three ----
     // bodyScan answers the vertical because that is all standing on a deck needs. "Is he lying
@@ -27916,7 +27959,17 @@ if(location.hash.includes('debug')){
     },
     onScreen(){
       const v=new THREE.Vector3(px,py+0.6,pz).project(camera);
+      // ...and where the RIDER is, which is a different question the moment he is off the
+      // board: the launch puts nine feet between the two of them and it is him the shot is of.
+      // His mid-height rather than his origin, because the origin is the floor between his feet
+      // and a dive spends most of its arc with that floor above his head.
+      const w=new THREE.Vector3(); pug.updateMatrixWorld(true); pug.getWorldPosition(w);
+      w.y+=0.9*(pug.scale.y||1)*Math.cos(pug.rotation.x);
+      w.z-=0.9*(pug.scale.y||1)*Math.sin(pug.rotation.x);
+      const r=w.clone().project(camera);
       return {x:+v.x.toFixed(3), y:+v.y.toFixed(3),
+              rx:+r.x.toFixed(3), ry:+r.y.toFixed(3),
+              inFrame:Math.abs(r.x)<1&&Math.abs(r.y)<1&&r.z<1,
               camBack:+(camera.position.z-pz).toFixed(2),
               camUp:+(camera.position.y-py).toFixed(2)};
     },
@@ -33692,7 +33745,9 @@ function jetUpdate(dt){
   // During the launch he is still standing on it for the first moment. Stowing it the frame the
   // pack appears is the board vanishing from under his feet; a third of the way up the arc it is
   // the board being left behind, which is the same code and the whole difference.
-  const stow=(diveOn||diveDepth>0.5||(diveLaunch>0&&diveLaunch/LAUNCH_T>LAUNCH_BOARD));
+  // Only once he is IN the water. Through the launch the board is floating where he left it and
+  // there is nothing to hide -- stowing it part way up was a board vanishing off the sea.
+  const stow=(diveOn||diveDepth>0.5);
   if(typeof boardArt!=='undefined'&&boardArt){
     if(stow&&!_boardStowed){ _boardStowed=true; _boardVis0=boardArt.visible; boardArt.visible=false; }
     else if(!stow&&_boardStowed){ boardArt.visible=_boardVis0; _boardStowed=false; }
@@ -33759,7 +33814,11 @@ function jetUpdate(dt){
       const nz=noz[(Math.random()*noz.length)|0];
       if(!nz)break;
       nz.getWorldPosition(_jetV);
-      bubble(_jetV.x,_jetV.y,_jetV.z,1,0.9+diveJetOn*0.7);
+      // which side of the water the NOZZLE is on, not which side the rider is: over the top of
+      // the arc he is folded head-down and the pack is the highest thing on him
+      const _sea=waveH(_jetV.x,dist*WAVE_DRIFT+_jetV.z,waveClock);
+      if(_jetV.y>_sea+0.06)jetPuff(_jetV.x,_jetV.y,_jetV.z,2,0.9+diveJetOn*0.7);
+      else bubble(_jetV.x,_jetV.y,_jetV.z,1,0.9+diveJetOn*0.7);
     }
   }
 }
@@ -33774,16 +33833,44 @@ const LAUNCH_T=1.55;              // surface to surface
 const LAUNCH_UP=9.5;              // feet of air at the apex
 const LAUNCH_FWD=12.0;            // ...and feet down the lane over the whole arc
 const LAUNCH_BOARD=0.30;          // how far up he is when he lets the board go
+// ---- and at the top of it he PIKES ----
+// A dive is not a body that turns over evenly on the way up. He goes up standing, holds it,
+// and then folds forward over the apex and drops in head first -- so the rotation is a
+// smoothstep across the BACK of the arc, not a ramp across all of it. Ending a shade before
+// the water (0.92) means he is already committed and pointing down when he goes in rather
+// than still turning as he hits, which is what a late-rotating dive looks like: a fall.
+const LAUNCH_PIKE_A=0.40, LAUNCH_PIKE_B=0.92;
+// ...and how far PAST flat he goes. The face-down swim pose is -1.50 (level); another 1.26 on
+// top of it is about seventy degrees nose-down, which is a dive entry. A full ninety looks
+// stiff at this camera, and past it he is over-rotated and going in on his back.
+const LAUNCH_DIVE=1.26;
+let launchPike=0;
+// ...and he turns to face where he is going BEFORE any of that. The pike squares him up as a
+// side effect of the swim pose, but that only starts at 0.40 -- so for the first half of the
+// climb he was still standing side-on to a board he had already left, which put the pack
+// across his ribs from the camera instead of on his back. Turning is the first thing you do
+// when you step off a board, and it is over well before the fold begins.
+let launchFace=0;
+const LAUNCH_FACE_A=0.02, LAUNCH_FACE_B=0.34;
+// ---- and the BOARD never leaves the water ----
+// py is the board's line and the rider hangs off it, so putting the arc into py flew the board
+// up with him -- a surfboard nine feet in the air with nobody on it. The board stays exactly
+// where it was floating and the LIFT is carried separately, applied to the rider and to the
+// camera and to nothing else. He steps off it, which is what leaving a board means.
+let launchLift=0;
 function diveLaunchStep(dt,waterY){
   diveLaunch+=dt;
-  const k=Math.min(1,diveLaunch/LAUNCH_T);
-  py=waterY+Math.sin(Math.PI*k)*LAUNCH_UP;
+  const k=Math.max(0,Math.min(1,diveLaunch/LAUNCH_T));
+  launchLift=Math.sin(Math.PI*k)*LAUNCH_UP;
+  const pk=Math.max(0,Math.min(1,(k-LAUNCH_PIKE_A)/(LAUNCH_PIKE_B-LAUNCH_PIKE_A)));
+  launchPike=pk*pk*(3-2*pk);
+  const fc=Math.max(0,Math.min(1,(k-LAUNCH_FACE_A)/(LAUNCH_FACE_B-LAUNCH_FACE_A)));
+  launchFace=fc*fc*(3-2*fc);
+  py=waterY;                       // ...the board is still floating on it
   pz-=LAUNCH_FWD*dt/LAUNCH_T;
   airborne=true; vy=0;
-  // nose up out of the water, over at the top, down on the way in -- the derivative of the arc,
-  // so the attitude is the path rather than a second animation timed against it
-  boardPitch+=((Math.cos(Math.PI*k)*0.62)-boardPitch)*Math.min(1,dt*8);
-  if(k>=1){ diveLaunch=0; diveUnder(); }
+  boardPitch+=(0-boardPitch)*Math.min(1,dt*6);   // and it is not pitching either
+  if(k>=1){ diveLaunch=0; launchLift=0; launchFace=0; diveUnder(); }
 }
 function diveGo(on){
   // Asking to go under starts the LAUNCH, not the dive: the dive begins when he hits the water
@@ -35311,6 +35398,13 @@ function animateRig(dt,carve,grab,waterY){
     armSpread*=1-h;
   }
   divePose=ease(divePose,diveOn?1:0,dt,diveOn?7:5);
+  // ---- and going over the top IS the swim pose arriving ----
+  // Not an ease of its own: the fold and the pose are one movement, so the pike drives the
+  // blend directly. Easing divePose from the moment the pack lights would lay him out flat
+  // while he was still standing on the board; taken off the pike he is upright on the way up,
+  // folding at the apex and fully laid out by the time he goes in. Math.max so that the dive's
+  // own ease still owns it once he is under and the pike has bled away.
+  if(launchPike>0)divePose=Math.max(divePose,launchPike);
   if(divePose>0.02){
     const h=divePose, mx=(a2,b2)=>a2*(1-h)+b2*h;
     // the small y and z terms open the hands a little wider than his shoulders, which is what
@@ -35396,6 +35490,26 @@ function animateRig(dt,carve,grab,waterY){
     straight(legBackJ.hip ,-0.26-kick); straight(legBackJ.knee ,0.20); straight(legBackJ.ankle ,-0.16);
     headJ.rotation.x=headJ.rotation.x*(1-h)+0.74*h;   // chin up, eyes where he is going
     headJ.rotation.y*=1-h;
+    // ---- ...and the dive carries on PAST level ----
+    // Level is where a swimmer is; a diver at the top of the arc keeps going until he is
+    // pointing at the water. Applied on top of the swim pose rather than instead of it, so
+    // the arms are already overhead and the legs already straight when he tips over -- which
+    // is the whole shape of a dive, and is why it is one number here and not a pose of its
+    // own. It bleeds back to zero underneath, and he is a swimmer again.
+    if(launchPike>0.01){
+      pug.rotation.x-=LAUNCH_DIVE*launchPike;
+      // chin tucks toward the entry as he goes over; a diver looks at the water, not up
+      headJ.rotation.x-=0.62*launchPike;
+    }
+  }
+  // ---- SQUARE TO THE LANE, from the moment he leaves the board ----
+  // After the swim block rather than inside it: that block is gated on divePose, which is still
+  // zero for the first four tenths of the arc, and the whole point is to be turned before then.
+  // Written with max() so the two never fight -- once the pike is up they are asking for the
+  // same angle anyway.
+  if(diveLaunch>0){
+    const fw=Math.max(launchPike,launchFace);
+    pug.rotation.y=STANCE_ROT+(switchRide?Math.PI:0)+(-STANCE_ROT)*fw;
   }
   if(glFace>0.02&&heliPose<=0.02&&skiSit<=0.02){
     const h=glFace;
@@ -36079,6 +36193,7 @@ function update(dt){
   // to the surface the whole way up now, so the only launch is the one at the top.
   const wakeRide=onWake&&skiWake&&!skiWake.hit;
 
+  if(diveLaunch<=0&&!diveOn&&launchPike>0)launchPike=Math.max(0,launchPike-dt*1.9);
   if(diveLaunch>0){
     // ---- ...and going under starts ABOVE the water ----
     // He does not blink from riding to swimming: the pack lights on his back, he leaves the
@@ -36087,6 +36202,11 @@ function update(dt){
     // every test below reads ten feet of air as a jump it has to land.
     diveLaunchStep(dt,waterY);
   } else if(diveOn){
+    // ...and he comes OUT of the dive under the water, not at it: the pike bleeds off over
+    // about half a second below the surface, so the entry is head-down and the levelling is a
+    // continuation of it. Snapping flat the frame he touches is the one thing that would make
+    // a good dive read as a belly flop.
+    if(launchPike>0)launchPike=Math.max(0,launchPike-dt*1.9);
     // ---- UNDER THE WATER, and it owns him outright ----
     // At the top of the chain for the same reason the paraglide is, and for the opposite
     // reason: every test below this reads "below the surface" as having fallen in, and would
@@ -36661,11 +36781,23 @@ function update(dt){
   const grabRoll = grab ? grabSide*0.30 : 0;   // board tips toward the rail he's holding
   if(heliPh<0&&!heliAir)heliIncline=ease(heliIncline,0,dt,4);
   rig.rotation.set(boardPitch+heliIncline,boardYaw+wobYaw,boardLean+grabRoll+wobRoll);
+  // ---- ...and while he is in the air the board is just floating ----
+  // rig carries the rider as well as the board, so a leaned rig tips the LIFT below out of
+  // vertical and he arcs off sideways. Nobody is standing on it to lean it anyway: an empty
+  // board on flat water sits flat. Yaw is kept -- it is pointing down the lane, which it was.
+  if(diveLaunch>0)rig.rotation.set(0,boardYaw,0);
   animateRig(dt,carve,grab,waterY);
   updateHandstand(dt,carve);
   // last, after everything that stands him on the deck has had its say — otherwise the
   // rig puts him straight back on the board the frame after the beam picks him up
   ufoLiftRider(dt);
+  // ---- THE LAUNCH LIFT, last of all ----
+  // py is the board's line and the board is floating, so the nine feet of air belong to the
+  // rider alone. It is added here rather than anywhere inside the rig because half a dozen
+  // blocks in there ASSIGN pug.position.y (the seat, the handstand, the deck solver) and any
+  // of them would wipe it; after all of them it is the one thing left. pug hangs off rig,
+  // which is unscaled, so this is feet.
+  if(launchLift>0)pug.position.y+=launchLift;
 
   // whitewater under the board + wash trail behind it
   // ---- and NOT while he is hanging under a canopy thirty feet up ----
@@ -37467,7 +37599,7 @@ function update(dt){
   // third of his lateral travel and the point it was looking at followed none of it: steer hard
   // and he slid off toward the edge of frame while the shot stayed pointed down the lane. Both
   // ends are on him now, which is what "follows him" has to mean.
-  if(diveOn){ aimX=px; aimY=py+DIVE_AIM_UP; aimZ=pz-DIVE_AIM_AHEAD; }
+  if(diveOn||diveLaunch>0){ aimX=px; aimY=py+launchLift+DIVE_AIM_UP; aimZ=pz-DIVE_AIM_AHEAD; }
   if(swPh===SWP.RIDE&&!swTubeRide&&swCurlA>0.05){
     const pa1=swPeelA(pz), pb1=swPeelB(pz);
     const rad1=SW_R*(0.16+0.84*pa1)*(1-0.55*pb1), fold1=1-0.38*pb1;
@@ -37562,11 +37694,31 @@ function update(dt){
   // bit -- and no amount of tuning the constants moved it, because they were never reached. The
   // same shape of bug as the island's two easings to different targets. The dive keeps its own
   // three numbers, seeded from wherever the surface camera had got to, and assigns.
-  if(diveOn){
+  if(diveOn||diveLaunch>0){
     const kd=Math.min(1,dt*3.0);
     if(!_dvCam){ _dvCam=1; _dvY=camY; _dvZ=camZ; _dvX=camX; }
-    _dvY+=((py+DIVE_CAM_UP)-_dvY)*kd;
+    // ...and it follows the LIFT, not py. py is the board and the board is on the water; a
+    // camera that framed it would watch him leave the top of the screen.
+    // ---- and through the LAUNCH it is assigned, for the reason x is ----
+    // An ease lags a moving target by v/k. Swimming that is a foot or so and reads as weight;
+    // the launch is another order of magnitude -- he falls the last seven feet of the arc in
+    // four tenths of a second, sixteen feet a second against k=3, which is over five feet of
+    // lag. Measured: at the moment of entry he was off the BOTTOM of the frame and the shot
+    // was of the spray he had left behind. A dive is a mounted shot, not a chased one, so for
+    // the second and a half it lasts the camera simply is where he is. It hands back to the
+    // ease underwater, where the lag is the point.
+    // ...and it is HANDED OVER rather than cut to: the frame the pack lights, _dvY is still
+    // the surf camera's height, eleven feet back and five up. Snapping straight to the mounted
+    // shot on that frame is a cut in the middle of a movement. So the ease runs as it always
+    // did and the exact answer is blended in over the first four tenths -- a swing into the
+    // shot, and locked for the rest of the arc.
+    const _lw=(diveLaunch>0)?Math.min(1,diveLaunch/0.40):0;
+    _dvY+=((py+launchLift+DIVE_CAM_UP)-_dvY)*kd;
     _dvZ+=((pz+DIVE_CAM_BACK)-_dvZ)*kd;
+    if(_lw>0){
+      _dvY+=((py+launchLift+DIVE_CAM_UP)-_dvY)*_lw;
+      _dvZ+=((pz+DIVE_CAM_BACK)-_dvZ)*_lw;
+    }
     // ---- ALL of his travel, and then LOCKED to it ----
     // 0.35 is the surfing rule and it is right there: on a wave the lane is the subject and he
     // moves across it, so a camera that only leans after him keeps the wave in shot. Underwater
@@ -40733,7 +40885,16 @@ try{ BOOT_WHY=menuBeachWanted()?(menuBeachOn()?'':'menuBeachOn returned false'):
 catch(e){ BOOT_WHY='threw: '+e.message; }
 BOOT_BEACH=!!menuBeach;
 requestAnimationFrame(loop);
-  const raw=(now-last)/1000;
+  // ---- and TIME DOES NOT RUN BACKWARDS ----
+  // beginRun stamps `last` with performance.now(), but the timestamp handed to the next frame
+  // is that frame's SCHEDULED begin time, which the browser fixes at the vsync tick -- and that
+  // tick can precede the call that started the run. Measured: a run started at 148643ms got its
+  // next frame stamped 148420, a dt of minus a fifth of a second, fed straight into the whole of
+  // update() on the first frame of every single run. Most things absorb it (an ease run
+  // backwards for one frame is invisible); a timer that counts UP and is tested for being
+  // positive does not -- the dive launch went to -0.22s and its `diveLaunch>0` gate could never
+  // come true again, so the first press of the button did nothing at all, for ever.
+  const raw=Math.max(0,(now-last)/1000);
   let dt=Math.min(0.033,raw);last=now;
   // The hit-stop. Decayed on RAW, so the slow motion cannot slow its own clock and stall;
   // applied to dt, so everything downstream — the tumble, the spray, the camera, the water —
