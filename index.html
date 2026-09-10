@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.161.0';
+window.SURF_VERSION='6.162.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -33518,7 +33518,13 @@ const ISLE_CAM_BACK=11.0, ISLE_CAM_UP=4.9, ISLE_AIM_UP=1.05, ISLE_AIM_AHEAD=14.0
 // small. 1.15 up, 7.2 back, 0.15 up and 6 ahead puts it at 0.60 -- his chest -- and closer in
 // with it, which is the rest of the note.
 let _dvCam=0,_dvX=0,_dvY=0,_dvZ=0;
-const DIVE_CAM_UP=1.15, DIVE_CAM_BACK=7.2, DIVE_AIM_UP=0.15, DIVE_AIM_AHEAD=6.0;
+// Higher, and tilted down onto him. Same solve as before -- the ray passes his z at
+// U + (B/(B+F))*(V-U) above him and that wants to stay at about 0.6, his chest -- but run
+// backwards from a higher eye. At 1.75 up it puts the aim at -0.36, which is BELOW the board
+// line six feet ahead of him, and that negative number is the tilt: nine degrees down against
+// the four and a bit it had, with him still dead centre. (2.0 was tried first and is a foot
+// of extra sand in the bottom of the frame -- more than "a tad" asked for.)
+const DIVE_CAM_UP=1.75, DIVE_CAM_BACK=7.2, DIVE_AIM_UP=-0.36, DIVE_AIM_AHEAD=6.0;
 // ...and how far above mean water sand has to be before he will stand on it. Above the surf,
 // so the shoreline holds him without him paddling about in the wash.
 // Raised with the shore. A long shallow beach means a wide band that the swell walks over, and
@@ -36932,7 +36938,12 @@ function update(dt){
   // behind him by the time he reaches the top of the island.
   if(_isle){ aimY=forkGround()+ISLE_AIM_UP; aimZ=pz-ISLE_AIM_AHEAD; }
   // ...and it looks at HIM rather than at the waterline he is no longer on
-  if(diveOn){ aimY=py+DIVE_AIM_UP; aimZ=pz-DIVE_AIM_AHEAD; }
+  // ---- ...and at his x too, which was the other half of the lag ----
+  // aimX is lookX, a surf-camera number that knows nothing about him. So the eye followed a
+  // third of his lateral travel and the point it was looking at followed none of it: steer hard
+  // and he slid off toward the edge of frame while the shot stayed pointed down the lane. Both
+  // ends are on him now, which is what "follows him" has to mean.
+  if(diveOn){ aimX=px; aimY=py+DIVE_AIM_UP; aimZ=pz-DIVE_AIM_AHEAD; }
   if(swPh===SWP.RIDE&&!swTubeRide&&swCurlA>0.05){
     const pa1=swPeelA(pz), pb1=swPeelB(pz);
     const rad1=SW_R*(0.16+0.84*pa1)*(1-0.55*pb1), fold1=1-0.38*pb1;
@@ -37032,7 +37043,24 @@ function update(dt){
     if(!_dvCam){ _dvCam=1; _dvY=camY; _dvZ=camZ; _dvX=camX; }
     _dvY+=((py+DIVE_CAM_UP)-_dvY)*kd;
     _dvZ+=((pz+DIVE_CAM_BACK)-_dvZ)*kd;
-    _dvX+=(px*0.35-_dvX)*kd;
+    // ---- ALL of his travel, and then LOCKED to it ----
+    // 0.35 is the surfing rule and it is right there: on a wave the lane is the subject and he
+    // moves across it, so a camera that only leans after him keeps the wave in shot. Underwater
+    // there is no lane and no wave -- HE is the subject, and a camera that follows a third of him
+    // is a camera he swims out of.
+    //
+    // Following all of it through an ease is still not enough, and the reason is that an ease
+    // ALWAYS lags a moving target -- by v/k, forever, for as long as he keeps going. Measured at
+    // k=7 under a full-lock steer: a third of the way off centre and staying there, which is the
+    // "moves and the camera doesn't exactly follow" exactly. There is no rate that fixes it,
+    // only rates that make it smaller; so x is not eased once it has arrived, it is assigned.
+    // The ease is kept for the entry alone, because the surf camera hands this over sitting at
+    // zero while he may be ten feet off the middle of the lane, and that wants a swing rather
+    // than a cut.
+    if(_dvCam===1){
+      _dvX+=(px-_dvX)*Math.min(1,dt*6.0);
+      if(Math.abs(_dvX-px)<0.15)_dvCam=2;
+    } else _dvX=px;
     camY=_dvY; camZ=_dvZ; camX=_dvX;
   } else _dvCam=0;
   if(_isle){
