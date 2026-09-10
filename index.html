@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.184.0';
+window.SURF_VERSION='6.185.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -16935,6 +16935,38 @@ const _dropTex=(()=>{
   const t=new THREE.CanvasTexture(cv); t.wrapS=t.wrapT=THREE.ClampToEdgeWrapping;
   return t;
 })();
+// ---- and a BUBBLE is not a drop with the physics reversed ----
+// It was drawn with the droplet's texture, which is a hot core fading outward -- a lens, which
+// is exactly right for a drop of water in air and exactly wrong for a pocket of air in water.
+// A bubble is a thin skin you see THROUGH: bright where the skin is edge-on to you, which is a
+// ring near the rim, nearly clear across the middle, with one hard highlight where the light is.
+// So it is a ring plus a wash plus a specular dot, and drawn that way a plume reads as bubbles
+// instead of as a string of soft white blobs.
+const _bubTex=(()=>{
+  const N=64, cv=document.createElement('canvas'); cv.width=cv.height=N;
+  const cx=cv.getContext('2d'), im=cx.createImageData(N,N), d=im.data;
+  for(let y=0;y<N;y++)for(let x=0;x<N;x++){
+    const dx=(x+0.5)/N-0.5, dy=(y+0.5)/N-0.5;
+    const r=Math.hypot(dx,dy)*2;
+    let a=0;
+    if(r<1){
+      // the skin, thickest where you are looking along it
+      const rim=Math.pow(Math.max(0,1-Math.abs(r-0.86)/0.17),2.1);
+      // the air behind it -- enough to be a sphere, not enough to be a disc
+      const fill=0.14*Math.pow(Math.max(0,1-r*r),0.7);
+      // and the light, up and to the left, because every other highlight in the game is
+      const hx=dx+0.185, hy=dy+0.205, h=Math.hypot(hx,hy)*2;
+      const spec=0.90*Math.pow(Math.max(0,1-h/0.33),2.5);
+      a=Math.min(1,rim*0.92+fill+spec);
+      a*=Math.min(1,(1-r)/0.05);          // no hard pixel step at the edge
+    }
+    const k=(y*N+x)*4;
+    d[k]=d[k+1]=d[k+2]=255; d[k+3]=Math.max(0,Math.min(255,a*255))|0;
+  }
+  cx.putImageData(im,0,0);
+  const t=new THREE.CanvasTexture(cv); t.wrapS=t.wrapT=THREE.ClampToEdgeWrapping;
+  return t;
+})();
 function dropMat(col){ return new THREE.SpriteMaterial({map:_dropTex,color:col,
   transparent:true,depthWrite:false,opacity:1,sizeAttenuation:true}); }
 const SPLASH_MAT=dropMat(0xffffff);
@@ -17009,9 +17041,11 @@ function splash(x,y,z,n=8,col){
 function bubble(x,y,z,n=2,sc=1){
   for(let i=0;i<n;i++){
     const m=takeDrop(); if(!m)return;
-    m.material.map=SPLASH_MAT.map; m.material.color.copy(SPLASH_MAT.color);
+    // its own texture, and takeDrop puts the droplet's back on the way out, so the two never
+    // leak into each other the way the colours once did
+    m.material.map=_bubTex; m.material.color.copy(SPLASH_MAT.color);
     m.material.opacity=1;
-    m.position.set(x+(Math.random()-0.5)*0.14,y,z+(Math.random()-0.5)*0.14);
+    m.position.set(x+(Math.random()-0.5)*0.07,y,z+(Math.random()-0.5)*0.07);
     const s=(0.09+Math.random()*0.15)*sc;
     m.scale.set(s,s,1);
     m.userData={bub:1,vx:(Math.random()-0.5)*0.5,vy:0.5+Math.random()*0.7,
@@ -34136,7 +34170,11 @@ function jetReal(g){
   const noz=[];
   for(const sx of [-1,1]){
     const e=new THREE.Object3D();
-    e.position.set(sx*JET_TALL*0.449*JET_WIDE*0.27, -JET_TALL*0.47, JET_TALL*0.06);
+    // On the exhaust face itself: 0.50 is the bottom of the pack, and 0.47 put the spawn point
+    // a fingerwidth up INSIDE it, so the first frame of every bubble was drawn behind the shell
+    // and the plume appeared to start above the nozzles rather than at them. Just proud of the
+    // face, and no z offset -- the nozzles are in the face, not behind it.
+    e.position.set(sx*JET_TALL*0.449*JET_WIDE*0.27, -JET_TALL*0.505, 0);
     g.add(e); noz.push(e);
   }
   g.userData.noz=noz;
