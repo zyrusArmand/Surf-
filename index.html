@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.185.0';
+window.SURF_VERSION='6.186.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -15664,7 +15664,8 @@ function setupModelRig(root,gltf,id){
     // The crouch lives in the KNEES and the fold at the waist, not in the hips — dropping the
     // pelvis on top of a knee bend is what puts a rider's feet through his own board. Same
     // conclusion the built-in rig reached, for the same reason, and it is worth stating twice.
-    const load=0.30+this.load*0.30+Math.abs(swell)*0.5+this.bob*0.34+air*0.22;
+    const load=0.30+this.load*0.30+Math.abs(swell)*0.5+this.bob*0.34+air*0.22
+               +(this.crouchW||0)*0.58;   // a wind-up; 0.95 folded him onto the deck
     const hip=-0.20-load*0.22, knee=load*1.05;
     // BOTH LEGS THE SAME. An asymmetric knee bend is what a carving surfer's legs really do,
     // and it was in here — and it is wrong for this rig, because bending one knee further than
@@ -21434,7 +21435,9 @@ function reset(){
   // already under, so the button that starts the whole thing silently did nothing.
   diveOn=false; diveT=0; diveRise=0; diveDepth=0; jumpHeld=false;
   if(typeof diveFog==='function')diveFog(0);
-  diveLaunch=0; jetOn=0; launchLift=0; launchPike=0; launchFace=0;
+  diveLaunch=0; jetOn=0; launchLift=0; launchPike=0; launchFace=0; launchLoad=0;
+  _lbX=0; _lbZ=0;
+  if(typeof boardArt!=='undefined'&&boardArt){ boardArt.position.x=0; boardArt.position.z=0; }
   if(typeof divePose!=='undefined')divePose=0;
   if(diveProps)diveProps.visible=false; if(diveFish)diveFish.visible=false;
   if(diveJet)diveJet.visible=false; diveJetOn=0;
@@ -28004,7 +28007,8 @@ if(location.hash.includes('debug')){
     dive(on){ return diveGo(on===undefined?!diveOn:!!on); },
     // the launch, which is now what a dive begins with: where he is in the arc, whether the pack
     // is the model or the built fallback, and whether the board has been let go yet
-    launch(){ return {t:+diveLaunch.toFixed(2), k:+(diveLaunch/LAUNCH_T).toFixed(2),
+    launch(){ return {t:+diveLaunch.toFixed(2),
+      k:+(Math.max(0,diveLaunch-LAUNCH_LOAD)/LAUNCH_T).toFixed(2),
       on:diveLaunch>0, under:!!diveOn, py:+py.toFixed(2), pz:+pz.toFixed(2),
       sea:+((typeof waveH==='function')?waveH(px,dist*WAVE_DRIFT+pz,waveClock):0).toFixed(2),
       pack:!!(diveJet&&diveJet.visible), model:!!(diveJet&&diveJet.userData.real),
@@ -28015,6 +28019,9 @@ if(location.hash.includes('debug')){
       // numbers: how high the rider is off the board, how far over he has folded, and where
       // his own body actually is in the world.
       lift:+launchLift.toFixed(2), pike:+launchPike.toFixed(2),
+      load:+launchLoad.toFixed(2), side:launchSide, px:+px.toFixed(2),
+      // where the board has got to relative to him -- the whole point of it being left behind
+      boardAway:+Math.hypot(_lbX,_lbZ).toFixed(2), boardZ:+_lbZ.toFixed(2), boardX:+_lbX.toFixed(2),
       pose:+((typeof divePose!=='undefined')?divePose:0).toFixed(2),
       rx:+pug.rotation.x.toFixed(2),
       pugY:+pug.position.y.toFixed(2),
@@ -34367,6 +34374,24 @@ let launchPike=0;
 // when you step off a board, and it is over well before the fold begins.
 let launchFace=0;
 const LAUNCH_FACE_A=0.02, LAUNCH_FACE_B=0.34;
+// ---- he LOADS before he goes ----
+// A jump starts before it starts: the knees fold, the feet stay where they are, and then it
+// unfolds. Without it he simply began travelling upward, which is a lift and not a jump. The
+// load is its own third of a second at the front of the launch, and it springs straight over
+// the first six frames of the arc -- both rigs already know how to bend a knee with the feet
+// planted, so this only has to drive the number they read.
+const LAUNCH_LOAD=0.34;           // seconds of crouch before the pack fires
+let launchLoad=0;                 // 0..1, how far into the load he is
+// ...and he goes UP, AWAY and ACROSS. Straight up and down the lane is a hop; a jump off a
+// board carries you off its line as well.
+const LAUNCH_SIDE=3.4;            // feet across the lane over the whole arc
+let launchSide=1;                 // which way, decided when the pack lights
+// ---- and the BOARD is left behind ----
+// It stops being his and becomes part of the sea the moment he is off it, so it goes past at
+// the speed everything else does -- plus whatever he makes for himself going forward. Held at
+// his own position it hung under his feet the whole flight like a shadow, which is the one
+// thing that says he has NOT left it.
+let _lbX=0,_lbZ=0;
 // ---- and the BOARD never leaves the water ----
 // py is the board's line and the rider hangs off it, so putting the arc into py flew the board
 // up with him -- a surfboard nine feet in the air with nobody on it. The board stays exactly
@@ -34375,7 +34400,17 @@ const LAUNCH_FACE_A=0.02, LAUNCH_FACE_B=0.34;
 let launchLift=0;
 function diveLaunchStep(dt,waterY){
   diveLaunch+=dt;
-  const k=Math.max(0,Math.min(1,diveLaunch/LAUNCH_T));
+  // the crouch, before any of the arc exists
+  if(diveLaunch<LAUNCH_LOAD){
+    launchLoad=Math.min(1,diveLaunch/(LAUNCH_LOAD*0.70));
+    launchLift=0; launchPike=0; launchFace=0;
+    py=waterY; airborne=false;
+    boardPitch+=(0-boardPitch)*Math.min(1,dt*6);
+    return;
+  }
+  const _t=diveLaunch-LAUNCH_LOAD;
+  launchLoad=Math.max(0,1-_t/0.17);          // and it springs straight as he leaves
+  const k=Math.max(0,Math.min(1,_t/LAUNCH_T));
   launchLift=Math.sin(Math.PI*k)*LAUNCH_UP;
   const pk=Math.max(0,Math.min(1,(k-LAUNCH_PIKE_A)/(LAUNCH_PIKE_B-LAUNCH_PIKE_A)));
   launchPike=pk*pk*(3-2*pk);
@@ -34383,16 +34418,24 @@ function diveLaunchStep(dt,waterY){
   launchFace=fc*fc*(3-2*fc);
   py=waterY;                       // ...the board is still floating on it
   pz-=LAUNCH_FWD*dt/LAUNCH_T;
+  px+=launchSide*LAUNCH_SIDE*dt/LAUNCH_T;
+  // where the board has got to, relative to him: the sea's own speed past him, plus his.
+  const _e=(typeof lastEff==='number'?lastEff:(typeof speed==='number'?speed:0))||0;
+  _lbZ+=(_e+LAUNCH_FWD/LAUNCH_T)*dt;
+  _lbX-=launchSide*LAUNCH_SIDE*dt/LAUNCH_T;
   airborne=true; vy=0;
   boardPitch+=(0-boardPitch)*Math.min(1,dt*6);   // and it is not pitching either
-  if(k>=1){ diveLaunch=0; launchLift=0; launchFace=0; diveUnder(); }
+  if(k>=1){ diveLaunch=0; launchLift=0; launchFace=0; launchLoad=0; diveUnder(); }
 }
 function diveGo(on){
   // Asking to go under starts the LAUNCH, not the dive: the dive begins when he hits the water
   // at the end of it. Asking to come up is unchanged and immediate.
   if(on){
     if(diveOn||diveLaunch>0)return diveOn;
-    diveLaunch=1e-6; jetOn=1;
+    diveLaunch=1e-6; jetOn=1; launchLoad=0; _lbX=0; _lbZ=0;
+    // toward the middle of the lane if he is out on one side of it, so a jump never carries him
+    // off the edge; a coin toss when he is already down the middle
+    launchSide=(px>1.0)?-1:(px<-1.0?1:(Math.random()<0.5?-1:1));
     msg('JETPACK!'); buzz([14,26,14]);
     return false;
   }
@@ -35763,14 +35806,18 @@ function animateRig(dt,carve,grab,waterY){
   // The hips have to come down by what the knees take out of the legs, or bending them just
   // lifts his feet off the deck.
   pelvis.position.y=pelvisHeight()-RIDE_CROUCH*RIDE_HIP
-                   -Math.max(0,Math.min(0.24,rigCrouch))*0.14;
+                   -Math.max(0,Math.min(0.24,rigCrouch))*0.14
+                   -((typeof launchLoad!=='undefined')?launchLoad:0)*0.11;
   pelvis.rotation.z=carve*0.10;
   pelvis.rotation.x=heave*0.22;
 
   // hip/knee/ankle chain — deeper bend the more you compress
   // the crouch is normally capped so he cannot fold up on the wave; a tuck is exactly
   // the case where he should, so the ceiling lifts with it
-  const cr=Math.max(-0.08,Math.min(0.26+rigTuck*0.72,rigCrouch));
+  // ...and the launch load rides in on the same chain, ceiling and all: the cap exists so he
+  // cannot fold up on a wave, and winding up for a jump is the other case where he should.
+  const _ll=(typeof launchLoad!=='undefined')?launchLoad:0;
+  const cr=Math.max(-0.08,Math.min(0.26+rigTuck*0.72+_ll*0.42,rigCrouch+_ll*0.46));
   const bendF=0.30+RIDE_CROUCH+cr*0.55, bendB=0.32+RIDE_CROUCH*1.06+cr*0.58;   // knees bent into a surf crouch
   legFrontJ.hip.rotation.x=ease(legFrontJ.hip.rotation.x,-SPLAY_F-bendF*0.5+heave*0.10,dt,10);
   legFrontJ.knee.rotation.x=ease(legFrontJ.knee.rotation.x,SPLAY_F*0.55+bendF,dt,12);
@@ -36256,6 +36303,7 @@ function updateHandstand(dt,carve){
     // weight, and the group turn set for it survives for the same reason the heli's does.
     modelRig.heliW=(typeof heliPose!=='undefined')?heliPose:0;
     modelRig.swimW=(typeof divePose!=='undefined')?divePose:0;
+    modelRig.crouchW=(typeof launchLoad!=='undefined')?launchLoad:0;
     // the tube's sit is hand-posed too, so the surfing stance has to stand down for it in
     // exactly the way it does for the dive -- otherwise the clip puts his legs back under him
     modelRig.tubeW=(typeof tubeSit!=='undefined')?tubeSit:0;
@@ -37351,6 +37399,12 @@ function update(dt){
   // his two arms sit at visibly different heights, which reads as a lopsided pose rather than
   // as a roll and was diagnosed as one twice.
   if(diveLaunch>0||diveOn)rig.rotation.set(0,boardYaw,0);
+  // ...and the board slides off behind him. x and z only -- y is somebody else's (see the
+  // shop's stand height, which reads boardArt.position.y).
+  if(typeof boardArt!=='undefined'&&boardArt){
+    if(diveLaunch>0){ boardArt.position.x=_lbX; boardArt.position.z=_lbZ; }
+    else if(boardArt.position.x||boardArt.position.z){ boardArt.position.x=0; boardArt.position.z=0; }
+  }
   animateRig(dt,carve,grab,waterY);
   updateHandstand(dt,carve);
   // last, after everything that stands him on the deck has had its say — otherwise the
@@ -38164,7 +38218,12 @@ function update(dt){
   // third of his lateral travel and the point it was looking at followed none of it: steer hard
   // and he slid off toward the edge of frame while the shot stayed pointed down the lane. Both
   // ends are on him now, which is what "follows him" has to mean.
-  if(diveOn||diveLaunch>0){
+  // ---- and the shot does not change until he DOES ----
+  // The dive camera used to take over the frame the pack lit, which is the frame the crouch
+  // begins -- so the shot cut to the dive angle and then watched him squat on a board for a
+  // third of a second. Nothing has happened yet at that point; the handover belongs to the
+  // moment he leaves.
+  if(diveOn||diveLaunch>LAUNCH_LOAD){
     const _se=diveShot();
     aimX=px; aimY=py+launchLift+(DIVE_AIM_UP+(SWIM_AIM_UP-DIVE_AIM_UP)*_se);
     aimZ=pz-DIVE_AIM_AHEAD;
@@ -38263,7 +38322,7 @@ function update(dt){
   // bit -- and no amount of tuning the constants moved it, because they were never reached. The
   // same shape of bug as the island's two easings to different targets. The dive keeps its own
   // three numbers, seeded from wherever the surface camera had got to, and assigns.
-  if(diveOn||diveLaunch>0){
+  if(diveOn||diveLaunch>LAUNCH_LOAD){
     const kd=Math.min(1,dt*3.0);
     if(!_dvCam){ _dvCam=1; _dvY=camY; _dvZ=camZ; _dvX=camX; }
     // ...and it follows the LIFT, not py. py is the board and the board is on the water; a
@@ -38284,7 +38343,7 @@ function update(dt){
     const _se=diveShot();
     const _cUp  =DIVE_CAM_UP  +(SWIM_CAM_UP  -DIVE_CAM_UP  )*_se;
     const _cBack=DIVE_CAM_BACK+(SWIM_CAM_BACK-DIVE_CAM_BACK)*_se;
-    const _lw=(diveLaunch>0)?Math.min(1,diveLaunch/0.40):0;
+    const _lw=(diveLaunch>LAUNCH_LOAD)?Math.min(1,(diveLaunch-LAUNCH_LOAD)/0.40):0;
     _dvY+=((py+launchLift+_cUp)-_dvY)*kd;
     _dvZ+=((pz+_cBack)-_dvZ)*kd;
     if(_lw>0){
