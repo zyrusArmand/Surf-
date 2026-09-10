@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.177.0';
+window.SURF_VERSION='6.178.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -21612,6 +21612,15 @@ function beginRun(){
   // the game's. Pressing Play starts the game at the beginning. The test button sets the pin
   // AFTER calling this, so it still gets its night.
   dayForce=-1;
+  // ---- and the jetpack is asked for NOW, not when he presses the button ----
+  // It was requested the frame the pack was first wanted, which is the frame the launch begins:
+  // 340KB starts downloading and the built fallback -- two blue pods, the stand-in that exists
+  // so a dive before the file lands still has something on his back -- is what you get for the
+  // whole launch and for however much of the dive the fetch takes. On anything but a fast
+  // connection that is the entire first dive of every session, which is exactly when somebody
+  // is looking at it. A run is minutes long and the dive is reachable from inside one, so
+  // asking here gives the file all of that time. jetAsk is idempotent, so every run is free.
+  if(typeof jetAsk==='function')jetAsk();
   reset();running=true;overlayUp=false;last=performance.now();
 }
 startBtn.addEventListener('click',beginRun);
@@ -27963,6 +27972,7 @@ if(location.hash.includes('debug')){
       sea:+((typeof waveH==='function')?waveH(px,dist*WAVE_DRIFT+pz,waveClock):0).toFixed(2),
       pack:!!(diveJet&&diveJet.visible), model:!!(diveJet&&diveJet.userData.real),
       tpl:!!jetTpl, board:!!(boardArt&&boardArt.visible),
+      swapFail:(diveJet&&diveJet.userData.realFail)||null,
       thrust:+diveJetOn.toFixed(2),
       // the three things the arc is MADE of, so a launch that looks wrong can be read as
       // numbers: how high the rider is off the board, how far over he has folded, and where
@@ -34038,7 +34048,12 @@ function jetUpdate(dt){
   const want=(diveOn||diveDepth>0.5||diveLaunch>0||jetOn>0);
   if(want)jetAsk();
   // ...and the model takes over from the built shape the first frame it is available
-  if(jetTpl&&!g.userData.real)jetReal(g);
+  // ...and if the swap throws, the fallback stays on his back for ever and nothing anywhere
+  // says why. It is worth exactly one try: record the reason and stop asking.
+  if(jetTpl&&!g.userData.real&&!g.userData.realFail){
+    try{ jetReal(g); }
+    catch(e){ g.userData.realFail=e&&e.message||'threw'; console.warn('jetpack swap failed:',e); }
+  }
   if(g.parent!==pug&&want)pug.add(g);
   g.visible=want;
   // ---- and the BOARD goes ----
