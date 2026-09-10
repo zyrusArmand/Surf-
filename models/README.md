@@ -623,7 +623,9 @@ is the figure of eight that stops it reading as a windscreen wiper.
 
 ## `kelp.glb` — the sea-bed kelp, built by `kelp.py`
 
-541 KB, 6,972 tris, one 512² JPEG, no rig and no clips. **It arrived at 30 MB** — 1,244,748
+1.0 MB, 12,000 tris, one 1024² JPEG, no rig and no clips. (It was 7,000 tris and a 512 map, which
+is fine for a clump five feet tall and not for one fifteen feet tall standing next to the lens:
+3,347 leaf islands across a 512 atlas is about eight texels a leaf.) **It arrived at 30 MB** — 1,244,748
 triangles, 700,151 verts and three 2048² JPEGs (3.7 + 2.7 + 1.9 MB).
 
 Source: `kelp_MAX.glb` (supplied). Same pipeline as `turtle.glb` — merge, decimate, Smart UV
