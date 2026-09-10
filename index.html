@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.164.0';
+window.SURF_VERSION='6.165.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -27807,9 +27807,43 @@ if(location.hash.includes('debug')){
                 // the root's height against the sand it stands on: negative is buried, which
                 // is the whole ask, and zero every time would mean it is sitting on a plane
                 sink:+((bedH(g.position.x,g.position.z)-g.position.y)).toFixed(2),
+                // ITS PATCH OF GROUND. z minus the distance travelled is what the height field
+                // is actually indexed by, so for anything being carried along by the flow this
+                // is a constant -- one number per clump, for its whole life. If it drifts, the
+                // prop is sliding over the dunes instead of riding them, and that is the bob.
+                ground:+(g.position.z-dist*BED_DRIFT).toFixed(2),
                 lean:+(Math.hypot(g.rotation.x,g.rotation.z)*57.3).toFixed(1)}))};
     },
     // is the bed on the island's material, did its program compile, and are the dunes still there
+    traceStart(n){ _trcN=Math.max(1,Math.min(2000,n||300)); _trc=[]; return _trcN; },
+    // ...and a way to RUN those frames without drawing them. tick() only steps update(), and
+    // every one of these props is moved from the render loop, so ticking advanced the world and
+    // left the sea bed exactly where it was. Headless draws at a third of a frame a second, so
+    // a trace long enough to see a one-second bob is a thirteen-minute test otherwise.
+    traceRun(secs,dt){
+      if(!running)return {n:0,why:'not running'};
+      const h=Math.max(0.004,Math.min(0.033,dt||0.016));
+      const n=Math.min(4000,Math.max(1,Math.round((secs||4)/h)));
+      _trc=[]; _trcN=n; _trcOwn=1;
+      // ---- and it does NOT step the scenery itself ----
+      // update() already does, at the end of its own frame. Calling them again here moved every
+      // prop twice per iteration -- once on update's clock and once on mine -- and the arithmetic
+      // came out as props travelling three feet for every foot the sand did. That is a perfectly
+      // convincing description of the bug being looked for and it was the measuring rod.
+      for(let i=0;i<n;i++){
+        if(!running)break;
+        runSecs+=h; update(h);
+        traceStep(1);
+      }
+      // ...and recording STOPS with the run. Left open, the render loop went on appending rows
+      // after this returned -- rows where dist does not advance because update() is not being
+      // called here any more, while the props do. Analysed together with the real ones that is a
+      // world where the sand moves at a third the speed of everything standing on it, which is
+      // a very convincing bug and entirely an artefact of the instrument.
+      _trcOwn=0; _trcN=_trc.length;
+      return {n:_trc.length, secs:+(_trc.length*h).toFixed(2), ended:!running};
+    },
+    traceGet(){ const t=_trc||[]; return {n:t.length, rows:t}; },
     bedProbe(){
       const out={under:+bedH(px,pz).toFixed(3), drift:+(dist*BED_DRIFT).toFixed(2), props:[]};
       for(const g of kelps.slice(0,3))
@@ -32267,11 +32301,21 @@ const BED_DEPTH=17.0;                 // how far under mean water the bed sits
 // it got worse rather than better.) Down to forty per cent: a total relief of about a foot, and
 // a vertical rate under half of what it was. Still dunes -- you can see the ground roll -- but
 // it rolls at the pace ground rolls at.
+// ---- and DRAMATIC is a question of wavelength, not of height ----
+// What you feel as the floor moving is A * f * speed -- how fast a dune carries you up, not how
+// tall it is. So relief and motion are separable, and the way to get big dunes that hold still
+// is to make them LONG. Two broad hills, eleven hundred and six hundred and forty feet across,
+// carrying two and a half feet and one and a half: four and a half feet of relief where there
+// was one, and each takes the better part of a minute to pass. Then a fine ripple at
+// twenty-eight feet -- an inch and a bit, which is sand texture rather than terrain, and at an
+// inch nothing about it registers as vertical motion however quickly it goes by.
+// The mid frequencies are what was cut. Those are the ones long enough to see and short enough
+// to pass in a few seconds, which is the definition of swell.
 const BED_OCT=[
-  [ 0.00910, 0.00630, 0.53, 0.00],
-  [ 0.01730,-0.01210, 0.31, 2.31],
-  [ 0.03070, 0.02240, 0.16, 4.02],
-  [ 0.05260,-0.03890, 0.08, 5.44]
+  [ 0.00420, 0.00385, 2.50, 0.00],
+  [ 0.00840,-0.00510, 1.45, 2.31],
+  [ 0.01930, 0.01410, 0.42, 4.02],
+  [ 0.15400,-0.11300, 0.11, 5.44]
 ];
 // ---- and the SAND travels at his speed, which the swell does not ----
 // This was dist*WAVE_DRIFT, borrowed from the ocean. WAVE_DRIFT is how fast the SWELL rolls past
@@ -32283,9 +32327,18 @@ const BED_OCT=[
 // field scrolling at 0.46 while it travels at 1.0 climbs and drops dunes that are not where it
 // is -- which is the props bobbing.
 const BED_DRIFT=1.0;
+// ---- and the ground SCROLLS PAST, which is z MINUS the distance travelled ----
+// This was z + d, and that is the sign that makes a prop slide over the dunes instead of being
+// carried by them. Work it through: a prop moves +z with the flow at eff*dt while d also grows
+// at eff*dt, so with a plus the argument advances at TWICE the rate and the prop crosses terrain
+// twice as fast as the terrain is moving -- it rides up and down over dunes that are themselves
+// going by. That is the bobbing, and it is not visible in the obvious check: props are placed AT
+// bedH, so "prop.y minus bedH" is constant by construction and proves nothing. The question is
+// whether a prop stays on the same patch of GROUND, and with a minus it does -- z - d is exactly
+// the ground coordinate, and it holds still for anything travelling with the flow.
 function bedH(x,z){
   const d=(typeof dist!=='undefined'?dist:0)*BED_DRIFT;
-  const zz=z+d;
+  const zz=z-d;
   let h=-BED_DEPTH;
   for(let i=0;i<BED_OCT.length;i++){
     const o=BED_OCT[i];
@@ -32338,7 +32391,7 @@ function bedSandMat(){
           // while the props -- placed from bedH(worldX, worldZ) -- do not. Asked of the model
           // matrix instead, before the displacement, so it agrees with bedH by construction.
           vec4 bw0=modelMatrix*vec4(position,1.0);
-          vec2 bp=vec2(bw0.x, bw0.z + uBedDist);
+          vec2 bp=vec2(bw0.x, bw0.z - uBedDist);   // ground coordinate: see bedH
           float bh=bedHg(bp);
           float be=3.0;   // a yard apart: the scale the light should read, not the vertex spacing
           float bhx=bedHg(bp+vec2(be,0.0))-bedHg(bp-vec2(be,0.0));
@@ -32374,7 +32427,7 @@ const bedMat=new THREE.ShaderMaterial({
     void main(){
       // world-anchored, for the reason the standard path is: the plane rides the camera
       vec4 w0=modelMatrix*vec4(position,1.0);
-      vec2 p=vec2(w0.x, w0.z + uDist);
+      vec2 p=vec2(w0.x, w0.z - uDist);
       float h=bedH(p);
       // the normal, from the height field either side -- a metre apart, which is the scale the
       // light should read, not the scale of a vertex
@@ -32933,13 +32986,43 @@ function kelpLay(g,seed){
     ? ft*(KELP_DIG_DEEP[0]+R()*(KELP_DIG_DEEP[1]-KELP_DIG_DEEP[0]))
     : ft*(KELP_DIG_MIN+R()*(KELP_DIG_MAX-KELP_DIG_MIN));
   u.yaw=R()*6.283;
-  u.lean=R()*0.16;                      // a slight list, so no two stand quite straight
+  u.lean=R()*0.10;                      // a slight list, so no two stand quite straight
   u.leanA=R()*6.283;
   u.ph=R()*6.283;
-  u.sway=0.035+R()*0.055;
+  // Halved and slowed. At 0.09 radians on a fifteen-foot clump the tip travels a foot and a
+  // third each way, and a dozen of those going at once beside a lens seven feet from them is
+  // read as the scene moving rather than as plants moving in it. The measured trace says
+  // nothing else down here moves at all -- he is steady to a thousandth and the camera to seven
+  // thousandths -- so this was the motion.
+  u.sway=0.018+R()*0.026;
   g.rotation.set(0,u.yaw,0);
   g.visible=true;
   return g;
+}
+// ---- a PER-FRAME trace, because sampling from outside aliases everything ----
+// The probes so far read the game from the test harness every few seconds, and headless runs at
+// a third of a frame a second: nine samples covered four seconds of game time. Anything that
+// bobs on a one or two second period is invisible to that -- it can be sampled nine times at the
+// same point of its cycle and reported as a flat line, which is exactly what "props hold their
+// offset to the thousandth" would look like if the offset were moving. This records inside the
+// loop, one row per drawn frame, and is read out afterwards.
+let _trc=null, _trcN=0;
+let _trcOwn=0;
+function traceStep(own){
+  // ---- and only ONE of the two callers may record ----
+  // traceStep is wired into the render loop and traceRun steps the same functions by hand, so
+  // while a run is going both were pushing rows: alternate frames had dist advancing and the
+  // props advancing twice, which reads exactly like the bug being hunted and is not it.
+  if(!_trc||_trc.length>=_trcN)return;
+  if(_trcOwn&&!own)return;
+  const k=kelps[0];
+  _trc.push([+py.toFixed(3), +camera.position.y.toFixed(3), +bedH(px,pz).toFixed(3),
+             k?+k.position.y.toFixed(3):0, k?+k.rotation.x.toFixed(4):0,
+             k?+bedH(k.position.x,k.position.z).toFixed(3):0,
+             k?+k.position.z.toFixed(2):0,
+             // the ground-coordinate arithmetic, so which sign is right can be settled from the
+             // trace instead of by changing it and running the whole thing again
+             +(dist*BED_DRIFT).toFixed(3), +(lastEff||0).toFixed(3)]);
 }
 function kelpStep(dt){
   const on=diveOn||diveDepth>0.5;
@@ -32961,7 +33044,7 @@ function kelpStep(dt){
     if(g.position.z>KELP_BEHIND)kelpLay(g);
     // rooted in the sand it is actually over, which has scrolled under it since it was laid
     g.position.y=bedH(g.position.x,g.position.z)-u.dig;
-    u.ph+=dt*0.9;
+    u.ph+=dt*0.55;
     // it leans on its own clock and sways about the lean, which is a plant in a current rather
     // than a plant on a metronome
     const sw=Math.sin(u.ph)*u.sway, cw=Math.cos(u.ph*0.77+1.3)*u.sway*0.7;
@@ -37189,6 +37272,7 @@ function update(dt){
   if(typeof turtleStep==='function')turtleStep(_clkDt||0.016,lastEff||0);
   if(typeof dshkStep==='function')dshkStep(_clkDt||0.016,lastEff||0);
   if(typeof kelpStep==='function')kelpStep(_clkDt||0.016);
+  if(typeof traceStep==='function')traceStep();
   if(typeof floorStep==='function')floorStep(_clkDt||0.016,lastEff||0);
   if(typeof jetUpdate==='function')jetUpdate(_clkDt||0.016);
   // The camera does NOT roll with the ring. A loop camera was tried and taken back out: it
