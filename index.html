@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.160.0';
+window.SURF_VERSION='6.161.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -11777,7 +11777,7 @@ function hhmm(sec){
 // crashes read better by their in-game name than by the key the engine uses
 const DEATH_NAME={buoy:'Buoy',log:'Log',jelly:'Jellyfish',bigfin:'Shark',octopus:'Octopus',
   pearl:'Pearled the nose',land:'Bad landing',under:'Under-rotated',foam:'Ate it',
-  debris:'Wreckage'};
+  debris:'Wreckage',rock:'Hit a rock'};
 const TRICK_NAME={roll:'Barrel rolls',flip:'Front / back flips',spin:'Spins',
   grab:'Grabs landed',drag:'Hand drags',handstand:'Handstands'};
 function tally(o,names){
@@ -21598,6 +21598,9 @@ const WIPE={
   jelly: {vy: 6.5, vz:-1.5, spin:[12, 2, 7], msg:'ZAPPED! \u26a1', kick:2.2},
   log:   {vy: 5.0, vz:-2.0, spin:[14, 1, 3], msg:'LOG!',         kick:2.0},
   bigfin:{vy:11.0, vz:-5.0, spin:[ 7, 8, 4], msg:'SHARK!',       kick:2.6},
+  // He is underwater when this one fires, so it throws him UP and stops him dead rather than
+  // launching him down the lane -- a rock does not give.
+  rock:  {vy: 5.5, vz: 0.5, spin:[ 8, 3, 5], msg:'ROCK!',        kick:2.4},
   octopus:{vy:7.5, vz:-2.5, spin:[10, 5, 6], msg:'TENTACLED!',   kick:2.0},
   pearl: {vy: 3.0, vz:-7.5, spin:[16, 0, 1], msg:'PEARLED!',     kick:1.4},
   land:  {vy: 6.0, vz: 1.5, spin:[ 5, 6, 9], msg:'SKETCHY LANDING!', kick:1.6},
@@ -27752,6 +27755,35 @@ if(location.hash.includes('debug')){
     goalIcons(){
       return GOAL_POOL.map(d=>({id:d.id, icon:d.icon||null, known:!!(d.icon&&QICON[d.icon])}));
     },
+    // Where he actually lands on screen, in normalised coords: 0 is dead centre, -1 the bottom
+    // of the frame, +1 the top. "He sits too low" is a number, and nudging camera constants
+    // until a screenshot looks right is how it got to a third of the way down in the first place.
+    // drags a floor prop onto him, so the collision it should cause is exercised for real
+    // rather than argued about from the constants
+    rockNow(){
+      const g=floorProps[0]; if(!g)return {had:false};
+      g.position.x=px; g.position.z=pz;
+      // ...and its SINK, not its y. floorStep re-seats every prop onto the sand under it before
+      // it tests anything, so a y written here is gone by the time the test reads it -- which is
+      // how the first run of this reported a clean miss on a rock sitting on top of him.
+      g.userData.sink=bedH(px,pz)-(py-g.userData.top*0.5);
+      return {had:true, f:g.userData.k.f, hit:+g.userData.hit.toFixed(2),
+              top:+g.userData.top.toFixed(2), py:+py.toFixed(2)};
+    },
+    // ...and puts a cruising shark right beside him, which is the thing that should wake it
+    sharkBrush(){
+      const g=dshks.find(o=>o.userData.ph==='cruise'); if(!g)return {had:false};
+      // far enough out that it still has time to notice and turn -- placing it level with him
+      // tests nothing but the deadline
+      g.position.set(px+4.0,py,pz-38);
+      return {had:true, ph:g.userData.ph};
+    },
+    onScreen(){
+      const v=new THREE.Vector3(px,py+0.6,pz).project(camera);
+      return {x:+v.x.toFixed(3), y:+v.y.toFixed(3),
+              camBack:+(camera.position.z-pz).toFixed(2),
+              camUp:+(camera.position.y-py).toFixed(2)};
+    },
     floor(){
       return {kinds:FLOOR_KINDS.map(k=>({f:k.f, on:!!k.tpl, h:k.h?+k.h.toFixed(2):null,
                                         base:k.base!==undefined?+k.base.toFixed(2):null})),
@@ -27801,13 +27833,16 @@ if(location.hash.includes('debug')){
                 jaw:+(g.userData.jaw||0).toFixed(1),
                 ft:+(g.scale.x).toFixed(3)}))};
     },
-    sharkUnderNow(dz){
+    sharkUnderNow(dz,mode){
       if(!dshkGrp){ dshkGrp=new THREE.Group(); scene.add(dshkGrp); }
       dshkGrp.visible=true;
       const g=dshkMake(); if(!g)return {made:false};
       dshkGrp.add(g); dshks.push(g); dshkLay(g);
       g.position.z=pz+(dz===undefined?-34:dz);
-      return {made:true, n:dshks.length};
+      // whether it hunts is a coin toss per spawn, so a test that wants the OTHER branch has to
+      // be able to ask for it -- three runs in a row rolled hunters and reported nothing
+      if(mode){ g.userData.hunt=(mode==='stalk'); g.userData.ph=mode; }
+      return {made:true, n:dshks.length, ph:g.userData.ph};
     },
     turtles(){
       const out={loaded:!!turtleTpl, asked:turtleAsked, n:turtles.length,
@@ -32179,15 +32214,39 @@ function updateFork(dt,eff){
 // sand inside the visible distance and inside the plunge, so there is somewhere to BE down
 // there rather than a blue room with a floor rumoured beneath it.
 const BED_DEPTH=17.0;                 // how far under mean water the bed sits
-const BED_A1=2.30, BED_A2=0.85;       // dune heights, long and short
-const BED_F1=0.0125, BED_F2=0.047;    // ...and how close together they are
+// ---- DUNES, not swell ----
+// The difference between sand and water here is not the shape, it is the RHYTHM. This was two
+// sine products -- one about a hundred and thirty feet from crest to crest, one about five
+// hundred -- and a regular sinusoid scrolled past you at eighteen feet a second is a travelling
+// wave, which is precisely what it looked like: the sea bed rising and falling on a beat you
+// could count. Dunes do not do that. They are irregular, and irregular is the whole of the fix.
+//
+// Four sines at frequencies with no common factor, pointed in four different directions and
+// each started at its own phase, so the sum never repeats inside anything you can see. The
+// biggest is 570 feet across and takes half a minute to pass, which reads as ground; the
+// smallest is 96 feet and carries two inches, which is texture. Nothing in between beats.
+const BED_OCT=[
+  [ 0.00910, 0.00630, 1.32, 0.00],
+  [ 0.01730,-0.01210, 0.78, 2.31],
+  [ 0.03070, 0.02240, 0.41, 4.02],
+  [ 0.05260,-0.03890, 0.19, 5.44]
+];
 function bedH(x,z){
   const d=(typeof dist!=='undefined'?dist:0)*WAVE_DRIFT;
   const zz=z+d;
-  return -BED_DEPTH
-    + Math.sin(x*BED_F1*1.7+zz*BED_F1)*Math.cos(zz*BED_F1*1.3-x*BED_F1*0.6)*BED_A1
-    + Math.sin(x*BED_F2-zz*BED_F2*1.4)*Math.sin(zz*BED_F2*0.9)*BED_A2;
+  let h=-BED_DEPTH;
+  for(let i=0;i<BED_OCT.length;i++){
+    const o=BED_OCT[i];
+    h+=Math.sin(x*o[0]+zz*o[1]+o[3])*o[2];
+  }
+  return h;
 }
+// the same field again in GLSL, generated from the same table so the two cannot drift apart --
+// they were hand-copied before, and a sea bed drawn one shape while everything standing on it
+// is placed against another is a bug with no symptom until something floats
+const BED_GLSL='return '+BED_OCT.map(o=>
+  `sin(p.x*${o[0].toFixed(5)}+p.y*${o[1].toFixed(5)}+${o[3].toFixed(3)})*${o[2].toFixed(3)}`
+).join('\n               + ')+';';
 // ---- and it is the ISLAND'S SAND, not a colour with a ripple painted on it ----
 // The first bed was a raw ShaderMaterial: one flat tone, a lambert term, and a fine sine ripple.
 // Two things were wrong with it and the second is the one that read as "weird". The first is that
@@ -32218,13 +32277,7 @@ function bedSandMat(){
     sh.vertexShader=sh.vertexShader
       .replace('void main() {', `
         uniform float uBedDist; uniform float uBedUV;
-        float bedHg(vec2 p){
-          float zz=p.y;
-          return sin(p.x*${BED_F1.toFixed(5)}*1.7+zz*${BED_F1.toFixed(5)})
-                 *cos(zz*${BED_F1.toFixed(5)}*1.3-p.x*${BED_F1.toFixed(5)}*0.6)*${BED_A1.toFixed(3)}
-               + sin(p.x*${BED_F2.toFixed(5)}-zz*${BED_F2.toFixed(5)}*1.4)
-                 *sin(zz*${BED_F2.toFixed(5)}*0.9)*${BED_A2.toFixed(3)};
-        }
+        float bedHg(vec2 p){ ${BED_GLSL} }
         void main() {
           // the plane is built in XY and laid flat by the mesh's own rotation, so its local y is
           // world -z; uBedDist is how far the run has carried the sand past him
@@ -32260,13 +32313,7 @@ const bedMat=new THREE.ShaderMaterial({
     uniform float uDist;
     varying vec3 vN; varying vec3 vP; varying float vD;
     ${'#include <fog_pars_vertex>'}
-    float bedH(vec2 p){
-      float zz=p.y;
-      return sin(p.x*${BED_F1.toFixed(5)}*1.7+zz*${BED_F1.toFixed(5)})
-             *cos(zz*${BED_F1.toFixed(5)}*1.3-p.x*${BED_F1.toFixed(5)}*0.6)*${BED_A1.toFixed(3)}
-           + sin(p.x*${BED_F2.toFixed(5)}-zz*${BED_F2.toFixed(5)}*1.4)
-             *sin(zz*${BED_F2.toFixed(5)}*0.9)*${BED_A2.toFixed(3)};
-    }
+    float bedH(vec2 p){ ${BED_GLSL} }
     void main(){
       // the plane is built in XY and laid flat by the mesh's rotation, so its own y is world z
       vec2 p=vec2(position.x, -position.y + uDist);
@@ -32351,7 +32398,12 @@ function bedUpdate(){
 // a handful of cones -- and they were standing in for exactly the scanned rock and coral that
 // now share the field with them. Kept, thinned, because past the fog they are free distance
 // filler and the fog is where they still hold up.
-const DIVE_ROCKS=5, DIVE_REEFS=7, DIVE_FISH=10;
+// ---- and the built ones are GONE ----
+// The blocky icosahedron rocks and the lumpy-base-with-cone-fingers reefs were placeholders
+// for scanned rock and coral, and the scans are here. Even out at the fog they were the
+// thing that looked built, and a placeholder kept next to what replaced it is just the old
+// version still shipping. The fish stay -- nothing has replaced those.
+const DIVE_ROCKS=0, DIVE_REEFS=0, DIVE_FISH=10;
 const DIVE_AHEAD=-200, DIVE_BEHIND=30;      // where a prop is laid, and where it is taken back
 const DIVE_SPREAD=46;                       // how far either side of the lane things go
 let diveProps=null, diveFish=null;
@@ -32607,6 +32659,8 @@ const FLOOR_KINDS=[
   {f:'coral1.glb',  n:4, ft:[2.6,6.4], sink:[0.03,0.18], tilt:0.13},
   {f:'coral2.glb',  n:4, ft:[2.6,6.4], sink:[0.03,0.18], tilt:0.13}
 ];
+const FLOOR_HIT=0.62;    // of its own half-width: inside the silhouette, in the player's favour
+const FLOOR_CLEAR=0.92;  // ...and how much of its height you have to be under to be inside it
 let floorAsked=false, floorGrp=null, floorProps=[];
 function floorAsk(){
   if(floorAsked||typeof loadModel!=='function')return;
@@ -32621,6 +32675,9 @@ function floorAsk(){
       k.tpl=root;
       k.h=Math.max(0.01,b.max.y-b.min.y);
       k.base=-b.min.y;
+      // how wide it is against how tall, so a hit radius can be derived from the size it is
+      // laid at rather than carried as a second constant per file
+      k.rad=Math.max(b.max.x-b.min.x, b.max.z-b.min.z)*0.5/k.h;
     },9);
 }
 function floorMake(k){
@@ -32640,6 +32697,13 @@ function floorLay(g){
   g.scale.setScalar(ft/k.h);
   u.ft=ft;
   u.sink=ft*(k.sink[0]+R()*(k.sink[1]-k.sink[0]));
+  // ---- and it is SOLID ----
+  // Not the drawn shape, which is a scan with holes and overhangs and would cost a mesh test per
+  // frame; a cylinder standing on its footprint, a little inside the silhouette. A hit box you
+  // can see the edges of is the fairest kind, and slightly generous to the player is the right
+  // side to be wrong on.
+  u.hit=ft*(k.rad||0.5)*FLOOR_HIT;
+  u.top=ft;
   // ---- turned on its flat side, which is a turn about UP and nothing else ----
   // A free rotation would stand a boulder on a corner. Yaw is the axis that leaves it sitting
   // the way it was scanned; the tilt either side of that is a couple of degrees of settling, not
@@ -32669,6 +32733,18 @@ function floorStep(dt,eff){
     if(g.position.z>DIVE_BEHIND)floorLay(g);
     // it sits on the sand it is actually over, which has scrolled under it since it was laid
     g.position.y=bedH(g.position.x,g.position.z)-g.userData.sink;
+    // ---- ...and you can hit it ----
+    // Tested against HIS position rather than swept along his path: at eighteen feet a second and
+    // sixty frames that is a third of a foot between samples against a rock four feet across, so
+    // there is nothing to tunnel through. Height matters too -- swimming over the top of one is a
+    // dodge, and it should be, because up is a direction you have down here.
+    const u=g.userData;
+    if(!wipe&&running&&diveOn&&u.hit>0){
+      const dx=px-g.position.x, dz=pz-g.position.z;
+      if(dx*dx+dz*dz < u.hit*u.hit && py < g.position.y+u.top*FLOOR_CLEAR){
+        startWipeout('rock');
+      }
+    }
   }
 }
 // ============================ THE KELP ============================
@@ -32699,7 +32775,10 @@ const KELP_BASE=0.59;                   // ...and how far below its origin the r
 // proportions it was modelled with and only the count changes -- which is also what a real stipe
 // is, the same frond repeated up a stem.
 const KELP_SEG=6.5;                     // feet of clump per length, roughly
-const KELP_SEG_MAX=3;                   // ...and never more lengths than this, for the triangles
+// ONE. Stacking got the height but the joints showed: two clumps of leaves meeting at a seam
+// read as two clumps of leaves meeting at a seam, not as a longer plant. A single clump
+// scaled up keeps the proportions it was modelled with and has no joint to give away.
+const KELP_SEG_MAX=1;                   // ...and never more lengths than this
 const KELP_TAPER=0.86;                  // each length above is this much narrower
 // ---- and they are BIG ----
 // The first pass narrowed them to about half their modelled girth on the theory that kelp is
@@ -32824,7 +32903,7 @@ function kelpStep(dt){
 // it stalks, tracking you while it is far enough out that tracking does not matter; at a second
 // out it LOCKS -- aim frozen, jaws open, and it stops steering. From that moment the dodge is
 // entirely yours, in any direction, because down here you have all of them.
-const DSHK_MAX=2;                       // how many can be hunting at once
+const DSHK_MAX=2;                       // how many can be out at once
 const DSHK_GAP_MIN=8.0, DSHK_GAP_MAX=17.0;  // seconds between arrivals
 const DSHK_AHEAD=-155, DSHK_BEHIND=30;
 const DSHK_SPREAD=17;                   // how wide it can come in from
@@ -32834,6 +32913,11 @@ const DSHK_CHARGE=25.0;                 // ...and once it has committed
 const DSHK_LOCK=1.00;                   // seconds out that it commits and stops tracking
 const DSHK_TRACK=3.0;                   // ft/s it can correct by, per foot of error, while stalking
 const DSHK_BITE=2.3;                    // how near its aim has to land -- and so, the dodge
+const DSHK_HUNT=0.45;                   // ...and how many of them ever intended to
+const DSHK_NOTICE=9.0;                  // how near its line passes before it turns on you
+const DSHK_SEE_T=1.9;                   // ...and how long out it is still able to notice
+const DSHK_APART=55;                    // feet between two of them, so they arrive one at a time
+const DSHK_CROSS_MIN=3.5, DSHK_CROSS_MAX=8.0;   // how fast a cruiser crosses the lane
 const DSHK_YAW=0;                       // set from the measured template; see dshkFace()
 let dshkGrp=null, dshks=[], _dshkT=6.0, _dshkFace=null;
 function dshkTpl(){
@@ -32877,11 +32961,31 @@ function dshkMake(){
 }
 function dshkLay(g){
   const R=Math.random, u=g.userData;
-  g.position.z=DSHK_AHEAD*(0.75+R()*0.25);
+  // ---- and never on top of another one ----
+  // Two laid within a few feet of each other arrive as a pair, and a pair is not two hazards, it
+  // is one wall. Tried a few times and the furthest-from-anything-else wins, which needs no loop
+  // that can fail to terminate.
+  let bz=0, best=-1;
+  for(let i=0;i<6;i++){
+    const z=DSHK_AHEAD*(0.55+R()*0.45);
+    let near=1e9;
+    for(const o of dshks)if(o!==g)near=Math.min(near,Math.abs(o.position.z-z));
+    if(near>best){ best=near; bz=z; }
+    if(near>DSHK_APART)break;
+  }
+  g.position.z=bz;
   g.position.x=(R()-0.5)*2*DSHK_SPREAD;
   g.position.y=Math.max(bedH(g.position.x,g.position.z)+3.0,-13+R()*8);
-  u.ph='stalk'; u.jaw=SHARK_JAW_IDLE; u.jawT=R()*6; u.t=0;
-  u.aimX=px; u.aimY=py; u.done=false;
+  // ---- and most of them are not interested in you ----
+  // Every shark hunting made the whole species one mechanic. A cruiser crosses the lane on its
+  // own errand and never looks at you -- and that is what makes it worth watching where it is
+  // going, because come inside its notice and it turns. The one that ignores you is what gives
+  // the one that does not somewhere to be different from.
+  u.hunt=R()<DSHK_HUNT;
+  u.ph=u.hunt?'stalk':'cruise';
+  u.cross=(R()<0.5?-1:1)*(DSHK_CROSS_MIN+R()*(DSHK_CROSS_MAX-DSHK_CROSS_MIN));
+  u.jaw=SHARK_JAW_IDLE; u.jawT=R()*6; u.t=0;
+  u.aimX=px; u.aimY=py; u.done=false; u.woke=0;
   g.visible=true;
   return g;
 }
@@ -32910,10 +33014,26 @@ function dshkStep(dt,eff){
     const u=g.userData;
     u.t+=dt;
     // closing speed is the world going past PLUS its own swimming: it is coming the other way
-    const own=(u.ph==='stalk')?DSHK_CRUISE:DSHK_CHARGE;
+    const own=(u.ph==='lock'||u.ph==='bite')?DSHK_CHARGE:DSHK_CRUISE;
     g.position.z+=(eff+own)*dt;
     const togo=(pz-g.position.z)/Math.max(1,eff+own);   // seconds until it is level with him
-    if(u.ph==='stalk'){
+    if(u.ph==='cruise'){
+      // straight across the lane, minding its own business
+      g.position.x+=u.cross*dt;
+      u.aimX=g.position.x+u.cross; u.aimY=g.position.y;
+      // ---- ...until you come inside its notice ----
+      // Measured ACROSS the lane, not as a straight-line distance, and asked while it is still a
+      // second or so out. Straight-line distance is dominated by how far down the lane it is, so
+      // it only ever went under the threshold once the shark was level with him -- at which point
+      // there was no time left to turn and the transition never fired. What matters is whether
+      // its line passes near his, and that is a lateral question with a deadline.
+      const lat=Math.hypot(px-g.position.x,(py-g.position.y)*0.8);
+      if(lat<DSHK_NOTICE&&togo<DSHK_SEE_T&&togo>DSHK_LOCK+0.15&&running&&!wipe){
+        u.ph='stalk'; u.woke=1; msg('IT SAW YOU!'); buzz([20,30,20]);
+      }
+      // and it is gone past without ever having cared
+      if(g.position.z>pz+4&&!u.done)u.done=true;
+    } else if(u.ph==='stalk'){
       // it steers toward you while it is far enough out that steering is not the same as
       // cheating -- and the rate is capped, so coming in from the far side of the lane costs
       // it the angle rather than being free
@@ -32944,7 +33064,7 @@ function dshkStep(dt,eff){
       }
     }
     // it swims along its own line, nose first
-    const dx=u.aimX-g.position.x, dz=Math.max(0.5,(eff+own));
+    const dx=(u.ph==='cruise')?u.cross*2.2:(u.aimX-g.position.x), dz=Math.max(0.5,(eff+own));
     g.rotation.y=Math.atan2(dx,dz);
     g.rotation.z=Math.sin(u.t*1.6)*0.10;
     // the tail beat, and the jaw
@@ -32954,7 +33074,8 @@ function dshkStep(dt,eff){
       // gaping on the run in is the tell that it has committed, and it is the only warning
       // there is: a hazard you cannot see deciding is a hazard you cannot dodge
       let want;
-      if(u.ph==='lock')      want=-8-10*Math.min(1,u.t*0.6);
+      if(u.ph==='cruise')    want=SHARK_JAW_IDLE+Math.sin(u.jawT*SHARK_JAW_RATE)*SHARK_JAW_SWING;
+      else if(u.ph==='lock') want=-8-10*Math.min(1,u.t*0.6);
       else if(u.ph==='bite') want=SHARK_JAW_SHUT*0.5;
       else if(u.ph==='miss') want=SHARK_JAW_SHUT*Math.max(0,1-(u.t%1.4)/0.9);
       else                   want=SHARK_JAW_IDLE+Math.sin(u.jawT*SHARK_JAW_RATE)*SHARK_JAW_SWING;
@@ -33264,11 +33385,13 @@ function diveStep(dt,waterY){
   // Breaking the surface ends it rather than bouncing him off the underside: the way out of a
   // dive is up, and holding up until you are out is a thing a player works out without being
   // told.
-  if(!plunge&&py>waterY-DIVE_TOP){
-    diveGo(false);
-    py=waterY; vy=Math.max(0,diveRise*0.35); airborne=false;
-    msg('UP!'); splash(px,waterY,pz,22);
-  }
+  // ---- and he STAYS DOWN ----
+  // Breaking the surface used to end the dive and put him back on the board. It is the obvious
+  // way out and it is the wrong one while this is the whole of the mode: swimming up is also
+  // how you dodge, so the escape was bound to the control you need most, and every hard dodge
+  // upward ended the thing you were dodging in. He is held under the surface instead.
+  const ceil=waterY-DIVE_TOP;
+  if(py>ceil){ py=ceil; diveRise=Math.min(diveRise,0); }
 }
 // ---- and running aground, which is not a crash ----
 // The board does not stop dead and he does not come off it: it rides up the wet sand,
@@ -33386,7 +33509,16 @@ const ISLE_CAM_BACK=11.0, ISLE_CAM_UP=4.9, ISLE_AIM_UP=1.05, ISLE_AIM_AHEAD=14.0
 // the sea bed across the whole frame and the water column -- the thing he is actually moving
 // through -- out of shot above it. Down near his own level the floor sits at the bottom of the
 // screen where a floor goes, and there is water in front of him to swim into.
-const DIVE_CAM_UP=1.9, DIVE_CAM_BACK=9.5, DIVE_AIM_UP=0.35, DIVE_AIM_AHEAD=12.0;
+// ---- and he sits in the MIDDLE of it ----
+// He was low in the frame and it is arithmetic, not taste. The lens sat 1.9 up and aimed at a
+// point 12 feet ahead and 0.35 up; at his own z that ray has only come down to 1.22 above him,
+// so he hangs a third of the way below centre with the empty sand where his head should be.
+// Solve it instead of nudging it: with the camera U up and B back, aiming V up and F ahead, the
+// ray passes his z at U + (B/(B+F))*(V-U) above him, and that is the number that wants to be
+// small. 1.15 up, 7.2 back, 0.15 up and 6 ahead puts it at 0.60 -- his chest -- and closer in
+// with it, which is the rest of the note.
+let _dvCam=0,_dvX=0,_dvY=0,_dvZ=0;
+const DIVE_CAM_UP=1.15, DIVE_CAM_BACK=7.2, DIVE_AIM_UP=0.15, DIVE_AIM_AHEAD=6.0;
 // ...and how far above mean water sand has to be before he will stand on it. Above the surf,
 // so the shoreline holds him without him paddling about in the wash.
 // Raised with the shore. A long shallow beach means a wide band that the swell walks over, and
@@ -36887,12 +37019,22 @@ function update(dt){
   // for every foot he is below it. So it sat on the sea while he swam away underneath the shot
   // -- eight feet down and still framing the waterline. Underwater the same geometry is
   // measured off HIM instead, which is the identical fix the island needed for the same reason.
+  // ---- and it EASES ITS OWN VALUE, not the one it was handed ----
+  // This read `camY += (want - camY) * k`, which looks like an ease and is not: everything above
+  // ASSIGNS camY outright from the waterline every frame, so each frame this moved five per cent
+  // of the way from the surf camera's answer toward the dive's and was then reset. It settled
+  // wherever those two balanced -- measured, five feet above him against a target of one and a
+  // bit -- and no amount of tuning the constants moved it, because they were never reached. The
+  // same shape of bug as the island's two easings to different targets. The dive keeps its own
+  // three numbers, seeded from wherever the surface camera had got to, and assigns.
   if(diveOn){
     const kd=Math.min(1,dt*3.0);
-    camY+=((py+DIVE_CAM_UP)-camY)*kd;
-    camZ+=((pz+DIVE_CAM_BACK)-camZ)*kd;
-    camX+=(px*0.35-camX)*kd;
-  }
+    if(!_dvCam){ _dvCam=1; _dvY=camY; _dvZ=camZ; _dvX=camX; }
+    _dvY+=((py+DIVE_CAM_UP)-_dvY)*kd;
+    _dvZ+=((pz+DIVE_CAM_BACK)-_dvZ)*kd;
+    _dvX+=(px*0.35-_dvX)*kd;
+    camY=_dvY; camZ=_dvZ; camX=_dvX;
+  } else _dvCam=0;
   if(_isle){
     // The ride's own geometry -- 4.9 above the surface, 11.0 behind -- because that is the
     // shot the whole game is played in and there is no reason for the island to be a different
