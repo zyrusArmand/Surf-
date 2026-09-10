@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.175.0';
+window.SURF_VERSION='6.176.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -7449,12 +7449,32 @@ const BOARDS=[
    // the rider is seated against. L is a hair over W on purpose: fitToBox lays a model's longest
    // side along the box's longest, and for a torus those are equal -- a tie it would break
    // arbitrarily, differently on different runs.
-   spec:{L:3.40,W:3.34,T:0.95,noseA:2.400,tailA:2.400,noseW:0.880,tailW:0.880,
+   // ---- and it is SIZED TO HIS ARMS, which is the only measurement that matters ----
+   // (modelD is the ring's outer diameter in feet and is the only number that sets its size;
+   // L/W/T below are the collision slab and are kept roughly to its footprint.)
+   // 3.40 was a real swim ring, and it read the way the jet ski read at 8.40: a small animal
+   // placed inside a large object, sunk to the neck with a foot of daylight either side of him.
+   // The number is not a guess this time, it comes off the file and off his skeleton.
+   //
+   // tube.glb is a torus of outer radius 1.527 and hole radius 0.478, so the TOP OF THE RIM --
+   // the circle his hands have to land on -- sits at (1.527+0.478)/2 = 1.0025, which is 0.328
+   // of the outer DIAMETER. His shoulder is 0.44 out from his chest and his arm is 0.485 long,
+   // both in his own units, which at his scale is 0.34ft and 0.374ft; with the elbow at the
+   // 0.46 the sit pose holds, his hand reaches about 0.69ft from his centreline.
+   //
+   //     0.328 * D = 0.69   ->   D = 2.10
+   //
+   // and the hole falls out of the same ratio at 0.313*D = 0.68ft, which is his shoulders
+   // exactly: he drops in to the armpits and his chest rests at rim level, which is how a
+   // person sits in a ring rather than how a cork sits in a bottle. T keeps the model's own
+   // 0.301 height-to-width and the 7% squash the old numbers had, and the seat drop scales with
+   // the ring so the sit height stays in proportion instead of being left behind at the old size.
+   spec:{L:1.95,W:1.18,T:0.33,modelD:1.95,noseA:2.400,tailA:2.400,noseW:0.880,tailW:0.880,
      rockN:0.100,noseR:0.480,rockT:0.100,tailR:0.480,deckPow:0.90,hullPow:0.90,hullK:0.30,
      padCol:0x2db4ac,finCol:0x2db4ac,rough:0.44,
      // Slow, hopeless in a turn, and it will not leave the water. Tough, because it is a bag of
      // air -- there is nothing on it to break.
-     top:26, wake:1.10, lift:0.10, seat:-0.34, stat:{speed:2,tough:10,turn:1,air:1},
+     top:26, wake:1.10, lift:0.10, seat:0.06, stat:{speed:2,tough:10,turn:1,air:1},
      tube:true,
      model:'tube.glb',
      paint:deckScheme({deck:0xf3be3a,hull:0x2db4ac,rail:0x2db4ac,pin:0xf3be3a,stringer:0xf3be3a,
@@ -7670,7 +7690,23 @@ function boardArtFor(id){
     // board whose art depends on a network fetch is a board that is sometimes invisible.
     const M=BOARD_BY_ID[id].spec.model;
     if(M&&typeof loadModel==='function'){
-      const box=g.userData.mbox;
+      let box=g.userData.mbox;
+      // ---- and a board may say how big its MODEL is, in feet ----
+      // fitToBox fits the longest side of the model to the longest side of this box, and for a
+      // lofted board that box is not the published L: the outline runs to +/-W about the
+      // centreline, so the slab is L long by about 1.65*W ACROSS, and for anything wider than
+      // it is long the width is what the model gets fitted to. The tube was the case that found
+      // this -- W:3.34 on a ring meant to be about three feet came out at five and a half, which
+      // is why it read as a pug that had fallen into somebody's paddling pool. modelD says the
+      // fitted size outright, in feet, so the art is a number somebody chose rather than the
+      // product of two outline constants; the slab keeps its own size and stays the collision box.
+      const _md=BOARD_BY_ID[id].spec.modelD;
+      if(_md>0){
+        const c=box.getCenter(new THREE.Vector3()), sz=box.getSize(new THREE.Vector3());
+        const k=_md/Math.max(1e-6,Math.max(sz.x,sz.y,sz.z));
+        sz.multiplyScalar(k*0.5);
+        box=new THREE.Box3(c.clone().sub(sz),c.clone().add(sz));
+      }
       loadModel(M,s3=>{
         const fitted=skinAndFit(id,s3,new THREE.Box3(box.min.clone(),box.max.clone()));
         // it drives bow-first: the ride points local -z the way it travels, and half the time
@@ -27962,6 +27998,52 @@ if(location.hash.includes('debug')){
     // constants are feet in the RIDER's frame and everything about how it reads is the size it
     // lands at next to him. Projected too: the note was drawn on a screenshot, and a screenshot
     // is what this has to be compared against.
+    // ---- does he actually sit IN the ring, with his hands ON it ----
+    // Three questions a screenshot answers badly and this answers exactly: how big the ring
+    // came out, where the top of its rim is, and where his two hands are relative to that rim.
+    // Hand positions are taken off the wrist joints through the scene graph, because the arm
+    // is a chain of eased rotations and no constant in the pose file says where it ends up.
+    tubeFit(){
+      if(typeof boardArt==='undefined'||!boardArt)return {board:false};
+      pug.updateMatrixWorld(true); boardArt.updateMatrixWorld(true);
+      const f=v=>+v.toFixed(3);
+      // ---- the RING, not everything hanging off boardArt ----
+      // Box3.setFromObject walks invisible children too, so the loft the model covers is still
+      // in the box, and so is anything else parented here. The ring is the modelled subtree and
+      // nothing else; the loft is reported beside it because the model is FITTED to the loft's
+      // box, so the loft is what actually decides the size.
+      const parts=[];
+      let art=null;
+      boardArt.traverse(o=>{ if(o.userData&&o.userData.modelled&&!art)art=o; });
+      const bx=o=>{ const q=new THREE.Box3().setFromObject(o);
+        return isFinite(q.min.x)?{w:f(q.max.x-q.min.x),h:f(q.max.y-q.min.y),d:f(q.max.z-q.min.z),
+                                  top:f(q.max.y),box:q}:null; };
+      boardArt.traverse(o=>{ if(o.parent===boardArt){ const q=bx(o);
+        parts.push({n:o.name||o.type, vis:o.visible, mdl:!!(o.userData&&o.userData.model),
+                    w:q&&q.w, h:q&&q.h, d:q&&q.d}); } });
+      const tb=art?new THREE.Box3().setFromObject(art):new THREE.Box3().setFromObject(boardArt);
+      if(!isFinite(tb.min.x))return {board:true,empty:true};
+      const cx=(tb.min.x+tb.max.x)/2, cz=(tb.min.z+tb.max.z)/2;
+      const D=Math.max(tb.max.x-tb.min.x, tb.max.z-tb.min.z);
+      // the rim's top circle, from the model's own ratios: 0.328 of the outer diameter out,
+      // and the top of the box up
+      const rimR=D*0.328, rimY=tb.max.y;
+      const hands=[];
+      for(const A of [armFrontJ,armBackJ]){
+        const w=A.chain[2], v=new THREE.Vector3(); w.getWorldPosition(v);
+        hands.push({x:f(v.x-cx), y:f(v.y-rimY), z:f(v.z-cz),
+                    r:f(Math.hypot(v.x-cx,v.z-cz)),
+                    // how far the hand misses the rim by: outward+ is past it, up+ is above it
+                    dr:f(Math.hypot(v.x-cx,v.z-cz)-rimR), dy:f(v.y-rimY)});
+      }
+      const pb=new THREE.Box3().setFromObject(pug);
+      return {board:true, id:equipped, sit:+tubeSit.toFixed(2), model:!!art, parts,
+              ring:{D:f(D), thick:f(tb.max.y-tb.min.y), rimR:f(rimR), rimY:f(rimY),
+                    hole:f(D*0.313)},
+              rider:{w:f(pb.max.x-pb.min.x), h:f(pb.max.y-pb.min.y), d:f(pb.max.z-pb.min.z),
+                     top:f(pb.max.y-rimY), bot:f(pb.min.y-rimY)},
+              hands, pugY:f(pug.position.y)};
+    },
     jetFit(){
       const g=(typeof diveJet!=='undefined')?diveJet:null;
       if(!g)return {pack:false};
@@ -35460,11 +35542,20 @@ function animateRig(dt,carve,grab,waterY){
   // this function can be true at the same time as being underwater.
   // arms out and back over the rim, elbows soft, palms down on it -- the shape of somebody
   // holding themselves up in a ring rather than reaching for anything
+  // ---- and they reach DOWN onto it, not straight out ----
+  // 1.34 is 77 degrees, which is an arm held out level, and level is only right if the rim is
+  // at his shoulders -- which meant sitting him so deep that the ring came up to his chin.
+  // Anybody in a swim ring sits with the rim at their ribs and drapes their arms DOWN onto it.
+  // How far down is not a taste question: his shoulder is 0.34ft out from his centreline and
+  // his arm is 0.374ft, so to reach a rim at radius R the arm spans (R-0.34) horizontally and
+  // can fall sqrt(0.374^2 - (R-0.34)^2) vertically. At the old ring that was nine hundredths of
+  // a foot -- no drop at all, which is why he had to be lowered to meet it. At 1.95 across it
+  // is 0.22, and 0.22 is exactly how much further out of the ring he now sits.
   if(tubeSit>0.02){
     const h=tubeSit, mx=(a2,b2)=>a2*(1-h)+b2*h;
-    shF=[mx(shF[0],0.34),mx(shF[1], 0.30),mx(shF[2],-1.34)];
-    shB=[mx(shB[0],0.34),mx(shB[1],-0.30),mx(shB[2], 1.34)];
-    elF=[mx(elF[0],0.46),0,0]; elB=[mx(elB[0],0.46),0,0];
+    shF=[mx(shF[0],0.34),mx(shF[1], 0.30),mx(shF[2],-1.06)];
+    shB=[mx(shB[0],0.34),mx(shB[1],-0.30),mx(shB[2], 1.06)];
+    elF=[mx(elF[0],0.26),0,0]; elB=[mx(elB[0],0.26),0,0];
     armSpread*=1-h;
   }
   divePose=ease(divePose,diveOn?1:0,dt,diveOn?7:5);
