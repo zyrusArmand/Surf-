@@ -752,9 +752,11 @@ The texture is written beside the script and read by it; the exporter embeds it.
 
 ## `jetpack.glb` — the worn jetpack, built by `jetpack.py`
 
-A photogrammetry scan, decimated to 16,000 triangles and painted one flat white. Rebuild:
+A photogrammetry scan, decimated to 16,000 triangles and keeping its own texture set. Rebuild:
 
-    python3 models/jetpack.py <source>.glb models/jetpack.glb 16000
+    python3 models/jetpack.py <source>.glb models/jetpack.glb 16000 1024
+
+(last argument is the colour map's size; the other two maps get half it)
 
 ### Join before you do anything else
 
@@ -765,11 +767,23 @@ clean object which is one slice of the thing you wanted, with nothing anywhere s
 mesh is joined first, and the node scale is applied so the exported units are the model's own
 rather than a number the mount code has to know about.
 
-### It is white on purpose
+### It keeps its paint job, and nothing is baked
 
-Three JPEGs come in with the scan and none of them survive. The pack is worn at about a foot
-across, thirty feet down, in fog; it was asked for as solid white, and that means there is
-nothing to unwrap and nothing to bake. Every material is dropped for one `jet_white`.
+There is nothing to bake here and there never was. The scan ships **one** material carrying a
+base colour, a metallic/roughness map and a normal map, and every primitive already has
+`TEXCOORD_0` — so a collapse decimate carries the UVs straight through and the whole job is to
+make the mesh cheap and the maps small. (An earlier pass threw all three away for a flat
+`jet_white`; that was asked for at the time and is not what it wears now.)
+
+The maps come down **after** the export, on the finished GLB with PIL, not through
+`bpy.data.images`. Two reasons, both learned the hard way: the scale loop through Blender
+printed not one line against three 2048s that a separate check found present, loaded and
+packed; and a *packed* image re-exports from its packed bytes anyway, so scaling its pixels
+would not have shrunk the file even if the loop had run. `shrink()` rebuilds the bufferViews in
+order with their offsets recomputed, which is a thing the script can be sure it has done.
+
+Colour keeps `TEX` (1024); the other two get half that. It is the only one whose detail
+survives being worn at a foot across, thirty feet down, in fog. 5.79 MB → 796 KB.
 
 ### The axes are what the mount reads, so check them after a rebuild
 

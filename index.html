@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.181.0';
+window.SURF_VERSION='6.182.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -34449,6 +34449,23 @@ let _sideCam=0;              // debug: feet to his side to look at, 0 = the game
 // enough that he stays big in frame. This is also the "a tad bit up and tilted down toward the
 // character" that was asked for earlier and answered with 2.6.
 const DIVE_CAM_UP=4.6, DIVE_CAM_BACK=6.4, DIVE_AIM_UP=-2.6, DIVE_AIM_AHEAD=6.0;
+// ---- ...and then it comes back DOWN ----
+// Those numbers are the DIVE's shot: he is arcing over and going in head first, and looking
+// down on that from thirty degrees is the only way any of it reads. Held once he is swimming it
+// is an overhead shot of a dog, which is a long way from the shoulder the rest of the game is
+// played over. So the launch and the entry keep the high angle and the swim settles out of it
+// over the first couple of seconds under -- lower, closer to level, but still tilted enough
+// that his length reads, which is the thing 15 degrees could not do.
+// 3.2 up aiming 1.85 below is 21 degrees against the dive's 30 and the old shot's 15.
+const SWIM_CAM_UP=3.2, SWIM_CAM_BACK=6.9, SWIM_AIM_UP=-1.85;
+const SWIM_SETTLE=2.0;            // seconds under before it has finished coming down
+// how far out of the dive shot and into the swim shot we are; 0 through the whole launch,
+// because diveT does not start until he is actually in the water
+function diveShot(){
+  if(!diveOn)return 0;
+  const t=Math.max(0,Math.min(1,diveT/SWIM_SETTLE));
+  return t*t*(3-2*t);
+}
 // ...and how far above mean water sand has to be before he will stand on it. Above the surf,
 // so the shoreline holds him without him paddling about in the wash.
 // Raised with the shore. A long shallow beach means a wide band that the swell walks over, and
@@ -37992,7 +38009,11 @@ function update(dt){
   // third of his lateral travel and the point it was looking at followed none of it: steer hard
   // and he slid off toward the edge of frame while the shot stayed pointed down the lane. Both
   // ends are on him now, which is what "follows him" has to mean.
-  if(diveOn||diveLaunch>0){ aimX=px; aimY=py+launchLift+DIVE_AIM_UP; aimZ=pz-DIVE_AIM_AHEAD; }
+  if(diveOn||diveLaunch>0){
+    const _se=diveShot();
+    aimX=px; aimY=py+launchLift+(DIVE_AIM_UP+(SWIM_AIM_UP-DIVE_AIM_UP)*_se);
+    aimZ=pz-DIVE_AIM_AHEAD;
+  }
   if(swPh===SWP.RIDE&&!swTubeRide&&swCurlA>0.05){
     const pa1=swPeelA(pz), pb1=swPeelB(pz);
     const rad1=SW_R*(0.16+0.84*pa1)*(1-0.55*pb1), fold1=1-0.38*pb1;
@@ -38105,12 +38126,15 @@ function update(dt){
     // shot on that frame is a cut in the middle of a movement. So the ease runs as it always
     // did and the exact answer is blended in over the first four tenths -- a swing into the
     // shot, and locked for the rest of the arc.
+    const _se=diveShot();
+    const _cUp  =DIVE_CAM_UP  +(SWIM_CAM_UP  -DIVE_CAM_UP  )*_se;
+    const _cBack=DIVE_CAM_BACK+(SWIM_CAM_BACK-DIVE_CAM_BACK)*_se;
     const _lw=(diveLaunch>0)?Math.min(1,diveLaunch/0.40):0;
-    _dvY+=((py+launchLift+DIVE_CAM_UP)-_dvY)*kd;
-    _dvZ+=((pz+DIVE_CAM_BACK)-_dvZ)*kd;
+    _dvY+=((py+launchLift+_cUp)-_dvY)*kd;
+    _dvZ+=((pz+_cBack)-_dvZ)*kd;
     if(_lw>0){
-      _dvY+=((py+launchLift+DIVE_CAM_UP)-_dvY)*_lw;
-      _dvZ+=((pz+DIVE_CAM_BACK)-_dvZ)*_lw;
+      _dvY+=((py+launchLift+_cUp)-_dvY)*_lw;
+      _dvZ+=((pz+_cBack)-_dvZ)*_lw;
     }
     // ---- ALL of his travel, and then LOCKED to it ----
     // 0.35 is the surfing rule and it is right there: on a wave the lane is the subject and he

@@ -1,5 +1,6 @@
-import bpy, os, sys
+import bpy, os, sys, io
 SRC=sys.argv[1]; OUT=sys.argv[2]; TARGET=int(sys.argv[3])
+TEX=int(sys.argv[4]) if len(sys.argv)>4 else 1024
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=SRC)
 
@@ -23,11 +24,14 @@ bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='SELECT')
 bpy.ops.mesh.remove_doubles(threshold=0.0002)
 bpy.ops.object.mode_set(mode='OBJECT')
 nt=sum(len(p.vertices)-2 for p in o.data.polygons)
-print("merged", nt)
+print("merged", nt, "uv layers", [l.name for l in o.data.uv_layers])
 
-# No textures survive this: the pack is worn at about a foot across, thirty feet down, in fog,
-# and it is painted one flat white on purpose. So there is nothing to unwrap and nothing to
-# bake -- decimate straight down to the budget and drop every material for a single white one.
+# ---- and the PAINT JOB stays ----
+# There is nothing to bake here and there never was: the scan ships one material carrying a
+# base colour, a metallic/roughness map and a normal map, and every primitive already has
+# TEXCOORD_0. A collapse decimate carries UVs through, so the whole job is to make the mesh
+# cheap and the images small and then get out of the way. (An earlier pass threw all three away
+# and painted it flat white, which was asked for at the time and is not what it wears now.)
 m=o.modifiers.new("dec","DECIMATE"); m.decimate_type='COLLAPSE'; m.ratio=min(1.0,TARGET/float(nt))
 bpy.ops.object.modifier_apply(modifier=m.name)
 print("out tris", sum(len(p.vertices)-2 for p in o.data.polygons), "verts", len(o.data.vertices))
@@ -37,18 +41,75 @@ bpy.ops.mesh.normals_make_consistent(inside=False); bpy.ops.object.mode_set(mode
 try: bpy.ops.object.shade_auto_smooth(angle=0.52)
 except Exception: bpy.ops.object.shade_smooth()
 
-o.data.materials.clear()
-w=bpy.data.materials.new("jet_white"); w.use_nodes=True
-bsdf=w.node_tree.nodes.get("Principled BSDF")
-bsdf.inputs["Base Color"].default_value=(0.92,0.93,0.95,1.0)
-if "Roughness" in bsdf.inputs: bsdf.inputs["Roughness"].default_value=0.42
-if "Metallic"  in bsdf.inputs: bsdf.inputs["Metallic"].default_value=0.0
-o.data.materials.append(w)
-for p in o.data.polygons: p.material_index=0
-
+# (The maps are shrunk AFTER the export, below. Doing it here through bpy.data.images looked
+# right and silently did nothing -- the loop printed not one line against three 2048s that a
+# separate check found present, loaded and packed -- and a packed image re-exports from its
+# packed bytes anyway, so scaling the pixels would not have shrunk the file even if it had run.)
+for mt in o.data.materials: print("  mat", mt.name if mt else None)
 d=o.dimensions
 print("dims x %.4f y %.4f z %.4f" % (d.x, d.y, d.z))
 bpy.ops.object.select_all(action='SELECT')
 bpy.ops.export_scene.gltf(filepath=OUT, export_format='GLB', export_yup=True,
                           export_skins=False, export_animations=False)
 print("wrote", OUT, os.path.getsize(OUT))
+
+# ---- and the MAPS come down, in the file rather than in Blender ----
+# Three 2048s, five megabytes between them, on a prop worn at about a foot across thirty feet
+# down in fog. The colour keeps the most because it is the only one whose detail survives being
+# that small; the metallic/roughness and the normal are carrying surface at a scale this
+# silhouette cannot show. Done on the finished GLB with PIL: the bufferViews are rebuilt in
+# order with their offsets recomputed, which is a thing this file can be sure it has done.
+from PIL import Image
+import struct, json as _json
+
+def shrink(path, base=1024, aux=512, q=88):
+    d=open(path,'rb').read()
+    off=12; js=None; binc=None
+    while off<len(d):
+        ln,ty=struct.unpack_from('<II',d,off); off+=8
+        ch=d[off:off+ln]; off+=ln
+        if ty==0x4E4F534A: js=_json.loads(ch)
+        else: binc=bytearray(ch)
+    g=js
+    # which bufferView is the COLOUR, asked of the material rather than of the arrival order
+    baseIdx=None
+    for mt in g.get('materials',[]):
+        t=(mt.get('pbrMetallicRoughness') or {}).get('baseColorTexture')
+        if t is not None: baseIdx=g['textures'][t['index']]['source']
+    repl={}
+    for i,im in enumerate(g.get('images',[])):
+        if 'bufferView' not in im: continue
+        bv=g['bufferViews'][im['bufferView']]
+        o=bv.get('byteOffset',0)
+        raw=bytes(binc[o:o+bv['byteLength']])
+        img=Image.open(io.BytesIO(raw)); img.load()
+        lim=base if i==baseIdx else aux
+        if max(img.size)>lim:
+            k=lim/float(max(img.size))
+            img=img.resize((max(1,int(img.size[0]*k)),max(1,int(img.size[1]*k))),Image.LANCZOS)
+        out=io.BytesIO(); img.convert('RGB').save(out,'JPEG',quality=q,optimize=True)
+        repl[im['bufferView']]=out.getvalue()
+        im['mimeType']='image/jpeg'
+        print("  image",i,"colour" if i==baseIdx else "aux",img.size,
+              len(raw),"->",len(repl[im['bufferView']]))
+    if not repl: return
+    order=sorted(range(len(g['bufferViews'])), key=lambda k: g['bufferViews'][k].get('byteOffset',0))
+    nb=bytearray()
+    for k in order:
+        bv=g['bufferViews'][k]
+        o=bv.get('byteOffset',0)
+        data=repl.get(k) or bytes(binc[o:o+bv['byteLength']])
+        while len(nb)%4: nb.append(0)
+        bv['byteOffset']=len(nb); bv['byteLength']=len(data)
+        nb+=data
+    while len(nb)%4: nb.append(0)
+    g['buffers'][0]['byteLength']=len(nb)
+    jb=_json.dumps(g,separators=(',',':')).encode('utf-8')
+    while len(jb)%4: jb+=b' '
+    glb=b'glTF'+struct.pack('<II',2,12+8+len(jb)+8+len(nb))
+    glb+=struct.pack('<II',len(jb),0x4E4F534A)+jb
+    glb+=struct.pack('<II',len(nb),0x004E4942)+bytes(nb)
+    open(path,'wb').write(glb)
+
+shrink(OUT, TEX, max(256,TEX//2))
+print("shrunk", OUT, os.path.getsize(OUT))
