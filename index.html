@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.166.0';
+window.SURF_VERSION='6.167.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -633,6 +633,8 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     color:#6b4a25; font-weight:800; line-height:1.12; letter-spacing:.2px;
     text-shadow:0 1px 0 rgba(255,248,228,.55); overflow:hidden;
   }
+  .qbNote .qbi { width:1.45em; height:1.45em; opacity:.82; margin-bottom:-.06em; }
+  .qbNote.soon .qbi { opacity:.5; }
   .qbNote .qt { font-size:1em; }
   .qbNote .qn { font-size:.76em; opacity:.86; font-variant-numeric:tabular-nums; }
   .qbNote .qbar { width:74%; height:.26em; border-radius:.2em; overflow:hidden;
@@ -1377,9 +1379,15 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     border-bottom:none; column-gap:9px; }
   /* the icon takes the ROW's colour, so a finished goal turns its drawing gold with the text */
   .tr.goal .qi { align-self:center; display:flex; }
-  .tr.goal .qi svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.7;
-    stroke-linecap:round; stroke-linejoin:round; opacity:.9; }
-  .tr.goal.done .qi svg { opacity:1; }
+  /* ---- the drawing is used as an ALPHA MASK, not as a picture ---- */
+  /* One asset has to sit on a brown paper note pinned to a board in the sun AND on white text
+     over a dark blue panel, and go green when the quest is done. Painted as an image it can only
+     be one of those. Masked, the ink is whatever colour the text beside it is, everywhere, for
+     free -- including states nobody thought about when the icon was drawn. */
+  .qi, .qbi { display:inline-block; background:currentColor;
+    -webkit-mask:var(--qi) center/contain no-repeat; mask:var(--qi) center/contain no-repeat; }
+  .tr.goal .qi { width:19px; height:19px; opacity:.9; }
+  .tr.goal.done .qi { opacity:1; }
   #quests .tr.goal { display:grid; align-items:baseline; }
   .tr.goal span { text-align:left; }
   .tr.goal .bar { grid-column:1 / -1; height:5px; border-radius:99px; margin-top:7px;
@@ -5322,10 +5330,13 @@ const QICON={
        +'<path d="M6.6 13.6a2.4 2.4 0 1 0 0-4.8 2.4 2.4 0 0 0 0 4.8"/>'
 };
 
-function qIcon(n){
-  const v=QICON[n]||QICON.wave;
-  return `<span class="qi"><svg viewBox="0 0 24 24" aria-hidden="true">`+
-         (v[0]==='<'?v:`<path d="${v}"/>`)+`</svg></span>`;
+// The drawings, by what they are rather than by which quest wants one -- so a new quest picks an
+// icon by meaning, and a new drawing dropped into icons/ is available to every quest at once.
+const QART={wave:1,shell:1,fin:1,star:1,dolphin:1,sunset:1,sunrays:1,boards:1,
+            tower:1,turtle:1,palms:1,island:1,board:1};
+function qArt(n){ return 'icons/'+(QART[n]?n:'wave')+'.png'; }
+function qIcon(n,cls){
+  return `<span class="${cls||'qi'}" aria-hidden="true" style="--qi:url(${qArt(n)})"></span>`;
 }
 const GOAL_POOL=[
   {id:'barrel1', text:'Ride a barrel',            target:1,    ev:'barrel', icon:'wave'},
@@ -19704,17 +19715,19 @@ function drawQuestNotes(force){
       // The board has five pins and the game deals three goals. Rather than leave two sheets
       // blank -- which reads as something that failed to load -- they say what they are.
       el.dataset.qk='soon'; el.className='qbNote soon';
-      el.innerHTML='<span class="qt">Next quest<br>after a run</span>';
+      // the lookout, for a sheet that is watching for something rather than tracking it
+      el.innerHTML=qIcon('tower','qbi')+'<span class="qt">Next quest<br>after a run</span>';
       continue;
     }
     const d=goalDef(g);
     const t=String(d.text).replace(/\s+in (?:one|a) run$/i,'');
     const n=Math.min(g.n,d.target), p=Math.max(0,Math.min(100,n/d.target*100));
     el.dataset.qk=g.id+':'+n+':'+(g.done?1:0); el.className='qbNote'+(g.done?' done':'');
+    const ic=qIcon(d.icon,'qbi');
     el.innerHTML=g.done
-      ? '<span class="qt">'+t+'</span><span class="qn">DONE &nbsp;+100</span>'+
+      ? ic+'<span class="qt">'+t+'</span><span class="qn">DONE &nbsp;+100</span>'+
         '<span class="qbar"><i style="width:100%"></i></span>'
-      : '<span class="qt">'+t+'</span><span class="qn">'+
+      : ic+'<span class="qt">'+t+'</span><span class="qn">'+
         n.toLocaleString()+' / '+d.target.toLocaleString()+'</span>'+
         '<span class="qbar"><i style="width:'+p.toFixed(1)+'%"></i></span>';
   }
@@ -27755,8 +27768,17 @@ if(location.hash.includes('debug')){
       goals=keep;
       return html;
     },
+    // Paints the five sheets on the board on demand. They are only redrawn when the goals
+    // change, so a test that merely looks at them finds whatever was there at boot, which is
+    // nothing -- and reports 'NO ICON' five times about code that is fine.
+    paintNotes(){ drawQuestNotes(true); const o=[];
+      for(let i=0;i<5;i++){ const e=document.getElementById('qbNote'+i); if(!e)continue;
+        const ic=e.querySelector('.qbi');
+        o.push({i, art:ic?ic.style.getPropertyValue('--qi'):null,
+                t:(e.textContent||'').replace(/\s+/g,' ').slice(0,26)}); }
+      return o; },
     goalIcons(){
-      return GOAL_POOL.map(d=>({id:d.id, icon:d.icon||null, known:!!(d.icon&&QICON[d.icon])}));
+      return GOAL_POOL.map(d=>({id:d.id, icon:d.icon||null, known:!!(d.icon&&QART[d.icon]), art:qArt(d.icon)}));
     },
     // Where he actually lands on screen, in normalised coords: 0 is dead centre, -1 the bottom
     // of the frame, +1 the top. "He sits too low" is a number, and nudging camera constants
