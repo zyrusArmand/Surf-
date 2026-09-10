@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.174.0';
+window.SURF_VERSION='6.175.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -27957,6 +27957,48 @@ if(location.hash.includes('debug')){
       g.position.set(px+4.0,py,pz-38);
       return {had:true, ph:g.userData.ph};
     },
+    // ---- how big the pack actually comes out, on the screen and in feet ----
+    // Its world box measured through the scene graph rather than off the constants, because the
+    // constants are feet in the RIDER's frame and everything about how it reads is the size it
+    // lands at next to him. Projected too: the note was drawn on a screenshot, and a screenshot
+    // is what this has to be compared against.
+    jetFit(){
+      const g=(typeof diveJet!=='undefined')?diveJet:null;
+      if(!g)return {pack:false};
+      pug.updateMatrixWorld(true);
+      const b=new THREE.Box3().setFromObject(g);
+      if(!isFinite(b.min.x))return {pack:true, empty:true};
+      const proj=box=>{ const c=[],v=new THREE.Vector3();
+        for(const X of [box.min.x,box.max.x])for(const Y of [box.min.y,box.max.y])
+          for(const Z of [box.min.z,box.max.z]){ v.set(X,Y,Z).project(camera); c.push([v.x,v.y]); }
+        return {x:[Math.min(...c.map(p=>p[0])),Math.max(...c.map(p=>p[0]))],
+                y:[Math.min(...c.map(p=>p[1])),Math.max(...c.map(p=>p[1]))]}; };
+      const pb=new THREE.Box3().setFromObject(pug);
+      const ps=proj(b), rs=proj(pb);
+      const f=n=>+n.toFixed(3);
+      // where it is HUNG, and where his spine and his body actually are in his own frame --
+      // the three numbers that decide whether a pack sits on a back or on a rib
+      const bl=new THREE.Box3().setFromObject(pug);   // world
+      const inv=new THREE.Matrix4().copy(pug.matrixWorld).invert();
+      const c=new THREE.Vector3((bl.min.x+bl.max.x)/2,(bl.min.y+bl.max.y)/2,(bl.min.z+bl.max.z)/2)
+                .applyMatrix4(inv);
+      const _R=(typeof riderRig==='function')?riderRig():null;
+      const _sp=_R&&_R.bones&&(_R.bones.Spine02||_R.bones.Spine2||_R.bones.Spine01||_R.bones.Spine1
+                                ||_R.bones.Spine||_R.bones.Chest);
+      const sp=new THREE.Vector3();
+      if(_sp){ _sp.getWorldPosition(sp); pug.worldToLocal(sp); }
+      return {pack:true, real:!!g.userData.real, vis:!!g.visible,
+              hung:{x:f(g.position.x),y:f(g.position.y),z:f(g.position.z)},
+              spine:_sp?{n:_sp.name,x:f(sp.x),y:f(sp.y),z:f(sp.z)}:null,
+              bodyMid:{x:f(c.x),y:f(c.y),z:f(c.z)},
+              pugScl:f(pug.scale.x||1), pugRotY:f(pug.rotation.y), pugX:f(pug.position.x),
+              ft:{w:f(b.max.x-b.min.x), h:f(b.max.y-b.min.y), d:f(b.max.z-b.min.z)},
+              // fractions of the screen's half-width/height, and of the rider's own box
+              scr:{w:f(ps.x[1]-ps.x[0]), h:f(ps.y[1]-ps.y[0]),
+                   cx:f((ps.x[0]+ps.x[1])/2), cy:f((ps.y[0]+ps.y[1])/2)},
+              rider:{w:f(rs.x[1]-rs.x[0]), h:f(rs.y[1]-rs.y[0]),
+                     cx:f((rs.x[0]+rs.x[1])/2), cy:f((rs.y[0]+rs.y[1])/2)}};
+    },
     onScreen(){
       const v=new THREE.Vector3(px,py+0.6,pz).project(camera);
       // ...and where the RIDER is, which is a different question the moment he is off the
@@ -33617,7 +33659,7 @@ const _jetV=new THREE.Vector3();
 const JET_UP=0.95, JET_BACK=0.52, JET_SIDE=0.175;   // ...and proud of his back, not level with it
 // how far along the spine from the bone the pack sits -- toward the shoulders, where a
 // rucksack rides rather than over the kidneys
-const JET_ALONG=0.10;
+const JET_ALONG=0.16;
 // ---- and it is the MODEL, once the model is here ----
 // Built from primitives first because a shape with a light on it is most of what reads through
 // thirty feet of fog, and kept as the fallback for exactly that reason: the file is asked for on
@@ -33644,27 +33686,52 @@ function jetAsk(){
 // How the model is worn. Its own box is measured and it is scaled to span his shoulders, so the
 // numbers here are about the POSE and not about the file -- a different jetpack dropped in the
 // same place would need none of them changed.
-// Measured against him rather than picked: his body is about 0.9ft across lying flat, and at
-// 0.80 the pod was nearly as wide as the animal wearing it -- which from above reads as a disc
-// he is lying on rather than a pack he is wearing, whatever its height says.
-const JET_SPAN=0.54;              // feet across his back
-// A quarter turn about X. The pod is authored lying flat -- 1.90 across, 0.86 deep and only 0.61
-// through, which is the thin axis -- so worn as it comes it stands out from his spine edge-on.
-// Turned, the thin axis is the one pointing away from his back and the pod lies against it, with
-// a thruster at each end of his shoulders, which is the shape it plainly is.
-const JET_ROT=[Math.PI/2,0,0];
+// ---- and it is scaled by its HEIGHT, because that is the axis you read ----
+// It used to be scaled across his back, which was the right handle when the pack was worn
+// lengthwise and the wrong one the moment it stood up. A jetpack is a tall thing; how far up
+// his back it reaches is what says how big it is, and its width follows from the model rather
+// than being a second number that can disagree with the first.
+const JET_TALL=1.02;              // feet up his spine, shoulder blades to the base of his back
+// ...and the tanks are fattened a quarter. Scaled true, the pod comes out 0.46 across against
+// 1.02 tall, which is narrower than it wants to look on a barrel-chested dog -- the note drawn
+// over the screenshot asked for about two thirds of his back. This is the only axis that is not
+// the model's own, and a quarter on two tanks lying abreast reads as bigger tanks rather than as
+// something squashed.
+const JET_WIDE=1.25;
+// ---- WHICH WAY ROUND IT GOES ----
+// Measured off the file rather than guessed: one mesh, one material, local box 1.00 x 0.318 x
+// 0.449 under a node scale of 1.9027, so 1.90 long, 0.61 thick and 0.85 across -- and slicing
+// it along its length finds a groove down the middle of the 0.85 axis, which is the seam
+// between two tanks lying side by side. So it is a twin-tank pod: the 1.90 is the LENGTH of
+// the tanks, the 0.85 is the two of them abreast, the 0.61 is the thin way through.
+//
+// Worn as it came, that 1.90 lay ACROSS his back and the 0.85 up his spine -- half a foot tall
+// and twice as wide, which is the flat white disc it read as. The tanks belong up his spine:
+//
+//   model x (1.90, tank length)  -> DOWN the spine   (-y)   ...tapered end at the bottom
+//   model z (0.85, two abreast)  -> across his back  (+x)
+//   model y (0.61, thin)         -> out of his back  (+z)
+//
+// which is Rx(90) first and then Rz(-90). three.js composes 'XYZ' as Rx*Ry*Rz, applying Rz to
+// the vector FIRST -- the opposite of what is wanted -- so the holder is put in 'ZYX', where
+// the matrix is Rz*Ry*Rx and the X turn happens first.
+const JET_ROT=[Math.PI/2,0,-Math.PI/2];
+const JET_ROT_ORDER='ZYX';
 function jetReal(g){
   if(!jetTpl||g.userData.real)return;
   for(let i=g.children.length-1;i>=0;i--)g.remove(g.children[i]);
   const m=cloneModel(jetTpl), b=jetTpl.userData.box;
+  // its own longest axis is the tanks, and the tanks are what stands up his back
   const w=Math.max(1e-4,b.max.x-b.min.x);
-  const s=JET_SPAN/w;
+  const s=JET_TALL/w;
+  const sz=s*JET_WIDE;              // model z is the two tanks abreast -- across his back
   const holder=new THREE.Group();
-  m.scale.setScalar(s);
+  m.scale.set(s,s,sz);
   // centred on the wrapper's origin, so the mounting numbers do not have to know where the
   // modeller happened to put theirs
-  m.position.set(-(b.min.x+b.max.x)*0.5*s,-(b.min.y+b.max.y)*0.5*s,-(b.min.z+b.max.z)*0.5*s);
+  m.position.set(-(b.min.x+b.max.x)*0.5*s,-(b.min.y+b.max.y)*0.5*s,-(b.min.z+b.max.z)*0.5*sz);
   holder.add(m);
+  holder.rotation.order=JET_ROT_ORDER;
   holder.rotation.set(JET_ROT[0],JET_ROT[1],JET_ROT[2]);
   g.add(holder);
   // ---- and the bubbles come off MARKERS, not off geometry ----
@@ -33678,10 +33745,13 @@ function jetReal(g){
   // leaving sideways or into the sand are bubbles nobody sees. The markers sit at the back edge
   // of the pod rather than at whatever the modeller called a nozzle, because a scan has no part
   // this code can name and the back edge is a fact about the box.
+  // ...and with the pod stood up, aft is the BOTTOM of it: one marker under each tank, at the
+  // ends of the 0.85 axis, just proud of the thin face. Fractions of the height, because the
+  // height is the one number this code set.
   const noz=[];
   for(const sx of [-1,1]){
     const e=new THREE.Object3D();
-    e.position.set(sx*JET_SPAN*0.30, -JET_SPAN*0.46, JET_SPAN*0.26);
+    e.position.set(sx*JET_TALL*0.449*JET_WIDE*0.27, -JET_TALL*0.47, JET_TALL*0.06);
     g.add(e); noz.push(e);
   }
   g.userData.noz=noz;
