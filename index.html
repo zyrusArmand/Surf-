@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.188.0';
+window.SURF_VERSION='6.189.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -627,31 +627,41 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     /* the transform is written per frame by layoutQuestNotes, which carries the sheet's turn as
        well as the centring -- an inline transform beats this rule, so it is only the fallback */
     position:absolute; transform:translate(-50%,-50%);
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-      gap:.16em; text-align:center; pointer-events:auto; cursor:pointer;
+    text-align:center; pointer-events:auto; cursor:pointer;
     -webkit-tap-highlight-color:transparent;
     color:#6b4a25; font-weight:800; line-height:1.12; letter-spacing:.2px;
     text-shadow:0 1px 0 rgba(255,248,228,.55); overflow:hidden;
   }
-  /* ---- the drawing is the sheet, and the words are the caption ---- */
-  /* Sized as a fraction of the NOTE, not in em. The note's font-size is capped at 20px so that
-     a board drawn large on a wide screen does not set the quest text bigger than the game's own
-     headings -- which meant an icon measured in em could not grow past 29px however big the
-     sheet got, and on a two-hundred-pixel sheet that is a stamp in the corner. Off the sheet's
-     own height it scales with the board, which is what being pinned to it should mean. */
-  /* ---- and it SHRINKS rather than clipping ---- */
-  /* flex:0 0 auto plus overflow:hidden is a trap: a two-line title pushed the icon up out of the
-     drawn paper and the top of it was simply cut off -- and because clipped content is not
-     scrollable, scrollHeight still equalled clientHeight, so the overflow check said 0 and the
-     picture said otherwise. Allowed to shrink, a long title costs the icon a few pixels instead
-     of its head. Centred too, because the note BOX is a little larger than the paper drawn
-     inside it and bottom-aligning rode the artwork up over the edge. */
-  .qbNote .qbi { width:92%; height:56%; flex:0 1 auto; min-height:38%; opacity:.92;
-    margin-bottom:.08em; }
-  .qbNote.soon .qbi { opacity:.55; height:44%; }
-  .qbNote .qt { font-size:.86em; }
-  .qbNote .qn { font-size:.70em; opacity:.86; font-variant-numeric:tabular-nums; }
-  .qbNote .qbar { width:70%; height:.24em; border-radius:.2em; overflow:hidden;
+  /* ---- the drawing FILLS the drawn rule, and the words go UNDER it ---- */
+  /* There is a rectangle inked on the paper in the board's own artwork, and both the icon and
+     the words used to sit inside it -- a picture the size of a stamp with a caption crowded in
+     beside it. The icon gets the rule to itself now and the caption takes the strip of paper
+     below it.
+     Where the rule actually is came off the render rather than off a guess: scanning down a
+     sheet at 12% in from its left edge -- clear of the icon and the text, which is the whole
+     reason for scanning there -- finds it at 0.19 and 0.78 of the paper's height. The note
+     element is 0.92 of the sheet quad and centred on it, so paper fraction p lands at
+     (p-0.04)/0.92 of the element: 0.163 and 0.804.
+     Absolute rather than flexed, because these are positions on a drawing and not a stack. */
+  /* ---- and the rule is shared, because the strip under it is not enough on its own ----
+     Sitting exactly on the rule (16.3% to 80.4%) leaves the caption 19% of the sheet, and
+     measured that overflowed on all five notes at every size the fit loop tried -- it bottomed
+     out at the 8px floor and still did not fit. The icon keeps the rule's full width and the
+     top seven eighths of its height; the caption starts a little inside the bottom of it. The
+     art is centred in its box and letterboxed to fit, so on a wide icon -- which is most of
+     them -- that overlap is empty space and nothing is covered. */
+  .qbNote .qbi { position:absolute; left:3%; right:3%; top:16.3%; height:64.1%;
+    width:auto; opacity:.92; }
+  .qbNote.soon .qbi { opacity:.55; }
+  /* the strip below the rule. It is thin -- a fifth of the sheet -- so the fit loop measures
+     THIS rather than the note: an absolutely positioned child contributes nothing to its
+     parent's scrollHeight, so the old check could not see the caption overflow at all. */
+  .qbNote .qcap { position:absolute; left:0; right:0; top:80.5%; bottom:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+    gap:.06em; overflow:hidden; }
+  .qbNote .qt { font-size:.80em; }
+  .qbNote .qn { font-size:.60em; opacity:.86; font-variant-numeric:tabular-nums; }
+  .qbNote .qbar { width:62%; height:.13em; border-radius:.2em; overflow:hidden;
     background:rgba(107,74,37,.20); box-shadow:inset 0 1px 1px rgba(80,52,22,.22); }
   .qbNote .qbar i { display:block; height:100%; border-radius:.2em;
     background:linear-gradient(90deg,#e08a2c,#f6bf4d); }
@@ -20005,10 +20015,18 @@ function layoutQuestNotes(e){
     const ck=bh.toFixed(0)+'|'+(el.dataset.qk||'');
     if(el.dataset.fitk===ck){ el.style.fontSize=el.dataset.fitv; }
     else{
+      // ...against the caption strip, not the note. The icon is absolutely positioned now and
+      // contributes nothing to the note's scrollHeight, so measuring the note would say every
+      // sheet fits however far the words ran past the bottom of the paper.
+      const cap=el.querySelector('.qcap')||el;
       let f=want;
       el.style.fontSize=f.toFixed(1)+'px';
-      for(let t=0;t<5&&el.scrollHeight>el.clientHeight+1;t++){
-        f*=0.90; if(f<9){ f=9; el.style.fontSize='9px'; break; }
+      // ---- and it has a long way to shrink ----
+      // The strip under the rule is a fifth of the sheet, and the starting size is a quarter of
+      // it -- so a two-line title needs about ten steps of 0.88 to fit, and a loop that stopped
+      // at five or six simply left it overflowing and looked like the sizing had no effect.
+      for(let t=0;t<14&&cap.scrollHeight>cap.clientHeight+1;t++){
+        f*=0.88; if(f<7){ f=7; el.style.fontSize='7px'; break; }
         el.style.fontSize=f.toFixed(1)+'px';
       }
       el.dataset.fitk=ck; el.dataset.fitv=el.style.fontSize;
@@ -20035,7 +20053,8 @@ function drawQuestNotes(force){
       // blank -- which reads as something that failed to load -- they say what they are.
       el.dataset.qk='soon'; el.className='qbNote soon';
       // the lookout, for a sheet that is watching for something rather than tracking it
-      el.innerHTML=qIcon('tower','qbi')+'<span class="qt">Next quest<br>after a run</span>';
+      el.innerHTML=qIcon('tower','qbi')+
+        '<span class="qcap"><span class="qt">Next quest<br>after a run</span></span>';
       continue;
     }
     const d=goalDef(g);
@@ -20044,11 +20063,12 @@ function drawQuestNotes(force){
     el.dataset.qk=g.id+':'+n+':'+(g.done?1:0); el.className='qbNote'+(g.done?' done':'');
     const ic=qIcon(d.icon,'qbi');
     el.innerHTML=g.done
-      ? ic+'<span class="qt">'+t+'</span><span class="qn">DONE &nbsp;+100</span>'+
-        '<span class="qbar"><i style="width:100%"></i></span>'
-      : ic+'<span class="qt">'+t+'</span><span class="qn">'+
+      ? ic+'<span class="qcap"><span class="qt">'+t+'</span>'+
+        '<span class="qn">DONE &nbsp;+100</span>'+
+        '<span class="qbar"><i style="width:100%"></i></span></span>'
+      : ic+'<span class="qcap"><span class="qt">'+t+'</span><span class="qn">'+
         n.toLocaleString()+' / '+d.target.toLocaleString()+'</span>'+
-        '<span class="qbar"><i style="width:'+p.toFixed(1)+'%"></i></span>';
+        '<span class="qbar"><i style="width:'+p.toFixed(1)+'%"></i></span></span>';
   }
 }
 // ---- and the three panels take a tap ----
@@ -28156,10 +28176,37 @@ if(location.hash.includes('debug')){
       add(scene);
       return {tris:Math.round(tris), meshes, kelp:kelps.length, floor:floorProps.length,
               turtles:turtles.length, sharks:dshks.length}; },
+    // ---- and a way to BE at the board without walking there ----
+    // The walk is eased on real time and a headless frame is worth about three seconds of it,
+    // so sixteen seconds of waiting arrives somewhere in the sand. This puts the lens where the
+    // walk would have finished and lays the sheets out once, which is all paintNotes needs.
+    qbSnap(){
+      questCamGo=1; shopCamGo=0; questCamE=1;
+      try{ wantBoard(); }catch(e){}
+      if(typeof layoutQuestNotes==='function')layoutQuestNotes(1);
+      drawQuestNotes(true);
+      if(typeof layoutQuestNotes==='function')layoutQuestNotes(1);
+      return {e:questCamE, board:!!questBoard, slots:(typeof qbSlots!=='undefined'&&qbSlots)?qbSlots.length:0};
+    },
     paintNotes(){ drawQuestNotes(true); const o=[];
       for(let i=0;i<5;i++){ const e=document.getElementById('qbNote'+i); if(!e)continue;
-        const ic=e.querySelector('.qbi');
+        const ic=e.querySelector('.qbi'), cap=e.querySelector('.qcap');
+        const eb=e.getBoundingClientRect();
+        const f=v=>+v.toFixed(3);
+        // ---- where the icon and the caption actually land ON the sheet ----
+        // As fractions of the note's own box, so they can be held against the rule inked on the
+        // paper (0.163 to 0.804 of the element) without anybody squinting at a screenshot. And
+        // whether the caption overflows its strip, which is the one thing the old check could
+        // not see once the icon stopped contributing to scrollHeight.
+        let icf=null, capf=null, over=null;
+        if(ic&&eb.height>0){ const b2=ic.getBoundingClientRect();
+          icf={top:f((b2.top-eb.top)/eb.height), bot:f((b2.bottom-eb.top)/eb.height),
+               wide:f(b2.width/Math.max(1,eb.width))}; }
+        if(cap&&eb.height>0){ const b3=cap.getBoundingClientRect();
+          capf={top:f((b3.top-eb.top)/eb.height), bot:f((b3.bottom-eb.top)/eb.height)};
+          over=Math.max(0,cap.scrollHeight-cap.clientHeight); }
         o.push({i, art:ic?ic.style.getPropertyValue('--qi'):null,
+                icon:icf, cap:capf, capOver:over, font:e.style.fontSize,
                 t:(e.textContent||'').replace(/\s+/g,' ').slice(0,26)}); }
       return o; },
     goalIcons(){
