@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.167.0';
+window.SURF_VERSION='6.168.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -27771,6 +27771,23 @@ if(location.hash.includes('debug')){
     // Paints the five sheets on the board on demand. They are only redrawn when the goals
     // change, so a test that merely looks at them finds whatever was there at boot, which is
     // nothing -- and reports 'NO ICON' five times about code that is fine.
+    // What the renderer actually drew last frame. "More coral" and "don't make it run worse"
+    // are the same question asked twice, and this is the only honest answer to it.
+    drawn(){
+      // renderer.info.render describes the LAST pass, and the frame ends on a full-screen
+      // composite -- it answered "2 triangles, 1 call", which is true of the quad and useless
+      // about the sea bed. Counted off the scene graph instead: every visible mesh, whatever
+      // drew it last.
+      let tris=0, meshes=0;
+      const add=(o)=>{ o.traverse(n=>{ if(!n.isMesh&&!n.isSkinnedMesh)return;
+        if(!n.visible)return;
+        let p=n; while(p){ if(!p.visible)return; p=p.parent; }
+        const g=n.geometry; if(!g)return;
+        const c=g.index?g.index.count:(g.attributes.position?g.attributes.position.count:0);
+        tris+=c/3; meshes++; }); };
+      add(scene);
+      return {tris:Math.round(tris), meshes, kelp:kelps.length, floor:floorProps.length,
+              turtles:turtles.length, sharks:dshks.length}; },
     paintNotes(){ drawQuestNotes(true); const o=[];
       for(let i=0;i<5;i++){ const e=document.getElementById('qbNote'+i); if(!e)continue;
         const ic=e.querySelector('.qbi');
@@ -32489,7 +32506,12 @@ const bedMat=new THREE.ShaderMaterial({
 });
 // 300 across and 420 along: wider than the ocean plane, because from the bottom you are looking
 // along it rather than down at it and the far edge has to be beyond where the fog closes.
-const bedMesh=new THREE.Mesh(new THREE.PlaneGeometry(300,420,150,210),bedMat);
+// ---- and it is not sampled at two feet ----
+// 150 by 210 segments is sixty-three thousand triangles spent describing dunes that are five
+// hundred to eleven hundred feet from crest to crest, plus a ripple at twenty-eight. Three and a
+// bit feet a segment is still eight samples across the shortest thing in the field and it is
+// forty thousand triangles cheaper -- which is most of what the extra rock and coral cost.
+const bedMesh=new THREE.Mesh(new THREE.PlaneGeometry(300,420,90,126),bedMat);
 bedMesh.rotation.x=-Math.PI/2;
 bedMesh.position.y=-BED_DEPTH;
 bedMesh.frustumCulled=false;
@@ -32798,11 +32820,18 @@ function turtleStep(dt,eff){
 // swimming away from being visible at the moment it is placed: it fades UP out of the murk the
 // way everything else down there does, rather than blinking into being. Nothing is ever laid
 // inside the fog, which is the one rule this system has.
+// ---- how many of each is out at once ----
+// Up from 5/4/4. Thirteen spread over the whole run-up is about eight in view at any moment
+// across forty feet of lane either side, which is a sea bed with things ON it rather than a reef.
+// Twenty-two is around fourteen in sight. Every one is still placed at random -- its distance,
+// its side of the lane, its size, its turn, its tilt and how far it is dug in are all rolled per
+// prop, so more of them does not mean a pattern.
 const FLOOR_KINDS=[
-  {f:'searock.glb', n:5, ft:[3.6,9.5], sink:[0.06,0.34], tilt:0.20},
-  {f:'coral1.glb',  n:4, ft:[2.6,6.4], sink:[0.03,0.18], tilt:0.13},
-  {f:'coral2.glb',  n:4, ft:[2.6,6.4], sink:[0.03,0.18], tilt:0.13}
+  {f:'searock.glb', n:8, ft:[3.6,9.5], sink:[0.06,0.34], tilt:0.20},
+  {f:'coral1.glb',  n:7, ft:[2.6,6.4], sink:[0.03,0.18], tilt:0.13},
+  {f:'coral2.glb',  n:7, ft:[2.6,6.4], sink:[0.03,0.18], tilt:0.13}
 ];
+const FLOOR_BAND=72;     // ...laid across this much depth on a recycle, out past the fog
 const FLOOR_HIT=0.62;    // of its own half-width: inside the silhouette, in the player's favour
 const FLOOR_CLEAR=0.92;  // ...and how much of its height you have to be under to be inside it
 let floorAsked=false, floorGrp=null, floorProps=[];
@@ -32834,8 +32863,10 @@ function floorMake(k){
 }
 function floorLay(g,seed){
   const R=Math.random, u=g.userData, k=u.k;
-  // out past the fog on a recycle; anywhere on the first fill -- see kelpLay
-  g.position.z=seed?-(R()*(-DIVE_AHEAD)):DIVE_AHEAD*(0.55+R()*0.45);
+  // Out past the fog on a recycle, anywhere on the first fill -- see kelpLay. The old recycle
+  // band started at a hundred and ten feet and the fog does not close until a hundred and
+  // eighteen, so a rock could be laid eight feet inside sight and be watched appearing.
+  g.position.z=seed?-(R()*(-DIVE_AHEAD)):-(DIVE_BORN+R()*FLOOR_BAND);
   const sgn=R()<0.5?-1:1;
   g.position.x=sgn*(3.0+R()*(DIVE_SPREAD-3.0));
   const ft=k.ft[0]+Math.pow(R(),1.3)*(k.ft[1]-k.ft[0]);
