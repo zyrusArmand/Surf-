@@ -852,3 +852,70 @@ cylinder). And `__surf.archTry(kind)` flies the rider at a named point and steps
 it has to step **`floorStep`, not `update`** — `update()` does not test the floor at all, it is
 called from the render tail. A version of that harness that stepped `update()` reported every
 case as clear and looked exactly like a hit box wired up wrong.
+
+## `eagleray.glb` — the smooth-skinned eagle ray, built by `eagleray.py`
+
+The only model here that was **drawn** rather than scanned or photographed: it comes off a
+character sheet — top, bottom, side, back and a three-quarter reference — and every proportion in
+`eagleray.py` is a pixel measurement off one of those views, divided through by the half-span.
+Nose `(272,103)`, left wing tip `(56,258)`, back of the disc `(272,400)`: a 217px half-span, a
+297px disc, and the widest point at `(258-103)/297 = 0.52`.
+
+Rebuild it with `python3 models/eagleray.py models/eagleray.glb 1024`. It takes about twenty
+seconds, most of which is the occlusion bake. `KEEPTEX=1` leaves the painted map next to the
+`.glb` and `AOPROF=1` prints the bake ring by ring, which is the only way either of them can be
+checked.
+
+### It is one lofted surface, not a set of parts
+
+A ray is a single membrane: thick down the middle, thinning to an edge the whole way round. So
+the whole animal — head, wings, pelvic lobes and the whip — is a closed tube swept nose to tail
+whose cross-section is an ellipse of varying width and height:
+
+    u = -cos(a)      x = u*w(t)      z = (a<pi ? topH : botH) * sin(a)      y = -t*BODY
+
+`sin(a)` and `sqrt(1-u^2)` are the same number, which is why it closes cleanly — the thickness
+already reaches nought at the rim with a vertical tangent, so the top and bottom meet in a
+rounded edge with no crease and no special case at the wing tip. There is no boolean anywhere in
+this file and no join to hide: **the tail is the same loft carrying on past t=1**.
+
+The UV seam costs nothing because UVs live on **loops**, not on vertices — the wrap-around faces
+simply take u=1 on the corners belonging to column zero. One continuous vertex ring, plain smooth
+shading, no shading line down the left wing.
+
+### The bake is done here, not asked for
+
+There is no Cycles in this environment and no EGL for Eevee. So the ambient occlusion is cast
+directly against the finished mesh with Blender's own BVH — a cosine-weighted hemisphere per
+vertex, weighted by how *close* the hit is rather than counted — and because the mesh is a grid
+the per-vertex result is already a rectangular array in UV space and resizes into the map
+exactly. The colour is painted per texel from the same parametrisation that built the vertex
+underneath it, so the mouth, the gill slits and the tail bands land where the geometry says.
+
+**Four things went wrong in that bake, and each one looked like something else.**
+
+| symptom | what it actually was |
+| --- | --- |
+| mean 0.115 — a black map | faces wound inward; every ray started inside the animal |
+| mean 0.999 — no occlusion at all | BVH built from the body alone, and a throw shorter than any concavity on a 2 m animal |
+| black sawtooth down the leading edge | the analytic normal's finite difference straddling the `top`/`bot` branch switch at `sin a = 0` |
+| a mid-wing ring at 0.911 | the outward reference was the cross-section's *radius*; on a section 0.66 wide and 0.025 thick that points nearly **along** the surface. It has to be the ellipse gradient `(x/w², z/h²)` |
+
+And the one that survived three rounds of fixing the wrong thing: a dark smudge on the snout that
+no amount of chasing normals, ray offsets or ring singularities would shift. `bmesh.from_object`
+returns each object in **its own local space**, and a sphere from `primitive_uv_sphere_add`
+carries its position in `object.location`, not in its vertices — so merging the four eye parts
+and transforming the result by the *body's* matrix stacked all four of them on the origin. The
+origin of this model is the tip of the snout. The occlusion was real; the occluder was in the
+wrong place.
+
+Profile the bake before trusting it. A single mean hides everything: 0.99 overall with the first
+three rings pinned to the floor is a black nose on an otherwise clean animal.
+
+### Checking it
+
+Blender cannot render here, so the checks are done in **three.js through Playwright** — the same
+renderer the game uses. That caught the two silhouette faults nothing else would have: the first
+planform put the wing tip at t=0.705 instead of 0.52 and came out a lampshade with no head in it,
+and the first texture was painted upside down (PIL row 0 is the *top*, Blender's v=0 is the
+*bottom*), which wrapped the tail's black-and-white banding around the snout.
