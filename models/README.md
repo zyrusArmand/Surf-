@@ -919,3 +919,75 @@ renderer the game uses. That caught the two silhouette faults nothing else would
 planform put the wing tip at t=0.705 instead of 0.52 and came out a lampshade with no head in it,
 and the first texture was painted upside down (PIL row 0 is the *top*, Blender's v=0 is the
 *bottom*), which wrapped the tail's black-and-white banding around the snout.
+
+## `stingray.glb` — the scanned ray, rigged and animated by `stingray.py`
+
+Two steps, because the two halves are different jobs and `scan.py` already does the first one:
+
+    python3 models/scan.py <stingray_MAX>.glb /tmp/sting_raw.glb 24000 1024
+    python3 models/stingray.py /tmp/sting_raw.glb models/stingray.glb
+
+The scan arrives the same way every one of them does — one material carrying base colour,
+metallic/roughness and normal, `TEXCOORD_0` already on the mesh, everything under a 1.9037 node
+scale — but **1,339,379 triangles and 27.2 MB**, and as a static posed sculpt with no armature.
+Out the far end: 23,997 triangles, a 1024 colour map with the two aux maps at 512, 14 bones and
+two baked clips, at **1.18 MB**.
+
+### It faces +Z
+
+The scan's nose points **+Z** in glTF, which is backwards relative to the game's forward. Yaw it
+180° at the mount. Everything else about the axes is conventional: x is the span, y is up.
+
+### The wing is a travelling wave, not a flap
+
+A ray does not beat like a bird. The stroke starts at the body and rolls **outboard**, so at any
+instant the inner wing is already rising while the tip is still going down, and the tip — carrying
+the whole chain's rotation stacked on it — sweeps furthest. Four bones a side, and the entire read
+comes out of two numbers:
+
+    angle_i(t) = AMP[i] * (sin(wt - i*LAG) - BIAS)
+
+Amplitude grows outboard, phase **lags** outboard. `BIAS` is there because the sculpt was posed
+mid-upstroke, with its tips sitting 0.27 above the body at rest — a cycle centred on the rest pose
+would flap from "up" to "further up", so it is pushed down until rest becomes the top of the
+stroke.
+
+The first pass used `[0.30,0.40,0.46,0.50]` at a lag of 0.62 and swept the tips through **58% of
+the span**, curling them past vertical into a hook at the top of the stroke: a ray folding in half,
+not one swimming. A cruising eagle ray works through about a third, and a shorter lag keeps the
+wing an arc instead of letting the tip roll over the shoulder ahead of it. It now measures 46%.
+
+### Bone roll is the whole trick
+
+A bone's local Y runs head to tail and the **roll** decides the other two. Aligned so local Z is
+world up, a spanwise bone gets its local X along the fore-and-aft axis — so one Euler term,
+`rotation_euler.x`, is the flap, on every wing bone, on both sides. Without that, the flap is a
+different mixture of two axes per bone and cannot be reasoned about at all.
+
+### Weights are computed, not heated
+
+Automatic (bone-heat) weights on a decimated photogrammetry surface with 8,001 non-manifold edges
+is a coin toss, and there is nothing to gamble about: the anatomy was measured. Span position picks
+the wing bones, length position picks the tail bones, and the two are blended by how far out from
+the spine a vertex sits. Hat functions over the bone midpoints, so the weights sum to one
+everywhere **by construction** — normalising afterwards would only hide a mistake.
+
+The bones follow the wing's real centreline rather than a straight line: this wing is swept, so its
+chord centre moves aft as you go out, and its tips are lifted. Each station is sampled from the
+vertices in the slab around it. Laid on a straight line the outer two bones sit outside the mesh
+they are meant to deform.
+
+### Two clips, and how to check them
+
+`swim` (2.0 s loop) and `glide` (the same cycle at 34%), so the game can cross-fade by speed
+instead of only changing the rate — a ray coasting still moves, it just stops driving. The game
+already has the machinery: `THREE.AnimationMixer` and `mixer.clipAction`, the same path the rider
+models use.
+
+Blender cannot render here, so the check is three.js through Playwright with a mixer: step the
+clip, read **where the two wing tips actually are** in world space, and require the left and right
+to match. They agree to 0.001 over the cycle, which is the test that a sign error in one side's
+rotation would fail and no screenshot would reliably catch.
+
+Note `bpy` 5.0 moved f-curves off the action and into its layers/strips/channelbags to support
+slots — `action.fcurves` simply does not exist any more.
