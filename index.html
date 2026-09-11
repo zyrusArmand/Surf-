@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.192.0';
+window.SURF_VERSION='6.193.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -34242,7 +34242,19 @@ let diveOn=false, diveT=0, diveRise=0, diveDepth=0;
 const DIVE_SINK=0.0;        // feet a second he settles at, hands off: NONE. He hangs.
 const DIVE_LIFT=8.0;        // ...and climbs at, holding the button
 const DIVE_EASE=3.4;        // how fast the vertical speed answers the button
-const DIVE_TOP=1.1;         // how far under the surface counts as still being under
+// ---- and the ceiling has to clear the DRAFT of everything that floats ----
+// This was 1.1 and OBST_DRAFT is 1.9, so the highest the dive would ever let him get was a
+// clear three quarters of a foot INSIDE the reach of every buoy, log and jellyfish in the
+// lane -- permanently, and by construction. And the top of the column is exactly where you go
+// to dodge, so the report was "the character randomly gets dragged to the top and says like I
+// touched something from the top surface which I didn't": a jelly bounce or a board crack
+// fired by something floating on a surface he was under, whose response is `py=max(py,its top)`
+// -- a snap to the waterline out of open water, eight feet from anything he could see.
+// Derived from the draft rather than written next to it so the two cannot drift apart again.
+// What it means is that swimming IS a way under the surface lane, which is what being under
+// the water means; the draft rule still does its job for every other way of being submerged,
+// the helicopter dunk chief among them.
+const DIVE_TOP=OBST_DRAFT+0.45;   // how far under the surface counts as still being under
 // ---- and he hangs in the MIDDLE of it ----
 // Hands off he used to settle at two thirds of a foot a second, which over a long stretch is
 // the sea bed: the only place a dive could end up if you stopped asking for anything was lying
@@ -34739,8 +34751,6 @@ function diveStep(dt,waterY){
   // the sand under him, not a flat number: the bed has dunes in it and he lands on them
   const floorY=bedH(px,pz)+DIVE_CLEAR;
   if(py<floorY){ py=floorY; diveRise=Math.max(diveRise,0); }
-  diveDepth=Math.max(0,waterY-py);
-  diveFog(diveDepth);
   // the board tips the way he is going, which is most of what says "swimming" without a
   // second animation
   boardPitch+=((diveRise*0.045)-boardPitch)*Math.min(1,dt*3.2);
@@ -34756,6 +34766,16 @@ function diveStep(dt,waterY){
   // upward ended the thing you were dodging in. He is held under the surface instead.
   const ceil=waterY-DIVE_TOP;
   if(py>ceil){ py=ceil; diveRise=Math.min(diveRise,0); }
+  // ---- and the DEPTH is measured where he ENDED UP ----
+  // It used to be taken above, between the two clamps, so it reported where he had tried to go
+  // rather than where he is. Holding up against the ceiling that is a third of a foot of pure
+  // fiction every frame; on a swell dropping out from under him it is more, because the clamp
+  // itself is a frame behind the surface. Everything downstream reads this number as "how far
+  // under is he" -- the fog, the board stow, the whole dive scenery, and the one line that
+  // decides whether the things floating on the surface can reach him. A depth that says he is
+  // shallower than he is is a depth that lets them.
+  diveDepth=Math.max(0,waterY-py);
+  diveFog(diveDepth);
 }
 // ---- and running aground, which is not a crash ----
 // The board does not stop dead and he does not come off it: it rides up the wet sand,
@@ -38164,6 +38184,13 @@ function update(dt){
     // and swimming just below the surface should not be a way to pass through the whole lane.
     // Past the draft of anything that floats, they simply are not there.
     if(diveDepth>OBST_DRAFT)continue;
+    // ---- ...and the LAUNCH goes OVER them ----
+    // The same hole from the other side. Through the arc py is deliberately pinned to the water
+    // because py is the BOARD and the board is left floating on it -- the rider's seven feet of
+    // air are carried in launchLift and nothing here knows about them. So every height test
+    // below sees a board sitting on the surface, and a buoy passing underneath the top of the
+    // dive ended the run mid-flight, from a lane he had already jumped out of.
+    if(diveLaunch>0&&launchLift>0.9)continue;
     // the jelly closes fast and is only "at" you for a couple of frames, so its
     // window grows with speed — otherwise a jump can pass clean over the contact
     // The board is a 5m plank, not a point. Test it as a capsule running nose to
