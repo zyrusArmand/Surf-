@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.194.0';
+window.SURF_VERSION='6.195.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -15071,7 +15071,9 @@ function setupModelRig(root,gltf,id){
     };
     return this._limbs;
   };
-  R.swim=function(w){
+  // how far the swimmer's chin comes up off the line of his spine, radians
+  const SWIM_CHIN=0.62;
+  R.swim=function(w,bank){
     this.swimRan=(this.swimRan||0);
     if(!(w>0.01)||!this.bones){ this.swimWhy=!this.bones?'no bones':'weight '+(+w||0).toFixed(2); return; }
     this.swimRan++; this.swimWhy='';
@@ -15124,6 +15126,37 @@ function setupModelRig(root,gltf,id){
           if(ideal.lengthSq()>1e-6&&perp.lengthSq()>1e-6){
             ideal.normalize(); perp.normalize();
             if(ideal.dot(perp)<0)ideal.multiplyScalar(-1);   // never correct the long way round
+            // ---- ...and LEVEL is only the default target ----
+            // "When he moves left or right his body should turn and rotate as needed -- if he
+            // goes left his body should turn to have the left arm point down, same right."
+            // A roll written on the GROUP cannot do that and was removed once already for
+            // measuring zero: this block levels his shoulders against the world every frame, so
+            // it took the roll straight back out at the hips one function later. The bank has to
+            // be what this block is AIMING AT, not something applied over the top of it. `ideal`
+            // is his shoulder line laid flat and pointing to his LEFT (it is built from
+            // LeftArm-RightArm and flipped to match above), so tilting it about his own length
+            // is exactly "drop the left shoulder" -- and the hips solve that gets him there for
+            // free, because the whole block already exists to put his shoulders where this
+            // vector says.
+            if(bank)ideal.applyAxisAngle(along,bank);
+            // ---- ...and his CHIN comes up, which is what shows his face ----
+            // "Have character be rotated so his head can be slightly visible from this view."
+            // Tilting the whole body nose-up is the obvious answer and it is the wrong one: past
+            // about twenty degrees a face-down body stops reading as level and starts reading as
+            // climbing, and twenty degrees is not enough to bring a camera thirty degrees above
+            // him round onto his muzzle. A swimming dog does not solve it that way either -- it
+            // holds its HEAD up and leaves its back flat. The built rig has done exactly that all
+            // along (headJ.rotation.x at 0.74, "chin up, eyes where he is going"); the model rig
+            // never did, because the torso reset above slerps neck to bind and bind is a head in
+            // line with a spine. The axis is his own shoulder line, which this block has already
+            // built and banked, so the lift stays square to him through a turn.
+            { const nk=B.neck||B.Neck||B.Head||B.head;
+              if(nk&&nk.parent&&SWIM_CHIN>0.01){
+                const rot=new Q().setFromAxisAngle(ideal,-SWIM_CHIN);
+                const pq3=new Q(); nk.parent.getWorldQuaternion(pq3);
+                const nw=new Q(); nk.getWorldQuaternion(nw);
+                nk.quaternion.slerp(pq3.invert().multiply(rot.multiply(nw)),w);
+              } }
             const ang=Math.atan2(new V().crossVectors(ideal,perp).dot(along), ideal.dot(perp));
             if(isFinite(ang)&&Math.abs(ang)>0.002){
               const rot=new Q().setFromAxisAngle(along,-ang);
@@ -28110,6 +28143,10 @@ if(location.hash.includes('debug')){
       // lifted one and a carried entry from a braked one. vy is the arc's; rise is the dive's,
       // and across the entry frame the two should be the same number.
       vy:+launchVY.toFixed(2), rise:+diveRise.toFixed(2),
+      // which way he is steering, and how far over that has leaned him
+      turn:+((typeof diveTurn!=='undefined')?diveTurn:0).toFixed(2),
+      bank:+((typeof diveBank!=='undefined')?diveBank:0).toFixed(2),
+      steer:+((typeof steer==='number')?steer:0).toFixed(2),
       // where the LENS is against the water, which is the whole of "the surface is pressed
       // against the camera": positive is in the air, negative is under it
       camAbove:+(camera.position.y-((typeof waveH==='function')
@@ -28504,7 +28541,7 @@ if(location.hash.includes('debug')){
       // along the shoulder line, and square is its own across-axis dotted with that line -- 1
       // is flat on his back, 0 is on its edge.
       const _R2=(typeof riderRig==='function')?riderRig():null, B2=_R2&&_R2.bones;
-      let offSpine=null, square=null, tailGap=null;
+      let offSpine=null, square=null, tailGap=null, alongBody=null, packSpan=null;
       if(B2&&B2.LeftArm&&B2.RightArm){
         const L=new THREE.Vector3(), Rt=new THREE.Vector3(), C=new THREE.Vector3();
         B2.LeftArm.getWorldPosition(L); B2.RightArm.getWorldPosition(Rt);
@@ -28519,6 +28556,27 @@ if(location.hash.includes('debug')){
         const up=new THREE.Vector3(); g.getWorldQuaternion(q);
         up.set(0,1,0).applyQuaternion(q);
         if(B2.Hips)tailGap=f(C.clone().addScaledVector(up,-JET_TALL*0.5).sub(H).dot(up));
+        // ---- ...and WHERE ALONG HIM it sits, which is the number that was missing ----
+        // tailGap is measured along the PACK's own +Y, and the pack is turned by JET_ROT before
+        // it is worn -- so that axis is not his spine and the number was never answering "how far
+        // up his back is it". It read +0.022, a clean clearance, while the render showed the pack
+        // sitting squarely on the back of his skull. This is the honest version: hips to head is
+        // 0 to 1, so the pack's centre and its two ends can be read straight off. Between the
+        // shoulder blades is somewhere around 0.35, and anything approaching 0.8 is his neck.
+        const HD=new THREE.Vector3();
+        const hb=B2.neck||B2.Neck||B2.Head||B2.head;
+        if(B2.Hips&&hb){
+          hb.getWorldPosition(HD);
+          const axis=HD.clone().sub(H); const len=axis.length();
+          if(len>1e-4){
+            axis.divideScalar(len);
+            alongBody=f(C.clone().sub(H).dot(axis)/len);
+            const half=(b.max.clone().sub(b.min)).length()*0.5;   // the box, not an assumed axis
+            const lo=f((C.clone().sub(H).dot(axis)-JET_TALL*0.5)/len);
+            const hi=f((C.clone().sub(H).dot(axis)+JET_TALL*0.5)/len);
+            packSpan=[lo,hi]; void half;
+          }
+        }
       }
       // where it is HUNG, and where his spine and his body actually are in his own frame --
       // the three numbers that decide whether a pack sits on a back or on a rib
@@ -28532,7 +28590,7 @@ if(location.hash.includes('debug')){
       const sp=new THREE.Vector3();
       if(_sp){ _sp.getWorldPosition(sp); pug.worldToLocal(sp); }
       return {pack:true, real:!!g.userData.real, vis:!!g.visible,
-              offSpine, square, tailGap,
+              offSpine, square, tailGap, alongBody, packSpan,
               hung:{x:f(g.position.x),y:f(g.position.y),z:f(g.position.z)},
               spine:_sp?{n:_sp.name,x:f(sp.x),y:f(sp.y),z:f(sp.z)}:null,
               bodyMid:{x:f(c.x),y:f(c.y),z:f(c.z)},
@@ -34315,7 +34373,9 @@ const JET_UP=0.95, JET_BACK=0.52, JET_SIDE=0.175;   // ...and proud of his back,
 // ...and far enough up it that it is not sitting on his tail. 0.24 put it over his shoulders
 // and up the back of his head; the shorter pack alone lifts the bottom edge by a twentieth of
 // a foot, which was what the tail actually needed.
-const JET_ALONG=0.16;
+// Solved rather than nudged: alongBody read 0.604 at 0.20, hips-to-neck is 0.666ft, so the
+// 0.154 of normalised travel needed to bring its centre to 0.45 is 0.103ft of this.
+const JET_ALONG=0.10;
 // ---- and it is the MODEL, once the model is here ----
 // Built from primitives first because a shape with a light on it is most of what reads through
 // thirty feet of fog, and kept as the fallback for exactly that reason: the file is asked for on
@@ -34347,13 +34407,28 @@ function jetAsk(){
 // lengthwise and the wrong one the moment it stood up. A jetpack is a tall thing; how far up
 // his back it reaches is what says how big it is, and its width follows from the model rather
 // than being a second number that can disagree with the first.
-const JET_TALL=0.92;              // feet up his spine, shoulder blades to the base of his back
+// ---- ...and it is measured against his BACK, which is shorter than it looks ----
+// Hips to neck on this dog is 0.666ft. The pack was 0.92 -- nearly half as long again as the
+// whole back it is worn on -- so there was no placement that could be right: down far enough to
+// clear his skull put it through his rump, and up far enough to clear his rump put it over his
+// head. That is one fault presenting as the two the report describes, "overlapping his tail a
+// bit" and a head with nothing of it visible. Measured at 0.70 it still ran from 0.078 to 1.129
+// of hips-to-neck: thirteen per cent PAST the neck bone, sitting on the back of his skull, while
+// the old tailGap read a clean +0.022 because it measures along the pack's own +Y and JET_ROT
+// has turned that off his spine -- an instrument pointing the wrong way, which is why this went
+// three rounds. 0.46 is about two thirds of his back, which is what the note drawn over the
+// original screenshot asked for, and it lands at 0.105 to 0.795 with both ends clear.
+const JET_TALL=0.46;              // feet up his spine, shoulder blades to the base of his back
 // ...and the tanks are fattened a quarter. Scaled true, the pod comes out 0.46 across against
 // 1.02 tall, which is narrower than it wants to look on a barrel-chested dog -- the note drawn
 // over the screenshot asked for about two thirds of his back. This is the only axis that is not
 // the model's own, and a quarter on two tanks lying abreast reads as bigger tanks rather than as
 // something squashed.
-const JET_WIDE=1.25;
+// ...and raised with the shortening, because this is a RATIO of the length and the length has
+// come down by a third. Left at 1.25 the pack would have got narrower in step with getting
+// shorter and come out a matchbox between his shoulder blades; two tanks abreast want to be
+// about as far across as the pack is long.
+const JET_WIDE=1.55;
 // ---- WHICH WAY ROUND IT GOES ----
 // Measured off the file rather than guessed: one mesh, one material, local box 1.00 x 0.318 x
 // 0.449 under a node scale of 1.9027, so 1.90 long, 0.61 thick and 0.85 across -- and slicing
@@ -34524,7 +34599,31 @@ function jetUpdate(dt){
     // x is the centreline rather than the spine bone's own x, because the bone measured 0.047
     // off it and a pack half an inch to port is exactly what "not in the middle" looks like.
     g.rotation.set(0,0,0);
-    g.position.set(0, _jetV.y+JET_ALONG*k, _jetV.z+JET_BACK*k);
+    // ---- ...and HIS centreline, which is not the group's ----
+    // x was pinned to 0 -- the group's own axis -- on the grounds that the spine bone measured
+    // 0.047 off it and half an inch to port is what "not in the middle" looks like. That was the
+    // right diagnosis and the wrong cure: the bone is off the group's axis because HE is, and
+    // pinning the pack to the group just moves the same half inch to the other side of him. It
+    // was still measurable afterwards -- offSpine 0.04 against his shoulder line, which is the
+    // "slightly off center compared to his spine" that was reported. The midpoint between his
+    // two shoulders is on his spine by definition and stays there through the bank, so the pack
+    // is hung from that and offSpine falls out as zero rather than being aimed at.
+    let _jx=_jetV.x;
+    { const _B=_R&&_R.bones;
+      if(_B&&_B.LeftArm&&_B.RightArm){
+        const _a=new THREE.Vector3(), _b2=new THREE.Vector3();
+        _B.LeftArm.getWorldPosition(_a); _B.RightArm.getWorldPosition(_b2);
+        _a.add(_b2).multiplyScalar(0.5); pug.worldToLocal(_a); _jx=_a.x;
+      } }
+    // ---- ...and "out through his back" turns with his back ----
+    // JET_BACK is the one number here that is a direction and not a distance along him: it is how
+    // far clear of his spine the pack floats, measured out through his shoulder blades. On the
+    // group's z that is only true while his back faces the group's z, which it stops doing the
+    // moment he banks -- measured at full lean, offSpine went from 0.006 to 0.19, the pack
+    // sliding round his ribs while he rolled underneath it. Swung about his own length by the
+    // same angle his shoulders are, so it stays over his spine through the turn.
+    const _cb=Math.cos(diveBank||0), _sb=Math.sin(diveBank||0), _out=JET_BACK*k;
+    g.position.set(_jx+_out*_sb, _jetV.y+JET_ALONG*k, _jetV.z+_out*_cb);
   } else {
     g.position.set(0,JET_UP*k,JET_BACK*k);
   }
@@ -34536,7 +34635,15 @@ function jetUpdate(dt){
   // it is authored lying flat. Whichever is worn, the orientation is decided in exactly one
   // place -- and it is the same in both poses, because +Y up the spine and +Z out through his
   // back are his back whether he is standing on a board or lying face down under the water.
-  g.rotation.set(g.userData.real?0:(1.5708*divePose),0,0);
+  // ---- ...and it LEANS WITH HIM ----
+  // The bank is solved at his hips, so his back rolls and the group does not. A pack bolted to
+  // the group would therefore stop being flat on that back the moment he turned -- square, which
+  // is the number for exactly this, would come off 1. Rotation about the group's local +Y is
+  // rotation about his own length, which is the axis the bank is measured on, so wearing the same
+  // angle keeps it lying on him. Not for the built rig: that one banks the whole group, and the
+  // pack is a child of it, so it comes along already.
+  g.rotation.set(g.userData.real?0:(1.5708*divePose),
+                 (riderRig()&&typeof diveBank==='number')?diveBank:0, 0);
   // the thrust reads on the trim before it reads in the bubbles, which is what makes the
   // button feel connected rather than delayed -- and swimming hard counts as thrust, so the
   // plume answers the swipe as well as the button
@@ -36026,6 +36133,13 @@ function splatOnScreen(tint){
 let rigCrouch=0,rigAir=0,releaseKick=0;
 let divePose=0;     // 0 riding, 1 flat out face-down underwater
 let diveTurn=0;     // -1..1, eased, which way he is swimming across the lane
+// ---- how far he leans INTO that turn ----
+// The shoulder line tilted about his own length, so a left turn drops the left shoulder and puts
+// the left arm down -- a swimmer rolling onto the inside of a corner. 0.50 is twenty-eight
+// degrees at full stick, which is plainly a lean from a camera thirty degrees above him without
+// getting anywhere near a body that is rolling over.
+const DIVE_BANK=0.50;
+let diveBank=0;     // radians, signed: what R.swim aims his shoulders at, and what the pack wears
 let rigTuck=0;      // 0 riding, 1 folded up mid-rotation
 // how far each thigh must lean to carry the foot from its socket out to the stance
 const LEG_LEN=0.25+0.20+0.08;
@@ -36373,7 +36487,14 @@ function animateRig(dt,carve,grab,waterY){
     // 1.54 is 88 degrees, which is a whisker past flat and reads as nose-down at this camera
     // angle. 1.50 leaves him two degrees nose-UP, which is what level looks like when you are
     // being looked down on.
-    pug.rotation.x=-1.50*h;
+    // ---- ...and far enough over that his HEAD reads ----
+    // "Have character be rotated so his head can be slightly visible from this view." At -1.50 he
+    // is two degrees nose-up, which from a lens looking down at thirty is the top of his skull
+    // and nothing else -- there is no face in the shot at all, only a back with a pack on it.
+    // -1.38 is eleven degrees nose-up: enough that the camera comes round onto his muzzle and he
+    // is plainly a dog swimming rather than a shape being towed, and still shallow enough to
+    // read as level. Past about twenty a face-down body starts to read as climbing.
+    pug.rotation.x=-1.38*h;
     // ---- ...and he TURNS INTO the way he is going ----
     // Swimming sideways while pointing straight down the lane is a body being slid, not a body
     // swimming. The board's lean used to roll him about the lane, which was wrong for a rider
@@ -36387,14 +36508,17 @@ function animateRig(dt,carve,grab,waterY){
     const _lat=Math.max(-1,Math.min(1,(typeof steer==='number'?steer:0)));
     diveTurn=ease(diveTurn,_lat,dt,4.2);
     pug.rotation.z=-0.40*diveTurn*h;    // nose across the lane, toward where he is going
-    // ---- and he does NOT bank ----
-    // There was a roll here on top of the turn, and it is gone because it did nothing: R.swim
-    // levels his shoulders against the world every frame, so a roll written on the group was
-    // measured as tilt and taken straight back out at the hips one function later. Measured
-    // with it in: shoulderTilt 0.13 degrees under full steer either way -- no bank at all.
-    // Keeping a line that is cancelled downstream is worse than not having it, and level is
-    // what was actually asked for. The turn is the yaw above, which survives untouched.
-    pug.rotation.y=0;
+    // ---- and he BANKS into it, at whichever end of him can actually hold a bank ----
+    // A roll written here did nothing and was removed, correctly: R.swim levels his shoulders
+    // against the world every frame, so the group roll was measured as tilt and taken straight
+    // back out at the hips one function later -- shoulderTilt 0.13 degrees under full steer
+    // either way. The answer is not to write it here harder, it is to change what R.swim is
+    // aiming AT, which is where the bank now lives. So the group stays at zero for the model
+    // rig. The BUILT rig has no R.swim and nothing to cancel it, so for that one this line is
+    // the bank, and it is the only rig for which the Euler coupling warned about above matters
+    // -- measured with it in, the turn is unchanged.
+    diveBank=DIVE_BANK*diveTurn*h;
+    pug.rotation.y=riderRig()?0:diveBank;
     // ...and he TILTS the way he is swimming, so a climb is a climb and not a level body
     // rising like a lift. Small: past about fifteen degrees a face-down body reads as tumbling.
     pug.rotation.x+=Math.max(-0.22,Math.min(0.22,diveRise*0.024))*h;
@@ -36665,7 +36789,8 @@ function updateHandstand(dt,carve){
     modelRig.faceLock(modelRig.rot);
     pug.updateMatrixWorld(true);
     // ...and the swim arms go on last, over the clip, because the clip rewrites them every frame
-    if(modelRig.swim&&typeof divePose!=='undefined')modelRig.swim(divePose);
+    if(modelRig.swim&&typeof divePose!=='undefined')
+      modelRig.swim(divePose,(typeof diveBank==='number')?diveBank:0);
     if(modelRig.tube&&typeof tubeSit!=='undefined')modelRig.tube(tubeSit);
     // ---- and on the jet ski the deck solver has to LET GO ----
     // deckLift is not an offset, it is a solver: it finds his lowest contact vertex and raises
