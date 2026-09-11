@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.190.0';
+window.SURF_VERSION='6.191.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -38604,27 +38604,28 @@ function update(dt){
       _dvY+=((py+launchLift+_cUp)-_dvY)*_lw;
       _dvZ+=((pz+_cBack)-_dvZ)*_lw;
     }
-    // ---- and the LENS goes under WITH him ----
+    // ---- and the LENS follows him under, once he IS under ----
     // The camera rides a few feet above him, so at the moment he crosses the surface it is
-    // still in the air -- and what you get is a second of water pressed flat against the front
-    // of the lens, seen from above, which reads as the shot having been left behind. It has: he
-    // is under and it is not. Pushed below the waterline as soon as HE is at it, and as a clamp
-    // rather than an ease, because a lens half in and half out of water is the one place where
-    // easing is the artefact. The sea is sampled where the CAMERA is and not where he is -- it
-    // sits six feet behind him and the swell is not flat.
+    // still in the air -- a second of water pressed flat against the front of the lens, seen
+    // from above, which reads as the shot having been left behind.
+    //
+    // Two wrong answers before this one, both worth naming. Clamping the lens under the water
+    // the frame he touches moved it six feet in one frame -- +5.24 above the line on the last
+    // frame of the arc and -1.15 on the next, which is a cut to a second camera rather than a
+    // follow. Weighting that clamp in across the back of the FOLD fixed the jump and broke the
+    // shot instead: the fold starts at the top of the arc, so the lens was under the water
+    // while he was still ten feet up in the air, looking at sand.
+    // The test is HIM, and nothing else: while he is above the water this does not exist, and
+    // the shot is the ordinary one. The moment he is below it the lens follows him through --
+    // eased, and never assigned, so it goes under with him instead of jumping there. Note this
+    // sits AFTER the launch's own assignment for that reason. The sea is sampled where the
+    // CAMERA is rather than where he is: it sits six feet back and the swell is not flat.
     {
       const _cs=(typeof waveH==='function')
         ? waveH(_dvX,dist*WAVE_DRIFT+_dvZ,waveClock) : 0;
-      // ...and it SLIDES under rather than cutting. Switched on at the moment he touches, the
-      // lens dropped six feet in one frame -- measured, +5.24 above the water on the last frame
-      // of the arc and -1.15 on the next. That is not a camera following him under, it is a cut
-      // to a second camera. The dip is weighted in over the back of the fold instead, so the
-      // lens is already below the surface by the time he reaches it and the two go through
-      // together. diveOn holds it at full once he is under.
-      const _dipW=diveOn?1:Math.max(0,Math.min(1,(launchPike-0.45)/0.50));
-      if(_dipW>0){
+      if((py+launchLift)<_cs){
         const _want=_cs-DIVE_CAM_DIP;
-        if(_dvY>_want)_dvY+=(_want-_dvY)*_dipW;
+        if(_dvY>_want)_dvY+=(_want-_dvY)*Math.min(1,dt*6.0);
       }
     }
     // ---- ALL of his travel, and then LOCKED to it ----
