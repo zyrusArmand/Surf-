@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.189.0';
+window.SURF_VERSION='6.190.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -28106,6 +28106,10 @@ if(location.hash.includes('debug')){
       // numbers: how high the rider is off the board, how far over he has folded, and where
       // his own body actually is in the world.
       lift:+launchLift.toFixed(2), pike:+launchPike.toFixed(2),
+      // where the LENS is against the water, which is the whole of "the surface is pressed
+      // against the camera": positive is in the air, negative is under it
+      camAbove:+(camera.position.y-((typeof waveH==='function')
+        ? waveH(camera.position.x,dist*WAVE_DRIFT+camera.position.z,waveClock):0)).toFixed(2),
       load:+launchLoad.toFixed(2), side:launchSide, px:+px.toFixed(2),
       // where the board has got to relative to him -- the whole point of it being left behind
       boardAway:+Math.hypot(_lbX,_lbZ).toFixed(2), boardZ:+_lbZ.toFixed(2), boardX:+_lbX.toFixed(2),
@@ -28180,6 +28184,23 @@ if(location.hash.includes('debug')){
     // The walk is eased on real time and a headless frame is worth about three seconds of it,
     // so sixteen seconds of waiting arrives somewhere in the sand. This puts the lens where the
     // walk would have finished and lays the sheets out once, which is all paintNotes needs.
+    // ---- step the TURTLES, because traceRun does not ----
+    // turtleStep is called from the render tail like floorStep and the sea bed, so a trace --
+    // which only calls update() -- leaves them exactly where they were. Two turtles after
+    // twenty-two seconds of "simulation" is what that looks like, and it looks identical to a
+    // spawner that is broken.
+    turtleRun(secs,dt){
+      const h=Math.max(0.004,Math.min(0.05,dt||0.02));
+      const n=Math.min(4000,Math.max(1,Math.round((secs||6)/h)));
+      for(let i=0;i<n;i++)turtleStep(h,(typeof lastEff==='number'?lastEff:18));
+      const bed=g2=>bedH(g2.position.x,g2.position.z);
+      return {n:turtles.length,
+              ys:turtles.map(g2=>+g2.position.y.toFixed(1)),
+              overBed:turtles.map(g2=>+(g2.position.y-bed(g2)).toFixed(1)),
+              hy:turtles.map(g2=>+(g2.userData.hy||0).toFixed(2)),
+              hx:turtles.map(g2=>+(g2.userData.hx||0).toFixed(2)),
+              pitch:turtles.map(g2=>+g2.rotation.x.toFixed(2))};
+    },
     qbSnap(){
       questCamGo=1; shopCamGo=0; questCamE=1;
       try{ wantBoard(); }catch(e){}
@@ -33352,8 +33373,8 @@ function fishSchool(seed){
 // It is RIGGED but ships no clips, so the swimming is written here: seventeen bones, named
 // Bone_000 to Bone_016 and nothing else, mapped by where they sit in the bind pose rather than
 // by their names, because their names say nothing.
-const TURT_MAX=3;                       // how many can be out at once
-const TURT_GAP_MIN=2.6, TURT_GAP_MAX=9.0;   // seconds between arrivals
+const TURT_MAX=8;                       // how many can be out at once
+const TURT_GAP_MIN=0.9, TURT_GAP_MAX=3.6;   // seconds between arrivals
 const TURT_AHEAD=-165, TURT_BEHIND=38;      // laid this far ahead, taken back this far behind
 const TURT_SPREAD=27, TURT_LANE=3.4;        // ...and never closer than this to the lane centre
 const TURT_LEN=3.58;                    // the model's own nose-to-tail, in its own units
@@ -33417,7 +33438,17 @@ function turtleLay(g){
   // corridor. The away group has to beat the run's own speed to actually go away -- under that
   // and it is being carried backwards past the lens, which is where this started.
   u.hz=(R()<0.5)?(3.0+R()*11.0):(-36.0+R()*10.0);
-  u.hx=(R()-0.5)*3.4;                     // and a slow angle across the lane
+  // ---- and it can be going ANYWHERE ----
+  // 3.4 across the lane is a couple of degrees off straight at the speeds down here: every
+  // turtle was effectively on rails down the z axis and only the sign varied. Wide enough now
+  // that some of them genuinely cross in front of him, and a vertical of its own on top --
+  // rising and sinking is most of what separates a sea from a corridor with animals in it.
+  u.hx=(R()-0.5)*7.0;
+  u.hy=(R()-0.5)*2.6;
+  u.hyT=2.0+R()*3.5;                      // ...and it changes its mind every few seconds
+  // yaw, then pitch about the body it has just turned, then roll. Left in the default XYZ the
+  // pitch is about the WORLD's x, so a turtle crossing the lane climbs sideways.
+  g.rotation.order='YXZ';
   u.ph=R()*6.283;
   u.rate=0.8+R()*0.9;                     // how fast it strokes -- a small one works harder
   u.roll=R()*6.283;
@@ -33430,6 +33461,13 @@ function turtleLay(g){
 // -sin(y) = vx and -cos(y) = vz.
 function turtleYaw(u,eff){
   return Math.atan2(-u.hx, -(u.hz+eff));
+}
+// ...and how far it is nosed up or down: its climb against its speed over the ground, which is
+// the same sum as the yaw and for the same reason -- what it points at is where it is going ON
+// SCREEN. Capped, because a turtle at forty degrees is falling rather than swimming.
+function turtlePitch(u,eff){
+  const flat=Math.hypot(u.hx,u.hz+eff);
+  return Math.max(-0.42,Math.min(0.42,Math.atan2(u.hy||0,Math.max(0.4,flat))));
 }
 function turtleStep(dt,eff){
   const on=diveOn||diveDepth>0.5;
@@ -33469,17 +33507,32 @@ function turtleStep(dt,eff){
     // it banks and rises a little as it strokes, which is most of what says an animal is
     // swimming rather than being slid along
     g.rotation.z=Math.sin(u.roll)*0.11;
-    g.rotation.x=Math.sin(u.roll*0.83+1.1)*0.07;
-    g.position.y+=Math.sin(u.ph*0.5)*dt*0.55;
+    { const wp=turtlePitch(u,eff)+Math.sin(u.roll*0.83+1.1)*0.07;
+      g.rotation.x+=(wp-g.rotation.x)*Math.min(1,dt*2.2); }
+    g.position.y+=(u.hy||0)*dt+Math.sin(u.ph*0.5)*dt*0.55;
     // ---- and it clears the sand it is swimming over ----
     // Its depth is picked once, at a z a hundred and sixty feet ahead, over sand that has
     // scrolled somewhere else entirely by the time it gets here -- and the bed has dunes in it.
     // Measured, one spawned at -16.4 with the sand at -16.6, which is a turtle buried to the
     // shell. Eased rather than clamped, so it rises OVER a dune instead of stepping up it.
+    // ...and one that is climbing or sinking TURNS AROUND at the limit rather than pressing
+    // against it. Eased back as before so it rises over a dune instead of stepping up it, but
+    // the vertical flips its sign too -- otherwise half of them spend the whole crossing pinned
+    // to the sand or to the underside of the surface, nose down, going nowhere.
     const fl=bedH(g.position.x,g.position.z)+1.5;
-    if(g.position.y<fl)g.position.y+=(fl-g.position.y)*Math.min(1,dt*2.4);
+    // ---- and the turn at the limit is DECISIVE ----
+    // Flipping the sign is not enough on its own: a turtle drifting down at a tenth of a foot a
+    // second arrives at the sand, flips to a tenth UP, and the floor's own ease holds it there
+    // -- measured, five of seven ended the crossing within a foot of the bed. It leaves with a
+    // definite climb, and it picks a new one every few seconds anyway, so the column gets used
+    // instead of the bottom of it.
+    if(g.position.y<fl){ g.position.y+=(fl-g.position.y)*Math.min(1,dt*2.4);
+                         u.hy=Math.abs(u.hy)+0.35; u.hyT=Math.max(u.hyT,1.6); }
     const top=-2.4;                       // ...and does not break the surface from underneath
-    if(g.position.y>top)g.position.y+=(top-g.position.y)*Math.min(1,dt*2.0);
+    if(g.position.y>top){ g.position.y+=(top-g.position.y)*Math.min(1,dt*2.0);
+                          u.hy=-Math.abs(u.hy)-0.35; u.hyT=Math.max(u.hyT,1.6); }
+    u.hyT-=dt;
+    if(u.hyT<=0){ u.hyT=2.0+Math.random()*3.5; u.hy=(Math.random()-0.5)*2.6; }
     const b=u.b, rest=u.rest;
     if(!b)continue;
     const s=Math.sin(u.ph), s2=Math.sin(u.ph+Math.PI);
@@ -34500,7 +34553,13 @@ function jetUpdate(dt){
 // travel is flat over the whole thing -- he is under thrust, not in free fall, and a jetpack that
 // slows down at the top looks like it ran out.
 let diveLaunch=0;                 // seconds into it; 0 when there is no launch
-const LAUNCH_T=1.55;              // surface to surface
+// ---- and it takes its TIME ----
+// The whole arc was a second and a half over nineteen feet of lane and seven of air -- so the
+// wind-up, the leap, the fold and the entry all happened inside the time it takes to read this
+// clause, and it snapped rather than played. 2.3 over the same arc is the same shape at two
+// thirds the speed, and the load in front of it grows with it: a wind-up that is over before
+// you have seen it is not a wind-up.
+const LAUNCH_T=2.30;              // surface to surface
 // ---- an ARCH, not a hop ----
 // 9.5 up against 12 forward is barely a lean: he went up, hung, and came down almost on the
 // spot, and coming down on the spot head-first is a pencil dive however it is rotated. What
@@ -34542,7 +34601,7 @@ const LAUNCH_FACE_A=0.02, LAUNCH_FACE_B=0.34;
 // load is its own third of a second at the front of the launch, and it springs straight over
 // the first six frames of the arc -- both rigs already know how to bend a knee with the feet
 // planted, so this only has to drive the number they read.
-const LAUNCH_LOAD=0.34;           // seconds of crouch before the pack fires
+const LAUNCH_LOAD=0.46;           // seconds of crouch before the pack fires
 let launchLoad=0;                 // 0..1, how far into the load he is
 // ...and he goes UP, AWAY and ACROSS. Straight up and down the lane is a hop; a jump off a
 // board carries you off its line as well.
@@ -34571,7 +34630,7 @@ function diveLaunchStep(dt,waterY){
     return;
   }
   const _t=diveLaunch-LAUNCH_LOAD;
-  launchLoad=Math.max(0,1-_t/0.17);          // and it springs straight as he leaves
+  launchLoad=Math.max(0,1-_t/0.22);          // and it springs straight as he leaves
   const k=Math.max(0,Math.min(1,_t/LAUNCH_T));
   launchLift=Math.sin(Math.PI*k)*LAUNCH_UP;
   const pk=Math.max(0,Math.min(1,(k-LAUNCH_PIKE_A)/(LAUNCH_PIKE_B-LAUNCH_PIKE_A)));
@@ -34819,6 +34878,9 @@ const DIVE_CAM_UP=4.6, DIVE_CAM_BACK=6.4, DIVE_AIM_UP=-2.6, DIVE_AIM_AHEAD=6.0;
 // 3.2 up aiming 1.85 below is 21 degrees against the dive's 30 and the old shot's 15.
 const SWIM_CAM_UP=3.2, SWIM_CAM_BACK=6.9, SWIM_AIM_UP=-1.85;
 const SWIM_SETTLE=2.0;            // seconds under before it has finished coming down
+// how far under the surface the lens is held once he is under it -- enough to be plainly below
+// the water rather than sitting in it
+const DIVE_CAM_DIP=1.15;
 // how far out of the dive shot and into the swim shot we are; 0 through the whole launch,
 // because diveT does not start until he is actually in the water
 function diveShot(){
@@ -38541,6 +38603,29 @@ function update(dt){
     if(_lw>0){
       _dvY+=((py+launchLift+_cUp)-_dvY)*_lw;
       _dvZ+=((pz+_cBack)-_dvZ)*_lw;
+    }
+    // ---- and the LENS goes under WITH him ----
+    // The camera rides a few feet above him, so at the moment he crosses the surface it is
+    // still in the air -- and what you get is a second of water pressed flat against the front
+    // of the lens, seen from above, which reads as the shot having been left behind. It has: he
+    // is under and it is not. Pushed below the waterline as soon as HE is at it, and as a clamp
+    // rather than an ease, because a lens half in and half out of water is the one place where
+    // easing is the artefact. The sea is sampled where the CAMERA is and not where he is -- it
+    // sits six feet behind him and the swell is not flat.
+    {
+      const _cs=(typeof waveH==='function')
+        ? waveH(_dvX,dist*WAVE_DRIFT+_dvZ,waveClock) : 0;
+      // ...and it SLIDES under rather than cutting. Switched on at the moment he touches, the
+      // lens dropped six feet in one frame -- measured, +5.24 above the water on the last frame
+      // of the arc and -1.15 on the next. That is not a camera following him under, it is a cut
+      // to a second camera. The dip is weighted in over the back of the fold instead, so the
+      // lens is already below the surface by the time he reaches it and the two go through
+      // together. diveOn holds it at full once he is under.
+      const _dipW=diveOn?1:Math.max(0,Math.min(1,(launchPike-0.45)/0.50));
+      if(_dipW>0){
+        const _want=_cs-DIVE_CAM_DIP;
+        if(_dvY>_want)_dvY+=(_want-_dvY)*_dipW;
+      }
     }
     // ---- ALL of his travel, and then LOCKED to it ----
     // 0.35 is the surfing rule and it is right there: on a wave the lane is the subject and he
