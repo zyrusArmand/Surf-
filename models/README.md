@@ -991,3 +991,22 @@ rotation would fail and no screenshot would reliably catch.
 
 Note `bpy` 5.0 moved f-curves off the action and into its layers/strips/channelbags to support
 slots — `action.fcurves` simply does not exist any more.
+
+### In the game
+
+Loaded on the first dive and shown underwater only, alongside the turtles — see the eagle-ray
+block in `index.html`. Each spawn is a `cloneModel` (which rebinds the skeleton) with its own
+`AnimationMixer` playing `swim` at its own rate and its own phase offset, so no two are on the
+same beat and the wings are the file's business rather than the game's.
+
+Its heading is chosen **on the screen** and its swimming derived from it, which is the opposite of
+the obvious order and the only one that works on a treadmill: the water here does not move, the
+player does, so an animal given a random swimming velocity has the run's speed added to it before
+anybody sees it — and at any sane swimming speed that sum points down the lane every single time.
+Pick the direction it should appear to go, roll a speed, subtract the treadmill.
+
+`__surf.rayRun(secs,dt)` steps them (they run from the render tail, so `update()` alone leaves
+them frozen) and reports `aim` — the model's own forward dotted with the direction it is actually
+travelling on screen. +1 is right, −1 is a ray swimming backwards, and since this animal is very
+nearly symmetric no screenshot reliably tells the two apart. It matters here because the scan
+faces **+Z** where every other animal in that file faces −Z.

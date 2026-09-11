@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.195.0';
+window.SURF_VERSION='6.196.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -28241,6 +28241,43 @@ if(location.hash.includes('debug')){
     // which only calls update() -- leaves them exactly where they were. Two turtles after
     // twenty-two seconds of "simulation" is what that looks like, and it looks identical to a
     // spawner that is broken.
+    // ---- does it GO the way it POINTS? ----
+    // The one thing that can be wrong here and cannot be seen in a still: the model's nose is its
+    // +Z where every other animal in this file faces -Z, so a yaw copied from the turtle would
+    // swim every ray backwards -- head-first through the water and tail-first past the lens, with
+    // the wings beating the whole way. `aim` is the model's own forward, rotated by the group,
+    // dotted with the direction it is actually travelling ON SCREEN. +1 is right, -1 is the bug,
+    // and no screenshot reliably tells the two apart on an animal that is very nearly symmetric.
+    rayRun(secs,dt){
+      const h=Math.max(0.004,Math.min(0.05,dt||0.02));
+      const n=Math.min(4000,Math.max(1,Math.round((secs||6)/h)));
+      const eff=(typeof lastEff==='number'?lastEff:18);
+      for(let i=0;i<n;i++)rayStep(h,eff);
+      const V=THREE.Vector3;
+      const bed=g2=>bedH(g2.position.x,g2.position.z);
+      return {n:rays.length, loaded:!!rayTpl,
+              clips:rayClips?rayClips.map(c=>c.name):null,
+              aim:rays.map(g2=>{
+                const f=new V(0,0,1).applyQuaternion(g2.getWorldQuaternion(new THREE.Quaternion()));
+                const u=g2.userData;
+                const v=new V(u.hx,u.hy||0,u.hz+eff);
+                if(v.lengthSq()<1e-9)return null;
+                return +f.normalize().dot(v.normalize()).toFixed(3);
+              }),
+              ft:rays.map(g2=>+(g2.scale.x*RAY_SPAN).toFixed(2)),
+              z:rays.map(g2=>+g2.position.z.toFixed(0)),
+              overBed:rays.map(g2=>+(g2.position.y-bed(g2)).toFixed(1)),
+              y:rays.map(g2=>+g2.position.y.toFixed(1)),
+              // ...and where each one is ON SCREEN, because "near in z" is not the same as "in
+              // shot" on a field laid thirty feet either side of the lane -- most of what is
+              // close is off to the side or behind the lens.
+              scr:rays.map(g2=>{ const v=new V(); g2.getWorldPosition(v); v.project(camera);
+                return {x:+v.x.toFixed(2), y:+v.y.toFixed(2),
+                        on:(Math.abs(v.x)<1&&Math.abs(v.y)<1&&v.z<1)}; }),
+              yaw:rays.map(g2=>+(g2.rotation.y*180/Math.PI).toFixed(0)),
+              pitch:rays.map(g2=>+(g2.rotation.x*180/Math.PI).toFixed(0)),
+              anim:rays.map(g2=>g2.userData.act?+g2.userData.act.time.toFixed(2):null)};
+    },
     turtleRun(secs,dt){
       const h=Math.max(0.004,Math.min(0.05,dt||0.02));
       const n=Math.min(4000,Math.max(1,Math.round((secs||6)/h)));
@@ -33637,6 +33674,158 @@ function turtleStep(dt,eff){
     }
   }
 }
+// ============================ THE EAGLE RAYS ============================
+// models/stingray.glb -- a photogrammetry scan, decimated and then RIGGED here rather than
+// hand-animated like the turtle: it ships two baked clips of its own, `swim` and `glide`, so
+// each one gets an AnimationMixer and the wings are the file's business, not this file's.
+// See models/README.md for how the travelling wave in those clips is built.
+//
+// ---- it faces +Z, which is BACKWARDS from everything else here ----
+// The turtle's head is its -Z and every yaw in this file is written for that. The scan's nose
+// came out of Blender pointing the other way, so its yaw is atan2(+hx, +vz) where the turtle's
+// is atan2(-hx, -vz), and its pitch takes the opposite sign too. Both are measured by
+// __surf.rayAim() rather than trusted -- see the note there.
+const RAY_MAX=5;                        // fewer than the turtles: it is a much bigger animal
+const RAY_GAP_MIN=2.6, RAY_GAP_MAX=7.0;     // seconds between arrivals
+const RAY_BEHIND=40, RAY_AHEAD_CULL=-330;   // taken back once it is this far past, or this far out
+// ---- and they pass CLOSE ----
+// At the turtles' spread of 30 either side, four rays on a 138ft run-up spend almost all of their
+// lives out in the fog: captured over ninety frames, the ones actually on screen were projecting
+// at a fifteenth of the frame and grey with depth. A ray is a six-foot animal and the point of it
+// is that it goes past you.
+// The number that actually decides this is the HORIZONTAL field of view, and on a phone held
+// upright it is tiny: 62 degrees vertical at an aspect of 0.46 is only about +-15 degrees across,
+// so anything more than five feet off the lane at twenty feet out is already outside the frame.
+// 13 is a lane the shot can actually see down; 3 still keeps one from simply arriving on top of
+// the rider, and since nothing here collides, a close pass is the good case.
+const RAY_SPREAD=13, RAY_LANE=3.0;
+const RAY_SPAN=1.734;                   // the model's own wingtip-to-wingtip, in its own units
+const RAY_FT_MIN=3.4, RAY_FT_MAX=7.6;       // ...and in feet, once it is scaled
+// ---- its heading is chosen ON SCREEN and its swimming derived from it ----
+// The other way round does not work on a treadmill. The water here does not move: the player
+// does, at eighteen feet a second, so an animal given a random swimming velocity has the run's
+// own speed added to it before anybody sees it -- and at any sane swimming speed that sum points
+// down the lane every single time. Pick the direction it should APPEAR to go first, roll the
+// speed, and subtract the treadmill to get what it has to swim at. Then "random direction" means
+// random on the screen, which is the only place the word means anything.
+const RAY_SPD_MIN=7.0, RAY_SPD_MAX=25.0;
+let rayTpl=null, rayClips=null, rayAsked=false, rayGrp=null, rays=[], _rayT=1.6;
+function rayAsk(){
+  if(rayAsked||typeof loadModel!=='function')return;
+  rayAsked=true;
+  // asked for on the first dive, like the turtle: nobody who stays on the surface pays for it
+  loadModel('stingray.glb',(root,g)=>{ rayTpl=root; rayClips=(g&&g.animations)||[]; },9);
+}
+function rayMake(){
+  if(!rayTpl)return null;
+  const m=cloneModel(rayTpl);           // rebinds the skeleton; a bare clone shares the bones
+  const g=new THREE.Group(); g.add(m);
+  const u=g.userData;
+  // one mixer each, so they are not all on the same beat. The clips are bound by NODE NAME and
+  // the clone keeps the names, so the template's own clips drive the copy.
+  if(rayClips&&rayClips.length&&THREE.AnimationMixer){
+    u.mix=new THREE.AnimationMixer(m);
+    const swim=rayClips.find(c=>c.name==='swim')||rayClips[0];
+    u.act=u.mix.clipAction(swim);
+    u.act.play();
+  }
+  return g;
+}
+// Where it points: along where it is going ON SCREEN, which is its own swimming plus the world
+// scrolling past. The model's nose is its +Z, so a heading of (vx,vz) wants sin(y)=vx, cos(y)=vz.
+function rayYaw(u,eff){ return Math.atan2(u.hx, u.hz+eff); }
+// ...and how far it is nosed up or down. Negated against the turtle's for the same reason the yaw
+// is: rotating a +Z-facing body about +x puts its nose DOWN, not up.
+function rayPitch(u,eff){
+  const flat=Math.hypot(u.hx,u.hz+eff);
+  return -Math.max(-0.38,Math.min(0.38,Math.atan2(u.hy||0,Math.max(0.4,flat))));
+}
+function rayLay(g){
+  const R=Math.random;
+  const u=g.userData;
+  const sgn=R()<0.5?-1:1;
+  const eff=(typeof lastEff==='number'&&isFinite(lastEff))?lastEff:18;
+  // ---- placed anywhere, pointed anywhere ----
+  const ang=(R()*2-1)*Math.PI;
+  const spd=RAY_SPD_MIN+R()*(RAY_SPD_MAX-RAY_SPD_MIN);
+  u.hx=Math.sin(ang)*spd;
+  u.hz=Math.cos(ang)*spd-eff;           // ...so that hz+eff is exactly the screen speed above
+  u.hy=(R()-0.5)*2.2;
+  u.hyT=2.4+R()*4.0;                    // and it changes its mind about up and down every so often
+  // in front if it is coming at you, behind if it is going away -- otherwise the ones swimming
+  // off down the lane are born already leaving and are never seen at all
+  // ...and 36 rather than 50, which is inside RAY_BEHIND. Laid past its own cull line it is
+  // recycled on the very next frame, so it never appears at all and the slot churns.
+  g.position.z=(Math.cos(ang)*spd>0) ? -(DIVE_BORN+R()*70) : (12+R()*24);
+  g.position.x=sgn*(RAY_LANE+R()*(RAY_SPREAD-RAY_LANE));
+  const bed=bedH(g.position.x,g.position.z);
+  g.position.y=bed+3.0+R()*Math.max(2,(0-bed)-6.5);
+  const ft=RAY_FT_MIN+R()*(RAY_FT_MAX-RAY_FT_MIN);
+  g.scale.setScalar(ft/RAY_SPAN);
+  g.rotation.order='YXZ';               // yaw, then pitch about the body it has just turned
+  g.rotation.y=rayYaw(u,eff);
+  g.rotation.x=rayPitch(u,eff);
+  g.rotation.z=0;
+  u.roll=R()*6.283;
+  // a big ray beats slower than a small one, and none of them beat in unison
+  u.rate=(0.72+R()*0.55)*(RAY_FT_MAX/ft)*0.55;
+  if(u.act){ u.act.timeScale=u.rate; u.act.time=R()*(u.act.getClip().duration||2); }
+  g.visible=true;
+  return g;
+}
+function rayStep(dt,eff){
+  const on=diveOn||diveDepth>0.5;
+  if(on)rayAsk();
+  if(!rayGrp){
+    if(!on||!rayTpl)return;
+    rayGrp=new THREE.Group(); scene.add(rayGrp);
+  }
+  rayGrp.visible=on;
+  // a hidden ray keeps its position, so the next dive would open with one already halfway past
+  if(!on){ if(rays.length)for(const g of rays)rayLay(g); _rayT=1.2; return; }
+  _rayT-=dt;
+  if(_rayT<=0&&rays.length<RAY_MAX&&rayTpl){
+    _rayT=RAY_GAP_MIN+Math.random()*(RAY_GAP_MAX-RAY_GAP_MIN);
+    const g=rayMake();
+    if(g){ rayGrp.add(g); rays.push(g); rayLay(g); }
+  }
+  for(let i=rays.length-1;i>=0;i--){
+    const g=rays[i], u=g.userData;
+    // its own swimming PLUS the world going past, which is the whole of why the yaw below has to
+    // carry eff as well
+    g.position.z+=(eff+u.hz)*dt;
+    g.position.x+=u.hx*dt;
+    // ...and there is a cull at BOTH ends. One swimming away faster than the run does not come
+    // back on its own, and without this they pile up out at three hundred feet, off in the fog,
+    // holding four of the four slots.
+    if(g.position.z>RAY_BEHIND||g.position.z<RAY_AHEAD_CULL||
+       Math.abs(g.position.x)>RAY_SPREAD+16){ rayLay(g); continue; }
+    u.roll+=dt*0.55;
+    // re-aimed every frame and eased: eff climbs all run, so one that was outrunning him at the
+    // start is being overtaken by the end, and that turn should take about a second
+    { const want=rayYaw(u,eff);
+      let d=want-g.rotation.y;
+      while(d>Math.PI)d-=Math.PI*2; while(d<-Math.PI)d+=Math.PI*2;
+      g.rotation.y+=d*Math.min(1,dt*1.5); }
+    { const wp=rayPitch(u,eff);
+      g.rotation.x+=(wp-g.rotation.x)*Math.min(1,dt*2.0); }
+    g.rotation.z=Math.sin(u.roll)*0.07;          // a slow lean, so it is not on rails
+    g.position.y+=(u.hy||0)*dt;
+    // ---- up and down the column, and it TURNS AROUND at both ends ----
+    // Same rule as the turtle and for the same measured reason: flipping the sign alone leaves
+    // one drifting at a tenth of a foot a second pinned against whichever limit it reached, so
+    // it leaves with a definite climb or dive and re-rolls its mind a moment later.
+    const fl=bedH(g.position.x,g.position.z)+2.2;
+    if(g.position.y<fl){ g.position.y+=(fl-g.position.y)*Math.min(1,dt*2.2);
+                         u.hy=Math.abs(u.hy)+0.30; u.hyT=Math.max(u.hyT,1.6); }
+    const top=-3.0;                              // never breaks the surface from underneath
+    if(g.position.y>top){ g.position.y+=(top-g.position.y)*Math.min(1,dt*2.0);
+                          u.hy=-Math.abs(u.hy)-0.30; u.hyT=Math.max(u.hyT,1.6); }
+    u.hyT-=dt;
+    if(u.hyT<=0){ u.hyT=2.4+Math.random()*4.0; u.hy=(Math.random()-0.5)*2.2; }
+    if(u.mix)u.mix.update(dt);
+  }
+}
 // ============================ THE SEA FLOOR, FURNISHED ============================
 // Scanned rock and two corals, scattered on the sand. Same treatment as the kelp and the turtle:
 // each arrived at about 29 MB with roughly a million triangles and three 2048 maps, and each is
@@ -38929,6 +39118,7 @@ function update(dt){
   if(typeof bedUpdate==='function')bedUpdate();
   if(typeof diveScenery==='function')diveScenery(_clkDt||0.016,lastEff||0);
   if(typeof turtleStep==='function')turtleStep(_clkDt||0.016,lastEff||0);
+  if(typeof rayStep==='function')rayStep(_clkDt||0.016,lastEff||0);
   if(typeof dshkStep==='function')dshkStep(_clkDt||0.016,lastEff||0);
   if(typeof kelpStep==='function')kelpStep(_clkDt||0.016);
   if(typeof traceStep==='function')traceStep();
