@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.193.0';
+window.SURF_VERSION='6.194.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -28114,6 +28114,17 @@ if(location.hash.includes('debug')){
       // against the camera": positive is in the air, negative is under it
       camAbove:+(camera.position.y-((typeof waveH==='function')
         ? waveH(camera.position.x,dist*WAVE_DRIFT+camera.position.z,waveClock):0)).toFixed(2),
+      // ---- and WHERE ON THE SCREEN he actually is ----
+      // Every number here is a fact about the world, and the complaint is always about the
+      // frame: "he gets behind the camera", "it snaps to a different shot". Those are answered
+      // by the projection and by nothing else -- and the projection depends on the aspect
+      // ratio, so a landscape probe cannot see what a phone held upright is showing. 0,0 is the
+      // middle; +-1 is the edge; y is up. Anything outside 1 is off the screen.
+      scr:(function(){ const v=new THREE.Vector3(); pug.getWorldPosition(v);
+        v.project(camera);
+        return {x:+v.x.toFixed(2), y:+v.y.toFixed(2),
+                off:(Math.abs(v.x)>1||Math.abs(v.y)>1||v.z>1)}; })(),
+      fov:+camera.fov.toFixed(1), asp:+camera.aspect.toFixed(2),
       load:+launchLoad.toFixed(2), side:launchSide, px:+px.toFixed(2),
       // where the board has got to relative to him -- the whole point of it being left behind
       boardAway:+Math.hypot(_lbX,_lbZ).toFixed(2), boardZ:+_lbZ.toFixed(2), boardX:+_lbX.toFixed(2),
@@ -34931,6 +34942,14 @@ const DIVE_CAM_UP=4.6, DIVE_CAM_BACK=6.4, DIVE_AIM_UP=-2.6, DIVE_AIM_AHEAD=6.0;
 // 3.2 up aiming 1.85 below is 21 degrees against the dive's 30 and the old shot's 15.
 const SWIM_CAM_UP=3.2, SWIM_CAM_BACK=6.9, SWIM_AIM_UP=-1.85;
 const SWIM_SETTLE=2.0;            // seconds under before it has finished coming down
+// ---- how hard the lens CHASES, which is not one number ----
+// An ease lags a moving target by v/k, for ever. Going in he is doing twelve and a half feet a
+// second and k=3 is four feet of lag straight up -- the camera left in the air while he drops
+// out of the bottom of the frame. Swimming he is doing two or three and the same lag is under a
+// foot, which is the weight the shot is supposed to have. One rate cannot be both, so it rides
+// the same settle as the height and the aim: tight at the entry, loose by the time he is
+// swimming.
+const DIVE_CAM_K=13.0, SWIM_CAM_K=3.0;
 // how far under the surface the lens is held once he is under it -- enough to be plainly below
 // the water rather than sitting in it
 const DIVE_CAM_DIP=1.15;
@@ -38537,10 +38556,24 @@ function update(dt){
   // begins -- so the shot cut to the dive angle and then watched him squat on a board for a
   // third of a second. Nothing has happened yet at that point; the handover belongs to the
   // moment he leaves.
+  // ---- ...and the aim SWINGS round, it does not cut ----
+  // The camera's POSITION has been blended into the dive shot over four tenths of a second
+  // since the lens work above; the point it is LOOKING AT was still assigned outright on the
+  // frame the pack fired. That is the whole of "when the jetpack first loads in it snaps to a
+  // different frame". The surf aim is a point fourteen feet in front of the origin at about a
+  // foot above the water; the dive aim is six feet in front of HIM and two and a half feet
+  // below him. So in one frame the look point dropped three and a half feet and the aim
+  // distance more than halved, which pitches the eye down hard and swings the board up into
+  // the lens: the screenshot is a surfboard filling the bottom of the frame with the rider a
+  // speck on the end of it. Blended on the same clock as the position, and held at full weight
+  // once he is under, where the dive aim is simply the aim.
   if(diveOn||diveLaunch>LAUNCH_LOAD){
     const _se=diveShot();
-    aimX=px; aimY=py+launchLift+(DIVE_AIM_UP+(SWIM_AIM_UP-DIVE_AIM_UP)*_se);
-    aimZ=pz-DIVE_AIM_AHEAD;
+    const _aw=diveOn?1:Math.max(0,Math.min(1,(diveLaunch-LAUNCH_LOAD)/0.40));
+    const _ae=_aw*_aw*(3-2*_aw);
+    aimX+=(px-aimX)*_ae;
+    aimY+=((py+launchLift+(DIVE_AIM_UP+(SWIM_AIM_UP-DIVE_AIM_UP)*_se))-aimY)*_ae;
+    aimZ+=((pz-DIVE_AIM_AHEAD)-aimZ)*_ae;
   }
   if(swPh===SWP.RIDE&&!swTubeRide&&swCurlA>0.05){
     const pa1=swPeelA(pz), pb1=swPeelB(pz);
@@ -38637,7 +38670,20 @@ function update(dt){
   // same shape of bug as the island's two easings to different targets. The dive keeps its own
   // three numbers, seeded from wherever the surface camera had got to, and assigns.
   if(diveOn||diveLaunch>LAUNCH_LOAD){
-    const kd=Math.min(1,dt*3.0);
+    // ---- ...and the handback is the PLUNGE's whole length, not the launch's last frame ----
+    // "When he goes into water he should be further ahead so he doesn't get behind camera."
+    // Measured on a phone-shaped frame he sat at scrY -0.17 for the whole arc and then went to
+    // -1.02 the moment he touched -- off the bottom of the screen, for the better part of a
+    // second. The lock below runs on diveLaunch, which goes to zero on the frame he enters, so
+    // the shot handed back to k=3 at the exact instant he was moving fastest: he is going down
+    // at twelve and a half and k=3 lags by v/k, which is over four feet of camera left up in
+    // the air. The lag is right for SWIMMING, where it reads as weight, and wrong for a plunge.
+    // So the rate is the shot's own settle: tight while he is going in, relaxing to the
+    // swimming lag over the same two seconds everything else in this shot settles over.
+    // ...and only once he is UNDER. Through the launch the lock below owns the shot outright
+    // and this is the gentle swing into it; running it hot there would snap the handover, which
+    // is the thing the blend exists to prevent.
+    const kd=Math.min(1,dt*(diveOn?(DIVE_CAM_K+(SWIM_CAM_K-DIVE_CAM_K)*diveShot()):SWIM_CAM_K));
     if(!_dvCam){ _dvCam=1; _dvY=camY; _dvZ=camZ; _dvX=camX; }
     // ...and it follows the LIFT, not py. py is the board and the board is on the water; a
     // camera that framed it would watch him leave the top of the screen.
