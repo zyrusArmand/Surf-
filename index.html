@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.196.0';
+window.SURF_VERSION='6.197.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -4854,6 +4854,21 @@ function loadTexture(file,onReady){
 // which is not needed until a run starts and is the single biggest thing that can be waited for.
 // Boot.issue still happens at ENQUEUE time so the progress bar counts the whole set and the
 // percentage stays honest — what is deferred is the request, not the accounting.
+// ---- ...and NEGATIVE is "the player is looking at the hole where this goes" ----
+// The numbers above describe when a file asked for AT BOOT should be fetched, and for those they
+// are right. They are exactly wrong for a file asked for ON DEMAND, in the middle of a run,
+// because something is about to need it -- and that is every asset in the dive. Those were all at
+// 9, the back of the queue, which is how "do not pay for the sea bed unless he actually goes
+// under" was expressed. But the not-paying is done by not ASKING; once the ask happens the file is
+// the most urgent thing in the game.
+//
+// Reported as "when we jumped in nothing was loaded in", with a screenshot of bare sand: no kelp,
+// no rocks, no coral, no rays, and the jetpack fallen back to its built stand-in. Nothing was
+// broken. There are three loader slots and roughly twenty-five boot-time requests ahead of them
+// -- palm2 at 24 MB and palm at 12 among them -- so on a phone the dive's own scenery was still
+// queued behind tens of megabytes of palm tree it could not see.
+// LOAD_URGENT is below every boot priority, so an on-demand ask takes the next slot that frees.
+const LOAD_URGENT=-1;
 const LOAD_HOT={'sand.glb':0,'palm2.glb':0,'sign.glb':0,'chest.glb':0,'board.glb':0};
 const LM_MAX=3;
 let _lmQ=[], _lmRun=0, _lmOpen=false, _lmArmed=false;
@@ -33505,7 +33520,7 @@ function turtleAsk(){
   turtleAsked=true;
   // asked for on the first dive rather than at boot: nobody who never goes under should pay
   // two thirds of a megabyte for it
-  loadModel('turtle.glb',root=>{ turtleTpl=root; },9);
+  loadModel('turtle.glb',root=>{ turtleTpl=root; },LOAD_URGENT);
 }
 function turtleMake(){
   if(!turtleTpl)return null;
@@ -33714,7 +33729,7 @@ function rayAsk(){
   if(rayAsked||typeof loadModel!=='function')return;
   rayAsked=true;
   // asked for on the first dive, like the turtle: nobody who stays on the surface pays for it
-  loadModel('stingray.glb',(root,g)=>{ rayTpl=root; rayClips=(g&&g.animations)||[]; },9);
+  loadModel('stingray.glb',(root,g)=>{ rayTpl=root; rayClips=(g&&g.animations)||[]; },LOAD_URGENT);
 }
 function rayMake(){
   if(!rayTpl)return null;
@@ -33904,7 +33919,7 @@ function floorAsk(){
       // legs or kills you a body-length in front of it, depending which radius you pick.
       k.wid=(b.max.x-b.min.x)/k.h;
       k.dep=(b.max.z-b.min.z)/k.h;
-    },9);
+    },LOAD_URGENT);
 }
 function floorMake(k){
   if(!k.tpl)return null;
@@ -34073,7 +34088,7 @@ let kelpTpl=null, kelpAsked=false, kelpGrp=null, kelps=[];
 function kelpAsk(){
   if(kelpAsked||typeof loadModel!=='function')return;
   kelpAsked=true;
-  loadModel('kelp.glb',root=>{ kelpTpl=root; },9);
+  loadModel('kelp.glb',root=>{ kelpTpl=root; },LOAD_URGENT);
 }
 // One clump: a chain of lengths, each one a child of the one below it.
 // ---- NESTED, not laid side by side ----
@@ -34574,6 +34589,10 @@ let jetTpl=null, jetAsked=false, jetOn=0;
 function jetAsk(){
   if(jetAsked||typeof loadModel!=='function')return;
   jetAsked=true;
+  // ---- and it is URGENT, because there is nothing behind it any more ----
+  // Asked at priority 1 this went to the back of a queue holding every boot model in the file,
+  // 36 MB of palm tree included, across three slots. That was survivable while a built pack stood
+  // in for it; with the stand-in deleted, a late arrival is a rider wearing nothing.
   loadModel('jetpack.glb',root=>{
     root.updateMatrixWorld(true);
     const b=new THREE.Box3().setFromObject(root);
@@ -34586,7 +34605,7 @@ function jetAsk(){
       if(/glow/i.test(m.name||'')){ m.emissiveIntensity=2.6; m.userData.glow=1; }
       m.envMapIntensity=0.35; });
     jetTpl=root;
-  },9);
+  },LOAD_URGENT);
 }
 // How the model is worn. Its own box is measured and it is scaled to span his shoulders, so the
 // numbers here are about the POSE and not about the file -- a different jetpack dropped in the
@@ -34692,38 +34711,24 @@ function jetReal(g){
   g.traverse(n=>{ if(n.isMesh&&n.material&&n.material.userData&&n.material.userData.glow)
     g.userData.glow.push(n.material); });
 }
+// ---- THERE IS ONLY THE MODEL ----
+// This used to build a jetpack out of two cylinders, two torus rings, four sphere caps, two cones
+// and a box -- the fallback, so that a dive taken before jetpack.glb landed still had something on
+// his back. It is gone, by request: the built one was the thing actually being seen, and a
+// stand-in that ships on the rider is worse than a pack that arrives a moment late.
+//
+// What made it the thing being seen was never the fallback, it was the QUEUE. jetpack.glb was
+// asked for at priority 1, which put it behind every model in the file -- palm2 at 24 MB and palm
+// at 12 among them -- with three loader slots between the lot of them. On a phone that is the
+// whole of the first dive and most of the second. Asked for urgently now, see jetAsk.
+//
+// So this is a bare holder: the mount point on his back, empty until the file lands, and nothing
+// is drawn until then. g.visible is gated on userData.real for that reason -- an empty group is
+// harmless to draw, but the plume comes off markers that only exist once the model is in.
 function buildJet(){
   if(diveJet)return diveJet;
   const g=new THREE.Group();
-  const shell=new THREE.MeshStandardMaterial({color:0x3d4a56,roughness:0.42,metalness:0.35,
-                                              emissive:0x0d151c,emissiveIntensity:1.0});
-  const trim =new THREE.MeshStandardMaterial({color:0x2fd6c0,roughness:0.35,metalness:0.2,
-                                              emissive:0x2fd6c0,emissiveIntensity:0.7});
   g.userData.noz=[];
-  for(const sx of [-1,1]){
-    // A cylinder with rounded caps rather than a CapsuleGeometry: three did not have one until
-    // r140 and this is r128. The guard that was here -- `new THREE.CapsuleGeometry ? ... : ...`
-    // -- is not a guard at all, because `new` binds before the ternary does: it constructs
-    // undefined and throws, every frame, taking the whole frame's remaining work with it.
-    const pod=new THREE.Mesh(new THREE.CylinderGeometry(0.128,0.128,0.52,10,1),shell);
-    pod.rotation.x=Math.PI/2;
-    pod.position.set(sx*JET_SIDE,0,0);
-    g.add(pod);
-    const ring=new THREE.Mesh(new THREE.TorusGeometry(0.098,0.032,6,12),trim);
-    ring.position.set(sx*JET_SIDE,0,0.26);
-    g.add(ring);
-    for(const ez of [-0.26,0.26]){                 // the rounded ends
-      const cap=new THREE.Mesh(new THREE.SphereGeometry(0.128,10,7),shell);
-      cap.position.set(sx*JET_SIDE,0,ez); g.add(cap);
-    }
-    const noz=new THREE.Mesh(new THREE.ConeGeometry(0.094,0.17,8),shell);
-    noz.rotation.x=-Math.PI/2;
-    noz.position.set(sx*JET_SIDE,0,0.35);
-    g.add(noz); g.userData.noz.push(noz);
-  }
-  // the yoke across his shoulders, which is what makes two pods read as one thing worn
-  const yoke=new THREE.Mesh(new THREE.BoxGeometry(JET_SIDE*2+0.10,0.095,0.17),shell);
-  yoke.position.set(0,0.13,-0.02); g.add(yoke);
   g.visible=false;
   diveJet=g;
   return g;
@@ -34740,7 +34745,8 @@ function jetUpdate(dt){
     catch(e){ g.userData.realFail=e&&e.message||'threw'; console.warn('jetpack swap failed:',e); }
   }
   if(g.parent!==pug&&want)pug.add(g);
-  g.visible=want;
+  // nothing to show until the file is in: there is no built pack behind it any more
+  g.visible=want&&!!g.userData.real;
   // ---- and the BOARD goes ----
   // He is not riding it, he is swimming, and a surfboard welded under a man doing the crawl is
   // the single loudest thing in the frame saying this is still the surf game with the water
