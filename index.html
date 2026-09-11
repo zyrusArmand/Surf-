@@ -29,7 +29,7 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.191.0';
+window.SURF_VERSION='6.192.0';
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -21521,7 +21521,7 @@ function reset(){
   // already under, so the button that starts the whole thing silently did nothing.
   diveOn=false; diveT=0; diveRise=0; diveDepth=0; jumpHeld=false;
   if(typeof diveFog==='function')diveFog(0);
-  diveLaunch=0; jetOn=0; launchLift=0; launchPike=0; launchFace=0; launchLoad=0;
+  diveLaunch=0; jetOn=0; launchLift=0; launchPike=0; launchFace=0; launchLoad=0; launchVY=0;
   _lbX=0; _lbZ=0;
   if(typeof boardArt!=='undefined'&&boardArt){ boardArt.position.x=0; boardArt.position.z=0; }
   if(typeof divePose!=='undefined')divePose=0;
@@ -28106,6 +28106,10 @@ if(location.hash.includes('debug')){
       // numbers: how high the rider is off the board, how far over he has folded, and where
       // his own body actually is in the world.
       lift:+launchLift.toFixed(2), pike:+launchPike.toFixed(2),
+      // ...and how fast he is going UP or DOWN, which is what tells a ballistic arc from a
+      // lifted one and a carried entry from a braked one. vy is the arc's; rise is the dive's,
+      // and across the entry frame the two should be the same number.
+      vy:+launchVY.toFixed(2), rise:+diveRise.toFixed(2),
       // where the LENS is against the water, which is the whole of "the surface is pressed
       // against the camera": positive is in the air, negative is under it
       camAbove:+(camera.position.y-((typeof waveH==='function')
@@ -34257,7 +34261,13 @@ const DIVE_SWIM_EASE=4.6;   // how fast that answers -- a body has mass, a curso
 // ...and it stops HALF WAY DOWN, not on the bottom. Thirteen feet of a seventeen-foot column
 // put him on the sand before he had touched the controls, which is the one place the dive is
 // not supposed to start.
-const DIVE_PLUNGE=1.35, DIVE_PLUNGE_V=5.6;    // about seven feet: the middle of the water
+// ...and it is SHORTER now that he brings his own speed in with him. The plunge used to start
+// from a third of the entry velocity and ease up to it, so nearly all seven feet were the
+// plunge's doing and it needed a second and a third to cover them. He now arrives at better
+// than twelve feet a second and the ease spends the first half second bleeding that off --
+// integrating it, nine tenths of a second is the same seven feet. Leaving it at 1.35 would have
+// put him a yard into the sand before he had touched the controls.
+const DIVE_PLUNGE=0.90, DIVE_PLUNGE_V=5.6;    // about seven feet: the middle of the water
 const DIVE_CLEAR=2.2;       // how far above the sand he is held off it
 // ---- THE JET ON HIS BACK ----
 // Two little pods and a pair of nozzles, hung off the rider and shown only while he is under.
@@ -34619,12 +34629,23 @@ let _lbX=0,_lbZ=0;
 // where it was floating and the LIFT is carried separately, applied to the rider and to the
 // camera and to nothing else. He steps off it, which is what leaving a board means.
 let launchLift=0;
+// ---- and the arc is BALLISTIC, not a sine ----
+// sin(pi*k) has the same peak and the same two ends as a parabola, and every one of its
+// derivatives is wrong. It leaves the board with ZERO vertical acceleration and reaches its
+// maximum at the apex -- exactly backwards from gravity, which is constant and downward the
+// whole way. What that looks like is a body being lifted: a soft float off the deck, a hard
+// brake at the top, and a fall that eases off as it nears the water. 4*UP*k*(1-k) is the same
+// seven-and-a-bit feet over the same 2.3 seconds and passes through the same two points, but
+// the acceleration is -8*UP/T^2 from end to end. He leaves fast (4*UP/T, up a quarter on the
+// sine), the hang at the top comes from having run out of speed rather than from being held
+// there, and he arrives at the water going as fast as he left the board. That is a jump.
+let launchVY=0;                   // ...and the speed he is going when he gets there, ft/s, signed
 function diveLaunchStep(dt,waterY){
   diveLaunch+=dt;
   // the crouch, before any of the arc exists
   if(diveLaunch<LAUNCH_LOAD){
     launchLoad=Math.min(1,diveLaunch/(LAUNCH_LOAD*0.70));
-    launchLift=0; launchPike=0; launchFace=0;
+    launchLift=0; launchPike=0; launchFace=0; launchVY=0;
     py=waterY; airborne=false;
     boardPitch+=(0-boardPitch)*Math.min(1,dt*6);
     return;
@@ -34632,7 +34653,8 @@ function diveLaunchStep(dt,waterY){
   const _t=diveLaunch-LAUNCH_LOAD;
   launchLoad=Math.max(0,1-_t/0.22);          // and it springs straight as he leaves
   const k=Math.max(0,Math.min(1,_t/LAUNCH_T));
-  launchLift=Math.sin(Math.PI*k)*LAUNCH_UP;
+  launchLift=4*LAUNCH_UP*k*(1-k);
+  launchVY=4*LAUNCH_UP*(1-2*k)/LAUNCH_T;       // its own derivative: +4UP/T off the board, -4UP/T in
   const pk=Math.max(0,Math.min(1,(k-LAUNCH_PIKE_A)/(LAUNCH_PIKE_B-LAUNCH_PIKE_A)));
   launchPike=pk*pk*(3-2*pk);
   const fc=Math.max(0,Math.min(1,(k-LAUNCH_FACE_A)/(LAUNCH_FACE_B-LAUNCH_FACE_A)));
@@ -34646,6 +34668,8 @@ function diveLaunchStep(dt,waterY){
   _lbX-=launchSide*LAUNCH_SIDE*dt/LAUNCH_T;
   airborne=true; vy=0;
   boardPitch+=(0-boardPitch)*Math.min(1,dt*6);   // and it is not pitching either
+  // ...and launchVY is deliberately NOT cleared here: diveUnder reads it on the way past to
+  // carry his momentum through the surface. It is cleared by diveUnder itself, and by reset.
   if(k>=1){ diveLaunch=0; launchLift=0; launchFace=0; launchLoad=0; diveUnder(); }
 }
 function diveGo(on){
@@ -34667,7 +34691,16 @@ function diveUnder(on){
   if(want===diveOn)return diveOn;
   diveOn=want; diveT=0;
   if(diveOn){
-    diveRise=-DIVE_PLUNGE_V*0.6;
+    // ---- and he carries his SPEED through the surface ----
+    // The arc dropped him at better than twelve feet a second and this handed the dive a third
+    // of that, easing back UP toward the plunge speed -- so the water did not catch him, it
+    // caught him and then pulled him. A body hitting water keeps going and is slowed by it;
+    // what it never does is halve its speed in the thickness of the surface. Seeded from the
+    // arc's own final velocity, diveStep's ease now bleeds twelve and a half down to five and a
+    // half over about half a second, which is the deceleration, and it is the right way round.
+    // The fallback is for the dive being entered any other way (the old button, a test hook).
+    diveRise=(launchVY<-0.5)?launchVY:(-DIVE_PLUNGE_V*0.6);
+    launchVY=0;
     msg('UNDER!');
     // a burst of white where he punches through, so the entry has a moment
     for(let i=0;i<26;i++)
