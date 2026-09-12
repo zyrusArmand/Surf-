@@ -40,6 +40,27 @@ def blur(f,s):
     for _ in range(3): f=box(f,r)
     return f
 
+def box_xy(f,rx,ry):
+    f=f.astype(np.float32)
+    if rx>=1:
+        c=np.cumsum(np.pad(f,((0,0),(rx+1,rx)),mode='edge'),axis=1)
+        f=(c[:,2*rx+1:]-c[:,:-(2*rx+1)])/(2*rx+1)
+    if ry>=1:
+        c=np.cumsum(np.pad(f,((ry+1,ry),(0,0)),mode='edge'),axis=0)
+        f=(c[2*ry+1:]-c[:-(2*ry+1)])/(2*ry+1)
+    return f
+
+def grain(h,w,rx,ry,seed=7):
+    """Wood grain, and grain is DIRECTIONAL. fill_h reaches across each row, so the row-to-row
+       variation -- which is most of the grain, because it runs the length of the board --
+       survives it untouched; what it flattens is the variation ALONG each row, and a band with
+       none of that is the airbrushed patch that gives the whole plank away as retouched. Noise
+       smeared far along x and barely along y is what that missing half looks like."""
+    g=np.random.RandomState(seed).randn(h,w).astype(np.float32)
+    for _ in range(2): g=box_xy(g,rx,ry)
+    sd=g.std()
+    return g/sd if sd>1e-6 else g
+
 def grow(m,r):
     return blur(m.astype(np.float32),r)>0.06
 
@@ -133,12 +154,27 @@ trough=pill(402,960,127,180)
 face=core&(~pill(392,970,116,190))&(rr>59)
 
 # 1. the title -- the row prints its own words
-P=fill_h(P,(yy>=34)&(yy<=114)&(xx>=374)&(xx<=994)&face)
+tband=(yy>=34)&(yy<=114)&(xx>=374)&(xx<=994)&face
+P=fill_h(P,tband)
+# and the grain the fill could not carry goes back on
+gt=grain(P.shape[0],P.shape[1],14,1,seed=11)*3.4
+P+= (gt*tband)[...,None]
 # 2. the carving in the dish -- a different drawing for every quest, never baked in
 dish=rr<53
 P=inpaint(P,(rr<50)&dish,rr<57)
+# 2b. two dark nicks sit on the top edge above the title, which at card size read as a stray
+# "- -" floating over every quest. They are above the band `face` allows -- face is eroded nine
+# pixels off the outline so no fill can reach the silhouette -- so they get their own strip,
+# eroded four, which is enough to stay off the edge and low enough to reach them.
+nband=(yy>=24)&(yy<=42)&(xx>=690)&(xx<=880)&(blur(inside.astype(np.float32),4)>0.995)
+P=fill_h(P,nband)
+P+= (grain(P.shape[0],P.shape[1],14,1,seed=31)*3.0*nband)[...,None]
+
 # 3. the count, inside the rope and never on it
-P=fill_h(P,(yy>=129)&(yy<=178)&(xx>=560)&(xx<=800)&trough)
+cband=(yy>=129)&(yy<=178)&(xx>=560)&(xx<=800)&trough
+P=fill_h(P,cband)
+gc=grain(P.shape[0],P.shape[1],12,1,seed=23)*2.6
+P+= (gc*cband)[...,None]
 
 img=Image.fromarray(np.dstack([np.clip(P,0,255),PL*255]).astype(np.uint8),'RGBA').crop((158,16,1002,204))
 img=img.resize((760,round(img.height*760/img.width)),Image.LANCZOS)
@@ -153,6 +189,9 @@ al=np.clip((blur(pale,1.6)-0.30)/0.34,0,1)
 seed=np.zeros_like(al); seed[al.shape[0]//2,al.shape[1]//2]=1
 for _ in range(140): seed=np.minimum(np.clip(blur(seed,1.2)*6,0,1),(al>0.25).astype(np.float32))
 al*=np.clip(blur(seed,1.0)*3,0,1)
+# It is a fifty-pixel crop of a JPEG, so it arrives genuinely soft and reads as a white blob
+# rather than a shell. One unsharp pass puts the lip and the shading back.
+a=a+1.15*(a-np.dstack([blur(a[:,:,c],1.6) for c in range(3)]))
 out(a,al,'knob.png',80)
 
 # ---- the button plaques: shot on white, one to a frame, all the same size ----
