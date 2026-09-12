@@ -170,6 +170,36 @@ for src,name in PLAQUES:
     im=im.resize((260,round(im.height*260/im.width)),Image.LANCZOS)
     im.save(OUT+name,optimize=True); print(name,im.size,os.path.getsize(OUT+name)//1024,'KB')
 
+# ---------- the three signs on the hut's back wall ----------
+# Photographed blocks this time, not flat paintings: each is shot on linen, and the linen is a
+# WOVEN texture rather than a flat ground, so there is no single colour to key out. What there
+# is instead is that the block is wood and the cloth is not -- 75 points of red over blue on one
+# and 18 on the other, with nothing in between.
+for src,name in [('48d4f00d-image.jpg','sign_school.png'),
+                 ('9a783959-image.jpg','sign_boards.png'),
+                 ('550b0334-image.jpg','sign_riders.png')]:
+    a=np.asarray(Image.open(U+src).convert('RGB')).astype(np.float32)
+    H,W,_=a.shape
+    # the block is WOOD and the cloth behind it is neutral linen: R-B is 75 on one and 18 on
+    # the other, with nothing in between, so colour cuts it where brightness could not
+    m=blur(a[:,:,0]-a[:,:,2],2.0)>38
+    ys,xs=np.nonzero(m)
+    # a photographed block is convex, so the outline is its own row and column extents -- that
+    # closes the burnt-in engraving, which is dark enough in places to fall out of the key
+    keep=np.zeros((H,W),bool)
+    for y in range(ys.min(),ys.max()+1):
+        r=np.nonzero(m[y])[0]
+        if len(r)>8: keep[y,r.min():r.max()+1]=True
+    for x in range(xs.min(),xs.max()+1):
+        c=np.nonzero(keep[:,x])[0]
+        if len(c)>8: keep[c.min():c.max()+1,x]=True
+    al=np.clip((blur(keep.astype(np.float32),1.6)-0.42)/0.30,0,1)
+    im=Image.fromarray(np.dstack([np.clip(a,0,255),al*255]).astype(np.uint8),'RGBA')
+    im=im.crop(im.getbbox())
+    im=im.resize((200,round(im.height*200/im.width)),Image.LANCZOS)
+    im.save(OUT+name,optimize=True)
+    print(name,im.size,os.path.getsize(OUT+name)//1024,'KB')
+
 # ---------- the rope round the card ----------
 # The one thing here with no source picture behind it. It is a frame rather than a straight run,
 # so a repeating gradient cannot draw it: at the corners the diagonal lay mitres into a chevron.

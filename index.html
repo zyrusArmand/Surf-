@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.43';
+window.SURF_VERSION='9.44';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -742,16 +742,34 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     text-shadow:0 1px 3px rgba(0,26,34,.85), 0 0 10px rgba(6,52,68,.7);
     -webkit-tap-highlight-color:transparent; cursor:pointer; z-index:6;
   }
-  .slotb svg {
-    /* the GLYPH is the sign and the word is the caption, not the other way round: once the word
-       has to be fitted inside the panel it can only get so big, so the icon is what carries this
-       at a distance. Bigger, and drawn heavier so it survives the glow behind it. */
-    width:58%; height:auto; max-height:56%; display:block;
-    fill:none; stroke:currentColor; stroke-width:2.05;
-    stroke-linecap:round; stroke-linejoin:round;
-    filter:drop-shadow(0 1px 3px rgba(0,26,34,.8));
+  /* ---- THE SIGN IS A BURNT BLOCK OF WOOD, NOT A GLYPH AND A CAPTION ---- */
+  /* Each of the three is a photographed block with its drawing and its word burnt into it, so
+     the panel IS the picture. The glyph and the caption stay in the markup, hidden, because
+     they are what the button says to anything that cannot see the picture -- and because the
+     caption is still what the fitting code measures.
+     background-size is written by layoutShopSlots, not here: the button is floored at 44px so
+     a thumb can find it, and painting the block across that floor would hang it over the edges
+     of the lit square it is supposed to be nailed to. */
+  .slotb {
+    background-repeat:no-repeat; background-position:center; background-size:contain;
+    filter:drop-shadow(0 2px 5px rgba(0,18,26,.55));
   }
-  .slotb span { font-size:inherit; opacity:.94; }
+  /* ---- the thumb floor, moved off the box ---- */
+  /* A thumb is wider than these panels are drawn from anywhere but right up against the hut, so
+     the target used to be floored at 44px by growing the button. It cannot be any more: the
+     button is now the lit square exactly, because that is what the sign is fitted to, and a box
+     bigger than the square hangs the sign over its edges. The reach is a transparent pad behind
+     it instead -- same 44px, none of it visible. */
+  .slotb::before {
+    content:''; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:100%; height:100%; min-width:44px; min-height:44px;
+  }
+  #dSlotSchool { background-image:url(ui/sign_school.png); }
+  #dSlotBoards { background-image:url(ui/sign_boards.png); }
+  #dSlotSurfer { background-image:url(ui/sign_riders.png); }
+  .slotb svg { display:none; }
+  .slotb span { position:absolute; width:1px; height:1px; overflow:hidden;
+    clip-path:inset(50%); white-space:nowrap; }
   /* pressed reads as the panel being pushed IN, which is the only affordance a painted sign has */
   .slotb:active { transform:translate(-50%,-50%) scale(.93); color:#fff; }
   .slotb:focus:not(:focus-visible) { outline:none; }
@@ -20421,10 +20439,12 @@ function layoutShopSlots(e){
       if(px<x0)x0=px; if(px>x1)x1=px; if(py<y0)y0=py; if(py>y1)y1=py;
     }
     if(!any||x1<=x0||y1<=y0){ el.style.visibility='hidden'; continue; }
-    // a thumb is wider than any of these panels are drawn, so the target is floored at 44px —
-    // the icon stays on the light either way because it is centred, and only the reach grows
-    const w=Math.max(44,x1-x0), h=Math.max(44,y1-y0);
+    // The BOX is the lit square, exactly. It used to be floored at 44px here so a thumb could
+    // find it, and that floor is still there -- it has moved to a pad behind the sign (.slotb
+    // ::before), because a box bigger than the square is a box the sign cannot be fitted to.
+    const w=x1-x0, h=y1-y0;
     el.dataset.pw=(x1-x0).toFixed(1);      // the panel's REAL width, before the 44px thumb floor
+    el.dataset.ph=(y1-y0).toFixed(1);      // and its real height, which is what the sign is cut to
     el.style.visibility='';
     el.style.left=((x0+x1)/2).toFixed(1)+'px';
     el.style.top=((y0+y1)/2).toFixed(1)+'px';
@@ -20734,7 +20754,16 @@ for(const _sl of SHOP_SLOTS){
 // lit surface read as three captions floating in front of a building rather than as signs on it.
 // The slots sit 0.40 apart and were 0.3064 wide, so there was a tenth of a unit of dead gap to
 // spend; 0.352 spends most of it and leaves the bays plainly separate.
-let SHOP_SLOT={y:-0.0561, z:-0.34, w:0.3520, h:0.2900, col:0x0c86cf, glow:0.34, lit:0.90};
+// ---- THE LIT SQUARE IS THE SHAPE OF THE SIGN NAILED TO IT ----
+// It was 0.352 x 0.290, which projects to 53.4 x 43.0 -- a landscape panel, sized back when it
+// held an icon over a word. The three signs are photographed blocks of wood and they are very
+// slightly TALLER than they are wide, 200 x 209, so on that panel each one either stretched
+// thirty per cent across the lettering or sat in it with six pixels of blue down each side.
+// Neither is a sign nailed to a square. The quad takes the block's proportions instead: down
+// an eighth across and up a seventh in height, which projects to 46.8 x 48.9 -- the block's own
+// 0.957 -- and costs the sign almost nothing in area while opening a real gap between the
+// three, which is what three separate blocks on a wall should have.
+let SHOP_SLOT={y:-0.0561, z:-0.34, w:0.3085, h:0.3300, col:0x0c86cf, glow:0.34, lit:0.90};
 // Where the shopkeeper stands, in the hut's own axes: behind the counter, at the right-hand end.
 // He was a third of the way over while the panels were up on the beam and there was no conflict.
 // Now that they are down on the wall where they belong, they are at his chest height and the two
@@ -28766,7 +28795,8 @@ if(location.hash.includes('debug')){
         const sb=sp?sp.getBoundingClientRect():null, vb=sv?sv.getBoundingClientRect():null;
         return {id:s.id, w:+b.width.toFixed(0), h:+b.height.toFixed(0),
                 x:+b.left.toFixed(0), y:+b.top.toFixed(0),
-                panel:+(el.dataset.pw||0), 
+                panel:+(el.dataset.pw||0), panelH:+(el.dataset.ph||0),
+                bsz:getComputedStyle(el).backgroundSize, 
                 word:sb?+sb.width.toFixed(1):null,
                 over:sb&&el.dataset.pw?+(sb.width/ +el.dataset.pw).toFixed(2):null,
                 icon:vb?+vb.width.toFixed(1):null,

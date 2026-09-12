@@ -15,6 +15,9 @@ into what the page can actually use:
 | `plaque_share.png` | the SHARE plaque | `.over #overRow .ob-share` |
 | `plaque_menu.png` | the MAIN MENU plaque | `.over #overRow .ob-menu` |
 | `rope.png` | the rope round the card, nine-sliced at 24 | `.over #ovText .rcard` |
+| `sign_school.png` | BOARD SCHOOL | `#dSlotSchool` |
+| `sign_boards.png` | SURFBOARDS | `#dSlotBoards` |
+| `sign_riders.png` | RIDERS | `#dSlotSurfer` |
 
 Most of them ship whole: the ground is keyed off and that is the asset, lettering included,
 so the buttons carry no text of their own and their labels are only there for anything that
@@ -47,6 +50,17 @@ The geometry the stylesheet uses is this painting's own, as a percentage of the 
 (844 × 188 before scaling): dish centre 12.86% × 51.9%, trough interior 29.9% from the left,
 64.2% wide, 62.2% down, 21.8% tall. Change the crop in `make.py` and those five numbers in
 `index.html` have to move with it.
+
+The three hut signs are photographs rather than flat paintings, and the linen behind them is a
+woven texture with no single colour to key out. What separates them is that the block is wood
+and the cloth is not — 75 points of red over blue on one and 18 on the other, with nothing in
+between. The burnt-in engraving is dark enough in places to fall out of that key, so the outline
+is closed by taking the block's own row and column extents: a photographed block is convex, so
+its extents *are* its outline, and the engraving is inside them.
+
+They are painted at the lit quad's real projected size by `layoutShopSlots`, not at the button's.
+The button is floored at 44px so a thumb can find it, and a sign painted across that floor hangs
+over the edges of the square it is nailed to.
 
 `rope.png` is the one file with no source picture behind it. It is a *frame*, not a straight
 run, so a repeating gradient cannot draw it — at the corners a diagonal lay mitres into a
