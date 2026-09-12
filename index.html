@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.55';
+window.SURF_VERSION='9.57';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -10975,7 +10975,7 @@ function renderViewer(dt){
       fl.position.x+=fl.userData.v*dt;
       if(fl.position.x>190)fl.position.x-=380; else if(fl.position.x<-190)fl.position.x+=380;
       fl.position.y+=Math.sin(tNow*0.7+fl.userData.bob)*dt*1.5;
-      for(const b2 of fl.children)beatGull(b2.userData,tNow);
+      for(const b2 of fl.children)beatGull(b2.userData,tNow,dt);
     }
   }
   const aspect=Math.max(0.35,innerWidth/innerHeight);
@@ -24092,7 +24092,18 @@ function buildGull(){
 // margin from the centreline, split by which side it is on and sorted from shoulder to tip.
 let birdModel=null, birdWing=null;
 const gullSwap=[];
-loadModel('bird.glb',(s3)=>{
+// bird_rigged.glb is bird.glb with a real wingbeat baked into it -- see models/bird.py. The
+// file that shipped before had 28 bones and NO clips, which is why the beat was being driven
+// from here: one roll per bone about one axis, which is a wing hinging. A wing does four things
+// at once and three of them were missing, so the clip does it instead and this code only picks
+// the rate. The old procedural beat stays as the fallback for a missing file.
+// ONE file, not two. bird.glb and bird_rigged.glb are the same 28-bone gull and the rigged one
+// only adds the clips, so loading both would be nine hundred kilobytes of duplicate mesh on a
+// phone. The rigged file is the one that ships; the wing MEASURING below still runs on it, so if
+// a build ever arrives without clips the procedural beat is still there to drive the same rig.
+let birdClips=null;
+loadModel('bird_rigged.glb',(s3)=>{
+  birdClips=(s3.animations&&s3.animations.length)?s3.animations:null;
   let sk=null; s3.traverse(o=>{ if(o.isSkinnedMesh&&!sk)sk=o; });
   if(!sk||!sk.skeleton)return;
   const inv=new THREE.Matrix4(), at=[];
@@ -24121,7 +24132,39 @@ const _gq=new THREE.Quaternion(), _gp=new THREE.Quaternion(), _gd=new THREE.Quat
 // behind it. Swapped rather than rebuilt because the flocks are laid out at startup and the
 // file arrives later; the silhouette stays as what you see if models/bird.glb is not there.
 function dressGull(g){
-  if(!birdModel||!birdWing||g.userData.model)return;
+  if(!birdModel||g.userData.model)return;
+  // ---- the baked beat, when the file brought one ----
+  // A clip per bird with its own mixer, because the rate and the phase are per bird and a
+  // shared mixer cannot hold two of either. Gulls glide most of the time and flap in bursts,
+  // so both clips are loaded and one is crossfaded to the other on a timer -- which is also
+  // the cheapest possible answer to "some should be the same speed and some not".
+  if(birdClips&&birdClips.length){
+    const m2=cloneModel(birdModel);
+    m2.rotation.y=Math.PI/2;
+    const bb2=new THREE.Box3().setFromObject(m2), sz2=bb2.getSize(new THREE.Vector3());
+    m2.scale.setScalar(3.0/Math.max(1e-3,Math.max(sz2.x,sz2.z)));
+    for(const c of g.children)c.visible=false;
+    g.add(m2);
+    g.userData.model=m2;
+    const mx=new THREE.AnimationMixer(m2);
+    const find=n=>birdClips.find(c=>c.name===n)||null;
+    const cf=find('flap'), cg=find('glide');
+    const aF=cf?mx.clipAction(cf):null, aG=cg?mx.clipAction(cg):null;
+    // A gull beats about two and a half times a second and the clip is one second long, so the
+    // rate IS the timeScale. Spread per bird, and the phase offset so a flock does not pulse.
+    const rate=2.1+Math.random()*1.3;
+    if(aF){ aF.timeScale=rate; aF.play(); aF.time=Math.random()*(cf.duration||1); }
+    if(aG){ aG.timeScale=0.5+Math.random()*0.4; aG.play(); aG.weight=0;
+            aG.time=Math.random()*(cg.duration||1); }
+    g.userData.mx=mx;
+    g.userData.aF=aF; g.userData.aG=aG;
+    // how long this one holds its current habit before it changes its mind
+    g.userData.glide=Math.random()<0.35;
+    g.userData.gT=1.5+Math.random()*4.5;
+    g.userData.flap=null;         // the clip drives it; nothing here should touch the bones
+    return;
+  }
+  if(!birdWing)return;
   const m=cloneModel(birdModel);
   m.rotation.y=Math.PI/2;                 // the model faces +z; a flock flies along +x
   const bb=new THREE.Box3().setFromObject(m), sz=bb.getSize(new THREE.Vector3());
@@ -24206,14 +24249,63 @@ function layFlight(flock,spec,make){
     flock.add(b);
   }
 }
+// ---- AND A SKY HAS MORE THAN TWO DIRECTIONS IN IT ----
+// A flock moved on x alone -- position.x += v*dt -- and faced 0 or PI. So every bird in the game
+// was crossing left to right or right to left, at the same height, forever. That is not a sky,
+// it is a conveyor with gulls on it.
+// Each flock now carries a HEADING on the compass and a climb, and is turned to face it, which
+// costs the same arithmetic and buys the four things a sky actually shows you: birds crossing,
+// birds cutting away on the diagonal, birds coming over the top of you, and birds going away
+// down the lane. STYLES is that mix, weighted the way a sky is -- mostly crossing traffic,
+// because most of what passes over a beach is going somewhere else.
+const BIRD_STYLES=[
+  // hd is where it is going: 0 is +x (across to the right), PI/2 is +z (straight at the lens)
+  {w:3.0, hd:()=>0,                     y:()=>62+Math.random()*54, z:()=>-140-Math.random()*90},
+  {w:3.0, hd:()=>Math.PI,               y:()=>62+Math.random()*54, z:()=>-140-Math.random()*90},
+  // the diagonals, both ways and both hands
+  {w:2.2, hd:()=>(Math.random()<0.5?1:-1)*(0.5+Math.random()*0.5),
+                                        y:()=>56+Math.random()*52, z:()=>-170-Math.random()*70},
+  {w:2.2, hd:()=>Math.PI+(Math.random()<0.5?1:-1)*(0.5+Math.random()*0.5),
+                                        y:()=>56+Math.random()*52, z:()=>-170-Math.random()*70},
+  // OVER THE TOP: straight at you and low enough that it passes overhead rather than ahead
+  {w:1.6, hd:()=>Math.PI/2+(Math.random()-0.5)*0.5,
+                                        y:()=>34+Math.random()*26, z:()=>-230-Math.random()*80},
+  // and away down the lane, which is the one that makes the sea look big
+  {w:1.2, hd:()=>-Math.PI/2+(Math.random()-0.5)*0.5,
+                                        y:()=>44+Math.random()*46, z:()=>-40-Math.random()*60},
+];
+const BIRD_WSUM=BIRD_STYLES.reduce((a,s)=>a+s.w,0);
+function birdStyle(){
+  let r=Math.random()*BIRD_WSUM;
+  for(const s of BIRD_STYLES){ r-=s.w; if(r<=0)return s; }
+  return BIRD_STYLES[0];
+}
+// The box a flock lives in. Wider than the cloud span in z so one going away has somewhere to
+// go, and open behind the lens so one that has passed overhead carries on out of shot.
+const BIRD_Z_AHEAD=-330, BIRD_Z_BEHIND=120;
+function layFlock(f,first){
+  const st=birdStyle(), u=f.userData;
+  u.hd=st.hd();
+  // ---- speed is per FLOCK, and they are not all the same ----
+  // Nine to twenty-six feet a second. A flock holds together, so the birds in one share it --
+  // what varies inside a flock is the WINGBEAT, not the groundspeed, because birds flying
+  // together at different speeds is not a flock.
+  u.sp=9+Math.random()*17;
+  u.vy=(Math.random()-0.5)*2.4;
+  f.position.set(first?(Math.random()-0.5)*CLOUD_SPAN
+                      :(Math.cos(u.hd)>0?-1:1)*(0.35+Math.random()*0.2)*CLOUD_SPAN,
+                 st.y(), st.z());
+  f.rotation.y=-u.hd;                 // a flock flies along its own +x
+  return f;
+}
 const birds=[];
 for(let f=0;f<FLIGHTS.length;f++){
   const flock=new THREE.Group();
   flock.renderOrder=10;
   layFlight(flock,FLIGHTS[f],buildGull);
-  flock.position.set((Math.random()-0.5)*CLOUD_SPAN, 52+Math.random()*62, -150-Math.random()*70);
   flock.scale.setScalar(1.6+Math.random()*1.4);
-  flock.userData={v:(Math.random()<0.5?-1:1)*(5+Math.random()*5), bob:Math.random()*Math.PI*2};
+  flock.userData={bob:Math.random()*Math.PI*2};
+  layFlock(flock,true);
   skyLayer.add(flock); birds.push(flock);
 }
 // ---- one gull's wingbeat, in one place ----
@@ -24245,7 +24337,23 @@ function gullAngle(w,u){
     : dn+(up-dn)*(0.5-0.5*Math.cos(Math.PI*((w-dw)/(1-dw))));
 }
 let _gullHold=null;    // debug: freeze the beat at one point of the cycle to look at it
-function beatGull(u,t){
+function beatGull(u,t,dt){
+  // ---- the baked clip, if this bird has one ----
+  // It also decides when to stop flapping: a gull crossing a beach glides far more than it
+  // beats, and a sky where every bird flaps without pause is the thing that read as mechanical
+  // however good the beat itself got. Crossfaded, so the change of habit is not a snap.
+  if(u&&u.mx){
+    u.gT-=(dt||0.016);
+    if(u.gT<=0){
+      u.gT=(u.glide?1.2:2.2)+Math.random()*4.5;
+      u.glide=!u.glide;
+      const to=u.glide?u.aG:u.aF, fr=u.glide?u.aF:u.aG;
+      if(to&&fr)fr.crossFadeTo(to,0.55,false);
+      else if(to)to.weight=1;
+    }
+    u.mx.update(dt||0.016);
+    return;
+  }
   if(!u||!u.flap)return;
   if(_gullHold!==null){ u.flap(gullAngle(_gullHold,u)); return; }
   let w=((t*u.f+u.p)/(Math.PI*2))%1; if(w<0)w+=1;
@@ -24260,14 +24368,20 @@ function updateSkyLife(dt){
   }
   for(const f of birds){
     const u=f.userData;
-    f.position.x+=u.v*dt;
-    if(f.position.x> CLOUD_SPAN*0.5)f.position.x-=CLOUD_SPAN;
-    if(f.position.x<-CLOUD_SPAN*0.5)f.position.x+=CLOUD_SPAN;
+    // along its own heading, not along x. It was wrapped on x alone as well, which is why a
+    // flock could only ever reappear on the far side at the same height going the same way.
+    f.position.x+=Math.cos(u.hd)*u.sp*dt;
+    f.position.z+=Math.sin(u.hd)*u.sp*dt;
     u.bob+=dt;
-    f.position.y+=Math.sin(u.bob*0.7)*dt*1.4;
-    f.rotation.y=u.v>0?0:Math.PI;             // they face the way they are going
+    f.position.y+=u.vy*dt+Math.sin(u.bob*0.7)*dt*1.4;
+    if(f.position.y<26){ f.position.y=26; u.vy=Math.abs(u.vy); }
+    if(f.position.y>132){ f.position.y=132; u.vy=-Math.abs(u.vy); }
+    // out of the box in ANY direction and it comes back as a new flight, which is what keeps
+    // the mix of headings turning over instead of freezing into whatever it started as
+    if(Math.abs(f.position.x)>CLOUD_SPAN*0.62||
+       f.position.z<BIRD_Z_AHEAD||f.position.z>BIRD_Z_BEHIND)layFlock(f,false);
     // no two birds in a flock are in step: each has its own rate and its own phase
-    for(const b of f.children)beatGull(b.userData,tNow);
+    for(const b of f.children)beatGull(b.userData,tNow,dt);
   }
 }
 
@@ -30639,6 +30753,44 @@ if(location.hash.includes('debug')){
     // ---- the level, and whether it survives a save ----
     lvl(){ return {xp, level, cap:XP_CAP, band:xpBand()}; },
     lvlTable(){ return XP_AT.map((v,L)=>L<2?null:[L,v]).filter(Boolean); },
+    // ---- every animal in the water, with the radius the separation pass uses ----
+    // Reported from the same function that does the pushing, so the check cannot be measuring a
+    // different set of bodies or a different set of sizes than the code it is checking.
+    seaBodies(){
+      if(typeof diveBodiesNow!=='function')return [];
+      const kind=g=>(typeof turtles!=='undefined'&&turtles.indexOf(g)>=0)?'turtle':
+                    (typeof rays!=='undefined'&&rays.indexOf(g)>=0)?'ray':'shark';
+      return diveBodiesNow().map(b=>({kind:kind(b.g), r:+b.r.toFixed(2),
+        x:+b.g.position.x.toFixed(2), y:+b.g.position.y.toFixed(2), z:+b.g.position.z.toFixed(2),
+        bed:+bedH(b.g.position.x,b.g.position.z).toFixed(2),
+        sit:!!(b.u&&b.u.sit), heavy:!!b.heavy}));
+    },
+    seaHunt(){ if(typeof dshks==='undefined'||!dshks)return null;
+      return {out:dshks.length, hunting:dshks.filter(g=>g.userData&&g.userData.hunt).length}; },
+    // Why the water is EMPTY, when it is. Each of the three has a template it cannot spawn
+    // without, and "no animals" has three quite different causes: the dive is not on, the
+    // model never arrived, or the group is there and the spawn timer has not fired yet.
+    // Fills the water NOW and settles it. The spawn timers run on the game clock, and under
+    // swiftshader that clock advances about a tenth of wall time -- half a minute of waiting is
+    // under a second of game time, so a probe that waits for the sea to fill measures the
+    // renderer's frame rate and nothing else. This lays every slot at once and then runs the
+    // separation pass on its own for a while, which is the code actually under test.
+    seaFill(steps){
+      const out={turtle:0,ray:0,shark:0};
+      if(typeof turtleTpl!=='undefined'&&turtleTpl&&turtleGrp)
+        while(turtles.length<TURT_MAX){ const g=turtleMake(); if(!g)break;
+          turtleGrp.add(g); turtles.push(g); turtleLay(g); out.turtle++; }
+      if(typeof rayTpl!=='undefined'&&rayTpl&&rayGrp)
+        while(rays.length<RAY_MAX){ const g=rayMake(); if(!g)break;
+          rayGrp.add(g); rays.push(g); rayLay(g); out.ray++; }
+      for(let i=0;i<(steps||120);i++)diveSeparate(1/60);
+      return out;
+    },
+    seaWhy(){ return {
+      diveOn:!!diveOn, depth:+diveDepth.toFixed(1), running:!!running,
+      turtle:{tpl:!!turtleTpl, asked:!!turtleAsked, grp:!!turtleGrp, n:turtles.length, t:+_turtT.toFixed(1)},
+      ray:{tpl:!!rayTpl, asked:!!rayAsked, grp:!!rayGrp, n:rays.length, t:+_rayT.toFixed(1)},
+      shark:{grp:!!dshkGrp, n:dshks.length, t:+_dshkT.toFixed(1)} }; },
     // the curve move and the level payout, so a probe can assert that an old save keeps its
     // level across it rather than anybody eyeballing the ladder
     xpToV2(x){ return xpToV2(x); },
@@ -34184,7 +34336,13 @@ function fishSchool(seed){
 // It is RIGGED but ships no clips, so the swimming is written here: seventeen bones, named
 // Bone_000 to Bone_016 and nothing else, mapped by where they sit in the bind pose rather than
 // by their names, because their names say nothing.
-const TURT_MAX=8;                       // how many can be out at once
+const TURT_MAX=13;                      // how many can be out at once
+// ---- and about a third of them are not going anywhere ----
+// Everything down here was in transit: every turtle and every ray was swimming somewhere at
+// speed, which makes the sea bed a thing that scrolls past under traffic rather than a place
+// anything lives. A turtle asleep on the sand is the cheapest possible way to say otherwise.
+const TURT_SIT=0.34;                    // share of turtles resting on the bed
+const RAY_SIT=0.40;                     // rays do it more -- it is most of what a ray does
 const TURT_GAP_MIN=0.9, TURT_GAP_MAX=3.6;   // seconds between arrivals
 const TURT_AHEAD=-165, TURT_BEHIND=38;      // laid this far ahead, taken back this far behind
 const TURT_SPREAD=27, TURT_LANE=3.4;        // ...and never closer than this to the lane centre
@@ -34264,6 +34422,22 @@ function turtleLay(g){
   u.rate=0.8+R()*0.9;                     // how fast it strokes -- a small one works harder
   u.roll=R()*6.283;
   g.rotation.y=turtleYaw(u,(typeof lastEff!=='undefined'?lastEff:18));
+  // ---- ...OR IT IS ASLEEP ON THE SAND ----
+  // u.sit, not u.rest: turtleMake already put the bones' rest pose on u.rest, and a flag that
+  // quietly overwrites a pose is a bug that shows up as a turtle inside out.
+  // A settled one keeps NO swimming of its own -- hz, hx and hy all zero -- so the only thing
+  // moving it is eff, the world scrolling past, which is exactly what a stationary object on the
+  // bed should do. Its heading is its own and has nothing to do with where it is going, because
+  // it is not going anywhere; and the stroke drops to an idle, because a sleeping turtle still
+  // fans a flipper now and then.
+  u.sit=R()<TURT_SIT;
+  if(u.sit){
+    u.hx=0; u.hy=0; u.hz=0; u.hyT=1e9;
+    u.rate*=0.16;
+    g.rotation.y=R()*6.283;
+    g.rotation.x=0; g.rotation.z=0;
+    g.position.y=bedH(g.position.x,g.position.z)+TURT_MID*g.scale.y+0.06;
+  }
   g.visible=true;
   return g;
 }
@@ -34307,6 +34481,16 @@ function turtleStep(dt,eff){
       turtleLay(g); continue;
     }
     u.ph+=dt*3.1*u.rate;
+    // ---- a settled one follows the sand and skips the swimming entirely ----
+    // The bed has dunes and it SCROLLS, so "on the floor" is not a height it was given once at
+    // spawn -- it is a height it has to keep re-reading as the sand moves under it. Everything
+    // below this is about pointing an animal where it is going, and this one is not going
+    // anywhere, so it all gets skipped.
+    if(u.sit){
+      const bY=bedH(g.position.x,g.position.z)+TURT_MID*g.scale.y+0.06;
+      g.position.y+=(bY-g.position.y)*Math.min(1,dt*6.0);
+      continue;
+    }
     u.roll+=dt*0.7;
     // ...and it re-aims every frame, eased. eff climbs the whole run, so a turtle that was
     // outrunning him at the start is being overtaken by the end -- and when that crossover
@@ -34470,6 +34654,19 @@ function rayLay(g){
   u.roll=R()*6.283;
   // a big ray beats slower than a small one, and none of them beat in unison
   u.rate=(0.72+R()*0.55)*(RAY_FT_MAX/ft)*0.55;
+  // ---- ...or it is lying on the bottom, which is most of what a ray does ----
+  // Same rule as the turtle: no swimming of its own, its own heading, flat on the sand, and laid
+  // AHEAD rather than by direction -- a stationary one placed behind you is behind you forever.
+  // The clip keeps running at a crawl rather than stopping: a settled ray still ripples the edge
+  // of a wing, and a frozen one is a prop.
+  u.sit=R()<RAY_SIT;
+  if(u.sit){
+    u.hx=0; u.hy=0; u.hz=0; u.hyT=1e9;
+    g.position.z=-(DIVE_BORN+R()*70);
+    g.rotation.y=R()*6.283; g.rotation.x=0; g.rotation.z=0;
+    g.position.y=bedH(g.position.x,g.position.z)+0.10*g.scale.y;
+    u.rate*=0.13;
+  }
   if(u.act){ u.act.timeScale=u.rate; u.act.time=R()*(u.act.getClip().duration||2); }
   g.visible=true;
   return g;
@@ -34501,6 +34698,13 @@ function rayStep(dt,eff){
     // holding four of the four slots.
     if(g.position.z>RAY_BEHIND||g.position.z<RAY_AHEAD_CULL||
        Math.abs(g.position.x)>RAY_SPREAD+16){ rayLay(g); continue; }
+    if(u.sit){
+      // lying on the sand, which scrolls and has dunes in it -- see the turtle
+      const bY=bedH(g.position.x,g.position.z)+0.10*g.scale.y;
+      g.position.y+=(bY-g.position.y)*Math.min(1,dt*6.0);
+      if(u.mix)u.mix.update(dt);
+      continue;
+    }
     u.roll+=dt*0.55;
     // re-aimed every frame and eased: eff climbs all run, so one that was outrunning him at the
     // start is being overtaken by the end, and that turn should take about a second
@@ -34525,6 +34729,91 @@ function rayStep(dt,eff){
     u.hyT-=dt;
     if(u.hyT<=0){ u.hyT=2.4+Math.random()*4.0; u.hy=(Math.random()-0.5)*2.2; }
     if(u.mix)u.mix.update(dt);
+  }
+}
+// ================== AND NOTHING DOWN HERE SHARES A BODY WITH ANYTHING ELSE ==================
+// Three systems -- turtles, rays, sharks -- each stepped its own animals and none of them knew
+// the other two existed, so they slid through each other freely: a ray through a turtle's shell,
+// two turtles occupying one turtle. On a screen where everything is translucent blue-green and
+// lit from one side, two animals in the same place do not read as a glitch, they read as one
+// wrong-shaped animal, which is worse.
+//
+// One pass over all of them once a frame fixes it. Fifteen bodies is a hundred and five pairs,
+// which is nothing, so there is no grid and no sorting -- just the pairs.
+//
+// TWO THINGS HAPPEN on an overlap, and both are needed. The positions are pushed apart, eased
+// rather than snapped, so a pair that has already interpenetrated separates over a few frames
+// instead of popping; and the SWIMMING is nudged apart as well, so they then go around each
+// other rather than sitting in the push for as long as their courses cross. Position alone
+// reads as two magnets; steering alone never resolves a pair that is already inside itself.
+//
+// Weighted by size, and some bodies do not move at all: a shark is not shoved aside by a turtle,
+// and an animal asleep on the sand is scenery that other animals go around. So HEAVY bodies push
+// and are not pushed -- which also means two heavy bodies cannot fight each other, since neither
+// will yield; they are laid far enough apart that it does not come up.
+//
+// The vertical is SQUASHED, not ignored. These animals are all much wider than they are deep --
+// a turtle is a plate -- so needing as much clearance above as beside would have them dodging
+// things swimming a body's width below them. dy counts double, which is about the ratio.
+const DIVE_SEP_Y=2.0;          // how much more vertical clearance counts than horizontal
+const DIVE_SEP_EASE=7.0;       // how fast an overlap is pushed out, per second
+const DIVE_SEP_STEER=1.6;      // and how hard they steer apart, ft/s per second of overlap
+const _dvBod=[];
+function diveBodiesNow(){
+  _dvBod.length=0;
+  if(typeof turtles!=='undefined'&&turtles)for(const g of turtles){
+    if(!g.visible)continue;
+    const u=g.userData;
+    _dvBod.push({g,u,r:0.40*TURT_LEN*g.scale.x,heavy:!!u.sit});
+  }
+  if(typeof rays!=='undefined'&&rays)for(const g of rays){
+    if(!g.visible)continue;
+    const u=g.userData;
+    _dvBod.push({g,u,r:0.45*RAY_SPAN*g.scale.x,heavy:!!u.sit});
+  }
+  if(typeof dshks!=='undefined'&&dshks)for(const g of dshks){
+    if(!g.visible)continue;
+    _dvBod.push({g,u:g.userData,r:0.30*DSHK_FT,heavy:true});
+  }
+  return _dvBod;
+}
+function diveSeparate(dt){
+  const B=diveBodiesNow(), n=B.length;
+  if(n<2)return;
+  const ease=Math.min(1,dt*DIVE_SEP_EASE);
+  for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){
+    const a=B[i], b=B[j];
+    if(a.heavy&&b.heavy)continue;                 // neither would yield; see the note above
+    const dx=b.g.position.x-a.g.position.x;
+    const dz=b.g.position.z-a.g.position.z;
+    const dy=(b.g.position.y-a.g.position.y)*DIVE_SEP_Y;
+    const need=a.r+b.r;
+    let d2=dx*dx+dy*dy+dz*dz;
+    if(d2>=need*need)continue;
+    // exactly coincident: pick a direction rather than dividing by zero
+    let ux,uy,uz,d;
+    if(d2<1e-4){ const th=Math.random()*6.283; ux=Math.cos(th); uy=0; uz=Math.sin(th); d=0; }
+    else { d=Math.sqrt(d2); ux=dx/d; uy=dy/d; uz=dz/d; }
+    const over=need-d;
+    // share of the push each takes: the bigger body moves less, and a heavy one not at all
+    let wa=a.heavy?0:(b.heavy?1:(b.r*b.r)/(a.r*a.r+b.r*b.r));
+    let wb=b.heavy?0:(a.heavy?1:1-wa);
+    if(!a.heavy&&!b.heavy){ /* wa+wb is already 1 */ }
+    const pa=over*wa*ease, pb=over*wb*ease;
+    if(pa){ a.g.position.x-=ux*pa; a.g.position.z-=uz*pa;
+            a.g.position.y-=uy*pa/DIVE_SEP_Y; }
+    if(pb){ b.g.position.x+=ux*pb; b.g.position.z+=uz*pb;
+            b.g.position.y+=uy*pb/DIVE_SEP_Y; }
+    // ...and they steer apart, so the pair actually parts company instead of living in the push
+    const k=DIVE_SEP_STEER*dt*(over/need);
+    if(!a.heavy&&a.u&&a.u.hx!==undefined){
+      a.u.hx-=ux*k*6; a.u.hz-=uz*k*6;
+      if(a.u.hy!==undefined)a.u.hy-=(uy/DIVE_SEP_Y)*k*3;
+    }
+    if(!b.heavy&&b.u&&b.u.hx!==undefined){
+      b.u.hx+=ux*k*6; b.u.hz+=uz*k*6;
+      if(b.u.hy!==undefined)b.u.hy+=(uy/DIVE_SEP_Y)*k*3;
+    }
   }
 }
 // ============================ THE SEA FLOOR, FURNISHED ============================
@@ -34924,7 +35213,12 @@ function kelpStep(dt){
 // out it LOCKS -- aim frozen, jaws open, and it stops steering. From that moment the dodge is
 // entirely yours, in any direction, because down here you have all of them.
 const DSHK_MAX=2;                       // how many can be out at once
-const DSHK_GAP_MIN=8.0, DSHK_GAP_MAX=17.0;  // seconds between arrivals
+// ---- AND THEY ARRIVE FURTHER APART ----
+// Two at a time every eight to seventeen seconds, with nearly half of them hunting, is a shark
+// committing to you about every twenty seconds for the whole dive. That is not a sea with sharks
+// in it, it is a corridor of sharks. Doubling the gap and cutting the hunting share (below) puts
+// a real attack a couple of minutes apart, which is the difference between a hazard and a queue.
+const DSHK_GAP_MIN=17.0, DSHK_GAP_MAX=34.0; // seconds between arrivals
 const DSHK_AHEAD=-155, DSHK_BEHIND=30;
 const DSHK_SPREAD=17;                   // how wide it can come in from
 const DSHK_FT=8.5;                      // how long a shark is, in feet
@@ -34933,7 +35227,7 @@ const DSHK_CHARGE=25.0;                 // ...and once it has committed
 const DSHK_LOCK=1.00;                   // seconds out that it commits and stops tracking
 const DSHK_TRACK=3.0;                   // ft/s it can correct by, per foot of error, while stalking
 const DSHK_BITE=2.3;                    // how near its aim has to land -- and so, the dodge
-const DSHK_HUNT=0.45;                   // ...and how many of them ever intended to
+const DSHK_HUNT=0.18;                   // ...and how many of them ever intended to
 const DSHK_NOTICE=9.0;                  // how near its line passes before it turns on you
 const DSHK_SEE_T=1.9;                   // ...and how long out it is still able to notice
 const DSHK_APART=55;                    // feet between two of them, so they arrive one at a time
@@ -39823,6 +40117,8 @@ function update(dt){
   if(typeof turtleStep==='function')turtleStep(_clkDt||0.016,lastEff||0);
   if(typeof rayStep==='function')rayStep(_clkDt||0.016,lastEff||0);
   if(typeof dshkStep==='function')dshkStep(_clkDt||0.016,lastEff||0);
+  // last, and after all three: it is the one thing that has to see every animal at once
+  if(typeof diveSeparate==='function'&&(diveOn||diveDepth>0.5))diveSeparate(_clkDt||0.016);
   if(typeof kelpStep==='function')kelpStep(_clkDt||0.016);
   if(typeof traceStep==='function')traceStep();
   if(typeof floorStep==='function')floorStep(_clkDt||0.016,lastEff||0);
@@ -42381,7 +42677,7 @@ function renderMenuBeach(dt){
       fl.position.x+=fl.userData.v*dt;
       if(fl.position.x>190)fl.position.x-=380; else if(fl.position.x<-190)fl.position.x+=380;
       fl.position.y+=Math.sin(tNow*0.7+fl.userData.bob)*dt*1.5;
-      for(const b2 of fl.children)beatGull(b2.userData,tNow);
+      for(const b2 of fl.children)beatGull(b2.userData,tNow,dt);
     }
   }
   // A slow drift across the shot rather than a fixed frame, so the menu is alive without
