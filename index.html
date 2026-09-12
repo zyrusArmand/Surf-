@@ -29,7 +29,31 @@
 // Guarded against looping, which is how this goes badly wrong: one attempt per target version per
 // session, so a cache that will not let go costs one wasted navigation rather than an endless
 // cycle of them.
-window.SURF_VERSION='6.197.0';
+// ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
+// 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
+// to stay inside the first 4 KB and a comment above it spends that budget.
+window.SURF_VERSION='7.97';
+// ---- ...and why it is one number ----
+// It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
+// scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
+// 6.197, so the number on the screen stopped matching the count of builds behind it. 6.197 IS
+// the 797th: six hundreds that did roll, plus a hundred and ninety-seven that should have been
+// two more roll-overs.
+//
+// There is no major, no minor and no patch here that mean anything -- every build is one
+// shippable change and they all go out the same way -- so carrying three fields only gave the
+// count somewhere to go wrong. It is a running build counter, printed as the count over a
+// hundred to two places:
+//
+//     797 -> v7.97      799 -> v7.99      800 -> v8.00      801 -> v8.01
+//
+// Nothing downstream reads it as a number -- it is shown at the foot of the screen, shown in
+// settings, and written into the save export -- so a malformed bump would be silent. The shape
+// is checked once at load where VERSION is taken, which is the whole guard.
+//
+// It stays a LITERAL. The stale-cache check below fetches the first 4 KB of this file and
+// pattern-matches the version out of the raw text; it cannot evaluate an expression, so this can
+// never become one, and nothing wordy may go above it.
 // Every step of it is written down as it happens. A check that this works can only ever see the
 // outcome — a page that did not move — and "did not move" is the same answer for a request that
 // never went, a reply that came back the same version, a guard that had already fired, and a
@@ -2514,6 +2538,11 @@ const shopList=document.getElementById('shopList'), shopCoins=document.getElemen
 
 // bump this on every change that ships — it is shown at the bottom of the screen
 const VERSION=window.SURF_VERSION;
+// The SHAPE is the rule: digits, a dot, exactly two digits. A bump to 8.1 or to 8.100 is the
+// drift that produced 6.197 starting over, and the drift is silent -- nothing downstream reads
+// this as a number, so nothing else would ever notice. One regex at load is the whole guard.
+if(!/^\d+\.\d{2}$/.test(VERSION))
+  console.warn('SURF_VERSION "'+VERSION+'" is not N.NN — see the note at the top of the file');
 document.getElementById('ver').textContent='v'+VERSION;
 
 // ---------- three setup ----------
