@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.51';
+window.SURF_VERSION='9.52';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -1534,6 +1534,18 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     text-transform:uppercase; color:#ffdf2e;
     text-shadow:0 2px 0 rgba(120,60,10,.5), 0 4px 16px rgba(0,20,40,.5); }
   .over #ovText .rearn .pk { width:1.5em; height:1.5em; flex:none; }
+  /* ---- the level you just reached ---- */
+  .over #ovText .rlvl { display:flex; align-items:center; gap:8px; margin:9px 0 2px;
+    padding:7px 11px 8px; border-radius:11px;
+    background:linear-gradient(180deg,rgba(255,222,120,.20),rgba(255,190,60,.10));
+    border:1px solid rgba(255,224,150,.38); }
+  .over #ovText .rlvl b { font-size:min(4.4vw,17px); font-weight:900; color:#ffe98a;
+    letter-spacing:.02em; }
+  .over #ovText .rlvl span { font-size:min(3.6vw,14px); opacity:.85; flex:1 1 auto;
+    min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .over #ovText .rlvl em { font-style:normal; font-weight:900; color:#ffdf2e;
+    font-size:min(4.2vw,16px); display:flex; align-items:center; gap:3px; white-space:nowrap; }
+  .over #ovText .rlvl em .pk { width:1.05em; height:1.05em; }
   .over #ovText .rrule { height:1px; margin:11px 2px 12px;
     background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.26),rgba(255,255,255,0)); }
   /* ---- and the goals are PLANKS, painted ones ---- */
@@ -5412,10 +5424,31 @@ const XP_CAP=111;
 // constant is a sentence that goes stale the moment the constant moves. It already did:
 // the copy was still quoting 400 and 1.65 after the numbers here had changed. The panel
 // reads these now, so the explanation cannot disagree with the ladder again.
-const XP_MUL=480, XP_POW=1.80;
+// ---- WHY THESE TWO MOVED: THE FIRST TEN LEVELS WERE GONE BEFORE YOU HAD LEARNED THE GAME ----
+// At 480 and 1.80, against a run that paid its whole distance AND its whole trick score as XP,
+// one good run landed you on level 4 and one strong run on level 7. Ten runs reached level 23.
+// That is not a ladder, it is a formality. 1.45 is a gentler climb per level but it starts from
+// a rung you have to earn: level 2 is one honest run rather than a seventh of one, level 10 is
+// about seventeen, level 20 about fifty, and the cap is a few hundred rather than something a
+// strong player brushes past in a fortnight.
+const XP_MUL=600, XP_POW=1.45;
+// The curve as it was, kept only so a save written under it can be carried across without
+// anybody losing a level -- see the migration in loadSave. Delete it and old saves jump.
+const XP_MUL_V1=480, XP_POW_V1=1.80;
 const XP_AT=(()=>{ const a=[0,0];
   for(let L=2;L<=XP_CAP;L++)a[L]=Math.round(XP_MUL*Math.pow(L-1,XP_POW));
   return a; })();
+const XP_AT_V1=(()=>{ const a=[0,0];
+  for(let L=2;L<=XP_CAP;L++)a[L]=Math.round(XP_MUL_V1*Math.pow(L-1,XP_POW_V1));
+  return a; })();
+// ---- AND A LEVEL PAYS ----
+// It paid nothing at all before: addXp counted the levels it had just taken you up and handed
+// them to a caller that dropped them. Twenty-five shells a level, which is small at the bottom
+// and worth waiting for at the top, and comes to roughly a third of what the runs themselves
+// pay over a long climb -- enough that a level is a reward, not so much that levelling replaces
+// playing. Paid for EVERY level crossed, so a run that takes you up two pays for both.
+const LVL_PAY=L=>25*L;
+function levelUpPay(from,to){ let n=0; for(let L=from+1;L<=to;L++)n+=LVL_PAY(L); return n; }
 // ---- AND A LEVEL IS A TITLE, NOT ONLY A NUMBER ----
 // Twenty of them across the hundred and eleven, because a hundred and eleven names is a
 // hundred and eleven things nobody reads and most of them would be filler. A band means the
@@ -5456,6 +5489,20 @@ function nextRank(L){
   return null;
 }
 function levelAt(x){ let L=1; while(L<XP_CAP&&x>=XP_AT[L+1])L++; return L; }
+function levelAtV1(x){ let L=1; while(L<XP_CAP&&x>=XP_AT_V1[L+1])L++; return L; }
+// ---- carrying a save across the curve change ----
+// The level is derived from the XP, so moving the curve moves everybody's level, and moving it
+// DOWN in absolute terms -- which 600*(L-1)^1.45 is, against 480*(L-1)^1.80, from about level
+// nine up -- would have handed a long-standing save a fistful of levels it had not earned. So
+// the XP is restated rather than the level: read the level and the position inside it under the
+// old curve, then write back the XP that means exactly that under the new one. Nobody moves.
+function xpToV2(oldXp){
+  const L=levelAtV1(oldXp);
+  if(L>=XP_CAP)return XP_AT[XP_CAP];
+  const a=XP_AT_V1[L], b=XP_AT_V1[L+1];
+  const f=b>a?Math.max(0,Math.min(1,(oldXp-a)/(b-a))):0;
+  return Math.round(XP_AT[L]+f*(XP_AT[L+1]-XP_AT[L]));
+}
 function syncLevel(){ level=levelAt(xp); return level; }
 // where you are inside the current level, for the bar. At the cap the band is full rather
 // than a division by zero, so the last level reads as finished instead of as broken.
@@ -5733,6 +5780,10 @@ function loadSave(){
     // Clamped and floored rather than trusted: a hand-edited or half-written save that puts a
     // string or a negative here would otherwise make levelAt loop against NaN forever.
     xp=Math.max(0,Math.floor(+v.xp||0));
+    // A save with no xpv was written against the old curve. Restate it so the level it meant
+    // then is the level it means now -- see xpToV2. Done once, and the marker goes down with
+    // the next save, so it cannot be applied twice and inflate somebody a second time.
+    if(!(+v.xpv>=2))xp=xpToV2(xp);
     uname=typeof v.uname==='string'?v.uname.slice(0,UNAME_MAX):'';
     owned=Object.assign({astro:1},v.owned||{});
     equipped=v.equipped||'astro';
@@ -5771,7 +5822,7 @@ function saveGame(){
   // actually riding and that is what goes to disk.
   const r=(typeof ufoWas!=='undefined'&&ufoWas)?ufoWas.rider:rider;
   const b=(typeof ufoWas!=='undefined'&&ufoWas)?ufoWas.board:equipped;
-  try{localStorage.setItem(SAVE_KEY,JSON.stringify({coins,xp,uname,owned,equipped:b,ownedChars,rider:r,goals}));}catch(e){}
+  try{localStorage.setItem(SAVE_KEY,JSON.stringify({coins,xp,xpv:2,uname,owned,equipped:b,ownedChars,rider:r,goals}));}catch(e){}
 }
 
 // ---------- telemetry ----------
@@ -11893,13 +11944,19 @@ function drawLevelInfo(){
     r.push('<div class="row"><span>Level '+(level+1)+' needs</span><b>'+XP_AT[level+1].toLocaleString()+'</b></div>');
   }
   r.push('<div class="ghead">Where XP comes from</div>');
-  r.push('<p class="note">Every run pays its distance in metres plus its trick score, added '+
-         'straight together — the same two figures the wipeout card already shows you. '+
-         'Nothing else pays, so a long quiet run and a short showy one are worth the same '+
-         'when those numbers match. The rungs get further apart as you climb: each one is '+
+  r.push('<p class="note">Every run pays its distance in metres, plus a tenth of its trick '+
+         'score — the same two figures the wipeout card shows you. A metre and a point used to '+
+         'be worth the same, which put nine tenths of every level on the trick counter; a tenth '+
+         'puts the two within sight of each other, so distance is the spine and tricks are the '+
+         'multiplier on it. The rungs get further apart as you climb: each one is '+
          XP_MUL+' &times; (level &minus; 1)<sup>'+XP_POW.toFixed(2)+'</sup>, which is why '+
-         'the first few arrive inside a run or two and the later ones take a session. '+
+         'the first arrives inside a run or two and the later ones take a session. '+
          'There are '+XP_CAP+' of them.</p>');
+  r.push('<div class="ghead">What a level pays</div>');
+  r.push('<p class="note">Reaching a level pays '+LVL_PAY(1)+' shells for every level you have '+
+         'reached — '+LVL_PAY(level).toLocaleString()+' at level '+level+', and '+
+         LVL_PAY(level+1).toLocaleString()+' for the next one. It is paid on the card for the '+
+         'run that earned it, and a run that takes you up two levels pays for both.</p>');
   // What it is FOR. Read off the same table the shop locks against, so this page cannot drift
   // away from what the rack actually does.
   const nx=[];
@@ -23271,11 +23328,17 @@ function gameOver(){
   if(newScore){best=s;saveBest();}
   const earned=coinsFor(dist,s)+goalRunEnd(dist,s);
   // ---- and the run pays XP as well as puka ----
-  // The same two figures the card already reports, added rather than weighted: a metre and a
-  // point are worth the same, so nobody has to be told the exchange rate. Banked BEFORE the
-  // save below, so the level that the card is about to draw is the level that is on disk.
-  const xpGain=d+s, lvUp=addXp(xpGain);
-  coins+=earned; saveGame(); showCoins();
+  // A metre and a trick point used to be worth the same XP, which sounds fair and is not: a good
+  // run is four hundred metres and four thousand points, so NINE TENTHS of every level came from
+  // trick score. Levels tracked the most inflatable number in the game rather than how far you
+  // got. A tenth of the score puts the two within sight of each other -- about half the XP from
+  // each on that same run -- so distance is the spine and tricks are the multiplier on it.
+  // Banked BEFORE the save below, so the level the card is about to draw is the level on disk.
+  const wasLevel=level;
+  const xpGain=d+Math.round(s/10), lvUp=addXp(xpGain);
+  // and the levels it crossed pay out, which they never did before
+  const lvPay=lvUp>0?levelUpPay(wasLevel,level):0;
+  coins+=earned+lvPay; saveGame(); showCoins();
   bump(stats,'earned',earned); bump(stats,'score',s); saveStats();
   jumpBtn.classList.add('hidden');ropeBtn.style.display='none';grabBtn.style.display='none';trickBar.classList.add('hidden');walkShow(false);
   if(cocoBarEl)cocoBarEl.classList.add('hidden');cocoReset();
@@ -23297,10 +23360,14 @@ function gameOver(){
       `<div class="rstat"><span>Distance:</span><b>${d.toLocaleString()} m</b></div>`+
       `<div class="rstat"><span>Tricks:</span><b>${s.toLocaleString()}</b></div>`+
       `<div class="rearn"><i class="pk"></i><span id="ovEarn">Earned: ${earned.toLocaleString()} shells</span></div>`+
+      // A level that pays has to SAY so on the card it was earned on, or the shells look like a
+      // rounding error on the run's own total. Only drawn on the runs that levelled you up.
+      (lvUp>0?`<div class="rlvl"><b>Level ${level}</b><span>${rankAt(level)}</span>`+
+              `<em>+${lvPay.toLocaleString()}<i class="pk"></i></em></div>`:'')+
       `<div class="rrule"></div>`+
       goalRowsHTML()+
     `</div>`;
-  void newDist; void newScore; void tr; void xpGain; void lvUp;
+  void newDist; void newScore; void tr; void xpGain;
   showMenu('over');
   if(crateHeld)crateCeremony();
 }
@@ -30512,6 +30579,11 @@ if(location.hash.includes('debug')){
     // ---- the level, and whether it survives a save ----
     lvl(){ return {xp, level, cap:XP_CAP, band:xpBand()}; },
     lvlTable(){ return XP_AT.map((v,L)=>L<2?null:[L,v]).filter(Boolean); },
+    // the curve move and the level payout, so a probe can assert that an old save keeps its
+    // level across it rather than anybody eyeballing the ladder
+    xpToV2(x){ return xpToV2(x); },
+    levelAt(x){ return levelAt(x); },
+    lvlPay(L){ return LVL_PAY(L); },
     // the card's own row, built for real. It runs inside gameOver, so a throw here is not a
     // missing line — it is the entire wipeout card, on the one screen you cannot avoid.
     lvlRow(g,u){ return levelRowHTML(g===undefined?1800:g,u||0); },
