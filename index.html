@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.66';
+window.SURF_VERSION='9.67';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -6409,10 +6409,28 @@ function buildBoardMesh(S){
     const PU=34, PV=18, pp=[], pi=[];
     const wide=S.padW||0.56;
     for(let i=0;i<=PU;i++){
-      // a pad covers the back foot, not the back half: narrower than the outline and
-      // rounded off at both ends so it reads as a pad rather than a paint job
-      const e=Math.sin(Math.PI*Math.min(1,Math.max(0,i/PU)))*0.5+0.5;
-      const u=P0+(P1-P0)*i/PU, k=wide*Math.pow(e,0.35), w=hw(u)*k, t=th(u), r=rock(u);
+      // A pad covers the back foot, not the back half: narrower than the outline and rounded
+      // off at both ends so it reads as a pad rather than a paint job.
+      // ---- AND IT WAS NOT ROUNDED OFF. IT WAS CUT SQUARE ----
+      // This was sin(PI*f)*0.5+0.5, which runs 0.5 at one end to 1 in the middle and back to
+      // 0.5 -- so with the 0.35 power on it the pad arrived at both ends still 78% of its full
+      // width and simply stopped. A rectangle with slightly bowed sides. On most of the rack it
+      // passes: the default pad is a fifth of the board and 56% of its width, and a square end
+      // that size reads as a pad anyway. The Mako is the board that showed it -- its pad runs
+      // 0.30 to 0.86, more than half the deck, at 74% width, in near-black on a white deck --
+      // and a big dark square-ended slab on a white board is a black rectangle, which is what
+      // it has looked like on its shop card all along. The comment was right; the line under it
+      // was not doing what it said.
+      // A real grip pad is a stadium: full width down the middle and a circular round-off over
+      // the last eighth at each end. That is what this is now, and it is one quarter-circle.
+      const f=Math.min(1,Math.max(0,i/PU));
+      const PAD_R=0.12;                              // share of the pad's length each end rounds over
+      const d=Math.min(f,1-f)/PAD_R;                 // 0 at the very tip, 1 once clear of the round
+      // Floored rather than allowed to reach zero. At zero the end ring collapses to a single
+      // point, every quad along it becomes a sliver, and a real grip pad does not come to a
+      // needle anyway -- it has a blunt rounded end. Six per cent is that bluntness.
+      const e=d>=1?1:Math.max(0.06,Math.sqrt(Math.max(0,1-(1-d)*(1-d))));
+      const u=P0+(P1-P0)*i/PU, k=wide*e, w=hw(u)*k, t=th(u), r=rock(u);
       for(let j=0;j<=PV;j++){
         const v=-1+2*j/PV;
         // ---- the pad lies ON the deck, which means it has to be the SAME CURVE ----
@@ -27915,6 +27933,34 @@ if(location.hash.includes('debug')){
     bankLife(){ wheelLife=1; saveGame(); return wheelLife; },
     gearWear(id){ const g=GEAR_BY_ID[id]; if(!g)return null;
       gearOn[g.slot]=id; equipChar(rider); return {...gearOn}; },
+    // ---- is the pad rounded off, or does it just stop? ----
+    // The difference between a grip pad and a painted rectangle is what the last eighth of it
+    // does, and that is two numbers: how wide the pad is at its very end against how wide it is
+    // in the middle. A square end reports near 1. A rounded one reports near 0.
+    padShape(id){
+      const art=(typeof boardArtFor==='function')?boardArtFor(id||equipped):null;
+      if(!art)return {err:'no board art'};
+      let pad=null, deck=null;
+      art.traverse(o=>{ if(o.userData&&o.userData.pad&&!pad)pad=o;
+                        if(o.userData&&o.userData.deck&&!deck)deck=o; });
+      if(!pad)return {err:'no pad on this board'};
+      const P=pad.geometry.attributes.position;
+      // the pad is swept as PU+1 rings of PV+1 vertices, so a ring is a slice across it
+      const PV=19, rings=P.count/PV;
+      const wAt=r=>{ let lo=1e9,hi=-1e9;
+        for(let j=0;j<PV;j++){ const x=P.getX(r*PV+j); lo=Math.min(lo,x); hi=Math.max(hi,x); }
+        return hi-lo; };
+      const mid=wAt(Math.floor(rings/2));
+      const q=n=>+(wAt(n)/Math.max(1e-6,mid)).toFixed(3);
+      let dw=0;
+      if(deck){ const D=deck.geometry.attributes.position;
+        let lo=1e9,hi=-1e9; for(let i=0;i<D.count;i++){ const x=D.getX(i); lo=Math.min(lo,x); hi=Math.max(hi,x); }
+        dw=hi-lo; }
+      return {id:id||equipped, rings, tip0:q(0), tipEnd:q(rings-1),
+              nose8:q(Math.round(rings*0.08)), mid8:q(Math.round(rings*0.5)),
+              padMidW:+mid.toFixed(3), deckW:+dw.toFixed(3),
+              padVsDeck:+(mid/Math.max(1e-6,dw)).toFixed(3)};
+    },
     rackStats(){
       return BOARDS.filter(b=>!b.hidden).map(b=>{
         const v=boardStats(b.id), a=[v.speed,v.turn,v.air,v.tough];
