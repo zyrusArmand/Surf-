@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.38';
+window.SURF_VERSION='9.39';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -7785,6 +7785,13 @@ function boardArtFor(id){
         sz.multiplyScalar(k*0.5);
         box=new THREE.Box3(c.clone().sub(sz),c.clone().add(sz));
       }
+      // ---- and it is URGENT, because it is asked for when the CARD is ----
+      // boardArtFor runs the first time a board is previewed or equipped, which is to say when
+      // somebody is looking at the hole it goes in. At the default priority it went to the back
+      // of the boot queue -- 36 MB of palm tree ahead of it across three slots -- and the card
+      // sat on the loft underneath, which for the tube and the jet ski is a collision proxy and
+      // not art. Same fault as the dive's scenery and the same fix: asking late is what makes it
+      // cheap, so once asked it is the most urgent thing there is.
       loadModel(M,s3=>{
         const fitted=skinAndFit(id,s3,new THREE.Box3(box.min.clone(),box.max.clone()));
         // it drives bow-first: the ride points local -z the way it travels, and half the time
@@ -7794,7 +7801,16 @@ function boardArtFor(id){
         fitted.traverse(o=>{ o.userData.modelled=true; });
         g.add(fitted);
         g.userData.model=fitted;
-      });
+        // ---- and the shop card is taken NOW ----
+        // boardPreview refuses to photograph a modelled board before this moment, so there is no
+        // cached entry to replace -- but the thumbnail pass runs each card once and would never
+        // come back on its own. The model arriving is the event that makes the card possible, so
+        // it is the event that asks for it. Only while the shop is actually open: a redraw of a
+        // hidden list is a dozen offscreen renders nobody is waiting for.
+        try{ delete prevCache['b:'+id]; }catch(e){}
+        const _sh=document.getElementById('shop');
+        if(_sh&&!_sh.classList.contains('hidden')&&typeof drawShop==='function')drawShop();
+      },LOAD_URGENT);
     }
     _rack[id]=g;
   }
@@ -10245,7 +10261,17 @@ function snapshot(obj,kind){
 }
 function boardPreview(id){
   if(prevCache['b:'+id])return prevCache['b:'+id];
-  try{ prevCache['b:'+id]=snapshot(boardArtFor(id),'board'); }catch(e){ prevCache['b:'+id]=''; }
+  const art=boardArtFor(id);
+  // ---- a board that WEARS a model is not photographed until the model lands ----
+  // The loft underneath a model is a collision proxy, not the art. For the tube it is a flat
+  // round yellow slab; for the jet ski it is a black-padded blob -- and a yellow disc and a
+  // black rectangle are exactly what the shop was showing for the two of them. The model is
+  // fetched asynchronously and this cache is permanent, so whichever arrived first won, and on
+  // a cold open the loft always does. No entry is written at all in that case, so nothing is
+  // cached to be stuck with; the callback that lands the model asks for the card again.
+  const sp=BOARD_BY_ID[id]&&BOARD_BY_ID[id].spec;
+  if(sp&&sp.model&&!art.userData.model)return '';
+  try{ prevCache['b:'+id]=snapshot(art,'board'); }catch(e){ prevCache['b:'+id]=''; }
   prevTouch('b:'+id);
   return prevCache['b:'+id];
 }
