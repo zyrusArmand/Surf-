@@ -14,6 +14,7 @@ into what the page can actually use:
 | `plaque_life.png` | the LIFE plaque | `.over #overRow .ob-life` |
 | `plaque_share.png` | the SHARE plaque | `.over #overRow .ob-share` |
 | `plaque_menu.png` | the MAIN MENU plaque | `.over #overRow .ob-menu` |
+| `rope.png` | the rope round the card, nine-sliced at 24 | `.over #ovText .rcard` |
 
 Most of them ship whole: the ground is keyed off and that is the asset, lettering included,
 so the buttons carry no text of their own and their labels are only there for anything that
@@ -46,3 +47,12 @@ The geometry the stylesheet uses is this painting's own, as a percentage of the 
 (844 × 188 before scaling): dish centre 12.86% × 51.9%, trough interior 29.9% from the left,
 64.2% wide, 62.2% down, 21.8% tall. Change the crop in `make.py` and those five numbers in
 `index.html` have to move with it.
+
+`rope.png` is the one file with no source picture behind it. It is a *frame*, not a straight
+run, so a repeating gradient cannot draw it — at the corners a diagonal lay mitres into a
+chevron. It is laid round a rounded rectangle and nine-sliced at 24 instead, so the corners turn
+the way rope turns. The border renders at 9px, which is three eighths of the slice, so
+everything drawn into it lands on screen at three eighths of its drawn size: the lay is set to
+24px so it arrives at nine, and the image is 192 square so the middle slice — the piece
+`border-image` repeats along each straight run — holds exactly six lays and the repeat has no
+seam.
