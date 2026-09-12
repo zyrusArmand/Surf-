@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.44';
+window.SURF_VERSION='9.50';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -764,9 +764,12 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     content:''; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
     width:100%; height:100%; min-width:44px; min-height:44px;
   }
-  #dSlotSchool { background-image:url(ui/sign_school.png); }
-  #dSlotBoards { background-image:url(ui/sign_boards.png); }
-  #dSlotSurfer { background-image:url(ui/sign_riders.png); }
+  /* each block's real proportions, straight off the cut file. layoutShopSlots sets the width
+     to the painted square's and leaves the height to these, so the block keeps its own shape
+     and overhangs the square rather than being squeezed into it. */
+  #dSlotSchool { background-image:url(ui/sign_school.png); aspect-ratio:200/209; }
+  #dSlotBoards { background-image:url(ui/sign_boards.png); aspect-ratio:200/199; }
+  #dSlotSurfer { background-image:url(ui/sign_riders.png); aspect-ratio:200/209; }
   .slotb svg { display:none; }
   .slotb span { position:absolute; width:1px; height:1px; overflow:hidden;
     clip-path:inset(50%); white-space:nowrap; }
@@ -19790,7 +19793,14 @@ function placeTiki(){
     const face=new THREE.Mesh(new THREE.PlaneGeometry(SHOP_SLOT.w,SHOP_SLOT.h),
       new THREE.MeshBasicMaterial({color:SHOP_SLOT.col, transparent:true, opacity:0,
         depthWrite:false, toneMapped:false, side:THREE.DoubleSide}));
-    const halo=new THREE.Mesh(new THREE.PlaneGeometry(SHOP_SLOT.w*1.5,SHOP_SLOT.h*1.5),
+    // ---- the halo is a RIM now, not a panel ----
+    // Half again the face was right while the face was the sign: an icon and a word on a lit
+    // blue square, with the glow reading as the light behind them. The sign is a solid block of
+    // wood nailed over that square now, so everything the halo shows past its edges is a hard
+    // blue rectangle sticking out from behind a plank -- which is the CSS panel these were
+    // brought in to replace. An eighth over is a lit edge round the block, which is what says
+    // it can be pressed without putting the old panel back.
+    const halo=new THREE.Mesh(new THREE.PlaneGeometry(SHOP_SLOT.w*1.125,SHOP_SLOT.h*1.125),
       new THREE.MeshBasicMaterial({color:SHOP_SLOT.col, transparent:true, opacity:0,
         blending:THREE.AdditiveBlending, depthWrite:false, toneMapped:false, side:THREE.DoubleSide}));
     halo.position.z=-0.004;
@@ -19949,7 +19959,13 @@ function tikiShow(e,dt){
   if(tikiSlots){
     const T=(typeof tNow==='number'?tNow:0);
     for(const g of tikiSlots){
-      const b=(SHOP_SLOT.lit||1)*(0.86+0.14*Math.sin(T*1.7+g.position.x*3.0));
+      // (SHOP_SLOT.lit||1), which this was, cannot express "off": zero is falsy, so asking for no
+      // light got FULL light. The blue square that would not go away through several passes of
+      // moving the sign around was this line ignoring lit:0 -- and because the square is the
+      // quad rather than anything painted on the wall, it moved every time the quad did, so each
+      // measurement of "where the square is" measured the thing I had just moved.
+      const _lit=(typeof SHOP_SLOT.lit==='number')?SHOP_SLOT.lit:1;
+      const b=_lit*(0.86+0.14*Math.sin(T*1.7+g.position.x*3.0));
       g.userData.face.material.opacity=o*b;
       g.userData.halo.material.opacity=o*b*SHOP_SLOT.glow;
     }
@@ -20439,9 +20455,16 @@ function layoutShopSlots(e){
       if(px<x0)x0=px; if(px>x1)x1=px; if(py<y0)y0=py; if(py>y1)y1=py;
     }
     if(!any||x1<=x0||y1<=y0){ el.style.visibility='hidden'; continue; }
-    // The BOX is the lit square, exactly. It used to be floored at 44px here so a thumb could
-    // find it, and that floor is still there -- it has moved to a pad behind the sign (.slotb
-    // ::before), because a box bigger than the square is a box the sign cannot be fitted to.
+    // ---- THE BOX IS THE SQUARE'S WIDTH; ITS HEIGHT IS THE BLOCK'S OWN ----
+    // The painted square is landscape, 53 x 43, and the three blocks are very slightly taller
+    // than they are wide. Fitted inside it a block sits in the square with six pixels of blue
+    // paint showing down each side; stretched to it, thirty per cent goes across its lettering.
+    // So the block is hung at the square's WIDTH and overhangs it top and bottom, the way a sign
+    // nailed over a painted panel actually does -- it covers the square completely and lines up
+    // with it on the only two edges you can still see. The height is left to aspect-ratio, which
+    // carries each block's real proportions from the CSS.
+    // The 44px thumb floor used to live on this box. It is a pad behind the sign now (.slotb
+    // ::before), because a box padded out to 44 is a box the block cannot be hung on.
     const w=x1-x0, h=y1-y0;
     el.dataset.pw=(x1-x0).toFixed(1);      // the panel's REAL width, before the 44px thumb floor
     el.dataset.ph=(y1-y0).toFixed(1);      // and its real height, which is what the sign is cut to
@@ -20449,8 +20472,10 @@ function layoutShopSlots(e){
     el.style.left=((x0+x1)/2).toFixed(1)+'px';
     el.style.top=((y0+y1)/2).toFixed(1)+'px';
     el.style.right='auto'; el.style.bottom='auto';
-    el.style.width=w.toFixed(0)+'px';
-    el.style.height=h.toFixed(0)+'px';
+    // a few per cent over the square, so a block covers the paint rather than matching it edge
+    // to edge and leaving a sliver of blue wherever the projection lands on a half pixel
+    el.style.width=(w*1.06).toFixed(1)+'px';
+    el.style.height='';      // aspect-ratio gives it the block's height
     // The word and the glyph are sized off the PANEL, not off the page: walk toward the hut and
     // the sign grows with it, which is what makes it part of the building rather than an overlay.
     // The divisor is the longest label's width in ems — "SURFERS" is seven characters at this
@@ -20754,16 +20779,25 @@ for(const _sl of SHOP_SLOTS){
 // lit surface read as three captions floating in front of a building rather than as signs on it.
 // The slots sit 0.40 apart and were 0.3064 wide, so there was a tenth of a unit of dead gap to
 // spend; 0.352 spends most of it and leaves the bays plainly separate.
-// ---- THE LIT SQUARE IS THE SHAPE OF THE SIGN NAILED TO IT ----
-// It was 0.352 x 0.290, which projects to 53.4 x 43.0 -- a landscape panel, sized back when it
-// held an icon over a word. The three signs are photographed blocks of wood and they are very
-// slightly TALLER than they are wide, 200 x 209, so on that panel each one either stretched
-// thirty per cent across the lettering or sat in it with six pixels of blue down each side.
-// Neither is a sign nailed to a square. The quad takes the block's proportions instead: down
-// an eighth across and up a seventh in height, which projects to 46.8 x 48.9 -- the block's own
-// 0.957 -- and costs the sign almost nothing in area while opening a real gap between the
-// three, which is what three separate blocks on a wall should have.
-let SHOP_SLOT={y:-0.0561, z:-0.34, w:0.3085, h:0.3300, col:0x0c86cf, glow:0.34, lit:0.90};
+// ---- THIS IS THE SQUARE PAINTED ON THE HUT'S BACK WALL ----
+// 0.352 x 0.290 is not a free choice and must not be "improved": it is hand-tuned to project
+// onto the three squares in the MODEL's own wall texture, which measure 53 CSS across from the
+// shop camera. Reshaping it to suit the signs pulled every sign off its square and left the
+// painted blue showing down one side of each -- proof, incidentally, that the squares are in
+// the texture and not drawn here, because turning glow and lit off did not remove them.
+// glow and lit ARE zero, though, and that is a free choice: the game used to draw its own lit
+// quad and a halo half again as big on top of the painted square. With a solid block of wood
+// nailed over it the quad is hidden and every pixel of halo clearing the block reads as a cyan
+// backing plate behind a plank. Put either number back above zero and the light returns.
+// ---- THESE NUMBERS ARE TUNED TO THE HUT AND ARE NOT A FREE CHOICE ----
+// They put the quad on the three squares you see on the back wall. I moved them four separate
+// ways trying to sit the signs on those squares and every move made it worse, because of the
+// bug fixed in the dimmer above: lit:0 was falling back to FULL light, so the blue square was
+// the quad itself, and it moved every time I moved the quad. Each "measurement of where the
+// square is" was a measurement of the thing I had just moved. They are back as they were.
+// glow and lit are zero because the sign is the panel now: a block of wood nailed over the
+// quad hides its face, and any halo clearing the block reads as a cyan plate behind a plank.
+let SHOP_SLOT={y:-0.0561, z:-0.34, w:0.3520, h:0.2900, col:0x0c86cf, glow:0, lit:0};
 // Where the shopkeeper stands, in the hut's own axes: behind the counter, at the right-hand end.
 // He was a third of the way over while the panels were up on the beam and there was no conflict.
 // Now that they are down on the wall where they belong, they are at his chest height and the two
