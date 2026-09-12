@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.67';
+window.SURF_VERSION='9.68';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -1582,6 +1582,10 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   .over #ovText .rgot.rnext { padding-top:2px; }
   .over #ovText .rgot.rnext span { color:#cfe4f2; opacity:.62; }
   .over #ovText .rgot.rnext b { color:#e7eef6; opacity:.80; font-weight:700; }
+  .over #ovText .rearn .x2 { font-style:normal; font-weight:900; font-size:min(3.2vw,12.5px);
+    margin-left:8px; padding:2px 7px 3px; border-radius:99px; letter-spacing:.04em;
+    color:#0e1a12; background:linear-gradient(180deg,#9df5c8,#4fd79a);
+    box-shadow:0 1px 3px rgba(0,20,12,.45); }
   .over #ovText .rrule { height:1px; margin:11px 2px 12px;
     background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.26),rgba(255,255,255,0)); }
   /* ---- and the goals are PLANKS, painted ones ---- */
@@ -5606,43 +5610,57 @@ function gearWorn(slot){ const id=gearOn[slot]; return (id&&gearHave(id))?GEAR_B
 // ladder instead of a second one beside it: the wheel becomes a reason to level rather than a
 // substitute for playing, which is the only version of a daily reward worth having.
 let wheelLast='';           // dayStamp of the last spin
-let wheelLife=0;            // a second life banked for the next run
+// What a spin banked for the NEXT run. All of it is spent there and none of it is a number
+// going up, which is the whole revision: a prize that changes a counter is weaker than one
+// that changes a session, and by that test the wheel this replaces scored one slice out of six.
+let wheelLife=0;            // a second life
+let wheelX2=0;              // double shells on the run you go and earn them on
+let wheelChest=0;           // a chest, certain, instead of a timer that may not come round
+let wheelLoan='';           // a board you have not unlocked, for one run
+let loanWas=null;           // ...and what you were riding before it, to give back
 function wheelReady(){ return dayStamp(new Date())!==wheelLast; }
-// What each slice is worth AT THIS RANK. Everything scales off rankIdx, so a Sandcastle Kid
-// and a Big Kahuna spin the same wheel for very different prizes.
+// A board worth being tempted by: one the LEVEL has locked, not one you merely cannot afford,
+// because being shown a thing you could buy today is not a tease. Picked from the locked set at
+// random rather than the dearest of them -- the dearest is a 900,000-shell pool ring, and
+// "here is the one thing in the shop that is a joke" is a bad advertisement for the shop.
+function loanPick(){
+  const c=[];
+  try{
+    for(const b of BOARDS){
+      if(b.hidden||owned[b.id]||b.id==='tube')continue;
+      if(boardLvl(b.id)>level)c.push(b.id);
+    }
+  }catch(e){}
+  return c.length?c[(Math.random()*c.length)|0]:'';
+}
+// Give the board back. Called at the TOP of a run as well as at the end of one, because a run
+// can be left by more routes than the wipeout card -- quitting to the menu is one -- and a
+// loan that is returned only on the way out of the front door is a loan that leaks.
+function loanReturn(){
+  if(!loanWas)return;
+  const b=loanWas.board; loanWas=null;
+  try{ equipBoard(b); }catch(e){}
+}
+// ---- what each slice is worth AT THIS RANK ----
+// Every slice is on the wheel at every level, from the first spin of a new save. The values
+// scale with the rung; WHICH prizes appear does not. A new player has the fewest boards
+// unlocked and therefore the most to be tempted by, so the test ride is worth more to them
+// than to anybody -- holding it back until they had already earned the rack would be showing
+// it to the one player who no longer needs to see it.
 function wheelPrizes(){
-  // The growth is SUBLINEAR in the rung on purpose. Straight-line (1 + i*0.55) put the top
-  // slice at 11,500 shells, and the rule this mechanic lives or dies by is that a spin must
-  // not out-earn playing: at that figure a Big Kahuna's daily tap is worth a long evening of
-  // runs, and the game has said in numbers that the wheel is the efficient way to get things.
-  // A square root keeps the climb visible -- the pool still quadruples across the ladder --
-  // without the top of it running away from what a run pays.
   const i=rankIdx(level), k=1+2.2*Math.sqrt(i/(RANKS.length-1));
   const sh=Math.round(500*k/50)*50;
-  // ---- AND AT THE CAP, XP IS NOT A PRIZE ----
-  // A slice of the CURRENT level's own span, so a spin is always worth the same amount of
-  // PROGRESS rather than the same number. At level 111 there is no next level, so that span
-  // falls back to a constant and the two XP slices came out at +140 and +420 -- against +680
-  // and +2,040 one rank below. A third of the wheel paying a dud, and paying it to the only
-  // player who has seen every other slice. At the cap they become shells instead, which is the
-  // one thing a finished ladder still has a use for.
-  const capped=level>=XP_CAP;
-  const span=capped?1:Math.max(1,XP_AT[level+1]-XP_AT[level]);
-  const xpv=Math.max(60,Math.round(span*0.14/10)*10);
-  // 1.5x and 3x rather than 1x and 3x: at 1x the converted slice carried the same figure as
-  // the shells slice already on the wheel, and two identical labels on a six-slice wheel read
-  // as a drawing mistake.
-  const c1=Math.round(sh*1.5/50)*50;
-  const xp1=capped?{k:'shells', w:22, n:c1,   label:c1.toLocaleString()+' shells', icon:'pk'}
-                  :{k:'xp',     w:22, n:xpv,  label:'+'+xpv.toLocaleString()+' XP', icon:'xp'};
-  const xp2=capped?{k:'shells', w:10, n:sh*3, label:(sh*3).toLocaleString()+' shells', icon:'pk'}
-                  :{k:'xp',     w:10, n:xpv*3,label:'+'+(xpv*3).toLocaleString()+' XP', icon:'xp'};
+  const loan=loanPick();
   return [
-    {k:'shells', w:22, n:sh,      label:sh.toLocaleString()+' shells', icon:'pk'},
-    {k:'shells', w:12, n:sh*2,    label:(sh*2).toLocaleString()+' shells', icon:'pk'},
-    xp1, xp2,
-    {k:'life',   w:18, n:1,       label:'Second life', icon:'life'},
-    {k:'quests', w:16, n:0,       label:'Fresh quests', icon:'quest'},
+    {k:'shells', w:18, n:sh,   label:sh.toLocaleString()+' shells'},
+    {k:'x2',     w:18, n:0,    label:'Double shells'},
+    // Falls back to shells when the rack is finished, which is the only state in which there
+    // is no board left to lend. A blank slice would be worse than a small one.
+    loan?{k:'loan', w:16, n:0, id:loan, label:'Test ride'}
+        :{k:'shells', w:16, n:sh*2, label:(sh*2).toLocaleString()+' shells'},
+    {k:'chest',  w:16, n:0,    label:'Free chest'},
+    {k:'life',   w:18, n:1,    label:'Second life'},
+    {k:'swap',   w:14, n:0,    label:'Swap a quest'},
   ];
 }
 function wheelPick(P){
@@ -5651,23 +5669,45 @@ function wheelPick(P){
   for(let i=0;i<P.length;i++){ r-=P[i].w; if(r<=0)return i; }
   return 0;
 }
-// Applies one slice and says what happened, including whether the XP took you up -- because a
-// spin that promotes you is the best thing this wheel can do and the panel should say so.
+// Applies one slice and says what happened. No XP slice any more: its only real virtue was
+// that it could cascade into a promotion and hand over gear, and the test ride does that job
+// far better and where you can see it. Dropping it also deletes the level-111 special case,
+// where XP had to convert to shells because there was no level left to earn.
 function wheelClaim(p){
-  const was=level, out={kind:p.k, n:p.n, label:p.label, up:0, opened:[]};
+  const out={kind:p.k, n:p.n, label:p.label, note:''};
   if(p.k==='shells'){ coins+=p.n; showCoins(); }
-  else if(p.k==='xp'){
-    out.up=addXp(p.n);
-    if(out.up>0){
-      coins+=levelUpPay(was,level)+rankPayBetween(was,level);
-      for(let L=was+1;L<=level;L++)for(const nm of unlocksAt(L))out.opened.push(nm);
-      showCoins();
-    }
+  else if(p.k==='x2'){ wheelX2=1; out.note='Your next run pays double.'; }
+  else if(p.k==='life'){ wheelLife=1; out.note='Your next run starts with two chances.'; }
+  else if(p.k==='chest'){ wheelChest=1; out.note='A chest is waiting on your next run.'; }
+  else if(p.k==='loan'){
+    wheelLoan=p.id;
+    const b=BOARD_BY_ID[p.id];
+    out.note=b?('One run on the '+b.name+'.'):'One run on a locked board.';
+    out.label='Test ride'+(b?' — '+b.name:'');
   }
-  else if(p.k==='life')wheelLife=1;
-  // goals=[] then ensureGoals refills all three; goalRoll only replaces the DONE ones,
-  // which on a board of three unfinished quests would have changed nothing at all.
-  else if(p.k==='quests'){ try{ goals=[]; ensureGoals(); }catch(e){} }
+  else if(p.k==='swap'){
+    // ---- THE ONE THAT USED TO BE A PUNISHMENT ----
+    // This rerolled all three, and a goal is {id, n} where n is banked progress -- so a player
+    // fourteen hundred metres into "Surf 1,500 m" had the wheel take it off them. A daily
+    // reward that can set you back is worse than a blank slice.
+    // One quest now, and specifically the one you have done LEAST on: whatever is swapped, the
+    // player loses the smallest amount of work it is possible to lose, and the two they are
+    // actually chasing are never touched.
+    try{
+      ensureGoals();
+      let w=0;
+      for(let j=1;j<goals.length;j++){
+        const a2=goalDef(goals[j]), b2=goalDef(goals[w]);
+        if(goals[j].n/Math.max(1,a2.target) < goals[w].n/Math.max(1,b2.target))w=j;
+      }
+      const old=goalDef(goals[w]).text;
+      const keep=goals.slice(); keep.splice(w,1);
+      goals=keep;                       // so freshGoal cannot hand back the one being replaced
+      const ng=freshGoal();
+      goals=keep.slice(0,w).concat([ng],keep.slice(w));
+      out.note=old+' → '+goalDef(ng).text;
+    }catch(e){ out.note='Three new quests are on the board.'; }
+  }
   wheelLast=dayStamp(new Date());
   saveGame();
   return out;
@@ -6128,6 +6168,11 @@ function loadSave(){
     // a piece of gear that has since been renamed should come back bare-headed, not throw.
     wheelLast=(typeof v.wheelLast==='string')?v.wheelLast:'';
     wheelLife=(+v.wheelLife===1)?1:0;
+    wheelX2=(+v.wheelX2===1)?1:0;
+    wheelChest=(+v.wheelChest===1)?1:0;
+    // ...and only if it is still a board this build knows and you still do not own it: a loan
+    // of something bought in the meantime is a loan of your own board.
+    wheelLoan=(typeof v.wheelLoan==='string'&&v.wheelLoan&&!owned[v.wheelLoan])?v.wheelLoan:'';
     gearOn={eyes:'', head:'', body:''};
     if(v.gearOn)for(const s of ['eyes','head','body']){
       const id=v.gearOn[s];
@@ -6154,8 +6199,14 @@ function saveGame(){
   // equipped, it asks what you OWN: while the borrow is on, ufoWas holds the pair you were
   // actually riding and that is what goes to disk.
   const r=(typeof ufoWas!=='undefined'&&ufoWas)?ufoWas.rider:rider;
-  const b=(typeof ufoWas!=='undefined'&&ufoWas)?ufoWas.board:equipped;
-  try{localStorage.setItem(SAVE_KEY,JSON.stringify({coins,xp,xpv:2,uname,owned,equipped:b,ownedChars,rider:r,goals,gearOn,wheelLast,wheelLife}));}catch(e){}
+  let b=(typeof ufoWas!=='undefined'&&ufoWas)?ufoWas.board:equipped;
+  // ---- AND A TEST RIDE IS NOT A BOARD YOU OWN EITHER ----
+  // Exactly the trap above, wearing a different hat: a board lent for one run is `equipped`
+  // while the run is on, and anything at all can call saveGame in that window -- a coin, a
+  // goal, a wipeout. One of those and the loan is permanent. So the loan outranks even the
+  // borrow here: whatever else is going on, what goes to disk is the board from before it.
+  if(typeof loanWas!=='undefined'&&loanWas)b=loanWas.board;
+  try{localStorage.setItem(SAVE_KEY,JSON.stringify({coins,xp,xpv:2,uname,owned,equipped:b,ownedChars,rider:r,goals,gearOn,wheelLast,wheelLife,wheelX2,wheelChest,wheelLoan}));}catch(e){}
 }
 
 // ---------- telemetry ----------
@@ -12475,12 +12526,11 @@ function doSpin(){
   setTimeout(()=>{
     const r=wheelClaim(P[i]);
     buzz(22);
+    // Every slice now says what it MEANS underneath, because five of the six are things that
+    // happen on the next run rather than things that have already happened, and "Double shells"
+    // on its own does not tell you that you have to go and earn them.
     let h='You won '+escName(r.label);
-    if(r.up>0){
-      h+='<small>★ Level '+level+' — '+escName(rankAt(level))+
-         (r.opened.length?' · unlocked '+r.opened.slice(0,2).map(escName).join(' · '):'')+'</small>';
-    } else if(r.kind==='life')h+='<small>Your next run starts with two chances.</small>';
-    else if(r.kind==='quests')h+='<small>Three new quests are on the board.</small>';
+    if(r.note)h+='<small>'+escName(r.note)+'</small>';
     _spinBusy=false; spinPip(); spinDraw();
     document.getElementById('spinWon').innerHTML=h;
     // The bar carries the purse, the level and the XP fill, and a spin can move all three.
@@ -22666,6 +22716,20 @@ player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveSha
   revivesLeft=1+(wheelLife?1:0);
   wheelLife=0;
 }
+// Everything else the wheel banked, spent the same way and in one place. Called from beginRun
+// so that whatever route the last run was left by, the next one starts from a known state.
+function wheelSpend(){
+  // give back anything still out on loan BEFORE taking a new one, so two test rides in a row
+  // cannot leave the first board's owner-of-record pointing at the second
+  loanReturn();
+  if(wheelLoan&&!owned[wheelLoan]&&BOARD_BY_ID[wheelLoan]){
+    loanWas={board:equipped};
+    try{ equipBoard(wheelLoan); }catch(e){ loanWas=null; }
+  }
+  wheelLoan='';
+  if(wheelChest){ wheelChest=0; crateT=Math.min(crateT,1.5); }
+  saveGame();
+}
 // One second chance a run. He is put back on the board where he went in, with the
 // water ahead cleared so he is not handed straight back to whatever got him, and
 // everything he had — score, distance, the shells earned so far — kept.
@@ -22896,7 +22960,12 @@ function beginRun(){
   // is looking at it. A run is minutes long and the dive is reachable from inside one, so
   // asking here gives the file all of that time. jetAsk is idempotent, so every run is free.
   if(typeof jetAsk==='function')jetAsk();
-  reset();running=true;overlayUp=false;last=performance.now();
+  reset();
+  // After reset, because reset is what lays the chest timer down and what a free chest does is
+  // move that timer; before running=true, because the board a test ride swaps in has to be
+  // under his feet by the first frame and not on the second.
+  wheelSpend();
+  running=true;overlayUp=false;last=performance.now();
 }
 startBtn.addEventListener('click',beginRun);
 document.getElementById('againBtn').addEventListener('click',()=>{ buzz(12); beginRun(); });
@@ -23953,7 +24022,13 @@ function gameOver(){
   const s=score|0, d=Math.round(dist);
   const newScore=s>best, newDist=bestDistBeat;
   if(newScore){best=s;saveBest();}
-  const earned=coinsFor(dist,s)+goalRunEnd(dist,s);
+  let earned=coinsFor(dist,s)+goalRunEnd(dist,s);
+  // ---- THE DOUBLER IS SPENT HERE AND ONLY HERE ----
+  // This is the whole reason it beats a slice that simply hands over shells: it is worth
+  // nothing until a run is finished, so the wheel points AT the game instead of standing in
+  // for it. Applied before the level and promotion pay, which are not a run's earnings and are
+  // not what was doubled.
+  const dbl=!!wheelX2; if(dbl){ earned*=2; wheelX2=0; }
   // ---- and the run pays XP as well as puka ----
   // A metre and a trick point used to be worth the same XP, which sounds fair and is not: a good
   // run is four hundred metres and four thousand points, so NINE TENTHS of every level came from
@@ -23995,7 +24070,11 @@ function gameOver(){
     `<div class="rcard">`+
       `<div class="rstat"><span>Distance:</span><b>${d.toLocaleString()} m</b></div>`+
       `<div class="rstat"><span>Tricks:</span><b>${s.toLocaleString()}</b></div>`+
-      `<div class="rearn"><i class="pk"></i><span id="ovEarn">Earned: ${earned.toLocaleString()} shells</span></div>`+
+      `<div class="rearn"><i class="pk"></i><span id="ovEarn">Earned: ${earned.toLocaleString()} shells</span>`+
+        // A doubled run has to SAY it is doubled on the card it is doubled on, or the prize was
+        // won yesterday, spent silently, and never seen. Same argument the level pay makes two
+        // lines down: shells that arrive without a reason look like a rounding error.
+        `${dbl?'<em class="x2">×2 from the wheel</em>':''}</div>`+
       // A level that pays has to SAY so on the card it was earned on, or the shells look like a
       // rounding error on the run's own total. Only drawn on the runs that levelled you up.
       (lvUp>0?`<div class="rlvl${rkUp?' up':''}"><b>Level ${level}</b>`+
@@ -24021,6 +24100,10 @@ function gameOver(){
     `</div>`;
   void newDist; void newScore; void tr; void xpGain;
   showMenu('over');
+  // and the board goes back. beginRun returns it too -- a run can be left by more routes than
+  // this card -- but doing it here as well means the menu you land on is showing your own board
+  // rather than one you have not bought.
+  loanReturn();
   if(crateHeld)crateCeremony();
 }
 
@@ -27926,11 +28009,21 @@ if(location.hash.includes('debug')){
       xp=wasXp; syncLevel();
       return rows;
     },
-    wheelState:()=>({ready:wheelReady(), last:wheelLast, bankedLife:wheelLife, revives:revivesLeft}),
+    wheelState:()=>({ready:wheelReady(), last:wheelLast, revives:revivesLeft,
+                     banked:{life:wheelLife, x2:wheelX2, chest:wheelChest, loan:wheelLoan},
+                     onLoan:loanWas?loanWas.board:null, riding:equipped, crateT:+crateT.toFixed(2)}),
     wheelForce(){ wheelLast=''; return wheelReady(); },
+    // claim one named slice without the four seconds of wheel, so what is under test is the
+    // prize reaching the next run and not whether a CSS transition finished
+    wheelTake(kind){
+      const P=wheelPrizes(), p=P.find(x=>x.k===kind);
+      if(!p)return {err:'no such slice',have:P.map(x=>x.k)};
+      return wheelClaim(p);
+    },
+    wheelSlices:()=>wheelPrizes().map(p=>({k:p.k,w:p.w,label:p.label})),
     // the life slice without the four seconds of wheel, so the thing being checked is whether
     // a banked life reaches the next run and not whether a CSS transition finishes
-    bankLife(){ wheelLife=1; saveGame(); return wheelLife; },
+
     gearWear(id){ const g=GEAR_BY_ID[id]; if(!g)return null;
       gearOn[g.slot]=id; equipChar(rider); return {...gearOn}; },
     // ---- is the pad rounded off, or does it just stop? ----
