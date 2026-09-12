@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.60';
+window.SURF_VERSION='9.61';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -1562,6 +1562,26 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   .over #ovText .rlvl em { font-style:normal; font-weight:900; color:#ffdf2e;
     font-size:min(4.2vw,16px); display:flex; align-items:center; gap:3px; white-space:nowrap; }
   .over #ovText .rlvl em .pk { width:1.05em; height:1.05em; }
+  /* A PROMOTION is not an ordinary level-up and the card should not make them look alike.
+     Same row, lit harder: a new title is the rarest thing on this screen -- twenty of them
+     across a hundred and eleven levels -- and it is what the whole ladder is for. */
+  .over #ovText .rlvl.up { background:linear-gradient(180deg,rgba(255,236,160,.34),rgba(255,196,52,.16));
+    border-color:rgba(255,238,182,.62);
+    box-shadow:0 0 0 1px rgba(255,226,140,.22), 0 3px 14px rgba(255,182,40,.18),
+               inset 0 1px 0 rgba(255,250,226,.34); }
+  .over #ovText .rlvl.up span { opacity:1; color:#fff3c8; font-weight:800; }
+  /* what the promotion opened, hung under it as a caption rather than as another row --
+     it belongs to the level line above it, so it shares its left edge and loses the box */
+  .over #ovText .rgot { display:flex; align-items:baseline; gap:7px;
+    margin:-1px 0 2px; padding:5px 12px 7px; min-width:0; }
+  .over #ovText .rgot span { font-size:min(3.1vw,12px); font-weight:800; letter-spacing:.08em;
+    text-transform:uppercase; color:#ffd98a; opacity:.78; flex:0 0 auto; }
+  .over #ovText .rgot b { font-size:min(3.5vw,13.5px); font-weight:800; color:#fdf3dc;
+    flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* the tease reads quieter than the news -- it is a thing you have not got yet */
+  .over #ovText .rgot.rnext { padding-top:2px; }
+  .over #ovText .rgot.rnext span { color:#cfe4f2; opacity:.62; }
+  .over #ovText .rgot.rnext b { color:#e7eef6; opacity:.80; font-weight:700; }
   .over #ovText .rrule { height:1px; margin:11px 2px 12px;
     background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.26),rgba(255,255,255,0)); }
   /* ---- and the goals are PLANKS, painted ones ---- */
@@ -5547,6 +5567,30 @@ function rankAt(L){
 function nextRank(L){
   for(const [at,name] of RANKS)if(at>L)return {at,name};
   return null;
+}
+// ---------- WHAT A RANK IS WORTH ----------
+// These twenty rungs granted NOTHING. A title on the run card and no more. Meanwhile the board
+// ladder stopped at level 28 and riders were not gated at all, so from 29 up -- three quarters
+// of the whole cap -- levelling changed nothing whatever except paying 25 shells a level. A
+// hundred and eleven levels is a promise, and eighty-three of them were not keeping it.
+// The rungs are the spine this hangs on rather than a new ladder built beside them, because
+// they are already written, already named, and already spread across the whole cap. A reward
+// that lands on "you made Rail Carver" is a moment; the same reward landing on level 47 is a
+// number going up.
+function rankIdx(L){ let i=0; for(let k=0;k<RANKS.length;k++)if(L>=RANKS[k][0])i=k; return i; }
+// Is this level the FIRST of a new rung? That is what pays -- not every level inside one.
+function rankRungAt(L){ for(let k=0;k<RANKS.length;k++)if(RANKS[k][0]===L)return k; return -1; }
+// The promotion purse, on top of the ordinary per-level pay. It climbs with the rung because
+// the rungs themselves get further apart: 1,000 for Beach Grom, 20,000 for Wave Whisperer, and
+// 210,000 across a whole ladder -- a mid-rack board's worth of shells for actually finishing
+// it. Deliberately generous. The complaint this answers is that levelling gave nothing back,
+// and a reward too small to notice is the same as no reward with more arithmetic.
+const RANK_PAY=i=>1000*(i+1);
+// every rung crossed between two levels, so a run that jumps two of them pays for both
+function rankPayBetween(from,to){
+  let n=0;
+  for(let L=from+1;L<=to;L++){ const k=rankRungAt(L); if(k>=0)n+=RANK_PAY(k); }
+  return n;
 }
 function levelAt(x){ let L=1; while(L<XP_CAP&&x>=XP_AT[L+1])L++; return L; }
 function levelAtV1(x){ let L=1; while(L<XP_CAP&&x>=XP_AT_V1[L+1])L++; return L; }
@@ -10808,15 +10852,15 @@ function vShowBuy(kind,id){
       saveGame(); vShowBuy(kind,id); vRedrawList(); }; return; }
   // the level is asked BEFORE the purse, because it is the harder no: being short of shells
   // is a thing this run can fix and a locked family is not
-  if(board&&boardLocked(id,has)){ b.className='go alt'; b.disabled=true;
-    b.innerHTML='<span>Level '+boardLvl(id)+'</span>'; return; }
+  if(itemLocked(kind,id,has)){ b.className='go alt'; b.disabled=true;
+    b.innerHTML='<span>Level '+itemLvl(kind,id)+'</span>'; return; }
   if(coins<item.price){ b.className='go alt'; b.disabled=true;
     b.innerHTML='<span>'+(item.price-coins).toLocaleString()+' more</span>'+
       '<i class="pk"></i>'; return; }
   b.innerHTML='<span>Buy '+item.price.toLocaleString()+'</span><i class="pk"></i>';
   b.onclick=()=>{
     if(coins<item.price)return;
-    if(board&&boardLocked(id,has))return;   // belt as well as braces; the button is disabled
+    if(itemLocked(kind,id,has))return;      // belt as well as braces; the button is disabled
     coins-=item.price; buzz(16);
     if(board){ owned[id]=1; noteBuy('board',id,item.price); equipBoard(id); }
     else { ownedChars[id]=1; noteBuy('rider',id,item.price); equipChar(id); }
@@ -10990,8 +11034,8 @@ function shopCard(item,have,on,buy,use,thumb,stats,kind){
     else {
       const btn=document.createElement('button');
       if(have){ btn.className='own'; btn.textContent='Ride it'; btn.onclick=use; }
-      else if(kind==='board'&&boardLocked(item.id,have)){
-        btn.disabled=true; btn.className='lock'; btn.textContent='Level '+boardLvl(item.id); }
+      else if(itemLocked(kind,item.id,have)){
+        btn.disabled=true; btn.className='lock'; btn.textContent='Level '+itemLvl(kind,item.id); }
       else {
         btn.innerHTML=item.price.toLocaleString()+'<i class="pk"></i>';
         if(coins<item.price){ btn.disabled=true;
@@ -11017,8 +11061,8 @@ function shopCard(item,have,on,buy,use,thumb,stats,kind){
   // A locked tile shows what it is waiting for INSTEAD of the price, not as well as it: the
   // price is not the answer to "why can I not have this" and showing both invites the reading
   // that you are short of shells when you are not.
-  else if(kind==='board'&&boardLocked(item.id,have)){
-    pr.className='pr lock'; pr.textContent='Lv '+boardLvl(item.id); }
+  else if(itemLocked(kind,item.id,have)){
+    pr.className='pr lock'; pr.textContent='Lv '+itemLvl(kind,item.id); }
   else pr.innerHTML=item.price.toLocaleString()+'<i class="pk"></i>';
   foot.appendChild(pr);
   card.appendChild(foot);
@@ -11130,7 +11174,8 @@ function drawShop(){
   if(shopTab==='riders'){
     for(const c of charOrder()){
       const card=shopCard(c,!!ownedChars[c.id],rider===c.id,
-        ()=>{ if(coins<c.price)return; coins-=c.price; ownedChars[c.id]=1; noteBuy('rider',c.id,c.price);
+        ()=>{ if(coins<c.price||charLocked(c.id,!!ownedChars[c.id]))return;
+          coins-=c.price; ownedChars[c.id]=1; noteBuy('rider',c.id,c.price);
           equipChar(c.id); saveGame(); showCoins(); drawShop(); },
         ()=>{ equipChar(c.id); saveGame(); drawShop(); },
         prevCache['c:'+c.id],false,'char');
@@ -11272,14 +11317,21 @@ const B_TYPES=[
 // at 1 because the free board you start on lives in it, and foil and the ski are late because
 // they are the two fastest things in the game and being handed either early is the end of the
 // difficulty curve rather than a step up it.
+// ---- and the TOP of each band moved out, while every bottom stayed exactly where it was ----
+// The whole rack was reachable by level 28 and then nothing happened for eighty-three levels.
+// Stretching the bands from the bottom would have fixed that by making a beginner wait, which
+// is the opposite of what was wanted; stretching only the TOP leaves the first rung of every
+// family on the level it always opened at and puts the LAST rung somewhere worth climbing to.
+// So nothing gets slower to start and the aspirational end of each family becomes aspirational.
+// The gun and the foil move furthest because they were already the late pair.
 const FAM_BAND={
-  fun:  [1,18],   // astro is in here, and it has to be reachable at level one
-  skim: [1,14],
-  fish: [2,18],
-  long: [2,18],
-  short:[3,20],
-  wake: [3,20],
-  gun:  [5,22],
+  fun:  [1,20],   // astro is in here, and it has to be reachable at level one
+  skim: [1,16],
+  fish: [2,24],
+  long: [2,24],
+  short:[3,28],
+  wake: [3,26],
+  gun:  [5,34],
   // ---- ONE BOARD, AND IT IS MEANT TO STAY THAT WAY ----
   // The eFoil is not a family and is not getting filled out: it is one machine that happens
   // to be ridden standing up, the way the ski is one machine you sit on. So this band is not
@@ -11288,9 +11340,11 @@ const FAM_BAND={
   // 26 rather than 12, because the number a one-board family opens at is the number the band
   // STARTS at, and starting a band at 12 put the fastest thing in the game on the earliest
   // rung of any family in the shop. It is the halo board; it goes near the top.
-  foil: [26,28],
+  // 39 rather than 26 for the same reason it was 26 rather than 12: it is the halo board and
+  // it goes near the top, and "the top" moved when the rest of the bands did.
+  foil: [39,41],
 };
-const SKI_LVL=18;  // outside B_TYPES on purpose — see the note above it
+const SKI_LVL=25;  // outside B_TYPES on purpose — see the note above it
 const BOARD_LVL=(()=>{
   const m={};
   for(const t of B_TYPES){
@@ -11311,6 +11365,75 @@ function boardLvl(id){ return BOARD_LVL[id]||1; }
 // board whose family now says level twenty, and re-locking it would be removing something
 // somebody already paid for on the strength of a rule that did not exist when they did.
 function boardLocked(id,have){ return !have && level<boardLvl(id); }
+// ---------- AND THE RIDER LADDER, WHICH IS THE ONE THAT REACHES THE TOP ----------
+// Riders were bought on shells alone -- twenty-two of them, 0 to 45,000, and not one level gate
+// between them. They are the natural late ladder: a rank is a title about WHO YOU ARE, so who
+// you ride as is the right thing to hang on it, and unlike boards they cost nothing in balance
+// to hand out late because the perks are small and flat.
+// Ranked by price, the way boards are ranked inside their family and for the same stated
+// reason -- price is already the ladder they were priced along, and a second opinion about
+// which animal is better than which would only be a chance to disagree with the cards.
+// Spread one per RUNG, so every promotion on the ladder opens somebody and the back half of
+// the cap has a reason to exist. This is what fills 29 to 111, where the boards have run out.
+// Built lazily because CHARS is declared two thousand lines below here; the first call comes
+// when a shop is opened, which is long after everything is up.
+let _charLvl=null;
+function charLvlTable(){
+  if(_charLvl)return _charLvl;
+  const m={};
+  const paid=CHARS.filter(c=>c.price>0&&!c.hidden).slice().sort((a,b)=>a.price-b.price);
+  const n=paid.length;
+  paid.forEach((c,k)=>{
+    // from rung 1 upward: rung 0 is level one, and the free rider already stands there
+    const r=1+Math.round((RANKS.length-1)*(k/Math.max(1,n-1)));
+    m[c.id]=RANKS[Math.min(RANKS.length-1,r)][0];
+  });
+  for(const c of CHARS)if(!(c.price>0))m[c.id]=1;
+  return (_charLvl=m);
+}
+function charLvl(id){ return charLvlTable()[id]||1; }
+// The same promise the boards make, and it matters more here because riders predate the gate
+// entirely: the lock asks about BUYING. Anybody already in a save stays in it, whatever the
+// ladder says about them now.
+function charLocked(id,have){ return !have && level<charLvl(id); }
+// one question for both racks, so a card, a tile and the viewer cannot drift apart on it
+function itemLocked(kind,id,have){
+  return kind==='board' ? boardLocked(id,have)
+       : kind==='char'  ? charLocked(id,have) : false;
+}
+function itemLvl(kind,id){
+  return kind==='board' ? boardLvl(id) : kind==='char' ? charLvl(id) : 1;
+}
+// Who or what the next rung opens, for the run card's "keep going" line. Boards and riders
+// both, nearest first, because the answer to "why level up" should name a thing you can see.
+function unlocksAt(L){
+  const out=[];
+  try{
+    // BOARDS already holds the ski. The panel this replaces walked B_TYPES instead, which
+    // leaves the ski out on purpose -- so it had to add it back by hand, and carrying that
+    // line over to a walk of BOARDS listed Kahuna 750 twice on the level it opens at.
+    for(const b of BOARDS)if(!owned[b.id]&&!b.hidden&&boardLvl(b.id)===L)out.push(b.name);
+    for(const c of CHARS)if(!ownedChars[c.id]&&!c.hidden&&charLvl(c.id)===L)out.push(c.name);
+  }catch(e){}
+  return out;
+}
+// names come from the racks, and a rack is data -- so it goes through this before it goes
+// into a template string, the same as any other name the page did not write itself
+function escName(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+// THE ONE FORWARD-LOOKING FACT ON THE CARD: the nearest level that opens something, and what.
+// Records and the level bar were taken off this card deliberately -- it is seen after every
+// single run and it is not a history screen -- so this is one line, and it only appears when
+// there is a real answer to give. "Here is what to play for" earns a line on that card in a
+// way that "here is what you already did" does not.
+function nextUnlock(){
+  try{
+    for(let L=level+1;L<=XP_CAP;L++){
+      const u=unlocksAt(L);
+      if(u.length)return {L, name:u[0], more:u.length-1};
+    }
+  }catch(e){}
+  return null;
+}
 // svg units: a foot, the sand line every board stands on, and the height of the box
 const G_FT=26, G_IN=26/12, G_BASE=270, G_TOP=300;
 // The rack is drawn from SPEC SHEETS, not from the game's boards and not by hand. Each type
@@ -11951,27 +12074,33 @@ function drawLevelInfo(){
          'reached — '+LVL_PAY(level).toLocaleString()+' at level '+level+', and '+
          LVL_PAY(level+1).toLocaleString()+' for the next one. It is paid on the card for the '+
          'run that earned it, and a run that takes you up two levels pays for both.</p>');
-  // What it is FOR. Read off the same table the shop locks against, so this page cannot drift
-  // away from what the rack actually does.
+  // ---- and the promotion purse, which is the bigger half now ----
+  const _ri=rankIdx(level), _rn=nextRank(level);
+  r.push('<p class="note">A new <b>title</b> pays a good deal more on top: '+
+         RANK_PAY(_ri).toLocaleString()+' shells for '+rankAt(level)+
+         (_rn?', and '+RANK_PAY(rankRungAt(_rn.at)).toLocaleString()+' when you make '+
+              _rn.name+' at level '+_rn.at+'.':'.')+
+         ' There are twenty titles across the ladder and they are worth 210,000 shells '+
+         'between them.</p>');
+  // What it is FOR. Read off unlocksAt, which is the same table the shop locks against, so
+  // this page cannot drift away from what the racks actually do -- and it now covers RIDERS
+  // as well as boards, because they are half the ladder and all of the top of it.
   const nx=[];
   try{
-    for(const t of B_TYPES)for(const id of (t.ids||[])){
-      const L=boardLvl(id);
-      if(L>level&&!owned[id]&&BOARD_BY_ID[id])nx.push({L,name:BOARD_BY_ID[id].name});
-    }
-    if(BOARD_BY_ID.skijet&&!owned.skijet&&boardLvl('skijet')>level)
-      nx.push({L:boardLvl('skijet'),name:BOARD_BY_ID.skijet.name});
+    for(let L=level+1;L<=XP_CAP;L++)
+      for(const name of unlocksAt(L))nx.push({L,name});
   }catch(e){}
-  nx.sort((x,y)=>x.L-y.L);
   if(nx.length){
     r.push('<div class="ghead">What the next levels open</div>');
-    for(const n of nx.slice(0,7))
-      r.push('<div class="row"><span>Level '+n.L+'</span><b>'+
-        String(n.name).replace(/[<&]/g,c=>c==='<'?'&lt;':'&amp;')+'</b></div>');
+    for(const n of nx.slice(0,8))
+      r.push('<div class="row"><span>Level '+n.L+'</span><b>'+escName(n.name)+'</b></div>');
+    if(nx.length>8)
+      r.push('<p class="note">…and '+(nx.length-8)+' more, the last of them at level '+
+             nx[nx.length-1].L+'.</p>');
   }else{
     r.push('<div class="ghead">What the next levels open</div>');
-    r.push('<p class="note">Nothing left to unlock — every board in the shop is already open '+
-           'to you.</p>');
+    r.push('<p class="note">Nothing left to unlock — every board and every rider in the shop '+
+           'is already open to you.</p>');
   }
   document.getElementById('lvBody').innerHTML=r.join('');
 }
@@ -23332,7 +23461,16 @@ function gameOver(){
   const xpGain=d+Math.round(s/10), lvUp=addXp(xpGain);
   // and the levels it crossed pay out, which they never did before
   const lvPay=lvUp>0?levelUpPay(wasLevel,level):0;
-  coins+=earned+lvPay; saveGame(); showCoins();
+  // ...and a run that crossed a RUNG pays the promotion purse on top. Separately, because the
+  // two are different news: one is "you levelled", the other is "you are a Rail Carver now",
+  // and the card says both rather than folding them into one number.
+  const rkPay=lvUp>0?rankPayBetween(wasLevel,level):0;
+  const rkUp=lvUp>0&&rankIdx(level)>rankIdx(wasLevel);
+  // What that promotion actually opened, named. Asked BEFORE the save, and before any of it is
+  // bought, so the card can say "Bandit the Raccoon" instead of "a new rider".
+  const rkOpen=[];
+  if(lvUp>0)for(let L=wasLevel+1;L<=level;L++)for(const nm of unlocksAt(L))rkOpen.push(nm);
+  coins+=earned+lvPay+rkPay; saveGame(); showCoins();
   bump(stats,'earned',earned); bump(stats,'score',s); saveStats();
   jumpBtn.classList.add('hidden');ropeBtn.style.display='none';grabBtn.style.display='none';trickBar.classList.add('hidden');walkShow(false);
   if(cocoBarEl)cocoBarEl.classList.add('hidden');cocoReset();
@@ -23356,8 +23494,24 @@ function gameOver(){
       `<div class="rearn"><i class="pk"></i><span id="ovEarn">Earned: ${earned.toLocaleString()} shells</span></div>`+
       // A level that pays has to SAY so on the card it was earned on, or the shells look like a
       // rounding error on the run's own total. Only drawn on the runs that levelled you up.
-      (lvUp>0?`<div class="rlvl"><b>Level ${level}</b><span>${rankAt(level)}</span>`+
-              `<em>+${lvPay.toLocaleString()}<i class="pk"></i></em></div>`:'')+
+      (lvUp>0?`<div class="rlvl${rkUp?' up':''}"><b>Level ${level}</b>`+
+              `<span>${rkUp?'★ '+rankAt(level):rankAt(level)}</span>`+
+              `<em>+${(lvPay+rkPay).toLocaleString()}<i class="pk"></i></em></div>`:'')+
+      // ---- AND WHAT IT OPENED, BY NAME ----
+      // The card used to end at "+1,250 shells", which is the least interesting true thing
+      // about a level-up. What a player wants to know is what they can now have, and the
+      // ladder knows: it is the list of boards and riders whose gate is a level just crossed.
+      // Only drawn when the answer is not empty, so a level that opens nothing stays quiet
+      // rather than printing a heading over nothing.
+      (rkOpen.length?`<div class="rgot"><span>Unlocked</span><b>${
+         rkOpen.slice(0,3).map(escName).join(' &middot; ')
+       }${rkOpen.length>3?` +${rkOpen.length-3}`:''}</b></div>`:'')+
+      // ...and when this run opened nothing, what the next one could. One or the other, never
+      // both: the card has room for a single line about the ladder and the news beats the tease.
+      ((()=>{ if(rkOpen.length)return '';
+         const nx=nextUnlock(); if(!nx)return '';
+         return `<div class="rgot rnext"><span>Next</span><b>Lv ${nx.L} &middot; ${
+           escName(nx.name)}${nx.more>0?` +${nx.more}`:''}</b></div>`; })())+
       `<div class="rrule"></div>`+
       goalRowsHTML()+
     `</div>`;
@@ -27160,6 +27314,37 @@ if(location.hash.includes('debug')){
     skyLoad:()=>({model:!!birdModel, clips:birdClips?birdClips.map(c=>c.name):null,
                   wing:!!birdWing, queued:gullSwap.length}),
     birdFlocks:()=>birds,
+    // ---- the whole progression ladder, as one table ----
+    // Two racks gate on level and a third thing pays for it, and none of them could be seen
+    // from outside. This hands out every rung: what opens at it, what it pays, and what it is
+    // called -- so "levels 29 to 111 unlock nothing" is a question the suite can ask rather
+    // than something somebody has to notice.
+    ladder(){
+      const rows=[];
+      for(let L=1;L<=XP_CAP;L++){
+        const k=rankRungAt(L), names=[];
+        try{
+          for(const b of BOARDS)if(!b.hidden&&boardLvl(b.id)===L)names.push(b.name);
+          for(const c of CHARS)if(!c.hidden&&charLvl(c.id)===L)names.push(c.name);
+        }catch(e){}
+        if(k>=0||names.length)
+          rows.push({L, rank:k>=0?RANKS[k][1]:null, pay:LVL_PAY(L)+(k>=0?RANK_PAY(k):0),
+                     opens:names});
+      }
+      return rows;
+    },
+    rankPay:i=>RANK_PAY(i),
+    // Park the purse just under a level so the next run crosses it. The run card's level-up
+    // and promotion rows are otherwise unreachable from a probe: the only way in is to earn
+    // the level, and earning one takes a real run on a clock that runs at a tenth speed here.
+    xpToEdge(under){
+      const L=Math.max(1,Math.min(XP_CAP-1,level));
+      xp=Math.max(0,XP_AT[L+1]-Math.max(1,under||1)); syncLevel(); saveGame();
+      return {xp, level, next:XP_AT[level+1]};
+    },
+    xpSet(v){ xp=Math.max(0,Math.round(v)); syncLevel(); saveGame(); return {xp,level}; },
+    xpAt:L=>XP_AT[Math.max(0,Math.min(XP_CAP,L|0))],
+    charLvls:()=>CHARS.filter(c=>!c.hidden).map(c=>({id:c.id,price:c.price,lv:charLvl(c.id)})),
     skyBeats:()=>birds.map(f=>({n:f.children.length,
       beat:f.userData&&f.userData.beat!==undefined?+f.userData.beat.toFixed(3):null,
       rates:f.children.map(g=>g.userData&&g.userData.aF?+g.userData.aF.timeScale.toFixed(3):null),
