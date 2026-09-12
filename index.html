@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.63';
+window.SURF_VERSION='9.64';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -5518,10 +5518,25 @@ const GEAR=[
   {id:'hat_crown',   slot:'head', lv:111, name:'The Big Kahuna',   blurb:'Worn by one surfer on the point.',
    col:0xf0c23a, kind:'crown'},
 ];
+// --- suits: cut from the character's OWN torso, so they fit all twenty-two ---
+// t runs 0 at the hips to 1 at the shoulders, which is what TORSO_DEF is written along.
+const GEAR_SUITS=[
+  {id:'sut_teal',    slot:'body', lv:13,  name:'Teal Rash Vest',  blurb:'Long sleeves cut off. Sun-bleached at the shoulder.',
+   vest:0x1f9aa8, hem:0xf2f7f6},
+  {id:'sut_sunrise', slot:'body', lv:32,  name:'Sunrise Trunks',  blurb:'Loud enough to be seen from the beach.',
+   shorts:0xef6b3a, hem:0xffd98a},
+  {id:'sut_mono',    slot:'body', lv:53,  name:'Midnight Steamer',blurb:'Full suit. For the dark cold ones.',
+   vest:0x141a22, shorts:0x141a22, hem:0x3f5a6b},
+  {id:'sut_tiger',   slot:'body', lv:81,  name:'Tiger Line Suit', blurb:'One stripe, all the way round.',
+   vest:0x231f1c, shorts:0x231f1c, hem:0xf0a01e},
+  {id:'sut_gold',    slot:'body', lv:104, name:'Gold Leaf Suit',  blurb:'Point break local. Dressed like it.',
+   vest:0x6b5a1e, shorts:0x6b5a1e, hem:0xf7d565},
+];
+for(const g of GEAR_SUITS)GEAR.push(g);
 const GEAR_BY_ID={}; for(const g of GEAR)GEAR_BY_ID[g.id]=g;
 // what is ON, one per slot. Nothing by default -- a new player is not wearing a hat they have
 // not earned, and the first one they earn is the first thing they see change.
-let gearOn={eyes:'', head:''};
+let gearOn={eyes:'', head:'', body:''};
 function gearLvl(id){ const g=GEAR_BY_ID[id]; return g?g.lv:1; }
 function gearHave(id){ return level>=gearLvl(id); }
 // Gear has no owned[] of its own on purpose. A board can be unlocked and still not bought, so
@@ -5975,8 +5990,8 @@ function loadSave(){
     ownedChars=Object.assign({pug:1},v.ownedChars||{});
     // Only the two slots, and only ids this build still knows: a save written by a version with
     // a piece of gear that has since been renamed should come back bare-headed, not throw.
-    gearOn={eyes:'', head:''};
-    if(v.gearOn)for(const s of ['eyes','head']){
+    gearOn={eyes:'', head:'', body:''};
+    if(v.gearOn)for(const s of ['eyes','head','body']){
       const id=v.gearOn[s];
       if(id&&GEAR_BY_ID[id]&&GEAR_BY_ID[id].slot===s)gearOn[s]=id;
     }
@@ -11264,9 +11279,9 @@ function drawShop(){
     // purse to check and nothing to be short of. A row per piece, grouped by slot, saying what
     // it is and either the level that hands it over or a button to put it on. Tapping a piece
     // you are already wearing takes it off -- a hat you cannot remove is a punishment.
-    for(const slot of ['eyes','head']){
+    for(const slot of ['eyes','head','body']){
       const h=document.createElement('div'); h.className='gsec';
-      h.textContent=slot==='eyes'?'Shades':'Hats';
+      h.textContent=slot==='eyes'?'Shades':slot==='head'?'Hats':'Suits & Trunks';
       shopList.appendChild(h);
       for(const g of GEAR.filter(x=>x.slot===slot)){
         const have=gearHave(g.id), on=gearOn[slot]===g.id&&have;
@@ -13309,12 +13324,16 @@ function clearKit(){ for(const m of kitParts) if(m.parent)m.parent.remove(m); ki
 // them, which is the same trick the eyes use ten lines below.
 // The face is -Z. The eyes sit at z about -0.30 to -0.40 and y about 0.06 to 0.22, so shades
 // go across that plane and a hat goes on the crown above it.
-function kitGear(C){
-  const E=gearWorn('eyes'), H=gearWorn('head');
-  // tagged so the fit check can pick the gear back out of a kit that also holds ears, eyes,
-  // markings and a nose -- there is no other way to tell one kit() mesh from another
-  const _n0=kitParts.length;
-  const tag=()=>{ for(let i=_n0;i<kitParts.length;i++)kitParts[i].userData.gear=1; };
+function kitGear(C,bodyPatch){
+  const E=gearWorn('eyes'), H=gearWorn('head'), S=gearWorn('body');
+  // Tagged so the fit check can pick the gear back out of a kit that also holds ears, eyes,
+  // markings and a nose -- there is no other way to tell one kit() mesh from another. Tagged
+  // with the SLOT and not just a flag: a rider can wear a hat and a suit at once, and a check
+  // that counts "gear parts" then counts the hat's while asking about the suit's and reports a
+  // miss that is not there. An instrument that cries wolf is worse than no instrument.
+  let _n0=kitParts.length;
+  const tag=slot=>{ for(let i=_n0;i<kitParts.length;i++)kitParts[i].userData.gear=slot;
+                    _n0=kitParts.length; };
   if(E){
     // A lens is a dark bar, not two beads: a pair of shades reads at a distance because it is
     // ONE horizontal shape cutting across the face. Two separate discs on a head this size are
@@ -13338,6 +13357,7 @@ function kitGear(C){
       arm.scale.set(0.16,0.13,1.55);
     }
   }
+  tag('eyes');
   if(H){
     const m=PBR({color:H.col, roughness:H.kind==='crown'?0.22:0.72,
                  metalness:H.kind==='crown'?0.85:0.05, vivid:H.kind==='crown'?1.6:1.05});
@@ -13373,7 +13393,33 @@ function kitGear(C){
       }
     }
   }
-  tag();
+  tag('head');
+  // ---- AND THE SUIT, WHICH IS CUT FROM THE BODY IT IS WORN ON ----
+  // A hat can be a primitive parked above a skull. A garment cannot: twenty-two animals have
+  // twenty-two torsos -- a pig is a pear, an otter is a tube -- and any shape authored once and
+  // scaled to fit them all fits none of them. bodyPatch already solves exactly this for the
+  // markings: it cuts a band out of THIS character's own torso mesh and lays it back on a
+  // fraction proud. A rash vest is a marking that happens to be cloth, so it is the same call.
+  // Nothing here is a size or a position. That is the point -- there is no number to get wrong
+  // on the nineteen animals nobody looked at.
+  if(S&&typeof bodyPatch==='function'){
+    const LIFT=1+SKIN_SAG+0.020;      // a shade further out than a marking, so it lies over one
+    const cloth=c=>PBR({color:c, roughness:0.58, metalness:0.04, vivid:1.15});
+    // t is 0 at the hips and 1 at the shoulders, the way TORSO_DEF is written.
+    if(S.shorts){
+      bodyPatch(0.02,0.34,cloth(S.shorts),LIFT);
+      // The hem is a SEPARATE, NARROW band and that is what makes it read as cloth. bodyBands
+      // feathers its edges in proportion to the band's own width, which is right for
+      // countershading and wrong for a waistband -- a wide patch fades out like fur where a
+      // garment should stop. A thin band feathers over almost nothing, so the edge is crisp.
+      if(S.hem)bodyPatch(0.315,0.350,cloth(S.hem),LIFT+0.004);
+    }
+    if(S.vest){
+      bodyPatch(0.52,0.99,cloth(S.vest),LIFT);
+      if(S.hem)bodyPatch(0.505,0.540,cloth(S.hem),LIFT+0.004);
+    }
+  }
+  tag('body');
 }
 // eyes are part of the kit: where they sit and how big they are is most of what
 // tells one animal from another at a glance
@@ -14827,7 +14873,7 @@ function buildChar(id){
     const t=kit(tailJ,new THREE.Mesh(new THREE.SphereGeometry(0.11,14,12),furMat));
     t.position.set(0,0.13,0.02);t.scale.set(1,1.9,1);t.rotation.x=-0.4;
   }
-  kitGear(C);
+  kitGear(C,bodyPatch);
   sizeRider();
   builtChar=id;
   // ---- the pose he was BUILT in, kept, so he can be put back into it ----
@@ -27570,13 +27616,24 @@ if(location.hash.includes('debug')){
       for(const c of CHARS){
         if(c.hidden)continue;
         gearOn[g.slot]=gid; equipChar(c.id);
+        const parts0=kitParts.filter(m=>m.userData&&m.userData.gear===g.slot);
+        // A SUIT FAILS DIFFERENTLY. It is cut from the torso rather than parked above a skull,
+        // so it cannot sit at the wrong height -- but bodyBands returns null when no triangle
+        // of a character's own torso falls inside the band, and then the garment is simply not
+        // there. On that animal, silently. So for the body slot the question is how many panels
+        // survived, not where they landed.
+        if(g.slot==='body'){
+          const want=(g.vest?1:0)+(g.shorts?1:0)+(g.hem?((g.vest?1:0)+(g.shorts?1:0)):0);
+          out.push({id:c.id, panels:parts0.length, want, ok:parts0.length===want});
+          continue;
+        }
         // the skull itself, so everything is expressed against the head it is worn on
         let hd=null; headJ.traverse(o=>{ if(!hd&&o.isMesh&&o.geometry&&
           o.geometry.type==='SphereGeometry'&&o.geometry.parameters.radius===0.40)hd=o; });
         if(!hd)continue;
         box.setFromObject(hd);
         const hTop=box.max.y, hBot=box.min.y, hR=Math.max(1e-4,(hTop-hBot)/2);
-        const parts=kitParts.filter(m=>m.userData&&m.userData.gear);
+        const parts=parts0;
         if(!parts.length){ out.push({id:c.id,err:'no gear built'}); continue; }
         let lo=1e9, hi=-1e9, fz=1e9;
         for(const m of parts){ box.setFromObject(m);
