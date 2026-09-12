@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.68';
+window.SURF_VERSION='9.69';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -814,7 +814,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   /* The vignette the menu uses, over the beach, instead of nothing — so the panel has a
      ground to sit on and the scene keeps running behind it rather than being switched off
      the moment you open one. */
-  #quests, #settings, #howto, #mystats, #profile, #puka, #levelInfo { position:fixed; inset:0; z-index:14; display:flex;
+  #quests, #settings, #howto, #mystats, #profile, #puka, #levelInfo, #spin { position:fixed; inset:0; z-index:14; display:flex;
     align-items:center; justify-content:center; padding:22px;
     background:radial-gradient(150% 108% at 50% 46%,
       rgba(4,22,42,.26) 0%, rgba(4,22,42,.20) 42%, rgba(4,22,42,.10) 74%, rgba(4,22,42,.02) 100%); }
@@ -828,7 +828,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
      rim light gathered underneath. The crest is painted INTO the background stack rather
      than laid on as a ::before, because the panel scrolls — a pseudo-element would slide
      up out of sight with the first flick of the list. */
-  #quests .wrap, #settings .wrap, #howto .wrap, #mystats .wrap, #profile .wrap, #puka .wrap, #levelInfo .wrap { width:min(92vw,430px); max-height:82vh; overflow:auto;
+  #quests .wrap, #settings .wrap, #howto .wrap, #mystats .wrap, #profile .wrap, #puka .wrap, #levelInfo .wrap, #spin .wrap { width:min(92vw,430px); max-height:82vh; overflow:auto;
     background:radial-gradient(124% 58% at 50% -12%, rgba(255,255,255,.26), rgba(255,255,255,0) 72%),
                linear-gradient(168deg, rgba(26,88,146,.66), rgba(9,44,84,.76) 56%,
                                        rgba(6,32,62,.82));
@@ -839,8 +839,8 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
                inset 0 1.6px 0 rgba(255,255,255,.72),
                inset 0 -22px 34px -26px rgba(165,225,255,.55);
     border-radius:22px; padding:20px 18px 18px; text-align:center; color:#eaf6ff; }
-  #quests .wrap b, #settings .wrap b, #howto .wrap b, #mystats .wrap b, #profile .wrap b, #puka .wrap b, #levelInfo .wrap b { color:#fff; }
-  #quests .go, #settings .go, #howto .go, #mystats .go, #profile .go, #puka .go, #levelInfo .go { margin-top:16px; }
+  #quests .wrap b, #settings .wrap b, #howto .wrap b, #mystats .wrap b, #profile .wrap b, #puka .wrap b, #levelInfo .wrap b, #spin .wrap b { color:#fff; }
+  #quests .go, #settings .go, #howto .go, #mystats .go, #profile .go, #puka .go, #levelInfo .go, #spin .go { margin-top:16px; }
   /* the goal rows are laid out by #ovText on the run card, so outside it they collapse and
      the label runs straight into its count — they get their own layout here */
   #quests .tr { display:flex; justify-content:space-between; align-items:center; gap:14px;
@@ -850,7 +850,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   #quests .tr.done, #quests .tr.done b { color:#ffe98a; }
   /* the game's heading, which is gold cut out against orange — the same one the title,
      the shop and the wipeout card all carry. These four were the only plain white ones. */
-  #quests h2, #settings h2, #howto h2, #mystats h2, #profile h2, #puka h2, #levelInfo h2 { margin:0 0 12px; font-size:min(6vw,24px);
+  #quests h2, #settings h2, #howto h2, #mystats h2, #profile h2, #puka h2, #levelInfo h2, #spin h2 { margin:0 0 12px; font-size:min(6vw,24px);
     letter-spacing:.5px; color:#ffdf2e; text-shadow:2px 2px 0 #b8641c, 0 4px 16px rgba(0,20,40,.45); }
   /* ---- the trick sheet ---- */
   #howto .lead { font-size:min(3.3vw,12.5px); opacity:.75; line-height:1.5; margin:0 0 12px; }
@@ -1974,26 +1974,55 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     display:none; }
   .hbIcon.hbWheel.rdy .pip { display:block; animation:pipPulse 1.9s ease-in-out infinite; }
   @keyframes pipPulse { 0%,100%{ transform:scale(1); opacity:1; } 50%{ transform:scale(1.28); opacity:.72; } }
-  #spinStage { position:relative; width:min(72vw,264px); aspect-ratio:1; margin:6px auto 4px; }
-  /* The pointer sits at the TOP and does not move; everything below it turns. */
-  #spinPtr { position:absolute; left:50%; top:-5px; width:0; height:0; z-index:3;
+  #spinStage { position:relative; width:min(72vw,264px); aspect-ratio:1; margin:15px auto 4px; }
+  /* The pointer sits at the TOP and does not move; everything below it turns.
+     Clear of the rim rather than behind it: at top:-5px the wheel's own 5px border ate all
+     but the tip and it read as a nub growing out of the edge. It has to overlap the face by
+     a few pixels -- a pointer floating above the wheel is not pointing at anything -- so it
+     sits just proud of the border and reaches down over it. */
+  #spinPtr { position:absolute; left:50%; top:-13px; width:0; height:0; z-index:3;
     transform:translateX(-50%);
-    border-left:11px solid transparent; border-right:11px solid transparent;
-    border-top:20px solid #ffe07a; filter:drop-shadow(0 2px 4px rgba(0,10,20,.6)); }
+    border-left:13px solid transparent; border-right:13px solid transparent;
+    border-top:26px solid #ffe07a;
+    filter:drop-shadow(0 3px 3px rgba(0,10,20,.65)); }
+  /* A HUB, because six wedges meeting at a bare point is not a wheel, it is a pie chart --
+     and the labels all run toward that point, so without something to stop them they crowd
+     into each other at the middle. */
+  #spinHub { position:absolute; left:50%; top:50%; z-index:2;
+    width:18%; aspect-ratio:1; transform:translate(-50%,-50%); border-radius:50%;
+    background:radial-gradient(58% 58% at 42% 34%, #fff6dc, #f0c45c 58%, #d79a24);
+    box-shadow:0 2px 6px rgba(0,12,28,.5), inset 0 -2px 5px rgba(150,92,10,.45),
+               inset 0 2px 3px rgba(255,252,235,.75); }
   #spinWheel { position:absolute; inset:0; border-radius:50%;
     border:5px solid rgba(255,232,170,.55);
     box-shadow:0 8px 30px rgba(0,14,30,.55), inset 0 0 26px rgba(0,16,32,.40);
     /* set from script, because the slice count follows the prize table */
     background:#123; transition:transform 4.2s cubic-bezier(.12,.72,.06,1); }
   #spinLabels { position:absolute; inset:0; }
-  #spinLabels span { position:absolute; left:50%; top:50%; transform-origin:0 0;
-    font-size:min(3.0vw,11.5px); font-weight:800; color:#0d1a22; white-space:nowrap;
-    text-shadow:0 1px 0 rgba(255,255,255,.35); pointer-events:none; }
-  #spinWon { min-height:46px; margin:8px 4px 2px; text-align:center;
+  /* ---- A LABEL IS AN ARM, NOT AN OFFSET ---- */
+  /* These were placed with translate(34%), and a percentage in a transform is a share of the
+     ELEMENT's own size -- so every label sat at a different radius depending on how long its
+     text happened to be, and the short ones ended up under the hub. The arm is half the stage
+     wide, which is exactly the radius, and the text is pinned to its far end: now every label
+     ends the same distance from the rim whatever it says. */
+  #spinLabels span { position:absolute; left:50%; top:50%; width:50%; height:0;
+    transform-origin:0 0; pointer-events:none; }
+  #spinLabels i { position:absolute; right:8%; top:-0.60em; display:block;
+    font-style:normal; font-size:min(3.0vw,11.5px); font-weight:800; color:#0d1a22;
+    white-space:nowrap; text-shadow:0 1px 0 rgba(255,255,255,.38); }
+  /* On the lower half the arm itself is upside down, so the TEXT BOX is turned about its own
+     centre -- which leaves it in the same place on the arm and puts the glyphs the right way
+     up. Rotating the arm instead would send the label off down the opposite slice. */
+  #spinLabels span.flip i { transform:rotate(180deg); }
+  /* Reserved, not padded: the message that lands here is one or two lines and the box has to
+     be its height BEFORE the spin, or the whole card jumps upward the moment a prize arrives.
+     Trimmed to a two-line box rather than the three it was holding. */
+  #spinWon { min-height:38px; margin:4px 4px 0; text-align:center;
     font-size:min(4.2vw,16px); font-weight:800; color:#ffe98a; }
   #spinWon small { display:block; font-size:min(3.3vw,12.5px); font-weight:700;
     color:#dfeaf2; opacity:.82; margin-top:3px; }
   #spinGo[disabled] { opacity:.45; }
+  #spin .go { margin-top:10px; }
   #spin h2 span { font-size:min(3.4vw,13px); font-weight:700; opacity:.72; margin-left:8px; }
   /* ---- the style shelf ---- */
   /* Not a rack: nothing here has a price or a photograph, so it is rows rather than tiles.
@@ -2814,6 +2843,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   <div id="spinStage">
     <div id="spinPtr"></div>
     <div id="spinWheel"><div id="spinLabels"></div></div>
+    <div id="spinHub"></div>
   </div>
   <div id="spinWon"></div>
   <button class="go" id="spinGo"><span>Spin</span></button>
@@ -12272,7 +12302,9 @@ const questsPanel=document.getElementById('quests'), setPanel=document.getElemen
 // ways into each, and a class that has to be added and removed by hand in eight places is a
 // class that will be left on one day. This cannot drift: it reads the panels themselves.
 {
-  const panels=['quests','settings','howto','mystats','stats'].map(i=>document.getElementById(i))
+  // 'spin' belongs here for the same reason the rest do: body.panel is what the 3D scene
+  // reads to stop drawing the things a full-screen card is standing in front of.
+  const panels=['quests','settings','howto','mystats','stats','spin'].map(i=>document.getElementById(i))
     .filter(Boolean);
   const sync=()=>document.body.classList.toggle('panel',
     panels.some(p=>!p.classList.contains('hidden')));
@@ -12458,7 +12490,7 @@ function drawLevelInfo(){
 // weighted table anyway, and any rounding between the two would let the wheel stop on one
 // slice while the game paid out another. One source of truth, and the animation follows it.
 const SPIN_COL=['#ffd35e','#7fe0d4','#ffb36b','#9fd4ff','#ffe9a8','#c7b6ff'];
-let _spinP=null, _spinBusy=false, _spinTurns=0;
+let _spinP=null, _spinBusy=false, _spinTurns=0, _spinRot=0;
 function spinDraw(){
   const P=wheelPrizes(); _spinP=P;
   const tot=P.reduce((a,p)=>a+p.w,0);
@@ -12475,17 +12507,22 @@ function spinDraw(){
   wh.style.background='conic-gradient(from 0deg,'+seg.join(',')+')';
   lb.innerHTML='';
   for(let i=0;i<P.length;i++){
-    const s=document.createElement('span');
-    s.textContent=P[i].label;
-    // laid along the slice's own radius: rotate to the slice, walk out, then unrotate the
-    // text so it reads flat rather than upside down on the bottom half
-    const a=stops[i]-90;
-    s.style.transform='rotate('+a.toFixed(2)+'deg) translate(34%,-50%)'+
-                      (stops[i]>180?' rotate(180deg) translate(-100%,0)':'');
-    lb.appendChild(s);
+    const sp=document.createElement('span');
+    const tx=document.createElement('i');
+    tx.textContent=P[i].label;
+    sp.appendChild(tx);
+    // the arm lies along the middle of its slice; stops is measured from twelve o'clock, so
+    // -90 puts it in the same frame CSS rotations use
+    sp.style.transform='rotate('+(stops[i]-90).toFixed(2)+'deg)';
+    lb.appendChild(sp);
   }
   document.getElementById('spinRank').textContent=rankAt(level);
+  // BEFORE spinFlips, which reads it. wheelPrizes hands back a fresh array every call, so the
+  // stops were undefined on the object spinFlips was about to look at -- it bailed on its
+  // guard, every time, and nothing was ever flipped. The first draw looked right only because
+  // an unspun wheel has its labels where they were authored.
   _spinP.stops=stops;
+  spinFlips();
   const go=document.getElementById('spinGo');
   const rdy=wheelReady();
   go.disabled=!rdy||_spinBusy;
@@ -12497,6 +12534,23 @@ function spinDraw(){
   const won=document.getElementById('spinWon');
   if(!rdy&&!_spinBusy&&!won.innerHTML)
     won.innerHTML='<small>One spin a day. The prizes get better as you rank up.</small>';
+}
+// ---- WHICH LABELS ARE UPSIDE DOWN DEPENDS ON WHERE THE WHEEL IS ----
+// The flip was worked out from each label's own angle on the face, which is right exactly once:
+// before the first spin. The wheel then turns, a label that began in the top half finishes in
+// the bottom one, and four of the six come to rest mirrored -- which is how the first spin of
+// the fixed panel looked. The label's angle IN THE ROOM is its angle on the face plus wherever
+// the face has got to, so that is what decides it, and it is recomputed every time the wheel
+// lands somewhere new. Nothing is done about the 4.2 seconds in between: no one reads a
+// spinning wheel.
+function spinFlips(){
+  const lb=document.getElementById('spinLabels');
+  if(!lb||!_spinP||!_spinP.stops)return;
+  const sp=lb.children;
+  for(let i=0;i<sp.length&&i<_spinP.stops.length;i++){
+    const a=(((_spinP.stops[i]-90+_spinRot)%360)+360)%360;
+    sp[i].className=(a>90&&a<270)?'flip':'';
+  }
 }
 function spinPip(){
   const b=document.getElementById('hbWheel');
@@ -12522,7 +12576,8 @@ function doSpin(){
   const mid=(P.stops&&P.stops[i])||0;
   const jitter=(Math.random()-0.5)*Math.min(14,360/P.length*0.45);
   _spinTurns+=5;
-  wh.style.transform='rotate('+(_spinTurns*360-mid+jitter).toFixed(2)+'deg)';
+  _spinRot=_spinTurns*360-mid+jitter;
+  wh.style.transform='rotate('+_spinRot.toFixed(2)+'deg)';
   setTimeout(()=>{
     const r=wheelClaim(P[i]);
     buzz(22);
