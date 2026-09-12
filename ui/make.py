@@ -24,7 +24,9 @@ LIFE_BTN='d8a10f14-image.jpg'    # SECOND LIFE (Watch Ad)
 DBL_BTN ='ab09da71-image.jpg'    # DOUBLE COINS (Watch Ad)
 PLANK_A ='12a5458e-image.jpg'    # "Shave 3 close calls" -- clean trough
 PLANK_B ='d0465b37-image.jpg'    # "Ride a Barrel" -- round roundel, shell on the bar
-PLAQUE  ='d289c307-image.jpg'    # LIFE
+PLAQUES=[('d289c307-image.jpg','plaque_life.png'),    # LIFE
+         ('bfe033f1-image.jpg','plaque_share.png'),   # SHARE
+         ('409ce94b-image.jpg','plaque_menu.png')]    # MAIN MENU
 
 def box(f,r):
     if r<1: return f
@@ -153,9 +155,17 @@ for _ in range(140): seed=np.minimum(np.clip(blur(seed,1.2)*6,0,1),(al>0.25).ast
 al*=np.clip(blur(seed,1.0)*3,0,1)
 out(a,al,'knob.png',80)
 
-# ---- the LIFE plaque: shot on white, so brightness is what separates it ----
-a=np.asarray(Image.open(U+PLAQUE).convert('RGB')).astype(np.float32)[600:990,90:610]
-# the plaque is brown and its shadow is neutral grey, so colour separates them where
-# brightness alone would keep the shadow
-al=np.clip(((a[:,:,0]-a[:,:,2])-7.0)/9.0,0,1)
-out(a,al,'plaque_life.png',260)
+# ---- the button plaques: shot on white, one to a frame, all the same size ----
+# The plaque is brown and the shadow under it is neutral grey, so COLOUR is what separates
+# them here -- keyed on brightness the shadow comes along with the plaque.
+# ONE crop box for all of them, and no trimming to each plaque's own outline afterwards. They
+# are shot in identical frames and they sit side by side in a row, so what matters is that they
+# come out at the same scale in the same place -- tightened to itself, a plaque whose shadow
+# reaches a few pixels further renders a few per cent smaller than the one beside it.
+PBOX=(128,636,574,918)
+for src,name in PLAQUES:
+    a=np.asarray(Image.open(U+src).convert('RGB')).astype(np.float32)[PBOX[1]:PBOX[3],PBOX[0]:PBOX[2]]
+    al=np.clip(((a[:,:,0]-a[:,:,2])-7.0)/9.0,0,1)
+    im=Image.fromarray(np.dstack([np.clip(a,0,255),al*255]).astype(np.uint8),'RGBA')
+    im=im.resize((260,round(im.height*260/im.width)),Image.LANCZOS)
+    im.save(OUT+name,optimize=True); print(name,im.size,os.path.getsize(OUT+name)//1024,'KB')

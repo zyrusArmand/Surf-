@@ -12,10 +12,16 @@ into what the page can actually use:
 | `plank.png` | a quest plank with nothing written on it | `.over #ovText .tr.goal` |
 | `knob.png` | the shell that rides the bar | `.tr.goal .bar i.on::after` |
 | `plaque_life.png` | the LIFE plaque | `.over #overRow .ob-life` |
+| `plaque_share.png` | the SHARE plaque | `.over #overRow .ob-share` |
+| `plaque_menu.png` | the MAIN MENU plaque | `.over #overRow .ob-menu` |
 
-Three of the five ship whole: the ground is keyed off and that is the asset, lettering included,
+Most of them ship whole: the ground is keyed off and that is the asset, lettering included,
 so the buttons carry no text of their own and their labels are only there for anything that
-cannot see a picture.
+cannot see a picture. The plaques are the same, and all three are cut from **one shared crop
+box** with no trimming to each plaque's own outline afterwards: they are shot in identical
+frames and they sit side by side in a row, so what matters is that they come out at the same
+scale in the same place. Tightened to itself, a plaque whose shadow reaches a few pixels
+further renders a few per cent smaller than the one beside it.
 
 **The plank is the one that is cut apart**, because three things on it change from quest to
 quest: the carving in the dish on the left, the words along the top and the count in the trough.
