@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.65';
+window.SURF_VERSION='9.66';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -5794,11 +5794,18 @@ function rankIdx(L){ let i=0; for(let k=0;k<RANKS.length;k++)if(L>=RANKS[k][0])i
 // Is this level the FIRST of a new rung? That is what pays -- not every level inside one.
 function rankRungAt(L){ for(let k=0;k<RANKS.length;k++)if(RANKS[k][0]===L)return k; return -1; }
 // The promotion purse, on top of the ordinary per-level pay. It climbs with the rung because
-// the rungs themselves get further apart: 1,000 for Beach Grom, 20,000 for Wave Whisperer, and
-// 210,000 across a whole ladder -- a mid-rack board's worth of shells for actually finishing
-// it. Deliberately generous. The complaint this answers is that levelling gave nothing back,
-// and a reward too small to notice is the same as no reward with more arithmetic.
-const RANK_PAY=i=>1000*(i+1);
+// the rungs themselves get further apart, and it ends up at 205,000 across a whole ladder -- a
+// mid-rack board's worth of shells for actually finishing it. Deliberately generous: the
+// complaint it answers is that levelling gave nothing back, and a reward too small to notice
+// is the same as no reward with extra arithmetic.
+// ---- but NOT a straight line, because the bottom of it was drowning the runs ----
+// At 1000*(i+1) the first promotion paid 2,000 shells, and a beginner reaches level 4 in about
+// a dozen runs worth 82 each. Measured: sixty-three per cent of everything a level-4 player
+// had came from LEVELLING rather than from playing, which makes a good run and a bad one very
+// nearly the same run. Curved instead, the first promotion is 1,000 and that figure drops to
+// forty-six per cent, while the whole-ladder total barely moves -- 205,450 against 209,000.
+// The generosity was never the problem; where it sat on the ladder was.
+const RANK_PAY=i=>Math.round(400*Math.pow(i+1,1.35)/50)*50;
 // every rung crossed between two levels, so a run that jumps two of them pays for both
 function rankPayBetween(from,to){
   let n=0;
@@ -6999,7 +7006,7 @@ const BOARDS=[
      fins:[{x:0.000,z:3.504,c:0.687,d:0.687,t:0.030,rake:0.13},
            {x:-0.539,z:3.078,c:0.550,d:0.522,t:0.028,rake:0.11,cant:0.20},
            {x: 0.34,z:3.078,c:0.550,d:0.522,t:0.028,rake:0.11,cant:-0.20}]}},
-  {id:'razor', name:'Razorline', price:1500,
+  {id:'razor', name:'Razorline', price:900,
    blurb:'Shortboard. Squash tail, hard rails, all edge and no forgiveness.',
    spec:{L:6.00,W:0.781,T:0.203,noseA:1.063,tailA:3.200,noseW:0.030,tailW:0.590,
      rockN:0.417,noseR:0.340,rockT:0.208,tailR:0.280,deckPow:0.50,hullPow:0.38,hullK:0.64,
@@ -7171,7 +7178,7 @@ const BOARDS=[
        bands:[[0.20,0.20,0xff4d16],[0.50,0.16,0xff8c19],[0.80,0.20,0xd6360d]]}),
      fins:[{x:0.000,z:2.513,c:0.790,d:0.742,t:0.036,rake:0.22}]}},
 
-  {id:'grom', name:'Grom Rocket', price:1350,
+  {id:'grom', name:'Grom Rocket', price:600,
    blurb:'A 4ft 8 kid\'s board. Almost no volume, turns on the spot, forgives nothing.',
    spec:{L:4.67,W:0.608,T:0.158,noseA:1.063,tailA:3.200,noseW:0.030,tailW:0.590,
      rockN:0.417,noseR:0.340,rockT:0.208,tailR:0.280,deckPow:0.52,hullPow:0.40,hullK:0.64,
@@ -7183,7 +7190,7 @@ const BOARDS=[
            {x:-0.282,z:1.553,c:0.315,d:0.294,t:0.022,rake:0.08,cant:0.22},
            {x: 0.26,z:1.553,c:0.315,d:0.294,t:0.022,rake:0.08,cant:-0.22}]}},
 
-  {id:'sandbar', name:'Sandbar Skim', price:1950,
+  {id:'sandbar', name:'Sandbar Skim', price:1200,
    blurb:'Skimboard. Marine ply, one coat of varnish and a stripe. Runs the shore break flat out.',
    spec:{L:4.10,W:0.820,T:0.045,noseA:2.690,tailA:3.200,noseW:0.550,tailW:0.650,
      rockN:0.167,noseR:0.280,rockT:0.050,tailR:0.220,deckPow:0.74,hullPow:0.74,hullK:1.0,
@@ -13833,7 +13840,7 @@ const CHARS=[
    // with a face drawn on. Same volume, redistributed.
    headS:[0.985,0.870,0.780]},
 
-  {id:'cat', body:'lean',   name:'Miso the Cat',   price:2100,
+  {id:'cat', body:'lean',   name:'Miso the Cat',   price:900,
    blurb:'Grey tabby. Hates water, rides it anyway, will not discuss it.',
    // A tabby IS its markings: bars across the back, bars on the brow, a pale chin, chest
    // and belly. Lean and long through the body, small wedge head, ears set wide and high.
@@ -13892,7 +13899,7 @@ const CHARS=[
    build:[1.10,0.98,1.12], limb:1.16, limbLen:0.84, arm:1.10, armLen:0.86, foot:1.06,
    limbCol:0x191920, footCol:0x141419, handCol:0x141419, headS:[1.178,1.138,1.036]},
 
-  {id:'frog', body:'squat',  name:'Allen the Frog',  price:2700,
+  {id:'frog', body:'squat',  name:'Allen the Frog',  price:1800,
    blurb:'Born for this. Wide mouth, wider eyes, sticks every landing wetly.',
    // A frog is SQUAT: no neck, a body broader than it is tall, eyes up on TOP of the skull,
    // and hind legs far longer and far thicker than the arms. The old one stood like a green
