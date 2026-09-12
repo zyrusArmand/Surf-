@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.35';
+window.SURF_VERSION='9.36';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -21913,8 +21913,8 @@ function crateCarryOn(){ crateCeremonyEnd(); overlay.classList.remove('hidden');
 // How the ceremony chest is framed. Scale over distance is what decides its size on screen,
 // so both are here and both matter: bringing the scale down alone leaves it in your face,
 // pushing it back alone leaves it small in a big empty frame.
-let CH_DIST=5.6;      // feet in front of the lens
-let CH_SC=1.18;       // and how big it stands there
+let CH_DIST=7.2;      // feet in front of the lens
+let CH_SC=1.26;       // and how big it stands there
 let CH_DROP=1.30;     // how far under the eyeline, at the distance it was set at
 let CH_GLOW=0.16;     // the light off the treasure inside, at the lid's widest
 const _chD=new THREE.Vector3();
@@ -22441,6 +22441,19 @@ function startEaten(o){
   w.eaten=o; w.chew=0;
   // he is not thrown anywhere; the velocities would only fight the jaw for his position
   w.vx=0; w.vy=0; w.vz=0; w.sx=0; w.sy=0; w.sz=0;
+  // ---- and the ANIMAL keeps going the way it was going ----
+  // It was halfway through a leap across the lane when it caught him, and the chew then parked
+  // it: x and z were never touched again, so a shark travelling at twenty feet a second stopped
+  // dead in the air and hung there broadside for three seconds while the world slid past behind
+  // it. "He needs to not just turn at that angle, keep moving in direction shark was already
+  // going." The leap's velocity is a constant -- the arc covers (tx - x0) in SHK_ARC -- so it can
+  // simply be read off and carried, and it bleeds away as the animal settles with its mouth full.
+  const u=o.userData;
+  if(u.x0!==undefined&&u.aimX!==undefined){
+    const tx=u.aimX+((u.aimX-u.x0>0)?SHK_PAST:-SHK_PAST);
+    w.eatVX=(tx-u.x0)/SHK_ARC;
+    w.eatVZ=(u.aimZ!==undefined&&u.z0!==undefined)?(((u.aimZ+1.6)-u.z0)/SHK_ARC):0;
+  } else { w.eatVX=0; w.eatVZ=0; }
 }
 // where the mouth actually is, taken off the jaw bone and the animal's own heading rather
 // than off a local offset — the bone sits at the HINGE, which is the back of the mouth, and
@@ -22477,6 +22490,18 @@ function sharkMouth(o,out){
 function eatenStep(dt,w){
   const o=w.eaten;
   w.chew+=dt;
+  // ...carried along its own crossing, slowing as it settles. Not a hard stop and not a coast
+  // either: something with a mouthful stops driving, so a second and a bit of travel and then it
+  // is going nowhere much, by which time the shot has it.
+  { const drag=Math.exp(-w.chew*1.6);
+    o.position.x+=(w.eatVX||0)*drag*dt;
+    o.position.z+=(w.eatVZ||0)*drag*dt; }
+  // ---- and the BOARD is not in the way ----
+  // He has been taken off it, and the shot is locked on the animal's mouth seventeen feet back --
+  // so a nine-foot plank floating where the rider used to be sits squarely between the two and
+  // fills half the frame. "Why is surfboard covering camera, should not happen." It is put away
+  // for the sequence; reset and beginRun both switch it back on.
+  if(typeof rig!=='undefined'&&rig)rig.visible=false;
   const sea=waveH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock);
   const dir=o.userData.dir||1;
   if(w.chew<SHK_CHEW){
@@ -28349,6 +28374,15 @@ if(location.hash.includes('debug')){
       if(!s)return {err:'could not get a shark',
                     kinds:os.map(o=>o.userData&&o.userData.kind).filter(Boolean)};
       s.position.set(px,s.position.y,pz-3);
+      // ---- and it has to have LEAPT ----
+      // startEaten reads the leap it was in the middle of -- x0, aimX, z0, aimZ -- to work out
+      // which way the animal was travelling and how fast, so it can carry on that way instead of
+      // parking. An obstacle conjured straight into the mouth has none of those, so the carry
+      // measured a flat zero and looked exactly like the feature not working. Staged here to the
+      // shape a real leap leaves behind: launched nine feet off to one side, aimed at the rider.
+      { const u=s.userData;
+        u.dir=u.dir||1;
+        u.x0=px-u.dir*9; u.aimX=px; u.z0=pz-14; u.aimZ=pz; }
       startEaten(s);
       return {ok:!!(wipe&&wipe.eaten), kind:s.userData.kind};
     },
@@ -28372,6 +28406,10 @@ if(location.hash.includes('debug')){
               lean:+lean.toFixed(1),
               yaw:+(e.y*180/Math.PI).toFixed(1), roll:+(e.z*180/Math.PI).toFixed(1),
               jaw:+(+(o.userData.jaw||0)).toFixed(1),
+              // where the animal has got to, and whether the board is in the shot -- the two
+              // things the sequence was reported for after the thrash was taken out
+              x:+o.position.x.toFixed(2), z:+o.position.z.toFixed(2),
+              boardVis:!!(typeof rig!=='undefined'&&rig&&rig.visible),
               riderRoll:+(player.rotation.z*180/Math.PI).toFixed(1)};
     },
     rayRun(secs,dt){
@@ -31007,9 +31045,30 @@ if(location.hash.includes('debug')){
       if(typeof crateCeremony!=='function')return null;
       crateHeld=true; crateCeremony();
       if(open){ crateOpened=true; crateLid=1; }
+      // ---- and how much of the FRAME it takes ----
+      // "Too close to camera" is not a distance, it is a fraction of the screen, and the two
+      // move independently here: CH_DIST and CH_SC are both tunable and only their ratio decides
+      // what you see. Reported as the projected width and height of its own box, so pushing it
+      // back and scaling it up -- which changes the perspective without changing the size -- can
+      // be told apart from actually making it smaller.
+      // ...of the CHEST, not of its halo. The glow quads are 3.4 units across and sit proud of
+      // the box, so setFromObject on the group measures the light and not the thing.
+      ceremonyChest.updateMatrixWorld(true);
+      const _cb=new THREE.Box3(), _cv=new THREE.Vector3(), _cc=[];
+      ceremonyChest.traverse(n=>{ if(!n.isMesh)return;
+        if(n===ceremonyChest.userData.halo||n===ceremonyChest.userData.glow)return;
+        if(n.material&&n.material.transparent&&!n.material.map)return;   // the glow quads
+        _cb.union(new THREE.Box3().setFromObject(n)); });
+      if(!isFinite(_cb.min.x))_cb.setFromObject(ceremonyChest);
+      for(const X of [_cb.min.x,_cb.max.x])for(const Y of [_cb.min.y,_cb.max.y])
+        for(const Z of [_cb.min.z,_cb.max.z]){ _cv.set(X,Y,Z).project(camera); _cc.push([_cv.x,_cv.y]); }
+      const _cx=_cc.map(q=>q[0]), _cy=_cc.map(q=>q[1]);
       return {show:crateShow, opened:!!crateOpened,
               haloOn:!!(ceremonyChest&&ceremonyChest.userData.halo&&ceremonyChest.userData.halo.visible),
-              scale:+ceremonyChest.scale.x.toFixed(3)};
+              scale:+ceremonyChest.scale.x.toFixed(3),
+              dist:+camera.position.distanceTo(ceremonyChest.position).toFixed(2),
+              fillsW:+((Math.max(..._cx)-Math.min(..._cx))/2).toFixed(3),
+              fillsH:+((Math.max(..._cy)-Math.min(..._cy))/2).toFixed(3)};
     },
     palmProbe(wx,wz){
       // given a world x,z it MOVES the staged tree there and re-lays the set out, so the
