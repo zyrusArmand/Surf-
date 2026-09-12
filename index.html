@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.62';
+window.SURF_VERSION='9.63';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -1963,6 +1963,30 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     color:#eaf6ff; background:rgba(255,255,255,.09); border:1.5px solid rgba(255,255,255,.28);
     border-radius:999px; cursor:pointer; text-shadow:0 1px 3px rgba(0,18,42,.6);
     transition:background .12s, color .12s, border-color .12s, box-shadow .12s; }
+  /* ---- the style shelf ---- */
+  /* Not a rack: nothing here has a price or a photograph, so it is rows rather than tiles.
+     A locked row still shows its name and what it is -- knowing what is up there is most of
+     why anybody climbs, and a row of grey boxes tells you nothing to want. */
+  #shopList .gsec { font-size:12px; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
+    color:#bfe6ee; opacity:.72; margin:14px 2px 7px; grid-column:1/-1; }
+  #shopList .gsec:first-child { margin-top:2px; }
+  #shopList .grow { grid-column:1/-1; display:flex; align-items:center; gap:10px;
+    padding:11px 13px; border-radius:13px; background:rgba(255,255,255,.055);
+    border:1px solid rgba(255,255,255,.10); margin-bottom:8px; }
+  #shopList .grow.on { background:linear-gradient(180deg,rgba(120,240,220,.20),rgba(90,200,190,.09));
+    border-color:rgba(150,250,235,.55); }
+  #shopList .grow.lk { opacity:.52; }
+  #shopList .grow .gi { flex:1 1 auto; min-width:0; }
+  #shopList .grow .gi b { display:block; font-size:15px; font-weight:800; color:#f2fbff; }
+  #shopList .grow .gi span { display:block; font-size:12.5px; opacity:.70; margin-top:2px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #shopList .grow button { flex:0 0 auto; min-width:86px; padding:9px 12px; border-radius:10px;
+    font-size:13.5px; font-weight:800; cursor:pointer;
+    background:rgba(120,235,220,.22); border:1px solid rgba(150,250,235,.52); color:#eafffb; }
+  #shopList .grow button.own { background:rgba(255,255,255,.10);
+    border-color:rgba(255,255,255,.22); color:#dfeaf2; }
+  #shopList .grow button.lock { background:rgba(255,255,255,.05); cursor:default;
+    border-color:rgba(255,255,255,.14); color:#a9bdc9; }
   #shopTabs .tab.on { color:#fff; border-color:rgba(196,252,246,.78);
     background:linear-gradient(157deg, rgba(90,238,226,.28), rgba(20,180,180,.13) 55%,
                                        rgba(150,246,238,.20));
@@ -2812,7 +2836,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
 <div id="shop" class="hidden">
   <div class="shopwrap">
     <h2>Beach shop <span id="shopLv">Lv 1</span><span id="shopCoins">0 puka</span></h2>
-    <div id="shopTabs"><button class="tab on" data-tab="boards">Boards</button><button class="tab" data-tab="riders">Surfers</button></div>
+    <div id="shopTabs"><button class="tab on" data-tab="boards">Boards</button><button class="tab" data-tab="riders">Surfers</button><button class="tab" data-tab="gear">Style</button></div>
     <div id="shopList"></div>
     <button class="go calm" id="shopClose"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg><span>Back</span></button>
   </div>
@@ -5459,6 +5483,51 @@ loadModel('board.glb',s=>{
 // ---------- what carries between runs ----------
 const SAVE_KEY='pugSurfSave1';
 let coins=0, owned={astro:1}, equipped='astro', ownedChars={pug:1}, rider='pug';
+// ---------- GEAR: what a rank hands you that shells cannot ----------
+// Boards and riders are both bought. Levels only ever said which ones you were ALLOWED to buy,
+// which makes a level a permission slip -- you still have to go and earn the shells. Gear is the
+// other half, and the half that was missing: it is not for sale at any price and reaching the
+// rank IS the whole transaction. That is what makes a promotion feel like a reward rather than
+// an invoice.
+// It is also the only category that can be handed out freely without touching balance, because
+// none of it does anything: a pair of shades is worth nothing in a wave. That is a feature. A
+// reward that changes how the game plays has to be balanced against every other reward; one
+// that changes how you LOOK can be given away on the strength of the moment alone.
+// Two slots, because two is what a head has room for and a hat fighting a hat is not a choice.
+const GEAR=[
+  // --- shades: a bar across the face at eye height ---
+  {id:'shd_classic', slot:'eyes', lv:4,   name:'Classic Shades',   blurb:'Black frames. Never not right.',
+   frame:0x14151a, lens:0x0d1014, mirror:0.0},
+  {id:'shd_sunset',  slot:'eyes', lv:19,  name:'Sunset Aviators',  blurb:'Gold rims and a lens full of evening.',
+   frame:0xd8a23c, lens:0x9a4a2c, mirror:0.35},
+  {id:'shd_reef',    slot:'eyes', lv:39,  name:'Reef Polarised',   blurb:'Cuts the glare straight off the water.',
+   frame:0x1d3a44, lens:0x0e5f66, mirror:0.55},
+  {id:'shd_neon',    slot:'eyes', lv:60,  name:'Neon Visor',       blurb:'One band, no apology.',
+   frame:0xff3d7f, lens:0x2a0d2a, mirror:0.70, visor:1},
+  {id:'shd_chrome',  slot:'eyes', lv:93,  name:'Chrome Mirrors',   blurb:'They see the wave. You see yourself.',
+   frame:0xb9c2cc, lens:0xdfe9f2, mirror:1.0},
+  // --- hats: sat on the crown ---
+  {id:'hat_cap',     slot:'head', lv:8,   name:'Surf Cap',         blurb:'Peak forward, salt-stained.',
+   col:0x2f6fb5, brim:0x27599010, kind:'cap'},
+  {id:'hat_straw',   slot:'head', lv:25,  name:'Straw Lid',        blurb:'A whole brim of shade.',
+   col:0xdcc183, kind:'brim'},
+  {id:'hat_beanie',  slot:'head', lv:46,  name:'Dawn Patrol Beanie',blurb:'For the cold ones before work.',
+   col:0x8d3f4e, kind:'beanie'},
+  {id:'hat_bucket',  slot:'head', lv:74,  name:'Bucket Hat',       blurb:'Brim down. Opinions down.',
+   col:0x3f7d5a, kind:'brim'},
+  {id:'hat_crown',   slot:'head', lv:111, name:'The Big Kahuna',   blurb:'Worn by one surfer on the point.',
+   col:0xf0c23a, kind:'crown'},
+];
+const GEAR_BY_ID={}; for(const g of GEAR)GEAR_BY_ID[g.id]=g;
+// what is ON, one per slot. Nothing by default -- a new player is not wearing a hat they have
+// not earned, and the first one they earn is the first thing they see change.
+let gearOn={eyes:'', head:''};
+function gearLvl(id){ const g=GEAR_BY_ID[id]; return g?g.lv:1; }
+function gearHave(id){ return level>=gearLvl(id); }
+// Gear has no owned[] of its own on purpose. A board can be unlocked and still not bought, so
+// the rack needs two facts about it; gear has one -- you are the rank or you are not -- and a
+// second table would only be a chance for the two to disagree after a save is edited.
+function gearWorn(slot){ const id=gearOn[slot]; return (id&&gearHave(id))?GEAR_BY_ID[id]:null; }
 // ---------- level ----------
 // XP is the only thing written down. The level is DERIVED from it every time it is needed and
 // stored nowhere, which is what makes the pacing retunable: change the two numbers below and
@@ -5904,6 +5973,13 @@ function loadSave(){
     for(const id of ['haybale','cattleclass'])delete owned[id];
     if(equipped==='haybale'||equipped==='cattleclass')equipped='astro';
     ownedChars=Object.assign({pug:1},v.ownedChars||{});
+    // Only the two slots, and only ids this build still knows: a save written by a version with
+    // a piece of gear that has since been renamed should come back bare-headed, not throw.
+    gearOn={eyes:'', head:''};
+    if(v.gearOn)for(const s of ['eyes','head']){
+      const id=v.gearOn[s];
+      if(id&&GEAR_BY_ID[id]&&GEAR_BY_ID[id].slot===s)gearOn[s]=id;
+    }
     rider=v.rider||'pug';
     delete ownedChars.cow;
     if(rider==='cow')rider='pug';
@@ -5926,7 +6002,7 @@ function saveGame(){
   // actually riding and that is what goes to disk.
   const r=(typeof ufoWas!=='undefined'&&ufoWas)?ufoWas.rider:rider;
   const b=(typeof ufoWas!=='undefined'&&ufoWas)?ufoWas.board:equipped;
-  try{localStorage.setItem(SAVE_KEY,JSON.stringify({coins,xp,xpv:2,uname,owned,equipped:b,ownedChars,rider:r,goals}));}catch(e){}
+  try{localStorage.setItem(SAVE_KEY,JSON.stringify({coins,xp,xpv:2,uname,owned,equipped:b,ownedChars,rider:r,goals,gearOn}));}catch(e){}
 }
 
 // ---------- telemetry ----------
@@ -11182,6 +11258,39 @@ function drawShop(){
   for(const t of document.querySelectorAll('#shopTabs .tab'))
     t.classList.toggle('on',t.dataset.tab===shopTab);
   const jobs=[];
+  if(shopTab==='gear'){
+    // ---- the one shelf with no prices on it ----
+    // Gear is not for sale, so this is not a rack: there is no thumbnail to photograph, no
+    // purse to check and nothing to be short of. A row per piece, grouped by slot, saying what
+    // it is and either the level that hands it over or a button to put it on. Tapping a piece
+    // you are already wearing takes it off -- a hat you cannot remove is a punishment.
+    for(const slot of ['eyes','head']){
+      const h=document.createElement('div'); h.className='gsec';
+      h.textContent=slot==='eyes'?'Shades':'Hats';
+      shopList.appendChild(h);
+      for(const g of GEAR.filter(x=>x.slot===slot)){
+        const have=gearHave(g.id), on=gearOn[slot]===g.id&&have;
+        const row=document.createElement('div');
+        row.className='grow'+(on?' on':'')+(have?'':' lk');
+        row.innerHTML='<div class="gi"><b>'+escName(g.name)+'</b><span>'+escName(g.blurb)+'</span></div>';
+        const btn=document.createElement('button');
+        if(!have){ btn.className='lock'; btn.disabled=true; btn.textContent='Level '+g.lv; }
+        else { btn.className=on?'own':''; btn.textContent=on?'Take off':'Wear';
+          btn.onclick=()=>{ buzz(10); gearOn[slot]=on?'':g.id; saveGame();
+            // equipChar rather than buildChar: it rebuilds unconditionally and re-applies the
+            // board stats afterwards, which is the path every other rider change takes.
+            equipChar(rider);
+            // every photographed rider card is now wrong -- they all wear this head. prevCache
+            // is a const, so the entries go one at a time rather than the object being replaced.
+            try{ for(const k of Object.keys(prevCache))if(k[0]==='c')delete prevCache[k]; }catch(e){}
+            drawShop(); }; }
+        row.appendChild(btn);
+        shopList.appendChild(row);
+      }
+    }
+    showCoins();
+    return;
+  }
   if(shopTab==='riders'){
     for(const c of charOrder()){
       const card=shopCard(c,!!ownedChars[c.id],rider===c.id,
@@ -11425,6 +11534,11 @@ function unlocksAt(L){
     // line over to a walk of BOARDS listed Kahuna 750 twice on the level it opens at.
     for(const b of BOARDS)if(!owned[b.id]&&!b.hidden&&boardLvl(b.id)===L)out.push(b.name);
     for(const c of CHARS)if(!ownedChars[c.id]&&!c.hidden&&charLvl(c.id)===L)out.push(c.name);
+    // Gear goes LAST in the row but it is the only thing here you simply receive -- the boards
+    // and riders above it are permission to go and spend. Named the same way regardless, because
+    // "Sunset Aviators" is the reward and the distinction is the card's to explain, not this
+    // function's.
+    for(const g of GEAR)if(g.lv===L)out.push(g.name);
   }catch(e){}
   return out;
 }
@@ -13183,6 +13297,84 @@ tailJ.rotation.y=-1.16;
 let kitParts=[], charEars=[], lureMat=null, lureGlow=null;
 function kit(parent,mesh){ parent.add(mesh); kitParts.push(mesh); return mesh; }
 function clearKit(){ for(const m of kitParts) if(m.parent)m.parent.remove(m); kitParts.length=0; charEars.length=0; }
+// ---------- WHAT A RANK PUT ON HIS HEAD ----------
+// Gear rides the same kit() the ears and the eyes do, so it is cleared and rebuilt with the
+// character and nothing has to remember to take a hat off a raccoon before putting one on a
+// frog. Both pieces hang off headJ, which is the joint the skull and every face part already
+// live on -- so a hat stays on through a wipeout, a handstand and a barrel without one line of
+// animation, because the head is what it is parented to and the head is already animated.
+// EVERYTHING IS SCALED BY C.headS. Twenty-two animals share one rig and one skull sphere, and
+// what makes a sloth's head a sloth's is a per-character scale on that joint. A hat authored
+// against the bare 0.40 sphere fits exactly one of them; sized against headS it fits all of
+// them, which is the same trick the eyes use ten lines below.
+// The face is -Z. The eyes sit at z about -0.30 to -0.40 and y about 0.06 to 0.22, so shades
+// go across that plane and a hat goes on the crown above it.
+function kitGear(C){
+  const E=gearWorn('eyes'), H=gearWorn('head');
+  // tagged so the fit check can pick the gear back out of a kit that also holds ears, eyes,
+  // markings and a nose -- there is no other way to tell one kit() mesh from another
+  const _n0=kitParts.length;
+  const tag=()=>{ for(let i=_n0;i<kitParts.length;i++)kitParts[i].userData.gear=1; };
+  if(E){
+    // A lens is a dark bar, not two beads: a pair of shades reads at a distance because it is
+    // ONE horizontal shape cutting across the face. Two separate discs on a head this size are
+    // four pixels each on a phone and read as eyes, which is the thing they are covering up.
+    const lensM=PBR({color:E.lens, roughness:E.mirror>0.5?0.10:0.28,
+                     metalness:Math.min(1,0.25+E.mirror*0.75), vivid:1.0+E.mirror*0.5});
+    lensM.polygonOffset=true; lensM.polygonOffsetFactor=-4; lensM.polygonOffsetUnits=-4;
+    const frameM=PBR({color:E.frame, roughness:0.34, metalness:0.55, vivid:1.25});
+    frameM.polygonOffset=true; frameM.polygonOffsetFactor=-5; frameM.polygonOffsetUnits=-5;
+    const bar=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.185,20,14),lensM));
+    bar.position.set(0,0.105,-0.320);
+    bar.scale.set(1.36,E.visor?0.62:0.44,0.40);
+    // the brow bar along the top, which is the line that says "glasses" and not "blindfold"
+    const brow=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.185,18,12),frameM));
+    brow.position.set(0,E.visor?0.190:0.168,-0.315);
+    brow.scale.set(1.40,0.13,0.40);
+    // and the arms, running back along the temples toward the ears
+    for(const sx of [-1,1]){
+      const arm=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.150,12,10),frameM));
+      arm.position.set(sx*0.235,0.135,-0.080);
+      arm.scale.set(0.16,0.13,1.55);
+    }
+  }
+  if(H){
+    const m=PBR({color:H.col, roughness:H.kind==='crown'?0.22:0.72,
+                 metalness:H.kind==='crown'?0.85:0.05, vivid:H.kind==='crown'?1.6:1.05});
+    if(H.kind==='cap'){
+      const dome=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.355,20,14),m));
+      dome.position.set(0,0.175,0.015);
+      dome.scale.set(1.06,0.78,1.04);
+      const peak=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.235,16,10),m));
+      peak.position.set(0,0.150,-0.330);
+      peak.scale.set(1.02,0.14,0.92);
+      peak.rotation.x=-0.16;
+    } else if(H.kind==='brim'){
+      const crown=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.315,20,14),m));
+      crown.position.set(0,0.235,0);
+      crown.scale.set(1.00,0.86,1.00);
+      const brim=kit(headJ,new THREE.Mesh(new THREE.CylinderGeometry(0.56,0.60,0.035,24),m));
+      brim.position.set(0,0.115,-0.02);
+      brim.rotation.x=0.06;
+    } else if(H.kind==='beanie'){
+      const cap=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.375,20,14),m));
+      cap.position.set(0,0.150,0);
+      cap.scale.set(1.05,0.86,1.05);
+      const roll=kit(headJ,new THREE.Mesh(new THREE.TorusGeometry(0.335,0.058,10,22),m));
+      roll.position.set(0,0.060,0);
+      roll.rotation.x=Math.PI/2;
+    } else {                                     // crown: the one worn by exactly one surfer
+      const band=kit(headJ,new THREE.Mesh(new THREE.CylinderGeometry(0.335,0.345,0.145,22,1,true),m));
+      band.position.set(0,0.330,0);
+      for(let i=0;i<7;i++){
+        const a2=i/7*Math.PI*2;
+        const sp=kit(headJ,new THREE.Mesh(new THREE.ConeGeometry(0.062,0.20,8),m));
+        sp.position.set(Math.sin(a2)*0.325,0.475,Math.cos(a2)*0.325);
+      }
+    }
+  }
+  tag();
+}
 // eyes are part of the kit: where they sit and how big they are is most of what
 // tells one animal from another at a glance
 function kitEyes(C,inner){
@@ -14635,6 +14827,7 @@ function buildChar(id){
     const t=kit(tailJ,new THREE.Mesh(new THREE.SphereGeometry(0.11,14,12),furMat));
     t.position.set(0,0.13,0.02);t.scale.set(1,1.9,1);t.rotation.x=-0.4;
   }
+  kitGear(C);
   sizeRider();
   builtChar=id;
   // ---- the pose he was BUILT in, kept, so he can be put back into it ----
@@ -27337,6 +27530,7 @@ if(location.hash.includes('debug')){
         try{
           for(const b of BOARDS)if(!b.hidden&&boardLvl(b.id)===L)names.push(b.name);
           for(const c of CHARS)if(!c.hidden&&charLvl(c.id)===L)names.push(c.name);
+          for(const g of GEAR)if(g.lv===L)names.push(g.name+' (gear)');
         }catch(e){}
         if(k>=0||names.length)
           rows.push({L, rank:k>=0?RANKS[k][1]:null, pay:LVL_PAY(L)+(k>=0?RANK_PAY(k):0),
@@ -27361,6 +27555,46 @@ if(location.hash.includes('debug')){
     // supposed to be bad at, and the rack goes flat at the top -- the exact failure the budget
     // was written to prevent. That is not visible from any one board, only from the spread of
     // all of them, so it gets a hook rather than an opinion.
+    // ---- does the hat sit ON the head? ----
+    // Gear is authored against a 0.40 skull and then scaled by each character's own headS, and
+    // twenty-two animals wear that skull at twenty-two different shapes. "It looks right on the
+    // pug" is one sample out of twenty-two, and the failure this is looking for -- a hat
+    // floating over a tall head or sunk into a round one -- is invisible on whichever animal it
+    // was authored against. So it is measured on all of them: where the gear sits relative to
+    // the top of the skull, in skull radii, for every character in the roster.
+    gearFit(gid){
+      const g=GEAR_BY_ID[gid]; if(!g)return {err:'no such gear'};
+      const wasR=rider, wasOn=gearOn[g.slot];
+      const out=[];
+      const box=new THREE.Box3(), v=new THREE.Vector3();
+      for(const c of CHARS){
+        if(c.hidden)continue;
+        gearOn[g.slot]=gid; equipChar(c.id);
+        // the skull itself, so everything is expressed against the head it is worn on
+        let hd=null; headJ.traverse(o=>{ if(!hd&&o.isMesh&&o.geometry&&
+          o.geometry.type==='SphereGeometry'&&o.geometry.parameters.radius===0.40)hd=o; });
+        if(!hd)continue;
+        box.setFromObject(hd);
+        const hTop=box.max.y, hBot=box.min.y, hR=Math.max(1e-4,(hTop-hBot)/2);
+        const parts=kitParts.filter(m=>m.userData&&m.userData.gear);
+        if(!parts.length){ out.push({id:c.id,err:'no gear built'}); continue; }
+        let lo=1e9, hi=-1e9, fz=1e9;
+        for(const m of parts){ box.setFromObject(m);
+          lo=Math.min(lo,box.min.y); hi=Math.max(hi,box.max.y); fz=Math.min(fz,box.min.z); }
+        out.push({id:c.id,
+          // how far the bottom of the gear sits above the top of the skull, in skull radii.
+          // Near zero is sitting on it; well above is floating; well below is buried.
+          restsAt:+((lo-hTop)/hR).toFixed(3),
+          rises:+((hi-hTop)/hR).toFixed(3),
+          headR:+hR.toFixed(3), parts:parts.length});
+        void v; void fz;
+      }
+      gearOn[g.slot]=wasOn; equipChar(wasR);
+      return out;
+    },
+    gearList:()=>GEAR.map(g=>({id:g.id,slot:g.slot,lv:g.lv,name:g.name,have:gearHave(g.id)})),
+    gearWear(id){ const g=GEAR_BY_ID[id]; if(!g)return null;
+      gearOn[g.slot]=id; equipChar(rider); return {...gearOn}; },
     rackStats(){
       return BOARDS.filter(b=>!b.hidden).map(b=>{
         const v=boardStats(b.id), a=[v.speed,v.turn,v.air,v.tough];
