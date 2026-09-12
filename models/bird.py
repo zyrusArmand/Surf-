@@ -45,6 +45,14 @@ import sys, math, os
 import bpy
 from mathutils import Vector, Quaternion, Matrix
 
+def _n(name, dflt):
+    """Every tuning number is overridable from the environment, so the amplitudes can be swept
+       against the measurements in check.py instead of edited and eyeballed one at a time."""
+    try:
+        return float(os.environ[name])
+    except (KeyError, ValueError):
+        return dflt
+
 SRC = sys.argv[1] if len(sys.argv) > 1 else 'models/bird.glb'
 DST = sys.argv[2] if len(sys.argv) > 2 else 'models/bird_rigged.glb'
 FPS = 24
@@ -58,10 +66,34 @@ DOWN = 0.38           # share of the cycle spent on the downstroke -- the fast, 
 # this swept the chain up to 2.4 and folded every hand bone by 0.55 each, which came to 2.8
 # radians of fold: the wing shut like a fan and the tip ended up near the bird's own spine.
 # Measured off the export -- tip travel and span swing both come out of check.py.
-FLAP_UP, FLAP_DN = 0.78, -0.62      # tip, at the top and bottom of the stroke: about 80 degrees
-SWEEP = 0.30                        # forward on the downstroke, back on the up
-FOLD = 0.62                         # how far the hand tucks at the top of the upstroke
-TWIST = 0.34                        # primaries pronating on the downstroke
+FLAP_UP, FLAP_DN = _n('FLAP_UP', 1.00), _n('FLAP_DN', -0.80)      # tip, at the top and bottom of the stroke
+SWEEP = _n('SWEEP', 0.14)                        # forward on the downstroke, back on the up
+# FOLD is small now and ELBOW/WRIST carry the folding, which is the anatomy: a bird folds at two
+# joints, it does not shrink its hand evenly. Swept against the measurements -- at FOLD 0.30 and
+# the hinges soft, the wing shortened as much but the inner-vs-outer angle only varied 28 degrees
+# instead of 32, and that angle IS the bend you can see.
+FOLD = _n('FOLD', 0.20)                         # how far the hand tucks at the top of the upstroke
+TWIST = _n('TWIST', 0.34)                        # primaries pronating on the downstroke
+# ---- AND THE THING THAT MAKES IT LOOK JOINTED RATHER THAN HINGED ----
+# The first version graded the flap down the chain but drove every bone IN PHASE, so the whole
+# wing turned at the same instant by different amounts. That is a rigid plane rotating -- which
+# is exactly "it just moves up and down", however deep the stroke or however many bones share
+# it. A wing reads as jointed because the shoulder LEADS and each joint outboard LAGS: at any
+# instant the inner wing is already coming down while the hand is still going up, and the wing
+# is bent into an S. That bend is the whole effect, and it costs one number.
+# 0.062 and not more: at 0.090 the bend was the same 32 degrees but the tip's vertical travel
+# fell from 41% of the span to 31%, because a big enough lag smears the extremes of the stroke
+# away. The bend is free up to about here and paid for after it.
+LAG = _n('LAG', 0.062)                         # of a cycle, per joint out from the shoulder
+# The two real hinges, flexing in the plane of the wing. An elbow and a wrist do not just pass
+# the flap along; they open on the downstroke and close on the recovery, which is what shortens
+# the wing and puts the kink in its leading edge.
+ELBOW = _n('ELBOW', 0.40)
+WRIST = _n('WRIST', 0.52)
+# ...and the hand itself CURLS. A primary feather is not a rod: the tip trails the load, so it
+# bends up at the bottom of the downstroke and down at the top of the recovery. Driven off the
+# stroke's own speed, because that is what the load follows.
+CURL = _n('CURL', 0.40)
 GLIDE_DROP = -0.58                  # the rest pose has the wings held high; a glide is level
 GLIDE_BREATHE = 0.07                # ...and still breathing, because a frozen wing is a prop
 BODY_RISE = 0.035                   # of the bird's length, up through the downstroke
@@ -123,6 +155,7 @@ def anatomy(arm):
                 d += 1
             depth[m] = d
         order = sorted(mem, key=lambda m: (depth[m], abs(tail[m].x)))
+        depths.update(depth)
         # the wrist is the first bone in the chain with more than one child inside it; the HAND
         # is everything descended from it -- that is the part a bird folds away on the upstroke.
         kids = {}
@@ -140,6 +173,7 @@ def anatomy(arm):
             stack.extend(kids.get(m, []))
         return order, hand
 
+    depths = {}
     L, handL = wing(-1)
     R, handR = wing(1)
     used = set(L) | set(R)
@@ -154,7 +188,7 @@ def anatomy(arm):
     tailb = [mid[-1]]
     body = [n for n in mid if n not in neck and n not in tailb]
 
-    return {'L': L, 'R': R, 'handL': handL, 'handR': handR, 'legs': legs,
+    return {'L': L, 'R': R, 'handL': handL, 'handR': handR, 'legs': legs, 'depth': depths,
             'neck': neck, 'tail': tailb, 'body': body, 'span': span,
             'head': head, 'tailp': tail}
 
@@ -189,8 +223,11 @@ def build(arm, A, name, beats=True):
     FWD = Vector((0.0, -1.0, 0.0))      # the way the bird points
     UP = Vector((0.0, 0.0, 1.0))
 
+    DEP = A['depth']
+    maxd = max([DEP.get(b, 0) for b in (A['L'] + A['R'])] or [1]) or 1
+
     # share of the flap each bone takes, shoulder to tip. A wing does not hinge at one joint:
-    # the turn is spread down the chain so the tip travels furthest and lags.
+    # the turn is spread down the chain so the tip travels furthest.
     def shares(chain):
         n = len(chain)
         if n == 0:
@@ -199,7 +236,7 @@ def build(arm, A, name, beats=True):
         t = sum(raw.values()) or 1.0
         # Normalised to ONE. Each bone inherits its parent's turn, so the shares add up down the
         # chain and the tip reaches exactly the angle asked for -- while the inboard joints take
-        # a graded part of it, which is what makes the wing whip rather than hinge.
+        # a graded part of it.
         return {b: v / t for b, v in raw.items()}
 
     shL, shR = shares(A['L']), shares(A['R'])
@@ -217,35 +254,63 @@ def build(arm, A, name, beats=True):
 
     fdL, fdR = hshares(A['handL']), hshares(A['handR'])
 
+    def stroke(wl):
+        """The beat sampled at one phase: how far down the stroke is, and how fast."""
+        wl = wl % 1.0
+        e = eased(wl, DOWN)
+        # speed of the stroke, signed: positive going down. The load on a feather follows this,
+        # which is what the curl is driven off.
+        h = 1e-3
+        de = (eased((wl + h) % 1.0, DOWN) - eased((wl - h) % 1.0, DOWN)) / (2 * h)
+        return e, de
+
     for f in range(CYCLE + 1):
         w = (f % CYCLE) / CYCLE
-        e = eased(w, DOWN) if beats else 0.0
-        # 0 at the top, 1 at the bottom of the stroke
-        flap = (FLAP_UP + (FLAP_DN - FLAP_UP) * e) if beats \
-            else (GLIDE_DROP + GLIDE_BREATHE * math.sin(2 * math.pi * w))
-        # sweep leads the flap by a quarter cycle: furthest forward mid-downstroke
         ph = math.sin(2 * math.pi * w)
         sweep = -SWEEP * ph if beats else 0.0
-        # the hand is tucked at the TOP and extended at the bottom
-        # tucked at the TOP of the stroke, extended at the bottom; a glide holds a little bend
-        fold = (FOLD * (1.0 - e)) if beats else 0.10
-        twist = TWIST * (2 * e - 1) if beats else 0.0
 
         for chain, sh, sgn, hand, fd in ((A['L'], shL, -1.0, A['handL'], fdL),
                                          (A['R'], shR, 1.0, A['handR'], fdR)):
             for b in chain:
                 pb = arm.pose.bones[b]
                 k = sh.get(b, 0.0)
+                d = DEP.get(b, 0)
+                # ---- EACH JOINT IS A LITTLE LATER THAN THE ONE INSIDE IT ----
+                # This is the line that turns a rotating plane into a wing. Same stroke, sampled
+                # further back in the cycle the further out the bone sits, so the wing is bent at
+                # every instant instead of flat at every instant.
+                if beats:
+                    e, de = stroke(w - LAG * d)
+                    flap = FLAP_UP + (FLAP_DN - FLAP_UP) * e
+                else:
+                    e, de = 0.0, 0.0
+                    flap = GLIDE_DROP + GLIDE_BREATHE * math.sin(2 * math.pi * w)
                 q = Quaternion(local_axis(pb, FWD), flap * k * sgn)
                 q = q @ Quaternion(local_axis(pb, UP), sweep * k * sgn)
+                # the two real hinges: the elbow is the second bone out, the wrist the third.
+                # Both open through the downstroke and close on the recovery.
+                if beats and d == 1:
+                    q = q @ Quaternion(local_axis(pb, UP), ELBOW * (1.0 - e) * sgn)
+                if beats and d == 2:
+                    q = q @ Quaternion(local_axis(pb, UP), WRIST * (1.0 - e) * sgn)
                 if b in hand:
                     kf = fd.get(b, 0.0)
+                    fold = (FOLD * (1.0 - e)) if beats else 0.10
+                    twist = (TWIST * (2 * e - 1)) if beats else 0.0
                     q = q @ Quaternion(local_axis(pb, UP), fold * kf * sgn)
                     q = q @ Quaternion(local_axis(pb, Vector((sgn, 0.0, 0.0))), twist * kf)
+                    # and the feathers CURL against the stroke: de is the stroke's own speed,
+                    # positive going down, and a loaded feather bends the other way.
+                    if beats:
+                        q = q @ Quaternion(local_axis(pb, FWD),
+                                           CURL * de * kf * sgn * 0.5)
                 pb.rotation_quaternion = q
                 pb.keyframe_insert('rotation_quaternion', frame=f + 1)
 
+        e, de = stroke(w) if beats else (0.0, 0.0)
+
         # the body rides the beat, and the head refuses to
+        void = e
         rise = BODY_RISE * A['span'] * (-math.cos(2 * math.pi * w)) if beats else 0.0
         pitch = TAIL_PITCH * ph if beats else 0.0
         for b in A['body']:
