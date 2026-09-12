@@ -199,36 +199,3 @@ for src,name in [('48d4f00d-image.jpg','sign_school.png'),
     im=im.resize((200,round(im.height*200/im.width)),Image.LANCZOS)
     im.save(OUT+name,optimize=True)
     print(name,im.size,os.path.getsize(OUT+name)//1024,'KB')
-
-# ---------- the rope round the card ----------
-# The one thing here with no source picture behind it. It is a frame rather than a straight run,
-# so a repeating gradient cannot draw it: at the corners the diagonal lay mitres into a chevron.
-# Laid round a rounded rectangle and nine-sliced instead, the corners turn the way rope turns.
-N=192; SLICE=24; INSET=12.0; R=20.0; HALF=9.5; PERIOD=24.0
-yy,xx=np.mgrid[0:N,0:N].astype(np.float32)
-px,py=xx+0.5-N/2.0, yy+0.5-N/2.0
-hx=hy=N/2.0-INSET-R                       # the straight runs of the centreline
-nx=np.clip(px,-hx,hx); ny=np.clip(py,-hy,hy)
-d=np.abs(np.sqrt((px-nx)**2+(py-ny)**2)-R)      # distance to the rounded-rect centreline
-u=np.clip(d/HALF,0,1.2)
-
-ph=(xx+yy)/PERIOD                          # strands at 45 degrees, the way a laid rope runs
-g=ph-np.floor(ph)
-# Rendered at nine pixels the whole border is about three pixels of strand, so anything
-# subtle here is gone by the time it is on screen -- a fat bright core and a hard dark lay
-# between strands is what survives the scale.
-lobe=np.sin(np.pi*np.clip(g,0,1))**0.45     # bright down the middle of a strand
-lay=np.clip(np.minimum(g,1.0-g)/0.16,0,1)   # and a hard groove where two strands meet
-lay=lay*lay*(3-2*lay)
-cyl=np.sqrt(np.clip(1.0-u*u,0,1))           # the rope is round, not flat
-lit=np.clip((0.16+0.80*lobe*(0.34+0.66*cyl))*(0.42+0.58*lay)+0.26*cyl**3*lobe**3,0,1)
-
-DARK=np.array([122, 95, 58],np.float32)
-MID =np.array([201,172,124],np.float32)
-LITE=np.array([245,231,201],np.float32)
-k=lit[...,None]
-col=np.where(k<0.5, DARK+(MID-DARK)*(k/0.5), MID+(LITE-MID)*((k-0.5)/0.5))
-al=np.clip((HALF-d)/1.3,0,1)
-
-Image.fromarray(np.dstack([col,al*255]).astype(np.uint8),'RGBA').save(OUT+'rope.png',optimize=True)
-print('rope.png',N,'x',N,'slice',SLICE,os.path.getsize(OUT+'rope.png')//1024,'KB')

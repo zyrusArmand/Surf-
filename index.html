@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.50';
+window.SURF_VERSION='9.51';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -1518,17 +1518,10 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
      wrong half to change: the wood is the art, and a second frame drawn around it in CSS was a
      frame competing with five framed things inside it. Only .rcard's padding widens here, to
      give the planks their margins. */
-  /* The rope goes back ROUND it, which is the half of that build worth keeping. What had to go
-     was the slab of navy painted inside it -- the pane stays the glass it has always been, and
-     you can still see the quest board through it. Drawn rather than striped: ui/rope.py lays the
-     strands round a rounded rectangle and it is nine-sliced from there, so the corners turn like
-     rope instead of the diagonal gradient mitring into a chevron. */
-  .over #ovText .rcard { padding:15px 13px 16px; border-radius:16px;
-    border:9px solid transparent; border-image:url(ui/rope.png) 24 round;
-    /* the pane stops at the rope. Left on the border box it reaches past the rope's rounded
-       corners as four grey squares, and the glass recipe's inset highlight -- which follows the
-       padding box -- draws a second rounded frame a pixel inside the first. */
-    background-clip:padding-box; box-shadow:0 14px 34px rgba(0,20,44,.34); }
+  /* No frame at all. It had a rope for two builds; a drawn rope round a glass pane is a second
+     border competing with five framed planks inside it, and the card reads cleaner without one.
+     Only the padding is set here, to give the planks their margins. */
+  .over #ovText .rcard { padding:15px 13px 16px; }
   /* ---- the two figures the run is about ---- */
   .over #ovText .rstat { display:flex; align-items:baseline; justify-content:space-between;
     gap:14px; padding:1px 3px; }
@@ -1613,9 +1606,11 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   /* Both are finished paintings with their own lettering, so the button is the picture and
      nothing else: the label stays in the markup for anything that cannot see it. */
   #ovRewards { display:none; gap:10px; width:min(94vw,430px); margin:14px auto 0;
-    align-items:flex-start; }
+    align-items:flex-start; justify-content:center; }
   .over #ovRewards { display:flex; }
-  .rwd { flex:1 1 0; min-width:0; padding:0; border:0; background:transparent;
+  /* max-width as well as flex, so that if one of the pair is ever not rendered the other stays
+     the size it is meant to be instead of spanning the row and taking its aspect ratio with it */
+  .rwd { flex:1 1 0; min-width:0; max-width:calc(50% - 5px); padding:0; border:0; background:transparent;
     box-shadow:none; cursor:pointer; -webkit-tap-highlight-color:transparent;
     background-repeat:no-repeat; background-position:center; background-size:contain;
     transition:transform .09s ease-out, filter .09s;
@@ -22059,12 +22054,16 @@ function watchClip(then){
       coins+=runEarned; bump(stats,'earned',runEarned); saveGame(); showCoins(); saveStats();
       const e=document.getElementById('ovEarn');
       if(e)e.textContent='Earned: '+(runEarned*2).toLocaleString()+' shells';
-      _d.style.display='none';
+      _d.disabled=true;        // greyed in place; taking it out stretches the one beside it
     });
   };
   const _l=document.getElementById('lifeAdBtn');
   if(_l)_l.onclick=()=>{
-    if(revivesLeft>0)return;            // the free one is still there; use that button
+    // It used to bail here while the free life was still in hand, on the grounds that it would
+    // be a duplicate of the button beside it. It is shown on every run card now, and a button
+    // you can see and press that quietly does nothing is worse than a duplicate -- so it pays
+    // out either way, and spends the free one first if you still have it.
+    if(revivesLeft>0)revivesLeft--;
     _l.disabled=true; buzz(10);
     bump(stats,'revives'); saveStats();
     watchClip(()=>{ _l.disabled=false; respawn(); });
@@ -22136,12 +22135,14 @@ function showMenu(mode){
   // The card's row lives or dies with the .over class, so these only decide which of its
   // buttons earn their place: a life you have, and a share the browser can actually do.
   reviveBtn.style.display  = (over&&revivesLeft>0) ? '' : 'none';
-  // Double coins is offered while the run actually paid something and has not been doubled;
-  // the second life is offered whenever the free one is spent, which is the only time it is a
-  // second life rather than a duplicate of the button beside it.
+  // BOTH are on the card whenever the card is, and neither is taken away. Hiding one of a pair
+  // of flex items does not leave a gap where it was -- it leaves the other one stretched across
+  // the whole row, and these carry an aspect ratio, so a button that should be 86px tall came
+  // out over 200. Spent ones grey out in place instead, which also keeps the row the same shape
+  // from one run to the next.
   { const _d=document.getElementById('dblBtn'), _l=document.getElementById('lifeAdBtn');
-    if(_d){ _d.style.display=(over&&runEarned>0&&!runDoubled)?'':'none'; _d.disabled=false; }
-    if(_l)_l.style.display=(over&&revivesLeft<=0)?'':'none'; }
+    if(_d){ _d.style.display=over?'':'none'; _d.disabled=!(runEarned>0&&!runDoubled); }
+    if(_l){ _l.style.display=over?'':'none'; _l.disabled=false; } }
   recordsBtn.style.display = 'none';        // stats moved behind the version 5-tap
   document.getElementById('shareBtn').style.display =
     (navigator.share||navigator.clipboard) ? '' : 'none';

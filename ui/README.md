@@ -14,7 +14,6 @@ into what the page can actually use:
 | `plaque_life.png` | the LIFE plaque | `.over #overRow .ob-life` |
 | `plaque_share.png` | the SHARE plaque | `.over #overRow .ob-share` |
 | `plaque_menu.png` | the MAIN MENU plaque | `.over #overRow .ob-menu` |
-| `rope.png` | the rope round the card, nine-sliced at 24 | `.over #ovText .rcard` |
 | `sign_school.png` | BOARD SCHOOL | `#dSlotSchool` |
 | `sign_boards.png` | SURFBOARDS | `#dSlotBoards` |
 | `sign_riders.png` | RIDERS | `#dSlotSurfer` |
@@ -61,12 +60,3 @@ its extents *are* its outline, and the engraving is inside them.
 They are painted at the lit quad's real projected size by `layoutShopSlots`, not at the button's.
 The button is floored at 44px so a thumb can find it, and a sign painted across that floor hangs
 over the edges of the square it is nailed to.
-
-`rope.png` is the one file with no source picture behind it. It is a *frame*, not a straight
-run, so a repeating gradient cannot draw it — at the corners a diagonal lay mitres into a
-chevron. It is laid round a rounded rectangle and nine-sliced at 24 instead, so the corners turn
-the way rope turns. The border renders at 9px, which is three eighths of the slice, so
-everything drawn into it lands on screen at three eighths of its drawn size: the lay is set to
-24px so it arrives at nine, and the image is 192 square so the middle slice — the piece
-`border-image` repeats along each straight run — holds exactly six lays and the repeat has no
-seam.
