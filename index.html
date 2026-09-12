@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.34';
+window.SURF_VERSION='9.35';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -22487,23 +22487,37 @@ function eatenStep(dt,w){
     const f=Math.min(1,w.chew/0.55);
     // ...with the JAWS at the surface, half the animal out of the water, which is where a
     // shark worrying something actually is
-    const rest=sea+sharkLift(o)+0.55+(1-f)*1.8+Math.sin(w.chew*7)*0.22*f;
+    // ---- and he HOLDS you, he does not whip you ----
+    // This shook the whole animal: 0.34 radians at eleven a second, written into the yaw AND
+    // the roll at once, so twenty degrees of body slammed side to side about twice a second and
+    // the heading snapped with it. Reported as "he shouldn't turn snap like that and go back
+    // and forth with his whole body", which is exactly what it was. The chewing is the JAW's
+    // job -- it is already working below at SHK_CHEW_RATE -- and a shark with something in its
+    // mouth leans on it and worries at it. The yaw term is gone entirely, because that is the
+    // snap; what is left is a slow lean at a third of the old size.
+    const rest=sea+sharkLift(o)+0.55+(1-f)*1.8+Math.sin(w.chew*3.2)*0.09*f;
     o.position.y+=(rest-o.position.y)*Math.min(1,dt*6);
-    const th=Math.sin(w.chew*11)*0.34*Math.min(1,w.chew*2.4);
-    o.quaternion.setFromAxisAngle(_shkY,dir*Math.PI/2+th*0.55);
-    o.quaternion.premultiply(_shkQ2.setFromAxisAngle(_shkZ,th));
-    if(Math.random()<dt*24)splash(o.position.x+(Math.random()-0.5)*2.4,sea,o.position.z+(Math.random()-0.5)*2,2);
-    shake=Math.max(shake,0.34);
-  } else {
-    // ---- and under ----
-    const g=Math.min(1,(w.chew-SHK_CHEW)/1.15);
-    o.position.y+=((sea+sharkLift(o)+0.55-4.2*g*g)-o.position.y)*Math.min(1,dt*5);
+    const th=Math.sin(w.chew*4.4)*0.10*Math.min(1,w.chew*2.0);
     o.quaternion.setFromAxisAngle(_shkY,dir*Math.PI/2);
-    o.quaternion.premultiply(_shkQ2.setFromAxisAngle(_shkZ,-dir*0.62*g));
+    o.quaternion.premultiply(_shkQ2.setFromAxisAngle(_shkZ,th));
+    if(Math.random()<dt*10)splash(o.position.x+(Math.random()-0.5)*2.0,sea,o.position.z+(Math.random()-0.5)*1.6,2);
+    shake=Math.max(shake,0.14);
+  } else {
+    // ---- ...and he STAYS UP with it ----
+    // He used to drive four feet under and roll thirty-five degrees over as he went, taking the
+    // rider down with him -- "he shouldn't turn snap drag you into water". He keeps it at the
+    // surface instead and goes on working at it, which is the thing you actually watch a shark
+    // do; the run still ends on the same clock, because being eaten is what ends it and not
+    // being pulled under. A few inches of settle, so he is not nailed to the waterline.
+    const g=Math.min(1,(w.chew-SHK_CHEW)/1.15);
+    o.position.y+=((sea+sharkLift(o)+0.55-0.42*g)-o.position.y)*Math.min(1,dt*4);
+    o.quaternion.setFromAxisAngle(_shkY,dir*Math.PI/2);
+    o.quaternion.premultiply(_shkQ2.setFromAxisAngle(_shkZ,
+      Math.sin((w.chew)*3.6)*0.09-dir*0.10*g));
     if(!w.splashed&&g>0.10){
       w.splashed=true;
-      splash(o.position.x,sea,o.position.z,30); pushTrail(o.position.x,sea,o.position.z,2.0);
-      shake=Math.max(shake,1.3);
+      splash(o.position.x,sea,o.position.z,14); pushTrail(o.position.x,sea,o.position.z,1.1);
+      shake=Math.max(shake,0.45);
     }
   }
   // the jaw works the whole time, and he goes wherever it goes
@@ -22518,15 +22532,19 @@ function eatenStep(dt,w){
   sharkMouth(o,_shkV);
   px=_shkV.x; py=_shkV.y;
   player.position.copy(_shkV);
-  // limp, and shaken about by the animal rather than turning under his own momentum
-  player.rotation.set(0.9+Math.sin(w.chew*9)*0.22, dir*Math.PI/2, Math.sin(w.chew*11)*0.30);
+  // limp, and carried by the animal rather than turning under his own momentum
+  // ...and LIMP means limp. At eleven a second this was a vibration, not a body: the same
+  // whipping the shark itself was doing, one object over, and the two together were the whole of
+  // what made the sequence read as a machine going off rather than an animal eating. Slowed to
+  // about a third and cut to a third, so he swings in the jaw instead of buzzing in it.
+  player.rotation.set(0.9+Math.sin(w.chew*3.6)*0.09, dir*Math.PI/2, Math.sin(w.chew*4.4)*0.11);
   if(!rigPosed&&typeof armFrontJ!=='undefined'&&armFrontJ){
-    const f=w.chew*9.0;
-    armFrontJ.sh.rotation.x=0.9+Math.sin(f)*1.1;   armFrontJ.sh.rotation.z=1.0+Math.cos(f*0.9)*0.5;
-    armBackJ.sh.rotation.x=0.9+Math.sin(f+2.1)*1.1; armBackJ.sh.rotation.z=-1.0+Math.cos(f*0.9+1)*0.5;
-    legFrontJ.hip.rotation.x=-0.4+Math.sin(f*0.8)*0.7;
-    legBackJ.hip.rotation.x=0.4+Math.sin(f*0.8+2.4)*0.7;
-    headJ.rotation.set(0,0,Math.sin(f*0.6)*0.5);
+    const f=w.chew*3.8;
+    armFrontJ.sh.rotation.x=0.9+Math.sin(f)*0.55;   armFrontJ.sh.rotation.z=1.0+Math.cos(f*0.9)*0.28;
+    armBackJ.sh.rotation.x=0.9+Math.sin(f+2.1)*0.55; armBackJ.sh.rotation.z=-1.0+Math.cos(f*0.9+1)*0.28;
+    legFrontJ.hip.rotation.x=-0.4+Math.sin(f*0.8)*0.36;
+    legBackJ.hip.rotation.x=0.4+Math.sin(f*0.8+2.4)*0.36;
+    headJ.rotation.set(0,0,Math.sin(f*0.6)*0.26);
   }
   // the shot watches the ANIMAL, not the spot the rider used to be: he is inside it now, so
   // framing him is framing a shark's cheek
@@ -28313,6 +28331,49 @@ if(location.hash.includes('debug')){
     // the wings beating the whole way. `aim` is the model's own forward, rotated by the group,
     // dotted with the direction it is actually travelling ON SCREEN. +1 is right, -1 is the bug,
     // and no screenshot reliably tells the two apart on an animal that is very nearly symmetric.
+    // ---- the shark's mouth, on demand ----
+    // startEaten is module scope, so a page-scope evaluate cannot reach it, and waiting for a
+    // leap to actually connect is not a test -- it is a dodge you have to fail on purpose. This
+    // takes whatever fin is in the lane, puts it on him and starts the sequence; eatState reports
+    // what the animal is doing frame by frame, which is the only way to check a thrash. The
+    // numbers that matter are the yaw and roll SWING over the sequence and how far below the
+    // waterline he ends up -- "he shouldn't turn snap" and "shouldn't drag you into water" are
+    // both quantities, and neither is legible in a screenshot.
+    eatMe(){
+      if(typeof startEaten!=='function')return {err:'no startEaten'};
+      const os=(typeof obstacles!=='undefined'&&obstacles)?obstacles:[];
+      let s=os.find(o=>o.userData&&/fin|shark/i.test(String(o.userData.kind||'')));
+      // ...and one is MADE if there is none. Sharks arrive on their own schedule and waiting for
+      // one is minutes of run; the sequence under test does not care where the animal came from.
+      if(!s&&typeof makeObstacle==='function')s=makeObstacle('bigfin',px,pz-6);
+      if(!s)return {err:'could not get a shark',
+                    kinds:os.map(o=>o.userData&&o.userData.kind).filter(Boolean)};
+      s.position.set(px,s.position.y,pz-3);
+      startEaten(s);
+      return {ok:!!(wipe&&wipe.eaten), kind:s.userData.kind};
+    },
+    eatState(){
+      const w=(typeof wipe!=='undefined')?wipe:null;
+      if(!w||!w.eaten)return null;
+      const o=w.eaten;
+      const e=new THREE.Euler().setFromQuaternion(o.quaternion,'YXZ');
+      const sea=waveH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock);
+      // ---- LEAN, not the Euler's z ----
+      // The lean is PREMULTIPLIED onto the heading -- a world-axis rotation applied outside the
+      // yaw -- and a YXZ Euler cannot put that in its z term, so reading rotation.z reported a
+      // flat 0.0 while the animal was visibly leaning. This is the honest quantity: how far the
+      // orientation sits from a pure heading, however it got there.
+      const base=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),
+                                                         (o.userData.dir||1)*Math.PI/2);
+      const dev=base.invert().multiply(o.quaternion);
+      const lean=2*Math.acos(Math.min(1,Math.abs(dev.w)))*180/Math.PI;
+      return {chew:+w.chew.toFixed(2), t:+w.t.toFixed(2),
+              aboveSea:+(o.position.y-sea).toFixed(2),
+              lean:+lean.toFixed(1),
+              yaw:+(e.y*180/Math.PI).toFixed(1), roll:+(e.z*180/Math.PI).toFixed(1),
+              jaw:+(+(o.userData.jaw||0)).toFixed(1),
+              riderRoll:+(player.rotation.z*180/Math.PI).toFixed(1)};
+    },
     rayRun(secs,dt){
       const h=Math.max(0.004,Math.min(0.05,dt||0.02));
       const n=Math.min(4000,Math.max(1,Math.round((secs||6)/h)));
