@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.57';
+window.SURF_VERSION='9.58';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -30786,6 +30786,34 @@ if(location.hash.includes('debug')){
       for(let i=0;i<(steps||120);i++)diveSeparate(1/60);
       return out;
     },
+    // the separation pass on its own, so a probe can measure the water BEFORE settling it and
+    // again after -- which is the only way to tell "nothing overlapped anyway" from "the pass
+    // pulled them apart"
+    seaSettle(dt){ if(typeof diveSeparate==='function')diveSeparate(dt||1/60); },
+    // ---- and the test that actually proves the pass does something ----
+    // A random layout is usually already clear, so measuring it before and after settling shows
+    // zero twice and proves nothing. This JAMS two animals into the same spot -- the case the
+    // pass exists for -- settles, and reports the gap it opened against the gap it needed.
+    seaJam(pairs,steps){
+      const B=diveBodiesNow();
+      if(B.length<2)return null;
+      const out=[];
+      for(let k=0;k<(pairs||3)&&2*k+1<B.length;k++){
+        const a=B[2*k], b=B[2*k+1];
+        b.g.position.copy(a.g.position);
+        out.push({need:+(a.r+b.r).toFixed(2), heavy:(a.heavy?1:0)+(b.heavy?1:0), ai:2*k, bi:2*k+1});
+      }
+      for(let i=0;i<(steps||400);i++)diveSeparate(1/60);
+      const C=diveBodiesNow();
+      for(const o of out){
+        const a=C[o.ai], b=C[o.bi];
+        const dy=(b.g.position.y-a.g.position.y)*DIVE_SEP_Y;
+        o.got=+Math.sqrt((b.g.position.x-a.g.position.x)**2+dy*dy+
+                         (b.g.position.z-a.g.position.z)**2).toFixed(2);
+        o.clear=o.got>=o.need*0.98;
+      }
+      return out;
+    },
     seaWhy(){ return {
       diveOn:!!diveOn, depth:+diveDepth.toFixed(1), running:!!running,
       turtle:{tpl:!!turtleTpl, asked:!!turtleAsked, grp:!!turtleGrp, n:turtles.length, t:+_turtT.toFixed(1)},
@@ -34747,10 +34775,16 @@ function rayStep(dt,eff){
 // other rather than sitting in the push for as long as their courses cross. Position alone
 // reads as two magnets; steering alone never resolves a pair that is already inside itself.
 //
-// Weighted by size, and some bodies do not move at all: a shark is not shoved aside by a turtle,
-// and an animal asleep on the sand is scenery that other animals go around. So HEAVY bodies push
-// and are not pushed -- which also means two heavy bodies cannot fight each other, since neither
-// will yield; they are laid far enough apart that it does not come up.
+// Weighted by size, and heavy bodies -- a shark, and anything asleep on the sand -- barely
+// yield: a turtle is not going to shove a shark aside, and a sleeping ray is scenery that the
+// others go around. BARELY, though, and not "not at all", which is what this was. Skipping a
+// pair where both are heavy left two SLEEPING animals free to interpenetrate forever, because
+// lay places them at random and neither would give: measured at a 13% overlap on a turtle/ray
+// pair, against 152 other pairs all clear. So a heavy body takes an eighth of the share instead
+// of none, which parts two sleepers between them and still makes the turtle do 97% of the work
+// when it meets a shark. What heavy bodies do NOT get is the steering nudge below -- a sleeping
+// animal has no course to change.
+const DIVE_SEP_HEAVY=0.12;     // share of the push a heavy body will take
 //
 // The vertical is SQUASHED, not ignored. These animals are all much wider than they are deep --
 // a turtle is a plate -- so needing as much clearance above as beside would have them dodging
@@ -34783,7 +34817,6 @@ function diveSeparate(dt){
   const ease=Math.min(1,dt*DIVE_SEP_EASE);
   for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){
     const a=B[i], b=B[j];
-    if(a.heavy&&b.heavy)continue;                 // neither would yield; see the note above
     const dx=b.g.position.x-a.g.position.x;
     const dz=b.g.position.z-a.g.position.z;
     const dy=(b.g.position.y-a.g.position.y)*DIVE_SEP_Y;
@@ -34795,10 +34828,12 @@ function diveSeparate(dt){
     if(d2<1e-4){ const th=Math.random()*6.283; ux=Math.cos(th); uy=0; uz=Math.sin(th); d=0; }
     else { d=Math.sqrt(d2); ux=dx/d; uy=dy/d; uz=dz/d; }
     const over=need-d;
-    // share of the push each takes: the bigger body moves less, and a heavy one not at all
-    let wa=a.heavy?0:(b.heavy?1:(b.r*b.r)/(a.r*a.r+b.r*b.r));
-    let wb=b.heavy?0:(a.heavy?1:1-wa);
-    if(!a.heavy&&!b.heavy){ /* wa+wb is already 1 */ }
+    // Share of the push: a bigger body moves less, and a heavy one moves a little. One formula
+    // for every case rather than three branches -- mobility over area, normalised.
+    const sa=(a.heavy?DIVE_SEP_HEAVY:1)/Math.max(1e-3,a.r*a.r);
+    const sb=(b.heavy?DIVE_SEP_HEAVY:1)/Math.max(1e-3,b.r*b.r);
+    const st=sa+sb;
+    const wa=sa/st, wb=sb/st;
     const pa=over*wa*ease, pb=over*wb*ease;
     if(pa){ a.g.position.x-=ux*pa; a.g.position.z-=uz*pa;
             a.g.position.y-=uy*pa/DIVE_SEP_Y; }
