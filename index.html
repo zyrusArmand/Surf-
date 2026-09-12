@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.61';
+window.SURF_VERSION='9.62';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -8023,7 +8023,18 @@ function computeStats(){
     // And it is CAPPED, because the jet ski is 500,000 -- eleven times the dearest board -- and
     // an uncapped budget would hand it 79 points across four stats that stop at 9. What makes it
     // worth the money is `top`, which is raw speed and deliberately outside this budget.
-    const target=18+Math.round(Math.min(b.price,45000)/33000*4);   // 18 at the cheap end, 23 at the top
+    // ---- AND THE RANGE WIDENED, BECAUSE FIVE POINTS IS NOT A LADDER ----
+    // This was 18 at the cheap end and 23 at the top: FIVE points across a rack that runs 300
+    // to 45,000 shells. Going from the cheapest board in the shop to the dearest bought four
+    // points spread over four bars -- about eight per cent of top speed and sixteen of pop --
+    // which is why a board you saved fifteen runs for did not feel like one. The mechanism was
+    // right and the dynamic range was too small to notice, which is the same as not having it.
+    // Eight points now, and the divisor is the rack's own top rather than a number near it:
+    // every budgeted board in the shop prices between 300 and 45,000, so the curve spans
+    // exactly what exists. The four boards that state their stats outright -- Astro, the
+    // Cattle Class, the ski and the tube -- pin all four and are untouched by any of this,
+    // which is what keeps 26 from being handed to a 900,000-shell tube.
+    const target=18+Math.round(Math.min(b.price,45000)/45000*8);   // 18 at the cheap end, 26 at the top
     let tot=STAT_KEYS.reduce((a2,k)=>a2+v[k],0);
     // Price buys SPECIALISATION, not a flat lift: spare points go to whatever the board
     // is already best at and cuts come off what it is already worst at. Spreading them
@@ -27344,6 +27355,20 @@ if(location.hash.includes('debug')){
     },
     xpSet(v){ xp=Math.max(0,Math.round(v)); syncLevel(); saveGame(); return {xp,level}; },
     xpAt:L=>XP_AT[Math.max(0,Math.min(XP_CAP,L|0))],
+    // ---- the whole rack's bars, and what they turn into ----
+    // Widening the stat budget trades dynamic range against SPECIALISATION: the bars stop at
+    // 10, so a big enough total has nowhere to put its points except the stats the board is
+    // supposed to be bad at, and the rack goes flat at the top -- the exact failure the budget
+    // was written to prevent. That is not visible from any one board, only from the spread of
+    // all of them, so it gets a hook rather than an opinion.
+    rackStats(){
+      return BOARDS.filter(b=>!b.hidden).map(b=>{
+        const v=boardStats(b.id), a=[v.speed,v.turn,v.air,v.tough];
+        return {id:b.id, price:b.price, lv:boardLvl(b.id), v:a,
+                tot:a.reduce((x,y)=>x+y,0), spread:Math.max(...a)-Math.min(...a),
+                maxed:a.filter(x=>x>=10).length, floored:a.filter(x=>x<=2).length};
+      });
+    },
     charLvls:()=>CHARS.filter(c=>!c.hidden).map(c=>({id:c.id,price:c.price,lv:charLvl(c.id)})),
     skyBeats:()=>birds.map(f=>({n:f.children.length,
       beat:f.userData&&f.userData.beat!==undefined?+f.userData.beat.toFixed(3):null,
