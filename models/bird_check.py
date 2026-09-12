@@ -36,6 +36,15 @@ for nm in ('flap','glide'):
     print('%-6s tip vert %.3f (%.0f%% span)  fore-aft %.3f  span swing %.3f (%.0f%% shorter)'%(
         nm,rng(zs),100*rng(zs)/span,rng(ys),rng(xs),100*rng(xs)/max(xs)))
     if bend: print('       ARTICULATION inner vs outer %.1f..%.1f deg -> varies %.1f'%(min(bend),max(bend),rng(bend)))
+    # ---- IS IT ONE MOTION OR SEVERAL? ----
+    # A wing driven by one wave has one smooth acceleration; sub-motions on separate clocks show
+    # up as spikes in it, because each one turns round at its own instant. Second difference of
+    # the tip height, worst frame against the average, is the cheapest thing that can tell the
+    # two apart -- and unlike the eye it cannot be talked into seeing what it expects.
+    if len(zs)>3:
+        d2=[abs(zs[i+1]-2*zs[i]+zs[i-1]) for i in range(1,len(zs)-1)]
+        av=sum(d2)/len(d2)
+        print('       smoothness: worst frame-to-frame accel %.1fx the average'%(max(d2)/max(1e-9,av)))
     lt=zs.index(min(zs)); ls=shz.index(min(shz)); n=len(zs)
     lag=(lt-ls)%n
     print('       shoulder bottoms frame %d, tip frame %d -> tip lags %d/%d (%.0f%% of cycle)'%(

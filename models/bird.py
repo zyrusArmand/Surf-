@@ -37,6 +37,21 @@ about birds, and every one of the 28 bones has its own. So each rotation is writ
 in ARMATURE space and converted into that bone's local space before it is keyed -- the same
 trick the old JS did in world space, done once at bake time instead of every frame.
 
+ONE WAVE, NOT FOUR MOTIONS. The first rig that came out of this file had all four parts, and
+still read wrong, because each part was authored on its own clock: the flap on a two-piece
+asymmetric ease, the elbow and wrist on `1 - flap` (which is the flap, so those joints snapped
+open and shut in lockstep with it), and the curl on the ease's derivative, which has corners
+where the two pieces join and so put kinks in the feathers. Four sub-motions sharing one axis
+do not add up to a wingbeat; they add up to a mechanism.
+
+The stingray in this same repo reads right, and it is far simpler: ONE continuous sine
+travelling outboard, amplitude growing along the chain and phase lagging along it --
+`angle_i(t) = AMP[i] * sin(wt - i*LAG)` -- and nothing else. That is what this file does now.
+Every part of the beat above is a term on that ONE wave: the flap is the wave, the sweep is the
+wave a quarter-cycle over, the hinges and the fold are the wave a little later still (a joint
+trails the segment that drives it), and the curl is the wave's own derivative -- which, a sine
+being a sine, is a cosine, and therefore smooth everywhere. Same four motions, one clock.
+
 Two clips come out: `flap`, one full cycle over 24 frames at 24fps so the game can set its own
 rate per bird, and `glide`, wings held out and barely breathing, because gulls spend most of
 their time not flapping at all.
@@ -57,7 +72,6 @@ SRC = sys.argv[1] if len(sys.argv) > 1 else 'models/bird.glb'
 DST = sys.argv[2] if len(sys.argv) > 2 else 'models/bird_rigged.glb'
 FPS = 24
 CYCLE = 24            # frames in one beat, so the clip is exactly one second at 24fps
-DOWN = 0.38           # share of the cycle spent on the downstroke -- the fast, working half
 
 # ---- how far each part of the beat goes, in radians ----
 # Every one of these is the angle the WINGTIP reaches, not the angle a bone turns: the shares
@@ -74,13 +88,12 @@ SWEEP = _n('SWEEP', 0.14)                        # forward on the downstroke, ba
 # instead of 32, and that angle IS the bend you can see.
 FOLD = _n('FOLD', 0.20)                         # how far the hand tucks at the top of the upstroke
 TWIST = _n('TWIST', 0.34)                        # primaries pronating on the downstroke
-# ---- AND THE THING THAT MAKES IT LOOK JOINTED RATHER THAN HINGED ----
-# The first version graded the flap down the chain but drove every bone IN PHASE, so the whole
-# wing turned at the same instant by different amounts. That is a rigid plane rotating -- which
-# is exactly "it just moves up and down", however deep the stroke or however many bones share
-# it. A wing reads as jointed because the shoulder LEADS and each joint outboard LAGS: at any
-# instant the inner wing is already coming down while the hand is still going up, and the wing
-# is bent into an S. That bend is the whole effect, and it costs one number.
+# ---- AND THE THING THAT MAKES IT JOINTED: THE WAVE ARRIVES LATE OUTBOARD ----
+# Every bone runs the SAME sine, sampled further back in the cycle the further out it sits. That
+# one substitution is what turns a rotating plane into a wing: at any instant the inner wing is
+# already coming down while the hand is still going up, so the wing is bent into an S the whole
+# time instead of being flat the whole time. It is the stingray's `- i*LAG` and it is the only
+# reason either animal reads as alive.
 # 0.062 and not more: at 0.090 the bend was the same 32 degrees but the tip's vertical travel
 # fell from 41% of the span to 31%, because a big enough lag smears the extremes of the stroke
 # away. The bend is free up to about here and paid for after it.
@@ -90,10 +103,28 @@ LAG = _n('LAG', 0.062)                         # of a cycle, per joint out from 
 # the wing and puts the kink in its leading edge.
 ELBOW = _n('ELBOW', 0.40)
 WRIST = _n('WRIST', 0.52)
+# ...but they do it LATE. A joint is driven by the segment inboard of it, so it reaches its
+# extreme after that segment does -- which is the same statement as LAG, applied to the hinge
+# instead of to the next bone. Driving the hinges off `1 - flap` instead, as the first cut did,
+# is driving them off the flap itself: they opened and shut at the exact instant the wing
+# reached the top and bottom of its stroke, which is a pair of scissors, not an elbow.
+# Small, and kept small on the measurements' say-so rather than the theory's. The hinges flex
+# about the VERTICAL, which is the same axis the sweep uses, so phase put on them comes straight
+# out of the tip's fore-aft travel -- the ellipse. Swept 0 to 0.14: every step costs both the
+# fore-aft (0.63 down to 0.40) and the bend (34 degrees of variation down to 19), and buys
+# nothing either number can see. 0.05 keeps 85% of the ellipse and nearly all the bend for a
+# trail that is real but does not dominate.
+HINGE = _n('HINGE', 0.05)                      # of a cycle, behind the flap that drives it
 # ...and the hand itself CURLS. A primary feather is not a rod: the tip trails the load, so it
 # bends up at the bottom of the downstroke and down at the top of the recovery. Driven off the
-# stroke's own speed, because that is what the load follows.
-CURL = _n('CURL', 0.40)
+# wave's own derivative -- the load follows the stroke's SPEED -- which for a sine is a cosine,
+# so the curl is smooth. The old ease's derivative had a corner where its two halves met, and
+# that corner was a visible kink passing out along the feathers once a beat.
+# Raised from 0.40 because a cosine peaks at 1 where that ease's derivative peaked at 4.1, so
+# the same constant was buying less than half the curl it used to. 0.55 is still well under the
+# 0.83 radians the old one actually reached, and it earns its keep on the measurements: it puts
+# the bend variation back to 29 degrees and the ellipse to 0.565 at a 2% cost in tip travel.
+CURL = _n('CURL', 0.55)
 GLIDE_DROP = -0.58                  # the rest pose has the wings held high; a glide is level
 GLIDE_BREATHE = 0.07                # ...and still breathing, because a frozen wing is a prop
 BODY_RISE = 0.035                   # of the bird's length, up through the downstroke
@@ -202,12 +233,19 @@ def local_axis(pb, axis_arm):
         return Vector((0.0, 0.0, 1.0))
 
 
-def eased(w, dw):
-    """One beat: cosine in and out of each half, and the two halves are not equal lengths.
-       0 at the top of the stroke, 1 at the bottom, back to 0."""
-    if w < dw:
-        return 0.5 - 0.5 * math.cos(math.pi * (w / dw))
-    return 0.5 + 0.5 * math.cos(math.pi * ((w - dw) / (1 - dw)))
+TAU = 2 * math.pi
+
+# The beat, and there is only one of it. `wave(w)` is +1 at the top of the stroke and -1 at the
+# bottom; `rate(w)` is how fast the stroke is going, positive on the way down, and it is (bar a
+# constant) the derivative of `wave`. Everything the wing does is one of these two sampled at
+# some phase, which is the whole point: sub-motions on separate clocks are what read as a
+# mechanism, and a single wave read at four offsets reads as one thing moving.
+def wave(w):
+    return math.cos(TAU * w)
+
+
+def rate(w):
+    return math.sin(TAU * w)
 
 
 def build(arm, A, name, beats=True):
@@ -254,20 +292,12 @@ def build(arm, A, name, beats=True):
 
     fdL, fdR = hshares(A['handL']), hshares(A['handR'])
 
-    def stroke(wl):
-        """The beat sampled at one phase: how far down the stroke is, and how fast."""
-        wl = wl % 1.0
-        e = eased(wl, DOWN)
-        # speed of the stroke, signed: positive going down. The load on a feather follows this,
-        # which is what the curl is driven off.
-        h = 1e-3
-        de = (eased((wl + h) % 1.0, DOWN) - eased((wl - h) % 1.0, DOWN)) / (2 * h)
-        return e, de
+    FLAP_MID = 0.5 * (FLAP_UP + FLAP_DN)
+    FLAP_AMP = 0.5 * (FLAP_UP - FLAP_DN)
 
     for f in range(CYCLE + 1):
         w = (f % CYCLE) / CYCLE
         ph = math.sin(2 * math.pi * w)
-        sweep = -SWEEP * ph if beats else 0.0
 
         for chain, sh, sgn, hand, fd in ((A['L'], shL, -1.0, A['handL'], fdL),
                                          (A['R'], shR, 1.0, A['handR'], fdR)):
@@ -276,41 +306,54 @@ def build(arm, A, name, beats=True):
                 k = sh.get(b, 0.0)
                 d = DEP.get(b, 0)
                 # ---- EACH JOINT IS A LITTLE LATER THAN THE ONE INSIDE IT ----
-                # This is the line that turns a rotating plane into a wing. Same stroke, sampled
-                # further back in the cycle the further out the bone sits, so the wing is bent at
-                # every instant instead of flat at every instant.
+                # This is the line that turns a rotating plane into a wing, and it is the whole
+                # of the stingray's trick: ONE wave, read further back in the cycle the further
+                # out the bone sits, so the wing is bent at every instant instead of flat at
+                # every instant. The four terms below are all this same wave -- read here, a
+                # quarter-turn on for the sweep, HINGE later for the joints that it drives, and
+                # differentiated for the curl -- so nothing on the wing has a clock of its own.
                 if beats:
-                    e, de = stroke(w - LAG * d)
-                    flap = FLAP_UP + (FLAP_DN - FLAP_UP) * e
+                    wl = w - LAG * d
+                    s = wave(wl)                       # +1 top of stroke, -1 bottom
+                    flap = FLAP_MID + FLAP_AMP * s
                 else:
-                    e, de = 0.0, 0.0
+                    wl, s = w, 0.0
                     flap = GLIDE_DROP + GLIDE_BREATHE * math.sin(2 * math.pi * w)
                 q = Quaternion(local_axis(pb, FWD), flap * k * sgn)
+                # forward on the downstroke, back on the up: the same wave a quarter-cycle on,
+                # which is what turns the tip's path from a line into an ellipse.
+                sweep = (-SWEEP * rate(wl)) if beats else 0.0
                 q = q @ Quaternion(local_axis(pb, UP), sweep * k * sgn)
                 # the two real hinges: the elbow is the second bone out, the wrist the third.
-                # Both open through the downstroke and close on the recovery.
-                if beats and d == 1:
-                    q = q @ Quaternion(local_axis(pb, UP), ELBOW * (1.0 - e) * sgn)
-                if beats and d == 2:
-                    q = q @ Quaternion(local_axis(pb, UP), WRIST * (1.0 - e) * sgn)
+                # Both open through the downstroke and close on the recovery -- late, trailing
+                # the segment that drives them. `0.5 + 0.5*wave` is 1 at the top of the stroke
+                # and 0 at the bottom, so this is the old flexion with a phase on it.
+                if beats and d in (1, 2):
+                    shut = 0.5 + 0.5 * wave(wl - HINGE)
+                    q = q @ Quaternion(local_axis(pb, UP),
+                                       (ELBOW if d == 1 else WRIST) * shut * sgn)
                 if b in hand:
                     kf = fd.get(b, 0.0)
-                    fold = (FOLD * (1.0 - e)) if beats else 0.10
-                    twist = (TWIST * (2 * e - 1)) if beats else 0.0
+                    if beats:
+                        # the hand folds late too -- the wrist leads it -- and the primaries
+                        # pronate in phase with the flap, which is where the thrust comes from.
+                        fold = FOLD * (0.5 + 0.5 * wave(wl - HINGE))
+                        twist = -TWIST * s
+                    else:
+                        fold, twist = 0.10, 0.0
                     q = q @ Quaternion(local_axis(pb, UP), fold * kf * sgn)
                     q = q @ Quaternion(local_axis(pb, Vector((sgn, 0.0, 0.0))), twist * kf)
-                    # and the feathers CURL against the stroke: de is the stroke's own speed,
-                    # positive going down, and a loaded feather bends the other way.
+                    # and the feathers CURL against the stroke: `rate` is the stroke's own speed,
+                    # positive going down, and a loaded feather bends the other way. A sine's
+                    # derivative is a cosine, so this is smooth all the way round -- the old
+                    # two-piece ease put a corner here once a beat.
                     if beats:
                         q = q @ Quaternion(local_axis(pb, FWD),
-                                           CURL * de * kf * sgn * 0.5)
+                                           CURL * rate(wl) * kf * sgn)
                 pb.rotation_quaternion = q
                 pb.keyframe_insert('rotation_quaternion', frame=f + 1)
 
-        e, de = stroke(w) if beats else (0.0, 0.0)
-
         # the body rides the beat, and the head refuses to
-        void = e
         rise = BODY_RISE * A['span'] * (-math.cos(2 * math.pi * w)) if beats else 0.0
         pitch = TAIL_PITCH * ph if beats else 0.0
         for b in A['body']:

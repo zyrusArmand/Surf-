@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.59';
+window.SURF_VERSION='9.60';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -24014,7 +24014,10 @@ function buildGull(){
               dwK:0.82+Math.random()*0.40,
               // the drawn silhouette's own beat, kept so a missing models/bird.glb still flies
               flap:a=>{ L.rotation.z=a; Rw.rotation.z=-a; }};
-  if(birdModel)dressGull(g); else gullSwap.push(g);
+  // Dressed by layFlight once this is IN its flock, not here: the beat rate is drawn per flock
+  // and a bird that has not been added to one yet has no flock to read it off. The queue is for
+  // the ones laid out before the file arrives, and those are the only ones it needs to hold.
+  if(!birdModel)gullSwap.push(g);
   return g;
 }
 // ---------- and the modelled gull, with a wing that actually beats ----------
@@ -24036,26 +24039,42 @@ const gullSwap=[];
 // phone. The rigged file is the one that ships; the wing MEASURING below still runs on it, so if
 // a build ever arrives without clips the procedural beat is still there to drive the same rig.
 let birdClips=null;
-loadModel('bird_rigged.glb',(s3)=>{
-  birdClips=(s3.animations&&s3.animations.length)?s3.animations:null;
+// Where the fallback gets its shares from, when there is no clip to play. Split out of the load
+// callback for one reason: it can BAIL, four different ways, and it used to bail past the two
+// lines that hand the clips to the birds.
+function measureBirdWing(s3){
   let sk=null; s3.traverse(o=>{ if(o.isSkinnedMesh&&!sk)sk=o; });
-  if(!sk||!sk.skeleton)return;
+  if(!sk||!sk.skeleton)return null;
   const inv=new THREE.Matrix4(), at=[];
   sk.skeleton.bones.forEach((b,i)=>{
     at.push({b, p:new THREE.Vector3().setFromMatrixPosition(inv.copy(sk.skeleton.boneInverses[i]).invert())});
   });
   let span=0; for(const q of at)span=Math.max(span,Math.abs(q.p.x));
-  if(!(span>0))return;
+  if(!(span>0))return null;
   const side=sg=>at.filter(q=>Math.sign(q.p.x)===sg&&Math.abs(q.p.x)>span*0.12)
                    .sort((a,c)=>Math.abs(a.p.x)-Math.abs(c.p.x));
   const L=side(-1), R=side(1);
-  if(!L.length||!R.length)return;
+  if(!L.length||!R.length)return null;
   // how far out along the wing each bone sits, 0 at the shoulder and 1 at the tip. The beat
   // is scaled by it: a wing does not hinge, it whips, and the tip travels furthest.
   const near=Math.min(Math.abs(L[0].p.x),Math.abs(R[0].p.x));
   const ramp=q=>{ const t=(Math.abs(q.p.x)-near)/Math.max(1e-3,span-near);
                   return 0.30+0.70*t; };
-  birdWing={L:L.map(q=>({n:q.b.name,k:ramp(q)})), R:R.map(q=>({n:q.b.name,k:ramp(q)}))};
+  return {L:L.map(q=>({n:q.b.name,k:ramp(q)})), R:R.map(q=>({n:q.b.name,k:ramp(q)}))};
+}
+// ---- THE CLIPS ARE ON THE GLTF, NOT ON ITS SCENE ----
+// This read s3.animations, and s3 is the SCENE. Every Object3D carries an `animations` array and
+// the loader leaves the scene's one empty, so the test was against [] -- truthy, length 0 --
+// birdClips came out null every single time, and every gull in the game quietly fell back to the
+// procedural single-axis beat. Which is to say: the baked wingbeat has never once played. Two
+// rounds of "the birds still look off" were spent tuning a clip that nothing was reading, and
+// what was on screen throughout was the one thing the rig was built to replace -- a pair of flat
+// paddles going up and down, on a rig that had four clips' worth of real motion sitting unused.
+// _lmNext hands the callback BOTH -- `j.cb(root, g)` -- and its own comment says the whole gltf
+// goes through because the clips are the entire point of a rigged export. Take the second one.
+loadModel('bird_rigged.glb',(s3,gl)=>{
+  birdClips=(gl&&gl.animations&&gl.animations.length)?gl.animations:null;
+  birdWing=measureBirdWing(s3);
   birdModel=s3;
   for(const g of gullSwap)dressGull(g);
   gullSwap.length=0;
@@ -24086,7 +24105,19 @@ function dressGull(g){
     const aF=cf?mx.clipAction(cf):null, aG=cg?mx.clipAction(cg):null;
     // A gull beats about two and a half times a second and the clip is one second long, so the
     // rate IS the timeScale. Spread per bird, and the phase offset so a flock does not pulse.
-    const rate=2.1+Math.random()*1.3;
+    // ---- AND THE RATE BELONGS TO THE FLOCK, NOT THE BIRD ----
+    // Rolled per bird over 2.1..3.4 it came out the same sky every time: every flock held the
+    // same range, so the whole sky averaged one speed and no flock was ever the fast one. The
+    // spread has to live one level up. So the flock draws a rate ONCE and its birds take it with
+    // a few per cent of jitter -- birds flying together beat together, near enough -- and what
+    // makes one flock quick and the next one lazy is that draw, over 1.7..3.7, better than twice
+    // as wide as the old per-bird range. A flock of one is a solo bird and draws its own.
+    // Not tied to the flock's scale, tempting as that is (a big bird beats slowly): both callers
+    // set the scale AFTER laying the flight out, so at this point it still reads 1 and the
+    // correlation would be to a number that is not there yet.
+    const fu=(g.parent&&g.parent.userData)||{};
+    if(fu.beat===undefined)fu.beat=1.7+Math.random()*2.0;
+    const rate=fu.beat*(0.94+Math.random()*0.12);
     if(aF){ aF.timeScale=rate; aF.play(); aF.time=Math.random()*(cf.duration||1); }
     if(aG){ aG.timeScale=0.5+Math.random()*0.4; aG.play(); aG.weight=0;
             aG.time=Math.random()*(cg.duration||1); }
@@ -24181,6 +24212,10 @@ function layFlight(flock,spec,make){
     }
     b.scale.setScalar(0.8+Math.random()*0.5);
     flock.add(b);
+    // now, and not in buildGull: dressGull reads its bird's FLOCK for the beat rate, and until
+    // the line above there is no flock to read. A no-op until models/bird_rigged.glb lands, and
+    // the queue drain in its callback catches everything laid out before it did.
+    if(birdModel)dressGull(b);
   }
 }
 // ---- AND A SKY HAS MORE THAN TWO DIRECTIONS IN IT ----
@@ -27114,6 +27149,21 @@ function updateSetWave(dt,eff){
 if(location.hash.includes('debug')){
   window.__surf={
     version:VERSION,
+    // ---- what the sky is actually beating at ----
+    // The wingbeat rate is drawn per FLOCK and jittered per bird, and neither number is visible
+    // from outside the closure, so "the speeds vary" was a claim with nothing behind it. This
+    // hands out both: one entry per flock with the rate it drew and the rate each of its birds
+    // ended up with. A sky where every flock reports the same figure is the bug this replaced.
+    // ...and whether the file that carries the beat ever landed, because four early returns sit
+    // between reading its clips and handing them to the birds and a sky full of undressed gulls
+    // looks exactly like a sky full of dressed ones from out here.
+    skyLoad:()=>({model:!!birdModel, clips:birdClips?birdClips.map(c=>c.name):null,
+                  wing:!!birdWing, queued:gullSwap.length}),
+    birdFlocks:()=>birds,
+    skyBeats:()=>birds.map(f=>({n:f.children.length,
+      beat:f.userData&&f.userData.beat!==undefined?+f.userData.beat.toFixed(3):null,
+      rates:f.children.map(g=>g.userData&&g.userData.aF?+g.userData.aF.timeScale.toFixed(3):null),
+      dressed:f.children.filter(g=>g.userData&&g.userData.model).length})),
     // board school files every board in the rack under one of twelve shapes, and a board
     // that falls through the gap is invisible from the panel — so both lists are handed
     // out and the suite compares them
