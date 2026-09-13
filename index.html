@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.84';
+window.SURF_VERSION='9.85';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -13719,6 +13719,7 @@ showCoins();
 let fallPh=-1;            // -1 off, 0 dropping in, 1 in the chute, 2 running out
 let fallT=0, fallW=0;     // phase clock, and how far into the chute look (0..1)
 let fallLay=0;            // prone weight, driven off fallW
+let fallTilt=0;           // radians of nose-down, measured off the water he is on
 let fallGrp=null, fallWallL=null, fallWallR=null, fallRockL=null, fallRockR=null, fallMist=[];
 // Ninety-five seconds of chute. It was thirty-five, which at this speed is barely four of the
 // drops -- not enough of a run for the descent to become the thing you are doing rather than a
@@ -13735,6 +13736,19 @@ const FALL_IN=2.2, FALL_RIDE=95.0, FALL_OUT=2.8;    // about a hundred seconds d
 // across the top. Must in any case stay well under FALL_SLOPE's angle (~40 deg) -- pitch to
 // match the water and the lens looks along the surface and the shot is a solid screen of blue.
 const FALL_PITCH=0.16;    // radians the shot tips down the fall line at full weight
+// Live, so the three numbers that decide whether this reads as a descent can be compared against
+// each other in one run instead of one rebuild each. Arguing about a shot from memory of the
+// last screenshot is how the last four rounds went.
+// Closer and lower, tipped a little more. Shot against three alternatives in one run: from high
+// and steep you get the helicopter-over-a-river look back and lose the walls and the sky
+// entirely; from here the rider is big enough in frame to READ, which matters more than it
+// sounds, because the board's own angle is now the strongest downhill cue in the picture.
+const FALL_CAM={lift:5.0, back:0.0, pitch:0.30};
+// Sign and strength of the board's nose-down, live for the same reason the camera is.
+// At 1.0 the board takes the full gradient -- twenty-six degrees -- and the prone rider, who is
+// already rotated flat onto the deck, disappears behind it. Enough to read as pointing downhill
+// with the rider still legible on top of it.
+let FALL_TILTK=0.62;
 const FALL_PUSH=46;       // the speed the chute adds, on top of whatever the board was doing
 // ---- AND THE CHANNEL IS NARROW ----
 // At 13.5 the walls sit far enough out that they leave the frame near the rider and only meet
@@ -13955,6 +13969,21 @@ function fallStep(dt){
   fallLay=fallW;
   // the pivot rides with him, in FIELD coordinates, which is what waveH is written in
   fallZ0=dist*WAVE_DRIFT+pz;
+  // ---- HOW FAR NOSE-DOWN THE BOARD IS, TAKEN OFF THE WATER ITSELF ----
+  // Not a number tuned to look right: the actual gradient of the surface he is riding, sampled
+  // a few units fore and aft in the same field coordinates waveH works in. So it steepens on
+  // each ledge and flattens in the pools for free, and it can never disagree with the shape the
+  // sea is actually in. Eased, because the staircase has hard shoulders and the board should
+  // roll over them rather than snap.
+  {
+    const _zf=dist*WAVE_DRIFT+pz, _T2=(typeof tNow==='number')?tNow:performance.now()/1000;
+    const _ah=waveH(px,_zf-7,_T2), _bh=waveH(px,_zf+7,_T2);
+    // ...and capped. The rider is already rotated flat onto the deck, so the two rotations add:
+    // past about a fifth of a radian the board foreshortens into a blob with the pug behind it,
+    // and a cue you cannot see past is worse than a smaller one you can.
+    const _want=Math.max(-0.21, Math.atan2(_ah-_bh,14)*fallW*FALL_TILTK);
+    fallTilt+=(_want-fallTilt)*Math.min(1,dt*5.0);
+  }
   const T=(typeof tNow==='number')?tNow:performance.now()/1000;
   if(fallGrp){
     fallGrp.visible=fallW>0.01;
@@ -28674,6 +28703,10 @@ if(location.hash.includes('debug')){
     fallEnd(){ if(typeof fallEnd==='function')fallEnd(); return fallPh; },
     // skip the clock forward, so forty seconds of set piece can be checked in one
     fallSkip(sec){ fallT+=(+sec||0); return {ph:fallPh,t:+fallT.toFixed(2)}; },
+    fallCam(l,b,p){ if(l!==undefined){FALL_CAM.lift=l;FALL_CAM.back=b;FALL_CAM.pitch=p;}
+                    return {...FALL_CAM}; },
+    fallTiltK(k){ if(k!==undefined)FALL_TILTK=k;
+                  return {k:FALL_TILTK, tilt:+fallTilt.toFixed(3)}; },
     // The wall is two surfaces stacked, and a photograph of the pair cannot say which one is
     // pale -- fogged rock and rock under too much water look identical from the front. This
     // takes the water away so the rock can be judged on its own, and reports what the rock
@@ -40583,7 +40616,15 @@ function update(dt){
   boardPitch+=(pitchT-boardPitch)*Math.min(1,dt*13);
   const grabRoll = grab ? grabSide*0.30 : 0;   // board tips toward the rail he's holding
   if(heliPh<0&&!heliAir)heliIncline=ease(heliIncline,0,dt,4);
-  rig.rotation.set(boardPitch+heliIncline,boardYaw+wobYaw,boardLean+grabRoll+wobRoll);
+  // ---- AND DOWN THE CHUTE THE BOARD POINTS DOWNHILL ----
+  // This is what the shot was missing, and no camera setting could have supplied it. The water
+  // was falling at forty degrees and the board sat dead level on it, which is precisely what a
+  // board on FLAT water does -- so the picture kept saying flat however the sea was shaped. It
+  // is the same reading every one of the reference photographs turns on: you know the kayak is
+  // going over because the kayak is pointing over. Taken from the surface the board is actually
+  // on, sampled fore and aft, so it steepens hard on each ledge and levels off in the pools
+  // between them without anything having to drive it.
+  rig.rotation.set(boardPitch+heliIncline+fallTilt,boardYaw+wobYaw,boardLean+grabRoll+wobRoll);
   // ---- ...and while he is in the air the board is just floating ----
   // rig carries the rider as well as the board, so a leaned rig tips the LIFT below out of
   // vertical and he arcs off sideways. Nobody is standing on it to lean it anyway: an empty
@@ -41698,9 +41739,9 @@ function update(dt){
     // shot at all. What actually makes a flume read as a flume is the walls being close --
     // that is the lane width, not the camera -- so this only comes down enough to put the rider
     // among them rather than above them.
-    camera.position.y+=9.0*fallW;
-    camera.position.z+=3.0*fallW;
-    camera.rotateX(-FALL_PITCH*fallW);
+    camera.position.y+=FALL_CAM.lift*fallW;
+    camera.position.z+=FALL_CAM.back*fallW;
+    camera.rotateX(-FALL_CAM.pitch*fallW);
     // ...and the fall LURCHES. Water going over a lip does not descend at one rate; it steps,
     // and the step is felt rather than seen. Two shallow beats a second on the shot, nothing
     // on the physics -- a rider who actually bucked this hard could not be steered.
