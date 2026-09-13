@@ -266,7 +266,7 @@ SPIN_PARTS={'ring':(375,84,308,311), 'easel':(408,492,243,492), 'hub':(74,779,20
 SPIN_BLADE=(150,38,50,161)          # row 1, column 2: the bare one
 # Richer than the pastels the CSS wheel used. A painted board is a painted board; those colours
 # were picked to be legible as flat CSS wedges and they read as sugar paper on timber.
-SPIN_TINT=[0xE8A63C, 0x3FB5A8, 0xE07A4B, 0x5C8FC7, 0xE8D08A, 0x8E7BB8]
+SPIN_TINT=[0xF0A81E, 0x17A392, 0xE0602C, 0x2E72B8, 0xE7C04A, 0x7A5EA8]
 
 def _sheet_rgba(x,y,w,h,pad=4,tol=234.0,soft=16.0):
     """One part off the white sheet. Keyed on how far the pixel is BELOW white rather than on
@@ -300,19 +300,54 @@ def spin_part(key,name,w,hoop=False):
     out(a,al,name,w)
 
 def spin_blades():
-    x,y,w,h=SPIN_BLADE
-    a,al=_sheet_rgba(x,y,w,h,pad=3)
-    # its own luminance, normalised against its own mid-tone: the blade is pale timber, so a
-    # straight multiply would come out muddy on every tint. Divided through by the middle
-    # first, the grain sits either side of 1.0 and the tint lands where it was aimed.
-    lum=a.mean(2)
-    mid=np.median(lum[al>0.6]) if (al>0.6).any() else 200.0
-    k=np.clip(lum/max(1.0,mid),0.0,1.9)[:,:,None]
-    # a little contrast back, because dividing through flattens the stringer line
-    k=np.clip(0.5+(k-0.5)*1.22,0.0,1.9)
+    """The blades are DRAWN, and every other part of this wheel is cut from the photographs.
+
+       That is not a preference, it is what the sources will carry. The parts sheet gives the
+       blade at 50 by 161 pixels and it is displayed about 104 device pixels across, so every
+       JPEG block in it arrives on screen at double size. The original photograph has the same
+       blade three times larger -- and it is out of focus there, because the shot is focused on
+       the middle of the rosette and the blades fan away from it. Neither source holds detail
+       at the size this needs. Upscaling the sharper of two blurs is still a blur, and what it
+       looked like on a phone was the complaint that started this.
+
+       So the shape, the dome, the stringer and the grain are generated, and the colours stay
+       the ones sampled off the delivered boards. Everything else on the wheel -- the hoop, the
+       hub, the fin, the sign, the easel -- is still the photograph, because at the size THOSE
+       are drawn their own resolution is enough.
+    """
+    H,W=850,264
+    yy,xx=np.mgrid[0:H,0:W].astype(np.float32)
+    t=yy/(H-1.0)                                   # 0 at the nose, 1 at the tail
+    # The delivered blades are a symmetric pointed lens, the same at both ends, so that is what
+    # this is -- a surfboard outline with a nose and a tail would be a different object from the
+    # ones in the photograph, and the photograph is what the rest of the wheel came from.
+    hw=(W/2.0-3.0)*np.power(np.maximum(1e-4,np.sin(np.pi*t)),0.72)
+    dx=xx-(W-1)/2.0
+    d=hw-np.abs(dx)                                # signed distance inside the outline
+    al=np.clip(d/1.6,0,1)                          # and the edge is antialiased by construction
+    n=np.clip(dx/np.maximum(1.0,hw),-1,1)
+    # a board is DOMED: bright along the stringer, falling away to the rails
+    dome=np.sqrt(np.clip(1.0-n*n,0,1))
+    shade=0.58+0.42*np.power(dome,0.62)
+    # grain, stretched along the length the way timber runs
+    g=grain(H,W,1,26,seed=11)
+    shade=shade*(1.0+0.085*(g-g.mean())/max(1e-4,g.std()))
+    # the stringer: a dark line down the middle with a lighter edge either side of it, which is
+    # what a glued strip of contrasting timber actually looks like
+    st=np.abs(dx)
+    shade=shade*(1.0-0.30*np.exp(-(st/1.9)**2))
+    shade=shade*(1.0+0.16*np.exp(-((st-3.4)/2.2)**2))
+    # and the rail turns away from the light at the very edge
+    shade=shade*(1.0-0.34*np.clip(1.0-d/7.0,0,1))
+    shade=np.clip(shade,0,1.35)[:,:,None]
     for i,c in enumerate(SPIN_TINT):
         col=np.array([(c>>16)&255,(c>>8)&255,c&255],np.float32)
-        out(col[None,None,:]*k, al, 'spin_blade%d.png'%(i+1), 108)
+        # Less white in the light end than the first pass had. Lifting toward 255 turns a
+        # painted board into sugar paper, and six sugar-paper petals was half of what "crappy"
+        # meant -- the colours were sampled off real paint and then diluted back out of it.
+        dark=col*0.40
+        light=np.minimum(255.0,col*1.06+26.0)
+        out(dark+(light-dark)*shade, al, 'spin_blade%d.png'%(i+1), 132)
 
 spin_part('ring','spin_ring.png',560,hoop=True)
 for k,nm,w in (('hub','spin_hub.png',150),('fin','spin_fin.png',96),
