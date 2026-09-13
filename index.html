@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.93';
+window.SURF_VERSION='9.94';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -3559,7 +3559,11 @@ const FALL_SLOPE=0.26;      // rise over run of the CONTINUOUS part, under the c
 // the whole of "it looks like water going down level" -- the slope was real, it just ended in
 // shot. It has to run past the far clip instead, so the only water on screen is water that is
 // still falling, and the clamp exists purely to stop the field going unbounded.
-const FALL_AHEAD=260, FALL_BEHIND=6;
+// A hundred and forty, not two hundred and sixty. Past the clamp the field is flat, and with
+// the drop now REAL that flat part is not a cop-out -- it is the pool at the bottom of the
+// fall, sitting sixty-odd units below him, which is exactly what the reference shows under the
+// falls. Clamped further out the sea simply sank out of the world and left nothing on screen.
+const FALL_AHEAD=140, FALL_BEHIND=6;
 // ...and it STEEPENS with distance, because a lip does. Water rolling over an edge accelerates,
 // so the fall line is shallow where he is and near-vertical by the far end -- which rolls the
 // chute over and drops it out of sight rather than letting it reach a horizon. Everything that
@@ -3599,18 +3603,33 @@ const FALL_STEEP=0.0;       // extra rise-over-run added beyond the knee
 // there, the drop ahead is visible as a white line across the channel with calm water above it
 // and churn below, and you can see two or three of them stacked up the gorge at once.
 // The buoyancy field is shared, so the board goes over each of these for free.
-const FALL_STEP=130;        // distance from one lip to the next
-const FALL_LEDGE=55;        // how much of the descent happens AT a lip rather than between
+// Short, because of where the CAMERA can see. The lip was eighty-five units ahead and the
+// field was measurably correct -- a hundred and twenty-six units of drop between d=80 and
+// d=120 -- and none of it read, because a lens nine units above a fourteen-degree apron sees
+// everything past about forty units compressed into a thin band at the horizon. A drop can be
+// as big as you like out there and it will still be four pixels tall. So the lip comes to
+// thirty-odd units ahead, where there is screen to show it in.
+const FALL_STEP=95;         // distance from one lip to the next
+// Fifty-eight units over a lip fourteen long: a face at four to one, which is a wall of water
+// rather than a slope. It does not need to be bigger than this now it is close enough to see.
+// Much smaller than it was on paper, because it is REAL now. Fifty-eight was tuned while the
+// surface was flat and the drop was a painted stripe -- the instant the geometry actually fell
+// by it, the whole sea went out of the bottom of the frame and left the rider in mid-air over a
+// gorge. A drop you can see all of beats a bigger one that leaves nothing on screen.
+const FALL_LEDGE=26;        // how much of the descent happens AT a lip rather than between
 // A narrow window, because a lip is narrow. Fifty-five units of drop inside a quarter of the
 // step is a face at better than sixty degrees -- a wall of water, not a slide -- with three
 // quarters of slack river above it for him to be riding flat on.
-const FALL_LIP0=0.57, FALL_LIP1=0.82;   // where in each step the drop happens (0..1 along it)
+const FALL_LIP0=0.55, FALL_LIP1=0.72;   // where in each step the drop happens (0..1 along it)
 const FALL_LIPX=0.37, FALL_LIPA=3.2;    // how the lip line curves across the channel
 // Small. It was nine and a half, then seven, and at either figure the water ran smoothly up
 // both banks in a broad unbroken ramp -- which is a water slide, and the one thing a gorge never
 // does. A river in rock does not climb its walls; it hits them and breaks. Enough trough left to
 // settle the board back to the middle, and no more than that.
-const FALL_BANK=2.6;        // how far the water climbs the wall at the lane edge
+// Halved again now it is real. Two point six was set while the surface was flat and the bank
+// was only a shading trick; as geometry it domes the water into a ridge right under the board
+// and the river falls away on both sides of him instead of ahead of him.
+const FALL_BANK=1.1;        // how far the water climbs the wall at the lane edge
 // The staircase, as a height. Continuous and monotonic -- k whole steps already taken, plus an
 // eased fraction of the one he is on, so there is no cliff in the FIELD even though there is
 // very much one in the picture.
@@ -3778,7 +3797,10 @@ const oceanUniforms={
   // uFallZ is the rider's world z and not a field coordinate, because the field offset cancels:
   // the slope is measured from dist*WAVE_DRIFT+pz and the shader vertex sits at
   // dist*WAVE_DRIFT+vW.z, so the difference is pz-vW.z and the drift never enters it.
-  uFallW:{value:0}, uFallZ:{value:0}, uFallLane:{value:13.5},
+  // uFallZF is the pivot in FIELD coordinates, which is what the vertex shader works in and
+  // what fallDip itself is written in. uFallZ above is the world-space one the fragment shader
+  // compares against vW.z. They are not interchangeable.
+  uFallW:{value:0}, uFallZ:{value:0}, uFallZF:{value:0}, uFallLane:{value:13.5},
   // ---- the wakes, drawn as FOAM ON THE WATER rather than as sprites ----
   // The sprite cloud could not be made both thick and clean: stacked translucent quads round
   // their blend to 8 bits and a phone shows the error as coloured speckle, so density fought
@@ -3837,8 +3859,40 @@ const oceanMat=new THREE.ShaderMaterial({
     uniform float uWakeZ; uniform float uWakeA; uniform float uWakeX;
     uniform float uWhX; uniform float uWhZ; uniform float uWhA;
     uniform float uSwA; uniform float uSwX; uniform float uSwS;
+    uniform float uFallZF;   // uFallW and uFallLane are already declared above
     varying vec3 vN; varying vec3 vW; varying float vH; varying vec2 vPh;
     varying float vSw; varying float vBrk; varying float vPa; varying float vDx;
+    // ---- THE FALL, IN THE GEOMETRY ----
+    // This is the whole of "the water actually needs to drop down", and it was missing. fallDip
+    // was only ever added to waveH -- the CPU function -- which is what the buoyancy and the
+    // board's angle read. The SURFACE is built here, from the swell, the wake and the set wave,
+    // and nothing in this list knew about the chute at all. So the board has been riding a
+    // staircase down a gorge while the water it sits on stayed dead flat, and every ledge and
+    // cascade anyone has looked at was a white stripe PAINTED on a level sheet by the fragment
+    // shader. No amount of camera work, slope, or contrast could have fixed that, because there
+    // was nothing there to see. Mirrors fallDip exactly, constants interpolated from the same
+    // consts so the two cannot drift.
+    // ---- EVERY ONE OF THESE IS toFixed ----
+    // FALL_STEEP is 0.0 in JS and interpolates as the INTEGER literal "0". GLSL ES will not
+    // multiply an int by a float, so the ocean's vertex shader failed to compile -- and a
+    // material that fails to compile does not throw a page error, it just quietly stops
+    // drawing. The entire sea disappeared, and because it disappeared at every drop size it
+    // looked like a magnitude problem for three rounds. A whole-numbered constant is the whole
+    // bug; a decimal point is the whole fix.
+    float fallStairG(float d){
+      float ph=d/${FALL_STEP.toFixed(3)}, k=floor(ph);
+      float f=clamp((ph-k-${FALL_LIP0.toFixed(4)})/${(FALL_LIP1-FALL_LIP0).toFixed(4)},0.0,1.0);
+      return -${FALL_LEDGE.toFixed(3)}*(k+f*f*(3.0-2.0*f));
+    }
+    float fallH(vec2 q){
+      if(uFallW<=0.002) return 0.0;
+      float d=clamp(uFallZF-q.y, -${FALL_BEHIND.toFixed(2)}, ${FALL_AHEAD.toFixed(2)});
+      float u=min(1.6, abs(q.x)/max(0.001,uFallLane));
+      float dw=d+sin(q.x*${FALL_LIPX.toFixed(4)})*${FALL_LIPA.toFixed(3)};
+      return uFallW*(-${FALL_SLOPE.toFixed(4)}*d - ${FALL_STEEP.toFixed(4)}*max(0.0,d-${FALL_KNEE.toFixed(2)})
+                     + fallStairG(dw) - fallStairG(0.0))
+           + ${FALL_BANK.toFixed(3)}*uFallW*u*u;
+    }
     void main(){
       vSw=0.0; vBrk=0.0; vPa=0.0; vDx=999.0;
       vec2 p = vec2(position.x, (-position.y + (${OCEAN_Z.toFixed(1)})) + uDist);
@@ -3940,6 +3994,16 @@ const oceanMat=new THREE.ShaderMaterial({
       // phase of the two main swells — constant along a moving crest
       vPh = vec2( (0.00*p.x + 1.00*p.y)*0.190 + uT*0.013,
                   (0.60*p.x + 0.80*p.y)*0.310 + uT*0.019 );
+      // ...and it tilts the NORMAL too, by finite difference in the same p space the other
+      // terms build their derivatives in. Without this a surface falling at four to one is lit
+      // as though it were flat, which is most of why it read as flat.
+      float _fh=fallH(p);
+      if(uFallW>0.002){
+        h += _fh;
+        const float _fe=1.5;
+        dhx += (fallH(p+vec2(_fe,0.0))-_fh)/_fe;
+        dhz += (fallH(p+vec2(0.0,_fe))-_fh)/_fe;
+      }
       vec3 displaced = vec3(position.x, position.y, h);
       vN = normalize(vec3(-dhx, 1.0, -dhz));
       vH = h;
@@ -4218,6 +4282,25 @@ const oceanMat=new THREE.ShaderMaterial({
         float apron = (1.0 - smoothstep(6.0, 78.0, d)) * smoothstep(-90.0, -26.0, d) * uFallW;
         aer = max(aer, clamp(apron*(0.52 + 0.30*chn + 0.24*spit), 0.0, 1.0));
         foam = max(foam, aer);
+      }
+      // ---- AND WHAT IS FAR BELOW HIM IS DARK ----
+      // The whole chute was painted the same white from under the board to the far end, so a
+      // drop of a hundred and fifteen units looked exactly like flat water with foam on it --
+      // there was no cue anywhere in the picture for HOW FAR DOWN anything was. Every
+      // photograph of a gorge has the answer: the bottom is in shadow. Water this deep in is
+      // lit by a strip of sky the width of the slot above it, so it loses light fast with
+      // depth. Taken off vW.y directly, which is the real height of the surface at that pixel,
+      // so it cannot disagree with the shape the sea is actually in.
+      if(uFallW > 0.002){
+        // Over fifty-five units, not a hundred and fifty. The lip is close to him now, so the
+        // water at the bottom of it is only thirty to seventy units down -- on the old scale
+        // that was a quarter of the way to dark and the chasm stayed as white as the apron, so
+        // the fall and the flat water below it were the same colour and neither read.
+        float deep = clamp(-vW.y/55.0, 0.0, 1.0);
+        deep = deep*deep*(3.0-2.0*deep)*uFallW;
+        col  = mix(col, col*vec3(0.26,0.33,0.42), deep*0.88);
+        foam = foam*(1.0-deep*0.72);
+        aer  = aer *(1.0-deep*0.78);
       }
       col = mix(col, vec3(0.94,0.97,1.0), foam*0.66);
       // ...and then the rest of the way, because 0.72 of white is a foamy sea and a fall is
@@ -14140,7 +14223,11 @@ function fallStep(dt){
     // pass for a downhill one; at the full gradient there is no mistaking it, because the FINS
     // are pointing at the lens. Behind minus ahead, so it is positive when the water ahead is
     // lower -- which is the only arrangement that can be called nose-down.
-    const _want=Math.min(0.95, Math.atan2(_bh-_ah,14)*fallW*FALL_TILTK);
+    // Capped lower than the water can actually get now. The apron he rides is gentle, so this
+    // sits near seven degrees where he lives; the cap only bites in the instant he crosses a
+    // lip, where the true gradient is past four to one and taking all of it would foreshorten
+    // the board to a blob for that moment.
+    const _want=Math.min(0.45, Math.atan2(_bh-_ah,14)*fallW*FALL_TILTK);
     fallTilt+=(_want-fallTilt)*Math.min(1,dt*5.0);
   }
   const T=(typeof tNow==='number')?tNow:performance.now()/1000;
@@ -24859,6 +24946,7 @@ function updateWorldDuringWipeout(dt){
   oceanUniforms.uAmp.value=waveAmp*swCalm;
   oceanUniforms.uDist.value=dist*WAVE_DRIFT;
   oceanUniforms.uFallW.value=(typeof fallW==='number')?fallW:0;
+  oceanUniforms.uFallZF.value=(typeof fallZ0==='number')?fallZ0:0;
   oceanUniforms.uFallZ.value=pz;
   oceanUniforms.uFallLane.value=FALL_LANE;
   oceanUniforms.uWakeZ.value=wkZ;oceanUniforms.uWakeA.value=wkA;oceanUniforms.uWakeX.value=wkX;
@@ -28958,6 +29046,15 @@ if(location.hash.includes('debug')){
               parentIsHut:tikiSign.parent===tikiHut};
     },
     hutReady(){ return {hut:!!tikiHut, sign:!!tikiSign, vis:!!(tikiHut&&tikiHut.visible)}; },
+    // The height of the water straight down the fall line, every twenty units. A screenshot
+    // cannot say whether a drop is missing from the FIELD or merely projecting badly from this
+    // camera, and those want opposite fixes.
+    fallProfile(){
+      const z0=dist*WAVE_DRIFT+pz, T=(typeof tNow==='number')?tNow:performance.now()/1000;
+      const out=[];
+      for(let d=-20; d<=260; d+=20) out.push([d, +waveH(px, z0-d, T).toFixed(1)]);
+      return {w:+fallW.toFixed(2), step:FALL_STEP, ledge:FALL_LEDGE, prof:out};
+    },
     // The hut's own frame, measured rather than assumed. Four rounds of placing a quad in local
     // coordinates moved it almost nowhere on screen, which means the frame is not what it looks
     // like from SHOP_SLOT's numbers.
@@ -41636,6 +41733,7 @@ function update(dt){
   // it. uFallW read 0 through a whole descent while fallW read 1, which is the same shape of
   // bug as the prone pose: the value was right and it was going somewhere that never ran.
   oceanUniforms.uFallW.value=(typeof fallW==='number')?fallW:0;
+  oceanUniforms.uFallZF.value=(typeof fallZ0==='number')?fallZ0:0;
   oceanUniforms.uFallZ.value=pz;
   oceanUniforms.uFallLane.value=FALL_LANE;
   oceanUniforms.uWakeZ.value=wkZ;oceanUniforms.uWakeA.value=wkA;oceanUniforms.uWakeX.value=wkX;
