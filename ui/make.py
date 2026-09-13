@@ -238,3 +238,84 @@ for src,name in [('48d4f00d-image.jpg','sign_school.png'),
     im=im.resize((200,round(im.height*200/im.width)),Image.LANCZOS)
     im.save(OUT+name,optimize=True)
     print(name,im.size,os.path.getsize(OUT+name)//1024,'KB')
+
+
+# ---------- the daily wheel, cut from one sheet of parts ----------
+# The wheel arrived twice. First as a PHOTOGRAPH of the finished thing -- the whole rosette
+# assembled in its ring on an easel -- which cannot be used, for four reasons and the first is
+# fatal: the labels are painted on. Half the slices carry a figure that moves with the rank
+# (500 shells at level one is 1,600 at the top) and one of them names whichever board is being
+# lent, so the text has to be drawn at run time and painted text cannot be. Then: fourteen
+# blades against six prizes, unreadable at 264px on a phone; the ring, the easel and the sign
+# would all turn with the rosette if the picture were rotated as one; and the shot is off-axis,
+# so the rosette is an ellipse and an ellipse spun in 2D reads as a wobbling photograph.
+#
+# It arrived the second time as the PARTS, straight on, on white. That is what this cuts, and
+# the same argument the plank makes applies: one blade serves all six slices.
+#
+# ONE BLADE, TINTED SIX WAYS. Of the twelve delivered, eleven carry their own painted label
+# and icon -- and the lettering on them is garbled besides ("CNEST", "SACOND LIE"), so there
+# was never a version of this where the delivered text could ship. The twelfth is bare wood
+# with its stringer line and nothing else. That is the one, recoloured per slice by multiplying
+# its own luminance through each colour, which keeps the grain and the stringer in every copy
+# and means all six are the same board in six paints rather than six boards.
+SPIN_SHEET='8171fe62-image.jpg'
+# measured off the sheet by connected components, not counted by eye
+SPIN_PARTS={'ring':(375,84,308,311), 'easel':(408,492,243,492), 'hub':(74,779,203,203),
+            'fin':(472,1071,132,235), 'sign':(16,1098,320,154)}
+SPIN_BLADE=(150,38,50,161)          # row 1, column 2: the bare one
+# Richer than the pastels the CSS wheel used. A painted board is a painted board; those colours
+# were picked to be legible as flat CSS wedges and they read as sugar paper on timber.
+SPIN_TINT=[0xE8A63C, 0x3FB5A8, 0xE07A4B, 0x5C8FC7, 0xE8D08A, 0x8E7BB8]
+
+def _sheet_rgba(x,y,w,h,pad=4,tol=234.0,soft=16.0):
+    """One part off the white sheet. Keyed on how far the pixel is BELOW white rather than on
+       a colour difference: the parts are wood and paint against a studio white, and two of
+       them (the bare blade, the pale sign) are themselves nearly neutral, so any key that
+       leans on saturation drops half of what it is supposed to keep."""
+    im=Image.open(U+SPIN_SHEET).convert('RGB')
+    a=np.asarray(im).astype(np.float32)[max(0,y-pad):y+h+pad, max(0,x-pad):x+w+pad]
+    lum=a.mean(2)
+    al=np.clip((tol-lum)/soft,0,1)
+    # the studio ground carries a faint gradient; anything that faint is ground, not part
+    al[al<0.10]=0.0
+    return a, al
+
+def spin_part(key,name,w,hoop=False):
+    x,y,ww,hh=SPIN_PARTS[key]
+    a,al=_sheet_rgba(x,y,ww,hh)
+    if hoop:
+        # ---- THE RING DELIVERED IS A WAGON WHEEL, AND A WAGON WHEEL HAS SPOKES ----
+        # The photograph this is all drawn from has a plain hoop with the rosette filling it.
+        # Twelve spokes behind six boards is two wheels arguing: the spokes cross every blade,
+        # and being on top they win. So the rim is kept and the rest is thrown away, which
+        # turns the part into the hoop the reference actually has -- and the hub is a separate
+        # part anyway, so nothing is lost by dropping the one cast into these spokes.
+        # 0.86 measured off the alpha, not guessed: mean alpha runs about 0.17 across the
+        # spoke field and jumps to 0.64 at 0.88 of the radius, which is the rim starting.
+        H,W=al.shape
+        yy,xx=np.mgrid[0:H,0:W]
+        r=np.sqrt(((yy-(H-1)/2)/(H/2))**2+((xx-(W-1)/2)/(W/2))**2)
+        al=al*np.clip((r-0.855)/0.025,0,1)
+    out(a,al,name,w)
+
+def spin_blades():
+    x,y,w,h=SPIN_BLADE
+    a,al=_sheet_rgba(x,y,w,h,pad=3)
+    # its own luminance, normalised against its own mid-tone: the blade is pale timber, so a
+    # straight multiply would come out muddy on every tint. Divided through by the middle
+    # first, the grain sits either side of 1.0 and the tint lands where it was aimed.
+    lum=a.mean(2)
+    mid=np.median(lum[al>0.6]) if (al>0.6).any() else 200.0
+    k=np.clip(lum/max(1.0,mid),0.0,1.9)[:,:,None]
+    # a little contrast back, because dividing through flattens the stringer line
+    k=np.clip(0.5+(k-0.5)*1.22,0.0,1.9)
+    for i,c in enumerate(SPIN_TINT):
+        col=np.array([(c>>16)&255,(c>>8)&255,c&255],np.float32)
+        out(col[None,None,:]*k, al, 'spin_blade%d.png'%(i+1), 108)
+
+spin_part('ring','spin_ring.png',560,hoop=True)
+for k,nm,w in (('hub','spin_hub.png',150),('fin','spin_fin.png',96),
+               ('sign','spin_sign.png',420),('easel','spin_easel.png',300)):
+    spin_part(k,nm,w)
+spin_blades()
