@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.72';
+window.SURF_VERSION='9.73';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -1991,7 +1991,18 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
      So the stage is taller than it is wide: the wheel takes the top of it and the legs run on
      down past the bottom of the hoop. */
   #spinStage { position:relative; width:min(76vw,278px); aspect-ratio:278/366;
-    margin:4px auto 0; }
+    margin:4px auto 0; -webkit-tap-highlight-color:transparent; }
+  /* Live only while there is a spin to have. A wheel that highlights under the finger and then
+     does nothing is worse than one that never looked tappable at all. */
+  #spinStage.live { cursor:pointer; }
+  #spinStage.live #spinWheel { animation:spinNudge 3.6s ease-in-out infinite; }
+  #spinStage.live:active #spinWheel { animation:none; }
+  /* A degree and a half, on the blades only. It is not a preview of the spin -- the spin is
+     five turns -- it is the smallest movement that says this thing is on a bearing. The real
+     spin writes an inline transform, which beats this rule, so the two never fight. */
+  @keyframes spinNudge { 0%,88%,100%{ transform:rotate(0deg); }
+                         93%{ transform:rotate(1.5deg); } 96.5%{ transform:rotate(-1deg); } }
+  @media (prefers-reduced-motion:reduce){ #spinStage.live #spinWheel { animation:none; } }
   /* FIRST in the box, so the wheel paints over it. Listed after it in the stylesheet and
      before it in the markup, because what decides the order here is the DOM and not this rule:
      every part of the stage is position:absolute with no z-index, so they stack in document
@@ -12559,6 +12570,7 @@ function spinDraw(){
   const rdy=wheelReady();
   go.disabled=!rdy||_spinBusy;
   go.querySelector('span').textContent=rdy?'Spin':'Come back tomorrow';
+  spinLive(rdy);
   const won=document.getElementById('spinWon');
   if(!rdy&&!_spinBusy&&!won.innerHTML)
     won.innerHTML='<small>One spin a day. The prizes get better as you rank up.</small>';
@@ -12571,6 +12583,11 @@ function spinFlips(){
     const a=(((_spinP.stops[i]+_spinRot)%360)+360)%360;
     sp[i].className='bl'+((a>180)?' flip':'');
   }
+}
+// the stage says whether it is live, so the cursor and the nudge below can follow it
+function spinLive(rdy){
+  const st=document.getElementById('spinStage');
+  if(st)st.classList.toggle('live',!!rdy&&!_spinBusy);
 }
 function spinPip(){
   const b=document.getElementById('hbWheel');
@@ -12586,6 +12603,7 @@ function doSpin(){
   if(_spinBusy||!wheelReady())return;
   _spinBusy=true; buzz(14);
   const P=_spinP||wheelPrizes();
+  spinLive(false);
   const i=wheelPick(P);
   const wh=document.getElementById('spinWheel'), go=document.getElementById('spinGo');
   go.disabled=true;
@@ -12616,6 +12634,11 @@ function doSpin(){
 }
 document.getElementById('hbWheel').onclick=openSpin;
 document.getElementById('spinGo').onclick=doSpin;
+// ---- AND THE WHEEL ITSELF TURNS WHEN YOU TAP IT ----
+// The button was the only way to spin, which is the one thing nobody tries first: shown a
+// wheel, a person reaches for the wheel. The hoop, the hub and the fin are all
+// pointer-events:none already, so a tap anywhere on the stage lands on the stage.
+document.getElementById('spinStage').onclick=doSpin;
 document.getElementById('spinClose').onclick=()=>
   document.getElementById('spin').classList.add('hidden');
 spinPip();
