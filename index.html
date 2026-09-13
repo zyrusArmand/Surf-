@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.88';
+window.SURF_VERSION='9.89';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -14047,10 +14047,21 @@ function fallGo(){
   if(fallGrp)fallGrp.visible=true;
   return true;
 }
-function fallEnd(){ fallPh=-1; fallT=0; fallW=0; fallLay=0;
+function fallEnd(){ fallPh=-1; fallT=0; fallW=0; fallLay=0; fallTilt=0;
   if(fallGrp)fallGrp.visible=false; }
 function fallStep(dt){
-  if(fallPh<0){ if(fallW>0.001){ fallW=Math.max(0,fallW-dt*0.8); fallLay=fallW; } return; }
+  // ---- AND THE TILT COMES OFF THE BOARD WHEN THE CHUTE DOES ----
+  // This branch decayed fallW and fallLay and left fallTilt exactly where the drop had put it,
+  // so the board kept its downhill angle for the rest of the session -- every ordinary run
+  // afterwards was ridden on a board pitched over on flat water. The set piece is test-only and
+  // this is the one piece of it that reaches into normal play, which is precisely why it has to
+  // put itself back. Eased rather than snapped, so leaving the chute is not a visible jolt.
+  if(fallPh<0){
+    if(fallW>0.001){ fallW=Math.max(0,fallW-dt*0.8); fallLay=fallW; }
+    if(fallTilt!==0){ fallTilt+=(0-fallTilt)*Math.min(1,dt*4.0);
+                      if(Math.abs(fallTilt)<0.002)fallTilt=0; }
+    return;
+  }
   fallT+=dt;
   if(fallPh===0){ fallW=Math.min(1,fallT/FALL_IN); if(fallT>=FALL_IN){ fallPh=1; fallT=0; } }
   else if(fallPh===1){ fallW=1; if(fallT>=FALL_RIDE){ fallPh=2; fallT=0; } }
@@ -19059,9 +19070,21 @@ const wakeMat=new THREE.ShaderMaterial({
       // looks like is CLOUD: a few big soft lumps with volume, and hardly any fine grain at all.
       // So the features get much larger and much rounder, and the fine octave is pulled right
       // back to a suggestion of texture rather than half the signal.
+      // ---- AND THE SCROLL IS WRAPPED, OR THE HASH FALLS APART ----
+      // h21 is fract(sin(dot(p,...))*43758), and fbm doubles p four times on top of whatever it
+      // is handed. uT is seconds since the page loaded, so a few minutes into a session sin() is
+      // being fed values in the hundreds of thousands -- where a phone's sin has no accuracy
+      // left and returns junk that changes per pixel. That is the coloured speckle in the WAKE,
+      // in ordinary play, with no chute anywhere near it: it is not the fall's shader at all,
+      // and it gets worse the longer the game has been open, which is why it never showed in a
+      // probe that runs for forty seconds.
+      // Wrapped at whole numbers: value noise is built on floor()/fract() of a lattice, so an
+      // integer shift lands on an identical pattern and the wrap is invisible.
       vec2 q=vec2(vUV.x*1.9, vUV.y*9.0);
-      float n1=fbm(q*1.00 + vec2(-uT*0.06, uT*0.10));       // the billows
-      float n2=fbm(q*2.30 + vec2( uT*0.09, uT*0.07));       // and a little grain in them
+      vec2 t1=vec2(-mod(uT*0.06,128.0), mod(uT*0.10,128.0));
+      vec2 t2=vec2( mod(uT*0.09,128.0), mod(uT*0.07,128.0));
+      float n1=fbm(q*1.00 + t1);       // the billows
+      float n2=fbm(q*2.30 + t2);       // and a little grain in them
       float lace  = smoothstep(0.34,0.86, n1);
       float fleck = smoothstep(0.46,0.92, n2);
       // ---- THE WHITEWATER RECIPE, NOT THE CREST'S ----
