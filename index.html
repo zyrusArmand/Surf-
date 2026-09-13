@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.97';
+window.SURF_VERSION='9.98';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -5948,6 +5948,10 @@ function astroLivery(root){
   });
   return box;
 }
+// The reef stacks. Top level rather than inside wantTiki, which is where this first went and
+// which only runs when the title screen reveals -- so on a cold start straight into a run the
+// model was never even asked for. Measured: still null after a hundred and sixty seconds.
+loadModel('rocks2.glb',s=>{ rockModel=s; },0);
 loadModel('board.glb',s=>{
   const fitted=skinAndFit('board',s,BOARD_BOX,orientBoard);
   // Match deck to deck rather than box to box. A thin model has nothing like the
@@ -29116,6 +29120,12 @@ if(location.hash.includes('debug')){
               parentIsHut:tikiSign.parent===tikiHut};
     },
     hutReady(){ return {hut:!!tikiHut, sign:!!tikiSign, vis:!!(tikiHut&&tikiHut.visible)}; },
+    rocks(){ if(!rockField)return {model:!!rockModel, field:false};
+      const c=rockField.children;
+      return {model:!!rockModel, field:true, n:c.length,
+              h:+(c[0].userData.h||0).toFixed(1),
+              sample:c.slice(0,3).map(o=>[+o.position.x.toFixed(0),+o.position.y.toFixed(1),+o.position.z.toFixed(0)])};
+    },
     // The height of the water straight down the fall line, every twenty units. A screenshot
     // cannot say whether a drop is missing from the FIELD or merely projecting badly from this
     // camera, and those want opposite fixes.
@@ -36080,6 +36090,66 @@ const BED_DRIFT=1.0;
 // bedH, so "prop.y minus bedH" is constant by construction and proves nothing. The question is
 // whether a prop stays on the same patch of GROUND, and with a minus it does -- z - d is exactly
 // the ground coordinate, and it holds still for anything travelling with the flow.
+// ---------- THE ROCK STACKS ----------
+// Huge, planted out in the water either side of the lane, deliberately overlapping so they read
+// as one broken reef rather than a row of separate props. Two rules from the brief and both are
+// about where the model MEETS things: the round base has to finish under the sand, so no rim
+// shows and nothing appears to be floating, and the top has to come up to about the waterline
+// rather than towering over it -- which together is what makes a stack look like rock the sea
+// has been working on rather than a boulder dropped in.
+// They are scenery and nothing else. Kept well outside the steering limit, so there is never a
+// question of one becoming an obstacle the hard way, and they scroll and recycle exactly like
+// the dive props do.
+let rockModel=null, rockField=null;
+const ROCK_N=9, ROCK_BEHIND=40, ROCK_AHEAD=520;
+const ROCK_INX=23, ROCK_OUTX=46;      // never inside the lane, never so far out it is fog
+function rockLay(o,fresh){
+  const side=Math.random()<0.5?-1:1;
+  o.position.x=side*(ROCK_INX+Math.random()*(ROCK_OUTX-ROCK_INX));
+  o.position.z=fresh?(-ROCK_AHEAD*Math.random()):(-ROCK_AHEAD-Math.random()*120);
+  o.rotation.y=Math.random()*6.283;
+  const k=0.55+Math.random()*1.15;    // a broken reef is not a set of identical lumps
+  o.scale.setScalar(o.userData.k0*k);
+  o.userData.h=o.userData.h0*k;
+  o.userData.cap=o.userData.cap0*k;
+  o.userData.proud=0.4+Math.random()*2.2;   // how far this one's crown clears the water
+}
+function rockBuild(){
+  if(rockField||!rockModel)return;
+  rockField=new THREE.Group(); scene.add(rockField);
+  const box=new THREE.Box3().setFromObject(rockModel);
+  const size=box.getSize(new THREE.Vector3());
+  // fitted so one stack stands about twenty units proud before its own random scale
+  const k0=20/Math.max(0.001,size.y);
+  for(let i=0;i<ROCK_N;i++){
+    const o=cloneModel(rockModel);
+    o.userData.k0=k0; o.userData.h0=size.y*k0;
+    // ---- the model's origin is not its base, and that is the whole of the placement ----
+    // Positioning as though it were put the stacks thirty units under -- measured, origin at
+    // -28.3 with the cap somewhere below the surface and nothing visible at all. cap0 is how
+    // far the highest point sits ABOVE the origin, which is the only number that can put a top
+    // at the waterline without knowing anything else about how the thing was exported.
+    o.userData.cap0=box.max.y*k0;
+    o.traverse(m=>{ if(m.isMesh){ m.castShadow=false; m.receiveShadow=false; } });
+    rockLay(o,true);
+    rockField.add(o);
+  }
+}
+function rockStep(dt){
+  if(!rockField){ rockBuild(); return; }
+  const eff=(typeof lastEff==='number')?lastEff:0;
+  for(const o of rockField.children){
+    o.position.z+=eff*dt;
+    if(o.position.z>ROCK_BEHIND)rockLay(o,false);
+    // ---- the two rules, every frame ----
+    // The top is put AT the water and the base follows it down. Because the stack is twenty-odd
+    // units tall and the bed is nowhere near that deep, the base ends up well under the sand on
+    // its own -- which is the point: it is buried rather than balanced.
+    // Top at the waterline, base wherever that leaves it -- which, for a stack twenty-odd units
+    // tall over a bed nothing like that deep, is well under the sand. Buried, not balanced.
+    o.position.y=o.userData.proud-o.userData.cap;
+  }
+}
 function bedH(x,z){
   const d=(typeof dist!=='undefined'?dist:0)*BED_DRIFT;
   const zz=z-d;
@@ -41775,6 +41845,7 @@ function update(dt){
   updateBoat(dt,eff);
   updateCrate(dt,eff);
   if(typeof fallStep==='function')fallStep(dt);
+  if(typeof rockStep==='function')rockStep(dt);
   updateCocos(dt,eff);
   updateWhirl(dt,eff);
   updateFork(dt,eff);
