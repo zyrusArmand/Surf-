@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.83';
+window.SURF_VERSION='9.84';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -3575,11 +3575,15 @@ const FALL_STEEP=0.55;      // extra rise-over-run added beyond the knee
 // there, the drop ahead is visible as a white line across the channel with calm water above it
 // and churn below, and you can see two or three of them stacked up the gorge at once.
 // The buoyancy field is shared, so the board goes over each of these for free.
-const FALL_STEP=54;         // distance from one lip to the next
-const FALL_LEDGE=17;        // how much of the descent happens AT a lip rather than between
-const FALL_LIP0=0.42, FALL_LIP1=0.95;   // where in each step the drop happens (0..1 along it)
+const FALL_STEP=78;         // distance from one lip to the next
+const FALL_LEDGE=22;        // how much of the descent happens AT a lip rather than between
+const FALL_LIP0=0.58, FALL_LIP1=0.96;   // where in each step the drop happens (0..1 along it)
 const FALL_LIPX=0.37, FALL_LIPA=3.2;    // how the lip line curves across the channel
-const FALL_BANK=9.5;        // how far the water climbs the wall at the lane edge
+// Small. It was nine and a half, then seven, and at either figure the water ran smoothly up
+// both banks in a broad unbroken ramp -- which is a water slide, and the one thing a gorge never
+// does. A river in rock does not climb its walls; it hits them and breaks. Enough trough left to
+// settle the board back to the middle, and no more than that.
+const FALL_BANK=2.6;        // how far the water climbs the wall at the lane edge
 // The staircase, as a height. Continuous and monotonic -- k whole steps already taken, plus an
 // eased fraction of the one he is on, so there is no cliff in the FIELD even though there is
 // very much one in the picture.
@@ -4103,7 +4107,14 @@ const oceanMat=new THREE.ShaderMaterial({
       // LINE, so their noise scrolls in z and is stretched along it.
       float aer = 0.0;
       if(uFallW > 0.002){
-        float d = uFallZ - vW.z;                       // ahead of him is down the fall
+        // ---- AND IT IS CLAMPED HERE TOO ----
+        // Last round's note on this said "d is bounded by the chute". It is -- in fallDip, which
+        // is JavaScript. NOT here. The ocean plane runs to the horizon, so vW.z reaches the
+        // thousands and d with it, and every coordinate built from d went straight back into the
+        // tens of thousands that break hash21. Which is why the speckle came back, and came back
+        // AT THE FAR END: that is where d is biggest. Same bug, second copy, and the comment I
+        // wrote asserting otherwise is what stopped me looking.
+        float d = clamp(uFallZ - vW.z, -80.0, 420.0);  // ahead of him is down the fall
         // the lip: sixteen units of green water turning over before it breaks
         float onFall = smoothstep(-5.0, 11.0, d) * uFallW;
         // ---- AND THESE COORDINATES STAY SMALL ----
@@ -4134,7 +4145,14 @@ const oceanMat=new THREE.ShaderMaterial({
         // washed out with the falls and the distinction it exists to draw was never visible.
         // No floor, and the ramp starts out at two-thirds: blue down the middle, white at the
         // rock. The gap between those two is the read, and it only exists if the middle is dark.
-        float lane = smoothstep(uFallLane*0.66, uFallLane*1.02, abs(vW.x));
+        // ...and it STOPS at the wall. Now the rock face wanders in and out, the sea between the
+        // channel edge and wherever the rock has retreated to is visible -- and this term was
+        // painting all of it solid white, so every recess in the new cliff filled with glare and
+        // the gorge came back paler than the flat quad had been. White belongs in a band at the
+        // channel edge, where the river is actually going over; past that it falls away into the
+        // shadow under the rock, which is what every one of these photographs shows.
+        float lane = smoothstep(uFallLane*0.66, uFallLane*1.02, abs(vW.x))
+                   * (1.0 - 0.88*smoothstep(uFallLane*1.05, uFallLane*1.75, abs(vW.x)));
         aer = clamp(onFall*lane*(0.70 + 0.42*rope + 0.26*spit), 0.0, 1.0);
         // ---- AND THE CASCADES GO WHITE, ALL THE WAY ACROSS ----
         // The staircase in fallDip drops the water at each lip; this is the same staircase, so
@@ -4147,10 +4165,16 @@ const oceanMat=new THREE.ShaderMaterial({
         // These numbers come straight off the JS constants rather than being copied, so the
         // paint cannot drift away from the shape it is painting.
         float sf = fract((d + sin(vW.x*${FALL_LIPX})*${FALL_LIPA}) / ${FALL_STEP}.0);
-        float casc = onFall
-                   * smoothstep(${FALL_LIP0}-0.06, ${FALL_LIP0}+0.08, sf)
-                   * (1.0 - smoothstep(${FALL_LIP1}-0.02, ${FALL_LIP1}+0.12, sf))
-                   * (0.62 + 0.38*spit);
+        // The white does not stop at the bottom of the drop. Water coming off a ledge lands and
+        // BOILS -- the churn below is whiter and angrier than the fall itself, and it runs on
+        // into the pool before it settles back to green. So the mask is the drop plus the head
+        // of the next step, and only the middle of each step is left as slack water.
+        float lipM = max(smoothstep(${FALL_LIP0}-0.10, ${FALL_LIP0}+0.05, sf),
+                         1.0 - smoothstep(0.05, 0.30, sf));
+        // ...and it is turbulent, not a smear. Fine fast noise on top of the ropes, because the
+        // one thing every photograph of a rapid has and a gradient never does is CHAOS.
+        float chn = smoothstep(0.38, 0.95, fbm(vec2(vW.x*3.10, -d*0.34 + fs2*1.7)));
+        float casc = onFall * lipM * (0.50 + 0.34*chn + 0.28*spit);
         aer = max(aer, clamp(casc, 0.0, 1.0));
         foam = max(foam, aer);
       }
@@ -13696,7 +13720,10 @@ let fallPh=-1;            // -1 off, 0 dropping in, 1 in the chute, 2 running ou
 let fallT=0, fallW=0;     // phase clock, and how far into the chute look (0..1)
 let fallLay=0;            // prone weight, driven off fallW
 let fallGrp=null, fallWallL=null, fallWallR=null, fallRockL=null, fallRockR=null, fallMist=[];
-const FALL_IN=2.2, FALL_RIDE=35.0, FALL_OUT=2.8;    // about forty seconds door to door
+// Ninety-five seconds of chute. It was thirty-five, which at this speed is barely four of the
+// drops -- not enough of a run for the descent to become the thing you are doing rather than a
+// thing that happens to you on the way past.
+const FALL_IN=2.2, FALL_RIDE=95.0, FALL_OUT=2.8;    // about a hundred seconds door to door
 // ---- AND IT BARELY TIPS AT ALL ----
 // This was the thing making the fall look level, and it is the opposite of the obvious. Pitching
 // the camera down to follow the slope CANCELS the slope: tip the lens by the same angle the
@@ -13800,7 +13827,42 @@ function fallBuild(){
     // band was stretched five to one and the face read as horizontal smear rather than strata.
     // Tiled roughly square instead, the bedding comes back and it looks like cut rock.
     t.repeat.set(rock?10:2, rock?9:6);
-    const m=new THREE.Mesh(new THREE.PlaneGeometry(1,1,1,1),
+    // ---- THE ROCK IS NOT A QUAD ----
+    // It was PlaneGeometry(1,1,1,1) -- one flat rectangle each side with a picture of rock on
+    // it, which is exactly what "it just seems that these walls got put up" is describing. No
+    // texture fixes that, because the silhouette is the tell: a gorge's walls come and go, they
+    // pinch the channel and open it out again, and their rim is broken. A straight edge against
+    // the sky says wall. So the rock face is a grid now, pushed OUT by layered noise (never in
+    // past its own plane, so it can never eat the lane or poke through the water curtain), with
+    // the rim pulled down raggedly. Basic material takes no light, so the relief is baked into
+    // vertex colour instead -- what stands proud of the face reads bright, what is cut back
+    // reads dark, and the foot of the gorge sits in its own shadow. That is what turns a printed
+    // texture into something with depth in it.
+    const geo = rock ? new THREE.PlaneGeometry(1,1,84,20) : new THREE.PlaneGeometry(1,1,1,1);
+    if(rock){
+      const P=geo.attributes.position, N=P.count, cols=new Float32Array(N*3);
+      const h2=(a,b)=>{const v=Math.sin(a*127.1+b*311.7)*43758.5453; return v-Math.floor(v);};
+      const vn=(a,b)=>{const i=Math.floor(a),j=Math.floor(b),u=a-i,v=b-j;
+        const su=u*u*(3-2*u), sv=v*v*(3-2*v);
+        return (h2(i,j)*(1-su)+h2(i+1,j)*su)*(1-sv)+(h2(i,j+1)*(1-su)+h2(i+1,j+1)*su)*sv;};
+      const fb=(a,b)=>vn(a,b)*0.58+vn(a*2.3+11,b*2.1+7)*0.28+vn(a*5.3+23,b*4.7+3)*0.14;
+      for(let i=0;i<N;i++){
+        const lx=P.getX(i), ly=P.getY(i), u=lx+0.5, v=ly+0.5;
+        // Local +z is INWARD on both walls (the two are mirrored by their Y rotation), so the
+        // displacement is kept at or below zero and the face can only ever retreat.
+        const f=fb(u*11.0, v*3.4);
+        P.setZ(i, -f*8.5);
+        // ...and the rim is broken. A ruled top edge is the other half of "a wall got put up".
+        if(v>0.62){ const k=(v-0.62)/0.38;
+          P.setY(i, ly - k*k*(0.05+fb(u*6.0+31.0, 2.7)*0.22)); }
+        const prot=1.0-f;                       // 1 where the rock stands proud of its face
+        const sh=Math.max(0.30, Math.min(1.30, 0.40+0.62*prot+0.28*v));
+        cols[i*3]=sh; cols[i*3+1]=sh*0.99; cols[i*3+2]=sh*0.96;
+      }
+      P.needsUpdate=true;
+      geo.setAttribute('color', new THREE.BufferAttribute(cols,3));
+    }
+    const m=new THREE.Mesh(geo,
       // ---- THE ROCK TAKES NO FOG ----
       // It was there all along and it was WHITE. A three-hundred-unit wall centred a hundred
       // back sits deep in the scene fog, and the fog colour is the pale sky this game is lit
@@ -13815,7 +13877,7 @@ function fallBuild(){
       // why the rock was only ever visible in the top third of frame -- the part with sky behind
       // it rather than sea. Solid rock belongs in the opaque pass. The curtain stays as it was.
       new THREE.MeshBasicMaterial({map:t,transparent:!rock,opacity:rock?1:0.86,
-        depthWrite:!!rock,side:THREE.DoubleSide,fog:!rock}));
+        depthWrite:!!rock,side:THREE.DoubleSide,fog:!rock,vertexColors:!!rock}));
     // ---- THE CLIFF STANDS ABOVE THE WATER, or it is not a cliff ----
     // Both layers were the same height, so the curtain covered the rock from top to bottom and
     // the gorge came out as two white sheets. Every photograph of one shows the opposite: bare
@@ -13829,10 +13891,14 @@ function fallBuild(){
     // a surface nine units away at that height covers the side of the frame completely -- so the
     // gorge read pale grey whatever colour the rock behind it was. Every photograph of a falls
     // has the white in a BAND, with bare dark rock above it and the river below. Forty-four.
-    m.scale.set(300, rock?120:44, 1);
+    // The curtain is a skirt now, not a wall. With the sea itself carrying the cascades, the
+    // channel-edge white and the churn, a second big white plane each side was doing nothing but
+    // covering the rock it was supposed to be running down. Eighteen units at the waterline:
+    // spray where the river meets the stone, which is all it was ever needed for.
+    m.scale.set(300, rock?120:18, 1);
     // Dropped with the height, so the foot of the rock still sits below the water rather than
     // leaving a strip of daylight under the wall where the chute has fallen away from it.
-    m.position.set(sx*(FALL_LANE+(rock?0.9:0.2)), rock?44:2, -96);
+    m.position.set(sx*(FALL_LANE+(rock?0.9:0.2)), rock?44:-1, -96);
     m.rotation.y=sx>0?-Math.PI/2:Math.PI/2;
     m.renderOrder=rock?1:2;
     fallGrp.add(m); return m;
