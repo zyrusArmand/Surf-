@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.79';
+window.SURF_VERSION='9.80';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -3528,7 +3528,16 @@ function whirlProfile(k){ return k*k*(3-2*k)*(1+2.1*Math.pow(k,7)); }
 // never leaves the world the rest of the game is built in.
 let fallZ0=0;
 const FALL_SLOPE=0.86;      // rise over run: a shade over forty degrees of water
-const FALL_AHEAD=88, FALL_BEHIND=42;
+// ---- AND ALMOST NOTHING BEHIND HIM ----
+// These were symmetric, and behind him is where it went wrong: forty-two units back at this
+// slope is THIRTY-SIX UNITS OF SEA STANDING UP, and the camera rides at thirty-one. He was
+// inside a wall of water. It filled the top of the frame, it was what the white up there
+// actually was, and it depth-occluded the cliffs so completely that a wall painted magenta for
+// the test showed sixteen pixels out of one and a third million.
+// The fall is a thing you look DOWN. What is behind you barely matters and must not be in the
+// way, so it is six units of gentle rise -- enough that the lip you came over reads as higher
+// than you, and not one unit more.
+const FALL_AHEAD=88, FALL_BEHIND=6;
 function fallDip(x,z){
   if(typeof fallW!=='number'||fallW<=0.001)return 0;
   const d=Math.max(-FALL_BEHIND,Math.min(FALL_AHEAD,fallZ0-z));
@@ -3679,7 +3688,7 @@ const oceanUniforms={
   // uFallZ is the rider's world z and not a field coordinate, because the field offset cancels:
   // the slope is measured from dist*WAVE_DRIFT+pz and the shader vertex sits at
   // dist*WAVE_DRIFT+vW.z, so the difference is pz-vW.z and the drift never enters it.
-  uFallW:{value:0}, uFallZ:{value:0},
+  uFallW:{value:0}, uFallZ:{value:0}, uFallLane:{value:13.5},
   // ---- the wakes, drawn as FOAM ON THE WATER rather than as sprites ----
   // The sprite cloud could not be made both thick and clean: stacked translucent quads round
   // their blend to 8 bits and a phone shows the error as coloured speckle, so density fought
@@ -3733,7 +3742,7 @@ const oceanMat=new THREE.ShaderMaterial({
   uniforms:oceanUniforms,
   vertexShader:`
     uniform float uT; uniform float uDist; uniform float uAmp; uniform float uPeak;
-    uniform float uFallW; uniform float uFallZ;
+    uniform float uFallW; uniform float uFallZ; uniform float uFallLane;
     uniform float uShore; uniform float uShoreW;
     uniform float uWakeZ; uniform float uWakeA; uniform float uWakeX;
     uniform float uWhX; uniform float uWhZ; uniform float uWhA;
@@ -3854,7 +3863,7 @@ const oceanMat=new THREE.ShaderMaterial({
     uniform vec3 uDeep; uniform vec3 uShallow;
     uniform vec3 uGlow; uniform vec3 uGlitL;
     uniform float uT; uniform float uDist; uniform float uAmp; uniform float uPeak;
-    uniform float uFallW; uniform float uFallZ;
+    uniform float uFallW; uniform float uFallZ; uniform float uFallLane;
     uniform float uLight; uniform float uSwA;
     uniform float uRdX; uniform float uRdZ; uniform float uRdA; uniform float uRdT;
     uniform float uRdW; uniform float uRdS; uniform float uRdL;
@@ -4042,7 +4051,20 @@ const oceanMat=new THREE.ShaderMaterial({
                        fbm(vec2(vW.x*0.62, (vW.z + uT*52.0)*0.045)));
         float spit = smoothstep(0.55, 0.98,
                        fbm(vec2(vW.x*2.10, (vW.z + uT*88.0)*0.14)));
-        aer = clamp(onFall*(0.66 + 0.40*rope + 0.26*spit), 0.0, 1.0);
+        // ---- THE LANE IS NOT THE FALLS ----
+        // Taken to full white everywhere, there was nothing to steer down: one white sheet,
+        // wall to wall, and no reading of where the water you may ride ends and the water
+        // going over the edge begins. It thins toward the middle instead. The centre is the
+        // tongue -- the smooth green-white chute a river keeps where it is deepest, which is
+        // the line you would actually take -- and it goes to solid thundering white out at the
+        // cliffs. So the lane is legible as a lane, and the edges are the waterfall.
+        // The first cut of this ramped from 0.30 of the lane width and kept a 0.30 floor, which
+        // meant the CENTRE was a quarter white before the edges did anything -- so the tongue
+        // washed out with the falls and the distinction it exists to draw was never visible.
+        // No floor, and the ramp starts out at two-thirds: blue down the middle, white at the
+        // rock. The gap between those two is the read, and it only exists if the middle is dark.
+        float lane = smoothstep(uFallLane*0.66, uFallLane*1.02, abs(vW.x));
+        aer = clamp(onFall*lane*(0.70 + 0.42*rope + 0.26*spit), 0.0, 1.0);
         foam = max(foam, aer);
       }
       col = mix(col, vec3(0.96,0.99,1.0), foam*0.72);
@@ -13586,7 +13608,7 @@ showCoins();
 let fallPh=-1;            // -1 off, 0 dropping in, 1 in the chute, 2 running out
 let fallT=0, fallW=0;     // phase clock, and how far into the chute look (0..1)
 let fallLay=0;            // prone weight, driven off fallW
-let fallGrp=null, fallWallL=null, fallWallR=null, fallMist=[];
+let fallGrp=null, fallWallL=null, fallWallR=null, fallRockL=null, fallRockR=null, fallMist=[];
 const FALL_IN=2.2, FALL_RIDE=35.0, FALL_OUT=2.8;    // about forty seconds door to door
 const FALL_PITCH=0.46;    // radians the shot tips down the fall line at full weight
 const FALL_PUSH=46;       // the speed the chute adds, on top of whatever the board was doing
@@ -13598,41 +13620,112 @@ const FALL_LANE=13.5;     // where the walls stand, just outside the steering
 function fallTex(){
   const W=128,H=512,c=document.createElement('canvas'); c.width=W;c.height=H;
   const x=c.getContext('2d');
-  const g=x.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,'#bfe6f5'); g.addColorStop(0.5,'#8fd0ea'); g.addColorStop(1,'#5fa8cc');
-  x.fillStyle=g; x.fillRect(0,0,W,H);
-  // streaks of varying brightness and width, because water falling in one flat sheet has no
-  // speed in it at all -- what the eye reads is the ropes of it running at different rates
-  for(let i=0;i<150;i++){
-    const w=1+Math.random()*4, xx=Math.random()*W, y0=Math.random()*H, h=40+Math.random()*260;
-    x.globalAlpha=0.10+Math.random()*0.45;
-    x.fillStyle=Math.random()<0.55?'#ffffff':'#dff2fb';
-    x.fillRect(xx,y0,w,h);
-    if(y0+h>H)x.fillRect(xx,y0-H,w,h);      // wrapped, so the tile has no seam
+  // ---- THIS TILE IS MOSTLY EMPTY, AND THAT IS THE POINT ----
+  // The first version filled it with an opaque gradient, which made the sides one flat sheet of
+  // blue-white. No amount of fog, depth or render-order work could ever have shown the rock
+  // through it -- there was nothing to show through. A falls is not a sheet: it is ROPES of
+  // water with the cliff face dark between them, and the gaps are what make the rock read at
+  // all. So: clear ground, ~55% covered by ribbons, and the wall behind does the rest.
+  x.clearRect(0,0,W,H);
+  const rope=(xx,w,y0,h,a,col)=>{
+    const g=x.createLinearGradient(xx,0,xx+w,0);      // each rope rounded across its width, or
+    g.addColorStop(0,'rgba(255,255,255,0)');          // it is a strip of tape and not water
+    g.addColorStop(0.5,col); g.addColorStop(1,'rgba(255,255,255,0)');
+    x.globalAlpha=a; x.fillStyle=g; x.fillRect(xx,y0,w,h);
+    if(y0+h>H)x.fillRect(xx,y0-H,w,h);                // wrapped, so the tile has no seam
+  };
+  // the main fall: wide, bright, nearly opaque -- these are the columns of it
+  for(let i=0;i<26;i++){
+    rope(Math.random()*W, 5+Math.random()*16, Math.random()*H, 120+Math.random()*380,
+         0.55+Math.random()*0.40, 'rgba(255,255,255,0.96)');
+  }
+  // spray and the thinner threads running between them, which is where the speed shows
+  for(let i=0;i<90;i++){
+    rope(Math.random()*W, 1+Math.random()*4, Math.random()*H, 40+Math.random()*240,
+         0.12+Math.random()*0.40, Math.random()<0.5?'rgba(255,255,255,0.9)':'rgba(216,240,251,0.9)');
   }
   x.globalAlpha=1;
   const t=new THREE.CanvasTexture(c);
   t.wrapS=t.wrapT=THREE.RepeatWrapping;
+  if(THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding;
+  return t;
+}
+// Basalt: dark, banded horizontally the way a gorge wall is, with the bands broken up so they
+// do not read as a ladder when they scroll. It is the thing that has to look SOLID -- the water
+// beside it is already doing all the moving, and if both are soft neither is a cliff.
+function cliffTex(){
+  const W=128,H=512,c=document.createElement('canvas'); c.width=W;c.height=H;
+  const x=c.getContext('2d');
+  x.fillStyle='#3a352e'; x.fillRect(0,0,W,H);
+  for(let i=0;i<70;i++){
+    const y=Math.random()*H, h=4+Math.random()*26;
+    x.globalAlpha=0.18+Math.random()*0.40;
+    x.fillStyle=Math.random()<0.5?'#221f1a':'#5c564c';
+    // broken along their length rather than ruled across, or the wall is a stack of shelves
+    let xx=0;
+    while(xx<W){ const w=10+Math.random()*46;
+      if(Math.random()<0.78)x.fillRect(xx,y+Math.random()*4,w,h);
+      xx+=w+Math.random()*14; }
+  }
+  // a few vertical fractures, which is what stops banding alone reading as brickwork
+  for(let i=0;i<16;i++){
+    x.globalAlpha=0.20+Math.random()*0.30; x.fillStyle='#26241f';
+    x.fillRect(Math.random()*W,Math.random()*H,1+Math.random()*3,40+Math.random()*180);
+  }
+  x.globalAlpha=1;
+  const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping;
+  // Without this the basalt comes out as pale limestone. A canvas holds sRGB bytes; unflagged,
+  // three reads them as linear and the output conversion then LIFTS every dark value -- #3a352e
+  // rendered at about #8a8278. Every other canvas texture in this file sets it; this one is not
+  // a special case, it was an omission, and it is the whole reason the cliff looked washed out.
+  if(THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding;
   return t;
 }
 function fallBuild(){
   if(fallGrp)return;
   fallGrp=new THREE.Group(); fallGrp.visible=false; scene.add(fallGrp);
-  const mk=(sx)=>{
-    const t=fallTex(); t.repeat.set(2,6);
+  // ---- TWO LAYERS PER SIDE, AND THEY MOVE IN OPPOSITE DIRECTIONS ----
+  // This is the whole of "make it feel like it is going down". The cliff is ROCK: it is nailed
+  // to the world, so as he descends it climbs past him and its texture scrolls UP. The water
+  // on it is falling, so that scrolls DOWN. One surface, two speeds, opposite ways -- which is
+  // exactly what the eye reads off a real gorge from a boat in it, and it is the only cue here
+  // that says descent rather than forward. A single sheet scrolling one way is a tunnel.
+  const mk=(sx,rock)=>{
+    const t=rock?cliffTex():fallTex();
+    // The rock was tiled 3 across a 300-unit wall: 100 units wide by 21 tall per tile, so every
+    // band was stretched five to one and the face read as horizontal smear rather than strata.
+    // Tiled roughly square instead, the bedding comes back and it looks like cut rock.
+    t.repeat.set(rock?10:2, rock?9:6);
     const m=new THREE.Mesh(new THREE.PlaneGeometry(1,1,1,1),
-      new THREE.MeshBasicMaterial({map:t,transparent:true,opacity:0.92,
-        depthWrite:false,side:THREE.DoubleSide,fog:true}));
-    // ALONGSIDE, spanning from behind the lens to well ahead, so they stream past rather than
-    // sitting out in front looking like scenery. Parked at z=-92 they were seen almost edge on
-    // through a pitched-down camera and read as a flight of terraces.
-    m.scale.set(300,64,1);
-    m.position.set(sx*FALL_LANE,15,-96);
+      // ---- THE ROCK TAKES NO FOG ----
+      // It was there all along and it was WHITE. A three-hundred-unit wall centred a hundred
+      // back sits deep in the scene fog, and the fog colour is the pale sky this game is lit
+      // by -- so the cliff was being washed to the exact colour of the water it was meant to
+      // stand out against. Dark basalt under white water is the entire read of a gorge, and
+      // the fog was quietly deleting it. The curtain keeps its fog: water going to mist with
+      // distance is right, and it is what ties the far end of the fall into the plume.
+      // ---- AND THE ROCK WRITES DEPTH, or the sea paints straight over it ----
+      // It was built transparent with depthWrite off, like the curtain. But it is OPAQUE, and an
+      // opaque surface that writes no depth cannot stop anything: the ocean drew afterwards,
+      // depth-tested against a buffer the cliff had never touched, and won every pixel. That is
+      // why the rock was only ever visible in the top third of frame -- the part with sky behind
+      // it rather than sea. Solid rock belongs in the opaque pass. The curtain stays as it was.
+      new THREE.MeshBasicMaterial({map:t,transparent:!rock,opacity:rock?1:0.94,
+        depthWrite:!!rock,side:THREE.DoubleSide,fog:!rock}));
+    // ---- THE CLIFF STANDS ABOVE THE WATER, or it is not a cliff ----
+    // Both layers were the same height, so the curtain covered the rock from top to bottom and
+    // the gorge came out as two white sheets. Every photograph of one shows the opposite: bare
+    // dark rock along the top and down past the edges, and the white only where the river is
+    // actually going over. So the rock is twice as tall and set higher, and the curtain is a
+    // band across its lower half -- which is the shape of the thing rather than a wash of it.
+    m.scale.set(300, rock?190:74, 1);
+    m.position.set(sx*(FALL_LANE+(rock?0.9:0.2)), rock?58:10, -96);
     m.rotation.y=sx>0?-Math.PI/2:Math.PI/2;
-    m.renderOrder=2;
+    m.renderOrder=rock?1:2;
     fallGrp.add(m); return m;
   };
-  fallWallL=mk(-1); fallWallR=mk(1);
+  fallRockL=mk(-1,true); fallRockR=mk(1,true);
+  fallWallL=mk(-1,false); fallWallR=mk(1,false);
   // No face plane here any more. It was a tilted sheet laid over the water and the water won;
   // the slope is a term in waveH now -- see fallDip -- so the sea itself is the chute and this
   // only has to supply what a height field cannot: the walls either side and the air between.
@@ -13644,15 +13737,18 @@ function fallBuild(){
   // fourteen tidy puffs drifting about -- those read as bubbles. A few very large sprites, low
   // and ahead, is the whole of it: what makes a plume a plume is that it is BIG, and this was
   // small because sprites that size looked wrong on flat water, where they are not.
-  for(let i=0;i<20;i++){
+  // ---- AND THERE ARE SIX OF THEM, NOT TWENTY ----
+  // Twenty additive sprites overlapping came back off a real phone as RAINBOW SPECKLE across
+  // the whole fall -- the exact failure the wake shader's own note describes: stacked
+  // translucent quads round their blend to eight bits, and the error shows as colour. It was
+  // solved there by not stacking anything, and the same applies here. Six, large, kept apart,
+  // and normal blending rather than additive: additive is what makes an overlap cost eight
+  // bits twice over.
+  for(let i=0;i<6;i++){
     const q=new THREE.Sprite(new THREE.SpriteMaterial({map:puffTexture(),transparent:true,
-      opacity:0.30,depthWrite:false,color:0xffffff,
-      // ADDITIVE, which is what spray is: lit water scatters light rather than blocking it.
-      // Blended normally against a pale sea these read as hard grey coins stuck on the lens,
-      // and no amount of lowering the opacity fixed that -- it only made paler coins.
-      blending:THREE.AdditiveBlending}));
-    q.userData.big=i<9;
-    q.scale.setScalar(q.userData.big?(34+Math.random()*34):(9+Math.random()*15));
+      opacity:0.30,depthWrite:false,color:0xffffff}));
+    q.userData.big=i<4;
+    q.scale.setScalar(q.userData.big?(46+Math.random()*30):(16+Math.random()*12));
     q.userData.seed=Math.random()*100;
     q.renderOrder=3;
     fallGrp.add(q); fallMist.push(q);
@@ -13686,10 +13782,16 @@ function fallStep(dt){
     fallGrp.position.set(px*0.35,0,pz);
     for(const w of [fallWallL,fallWallR]){
       if(!w)continue;
-      w.material.opacity=0.92*fallW;
-      // DOWNWARD, and fast. Scroll speed is tied to the actual forward speed, so the walls
-      // race when the chute has you and settle when it lets go.
+      w.material.opacity=0.90*fallW;
+      // the water, DOWNWARD and fast, tied to the actual forward speed
       w.material.map.offset.y-=dt*(0.55+lastEff*0.016);
+    }
+    for(const r of [fallRockL,fallRockR]){
+      if(!r)continue;
+      r.material.opacity=fallW;
+      // ...and the rock the other way, slower. He is going DOWN past it, so it goes up past
+      // him: this one line is the difference between a descent and a corridor.
+      r.material.map.offset.y+=dt*(0.30+lastEff*0.0075);
     }
     for(let i=0;i<fallMist.length;i++){
       const q=fallMist[i], k=q.userData.seed;
@@ -24327,6 +24429,7 @@ function updateWorldDuringWipeout(dt){
   oceanUniforms.uDist.value=dist*WAVE_DRIFT;
   oceanUniforms.uFallW.value=(typeof fallW==='number')?fallW:0;
   oceanUniforms.uFallZ.value=pz;
+  oceanUniforms.uFallLane.value=FALL_LANE;
   oceanUniforms.uWakeZ.value=wkZ;oceanUniforms.uWakeA.value=wkA;oceanUniforms.uWakeX.value=wkX;
   oceanUniforms.uWhX.value=whX;oceanUniforms.uWhZ.value=whZ;oceanUniforms.uWhA.value=whA;
   oceanUniforms.uSwA.value=swA;oceanUniforms.uSwX.value=swX;oceanUniforms.uSwS.value=swS;
@@ -28388,6 +28491,21 @@ if(location.hash.includes('debug')){
     fallEnd(){ if(typeof fallEnd==='function')fallEnd(); return fallPh; },
     // skip the clock forward, so forty seconds of set piece can be checked in one
     fallSkip(sec){ fallT+=(+sec||0); return {ph:fallPh,t:+fallT.toFixed(2)}; },
+    // The wall is two surfaces stacked, and a photograph of the pair cannot say which one is
+    // pale -- fogged rock and rock under too much water look identical from the front. This
+    // takes the water away so the rock can be judged on its own, and reports what the rock
+    // material actually believes about fog rather than what the source says it was built with.
+    fallParts(hideWater){
+      if(hideWater){ for(const w of [fallWallL,fallWallR]) if(w) w.visible=false; }
+      const r=fallRockL, w=fallWallL;
+      return {rock:!!r, water:!!w,
+              rockFog:r?!!r.material.fog:null, waterFog:w?!!w.material.fog:null,
+              rockOp:r?r.material.opacity:null, waterOp:w?w.material.opacity:null,
+              rockX:r?+r.position.x.toFixed(2):null, waterX:w?+w.position.x.toFixed(2):null,
+              rockVis:r?r.visible:null, waterVis:w?w.visible:null,
+              fogNear:scene.fog?scene.fog.near:null, fogFar:scene.fog?scene.fog.far:null,
+              fogCol:scene.fog?'#'+scene.fog.color.getHexString():null};
+    },
     // claim one named slice without the four seconds of wheel, so what is under test is the
     // prize reaching the next run and not whether a CSS transition finished
     wheelTake(kind){
@@ -39355,7 +39473,15 @@ function update(dt){
   // me actually be able to go right or left".
   // Widened to the island's own edge plus the channel, measured at HIS position down it rather
   // than fixed, so the lane opens exactly as fast as the island does.
-  const _lim=forkOn?Math.max(17,forkSandEdge(forkZ-pz)+FORK_WALL+FORK_CHAN+2):17;
+  // ---- AND THE CHUTE HAS SIDES YOU CANNOT GET PAST ----
+  // Seventeen is the open ocean's lane. A gorge is not open ocean: the whole point of the
+  // walls is that they are walls, and a wall you can steer through is scenery. Squeezed to
+  // the cliff line as the chute comes in, so the water you may ride is visibly narrower than
+  // the water you can see -- which is the difference between where you go and what it looks
+  // like either side of you.
+  const _fwl=(typeof fallW==='number')?fallW:0;
+  const _lim=forkOn?Math.max(17,forkSandEdge(forkZ-pz)+FORK_WALL+FORK_CHAN+2)
+                   :(17-(17-FALL_LANE+1.2)*_fwl);
   if(px<-_lim){px=-_lim;vx=0;}   // slide out to the far lanes and stop there
   if(px>_lim){px=_lim;vx=0;}
   // Inside the barrel the lane stops being a line across the water and becomes the tube's
@@ -40994,6 +41120,7 @@ function update(dt){
   // bug as the prone pose: the value was right and it was going somewhere that never ran.
   oceanUniforms.uFallW.value=(typeof fallW==='number')?fallW:0;
   oceanUniforms.uFallZ.value=pz;
+  oceanUniforms.uFallLane.value=FALL_LANE;
   oceanUniforms.uWakeZ.value=wkZ;oceanUniforms.uWakeA.value=wkA;oceanUniforms.uWakeX.value=wkX;
   oceanUniforms.uWhX.value=whX;oceanUniforms.uWhZ.value=whZ;oceanUniforms.uWhA.value=whA;
   oceanUniforms.uSwA.value=swA;oceanUniforms.uSwX.value=swX;oceanUniforms.uSwS.value=swS;
@@ -41377,8 +41504,21 @@ function update(dt){
   // play-field group here, so tilting the world tilts the sky and the sun with it, and a
   // horizon lying over reads as the lens having fallen rather than as a descent.
   if(typeof fallW==='number'&&fallW>0.001){
+    // ---- LOOKING DOWN IT, FROM ABOVE AND BEHIND ----
+    // Pitch alone was not enough: a camera that tips its nose down while staying level with
+    // him shows the same flat water at a different angle, which is what "it is just flat
+    // continuing forward" was. Lifted well above and pulled back as well, it looks over his
+    // shoulder INTO the drop, and the horizon -- the lip he came over -- climbs out of the top
+    // of the frame instead of sitting across the middle of it. Where the horizon is doing is
+    // most of what tells you which way you are going.
+    camera.position.y+=13.0*fallW;
+    camera.position.z+=4.5*fallW;
     camera.rotateX(-FALL_PITCH*fallW);
-    camera.position.y+=5.2*fallW;          // and up, so the drop opens out below him
+    // ...and the fall LURCHES. Water going over a lip does not descend at one rate; it steps,
+    // and the step is felt rather than seen. Two shallow beats a second on the shot, nothing
+    // on the physics -- a rider who actually bucked this hard could not be steered.
+    const _lz=(typeof tNow==='number')?tNow:performance.now()/1000;
+    camera.position.y+=Math.sin(_lz*5.3)*0.42*fallW + Math.sin(_lz*2.1+1.2)*0.66*fallW;
   }
   // ---- the bed is placed AFTER the camera, because it follows it ----
   // Put next to the ocean's own uDist first, which is a different function and runs a frame
