@@ -368,6 +368,17 @@ def spin_blades():
     # in a grid, so they genuinely do differ -- by a few per cent, which is invisible on a shelf
     # and obvious on a rosette. Boxed together into the largest of them, each centred, so the
     # images share a frame and the wheel can place them all with one rule.
+    # ---- CENTRED ON THE BOARD, NOT ON THE CROP IT CAME IN ----
+    # The first pass centred each CROP in the shared canvas, and a crop is the board plus
+    # whatever padding the grid happened to leave round it -- which is not symmetric. The
+    # boards ended up sitting as much as eight pixels off centre inside their own frames, and
+    # anything the page then places at the middle of the picture is not at the middle of the
+    # board. Trimmed to its own outline first, then centred, so the six are concentric.
+    trim=[]
+    for a_,al in cut:
+        ys=np.nonzero((al>0.15).any(1))[0]; xs=np.nonzero((al>0.15).any(0))[0]
+        trim.append((a_[ys[0]:ys[-1]+1, xs[0]:xs[-1]+1], al[ys[0]:ys[-1]+1, xs[0]:xs[-1]+1]))
+    cut=trim
     W=max(x[1].shape[1] for x in cut); Hh=max(x[1].shape[0] for x in cut)
     for i,(a_,al) in enumerate(cut):
         h,w=al.shape
