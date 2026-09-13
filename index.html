@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.94';
+window.SURF_VERSION='9.95';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -13852,7 +13852,7 @@ let fallGrp=null, fallWallL=null, fallWallR=null, fallRockL=null, fallRockR=null
 // Ninety-five seconds of chute. It was thirty-five, which at this speed is barely four of the
 // drops -- not enough of a run for the descent to become the thing you are doing rather than a
 // thing that happens to you on the way past.
-const FALL_IN=2.2, FALL_RIDE=95.0, FALL_OUT=2.8;    // about a hundred seconds door to door
+const FALL_IN=4.0, FALL_RIDE=95.0, FALL_OUT=2.8;    // about a hundred seconds door to door
 // ---- AND IT BARELY TIPS AT ALL ----
 // This was the thing making the fall look level, and it is the opposite of the obvious. Pitching
 // the camera down to follow the slope CANCELS the slope: tip the lens by the same angle the
@@ -14158,6 +14158,16 @@ function fallBuild(){
   // fallMist stays as an empty array so the step loop needs no guard.
 }
 // Called from the workshop button. Arms the drop; everything after is on the clock.
+// ---- AND IT STARTS WITH A BRINK YOU RIDE UP TO ----
+// The entry had nothing to approach: fallZ0 tracks the rider every frame, so the drop sat a
+// fixed distance in front of him for ever and never arrived. The sketch wants the opposite --
+// open sea, then an EDGE across it, getting closer.
+// Pinning the pivot in the field was the obvious way and it is wrong: dist*WAVE_DRIFT grows as
+// he rides, so a frozen field coordinate RECEDES from him. Measured -- the entry never ended
+// in twenty-two seconds of approach, because its "have I reached it yet" test got further from
+// true on every frame. What actually closes the distance is a tracked pivot with a shrinking
+// lead: the brink stays the thing he is riding toward and the gap to it runs down to nothing.
+const FALL_APPROACH=118;   // how far out the edge first appears
 function fallGo(){
   if(!running)return false;
   fallBuild();
@@ -14181,7 +14191,14 @@ function fallStep(dt){
     return;
   }
   fallT+=dt;
-  if(fallPh===0){ fallW=Math.min(1,fallT/FALL_IN); if(fallT>=FALL_IN){ fallPh=1; fallT=0; } }
+  if(fallPh===0){
+    // Full strength almost at once, and the ENTRY is the distance closing rather than the effect
+    // fading in. Ramped across the whole four seconds the edge was only half built while he rode
+    // at it -- a brink that is 56% of a brink does not read as one. It is far away at this point,
+    // so bringing it up fast costs nothing in the shot.
+    fallW=Math.min(1,fallT/0.9);
+    if(fallT>=FALL_IN){ fallPh=1; fallT=0; }
+  }
   else if(fallPh===1){ fallW=1; if(fallT>=FALL_RIDE){ fallPh=2; fallT=0; } }
   else { fallW=Math.max(0,1-fallT/FALL_OUT); if(fallT>=FALL_OUT){ fallEnd(); return; } }
   // He goes flat on the board through the entry and stays there. The pose is the one the
@@ -14199,7 +14216,10 @@ function fallStep(dt){
   // leans with the deck and you can actually see him, which the brief also assumed.
   fallLay=0;
   // the pivot rides with him, in FIELD coordinates, which is what waveH is written in
-  fallZ0=dist*WAVE_DRIFT+pz;
+  // The lead runs down to nothing over the entry, so the edge closes on him and the handover to
+  // the riding pivot is continuous by construction -- the gap IS zero when the entry ends.
+  const _gap=(fallPh===0)?FALL_APPROACH*Math.max(0,1-fallT/FALL_IN):0;
+  fallZ0=(dist*WAVE_DRIFT+pz)-_gap;
   // ---- HOW FAR NOSE-DOWN THE BOARD IS, TAKEN OFF THE WATER ITSELF ----
   // Not a number tuned to look right: the actual gradient of the surface he is riding, sampled
   // a few units fore and aft in the same field coordinates waveH works in. So it steepens on
@@ -14232,7 +14252,10 @@ function fallStep(dt){
   }
   const T=(typeof tNow==='number')?tNow:performance.now()/1000;
   if(fallGrp){
-    fallGrp.visible=fallW>0.01;
+    // No gorge on the way in. The sketch is open sea with an edge across it -- walls standing
+    // either side of him before he has even reached the brink would give the whole thing away
+    // and there is nothing for them to be standing in yet.
+    fallGrp.visible=(fallPh>=1)&&fallW>0.01;
     fallGrp.position.set(px*0.35,0,pz);
     for(const w of [fallWallL,fallWallR]){
       if(!w)continue;
@@ -24948,7 +24971,7 @@ function updateWorldDuringWipeout(dt){
   oceanUniforms.uFallW.value=(typeof fallW==='number')?fallW:0;
   oceanUniforms.uFallZF.value=(typeof fallZ0==='number')?fallZ0:0;
   oceanUniforms.uFallZ.value=pz;
-  oceanUniforms.uFallLane.value=FALL_LANE;
+  oceanUniforms.uFallLane.value=(fallPh===0)?FALL_LANE*3.2:FALL_LANE;
   oceanUniforms.uWakeZ.value=wkZ;oceanUniforms.uWakeA.value=wkA;oceanUniforms.uWakeX.value=wkX;
   oceanUniforms.uWhX.value=whX;oceanUniforms.uWhZ.value=whZ;oceanUniforms.uWhA.value=whA;
   oceanUniforms.uSwA.value=swA;oceanUniforms.uSwX.value=swX;oceanUniforms.uSwS.value=swS;
@@ -41735,7 +41758,7 @@ function update(dt){
   oceanUniforms.uFallW.value=(typeof fallW==='number')?fallW:0;
   oceanUniforms.uFallZF.value=(typeof fallZ0==='number')?fallZ0:0;
   oceanUniforms.uFallZ.value=pz;
-  oceanUniforms.uFallLane.value=FALL_LANE;
+  oceanUniforms.uFallLane.value=(fallPh===0)?FALL_LANE*3.2:FALL_LANE;
   oceanUniforms.uWakeZ.value=wkZ;oceanUniforms.uWakeA.value=wkA;oceanUniforms.uWakeX.value=wkX;
   oceanUniforms.uWhX.value=whX;oceanUniforms.uWhZ.value=whZ;oceanUniforms.uWhA.value=whA;
   oceanUniforms.uSwA.value=swA;oceanUniforms.uSwX.value=swX;oceanUniforms.uSwS.value=swS;
