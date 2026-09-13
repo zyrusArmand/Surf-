@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.87';
+window.SURF_VERSION='9.88';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -3533,7 +3533,11 @@ let fallZ0=0;
 // Back up, and the ledges take less. Split the other way the pools between drops were nearly
 // level, so the board sat tilted on flat water -- the two disagreed everywhere except on a lip.
 // The surface he is on should be at the angle he is at, the whole way down.
-const FALL_SLOPE=0.78;      // rise over run of the CONTINUOUS part, under the cascades
+// Steeper again -- about forty-nine degrees. At 0.78 the surface simply was not inclined enough
+// to read as a fall once it filled the frame: a shallow plane close to the lens looks like a
+// floor. This is the number that decides the angle of the thing; the camera can only choose how
+// much of it you see.
+const FALL_SLOPE=1.15;      // rise over run of the CONTINUOUS part, under the cascades
 // ---- AND ALMOST NOTHING BEHIND HIM ----
 // These were symmetric, and behind him is where it went wrong: forty-two units back at this
 // slope is THIRTY-SIX UNITS OF SEA STANDING UP, and the camera rides at thirty-one. He was
@@ -13761,7 +13765,13 @@ const FALL_PITCH=0.16;    // radians the shot tips down the fall line at full we
 // matching it, a lens down at board level is looking along both at once -- the board collapses
 // to a blob and the water fills the frame. Height is what buys the angle onto the deck; the
 // pitch has to stay well under the slope or the grazing problem comes straight back.
-const FALL_CAM={lift:21.0, back:6.0, pitch:0.44};
+// Down from twenty-one, and further back. The ask was for the water to start just below the
+// lens, and that is a height: at twenty-one you looked ACROSS a broad expanse of it, at two you
+// were in it with the board filling the shot and no gorge left. Nine puts the near surface just
+// under the HUD with the rim and the horizon still at the top of frame. The pitch stays well
+// under the water's own angle -- pitched to match, the lens looks along the surface and the
+// whole thing goes back to reading flat, which is the trap this has fallen into twice.
+const FALL_CAM={lift:9.0, back:9.0, pitch:0.44};
 // Sign and strength of the board's nose-down, live for the same reason the camera is.
 // At 1.0 the board takes the full gradient -- twenty-six degrees -- and the prone rider, who is
 // already rotated flat onto the deck, disappears behind it. Enough to read as pointing downhill
@@ -14051,7 +14061,14 @@ function fallStep(dt){
   // Not flat out. Prone was right when the board was level, but the board now sits at the
   // angle of the water, and the two rotations add -- fully prone on a thirty-eight degree deck
   // puts him past vertical and behind his own board. Crouched over it instead.
-  fallLay=fallW*0.55;
+  // Barely at all now. Prone made sense on a level board; on a deck pitched forty-nine degrees
+  // the rider's own rotation adds to the board's and puts him behind it, and a rider you cannot
+  // see is worse than one who is not lying down. Low and tucked, not flat.
+  // Zero. The lie-down was from the original brief and it made sense on a level board, but the
+  // deck now sits at forty-nine degrees and the rider's own rotation adds to it -- at any weight
+  // at all he ends up rolled past the board's edge and out of sight behind it. Standing, he
+  // leans with the deck and you can actually see him, which the brief also assumed.
+  fallLay=0;
   // the pivot rides with him, in FIELD coordinates, which is what waveH is written in
   fallZ0=dist*WAVE_DRIFT+pz;
   // ---- HOW FAR NOSE-DOWN THE BOARD IS, TAKEN OFF THE WATER ITSELF ----
@@ -14068,7 +14085,16 @@ function fallStep(dt){
     // and a cue you cannot see past is worse than a smaller one you can.
     // The cap is a backstop against a freak sample now, not a styling choice: at the full
     // gradient the shot has to be able to show the board, which is what the camera below is for.
-    const _want=Math.max(-0.62, Math.atan2(_ah-_bh,14)*fallW*FALL_TILTK);
+    // Raised with the slope, or the board clamps below the water's angle and the two disagree
+    // again -- which is the one thing this measurement exists to prevent.
+    // ---- AND THE SIGN WAS BACKWARDS ----
+    // Rotating about +X by a NEGATIVE angle tips the board's up-vector away from the camera, so
+    // every version of this since it was added has been pitching the nose UP, not down. It was
+    // chosen off a screenshot while the angle was still small enough for a belly-up board to
+    // pass for a downhill one; at the full gradient there is no mistaking it, because the FINS
+    // are pointing at the lens. Behind minus ahead, so it is positive when the water ahead is
+    // lower -- which is the only arrangement that can be called nose-down.
+    const _want=Math.min(0.95, Math.atan2(_bh-_ah,14)*fallW*FALL_TILTK);
     fallTilt+=(_want-fallTilt)*Math.min(1,dt*5.0);
   }
   const T=(typeof tNow==='number')?tNow:performance.now()/1000;
@@ -28793,6 +28819,19 @@ if(location.hash.includes('debug')){
                     return {...FALL_CAM}; },
     fallTiltK(k){ if(k!==undefined)FALL_TILTK=k;
                   return {k:FALL_TILTK, tilt:+fallTilt.toFixed(3)}; },
+    // Where the rider actually IS, in the camera's own frame. A screenshot showing no pug
+    // cannot say whether he is behind the board, under the water, off screen or not drawn.
+    fallWho(){
+      const pw=new THREE.Vector3(), bw=new THREE.Vector3();
+      pug.getWorldPosition(pw); if(board)board.getWorldPosition(bw);
+      const pc=pw.clone().project(camera);
+      return {pug:[+pw.x.toFixed(2),+pw.y.toFixed(2),+pw.z.toFixed(2)],
+              board:[+bw.x.toFixed(2),+bw.y.toFixed(2),+bw.z.toFixed(2)],
+              ndc:[+pc.x.toFixed(2),+pc.y.toFixed(2),+pc.z.toFixed(3)],
+              vis:pug.visible, par:pug.parent?pug.parent.name||'anon':null,
+              camY:+camera.position.y.toFixed(2),
+              waterAtPug:+waveH(px,dist*WAVE_DRIFT+pz,tNow).toFixed(2)};
+    },
     // The wall is two surfaces stacked, and a photograph of the pair cannot say which one is
     // pale -- fogged rock and rock under too much water look identical from the front. This
     // takes the water away so the rock can be judged on its own, and reports what the rock
