@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.95';
+window.SURF_VERSION='9.96';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -3899,6 +3899,14 @@ const oceanMat=new THREE.ShaderMaterial({
       float h=0.0, dhx=0.0, dhz=0.0, e=1.0;
       ${glslWaves}
       h*=uAmp; dhx*=uAmp; dhz*=uAmp;
+      // ---- AND THE SWELL STOPS INSIDE THE FALL ----
+      // Open ocean is a field of rolling swell and that is right everywhere except here: water
+      // going over a lip is under gravity, not under a wave train, and a chute with metre-high
+      // humps travelling across it reads as the sea pretending to be a waterfall. Killed almost
+      // entirely on the way in, so the surface the fall is cut into is smooth and the only shape
+      // left on it is the shape of the drop.
+      { float _fq = 1.0 - uFallW*0.94;
+        h*=_fq; dhx*=_fq; dhz*=_fq; }
       // ---- the swell dies as it shoals ----
       // A beach is where the water and the sand cross, and with a metre and a third of swell
       // still running at the crossing they do not cross, they INTERLEAVE: over a thirty-unit
@@ -4281,6 +4289,23 @@ const oceanMat=new THREE.ShaderMaterial({
         // of in the middle of a rapid.
         float apron = (1.0 - smoothstep(6.0, 78.0, d)) * smoothstep(-90.0, -26.0, d) * uFallW;
         aer = max(aer, clamp(apron*(0.52 + 0.30*chn + 0.24*spit), 0.0, 1.0));
+        // ---- AND THE FACE OF THE FALL IS MADE OF COLUMNS ----
+        // A waterfall is not a white surface, it is a bundle of ropes of water running at
+        // different rates with shadow between them -- that is the thing being drawn in the
+        // sketch, and it is what gives a fall depth rather than looking like paint. They live
+        // only where the surface is actually STEEP, taken off the normal, so they appear on the
+        // face of a drop and nowhere on the flat water above or the pool below; and the gaps
+        // between them are darkened as well as the columns brightened, because a row of white
+        // stripes on white is not a fall -- the dark between them is half of what you see.
+        float steepF = smoothstep(0.30, 0.78, 1.0-clamp(N.y,0.0,1.0)) * uFallW;
+        if(steepF > 0.004){
+          float col1 = fbm(vec2(vW.x*2.60, -d*0.015 + fs1*0.35));
+          float col2 = fbm(vec2(vW.x*6.10, -d*0.030 + fs2*0.22));
+          float band = smoothstep(0.40,0.86,col1)*0.68 + smoothstep(0.52,0.95,col2)*0.42;
+          aer = max(aer, clamp(steepF*(0.30 + 0.86*band), 0.0, 1.0));
+          // the shadow between the ropes
+          col = mix(col, col*vec3(0.42,0.52,0.64), steepF*(1.0-clamp(band,0.0,1.0))*0.62);
+        }
         foam = max(foam, aer);
       }
       // ---- AND WHAT IS FAR BELOW HIM IS DARK ----
