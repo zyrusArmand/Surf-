@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.80';
+window.SURF_VERSION='9.81';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -3538,10 +3538,20 @@ const FALL_SLOPE=0.86;      // rise over run: a shade over forty degrees of wate
 // way, so it is six units of gentle rise -- enough that the lip you came over reads as higher
 // than you, and not one unit more.
 const FALL_AHEAD=88, FALL_BEHIND=6;
+// ---- AND IT IS A TROUGH, NOT A RIVER ----
+// The first cut of this ignored x entirely: the cross-section was dead flat, so however steep
+// the fall line got it still read as a wide river running between two distant walls. A flume
+// does not look like that from in it. Its floor curves UP into the sides, the water climbs the
+// bank, and that curve is most of why a slide looks like a slide -- it is the thing that says
+// you are in a channel rather than on an expanse. So the surface lifts as the square of the
+// distance off the centreline, which also banks him back toward the middle for free, because
+// the buoyancy that reads this field is the same one that holds the board up.
+const FALL_BANK=9.5;        // how far the water climbs the wall at the lane edge
 function fallDip(x,z){
   if(typeof fallW!=='number'||fallW<=0.001)return 0;
   const d=Math.max(-FALL_BEHIND,Math.min(FALL_AHEAD,fallZ0-z));
-  return -FALL_SLOPE*fallW*d;
+  const u=Math.min(1.6,Math.abs(x)/FALL_LANE);      // past the lane it keeps climbing, steeply
+  return -FALL_SLOPE*fallW*d + FALL_BANK*fallW*u*u;
 }
 function whirlDip(x,z){
   if(whA<=0.001)return 0;
@@ -13610,9 +13620,18 @@ let fallT=0, fallW=0;     // phase clock, and how far into the chute look (0..1)
 let fallLay=0;            // prone weight, driven off fallW
 let fallGrp=null, fallWallL=null, fallWallR=null, fallRockL=null, fallRockR=null, fallMist=[];
 const FALL_IN=2.2, FALL_RIDE=35.0, FALL_OUT=2.8;    // about forty seconds door to door
-const FALL_PITCH=0.46;    // radians the shot tips down the fall line at full weight
+// Must stay well under FALL_SLOPE's angle (~40 deg): pitch to match the water and the lens
+// looks along the surface instead of down it, and the shot is a solid screen of blue.
+const FALL_PITCH=0.50;    // radians the shot tips down the fall line at full weight
 const FALL_PUSH=46;       // the speed the chute adds, on top of whatever the board was doing
-const FALL_LANE=13.5;     // where the walls stand, just outside the steering
+// ---- AND THE CHANNEL IS NARROW ----
+// At 13.5 the walls sit far enough out that they leave the frame near the rider and only meet
+// somewhere up at the vanishing point, which draws a wide river with scenery on the banks. A
+// slide is a tube you are INSIDE: its walls are an arm's length away and they fill the left and
+// right of the shot for its whole length. Nine is tight for steering and that is the trade --
+// this is a set piece, the obstacles are spaced for it, and it is the difference between
+// looking at a gorge and being in one.
+const FALL_LANE=9.0;      // where the walls stand, just outside the steering
 
 // A wall of falling water: one tall plane each side with a streak texture scrolled DOWNWARD.
 // The speed of that scroll is the whole illusion -- it is what says the water is going past
@@ -13791,7 +13810,11 @@ function fallStep(dt){
       r.material.opacity=fallW;
       // ...and the rock the other way, slower. He is going DOWN past it, so it goes up past
       // him: this one line is the difference between a descent and a corridor.
-      r.material.map.offset.y+=dt*(0.30+lastEff*0.0075);
+      // Slower than it first was, though. At nine tiles up the wall it was running eight tile
+      // heights a second, which smears the strata into a grey-brown blur -- and a blur is not
+      // a cliff, it is just texture moving. The cue is the DIRECTION being opposite to the
+      // water, not the rate, so it reads better at a third of the speed with the rock legible.
+      r.material.map.offset.y+=dt*(0.12+lastEff*0.0026);
     }
     for(let i=0;i<fallMist.length;i++){
       const q=fallMist[i], k=q.userData.seed;
@@ -41504,15 +41527,17 @@ function update(dt){
   // play-field group here, so tilting the world tilts the sky and the sun with it, and a
   // horizon lying over reads as the lens having fallen rather than as a descent.
   if(typeof fallW==='number'&&fallW>0.001){
-    // ---- LOOKING DOWN IT, FROM ABOVE AND BEHIND ----
-    // Pitch alone was not enough: a camera that tips its nose down while staying level with
-    // him shows the same flat water at a different angle, which is what "it is just flat
-    // continuing forward" was. Lifted well above and pulled back as well, it looks over his
-    // shoulder INTO the drop, and the horizon -- the lip he came over -- climbs out of the top
-    // of the frame instead of sitting across the middle of it. Where the horizon is doing is
-    // most of what tells you which way you are going.
-    camera.position.y+=13.0*fallW;
-    camera.position.z+=4.5*fallW;
+    // ---- LOW ENOUGH TO BE IN IT, HIGH ENOUGH TO SEE OUT OF IT ----
+    // Dropping the lens to the surface and cranking the pitch to match seemed like the way to
+    // get the POV-down-a-flume shot, and it produced a screen of solid blue. The reason is
+    // arithmetic: the water falls at forty degrees, so a camera pitched thirty-five is looking
+    // very nearly ALONG the surface, and a surface viewed edge-on fills the frame no matter
+    // where the lens is. The pitch has to stay well under the slope or there is no chute in
+    // shot at all. What actually makes a flume read as a flume is the walls being close --
+    // that is the lane width, not the camera -- so this only comes down enough to put the rider
+    // among them rather than above them.
+    camera.position.y+=9.0*fallW;
+    camera.position.z+=3.0*fallW;
     camera.rotateX(-FALL_PITCH*fallW);
     // ...and the fall LURCHES. Water going over a lip does not descend at one rate; it steps,
     // and the step is felt rather than seen. Two shallow beats a second on the shot, nothing
