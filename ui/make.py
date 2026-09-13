@@ -12,7 +12,7 @@ Nothing here is generated art. Every pixel that ships is from the delivered file
 work is keying the ground, borrowing the round roundel from one plank for the other, and
 filling three holes back in with the wood that surrounds them.
 """
-import sys, os
+import sys, os, math
 from PIL import Image
 import numpy as np
 
@@ -299,55 +299,101 @@ def spin_part(key,name,w,hoop=False):
         al=al*np.clip((r-0.855)/0.025,0,1)
     out(a,al,name,w)
 
+# The shortboard's own spec sheet, lifted from B_TYPES in index.html. Not approximated: the
+# wheel's boards are the same shape the rack draws, off the same four numbers a shaper quotes.
+SPIN_SPEC=dict(L=72.0, W=18.75, noseA=1.063, tailA=3.200, noseW=0.03, tailW=0.590)
+
+def board_hw():
+    """The game's own outline, ported. ONE curve from nose to tail, trimmed at each end to the
+       width the spec quotes there rather than having a nose bolted onto it -- index.html sets
+       out at length why the second way leaves a neck and a shoulder at each tip."""
+    sp=SPIN_SPEC
+    a_,b_=sp['noseA'],sp['tailA']; up=a_/(a_+b_)
+    peak=up**a_*(1-up)**b_
+    beta=lambda u:(max(0.0,u)**a_)*(max(0.0,1-u)**b_)/peak
+    def inv(t,lo,hi):
+        for _ in range(44):
+            m=(lo+hi)*0.5
+            if beta(m)<t: lo=m
+            else: hi=m
+        return (lo+hi)*0.5
+    uN=inv(sp['noseW'],0,up) if sp['noseW']>0 else 0.0
+    uT=inv(sp['tailW'],1,up) if sp['tailW']>0 else 1.0
+    L,W=sp['L'],sp['W']
+    capN=W*sp['noseW']; capT=W*sp['tailW']
+    def cap(d,r): return 1.0 if d>=r else math.sqrt(max(0.0,1-(1-d/r)**2))
+    def hw(u):
+        e=(cap(u*L,capN) if capN>0 else 1.0)*(cap((1-u)*L,capT) if capT>0 else 1.0)
+        return W*beta(uN+(uT-uN)*u)*e
+    return hw, L/(2.0*max(hw(x/400.0) for x in range(401)))
+
+
 def spin_blades():
     """The blades are DRAWN, and every other part of this wheel is cut from the photographs.
 
-       That is not a preference, it is what the sources will carry. The parts sheet gives the
-       blade at 50 by 161 pixels and it is displayed about 104 device pixels across, so every
-       JPEG block in it arrives on screen at double size. The original photograph has the same
-       blade three times larger -- and it is out of focus there, because the shot is focused on
-       the middle of the rosette and the blades fan away from it. Neither source holds detail
-       at the size this needs. Upscaling the sharper of two blurs is still a blur, and what it
-       looked like on a phone was the complaint that started this.
+       Not a preference -- it is what the sources will carry. The parts sheet gives the blade at
+       50 by 161 pixels against about 104 device pixels on screen, so every JPEG block arrives
+       at double size; the original photograph has it three times larger and out of focus,
+       because the shot is focused on the middle of the rosette and the blades fan away from it.
+       Upscaling the sharper of two blurs is still a blur.
 
-       So the shape, the dome, the stringer and the grain are generated, and the colours stay
-       the ones sampled off the delivered boards. Everything else on the wheel -- the hoop, the
-       hub, the fin, the sign, the easel -- is still the photograph, because at the size THOSE
-       are drawn their own resolution is enough.
+       AND THE DELIVERED BLADES ARE NOT SURFBOARDS. They are symmetric pointed lenses -- the
+       same at both ends, no nose, no tail, widest dead centre. Drawing them faithfully was
+       drawing a leaf. A board has a pointed nose, a blunter tail, its wide point about halfway,
+       a stringer, a deck pad over the back foot and fins under it, and it is those that say
+       surfboard at a glance rather than the colour. So the outline comes off the shortboard's
+       own spec sheet through the same curve the rack is lofted from.
     """
-    H,W=850,264
+    hw,aspect=board_hw()
+    W=264; H=int(round(W*aspect))
     yy,xx=np.mgrid[0:H,0:W].astype(np.float32)
-    t=yy/(H-1.0)                                   # 0 at the nose, 1 at the tail
-    # The delivered blades are a symmetric pointed lens, the same at both ends, so that is what
-    # this is -- a surfboard outline with a nose and a tail would be a different object from the
-    # ones in the photograph, and the photograph is what the rest of the wheel came from.
-    hw=(W/2.0-3.0)*np.power(np.maximum(1e-4,np.sin(np.pi*t)),0.72)
+    u=yy/(H-1.0)                                    # 0 nose, 1 tail
+    us=np.linspace(0,1,H).astype(np.float32)
+    hwv=np.array([hw(float(t)) for t in us],np.float32)
+    hwv=hwv/hwv.max()*(W/2.0-3.0)
+    half=hwv[:,None]*np.ones((1,W),np.float32)
     dx=xx-(W-1)/2.0
-    d=hw-np.abs(dx)                                # signed distance inside the outline
-    al=np.clip(d/1.6,0,1)                          # and the edge is antialiased by construction
-    n=np.clip(dx/np.maximum(1.0,hw),-1,1)
-    # a board is DOMED: bright along the stringer, falling away to the rails
+    d=half-np.abs(dx)
+    al=np.clip(d/1.6,0,1)
+    n=np.clip(dx/np.maximum(1.0,half),-1,1)
     dome=np.sqrt(np.clip(1.0-n*n,0,1))
     shade=0.58+0.42*np.power(dome,0.62)
-    # grain, stretched along the length the way timber runs
     g=grain(H,W,1,26,seed=11)
-    shade=shade*(1.0+0.085*(g-g.mean())/max(1e-4,g.std()))
-    # the stringer: a dark line down the middle with a lighter edge either side of it, which is
-    # what a glued strip of contrasting timber actually looks like
+    shade=shade*(1.0+0.075*(g-g.mean())/max(1e-4,g.std()))
     st=np.abs(dx)
     shade=shade*(1.0-0.30*np.exp(-(st/1.9)**2))
     shade=shade*(1.0+0.16*np.exp(-((st-3.4)/2.2)**2))
-    # and the rail turns away from the light at the very edge
     shade=shade*(1.0-0.34*np.clip(1.0-d/7.0,0,1))
+    # ---- the deck pad, over the back foot ----
+    # Where a real one goes and the size a real one is: the back third, inside the rail, with
+    # a rounded end. At a hundred pixels across it is one dark shape near the tail -- and one
+    # dark shape near the tail is most of the difference between a board and an ellipse.
+    # ARCHED at the front and inside the rail, which is what one looks like -- the first cut
+    # ran a straight line clean across the board at a fixed height and covered the back forty
+    # per cent, so it read as the board having been dipped in something rather than as a pad.
+    arch=0.660+0.055*np.power(np.abs(n),1.6)          # the front edge curves back at the rails
+    pad=np.clip((u-arch)/0.030,0,1)*np.clip((0.925-u)/0.030,0,1)
+    pad=pad*np.clip((half*0.60-np.abs(dx))/2.4,0,1)
+    # ---- and the fins under the tail ----
+    fin=np.zeros((H,W),np.float32)
+    for fx,fu,fs in ((-0.58,0.905,0.85),(0.58,0.905,0.85),(0.0,0.945,0.70)):
+        cx=(W-1)/2.0+fx*half[int(0.905*(H-1)),0]
+        fw=8.0*fs; fh=26.0*fs
+        t=np.clip((u-fu)*(H-1)/fh,0,1)
+        w=fw*(1.0-t)                                  # a fin tapers to its tip
+        fin=np.maximum(fin, np.clip((w-np.abs(xx-cx))/1.4,0,1)*np.clip(t*6,0,1))
+    fin=fin*al
     shade=np.clip(shade,0,1.35)[:,:,None]
     for i,c in enumerate(SPIN_TINT):
         col=np.array([(c>>16)&255,(c>>8)&255,c&255],np.float32)
-        # Less white in the light end than the first pass had. Lifting toward 255 turns a
-        # painted board into sugar paper, and six sugar-paper petals was half of what "crappy"
-        # meant -- the colours were sampled off real paint and then diluted back out of it.
         dark=col*0.40
         light=np.minimum(255.0,col*1.06+26.0)
-        out(dark+(light-dark)*shade, al, 'spin_blade%d.png'%(i+1), 132)
+        rgb=dark+(light-dark)*shade
+        # the pad is a dark grippy slab, near-neutral whatever the board is painted
+        rgb=rgb*(1.0-0.52*pad[:,:,None])+np.array([40.,35.,31.],np.float32)*0.52*pad[:,:,None]
+        # the fins are darker again and sit under the tail
+        rgb=rgb*(1.0-0.78*fin[:,:,None])+np.array([24.,22.,26.],np.float32)*0.78*fin[:,:,None]
+        out(rgb, np.maximum(al,fin), 'spin_blade%d.png'%(i+1), 150)
 
 spin_part('ring','spin_ring.png',560,hoop=True)
 for k,nm,w in (('hub','spin_hub.png',150),('fin','spin_fin.png',96),
