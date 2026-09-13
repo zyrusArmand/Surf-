@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.92';
+window.SURF_VERSION='9.93';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -21279,6 +21279,23 @@ let menuSignModel=null, signPost=null;
 // reveal finishes, at the FRONT of the queue rather than the back; see wantTiki below for why
 // that number went the other way from what the first version of this note claimed.
 let tikiModel=null, tikiHut=null, tikiTrees=null, tikiSlots=null, _tikiAsked=0;
+let tikiSign=null;
+// Where the plank hangs, in the hut's own units -- the same frame SHOP_SLOT is written in, so
+// the sign and the three panels below it move together. Width is the measured one: the sign is
+// about as wide as the three panels and their gaps put together, which is what the model's own
+// counter front is. The aspect comes off the image so the art can be replaced without anyone
+// having to work out a height.
+const SIGN_AR=810/240;
+// ---- AND IT CARRIES ITS OWN YAW ----
+// The hut sits rotated about eighty degrees about Y, so a plane built facing local +Z ends up
+// facing along world X -- edge on to the camera and invisible from any position at all, which
+// is what four placements in a row were actually showing. The three lit slot quads gave no
+// clue either way: they are the blue glow, not the wooden panels, and they sit at zero opacity
+// until a slot lights. So the yaw is part of the placement, not an assumption.
+// Found by sweeping, not by arithmetic. With depth off the placement is a flat question --
+// where on screen does it land -- and these are the numbers that put it square on the counter
+// front, about the width of the three panels above it.
+let SHOP_SIGN={x:0.04, y:-0.57, z:0.158, w:0.95, ry:0};
 // ---- and it is asked for FIRST, not last ----
 // This was priority 4, written as "last in the queue, always" on the reasoning that nothing the
 // player is looking at should wait on five megabytes. The reasoning was right and the number was
@@ -21371,6 +21388,38 @@ function placeTiki(){
     tikiHut.add(g);
     tikiSlots.push(g);
   }
+  // ---- THE SHOP SIGN IS NAILED ON, NOT PAINTED IN ----
+  // It used to live in the hut's base-colour atlas, in a seventy-five by a hundred and eighty
+  // pixel slot at the bottom of the map. That slot is stretched across a plank four hundred and
+  // fifty pixels wide on screen, so whatever went in it arrived soft, and there is no way to
+  // give it more pixels without moving UVs on a mesh whose UVs overlap all over the model. The
+  // old sign is painted out of the atlas now and this takes its place: one quad, its own full
+  // resolution texture, parented to the hut exactly the way the three lit panels are -- written
+  // in the model's units, carried by whatever the aim decides about where the hut stands and how
+  // big it is, so nothing here has to know anything about the beach.
+  loadTexture('surfshop_sign.png',(t)=>{
+    if(THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding;
+    t.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
+    const m=new THREE.Mesh(new THREE.PlaneGeometry(1,1),
+      // alphaTest rather than plain transparency: the plank is a hard-edged cutout, and a
+      // transparent quad against a building has to be sorted, which it cannot be reliably when
+      // it is this close to the wall behind it. A cut edge needs no sorting at all.
+      // ---- DRAWN OVER THE HUT, NOT INTO IT ----
+      // Placing this by depth meant finding the counter's face in a local frame whose axes do
+      // not behave the way the hut's own transform says they should -- eight sweeps in, every
+      // position was either inside the building or edge on. It does not need depth: it is a
+      // sign nailed to a wall, nothing in this scene ever passes in front of it, and "on top of
+      // the hut" is what was asked for. Depth off and a render order above the building makes
+      // the placement a two-dimensional question, which is one that can actually be answered.
+      new THREE.MeshBasicMaterial({map:t, transparent:true, alphaTest:0.42,
+        depthTest:false, depthWrite:false, side:THREE.DoubleSide, toneMapped:false}));
+    m.scale.set(SHOP_SIGN.w, SHOP_SIGN.w/SIGN_AR, 1);
+    m.position.set(SHOP_SIGN.x, SHOP_SIGN.y, SHOP_SIGN.z);
+    m.rotation.y=SHOP_SIGN.ry;
+    m.castShadow=false; m.receiveShadow=false;
+    m.renderOrder=6;
+    tikiHut.add(m); tikiSign=m;
+  });
   tikiHut.visible=false;
   menuProps.add(tikiHut);
   placeTikiTrees();
@@ -28875,6 +28924,65 @@ if(location.hash.includes('debug')){
     fallSkip(sec){ fallT+=(+sec||0); return {ph:fallPh,t:+fallT.toFixed(2)}; },
     fallCam(l,b,p){ if(l!==undefined){FALL_CAM.lift=l;FALL_CAM.back=b;FALL_CAM.pitch=p;}
                     return {...FALL_CAM}; },
+    // The plank's placement is empirical -- the hut's UVs overlap too much to read the old
+    // sign's position off the mesh, so it is eyed in against the panels. Live, so that is one
+    // session rather than one rebuild per nudge.
+    // The magenta test, which settled the chute cliffs the same way: if a huge, solid,
+    // depth-ignoring quad in flat magenta is still not on screen, the argument is not about
+    // where the thing is -- it is about whether it is drawable at all.
+    shopSignFlag(on){
+      if(!tikiSign)return 'no sign';
+      const m=tikiSign.material;
+      if(on){ m.map=null; m.color.setHex(0xff00ff); m.alphaTest=0; m.transparent=false;
+              m.depthTest=false; m.needsUpdate=true; tikiSign.renderOrder=999;
+              tikiSign.scale.set(3,1,1); }
+      return {flag:!!on, vis:tikiSign.visible, scale:tikiSign.scale.toArray()};
+    },
+    shopSign(x,y,z,w,ry){
+      if(x!==undefined){ SHOP_SIGN={x,y,z,w,ry:ry||0};
+        if(tikiSign){ tikiSign.position.set(x,y,z); tikiSign.scale.set(w,w/SIGN_AR,1);
+                      tikiSign.rotation.y=ry||0; } }
+      if(!tikiSign)return {...SHOP_SIGN, built:false, hut:!!tikiHut};
+      // NOT w -- that is this function's own width parameter, and const-redeclaring it is a
+      // SyntaxError that takes the entire script down with it, debug surface and game alike.
+      const wp=new THREE.Vector3(); tikiSign.getWorldPosition(wp);
+      const n=wp.clone().project(camera);
+      let vis=true, o=tikiSign;
+      while(o){ if(!o.visible){vis=false;break;} o=o.parent; }
+      const bb=new THREE.Box3().setFromObject(tikiSign);
+      return {...SHOP_SIGN, built:true, hut:!!tikiHut,
+              world:[+wp.x.toFixed(2),+wp.y.toFixed(2),+wp.z.toFixed(2)],
+              ndc:[+n.x.toFixed(2),+n.y.toFixed(2),+n.z.toFixed(3)],
+              chainVisible:vis, hasMap:!!tikiSign.material.map,
+              worldSize:[+(bb.max.x-bb.min.x).toFixed(2),+(bb.max.y-bb.min.y).toFixed(2)],
+              parentIsHut:tikiSign.parent===tikiHut};
+    },
+    hutReady(){ return {hut:!!tikiHut, sign:!!tikiSign, vis:!!(tikiHut&&tikiHut.visible)}; },
+    // The hut's own frame, measured rather than assumed. Four rounds of placing a quad in local
+    // coordinates moved it almost nowhere on screen, which means the frame is not what it looks
+    // like from SHOP_SLOT's numbers.
+    hutFrame(){
+      if(!tikiHut)return null;
+      const p=new THREE.Vector3(), q=new THREE.Quaternion(), sc=new THREE.Vector3();
+      tikiHut.updateWorldMatrix(true,true);
+      tikiHut.matrixWorld.decompose(p,q,sc);
+      const e=new THREE.Euler().setFromQuaternion(q,'YXZ');
+      // local bbox: the model's own extent before the group's transform
+      const lb=new THREE.Box3();
+      tikiHut.traverse(o=>{ if(o.isMesh&&o!==tikiSign&&o.geometry){
+        o.geometry.computeBoundingBox();
+        const b=o.geometry.boundingBox.clone().applyMatrix4(o.matrix); lb.union(b); } });
+      const wb=new THREE.Box3().setFromObject(tikiHut);
+      const cp=new THREE.Vector3(); camera.getWorldPosition(cp);
+      return {pos:[+p.x.toFixed(2),+p.y.toFixed(2),+p.z.toFixed(2)],
+              scale:[+sc.x.toFixed(3),+sc.y.toFixed(3),+sc.z.toFixed(3)],
+              rotDeg:[+(e.x*57.3).toFixed(1),+(e.y*57.3).toFixed(1),+(e.z*57.3).toFixed(1)],
+              localBoxMin:lb.min.toArray().map(v=>+v.toFixed(3)),
+              localBoxMax:lb.max.toArray().map(v=>+v.toFixed(3)),
+              worldBoxMin:wb.min.toArray().map(v=>+v.toFixed(2)),
+              worldBoxMax:wb.max.toArray().map(v=>+v.toFixed(2)),
+              cam:[+cp.x.toFixed(2),+cp.y.toFixed(2),+cp.z.toFixed(2)]};
+    },
     fallTiltK(k){ if(k!==undefined)FALL_TILTK=k;
                   return {k:FALL_TILTK, tilt:+fallTilt.toFixed(3)}; },
     // Where the rider actually IS, in the camera's own frame. A screenshot showing no pug
