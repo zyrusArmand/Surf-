@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.90';
+window.SURF_VERSION='9.91';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -3537,7 +3537,12 @@ let fallZ0=0;
 // to read as a fall once it filled the frame: a shallow plane close to the lens looks like a
 // floor. This is the number that decides the angle of the thing; the camera can only choose how
 // much of it you see.
-const FALL_SLOPE=1.38;      // rise over run of the CONTINUOUS part, under the cascades
+// Gentle again -- and this is not a retreat, it is where the steepness MOVED. In the reference
+// the board is nearly flat, because the rider is on the apron at the foot of the thing; the
+// drama is a wall of water AHEAD of him, not under him. Fifty-four degrees under the board gave
+// a board tilted fifty-four degrees, which is the "board is too angled" of it, and it also put
+// the whole drop behind the camera where nobody could see it. Shallow here, savage in front.
+const FALL_SLOPE=0.26;      // rise over run of the CONTINUOUS part, under the cascades
 // ---- AND ALMOST NOTHING BEHIND HIM ----
 // These were symmetric, and behind him is where it went wrong: forty-two units back at this
 // slope is THIRTY-SIX UNITS OF SEA STANDING UP, and the camera rides at thirty-one. He was
@@ -3563,11 +3568,19 @@ const FALL_AHEAD=260, FALL_BEHIND=6;
 // Gentler than the first cut of it. Taken too hard, the far water drops further between two
 // rows of ocean vertices than the mesh can describe, and the fall comes out as a flight of flat
 // shelves -- and a flat shelf reads level, which is the very thing this is here to stop.
-const FALL_KNEE=68;         // where it stops being a ramp and starts being a fall
+// Close, and hard. Twenty-six units ahead of him the river stops being a ramp and goes over --
+// so the fall is IN SHOT, a few board-lengths in front, filling the middle of the frame the way
+// it does in the reference, instead of being something that happened under the camera.
+const FALL_KNEE=26;         // where it stops being a ramp and starts being a fall
 // Zero. This is what "the water level should not keep dropping" is about: the knee ramp made
 // the far end accelerate away into a bottomless pit, so the channel did not read as a river
 // going downhill but as the sea draining out of shot. A river descends at a rate; it does not
 // go faster and faster into a hole. The staircase carries the descent on its own.
+// Back to zero, and the drop is a LEDGE instead. A knee that keeps steepening is not a
+// waterfall, it is a ski jump: beyond it the river went down four hundred units and took the
+// gorge with it, out of frame. What the reference actually shows is the oldest shape there is --
+// flat water, a lip, a wall of falling water, a pool -- and the staircase already builds exactly
+// that. So there is one big fall in view rather than five small ones.
 const FALL_STEEP=0.0;       // extra rise-over-run added beyond the knee
 // ---- AND IT IS A TROUGH, NOT A RIVER ----
 // The first cut of this ignored x entirely: the cross-section was dead flat, so however steep
@@ -3586,9 +3599,12 @@ const FALL_STEEP=0.0;       // extra rise-over-run added beyond the knee
 // there, the drop ahead is visible as a white line across the channel with calm water above it
 // and churn below, and you can see two or three of them stacked up the gorge at once.
 // The buoyancy field is shared, so the board goes over each of these for free.
-const FALL_STEP=78;         // distance from one lip to the next
-const FALL_LEDGE=13;        // how much of the descent happens AT a lip rather than between
-const FALL_LIP0=0.58, FALL_LIP1=0.96;   // where in each step the drop happens (0..1 along it)
+const FALL_STEP=130;        // distance from one lip to the next
+const FALL_LEDGE=55;        // how much of the descent happens AT a lip rather than between
+// A narrow window, because a lip is narrow. Fifty-five units of drop inside a quarter of the
+// step is a face at better than sixty degrees -- a wall of water, not a slide -- with three
+// quarters of slack river above it for him to be riding flat on.
+const FALL_LIP0=0.57, FALL_LIP1=0.82;   // where in each step the drop happens (0..1 along it)
 const FALL_LIPX=0.37, FALL_LIPA=3.2;    // how the lip line curves across the channel
 // Small. It was nine and a half, then seven, and at either figure the water ran smoothly up
 // both banks in a broad unbroken ramp -- which is a water slide, and the one thing a gorge never
@@ -13957,7 +13973,12 @@ function fallBuild(){
         // opposite sign on each. Using one formula for both hung the right-hand wall in the air
         // with its far end rising where it should have fallen. Hence the sx.
         const d=Math.max(-FALL_BEHIND, Math.min(FALL_AHEAD, 96 - sx*_P0.getX(i)*300));
-        const drop=-FALL_SLOPE*d + fallStair(d) - fallStair(0);
+        // The knee belongs here as well as in fallDip. It was omitted while FALL_STEEP was
+        // zero and nothing showed; the moment the steep section comes back, a wall built without
+        // it stays level exactly where the river drops hardest -- which is the bug v9.87 existed
+        // to kill, in the one place it was left alive.
+        const drop=-FALL_SLOPE*d - FALL_STEEP*Math.max(0,d-FALL_KNEE)
+                   + fallStair(d) - fallStair(0);
         _P0.setY(i, _P0.getY(i) + drop/ys);
       }
       _P0.needsUpdate=true;
