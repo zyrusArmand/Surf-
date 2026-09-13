@@ -395,7 +395,24 @@ def spin_blades():
         rgb=rgb*(1.0-0.78*fin[:,:,None])+np.array([24.,22.,26.],np.float32)*0.78*fin[:,:,None]
         out(rgb, np.maximum(al,fin), 'spin_blade%d.png'%(i+1), 150)
 
-spin_part('ring','spin_ring.png',560,hoop=True)
+# ---- AND THE RING IS THE WHOLE WHEEL AGAIN, SPOKES AND ALL ----
+# v9.71 threw the spokes away because twelve of them crossed every blade. That was the right
+# complaint about the wrong thing: the spokes were not the problem, the ORDER was -- the ring
+# was being drawn after the blades and so on top of them. Behind them it is the frame the
+# boards are mounted on, which is what the photograph shows, and the gaps between six petals
+# get something to look through.
+# Its own picture too, and not the little one off the parts sheet: this arrives 1062 across
+# where that crop was 308, which is three and a half times the detail on the one part of the
+# wheel that is nearly all fine lines.
+SPIN_WHEEL_IMG='cea5d479-image.jpg'
+def spin_ring():
+    im=Image.open(U+SPIN_WHEEL_IMG).convert('RGB')
+    a=np.asarray(im).astype(np.float32)
+    lum=a.mean(2)
+    al=np.clip((236.0-lum)/18.0,0,1)
+    al[al<0.10]=0.0
+    out(a,al,'spin_ring.png',640)
+spin_ring()
 for k,nm,w in (('hub','spin_hub.png',150),('fin','spin_fin.png',96),
                ('sign','spin_sign.png',420),('easel','spin_easel.png',300)):
     spin_part(k,nm,w)
