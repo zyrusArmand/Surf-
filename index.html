@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.89';
+window.SURF_VERSION='9.90';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -3537,7 +3537,7 @@ let fallZ0=0;
 // to read as a fall once it filled the frame: a shallow plane close to the lens looks like a
 // floor. This is the number that decides the angle of the thing; the camera can only choose how
 // much of it you see.
-const FALL_SLOPE=1.15;      // rise over run of the CONTINUOUS part, under the cascades
+const FALL_SLOPE=1.38;      // rise over run of the CONTINUOUS part, under the cascades
 // ---- AND ALMOST NOTHING BEHIND HIM ----
 // These were symmetric, and behind him is where it went wrong: forty-two units back at this
 // slope is THIRTY-SIX UNITS OF SEA STANDING UP, and the camera rides at thirty-one. He was
@@ -4187,6 +4187,20 @@ const oceanMat=new THREE.ShaderMaterial({
         float chn = smoothstep(0.38, 0.95, fbm(vec2(vW.x*3.10, -d*0.34 + fs2*1.7)));
         float casc = onFall * lipM * (0.50 + 0.34*chn + 0.28*spit);
         aer = max(aer, clamp(casc, 0.0, 1.0));
+        // ---- AND THE APRON HE IS ACTUALLY ON IS WHITE ----
+        // Reversing an earlier call of mine, deliberately. The lane was kept blue down the
+        // middle so that where you may ride could be told from where the water goes over -- and
+        // that is a sound idea about a lane, but it is not what the thing looks like. In every
+        // reference the rider is on WHITEWATER: a broad churning apron, aerated right through,
+        // wall to wall. Blue belongs to the deep slack pools further down, not to the piece he
+        // is standing on. So it goes white close to him and lets the colour come back with
+        // distance -- which also reads as depth, the way a real one does.
+        // It has its own gate rather than onFall's, because onFall starts at the lip and the
+        // water he is standing on extends BEHIND him -- gated the usual way, the foreground went
+        // back to blue and he looked like he was on the last calm patch before the drop instead
+        // of in the middle of a rapid.
+        float apron = (1.0 - smoothstep(6.0, 78.0, d)) * smoothstep(-90.0, -26.0, d) * uFallW;
+        aer = max(aer, clamp(apron*(0.52 + 0.30*chn + 0.24*spit), 0.0, 1.0));
         foam = max(foam, aer);
       }
       col = mix(col, vec3(0.94,0.97,1.0), foam*0.66);
