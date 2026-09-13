@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.85';
+window.SURF_VERSION='9.86';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -3530,7 +3530,10 @@ let fallZ0=0;
 // Most of the descent is no longer in this number -- see FALL_STEP below. A single even ramp
 // is the one shape moving water never makes, and it was why a correct forty-degree slope still
 // read as a flat sheet held at an angle.
-const FALL_SLOPE=0.50;      // rise over run of the CONTINUOUS part, under the cascades
+// Back up, and the ledges take less. Split the other way the pools between drops were nearly
+// level, so the board sat tilted on flat water -- the two disagreed everywhere except on a lip.
+// The surface he is on should be at the angle he is at, the whole way down.
+const FALL_SLOPE=0.78;      // rise over run of the CONTINUOUS part, under the cascades
 // ---- AND ALMOST NOTHING BEHIND HIM ----
 // These were symmetric, and behind him is where it went wrong: forty-two units back at this
 // slope is THIRTY-SIX UNITS OF SEA STANDING UP, and the camera rides at thirty-one. He was
@@ -3557,7 +3560,11 @@ const FALL_AHEAD=260, FALL_BEHIND=6;
 // rows of ocean vertices than the mesh can describe, and the fall comes out as a flight of flat
 // shelves -- and a flat shelf reads level, which is the very thing this is here to stop.
 const FALL_KNEE=68;         // where it stops being a ramp and starts being a fall
-const FALL_STEEP=0.55;      // extra rise-over-run added beyond the knee
+// Zero. This is what "the water level should not keep dropping" is about: the knee ramp made
+// the far end accelerate away into a bottomless pit, so the channel did not read as a river
+// going downhill but as the sea draining out of shot. A river descends at a rate; it does not
+// go faster and faster into a hole. The staircase carries the descent on its own.
+const FALL_STEEP=0.0;       // extra rise-over-run added beyond the knee
 // ---- AND IT IS A TROUGH, NOT A RIVER ----
 // The first cut of this ignored x entirely: the cross-section was dead flat, so however steep
 // the fall line got it still read as a wide river running between two distant walls. A flume
@@ -3576,7 +3583,7 @@ const FALL_STEEP=0.55;      // extra rise-over-run added beyond the knee
 // and churn below, and you can see two or three of them stacked up the gorge at once.
 // The buoyancy field is shared, so the board goes over each of these for free.
 const FALL_STEP=78;         // distance from one lip to the next
-const FALL_LEDGE=22;        // how much of the descent happens AT a lip rather than between
+const FALL_LEDGE=13;        // how much of the descent happens AT a lip rather than between
 const FALL_LIP0=0.58, FALL_LIP1=0.96;   // where in each step the drop happens (0..1 along it)
 const FALL_LIPX=0.37, FALL_LIPA=3.2;    // how the lip line curves across the channel
 // Small. It was nine and a half, then seven, and at either figure the water ran smoothly up
@@ -4178,10 +4185,14 @@ const oceanMat=new THREE.ShaderMaterial({
         aer = max(aer, clamp(casc, 0.0, 1.0));
         foam = max(foam, aer);
       }
-      col = mix(col, vec3(0.96,0.99,1.0), foam*0.72);
+      col = mix(col, vec3(0.94,0.97,1.0), foam*0.66);
       // ...and then the rest of the way, because 0.72 of white is a foamy sea and a fall is
       // not a foamy sea. Below the lip there is no blue left in it at all.
-      col = mix(col, vec3(0.97,0.99,1.0), aer*0.86);
+      // ...to OFF-white, and not all the way. Taken to 0.86 of near-pure white this sat pinned
+      // at the top of the range over most of the channel, and everything downstream of that --
+      // tone map, bloom, an eight-bit buffer on a phone -- has the least room to work exactly
+      // there. Real whitewater photographs nowhere near blown out either.
+      col = mix(col, vec3(0.90,0.94,0.97), aer*0.60);
       // The set wave, on its own terms. It is a wall of water rather than a tall ripple, so
       // it is shaded the way a wall is: thick and dark where it stands out of the trough,
       // lit THROUGH where it thins toward the lip — the same transmission colour the tube
@@ -13743,12 +13754,21 @@ const FALL_PITCH=0.16;    // radians the shot tips down the fall line at full we
 // and steep you get the helicopter-over-a-river look back and lose the walls and the sky
 // entirely; from here the rider is big enough in frame to READ, which matters more than it
 // sounds, because the board's own angle is now the strongest downhill cue in the picture.
-const FALL_CAM={lift:5.0, back:0.0, pitch:0.30};
+// Lifted and tipped again, but for a different reason than the round that got this wrong: not
+// to show the slope -- the board and the cascades do that now -- but so the lens is not looking
+// ALONG a board that is properly pitched over, which foreshortens it to a blob.
+// ABOVE the fall line, not behind it. With the water at thirty-eight degrees and the board now
+// matching it, a lens down at board level is looking along both at once -- the board collapses
+// to a blob and the water fills the frame. Height is what buys the angle onto the deck; the
+// pitch has to stay well under the slope or the grazing problem comes straight back.
+const FALL_CAM={lift:21.0, back:6.0, pitch:0.44};
 // Sign and strength of the board's nose-down, live for the same reason the camera is.
 // At 1.0 the board takes the full gradient -- twenty-six degrees -- and the prone rider, who is
 // already rotated flat onto the deck, disappears behind it. Enough to read as pointing downhill
 // with the rider still legible on top of it.
-let FALL_TILTK=0.62;
+// One. The board takes the FULL gradient of the water under it -- not a fraction of it -- so
+// the two cannot disagree. That is the whole of "water should also be at the angle of board".
+let FALL_TILTK=1.0;
 const FALL_PUSH=46;       // the speed the chute adds, on top of whatever the board was doing
 // ---- AND THE CHANNEL IS NARROW ----
 // At 13.5 the walls sit far enough out that they leave the frame near the rider and only meet
@@ -13799,23 +13819,25 @@ function fallTex(){
 // do not read as a ladder when they scroll. It is the thing that has to look SOLID -- the water
 // beside it is already doing all the moving, and if both are soft neither is a cliff.
 function cliffTex(){
-  const W=128,H=512,c=document.createElement('canvas'); c.width=W;c.height=H;
+  // Four times the pixels. At 128x512 stretched over a 300-unit wall the strata were mush
+  // before the motion blur ever got to them.
+  const W=256,H=1024,c=document.createElement('canvas'); c.width=W;c.height=H;
   const x=c.getContext('2d');
   x.fillStyle='#2b2721'; x.fillRect(0,0,W,H);
-  for(let i=0;i<70;i++){
-    const y=Math.random()*H, h=4+Math.random()*26;
+  for(let i=0;i<150;i++){
+    const y=Math.random()*H, h=8+Math.random()*52;
     x.globalAlpha=0.18+Math.random()*0.40;
     x.fillStyle=Math.random()<0.5?'#181612':'#463f37';
     // broken along their length rather than ruled across, or the wall is a stack of shelves
     let xx=0;
-    while(xx<W){ const w=10+Math.random()*46;
-      if(Math.random()<0.78)x.fillRect(xx,y+Math.random()*4,w,h);
-      xx+=w+Math.random()*14; }
+    while(xx<W){ const w=20+Math.random()*92;
+      if(Math.random()<0.78)x.fillRect(xx,y+Math.random()*8,w,h);
+      xx+=w+Math.random()*28; }
   }
   // a few vertical fractures, which is what stops banding alone reading as brickwork
-  for(let i=0;i<16;i++){
+  for(let i=0;i<34;i++){
     x.globalAlpha=0.20+Math.random()*0.30; x.fillStyle='#26241f';
-    x.fillRect(Math.random()*W,Math.random()*H,1+Math.random()*3,40+Math.random()*180);
+    x.fillRect(Math.random()*W,Math.random()*H,2+Math.random()*6,80+Math.random()*360);
   }
   x.globalAlpha=1;
   const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping;
@@ -13840,7 +13862,7 @@ function fallBuild(){
     // The rock was tiled 3 across a 300-unit wall: 100 units wide by 21 tall per tile, so every
     // band was stretched five to one and the face read as horizontal smear rather than strata.
     // Tiled roughly square instead, the bedding comes back and it looks like cut rock.
-    t.repeat.set(rock?10:2, rock?9:6);
+    t.repeat.set(rock?7:2, rock?6:6);
     // ---- THE ROCK IS NOT A QUAD ----
     // It was PlaneGeometry(1,1,1,1) -- one flat rectangle each side with a picture of rock on
     // it, which is exactly what "it just seems that these walls got put up" is describing. No
@@ -13937,15 +13959,12 @@ function fallBuild(){
   // solved there by not stacking anything, and the same applies here. Six, large, kept apart,
   // and normal blending rather than additive: additive is what makes an overlap cost eight
   // bits twice over.
-  for(let i=0;i<6;i++){
-    const q=new THREE.Sprite(new THREE.SpriteMaterial({map:puffTexture(),transparent:true,
-      opacity:0.30,depthWrite:false,color:0xffffff}));
-    q.userData.big=i<4;
-    q.scale.setScalar(q.userData.big?(46+Math.random()*30):(16+Math.random()*12));
-    q.userData.seed=Math.random()*100;
-    q.renderOrder=3;
-    fallGrp.add(q); fallMist.push(q);
-  }
+  // ---- AND NOW THERE ARE NONE ----
+  // Cutting twenty to six did not cure the speckle on a real phone, and six stacked translucent
+  // quads is still six. They were also the white balls floating down the middle of the channel,
+  // which never read as spray. The sea carries its own aeration, cascades and churn now, so the
+  // sprites were buying nothing and risking the one artefact this file already has a note about.
+  // fallMist stays as an empty array so the step loop needs no guard.
 }
 // Called from the workshop button. Arms the drop; everything after is on the clock.
 function fallGo(){
@@ -13966,7 +13985,10 @@ function fallStep(dt){
   // He goes flat on the board through the entry and stays there. The pose is the one the
   // helicopter tow already uses -- turned onto his chest, chin up, legs straight down the
   // deck -- so this only has to hand it a weight.
-  fallLay=fallW;
+  // Not flat out. Prone was right when the board was level, but the board now sits at the
+  // angle of the water, and the two rotations add -- fully prone on a thirty-eight degree deck
+  // puts him past vertical and behind his own board. Crouched over it instead.
+  fallLay=fallW*0.55;
   // the pivot rides with him, in FIELD coordinates, which is what waveH is written in
   fallZ0=dist*WAVE_DRIFT+pz;
   // ---- HOW FAR NOSE-DOWN THE BOARD IS, TAKEN OFF THE WATER ITSELF ----
@@ -13981,7 +14003,9 @@ function fallStep(dt){
     // ...and capped. The rider is already rotated flat onto the deck, so the two rotations add:
     // past about a fifth of a radian the board foreshortens into a blob with the pug behind it,
     // and a cue you cannot see past is worse than a smaller one you can.
-    const _want=Math.max(-0.21, Math.atan2(_ah-_bh,14)*fallW*FALL_TILTK);
+    // The cap is a backstop against a freak sample now, not a styling choice: at the full
+    // gradient the shot has to be able to show the board, which is what the camera below is for.
+    const _want=Math.max(-0.62, Math.atan2(_ah-_bh,14)*fallW*FALL_TILTK);
     fallTilt+=(_want-fallTilt)*Math.min(1,dt*5.0);
   }
   const T=(typeof tNow==='number')?tNow:performance.now()/1000;
@@ -13997,13 +14021,12 @@ function fallStep(dt){
     for(const r of [fallRockL,fallRockR]){
       if(!r)continue;
       r.material.opacity=fallW;
-      // ...and the rock the other way, slower. He is going DOWN past it, so it goes up past
-      // him: this one line is the difference between a descent and a corridor.
-      // Slower than it first was, though. At nine tiles up the wall it was running eight tile
-      // heights a second, which smears the strata into a grey-brown blur -- and a blur is not
-      // a cliff, it is just texture moving. The cue is the DIRECTION being opposite to the
-      // water, not the rate, so it reads better at a third of the speed with the rock legible.
-      r.material.map.offset.y+=dt*(0.12+lastEff*0.0026);
+      // ---- AND THE ROCK'S TEXTURE DOES NOT MOVE ----
+      // It used to scroll upward, to sell the descent back when the wall was a flat quad with a
+      // picture on it. The wall has real relief now, and a texture sliding across fixed bumps is
+      // the worst of both: the strata swim over lumps that stay put, which is exactly the
+      // "blurry and weird" of it. Nothing about a cliff moves. The descent is carried by the
+      // board's angle and the cascades now, and neither of those is a lie about the geometry.
     }
     for(let i=0;i<fallMist.length;i++){
       const q=fallMist[i], k=q.userData.seed;
