@@ -15,6 +15,7 @@ filling three holes back in with the wood that surrounds them.
 import sys, os, math
 from PIL import Image
 import numpy as np
+from scipy import ndimage
 
 U=(sys.argv[1] if len(sys.argv)>1 else '.').rstrip('/')+'/'
 OUT=os.path.dirname(os.path.abspath(__file__))+'/'
@@ -299,101 +300,84 @@ def spin_part(key,name,w,hoop=False):
         al=al*np.clip((r-0.855)/0.025,0,1)
     out(a,al,name,w)
 
-# The shortboard's own spec sheet, lifted from B_TYPES in index.html. Not approximated: the
-# wheel's boards are the same shape the rack draws, off the same four numbers a shaper quotes.
-SPIN_SPEC=dict(L=72.0, W=18.75, noseA=1.063, tailA=3.200, noseW=0.03, tailW=0.590)
-
-def board_hw():
-    """The game's own outline, ported. ONE curve from nose to tail, trimmed at each end to the
-       width the spec quotes there rather than having a nose bolted onto it -- index.html sets
-       out at length why the second way leaves a neck and a shoulder at each tip."""
-    sp=SPIN_SPEC
-    a_,b_=sp['noseA'],sp['tailA']; up=a_/(a_+b_)
-    peak=up**a_*(1-up)**b_
-    beta=lambda u:(max(0.0,u)**a_)*(max(0.0,1-u)**b_)/peak
-    def inv(t,lo,hi):
-        for _ in range(44):
-            m=(lo+hi)*0.5
-            if beta(m)<t: lo=m
-            else: hi=m
-        return (lo+hi)*0.5
-    uN=inv(sp['noseW'],0,up) if sp['noseW']>0 else 0.0
-    uT=inv(sp['tailW'],1,up) if sp['tailW']>0 else 1.0
-    L,W=sp['L'],sp['W']
-    capN=W*sp['noseW']; capT=W*sp['tailW']
-    def cap(d,r): return 1.0 if d>=r else math.sqrt(max(0.0,1-(1-d/r)**2))
-    def hw(u):
-        e=(cap(u*L,capN) if capN>0 else 1.0)*(cap((1-u)*L,capT) if capT>0 else 1.0)
-        return W*beta(uN+(uT-uN)*u)*e
-    return hw, L/(2.0*max(hw(x/400.0) for x in range(401)))
-
+# ---- THE BLADES ARE PHOTOGRAPHS AGAIN, AND THIS TIME THEY CARRY IT ----
+# They were drawn for two versions, and the reason was resolution: the first parts sheet gave
+# the blade at 50 by 161 pixels against about 104 device pixels on screen, and the wide
+# photograph had it three times bigger but out of focus. Neither held up, so the shape, the
+# dome, the stringer and the grain were generated instead -- including a real shortboard
+# outline lofted off the rack's own spec sheet.
+# This sheet ends that. Twelve painted boards, 140 by 348 each, straight on, no lettering, a
+# real stringer inlaid down every one and the paint sitting on visible grain. Photographs beat
+# anything generated when they are actually sharp, and these are: what was being worked around
+# is simply gone. The generated outline goes with it -- it was a good answer to not having
+# this picture.
+SPIN_BOARDS='638d339a-image.jpg'
+# a clean 4 x 3 grid, measured off the sheet by connected components
+_BCOL=[158,308,450,601]; _BROW=[(66,352),(424,344),(768,348)]; _BW=140
+# Six of the twelve, chosen to be told apart at a glance on a wheel: yellow, teal, red-orange,
+# sky, sage, violet. The tan one is left out on purpose -- it is within ten points of the
+# plywood it was photographed on, which is a key fighting for no reason when there are eleven
+# others, and it would read as a bare slot on the wheel besides.
+SPIN_PICK=[(1,0),(2,2),(1,3),(1,2),(0,3),(2,1)]   # (row, col), zero based
 
 def spin_blades():
-    """The blades are DRAWN, and every other part of this wheel is cut from the photographs.
-
-       Not a preference -- it is what the sources will carry. The parts sheet gives the blade at
-       50 by 161 pixels against about 104 device pixels on screen, so every JPEG block arrives
-       at double size; the original photograph has it three times larger and out of focus,
-       because the shot is focused on the middle of the rosette and the blades fan away from it.
-       Upscaling the sharper of two blurs is still a blur.
-
-       AND THE DELIVERED BLADES ARE NOT SURFBOARDS. They are symmetric pointed lenses -- the
-       same at both ends, no nose, no tail, widest dead centre. Drawing them faithfully was
-       drawing a leaf. A board has a pointed nose, a blunter tail, its wide point about halfway,
-       a stringer, a deck pad over the back foot and fins under it, and it is those that say
-       surfboard at a glance rather than the colour. So the outline comes off the shortboard's
-       own spec sheet through the same curve the rack is lofted from.
-    """
-    hw,aspect=board_hw()
-    W=264; H=int(round(W*aspect))
-    yy,xx=np.mgrid[0:H,0:W].astype(np.float32)
-    u=yy/(H-1.0)                                    # 0 nose, 1 tail
-    us=np.linspace(0,1,H).astype(np.float32)
-    hwv=np.array([hw(float(t)) for t in us],np.float32)
-    hwv=hwv/hwv.max()*(W/2.0-3.0)
-    half=hwv[:,None]*np.ones((1,W),np.float32)
-    dx=xx-(W-1)/2.0
-    d=half-np.abs(dx)
-    al=np.clip(d/1.6,0,1)
-    n=np.clip(dx/np.maximum(1.0,half),-1,1)
-    dome=np.sqrt(np.clip(1.0-n*n,0,1))
-    shade=0.58+0.42*np.power(dome,0.62)
-    g=grain(H,W,1,26,seed=11)
-    shade=shade*(1.0+0.075*(g-g.mean())/max(1e-4,g.std()))
-    st=np.abs(dx)
-    shade=shade*(1.0-0.30*np.exp(-(st/1.9)**2))
-    shade=shade*(1.0+0.16*np.exp(-((st-3.4)/2.2)**2))
-    shade=shade*(1.0-0.34*np.clip(1.0-d/7.0,0,1))
-    # ---- the deck pad, over the back foot ----
-    # Where a real one goes and the size a real one is: the back third, inside the rail, with
-    # a rounded end. At a hundred pixels across it is one dark shape near the tail -- and one
-    # dark shape near the tail is most of the difference between a board and an ellipse.
-    # ARCHED at the front and inside the rail, which is what one looks like -- the first cut
-    # ran a straight line clean across the board at a fixed height and covered the back forty
-    # per cent, so it read as the board having been dipped in something rather than as a pad.
-    arch=0.660+0.055*np.power(np.abs(n),1.6)          # the front edge curves back at the rails
-    pad=np.clip((u-arch)/0.030,0,1)*np.clip((0.925-u)/0.030,0,1)
-    pad=pad*np.clip((half*0.60-np.abs(dx))/2.4,0,1)
-    # ---- and the fins under the tail ----
-    fin=np.zeros((H,W),np.float32)
-    for fx,fu,fs in ((-0.58,0.905,0.85),(0.58,0.905,0.85),(0.0,0.945,0.70)):
-        cx=(W-1)/2.0+fx*half[int(0.905*(H-1)),0]
-        fw=8.0*fs; fh=26.0*fs
-        t=np.clip((u-fu)*(H-1)/fh,0,1)
-        w=fw*(1.0-t)                                  # a fin tapers to its tip
-        fin=np.maximum(fin, np.clip((w-np.abs(xx-cx))/1.4,0,1)*np.clip(t*6,0,1))
-    fin=fin*al
-    shade=np.clip(shade,0,1.35)[:,:,None]
-    for i,c in enumerate(SPIN_TINT):
-        col=np.array([(c>>16)&255,(c>>8)&255,c&255],np.float32)
-        dark=col*0.40
-        light=np.minimum(255.0,col*1.06+26.0)
-        rgb=dark+(light-dark)*shade
-        # the pad is a dark grippy slab, near-neutral whatever the board is painted
-        rgb=rgb*(1.0-0.52*pad[:,:,None])+np.array([40.,35.,31.],np.float32)*0.52*pad[:,:,None]
-        # the fins are darker again and sit under the tail
-        rgb=rgb*(1.0-0.78*fin[:,:,None])+np.array([24.,22.,26.],np.float32)*0.78*fin[:,:,None]
-        out(rgb, np.maximum(al,fin), 'spin_blade%d.png'%(i+1), 150)
+    im=Image.open(U+SPIN_BOARDS).convert('RGB')
+    cut=[]
+    for i,(r,c) in enumerate(SPIN_PICK):
+        ry,rh=_BROW[r]; cx=_BCOL[c]
+        crop=im.crop((cx-10,ry-10,cx+_BW+10,ry+rh+10))
+        a_=np.asarray(crop).astype(np.float32)
+        # the ground is pale plywood and it shades across the sheet, so each board is keyed
+        # against the wood in ITS OWN corners rather than one colour for all twelve
+        bg=np.median(np.vstack([a_[:8,:8].reshape(-1,3),a_[:8,-8:].reshape(-1,3),
+                                a_[-8:,:8].reshape(-1,3),a_[-8:,-8:].reshape(-1,3)]),0)
+        # ---- KEYED ON HUE, BECAUSE A SHADOW IS NOT A DIFFERENT COLOUR ----
+        # Straight RGB distance from the ground keeps the drop shadow each board casts on the
+        # plywood: a shadow is the same wood at lower brightness, so it sits tens of units away
+        # from the lit ground and the key cannot tell it from paint. Every blade came out with
+        # a pale crescent of shaded timber attached down one side.
+        # Dividing each pixel by its own brightness throws exactly that away and leaves the
+        # direction of the colour, which shading does not move. Wood and its own shadow land on
+        # top of each other; paint does not land anywhere near either.
+        lum=a_.mean(2)+1e-3
+        dd=np.sqrt((((a_/lum[:,:,None])-(bg/bg.mean()))**2).sum(2))
+        # ...and a brightness term as well, for a board dark enough that its hue stops meaning
+        # anything -- the near-black one is the case, and this keeps the rule honest for it.
+        dl=np.abs(lum-bg.mean())/max(1.0,bg.mean())
+        al=np.clip((np.maximum(dd*3.1,dl*1.35)-0.40)/0.22,0,1)
+        # LARGEST COMPONENT ONLY. The boards sit close enough together that most crops catch a
+        # sliver of the one next door, and a sliver keyed in is a coloured crumb floating
+        # beside the blade once it is on the wheel.
+        solid=ndimage.binary_fill_holes(ndimage.binary_closing(al>0.55,np.ones((5,5))))
+        lab,n=ndimage.label(solid)
+        if n>1:
+            sizes=ndimage.sum(np.ones_like(lab),lab,range(1,n+1))
+            solid=(lab==(int(np.argmax(sizes))+1))
+        # ---- AND THE EDGE COMES FROM THE SHAPE, NOT FROM THE RAMP ----
+        # Keeping the soft key as the alpha left a ring of half-transparent PLYWOOD around every
+        # board: the closing that fills the holes grows the mask a pixel or two, and those extra
+        # pixels are wood at whatever the ramp gave them. Against a dark wheel that reads as a
+        # dirty outline. Eroded back by one and re-blurred, the alpha is the board's own
+        # silhouette, antialiased, and nothing outside it survives at any opacity.
+        solid=ndimage.binary_erosion(solid,np.ones((3,3)))
+        al=np.clip((blur(solid.astype(np.float32),0.9)-0.30)/0.45,0,1)
+        cut.append((a_,al))
+    # ---- ONE FRAME FOR ALL SIX, or the flower comes out lopsided ----
+    # Cropping each board to its own bounding box makes every blade a different length, and six
+    # petals of six lengths on one wheel is not a wheel. They are hand-cut objects photographed
+    # in a grid, so they genuinely do differ -- by a few per cent, which is invisible on a shelf
+    # and obvious on a rosette. Boxed together into the largest of them, each centred, so the
+    # images share a frame and the wheel can place them all with one rule.
+    W=max(x[1].shape[1] for x in cut); Hh=max(x[1].shape[0] for x in cut)
+    for i,(a_,al) in enumerate(cut):
+        h,w=al.shape
+        ca=np.zeros((Hh,W,3),np.float32); cl=np.zeros((Hh,W),np.float32)
+        oy,ox=(Hh-h)//2,(W-w)//2
+        ca[oy:oy+h,ox:ox+w]=a_; cl[oy:oy+h,ox:ox+w]=al
+        im2=Image.fromarray(np.dstack([np.clip(ca,0,255),cl*255]).astype(np.uint8),'RGBA')
+        im2=im2.resize((150,round(Hh*150/W)),Image.LANCZOS)
+        im2.save(OUT+'spin_blade%d.png'%(i+1),optimize=True)
+        print('spin_blade%d.png'%(i+1),im2.size,os.path.getsize(OUT+'spin_blade%d.png'%(i+1))//1024,'KB')
 
 # ---- AND THE RING IS THE WHOLE WHEEL AGAIN, SPOKES AND ALL ----
 # v9.71 threw the spokes away because twelve of them crossed every blade. That was the right
