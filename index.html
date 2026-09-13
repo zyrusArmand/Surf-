@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.86';
+window.SURF_VERSION='9.87';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -13839,8 +13839,45 @@ function cliffTex(){
     x.globalAlpha=0.20+Math.random()*0.30; x.fillStyle='#26241f';
     x.fillRect(Math.random()*W,Math.random()*H,2+Math.random()*6,80+Math.random()*360);
   }
+  // ---- AND THEN THE THINGS THAT MAKE IT STONE RATHER THAN STRIPES ----
+  // Bedding alone is a barcode. What reads as rock is what happens between the bands: blotches
+  // where the face weathers at different rates, grain fine enough to sit under everything, and
+  // the pitting that catches light along an edge. All of it low-contrast on purpose -- rock is
+  // mostly one colour, and it is the TEXTURE that separates it from a painted wall.
+  const blot=(n,r0,r1,col,a0,a1)=>{ for(let i=0;i<n;i++){
+    const bx=Math.random()*W, by=Math.random()*H, r=r0+Math.random()*(r1-r0);
+    const g2=x.createRadialGradient(bx,by,0,bx,by,r);
+    g2.addColorStop(0,col); g2.addColorStop(1,'rgba(0,0,0,0)');
+    x.globalAlpha=a0+Math.random()*(a1-a0); x.fillStyle=g2;
+    x.beginPath(); x.arc(bx,by,r,0,7); x.fill();
+    if(bx<r)  { x.translate(W,0); x.beginPath(); x.arc(bx,by,r,0,7); x.fill(); x.translate(-W,0); }
+    if(bx>W-r){ x.translate(-W,0); x.beginPath(); x.arc(bx,by,r,0,7); x.fill(); x.translate(W,0); }
+  }};
+  blot(46, 18, 90, 'rgba(92,84,70,1)',  0.05, 0.16);   // where it weathers pale
+  blot(38, 14, 70, 'rgba(24,21,17,1)',  0.07, 0.20);   // and where it stays wet and dark
+  blot(16, 10, 44, 'rgba(74,82,52,1)',  0.04, 0.12);   // the faintest green in the damp
+  // grain: single pixels, thousands of them, too small to see and the reason it stops looking
+  // like a gradient the moment they are there
+  const im=x.getImageData(0,0,W,H), D=im.data;
+  for(let i=0;i<D.length;i+=4){
+    const n=(Math.random()-0.5)*26;
+    D[i]=Math.max(0,Math.min(255,D[i]+n));
+    D[i+1]=Math.max(0,Math.min(255,D[i+1]+n));
+    D[i+2]=Math.max(0,Math.min(255,D[i+2]+n));
+  }
+  x.putImageData(im,0,0);
+  // pits and chips, each with a lit top edge and a dark floor, which is the only thing here
+  // that gives the surface any depth of its own
+  for(let i=0;i<420;i++){
+    const bx=Math.random()*W, by=Math.random()*H, r=1+Math.random()*5;
+    x.globalAlpha=0.10+Math.random()*0.30;
+    x.fillStyle='#15130f'; x.beginPath(); x.arc(bx,by,r,0,7); x.fill();
+    x.globalAlpha=0.08+Math.random()*0.22;
+    x.fillStyle='#8b8271'; x.beginPath(); x.arc(bx,by-r*0.55,r*0.72,0,7); x.fill();
+  }
   x.globalAlpha=1;
   const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping;
+  if(renderer&&renderer.capabilities)t.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
   // Without this the basalt comes out as pale limestone. A canvas holds sRGB bytes; unflagged,
   // three reads them as linear and the output conversion then LIFTS every dark value -- #3a352e
   // rendered at about #8a8278. Every other canvas texture in this file sets it; this one is not
@@ -13874,7 +13911,33 @@ function fallBuild(){
     // vertex colour instead -- what stands proud of the face reads bright, what is cut back
     // reads dark, and the foot of the gorge sits in its own shadow. That is what turns a printed
     // texture into something with depth in it.
-    const geo = rock ? new THREE.PlaneGeometry(1,1,84,20) : new THREE.PlaneGeometry(1,1,1,1);
+    const geo = new THREE.PlaneGeometry(1,1,84,rock?20:3);
+    // ---- AND THE GORGE GOES DOWN WITH THE RIVER ----
+    // This is why the water never looked angled, and it is the plainest bug in the whole set
+    // piece: fallGrp sits at y=0 for ever, so the walls stayed dead level while only the water
+    // dropped. Ahead of the rider the river fell clean away from the rock and there was no
+    // waterline at all -- and a sloped plane with nothing level beside it is indistinguishable
+    // from a flat one, which is exactly what the eye kept reporting. It is also, word for word,
+    // "the walls got put up and the water level just keeps dropping".
+    // The descent profile is fixed RELATIVE TO THE RIDER, so it can be baked straight into the
+    // geometry: each column of the wall knows how far ahead it is, and therefore how far down
+    // the water is there. Now the waterline runs down the rock, and that line is the angle.
+    // Each vertex's ORIGINAL height is kept, because once every column sits at its own depth
+    // the y value no longer says where you are up the face, and the relief below needs that.
+    const _P0=geo.attributes.position, _v0=new Float32Array(_P0.count);
+    {
+      const ys=(rock?120:18);
+      for(let i=0;i<_P0.count;i++){
+        _v0[i]=_P0.getY(i)+0.5;                       // 0 at the foot, 1 at the rim
+        // The two walls are MIRRORED by their Y rotation, so local x maps to world z with
+        // opposite sign on each. Using one formula for both hung the right-hand wall in the air
+        // with its far end rising where it should have fallen. Hence the sx.
+        const d=Math.max(-FALL_BEHIND, Math.min(FALL_AHEAD, 96 - sx*_P0.getX(i)*300));
+        const drop=-FALL_SLOPE*d + fallStair(d) - fallStair(0);
+        _P0.setY(i, _P0.getY(i) + drop/ys);
+      }
+      _P0.needsUpdate=true;
+    }
     if(rock){
       const P=geo.attributes.position, N=P.count, cols=new Float32Array(N*3);
       const h2=(a,b)=>{const v=Math.sin(a*127.1+b*311.7)*43758.5453; return v-Math.floor(v);};
@@ -13883,14 +13946,14 @@ function fallBuild(){
         return (h2(i,j)*(1-su)+h2(i+1,j)*su)*(1-sv)+(h2(i,j+1)*(1-su)+h2(i+1,j+1)*su)*sv;};
       const fb=(a,b)=>vn(a,b)*0.58+vn(a*2.3+11,b*2.1+7)*0.28+vn(a*5.3+23,b*4.7+3)*0.14;
       for(let i=0;i<N;i++){
-        const lx=P.getX(i), ly=P.getY(i), u=lx+0.5, v=ly+0.5;
+        const lx=P.getX(i), u=lx+0.5, v=_v0[i];
         // Local +z is INWARD on both walls (the two are mirrored by their Y rotation), so the
         // displacement is kept at or below zero and the face can only ever retreat.
         const f=fb(u*11.0, v*3.4);
         P.setZ(i, -f*8.5);
         // ...and the rim is broken. A ruled top edge is the other half of "a wall got put up".
         if(v>0.62){ const k=(v-0.62)/0.38;
-          P.setY(i, ly - k*k*(0.05+fb(u*6.0+31.0, 2.7)*0.22)); }
+          P.setY(i, P.getY(i) - k*k*(0.05+fb(u*6.0+31.0, 2.7)*0.22)); }
         const prot=1.0-f;                       // 1 where the rock stands proud of its face
         const sh=Math.max(0.30, Math.min(1.30, 0.40+0.62*prot+0.28*v));
         cols[i*3]=sh; cols[i*3+1]=sh*0.99; cols[i*3+2]=sh*0.96;
