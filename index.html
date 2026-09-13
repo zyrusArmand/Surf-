@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.73';
+window.SURF_VERSION='9.74';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -5694,7 +5694,16 @@ let wheelX2=0;              // double shells on the run you go and earn them on
 let wheelChest=0;           // a chest, certain, instead of a timer that may not come round
 let wheelLoan='';           // a board you have not unlocked, for one run
 let loanWas=null;           // ...and what you were riding before it, to give back
-function wheelReady(){ return dayStamp(new Date())!==wheelLast; }
+// ---- THE DAILY GATE, OFF WHILE THE WHEEL IS BEING LOOKED AT ----
+// One switch and nothing else, because this is temporary: the gate is the whole point of a
+// daily reward and it goes back on before anybody plays this. Set it to false and the wheel is
+// once a calendar day again -- no other line in the file needs to change, and wheelLast is
+// still stamped on every spin while it is true, so flipping it back does not hand out a free
+// one on a day already spent.
+// What it does NOT switch off is _spinBusy: a second tap while the wheel is still turning is
+// refused whatever this says, or a prize can be claimed against a wheel that has not landed.
+let WHEEL_FREE=true;
+function wheelReady(){ return WHEEL_FREE || dayStamp(new Date())!==wheelLast; }
 // A board worth being tempted by: one the LEVEL has locked, not one you merely cannot afford,
 // because being shown a thing you could buy today is not a tease. Picked from the locked set at
 // random rather than the dearest of them -- the dearest is a 900,000-shell pool ring, and
@@ -12574,6 +12583,9 @@ function spinDraw(){
   const won=document.getElementById('spinWon');
   if(!rdy&&!_spinBusy&&!won.innerHTML)
     won.innerHTML='<small>One spin a day. The prizes get better as you rank up.</small>';
+  // ...and while the gate is off, say so rather than promising a limit that is not being kept
+  if(WHEEL_FREE&&!_spinBusy&&!won.innerHTML)
+    won.innerHTML='<small>Spin away — the daily limit is off. Prizes still climb with rank.</small>';
 }
 function spinFlips(){
   const lb=document.getElementById('spinLabels');
@@ -28111,6 +28123,7 @@ if(location.hash.includes('debug')){
                      banked:{life:wheelLife, x2:wheelX2, chest:wheelChest, loan:wheelLoan},
                      onLoan:loanWas?loanWas.board:null, riding:equipped, crateT:+crateT.toFixed(2)}),
     wheelForce(){ wheelLast=''; return wheelReady(); },
+    wheelFree(v){ if(v!==undefined)WHEEL_FREE=!!v; return WHEEL_FREE; },
     // claim one named slice without the four seconds of wheel, so what is under test is the
     // prize reaching the next run and not whether a CSS transition finished
     wheelTake(kind){
