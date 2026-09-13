@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.77';
+window.SURF_VERSION='9.78';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -2682,6 +2682,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     <div class="slab">Set pieces <em>— test only, not in the game</em></div>
     <button class="go teal sm" id="stFork">Fork</button>
     <button class="go teal sm" id="stDive">Dive</button>
+    <button class="go teal sm" id="stFall">The Drop</button>
   </div>
   <div class="acts sect">
     <div class="slab">Workshop</div>
@@ -3510,6 +3511,29 @@ let whX=0, whZ=0, whA=0;                  // field-space centre and depth
 // not an even bowl. The smooth part joins the sea flat at the rim; the spike is what
 // makes the hole in the middle.
 function whirlProfile(k){ return k*k*(3-2*k)*(1+2.1*Math.pow(k,7)); }
+// ---------- THE DROP'S SLOPE, WHICH IS THE SEA AND NOT A PROP ----------
+// The first cut of the chute was a tilted plane laid over the water, and the water won: a
+// downhill surface has to go BELOW sea level to be downhill, and the sea is opaque, so the
+// whole thing was hidden under the very ocean it was supposed to be replacing.
+// The set wave's own note says how this is done here -- it is not an object floating on the
+// sea, it IS the sea, one more additive term in the shared height field -- and everything that
+// follows from that is free: the ocean shader lights it, foams it and fogs it, the board
+// floats on it without knowing it exists, and the obstacles ride down it because the water
+// under them is genuinely lower.
+// It PIVOTS ON HIM rather than running away downhill from a fixed point. Anchored to where the
+// chute started he would descend for real, and thirty-five seconds at sixty a second is over a
+// thousand units of altitude -- past the fog, past the sky dome, past anything else in the
+// scene that assumed the sea was near zero. Pivoted, the water rises behind him and falls away
+// ahead of him for as long as it lasts, which is what a chute looks like from on it, and he
+// never leaves the world the rest of the game is built in.
+let fallZ0=0;
+const FALL_SLOPE=0.86;      // rise over run: a shade over forty degrees of water
+const FALL_AHEAD=88, FALL_BEHIND=42;
+function fallDip(x,z){
+  if(typeof fallW!=='number'||fallW<=0.001)return 0;
+  const d=Math.max(-FALL_BEHIND,Math.min(FALL_AHEAD,fallZ0-z));
+  return -FALL_SLOPE*fallW*d;
+}
 function whirlDip(x,z){
   if(whA<=0.001)return 0;
   const dx=x-whX, dz=z-whZ, d2=dx*dx+dz*dz;
@@ -3614,7 +3638,7 @@ function waveComp(W,x,z,t){
 function waveH(x,z,t){
   let h=0;
   for(const W of WAVES)h+=waveComp(W,x,z,t);
-  return h*waveAmp*swCalm+wakeBump(x,z)+boatBump(x,z)+whirlDip(x,z)+setWaveH(x,z);
+  return h*waveAmp*swCalm+wakeBump(x,z)+boatBump(x,z)+whirlDip(x,z)+setWaveH(x,z)+fallDip(x,z);
 }
 // the long-period part of the sea only — what a floating object actually rides.
 // Short chop is filtered out, so buoys glide over the swell instead of vibrating,
@@ -3622,7 +3646,7 @@ function waveH(x,z,t){
 function swellH(x,z,t){
   let h=0;
   for(let i=0;i<2;i++)h+=waveComp(WAVES[i],x,z,t);
-  return h*waveAmp*1.06*swCalm+wakeBump(x,z)+boatBump(x,z)+whirlDip(x,z)+setWaveH(x,z);
+  return h*waveAmp*1.06*swCalm+wakeBump(x,z)+boatBump(x,z)+whirlDip(x,z)+setWaveH(x,z)+fallDip(x,z);
 }
 const OCEAN_Z=-90;
 let dist=0;
@@ -12996,6 +13020,10 @@ function openStats(full){
   // and the whirlpool test with it. Same reasoning as Stage: a test that summons a hazard
   // belongs behind the five taps, not on the panel the dial opens.
   document.getElementById('stWhirl').style.display = full ? '' : 'none';
+  // and The Drop. It is a set piece behind the five taps like the fork and the dive, and this
+  // list is the only thing that keeps it off the panel the dial opens -- the Stage button got
+  // onto a player's Stats screen by being added to the markup and not to here.
+  document.getElementById('stFall').style.display = full ? '' : 'none';
   // Owner's key. It lives behind the version-tap because that is already the door
   // nobody finds by accident, and it is the only thing in the game that hands you
   // something you did not ride for — so it stays out of the shop entirely.
@@ -13489,6 +13517,15 @@ document.getElementById('stDive').onclick=()=>{
   beginRun();
   setTimeout(()=>{ if(running&&typeof diveGo==='function')diveGo(true); },1500);
 };
+// ---- the drop, from the same menu ----
+// Armed after beginRun like every other set piece here, and on the same delay the dive uses:
+// going in while the run is still settling put the chute up before the camera had finished
+// easing into the shot, and the entry read as a cut rather than as a drop.
+document.getElementById('stFall').onclick=()=>{
+  document.getElementById('stats').classList.add('hidden');
+  beginRun();
+  setTimeout(()=>{ if(running&&typeof fallGo==='function')fallGo(); },1500);
+};
 document.getElementById('stWhirl').onclick=()=>{
   document.getElementById('stats').classList.add('hidden');
   beginRun();
@@ -13503,6 +13540,128 @@ document.getElementById('stWipe').onclick=e=>{
 };
 showCoins();
 
+// ============ THE DROP — a 45-degree chute of falling water ============
+// TEST ONLY, behind the five taps, exactly like the fork and the dive. It is a set piece and
+// it is not in the game: nothing spawns it, nothing saves from it, and the only door is the
+// workshop panel.
+//
+// WHY THE WORLD DOES NOT ACTUALLY TILT. There is no play-field group to rotate -- the sea, the
+// obstacles, the sky and the light are all added straight to the scene -- so pitching "the
+// world" means pitching the sky and the sun with it, and a tilted horizon reads as the camera
+// having fallen over rather than as a slope. The descent is sold the way a real one is sold on
+// film instead: the shot pitches down the fall line, the walls either side stream past
+// vertically, the air fills with spray, and the speed goes up. Nothing below rotates the sea.
+let fallPh=-1;            // -1 off, 0 dropping in, 1 in the chute, 2 running out
+let fallT=0, fallW=0;     // phase clock, and how far into the chute look (0..1)
+let fallLay=0;            // prone weight, driven off fallW
+let fallGrp=null, fallWallL=null, fallWallR=null, fallMist=[];
+const FALL_IN=2.2, FALL_RIDE=35.0, FALL_OUT=2.8;    // about forty seconds door to door
+const FALL_PITCH=0.46;    // radians the shot tips down the fall line at full weight
+const FALL_PUSH=46;       // the speed the chute adds, on top of whatever the board was doing
+const FALL_LANE=13.5;     // where the walls stand, just outside the steering
+
+// A wall of falling water: one tall plane each side with a streak texture scrolled DOWNWARD.
+// The speed of that scroll is the whole illusion -- it is what says the water is going past
+// you rather than you past it, and it is the reason this reads as a fall and not a tunnel.
+function fallTex(){
+  const W=128,H=512,c=document.createElement('canvas'); c.width=W;c.height=H;
+  const x=c.getContext('2d');
+  const g=x.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#bfe6f5'); g.addColorStop(0.5,'#8fd0ea'); g.addColorStop(1,'#5fa8cc');
+  x.fillStyle=g; x.fillRect(0,0,W,H);
+  // streaks of varying brightness and width, because water falling in one flat sheet has no
+  // speed in it at all -- what the eye reads is the ropes of it running at different rates
+  for(let i=0;i<150;i++){
+    const w=1+Math.random()*4, xx=Math.random()*W, y0=Math.random()*H, h=40+Math.random()*260;
+    x.globalAlpha=0.10+Math.random()*0.45;
+    x.fillStyle=Math.random()<0.55?'#ffffff':'#dff2fb';
+    x.fillRect(xx,y0,w,h);
+    if(y0+h>H)x.fillRect(xx,y0-H,w,h);      // wrapped, so the tile has no seam
+  }
+  x.globalAlpha=1;
+  const t=new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping;
+  return t;
+}
+function fallBuild(){
+  if(fallGrp)return;
+  fallGrp=new THREE.Group(); fallGrp.visible=false; scene.add(fallGrp);
+  const mk=(sx)=>{
+    const t=fallTex(); t.repeat.set(2,6);
+    const m=new THREE.Mesh(new THREE.PlaneGeometry(1,1,1,1),
+      new THREE.MeshBasicMaterial({map:t,transparent:true,opacity:0.92,
+        depthWrite:false,side:THREE.DoubleSide,fog:true}));
+    // ALONGSIDE, spanning from behind the lens to well ahead, so they stream past rather than
+    // sitting out in front looking like scenery. Parked at z=-92 they were seen almost edge on
+    // through a pitched-down camera and read as a flight of terraces.
+    m.scale.set(300,64,1);
+    m.position.set(sx*FALL_LANE,15,-96);
+    m.rotation.y=sx>0?-Math.PI/2:Math.PI/2;
+    m.renderOrder=2;
+    fallGrp.add(m); return m;
+  };
+  fallWallL=mk(-1); fallWallR=mk(1);
+  // No face plane here any more. It was a tilted sheet laid over the water and the water won;
+  // the slope is a term in waveH now -- see fallDip -- so the sea itself is the chute and this
+  // only has to supply what a height field cannot: the walls either side and the air between.
+  // the game's own soft particle rather than a second one: puffTexture is what the wake and
+  // the crash spray are already drawn with, so the air in here matches the air out there
+  for(let i=0;i<14;i++){
+    const q=new THREE.Sprite(new THREE.SpriteMaterial({map:puffTexture(),transparent:true,
+      opacity:0.30,depthWrite:false,color:0xeaf7ff,
+      // ADDITIVE, which is what spray is: lit water scatters light rather than blocking it.
+      // Blended normally against a pale sea these read as hard grey coins stuck on the lens,
+      // and no amount of lowering the opacity fixed that -- it only made paler coins.
+      blending:THREE.AdditiveBlending}));
+    q.scale.setScalar(7+Math.random()*13);
+    q.userData.seed=Math.random()*100;
+    q.renderOrder=3;
+    fallGrp.add(q); fallMist.push(q);
+  }
+}
+// Called from the workshop button. Arms the drop; everything after is on the clock.
+function fallGo(){
+  if(!running)return false;
+  fallBuild();
+  fallPh=0; fallT=0;
+  if(fallGrp)fallGrp.visible=true;
+  return true;
+}
+function fallEnd(){ fallPh=-1; fallT=0; fallW=0; fallLay=0;
+  if(fallGrp)fallGrp.visible=false; }
+function fallStep(dt){
+  if(fallPh<0){ if(fallW>0.001){ fallW=Math.max(0,fallW-dt*0.8); fallLay=fallW; } return; }
+  fallT+=dt;
+  if(fallPh===0){ fallW=Math.min(1,fallT/FALL_IN); if(fallT>=FALL_IN){ fallPh=1; fallT=0; } }
+  else if(fallPh===1){ fallW=1; if(fallT>=FALL_RIDE){ fallPh=2; fallT=0; } }
+  else { fallW=Math.max(0,1-fallT/FALL_OUT); if(fallT>=FALL_OUT){ fallEnd(); return; } }
+  // He goes flat on the board through the entry and stays there. The pose is the one the
+  // helicopter tow already uses -- turned onto his chest, chin up, legs straight down the
+  // deck -- so this only has to hand it a weight.
+  fallLay=fallW;
+  // the pivot rides with him, in FIELD coordinates, which is what waveH is written in
+  fallZ0=dist*WAVE_DRIFT+pz;
+  const T=(typeof tNow==='number')?tNow:performance.now()/1000;
+  if(fallGrp){
+    fallGrp.visible=fallW>0.01;
+    fallGrp.position.set(px*0.35,0,pz);
+    for(const w of [fallWallL,fallWallR]){
+      if(!w)continue;
+      w.material.opacity=0.92*fallW;
+      // DOWNWARD, and fast. Scroll speed is tied to the actual forward speed, so the walls
+      // race when the chute has you and settle when it lets go.
+      w.material.map.offset.y-=dt*(0.55+lastEff*0.016);
+    }
+    for(let i=0;i<fallMist.length;i++){
+      const q=fallMist[i], k=q.userData.seed;
+      const t2=(T*0.85+k)%1;
+      // rising up the face ahead of him, not past the lens: at the lens they are grey blobs
+      // sitting on the HUD, and the spray of a fall is something you look down into
+      q.position.set(Math.sin(k*7.3)*13, -2+t2*26, -34-Math.cos(k*4.1)*44);
+      q.material.opacity=0.17*fallW*Math.sin(Math.PI*t2);
+    }
+  }
+}
 // ---- jointed surfer rig: pelvis > spine > chest > neck > head, with hip/knee/ankle + shoulder/elbow chains ----
 const pug=new THREE.Group();
 function joint(parent,x,y,z){const g=new THREE.Group();g.position.set(x,y,z);parent.add(g);return g;}
@@ -19126,6 +19285,31 @@ function buildObstacle(kind){
     m.userData={...m.userData,kind,r:1.15,h:2.4,ramp:false,used:false,hx:1.25,hz:1.25};
     return m;
   }
+  if(kind==='rock'){
+    // ---- the chute's own hazard ----
+    // Wide and LOW, which is the opposite of everything else in the rack: a buoy and a log are
+    // things you steer round, and at chute speed there is no time to steer. A rock you jump,
+    // so it is broad enough that going round it is not on and short enough that going over it
+    // is. Built from overlapping lumps rather than one shape, because a boulder in white water
+    // is a cluster of them and a single cone reads as a traffic cone.
+    m=new THREE.Group();
+    const grey=PBR({color:0x6b6f74,roughness:0.92,metalness:0.0});
+    const wet =PBR({color:0x4a5054,roughness:0.62,metalness:0.0});
+    for(let i=0;i<5;i++){
+      const a2=i/5*Math.PI*2, rr=0.55+Math.random()*0.55;
+      const lump=new THREE.Mesh(new THREE.DodecahedronGeometry(rr,0),i===0?wet:grey);
+      lump.position.set(Math.cos(a2)*0.85*(i?1:0),0.10+Math.random()*0.30,Math.sin(a2)*0.55*(i?1:0));
+      lump.rotation.set(Math.random()*3,Math.random()*3,Math.random()*3);
+      lump.scale.set(1,0.72,1);
+      m.add(lump);
+    }
+    // white water breaking over it, which is what makes it read as IN the fall
+    const foam=new THREE.Mesh(new THREE.SphereGeometry(1.15,14,10),
+      new THREE.MeshBasicMaterial({color:0xeaf7ff,transparent:true,opacity:0.34,depthWrite:false}));
+    foam.scale.set(1.5,0.34,0.85); foam.position.y=0.30; m.add(foam);
+    m.userData={...m.userData,kind,r:1.25,h:1.15,ramp:false,used:false,hx:1.55,hz:0.95};
+    return m;
+  }
   if(kind==='buoy'){
     // navigational buoy: striped float, pole, flag
     m=new THREE.Group();
@@ -22797,6 +22981,7 @@ function reset(){
     pug.position.set(PUG_HOME.x,PUG_HOME.y,PUG_HOME.z); pug.rotation.set(0,STANCE_ROT,0);
 player.traverse&&player.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}}); rig.position.set(0,0,0); rig.rotation.set(0,0,0); wipe=null;
   handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;_freeze=false;wipeSlow=0;
+  if(typeof fallEnd==='function')fallEnd();
   if(typeof standDown==='function')standDown();   // arms down, whatever the run left
   if(typeof puffClear==='function')puffClear();   // last run's wash does not follow him into this one
   switchRide=false;waveT=0;applyStance();
@@ -28133,6 +28318,18 @@ if(location.hash.includes('debug')){
                      onLoan:loanWas?loanWas.board:null, riding:equipped, crateT:+crateT.toFixed(2)}),
     wheelForce(){ wheelLast=''; return wheelReady(); },
     wheelFree(v){ if(v!==undefined)WHEEL_FREE=!!v; return WHEEL_FREE; },
+    // ---- the drop, from outside ----
+    // It runs on a forty-second clock with three phases, and none of that is visible from the
+    // screen: a probe watching the picture cannot tell "in the chute" from "on its way out".
+    fall(){ const _R=riderRig(); return {pitch:+pug.rotation.x.toFixed(3),
+                    model:!!_R, heliW:_R?+(_R.heliW||0).toFixed(2):null,
+                    ph:fallPh, t:+fallT.toFixed(2), w:+fallW.toFixed(3),
+                    lay:+fallLay.toFixed(3), up:!!(fallGrp&&fallGrp.visible),
+                    eff:+lastEff.toFixed(1), kinds:obstacles.map(o=>o.userData.kind)}; },
+    fallGo(){ return (typeof fallGo==='function')?fallGo():false; },
+    fallEnd(){ if(typeof fallEnd==='function')fallEnd(); return fallPh; },
+    // skip the clock forward, so forty seconds of set piece can be checked in one
+    fallSkip(sec){ fallT+=(+sec||0); return {ph:fallPh,t:+fallT.toFixed(2)}; },
     // claim one named slice without the four seconds of wheel, so what is under test is the
     // prize reaching the next run and not whether a CSS transition finished
     wheelTake(kind){
@@ -38595,8 +38792,11 @@ function animateRig(dt,carve,grab,waterY){
   B.sh.rotation.y=ease(B.sh.rotation.y,shB[1]-Math.sin(tNow*1.9+0.8)*0.10,dt,10);
   B.sh.rotation.z=ease(B.sh.rotation.z,shB[2],dt,10);
   B.el.rotation.x=ease(B.el.rotation.x,elB[0]+Math.sin(tNow*2.6+1.4)*0.09,dt,10);
-  if(heliPose>0.02){
-    const h=heliPose;
+  // The chute lays him down with the same pose the tow does, so it hands this a weight rather
+  // than writing a second one: whichever of the two is asking for more wins.
+  const _lay=Math.max(heliPose,(typeof fallLay==='number')?fallLay:0);
+  if(_lay>0.02){
+    const h=_lay;
     // turn to face the nose and go flat over it — his stance is side-on to the board the
     // rest of the time, so the turn is most of what sells him lying along it
     // A positive turn about X tips his top backwards, which laid him face-UP staring at
@@ -38629,7 +38829,7 @@ function animateRig(dt,carve,grab,waterY){
     straight(legBackJ.hip ,-0.30); straight(legBackJ.knee ,0.34); straight(legBackJ.ankle ,-0.20);
     headJ.rotation.x=headJ.rotation.x*(1-h)+0.66*h;    // chin up off the deck, eyes past the tip
     headJ.rotation.y*=1-h;
-  } else if(pug.rotation.x!==0&&skiSit<=0.02&&glFace<=0.02){ pug.rotation.x=0; pug.position.set(PUG_X0,0,PUG_Z0); applyStance(); }
+  } else if(pug.rotation.x!==0&&skiSit<=0.02&&glFace<=0.02&&_lay<=0.02){ pug.rotation.x=0; pug.position.set(PUG_X0,0,PUG_Z0); applyStance(); }
   // ---- astride, facing the bow ----
   // AFTER the block above, not inside the same chain: that branch resets the body whenever the
   // helicopter is not running, so a pose written before it is undone on the very next line. It
@@ -38911,7 +39111,18 @@ function updateHandstand(dt,carve){
     // such. The file already ships the pose: Lie_Down is a body laid out flat and face down,
     // which is a swimmer as much as it is a rider on his chest. So the dive drives the same
     // weight, and the group turn set for it survives for the same reason the heli's does.
-    modelRig.heliW=(typeof heliPose!=='undefined')?heliPose:0;
+    // ---- AND THE DROP BORROWS IT, the way the dive already does ----
+    // The built-in body is laid down by the pose function up above; a model rider is not, and
+    // that was the whole bug. Its own clips pose it, and this branch WRITES pug.rotation.x
+    // every frame from modelRig.rot -- so the prone pose was being set and then zeroed a few
+    // hundred lines later, once per frame, for ever. The measurement said lay=0.93 and
+    // pitch=0.00 at the same instant, which is not a pose that failed to take: it is a pose
+    // that took and was overwritten.
+    // heliW is the rig's own lie-flat weight and it already drives the Lie_Down clip, the
+    // stance and the rotation reset together. Handing it the larger of the two is all this
+    // needs; the note beside its declaration says the dive was wired in the same way.
+    modelRig.heliW=Math.max((typeof heliPose!=='undefined')?heliPose:0,
+                            (typeof fallLay!=='undefined')?fallLay:0);
     modelRig.swimW=(typeof divePose!=='undefined')?divePose:0;
     modelRig.crouchW=(typeof launchLoad!=='undefined')?launchLoad:0;
     // the tube's sit is hand-posed too, so the surfing stance has to stand down for it in
@@ -39359,8 +39570,12 @@ function update(dt){
   // drifts down the line -- and it does not care that he is standing on sand. So the metres kept
   // climbing while he walked about the island, and the puka with them: a thousand metres of run
   // banked for standing still. The floor is right for surfing and wrong for a beach.
+  // ...and the chute pushes, past the ordinary ceiling. The cap is what a wave can give you;
+  // this is a slope, and a slope that could not beat flat water would not be worth riding.
+  const _fw=(typeof fallW==='number')?fallW:0;
   const eff=(_freeze||(forkOn&&forkPh>=3))?0
-            :Math.max(16.2,Math.min(113+BS.top,speed+Math.abs(vx)*0.3+trim+boost));
+            :Math.max(16.2,Math.min(113+BS.top+FALL_PUSH*_fw,
+                      speed+Math.abs(vx)*0.3+trim+boost+FALL_PUSH*_fw));
   lastEff=eff;
   // ...and the metres come from HIS FEET instead. Walking up the island earns distance and
   // walking back down it gives distance up, which is the only honest way round: the number is
@@ -40173,7 +40388,10 @@ function update(dt){
     // metres it only ever opens or closes the way it is meant to: thirty units apart
     // to start, closing to sixteen over about three kilometres, after which the speed
     // alone keeps taking the reaction time away.
-    const wantGap=Math.max(15,24-dist/300);
+    // Tightened in the chute, but by GAP and not by clock -- the same distinction the line
+    // below is written around. The speed alone would already space them further apart in
+    // metres, so without this the fastest part of the game would also be its emptiest.
+    const wantGap=Math.max(15,24-dist/300)*(1-0.30*((typeof fallW==='number')?fallW:0));
     // ...with a floor on the clock as well, so that once the speed is silly it stays
     // merely hard rather than becoming a wall nothing could be threaded
     spawnT=Math.max(0.40,wantGap/Math.max(16,eff))*(0.75+Math.random()*0.5);
@@ -40189,8 +40407,15 @@ function update(dt){
     // passed 780 — nothing, and then a wall of them. Starting at four and climbing over the
     // next six hundred metres puts the first one on its own, where you can look at it.
     const octW=Math.min(30,4+Math.max(0,(dist-780)/28));
-    const WEIGHTS=[['buoy',22,0],['log',17,0],['ramp',16,150],['jelly',20,340],
-                   ['bigfin',11,560],['octopus',octW,780]].filter(w=>dist>=w[2]);
+    // ---- THE CHUTE CASTS ITS OWN ----
+    // Nothing that floats, because nothing floats in a fall: no buoys, no jellyfish, no fin
+    // cutting across a lane that is pitched over at forty-five degrees. What is in there is
+    // what a river puts in there -- rock, timber, and the odd slab to launch off -- and the
+    // ordinary rack is stood down for the length of it, the same way the fork stands it down.
+    const WEIGHTS=(typeof fallW==='number'&&fallW>0.5)
+      ? [['rock',34,0],['log',28,0],['ramp',22,0]]
+      : [['buoy',22,0],['log',17,0],['ramp',16,150],['jelly',20,340],
+         ['bigfin',11,560],['octopus',octW,780]].filter(w=>dist>=w[2]);
     let pick=null;
     for(let tries=0;tries<8;tries++){
       let total=0;for(const w of WEIGHTS)total+=w[1];
@@ -40681,6 +40906,7 @@ function update(dt){
   updateJetSki(dt,eff);
   updateBoat(dt,eff);
   updateCrate(dt,eff);
+  if(typeof fallStep==='function')fallStep(dt);
   updateCocos(dt,eff);
   updateWhirl(dt,eff);
   updateFork(dt,eff);
@@ -41081,6 +41307,14 @@ function update(dt){
     _fx=v.x; _fy=v.y; _fz=v.z;
   }
   camera.lookAt(_fx,_fy,_fz);
+  // ---- AND THE SHOT TIPS DOWN THE FALL LINE ----
+  // Last, on top of whatever aimed it, and on the CAMERA rather than the world: there is no
+  // play-field group here, so tilting the world tilts the sky and the sun with it, and a
+  // horizon lying over reads as the lens having fallen rather than as a descent.
+  if(typeof fallW==='number'&&fallW>0.001){
+    camera.rotateX(-FALL_PITCH*fallW);
+    camera.position.y+=5.2*fallW;          // and up, so the drop opens out below him
+  }
   // ---- the bed is placed AFTER the camera, because it follows it ----
   // Put next to the ocean's own uDist first, which is a different function and runs a frame
   // earlier; then next to renderer.render, which turned out to be the CHEST CEREMONY's render
