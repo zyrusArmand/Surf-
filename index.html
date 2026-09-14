@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.09';
+window.SURF_VERSION='10.10';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -4321,7 +4321,16 @@ const oceanMat=new THREE.ShaderMaterial({
         // back to blue and he looked like he was on the last calm patch before the drop instead
         // of in the middle of a rapid.
         float apron = (1.0 - smoothstep(6.0, 78.0, d)) * smoothstep(-90.0, -26.0, d) * uFallW;
-        aer = max(aer, clamp(apron*(0.52 + 0.30*chn + 0.24*spit), 0.0, 1.0));
+        // ---- AND IT BOILS ----
+        // The water he is on was smooth pale blue; in the reference it is a churning white bed
+        // with structure you could count. A coarse boil on top of the fine churn is what makes
+        // whitewater read as VOLUME rather than as a painted tint -- big slow lumps, then the
+        // detail inside them.
+        float boil = fbm(vec2(vW.x*0.42, -d*0.055 + fs1*0.55));
+        float lump = smoothstep(0.34, 0.80, boil);
+        aer = max(aer, clamp(apron*(0.60 + 0.34*chn + 0.20*spit + 0.26*lump), 0.0, 1.0));
+        // the troughs between the lumps keep some green, which is the other half of whitewater
+        col = mix(col, col*vec3(0.86,0.97,0.94), apron*(1.0-lump)*0.35);
         // ---- AND THE FACE OF THE FALL IS MADE OF COLUMNS ----
         // A waterfall is not a white surface, it is a bundle of ropes of water running at
         // different rates with shadow between them -- that is the thing being drawn in the
@@ -4359,6 +4368,18 @@ const oceanMat=new THREE.ShaderMaterial({
         col  = mix(col, col*vec3(0.26,0.33,0.42), deep*0.88);
         foam = foam*(1.0-deep*0.72);
         aer  = aer *(1.0-deep*0.78);
+      }
+      // ---- AND THE GORGE IS FULL OF MIST ----
+      // A fall that size fills its canyon with air full of water, and in the reference it is the
+      // mist -- not the cliffs and not the river -- that carries the depth: everything fades
+      // into it with distance. Whitened with range inside the chute only, which also softens
+      // the far end where the head fall stands.
+      if(uFallW > 0.002){
+        // its own d: the one above is scoped to the aeration branch, and reaching for it here
+        // is a compile error that stops the ocean drawing at all rather than a wrong colour.
+        float dm = clamp(uFallZ - vW.z, -80.0, 420.0);
+        float far = smoothstep(40.0, 190.0, dm) * uFallW;
+        col = mix(col, vec3(0.90,0.92,0.93), far*0.55);
       }
       col = mix(col, vec3(0.94,0.97,1.0), foam*0.66);
       // ...and then the rest of the way, because 0.72 of white is a foamy sea and a fall is
@@ -14086,11 +14107,16 @@ function cliffTex(){
   // before the motion blur ever got to them.
   const W=256,H=1024,c=document.createElement('canvas'); c.width=W;c.height=H;
   const x=c.getContext('2d');
-  x.fillStyle='#2b2721'; x.fillRect(0,0,W,H);
+  // ---- LIT STONE, NOT A SILHOUETTE ----
+  // The reference gorge is warm grey-brown rock with the sun on it and you can read every
+  // bedding plane; this was #2b2721 and came out as a black cut-out either side of the river.
+  // Dark rock was the right call when the water beside it was blowing out to white -- it is the
+  // wrong one now that the water is handled, because it took all the detail with it.
+  x.fillStyle='#6f6555'; x.fillRect(0,0,W,H);
   for(let i=0;i<150;i++){
     const y=Math.random()*H, h=8+Math.random()*52;
     x.globalAlpha=0.18+Math.random()*0.40;
-    x.fillStyle=Math.random()<0.5?'#181612':'#463f37';
+    x.fillStyle=Math.random()<0.5?'#3d362c':'#8c8271';
     // broken along their length rather than ruled across, or the wall is a stack of shelves
     let xx=0;
     while(xx<W){ const w=20+Math.random()*92;
@@ -14099,7 +14125,7 @@ function cliffTex(){
   }
   // a few vertical fractures, which is what stops banding alone reading as brickwork
   for(let i=0;i<34;i++){
-    x.globalAlpha=0.20+Math.random()*0.30; x.fillStyle='#26241f';
+    x.globalAlpha=0.20+Math.random()*0.30; x.fillStyle='#4a4239';
     x.fillRect(Math.random()*W,Math.random()*H,2+Math.random()*6,80+Math.random()*360);
   }
   // ---- AND THEN THE THINGS THAT MAKE IT STONE RATHER THAN STRIPES ----
@@ -14116,9 +14142,9 @@ function cliffTex(){
     if(bx<r)  { x.translate(W,0); x.beginPath(); x.arc(bx,by,r,0,7); x.fill(); x.translate(-W,0); }
     if(bx>W-r){ x.translate(-W,0); x.beginPath(); x.arc(bx,by,r,0,7); x.fill(); x.translate(W,0); }
   }};
-  blot(46, 18, 90, 'rgba(92,84,70,1)',  0.05, 0.16);   // where it weathers pale
-  blot(38, 14, 70, 'rgba(24,21,17,1)',  0.07, 0.20);   // and where it stays wet and dark
-  blot(16, 10, 44, 'rgba(74,82,52,1)',  0.04, 0.12);   // the faintest green in the damp
+  blot(46, 18, 90, 'rgba(168,155,128,1)', 0.06, 0.20);  // where it weathers pale
+  blot(38, 14, 70, 'rgba(58,50,40,1)',  0.07, 0.20);   // and where it stays wet and dark
+  blot(22, 12, 52, 'rgba(96,112,62,1)', 0.06, 0.18);   // moss and scrub on the ledges
   // grain: single pixels, thousands of them, too small to see and the reason it stops looking
   // like a gradient the moment they are there
   const im=x.getImageData(0,0,W,H), D=im.data;
@@ -14244,7 +14270,9 @@ function fallBuild(){
         if(v>0.62){ const k=(v-0.62)/0.38;
           P.setY(i, P.getY(i) - k*k*(0.05+fb(u*6.0+31.0, 2.7)*0.22)); }
         const prot=1.0-f;                       // 1 where the rock stands proud of its face
-        const sh=Math.max(0.30, Math.min(1.30, 0.40+0.62*prot+0.28*v));
+        // A floor of 0.30 on a dark texture is black. Lifted, because in the reference even
+        // the shaded side of the gorge still shows its strata.
+        const sh=Math.max(0.62, Math.min(1.22, 0.68+0.44*prot+0.22*v));
         cols[i*3]=sh; cols[i*3+1]=sh*0.99; cols[i*3+2]=sh*0.96;
       }
       P.needsUpdate=true;
