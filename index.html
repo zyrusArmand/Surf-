@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.07';
+window.SURF_VERSION='10.08';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -13997,9 +13997,10 @@ const FALL_CAM={lift:5.0, back:-1.2, pitch:0.22};
 // At 1.0 the board takes the full gradient -- twenty-six degrees -- and the prone rider, who is
 // already rotated flat onto the deck, disappears behind it. Enough to read as pointing downhill
 // with the rider still legible on top of it.
-// One. The board takes the FULL gradient of the water under it -- not a fraction of it -- so
-// the two cannot disagree. That is the whole of "water should also be at the angle of board".
-let FALL_TILTK=1.0;
+// Zero, because boardPitch already does this job correctly and this only ever fought it. Kept
+// as a live knob for fallTiltK(), which is still the quickest way to check what the board is
+// wearing against the water it is on.
+let FALL_TILTK=0.0;
 const FALL_PUSH=46;       // the speed the chute adds, on top of whatever the board was doing
 // ---- AND THE CHANNEL IS NARROW ----
 // At 13.5 the walls sit far enough out that they leave the frame near the rider and only meet
@@ -29296,9 +29297,17 @@ if(location.hash.includes('debug')){
     fallTiltK(k){ if(k!==undefined)FALL_TILTK=k;
                   // rig.rotation.x is what the board is ACTUALLY wearing. fallTilt is only what
                   // was asked for, and the two have disagreed before.
+                  // ---- WHICH END IS LOW, MEASURED ----
+                  // Reading a pitch sign off a screenshot has now been wrong twice. Two points
+                  // on the rig's own length, taken into world space: whichever has the smaller
+                  // y is the end that is down, and no interpretation is involved.
+                  const _a=rig.localToWorld(new THREE.Vector3(0,0,-2));
+                  const _b=rig.localToWorld(new THREE.Vector3(0,0, 2));
                   return {k:FALL_TILTK, tilt:+fallTilt.toFixed(3),
                           rigX:+rig.rotation.x.toFixed(3),
-                          bp:+((typeof boardPitch==='number')?boardPitch:0).toFixed(3)}; },
+                          bp:+((typeof boardPitch==='number')?boardPitch:0).toFixed(3),
+                          endMinusZ:+_a.y.toFixed(2), endPlusZ:+_b.y.toFixed(2),
+                          waterSlopeDownAt:'-z is forward if it is the lower one on a descent'}; },
     // Where the rider actually IS, in the camera's own frame. A screenshot showing no pug
     // cannot say whether he is behind the board, under the water, off screen or not drawn.
     fallWho(){
@@ -41309,15 +41318,18 @@ function update(dt){
   // going over because the kayak is pointing over. Taken from the surface the board is actually
   // on, sampled fore and aft, so it steepens hard on each ledge and levels off in the pools
   // between them without anything having to drive it.
-  // ---- AND IN THE CHUTE fallTilt REPLACES boardPitch, it does not join it ----
-  // Added to it, the two cancelled. Measured: fallTilt asking for +0.408 while boardPitch sat at
-  // -0.448, for a board wearing -0.039 -- dead flat, which is exactly how it looked. The ride
-  // controller pitches the nose UP as the water falls away in front of it, which is right on a
-  // wave face and precisely backwards on a chute, and it is a stronger term than the one trying
-  // to correct it. So it is faded out by fallW and the measured water angle is left to stand on
-  // its own. Nothing outside the drop changes: at fallW 0 this is the old line exactly.
-  const _bp=boardPitch*(1-((typeof fallW==='number')?fallW:0));
-  rig.rotation.set(_bp+heliIncline+fallTilt,boardYaw+wobYaw,boardLean+grabRoll+wobRoll);
+  // ---- boardPitch WAS ALREADY RIGHT, AND fallTilt WAS THE BUG ----
+  // Settled by measuring which END of the board is low rather than by reading a screenshot,
+  // which had been wrong twice. Two points on the rig's own length taken into world space: on
+  // flat water boardPitch alone puts the -z end at 0.24 against +z at 0.97, so -z is the nose
+  // and NEGATIVE rotation.x is nose-down. In the chute boardPitch sits at -0.44 on its own --
+  // against a measured water gradient of 0.439. The ride controller was following the water to
+  // three decimal places all along.
+  // Everything since has been fallTilt fighting it: added, the two cancelled to -0.04 and the
+  // board lay flat; with boardPitch faded out, +0.41 stood the board on its tail, which is the
+  // wheelie. The correction was never needed. fallTilt is zero-weighted and the line is what it
+  // always was.
+  rig.rotation.set(boardPitch+heliIncline+fallTilt,boardYaw+wobYaw,boardLean+grabRoll+wobRoll);
   // ---- ...and while he is in the air the board is just floating ----
   // rig carries the rider as well as the board, so a leaned rig tips the LIFT below out of
   // vertical and he arcs off sideways. Nobody is standing on it to lean it anyway: an empty
