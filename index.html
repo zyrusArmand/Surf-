@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.03';
+window.SURF_VERSION='10.04';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -3542,7 +3542,9 @@ let fallZ0=0;
 // drama is a wall of water AHEAD of him, not under him. Fifty-four degrees under the board gave
 // a board tilted fifty-four degrees, which is the "board is too angled" of it, and it also put
 // the whole drop behind the camera where nobody could see it. Shallow here, savage in front.
-const FALL_SLOPE=0.26;      // rise over run of the CONTINUOUS part, under the cascades
+// Carries all of it now that the ledges are gone -- 0.26 plus the 20 units per 95 the steps
+// used to add, so the run descends at the same rate it did, just evenly.
+const FALL_SLOPE=0.47;      // rise over run: the WHOLE descent, and it is constant
 // ---- AND ALMOST NOTHING BEHIND HIM ----
 // These were symmetric, and behind him is where it went wrong: forty-two units back at this
 // slope is THIRTY-SIX UNITS OF SEA STANDING UP, and the camera rides at thirty-one. He was
@@ -3616,7 +3618,14 @@ const FALL_STEP=95;         // distance from one lip to the next
 // surface was flat and the drop was a painted stripe -- the instant the geometry actually fell
 // by it, the whole sea went out of the bottom of the frame and left the rider in mid-air over a
 // gorge. A drop you can see all of beats a bigger one that leaves nothing on screen.
-const FALL_LEDGE=20;        // how much of the descent happens AT a lip rather than between
+// ---- ZERO. THERE ARE NO STEPS. ----
+// Widening the lip made the steps gentler and they were still steps: a smoothstep's slope runs
+// from nothing at its ends to half again the average in its middle, so the descent kept going
+// shallow, steep, shallow -- which is precisely "a drop then flat then drops". There is no
+// amount of widening that removes that, because the variation IS the easing. The whole descent
+// lives in FALL_SLOPE now, which is a straight line: the same gradient under him at every point
+// of the run, from the first metre to the last. One continuous drop, and nothing to launch off.
+const FALL_LEDGE=0;         // how much of the descent happens AT a lip rather than between
 // A narrow window, because a lip is narrow. Fifty-five units of drop inside a quarter of the
 // step is a face at better than sixty degrees -- a wall of water, not a slide -- with three
 // quarters of slack river above it for him to be riding flat on.
@@ -29220,6 +29229,10 @@ if(location.hash.includes('debug')){
               board:[+bw.x.toFixed(2),+bw.y.toFixed(2),+bw.z.toFixed(2)],
               ndc:[+pc.x.toFixed(2),+pc.y.toFixed(2),+pc.z.toFixed(3)],
               vis:pug.visible, par:pug.parent?pug.parent.name||'anon':null,
+              // py, not the board's world position: the board hangs at the rig origin and
+              // reads (0,0,0) for ever, so the last check measured a constant and reported
+              // nothing airborne while he was plainly being launched.
+              py:+((typeof py==='number')?py:0).toFixed(2),
               camY:+camera.position.y.toFixed(2),
               waterAtPug:+waveH(px,dist*WAVE_DRIFT+pz,tNow).toFixed(2)};
     },
@@ -31719,6 +31732,10 @@ if(location.hash.includes('debug')){
                               body:b.isEmpty()?null:[+b.min.y.toFixed(2),+b.max.y.toFixed(2),
                                                      +b.min.z.toFixed(2),+b.max.z.toFixed(2)]};
                     })()},
+              // py, not the board's world position: the board hangs at the rig origin and
+              // reads (0,0,0) for ever, so the last check measured a constant and reported
+              // nothing airborne while he was plainly being launched.
+              py:+((typeof py==='number')?py:0).toFixed(2),
               camY:+camera.position.y.toFixed(2), camUnder:camera.position.y<wY,
               bed:{vis:bedMesh.visible, y:+bedMesh.position.y.toFixed(1),
                    z:+bedMesh.position.z.toFixed(1), uD:+bedUniforms.uDist.value.toFixed(1),
@@ -42335,14 +42352,17 @@ function update(dt){
     // shot at all. What actually makes a flume read as a flume is the walls being close --
     // that is the lane width, not the camera -- so this only comes down enough to put the rider
     // among them rather than above them.
-    camera.position.y+=FALL_CAM.lift*fallW;
-    camera.position.z+=FALL_CAM.back*fallW;
-    camera.rotateX(-FALL_CAM.pitch*fallW);
-    // ...and the fall LURCHES. Water going over a lip does not descend at one rate; it steps,
-    // and the step is felt rather than seen. Two shallow beats a second on the shot, nothing
-    // on the physics -- a rider who actually bucked this hard could not be steered.
-    const _lz=(typeof tNow==='number')?tNow:performance.now()/1000;
-    camera.position.y+=Math.sin(_lz*5.3)*0.42*fallW + Math.sin(_lz*2.1+1.2)*0.66*fallW;
+    // ---- AND NOTHING HERE MOVES THE CAMERA. AT ALL. ----
+    // Zeroing FALL_CAM's three numbers was not enough: the LURCH below them was a separate
+    // term and it survived, putting a bob of about a unit on the lens for the whole descent.
+    // That is what "camera still moved" was -- a small continuous motion that nothing in the
+    // world accounts for, which is exactly the kind the eye blames on the camera. The shot in
+    // the chute is now the ordinary shot, to the pixel. FALL_CAM stays live for fallCam().
+    if(FALL_CAM.lift||FALL_CAM.back||FALL_CAM.pitch){
+      camera.position.y+=FALL_CAM.lift*fallW;
+      camera.position.z+=FALL_CAM.back*fallW;
+      camera.rotateX(-FALL_CAM.pitch*fallW);
+    }
   }
   // ---- the bed is placed AFTER the camera, because it follows it ----
   // Put next to the ocean's own uDist first, which is a different function and runs a frame
