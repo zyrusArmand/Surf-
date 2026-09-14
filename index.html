@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.12';
+window.SURF_VERSION='10.13';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -15010,23 +15010,43 @@ function kitGear(C,bodyPatch){
   let _mrig=null; try{ if(typeof riderRig==='function')_mrig=riderRig(); }catch(e){}
   if(S&&_mrig&&_mrig.bones&&_mdl){
     const spine=_mrig.bones.Spine01||_mrig.bones.Spine||_mrig.bones.Spine02;
+    // ---- PLACED OFF THE SKELETON, NOT OFF THE BOUNDING BOX ----
+    // A fraction of the height is not a body part. Sixty-two per cent of the way up is the chest
+    // on a pug and the FACE on a short-bodied, big-headed animal -- which is exactly what it did:
+    // a rash vest worn as a collar over the eyes. The skeleton already knows where the waist and
+    // the shoulders are on every one of these characters, and it is the only thing that does.
+    const B=_mrig.bones;
+    const wp=o=>{ const v=new THREE.Vector3(); o.updateMatrixWorld(true); o.getWorldPosition(v); return v; };
+    const hipBone=B.LeftUpLeg&&B.RightUpLeg?null:(B.Spine||spine);
     if(spine){
       _mdl.updateMatrixWorld(true);
-      const bb=new THREE.Box3().setFromObject(_mdl);
-      const sz=bb.getSize(new THREE.Vector3()), ctr=bb.getCenter(new THREE.Vector3());
-      // ---- THE TORSO IS NOT THE BOUNDING BOX ----
-      // max(x,z)*0.52 measured the widest thing about the animal, which on a standing pug is
-      // its outstretched ARMS -- so the shorts came out as a swimming ring a foot clear of the
-      // body on every side. Depth is the honest axis: nothing sticks out along z the way limbs
-      // and ears do along x, so the narrower of the two, taken smaller, is close to the waist.
-      const R=Math.min(sz.x,sz.z)*0.34, Hh=sz.y;
+      const hip=(B.LeftUpLeg&&B.RightUpLeg)
+        ? wp(B.LeftUpLeg).add(wp(B.RightUpLeg)).multiplyScalar(0.5)
+        : wp(hipBone);
+      const chest=wp(B.Spine02||B.Spine01||spine);
+      // shoulder to shoulder is a real torso width; the bounding box is arms and ears
+      const R=(B.LeftArm&&B.RightArm)
+        // 0.42 of the shoulder gap left the body bulging out either side of the garment: the
+        // arm bones sit INSIDE the silhouette, so the gap between them is narrower than the
+        // chest it is measuring.
+        ? wp(B.LeftArm).distanceTo(wp(B.RightArm))*0.58
+        : (()=>{ const sz=new THREE.Box3().setFromObject(_mdl).getSize(new THREE.Vector3());
+                 return Math.min(sz.x,sz.z)*0.34; })();
+      // ---- HIPS TO HEAD, NOT HIPS TO Spine02 ----
+      // Measured on the pug: hips 3.229, Spine02 3.448 -- a rise of 0.218 on a body 1.84 tall.
+      // Spine02 is barely above the waist on these rigs, so scaling a garment by that span made
+      // a vest a hand's width tall, which is the teal badge. The head is where the torso
+      // actually ends, and it is the one landmark every one of these skeletons agrees on.
+      const topY=(B.Head?wp(B.Head).y:chest.y);
+      const _bsz=new THREE.Box3().setFromObject(_mdl).getSize(new THREE.Vector3());
+      const rise=Math.max(_bsz.y*0.25, topY-hip.y);
       const cloth=c=>PBR({color:c, roughness:0.58, metalness:0.04, vivid:1.15});
+      // y is now a fraction from the HIPS to the CHEST rather than through the whole animal, so
+      // 0 is the waistband and 1 is the collarbone on every one of them.
       const ring=(yFrac,hFrac,rk,col)=>{
-        const g=new THREE.Mesh(new THREE.CylinderGeometry(R*rk,R*rk*1.03,Hh*hFrac,22,1,true),
+        const g=new THREE.Mesh(new THREE.CylinderGeometry(R*rk,R*rk*1.03,rise*hFrac,22,1,true),
                                cloth(col));
-        // placed in WORLD terms off the model's own box, then taken into the spine's frame, so
-        // it lands on the body whatever the bone's own rest transform happens to be
-        const w=new THREE.Vector3(ctr.x, bb.min.y+Hh*yFrac, ctr.z);
+        const w=new THREE.Vector3((hip.x+chest.x)*0.5, hip.y+rise*yFrac, (hip.z+chest.z)*0.5);
         spine.updateMatrixWorld(true);
         g.position.copy(spine.worldToLocal(w.clone()));
         const q=new THREE.Quaternion(); spine.getWorldQuaternion(q);
@@ -15035,8 +15055,9 @@ function kitGear(C,bodyPatch){
         g.scale.set(1/Math.max(1e-4,sc.x),1/Math.max(1e-4,sc.y),1/Math.max(1e-4,sc.z));
         kit(spine,g);
       };
-      if(S.shorts){ ring(0.30,0.20,1.00,S.shorts); if(S.hem)ring(0.395,0.035,1.02,S.hem); }
-      if(S.vest){   ring(0.62,0.26,0.99,S.vest);   if(S.hem)ring(0.495,0.035,1.01,S.hem); }
+      // trunks sit on the waist and finish below it; the vest starts above them and runs up
+      if(S.shorts){ ring(-0.02,0.42,1.02,S.shorts); if(S.hem)ring(0.20,0.07,1.05,S.hem); }
+      if(S.vest){   ring(0.62,0.62,1.00,S.vest);    if(S.hem)ring(0.32,0.07,1.03,S.hem); }
     }
   }
   else if(S&&typeof bodyPatch==='function'){
@@ -29643,6 +29664,27 @@ if(location.hash.includes('debug')){
     },
     // Which optional gear models have actually landed, and a way to drop the photographs so a
     // later arrival can be re-shot.
+    // What the skeleton actually says about this body, in its own units -- the numbers the
+    // garment is sized from. Guessing multipliers against a picture is how the vest ended up
+    // round a face and then shrank to a badge.
+    gearBody(){
+      let R=null; try{ R=riderRig(); }catch(e){}
+      const m=(typeof riderModels!=='undefined')?riderModels[builtChar]:null;
+      if(!R||!R.bones||!m)return {char:builtChar, model:false};
+      const B=R.bones, wp=o=>{ const v=new THREE.Vector3(); o.updateMatrixWorld(true); o.getWorldPosition(v); return v; };
+      const sz=new THREE.Box3().setFromObject(m).getSize(new THREE.Vector3());
+      const hip=(B.LeftUpLeg&&B.RightUpLeg)?wp(B.LeftUpLeg).add(wp(B.RightUpLeg)).multiplyScalar(0.5)
+                                           :wp(B.Spine||B.Spine01);
+      const chest=wp(B.Spine02||B.Spine01||B.Spine);
+      return {char:builtChar, model:true,
+              bones:Object.keys(B).filter(k=>B[k]).slice(0,14),
+              shoulderGap:(B.LeftArm&&B.RightArm)?+wp(B.LeftArm).distanceTo(wp(B.RightArm)).toFixed(3):null,
+              hipY:+hip.y.toFixed(3), chestY:+chest.y.toFixed(3),
+              rise:+(chest.y-hip.y).toFixed(3), boxH:+sz.y.toFixed(3),
+              headY:B.Head?+wp(B.Head).y.toFixed(3):null,
+              hipToHead:B.Head?+(wp(B.Head).y-hip.y).toFixed(3):null,
+              boxXZ:[+sz.x.toFixed(3),+sz.z.toFixed(3)]};
+    },
     gearModels(){ return {shades:(typeof shadesModel!=='undefined')&&!!shadesModel}; },
     gearFlush(){ let n=0; for(const k of Object.keys(prevCache))
                    if(k[0]==='g'){ delete prevCache[k]; n++; } return n; },
