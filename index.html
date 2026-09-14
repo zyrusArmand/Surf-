@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.10';
+window.SURF_VERSION='10.11';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -2090,6 +2090,10 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     border-color:rgba(150,250,235,.55); }
   #shopList .grow.lk { opacity:.52; }
   #shopList .grow .gi { flex:1 1 auto; min-width:0; }
+  /* Square, because every one of these is a portrait of the same head and they should line up
+     down the shelf rather than each being its own size. */
+  #shopList .grow .gth { flex:0 0 auto; width:54px; height:54px; border-radius:10px;
+    object-fit:cover; background:rgba(10,30,48,.55); }
   #shopList .grow .gi b { display:block; font-size:15px; font-weight:800; color:#f2fbff; }
   #shopList .grow .gi span { display:block; font-size:12.5px; opacity:.70; margin-top:2px;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -6082,7 +6086,13 @@ function gearHave(id){ return level>=gearLvl(id); }
 // Gear has no owned[] of its own on purpose. A board can be unlocked and still not bought, so
 // the rack needs two facts about it; gear has one -- you are the rank or you are not -- and a
 // second table would only be a chance for the two to disagree after a save is edited.
-function gearWorn(slot){ const id=gearOn[slot]; return (id&&gearHave(id))?GEAR_BY_ID[id]:null; }
+// ---- AND A PREVIEW IGNORES THE LEVEL GATE ----
+// Only a preview. The gate is what makes gear a reward, so it stays exactly as it is on the
+// rider -- but a locked row that cannot show you the thing is the whole reason this shelf read
+// as empty. You should be able to see the Neon Visor you are working toward.
+let gearPreviewAll=false;
+function gearWorn(slot){ const id=gearOn[slot];
+  return (id&&(gearPreviewAll||gearHave(id)))?GEAR_BY_ID[id]:null; }
 // ---------- THE DAILY SPIN ----------
 // A wheel that pays SHELLS devalues the runs, and that is the whole trap in this mechanic. If
 // a spin hands over two thousand and a good run earns three hundred, the game has told you in
@@ -11463,6 +11473,40 @@ function charPreview(id){
   buildChar(rider);
   return prevCache['c:'+id];
 }
+// A photograph of one piece of gear, worn by the rider you actually play. Built the same way
+// the surfer cards are, through the same cache and the same lazy queue -- gear was the one
+// shelf in the shop with nothing to look at, and the note that said "there is no thumbnail to
+// photograph" was describing a decision rather than a constraint.
+const _gearShotParts={};
+function gearPreview(id){
+  const key='g:'+id;
+  if(prevCache[key])return prevCache[key];
+  const g=GEAR_BY_ID[id];
+  if(!g){ prevCache[key]=''; return ''; }
+  const keep={eyes:gearOn.eyes, head:gearOn.head, body:gearOn.body};
+  let undo=null;
+  try{
+    // worn ALONE, so the card shows this piece and not whatever else is on
+    gearOn={eyes:'',head:'',body:''}; gearOn[g.slot]=id;
+    gearPreviewAll=true;
+    // equipChar, not buildChar -- the same distinction the Wear button already documents one
+    // screen away. Measured: with buildChar, ten of the fifteen cards came back byte-identical
+    // to a rider wearing nothing, because the rebuild never picked the gear up.
+    equipChar(rider);
+    // how many meshes this piece actually put on the rider, recorded at the moment of the
+    // photograph -- an empty card and a card of a rider wearing nothing look the same
+    _gearShotParts[id]=kitParts.filter(m=>m.userData&&m.userData.gear===g.slot).length;
+    // ...and a SUIT is not a head shot. portraitPose frames the face, which is right for shades
+    // and hats and shows nothing at all of a rash vest.
+    undo=(g.slot==='body')?null:portraitPose();
+    prevCache[key]=snapshot(pug,'char'); prevTouch(key);
+  }catch(e){ prevCache[key]=''; }
+  gearPreviewAll=false;
+  if(undo)undo();
+  gearOn=keep;
+  equipChar(rider);
+  return prevCache[key];
+}
 let shopTab='boards';
 // the cast is declared with the rig, further down the file than the shop is, so this
 // cannot be built here — it is sorted the first time the Surfers tab is actually opened
@@ -12010,7 +12054,14 @@ function drawShop(){
         const have=gearHave(g.id), on=gearOn[slot]===g.id&&have;
         const row=document.createElement('div');
         row.className='grow'+(on?' on':'')+(have?'':' lk');
-        row.innerHTML='<div class="gi"><b>'+escName(g.name)+'</b><span>'+escName(g.blurb)+'</span></div>';
+        const im=document.createElement('img');
+        im.className='gth'; im.alt=''; im.draggable=false;
+        im.src=prevCache['g:'+g.id]||G_BLANK;
+        row.appendChild(im);
+        if(!prevCache['g:'+g.id])jobs.push([im,()=>gearPreview(g.id)]);
+        const gi=document.createElement('div'); gi.className='gi';
+        gi.innerHTML='<b>'+escName(g.name)+'</b><span>'+escName(g.blurb)+'</span>';
+        row.appendChild(gi);
         const btn=document.createElement('button');
         if(!have){ btn.className='lock'; btn.disabled=true; btn.textContent='Level '+g.lv; }
         else { btn.className=on?'own':''; btn.textContent=on?'Take off':'Wear';
@@ -12027,6 +12078,8 @@ function drawShop(){
       }
     }
     showCoins();
+    // the gear shelf returns before the shared call at the bottom, so it needs its own
+    if(jobs.length)fillThumbs(jobs);
     return;
   }
   if(shopTab==='riders'){
@@ -14793,6 +14846,25 @@ tailJ.rotation.y=-1.16;
 // well as the pug does, and none of the animation has to be written twice.
 let kitParts=[], charEars=[], lureMat=null, lureGlow=null;
 function kit(parent,mesh){ parent.add(mesh); kitParts.push(mesh); return mesh; }
+// Where head gear should hang: the procedural joint when that is what is drawn, and a wrapper on
+// the model's own Head bone when it is not. The wrapper carries headJ's world transform, so
+// nothing about the gear's sizes or offsets has to know which case it is in.
+function gearHeadParent(){
+  // riderRig is hoisted but its BODY reads riderModels, which is declared thousands of lines
+  // below this and is still undefined during the first character build -- so "the function
+  // exists" is not the same question as "the function can run yet", and calling it threw before
+  // __surf was ever created. A thrown error here takes the whole game with it, and headJ is
+  // always a correct answer, so this fails to it rather than out.
+  let R=null;
+  try{ if(typeof riderRig==='function')R=riderRig(); }catch(e){ R=null; }
+  const H=R&&R.bones&&R.bones.Head;
+  if(!H)return headJ;
+  if(!R._gearJ){ R._gearJ=new THREE.Group(); R._gearJ.name='gearJ'; H.add(R._gearJ); }
+  headJ.updateWorldMatrix(true,false); H.updateWorldMatrix(true,false);
+  const m=new THREE.Matrix4().copy(H.matrixWorld).invert().multiply(headJ.matrixWorld);
+  m.decompose(R._gearJ.position,R._gearJ.quaternion,R._gearJ.scale);
+  return R._gearJ;
+}
 function clearKit(){ for(const m of kitParts) if(m.parent)m.parent.remove(m); kitParts.length=0; charEars.length=0; }
 // ---------- WHAT A RANK PUT ON HIS HEAD ----------
 // Gear rides the same kit() the ears and the eyes do, so it is cleared and rebuilt with the
@@ -14816,6 +14888,19 @@ function kitGear(C,bodyPatch){
   let _n0=kitParts.length;
   const tag=slot=>{ for(let i=_n0;i<kitParts.length;i++)kitParts[i].userData.gear=slot;
                     _n0=kitParts.length; };
+  // ---- AND IT HANGS OFF THE SKULL THAT IS ACTUALLY DRAWN ----
+  // Every piece of gear in the game was invisible, and none of it was the gear's fault: it is
+  // built onto headJ, which belongs to the PROCEDURAL rig, and on any character that arrived as
+  // a glb -- the pug included, which is who everybody starts as -- that rig is hidden and the
+  // model is drawn instead. Traced: the mesh itself visible, sitting at the right place in the
+  // world, with Group[HIDDEN] six levels up its own parent chain. A mesh that is visible, in the
+  // right place, and hanging off a hidden parent reports perfectly healthy from every angle
+  // except the one that matters.
+  // The fix is not to re-author anything. The procedural head is still built and still in the
+  // right place -- it is only hidden -- so a wrapper parented to the model's Head bone and given
+  // headJ's world transform puts gear authored in headJ's units exactly where it belongs, and
+  // then rides the model's own animation.
+  const GP=gearHeadParent();
   if(E){
     // A lens is a dark bar, not two beads: a pair of shades reads at a distance because it is
     // ONE horizontal shape cutting across the face. Two separate discs on a head this size are
@@ -14825,16 +14910,16 @@ function kitGear(C,bodyPatch){
     lensM.polygonOffset=true; lensM.polygonOffsetFactor=-4; lensM.polygonOffsetUnits=-4;
     const frameM=PBR({color:E.frame, roughness:0.34, metalness:0.55, vivid:1.25});
     frameM.polygonOffset=true; frameM.polygonOffsetFactor=-5; frameM.polygonOffsetUnits=-5;
-    const bar=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.185,20,14),lensM));
+    const bar=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.185,20,14),lensM));
     bar.position.set(0,0.105,-0.320);
     bar.scale.set(1.36,E.visor?0.62:0.44,0.40);
     // the brow bar along the top, which is the line that says "glasses" and not "blindfold"
-    const brow=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.185,18,12),frameM));
+    const brow=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.185,18,12),frameM));
     brow.position.set(0,E.visor?0.190:0.168,-0.315);
     brow.scale.set(1.40,0.13,0.40);
     // and the arms, running back along the temples toward the ears
     for(const sx of [-1,1]){
-      const arm=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.150,12,10),frameM));
+      const arm=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.150,12,10),frameM));
       arm.position.set(sx*0.235,0.135,-0.080);
       arm.scale.set(0.16,0.13,1.55);
     }
@@ -14844,33 +14929,33 @@ function kitGear(C,bodyPatch){
     const m=PBR({color:H.col, roughness:H.kind==='crown'?0.22:0.72,
                  metalness:H.kind==='crown'?0.85:0.05, vivid:H.kind==='crown'?1.6:1.05});
     if(H.kind==='cap'){
-      const dome=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.355,20,14),m));
+      const dome=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.355,20,14),m));
       dome.position.set(0,0.175,0.015);
       dome.scale.set(1.06,0.78,1.04);
-      const peak=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.235,16,10),m));
+      const peak=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.235,16,10),m));
       peak.position.set(0,0.150,-0.330);
       peak.scale.set(1.02,0.14,0.92);
       peak.rotation.x=-0.16;
     } else if(H.kind==='brim'){
-      const crown=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.315,20,14),m));
+      const crown=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.315,20,14),m));
       crown.position.set(0,0.235,0);
       crown.scale.set(1.00,0.86,1.00);
-      const brim=kit(headJ,new THREE.Mesh(new THREE.CylinderGeometry(0.56,0.60,0.035,24),m));
+      const brim=kit(GP,new THREE.Mesh(new THREE.CylinderGeometry(0.56,0.60,0.035,24),m));
       brim.position.set(0,0.115,-0.02);
       brim.rotation.x=0.06;
     } else if(H.kind==='beanie'){
-      const cap=kit(headJ,new THREE.Mesh(new THREE.SphereGeometry(0.375,20,14),m));
+      const cap=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.375,20,14),m));
       cap.position.set(0,0.150,0);
       cap.scale.set(1.05,0.86,1.05);
-      const roll=kit(headJ,new THREE.Mesh(new THREE.TorusGeometry(0.335,0.058,10,22),m));
+      const roll=kit(GP,new THREE.Mesh(new THREE.TorusGeometry(0.335,0.058,10,22),m));
       roll.position.set(0,0.060,0);
       roll.rotation.x=Math.PI/2;
     } else {                                     // crown: the one worn by exactly one surfer
-      const band=kit(headJ,new THREE.Mesh(new THREE.CylinderGeometry(0.335,0.345,0.145,22,1,true),m));
+      const band=kit(GP,new THREE.Mesh(new THREE.CylinderGeometry(0.335,0.345,0.145,22,1,true),m));
       band.position.set(0,0.330,0);
       for(let i=0;i<7;i++){
         const a2=i/7*Math.PI*2;
-        const sp=kit(headJ,new THREE.Mesh(new THREE.ConeGeometry(0.062,0.20,8),m));
+        const sp=kit(GP,new THREE.Mesh(new THREE.ConeGeometry(0.062,0.20,8),m));
         sp.position.set(Math.sin(a2)*0.325,0.475,Math.cos(a2)*0.325);
       }
     }
@@ -29448,6 +29533,64 @@ if(location.hash.includes('debug')){
     // the life slice without the four seconds of wheel, so the thing being checked is whether
     // a banked life reaches the next run and not whether a CSS transition finishes
 
+    // Does every piece on the shelf actually photograph? A blank card and a missing card look
+    // the same from outside, and locked pieces are the ones most likely to come back empty --
+    // they are the ones the level gate would refuse to build.
+    gearPreviewSrc(id){ try{ return gearPreview(id)||''; }catch(e){ return ''; } },
+    // Does the gear show on a rider that is NOT a glb? If it does, the whole fault is the
+    // model path and not the gear.
+    gearOnChar(cid,gid){
+      const was=rider;
+      try{
+        equipChar(cid);
+        const R=(typeof riderRig==='function')?riderRig():null;
+        const a=gearPreview(gid);
+        const keep={eyes:gearOn.eyes,head:gearOn.head,body:gearOn.body};
+        gearOn={eyes:'',head:'',body:''}; equipChar(cid);
+        const u=portraitPose(); const bare=snapshot(pug,'char'); if(u)u();
+        gearOn=keep; equipChar(was);
+        return {char:cid, isModel:!!R, differs:(a!==bare), len:(a||'').length};
+      }catch(e){ equipChar(was); return {char:cid, err:String(e).slice(0,120)}; }
+    },
+    // Is the thing the gear is parented to even drawn? A mesh that exists, is visible itself,
+    // and hangs off a hidden parent is invisible and reports perfectly healthy.
+    gearChain(gid){
+      gearOn={eyes:'',head:'',body:''};
+      const g=GEAR_BY_ID[gid]; if(g)gearOn[g.slot]=gid;
+      gearPreviewAll=true; equipChar(rider); gearPreviewAll=false;
+      const parts=kitParts.filter(m=>m.userData&&m.userData.gear);
+      const rep=parts.slice(0,3).map(m=>{
+        let o=m, chain=[], hidden=null;
+        while(o){ chain.push((o.name||o.type)+(o.visible?'':'[HIDDEN]'));
+          if(!o.visible&&!hidden)hidden=(o.name||o.type);
+          o=o.parent; }
+        const w=new THREE.Vector3(); m.getWorldPosition(w);
+        return {vis:m.visible, firstHidden:hidden, depth:chain.length,
+                world:[+w.x.toFixed(2),+w.y.toFixed(2),+w.z.toFixed(2)], chain:chain.slice(0,7)};
+      });
+      const pw=new THREE.Vector3(); pug.getWorldPosition(pw);
+      return {n:parts.length, pug:[+pw.x.toFixed(2),+pw.y.toFixed(2),+pw.z.toFixed(2)], parts:rep};
+    },
+    gearShots(){
+      const out=[];
+      for(const g of GEAR){
+        let src=''; try{ src=gearPreview(g.id)||''; }catch(e){ src='ERR:'+e.message; }
+        out.push({id:g.id, slot:g.slot, lv:g.lv, have:gearHave(g.id), parts:_gearShotParts[g.id],
+                  ok:(typeof src==='string'&&src.length>200), n:(src||'').length});
+      }
+      // ---- AND ARE THEY DIFFERENT PICTURES? ----
+      // Every shade came back at exactly 128126 bytes and every suit at exactly the same, which
+      // is the shape of fifteen copies of one photograph. "It rendered" is not the claim worth
+      // testing here; "it rendered THIS piece" is.
+      const bare=(()=>{ const k={eyes:gearOn.eyes,head:gearOn.head,body:gearOn.body};
+        gearOn={eyes:'',head:'',body:''}; buildChar(rider);
+        const u=portraitPose(); const sp=snapshot(pug,'char'); if(u)u();
+        gearOn=k; buildChar(rider); return sp; })();
+      const sameAsBare=out.filter(o=>prevCache['g:'+o.id]===bare).map(o=>o.id);
+      const uniq=new Set(out.map(o=>prevCache['g:'+o.id])).size;
+      return {level, bad:out.filter(o=>!o.ok).map(o=>o.id),
+              sameAsBare, distinctImages:uniq, of:out.length, shots:out};
+    },
     gearWear(id){ const g=GEAR_BY_ID[id]; if(!g)return null;
       gearOn[g.slot]=id; equipChar(rider); return {...gearOn}; },
     // ---- is the pad rounded off, or does it just stop? ----
