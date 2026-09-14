@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.14';
+window.SURF_VERSION='10.15';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -14867,6 +14867,136 @@ function gearHeadParent(){
   m.decompose(R._gearJ.position,R._gearJ.quaternion,R._gearJ.scale);
   return R._gearJ;
 }
+// ---------- THE HEAD A MODEL ACTUALLY HAS ----------
+// gearHeadParent() puts the wrapper where the PROCEDURAL skull is, which is the right answer
+// for "what units are offsets in" and no answer at all to "how big is this head and where is
+// it". Measured on the pug, in the wrapper's own axes: his skull is 0.844 wide and its centre
+// sits 0.125 to one side of headJ, against the 0.50-wide pair the lofted gear was authored
+// for. A pair sized and centred on headJ is therefore both too narrow and off to the side of
+// the face -- which is exactly what it looked like.
+//
+// The only thing that knows the shape of a skinned head is the vertices the Head bone drives,
+// so that is what gets asked, through the same matrices the GPU skins with. Cached in BONE
+// LOCAL space rather than world, because that is pose-invariant: the box is a property of the
+// model, not of what the model happens to be doing this frame.
+function headBoxLocal(){
+  let R=null; try{ R=riderRig(); }catch(e){ R=null; }
+  const H=R&&R.bones&&R.bones.Head; if(!H)return null;
+  const mdl=(typeof riderModels!=='undefined')?riderModels[builtChar]:null;
+  if(!mdl)return null;
+  // ---- MEASURED IN BIND SPACE, WHICH IS THE ONLY STABLE ONE ----
+  // The first version of this walked the vertices through the live matrices -- mesh world,
+  // bind inverse, bone world -- and the pug then measured 8.04 eyeball radii across on one
+  // call and 15.11 on the next, same build, same model, same frame's worth of code. Nothing
+  // was wrong with the head; that chain simply does not cancel, so what it reports depends on
+  // where the character happens to be standing and how stale his ancestors' matrices are.
+  // A vertex driven by one bone sits at boneInverse * bindMatrix * v in that bone's own frame,
+  // full stop: no pose in it, nothing to go stale. It is also exactly the space fitEyes places
+  // eyeballs in, so a box measured here and gear parented to the bone agree by construction.
+  const B=R.bones;
+  const box=new THREE.Box3(); let n=0, headR=0;
+  let up=null,fwd=null,right=null,EDIR=null;
+  const far=[-Infinity,-Infinity];
+  mdl.traverse(o=>{
+    if(!o.isSkinnedMesh||!o.skeleton)return;
+    const sk=o.skeleton, bi=sk.bones.indexOf(H); if(bi<0)return;
+    const g=o.geometry, si=g.attributes.skinIndex, sw=g.attributes.skinWeight, pos=g.attributes.position;
+    if(!si||!sw||!pos)return;
+    const toHL=sk.boneInverses[bi];
+    const full=new THREE.Matrix4().multiplyMatrices(toHL,o.bindMatrix);
+    // The skull's frame comes from the bones, the way paintRiderFace takes it: up is
+    // hips-to-head, and FORWARD is written down rather than inferred, because this rig carries
+    // a bone out at the muzzle called headfront. Bind positions, then into the head's frame --
+    // where the head itself is the origin.
+    if(!EDIR){
+      const bp=b=>{ const i=b?sk.bones.indexOf(b):-1; if(i<0)return null;
+        return new THREE.Vector3().setFromMatrixPosition(
+          new THREE.Matrix4().copy(sk.boneInverses[i]).invert()).applyMatrix4(toHL); };
+      const hipP=bp(B.Hips), frontP=bp(B.headfront)||bp(B.head_end);
+      if(hipP&&frontP&&hipP.lengthSq()>1e-12&&frontP.lengthSq()>1e-12){
+        up=hipP.clone().negate().normalize();
+        fwd=frontP.clone().addScaledVector(up,-frontP.dot(up));
+        if(fwd.lengthSq()>1e-12){
+          fwd.normalize();
+          right=new THREE.Vector3().crossVectors(up,fwd).normalize();
+          headR=frontP.length()*1.42;
+          // Same eye direction fitEyes uses -- mostly forward, set high on the front of the
+          // skull and close either side of the bridge. This model brought its own face
+          // texture, so fitEyes never ran and left no eyeballs to read back; the measurement
+          // it would have made is still available, and this is it.
+          const eDir=sgn=>new THREE.Vector3().addScaledVector(fwd,0.80)
+            .addScaledVector(up,0.60).addScaledVector(right,sgn*0.30).normalize();
+          EDIR=[eDir(1),eDir(-1)];
+        } else fwd=null;
+      }
+    }
+    const v=new THREE.Vector3();
+    for(let i=0;i<pos.count;i++){
+      // r128 BufferAttribute has no getComponent -- only the named accessors
+      let w=0;
+      if(si.getX(i)===bi)w+=sw.getX(i); if(si.getY(i)===bi)w+=sw.getY(i);
+      if(si.getZ(i)===bi)w+=sw.getZ(i); if(si.getW(i)===bi)w+=sw.getW(i);
+      if(w<0.6)continue;                            // dominated by the head, not the neck
+      v.fromBufferAttribute(pos,i).applyMatrix4(full); box.expandByPoint(v); n++;
+      if(!EDIR)continue;
+      const len=v.length(); if(!(len>1e-9)||len>headR*1.30)continue;
+      // furthest vertex actually FACING that way, so the eyes land on the skull and not on
+      // stalks out in front of it
+      for(let e=0;e<2;e++){ const t=v.dot(EDIR[e]);
+        if(t>far[e]&&t/len>0.80)far[e]=t; }
+    }
+  });
+  if(n<=40)return null;           // the mesh may simply not have arrived yet
+  let eyes=null;
+  if(EDIR&&isFinite(far[0])&&isFinite(far[1])){
+    const r=0.19*headR;
+    eyes={r, fwd, up, right,
+          at:[EDIR[0].clone().multiplyScalar(far[0]-r*0.86),
+              EDIR[1].clone().multiplyScalar(far[1]-r*0.86)]};
+  }
+  return {box, eyes};
+}
+// ---- AND WHERE ITS EYES ARE ----
+// fitEyes() already measured this properly once, per model, by walking the skull for the
+// furthest vertex along the eye direction -- and it left the answer lying around as four balls
+// parented to the Head bone. Reading those back beats re-deriving it: the eyes are visibly in
+// the right place on every model rider, so anything hung off them is too. The two largest are
+// the eyeballs, the smaller pair are pupils sitting proud of them along the look direction,
+// which is what gives forward for free.
+function riderEyeFit(){
+  let R=null; try{ R=riderRig(); }catch(e){ R=null; }
+  const H=R&&R.bones&&R.bones.Head; if(!H)return null;
+  const balls=H.children.filter(o=>o.userData&&o.userData.riderEye&&o.geometry
+                                &&o.geometry.parameters&&o.geometry.parameters.radius>0);
+  if(balls.length<4){
+    // No eyeballs to read: this model brought its own face, so fitEyes never ran. The frame it
+    // would have measured is computed alongside the skull box instead.
+    const hb=headBoxLocal(), E=hb&&hb.eyes; if(!E)return null;
+    const mid=E.at[0].clone().add(E.at[1]).multiplyScalar(0.5);
+    const sep=E.at[0].distanceTo(E.at[1]); if(!(sep>1e-9))return null;
+    return {H, mid, right:E.right.clone(), up:E.up.clone(), fwd:E.fwd.clone(), sep, r:E.r};
+  }
+  const by=balls.slice().sort((a,b)=>b.geometry.parameters.radius-a.geometry.parameters.radius);
+  const A=by[0], B=by[1], r=A.geometry.parameters.radius;
+  const mid=A.position.clone().add(B.position).multiplyScalar(0.5);
+  const sep=A.position.distanceTo(B.position);
+  if(!(sep>1e-6))return null;
+  // forward is pupil-minus-eyeball; falling back to the nearer pupil keeps the pairing honest
+  const pup=by[2].position.distanceTo(A.position)<by[3].position.distanceTo(A.position)?by[2]:by[3];
+  let fwd=pup.position.clone().sub(A.position);
+  if(fwd.lengthSq()<1e-12)return null;
+  fwd.normalize();
+  let right=A.position.clone().sub(B.position).normalize();
+  // orthogonalise, then fix handedness against world up carried into this bone's space, or a
+  // mirrored basis lands the pair upside down on half the roster
+  right.addScaledVector(fwd,-right.dot(fwd)).normalize();
+  let up=new THREE.Vector3().crossVectors(fwd,right).normalize();
+  H.updateWorldMatrix(true,false);
+  const hp=new THREE.Vector3().setFromMatrixPosition(H.matrixWorld);
+  const upL=H.worldToLocal(hp.clone().add(new THREE.Vector3(0,1,0))).normalize();
+  if(up.dot(upL)<0){ right.negate(); up=new THREE.Vector3().crossVectors(fwd,right).normalize(); }
+  return {H, mid, right, up, fwd, sep, r};
+}
 function clearKit(){ for(const m of kitParts) if(m.parent)m.parent.remove(m); kitParts.length=0; charEars.length=0; }
 // ---------- WHAT A RANK PUT ON HIS HEAD ----------
 // Gear rides the same kit() the ears and the eyes do, so it is cleared and rebuilt with the
@@ -14928,12 +15058,57 @@ function kitGear(C,bodyPatch){
       }});
       o.updateMatrixWorld(true);
       const bb=new THREE.Box3().setFromObject(o), sz=bb.getSize(new THREE.Vector3());
-      const k=0.50/Math.max(1e-4,sz.x);
-      o.scale.setScalar(k);
-      // centred on its own bounds, or a model whose origin is off in a corner hangs in mid-air
-      const c=bb.getCenter(new THREE.Vector3()).multiplyScalar(k);
-      o.position.set(-c.x, 0.118-c.y, -0.300-c.z);
-      kit(GP,o);
+      const c=bb.getCenter(new THREE.Vector3());
+      // ---- WHICH WAY ROUND IS THIS FILE? ----
+      // Measured off the mesh rather than guessed. Mirror symmetry about the mid-plane picks
+      // the WIDTH axis outright -- 92.8% on X against 17.5% on Z -- and the lens end is the end
+      // with a nose bridge crossing the centre-line: 7.6% of vertices span the middle at high
+      // Z and 0.0% at low Z, because the far end is two bare temple arms with nothing between
+      // them. So the file runs +X across, +Y up, and +Z out of the lenses.
+      // Dropped in unrotated, that pair faces BACKWARDS: the lenses end up buried in the back
+      // of the skull and what crosses the face is a temple arm, which on a phone reads as a
+      // stray wire laid over the muzzle. It is not a loading failure and it is not a scale
+      // failure -- the glasses were on, and on back to front.
+      const EY=(typeof riderEyeFit==='function')?riderEyeFit():null;
+      const _hb=(typeof headBoxLocal==='function')?headBoxLocal():null;
+      const HB=_hb&&_hb.box;
+      if(EY&&HB){
+        // ---- FITTED TO THE HEAD THAT IS WEARING THEM ----
+        // Everything here is in the Head bone's own space, so the pair is parented straight to
+        // the bone and the procedural wrapper is not in the conversation at all. Width comes
+        // from the skull's extent ALONG THE EYE LINE rather than from a world axis, because a
+        // rider who is turning has neither.
+        let lo=Infinity,hi=-Infinity;
+        for(const px of [HB.min.x,HB.max.x])for(const py of [HB.min.y,HB.max.y])for(const pz of [HB.min.z,HB.max.z]){
+          const t=new THREE.Vector3(px,py,pz).sub(EY.mid).dot(EY.right);
+          if(t<lo)lo=t; if(t>hi)hi=t;
+        }
+        const wide=Math.max(EY.sep*1.35,(hi-lo)*0.92);
+        const k=wide/Math.max(1e-4,sz.x);
+        o.scale.setScalar(k);
+        // Aim it: +X along the eye line, +Z out of the lenses along the look direction.
+        const m=new THREE.Matrix4().makeBasis(EY.right,EY.up,EY.fwd);
+        o.quaternion.setFromRotationMatrix(m);
+        // Sit the LENS FACE just proud of the eyeballs and let the arms run back past them,
+        // rather than centring the bounding box on the eyes -- which buries half a pair of
+        // glasses, arms and all, in the middle of the head.
+        const depth=sz.z*k, lensOut=EY.r*0.95-depth*0.5;
+        o.position.copy(EY.mid)
+          .addScaledVector(EY.right,-c.x*k).addScaledVector(EY.up,-c.y*k)
+          .addScaledVector(EY.fwd,lensOut-c.z*k);
+        kit(EY.H,o);
+      } else {
+        // No measured face to hang them on: the old fit, which is tuned to the procedural
+        // skull and correct there. Still turned the right way round.
+        o.rotation.set(0,Math.PI,0);
+        o.updateMatrixWorld(true);
+        const rb=new THREE.Box3().setFromObject(o), rc=rb.getCenter(new THREE.Vector3());
+        const k=0.50/Math.max(1e-4,sz.x);
+        o.scale.setScalar(k);
+        rc.multiplyScalar(k);
+        o.position.set(-rc.x, 0.118-rc.y, -0.300-rc.z);
+        kit(GP,o);
+      }
     } else {
       const bar=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.185,20,14),lensM));
       bar.position.set(0,0.105,-0.320);
@@ -29683,6 +29858,102 @@ if(location.hash.includes('debug')){
               hipToHead:B.Head?+(wp(B.Head).y-hip.y).toFixed(3):null,
               boxXZ:[+sz.x.toFixed(3),+sz.z.toFixed(3)]};
     },
+    // ---- DOES THE GEAR FIT THE HEAD IT IS ON? ----
+    // "It is parented to the Head bone" and "it is the size of the head" are different claims,
+    // and only the second one is what you see. The procedural skull and a modelled animal's
+    // skull are not the same object at the same size in the same place, so the only honest
+    // measurement of the head is the vertices the Head bone actually drives -- skinned through
+    // the same matrices the shader uses, so the number is the one on screen.
+    gearFit(){
+      let R=null; try{ R=riderRig(); }catch(e){}
+      const wp=o=>{ const v=new THREE.Vector3(); o.updateMatrixWorld(true); o.getWorldPosition(v); return v; };
+      const ws=o=>{ const v=new THREE.Vector3(); o.updateMatrixWorld(true); o.matrixWorld.decompose(new THREE.Vector3(),new THREE.Quaternion(),v); return v; };
+      const r3=v=>[+v.x.toFixed(3),+v.y.toFixed(3),+v.z.toFixed(3)];
+      const out={char:builtChar, isModel:!!(R&&R.bones&&R.bones.Head)};
+      out.headJ={pos:r3(wp(headJ)), scale:r3(ws(headJ))};
+      if(!out.isModel)return out;
+      const H=R.bones.Head, m=riderModels[builtChar];
+      out.headBone={pos:r3(wp(H)), scale:r3(ws(H))};
+      if(R._gearJ)out.gearJ={pos:r3(R._gearJ.position), scale:r3(R._gearJ.scale)};
+      // the true head: every vertex whose dominant skin weight is the Head bone, pushed
+      // through mesh*bindInverse*(bone*boneInverse)*bind exactly as the GPU does it
+      // ...and the same box expressed in the space gear is AUTHORED in, where +X is right,
+      // +Y is up and -Z is the way the face points. World-axis deltas cannot tell "off to the
+      // side of the muzzle" from "out in front of it", which is the whole question here.
+      const GP=gearHeadParent(); GP.updateWorldMatrix(true,false);
+      const toGP=new THREE.Matrix4().copy(GP.matrixWorld).invert();
+      const boxGP=new THREE.Box3();
+      const box=new THREE.Box3(); let n=0;
+      m.traverse(o=>{
+        if(!o.isSkinnedMesh||!o.skeleton)return;
+        const bi=o.skeleton.bones.indexOf(H); if(bi<0)return;
+        const g=o.geometry, si=g.attributes.skinIndex, sw=g.attributes.skinWeight, pos=g.attributes.position;
+        if(!si||!sw)return;
+        o.updateMatrixWorld(true); o.skeleton.update&&o.skeleton.update();
+        const off=new THREE.Matrix4().multiplyMatrices(H.matrixWorld,o.skeleton.boneInverses[bi]);
+        const full=new THREE.Matrix4().multiplyMatrices(o.matrixWorld,o.bindMatrixInverse).multiply(off).multiply(o.bindMatrix);
+        const v=new THREE.Vector3();
+        for(let i=0;i<pos.count;i++){
+          // r128 BufferAttribute has no getComponent -- only the named accessors
+          let w=0;
+          if(si.getX(i)===bi)w+=sw.getX(i); if(si.getY(i)===bi)w+=sw.getY(i);
+          if(si.getZ(i)===bi)w+=sw.getZ(i); if(si.getW(i)===bi)w+=sw.getW(i);
+          if(w<0.6)continue;
+          v.fromBufferAttribute(pos,i).applyMatrix4(full); box.expandByPoint(v);
+          boxGP.expandByPoint(v.clone().applyMatrix4(toGP)); n++;
+        }
+      });
+      out.headVerts=n;
+      if(n){ out.headBox={size:r3(box.getSize(new THREE.Vector3())), centre:r3(box.getCenter(new THREE.Vector3()))};
+             out.headGP={size:r3(boxGP.getSize(new THREE.Vector3())), centre:r3(boxGP.getCenter(new THREE.Vector3())),
+                         min:r3(boxGP.min), max:r3(boxGP.max)}; }
+      // and what the worn eyewear actually occupies, in the same world units
+      const parts=kitParts.filter(o=>o.userData&&o.userData.gear==='eyes');
+      if(parts.length){
+        const gb=new THREE.Box3(); for(const p of parts){ p.updateMatrixWorld(true); gb.expandByObject(p); }
+        out.worn={n:parts.length, size:r3(gb.getSize(new THREE.Vector3())), centre:r3(gb.getCenter(new THREE.Vector3()))};
+      } else out.worn={n:0};
+      // ---- and the only numbers that say whether it FITS ----
+      // A world-axis box cannot tell "in front of the eyes" from "buried behind them", so the
+      // worn gear gets projected onto the eye frame: how far off the eye line it sits, and
+      // where its nearest and furthest points are relative to the eyeball surface.
+      const EY=riderEyeFit();
+      out.eyeFit=!!EY;
+      // the raw ingredients the placement is computed from, so an unstable RESULT can be traced
+      // to whichever INPUT moved rather than guessed at
+      const _hb=headBoxLocal();
+      if(_hb)out.hbl={size:r3(_hb.box.getSize(new THREE.Vector3())), min:r3(_hb.box.min), max:r3(_hb.box.max)};
+      if(EY)out.ey={r:+EY.r.toFixed(4), sep:+EY.sep.toFixed(4), mid:r3(EY.mid),
+                    right:r3(EY.right), up:r3(EY.up), fwd:r3(EY.fwd)};
+      out.eyeKids=R.bones.Head.children.map(o=>(o.name||o.type)
+        +(o.userData&&o.userData.riderEye?'#eye':'')
+        +(o.geometry&&o.geometry.parameters&&o.geometry.parameters.radius!==undefined
+            ?'(r'+(+o.geometry.parameters.radius.toFixed(4))+')':'')).slice(0,12);
+      if(EY&&parts.length){
+        const toH=new THREE.Matrix4().copy(EY.H.matrixWorld).invert();
+        let sL=Infinity,bL=-Infinity,sF=Infinity,bF=-Infinity,sU=Infinity,bU=-Infinity;
+        const v=new THREE.Vector3();
+        for(const p of parts) p.traverse(o=>{
+          const g=o.geometry&&o.geometry.attributes&&o.geometry.attributes.position; if(!g)return;
+          o.updateMatrixWorld(true);
+          const M=new THREE.Matrix4().multiplyMatrices(toH,o.matrixWorld);
+          for(let i=0;i<g.count;i+=7){
+            v.fromBufferAttribute(g,i).applyMatrix4(M).sub(EY.mid);
+            const L=v.dot(EY.right), F=v.dot(EY.fwd), U=v.dot(EY.up);
+            if(L<sL)sL=L; if(L>bL)bL=L; if(F<sF)sF=F; if(F>bF)bF=F; if(U<sU)sU=U; if(U>bU)bU=U;
+          }
+        });
+        // Whose head are these actually hanging off? kitParts is a flat list, so a stale entry
+        // from the previous character reads as "the gear" here just as well as the real one.
+        out.wornOn=parts.map(p=>{ let o=p,d=0,hit=false;
+          while(o&&d<12){ if(o===EY.H)hit=true; o=o.parent; d++; }
+          return (p.parent?(p.parent.name||p.parent.type):'ORPHAN')+(hit?'':'[NOT-THIS-HEAD]'); });
+        const q=x=>+(x/EY.r).toFixed(2);           // in eyeball radii, so it reads on any model
+        out.eyeFrame={eyeSep:q(EY.sep), acrossFrom:q(sL), acrossTo:q(bL),
+                      lensFront:q(bF), backTo:q(sF), below:q(sU), above:q(bU)};
+      }
+      return out;
+    },
     gearModels(){ return {shades:(typeof shadesModel!=='undefined')&&!!shadesModel}; },
     gearFlush(){ let n=0; for(const k of Object.keys(prevCache))
                    if(k[0]==='g'){ delete prevCache[k]; n++; } return n; },
@@ -29708,6 +29979,17 @@ if(location.hash.includes('debug')){
     },
     gearWear(id){ const g=GEAR_BY_ID[id]; if(!g)return null;
       gearOn[g.slot]=id; equipChar(rider); return {...gearOn}; },
+    // gearOnChar() puts the old character back before it returns, so anything measured after it
+    // is measured on whoever was there before -- four different animals in a row all reported
+    // the pug's numbers. This one LEAVES the character wearing the thing.
+    // A photograph of whoever is ACTUALLY equipped. gearPreview draws its own card and came
+    // back showing a pug for every character asked for, which is a fine card and useless as
+    // evidence about the angler.
+    riderShot(){ const u=portraitPose(); const s=snapshot(pug,'char'); if(u)u();
+                 return {char:builtChar, src:s}; },
+    gearAs(cid,gid){ const g=GEAR_BY_ID[gid]; if(!g)return {err:'no such gear'};
+      rider=cid; gearOn[g.slot]=gid; gearPreviewAll=true; equipChar(cid); gearPreviewAll=false;
+      return {char:builtChar}; },
     // ---- is the pad rounded off, or does it just stop? ----
     // The difference between a grip pad and a painted rectangle is what the last eighth of it
     // does, and that is two numbers: how wide the pad is at its very end against how wide it is
