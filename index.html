@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.06';
+window.SURF_VERSION='10.07';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -14009,6 +14009,11 @@ const FALL_PUSH=46;       // the speed the chute adds, on top of whatever the bo
 // this is a set piece, the obstacles are spaced for it, and it is the difference between
 // looking at a gorge and being in one.
 const FALL_LANE=9.0;      // where the walls stand, just outside the steering
+// One number, because the geometry is scaled by it AND the descent profile is baked in units of
+// it -- written twice they drift, and a wall whose bake disagrees with its height is a wall that
+// stops following the river. Shorter than it was: at 120 against a nine-wide lane the gorge was
+// a slot with no top to it.
+const FALL_WALL_H=70;
 
 // A wall of falling water: one tall plane each side with a streak texture scrolled DOWNWARD.
 // The speed of that scroll is the whole illusion -- it is what says the water is going past
@@ -14124,14 +14129,17 @@ function fallSideLay(q,fresh){
   // Placed by their middle they ended up mostly under the waterline, which is why the first
   // pass put ten waterfalls in the gorge and none of them could be seen. A fall is defined by
   // where it comes OVER: pick the lip, then the length, and let the bottom land where it lands.
-  const w=3+Math.random()*9, h=46+Math.random()*54;
+  // Wider and far fewer hairlines. At three to twelve units across a seventy-unit gorge they
+  // came out as scratches on the rock rather than water coming off it -- a fall reads by its
+  // WIDTH against the wall it is on, not by being tall.
+  const w=9+Math.random()*16, h=46+Math.random()*54;
   q.scale.set(w,h,1);
   // hard against the rock, a shade inside it so it cannot z-fight the face
   q.position.x=sx*(FALL_LANE+0.55);
   const top=26+Math.random()*30;             // over the rim, well above the river
   q.position.y=top-h*0.5;
   q.position.z=fresh?(-30-Math.random()*260):(-250-Math.random()*90);
-  q.material.opacity=0.55+Math.random()*0.35;
+  q.material.opacity=0.78+Math.random()*0.20;
   q.userData.rate=0.7+Math.random()*0.9;
 }
 function fallBuild(){
@@ -14175,7 +14183,7 @@ function fallBuild(){
     // the y value no longer says where you are up the face, and the relief below needs that.
     const _P0=geo.attributes.position, _v0=new Float32Array(_P0.count);
     {
-      const ys=(rock?120:18);
+      const ys=(rock?FALL_WALL_H:18);
       for(let i=0;i<_P0.count;i++){
         _v0[i]=_P0.getY(i)+0.5;                       // 0 at the foot, 1 at the rim
         // The two walls are MIRRORED by their Y rotation, so local x maps to world z with
@@ -14248,10 +14256,10 @@ function fallBuild(){
     // channel-edge white and the churn, a second big white plane each side was doing nothing but
     // covering the rock it was supposed to be running down. Eighteen units at the waterline:
     // spray where the river meets the stone, which is all it was ever needed for.
-    m.scale.set(300, rock?120:18, 1);
+    m.scale.set(300, rock?FALL_WALL_H:18, 1);
     // Dropped with the height, so the foot of the rock still sits below the water rather than
     // leaving a strip of daylight under the wall where the chute has fallen away from it.
-    m.position.set(sx*(FALL_LANE+(rock?0.9:0.2)), rock?44:-1, -96);
+    m.position.set(sx*(FALL_LANE+(rock?0.9:0.2)), rock?26:-1, -96);
     m.rotation.y=sx>0?-Math.PI/2:Math.PI/2;
     m.renderOrder=rock?1:2;
     fallGrp.add(m); return m;
@@ -14267,7 +14275,7 @@ function fallBuild(){
   for(let i=0;i<10;i++){
     const sx=(i%2)?1:-1;
     const t=fallTex();
-    t.repeat.set(1, 3.2);
+    t.repeat.set(1, 2.0);
     const q=new THREE.Mesh(new THREE.PlaneGeometry(1,1,1,1),
       new THREE.MeshBasicMaterial({map:t,transparent:true,opacity:0.88,
         depthWrite:false,side:THREE.DoubleSide,fog:false}));
@@ -29286,7 +29294,11 @@ if(location.hash.includes('debug')){
               cam:[+cp.x.toFixed(2),+cp.y.toFixed(2),+cp.z.toFixed(2)]};
     },
     fallTiltK(k){ if(k!==undefined)FALL_TILTK=k;
-                  return {k:FALL_TILTK, tilt:+fallTilt.toFixed(3)}; },
+                  // rig.rotation.x is what the board is ACTUALLY wearing. fallTilt is only what
+                  // was asked for, and the two have disagreed before.
+                  return {k:FALL_TILTK, tilt:+fallTilt.toFixed(3),
+                          rigX:+rig.rotation.x.toFixed(3),
+                          bp:+((typeof boardPitch==='number')?boardPitch:0).toFixed(3)}; },
     // Where the rider actually IS, in the camera's own frame. A screenshot showing no pug
     // cannot say whether he is behind the board, under the water, off screen or not drawn.
     fallWho(){
@@ -41297,7 +41309,15 @@ function update(dt){
   // going over because the kayak is pointing over. Taken from the surface the board is actually
   // on, sampled fore and aft, so it steepens hard on each ledge and levels off in the pools
   // between them without anything having to drive it.
-  rig.rotation.set(boardPitch+heliIncline+fallTilt,boardYaw+wobYaw,boardLean+grabRoll+wobRoll);
+  // ---- AND IN THE CHUTE fallTilt REPLACES boardPitch, it does not join it ----
+  // Added to it, the two cancelled. Measured: fallTilt asking for +0.408 while boardPitch sat at
+  // -0.448, for a board wearing -0.039 -- dead flat, which is exactly how it looked. The ride
+  // controller pitches the nose UP as the water falls away in front of it, which is right on a
+  // wave face and precisely backwards on a chute, and it is a stronger term than the one trying
+  // to correct it. So it is faded out by fallW and the measured water angle is left to stand on
+  // its own. Nothing outside the drop changes: at fallW 0 this is the old line exactly.
+  const _bp=boardPitch*(1-((typeof fallW==='number')?fallW:0));
+  rig.rotation.set(_bp+heliIncline+fallTilt,boardYaw+wobYaw,boardLean+grabRoll+wobRoll);
   // ---- ...and while he is in the air the board is just floating ----
   // rig carries the rider as well as the board, so a leaned rig tips the LIFT below out of
   // vertical and he arcs off sideways. Nobody is standing on it to lean it anyway: an empty
