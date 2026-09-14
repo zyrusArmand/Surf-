@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.11';
+window.SURF_VERSION='10.12';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -6010,6 +6010,10 @@ function astroLivery(root){
 // which only runs when the title screen reveals -- so on a cold start straight into a run the
 // model was never even asked for. Measured: still null after a hundred and sixty seconds.
 loadModel('rocks2.glb',s=>{ rockModel=s; },0);
+// The shades, as a model. Same arrangement as every other optional glb: if it never lands the
+// procedural pair stays and nobody sees a gap.
+let shadesModel=null;
+loadModel('shades.glb',s=>{ shadesModel=s; if(typeof equipChar==='function'&&typeof rider!=='undefined'){ try{ equipChar(rider); }catch(e){} } },0);
 loadModel('board.glb',s=>{
   const fitted=skinAndFit('board',s,BOARD_BOX,orientBoard);
   // Match deck to deck rather than box to box. A thin model has nothing like the
@@ -14910,18 +14914,42 @@ function kitGear(C,bodyPatch){
     lensM.polygonOffset=true; lensM.polygonOffsetFactor=-4; lensM.polygonOffsetUnits=-4;
     const frameM=PBR({color:E.frame, roughness:0.34, metalness:0.55, vivid:1.25});
     frameM.polygonOffset=true; frameM.polygonOffsetFactor=-5; frameM.polygonOffsetUnits=-5;
-    const bar=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.185,20,14),lensM));
-    bar.position.set(0,0.105,-0.320);
-    bar.scale.set(1.36,E.visor?0.62:0.44,0.40);
-    // the brow bar along the top, which is the line that says "glasses" and not "blindfold"
-    const brow=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.185,18,12),frameM));
-    brow.position.set(0,E.visor?0.190:0.168,-0.315);
-    brow.scale.set(1.40,0.13,0.40);
-    // and the arms, running back along the temples toward the ears
-    for(const sx of [-1,1]){
-      const arm=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.150,12,10),frameM));
-      arm.position.set(sx*0.235,0.135,-0.080);
-      arm.scale.set(0.16,0.13,1.55);
+    // ---- THE MODELLED PAIR, WHEN IT HAS LANDED ----
+    // Fitted by WIDTH to the same 0.50 the lofted pair spans, and sat at the same place on the
+    // face, so every number below that was tuned against the procedural shades still holds --
+    // the five variants differ only in colour, and colour is a tint on top of the model's own
+    // maps rather than five separate files.
+    if(shadesModel&&typeof cloneModel==='function'){
+      const o=cloneModel(shadesModel);
+      o.traverse(m=>{ if(m.isMesh&&m.material){
+        m.material=m.material.clone();
+        m.material.color=new THREE.Color(E.frame);
+        if('metalness' in m.material)m.material.metalness=Math.min(1,0.35+E.mirror*0.65);
+        if('roughness' in m.material)m.material.roughness=E.mirror>0.5?0.12:0.34;
+        m.castShadow=false; m.receiveShadow=false;
+      }});
+      o.updateMatrixWorld(true);
+      const bb=new THREE.Box3().setFromObject(o), sz=bb.getSize(new THREE.Vector3());
+      const k=0.50/Math.max(1e-4,sz.x);
+      o.scale.setScalar(k);
+      // centred on its own bounds, or a model whose origin is off in a corner hangs in mid-air
+      const c=bb.getCenter(new THREE.Vector3()).multiplyScalar(k);
+      o.position.set(-c.x, 0.118-c.y, -0.300-c.z);
+      kit(GP,o);
+    } else {
+      const bar=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.185,20,14),lensM));
+      bar.position.set(0,0.105,-0.320);
+      bar.scale.set(1.36,E.visor?0.62:0.44,0.40);
+      // the brow bar along the top, which is the line that says "glasses" and not "blindfold"
+      const brow=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.185,18,12),frameM));
+      brow.position.set(0,E.visor?0.190:0.168,-0.315);
+      brow.scale.set(1.40,0.13,0.40);
+      // and the arms, running back along the temples toward the ears
+      for(const sx of [-1,1]){
+        const arm=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.150,12,10),frameM));
+        arm.position.set(sx*0.235,0.135,-0.080);
+        arm.scale.set(0.16,0.13,1.55);
+      }
     }
   }
   tag('eyes');
@@ -14969,7 +14997,49 @@ function kitGear(C,bodyPatch){
   // fraction proud. A rash vest is a marking that happens to be cloth, so it is the same call.
   // Nothing here is a size or a position. That is the point -- there is no number to get wrong
   // on the nineteen animals nobody looked at.
-  if(S&&typeof bodyPatch==='function'){
+  // ---- AND ON A MODEL RIDER IT CANNOT BE CUT FROM ANYTHING ----
+  // Everything above is a patch lifted off the PROCEDURAL torso, which is hidden on any
+  // character that arrived as a glb -- so every suit in the game was invisible on the pug for
+  // the same reason the shades were, except that re-parenting cannot save this one: the panel
+  // is the procedural body's own shape, and laying a pug-shaped vest on a differently-shaped
+  // model puts cloth through the ribs.
+  // So a model wears a garment built to ITS body instead: two rings taken from the model's own
+  // bounding box and hung on its spine, which follows its animation and needs no number that
+  // depends on which animal it is. Coarser than a cut patch, and the alternative was nothing.
+  const _mdl=(typeof riderModels!=='undefined')?riderModels[builtChar]:null;
+  let _mrig=null; try{ if(typeof riderRig==='function')_mrig=riderRig(); }catch(e){}
+  if(S&&_mrig&&_mrig.bones&&_mdl){
+    const spine=_mrig.bones.Spine01||_mrig.bones.Spine||_mrig.bones.Spine02;
+    if(spine){
+      _mdl.updateMatrixWorld(true);
+      const bb=new THREE.Box3().setFromObject(_mdl);
+      const sz=bb.getSize(new THREE.Vector3()), ctr=bb.getCenter(new THREE.Vector3());
+      // ---- THE TORSO IS NOT THE BOUNDING BOX ----
+      // max(x,z)*0.52 measured the widest thing about the animal, which on a standing pug is
+      // its outstretched ARMS -- so the shorts came out as a swimming ring a foot clear of the
+      // body on every side. Depth is the honest axis: nothing sticks out along z the way limbs
+      // and ears do along x, so the narrower of the two, taken smaller, is close to the waist.
+      const R=Math.min(sz.x,sz.z)*0.34, Hh=sz.y;
+      const cloth=c=>PBR({color:c, roughness:0.58, metalness:0.04, vivid:1.15});
+      const ring=(yFrac,hFrac,rk,col)=>{
+        const g=new THREE.Mesh(new THREE.CylinderGeometry(R*rk,R*rk*1.03,Hh*hFrac,22,1,true),
+                               cloth(col));
+        // placed in WORLD terms off the model's own box, then taken into the spine's frame, so
+        // it lands on the body whatever the bone's own rest transform happens to be
+        const w=new THREE.Vector3(ctr.x, bb.min.y+Hh*yFrac, ctr.z);
+        spine.updateMatrixWorld(true);
+        g.position.copy(spine.worldToLocal(w.clone()));
+        const q=new THREE.Quaternion(); spine.getWorldQuaternion(q);
+        g.quaternion.copy(q.clone().invert());
+        const sc=new THREE.Vector3(); spine.matrixWorld.decompose(new THREE.Vector3(),new THREE.Quaternion(),sc);
+        g.scale.set(1/Math.max(1e-4,sc.x),1/Math.max(1e-4,sc.y),1/Math.max(1e-4,sc.z));
+        kit(spine,g);
+      };
+      if(S.shorts){ ring(0.30,0.20,1.00,S.shorts); if(S.hem)ring(0.395,0.035,1.02,S.hem); }
+      if(S.vest){   ring(0.62,0.26,0.99,S.vest);   if(S.hem)ring(0.495,0.035,1.01,S.hem); }
+    }
+  }
+  else if(S&&typeof bodyPatch==='function'){
     const LIFT=1+SKIN_SAG+0.020;      // a shade further out than a marking, so it lies over one
     const cloth=c=>PBR({color:c, roughness:0.58, metalness:0.04, vivid:1.15});
     // t is 0 at the hips and 1 at the shoulders, the way TORSO_DEF is written.
@@ -29571,6 +29641,11 @@ if(location.hash.includes('debug')){
       const pw=new THREE.Vector3(); pug.getWorldPosition(pw);
       return {n:parts.length, pug:[+pw.x.toFixed(2),+pw.y.toFixed(2),+pw.z.toFixed(2)], parts:rep};
     },
+    // Which optional gear models have actually landed, and a way to drop the photographs so a
+    // later arrival can be re-shot.
+    gearModels(){ return {shades:(typeof shadesModel!=='undefined')&&!!shadesModel}; },
+    gearFlush(){ let n=0; for(const k of Object.keys(prevCache))
+                   if(k[0]==='g'){ delete prevCache[k]; n++; } return n; },
     gearShots(){
       const out=[];
       for(const g of GEAR){
