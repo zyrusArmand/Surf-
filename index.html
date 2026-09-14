@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.08';
+window.SURF_VERSION='10.09';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -13940,7 +13940,7 @@ let fallTilt=0;           // radians of nose-down, measured off the water he is 
 // in, pass under him and go out behind exactly the way the rest of the sea does.
 let fallTravel=0;
 let fallGrp=null, fallWallL=null, fallWallR=null, fallRockL=null, fallRockR=null, fallMist=[];
-let fallSide=[];
+let fallSide=[], fallHead=null, fallPlume=null;
 // Ninety-five seconds of chute. It was thirty-five, which at this speed is barely four of the
 // drops -- not enough of a run for the descent to become the thing you are doing rather than a
 // thing that happens to you on the way past.
@@ -14015,6 +14015,10 @@ const FALL_LANE=9.0;      // where the walls stand, just outside the steering
 // stops following the river. Shorter than it was: at 120 against a nine-wide lane the gorge was
 // a slot with no top to it.
 const FALL_WALL_H=70;
+// The fall at the head of the canyon: how far ahead it stands, and how big it is. Wide enough to
+// run past the walls on both sides so it reads as the whole river coming in, rather than a sheet
+// hung in the middle of a gap.
+const FALL_HEAD_Z=168, FALL_HEAD_W=52, FALL_HEAD_H=104;
 
 // A wall of falling water: one tall plane each side with a streak texture scrolled DOWNWARD.
 // The speed of that scroll is the whole illusion -- it is what says the water is going past
@@ -14055,6 +14059,28 @@ function fallTex(){
 // Basalt: dark, banded horizontally the way a gorge wall is, with the bands broken up so they
 // do not read as a ladder when they scroll. It is the thing that has to look SOLID -- the water
 // beside it is already doing all the moving, and if both are soft neither is a cliff.
+// The mist at the foot of the head fall. Soft everywhere, no edge anywhere: an edge is what
+// makes a quad look like a quad, and this has to read as air full of water.
+function mistTex(){
+  const N=256,c=document.createElement('canvas'); c.width=c.height=N;
+  const x=c.getContext('2d');
+  x.clearRect(0,0,N,N);
+  for(let i=0;i<40;i++){
+    const bx=N*(0.12+Math.random()*0.76), by=N*(0.30+Math.random()*0.66);
+    const r=N*(0.10+Math.random()*0.26);
+    const g=x.createRadialGradient(bx,by,0,bx,by,r);
+    g.addColorStop(0,'rgba(255,255,255,0.28)'); g.addColorStop(1,'rgba(255,255,255,0)');
+    x.fillStyle=g; x.beginPath(); x.arc(bx,by,r,0,7); x.fill();
+  }
+  // thinner toward the top, because a plume dies out as it rises
+  const fade=x.createLinearGradient(0,0,0,N);
+  fade.addColorStop(0,'rgba(0,0,0,1)'); fade.addColorStop(0.55,'rgba(0,0,0,0)');
+  x.globalCompositeOperation='destination-out'; x.fillStyle=fade; x.fillRect(0,0,N,N);
+  x.globalCompositeOperation='source-over';
+  const t=new THREE.CanvasTexture(c);
+  if(THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding;
+  return t;
+}
 function cliffTex(){
   // Four times the pixels. At 128x512 stretched over a 300-unit wall the strata were mush
   // before the motion blur ever got to them.
@@ -14266,6 +14292,35 @@ function fallBuild(){
     fallGrp.add(m); return m;
   };
   fallRockL=mk(-1,true); fallRockR=mk(1,true);
+  // ---- THE HEAD OF THE GORGE ----
+  // What the sketch arches across the far end, and what the reference is a photograph of: the
+  // river does not begin at the top of the shot, it comes IN over a wall of rock and the gorge
+  // is the slot it has cut below that. Held at a fixed distance ahead, so it is always the head
+  // of the canyon rather than a thing he closes on and passes -- there is no end to reach in an
+  // endless run, and a fall that arrived would just be another ledge.
+  // Its FOOT sits at the water's own height that far down the slope, which is the number that
+  // makes it meet the river instead of hanging over it.
+  {
+    const t=fallTex(); t.repeat.set(3.0, 2.2);
+    fallHead=new THREE.Mesh(new THREE.PlaneGeometry(1,1,1,1),
+      new THREE.MeshBasicMaterial({map:t,transparent:true,opacity:0.93,
+        depthWrite:false,side:THREE.DoubleSide,fog:false}));
+    fallHead.scale.set(FALL_HEAD_W, FALL_HEAD_H, 1);
+    const foot=-FALL_SLOPE*FALL_HEAD_Z;
+    fallHead.position.set(0, foot+FALL_HEAD_H*0.5-6, -FALL_HEAD_Z);
+    fallHead.renderOrder=2;
+    fallGrp.add(fallHead);
+    // ...and the plume it throws. One quad, wide and very soft: the mist at the foot of a fall
+    // that size is the biggest thing in the reference photograph. Deliberately NOT a stack of
+    // sprites -- that is what put coloured speckle on a phone twice.
+    fallPlume=new THREE.Mesh(new THREE.PlaneGeometry(1,1,1,1),
+      new THREE.MeshBasicMaterial({map:mistTex(),transparent:true,opacity:0.62,
+        depthWrite:false,side:THREE.DoubleSide,fog:false}));
+    fallPlume.scale.set(FALL_HEAD_W*1.5, FALL_HEAD_H*0.85, 1);
+    fallPlume.position.set(0, foot+FALL_HEAD_H*0.22, -FALL_HEAD_Z+26);
+    fallPlume.renderOrder=4;
+    fallGrp.add(fallPlume);
+  }
   // ---- AND WATER COMES OFF THE WALLS ----
   // Drawn straight onto the cliffs in the sketch: a gorge does not only carry a river along its
   // floor, it LEAKS down its sides -- every side creek and seep in the country above arrives
@@ -14435,6 +14490,18 @@ function fallStep(dt){
       w.material.opacity=0.90*fallW;
       // the water, DOWNWARD and fast, tied to the actual forward speed
       w.material.map.offset.y-=dt*(0.55+lastEff*0.016);
+    }
+    if(fallHead){
+      fallHead.visible=fallW>0.02;
+      fallHead.material.opacity=0.93*fallW;
+      fallHead.material.map.offset.y-=dt*(0.85+lastEff*0.010);
+    }
+    if(fallPlume){
+      fallPlume.visible=fallW>0.02;
+      // it boils rather than drifts: a plume at the foot of a fall stays where it is and swells
+      const br=0.52+0.16*Math.sin(T*0.55)+0.08*Math.sin(T*1.31+1.1);
+      fallPlume.material.opacity=br*fallW;
+      fallPlume.material.map.offset.x=Math.sin(T*0.07)*0.04;
     }
     // the wall falls: down their own texture, and along the gorge with everything else
     for(const q of fallSide){
