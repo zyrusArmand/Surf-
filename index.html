@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='9.99';
+window.SURF_VERSION='10.00';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -3753,10 +3753,17 @@ function waveComp(W,x,z,t){
   const env=ENV_BASE+ENV_SWING*Math.sin(u*W.k*W.ek - t*W.w*W.ek*0.5 + W.ep);
   return W.a*env*Math.sin(u*W.k - t*W.w);
 }
+// ---- AND THE CHOP COMES OUT OF THIS ONE TOO ----
+// The vertex shader stopped drawing swell inside the chute two versions ago and this did not,
+// so the field the buoyancy and the board's angle read still had a full wave train in it while
+// the water on screen was glass. Same factor, same place, or the board rides bumps that are not
+// there -- and a metre of phantom chop on a surface meant to be falling reads as the sea going
+// up and down under him.
+function _fallCalm(){ return 1 - ((typeof fallW==='number')?fallW:0)*0.94; }
 function waveH(x,z,t){
   let h=0;
   for(const W of WAVES)h+=waveComp(W,x,z,t);
-  return h*waveAmp*swCalm+wakeBump(x,z)+boatBump(x,z)+whirlDip(x,z)+setWaveH(x,z)+fallDip(x,z);
+  return h*waveAmp*swCalm*_fallCalm()+wakeBump(x,z)+boatBump(x,z)+whirlDip(x,z)+setWaveH(x,z)+fallDip(x,z);
 }
 // the long-period part of the sea only — what a floating object actually rides.
 // Short chop is filtered out, so buoys glide over the swell instead of vibrating,
@@ -3764,7 +3771,7 @@ function waveH(x,z,t){
 function swellH(x,z,t){
   let h=0;
   for(let i=0;i<2;i++)h+=waveComp(WAVES[i],x,z,t);
-  return h*waveAmp*1.06*swCalm+wakeBump(x,z)+boatBump(x,z)+whirlDip(x,z)+setWaveH(x,z)+fallDip(x,z);
+  return h*waveAmp*1.06*swCalm*_fallCalm()+wakeBump(x,z)+boatBump(x,z)+whirlDip(x,z)+setWaveH(x,z)+fallDip(x,z);
 }
 const OCEAN_Z=-90;
 let dist=0;
@@ -14267,10 +14274,14 @@ function fallStep(dt){
   // leans with the deck and you can actually see him, which the brief also assumed.
   fallLay=0;
   // the pivot rides with him, in FIELD coordinates, which is what waveH is written in
-  // The lead runs down to nothing over the entry, so the edge closes on him and the handover to
-  // the riding pivot is continuous by construction -- the gap IS zero when the entry ends.
-  const _gap=(fallPh===0)?FALL_APPROACH*Math.max(0,1-fallT/FALL_IN):0;
-  fallZ0=(dist*WAVE_DRIFT+pz)-_gap;
+  // ---- NO LEAD, EVER, BECAUSE A LEAD READS AS A HILL ----
+  // The entry used to put the pivot ahead of him so there was a brink to ride at. Everything
+  // between the rider and that pivot is BEHIND the pivot, where d is clamped at -FALL_BEHIND --
+  // so the whole approach was a flat shelf that ended in a cliff. Measured: 0.5, 1.0, 1.5, 1.4,
+  // 1.1 over the first eighty units and then -4.7. Flat ground ending in a line with sky beyond
+  // is not a brink, it is a HILL CREST, which is exactly what it looked like. The pivot stays on
+  // him, so the slope starts under his own board and everything in front of it is downhill.
+  fallZ0=dist*WAVE_DRIFT+pz;
   // ---- HOW FAR NOSE-DOWN THE BOARD IS, TAKEN OFF THE WATER ITSELF ----
   // Not a number tuned to look right: the actual gradient of the surface he is riding, sampled
   // a few units fore and aft in the same field coordinates waveH works in. So it steepens on
@@ -29132,8 +29143,8 @@ if(location.hash.includes('debug')){
     fallProfile(){
       const z0=dist*WAVE_DRIFT+pz, T=(typeof tNow==='number')?tNow:performance.now()/1000;
       const out=[];
-      for(let d=-20; d<=260; d+=20) out.push([d, +waveH(px, z0-d, T).toFixed(1)]);
-      return {w:+fallW.toFixed(2), step:FALL_STEP, ledge:FALL_LEDGE, prof:out};
+      for(let d=-160; d<=280; d+=20) out.push([d, +waveH(px, z0-d, T).toFixed(1)]);
+      return {ph:fallPh, w:+fallW.toFixed(2), prof:out};
     },
     // The hut's own frame, measured rather than assumed. Four rounds of placing a quad in local
     // coordinates moved it almost nowhere on screen, which means the frame is not what it looks
