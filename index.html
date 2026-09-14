@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.05';
+window.SURF_VERSION='10.06';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -13940,6 +13940,7 @@ let fallTilt=0;           // radians of nose-down, measured off the water he is 
 // in, pass under him and go out behind exactly the way the rest of the sea does.
 let fallTravel=0;
 let fallGrp=null, fallWallL=null, fallWallR=null, fallRockL=null, fallRockR=null, fallMist=[];
+let fallSide=[];
 // Ninety-five seconds of chute. It was thirty-five, which at this speed is barely four of the
 // drops -- not enough of a run for the descent to become the thing you are doing rather than a
 // thing that happens to you on the way past.
@@ -14115,6 +14116,24 @@ function cliffTex(){
   if(THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding;
   return t;
 }
+// Where one of the wall falls hangs, and how big. Re-rolled every time it recycles, so the
+// gorge is never the same twice running.
+function fallSideLay(q,fresh){
+  const sx=q.userData.sx;
+  // ---- HUNG FROM A TOP EDGE, NOT CENTRED ON A GUESS ----
+  // Placed by their middle they ended up mostly under the waterline, which is why the first
+  // pass put ten waterfalls in the gorge and none of them could be seen. A fall is defined by
+  // where it comes OVER: pick the lip, then the length, and let the bottom land where it lands.
+  const w=3+Math.random()*9, h=46+Math.random()*54;
+  q.scale.set(w,h,1);
+  // hard against the rock, a shade inside it so it cannot z-fight the face
+  q.position.x=sx*(FALL_LANE+0.55);
+  const top=26+Math.random()*30;             // over the rim, well above the river
+  q.position.y=top-h*0.5;
+  q.position.z=fresh?(-30-Math.random()*260):(-250-Math.random()*90);
+  q.material.opacity=0.55+Math.random()*0.35;
+  q.userData.rate=0.7+Math.random()*0.9;
+}
 function fallBuild(){
   if(fallGrp)return;
   fallGrp=new THREE.Group(); fallGrp.visible=false; scene.add(fallGrp);
@@ -14238,6 +14257,26 @@ function fallBuild(){
     fallGrp.add(m); return m;
   };
   fallRockL=mk(-1,true); fallRockR=mk(1,true);
+  // ---- AND WATER COMES OFF THE WALLS ----
+  // Drawn straight onto the cliffs in the sketch: a gorge does not only carry a river along its
+  // floor, it LEAKS down its sides -- every side creek and seep in the country above arrives
+  // over the rim as its own fall. Narrow, tall, hung flat against the rock, using the same
+  // ribbon texture the waterline skirt does so the whole set piece is made of one kind of water.
+  // They scroll and recycle, unlike the walls, which is what stops the gorge reading as one
+  // painted backdrop that never passes.
+  for(let i=0;i<10;i++){
+    const sx=(i%2)?1:-1;
+    const t=fallTex();
+    t.repeat.set(1, 3.2);
+    const q=new THREE.Mesh(new THREE.PlaneGeometry(1,1,1,1),
+      new THREE.MeshBasicMaterial({map:t,transparent:true,opacity:0.88,
+        depthWrite:false,side:THREE.DoubleSide,fog:false}));
+    q.rotation.y=sx>0?-Math.PI/2:Math.PI/2;
+    q.renderOrder=3;
+    q.userData.sx=sx;
+    fallSideLay(q,true);
+    fallGrp.add(q); fallSide.push(q);
+  }
   fallWallL=mk(-1,false); fallWallR=mk(1,false);
   // No face plane here any more. It was a tilted sheet laid over the water and the water won;
   // the slope is a term in waveH now -- see fallDip -- so the sea itself is the chute and this
@@ -14283,6 +14322,13 @@ function fallGo(){
   // touch the drop without touching an ordinary run.
   for(const o of obstacles)scene.remove(o);
   obstacles.length=0;
+  // Suppressing the triggers only stops the NEXT one. A barrel or a whirlpool already running
+  // when the drop is armed would ride into the gorge with him, which is what the screenshot of
+  // a tube inside the chute actually was.
+  swPh=SWP.IDLE; swA=0; swCurlA=0; swCam=0; swSweep=0; swClose=0; swTubeRide=false; swCalm=1;
+  swNext=30+Math.random()*15;
+  whirl=null; whA=0; if(typeof whirlArt!=='undefined'&&whirlArt)whirlArt.visible=false;
+  whirlT=40+Math.random()*45;
   fallPh=0; fallT=0; fallTravel=0;
   if(fallGrp)fallGrp.visible=true;
   return true;
@@ -14380,6 +14426,14 @@ function fallStep(dt){
       w.material.opacity=0.90*fallW;
       // the water, DOWNWARD and fast, tied to the actual forward speed
       w.material.map.offset.y-=dt*(0.55+lastEff*0.016);
+    }
+    // the wall falls: down their own texture, and along the gorge with everything else
+    for(const q of fallSide){
+      q.material.opacity=Math.min(q.material.opacity,0.92)*1.0;
+      q.visible=fallW>0.02;
+      q.position.z+=lastEff*dt;
+      if(q.position.z>30)fallSideLay(q,false);
+      q.material.map.offset.y-=dt*(1.15+lastEff*0.02)*q.userData.rate;
     }
     for(const r of [fallRockL,fallRockR]){
       if(!r)continue;
@@ -28843,7 +28897,10 @@ function updateSetWave(dt,eff){
       // camera and the rider with it. Held off for the length of the piece, the way the
       // obstacle spawner is, rather than fought with afterwards.
       if(forkOn)swNext=Math.max(swNext,2.5);
-      if(swNext<=0&&!skiOn&&!whirl&&!hanging&&ufoPh===UFOP.OFF&&!forkOn)startSetWave();
+      // ...and never in the chute. A set wave is a barrel forming on open ocean; thrown up
+      // inside a gorge with the river falling through it, it is a tube standing in mid-air.
+      // Excluded the same way the fork excludes it, one clause along.
+      if(swNext<=0&&!skiOn&&!whirl&&!hanging&&ufoPh===UFOP.OFF&&!forkOn&&!(fallPh>=0))startSetWave();
     }
     return;
   }
@@ -38669,7 +38726,8 @@ function updateWhirl(dt,eff){
     // between whirlpools is much wider and much less even than it was, so you cannot learn it.
     if(swPh!==SWP.IDLE)whirlT=Math.max(whirlT,WH_AFTER_SET);
     if(forkOn)whirlT=Math.max(whirlT,3.0);
-    if(whirlT<=0&&(dist>700||whTest)&&!forkOn){whirlT=WH_GAP+Math.random()*WH_GAP_R;whTest=false;spawnWhirl();}
+    // A whirlpool is a hole in flat water and there is no flat water in a fall.
+    if(whirlT<=0&&(dist>700||whTest)&&!forkOn&&!(fallPh>=0)){whirlT=WH_GAP+Math.random()*WH_GAP_R;whTest=false;spawnWhirl();}
     if(whA>0){whA=Math.max(0,whA-dt*5);whirlArt.scale.y=Math.max(0.001,whA);}
     if(whA<=0)whirlArt.visible=false;
     return;
