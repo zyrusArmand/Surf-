@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.01';
+window.SURF_VERSION='10.02';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -3641,7 +3641,10 @@ function fallStair(d){
 }
 function fallDip(x,z){
   if(typeof fallW!=='number'||fallW<=0.001)return 0;
-  const d=Math.max(-FALL_BEHIND,Math.min(FALL_AHEAD,fallZ0-z));
+  const T=fallTravel;
+  // The window travels with him. Clamped at fixed numbers the rider would ride out past
+  // FALL_AHEAD within three seconds and spend the rest of the run on the flat beyond it.
+  const d=Math.max(T-FALL_BEHIND,Math.min(T+FALL_AHEAD,fallZ0-z));
   const u=Math.min(1.6,Math.abs(x)/FALL_LANE);      // past the lane it keeps climbing, steeply
   const knee=Math.max(0,d-FALL_KNEE);               // shallow under him, near-vertical far out
   // ...and the lip is not a ruled line. A rapid's edge curves across the channel -- it goes over
@@ -3649,7 +3652,14 @@ function fallDip(x,z){
   // than water. One slow sine across x, the same one the shader paints with, so the white stays
   // on the drop it belongs to.
   const dw=d+Math.sin(x*FALL_LIPX)*FALL_LIPA;
-  return fallW*(-FALL_SLOPE*d - FALL_STEEP*knee + fallStair(dw) - fallStair(0))
+  // ---- ANCHORED AT HIM, NOT AT ZERO ----
+  // Subtracting the profile's value AT HIS OWN POSITION keeps his height near zero however far
+  // down he has come, so thirty-five seconds of falling cannot take the sea past the sky dome --
+  // while everything around him is still the real shape, moving. The old anchor was the value at
+  // d=0, which is only the same thing while the pivot is nailed to the board.
+  const wob=Math.sin(x*FALL_LIPX)*FALL_LIPA;
+  const A=-FALL_SLOPE*T - FALL_STEEP*Math.max(0,T-FALL_KNEE) + fallStair(T+wob);
+  return fallW*(-FALL_SLOPE*d - FALL_STEEP*knee + fallStair(dw) - A)
        + FALL_BANK*fallW*u*u;
 }
 function whirlDip(x,z){
@@ -3807,7 +3817,7 @@ const oceanUniforms={
   // uFallZF is the pivot in FIELD coordinates, which is what the vertex shader works in and
   // what fallDip itself is written in. uFallZ above is the world-space one the fragment shader
   // compares against vW.z. They are not interchangeable.
-  uFallW:{value:0}, uFallZ:{value:0}, uFallZF:{value:0}, uFallLane:{value:13.5},
+  uFallW:{value:0}, uFallZ:{value:0}, uFallZF:{value:0}, uFallT:{value:0}, uFallLane:{value:13.5},
   // ---- the wakes, drawn as FOAM ON THE WATER rather than as sprites ----
   // The sprite cloud could not be made both thick and clean: stacked translucent quads round
   // their blend to 8 bits and a phone shows the error as coloured speckle, so density fought
@@ -3866,7 +3876,7 @@ const oceanMat=new THREE.ShaderMaterial({
     uniform float uWakeZ; uniform float uWakeA; uniform float uWakeX;
     uniform float uWhX; uniform float uWhZ; uniform float uWhA;
     uniform float uSwA; uniform float uSwX; uniform float uSwS;
-    uniform float uFallZF;   // uFallW and uFallLane are already declared above
+    uniform float uFallZF; uniform float uFallT;   // uFallW and uFallLane are declared above
     varying vec3 vN; varying vec3 vW; varying float vH; varying vec2 vPh;
     varying float vSw; varying float vBrk; varying float vPa; varying float vDx;
     // ---- THE FALL, IN THE GEOMETRY ----
@@ -3893,11 +3903,18 @@ const oceanMat=new THREE.ShaderMaterial({
     }
     float fallH(vec2 q){
       if(uFallW<=0.002) return 0.0;
-      float d=clamp(uFallZF-q.y, -${FALL_BEHIND.toFixed(2)}, ${FALL_AHEAD.toFixed(2)});
+      // Both of fallDip's travelling parts, or the drawn water and the water the board rides
+      // stop being the same surface the moment he starts moving down it: the window clamps
+      // around HIM, and the profile is anchored at his own position rather than at zero.
+      float d=clamp(uFallZF-q.y, uFallT-${FALL_BEHIND.toFixed(2)}, uFallT+${FALL_AHEAD.toFixed(2)});
       float u=min(1.6, abs(q.x)/max(0.001,uFallLane));
-      float dw=d+sin(q.x*${FALL_LIPX.toFixed(4)})*${FALL_LIPA.toFixed(3)};
+      float wob=sin(q.x*${FALL_LIPX.toFixed(4)})*${FALL_LIPA.toFixed(3)};
+      float dw=d+wob;
+      float A=-${FALL_SLOPE.toFixed(4)}*uFallT
+              - ${FALL_STEEP.toFixed(4)}*max(0.0,uFallT-${FALL_KNEE.toFixed(2)})
+              + fallStairG(uFallT+wob);
       return uFallW*(-${FALL_SLOPE.toFixed(4)}*d - ${FALL_STEEP.toFixed(4)}*max(0.0,d-${FALL_KNEE.toFixed(2)})
-                     + fallStairG(dw) - fallStairG(0.0))
+                     + fallStairG(dw) - A)
            + ${FALL_BANK.toFixed(3)}*uFallW*u*u;
     }
     void main(){
@@ -13906,6 +13923,13 @@ let fallPh=-1;            // -1 off, 0 dropping in, 1 in the chute, 2 running ou
 let fallT=0, fallW=0;     // phase clock, and how far into the chute look (0..1)
 let fallLay=0;            // prone weight, driven off fallW
 let fallTilt=0;           // radians of nose-down, measured off the water he is on
+// ---- HOW FAR DOWN THE FALL HE HAS COME ----
+// The pivot rode with him, which meant the staircase was nailed to the board: every lip sat at
+// the same distance in front for the whole run and not one of them ever arrived. That is the
+// "we stay where we are" of it -- the only thing moving was the texture. This is the distance he
+// has actually travelled down the profile, and it advances at his own speed, so the lips sweep
+// in, pass under him and go out behind exactly the way the rest of the sea does.
+let fallTravel=0;
 let fallGrp=null, fallWallL=null, fallWallR=null, fallRockL=null, fallRockR=null, fallMist=[];
 // Ninety-five seconds of chute. It was thirty-five, which at this speed is barely four of the
 // drops -- not enough of a run for the descent to become the thing you are doing rather than a
@@ -13942,7 +13966,12 @@ const FALL_PITCH=0.16;    // radians the shot tips down the fall line at full we
 // under the HUD with the rim and the horizon still at the top of frame. The pitch stays well
 // under the water's own angle -- pitched to match, the lens looks along the surface and the
 // whole thing goes back to reading flat, which is the trap this has fallen into twice.
-const FALL_CAM={lift:9.0, back:9.0, pitch:0.44};
+// ---- ZERO, ALL THREE ----
+// Asked for twice. Anything non-zero here pans the shot the moment the drop arms, and a camera
+// that moves at the exact instant the world changes is read as the camera doing the changing.
+// Kept as live numbers rather than deleted, because fallCam() is still the quickest way to try
+// a shot, but nothing ships with it set.
+const FALL_CAM={lift:0.0, back:0.0, pitch:0.0};
 // Sign and strength of the board's nose-down, live for the same reason the camera is.
 // At 1.0 the board takes the full gradient -- twenty-six degrees -- and the prone rider, who is
 // already rotated flat onto the deck, disappears behind it. Enough to read as pointing downhill
@@ -14234,11 +14263,11 @@ function fallGo(){
   // touch the drop without touching an ordinary run.
   for(const o of obstacles)scene.remove(o);
   obstacles.length=0;
-  fallPh=0; fallT=0;
+  fallPh=0; fallT=0; fallTravel=0;
   if(fallGrp)fallGrp.visible=true;
   return true;
 }
-function fallEnd(){ fallPh=-1; fallT=0; fallW=0; fallLay=0; fallTilt=0;
+function fallEnd(){ fallPh=-1; fallT=0; fallW=0; fallLay=0; fallTilt=0; fallTravel=0;
   if(fallGrp)fallGrp.visible=false; }
 function fallStep(dt){
   // ---- AND THE TILT COMES OFF THE BOARD WHEN THE CHUTE DOES ----
@@ -14286,7 +14315,9 @@ function fallStep(dt){
   // 1.1 over the first eighty units and then -4.7. Flat ground ending in a line with sky beyond
   // is not a brink, it is a HILL CREST, which is exactly what it looked like. The pivot stays on
   // him, so the slope starts under his own board and everything in front of it is downhill.
-  fallZ0=dist*WAVE_DRIFT+pz;
+  // ...and he moves down it at his own speed, which is what makes the lips arrive.
+  if(fallPh>=0)fallTravel+=Math.max(0,(typeof lastEff==='number')?lastEff:0)*dt;
+  fallZ0=dist*WAVE_DRIFT+pz+fallTravel;
   // ---- HOW FAR NOSE-DOWN THE BOARD IS, TAKEN OFF THE WATER ITSELF ----
   // Not a number tuned to look right: the actual gradient of the surface he is riding, sampled
   // a few units fore and aft in the same field coordinates waveH works in. So it steepens on
@@ -25037,6 +25068,7 @@ function updateWorldDuringWipeout(dt){
   oceanUniforms.uDist.value=dist*WAVE_DRIFT;
   oceanUniforms.uFallW.value=(typeof fallW==='number')?fallW:0;
   oceanUniforms.uFallZF.value=(typeof fallZ0==='number')?fallZ0:0;
+  oceanUniforms.uFallT.value=(typeof fallTravel==='number')?fallTravel:0;
   oceanUniforms.uFallZ.value=pz;
   oceanUniforms.uFallLane.value=(fallPh===0)?FALL_LANE*3.2:FALL_LANE;
   oceanUniforms.uWakeZ.value=wkZ;oceanUniforms.uWakeA.value=wkA;oceanUniforms.uWakeX.value=wkX;
@@ -29149,7 +29181,7 @@ if(location.hash.includes('debug')){
       const z0=dist*WAVE_DRIFT+pz, T=(typeof tNow==='number')?tNow:performance.now()/1000;
       const out=[];
       for(let d=-160; d<=280; d+=20) out.push([d, +waveH(px, z0-d, T).toFixed(1)]);
-      return {ph:fallPh, w:+fallW.toFixed(2), prof:out};
+      return {ph:fallPh, w:+fallW.toFixed(2), trav:+fallTravel.toFixed(0), prof:out};
     },
     // The hut's own frame, measured rather than assumed. Four rounds of placing a quad in local
     // coordinates moved it almost nowhere on screen, which means the frame is not what it looks
@@ -41908,6 +41940,7 @@ function update(dt){
   // bug as the prone pose: the value was right and it was going somewhere that never ran.
   oceanUniforms.uFallW.value=(typeof fallW==='number')?fallW:0;
   oceanUniforms.uFallZF.value=(typeof fallZ0==='number')?fallZ0:0;
+  oceanUniforms.uFallT.value=(typeof fallTravel==='number')?fallTravel:0;
   oceanUniforms.uFallZ.value=pz;
   oceanUniforms.uFallLane.value=(fallPh===0)?FALL_LANE*3.2:FALL_LANE;
   oceanUniforms.uWakeZ.value=wkZ;oceanUniforms.uWakeA.value=wkA;oceanUniforms.uWakeX.value=wkX;
