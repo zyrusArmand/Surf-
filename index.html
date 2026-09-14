@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.00';
+window.SURF_VERSION='10.01';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -14229,6 +14229,11 @@ const FALL_APPROACH=118;   // how far out the edge first appears
 function fallGo(){
   if(!running)return false;
   fallBuild();
+  // Suppressing the spawner stops NEW ones; whatever was already on the water at the moment the
+  // drop is armed would otherwise ride into it. Cleared here, which is the only place that can
+  // touch the drop without touching an ordinary run.
+  for(const o of obstacles)scene.remove(o);
+  obstacles.length=0;
   fallPh=0; fallT=0;
   if(fallGrp)fallGrp.visible=true;
   return true;
@@ -41341,7 +41346,13 @@ function update(dt){
   // spawner is stood down for the length of it. Two sets of obstacles arriving in a corridor
   // ten feet wide is not a harder channel, it is an unreadable one.
   if(forkOn&&forkPh>0)spawnT=Math.max(spawnT,0.5);
-  if(swPh===SWP.IDLE&&spawnT<=0&&!(forkOn&&forkPh>0)){
+  // ---- AND NOTHING AT ALL IN THE DROP ----
+  // Stood down for the whole set piece, the same way the fork stands it down one clause along.
+  // fallPh is -1 when the drop is off and 0, 1 or 2 through its three phases, so this covers the
+  // entry and the run-out as well as the fall itself -- an obstacle that spawns during the
+  // approach is still in the water when he goes over the lip.
+  const _inDrop=(typeof fallPh!=='undefined')&&fallPh>=0;
+  if(swPh===SWP.IDLE&&spawnT<=0&&!(forkOn&&forkPh>0)&&!_inDrop){
     // Space them by the gap on the water, not by the clock. Timing the spawns meant
     // that as the ramp pulled the interval down while the speed was still low, the
     // obstacles bunched up tighter mid-run than they ever are at the end. Held in
