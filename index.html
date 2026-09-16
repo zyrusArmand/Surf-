@@ -6790,7 +6790,8 @@ function sfxWake(){
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
   // the three layers of the riding bed; voices share these buffers, see _sfxAlias
   for(const n of ['glide','wake','wind','weird','gull1','gull2','gull3',
-                  'btn','boat','ski','buy','eqchar','eqboard','eqstyle'])
+                  'btn','boat','ski','buy','eqchar','eqboard','eqstyle',
+                  'starthrow','starfly'])
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
   for(const n of ['roll','spin','flip','stand','close'])
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
@@ -30626,6 +30627,9 @@ if(location.hash.includes('debug')){
               ufoPhase:(typeof ufoPh!=='undefined')?ufoPh:null,
               weird:d('weird'),
               btn:d('btn'), boat:d('boat'), ski:d('ski'),
+              star:{throw:d('starthrow'),fly:d('starfly')},
+              starThrew:_sfxCalls['1shot:starthrow']||0,
+              starFlyVol:_sfxLoops.starfly?+(_sfxLoops.starfly.wantMax||0).toFixed(3):null,
               shop:{buy:d('buy'),eqchar:d('eqchar'),eqboard:d('eqboard'),eqstyle:d('eqstyle')},
               shopFired:['buy','eqchar','eqboard','eqstyle'].map(n=>_sfxCalls['1shot:'+n]||0),
               btnFired:_sfxCalls['1shot:btn']||0,
@@ -40329,6 +40333,13 @@ function octoArms(o){
 function throwStarfish(oct,from){
   const st=STAR_POOL.pop(); if(!st)return;
   starThrows++;
+  // ---- THE RELEASE ----
+  // Two recordings arrived for this and the question was which. They answer it themselves:
+  // one is a half-second low lob and the other is twenty-three seconds of bright sustained
+  // whirring. They are not alternatives, they are the throw and the flight. This is the throw.
+  // Panned to the arm it left, because an octopus off to one side should be heard there.
+  if(typeof sfx==='function')
+    sfx('starthrow',0.42,0.94+Math.random()*0.14);
   st.visible=true;
   const fx=from?from.x:oct.position.x, fy=from?from.y:oct.position.y+1.15,
         fz=from?from.z:oct.position.z;
@@ -40961,6 +40972,24 @@ function updateStars(dt,eff){
       if(s2.m.position.y<sea)splash(s2.m.position.x,sea,s2.m.position.z,6,0xff8a3d);
       s2.m.visible=false;STAR_POOL.push(s2.m);stars.splice(i,1);
     }
+  }
+  // ---- AND THE FLIGHT ----
+  // "While it is in the air", which is a state and not an event, so it is a loop rather than a
+  // one-shot: it starts when the first star goes up, holds while any are up however many there
+  // are, and needs no stop -- nothing asks for it once the array empties and the keep-alive
+  // takes it down within a quarter second. A flight lasts between 0.4 and 1.5 seconds against a
+  // 2.4 second loop, so in practice the wrap is never even reached.
+  // Level and pan come from the NEAREST star, so one going past your ear reads differently from
+  // one arcing away, and rising as it closes is most of what makes it worth dodging.
+  if(stars.length&&typeof sfxLoop==='function'){
+    let best=1e9, bx=0;
+    for(const s3 of stars){
+      const dx=s3.m.position.x-px, dz=s3.m.position.z-pz, d=Math.sqrt(dx*dx+dz*dz);
+      if(d<best){ best=d; bx=dx; }
+    }
+    const near=Math.max(0,1-best/30);
+    sfxLoop('starfly',(0.10+near*near*0.46)*(diveDepth>0.5?0.3:1),
+            0.95+near*0.22, Math.max(-1,Math.min(1,bx/16)));
   }
 }
 // the starfish stuck to the lens: it squashes on impact, then peels off and slides
