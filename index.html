@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.51';</script>
+<script>window.SURF_VERSION='10.52';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -1988,7 +1988,19 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
      tiles are TALLER, the board fills them, and what came out is the empty space around a
      board that was being photographed in a landscape frame. Four boards visible at once
      became twelve, and each one is drawn about twice as tall as it was. */
-  #shopList { overflow-y:auto; -webkit-overflow-scrolling:touch; padding:2px 2px 4px;
+  /* ---- AND THE SHELF RUNS INTO THE BUILDING ----
+     A list that simply stops at a hard edge reads as a list on a screen. These are shelves
+     inside a hut, so what leaves the view has to go somewhere -- up behind the roof, down
+     behind the counter -- rather than being cut off at a line. A mask on the scroller does
+     that: the first and last few millimetres of the strip fade out, so a tile sliding past
+     the top dissolves into the structure instead of vanishing at a border.
+     Both the standard property and the -webkit- one, because the prefixed form is still the
+     only one Safari takes and this is a phone game. */
+  #shopList { overflow-y:auto; -webkit-overflow-scrolling:touch; padding:8px 2px 14px;
+    -webkit-mask-image:linear-gradient(to bottom, rgba(0,0,0,0) 0, #000 30px,
+                                       #000 calc(100% - 34px), rgba(0,0,0,0) 100%);
+            mask-image:linear-gradient(to bottom, rgba(0,0,0,0) 0, #000 30px,
+                                       #000 calc(100% - 34px), rgba(0,0,0,0) 100%);
     display:grid; gap:8px; grid-template-columns:repeat(auto-fill,minmax(104px,1fr));
     /* let every row take the height its tile needs — stretched rows squash the
        preview and clip the name and the button straight off the bottom */
@@ -2146,28 +2158,40 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
                                        rgba(150,246,238,.20));
     box-shadow:0 0 16px rgba(40,214,208,.24), inset 0 1.3px 0 rgba(255,255,255,.86),
                inset 0 -9px 13px -10px rgba(180,248,240,.48); }
-  .card { position:relative; display:flex; flex-direction:column; text-align:left; overflow:hidden;
-    border-radius:16px; border:1.5px solid rgba(255,255,255,.26);
-    background:linear-gradient(180deg, rgba(255,255,255,.24), rgba(255,255,255,.10));
-    box-shadow:0 10px 24px rgba(0,20,44,.30), inset 0 1px 0 rgba(255,255,255,.34); }
-  .card.on { border-color:#ffdf2e;
-    box-shadow:0 0 0 1px rgba(255,223,46,.45), 0 10px 24px rgba(90,70,0,.34); }
-  /* the picture is a rendered beach now, edge to edge, so it fills the tile rather than
-     floating on a gradient of its own */
-  .card .thumb { width:100%; aspect-ratio:164/250; object-fit:cover; display:block;
-    background:#7cc6ee; cursor:pointer; }
+  /* ---- EVERY TILE IS A CARVED NICHE ----
+     The glass rectangle is gone. Each item stands in the shop's own shelf frame -- rendered
+     flat and square on from models/ so no perspective is baked into something that gets tiled
+     twelve times down a list, and with the opening left transparent so the preview shows
+     through it rather than being laid on top.
+     Every number here is MEASURED off that render's alpha rather than eyed: the opening is
+     inset 12.7% at each side and 9.2% from the top, and the shelf takes the bottom 22.6% --
+     which is exactly where the name and the price want to sit, on the wood. */
+  .card { position:relative; text-align:left; aspect-ratio:560/1035;
+    background:url(ui/shelf_frame.png) center/100% 100% no-repeat;
+    filter:drop-shadow(0 6px 10px rgba(0,16,34,.42)); }
+  /* Riding or worn is a warm light IN the niche, not a border on a box: there is no box left
+     to put a border on, and a glow behind the shell reads as the piece being lit on the shelf. */
+  .card.on { filter:drop-shadow(0 0 10px rgba(255,223,46,.55)) drop-shadow(0 6px 10px rgba(0,16,34,.42)); }
+  .card .thumb { position:absolute; left:12.7%; top:9.2%; width:74.6%; height:68.2%;
+    object-fit:cover; display:block; background:#7cc6ee; cursor:pointer;
+    border-radius:7px 7px 3px 3px; }
+  .card.on .thumb { box-shadow:0 0 0 1px rgba(255,223,46,.5), inset 0 0 18px rgba(255,214,40,.22); }
   /* ---- the tile is a PICTURE and a PRICE, and nothing else ----
      It used to carry the blurb and four rows of stats as well, which pushed it past five
      hundred pixels tall and put four boards on a phone screen. Those are things you read
      while DECIDING, not while browsing, so they have moved to the viewer — which was
      already a detail sheet with the board standing on a beach and simply had no way to buy
      from it. Browse dense, decide deep. */
-  .card .foot { padding:7px 6px 8px; display:flex; flex-direction:column; gap:4px;
+  /* on the shelf, which is the bottom 22.6% of the frame */
+  .card .foot { position:absolute; left:9%; right:9%; bottom:3.4%; height:19%;
+    display:flex; flex-direction:column; gap:1px; justify-content:center;
     align-items:center; text-align:center; }
   .card .foot .nm { font-weight:800; font-size:11px; letter-spacing:.1px; line-height:1.16;
-    width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .card .foot .pr { font-size:11px; font-weight:800; opacity:.92;
-    font-variant-numeric:tabular-nums; display:flex; align-items:center; gap:3px; }
+    width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    color:#fdf3e2; text-shadow:0 1px 2px rgba(20,8,0,.85), 0 0 3px rgba(20,8,0,.6); }
+  .card .foot .pr { font-size:10.5px; font-weight:800; opacity:.96;
+    font-variant-numeric:tabular-nums; display:flex; align-items:center; gap:3px;
+    text-shadow:0 1px 2px rgba(20,8,0,.85); }
   .card .foot .pr.have { color:#ffdf2e; }
   /* A lock is not a price and must not be mistaken for one at tile size, so it is the one
      figure on this card that is not gold: cool and quieter, and it reads as a condition. */
