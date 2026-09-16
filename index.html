@@ -23,7 +23,8 @@
      fetch() up HERE, in the head       -> runs while the head is still parsing.
    The body is never read; landing it in the HTTP cache is the whole point, so the <audio>
    element gets a cache hit the moment it is allowed to load. */
-try{ fetch('sounds/title.webm',{cache:'default'}).catch(function(){}); }catch(e){}</script>
+try{ fetch('sounds/title.webm',{cache:'default'}).catch(function(){}); }catch(e){}
+try{ fetch('sounds/land.webm',{cache:'default'}).catch(function(){}); }catch(e){}</script>
 <!-- A hint, not a guarantee. Most browsers ignore these on the document itself and the CDN in
      front of this never sees them at all — the actual answer is the version check further down,
      which asks the server what shipped and reloads if this is not it. -->
@@ -53,7 +54,7 @@ try{ fetch('sounds/title.webm',{cache:'default'}).catch(function(){}); }catch(e)
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.20';
+window.SURF_VERSION='10.21';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -6512,6 +6513,57 @@ function setMusic(v){
   _musLast=null; musicTick();
 }
 setInterval(musicTick,250);
+// ---------- SOUND EFFECTS ----------
+// Web Audio, not <audio>. A one-shot has to fire the instant the board touches down and has to
+// be able to overlap itself; an <audio> element does neither well. Decoded once into a buffer,
+// then every landing is a throwaway BufferSource off that same buffer, which is cheap enough to
+// do without thinking about it.
+let sfxOn=(()=>{ try{ return localStorage.getItem('surfSfx')!=='0'; }catch(e){ return true; } })();
+function setSfx(v){ sfxOn=!!v; try{ localStorage.setItem('surfSfx',sfxOn?'1':'0'); }catch(e){} }
+let _ac=null, _sfxOut=null; const _sfxBuf={};
+function sfxCtx(){
+  if(_ac)return _ac;
+  const C=window.AudioContext||window.webkitAudioContext;
+  if(!C)return null;
+  try{ _ac=new C(); }catch(e){ return null; }
+  _sfxOut=_ac.createGain(); _sfxOut.gain.value=1; _sfxOut.connect(_ac.destination);
+  return _ac;
+}
+function sfxLoad(name,urls){
+  const ac=sfxCtx(); if(!ac||_sfxBuf[name]==='loading'||_sfxBuf[name])return;
+  _sfxBuf[name]='loading';
+  (async()=>{
+    for(const u of urls){
+      try{
+        const r=await fetch(u); if(!r.ok)continue;
+        // decodeAudioData takes whatever the browser can decode, so the same Opus-then-AAC
+        // order the music uses works here without asking what we are running on
+        _sfxBuf[name]=await ac.decodeAudioData(await r.arrayBuffer());
+        return;
+      }catch(e){}
+    }
+    _sfxBuf[name]=null;                      // nothing decoded; stay silent rather than throw
+  })();
+}
+function sfx(name,vol,rate){
+  if(!sfxOn)return;
+  const ac=_ac, b=_sfxBuf[name];
+  if(!ac||!b||b==='loading')return;
+  if(ac.state==='suspended'){ try{ ac.resume(); }catch(e){} }
+  try{
+    const src=ac.createBufferSource(); src.buffer=b;
+    if(rate)src.playbackRate.value=rate;
+    const g=ac.createGain(); g.gain.value=Math.max(0,Math.min(1.4,vol===undefined?1:vol));
+    src.connect(g); g.connect(_sfxOut); src.start();
+  }catch(e){}
+}
+// The context has to be BUILT inside a gesture or it is born suspended and some browsers never
+// let it out, so this rides the same unlock the music uses.
+function sfxWake(){
+  const ac=sfxCtx(); if(!ac)return;
+  if(ac.state==='suspended'){ try{ ac.resume(); }catch(e){} }
+  sfxLoad('land',['sounds/land.webm','sounds/land.m4a']);
+}
 // ---- WARM THE CACHE WITH A PLAIN FETCH ----
 // A browser will not download a media element's source until it believes the media can
 // actually play, and with autoplay blocked that means it waits for the first tap -- measured,
@@ -6530,7 +6582,7 @@ try{ musicEl(); }catch(e){}
 // the trick buttons all do -- cannot swallow the one gesture that was going to start the
 // music. Capture runs before any of them get a say.
 for(const ev of ['pointerdown','touchend','mousedown','keydown'])
-  document.addEventListener(ev,()=>{ if(_musWant&&musicOn)_musTry(); },{passive:true,capture:true});
+  document.addEventListener(ev,()=>{ if(_musWant&&musicOn)_musTry(); sfxWake(); },{passive:true,capture:true});
 document.addEventListener('visibilitychange',()=>{
   if(!_mus)return;
   if(document.hidden){ try{ _mus.pause(); }catch(e){} }
@@ -13022,6 +13074,8 @@ function drawSettings(){
   document.getElementById('setBody').innerHTML=
     '<div class="row"><span>Music</span>'+
       '<button class="sw'+(musicOn?' on':'')+'" id="setMusic">'+(musicOn?'On':'Off')+'</button></div>'+
+    '<div class="row"><span>Sound effects</span>'+
+      '<button class="sw'+(sfxOn?' on':'')+'" id="setSfx">'+(sfxOn?'On':'Off')+'</button></div>'+
     '<div class="row"><span>Vibration</span>'+
       '<button class="sw'+(buzzOn?' on':'')+'" id="setBuzz">'+(buzzOn?'On':'Off')+'</button></div>'+
     '<div class="row"><span>Feel a tap</span>'+
@@ -13031,6 +13085,8 @@ function drawSettings(){
     '<div class="row"><span>Best trick score</span><b>'+(best|0).toLocaleString()+'</b></div>'+
     '<div class="row"><span>Version</span><b>v'+VERSION+'</b></div>';
   document.getElementById('setMusic').onclick=()=>{ setMusic(!musicOn); buzz(14); drawSettings(); };
+  document.getElementById('setSfx').onclick=()=>{ setSfx(!sfxOn); buzz(14);
+    if(sfxOn)sfx('land',0.6,1.0); drawSettings(); };   // turning it on plays what it sounds like
   document.getElementById('setBuzz').onclick=()=>{ setBuzz(!buzzOn); buzz(14); drawSettings(); };
   const t=document.getElementById('setBuzzTest');
   // Redrawing the panel mid-press would tear the button out from under the finger that is
@@ -30152,6 +30208,10 @@ if(location.hash.includes('debug')){
               t:a?+a.currentTime.toFixed(2):null, ready:a?a.readyState:null,
               src:a&&a.currentSrc?a.currentSrc.split('/').pop():null}; },
     musicKick(){ if(typeof _musTry==='function')_musTry(); return true; },
+    sfxState(){ const b=_sfxBuf.land;
+      return {on:sfxOn, ctx:_ac?_ac.state:null,
+              land:(b==='loading')?'loading':(b?('decoded '+b.duration.toFixed(3)+'s'):'none')}; },
+    sfxFire(v){ sfx('land',v===undefined?0.8:v,1.0); return true; },
     // "I cannot hear it" has several different causes that look identical. This says which.
     musicWhy(){
       const a=_mus;
@@ -41688,6 +41748,9 @@ function update(dt){
     if(py<=waterY&&wakeGrace<=0){
       const impact=Math.min(1.6,Math.max(0,-vy)/15);
       if(airborne){
+        // the board hitting the water, loud in proportion to how far it fell, and pitched a
+        // little differently every time so a run of landings does not turn into a metronome
+        sfx('land',0.34+impact*0.42,0.94+Math.random()*0.13);
         splash(px,waterY,0,20+impact*40);
         pushTrail(px,waterY,0.5,0.95+impact*1.0);
         shake=Math.max(shake,impact*0.55);
