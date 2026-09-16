@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.44';</script>
+<script>window.SURF_VERSION='10.45';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -6046,12 +6046,13 @@ function astroLivery(root){
 // model was never even asked for. Measured: still null after a hundred and sixty seconds.
 // The shades, as a model. Same arrangement as every other optional glb: if it never lands the
 // procedural pair stays and nobody sees a gap.
-let shadesModel=null;
+let bandanaModel=null, shadesModel=null;
 loadModel('shades.glb',s=>{ shadesModel=s; if(typeof equipChar==='function'&&typeof rider!=='undefined'){ try{ equipChar(rider); }catch(e){} } },0);
 // The cattleman, modelled rather than lofted: swept from a profile, creased down the crown
 // and rolled at the brim. Lands Y-up with +X out the front, which is what the fit below reads.
 let hatModel=null;
 loadModel('cowboyhat.glb',s=>{ hatModel=s; if(typeof equipChar==='function'&&typeof rider!=='undefined'){ try{ equipChar(rider); }catch(e){} } },0);
+loadModel('bandana.glb',s=>{ bandanaModel=s; if(typeof equipChar==='function'&&typeof rider!=='undefined'){ try{ equipChar(rider); }catch(e){} } },0);
 loadModel('board.glb',s=>{
   const fitted=skinAndFit('board',s,BOARD_BOX,orientBoard);
   // Match deck to deck rather than box to box. A thin model has nothing like the
@@ -6090,6 +6091,12 @@ const GEAR=[
   // object, so the other four are gone until there is art that actually differs.
   {id:'shd_classic', slot:'eyes', lv:4,   name:'Classic Shades',   blurb:'Black wayfarers. Never not right.',
    frame:0xffffff, lens:0x0d1014, mirror:0.0},
+  // --- neck: tied at the back, the point hanging down the chest ---
+  // The one piece of gear with its own model AND its own print. See models/bandana.glb: a
+  // square folded on its diagonal, pleated by formula rather than simulated, with a paisley
+  // drawn to the bordered-square layout a real bandana uses.
+  {id:'bnd_paisley', slot:'neck', lv:14, name:'Paisley Bandana',
+   blurb:'Tied at the back. Teal, and printed properly.'},
   // --- hats: sat on the crown ---
   {id:'hat_cap',     slot:'head', lv:8,   name:'Surf Cap',         blurb:'Peak forward, salt-stained.',
    col:0x2f6fb5, brim:0x27599010, kind:'cap'},
@@ -6122,7 +6129,7 @@ for(const g of GEAR_SUITS)GEAR.push(g);
 const GEAR_BY_ID={}; for(const g of GEAR)GEAR_BY_ID[g.id]=g;
 // what is ON, one per slot. Nothing by default -- a new player is not wearing a hat they have
 // not earned, and the first one they earn is the first thing they see change.
-let gearOn={eyes:'', head:'', body:''};
+let gearOn={eyes:'', head:'', neck:'', body:''};
 function gearLvl(id){ const g=GEAR_BY_ID[id]; return g?g.lv:1; }
 function gearHave(id){ return level>=gearLvl(id); }
 // Gear has no owned[] of its own on purpose. A board can be unlocked and still not bought, so
@@ -7097,7 +7104,7 @@ function loadSave(){
     // ...and only if it is still a board this build knows and you still do not own it: a loan
     // of something bought in the meantime is a loan of your own board.
     wheelLoan=(typeof v.wheelLoan==='string'&&v.wheelLoan&&!owned[v.wheelLoan])?v.wheelLoan:'';
-    gearOn={eyes:'', head:'', body:''};
+    gearOn={eyes:'', head:'', neck:'', body:''};
     if(v.gearOn)for(const s of ['eyes','head','body']){
       const id=v.gearOn[s];
       if(id&&GEAR_BY_ID[id]&&GEAR_BY_ID[id].slot===s)gearOn[s]=id;
@@ -11973,7 +11980,7 @@ function gearPreview(id){
   let undo=null;
   try{
     // worn ALONE, so the card shows this piece and not whatever else is on
-    gearOn={eyes:'',head:'',body:''}; gearOn[g.slot]=id;
+    gearOn={eyes:'',head:'',neck:'',body:''}; gearOn[g.slot]=id;
     gearPreviewAll=true;
     // equipChar, not buildChar -- the same distinction the Wear button already documents one
     // screen away. Measured: with buildChar, ten of the fifteen cards came back byte-identical
@@ -15520,7 +15527,7 @@ function clearKit(){ for(const m of kitParts) if(m.parent)m.parent.remove(m); ki
 // The face is -Z. The eyes sit at z about -0.30 to -0.40 and y about 0.06 to 0.22, so shades
 // go across that plane and a hat goes on the crown above it.
 function kitGear(C,bodyPatch){
-  const E=gearWorn('eyes'), H=gearWorn('head'), S=gearWorn('body');
+  const E=gearWorn('eyes'), H=gearWorn('head'), S=gearWorn('body'), B=gearWorn('neck');
   // Tagged so the fit check can pick the gear back out of a kit that also holds ears, eyes,
   // markings and a nose -- there is no other way to tell one kit() mesh from another. Tagged
   // with the SLOT and not just a flag: a rider can wear a hat and a suit at once, and a check
@@ -15635,6 +15642,49 @@ function kitGear(C,bodyPatch){
     }
   }
   tag('eyes');
+  // ---- THE BANDANA, ON THE NECK ----
+  // Fitted the way the hat is -- measured off the skull rather than guessed -- because the
+  // rig has no neck parent to hang it from and twenty-two animals share one skull with a
+  // per-character scale on it. What the head box gives is a width and a bottom, and a neck is
+  // a known fraction of the first sitting just under the second. Its own model is a unit ring:
+  // radius 1.0 about the origin, so the scale IS the neck radius and nothing has to be
+  // divided by anything.
+  //
+  // glTF turned it on the way out: Blender's +Z up became +Y, and its -Y front became +Z. The
+  // rider's face is -Z, so the basis maps model +Z to the rider's forward, model +Y to up, and
+  // takes the third axis from their cross product -- in that order, or it comes out mirrored.
+  if(B&&bandanaModel&&typeof cloneModel==='function'){
+    const o=cloneModel(bandanaModel);
+    o.traverse(mm=>{ if(mm.isMesh){ mm.castShadow=false; mm.receiveShadow=false; } });
+    o.rotation.set(0,0,0); o.scale.setScalar(1); o.updateMatrixWorld(true);
+    const EY=(typeof riderEyeFit==='function')?riderEyeFit():null;
+    const _bb=(typeof headBoxLocal==='function')?headBoxLocal():null;
+    const HB=_bb&&_bb.box;
+    if(EY&&HB){
+      let lo=Infinity, hi=-Infinity, bot=Infinity;
+      for(const px of [HB.min.x,HB.max.x])for(const py of [HB.min.y,HB.max.y])for(const pz of [HB.min.z,HB.max.z]){
+        const p=new THREE.Vector3(px,py,pz).sub(EY.mid);
+        const t=p.dot(EY.right); if(t<lo)lo=t; if(t>hi)hi=t;
+        const u=p.dot(EY.up);    if(u<bot)bot=u;
+      }
+      const skull=hi-lo;
+      // A neck is about two fifths of the width of the head above it, and the tie sits a
+      // little under the jaw rather than on it.
+      o.scale.setScalar(skull*0.40);
+      o.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(
+        new THREE.Vector3().crossVectors(EY.up, EY.fwd), EY.up.clone(), EY.fwd.clone()));
+      o.position.copy(EY.mid).addScaledVector(EY.up, bot+skull*0.10);
+      kit(EY.H, o);
+    } else {
+      o.scale.setScalar(0.33);
+      const f=new THREE.Vector3(0,0,-1), u=new THREE.Vector3(0,1,0);
+      o.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(
+        new THREE.Vector3().crossVectors(u,f), u, f));
+      o.position.set(0,-0.16,0);
+      kit(GP,o);
+    }
+    tag('neck');
+  }
   if(H){
     const m=PBR({color:H.col, roughness:H.kind==='crown'?0.22:0.72,
                  metalness:H.kind==='crown'?0.85:0.05, vivid:H.kind==='crown'?1.6:1.05});
@@ -30495,7 +30545,7 @@ if(location.hash.includes('debug')){
         const R=(typeof riderRig==='function')?riderRig():null;
         const a=gearPreview(gid);
         const keep={eyes:gearOn.eyes,head:gearOn.head,body:gearOn.body};
-        gearOn={eyes:'',head:'',body:''}; equipChar(cid);
+        gearOn={eyes:'',head:'',neck:'',body:''}; equipChar(cid);
         const u=portraitPose(); const bare=snapshot(pug,'char'); if(u)u();
         gearOn=keep; equipChar(was);
         return {char:cid, isModel:!!R, differs:(a!==bare), len:(a||'').length};
