@@ -24,7 +24,8 @@
    The body is never read; landing it in the HTTP cache is the whole point, so the <audio>
    element gets a cache hit the moment it is allowed to load. */
 try{ fetch('sounds/title.webm',{cache:'default'}).catch(function(){}); }catch(e){}
-try{ fetch('sounds/land.webm',{cache:'default'}).catch(function(){}); }catch(e){}</script>
+try{ fetch('sounds/land.webm',{cache:'default'}).catch(function(){}); }catch(e){}
+try{ fetch('sounds/jet.webm',{cache:'default'}).catch(function(){}); }catch(e){}</script>
 <!-- A hint, not a guarantee. Most browsers ignore these on the document itself and the CDN in
      front of this never sees them at all — the actual answer is the version check further down,
      which asks the server what shipped and reloads if this is not it. -->
@@ -54,7 +55,7 @@ try{ fetch('sounds/land.webm',{cache:'default'}).catch(function(){}); }catch(e){
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.21';
+window.SURF_VERSION='10.22';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -6557,12 +6558,59 @@ function sfx(name,vol,rate){
     src.connect(g); g.connect(_sfxOut); src.start();
   }catch(e){}
 }
+// ---- and the sustained kind ----
+// A jetpack is not an event, it is a state, so it gets a looping source that is started once
+// and then steered. Gain and pitch move on setTargetAtTime rather than being set outright:
+// the pack goes from a trickle to a torrent and back many times a second, and a hard jump in
+// either would click. Web Audio loops sample-accurately, so there is no gap on the wrap.
+const _sfxLoops={};
+function sfxLoop(name,vol,rate){
+  if(!sfxOn){ sfxLoopStop(name,120); return; }
+  const ac=_ac, b=_sfxBuf[name];
+  if(!ac||!b||b==='loading')return;
+  if(ac.state==='suspended'){ try{ ac.resume(); }catch(e){} }
+  let L=_sfxLoops[name];
+  if(!L){
+    try{
+      const src=ac.createBufferSource(); src.buffer=b; src.loop=true;
+      const g=ac.createGain(); g.gain.value=0;
+      src.connect(g); g.connect(_sfxOut); src.start();
+      L=_sfxLoops[name]={src:src,g:g};
+    }catch(e){ return; }
+  }
+  L.seen=performance.now();          // the keep-alive; see the watchdog below
+  const t=ac.currentTime;
+  L.g.gain.setTargetAtTime(Math.max(0,Math.min(1.2,vol)),t,0.06);
+  if(rate)L.src.playbackRate.setTargetAtTime(rate,t,0.10);
+}
+// ---- A SUSTAINED SOUND STOPS WHEN NOBODY IS ASKING FOR IT ----
+// Measured: the jetpack loop started correctly and then ran forever, because the only thing
+// that stopped it was a branch inside the updater -- and when a run ends the updater is not
+// called at all, so neither branch runs and the bubbles keep going over the title screen.
+// Hanging a stop on every route out of a dive would mean finding them all and would break the
+// next time somebody adds one. A loop that has not been asked for in a quarter of a second is
+// not wanted, whatever the reason, so this needs no route to know about it.
+setInterval(()=>{
+  const now=performance.now();
+  for(const k in _sfxLoops)
+    if(now-(_sfxLoops[k].seen||0)>260)sfxLoopStop(k,150);
+},120);
+function sfxLoopStop(name,ms){
+  const L=_sfxLoops[name]; if(!L)return;
+  delete _sfxLoops[name];
+  const ac=_ac; if(!ac)return;
+  const t=ac.currentTime, s=Math.max(0.05,(ms||200)/1000);
+  try{ L.g.gain.cancelScheduledValues(t);
+       L.g.gain.setTargetAtTime(0,t,s/3);
+       L.src.stop(t+s+0.05); }catch(e){}
+}
 // The context has to be BUILT inside a gesture or it is born suspended and some browsers never
 // let it out, so this rides the same unlock the music uses.
 function sfxWake(){
   const ac=sfxCtx(); if(!ac)return;
   if(ac.state==='suspended'){ try{ ac.resume(); }catch(e){} }
   sfxLoad('land',['sounds/land.webm','sounds/land.m4a']);
+  sfxLoad('jet', ['sounds/jet.webm','sounds/jet.m4a']);
 }
 // ---- WARM THE CACHE WITH A PLAIN FETCH ----
 // A browser will not download a media element's source until it believes the media can
@@ -24510,6 +24558,7 @@ function reset(){
   if(typeof diveTurn!=='undefined')diveTurn=0;
   if(diveProps)diveProps.visible=false; if(diveFish)diveFish.visible=false;
   if(diveJet)diveJet.visible=false; diveJetOn=0;
+  if(typeof sfxLoopStop==='function')sfxLoopStop('jet',120);
   // `wipeDirty` and not `wipe`: the title screen ends the crash so the drowning pose cannot
   // stick, and that left this block with nothing to test. What it undoes is not the crash --
   // it is what the crash DID to the rider -- and that is still done whether or not the crash
@@ -24591,6 +24640,7 @@ function respawn(){
   diveLaunch=0;jetOn=0;   // ...and no run starts half way through a launch
   if(diveProps)diveProps.visible=false; if(diveFish)diveFish.visible=false;
   if(diveJet)diveJet.visible=false; diveJetOn=0;
+  if(typeof sfxLoopStop==='function')sfxLoopStop('jet',120);
   if(typeof standDown==='function')standDown();   // arms down, whatever the run left
   switchRide=false;waveT=0;applyStance();
   for(let i=obstacles.length-1;i>=0;i--)
@@ -30208,9 +30258,11 @@ if(location.hash.includes('debug')){
               t:a?+a.currentTime.toFixed(2):null, ready:a?a.readyState:null,
               src:a&&a.currentSrc?a.currentSrc.split('/').pop():null}; },
     musicKick(){ if(typeof _musTry==='function')_musTry(); return true; },
-    sfxState(){ const b=_sfxBuf.land;
-      return {on:sfxOn, ctx:_ac?_ac.state:null,
-              land:(b==='loading')?'loading':(b?('decoded '+b.duration.toFixed(3)+'s'):'none')}; },
+    sfxState(){ const d=n=>{ const b=_sfxBuf[n];
+        return (b==='loading')?'loading':(b?('decoded '+b.duration.toFixed(3)+'s'):'none'); };
+      return {on:sfxOn, ctx:_ac?_ac.state:null, land:d('land'), jet:d('jet'),
+              looping:Object.keys(_sfxLoops),
+              jetGain:_sfxLoops.jet?+_sfxLoops.jet.g.gain.value.toFixed(3):null}; },
     sfxFire(v){ sfx('land',v===undefined?0.8:v,1.0); return true; },
     // "I cannot hear it" has several different causes that look identical. This says which.
     musicWhy(){
@@ -38908,7 +38960,7 @@ function jetUpdate(dt){
     if(stow&&!_boardStowed){ _boardStowed=true; _boardVis0=boardArt.visible; boardArt.visible=false; }
     else if(!stow&&_boardStowed){ boardArt.visible=_boardVis0; _boardStowed=false; }
   }
-  if(!want){ diveJetOn=0; return; }
+  if(!want){ diveJetOn=0; sfxLoopStop('jet',180); return; }
   // on his back: up his spine and behind him, in the rider's own frame, so it turns with him --
   // and divided through by his scale, so the numbers above stay feet
   const k=1/(pug.scale.x||1);
@@ -39001,6 +39053,9 @@ function jetUpdate(dt){
   // and pz: he rides side-on, so his back faces across the lane and not down it, and a plume
   // placed a foot behind the board came out of his hip. They are spawned in world space and
   // left there, so the trail stays where it was made instead of riding along on his shoulders.
+  // Louder and higher the harder it is pushing: the pack's whole readout is the contrast
+  // between a trickle and a torrent, and the sound should carry that as much as the bubbles do.
+  sfxLoop('jet',0.20+diveJetOn*0.34,0.93+diveJetOn*0.20);
   _jetT-=dt;
   // idle is a trickle and thrust is a stream -- the CONTRAST is the feedback, not the count
   // ...but a trickle of one small bubble every fifth of a second is not a trickle, it is
