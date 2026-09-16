@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.45';</script>
+<script>window.SURF_VERSION='10.46';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -6047,6 +6047,17 @@ function astroLivery(root){
 // The shades, as a model. Same arrangement as every other optional glb: if it never lands the
 // procedural pair stays and nobody sees a gap.
 let bandanaModel=null, shadesModel=null;
+// Neck radius and drop as fractions of skull width, and the TILT of the ring in degrees.
+// The tilt is the one that matters on a pug. A pug has no neck to speak of -- the head sits
+// more or less straight on the chest -- so a bandana whose opening is a horizontal circle has
+// its back and sides buried inside the body, and all you see is the front triangle hanging
+// there with a hard flat top edge. Which is exactly what "it fits weird" looked like.
+// Tilted, the ring rides up behind the head and dips onto the chest at the front, which is
+// where a real neckerchief sits on a dog and what makes the sides read as wrapped.
+// Settled by putting them on the animal and looking, twelve fits at a time: the tilt is what
+// turned it from a bib hanging off the front into something tied, and neither size nor height
+// moved much once it was there.
+let BND_R=0.41, BND_Y=0.11, BND_TILT=28;
 loadModel('shades.glb',s=>{ shadesModel=s; if(typeof equipChar==='function'&&typeof rider!=='undefined'){ try{ equipChar(rider); }catch(e){} } },0);
 // The cattleman, modelled rather than lofted: swept from a profile, creased down the crown
 // and rolled at the brim. Lands Y-up with +X out the front, which is what the fit below reads.
@@ -15668,12 +15679,18 @@ function kitGear(C,bodyPatch){
         const u=p.dot(EY.up);    if(u<bot)bot=u;
       }
       const skull=hi-lo;
-      // A neck is about two fifths of the width of the head above it, and the tie sits a
-      // little under the jaw rather than on it.
-      o.scale.setScalar(skull*0.40);
+      // A neck is a fraction of the width of the head above it, and the tie sits a little
+      // under the jaw rather than on it. Both numbers are tunable because neither is knowable
+      // from the rig: the pug arrives as a model, so the procedural torso the neck probe
+      // measures is not the body being worn, and the only honest way to set these is to put
+      // them on the animal and look.
+      o.scale.setScalar(skull*BND_R);
       o.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(
         new THREE.Vector3().crossVectors(EY.up, EY.fwd), EY.up.clone(), EY.fwd.clone()));
-      o.position.copy(EY.mid).addScaledVector(EY.up, bot+skull*0.10);
+      // ...then lean it forward about the rider's own side axis
+      if(BND_TILT)o.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(1,0,0), THREE.MathUtils.degToRad(BND_TILT)));
+      o.position.copy(EY.mid).addScaledVector(EY.up, bot+skull*BND_Y);
       kit(EY.H, o);
     } else {
       o.scale.setScalar(0.33);
@@ -30804,6 +30821,10 @@ if(location.hash.includes('debug')){
              ', position '+a.currentTime.toFixed(1)+'s. If you hear nothing now it is the device: '+
              'on iPhone the ring/silent switch mutes web audio, and no page can override it.';
     },
+    bandFit(r,y,tl){ if(r!==undefined)BND_R=r; if(y!==undefined)BND_Y=y;
+      if(tl!==undefined)BND_TILT=tl;
+      try{ for(const k of Object.keys(prevCache))if(k[0]==='g'||k[0]==='c')delete prevCache[k]; }catch(e){}
+      equipChar(rider); return {r:BND_R,y:BND_Y,tilt:BND_TILT}; },
     gearWear(id){ const g=GEAR_BY_ID[id]; if(!g)return null;
       gearOn[g.slot]=id; equipChar(rider); return {...gearOn}; },
     // gearOnChar() puts the previous character back before it returns, so anything measured
@@ -30811,7 +30832,7 @@ if(location.hash.includes('debug')){
     // animals in a row all reported the pug's numbers. This one LEAVES the character wearing
     // the thing, which is what makes a per-character fit checkable at all.
     gearAs(cid,gid){ const g=GEAR_BY_ID[gid]; if(!g)return {err:'no such gear'};
-      rider=cid; gearOn={eyes:'',head:'',body:''}; gearOn[g.slot]=gid;
+      rider=cid; gearOn={eyes:'',head:'',neck:'',body:''}; gearOn[g.slot]=gid;
       gearPreviewAll=true; equipChar(cid); gearPreviewAll=false;
       let R=null; try{ R=riderRig(); }catch(e){}
       return {char:builtChar, model:!!(R&&R.bones&&R.bones.Head)}; },
