@@ -21,7 +21,7 @@ Units are metres, real hat sizes: 57cm hat band, 13.5cm crown, 10cm brim.
 import bpy, bmesh, math, os
 from mathutils import Vector, Matrix, Euler
 
-OUT = "models"
+OUT = os.environ.get("HAT_OUT", "/tmp/hatbuild")
 os.makedirs(OUT, exist_ok=True)
 
 # ---------------------------------------------------------------- scene reset
@@ -31,7 +31,12 @@ scene = bpy.context.scene
 # ---------------------------------------------------------------- dimensions
 A        = 0.100     # head oval, front-back semi-axis  (57cm circumference-ish)
 B        = 0.0875    # head oval, side-to-side semi-axis
-CROWN_H  = 0.135     # crown height
+# ---- the two knobs that decide whether it looks like a hat or a satellite dish ----
+# BRIM_R is how far the brim reaches in head-oval radii. It was 2.44, which put 14.4 cm of
+# felt outside the head on each side -- a real cattleman is nearer 10, and on a small animal
+# 2.44 reads as a sombrero. 2.06 is the real proportion.
+BRIM_R   = 2.06
+CROWN_H  = 0.118     # crown height (13.5 cm was tall for a cartoon skull)
 THETA    = 256       # segments around  (high poly, as asked)
 
 # ---------------------------------------------------------------- the profile
@@ -51,6 +56,14 @@ PROFILE = [
     (1.670, -0.0052), (1.840, -0.0046), (2.000, -0.0034), (2.140, -0.0020),
     (2.260, -0.0008), (2.350, 0.0000), (2.410, 0.0004), (2.440, 0.0005),
 ]
+
+
+# The profile below is authored against the ORIGINAL numbers; it is restretched to whatever
+# BRIM_R and CROWN_H currently say, so the shape stays hand-placed and the size stays a knob.
+_RF0, _RF1, _Z1 = 1.058, 2.440, 0.1350
+PROFILE = [(rf if rf <= _RF0 else _RF0 + (rf - _RF0) * (BRIM_R - _RF0) / (_RF1 - _RF0),
+            z * (CROWN_H / _Z1) if z > 0.0 else z)
+           for rf, z in PROFILE]
 
 
 def catmull(pts, n):
@@ -116,7 +129,7 @@ RAD = [math.hypot(v.co.x, v.co.y) / A for v in bm.verts]   # circular radius, be
 
 def ovality(R):
     # B/A at the head opening, relaxing to almost round by the brim edge
-    return (B / A) + (1.0 - B / A) * 0.85 * smoothstep(1.06, 2.20, R)
+    return (B / A) + (1.0 - B / A) * 0.85 * smoothstep(1.06, BRIM_R * 0.90, R)
 
 
 for i, v in enumerate(bm.verts):
@@ -155,14 +168,14 @@ for v in me.vertices:
                     co -= n.normalized() * (DENT_D * f * f)
 
 # -------------------------------------------------- deform 2: the brim roll
-ROLL, DIP, BACK = 0.062, 0.016, 0.012
+ROLL, DIP, BACK = 0.050, 0.013, 0.010   # a shorter brim needs less roll to read
 
 for v in me.vertices:
     co = v.co
     R = RAD[v.index]
     if R <= 1.10:
         continue
-    t = smoothstep(1.10, 2.44, R) ** 1.7        # nothing at the crown, all at the edge
+    t = smoothstep(1.09, BRIM_R, R) ** 1.7        # nothing at the crown, all at the edge
     th = math.atan2(co.y, co.x)                 # +x is the front of the hat
     side = math.sin(th) ** 2                    # 1 at the sides, 0 front and back
     front = max(0.0, math.cos(th)) ** 2
@@ -183,7 +196,7 @@ for v in me.vertices:
     th = math.atan2(co.y, co.x)
     w = (math.sin(2 * th + ph[0]) * 0.0022 + math.sin(3 * th + ph[1]) * 0.0014
          + math.sin(5 * th + ph[2]) * 0.0007)
-    co.z += w * smoothstep(0.9, 2.2, R)
+    co.z += w * smoothstep(0.9, BRIM_R * 0.9, R)
 
 me.update()
 
