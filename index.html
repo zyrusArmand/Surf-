@@ -6467,7 +6467,10 @@ function setBuzz(v){ buzzOn=!!v; try{ localStorage.setItem('surfBuzz',buzzOn?'1'
 // its last sample and its first. The .m4a is the fallback for anything that will not take Opus.
 // Normalised on the way in as well: it arrived peaking at -17.2 dBFS, which is inaudible at any
 // sane mix level and wastes most of the bitrate on headroom.
-const MUS_VOL=0.50;
+// Reported as the title screen's water being too loud. It is an ocean recording, so it is the
+// one piece of music that reads as ambience rather than as a track -- and ambience that sits
+// at the level a track would is just noise you cannot turn off without losing the music too.
+const MUS_VOL=0.34;
 let musicOn=(()=>{ try{ return localStorage.getItem('surfMusic')!=='0'; }catch(e){ return true; } })();
 let _mus=null, _musWant=false, _musT=null;
 function musicEl(){
@@ -6612,6 +6615,33 @@ function sfx(name,vol,rate){
     const g=ac.createGain(); g.gain.value=Math.max(0,Math.min(1.4,vol===undefined?1:vol));
     src.connect(g); g.connect(_sfxOut); src.start();
   }catch(e){}
+}
+// ---- A SHOP SOUND BELONGS TO THE TAP, NOT TO THE FUNCTION ----
+// equipChar and equipBoard look like the obvious places to hang "he equipped something" on, and
+// they are the wrong ones. Between them they are also called by: the saucer putting the cow
+// costume on and taking it off again, loadSave restoring the last run's kit, the shades and hat
+// models finishing their download, the wheel handing out a loan board, the gear panel rebuilding
+// the rider after a hat goes on, and the debug fitting hooks. Hooked there, being abducted would
+// sound like shopping.
+//
+// What actually distinguishes the player's equip from all of those is that the player's happens
+// inside the tap. So the tap is what is tracked, and a sound is only made when one is fresh.
+//
+// It is also CONSUMED. One tap buys one sound, so a purchase -- which equips the thing it just
+// bought, in the same handler -- sounds like a purchase and not like a purchase and an equip at
+// once; and putting a hat on, which rebuilds the whole rider and so calls equipChar on its way
+// through, sounds like a hat rather than like changing character.
+let _uiTap=0;
+// 'click' and 'keydown' are in the list as well as the pointer events, because a button reached
+// by keyboard, or activated through a label, never sees a pointerdown -- and none of the callers
+// this is meant to exclude happen inside ANY input event, so a wider net costs nothing.
+for(const ev of ['pointerdown','mousedown','touchstart','click','keydown'])
+  document.addEventListener(ev,()=>{ _uiTap=performance.now(); },{passive:true,capture:true});
+function sfxUi(name,vol){
+  if(!_uiTap||performance.now()-_uiTap>600)return false;
+  _uiTap=0;
+  if(typeof sfx==='function')sfx(name,vol===undefined?0.55:vol,0.98+Math.random()*0.05);
+  return true;
 }
 // ---- and the sustained kind ----
 // A jetpack is not an event, it is a state, so it gets a looping source that is started once
@@ -6760,7 +6790,7 @@ function sfxWake(){
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
   // the three layers of the riding bed; voices share these buffers, see _sfxAlias
   for(const n of ['glide','wake','wind','weird','gull1','gull2','gull3',
-                  'btn','gust','boat','ski'])
+                  'btn','boat','ski','buy','eqchar','eqboard','eqstyle'])
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
   for(const n of ['roll','spin','flip','stand','close'])
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
@@ -7207,6 +7237,11 @@ function trickTurn(name,rot,active){
     sfx(TRICK_SFX[name],0.66,0.93+Math.random()*0.16);
 }
 function noteBuy(kind,id,price){
+  // Every purchase in the game already reports itself here -- shop cards, the item viewer and
+  // the board guide all call it -- so one line covers all of them and the next buy button
+  // somebody adds gets the sound for free. It also claims the tap, so the equip that follows
+  // a purchase in the same handler stays quiet: buying is one action, not two.
+  if(typeof sfxUi==='function')sfxUi('buy',0.60);
   stats.buys.push({k:kind,id,p:price,d:dayStamp(new Date())});
   if(stats.buys.length>200)stats.buys.shift();
   bump(stats,'spent',price);
@@ -9441,6 +9476,7 @@ function boardArtFor(id){
   return _rack[id];
 }
 function equipBoard(id){
+  if(typeof sfxUi==='function')sfxUi('eqboard',0.55);   // only if the player just tapped
   if(!BOARD_BY_ID[id])id='astro';
   equipped=id;
   boardArtSync();
@@ -12488,6 +12524,9 @@ function drawShop(){
         if(!have){ btn.className='lock'; btn.disabled=true; btn.textContent='Level '+g.lv; }
         else { btn.className=on?'own':''; btn.textContent=on?'Take off':'Wear';
           btn.onclick=()=>{ buzz(10); gearOn[slot]=on?'':g.id; saveGame();
+            // Claimed BEFORE the rebuild below, because that rebuild goes through equipChar and
+            // would otherwise take the tap and make putting a hat on sound like changing rider.
+            if(typeof sfxUi==='function')sfxUi('eqstyle',0.52);
             // equipChar rather than buildChar: it rebuilds unconditionally and re-applies the
             // board stats afterwards, which is the path every other rider change takes.
             equipChar(rider);
@@ -17312,6 +17351,7 @@ function sizeRider(){
 }
 
 function equipChar(id){
+  if(typeof sfxUi==='function')sfxUi('eqchar',0.55);    // only if the player just tapped
   if(!CHAR_BY_ID[id])id='pug';
   rider=id; buildChar(id); applyBoardStats(equipped);
 }
@@ -27189,7 +27229,7 @@ function beatGull(u,t,dt){
 const GULL_NEAR_RIDE=78, GULL_NEAR_BEACH=210;
 const GULL_GAP=2600;       // ms between any two calls, however many birds there are
 let _gullLast=0, _gullPrev=0, _gullNext=0;
-function gullSay(d,near){
+function gullSay(d,near,gullish){
   const now=performance.now();
   if(now-_gullLast<GULL_GAP)return false;
   _gullLast=now;
@@ -27197,7 +27237,13 @@ function gullSay(d,near){
   // Randomly alternating, as asked -- and never the same one twice running, because a random
   // pick of three repeats itself a third of the time and a gull that calls twice identically
   // sounds like a sample rather than a bird.
-  let pick=1+Math.floor(Math.random()*3);
+  //
+  // Not evenly, though. gull3 is the actual seagull take and the other two are general birds,
+  // and a seagull is what you get by the shore -- so the beach leans heavily on it and the open
+  // water, several hundred feet out, leans the other way.
+  const w=gullish?[0.18,0.18,0.64]:[0.36,0.36,0.28];
+  let x=Math.random(), pick=1;
+  for(let i=0;i<3;i++){ if(x<w[i]){ pick=i+1; break; } x-=w[i]; pick=i+1; }
   if(pick===_gullPrev)pick=1+(pick%3);
   _gullPrev=pick;
   const close=1-Math.min(1,d/Math.max(1,near));       // quieter the further off it is
@@ -27207,6 +27253,7 @@ function gullSay(d,near){
 // The ride: one call per flyby, latched per flock so two passing at once are both heard.
 function gullPass(f,cx,cz,camFwdZ,range){
   const u=f.userData; if(!u)return;
+  if(!gullAwake())return;
   const near=range||GULL_NEAR_RIDE;
   const dx=f.position.x-cx, dz=f.position.z-cz;
   const d=Math.sqrt(dx*dx+dz*dz);
@@ -27215,11 +27262,21 @@ function gullPass(f,cx,cz,camFwdZ,range){
   const ahead=(camFwdZ===undefined)?true:((dz*camFwdZ)>-near*0.35);
   if(!(d<near&&ahead)){ if(d>near*1.2)u.gullSaid=0; return; }
   if(u.gullSaid)return;
-  if(gullSay(d,near))u.gullSaid=1;
+  if(gullSay(d,near,false))u.gullSaid=1;
 }
 // The title screen: the birds are always in frame, so this asks only that some flock IS in
 // frame, and leaves a randomised gap between calls so it reads as a beach and not as a loop.
+// Birds are not heard underwater and they are not heard after dark. Both were asked for and
+// both are simply true: sound does not cross the surface like that, and gulls roost. The night
+// test is the one the saucer uses for "dark", taken well short of its threshold -- the calls
+// should thin out through dusk rather than switch off the moment a clock rolls over.
+function gullAwake(){
+  try{ if(diveOn||diveDepth>0.5)return false; }catch(e){}
+  try{ if(nightAmt>0.45)return false; }catch(e){}
+  return true;
+}
 function gullAmbient(list,cx,cz,range){
+  if(!gullAwake())return;
   const now=performance.now();
   if(now<_gullNext)return;
   let best=1e9;
@@ -27229,7 +27286,7 @@ function gullAmbient(list,cx,cz,range){
     if(d<best)best=d;
   }
   if(best>range)return;                    // nothing on screen: nothing to hear
-  if(gullSay(best,range))_gullNext=now+7000+Math.random()*9000;
+  if(gullSay(best,range,true))_gullNext=now+7000+Math.random()*9000;
 }
 function updateSkyLife(dt){
   for(const c of clouds){
@@ -30568,8 +30625,10 @@ if(location.hash.includes('debug')){
               ufoPre:(typeof ufoPre!=='undefined')?ufoPre:null,
               ufoPhase:(typeof ufoPh!=='undefined')?ufoPh:null,
               weird:d('weird'),
-              btn:d('btn'), gust:d('gust'), boat:d('boat'), ski:d('ski'),
-              btnFired:_sfxCalls['1shot:btn']||0, gustFired:_sfxCalls['1shot:gust']||0,
+              btn:d('btn'), boat:d('boat'), ski:d('ski'),
+              shop:{buy:d('buy'),eqchar:d('eqchar'),eqboard:d('eqboard'),eqstyle:d('eqstyle')},
+              shopFired:['buy','eqchar','eqboard','eqstyle'].map(n=>_sfxCalls['1shot:'+n]||0),
+              btnFired:_sfxCalls['1shot:btn']||0,
               boatVol:_sfxLoops.boat?+(_sfxLoops.boat.wantMax||0).toFixed(3):null,
               skiVol:_sfxLoops.ski?+(_sfxLoops.ski.wantMax||0).toFixed(3):null,
               gulls:{g1:d('gull1'),g2:d('gull2'),g3:d('gull3'),
@@ -42143,15 +42202,9 @@ function update(dt){
     // cruising, then it climbs steeply, so the difference between quick and flat out is heard.
     // ...and wind is the one layer with no business being down there at all, so it goes with
     // the surface rather than being merely muffled by it. The wake mostly does too.
-    // ---- AND THE ODD GUST OVER THE TOP ----
-    // "Random while playing" was the brief, and a plain timer would have done it -- but a gust
-    // that arrives at the same rate whether he is drifting or flat out is weather happening TO
-    // the game rather than in it. So the odds ride the same speed term the wind layer does:
-    // roughly one every twenty seconds while cruising, one every four or so at full tilt, and
-    // more likely again in the air where there is nothing but wind. It answers to the wind
-    // volume too, so it cannot shout over a bed that has ducked for the saucer or gone under.
-    if(!_sub&&Math.random()<dt*(0.05+_rSp*0.20)*(airborne?1.8:1.0))
-      sfx('gust',(0.16+_rSp*0.30)*_ufoDuck,0.90+Math.random()*0.26);
+    // (The random wind gust that used to fire here is gone -- asked for, then heard, then
+    // withdrawn. The wind LAYER does the same job continuously and does it better: a gust that
+    // arrives on top of a bed already answering to speed is one thing too many.)
     const _wn=(0.06+0.94*Math.pow(_rSp,1.6))*(1-_sub), _wnAir=airborne?1.15:1.0;
     sfxLoop('wind',  BED*_wn*0.30*_wnAir*drift('n1',0.75,1.00,3.7), 0.92+_rSp*0.22, 0.34);
     sfxLoop('wind2', BED*_wn*0.22*_wnAir*drift('n2',0.55,1.00,9.1), 0.97+_rSp*0.22,-0.36);
