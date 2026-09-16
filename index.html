@@ -58,7 +58,7 @@ try{ fetch('sounds/turn.webm',{cache:'default'}).catch(function(){}); }catch(e){
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.26';
+window.SURF_VERSION='10.27';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -6569,6 +6569,7 @@ function sfxLoad(name,urls){
   })();
 }
 function sfx(name,vol,rate){
+  _sfxCalls['1shot:'+name]=(_sfxCalls['1shot:'+name]||0)+1;   // debug: which one actually fired
   if(!sfxOn)return;
   const ac=_ac, b=_sfxBuf[name];
   if(!ac||!b||b==='loading')return;
@@ -6685,6 +6686,8 @@ function sfxWake(){
   sfxLoad('under',['sounds/under.webm','sounds/under.m4a']);
   sfxLoad('ride', ['sounds/ride.webm','sounds/ride.m4a']);
   sfxLoad('turn', ['sounds/turn.webm','sounds/turn.m4a']);
+  for(const n of ['roll','spin','flip','stand','close'])
+    sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
   cueEl('ufo');                       // starts buffering; nothing plays until a saucer comes
 }
 // ---- WARM THE CACHE WITH A PLAIN FETCH ----
@@ -7072,9 +7075,28 @@ function saveNow(){
   try{ saveStats(); }catch(e){}
 }
 addEventListener('pagehide',saveNow);
+// ---- WHICH SOUND GOES WITH WHICH TRICK ----
+// Paired off what the takes actually measure rather than by which file was numbered what.
+// The four sort cleanly by pitch and length, and so do the tricks, in the same order:
+//
+//   SPIN      brightest 2622 Hz, shortest 0.29 s, a flat snap
+//             -- the fastest trick, 0.74 s a turn, and the flattest motion
+//   FLIP      1901 Hz, 0.37 s, attack then tail
+//             -- a committed throw with follow-through, 0.80 s a turn
+//   ROLL      753 Hz, 0.38 s, and SYMMETRICAL: it swells and comes back
+//             -- which is the motion. The board goes over and returns level
+//   HANDSTAND lowest 690 Hz, longest 0.71 s, a body with several humps in it
+//             -- the only one of the four that is HELD rather than whipped
+//
+// Nothing for the heli yet, as asked.
+const TRICK_SFX={roll:'roll', flip:'flip', spin:'spin', handstand:'stand'};
 function noteTrick(name,src){
   bump(stats.tricks,name);
   bump(stats.src,src||'gesture');
+  // every trick already reports itself here, so one line gives all four a voice -- and the
+  // next one to be added gets it by putting a name in the table above
+  if(typeof sfx==='function'&&TRICK_SFX[name])
+    sfx(TRICK_SFX[name],0.80,0.96+Math.random()*0.09);
 }
 function noteBuy(kind,id,price){
   stats.buys.push({k:kind,id,p:price,d:dayStamp(new Date())});
@@ -30336,6 +30358,7 @@ if(location.hash.includes('debug')){
     sfxState(){ const d=n=>{ const b=_sfxBuf[n];
         return (b==='loading')?'loading':(b?('decoded '+b.duration.toFixed(3)+'s'):'none'); };
       return {on:sfxOn, ctx:_ac?_ac.state:null, land:d('land'), jet:d('jet'), under:d('under'),
+              tricks:{roll:d('roll'),spin:d('spin'),flip:d('flip'),stand:d('stand'),close:d('close')},
               ride:d('ride'), rideGain:_sfxLoops.ride?+_sfxLoops.ride.g.gain.value.toFixed(3):null,
               turn:d('turn'),
               turnVol:_sfxLoops.turn?+(_sfxLoops.turn.want||0).toFixed(3):null,
@@ -30355,6 +30378,13 @@ if(location.hash.includes('debug')){
               looping:Object.keys(_sfxLoops),
               jetGain:_sfxLoops.jet?+_sfxLoops.jet.g.gain.value.toFixed(3):null}; },
     sfxFire(v){ sfx('land',v===undefined?0.8:v,1.0); return true; },
+    // noteTrick lives inside the closure, so this is the only way to test the real path --
+    // the table lookup included, rather than a sound played directly and called proof
+    trickFire(name){ const before=Object.assign({},_sfxCalls);
+      noteTrick(name,'test');
+      const fired=Object.keys(_sfxCalls).filter(k=>k.startsWith('1shot:')&&
+                    (_sfxCalls[k]||0)>(before[k]||0)).map(k=>k.slice(6));
+      return {trick:name, played:fired.length?fired[0]:null}; },
     // "I cannot hear it" has several different causes that look identical. This says which.
     musicWhy(){
       const a=_mus;
@@ -42727,6 +42757,7 @@ function update(dt){
           }
           _u.atk='miss';
           score+=60; msg('DODGED THE SHARK! +60'); buzz(14); goalEv('close',1);
+          if(typeof sfx==='function')sfx('close',0.95,0.94);   // a shark earns the lower one
           bump(stats,'closeCalls');
         }
         if(k>=1){
@@ -42952,6 +42983,7 @@ function update(dt){
       const m=Math.abs(px-o.position.x)-((o.userData.hx===undefined?o.userData.r:o.userData.hx)+BOARD_HALF_W);
       if(harmful&&!o.userData.used&&m>0&&m<1.5&&running&&!hanging&&glPh<0&&!swTubeRide){
         score+=25; msg('CLOSE CALL! +25'); buzz(12); goalEv('close',1);
+        if(typeof sfx==='function')sfx('close',0.85,0.98+Math.random()*0.06);
         bump(stats,'closeCalls'); 
       }
     }
