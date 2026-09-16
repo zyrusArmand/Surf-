@@ -6792,7 +6792,8 @@ function sfxWake(){
   for(const n of ['glide','wake','wind','weird','gull1','gull2','gull3',
                   'btn','boat','ski','buy','eqchar','eqboard','eqstyle',
                   'starthrow','starfly',
-                  'hitbuoy','hitlog','hitrock','hitend','jelly'])
+                  'hitbuoy','hitlog','hitrock','hitend','jelly','ufowind',
+                  'palm1','palm2','palm3','palm4'])
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
   for(const n of ['roll','spin','flip','stand','close'])
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
@@ -11121,6 +11122,7 @@ function palmWindWeights(geo,trunk){
 // a few pixels and looks like a still photograph. Nearly double, and the gust below is what
 // stops that being frantic instead of breezy.
 let PALM_WIND=0.062;
+let _pwSaid=0, _pwPrev=0;
 const _pwU=[];            // every compiled copy's uniforms, so one clock drives them all
 let _pwT=0;
 function palmWindMaterial(mt){
@@ -11193,6 +11195,26 @@ function palmWindTick(t){
   // arrive INTO. Nearly to nothing at the bottom and raised to a power, so it spends longer
   // low than high -- which is what wind does, and what makes the moment it picks up read.
   _pwGust=0.10+0.95*Math.pow(0.5+0.5*Math.sin(ph),1.5);
+  // ---- AND YOU HEAR THE GUST THAT YOU CAN SEE ----
+  // Not a timer, and not every frame the crown happens to be moving: the fronds are never
+  // completely still, so "while it is moving" would be a permanent rustle. This fires on the
+  // EDGE -- the moment the gust envelope crosses on its way UP -- which is the moment the crown
+  // visibly picks up and leans. The envelope's period is about thirty seconds and it spends
+  // longer low than high, so that is roughly one rustle a gust, arriving when the tree does.
+  // Latched on the way down at a lower level than it arms at, so an envelope hovering on the
+  // threshold cannot chatter it on and off.
+  const gustUp=_pwGust>0.62, gustDown=_pwGust<0.42;
+  if(gustDown)_pwSaid=0;
+  else if(gustUp&&!_pwSaid&&typeof sfx==='function'){
+    _pwSaid=1;
+    // Four sections cut from four different minutes of the take, alternating at random and
+    // never the same one twice running -- a gust that sounds identical to the last one is a
+    // sample, and the whole point of taking four was that they are not the same wind.
+    let p=1+Math.floor(Math.random()*4);
+    if(p===_pwPrev)p=1+(p%4);
+    _pwPrev=p;
+    sfx('palm'+p,0.34+Math.random()*0.16,0.95+Math.random()*0.10);
+  }
   for(const u of _pwU){ if(u.uWindT)u.uWindT.value=t; if(u.uWindA)u.uWindA.value=PALM_WIND; }
 }
 function palm2Mesh(seed,prof){
@@ -30647,6 +30669,11 @@ if(location.hash.includes('debug')){
               // apart from an undecoded one, and a stuck voice from a quiet one
               bedLid:_bedLP?Math.round(_bedLP.frequency.value):null,
               ufoPre:(typeof ufoPre!=='undefined')?ufoPre:null,
+              ufoWind:d('ufowind'),
+              ufoWindT:(typeof ufoWindT!=='undefined')?+ufoWindT.toFixed(1):null,
+              ufoWindVol:_sfxLoops.ufowind?+(_sfxLoops.ufowind.want||0).toFixed(3):null,
+              palms:[1,2,3,4].map(i=>d('palm'+i)),
+              palmFired:[1,2,3,4].map(i=>_sfxCalls['1shot:palm'+i]||0),
               ufoPhase:(typeof ufoPh!=='undefined')?ufoPh:null,
               weird:d('weird'),
               btn:d('btn'), boat:d('boat'), ski:d('ski'),
@@ -33675,9 +33702,14 @@ if(location.hash.includes('debug')){
     // ufoNow jumps straight to the saucer, which is the one path the pre-roll never takes --
     // so the build, which is the whole point of it, had no way of being tested. This winds the
     // dark clock up to just short of the pre-roll instead and lets the game arrive there itself.
-    ufoArm(){ if(typeof ufoDark==='undefined')return null;
-      dayForce=UFO_TEST_HOUR; ufoDark=UFO_WAIT-UFO_PRE-0.5;
-      return {ufoDark:+ufoDark.toFixed(2), wait:UFO_WAIT, pre:UFO_PRE}; },
+    // `pre` is how many seconds short of the saucer to place the clock. The default lands just
+    // before the CUE's pre-roll, but the wind now starts six seconds earlier than that, so
+    // testing the wind's own lead needs the clock put back further than the default allows.
+    ufoArm(pre){ if(typeof ufoDark==='undefined')return null;
+      dayForce=UFO_TEST_HOUR;
+      ufoDark=UFO_WAIT-(pre===undefined?UFO_PRE+0.5:pre);
+      return {ufoDark:+ufoDark.toFixed(2), wait:UFO_WAIT,
+              cuePre:UFO_PRE, windPre:UFO_WIND_PRE}; },
     ufoState(){ if(typeof ufo==='undefined'||!ufo)return null;
       const sea=waveH(ufo.position.x,dist*WAVE_DRIFT+ufo.position.z,waveClock);
       return {phase:ufoPh, t:+ufoT.toFixed(2), up:!!ufo.visible,
@@ -33798,6 +33830,14 @@ if(location.hash.includes('debug')){
     // which is also how to check that what is moving in the crown is this and not the drift
     // of the shot.
     palmWind(a){ if(a!==undefined)PALM_WIND=a; return PALM_WIND; },
+    // Step the palm's own clock. The gust envelope has a thirty-second period ON THE MENU'S
+    // CLOCK, and that clock is driven by renderMenuBeach -- which in a headless browser runs
+    // at about half a frame a second. Measured: sixty-six real seconds advanced it by 2.9, so
+    // one gust would take eleven real minutes and nothing about gusts could be tested at all.
+    // This winds it forward directly, which is the difference between a test and a wait.
+    windStep(sec){ if(typeof palmWindTick!=='function')return null;
+      palmWindTick(_pwT+(sec===undefined?1:sec));
+      return {t:+_pwT.toFixed(2), gust:+_pwGust.toFixed(3), said:_pwSaid}; },
     // The one gust, as the fronds, the nuts and the shells all see it. Sampled alongside the
     // coconut positions this is what makes "they move together" checkable: if they are one
     // wind, how far a nut travels between two samples rises and falls WITH this number.
@@ -40445,6 +40485,14 @@ let ufo=null, ufoPh=0, ufoT=0, ufoDark=0, ufoBeam=null, ufoDrips=[], ufoGrab=0, 
 // breaks the surface 2.2 s into RISE -- so this puts the break at 12.7 s, in the peak.
 const UFO_PRE=10.5;
 let ufoPre=0;
+// ---- AND THE WIND COMES BEFORE THE CUE DOES ----
+// Sixteen and a half seconds before the saucer moves, which is eighteen and a half before the
+// hull breaks the surface -- "about fifteen or a bit more", counted from the thing you see.
+// It is a separate layer from the cue on purpose: the cue is a build with a shape and a peak,
+// and this is the sea going wrong underneath it. Deep, too, so the two do not fight -- the wind
+// take is 77% between 200 and 800 Hz and the cue lives an octave and more above that.
+const UFO_WIND_PRE=16.5;
+let ufoWindT=0;
 let ufoLight=null, ufoRiderY=0;
 // 0 nothing, 1 breaking the surface, 2 standing off and opening the beam, 3 taking him,
 // 4 the swap and away
@@ -40815,6 +40863,21 @@ function ufoStart(){
 function updateUfo(dt,eff){
   // The costume has its own clock and it runs whatever else is happening -- the saucer has
   // long gone by then, so this cannot live inside any of the phases below.
+  // The wind runs from its own clock rather than from the phase, because it starts while the
+  // sequence has not begun and has to carry across the moment it does. It swells all the way in
+  // and then gets out of the way once he is off the board and the cue has paid off -- holding it
+  // under the whole abduction would just be a drone. Stopping needs no line: the asking stops
+  // and the keep-alive has it.
+  if(ufoWindT){
+    ufoWindT+=dt;
+    const gone=(ufoPh===UFOP.LIFT||ufoPh===UFOP.LEAVE);
+    if(gone&&ufoWindT>UFO_WIND_PRE+9)ufoWindT=0;
+    else if(typeof sfxLoop==='function'){
+      const rise=Math.min(1,ufoWindT/UFO_WIND_PRE);        // in over the whole approach
+      const duck=gone?Math.max(0,1-(ufoWindT-(UFO_WIND_PRE+2))/6):1;
+      sfxLoop('ufowind',0.16+0.46*rise*rise*duck,0.95+rise*0.10);
+    }
+  }
   if(ufoWas){
     ufoHold-=dt; if(ufoHold<=0)ufoGiveBack();
     // ---- AND IT STAYS STRANGE UNTIL HE IS HIMSELF AGAIN ----
@@ -40858,14 +40921,16 @@ function updateUfo(dt,eff){
       // gone -- which is why it could not be heard at the moment it was meant for. The
       // countdown already knows the saucer is coming, so the cue is started from it: the
       // build runs through the last of the dark, and the surface breaks on top of it.
+      if(!ufoWindT&&ufoDark>=UFO_WAIT-UFO_WIND_PRE&&swPh===SWP.IDLE)ufoWindT=1e-4;
       if(!ufoPre&&ufoDark>=UFO_WAIT-UFO_PRE&&swPh===SWP.IDLE){ ufoPre=1; cue('ufo',0.72); }
       // ...and a build that is not going to arrive has to be taken back down. The saucer waits
       // for the set wave, so a wave starting inside the pre-roll postpones it -- and a cue left
       // running would peak over an empty sea and then stop for no reason.
       if(ufoPre&&swPh!==SWP.IDLE){ ufoPre=0; cueStop('ufo',900); }
+      if(ufoWindT&&swPh!==SWP.IDLE)ufoWindT=0;         // the wind goes back down with the cue
       if(ufoDark>=UFO_WAIT&&swPh===SWP.IDLE)ufoStart();
     }
-    else { ufoDark=0; if(ufoPre){ ufoPre=0; cueStop('ufo',900); } }
+    else { ufoDark=0; ufoWindT=0; if(ufoPre){ ufoPre=0; cueStop('ufo',900); } }
     if(!ufoDrips.length)return;
   }
   ufoT+=dt;
