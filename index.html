@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.59';</script>
+<script>window.SURF_VERSION='10.60';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -23083,33 +23083,20 @@ function placeTiki(){
   // reading as lit at all. Normal blending puts the blue ON the wall, which is what a lit panel
   // recessed into a wall actually looks like, and the halo behind it stays additive because a
   // glow spilling past an edge IS light added to what is behind it.
-  // ---- THE BUTTON BAR ----
-  // The four buttons used to be DOM images hung over projected quads -- a painted square on the
-  // wall with a cut-out plank drawn on top of it in screen space. They are geometry now, so they
-  // take the scene's light and its perspective for free, and the DOM elements behind them are
-  // reduced to what they were always really for: a hit area and a label for a screen reader.
+  // ---- THE BUTTON BAR IS THE BUILDING'S OWN NOW ----
+  // It went DOM images -> a separate carved plank model -> this. The plank was right while the
+  // stand it hung on had no buttons of its own; surfshop4 arrives with four carved plaques
+  // already on its counter, so bolting a second row onto the rail above them put TWO sets of
+  // the same four labels on one building. Reading the shopfront and seeing "SURFBOARDS" twice
+  // is worse than any gain from crisper lettering.
+  // So shopbuttons.glb is gone and the counter's own plaques are the buttons. The group stays:
+  // it is what the four slots hang off, and each slot is still a face for the hit area plus a
+  // rim of light for the one you pressed -- so pressing still lights up, it just lights up
+  // carving that was already there instead of carving we brought with us.
   tikiBar=new THREE.Group();
   tikiBar.position.set(SHOP_BAR.x,SHOP_BAR.y,tikiHut.userData.fz+SHOP_BAR.z);
   tikiBar.scale.setScalar(SHOP_BAR.s);
   tikiHut.add(tikiBar);
-  loadModel('shopbuttons.glb',(bm)=>{
-    if(!tikiBar)return;
-    const b=cloneModel(bm);
-    b.traverse(o=>{ if(!o.isMesh||!o.material)return;
-      o.material=Array.isArray(o.material)?o.material.map(m=>m&&m.clone()):o.material.clone();
-      for(const mt of (Array.isArray(o.material)?o.material:[o.material])){
-        if(!mt)continue;
-        if(mt.roughness!==undefined){ mt.roughness=Math.max(mt.roughness,0.82); mt.metalness=0; }
-        if(mt.color)mt.color.multiplyScalar(0.80);
-        mt.envMapIntensity=0.06;
-        mt.transparent=true; mt.opacity=0;      // rides the hut's own fade, see below
-        mt.needsUpdate=true; }
-      o.castShadow=false; o.receiveShadow=true;
-    });
-    b.updateMatrixWorld(true);
-    const bb=visBox(b); b.position.sub(bb.getCenter(new THREE.Vector3()));
-    tikiBar.add(b);
-  },0);
   // The window the shop list is laid into. Invisible -- it exists only to be projected, the
   // same way each button's face does -- and a child of the hut, so it carries every decision
   // the aim made about where the building stands and how big it was drawn.
@@ -24229,11 +24216,17 @@ const QB_SLOTS=[
 // proud of the backing board, so a histogram of the frontmost layer of vertices in x has four
 // clusters in it, at -0.639, -0.226, +0.200 and +0.676. Evenly spaced, so they are written that
 // way -- a designed bar is symmetric and the measurement agrees to within a hundredth.
+// ---- READ OFF THE BUILDING, not chosen ----
+// The counter carries four carved plaques of its own. Their centres were found by gridding the
+// screen, asking the model which hut-local coordinate each pixel lands on (see hutPick), and
+// converting: -0.385, -0.128, +0.128, +0.385, evenly spaced by 0.257, on a band running
+// y -0.71..-0.93 at z 0.43. Nothing here is a preference -- move the plaques in the model and
+// these numbers are wrong in a way a screenshot shows immediately.
 const SHOP_SLOTS=[
-  {id:'dSlotSchool', x:-0.6340, label:'School',  act:()=>openGuide()},
-  {id:'dSlotBoards', x:-0.2113, label:'Boards',  act:()=>openShopOn('boards')},
-  {id:'dSlotSurfer', x: 0.2113, label:'Surfers', act:()=>openShopOn('riders')},
-  {id:'dSlotStyle',  x: 0.6340, label:'Style',   act:()=>openShopOn('gear')}];
+  {id:'dSlotSchool', x:-0.385, label:'School',  act:()=>openGuide()},
+  {id:'dSlotBoards', x:-0.128, label:'Boards',  act:()=>openShopOn('boards')},
+  {id:'dSlotSurfer', x: 0.128, label:'Surfers', act:()=>openShopOn('riders')},
+  {id:'dSlotStyle',  x: 0.385, label:'Style',   act:()=>openShopOn('gear')}];
 // Wired here rather than beside the layout, off the same table, so the id, the word on the panel
 // and the screen it opens cannot drift apart — and here specifically because SHOP_SLOTS is a
 // const declared below that code and reading it from up there is a temporal-dead-zone throw.
@@ -24301,7 +24294,7 @@ for(const _sl of SHOP_SLOTS){
 // In the BAR's units now. w and h are the plaque, not the engraving: the clusters measure
 // 0.20-0.25 across because that is the carving, while the plaque it sits on is wider and nearly
 // touches its neighbour. y and z are zero because the quads sit on the bar's own face.
-let SHOP_SLOT={y:0.0, z:0.045, w:0.400, h:0.260, col:0x0c86cf, glow:0, lit:0};
+let SHOP_SLOT={y:0.0, z:0.012, w:0.235, h:0.215, col:0x0c86cf, glow:0, lit:0};
 // Where the bar hangs inside the kiosk, in the kiosk's units. "Slightly above the bottom part"
 // -- the carved counter's top is around -0.42, so this sits just clear of it.
 // ---- CUT TO THE FRAME, NOT GUESSED AT ----
@@ -24310,9 +24303,11 @@ let SHOP_SLOT={y:0.0, z:0.045, w:0.400, h:0.260, col:0x0c86cf, glow:0, lit:0};
 // the two uprights and the middle rail -- with outer edges at -0.487 and +0.504. So the bar is
 // 0.991 wide, which off a model 1.903 wide is a scale of 0.521, and it is centred on +0.009
 // rather than on zero because the kiosk itself is not quite symmetric.
-// z is now measured FROM THE FRONT FACE rather than from the middle of the building -- see
-// tikiHut.userData.fz -- so it is a small proud-of-the-wall number, not a depth.
-let SHOP_BAR={x:0.009, y:-0.360, z:0.020, s:0.560};
+// Where the four slots hang, now that they hang on the building's OWN plaques rather than on a
+// plank we brought. Scale 1.0 so the slot x's below are hut-local units and can be read straight
+// off a measurement. z is proud of the front FACE (see tikiHut.userData.fz) and the counter is
+// set back from it, hence the negative: the face is at 0.575 and the carved panel at 0.43.
+let SHOP_BAR={x:0.000, y:-0.820, z:-0.145, s:1.000};
 // ---- WHERE THE SHOP ITSELF GOES ----
 // The clear rectangle inside the kiosk, found by gridding its front face and asking each cell
 // whether any geometry stands in it -- everything measured before this looked for where the
@@ -24346,7 +24341,9 @@ const SHOP_HOLE={x0:-0.330, x1:0.330, y0:-0.290, y1:0.470};
 // The carved panel under the counter, where the selected board's figures go. Same band the
 // column profile was taken over: wood runs unbroken from -0.499 to +0.499 across y -0.90..-0.58,
 // so this is the whole front of the counter with a margin off each end.
-const SHOP_SILL={x0:-0.430, x1:0.430, y0:-0.800, y1:-0.470};
+// The apron between the window and the plaques. It used to be the counter front, which is where
+// the plaques turned out to live -- the figures would have been written across the buttons.
+const SHOP_SILL={x0:-0.400, x1:0.400, y0:-0.660, y1:-0.360};
 // Which button is lit. Empty is none; clicking one moves it.
 let shopLitSlot='';
 // Where the shopkeeper stands, in the hut's own axes: behind the counter, at the right-hand end.
@@ -35272,6 +35269,25 @@ if(location.hash.includes('debug')){
                    z:[+z0.toFixed(3),+z1.toFixed(3)]},
               hole:SHOP_HOLE, bar:SHOP_BAR, sampled:n,
               colsX:edge(cx,x0,x1,cols), rowsY:edge(ry,y0,y1,rows)};
+    },
+    // ---- WHAT IS THE HUT'S OWN COORDINATE UNDER THIS PIXEL? ----
+    // The occupancy profiles find where the WOOD is, which is the right question for an opening
+    // and the wrong one for anything painted on. The building's own four buttons are texture on
+    // the counter -- no geometry says where they stop and start -- so the only way to place
+    // anything over them is to read them off the picture and ask the model where that pixel
+    // lands. A ray through the screen point, and the first hit reported in the hut's local
+    // frame, which is the frame SHOP_SLOTS is written in.
+    hutPick(px,py){
+      if(!tikiHut||!menuCam)return null;
+      menuCam.updateMatrixWorld(true); tikiHut.updateMatrixWorld(true);
+      const W=Math.max(1,innerWidth), H=Math.max(1,innerHeight);
+      const rc=new THREE.Raycaster();
+      rc.setFromCamera({x:px/W*2-1, y:-(py/H*2-1)}, menuCam);
+      const hits=rc.intersectObject(tikiHut,true).filter(h=>!h.object.userData.slotLit);
+      if(!hits.length)return null;
+      const p=tikiHut.worldToLocal(hits[0].point.clone());
+      return {x:+p.x.toFixed(4), y:+p.y.toFixed(4), z:+p.z.toFixed(4),
+              obj:hits[0].object.name||'(unnamed)'};
     },
     // set the window straight from a probe, so a candidate can be looked at rather than argued
     shopHole(o){ if(o){ for(const k in o)SHOP_HOLE[k]=o[k];
