@@ -1,5 +1,10 @@
 """Bring the shop kiosk in: turn it the game's way up, weld it, decimate it, shrink its textures.
 
+SUPERSEDED BY bake.py, which is what actually ships. Keeping the source atlas -- which is what
+this script does -- smears the walls no matter how many triangles or texels it is given, for
+the reason written up in bake.py. This is kept for the orientation and budget findings below,
+which still hold, and because it is the cheap path for any future model whose UVs are sane.
+
 Four things have to be true before this can replace the hut.
 
 WELD FIRST, AND THIS IS THE ONE THAT MATTERED. The source is auto-unwrapped, so its atlas is
