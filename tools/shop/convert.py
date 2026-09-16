@@ -1,6 +1,17 @@
-"""Bring the shop kiosk in: turn it the game's way up, decimate it, and shrink its textures.
+"""Bring the shop kiosk in: turn it the game's way up, weld it, decimate it, shrink its textures.
 
-Three things have to be true before this can replace the hut.
+Four things have to be true before this can replace the hut.
+
+WELD FIRST, AND THIS IS THE ONE THAT MATTERED. The source is auto-unwrapped, so its atlas is
+thousands of tiny islands, and glTF splits a vertex at every UV seam -- the mesh arrives as
+4,906 DISCONNECTED shells, not one surface. Collapse-decimating confetti shrinks each shard on
+its own and pulls gaps open between them, and that is what "the shop looks low quality" was:
+cracks and flat shards across the counter, and real daylight through the thatch that read as a
+broken transparent material. Welding by distance first (741,020 verts -> 630,508, 4,906 shells
+-> 1) makes it one watertight surface, and because Blender keeps UVs per face corner the seams
+survive in UV space while the geometry stops being confetti. Every build shipped before this
+skipped the weld, and no amount of triangles or texture resolution could have fixed them --
+this was never a resolution problem, which is where two passes were spent before measuring.
 
 ORIENTATION: NONE NEEDED, which took a wrong turn to establish. Blender's glTF importer already
 converts Y-up to Z-up on the way in, so a model that reads as "Z-up, 1.90 tall" in Blender is a
@@ -46,6 +57,15 @@ hi=Vector((max(p.x for p in pts),max(p.y for p in pts),max(p.z for p in pts)))
 print(f"  in blender:  X {hi.x-lo.x:.2f}  Y {hi.y-lo.y:.2f}  Z(up) {hi.z-lo.z:.2f}")
 print(f"  as glTF:     {hi.x-lo.x:.2f} wide, {hi.z-lo.z:.2f} tall, {hi.y-lo.y:.2f} deep")
 print(f"  bounds   X {lo.x:+.2f}..{hi.x:+.2f}  Y {lo.y:+.2f}..{hi.y:+.2f}  Z {lo.z:+.2f}..{hi.z:+.2f}")
+
+# ---- one surface, before anything is collapsed ----
+bpy.ops.object.select_all(action='DESELECT'); ob.select_set(True)
+bpy.context.view_layer.objects.active=ob
+bpy.ops.object.mode_set(mode='EDIT')
+bpy.ops.mesh.select_all(action='SELECT')
+bpy.ops.mesh.remove_doubles(threshold=max(hi-lo)*0.0002)
+bpy.ops.object.mode_set(mode='OBJECT')
+print(f"  welded -> {len(ob.data.vertices)} verts")
 
 # ---- the weight ----
 d=ob.modifiers.new("Decimate",'DECIMATE'); d.decimate_type='COLLAPSE'

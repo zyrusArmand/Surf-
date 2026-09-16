@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.60';</script>
+<script>window.SURF_VERSION='10.61';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -23039,7 +23039,18 @@ function placeTiki(){
     o.material=Array.isArray(o.material)?o.material.map(m=>m&&m.clone()):o.material.clone();
     for(const mt of (Array.isArray(o.material)?o.material:[o.material])){
       if(!mt)continue;
-      if(mt.roughness!==undefined){ mt.roughness=Math.max(mt.roughness,0.86); mt.metalness=0; }
+      // ---- LET THE MODEL'S OWN MAPS SPEAK ----
+      // This forced roughness to at least 0.86 on everything, which was right for the old
+      // kiosk: a pale straw prop with no roughness map, where a floor of "very matte" was the
+      // only thing stopping it reading as plastic. surfshop4 ships a roughness map, and in
+      // three.js the factor MULTIPLIES that map -- so clamping the factor up flattens the
+      // variation the map was drawn to provide, and every surface on the building lands at the
+      // same dull value at once. Thatch, polished counter and rope all sheening identically is
+      // a large part of what reads as cheap. The clamp only applies where there is no map to
+      // ruin.
+      if(mt.roughness!==undefined){
+        if(!mt.roughnessMap)mt.roughness=Math.max(mt.roughness,0.86);
+        mt.metalness=0; }
       // ---- and it is given somewhere to go ----
       // Pale straw under a low sun on white sand has nowhere left to brighten: the map arrives
       // near the top of the range, the beach's fill lifts it further, and ACES rolls the result
@@ -23048,8 +23059,12 @@ function placeTiki(){
       // sake, it is making room above it, and the shading that was always there comes back.
       // The sky fill comes down with it: a hut is thatch and bamboo, and 0.15 of a bright
       // environment on a matte surface is mostly just more of the same lift.
-      if(mt.color)mt.color.multiplyScalar(0.74);
-      mt.envMapIntensity=0.06;
+      // Same argument for the albedo and the sky fill. 0.74 was making room above a map that
+      // arrived near the top of the range; this one has its own shading painted in and does not
+      // need the headroom, and taking a quarter of it out just greys the wood. 0.06 of the
+      // environment is effectively none, which is why nothing on the building catches light.
+      if(mt.color)mt.color.multiplyScalar(mt.map?0.92:0.74);
+      mt.envMapIntensity=mt.roughnessMap?0.22:0.06;
       // faded in rather than popped in: it may finish loading while the lens is already on
       // its way over, and a hut that appears between two frames undoes the whole move
       mt.transparent=true; mt.opacity=0;
@@ -31036,7 +31051,19 @@ if(location.hash.includes('debug')){
               worldSize:[+(bb.max.x-bb.min.x).toFixed(2),+(bb.max.y-bb.min.y).toFixed(2)],
               parentIsHut:tikiSign.parent===tikiHut};
     },
-    hutReady(){ return {hut:!!tikiHut, sign:!!tikiSign, vis:!!(tikiHut&&tikiHut.visible)}; },
+    hutReady(){ const r={hut:!!tikiHut, sign:!!tikiSign, vis:!!(tikiHut&&tikiHut.visible)};
+      // Whether the arrival fade has actually finished. A screenshot taken while the building is
+      // still part-way in shows a see-through roof, which is indistinguishable from a broken
+      // material until this says which one you are looking at.
+      if(tikiHut){ r.inA=+(tikiHut.userData.inA||0).toFixed(3); r.op=[]; r.tr=[];
+        tikiHut.traverse(x=>{ if(!x.isMesh||!x.material||x.userData.slotLit)return;
+          for(const m of (Array.isArray(x.material)?x.material:[x.material])){
+            if(m){ r.op.push(+m.opacity.toFixed(3)); r.tr.push(m.transparent?1:0); } } }); }
+      return r; },
+    // Force the arrival fade to its end. Headless the menu loop runs at about half a frame a
+    // second with dt clamped, so the 0.55s ramp takes a minute and a half of wall time and every
+    // screenshot before then is of a part-way-in building. Nothing a player can reach.
+    hutSettle(){ if(tikiHut)tikiHut.userData.inA=1; return !!tikiHut; },
     // The height of the water straight down the fall line, every twenty units. A screenshot
     // cannot say whether a drop is missing from the FIELD or merely projecting badly from this
     // camera, and those want opposite fixes.
