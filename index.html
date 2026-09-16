@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.40';</script>
+<script>window.SURF_VERSION='10.41';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -6793,7 +6793,7 @@ function sfxWake(){
   // the three layers of the riding bed; voices share these buffers, see _sfxAlias
   for(const n of ['glide','wake','wind','weird','gull1','gull2','gull3',
                   'btn','boat','ski','buy','eqchar','eqboard','eqstyle',
-                  'starthrow','starfly',
+                  'starthrow','starfly','starhit',
                   'hitbuoy','hitlog','hitrock','hitend','jelly','ufowind',
                   'palm1','palm2','palm3','palm4'])
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
@@ -30679,7 +30679,8 @@ if(location.hash.includes('debug')){
               ufoPhase:(typeof ufoPh!=='undefined')?ufoPh:null,
               weird:d('weird'),
               btn:d('btn'), boat:d('boat'), ski:d('ski'),
-              star:{throw:d('starthrow'),fly:d('starfly')},
+              star:{throw:d('starthrow'),fly:d('starfly'),hit:d('starhit')},
+              starHitFired:_sfxCalls['1shot:starhit']||0,
               hits:{buoy:d('hitbuoy'),log:d('hitlog'),rock:d('hitrock'),end:d('hitend')},
               jelly:d('jelly'), jellyFired:_sfxCalls['1shot:jelly']||0,
               hitFired:['hitbuoy','hitlog','hitrock','hitend'].map(n=>_sfxCalls['1shot:'+n]||0),
@@ -41054,6 +41055,13 @@ function updateStars(dt,eff){
               && Math.abs(s2.m.position.y-py)<2.2;
     const sea=waveH(s2.m.position.x,dist*WAVE_DRIFT+s2.m.position.z,waveClock);
     if(hit){
+      // ---- AND IT LANDS ----
+      // The throw and the flight had sounds and the ARRIVAL did not, which is the one of the
+      // three you cannot miss: it is the only part that happens to you. Louder for the one that
+      // sticks across the lens than for a glancing second, because those are visibly different
+      // events and the code already tells them apart a line below.
+      if(typeof sfx==='function')
+        sfx('starhit',splatCd<=0?0.82:0.52,(splatCd<=0?0.97:1.06)+Math.random()*0.08);
       // One splat at a time. A second star landing while the first is still across
       // your view just breaks apart beside you instead of stacking another on top.
       if(splatCd<=0){ splatOnScreen(s2.m.userData.tint); splatCd=splatT+0.9; }
@@ -41062,7 +41070,15 @@ function updateStars(dt,eff){
       s2.m.visible=false;STAR_POOL.push(s2.m);stars.splice(i,1);continue;
     }
     if(s2.m.position.y<sea||s2.t>5||s2.m.position.z>18){
-      if(s2.m.position.y<sea)splash(s2.m.position.x,sea,s2.m.position.z,6,0xff8a3d);
+      // A miss is worth hearing too -- it is the difference between being shot at and being hit,
+      // and it tells you one went past. The same impact, pitched down into the water and quiet,
+      // and only when it is close enough that you would hear it over the ride.
+      if(s2.m.position.y<sea){
+        splash(s2.m.position.x,sea,s2.m.position.z,6,0xff8a3d);
+        const dx=s2.m.position.x-px, dz=s2.m.position.z-pz, d=Math.sqrt(dx*dx+dz*dz);
+        if(d<26&&typeof sfx==='function')
+          sfx('starhit',(1-d/26)*0.30,0.74+Math.random()*0.08);
+      }
       s2.m.visible=false;STAR_POOL.push(s2.m);stars.splice(i,1);
     }
   }
