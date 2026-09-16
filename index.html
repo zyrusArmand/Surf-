@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.52';</script>
+<script>window.SURF_VERSION='10.53';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -1958,6 +1958,31 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     display:flex; align-items:center; justify-content:center; padding:16px; }
   #shop .shopwrap { width:min(620px,100%); max-height:100%; display:flex; flex-direction:column; }
   #shop .go { align-self:center; margin-top:12px; }
+  #shopWin { display:flex; flex-direction:column; min-height:0; flex:1 1 auto; }
+
+  /* ---- AND OPENED FROM THE KIOSK, THE SHOP IS INSIDE THE KIOSK ----
+     Walk up to the stand and the shop is not a sheet that covers it -- it is what is on the
+     shelves you are standing in front of. So the panel stops painting: no ground, no blur, and
+     the beach, the building and the four carved tabs on its bar are all still there behind the
+     list, because they were never hidden, only covered.
+     #shopWin is then flown to the building's own window every frame -- projected from a quad
+     inside the hut, the same way each tab's hit area is -- so the shelves stay in the opening
+     however the lens is standing. Everything else about the shop is untouched: same grid, same
+     cards, same buying. It has moved, not been rebuilt.
+     Opened any other way -- a Ride-it link out of board school, a deep link -- there is no
+     building on screen to put it in, so it stays the full-screen sheet it has always been. */
+  #shop.instand { background:none; -webkit-backdrop-filter:none; backdrop-filter:none;
+    padding:0; display:block; pointer-events:none; }
+  #shop.instand .shopwrap { width:100%; max-height:none; display:block; }
+  /* the header and the tab row are ON the building now: a plank over the door and four carved
+     plaques on a bar. Two of each would be one too many. */
+  #shop.instand .shopwrap > h2, #shop.instand #shopTabs { display:none; }
+  #shop.instand #shopWin { position:fixed; pointer-events:auto; display:block; }
+  #shop.instand #shopList { height:100%; padding:6px 4px 10px; gap:5px;
+    grid-template-columns:repeat(2,1fr); }
+  /* Back stays reachable, and sits under the counter rather than under the list */
+  #shop.instand .shopwrap > .go { position:fixed; left:50%; bottom:calc(14px + env(safe-area-inset-bottom));
+    transform:translateX(-50%); margin:0; pointer-events:auto; z-index:3; }
 
   #clip { position:fixed; inset:0; z-index:14; color:#fff;
     background:linear-gradient(180deg, rgba(20,88,150,.86) 0%, rgba(11,56,106,.90) 46%,
@@ -3047,7 +3072,7 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   <div class="shopwrap">
     <h2>Beach shop <span id="shopLv">Lv 1</span><span id="shopCoins">0 puka</span></h2>
     <div id="shopTabs"><button class="tab on" data-tab="boards">Boards</button><button class="tab" data-tab="riders">Surfers</button><button class="tab" data-tab="gear">Style</button></div>
-    <div id="shopList"></div>
+    <div id="shopWin"><div id="shopList"></div></div>
     <button class="go calm" id="shopClose"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg><span>Back</span></button>
   </div>
 </div>
@@ -13188,13 +13213,25 @@ document.getElementById('gMatch').onclick=()=>{
 let shopFromTiki=0;
 function openShopOn(tab){
   shopFromTiki=(typeof tikiHut!=='undefined'&&tikiHut&&typeof shopCamGo!=='undefined'&&shopCamGo)?1:0;
-  // Packed away on the way in, and it is load-bearing rather than tidy: prevScene is where
-  // the card photographs are taken from. See menuBeachWanted.
-  if(typeof menuBeachOff==='function')menuBeachOff();
+  // ---- OPENED FROM THE KIOSK, THE BEACH STAYS UP ----
+  // Everywhere else the beach is packed away here, and that is load-bearing rather than tidy:
+  // the menu's standing board is BORROWED from prevScene, which is where the card photographs
+  // are taken, so it has to go back before the shop can photograph anything.
+  // Walking up to the stand is the one case where the scene behind the panel is the point --
+  // the shop is what is on those shelves, and hiding the building to show its contents is
+  // backwards. So on that route the beach is left standing and the overlay left up, and the
+  // panel paints nothing over them.
+  if(typeof menuBeachOff==='function'&&!shopFromTiki)menuBeachOff();
   shopTab=tab; drawShop(); showCoins();   // the purse and the level badge, before it is seen
   shopMenuWasUp=!overlay.classList.contains('hidden');
-  if(shopMenuWasUp)overlay.classList.add('hidden');
+  if(shopMenuWasUp&&!shopFromTiki)overlay.classList.add('hidden');
   shop.classList.remove('hidden');
+  // Dressed and placed on THIS frame, not the next one. The window is flown from the menu's
+  // render loop, and a loop that runs after this returns paints one frame of full-screen navy
+  // sheet over the building you are standing in front of before the shelves drop into it --
+  // a flash, and on a slow frame a long one. Called straight through here so the first frame
+  // anybody sees is already in the stand.
+  if(typeof layoutShopWindow==='function'){ try{ layoutShopWindow(); }catch(e){} }
 }
 document.getElementById('dBoard').onclick   =()=>{ buzz(8); openGuide(); };
 // ---- Shop is somewhere you GO ----
@@ -13805,6 +13842,11 @@ shopBtn.onclick=()=>{
 document.getElementById('vClose').onclick=closeViewer;
 document.getElementById('shopClose').onclick=()=>{
   shop.classList.add('hidden');
+  // The in-stand dressing is put on and taken off by layoutShopWindow, which runs off the menu
+  // render loop -- so it would come off a frame or two from now on its own. Dropped here as
+  // well because "a frame or two from now" is exactly long enough for a reopen from the dial to
+  // paint one frame of window-shaped panel in the middle of a black sheet.
+  shop.classList.remove('instand');
   if(shopMenuWasUp)overlay.classList.remove('hidden');
   // ...and the lens walks back. Cleared here rather than on every path that can close the
   // shop, because this is the one the player actually uses; the frame loop eases it home from
@@ -22681,7 +22723,7 @@ let menuSignModel=null, signPost=null;
 // reveal finishes, at the FRONT of the queue rather than the back; see wantTiki below for why
 // that number went the other way from what the first version of this note claimed.
 let tikiModel=null, tikiHut=null, tikiTrees=null, tikiSlots=null, _tikiAsked=0;
-let tikiSign=null, tikiBar=null;
+let tikiSign=null, tikiBar=null, tikiWin=null;
 // The kiosk has its own carved sign; see the note where this is used.
 const SHOP_SIGN_QUAD=false;
 // Where the plank hangs, in the hut's own units -- the same frame SHOP_SLOT is written in, so
@@ -22793,6 +22835,15 @@ function placeTiki(){
     const bb=visBox(b); b.position.sub(bb.getCenter(new THREE.Vector3()));
     tikiBar.add(b);
   },0);
+  // The window the shop list is laid into. Invisible -- it exists only to be projected, the
+  // same way each button's face does -- and a child of the hut, so it carries every decision
+  // the aim made about where the building stands and how big it was drawn.
+  tikiWin=new THREE.Mesh(new THREE.PlaneGeometry(SHOP_HOLE.x1-SHOP_HOLE.x0,
+                                                 SHOP_HOLE.y1-SHOP_HOLE.y0),
+    new THREE.MeshBasicMaterial({visible:false}));
+  tikiWin.position.set((SHOP_HOLE.x0+SHOP_HOLE.x1)/2,(SHOP_HOLE.y0+SHOP_HOLE.y1)/2,0.16);
+  tikiWin.userData.slotLit=1;             // keep it out of the hut's fade
+  tikiHut.add(tikiWin);
   tikiSlots=[];
   for(const sl of SHOP_SLOTS){
     const g=new THREE.Group();
@@ -23495,7 +23546,36 @@ function drawQuestNotes(force){
 // They come up later than the counter (0.72 against 0.55) because a lit sign arriving before the
 // building has finished fading in is a row of floating glyphs.
 const _slV=new THREE.Vector3();
+// ---- AND THE SHOP IS LAID INTO THE BUILDING ----
+// Opened from the kiosk, the shop is not a panel over the beach -- it is what is on the shelves
+// inside the stand you have just walked up to. So the sheet keeps the 3D behind it and the list
+// is placed from the projected corners of the window quad, exactly the way each button's hit
+// area is. Opened any other way (the guide's Ride-it links, a deep link) it stays the
+// full-screen sheet it was, because there is no building on screen to put it in.
+const _swV=new THREE.Vector3();
+function layoutShopWindow(){
+  const el=document.getElementById('shopWin');
+  if(!el)return;
+  const live=!!(tikiWin&&tikiHut&&menuCam&&shopFromTiki&&
+                !document.getElementById('shop').classList.contains('hidden'));
+  document.getElementById('shop').classList.toggle('instand',!!live);
+  if(!live){ el.style.left=el.style.top=el.style.width=el.style.height=''; return; }
+  menuCam.updateMatrixWorld(true); tikiHut.updateMatrixWorld(true); tikiWin.updateMatrixWorld(true);
+  const hw=(SHOP_HOLE.x1-SHOP_HOLE.x0)/2, hh=(SHOP_HOLE.y1-SHOP_HOLE.y0)/2;
+  const W=Math.max(1,innerWidth), H=Math.max(1,innerHeight);
+  let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9,any=false;
+  for(let i=0;i<4;i++){
+    _swV.set(i&1?hw:-hw, i&2?hh:-hh, 0).applyMatrix4(tikiWin.matrixWorld).project(menuCam);
+    if(_swV.z>1)continue; any=true;
+    const px=(_swV.x*0.5+0.5)*W, py=(-_swV.y*0.5+0.5)*H;
+    if(px<x0)x0=px; if(px>x1)x1=px; if(py<y0)y0=py; if(py>y1)y1=py;
+  }
+  if(!any||x1<=x0||y1<=y0)return;
+  el.style.left=x0.toFixed(1)+'px'; el.style.top=y0.toFixed(1)+'px';
+  el.style.width=(x1-x0).toFixed(1)+'px'; el.style.height=(y1-y0).toFixed(1)+'px';
+}
 function layoutShopSlots(e){
+  layoutShopWindow();
   if(!tikiSlots)return;
   const live=!!tikiHut&&!!menuCam&&e>=0.72;
   const W=Math.max(1,innerWidth), H=Math.max(1,innerHeight);
@@ -23886,7 +23966,13 @@ let SHOP_SLOT={y:0.0, z:0.045, w:0.400, h:0.260, col:0x0c86cf, glow:0, lit:0};
 // the two uprights and the middle rail -- with outer edges at -0.487 and +0.504. So the bar is
 // 0.991 wide, which off a model 1.903 wide is a scale of 0.521, and it is centred on +0.009
 // rather than on zero because the kiosk itself is not quite symmetric.
-let SHOP_BAR={x:0.009, y:-0.262, z:0.140, s:0.521};
+let SHOP_BAR={x:0.009, y:0.404, z:0.140, s:0.521};
+// ---- WHERE THE SHOP ITSELF GOES ----
+// The clear rectangle inside the kiosk, found by gridding its front face and asking each cell
+// whether any geometry stands in it -- everything measured before this looked for where the
+// wood IS, and the list has to go where it is NOT. The hole runs x -0.327..+0.327 and
+// y -0.524..+0.477, and the bar now takes the top of it, so the shelves get what is left.
+const SHOP_HOLE={x0:-0.327, x1:0.327, y0:-0.516, y1:0.300};
 // Which button is lit. Empty is none; clicking one moves it.
 let shopLitSlot='';
 // Where the shopkeeper stands, in the hut's own axes: behind the counter, at the right-hand end.
