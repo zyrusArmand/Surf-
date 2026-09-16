@@ -27,7 +27,8 @@ try{ fetch('sounds/title.webm',{cache:'default'}).catch(function(){}); }catch(e)
 try{ fetch('sounds/land.webm',{cache:'default'}).catch(function(){}); }catch(e){}
 try{ fetch('sounds/jet.webm',{cache:'default'}).catch(function(){}); }catch(e){}
 try{ fetch('sounds/under.webm',{cache:'default'}).catch(function(){}); }catch(e){}
-try{ fetch('sounds/ride.webm',{cache:'default'}).catch(function(){}); }catch(e){}</script>
+try{ fetch('sounds/ride.webm',{cache:'default'}).catch(function(){}); }catch(e){}
+try{ fetch('sounds/turn.webm',{cache:'default'}).catch(function(){}); }catch(e){}</script>
 <!-- A hint, not a guarantee. Most browsers ignore these on the document itself and the CDN in
      front of this never sees them at all — the actual answer is the version check further down,
      which asks the server what shipped and reloads if this is not it. -->
@@ -57,7 +58,7 @@ try{ fetch('sounds/ride.webm',{cache:'default'}).catch(function(){}); }catch(e){
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.24';
+window.SURF_VERSION='10.25';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -6566,8 +6567,9 @@ function sfx(name,vol,rate){
 // the pack goes from a trickle to a torrent and back many times a second, and a hard jump in
 // either would click. Web Audio loops sample-accurately, so there is no gap on the wrap.
 const _sfxLoops={};
+let _carveMax=0;
 const _sfxCalls={};
-function sfxLoop(name,vol,rate){
+function sfxLoop(name,vol,rate,pan){
   _sfxCalls[name]=(_sfxCalls[name]||0)+1;      // debug: who is actually asking, and how often
   if(!sfxOn){ sfxLoopStop(name,120); return; }
   const ac=_ac, b=_sfxBuf[name];
@@ -6578,14 +6580,24 @@ function sfxLoop(name,vol,rate){
     try{
       const src=ac.createBufferSource(); src.buffer=b; src.loop=true;
       const g=ac.createGain(); g.gain.value=0;
-      src.connect(g); g.connect(_sfxOut); src.start();
-      L=_sfxLoops[name]={src:src,g:g};
+      // a panner only when one is asked for, so nothing else pays for it
+      let p=null;
+      if(pan!==undefined&&ac.createStereoPanner){
+        p=ac.createStereoPanner(); src.connect(g); g.connect(p); p.connect(_sfxOut);
+      } else { src.connect(g); g.connect(_sfxOut); }
+      src.start();
+      L=_sfxLoops[name]={src:src,g:g,p:p};
     }catch(e){ return; }
   }
   L.seen=performance.now();          // the keep-alive; see the watchdog below
+  L.want=vol; L.wantPan=pan;         // what was ASKED for, which is not where the ramp has got to
+  if(vol>(L.wantMax||0))L.wantMax=vol;
+  if(pan!==undefined){ if(pan<(L.panMin!==undefined?L.panMin:9))L.panMin=pan;
+                       if(pan>(L.panMax!==undefined?L.panMax:-9))L.panMax=pan; }
   const t=ac.currentTime;
   L.g.gain.setTargetAtTime(Math.max(0,Math.min(1.2,vol)),t,0.06);
   if(rate)L.src.playbackRate.setTargetAtTime(rate,t,0.10);
+  if(L.p&&pan!==undefined)L.p.pan.setTargetAtTime(Math.max(-1,Math.min(1,pan)),t,0.09);
 }
 // ---- A SUSTAINED SOUND STOPS WHEN NOBODY IS ASKING FOR IT ----
 // Measured: the jetpack loop started correctly and then ran forever, because the only thing
@@ -6617,6 +6629,7 @@ function sfxWake(){
   sfxLoad('jet', ['sounds/jet.webm','sounds/jet.m4a']);
   sfxLoad('under',['sounds/under.webm','sounds/under.m4a']);
   sfxLoad('ride', ['sounds/ride.webm','sounds/ride.m4a']);
+  sfxLoad('turn', ['sounds/turn.webm','sounds/turn.m4a']);
 }
 // ---- WARM THE CACHE WITH A PLAIN FETCH ----
 // A browser will not download a media element's source until it believes the media can
@@ -30268,6 +30281,12 @@ if(location.hash.includes('debug')){
         return (b==='loading')?'loading':(b?('decoded '+b.duration.toFixed(3)+'s'):'none'); };
       return {on:sfxOn, ctx:_ac?_ac.state:null, land:d('land'), jet:d('jet'), under:d('under'),
               ride:d('ride'), rideGain:_sfxLoops.ride?+_sfxLoops.ride.g.gain.value.toFixed(3):null,
+              turn:d('turn'),
+              turnVol:_sfxLoops.turn?+(_sfxLoops.turn.want||0).toFixed(3):null,
+              turnPeak:_sfxLoops.turn?+(_sfxLoops.turn.wantMax||0).toFixed(3):null,
+              turnPanRange:_sfxLoops.turn?[+(_sfxLoops.turn.panMin||0).toFixed(2),
+                                           +(_sfxLoops.turn.panMax||0).toFixed(2)]:null,
+              carveMax:+_carveMax.toFixed(3),
               speed:(typeof speed!=='undefined')?+speed.toFixed(1):null,
               calls:Object.assign({},_sfxCalls),
               diveOn:(typeof diveOn!=='undefined')?!!diveOn:null,
@@ -41685,6 +41704,15 @@ function update(dt){
     const _rUnder=(diveOn||diveDepth>0.5)?0.0:1.0;
     const _rAir=airborne?0.30:1.0;
     sfxLoop('ride',(0.26+_rSp*0.30)*_rUnder*_rAir, 0.94+_rSp*0.16);
+    // ---- AND THE CARVE ----
+    // A turn is a state, not an event, so it holds for as long as he is turning rather than
+    // firing once: the same loop the ride uses, gated on how hard the rail is actually in.
+    // Silent below a twelfth of full lock so ordinary steering corrections do not chatter it
+    // on and off, and panned toward the side he is leaning into.
+    const _rT=Math.max(0,Math.min(1,(Math.abs(carve)-0.12)/0.78));
+    if(Math.abs(carve)>_carveMax)_carveMax=Math.abs(carve);   // calibration, see sfxState
+    sfxLoop('turn',(0.30+_rT*0.45)*_rT*_rUnder*_rAir, 0.95+_rT*0.18,
+            Math.max(-1,Math.min(1,carve*0.7)));
   }
 
   // A wall this size falls away under the board fast enough to throw him off its
