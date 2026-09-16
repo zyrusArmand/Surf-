@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.54';</script>
+<script>window.SURF_VERSION='10.55';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -14476,8 +14476,17 @@ function menuHealth(){
 }
 function stageSay(msg){
   const el=document.getElementById('stageOut'); if(!el)return;
-  el.textContent = msg || ((stageCamOn||stagePick) ? stageText()
-                                     : menuHealth());
+  // ---- and the health line SAYS WHICH ROOM IT IS HOLDING ----
+  // The report that found the latch came with a photograph of this line reading s 0/0.00 on a
+  // screen that was meant to be the shop, which is the only reason it was possible to tell the
+  // walk had been zeroed rather than never started. Worth naming outright rather than leaving
+  // to be read off two counters: it is the one fact that says whether the workshop is pointed
+  // at the set you think it is.
+  let room='';
+  if(typeof stageRoomLatch!=='undefined'&&stageRoomLatch)
+    room=' | set: '+(stageRoomLatch.shop?'SHOP':(stageRoomLatch.quest?'QUESTS':'BEACH'));
+  el.textContent = (msg || ((stageCamOn||stagePick) ? stageText()
+                                     : menuHealth())) + room;
 }
 // The shop list's window quad is invisible in play and has to be visible in the workshop, or
 // it is a target that gives no feedback. Kept as its own call rather than inlined, because the
@@ -14487,10 +14496,32 @@ function stageWinShow(){
   if(typeof tikiWin==='undefined'||!tikiWin||!tikiWin.material)return;
   tikiWin.material.visible=!!(typeof stageOn!=='undefined'&&stageOn);
 }
+// Which room the workshop was opened in, written back every frame while it is open so that
+// nothing can walk the lens out of the set you are arranging. See the latch in the menu loop.
+let stageRoomLatch=null;
+function stageRoomHold(shop,quest){
+  // Told outright, by the Room button, which has just decided where it is going and whose
+  // answer cannot be read off the lens yet because the lens has not moved.
+  if(shop!==undefined){ stageRoomLatch={shop:shop?1:0, quest:quest?1:0}; return; }
+  // ---- OTHERWISE READ THE ROOM OFF WHERE THE LENS IS, NOT OFF THE FLAG ----
+  // The flag lies at exactly the moment this is asked. Opening the workshop closes the shop
+  // panel first -- you cannot arrange a building through a sheet hung in its window -- and the
+  // panel's own Back clears shopCamGo on the way out. So a latch taken from the flag latched
+  // BEACH while the lens was still standing at the hut with the ease reading 1.00, and then
+  // spent every frame afterwards faithfully walking the camera to the room it had mis-read.
+  // Measured: go 0, e 1.00, camera at the hut. The ease is the ground truth -- it is the
+  // number the camera block actually uses -- so that is what gets asked.
+  const s=(typeof shopCamE==='number')?shopCamE:0;
+  const q=(typeof questCamE==='number')?questCamE:0;
+  if(s>0.5&&s>=q)     stageRoomLatch={shop:1,quest:0};
+  else if(q>0.5)      stageRoomLatch={shop:0,quest:1};
+  else                stageRoomLatch={shop:0,quest:0};
+}
 function stageShow(on){
   // Before stageOn is set, so it reads the lens the GAME last put somewhere rather than one
   // the workshop is already holding. See stCamReseed.
   if(on)stCamReseed();
+  if(on)stageRoomHold(); else stageRoomLatch=null;
   stageOn=!!on;
   stagePick=null; stageDrag=null;
   stageWinShow();
@@ -14547,6 +14578,17 @@ document.getElementById('stStage').onclick=()=>{
   document.getElementById('stats').classList.add('hidden');
   const _sp=document.getElementById('settings');
   if(_sp)_sp.classList.add('hidden');
+  // ---- ...AND THE SHOP, which since v10.53 is not a sheet over the scene but a hole IN it ----
+  // The in-stand list sits in the stand's window with pointer-events on, so with it up every
+  // tap aimed at the middle of the building lands on a surfboard card instead of on the
+  // building. Walk to the shop, press a plaque, open the workshop, and the one piece you most
+  // want to drag is behind the thing you came to arrange. Closed through its own button so the
+  // dressing comes off and the lens is left standing at the hut, which is where you were.
+  const _shp=document.getElementById('shop');
+  if(_shp&&!_shp.classList.contains('hidden')){
+    const _sc=document.getElementById('shopClose');
+    if(_sc)_sc.click(); else _shp.classList.add('hidden');
+  }
   stageShow(true);
 };
 document.getElementById('stageOff').onclick=()=>stageShow(false);
@@ -14570,6 +14612,9 @@ document.getElementById('stageRoom').onclick=()=>{
   // the panel that opens on arrival is not wanted here -- this is the set, not the shop
   try{ clearTimeout(_shopWalk); }catch(e){}
   try{ clearTimeout(_questWalk); }catch(e){}
+  // The latch moves WITH the button, or the frame after this puts the old room back. Told
+  // outright rather than read off the lens: the lens is still in the room we are leaving.
+  stageRoomHold(shopCamGo,questCamGo);
   if(typeof buzz==='function')buzz(8);
   stageSay('walking to the '+where+' — press and hold a piece once you are there');
 };
@@ -36726,6 +36771,11 @@ if(location.hash.includes('debug')){
       const V=new THREE.Vector3();
       return {
         on:!!(typeof stageOn!=='undefined'&&stageOn),
+        // the room the workshop is holding, so a check can tell "the walk was never zeroed"
+        // from "it was zeroed and put back" -- see the latch in the menu loop
+        room:(typeof stageRoomLatch!=='undefined'&&stageRoomLatch)
+              ?{shop:stageRoomLatch.shop, quest:stageRoomLatch.quest,
+                e:+shopCamE.toFixed(3), go:shopCamGo}:null,
         mode:(typeof stageMode!=='undefined')?stageMode:null,
         cam:!!(typeof stageCamOn!=='undefined'&&stageCamOn),
         lens:(typeof stCamYaw!=='undefined')
@@ -47419,6 +47469,20 @@ function renderMenuBeach(dt){
   // here rather than in the camera block because the camera runs before this and would spend a
   // frame behind; and clamped rather than eased toward the target, so the move always takes
   // SHOP_CAM.secs whatever the frame rate is doing.
+  // ---- ...AND WHILE THE WORKSHOP IS OPEN, THE ROOM IS LATCHED ----
+  // Three listeners already bail on stageOn -- the room tap, the room swipe, the notice click --
+  // and a tap on the screen with the stage up STILL walked the lens back to the title beach.
+  // Chasing the fourth one is the same mistake as the first three: the thing worth defending is
+  // not each gesture, it is the FLAG. So the room you were standing in when the workshop opened
+  // is written back every frame for as long as it is open, and the only thing allowed to change
+  // it is the Room button, which moves the latch with it. Whatever else writes shopCamGo -- a
+  // handler I have not found, a panel closing, a timer that was already in flight -- is undone
+  // before the ease can act on it, so the set you are arranging cannot be taken away from you
+  // mid-drag. Reported twice, and the second time with the readout showing s 0/0.00 on a screen
+  // that was supposed to be the shop.
+  if(typeof stageOn!=='undefined'&&stageOn&&typeof stageRoomLatch!=='undefined'&&stageRoomLatch){
+    shopCamGo=stageRoomLatch.shop; questCamGo=stageRoomLatch.quest;
+  }
   { const _sd=(typeof MB_FREEZE!=='undefined'&&MB_FREEZE)?0:dt;
     const step=_sd/Math.max(0.05,SHOP_CAM.secs);
     shopCamE = shopCamGo ? Math.min(1,shopCamE+step) : Math.max(0,shopCamE-step);
