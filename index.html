@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.53';</script>
+<script>window.SURF_VERSION='10.54';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -2793,6 +2793,12 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     <button class="go alt sm st-md" data-md="roty">Turn</button>
     <button class="go alt sm st-md" data-md="rotz">Roll</button>
     <button class="go alt sm st-md" data-md="size">Size</button>
+    <!-- Which SET you are arranging. The workshop hides the dial and every gesture that walks
+         between the rooms bails while it is open -- correctly, because those gestures are how a
+         piece is dragged -- so with the stage up there was no way to reach the shop or the
+         quest board at all. Walk there first and then open the stage and it works, which is a
+         rule nobody can guess. This is the way between them that the workshop owns. -->
+    <button class="go teal sm" id="stageRoom">Room</button>
     <button class="go sun sm" id="stageCam">Camera</button>
     <button class="go alt sm" id="stageCopy">Copy</button>
     <button class="go calm sm" id="stageOff">Done</button>
@@ -13302,6 +13308,26 @@ function onVersion(ev){
   const x=(ev.clientX!==undefined)?ev.clientX:-1e9, y=(ev.clientY!==undefined)?ev.clientY:-1e9;
   return !(x<r.left-pad||x>r.right+pad||y<r.top-pad||y>r.bottom+pad);
 }
+// ---- AND THE BOTTOM OF THE SCREEN IS NOT A WAY OUT OF THE ROOM ----
+// onVersion above protects taps TWO THROUGH FIVE: once a run of taps has started, everything
+// for the next second and a half is an attempt at the workshop wherever it lands. The FIRST
+// tap has nothing protecting it. Miss the label by a finger's width on tap one, standing at
+// the hut, and the pointerup below reads it as "a tap on the sand", zeroes shopCamGo and walks
+// the lens home -- so by the time the fifth tap opens Records you are on the title beach, and
+// pressing Stage stages the title beach. Reported twice as "when I hit stage it turns back to
+// main menu", and it is not the staging failing: it is never being allowed to start, from the
+// one place it is most wanted, which is standing in front of the set you came to arrange.
+// So the strip the label sits in stops being a way out at all. Nothing else is down there --
+// the arrow that leaves the shop is .varr and the list above already spares it, and the dial
+// is not on screen in either room -- and the arrow is the affordance that was put there to be
+// the way out, so the room loses nothing it was meant to have.
+function inVersionStrip(ev){
+  if(typeof verEl==='undefined'||!verEl)return false;
+  const r=verEl.getBoundingClientRect();
+  if(!r.height)return false;
+  const y=(ev.clientY!==undefined)?ev.clientY:-1e9;
+  return y>=r.top-30;
+}
 // ---- AND THE QUEST BOARD IS LEFT BY TAPPING IT ----
 // A tap anywhere was pulled out of the SHOP for two stated reasons: it gave no sign it was
 // there, and it swallowed every tap on the title beach, which is where the five taps on the
@@ -13333,6 +13359,8 @@ addEventListener('pointerdown',(ev)=>{
   if(ev.target&&ev.target.closest&&
      ev.target.closest('#homeBar,#quests,#settings,#shop,#viewer,#stageBar,.hbtn,.varr,.slotb,.qbNote'))return;
   if(onVersion(ev))return;
+  // ...and neither is a near miss on the first of the five. See inVersionStrip.
+  if(inVersionStrip(ev))return;
   // ---- AND IT WAITS TO SEE WHETHER IT IS A TAP AT ALL ----
   // This used to act right here, on the way down. That is the more responsive thing to do and it
   // is not compatible with swiping between the rooms: a swipe BEGINS with a pointerdown on the
@@ -14221,6 +14249,20 @@ function stCamSeed(){
   stCamFree=true;
 }
 function stCamReset(){ stCamFree=false; stCamKeep=false; }
+// ---- AND EVERY SESSION STARTS FROM THE SHOT YOU ARE ACTUALLY LOOKING AT ----
+// stCamSeed fires once per page-load and then refuses, which is right while a drag is in
+// progress and wrong on the way in: take the camera on the title screen, press Done, walk to
+// the shop and open the stage again, and the workshop's lens is still the title-screen shot
+// from ten minutes ago -- so the first frame of the workshop throws away the room you were
+// standing in. Re-seeded on open instead. At the title screen with a kept shot this is a
+// no-op, because the lens already IS that shot; at the hut it is the difference between
+// arranging the stand and being sent back to the beach to look at it from there.
+function stCamReseed(){
+  if(typeof menuCam==='undefined'||!menuCam)return;
+  stCamPos.copy(menuCam.position);
+  const e=new THREE.Euler().setFromQuaternion(menuCam.quaternion,'YXZ');
+  stCamYaw=e.y; stCamPitch=e.x;
+}
 const _stRC=new THREE.Raycaster(), _stV=new THREE.Vector3(), _stV2=new THREE.Vector3();
 function stageTargets(){
   const out=[], add=(n,o)=>{ if(o)out.push({n,o}); };
@@ -14234,6 +14276,20 @@ function stageTargets(){
   // it fills, how far it leans — are the ones hardest to guess at a desk and easiest to find by
   // dragging. aimSignpost stands down while it is held; see the mark there.
   add('signpost', typeof signPost!=='undefined'?signPost:null);
+  // ---- THE SHOP IS A SET, NOT A PROP ----
+  // 'tiki' was the whole building and the only thing on that screen the workshop could touch,
+  // so standing in front of the stand you could move the stand and nothing ON it -- and the
+  // three pieces that actually need placing by eye are all on it: the bar the four carved
+  // plaques ride, the plank over the door, and the window the shop list is laid into.
+  // All three are CHILDREN of the hut, so they are listed BEFORE it: stageHit keeps the
+  // nearest and breaks ties in list order, and a tap on the bar hits the bar and the hut at
+  // exactly the same distance. Parent last means the part wins and the building is what you
+  // get when you tap the frame, which is the way round anybody reaching for them expects.
+  // Their positions are written once when the stand is built and never again, so a drag sticks
+  // and stageText's local x,y,z read straight back into SHOP_BAR and SHOP_HOLE.
+  add('shopbar',  typeof tikiBar!=='undefined'?tikiBar:null);
+  add('shopsign', typeof tikiSign!=='undefined'?tikiSign:null);
+  add('shopwin',  typeof tikiWin!=='undefined'?tikiWin:null);
   // only there once somebody has been to the shop, which is exactly when it is worth dragging
   add('tiki', typeof tikiHut!=='undefined'?tikiHut:null);
   // ...and the quest board, for the same reason and by the same argument. It was left out when
@@ -14423,9 +14479,21 @@ function stageSay(msg){
   el.textContent = msg || ((stageCamOn||stagePick) ? stageText()
                                      : menuHealth());
 }
+// The shop list's window quad is invisible in play and has to be visible in the workshop, or
+// it is a target that gives no feedback. Kept as its own call rather than inlined, because the
+// stand is built lazily -- walk to the shop with the stage already open and the quad does not
+// exist yet, so placeTiki asks again on the way out of the build.
+function stageWinShow(){
+  if(typeof tikiWin==='undefined'||!tikiWin||!tikiWin.material)return;
+  tikiWin.material.visible=!!(typeof stageOn!=='undefined'&&stageOn);
+}
 function stageShow(on){
+  // Before stageOn is set, so it reads the lens the GAME last put somewhere rather than one
+  // the workshop is already holding. See stCamReseed.
+  if(on)stCamReseed();
   stageOn=!!on;
   stagePick=null; stageDrag=null;
+  stageWinShow();
   // Done KEEPS the lens where it was left. Finding a shot and having it thrown away on the way
   // out is the same as not having found it, so closing the stage saves it instead: the title
   // screen goes on using it, and long-pressing Camera is the way back.
@@ -14482,6 +14550,29 @@ document.getElementById('stStage').onclick=()=>{
   stageShow(true);
 };
 document.getElementById('stageOff').onclick=()=>stageShow(false);
+// ---- WHICH SET, without leaving the workshop ----
+// Beach -> shop -> quest board -> beach. It drives the same two walk flags the dial does, so
+// the lens travels the way it does in play and the set it is going to is asked for on the way.
+// The stage's own lens is dropped on the move: a kept shot is a shot of the room you found it
+// in, and carrying it into the next room means arriving somewhere you cannot see. The game's
+// shot for the room you asked for takes over, and Camera seeds from there.
+document.getElementById('stageRoom').onclick=()=>{
+  const atShop=(typeof shopCamGo!=='undefined')&&shopCamGo;
+  const atBoard=(typeof questCamGo!=='undefined')&&questCamGo;
+  stCamReset();
+  stagePick=null; stHoldStop();
+  stageCamOn=false;
+  const cb=document.getElementById('stageCam'); if(cb)cb.classList.remove('on');
+  let where;
+  if(atShop){ shopCamGo=0; questCamGo=1; try{ wantBoard(); }catch(e){} where='quest board'; }
+  else if(atBoard){ shopCamGo=0; questCamGo=0; where='title beach'; }
+  else { questCamGo=0; shopCamGo=1; try{ wantTiki(); }catch(e){} where='surf shop'; }
+  // the panel that opens on arrival is not wanted here -- this is the set, not the shop
+  try{ clearTimeout(_shopWalk); }catch(e){}
+  try{ clearTimeout(_questWalk); }catch(e){}
+  if(typeof buzz==='function')buzz(8);
+  stageSay('walking to the '+where+' — press and hold a piece once you are there');
+};
 document.getElementById('stageCam').onclick=e=>{
   stageCamOn=!stageCamOn;
   if(stageCamOn)stCamSeed();
@@ -22840,10 +22931,22 @@ function placeTiki(){
   // the aim made about where the building stands and how big it was drawn.
   tikiWin=new THREE.Mesh(new THREE.PlaneGeometry(SHOP_HOLE.x1-SHOP_HOLE.x0,
                                                  SHOP_HOLE.y1-SHOP_HOLE.y0),
-    new THREE.MeshBasicMaterial({visible:false}));
+    // ---- ...except in the workshop, where it is the thing being placed ----
+    // A pane you cannot see is a pane you cannot drag: the shop list follows this quad, so
+    // arranging the list means arranging THIS, and an invisible target gives no feedback at
+    // all until the panel is reopened to find out where it went. So it carries a faint teal
+    // fill that only comes on while the stage is up -- see stageWinShow. depthWrite off and
+    // toneMapped off so it reads as a marker laid over the building rather than a sheet of
+    // glass bolted into it.
+    new THREE.MeshBasicMaterial({visible:false, color:0x2ad2ff, transparent:true,
+      opacity:0.22, depthWrite:false, toneMapped:false, side:THREE.DoubleSide}));
   tikiWin.position.set((SHOP_HOLE.x0+SHOP_HOLE.x1)/2,(SHOP_HOLE.y0+SHOP_HOLE.y1)/2,0.16);
   tikiWin.userData.slotLit=1;             // keep it out of the hut's fade
   tikiHut.add(tikiWin);
+  // Walk to the shop with the workshop already open and the quad is built after stageShow has
+  // been and gone, so it asks for itself here rather than waiting for the stage to be closed
+  // and reopened.
+  if(typeof stageWinShow==='function')stageWinShow();
   tikiSlots=[];
   for(const sl of SHOP_SLOTS){
     const g=new THREE.Group();
@@ -47127,8 +47230,24 @@ function renderMenuBeach(dt){
   }
   // the stage's own lens — see stCamFree. Held through Done as well as during, which is why the
   // condition is the lens itself rather than whether the bar happens to be on the screen.
+  // ---- ...AND A KEPT SHOT DRESSES THE TITLE SCREEN, IT DOES NOT OWN THE LENS ----
+  // This was stCamFree && (stageOn || stCamKeep), applied unconditionally and AFTER the shop
+  // and quest walks -- so once anybody had taken the camera in the workshop and pressed Done,
+  // stCamKeep stayed true for the rest of the page and nailed menuCam to that one saved point.
+  // Every walk after that still ran, still eased, still faded the hut in, and still ended with
+  // the lens put back where the stage left it: press Shop and you go nowhere, open the stage
+  // at the hut and you are looking at the beach. Reported as "when I hit stage it turns back
+  // to main menu", and invisible on a fresh page because stCamFree starts false -- it takes
+  // one earlier visit to the workshop to arm it.
+  // So the two halves are separated. While the workshop is OPEN the stage lens wins outright,
+  // which is the whole point of having one. Once it is closed, a kept shot only applies where
+  // it was found: the title screen, with neither walk out. Walk to a room and the room's own
+  // shot takes the lens back.
+  const _stKept=(typeof stCamKeep!=='undefined'&&stCamKeep)&&
+                !((typeof shopCamE==='number'&&shopCamE>0.001)||
+                  (typeof questCamE==='number'&&questCamE>0.001));
   if(typeof stCamFree!=='undefined'&&stCamFree&&
-     ((typeof stageOn!=='undefined'&&stageOn)||(typeof stCamKeep!=='undefined'&&stCamKeep))){
+     ((typeof stageOn!=='undefined'&&stageOn)||_stKept)){
     menuCam.position.copy(stCamPos);
     menuCam.quaternion.setFromEuler(_stEul.set(stCamPitch,stCamYaw,0,'YXZ'));
   }
