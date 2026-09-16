@@ -60,7 +60,7 @@ try{ fetch('sounds/turn.webm',{cache:'default'}).catch(function(){}); }catch(e){
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.28';
+window.SURF_VERSION='10.29';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -7131,6 +7131,26 @@ function noteTrick(name,src){
   // next one to be added gets it by putting a name in the table above
   if(typeof sfx==='function'&&TRICK_SFX[name])
     sfx(TRICK_SFX[name],0.80,0.96+Math.random()*0.09);
+}
+// ---- AND IT KEEPS ITS VOICE FOR AS LONG AS IT KEEPS TURNING ----
+// Called every frame with each rotation accumulator and whether that trick is still owed more
+// rotation. Fires the trick's sample again on every whole turn crossed while it is.
+//
+// Two details that matter. The count RESYNCS rather than fires when the trick is not active,
+// so a rotation advanced by something else (the heli pushes flipRot) leaves no backlog to go
+// off the moment the roll button is next touched. And repeats are not identical to the press:
+// each one is pitched a little differently and sits slightly below it, because the same whip
+// at the same pitch four times a second stops reading as a trick and starts reading as a fault.
+const _trickTurns={};
+function trickTurn(name,rot,active){
+  const n=Math.floor(rot/TURN);
+  if(!active||!(rot>=0)){ _trickTurns[name]=n; return; }
+  if(n<=(_trickTurns[name]===undefined?n:_trickTurns[name])){ _trickTurns[name]=n; return; }
+  _trickTurns[name]=n;
+  // Sound only. The trick counters feed quests, achievements and the stats page, and a held
+  // button would quietly inflate all three -- this was asked for as a noise, so it stays one.
+  if(typeof sfx==='function'&&TRICK_SFX[name])
+    sfx(TRICK_SFX[name],0.66,0.93+Math.random()*0.16);
 }
 function noteBuy(kind,id,price){
   stats.buys.push({k:kind,id,p:price,d:dayStamp(new Date())});
@@ -30396,6 +30416,11 @@ if(location.hash.includes('debug')){
         return (b==='loading')?'loading':(b?('decoded '+b.duration.toFixed(3)+'s'):'none'); };
       return {on:sfxOn, ctx:_ac?_ac.state:null, land:d('land'), jet:d('jet'), under:d('under'),
               tricks:{roll:d('roll'),spin:d('spin'),flip:d('flip'),stand:d('stand'),close:d('close')},
+              // how many times each sample has actually been played, and how many whole turns
+              // each trick has been counted through -- a held button should move both
+              trickFired:{roll:_sfxCalls['1shot:roll']||0, spin:_sfxCalls['1shot:spin']||0,
+                          flip:_sfxCalls['1shot:flip']||0, stand:_sfxCalls['1shot:stand']||0},
+              trickTurns:Object.assign({},_trickTurns),
               // the riding bed, layer by layer and voice by voice: what was ASKED for, the peak
               // it has reached, and where the ramp actually is -- so a silent layer can be told
               // apart from an undecoded one, and a stuck voice from a quiet one
@@ -42339,6 +42364,24 @@ function update(dt){
     else if(flipQ>0){const d=Math.min(dt*FR,flipQ);flipRot+=d;flipQ-=d;}
     if(pitchHeld)pitchRot+=dt*FR;
     else if(pitchQ>0){const d=Math.min(dt*FR,pitchQ);pitchRot+=d;pitchQ-=d;}
+    // ---- A TRICK THAT KEEPS TURNING KEEPS MAKING NOISE ----
+    // noteTrick fires on the BUTTON, once, and then he rotates for as long as it is held --
+    // so holding the roll button through five revolutions made exactly one sound and then
+    // span in silence. A tap that queues four turns did the same. The sound belongs to the
+    // rotation, not to the press, so it is retriggered here: every time an accumulator crosses
+    // another full turn, the sample for that trick plays again.
+    //
+    // Mind the names. rollBtn drives flipHeld/flipQ and flipBtn drives pitchHeld/pitchQ -- the
+    // accumulators are crossed against the trick names, so pairing them by eye gets it wrong.
+    //
+    // The gate is "is there MORE rotation owed", not "has a turn completed". A single tap queues
+    // exactly one turn and lands precisely on the boundary, so completion alone would fire a
+    // second sound on top of the press's own. And the heli advances flipRot too, without ever
+    // setting flipHeld or flipQ -- so gating on the roll's own drivers is also what keeps the
+    // heli silent, which is where it stays until it gets a sound of its own.
+    trickTurn('roll', flipRot,  flipHeld ||flipQ >0.05);
+    trickTurn('flip', pitchRot, pitchHeld||pitchQ>0.05);
+    trickTurn('spin', spinRot,  spinHeld ||spinQ >0.05);
     if(grabOn)grabPts+=95*dt;
     // In the tube the trick turns about the BOARD's axes, not the world's.
     //
