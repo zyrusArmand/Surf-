@@ -26,7 +26,8 @@
 try{ fetch('sounds/title.webm',{cache:'default'}).catch(function(){}); }catch(e){}
 try{ fetch('sounds/land.webm',{cache:'default'}).catch(function(){}); }catch(e){}
 try{ fetch('sounds/jet.webm',{cache:'default'}).catch(function(){}); }catch(e){}
-try{ fetch('sounds/under.webm',{cache:'default'}).catch(function(){}); }catch(e){}</script>
+try{ fetch('sounds/under.webm',{cache:'default'}).catch(function(){}); }catch(e){}
+try{ fetch('sounds/ride.webm',{cache:'default'}).catch(function(){}); }catch(e){}</script>
 <!-- A hint, not a guarantee. Most browsers ignore these on the document itself and the CDN in
      front of this never sees them at all — the actual answer is the version check further down,
      which asks the server what shipped and reloads if this is not it. -->
@@ -56,7 +57,7 @@ try{ fetch('sounds/under.webm',{cache:'default'}).catch(function(){}); }catch(e)
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.23';
+window.SURF_VERSION='10.24';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -6565,7 +6566,9 @@ function sfx(name,vol,rate){
 // the pack goes from a trickle to a torrent and back many times a second, and a hard jump in
 // either would click. Web Audio loops sample-accurately, so there is no gap on the wrap.
 const _sfxLoops={};
+const _sfxCalls={};
 function sfxLoop(name,vol,rate){
+  _sfxCalls[name]=(_sfxCalls[name]||0)+1;      // debug: who is actually asking, and how often
   if(!sfxOn){ sfxLoopStop(name,120); return; }
   const ac=_ac, b=_sfxBuf[name];
   if(!ac||!b||b==='loading')return;
@@ -6613,6 +6616,7 @@ function sfxWake(){
   sfxLoad('land',['sounds/land.webm','sounds/land.m4a']);
   sfxLoad('jet', ['sounds/jet.webm','sounds/jet.m4a']);
   sfxLoad('under',['sounds/under.webm','sounds/under.m4a']);
+  sfxLoad('ride', ['sounds/ride.webm','sounds/ride.m4a']);
 }
 // ---- WARM THE CACHE WITH A PLAIN FETCH ----
 // A browser will not download a media element's source until it believes the media can
@@ -30263,6 +30267,12 @@ if(location.hash.includes('debug')){
     sfxState(){ const d=n=>{ const b=_sfxBuf[n];
         return (b==='loading')?'loading':(b?('decoded '+b.duration.toFixed(3)+'s'):'none'); };
       return {on:sfxOn, ctx:_ac?_ac.state:null, land:d('land'), jet:d('jet'), under:d('under'),
+              ride:d('ride'), rideGain:_sfxLoops.ride?+_sfxLoops.ride.g.gain.value.toFixed(3):null,
+              speed:(typeof speed!=='undefined')?+speed.toFixed(1):null,
+              calls:Object.assign({},_sfxCalls),
+              diveOn:(typeof diveOn!=='undefined')?!!diveOn:null,
+              airborne:(typeof airborne!=='undefined')?!!airborne:null,
+              running:(typeof running!=='undefined')?!!running:null,
               depth:(typeof diveDepth!=='undefined')?+diveDepth.toFixed(2):null,
               looping:Object.keys(_sfxLoops),
               jetGain:_sfxLoops.jet?+_sfxLoops.jet.g.gain.value.toFixed(3):null}; },
@@ -41664,6 +41674,18 @@ function update(dt){
   _buoy={waterY:+waterY.toFixed(3),railDig:+railDig.toFixed(3),hHigh:+hHigh.toFixed(3),
          hMean:+hMean.toFixed(3),hN:+hN.toFixed(3),hT:+hT.toFixed(3),float:BS.float};
   rideY=waterY;
+  // ---- THE RIDE ITSELF ----
+  // Louder and a touch faster the quicker he is going, ducked while he is in the air because
+  // the board is not touching anything, and taken to nothing underwater so the dive bed has the
+  // floor to itself. It is not STOPPED underwater, only silenced: the loop keeps being asked
+  // for, so surfacing brings it straight back instead of restarting it. Ending the run is what
+  // stops it, and that needs no code here -- this line simply stops being reached.
+  if(running){
+    const _rSp=Math.max(0,Math.min(1,(speed-10)/34));
+    const _rUnder=(diveOn||diveDepth>0.5)?0.0:1.0;
+    const _rAir=airborne?0.30:1.0;
+    sfxLoop('ride',(0.26+_rSp*0.30)*_rUnder*_rAir, 0.94+_rSp*0.16);
+  }
 
   // A wall this size falls away under the board fast enough to throw him off its
   // front — ballistic, but not flagged airborne, so the launch then fires while he
