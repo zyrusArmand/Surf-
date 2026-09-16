@@ -24,6 +24,7 @@
    The body is never read; landing it in the HTTP cache is the whole point, so the <audio>
    element gets a cache hit the moment it is allowed to load. */
 try{ fetch('sounds/title.webm',{cache:'default'}).catch(function(){}); }catch(e){}
+try{ fetch('sounds/btn.webm',{cache:'default'}).catch(function(){}); }catch(e){}
 try{ fetch('sounds/land.webm',{cache:'default'}).catch(function(){}); }catch(e){}
 try{ fetch('sounds/jet.webm',{cache:'default'}).catch(function(){}); }catch(e){}
 try{ fetch('sounds/under.webm',{cache:'default'}).catch(function(){}); }catch(e){}
@@ -6758,7 +6759,8 @@ function sfxWake(){
   for(const n of ['turns','turnh'])                 // the soft rail and the hard one
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
   // the three layers of the riding bed; voices share these buffers, see _sfxAlias
-  for(const n of ['glide','wake','wind','weird','gull1','gull2','gull3'])
+  for(const n of ['glide','wake','wind','weird','gull1','gull2','gull3',
+                  'btn','gust','boat','ski'])
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
   for(const n of ['roll','spin','flip','stand','close'])
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
@@ -6836,6 +6838,18 @@ const HAS_SWITCH=(()=>{ try{ return 'switch' in HTMLInputElement.prototype; }cat
 // What this device is using, in one word, for the settings panel to show.
 function hapticPath(){ return HAS_VIBRATE?'vibrate':'tap'; }
 function buzz(p){
+  // ---- AND EVERY BUTTON MAKES A NOISE ----
+  // buzz is already the one thing every button in the game calls, so this needs no sixty-four
+  // separate hooks and cannot be forgotten on the next button somebody adds. It goes ABOVE the
+  // buzzOn test on purpose: haptics and sound are two different settings, and somebody who has
+  // turned off the vibration has not asked for a silent interface. The sound has its own switch.
+  //
+  // Kept short -- trimmed to the attack and nothing after it -- because this fires hundreds of
+  // times in a session, and on a sound that frequent everything past the transient is tail
+  // nobody hears and latency everybody does. Weighted by what the tap meant: buzz already
+  // grades its own patterns, so a confirmation lands harder than a menu tap.
+  if(typeof sfx==='function')
+    sfx('btn',Array.isArray(p)?0.50:(p>=30?0.46:p>=18?0.38:0.30),0.97+Math.random()*0.08);
   if(!buzzOn)return;
   if(HAS_VIBRATE){ try{ navigator.vibrate(p); }catch(e){} return; }
   // one tap is all the switch has, so weight is carried by how many of them
@@ -27906,6 +27920,18 @@ function updateJetSki(dt,eff){
       skiWake={z:jetSki.position.z-2,z0:jetSki.position.z-2,life:22.0,hit:false,x:jetSki.position.x};
       msg('WAKE INCOMING!');
     }
+    // ---- THE SKI IS HEARD WHERE IT IS ----
+    // Cut from the last fifteen seconds of the take, as asked. It crosses the screen from one
+    // side to the other, so the pan is its actual x against his and the level falls off with
+    // distance -- which is most of what sells a thing going past. It is gone from the sound the
+    // same moment it is gone from the picture: skiOn goes false below, the asking stops, and
+    // the keep-alive takes it down.
+    if(typeof sfxLoop==='function'&&running){
+      const dx=jetSki.position.x-px, dz=jetSki.position.z-pz;
+      const d=Math.sqrt(dx*dx+dz*dz), near=Math.max(0,1-d/64);
+      sfxLoop('ski',(0.08+near*near*0.62)*(diveDepth>0.5?0.25:1),
+              0.94+near*0.16, Math.max(-1,Math.min(1,dx/26)));
+    }
     if(Math.abs(jetSki.position.x-px)>48){skiOn=false;jetSki.visible=false;skiGlint.visible=false;_skiFoam=0;}
   }
   // the wake rolls in as a ridge in the ocean itself
@@ -28651,6 +28677,19 @@ function updateBoat(dt,eff){
   // ---- the keel at a measured depth, not the origin at a guessed height ----
   const keel=(boat.userData.keel!==undefined)?boat.userData.keel:-2.4;
   boat.position.set(btX, sea-keel-1.62+Math.sin(tNow*1.9)*0.07, btZ);
+  // ---- AND YOU CAN HEAR IT ----
+  // A tow boat is a diesel, and it is the loudest thing in the game while it is alongside. Level
+  // and pan come from where it actually is, so it arrives, goes past and leaves rather than
+  // simply being switched on -- and the pitch rides its throttle, so taking station is heard as
+  // the revs coming down. No stop needed: updateBoat stops being reached and the keep-alive
+  // takes it. The gate is btSpd, so a boat sitting dead in the water is not still roaring.
+  if(typeof sfxLoop==='function'&&running&&btPh!==BTP.OFF&&boat.visible){
+    const dx=btX-px, dz=btZ-pz, d=Math.sqrt(dx*dx+dz*dz);
+    const near=Math.max(0,1-d/96);
+    sfxLoop('boat',(0.10+near*near*0.56)*(diveDepth>0.5?0.25:1),
+            0.88+Math.min(1,btSpd/34)*0.22,
+            Math.max(-1,Math.min(1,dx/34)));
+  }
   // ---- YXZ, because a yaw and a roll do not commute ----
   // Default XYZ order applies the roll BEFORE the yaw, so a boat that is both turning and
   // heeling gets its heel swung round into a pitch and comes out lying on its side -- which is
@@ -30529,6 +30568,10 @@ if(location.hash.includes('debug')){
               ufoPre:(typeof ufoPre!=='undefined')?ufoPre:null,
               ufoPhase:(typeof ufoPh!=='undefined')?ufoPh:null,
               weird:d('weird'),
+              btn:d('btn'), gust:d('gust'), boat:d('boat'), ski:d('ski'),
+              btnFired:_sfxCalls['1shot:btn']||0, gustFired:_sfxCalls['1shot:gust']||0,
+              boatVol:_sfxLoops.boat?+(_sfxLoops.boat.wantMax||0).toFixed(3):null,
+              skiVol:_sfxLoops.ski?+(_sfxLoops.ski.wantMax||0).toFixed(3):null,
               gulls:{g1:d('gull1'),g2:d('gull2'),g3:d('gull3'),
                      fired:['gull1','gull2','gull3'].map(n=>_sfxCalls['1shot:'+n]||0)},
               bed:{glide:d('glide'), wake:d('wake'), wind:d('wind')},
@@ -42100,6 +42143,15 @@ function update(dt){
     // cruising, then it climbs steeply, so the difference between quick and flat out is heard.
     // ...and wind is the one layer with no business being down there at all, so it goes with
     // the surface rather than being merely muffled by it. The wake mostly does too.
+    // ---- AND THE ODD GUST OVER THE TOP ----
+    // "Random while playing" was the brief, and a plain timer would have done it -- but a gust
+    // that arrives at the same rate whether he is drifting or flat out is weather happening TO
+    // the game rather than in it. So the odds ride the same speed term the wind layer does:
+    // roughly one every twenty seconds while cruising, one every four or so at full tilt, and
+    // more likely again in the air where there is nothing but wind. It answers to the wind
+    // volume too, so it cannot shout over a bed that has ducked for the saucer or gone under.
+    if(!_sub&&Math.random()<dt*(0.05+_rSp*0.20)*(airborne?1.8:1.0))
+      sfx('gust',(0.16+_rSp*0.30)*_ufoDuck,0.90+Math.random()*0.26);
     const _wn=(0.06+0.94*Math.pow(_rSp,1.6))*(1-_sub), _wnAir=airborne?1.15:1.0;
     sfxLoop('wind',  BED*_wn*0.30*_wnAir*drift('n1',0.75,1.00,3.7), 0.92+_rSp*0.22, 0.34);
     sfxLoop('wind2', BED*_wn*0.22*_wnAir*drift('n2',0.55,1.00,9.1), 0.97+_rSp*0.22,-0.36);
