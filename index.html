@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.43';</script>
+<script>window.SURF_VERSION='10.44';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -2121,6 +2121,9 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   #shopList .grow.on { background:linear-gradient(180deg,rgba(120,240,220,.20),rgba(90,200,190,.09));
     border-color:rgba(150,250,235,.55); }
   #shopList .grow.lk { opacity:.52; }
+  /* a locked gear tile reads the same way a locked gear row used to */
+  #shopList .card.lk { opacity:.54; }
+  #shopList .card.lk .thumb { filter:saturate(.55); }
   #shopList .grow .gi { flex:1 1 auto; min-width:0; }
   /* Square, because every one of these is a portrait of the same head and they should line up
      down the shelf rather than each being its own size. */
@@ -12524,31 +12527,46 @@ function drawShop(){
     t.classList.toggle('on',t.dataset.tab===shopTab);
   const jobs=[];
   if(shopTab==='gear'){
-    // ---- the one shelf with no prices on it ----
-    // Gear is not for sale, so this is not a rack: there is no thumbnail to photograph, no
-    // purse to check and nothing to be short of. A row per piece, grouped by slot, saying what
-    // it is and either the level that hands it over or a button to put it on. Tapping a piece
-    // you are already wearing takes it off -- a hat you cannot remove is a punishment.
-    for(const slot of ['eyes','head','body']){
+    // ---- the same shelf as the other two ----
+    // This was the one tab that looked like a different screen: a list of wide rows with the
+    // portrait cropped into a 54px square, next to two tabs of portrait tiles. Nothing about
+    // gear needed that. The photograph was already taken through the same snapshot() the
+    // surfer cards use, at the same aspect -- it was only the CSS squashing it into a stamp.
+    // So gear gets the tile the rest of the shop gets, and the picture it always had.
+    //
+    // What it keeps that the others do not is the slot headings, because a shelf of fifteen
+    // heads with no grouping is a jumble, and its own status words: gear is not for sale, so
+    // "WEARING" and "OWNED" sit where a price would, and a level sits where a lock would.
+    for(const slot of ['eyes','neck','head','body']){
+      const inSlot=GEAR.filter(x=>x.slot===slot);
+      if(!inSlot.length)continue;
       const h=document.createElement('div'); h.className='gsec';
-      h.textContent=slot==='eyes'?'Shades':slot==='head'?'Hats':'Suits & Trunks';
+      h.textContent=slot==='eyes'?'Shades':slot==='neck'?'Bandanas'
+                   :slot==='head'?'Hats':'Suits & Trunks';
       shopList.appendChild(h);
-      for(const g of GEAR.filter(x=>x.slot===slot)){
+      for(const g of inSlot){
         const have=gearHave(g.id), on=gearOn[slot]===g.id&&have;
-        const row=document.createElement('div');
-        row.className='grow'+(on?' on':'')+(have?'':' lk');
+        const card=document.createElement('div');
+        card.className='card'+(on?' on':'')+(have?'':' lk');
         const im=document.createElement('img');
-        im.className='gth'; im.alt=''; im.draggable=false;
+        im.className='thumb'; im.alt=g.name; im.draggable=false;
         im.src=prevCache['g:'+g.id]||G_BLANK;
-        row.appendChild(im);
+        card.appendChild(im);
         if(!prevCache['g:'+g.id])jobs.push([im,()=>gearPreview(g.id)]);
-        const gi=document.createElement('div'); gi.className='gi';
-        gi.innerHTML='<b>'+escName(g.name)+'</b><span>'+escName(g.blurb)+'</span>';
-        row.appendChild(gi);
-        const btn=document.createElement('button');
-        if(!have){ btn.className='lock'; btn.disabled=true; btn.textContent='Level '+g.lv; }
-        else { btn.className=on?'own':''; btn.textContent=on?'Take off':'Wear';
-          btn.onclick=()=>{ buzz(10); gearOn[slot]=on?'':g.id; saveGame();
+        const foot=document.createElement('div'); foot.className='foot';
+        const nm=document.createElement('div'); nm.className='nm';
+        nm.textContent=g.name; foot.appendChild(nm);
+        const pr=document.createElement('div');
+        if(on){ pr.className='pr have'; pr.textContent='WEARING'; }
+        else if(have){ pr.className='pr have'; pr.textContent='OWNED'; }
+        else { pr.className='pr lock'; pr.textContent='Lv '+g.lv; }
+        foot.appendChild(pr);
+        card.appendChild(foot);
+        // The whole tile is the button, the way it is on the other two shelves -- and tapping
+        // one you are wearing takes it off, because a hat you cannot remove is a punishment.
+        if(have){
+          card.style.cursor='pointer';
+          card.onclick=()=>{ buzz(10); gearOn[slot]=on?'':g.id; saveGame();
             // Claimed BEFORE the rebuild below, because that rebuild goes through equipChar and
             // would otherwise take the tap and make putting a hat on sound like changing rider.
             if(typeof sfxUi==='function')sfxUi('eqstyle',0.52);
@@ -12558,9 +12576,9 @@ function drawShop(){
             // every photographed rider card is now wrong -- they all wear this head. prevCache
             // is a const, so the entries go one at a time rather than the object being replaced.
             try{ for(const k of Object.keys(prevCache))if(k[0]==='c')delete prevCache[k]; }catch(e){}
-            drawShop(); }; }
-        row.appendChild(btn);
-        shopList.appendChild(row);
+            drawShop(); };
+        }
+        shopList.appendChild(card);
       }
     }
     showCoins();
