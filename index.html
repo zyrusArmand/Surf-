@@ -60,7 +60,7 @@ try{ fetch('sounds/turn.webm',{cache:'default'}).catch(function(){}); }catch(e){
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.29';
+window.SURF_VERSION='10.30';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -6545,14 +6545,38 @@ setInterval(()=>{
 // do without thinking about it.
 let sfxOn=(()=>{ try{ return localStorage.getItem('surfSfx')!=='0'; }catch(e){ return true; } })();
 function setSfx(v){ sfxOn=!!v; try{ localStorage.setItem('surfSfx',sfxOn?'1':'0'); }catch(e){} }
-let _ac=null, _sfxOut=null; const _sfxBuf={};
+let _ac=null, _sfxOut=null, _bedOut=null, _bedLP=null; const _sfxBuf={};
 function sfxCtx(){
   if(_ac)return _ac;
   const C=window.AudioContext||window.webkitAudioContext;
   if(!C)return null;
   try{ _ac=new C(); }catch(e){ return null; }
   _sfxOut=_ac.createGain(); _sfxOut.gain.value=1; _sfxOut.connect(_ac.destination);
+  // ---- THE RIDING BED GETS ITS OWN BUS, WITH A LID ON IT ----
+  // Going under used to take the ride layer to zero, and when that layer was one loop nobody
+  // noticed. Now it is six voices across the stereo field, and cutting all six dead the instant
+  // he ducks reads as the sound falling out of the game -- which is what it was reported as.
+  // It is also wrong: water does not delete the board, it muffles it. So the bed runs through a
+  // lowpass whose corner comes down with depth. Above the surface it sits at 20 kHz and does
+  // nothing at all; a couple of feet under, it is at a few hundred hertz and what is left is the
+  // dull thud of a board still moving overhead, under the dive bed rather than instead of it.
+  try{
+    _bedLP=_ac.createBiquadFilter(); _bedLP.type='lowpass';
+    _bedLP.frequency.value=20000; _bedLP.Q.value=0.7;
+    _bedOut=_ac.createGain(); _bedOut.gain.value=1;
+    _bedOut.connect(_bedLP); _bedLP.connect(_sfxOut);
+  }catch(e){ _bedOut=null; _bedLP=null; }     // no filter available: the bed just runs dry
   return _ac;
+}
+// Which loops belong to the bed, and so go through that lid rather than straight out.
+const _BED_VOICE={glide:1,glide2:1,wake:1,wake2:1,wind:1,wind2:1};
+// Drive the lid from how far under he is. 0 is dry, 1 is properly submerged.
+function bedSubmerge(u){
+  if(!_ac||!_bedLP)return;
+  const t=_ac.currentTime;
+  // 20 kHz down to 340 Hz, travelled geometrically -- pitch is logarithmic, so a linear sweep
+  // would spend most of its journey somewhere inaudible and then close all at once at the end.
+  _bedLP.frequency.setTargetAtTime(20000*Math.pow(340/20000,Math.max(0,Math.min(1,u))),t,0.12);
 }
 function sfxLoad(name,urls){
   const ac=sfxCtx(); if(!ac||_sfxBuf[name]==='loading'||_sfxBuf[name])return;
@@ -6611,11 +6635,12 @@ function sfxLoop(name,vol,rate,pan){
     try{
       const src=ac.createBufferSource(); src.buffer=b; src.loop=true;
       const g=ac.createGain(); g.gain.value=0;
+      const out=(_BED_VOICE[name]&&_bedOut)?_bedOut:_sfxOut;   // the bed goes through the lid
       // a panner only when one is asked for, so nothing else pays for it
       let p=null;
       if(pan!==undefined&&ac.createStereoPanner){
-        p=ac.createStereoPanner(); src.connect(g); g.connect(p); p.connect(_sfxOut);
-      } else { src.connect(g); g.connect(_sfxOut); }
+        p=ac.createStereoPanner(); src.connect(g); g.connect(p); p.connect(out);
+      } else { src.connect(g); g.connect(out); }
       src.start();
       L=_sfxLoops[name]={src:src,g:g,p:p};
     }catch(e){ return; }
@@ -30424,6 +30449,7 @@ if(location.hash.includes('debug')){
               // the riding bed, layer by layer and voice by voice: what was ASKED for, the peak
               // it has reached, and where the ramp actually is -- so a silent layer can be told
               // apart from an undecoded one, and a stuck voice from a quiet one
+              bedLid:_bedLP?Math.round(_bedLP.frequency.value):null,
               bed:{glide:d('glide'), wake:d('wake'), wind:d('wind')},
               bedVoices:(function(){ const o={};
                 for(const k of ['glide','glide2','wake','wake2','wind','wind2']){
@@ -39486,8 +39512,11 @@ function diveStep(dt,waterY){
   // Faded in WITH depth rather than switched on at the waterline, because ducking a foot under
   // should not slam the entire ocean on and off. Stopping is the keep-alive's job: surfacing,
   // wiping out and the run ending all simply stop asking for it.
+  // Louder than it was, because what it now has to hold up is a gap the riding bed used to be
+  // filling: six voices going quiet at once leaves a much bigger hole than one loop did, and
+  // this is the thing that has to fill it.
   if(diveOn||diveDepth>0.5)
-    sfxLoop('under',0.30+Math.min(1,diveDepth/3.0)*0.42,1.0);
+    sfxLoop('under',0.46+Math.min(1,diveDepth/3.0)*0.46,1.0);
 }
 // ---- and running aground, which is not a crash ----
 // The board does not stop dead and he does not come off it: it rides up the wet sand,
@@ -41894,19 +41923,27 @@ function update(dt){
     const _rSp=Math.max(0,Math.min(1,(speed-16)/22));
     const _rUnder=(diveOn||diveDepth>0.5)?0.0:1.0;
     const _rAir=airborne?0.30:1.0;
+    // ---- HOW FAR UNDER HE IS, AS A NUMBER THE BED CAN FOLLOW ----
+    // Not the on/off test the carve uses: a lid that slams shut is the thing being fixed here.
+    // Fully submerged by about two and a half feet, which is roughly where the dive bed has
+    // come up to full and where the surface has stopped being a place he is.
+    const _sub=Math.max(0,Math.min(1,(diveOn||diveDepth>0.5)?Math.max(0.25,diveDepth/2.5):0));
+    bedSubmerge(_sub);
     const _rCv=Math.max(0,Math.min(1,(Math.abs(carve)-0.10)/0.80));
     // One knob for the whole bed against the one-shots. Set so the six voices SUM IN POWER to
     // about what the single ride loop used to put out while cruising -- uncorrelated layers do
     // not add in amplitude, so this is sqrt of the sum of squares, 0.33 against the old 0.35 --
     // and to around 0.72 flat out, which is louder than before on purpose and still leaves the
     // carve and the one-shots room above it.
-    const BED=0.95*_rUnder;
+    // Ducked under water, not silenced -- the lid above does most of the work, so this only has
+    // to make room for the dive bed rather than get out of its way entirely.
+    const BED=0.95*(1-0.58*_sub);
     // base glide -- steady, ducked hard in the air, the board is not touching anything
     const _gA=airborne?0.15:1.0;
     sfxLoop('glide', BED*(0.26+_rSp*0.16)*_gA*drift('g1',0.72,1.00,5.3), 0.95+_rSp*0.09, -0.22);
     sfxLoop('glide2',BED*(0.18+_rSp*0.12)*_gA*drift('g2',0.60,1.00,7.9), 0.99+_rSp*0.09,  0.24);
     // wake -- speed and rail; a jump takes it almost to nothing, there is no water to throw
-    const _wk=airborne?0.06:1.0;
+    const _wk=(airborne?0.06:1.0)*(1-0.75*_sub);
     sfxLoop('wake',  BED*(0.13+_rSp*0.26+_rCv*0.14)*_wk*drift('k1',0.70,1.00,4.1),
             0.97+_rSp*0.10, 0.30+carve*0.35);
     sfxLoop('wake2', BED*(0.09+_rSp*0.18+_rCv*0.10)*_wk*drift('k2',0.55,1.00,6.7),
@@ -41914,7 +41951,9 @@ function update(dt){
     // wind -- the speed indicator, and the only layer the air makes louder. Curved rather than
     // linear so going faster keeps being WORTH something: a small floor keeps it present while
     // cruising, then it climbs steeply, so the difference between quick and flat out is heard.
-    const _wn=0.06+0.94*Math.pow(_rSp,1.6), _wnAir=airborne?1.15:1.0;
+    // ...and wind is the one layer with no business being down there at all, so it goes with
+    // the surface rather than being merely muffled by it. The wake mostly does too.
+    const _wn=(0.06+0.94*Math.pow(_rSp,1.6))*(1-_sub), _wnAir=airborne?1.15:1.0;
     sfxLoop('wind',  BED*_wn*0.30*_wnAir*drift('n1',0.75,1.00,3.7), 0.92+_rSp*0.22, 0.34);
     sfxLoop('wind2', BED*_wn*0.22*_wnAir*drift('n2',0.55,1.00,9.1), 0.97+_rSp*0.22,-0.36);
     // ---- AND THE CARVE ----
