@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.18';
+window.SURF_VERSION='10.19';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -6479,8 +6479,11 @@ function setMusic(v){
 // long before that happens -- so the first play() is EXPECTED to be refused, and the first
 // real gesture is what actually starts it. Cheap enough to leave armed: play() on something
 // already playing does nothing.
-for(const ev of ['pointerdown','touchend','keydown'])
-  addEventListener(ev,()=>{ if(_musWant&&musicOn)_musTry(); },{passive:true});
+// CAPTURE, and on the document, so a control that calls stopPropagation on its own tap --
+// the trick buttons all do -- cannot swallow the one gesture that was going to start the
+// music. Capture runs before any of them get a say.
+for(const ev of ['pointerdown','touchend','mousedown','keydown'])
+  document.addEventListener(ev,()=>{ if(_musWant&&musicOn)_musTry(); },{passive:true,capture:true});
 document.addEventListener('visibilitychange',()=>{
   if(!_mus)return;
   if(document.hidden){ try{ _mus.pause(); }catch(e){} }
@@ -30104,6 +30107,21 @@ if(location.hash.includes('debug')){
               t:a?+a.currentTime.toFixed(2):null, ready:a?a.readyState:null,
               src:a&&a.currentSrc?a.currentSrc.split('/').pop():null}; },
     musicKick(){ if(typeof _musTry==='function')_musTry(); return true; },
+    // "I cannot hear it" has several different causes that look identical. This says which.
+    musicWhy(){
+      const a=_mus;
+      if(!musicOn)return 'Music is switched OFF in Settings.';
+      if(!a)return 'The audio element was never created -- showMenu did not run.';
+      if(a.error)return 'The file failed to load: media error code '+a.error.code;
+      if(!a.currentSrc)return 'No source matched -- this browser took neither Opus nor AAC.';
+      if(a.readyState<3)return 'Still loading ('+a.currentSrc.split('/').pop()+', readyState '+a.readyState+').';
+      if(a.paused&&!_musWant)return 'Deliberately silent: a run is in progress.';
+      if(a.paused)return 'Loaded and ready, but the browser has not allowed it to start yet -- tap the screen once.';
+      if(a.volume<0.01)return 'Playing, but at zero volume (mid-fade).';
+      return 'Playing '+a.currentSrc.split('/').pop()+' at volume '+a.volume.toFixed(2)+
+             ', position '+a.currentTime.toFixed(1)+'s. If you hear nothing now it is the device: '+
+             'on iPhone the ring/silent switch mutes web audio, and no page can override it.';
+    },
     gearWear(id){ const g=GEAR_BY_ID[id]; if(!g)return null;
       gearOn[g.slot]=id; equipChar(rider); return {...gearOn}; },
     // gearOnChar() puts the previous character back before it returns, so anything measured
