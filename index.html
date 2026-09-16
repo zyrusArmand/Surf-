@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.58';</script>
+<script>window.SURF_VERSION='10.59';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -23063,6 +23063,14 @@ function placeTiki(){
   const bb=visBox(inner), c=bb.getCenter(new THREE.Vector3());
   inner.position.sub(c);
   tikiHut.userData.h=Math.max(1e-4, bb.getSize(new THREE.Vector3()).y);
+  // ---- HOW FAR FORWARD THE FRONT OF THE BUILDING IS, in the centred frame ----
+  // The three quads that get projected -- the window, the counter sill and the plaque bar --
+  // used to carry hand-written z's that were right for a kiosk 0.42 deep. The building that
+  // replaced it is 1.15 deep, so every one of them was suddenly buried most of a metre inside
+  // the wall, and a quad behind the wall projects to the wrong rectangle. Measured off the
+  // model instead: half its depth is its front face, and the three sit just proud of that. A
+  // future swap re-measures itself.
+  tikiHut.userData.fz=bb.getSize(new THREE.Vector3()).z/2;
   // ---- the three lit squares ----
   // Children of the hut's own group, so they are written in the model's units and carried by
   // whatever the aim decides about where it stands and how big it is — nothing here has to know
@@ -23081,7 +23089,7 @@ function placeTiki(){
   // take the scene's light and its perspective for free, and the DOM elements behind them are
   // reduced to what they were always really for: a hit area and a label for a screen reader.
   tikiBar=new THREE.Group();
-  tikiBar.position.set(SHOP_BAR.x,SHOP_BAR.y,SHOP_BAR.z);
+  tikiBar.position.set(SHOP_BAR.x,SHOP_BAR.y,tikiHut.userData.fz+SHOP_BAR.z);
   tikiBar.scale.setScalar(SHOP_BAR.s);
   tikiHut.add(tikiBar);
   loadModel('shopbuttons.glb',(bm)=>{
@@ -23116,7 +23124,8 @@ function placeTiki(){
     // glass bolted into it.
     new THREE.MeshBasicMaterial({visible:false, color:0x2ad2ff, transparent:true,
       opacity:0.22, depthWrite:false, toneMapped:false, side:THREE.DoubleSide}));
-  tikiWin.position.set((SHOP_HOLE.x0+SHOP_HOLE.x1)/2,(SHOP_HOLE.y0+SHOP_HOLE.y1)/2,0.16);
+  tikiWin.position.set((SHOP_HOLE.x0+SHOP_HOLE.x1)/2,(SHOP_HOLE.y0+SHOP_HOLE.y1)/2,
+                      tikiHut.userData.fz+0.02);
   tikiWin.userData.slotLit=1;             // keep it out of the hut's fade
   tikiHut.add(tikiWin);
   // Walk to the shop with the workshop already open and the quad is built after stageShow has
@@ -23129,7 +23138,8 @@ function placeTiki(){
   tikiSill=new THREE.Mesh(new THREE.PlaneGeometry(SHOP_SILL.x1-SHOP_SILL.x0,
                                                   SHOP_SILL.y1-SHOP_SILL.y0),
     new THREE.MeshBasicMaterial({visible:false}));
-  tikiSill.position.set((SHOP_SILL.x0+SHOP_SILL.x1)/2,(SHOP_SILL.y0+SHOP_SILL.y1)/2,0.30);
+  tikiSill.position.set((SHOP_SILL.x0+SHOP_SILL.x1)/2,(SHOP_SILL.y0+SHOP_SILL.y1)/2,
+                       tikiHut.userData.fz+0.04);
   tikiSill.userData.slotLit=1;
   tikiHut.add(tikiSill);
   tikiSlots=[];
@@ -23239,10 +23249,20 @@ function aimTiki(){
   // pinned: the placement below is skipped entirely, but the trees still want aiming and the
   // matrix still has to be current for the hit areas that project against it
   if(MB_TIKI_PIN){
-    tikiHut.position.set(MB_TIKI_PIN.p[0],MB_TIKI_PIN.p[1],MB_TIKI_PIN.p[2]);
     tikiHut.rotation.set(MB_TIKI_PIN.r[0]*Math.PI/180,MB_TIKI_PIN.r[1]*Math.PI/180,
                          MB_TIKI_PIN.r[2]*Math.PI/180);
     tikiHut.scale.setScalar(MB_TIKI_PIN.s);
+    // ---- THE PIN HOLDS THE SHOPFRONT, NOT THE MIDDLE OF THE BUILDING ----
+    // It used to place the centre, which is only the same thing while the depth never changes.
+    // Swapping a kiosk 0.42 deep for a building 1.15 deep moved the counter you stand at nearly
+    // two metres towards the lens without a single number being edited, and the shot that had
+    // been staged by hand was suddenly inside the shop. The front face is what the camera was
+    // aimed at and what the player walks up to, so that is what the pin means now: the centre
+    // is pushed back along the building's OWN facing axis by however deep this particular model
+    // turns out to be. Swap it again and the shopfront stays put by itself.
+    const _ry=MB_TIKI_PIN.r[1]*Math.PI/180, _back=(tikiHut.userData.fz||0)*MB_TIKI_PIN.s;
+    tikiHut.position.set(MB_TIKI_PIN.p[0]-Math.sin(_ry)*_back, MB_TIKI_PIN.p[1],
+                         MB_TIKI_PIN.p[2]-Math.cos(_ry)*_back);
     tikiHut.updateMatrixWorld(true);
     mbAxes();
     if(!tikiTrees)placeTikiTrees();
@@ -24112,7 +24132,10 @@ let MB_TIKI_SINK=0.085;   // share of its own height dug into the sand
 // The kiosk is scaled about its own CENTRE -- placeTiki subtracts the bounding box's middle --
 // so growing it drops the base by half the extra height. From 4.304 to 5.00 on a building 1.90
 // tall, that is 0.66 of sinking into the sand, which is why the y goes up by exactly that.
-const MB_TIKI_PIN={p:[-12.092,6.066,-2.407], r:[0,124.8,0], s:5.000};
+// p is the SHOPFRONT now rather than the centre -- see aimTiki. Carried over from the old
+// kiosk's staged pose by adding its own half-depth (0.208 x 5.0) along its facing axis, so the
+// counter stands exactly where it stood and the staged camera still frames it.
+const MB_TIKI_PIN={p:[-11.238,6.066,-3.000], r:[0,124.8,0], s:5.000};
 // ---- and two palms stand behind it ----
 // The hut on bare dune had nothing to be in front of: an empty sky, an empty beach, and a
 // building floating in the middle of both. These are placed BEHIND it as seen from the shop's
@@ -24287,7 +24310,9 @@ let SHOP_SLOT={y:0.0, z:0.045, w:0.400, h:0.260, col:0x0c86cf, glow:0, lit:0};
 // the two uprights and the middle rail -- with outer edges at -0.487 and +0.504. So the bar is
 // 0.991 wide, which off a model 1.903 wide is a scale of 0.521, and it is centred on +0.009
 // rather than on zero because the kiosk itself is not quite symmetric.
-let SHOP_BAR={x:0.009, y:-0.445, z:0.140, s:0.521};
+// z is now measured FROM THE FRONT FACE rather than from the middle of the building -- see
+// tikiHut.userData.fz -- so it is a small proud-of-the-wall number, not a depth.
+let SHOP_BAR={x:0.009, y:-0.360, z:0.020, s:0.560};
 // ---- WHERE THE SHOP ITSELF GOES ----
 // The clear rectangle inside the kiosk, found by gridding its front face and asking each cell
 // whether any geometry stands in it -- everything measured before this looked for where the
@@ -24317,11 +24342,11 @@ let SHOP_BAR={x:0.009, y:-0.445, z:0.140, s:0.521};
 //   plaque bar now that it has been moved down to y -0.445. Above it +0.575 climbs to 118 and
 //   then 1003 by +0.778, which is the sign plank and the roof. So the glass starts just clear
 //   of the bar and stops just under the sign, and neither number is a preference.
-const SHOP_HOLE={x0:-0.415, x1:0.415, y0:-0.400, y1:0.600};
+const SHOP_HOLE={x0:-0.330, x1:0.330, y0:-0.290, y1:0.470};
 // The carved panel under the counter, where the selected board's figures go. Same band the
 // column profile was taken over: wood runs unbroken from -0.499 to +0.499 across y -0.90..-0.58,
 // so this is the whole front of the counter with a margin off each end.
-const SHOP_SILL={x0:-0.440, x1:0.440, y0:-0.880, y1:-0.600};
+const SHOP_SILL={x0:-0.430, x1:0.430, y0:-0.800, y1:-0.470};
 // Which button is lit. Empty is none; clicking one moves it.
 let shopLitSlot='';
 // Where the shopkeeper stands, in the hut's own axes: behind the counter, at the right-hand end.

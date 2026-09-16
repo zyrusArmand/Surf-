@@ -8,10 +8,13 @@ correct Y-up glTF. Rotating it to "fix" that laid a perfectly good building on i
 check that settled it was rendering the OLD hut the same way and comparing: both face -Y in
 Blender, which is +Z in glTF, so the kiosk already faces where the hut faced.
 
-WEIGHT. A million and ten thousand triangles is not a prop on a phone, it is a scan. The hut it
-replaces is 92,000, which is itself heavy for what it is. Collapsed to a fraction of that: the
-carved detail lives in the colour map, not in the geometry, and at the distance this is walked
-up to the silhouette is what the triangles are for.
+WEIGHT, AND HOW FAR IS TOO FAR. 1,273,776 triangles is not a prop on a phone, it is a scan.
+The first pass took the second building down to 38,000 -- the number that had been right for
+the flat kiosk before it -- and that was too far: thatch and a carved counter are silhouette
+all the way down, and the render came back visibly shattered into flat facets. 130,000 looks
+right and weighs 5.65 MB, which is not a number to put on a phone either. 80,000 is where the
+faceting stops being visible and the file lands at 3.7 MB. There is no Draco in the vendored
+GLTFLoader, so that is the whole of the geometry budget.
 
 SIZE ON THE WIRE. 23.8 MB, of which nearly all is three 2048 PNGs. This is one building seen
 from one side.
@@ -19,8 +22,8 @@ from one side.
 import bpy, math, os, sys
 from mathutils import Vector
 OUT=os.path.dirname(os.path.abspath(__file__))
-SRC="/root/.claude/uploads/7480d8db-fb33-5a1b-a73b-0e83e5c3db08/622bf2f7-shop_FULL.glb"
-TARGET=int(sys.argv[-2]) if len(sys.argv)>2 else 38000
+SRC="/root/.claude/uploads/7480d8db-fb33-5a1b-a73b-0e83e5c3db08/2e063e41-surfshop4_MAX.glb"
+TARGET=int(sys.argv[-2]) if len(sys.argv)>2 else 80000
 TEX=int(sys.argv[-1]) if len(sys.argv)>1 else 1024
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
