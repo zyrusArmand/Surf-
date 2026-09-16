@@ -60,7 +60,7 @@ try{ fetch('sounds/turn.webm',{cache:'default'}).catch(function(){}); }catch(e){
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.30';
+window.SURF_VERSION='10.31';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -6532,9 +6532,13 @@ setInterval(()=>{
   // the run is another, and that one clears ufoWas without going through it -- caught in
   // testing, where a run that died mid-abduction left the cue playing to the end. The cue
   // belongs to the sequence, so it runs while the sequence does and stops whenever it does not.
+  // The pre-roll counts as the sequence being live. It has to: during it the saucer has not
+  // moved, ufoPh is still OFF and ufoWas is still null, so without this the net would take the
+  // cue down within three hundred milliseconds of it starting, every single time.
   let live=false;
   try{ live=(typeof running!=='undefined'&&running) &&
             ((typeof ufoWas!=='undefined'&&!!ufoWas) ||
+             (typeof ufoPre!=='undefined'&&!!ufoPre) ||
              (typeof ufoPh!=='undefined'&&ufoPh!==0)); }catch(e){ live=false; }
   if(!live)cueStop('ufo',600);
 },300);
@@ -6714,13 +6718,22 @@ function cueEl(name){
   document.body.appendChild(a);
   return (_cues[name]=a);
 }
-function cue(name,vol){
+// `at` starts the cue part way in. The saucer's cue is a build that peaks where the saucer
+// breaks the surface, which only works if it was started before the saucer moved -- and the
+// test button skips the countdown entirely, so that path seeks to where the build is instead
+// of playing ten seconds of quiet nothing over a saucer that has already arrived.
+function cue(name,vol,at){
   if(!sfxOn)return;
   const a=cueEl(name);
   if(a._fade){ clearInterval(a._fade); a._fade=null; }
-  try{ a.currentTime=0; }catch(e){}
+  try{ a.currentTime=at||0; }catch(e){}
   a.volume=(vol===undefined?0.75:vol);
   const p=a.play(); if(p&&p.catch)p.catch(()=>{});
+}
+function cueVol(name,v){
+  const a=_cues[name];
+  if(!a||a.paused||a._fade)return;
+  a.volume=Math.max(0,Math.min(1,v));
 }
 function cueStop(name,ms){
   const a=_cues[name];
@@ -6743,7 +6756,7 @@ function sfxWake(){
   sfxLoad('under',['sounds/under.webm','sounds/under.m4a']);
   sfxLoad('turn', ['sounds/turn.webm','sounds/turn.m4a']);
   // the three layers of the riding bed; voices share these buffers, see _sfxAlias
-  for(const n of ['glide','wake','wind'])
+  for(const n of ['glide','wake','wind','weird'])
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
   for(const n of ['roll','spin','flip','stand','close'])
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
@@ -30450,6 +30463,9 @@ if(location.hash.includes('debug')){
               // it has reached, and where the ramp actually is -- so a silent layer can be told
               // apart from an undecoded one, and a stuck voice from a quiet one
               bedLid:_bedLP?Math.round(_bedLP.frequency.value):null,
+              ufoPre:(typeof ufoPre!=='undefined')?ufoPre:null,
+              ufoPhase:(typeof ufoPh!=='undefined')?ufoPh:null,
+              weird:d('weird'),
               bed:{glide:d('glide'), wake:d('wake'), wind:d('wind')},
               bedVoices:(function(){ const o={};
                 for(const k of ['glide','glide2','wake','wake2','wind','wind2']){
@@ -33444,6 +33460,12 @@ if(location.hash.includes('debug')){
               modelled:!!(glider.userData&&glider.userData.model), boatPh:btPh}; },
     ufoNow(){ if(typeof ufoStart!=='function')return null;
       dayForce=UFO_TEST_HOUR; return ufoStart(); },
+    // ufoNow jumps straight to the saucer, which is the one path the pre-roll never takes --
+    // so the build, which is the whole point of it, had no way of being tested. This winds the
+    // dark clock up to just short of the pre-roll instead and lets the game arrive there itself.
+    ufoArm(){ if(typeof ufoDark==='undefined')return null;
+      dayForce=UFO_TEST_HOUR; ufoDark=UFO_WAIT-UFO_PRE-0.5;
+      return {ufoDark:+ufoDark.toFixed(2), wait:UFO_WAIT, pre:UFO_PRE}; },
     ufoState(){ if(typeof ufo==='undefined'||!ufo)return null;
       const sea=waveH(ufo.position.x,dist*WAVE_DRIFT+ufo.position.z,waveClock);
       return {phase:ufoPh, t:+ufoT.toFixed(2), up:!!ufo.visible,
@@ -40200,6 +40222,10 @@ const UFO_DRAW=1.4;        // seconds to draw him in under the middle of the bea
 const _ufAim=new THREE.Vector3();
 const _ufB=new THREE.Vector3();
 let ufo=null, ufoPh=0, ufoT=0, ufoDark=0, ufoBeam=null, ufoDrips=[], ufoGrab=0, ufoSwap=null;
+// Seconds of cue before the saucer moves. The cut peaks between 11 and 14 s, and the hull
+// breaks the surface 2.2 s into RISE -- so this puts the break at 12.7 s, in the peak.
+const UFO_PRE=10.5;
+let ufoPre=0;
 let ufoLight=null, ufoRiderY=0;
 // 0 nothing, 1 breaking the surface, 2 standing off and opening the beam, 3 taking him,
 // 4 the swap and away
@@ -40551,10 +40577,12 @@ function ufoStart(){
   if(!ufo)return false;
   ufoReset();
   ufoPh=UFOP.RISE; ufoT=0; ufo.visible=true;
-  // Timed to the whole sequence rather than to the saucer: it runs from here, under the rise
-  // and the beam and the lift, all the way through the borrow, and the cut is 42 s long
-  // because that is what RISE + BEAM + LIFT + UFO_KEEP comes to.
-  if(typeof cue==='function')cue('ufo',0.75);
+  // If the pre-roll is already running, leave it alone -- it is arriving at its peak exactly
+  // now, which is the entire point of it. The only way to be here without one is the test
+  // button, which skips the countdown, so that path seeks two seconds short of the peak: a
+  // short run-in rather than either silence or a cold start at full tilt.
+  if(!ufoPre&&typeof cue==='function')cue('ufo',0.82,UFO_PRE-2.0);
+  ufoPre=0;
   // ---- UP THE MIDDLE, AND FACING YOU ----
   // It used to break the surface seven to eleven feet off to one side and turn as it rose, on
   // the reasoning that it should be seen coming rather than appear overhead. On a phone that
@@ -40568,8 +40596,25 @@ function ufoStart(){
 function updateUfo(dt,eff){
   // The costume has its own clock and it runs whatever else is happening -- the saucer has
   // long gone by then, so this cannot live inside any of the phases below.
-  if(ufoWas){ ufoHold-=dt; if(ufoHold<=0)ufoGiveBack(); }
+  if(ufoWas){
+    ufoHold-=dt; if(ufoHold<=0)ufoGiveBack();
+    // ---- AND IT STAYS STRANGE UNTIL HE IS HIMSELF AGAIN ----
+    // Not the cue again from the top -- a build that has already paid off does not pay off
+    // twice, and thirty-five seconds is far too long to hold one anyway. This is a loop cut
+    // from the far side of the same recording, the part that is merely odd rather than
+    // building, and it runs under the borrowed costume for exactly as long as he is wearing
+    // it. Stopping needs no code: ufoGiveBack stops asking and the keep-alive takes it down.
+    if(typeof sfxLoop==='function')
+      sfxLoop('weird',0.30+0.10*Math.sin(performance.now()/2300),1.0);
+  }
   if(!ufo)return;
+  // The cue climbs as the hull comes up, so the moment it breaks the surface is the loudest
+  // thing in the game -- the recording is already building here, and this rides on top of it.
+  if(typeof cueVol==='function'){
+    if(ufoPre)cueVol('ufo',0.72);
+    else if(ufoPh===UFOP.RISE)cueVol('ufo',0.72+0.28*Math.min(1,ufoT/2.2));
+    else if(ufoPh!==UFOP.OFF)cueVol('ufo',1.0);
+  }
   // the dark has to be continuous: dusk that slips back does not count toward the minute
   if(ufoPh===UFOP.OFF){
     // dark AND the moon up -- see UFO_MOON_UP. The clock only runs while both hold, so a
@@ -40586,8 +40631,22 @@ function updateUfo(dt,eff){
     // itself — freezing the countdown instead would mean a run that meets a set wave late
     // could end without the saucer ever coming, which is the bug that rule was written for.
     if(running&&nightAmt>=UFO_NIGHT_AMT&&moonAmt>=UFO_MOON_UP){
-      ufoDark+=dt; if(ufoDark>=UFO_WAIT&&swPh===SWP.IDLE)ufoStart(); }
-    else ufoDark=0;
+      ufoDark+=dt;
+      // ---- THE SOUND STARTS BEFORE THE SAUCER DOES ----
+      // The cue is a build, and a build has to have somewhere to arrive. Started when the
+      // saucer starts moving it was at a fourteenth of its own peak as the hull broke the
+      // surface, and did not reach that peak until seventeen seconds after the thing had
+      // gone -- which is why it could not be heard at the moment it was meant for. The
+      // countdown already knows the saucer is coming, so the cue is started from it: the
+      // build runs through the last of the dark, and the surface breaks on top of it.
+      if(!ufoPre&&ufoDark>=UFO_WAIT-UFO_PRE&&swPh===SWP.IDLE){ ufoPre=1; cue('ufo',0.72); }
+      // ...and a build that is not going to arrive has to be taken back down. The saucer waits
+      // for the set wave, so a wave starting inside the pre-roll postpones it -- and a cue left
+      // running would peak over an empty sea and then stop for no reason.
+      if(ufoPre&&swPh!==SWP.IDLE){ ufoPre=0; cueStop('ufo',900); }
+      if(ufoDark>=UFO_WAIT&&swPh===SWP.IDLE)ufoStart();
+    }
+    else { ufoDark=0; if(ufoPre){ ufoPre=0; cueStop('ufo',900); } }
     if(!ufoDrips.length)return;
   }
   ufoT+=dt;
@@ -41935,9 +41994,17 @@ function update(dt){
     // not add in amplitude, so this is sqrt of the sum of squares, 0.33 against the old 0.35 --
     // and to around 0.72 flat out, which is louder than before on purpose and still leaves the
     // carve and the one-shots room above it.
+    // ---- AND IT GETS OUT OF THE SAUCER'S WAY ----
+    // Two different amounts, because they are two different things. While the saucer is
+    // actually happening the bed is nearly gone -- that is a ten-second build to a peak and
+    // nothing should be competing with it. While he is merely wearing the costume afterwards
+    // it only steps back, because that lasts thirty-five seconds and a game held at a whisper
+    // for half a minute sounds broken rather than eerie.
+    const _ufoOn=(typeof ufoPre!=='undefined'&&ufoPre)||(typeof ufoPh!=='undefined'&&ufoPh!==0);
+    const _ufoDuck=_ufoOn?0.34:((typeof ufoWas!=='undefined'&&ufoWas)?0.68:1.0);
     // Ducked under water, not silenced -- the lid above does most of the work, so this only has
     // to make room for the dive bed rather than get out of its way entirely.
-    const BED=0.95*(1-0.58*_sub);
+    const BED=0.95*(1-0.58*_sub)*_ufoDuck;
     // base glide -- steady, ducked hard in the air, the board is not touching anything
     const _gA=airborne?0.15:1.0;
     sfxLoop('glide', BED*(0.26+_rSp*0.16)*_gA*drift('g1',0.72,1.00,5.3), 0.95+_rSp*0.09, -0.22);
