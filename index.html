@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.49';</script>
+<script>window.SURF_VERSION='10.50';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -796,12 +796,14 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     content:''; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
     width:100%; height:100%; min-width:44px; min-height:44px;
   }
-  /* each block's real proportions, straight off the cut file. layoutShopSlots sets the width
-     to the painted square's and leaves the height to these, so the block keeps its own shape
-     and overhangs the square rather than being squeezed into it. */
-  #dSlotSchool { background-image:url(ui/sign_school.png); aspect-ratio:200/209; }
-  #dSlotBoards { background-image:url(ui/sign_boards.png); aspect-ratio:200/199; }
-  #dSlotSurfer { background-image:url(ui/sign_riders.png); aspect-ratio:200/209; }
+  /* ---- THE SIGNS ARE NOT DRAWN HERE ANY MORE ----
+     These were cut-out planks drawn in screen space over a painted square on the wall, because
+     the hut had no geometry to be a button. The kiosk that replaced it does: four carved
+     plaques on a bar, which take the scene's light and its perspective for free. So the element
+     keeps the job it was always really doing -- a hit area you can reach with a thumb and a
+     label a screen reader can say -- and draws nothing at all. It still has to be SIZED, since
+     the size is the hit area, and layoutShopSlots gets that from the quad behind each plaque. */
+  #dSlotSchool, #dSlotBoards, #dSlotSurfer, #dSlotStyle { background-image:none; }
   .slotb svg { display:none; }
   .slotb span { position:absolute; width:1px; height:1px; overflow:hidden;
     clip-path:inset(50%); white-space:nowrap; }
@@ -2894,6 +2896,10 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
             style="visibility:hidden">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6.1" r="3.1"/><path d="M5.6 20.4c0-3.8 2.9-6.6 6.4-6.6s6.4 2.8 6.4 6.6"/></svg>
       <span>Surfers</span></button>
+    <button class="slotb" id="dSlotStyle" type="button" aria-label="Style"
+            style="visibility:hidden">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.2"/><path d="M12 2.6v2.4M12 19v2.4M21.4 12H19M5 12H2.6"/></svg>
+      <span>Style</span></button>
     <button class="hbtn glass hb-set" id="dSettings" type="button" aria-label="Settings">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5"/></svg>
       <span>Settings</span></button>
@@ -22645,7 +22651,7 @@ let menuSignModel=null, signPost=null;
 // reveal finishes, at the FRONT of the queue rather than the back; see wantTiki below for why
 // that number went the other way from what the first version of this note claimed.
 let tikiModel=null, tikiHut=null, tikiTrees=null, tikiSlots=null, _tikiAsked=0;
-let tikiSign=null;
+let tikiSign=null, tikiBar=null;
 // The kiosk has its own carved sign; see the note where this is used.
 const SHOP_SIGN_QUAD=false;
 // Where the plank hangs, in the hut's own units -- the same frame SHOP_SLOT is written in, so
@@ -22730,6 +22736,33 @@ function placeTiki(){
   // reading as lit at all. Normal blending puts the blue ON the wall, which is what a lit panel
   // recessed into a wall actually looks like, and the halo behind it stays additive because a
   // glow spilling past an edge IS light added to what is behind it.
+  // ---- THE BUTTON BAR ----
+  // The four buttons used to be DOM images hung over projected quads -- a painted square on the
+  // wall with a cut-out plank drawn on top of it in screen space. They are geometry now, so they
+  // take the scene's light and its perspective for free, and the DOM elements behind them are
+  // reduced to what they were always really for: a hit area and a label for a screen reader.
+  tikiBar=new THREE.Group();
+  tikiBar.position.set(SHOP_BAR.x,SHOP_BAR.y,SHOP_BAR.z);
+  tikiBar.scale.setScalar(SHOP_BAR.s);
+  tikiHut.add(tikiBar);
+  loadModel('shopbuttons.glb',(bm)=>{
+    if(!tikiBar)return;
+    const b=cloneModel(bm);
+    b.traverse(o=>{ if(!o.isMesh||!o.material)return;
+      o.material=Array.isArray(o.material)?o.material.map(m=>m&&m.clone()):o.material.clone();
+      for(const mt of (Array.isArray(o.material)?o.material:[o.material])){
+        if(!mt)continue;
+        if(mt.roughness!==undefined){ mt.roughness=Math.max(mt.roughness,0.82); mt.metalness=0; }
+        if(mt.color)mt.color.multiplyScalar(0.80);
+        mt.envMapIntensity=0.06;
+        mt.transparent=true; mt.opacity=0;      // rides the hut's own fade, see below
+        mt.needsUpdate=true; }
+      o.castShadow=false; o.receiveShadow=true;
+    });
+    b.updateMatrixWorld(true);
+    const bb=visBox(b); b.position.sub(bb.getCenter(new THREE.Vector3()));
+    tikiBar.add(b);
+  },0);
   tikiSlots=[];
   for(const sl of SHOP_SLOTS){
     const g=new THREE.Group();
@@ -22743,17 +22776,29 @@ function placeTiki(){
     // blue rectangle sticking out from behind a plank -- which is the CSS panel these were
     // brought in to replace. An eighth over is a lit edge round the block, which is what says
     // it can be pressed without putting the old panel back.
-    const halo=new THREE.Mesh(new THREE.PlaneGeometry(SHOP_SLOT.w*1.125,SHOP_SLOT.h*1.125),
-      new THREE.MeshBasicMaterial({color:SHOP_SLOT.col, transparent:true, opacity:0,
-        blending:THREE.AdditiveBlending, depthWrite:false, toneMapped:false, side:THREE.DoubleSide}));
-    halo.position.z=-0.004;
+    // ---- THE WHITE TRIM LIGHT ----
+    // A drawn texture rather than a CSS outline, because the bar sits in perspective and a
+    // screen-space rectangle over a 3D panel stops lining up the moment the lens is not square
+    // on. Additive and toneMapped off, so it reads as light ON the wood rather than as paint
+    // over it, and so the grade cannot roll the white toward grey. A touch larger than the
+    // plaque: the trim runs round the outside of the button, not across its face.
+    const halo=new THREE.Mesh(new THREE.PlaneGeometry(SHOP_SLOT.w*1.22,SHOP_SLOT.h*1.30),
+      new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:0,
+        blending:THREE.AdditiveBlending, depthWrite:false, depthTest:false,
+        toneMapped:false, side:THREE.DoubleSide}));
+    halo.renderOrder=8;
+    loadTexture('slot_trim.png',(t)=>{
+      if(THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding;
+      halo.material.map=t; halo.material.needsUpdate=true;
+    });
+    halo.position.z=0.006;
     g.add(halo); g.add(face);
     g.position.set(sl.x,SHOP_SLOT.y,SHOP_SLOT.z);
     face.userData.slotLit=1; halo.userData.slotLit=1;
     face.castShadow=false; face.receiveShadow=false;
     halo.castShadow=false; halo.receiveShadow=false;
     g.userData.face=face; g.userData.halo=halo; g.userData.slot=sl;
-    tikiHut.add(g);
+    tikiBar.add(g);
     tikiSlots.push(g);
   }
   // ---- ...AND IT IS NOT NAILED ON ANY MORE ----
@@ -22942,10 +22987,15 @@ function tikiShow(e,dt){
       // moving the sign around was this line ignoring lit:0 -- and because the square is the
       // quad rather than anything painted on the wall, it moved every time the quad did, so each
       // measurement of "where the square is" measured the thing I had just moved.
+      // The face is invisible now -- it exists to be projected, so the DOM hit area knows where
+      // the button is on screen. The light is the trim, and only on the one that was pressed.
       const _lit=(typeof SHOP_SLOT.lit==='number')?SHOP_SLOT.lit:1;
       const b=_lit*(0.86+0.14*Math.sin(T*1.7+g.position.x*3.0));
       g.userData.face.material.opacity=o*b;
-      g.userData.halo.material.opacity=o*b*SHOP_SLOT.glow;
+      const on=(g.userData.slot.id===shopLitSlot)?1:0;
+      const want=o*on*(0.90+0.10*Math.sin(T*2.4));
+      const hm=g.userData.halo.material;
+      hm.opacity+=(want-hm.opacity)*Math.min(1,(typeof dt==='number'?dt:0.016)*9);
     }
   }
 }
@@ -23453,7 +23503,13 @@ function layoutShopSlots(e){
     // a few per cent over the square, so a block covers the paint rather than matching it edge
     // to edge and leaving a sliver of blue wherever the projection lands on a half pixel
     el.style.width=(w*1.06).toFixed(1)+'px';
-    el.style.height='';      // aspect-ratio gives it the block's height
+    // ---- AND THE HEIGHT COMES FROM THE PROJECTION TOO ----
+    // This was left blank so the per-id aspect-ratio in the CSS could give each cut-out plank
+    // its own proportions. There are no planks now -- the plaques are geometry on the bar -- so
+    // there is no aspect-ratio to fall back on, and a blank height is a hit area zero pixels
+    // tall. The box is the button's own projected quad, which is what it should always have
+    // been once the button became a real object.
+    el.style.height=(h*1.06).toFixed(1)+'px';
     // The word and the glyph are sized off the PANEL, not off the page: walk toward the hut and
     // the sign grows with it, which is what makes it part of the building rather than an overlay.
     // The divisor is the longest label's width in ems — "SURFERS" is seven characters at this
@@ -23709,16 +23765,25 @@ const QB_SLOTS=[
 // Spread to the three bays of the back wall rather than bunched left of centre. The old spacing
 // put all three in the left half with the right-hand bay empty, which is why they read as sitting
 // beside the openings instead of in them.
+// x is in the BUTTON BAR's own units, not the hut's -- the quads are children of the bar, so
+// they are carried by whatever the bar's scale and position turn out to be and nothing here has
+// to know where it ended up. Measured off the model rather than spaced by eye: the buttons stand
+// proud of the backing board, so a histogram of the frontmost layer of vertices in x has four
+// clusters in it, at -0.639, -0.226, +0.200 and +0.676. Evenly spaced, so they are written that
+// way -- a designed bar is symmetric and the measurement agrees to within a hundredth.
 const SHOP_SLOTS=[
-  {id:'dSlotSchool', x:-0.4050, label:'School',  act:()=>openGuide()},
-  {id:'dSlotBoards', x:-0.0064, label:'Boards',  act:()=>openShopOn('boards')},
-  {id:'dSlotSurfer', x: 0.4017, label:'Surfers', act:()=>openShopOn('riders')}];
+  {id:'dSlotSchool', x:-0.6340, label:'School',  act:()=>openGuide()},
+  {id:'dSlotBoards', x:-0.2113, label:'Boards',  act:()=>openShopOn('boards')},
+  {id:'dSlotSurfer', x: 0.2113, label:'Surfers', act:()=>openShopOn('riders')},
+  {id:'dSlotStyle',  x: 0.6340, label:'Style',   act:()=>openShopOn('gear')}];
 // Wired here rather than beside the layout, off the same table, so the id, the word on the panel
 // and the screen it opens cannot drift apart — and here specifically because SHOP_SLOTS is a
 // const declared below that code and reading it from up there is a temporal-dead-zone throw.
 for(const _sl of SHOP_SLOTS){
   const _b=document.getElementById(_sl.id);
-  if(_b)_b.onclick=()=>{ buzz(8); _sl.act(); };
+  // The light goes on before the screen opens, not after: the press is the thing being
+  // acknowledged, and act() takes the camera somewhere else.
+  if(_b)_b.onclick=()=>{ buzz(8); shopLitSlot=_sl.id; _sl.act(); };
 }
 // y and z of the panels, their size, and the blue — all in the hut's own units
 // Sized down from the first pass off the render rather than by eye: at 0.30 wide the three ran
@@ -23775,7 +23840,15 @@ for(const _sl of SHOP_SLOTS){
 // square is" was a measurement of the thing I had just moved. They are back as they were.
 // glow and lit are zero because the sign is the panel now: a block of wood nailed over the
 // quad hides its face, and any halo clearing the block reads as a cyan plate behind a plank.
-let SHOP_SLOT={y:-0.0561, z:-0.34, w:0.3520, h:0.2900, col:0x0c86cf, glow:0, lit:0};
+// In the BAR's units now. w and h are the plaque, not the engraving: the clusters measure
+// 0.20-0.25 across because that is the carving, while the plaque it sits on is wider and nearly
+// touches its neighbour. y and z are zero because the quads sit on the bar's own face.
+let SHOP_SLOT={y:0.0, z:0.045, w:0.400, h:0.260, col:0x0c86cf, glow:0, lit:0};
+// Where the bar hangs inside the kiosk, in the kiosk's units. "Slightly above the bottom part"
+// -- the carved counter's top is around -0.42, so this sits just clear of it.
+let SHOP_BAR={x:0, y:-0.262, z:0.140, s:0.575};
+// Which button is lit. Empty is none; clicking one moves it.
+let shopLitSlot='';
 // Where the shopkeeper stands, in the hut's own axes: behind the counter, at the right-hand end.
 // He was a third of the way over while the panels were up on the beam and there was no conflict.
 // Now that they are down on the wall where they belong, they are at his chest height and the two
@@ -32720,6 +32793,12 @@ if(location.hash.includes('debug')){
     // the shop counter, without the walk. Same trick as qbSnap and for the same reason: the
     // approach eases on real time and a headless frame is worth about three seconds of it, so
     // waiting for the hut costs minutes and never quite arrives.
+    // Light one of the four without opening the screen it belongs to, which is the only way to
+    // photograph the trim: pressing a button takes the camera somewhere else.
+    litSlot(id){ shopLitSlot=(id===undefined)?shopLitSlot:(id||'');
+      return {lit:shopLitSlot, bar:SHOP_BAR,
+              trims:tikiSlots?tikiSlots.map(g=>({id:g.userData.slot.id,
+                op:+g.userData.halo.material.opacity.toFixed(3)})):null}; },
     hutSnap(){
       shopCamGo=1; questCamGo=0; shopCamE=1;
       if(typeof layoutShopSlots==='function')layoutShopSlots(1);
