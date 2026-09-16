@@ -6758,7 +6758,7 @@ function sfxWake(){
   for(const n of ['turns','turnh'])                 // the soft rail and the hard one
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
   // the three layers of the riding bed; voices share these buffers, see _sfxAlias
-  for(const n of ['glide','wake','wind','weird'])
+  for(const n of ['glide','wake','wind','weird','gull1','gull2','gull3'])
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
   for(const n of ['roll','spin','flip','stand','close'])
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
@@ -27158,6 +27158,65 @@ function beatGull(u,t,dt){
   let w=((t*u.f+u.p)/(Math.PI*2))%1; if(w<0)w+=1;
   u.flap(gullAngle(w,u));
 }
+// ---- GULLS ARE HEARD WHEN THERE ARE ACTUALLY GULLS ----
+// Not on a timer alone. A call that fires on a clock is a call that comes from an empty sky,
+// and the one thing asked for was that it only happens when birds are on screen.
+//
+// But the two skies had to be MEASURED before either could be hooked, and they turned out to
+// need opposite rules. The ride's flocks really do fly past: they move on their own heading and
+// are re-laid the moment they leave the box, so each one approaches, crosses and goes. The
+// title screen's do not. Measured over twenty-eight seconds, its five flocks sat at 115 to 207
+// feet from the lens and travelled FOUR FEET between them -- they are scenery hanging in the
+// shot, not traffic. A crossing test on that sky fires exactly once, at load, and then never
+// again, which is precisely what the first version did.
+//
+// So: the ride latches on the approach, and the title screen, where the birds are simply always
+// there in frame, spaces its calls out instead. Both still answer to birds being present.
+const GULL_NEAR_RIDE=78, GULL_NEAR_BEACH=210;
+const GULL_GAP=2600;       // ms between any two calls, however many birds there are
+let _gullLast=0, _gullPrev=0, _gullNext=0;
+function gullSay(d,near){
+  const now=performance.now();
+  if(now-_gullLast<GULL_GAP)return false;
+  _gullLast=now;
+  if(typeof sfx!=='function')return false;
+  // Randomly alternating, as asked -- and never the same one twice running, because a random
+  // pick of three repeats itself a third of the time and a gull that calls twice identically
+  // sounds like a sample rather than a bird.
+  let pick=1+Math.floor(Math.random()*3);
+  if(pick===_gullPrev)pick=1+(pick%3);
+  _gullPrev=pick;
+  const close=1-Math.min(1,d/Math.max(1,near));       // quieter the further off it is
+  sfx('gull'+pick,0.14+close*0.40,0.92+Math.random()*0.17);
+  return true;
+}
+// The ride: one call per flyby, latched per flock so two passing at once are both heard.
+function gullPass(f,cx,cz,camFwdZ,range){
+  const u=f.userData; if(!u)return;
+  const near=range||GULL_NEAR_RIDE;
+  const dx=f.position.x-cx, dz=f.position.z-cz;
+  const d=Math.sqrt(dx*dx+dz*dz);
+  // In front of the lens, not behind it. A flock crossing out of shot behind the camera is not
+  // a flyby, and on the ride the camera looks along -z, so that is the half that counts.
+  const ahead=(camFwdZ===undefined)?true:((dz*camFwdZ)>-near*0.35);
+  if(!(d<near&&ahead)){ if(d>near*1.2)u.gullSaid=0; return; }
+  if(u.gullSaid)return;
+  if(gullSay(d,near))u.gullSaid=1;
+}
+// The title screen: the birds are always in frame, so this asks only that some flock IS in
+// frame, and leaves a randomised gap between calls so it reads as a beach and not as a loop.
+function gullAmbient(list,cx,cz,range){
+  const now=performance.now();
+  if(now<_gullNext)return;
+  let best=1e9;
+  for(const f of list){
+    const dx=f.position.x-cx, dz=f.position.z-cz;
+    const d=Math.sqrt(dx*dx+dz*dz);
+    if(d<best)best=d;
+  }
+  if(best>range)return;                    // nothing on screen: nothing to hear
+  if(gullSay(best,range))_gullNext=now+7000+Math.random()*9000;
+}
 function updateSkyLife(dt){
   for(const c of clouds){
     c.position.x+=c.userData.v*dt;
@@ -27178,9 +27237,11 @@ function updateSkyLife(dt){
     // out of the box in ANY direction and it comes back as a new flight, which is what keeps
     // the mix of headings turning over instead of freezing into whatever it started as
     if(Math.abs(f.position.x)>CLOUD_SPAN*0.62||
-       f.position.z<BIRD_Z_AHEAD||f.position.z>BIRD_Z_BEHIND)layFlock(f,false);
+       f.position.z<BIRD_Z_AHEAD||f.position.z>BIRD_Z_BEHIND){ layFlock(f,false); u.gullSaid=0; }
     // no two birds in a flock are in step: each has its own rate and its own phase
     for(const b of f.children)beatGull(b.userData,tNow,dt);
+    // and if it has just come past the rider, it says so
+    if(running)gullPass(f,px,pz,-1);
   }
 }
 
@@ -30468,6 +30529,8 @@ if(location.hash.includes('debug')){
               ufoPre:(typeof ufoPre!=='undefined')?ufoPre:null,
               ufoPhase:(typeof ufoPh!=='undefined')?ufoPh:null,
               weird:d('weird'),
+              gulls:{g1:d('gull1'),g2:d('gull2'),g3:d('gull3'),
+                     fired:['gull1','gull2','gull3'].map(n=>_sfxCalls['1shot:'+n]||0)},
               bed:{glide:d('glide'), wake:d('wake'), wind:d('wind')},
               bedVoices:(function(){ const o={};
                 for(const k of ['glide','glide2','wake','wake2','wind','wind2']){
@@ -31949,6 +32012,20 @@ if(location.hash.includes('debug')){
     // Park one of the beach's flocks in front of the title lens, so a wing can be LOOKED at.
     // Debug only: it moves the sky furniture and does not put it back.
     gullWhip(v){ if(v!==undefined)GULL_WHIP=v; return GULL_WHIP; },
+    // Where the flocks actually ARE, in both skies, against the range that decides whether
+    // they are heard. Guessing a threshold for a scene whose scale you have not measured is
+    // how the title screen ends up silent while every other check passes.
+    gullRange(){
+      const out={ride:[],beach:[],near:{ride:GULL_NEAR_RIDE,beach:GULL_NEAR_BEACH}};
+      try{ for(const f of birds){ const dx=f.position.x-px, dz=f.position.z-pz;
+        out.ride.push({d:+Math.sqrt(dx*dx+dz*dz).toFixed(1), dz:+dz.toFixed(1),
+                       said:f.userData?(f.userData.gullSaid||0):null}); } }catch(e){}
+      try{ if(beachLife&&menuCam)for(const f of beachLife.birds){
+        const dx=f.position.x-menuCam.position.x, dz=f.position.z-menuCam.position.z;
+        out.beach.push({d:+Math.sqrt(dx*dx+dz*dz).toFixed(1), x:+f.position.x.toFixed(1),
+                        v:+(f.userData.v||0).toFixed(2),
+                        said:f.userData?(f.userData.gullSaid||0):null}); } }catch(e){}
+      return out; },
     beachGullNear(d,hold){
       if(typeof beachLife==='undefined'||!beachLife||!beachLife.birds.length||!menuCam)return null;
       const f=beachLife.birds[0];
@@ -46355,6 +46432,12 @@ function renderMenuBeach(dt){
       fl.position.y+=Math.sin(tNow*0.7+fl.userData.bob)*dt*1.5;
       for(const b2 of fl.children)beatGull(b2.userData,tNow,dt);
     }
+    // The title screen has gulls too, and they were the half of this that nearly got missed:
+    // there are two skies driven by two loops, and hooking only the ride's would have left the
+    // menu silent while every check passed. Asked once for the whole sky rather than per flock,
+    // because here they hang in the shot instead of crossing it -- see gullAmbient.
+    if(menuCam&&typeof gullAmbient==='function')
+      gullAmbient(beachLife.birds,menuCam.position.x,menuCam.position.z,GULL_NEAR_BEACH);
   }
   // A slow drift across the shot rather than a fixed frame, so the menu is alive without
   // anything in it having to move. The camera stands back from the palm along its own
