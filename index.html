@@ -25,7 +25,8 @@
    element gets a cache hit the moment it is allowed to load. */
 try{ fetch('sounds/title.webm',{cache:'default'}).catch(function(){}); }catch(e){}
 try{ fetch('sounds/land.webm',{cache:'default'}).catch(function(){}); }catch(e){}
-try{ fetch('sounds/jet.webm',{cache:'default'}).catch(function(){}); }catch(e){}</script>
+try{ fetch('sounds/jet.webm',{cache:'default'}).catch(function(){}); }catch(e){}
+try{ fetch('sounds/under.webm',{cache:'default'}).catch(function(){}); }catch(e){}</script>
 <!-- A hint, not a guarantee. Most browsers ignore these on the document itself and the CDN in
      front of this never sees them at all — the actual answer is the version check further down,
      which asks the server what shipped and reloads if this is not it. -->
@@ -55,7 +56,7 @@ try{ fetch('sounds/jet.webm',{cache:'default'}).catch(function(){}); }catch(e){}
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.22';
+window.SURF_VERSION='10.23';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -6611,6 +6612,7 @@ function sfxWake(){
   if(ac.state==='suspended'){ try{ ac.resume(); }catch(e){} }
   sfxLoad('land',['sounds/land.webm','sounds/land.m4a']);
   sfxLoad('jet', ['sounds/jet.webm','sounds/jet.m4a']);
+  sfxLoad('under',['sounds/under.webm','sounds/under.m4a']);
 }
 // ---- WARM THE CACHE WITH A PLAIN FETCH ----
 // A browser will not download a media element's source until it believes the media can
@@ -30260,7 +30262,8 @@ if(location.hash.includes('debug')){
     musicKick(){ if(typeof _musTry==='function')_musTry(); return true; },
     sfxState(){ const d=n=>{ const b=_sfxBuf[n];
         return (b==='loading')?'loading':(b?('decoded '+b.duration.toFixed(3)+'s'):'none'); };
-      return {on:sfxOn, ctx:_ac?_ac.state:null, land:d('land'), jet:d('jet'),
+      return {on:sfxOn, ctx:_ac?_ac.state:null, land:d('land'), jet:d('jet'), under:d('under'),
+              depth:(typeof diveDepth!=='undefined')?+diveDepth.toFixed(2):null,
               looping:Object.keys(_sfxLoops),
               jetGain:_sfxLoops.jet?+_sfxLoops.jet.g.gain.value.toFixed(3):null}; },
     sfxFire(v){ sfx('land',v===undefined?0.8:v,1.0); return true; },
@@ -39287,6 +39290,12 @@ function diveStep(dt,waterY){
   // shallower than he is is a depth that lets them.
   diveDepth=Math.max(0,waterY-py);
   diveFog(diveDepth);
+  // Under is under -- the same test the fog, the board stow and the whole dive scenery use.
+  // Faded in WITH depth rather than switched on at the waterline, because ducking a foot under
+  // should not slam the entire ocean on and off. Stopping is the keep-alive's job: surfacing,
+  // wiping out and the run ending all simply stop asking for it.
+  if(diveOn||diveDepth>0.5)
+    sfxLoop('under',0.30+Math.min(1,diveDepth/3.0)*0.42,1.0);
 }
 // ---- and running aground, which is not a crash ----
 // The board does not stop dead and he does not come off it: it rides up the wet sand,
