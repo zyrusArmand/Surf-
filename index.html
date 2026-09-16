@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.17';
+window.SURF_VERSION='10.18';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -6427,6 +6427,65 @@ const RIDER_PERK={
 // buzzing in a quiet room is the fastest way to make someone close a game.
 let buzzOn=(()=>{ try{ return localStorage.getItem('surfBuzz')!=='0'; }catch(e){ return true; } })();
 function setBuzz(v){ buzzOn=!!v; try{ localStorage.setItem('surfBuzz',buzzOn?'1':'0'); }catch(e){} }
+// ---------- TITLE MUSIC ----------
+// The bed under the title screen, and nowhere else: it fades out when a run begins, because
+// the thing you want to hear while surfing is the water.
+//
+// Two files for one track. Opus in WebM is first because AAC carries encoder priming at the
+// head of the stream and a browser can turn that into an audible gap every time the loop comes
+// round -- and this track was authored to loop, with a seam measured at exactly 0.00000 between
+// its last sample and its first. The .m4a is the fallback for anything that will not take Opus.
+// Normalised on the way in as well: it arrived peaking at -17.2 dBFS, which is inaudible at any
+// sane mix level and wastes most of the bitrate on headroom.
+const MUS_VOL=0.50;
+let musicOn=(()=>{ try{ return localStorage.getItem('surfMusic')!=='0'; }catch(e){ return true; } })();
+let _mus=null, _musWant=false, _musT=null;
+function musicEl(){
+  if(_mus)return _mus;
+  const a=document.createElement('audio');
+  a.loop=true; a.preload='auto'; a.volume=0;
+  a.setAttribute('playsinline','');            // or iOS takes the track fullscreen
+  for(const [src,type] of [['sounds/title.webm','audio/webm; codecs=opus'],
+                           ['sounds/title.m4a','audio/mp4; codecs="mp4a.40.2"']]){
+    const s=document.createElement('source'); s.src=src; s.type=type; a.appendChild(s);
+  }
+  document.body.appendChild(a);
+  return (_mus=a);
+}
+function _musFade(to,ms){
+  const a=musicEl(), v0=a.volume, t0=performance.now();
+  if(_musT)clearInterval(_musT);
+  _musT=setInterval(()=>{
+    const k=Math.min(1,(performance.now()-t0)/ms);
+    a.volume=Math.max(0,Math.min(1,v0+(to-v0)*k));
+    if(k>=1){ clearInterval(_musT); _musT=null; if(to<=0){ try{ a.pause(); }catch(e){} } }
+  },40);
+}
+function _musTry(){
+  const p=musicEl().play();
+  if(p&&p.catch)p.catch(()=>{});   // blocked until the page has been touched; see the unlock
+}
+function musicWant(on){
+  _musWant=!!on;
+  if(_musWant&&musicOn){ _musTry(); _musFade(MUS_VOL,900); }
+  else _musFade(0,420);
+}
+function setMusic(v){
+  musicOn=!!v;
+  try{ localStorage.setItem('surfMusic',musicOn?'1':'0'); }catch(e){}
+  musicWant(_musWant);
+}
+// No browser will start audio before the page has been touched, and the title screen is up
+// long before that happens -- so the first play() is EXPECTED to be refused, and the first
+// real gesture is what actually starts it. Cheap enough to leave armed: play() on something
+// already playing does nothing.
+for(const ev of ['pointerdown','touchend','keydown'])
+  addEventListener(ev,()=>{ if(_musWant&&musicOn)_musTry(); },{passive:true});
+document.addEventListener('visibilitychange',()=>{
+  if(!_mus)return;
+  if(document.hidden){ try{ _mus.pause(); }catch(e){} }
+  else if(_musWant&&musicOn)_musTry();
+});
 // ---------- haptics ----------
 // The switch in Settings has been turning nothing on and off, and the reason is that
 // navigator.vibrate is the ONLY thing this was calling and iOS Safari has never implemented
@@ -12911,6 +12970,8 @@ function hapticNote(){
 }
 function drawSettings(){
   document.getElementById('setBody').innerHTML=
+    '<div class="row"><span>Music</span>'+
+      '<button class="sw'+(musicOn?' on':'')+'" id="setMusic">'+(musicOn?'On':'Off')+'</button></div>'+
     '<div class="row"><span>Vibration</span>'+
       '<button class="sw'+(buzzOn?' on':'')+'" id="setBuzz">'+(buzzOn?'On':'Off')+'</button></div>'+
     '<div class="row"><span>Feel a tap</span>'+
@@ -12919,6 +12980,7 @@ function drawSettings(){
     '<div class="row"><span>Your record</span><b>'+Math.round(stats.bestDist||0).toLocaleString()+' m</b></div>'+
     '<div class="row"><span>Best trick score</span><b>'+(best|0).toLocaleString()+'</b></div>'+
     '<div class="row"><span>Version</span><b>v'+VERSION+'</b></div>';
+  document.getElementById('setMusic').onclick=()=>{ setMusic(!musicOn); buzz(14); drawSettings(); };
   document.getElementById('setBuzz').onclick=()=>{ setBuzz(!buzzOn); buzz(14); drawSettings(); };
   const t=document.getElementById('setBuzzTest');
   // Redrawing the panel mid-press would tear the button out from under the finger that is
@@ -24511,6 +24573,7 @@ const ovTitle=document.getElementById('ovTitle'), ovPurse=document.getElementByI
 const recordsBtn=document.getElementById('recordsBtn');
 const menuBtn=document.getElementById('menuBtn');
 function showMenu(mode){
+  if(typeof musicWant==='function')musicWant(true);   // the bed comes back with the title
   const over = mode==='over';
   // ---- and the crash is OVER when the title screen comes up ----
   // Nothing cleared `wipe` on the way back to the menu — only the next reset() did, at the
@@ -24579,6 +24642,7 @@ function showMenu(mode){
   showCoins();
 }
 function beginRun(){
+  if(typeof musicWant==='function')musicWant(false);  // what you want to hear out there is water
   // the board and the rider have been standing on the menu's beach; they ride now
   if(typeof menuBeachOff==='function')menuBeachOff();
   // ---- AND THE ROOM YOU WERE IN IS LEFT BEHIND ----
@@ -30034,6 +30098,12 @@ if(location.hash.includes('debug')){
       return {level, bad:out.filter(o=>!o.ok).map(o=>o.id),
               sameAsBare, distinctImages:uniq, of:out.length, shots:out};
     },
+    music(){ const a=_mus;
+      return {on:musicOn, want:_musWant, made:!!a,
+              paused:a?a.paused:null, vol:a?+a.volume.toFixed(2):null,
+              t:a?+a.currentTime.toFixed(2):null, ready:a?a.readyState:null,
+              src:a&&a.currentSrc?a.currentSrc.split('/').pop():null}; },
+    musicKick(){ if(typeof _musTry==='function')_musTry(); return true; },
     gearWear(id){ const g=GEAR_BY_ID[id]; if(!g)return null;
       gearOn[g.slot]=id; equipChar(rider); return {...gearOn}; },
     // gearOnChar() puts the previous character back before it returns, so anything measured
