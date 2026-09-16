@@ -3,6 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
+     element in code cannot start this download early: the request is queued as a task, and no
+     task runs until the whole inline script below has finished executing, which measured at
+     +10.6 s. The preload scanner reads this line while it is still parsing the head, so the
+     fetch is in flight before a line of game code has run. fetchpriority is not decoration:
+     browsers rank an audio preload LOW by default, so without it the scanner picks the line up
+     at +48 ms and then queues the track behind every image and script anyway -- measured, the
+     response still did not arrive until +9 s. Only the Opus file is hinted; anything that
+     cannot take Opus falls back to the .m4a and loads it a moment later. -->
+<link rel="preload" as="audio" href="sounds/title.webm" type="audio/webm" fetchpriority="high">
+<script>/* Measured, in this order, and only the last one works:
+     preload="auto" on the element      -> request at +9.0 s
+     <link rel=preload as=audio>        -> +9.0 s (browsers rank audio preloads low, and this
+                                           build appears to defer them regardless)
+     fetch() down in the main script    -> +9.0 s, because that is simply when execution
+                                           REACHES it: the inline script below is 2.9 MB and
+                                           takes about nine seconds to get that far.
+     fetch() up HERE, in the head       -> runs while the head is still parsing.
+   The body is never read; landing it in the HTTP cache is the whole point, so the <audio>
+   element gets a cache hit the moment it is allowed to load. */
+try{ fetch('sounds/title.webm',{cache:'default'}).catch(function(){}); }catch(e){}</script>
 <!-- A hint, not a guarantee. Most browsers ignore these on the document itself and the CDN in
      front of this never sees them at all — the actual answer is the version check further down,
      which asks the server what shipped and reloads if this is not it. -->
@@ -32,7 +53,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.19';
+window.SURF_VERSION='10.20';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -6442,6 +6463,10 @@ let musicOn=(()=>{ try{ return localStorage.getItem('surfMusic')!=='0'; }catch(e
 let _mus=null, _musWant=false, _musT=null;
 function musicEl(){
   if(_mus)return _mus;
+  // Built at parse time, not on the first showMenu. showMenu runs after every loadModel call
+  // has been queued, so the track was being fetched behind up to fifty-five model requests --
+  // which is why it took so long to arrive. Asking for it here puts it at the front.
+
   const a=document.createElement('audio');
   a.loop=true; a.preload='auto'; a.volume=0;
   a.setAttribute('playsinline','');            // or iOS takes the track fullscreen
@@ -6465,16 +6490,38 @@ function _musTry(){
   const p=musicEl().play();
   if(p&&p.catch)p.catch(()=>{});   // blocked until the page has been touched; see the unlock
 }
-function musicWant(on){
-  _musWant=!!on;
-  if(_musWant&&musicOn){ _musTry(); _musFade(MUS_VOL,900); }
-  else _musFade(0,420);
+// ---- WHAT DECIDES IT IS WHETHER A RUN IS HAPPENING ----
+// This used to hang off showMenu and beginRun, which was wrong in a way that showed up
+// straight away: tapping a board in the shop to test-ride it calls beginRun -- the rack does
+// `if(!running) beginRun()` in five places -- so walking into the shop killed the music, and
+// any future screen that starts a run would have broken it again the same way. There is only
+// one thing being asked here, IS A RUN IN PROGRESS, so it is asked directly on a timer and no
+// screen transition can get it wrong by forgetting to call something.
+let _musLast=null;
+function musicTick(){
+  const want = musicOn && !running && !document.hidden;
+  if(want===_musLast)return;                 // act on a CHANGE only, never restart a fade
+  _musLast=want; _musWant=want;
+  if(want){ _musTry(); _musFade(MUS_VOL,800); }
+  else _musFade(0,380);
 }
+function musicWant(){ _musLast=null; musicTick(); }
 function setMusic(v){
   musicOn=!!v;
   try{ localStorage.setItem('surfMusic',musicOn?'1':'0'); }catch(e){}
-  musicWant(_musWant);
+  _musLast=null; musicTick();
 }
+setInterval(musicTick,250);
+// ---- WARM THE CACHE WITH A PLAIN FETCH ----
+// A browser will not download a media element's source until it believes the media can
+// actually play, and with autoplay blocked that means it waits for the first tap -- measured,
+// the response did not arrive until +9 s, and neither preload="auto" nor a <link rel=preload>
+// with fetchpriority=high moved it, because both are still MEDIA requests and get the same
+// treatment. A fetch() is not a media request. It is subject to none of that, it starts during
+// parse, and it lands the file in the HTTP cache so the <audio> element gets a cache hit the
+// instant it is allowed to load. The body is deliberately not read: the cache entry is the
+// whole point.
+try{ musicEl(); }catch(e){}
 // No browser will start audio before the page has been touched, and the title screen is up
 // long before that happens -- so the first play() is EXPECTED to be refused, and the first
 // real gesture is what actually starts it. Cheap enough to leave armed: play() on something
@@ -24576,7 +24623,6 @@ const ovTitle=document.getElementById('ovTitle'), ovPurse=document.getElementByI
 const recordsBtn=document.getElementById('recordsBtn');
 const menuBtn=document.getElementById('menuBtn');
 function showMenu(mode){
-  if(typeof musicWant==='function')musicWant(true);   // the bed comes back with the title
   const over = mode==='over';
   // ---- and the crash is OVER when the title screen comes up ----
   // Nothing cleared `wipe` on the way back to the menu — only the next reset() did, at the
@@ -24645,7 +24691,6 @@ function showMenu(mode){
   showCoins();
 }
 function beginRun(){
-  if(typeof musicWant==='function')musicWant(false);  // what you want to hear out there is water
   // the board and the rider have been standing on the menu's beach; they ride now
   if(typeof menuBeachOff==='function')menuBeachOff();
   // ---- AND THE ROOM YOU WERE IN IS LEFT BEHIND ----
