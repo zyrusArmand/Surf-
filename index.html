@@ -6791,7 +6791,8 @@ function sfxWake(){
   // the three layers of the riding bed; voices share these buffers, see _sfxAlias
   for(const n of ['glide','wake','wind','weird','gull1','gull2','gull3',
                   'btn','boat','ski','buy','eqchar','eqboard','eqstyle',
-                  'starthrow','starfly'])
+                  'starthrow','starfly',
+                  'hitbuoy','hitlog','hitrock','hitend'])
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
   for(const n of ['roll','spin','flip','stand','close'])
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
@@ -25581,6 +25582,28 @@ function startWipeout(kind){
   // something that can be chased without knowing which of the eight call sites fired.
   lastWipe={kind,ph:swPh,tube:swTubeRide,py:+py.toFixed(2),ang:+swAng.toFixed(2),t:+tNow.toFixed(1)};
   buzz([60,50,80]);
+  // ---- WHAT YOU HIT, THEN THE RUN ENDING ----
+  // startWipeout is the one funnel every crash goes through and the only place that knows WHICH
+  // crash it was, so this covers all eighteen kinds from one hook rather than from eighteen.
+  //
+  // Three of them have a recording of their own. The two that were left to assign went by what
+  // they measured: one is 65% below 200 Hz with a 312 Hz centroid -- a deep heavy boom -- which
+  // belongs to the rock, the one thing in the game the wipe table itself describes as not
+  // giving; and the other is a bright 0.41 s crack, four kilohertz, a third of it above 6 kHz,
+  // which is not any particular object at all. So that one is the RUN ENDING, laid over every
+  // crash a moment after the impact. Every wipeout gets a two-part shape -- the thing you hit,
+  // then the run going -- and the twelve kinds with no recording of their own still get the
+  // half that matters most.
+  //
+  // Wreckage takes the rock's boom: a fuel drum to the chest is a heavy thing arriving, and it
+  // was the last hazard in the barrel that could not say what it was.
+  if(typeof sfx==='function'){
+    const HIT={buoy:'hitbuoy', log:'hitlog', rock:'hitrock', debris:'hitrock'};
+    if(HIT[kind])sfx(HIT[kind],0.78,0.95+Math.random()*0.10);
+    // A crack on the same sample as the thud is one noise; a beat later it is a consequence.
+    setTimeout(()=>{ try{ sfx('hitend',HIT[kind]?0.60:0.80,0.96+Math.random()*0.09); }catch(e){} },
+               HIT[kind]?130:40);
+  }
   noteWipe(kind);
   if(kind==='snap')snapBoard();
   const W=WIPE[kind]||WIPE.foam;
@@ -30628,6 +30651,8 @@ if(location.hash.includes('debug')){
               weird:d('weird'),
               btn:d('btn'), boat:d('boat'), ski:d('ski'),
               star:{throw:d('starthrow'),fly:d('starfly')},
+              hits:{buoy:d('hitbuoy'),log:d('hitlog'),rock:d('hitrock'),end:d('hitend')},
+              hitFired:['hitbuoy','hitlog','hitrock','hitend'].map(n=>_sfxCalls['1shot:'+n]||0),
               starThrew:_sfxCalls['1shot:starthrow']||0,
               starFlyVol:_sfxLoops.starfly?+(_sfxLoops.starfly.wantMax||0).toFixed(3):null,
               shop:{buy:d('buy'),eqchar:d('eqchar'),eqboard:d('eqboard'),eqstyle:d('eqstyle')},
