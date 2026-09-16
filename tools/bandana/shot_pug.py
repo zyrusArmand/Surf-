@@ -17,11 +17,11 @@ for nm,rot,en in [("K",(math.radians(56),0,math.radians(30)),3.4),
 # ---- FRAME THE WHOLE ANIMAL ----
 # 70mm at 3.1 units showed 1.6 units of a 2.6-unit pug: a close-up of his face with the
 # bandana cropped, which read as a giant cowl when it is nothing of the sort.
-deps=bpy.context.evaluated_depsgraph_get()
-pts=[o.matrix_world@Vector(c) for o in sc.objects if o.type=='MESH' for c in o.bound_box]
-lo=Vector((min(p.x for p in pts),min(p.y for p in pts),min(p.z for p in pts)))
-hi=Vector((max(p.x for p in pts),max(p.y for p in pts),max(p.z for p in pts)))
-ctr=(lo+hi)/2; H=max(hi-lo)
+# FRAMED EXPLICITLY. Computing it from the scene bounds put the pug at the size of a thumbnail
+# with a hairline across the frame: something in the imported hierarchy reports a bounding box
+# it does not occupy, and a camera solved from that is solving for the wrong thing. The animal
+# is a known size -- he is right there, 2.7 units tall -- so the shot is set from that.
+ctr=Vector((0,0,0.92)); H=2.55
 cam_d=bpy.data.cameras.new("C"); cam_d.lens=50
 cam=bpy.data.objects.new("C",cam_d); sc.collection.objects.link(cam); sc.camera=cam
 FOV=2*math.atan(18.0/cam_d.lens)
