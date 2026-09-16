@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.55';</script>
+<script>window.SURF_VERSION='10.56';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -1978,8 +1978,19 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
      plaques on a bar. Two of each would be one too many. */
   #shop.instand .shopwrap > h2, #shop.instand #shopTabs { display:none; }
   #shop.instand #shopWin { position:fixed; pointer-events:auto; display:block; }
-  #shop.instand #shopList { height:100%; padding:6px 4px 10px; gap:5px;
-    grid-template-columns:repeat(2,1fr); }
+  /* THREE across, not two. The window runs the full width of the stand now, so two columns of
+     card were two very wide niches with a lot of air in them -- asked for as "3 characters,
+     surf boards etc in its width". Fixed count rather than auto-fill: the shelf is a known
+     width in the building, so how many stand on it is a decision, not something a minmax()
+     should be allowed to change when the projection moves by a few pixels. */
+  #shop.instand #shopList { height:100%; padding:6px 4px 10px; gap:4px;
+    grid-template-columns:repeat(3,1fr); }
+  /* The type is NOT stepped down in here, and that was worth measuring rather than assuming.
+     Three to a shelf sounds like a much smaller card than the full-screen sheet's, so the name
+     and price were shrunk to 8.5px on the guess that the window would come out around 74px a
+     column. It comes out at 126: the stand fills most of the screen at this camera, so a card
+     in its window is the same size as a card on the sheet, or slightly bigger. Shrinking it
+     made the shop inside the building harder to read than the shop over it, for no reason. */
   /* Back stays reachable, and sits under the counter rather than under the list */
   #shop.instand .shopwrap > .go { position:fixed; left:50%; bottom:calc(14px + env(safe-area-inset-bottom));
     transform:translateX(-50%); margin:0; pointer-events:auto; z-index:3; }
@@ -12527,6 +12538,7 @@ var _qbRgh=null, _qbEnv=null, _qbSnd=0;
 var qbFocus=-1, qbZoomE=0;
 const _qbW=new THREE.Vector3(), _qbT=new THREE.Vector3(), _qbF=new THREE.Vector3();
 const _qbCamP=new THREE.Vector3(), _qbCamQ=new THREE.Quaternion();
+const _shCamP=new THREE.Vector3(), _shCamQ=new THREE.Quaternion();
 const QB_ZOOM_D=2.85, QB_ZOOM_SECS=0.42;
 // ---- only photograph what somebody is looking at ----
 // This walked the whole rack the moment the shop opened: forty-seven boards, each one a
@@ -23939,7 +23951,7 @@ let MB_TIKI_SINK=0.085;   // share of its own height dug into the sand
 // The kiosk is scaled about its own CENTRE -- placeTiki subtracts the bounding box's middle --
 // so growing it drops the base by half the extra height. From 4.304 to 5.00 on a building 1.90
 // tall, that is 0.66 of sinking into the sand, which is why the y goes up by exactly that.
-const MB_TIKI_PIN={p:[-15.255,5.644,-0.174], r:[0,124.8,0], s:5.000};
+const MB_TIKI_PIN={p:[-12.092,6.066,-2.407], r:[0,124.8,0], s:5.000};
 // ---- and two palms stand behind it ----
 // The hut on bare dune had nothing to be in front of: an empty sky, an empty beach, and a
 // building floating in the middle of both. These are placed BEHIND it as seen from the shop's
@@ -24114,13 +24126,25 @@ let SHOP_SLOT={y:0.0, z:0.045, w:0.400, h:0.260, col:0x0c86cf, glow:0, lit:0};
 // the two uprights and the middle rail -- with outer edges at -0.487 and +0.504. So the bar is
 // 0.991 wide, which off a model 1.903 wide is a scale of 0.521, and it is centred on +0.009
 // rather than on zero because the kiosk itself is not quite symmetric.
-let SHOP_BAR={x:0.009, y:0.404, z:0.140, s:0.521};
+let SHOP_BAR={x:0.009, y:-0.445, z:0.140, s:0.521};
 // ---- WHERE THE SHOP ITSELF GOES ----
 // The clear rectangle inside the kiosk, found by gridding its front face and asking each cell
 // whether any geometry stands in it -- everything measured before this looked for where the
 // wood IS, and the list has to go where it is NOT. The hole runs x -0.327..+0.327 and
 // y -0.524..+0.477, and the bar now takes the top of it, so the shelves get what is left.
-const SHOP_HOLE={x0:-0.327, x1:0.327, y0:-0.516, y1:0.300};
+// ---- THE WINDOW, MEASURED RATHER THAN GUESSED ----
+// Asked for as "outer edges of the tiki shop, and up to the top edge under the surf shop sign".
+// Both edges came off a column/row occupancy profile of the stand's own geometry (see hutBox),
+// not off a screenshot:
+//   ACROSS -- wood runs from -0.537 to +0.535, those outermost columns being the thin outside
+//   faces of the two posts. Pulled in a hair to 0.530 so the shelf finishes on the post rather
+//   than overhanging the last millimetre of it.
+//   UP -- rows from -0.31 to +0.51 hold between 6 and 63 sampled vertices, which is nothing:
+//   that is the clear opening. Below it -0.51 and -0.442 spike to 1718 and 1743, which is the
+//   plaque bar now that it has been moved down to y -0.445. Above it +0.575 climbs to 118 and
+//   then 1003 by +0.778, which is the sign plank and the roof. So the glass starts just clear
+//   of the bar and stops just under the sign, and neither number is a preference.
+const SHOP_HOLE={x0:-0.530, x1:0.530, y0:-0.320, y1:0.540};
 // Which button is lit. Empty is none; clicking one moves it.
 let shopLitSlot='';
 // Where the shopkeeper stands, in the hut's own axes: behind the counter, at the right-hand end.
@@ -24166,7 +24190,10 @@ let SHOP_KEEP={x:0.66, y:-0.555, z:-0.16, tall:2.45};
 // The yaw lands at -1.656318 against the solved -1.655968, which is two hundredths of a degree
 // apart -- so the ninety-five degree turn was already right and what actually moved is the
 // height and the reach.
-const SHOP_CAM={right:2.8673, fwd:3.8831, rise:2.1400, pitch:-0.0733, yaw:-1.656318, secs:0.95};
+// Where the lens stands when you have walked to the stand, in the world's own terms. Placed by
+// hand in the workshop and copied off its readout: camera at -10.25, 8.34, -45.03 looking
+// -81.3 / 11.1. Same shape as QB_CAM, and for the same reason -- a shot you can point at.
+const SHOP_CAM={x:-10.25, y:8.34, z:-45.03, yaw:-81.3, pitch:11.1, secs:0.95};
 // ---- THIS ONE IS A PLACE, NOT AN OFFSET ----
 // The shop's move is stored as a delta from whatever the staged shot and the aspect walk-in have
 // already decided, so it arrives in the same relation to the set on every screen shape. This one
@@ -34984,9 +35011,66 @@ if(location.hash.includes('debug')){
               cx:+((x0+x1)/2).toFixed(3), cy:+((y0+y1)/2).toFixed(3),
               w:+(x1-x0).toFixed(3), h:+(y1-y0).toFixed(3),
               left:+x0.toFixed(3), right:+x1.toFixed(3),
-              camRight:SHOP_CAM.right, e:+shopCamE.toFixed(3)};
+              camAt:[SHOP_CAM.x,SHOP_CAM.y,SHOP_CAM.z], e:+shopCamE.toFixed(3)};
     },
     shopCam(k,v){ if(v!==undefined)SHOP_CAM[k]=v; return SHOP_CAM; },
+    // ---- WHERE THE STAND'S OWN EDGES ARE, in the frame SHOP_HOLE is written in ----
+    // The clear opening was found once by gridding the front face for ABSENCE of geometry, and
+    // that answered "where is there nothing to draw over". This answers the other question --
+    // where the wood actually reaches -- because the window was asked to run out to the outer
+    // edges of the stand rather than to the inside of its posts, and those are different
+    // numbers. Columns and rows of the front slab, so the posts show up as the outermost
+    // columns that hold anything and the sign plank as the topmost rows.
+    hutBox(cols,rows){
+      if(!tikiHut)return null;
+      cols=cols||24; rows=rows||24;
+      const b=new THREE.Box3(), V=new THREE.Vector3();
+      tikiHut.updateMatrixWorld(true);
+      const inv=new THREE.Matrix4().copy(tikiHut.matrixWorld).invert();
+      const cx=new Array(cols).fill(0), ry=new Array(rows).fill(0);
+      let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9,z0=1e9,z1=-1e9,n=0;
+      tikiHut.traverse(o=>{
+        if(!o.isMesh||!o.geometry||o.userData.slotLit)return;
+        const pos=o.geometry.attributes&&o.geometry.attributes.position;
+        if(!pos)return;
+        const m=new THREE.Matrix4().multiplyMatrices(inv,o.matrixWorld);
+        const step=Math.max(1,Math.floor(pos.count/4000));
+        for(let i=0;i<pos.count;i+=step){
+          V.fromBufferAttribute(pos,i).applyMatrix4(m); n++;
+          if(V.x<x0)x0=V.x; if(V.x>x1)x1=V.x;
+          if(V.y<y0)y0=V.y; if(V.y>y1)y1=V.y;
+          if(V.z<z0)z0=V.z; if(V.z>z1)z1=V.z;
+        }
+      });
+      if(!n)return null;
+      // second pass, now that the extents are known, to fill the occupancy profiles
+      tikiHut.traverse(o=>{
+        if(!o.isMesh||!o.geometry||o.userData.slotLit)return;
+        const pos=o.geometry.attributes&&o.geometry.attributes.position;
+        if(!pos)return;
+        const m=new THREE.Matrix4().multiplyMatrices(inv,o.matrixWorld);
+        const step=Math.max(1,Math.floor(pos.count/4000));
+        for(let i=0;i<pos.count;i+=step){
+          V.fromBufferAttribute(pos,i).applyMatrix4(m);
+          const ci=Math.min(cols-1,Math.max(0,Math.floor((V.x-x0)/(x1-x0)*cols)));
+          const ri=Math.min(rows-1,Math.max(0,Math.floor((V.y-y0)/(y1-y0)*rows)));
+          cx[ci]++; ry[ri]++;
+        }
+      });
+      const edge=(arr,lo,hi,k)=>arr.map((v,i)=>({at:+(lo+(i+0.5)/k*(hi-lo)).toFixed(3),n:v}));
+      return {box:{x:[+x0.toFixed(3),+x1.toFixed(3)], y:[+y0.toFixed(3),+y1.toFixed(3)],
+                   z:[+z0.toFixed(3),+z1.toFixed(3)]},
+              hole:SHOP_HOLE, bar:SHOP_BAR, sampled:n,
+              colsX:edge(cx,x0,x1,cols), rowsY:edge(ry,y0,y1,rows)};
+    },
+    // set the window straight from a probe, so a candidate can be looked at rather than argued
+    shopHole(o){ if(o){ for(const k in o)SHOP_HOLE[k]=o[k];
+      if(typeof tikiWin!=='undefined'&&tikiWin){
+        tikiWin.geometry.dispose();
+        tikiWin.geometry=new THREE.PlaneGeometry(SHOP_HOLE.x1-SHOP_HOLE.x0,SHOP_HOLE.y1-SHOP_HOLE.y0);
+        tikiWin.position.set((SHOP_HOLE.x0+SHOP_HOLE.x1)/2,(SHOP_HOLE.y0+SHOP_HOLE.y1)/2,tikiWin.position.z);
+        tikiWin.updateMatrixWorld(true);
+      } } return SHOP_HOLE; },
     // Slide the pinned hut sideways onto the lens's own forward axis, keeping its distance and
     // therefore its size. Centred that way is centred at ANY aspect -- the alternative, nudging
     // it until it looks right on one viewport, is centred on that viewport and nowhere else.
@@ -47238,17 +47322,18 @@ function renderMenuBeach(dt){
   // Smoothstepped rather than linear. A camera that starts and stops at full speed reads as a
   // cut with the frames left in; the ease at both ends is the whole difference between the lens
   // being carried over and being dragged.
-  // Taken along the lens's OWN flattened axes, so "right and a bit forward" means what it looks
-  // like from the chair rather than what it means to the world's x and z.
+  // ---- ...AND IT IS A FIXED POSE NOW, NOT AN OFFSET ----
+  // It used to be right/forward/rise from wherever the title shot had got to, which meant the
+  // shot at the stand inherited every decision made about the shot on the beach -- the staged
+  // pose, the aspect walk-in, the idle bob -- and could not be placed, only nudged. The board
+  // has been a fixed pose for exactly this reason (see QB_CAM just below, and its note). This
+  // one was placed by hand with the workshop's camera and read off its own readout, so at e=1
+  // the lerp lands on the shot that was looked at and nothing above this line survives into it.
   if(shopCamE>0.0001){
     const e=shopCamE*shopCamE*(3-2*shopCamE);
-    const f=new THREE.Vector3(0,0,-1).applyQuaternion(menuCam.quaternion); f.y=0;
-    if(f.lengthSq()<1e-8)f.set(0,0,-1); else f.normalize();
-    menuCam.position.addScaledVector(new THREE.Vector3(-f.z,0,f.x),SHOP_CAM.right*e)
-                    .addScaledVector(f,SHOP_CAM.fwd*e);
-    menuCam.position.y+=SHOP_CAM.rise*e;
-    menuCam.quaternion.setFromEuler(
-      _stEul.set(MB_CAM_PITCH+SHOP_CAM.pitch*e,MB_CAM_YAW+SHOP_CAM.yaw*e,0,'YXZ'));
+    menuCam.position.lerp(_shCamP.set(SHOP_CAM.x,SHOP_CAM.y,SHOP_CAM.z),e);
+    menuCam.quaternion.slerp(_shCamQ.setFromEuler(
+      _stEul.set(SHOP_CAM.pitch*Math.PI/180,SHOP_CAM.yaw*Math.PI/180,0,'YXZ')),e);
   }
   // ---- and it walks the other way to the quest board ----
   // Kept as a second block rather than folded into the shop's with a ternary because the two are
