@@ -17,7 +17,8 @@ was perfectly fine. So the step is reported against the material's OWN median an
 the tests that decide are the ones that survive contact with noise: does the level match
 across the wrap, and does the timbre.
 
-  python3 tools/mkloop.py <src.wav> <out.wav> START LENGTH XFADE [--flatten] [--peak dBFS]
+  python3 tools/mkloop.py <src.wav> <out.wav> START LENGTH XFADE
+         [--swap] [--flatten] [--peak dBFS]
 """
 import sys, wave, numpy as np
 
@@ -66,11 +67,31 @@ def main():
     if '--flatten' in sys.argv:
         src = flatten(src, r)
 
-    # The join is made in the middle of a continuous passage: the material that WOULD have
-    # played next is faded over the opening, so the wrap never lands on a cut.
-    out = src[:N].copy()
-    w = (np.arange(X, dtype=np.float32) / X)[:, None]
-    out[:X] = src[:X] * np.sqrt(w) + src[N:N + X] * np.sqrt(1.0 - w)
+    if '--swap' in sys.argv:
+        # ---- SLICE AND SWAP THE HALVES ----
+        # Cut the segment in two and put the second half first. The join that lands in the
+        # MIDDLE of the result is the old end-meets-start seam, and it gets the crossfade --
+        # while the new wrap, end-of-A back to start-of-B, is the segment's own midpoint and
+        # was continuous all along. So the loop point needs no treatment at all, which is
+        # better than treating it well: nothing is blended where the ear comes round.
+        # B runs to N+X, not to N. A crossfade always EATS its overlap, so a B that stopped at
+        # the requested end left the result exactly XFADE short -- asked for 7.30 s, got 6.95 s.
+        # Harmless to listen to and a quiet lie to work with, and the trailing X samples were
+        # already loaded for precisely this purpose, so B simply takes them.
+        M = N // 2
+        A, B = src[:M], src[M:N + X]
+        w = (np.arange(X, dtype=np.float32) / X)[:, None]
+        joint = B[-X:] * np.sqrt(1.0 - w) + A[:X] * np.sqrt(w)
+        out = np.concatenate([B[:len(B) - X], joint, A[X:]])
+        assert len(out) == N, f"swap produced {len(out)} samples, wanted {N}"
+        print(f"  halves swapped at {M/r:.2f}s; the seam is now mid-file and crossfaded, "
+              f"the wrap is untouched original")
+    else:
+        # The join is made in the middle of a continuous passage: the material that WOULD have
+        # played next is faded over the opening, so the wrap never lands on a cut.
+        out = src[:N].copy()
+        w = (np.arange(X, dtype=np.float32) / X)[:, None]
+        out[:X] = src[:X] * np.sqrt(w) + src[N:N + X] * np.sqrt(1.0 - w)
 
     pk = float(np.abs(out).max())
     out = np.clip(out * ((10 ** (PEAK / 20)) / max(pk, 1e-9)), -1, 1)
@@ -87,7 +108,17 @@ def main():
         m = x.mean(axis=1) * np.hanning(len(x))
         s = np.abs(np.fft.rfft(m)); return s / max(s.sum(), 1e-12)
     dw = float(np.abs(spec(out[-W:]) - spec(out[:W])).sum() * 100)
-    dc = float(np.abs(spec(out[mid - W:mid]) - spec(out[mid:mid + W])).sum() * 100)
+    # THE CONTROL MUST NOT BE THE SEAM. Taking it at the midpoint was fine in the default
+    # mode, but under --swap the midpoint IS the crossfade, and a crossfade is two takes
+    # averaged together -- artificially smooth. Judged against that, the wind loop's wrap
+    # read 62.1% against a 49.1% "control" and looked like a defect, when the wrap is
+    # literally uncut original samples and cannot be one. So the control is now the MEDIAN
+    # of several interior joins, none of them the seam: what this material does unaided.
+    probes = [int(len(out) * f) for f in (0.14, 0.27, 0.40, 0.60, 0.73, 0.86)]
+    dcs = [float(np.abs(spec(out[p - W:p]) - spec(out[p:p + W])).sum() * 100)
+           for p in probes if W <= p <= len(out) - W and abs(p - mid) > 2 * W]
+    dc = float(np.median(dcs)) if dcs else float(
+        np.abs(spec(out[mid - W:mid]) - spec(out[mid:mid + W])).sum() * 100)
     print(f"  {LEN:.2f}s loop from {START:.2f}s, {XF:.2f}s equal-power crossfade, peak x{(10**(PEAK/20))/max(pk,1e-9):.1f}")
     print(f"  seam step {seam:.5f}  (this material: median {np.median(d):.5f}, p95 {np.percentile(d,95):.5f})"
           f" -> {'ordinary' if seam < np.percentile(d,95) else 'ABOVE p95'}")
@@ -100,7 +131,8 @@ def main():
     ok = lo <= e2 / e1 <= hi
     print(f"  level across the wrap {e2/e1:.3f}   (this material's own 5-95% spread: {lo:.3f}-{hi:.3f})"
           f" -> {'ordinary' if ok else 'OUTSIDE NORMAL'}")
-    print(f"  timbre across the wrap {dw:.1f}%  (control {dc:.1f}%)")
+    print(f"  timbre across the wrap {dw:.1f}%  (this material's own interior joins: {dc:.1f}%)"
+          f" -> {'ordinary' if dw < dc * 1.35 else 'ABOVE NORMAL'}")
 
 
 main()

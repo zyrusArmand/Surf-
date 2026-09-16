@@ -27,7 +27,9 @@ try{ fetch('sounds/title.webm',{cache:'default'}).catch(function(){}); }catch(e)
 try{ fetch('sounds/land.webm',{cache:'default'}).catch(function(){}); }catch(e){}
 try{ fetch('sounds/jet.webm',{cache:'default'}).catch(function(){}); }catch(e){}
 try{ fetch('sounds/under.webm',{cache:'default'}).catch(function(){}); }catch(e){}
-try{ fetch('sounds/ride.webm',{cache:'default'}).catch(function(){}); }catch(e){}
+try{ fetch('sounds/glide.webm',{cache:'default'}).catch(function(){}); }catch(e){}
+try{ fetch('sounds/wake.webm',{cache:'default'}).catch(function(){}); }catch(e){}
+try{ fetch('sounds/wind.webm',{cache:'default'}).catch(function(){}); }catch(e){}
 try{ fetch('sounds/turn.webm',{cache:'default'}).catch(function(){}); }catch(e){}</script>
 <!-- A hint, not a guarantee. Most browsers ignore these on the document itself and the CDN in
      front of this never sees them at all — the actual answer is the version check further down,
@@ -58,7 +60,7 @@ try{ fetch('sounds/turn.webm',{cache:'default'}).catch(function(){}); }catch(e){
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.27';
+window.SURF_VERSION='10.28';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -6589,10 +6591,19 @@ function sfx(name,vol,rate){
 const _sfxLoops={};
 let _carveMax=0;
 const _sfxCalls={};
+// ---- TWO VOICES OFF ONE BUFFER ----
+// The riding bed wants several copies of the same recording running at once, started at
+// different moments so they are out of phase and detuned a hair so they beat against each
+// other instead of reinforcing into an obvious repeat. That costs nothing: a second
+// BufferSource on an AudioBuffer already decoded is a few bytes of playback state, not a
+// second download and not a second 7-second float32 buffer. So a voice is just another loop
+// key that points at somebody else's buffer, and the keep-alive, the panner and the stop all
+// go on working without knowing the difference.
+const _sfxAlias={ glide2:'glide', wake2:'wake', wind2:'wind' };
 function sfxLoop(name,vol,rate,pan){
   _sfxCalls[name]=(_sfxCalls[name]||0)+1;      // debug: who is actually asking, and how often
   if(!sfxOn){ sfxLoopStop(name,120); return; }
-  const ac=_ac, b=_sfxBuf[name];
+  const ac=_ac, b=_sfxBuf[name]||_sfxBuf[_sfxAlias[name]];
   if(!ac||!b||b==='loading')return;
   if(ac.state==='suspended'){ try{ ac.resume(); }catch(e){} }
   let L=_sfxLoops[name];
@@ -6631,6 +6642,27 @@ setInterval(()=>{
   for(const k in _sfxLoops)
     if(now-(_sfxLoops[k].seen||0)>260)sfxLoopStop(k,150);
 },120);
+// ---- RANDOM SLOW FADES, SO THE BED NEVER SETTLES ----
+// A loop gives itself away by being IDENTICAL every time round. Layering three recordings of
+// different lengths (7.30 s, 5.10 s, 8.70 s -- deliberately not multiples of each other, so the
+// combination does not come back round for over five minutes) hides a lot of that, but the real
+// cure is that the mix itself keeps moving: each voice wanders slowly between a floor and a
+// ceiling on its own schedule, so you never hear the same balance twice.
+// The walk eases between random targets on a raised cosine rather than jumping to them -- a
+// straight line between targets has a corner at every handover, and on a broadband wash a
+// corner in a gain curve is audible as a small lurch. And each voice draws its OWN span around
+// the nominal one, so the voices drift apart instead of breathing in unison.
+const _drift={};
+function drift(key,lo,hi,secs){
+  const now=performance.now()/1000;
+  let d=_drift[key];
+  if(!d)d=_drift[key]={a:lo+Math.random()*(hi-lo),b:lo+Math.random()*(hi-lo),
+                       t0:now,span:secs*(0.6+Math.random()*0.8)};
+  let k=(now-d.t0)/d.span;
+  if(k>=1){ d.a=d.b; d.b=lo+Math.random()*(hi-lo); d.t0=now;
+            d.span=secs*(0.6+Math.random()*0.8); k=0; }
+  return d.a+(d.b-d.a)*(0.5-0.5*Math.cos(Math.PI*Math.max(0,Math.min(1,k))));
+}
 function sfxLoopStop(name,ms){
   const L=_sfxLoops[name]; if(!L)return;
   delete _sfxLoops[name];
@@ -6684,8 +6716,10 @@ function sfxWake(){
   sfxLoad('land',['sounds/land.webm','sounds/land.m4a']);
   sfxLoad('jet', ['sounds/jet.webm','sounds/jet.m4a']);
   sfxLoad('under',['sounds/under.webm','sounds/under.m4a']);
-  sfxLoad('ride', ['sounds/ride.webm','sounds/ride.m4a']);
   sfxLoad('turn', ['sounds/turn.webm','sounds/turn.m4a']);
+  // the three layers of the riding bed; voices share these buffers, see _sfxAlias
+  for(const n of ['glide','wake','wind'])
+    sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
   for(const n of ['roll','spin','flip','stand','close'])
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
   cueEl('ufo');                       // starts buffering; nothing plays until a saucer comes
@@ -29929,6 +29963,9 @@ if(location.hash.includes('debug')){
       return {xp, level, next:XP_AT[level+1]};
     },
     xpSet(v){ xp=Math.max(0,Math.round(v)); syncLevel(); saveGame(); return {xp,level}; },
+    // Wind the run forward so the speed-driven bed can be heard at speeds a probe would
+    // otherwise have to sit through several real minutes to reach.
+    distSet(v){ dist=Math.max(0,+v||0); return {dist,speed}; },
     xpAt:L=>XP_AT[Math.max(0,Math.min(XP_CAP,L|0))],
     // ---- the whole rack's bars, and what they turn into ----
     // Widening the stat budget trades dynamic range against SPECIALISATION: the bars stop at
@@ -30359,7 +30396,19 @@ if(location.hash.includes('debug')){
         return (b==='loading')?'loading':(b?('decoded '+b.duration.toFixed(3)+'s'):'none'); };
       return {on:sfxOn, ctx:_ac?_ac.state:null, land:d('land'), jet:d('jet'), under:d('under'),
               tricks:{roll:d('roll'),spin:d('spin'),flip:d('flip'),stand:d('stand'),close:d('close')},
-              ride:d('ride'), rideGain:_sfxLoops.ride?+_sfxLoops.ride.g.gain.value.toFixed(3):null,
+              // the riding bed, layer by layer and voice by voice: what was ASKED for, the peak
+              // it has reached, and where the ramp actually is -- so a silent layer can be told
+              // apart from an undecoded one, and a stuck voice from a quiet one
+              bed:{glide:d('glide'), wake:d('wake'), wind:d('wind')},
+              bedVoices:(function(){ const o={};
+                for(const k of ['glide','glide2','wake','wake2','wind','wind2']){
+                  const L=_sfxLoops[k];
+                  o[k]=L?{want:+(L.want||0).toFixed(3), peak:+(L.wantMax||0).toFixed(3),
+                          gain:+L.g.gain.value.toFixed(3), calls:_sfxCalls[k]||0}:null;
+                } return o; })(),
+              // The bed is driven by speed, and speed is driven by distance -- which is inside
+              // this closure and so cannot be reached from a probe. Without a door the layer
+              // that exists to indicate speed is the one thing that cannot be shown to.
               turn:d('turn'),
               turnVol:_sfxLoops.turn?+(_sfxLoops.turn.want||0).toFixed(3):null,
               turnPeak:_sfxLoops.turn?+(_sfxLoops.turn.wantMax||0).toFixed(3):null,
@@ -41787,17 +41836,62 @@ function update(dt){
   _buoy={waterY:+waterY.toFixed(3),railDig:+railDig.toFixed(3),hHigh:+hHigh.toFixed(3),
          hMean:+hMean.toFixed(3),hN:+hN.toFixed(3),hT:+hT.toFixed(3),float:BS.float};
   rideY=waterY;
-  // ---- THE RIDE ITSELF ----
-  // Louder and a touch faster the quicker he is going, ducked while he is in the air because
-  // the board is not touching anything, and taken to nothing underwater so the dive bed has the
-  // floor to itself. It is not STOPPED underwater, only silenced: the loop keeps being asked
-  // for, so surfacing brings it straight back instead of restarting it. Ending the run is what
-  // stops it, and that needs no code here -- this line simply stops being reached.
+  // ---- THE RIDE ITSELF: THREE LAYERS, SIX VOICES ----
+  // One recording on a loop is a recording on a loop, however well it is cut. So the ride is
+  // built out of three takes that do DIFFERENT jobs and answer to different things, which is
+  // also why they never line up into an obvious pattern:
+  //
+  //   GLIDE  the board on the water. Always there while he is riding, and barely moves -- it is
+  //          the floor of the sound, not the interest. Its take was EQ'd down above 4 kHz
+  //          (-10 dB shelf, 12 kHz lowpass) because at full width its hiss sat right on top of
+  //          the wind layer and the two fought; measured, that moved 4-9 kHz from 35.5% of the
+  //          energy to 24.6% and left the body alone.
+  //   WAKE   the water being thrown. Answers to speed AND to the rail: a hard carve moves far
+  //          more water than a straight line, so this is the layer a turn is heard in.
+  //   WIND   how fast he is going. Squared against speed so it is genuinely absent when he is
+  //          dawdling and unmistakable when he is not -- and it is the one layer that gets
+  //          LOUDER in the air, because up there the wind is all there is.
+  //
+  // Each layer runs two voices off one buffer, detuned a little and panned apart, with every
+  // voice on its own slow random fade (see drift). Underwater all six go to nothing so the dive
+  // bed has the floor to itself -- silenced, not stopped, so surfacing brings them straight back
+  // rather than restarting them. Ending the run needs no code here: this line stops being reached
+  // and the keep-alive watchdog takes them down.
   if(running){
-    const _rSp=Math.max(0,Math.min(1,(speed-10)/34));
+    // ---- MAP IT TO THE SPEED PLAYERS ACTUALLY RIDE AT ----
+    // The old ride layer read (speed-10)/34, which only reaches the top of its range at 44.
+    // But speed is SPD_LO + (SPD_HI-SPD_LO)*dist/(dist+SPD_K) -- it starts at 16.2 and takes
+    // about seven and a half kilometres just to reach the halfway point of 34. A bed tuned so
+    // that "fast" means 44 spends the entire game at the bottom of its own scale, and the wind
+    // layer in particular, which is meant to be the speed indicator, would have indicated
+    // nothing: at a typical 20 it came out at 0.018 and was inaudible. So the range is 16 to 38,
+    // which is the stretch a real run spends its time in.
+    const _rSp=Math.max(0,Math.min(1,(speed-16)/22));
     const _rUnder=(diveOn||diveDepth>0.5)?0.0:1.0;
     const _rAir=airborne?0.30:1.0;
-    sfxLoop('ride',(0.26+_rSp*0.30)*_rUnder*_rAir, 0.94+_rSp*0.16);
+    const _rCv=Math.max(0,Math.min(1,(Math.abs(carve)-0.10)/0.80));
+    // One knob for the whole bed against the one-shots. Set so the six voices SUM IN POWER to
+    // about what the single ride loop used to put out while cruising -- uncorrelated layers do
+    // not add in amplitude, so this is sqrt of the sum of squares, 0.33 against the old 0.35 --
+    // and to around 0.72 flat out, which is louder than before on purpose and still leaves the
+    // carve and the one-shots room above it.
+    const BED=0.95*_rUnder;
+    // base glide -- steady, ducked hard in the air, the board is not touching anything
+    const _gA=airborne?0.15:1.0;
+    sfxLoop('glide', BED*(0.26+_rSp*0.16)*_gA*drift('g1',0.72,1.00,5.3), 0.95+_rSp*0.09, -0.22);
+    sfxLoop('glide2',BED*(0.18+_rSp*0.12)*_gA*drift('g2',0.60,1.00,7.9), 0.99+_rSp*0.09,  0.24);
+    // wake -- speed and rail; a jump takes it almost to nothing, there is no water to throw
+    const _wk=airborne?0.06:1.0;
+    sfxLoop('wake',  BED*(0.13+_rSp*0.26+_rCv*0.14)*_wk*drift('k1',0.70,1.00,4.1),
+            0.97+_rSp*0.10, 0.30+carve*0.35);
+    sfxLoop('wake2', BED*(0.09+_rSp*0.18+_rCv*0.10)*_wk*drift('k2',0.55,1.00,6.7),
+            1.02+_rSp*0.10,-0.28+carve*0.35);
+    // wind -- the speed indicator, and the only layer the air makes louder. Curved rather than
+    // linear so going faster keeps being WORTH something: a small floor keeps it present while
+    // cruising, then it climbs steeply, so the difference between quick and flat out is heard.
+    const _wn=0.06+0.94*Math.pow(_rSp,1.6), _wnAir=airborne?1.15:1.0;
+    sfxLoop('wind',  BED*_wn*0.30*_wnAir*drift('n1',0.75,1.00,3.7), 0.92+_rSp*0.22, 0.34);
+    sfxLoop('wind2', BED*_wn*0.22*_wnAir*drift('n2',0.55,1.00,9.1), 0.97+_rSp*0.22,-0.36);
     // ---- AND THE CARVE ----
     // A turn is a state, not an event, so it holds for as long as he is turning rather than
     // firing once: the same loop the ride uses, gated on how hard the rail is actually in.
