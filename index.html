@@ -30,7 +30,8 @@ try{ fetch('sounds/under.webm',{cache:'default'}).catch(function(){}); }catch(e)
 try{ fetch('sounds/glide.webm',{cache:'default'}).catch(function(){}); }catch(e){}
 try{ fetch('sounds/wake.webm',{cache:'default'}).catch(function(){}); }catch(e){}
 try{ fetch('sounds/wind.webm',{cache:'default'}).catch(function(){}); }catch(e){}
-try{ fetch('sounds/turn.webm',{cache:'default'}).catch(function(){}); }catch(e){}</script>
+try{ fetch('sounds/turns.webm',{cache:'default'}).catch(function(){}); }catch(e){}
+try{ fetch('sounds/turnh.webm',{cache:'default'}).catch(function(){}); }catch(e){}</script>
 <!-- A hint, not a guarantee. Most browsers ignore these on the document itself and the CDN in
      front of this never sees them at all — the actual answer is the version check further down,
      which asks the server what shipped and reloads if this is not it. -->
@@ -6754,7 +6755,8 @@ function sfxWake(){
   sfxLoad('land',['sounds/land.webm','sounds/land.m4a']);
   sfxLoad('jet', ['sounds/jet.webm','sounds/jet.m4a']);
   sfxLoad('under',['sounds/under.webm','sounds/under.m4a']);
-  sfxLoad('turn', ['sounds/turn.webm','sounds/turn.m4a']);
+  for(const n of ['turns','turnh'])                 // the soft rail and the hard one
+    sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
   // the three layers of the riding bed; voices share these buffers, see _sfxAlias
   for(const n of ['glide','wake','wind','weird'])
     sfxLoad(n,['sounds/'+n+'.webm','sounds/'+n+'.m4a']);
@@ -30476,11 +30478,12 @@ if(location.hash.includes('debug')){
               // The bed is driven by speed, and speed is driven by distance -- which is inside
               // this closure and so cannot be reached from a probe. Without a door the layer
               // that exists to indicate speed is the one thing that cannot be shown to.
-              turn:d('turn'),
-              turnVol:_sfxLoops.turn?+(_sfxLoops.turn.want||0).toFixed(3):null,
-              turnPeak:_sfxLoops.turn?+(_sfxLoops.turn.wantMax||0).toFixed(3):null,
-              turnPanRange:_sfxLoops.turn?[+(_sfxLoops.turn.panMin||0).toFixed(2),
-                                           +(_sfxLoops.turn.panMax||0).toFixed(2)]:null,
+              turn:{soft:d('turns'), harsh:d('turnh')},
+              turnVol:(function(){ const o={};
+                for(const k of ['turns','turnh']){ const L=_sfxLoops[k];
+                  o[k]=L?{want:+(L.want||0).toFixed(3), peak:+(L.wantMax||0).toFixed(3),
+                          pan:[+(L.panMin||0).toFixed(2),+(L.panMax||0).toFixed(2)]}:null; }
+                return o; })(),
               carveMax:+_carveMax.toFixed(3),
               ufoCue:_cues.ufo?{paused:_cues.ufo.paused, t:+_cues.ufo.currentTime.toFixed(2),
                                 dur:+(_cues.ufo.duration||0).toFixed(2),
@@ -42030,8 +42033,20 @@ function update(dt){
     // on and off, and panned toward the side he is leaning into.
     const _rT=Math.max(0,Math.min(1,(Math.abs(carve)-0.12)/0.78));
     if(Math.abs(carve)>_carveMax)_carveMax=Math.abs(carve);   // calibration, see sfxState
-    sfxLoop('turn',(0.30+_rT*0.45)*_rT*_rUnder*_rAir, 0.95+_rT*0.18,
-            Math.max(-1,Math.min(1,carve*0.7)));
+    // ---- TWO TAKES, AND HOW HARD HE IS TURNING DECIDES WHICH ----
+    // The old single loop got louder with the rail and that was all it did. These two are not
+    // the same sound at two volumes, they are two different things: measured, the soft take
+    // sits at a 587 Hz centroid, the harsh one at 2684 Hz and four times the level. So a lean
+    // is dark and quiet and a proper rail is bright and rough, and the crossover between them
+    // is where the turn stops being a correction and starts being a carve.
+    //
+    // Crossfaded in POWER, not in gain. They are uncorrelated recordings, so sqrt of each
+    // share sums to one in power where a linear pair would leave a hole halfway across --
+    // which is exactly the middle, where most turns actually live.
+    const _tPan=Math.max(-1,Math.min(1,carve*0.7));
+    const _tLvl=(0.34+_rT*0.46)*_rT*_rUnder*_rAir;
+    sfxLoop('turns',_tLvl*Math.sqrt(1-_rT)*1.15, 0.96+_rT*0.10, _tPan);
+    sfxLoop('turnh',_tLvl*Math.sqrt(_rT),        0.95+_rT*0.18, _tPan);
   }
 
   // A wall this size falls away under the board fast enough to throw him off its
