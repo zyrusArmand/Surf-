@@ -32,7 +32,7 @@
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.15';
+window.SURF_VERSION='10.16';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -6014,6 +6014,10 @@ loadModel('rocks2.glb',s=>{ rockModel=s; },0);
 // procedural pair stays and nobody sees a gap.
 let shadesModel=null;
 loadModel('shades.glb',s=>{ shadesModel=s; if(typeof equipChar==='function'&&typeof rider!=='undefined'){ try{ equipChar(rider); }catch(e){} } },0);
+// The cattleman, modelled rather than lofted: swept from a profile, creased down the crown
+// and rolled at the brim. Lands Y-up with +X out the front, which is what the fit below reads.
+let hatModel=null;
+loadModel('cowboyhat.glb',s=>{ hatModel=s; if(typeof equipChar==='function'&&typeof rider!=='undefined'){ try{ equipChar(rider); }catch(e){} } },0);
 loadModel('board.glb',s=>{
   const fitted=skinAndFit('board',s,BOARD_BOX,orientBoard);
   // Match deck to deck rather than box to box. A thin model has nothing like the
@@ -6061,6 +6065,8 @@ const GEAR=[
    col:0x8d3f4e, kind:'beanie'},
   {id:'hat_bucket',  slot:'head', lv:74,  name:'Bucket Hat',       blurb:'Brim down. Opinions down.',
    col:0x3f7d5a, kind:'brim'},
+  {id:'hat_stetson', slot:'head', lv:58,  name:'The Cattleman',    blurb:'Creased down the crown, rolled at the brim.',
+   col:0x8a6134, band:0x3d2a1c, buckle:0xc9a227, kind:'stetson'},
   {id:'hat_crown',   slot:'head', lv:111, name:'The Big Kahuna',   blurb:'Worn by one surfer on the point.',
    col:0xf0c23a, kind:'crown'},
 ];
@@ -15129,7 +15135,52 @@ function kitGear(C,bodyPatch){
   if(H){
     const m=PBR({color:H.col, roughness:H.kind==='crown'?0.22:0.72,
                  metalness:H.kind==='crown'?0.85:0.05, vivid:H.kind==='crown'?1.6:1.05});
-    if(H.kind==='cap'){
+    // ---- THE MODELLED ONE, FITTED TO THE HEAD UNDER IT ----
+    // Sized from the skull that is actually wearing it rather than from a constant, for the
+    // same reason the shades are: a number tuned against the procedural head is wrong on
+    // every modelled animal, too small on some and off to one side on others. The hat knows
+    // its own head opening -- 175 mm across, by construction -- so the only question is how
+    // wide THIS skull is across the eye line, and that is measurable.
+    if(H.kind==='stetson'&&hatModel&&typeof cloneModel==='function'){
+      const o=cloneModel(hatModel);
+      o.traverse(mm=>{ if(!mm.isMesh||!mm.material)return;
+        const nm=(mm.name||'')+'|'+((mm.parent&&mm.parent.name)||'');
+        const brass=/buckle/i.test(nm), leather=/band/i.test(nm);
+        mm.material=mm.material.clone();
+        mm.material.color=new THREE.Color(brass?H.buckle:leather?H.band:H.col);
+        if('metalness' in mm.material)mm.material.metalness=brass?0.90:0.04;
+        if('roughness' in mm.material)mm.material.roughness=brass?0.28:(leather?0.55:0.76);
+        mm.castShadow=false; mm.receiveShadow=false;
+      });
+      o.rotation.set(0,0,0); o.scale.setScalar(1); o.updateMatrixWorld(true);
+      const EY=(typeof riderEyeFit==='function')?riderEyeFit():null;
+      const _hb=(typeof headBoxLocal==='function')?headBoxLocal():null;
+      const HB=_hb&&_hb.box;
+      const OPEN=0.175;                       // the model's own head opening, side to side
+      if(EY&&HB){
+        let lo=Infinity, hi=-Infinity, top=-Infinity;
+        for(const px of [HB.min.x,HB.max.x])for(const py of [HB.min.y,HB.max.y])for(const pz of [HB.min.z,HB.max.z]){
+          const p=new THREE.Vector3(px,py,pz).sub(EY.mid);
+          const t=p.dot(EY.right); if(t<lo)lo=t; if(t>hi)hi=t;
+          const u=p.dot(EY.up);    if(u>top)top=u;
+        }
+        o.scale.setScalar((hi-lo)*1.03/OPEN);
+        // model +X is the front, +Y is up; the third axis follows to keep it right-handed
+        o.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(
+          EY.fwd.clone(), EY.up.clone(), new THREE.Vector3().crossVectors(EY.fwd, EY.up)));
+        // the opening plane sits ON the skull rather than balanced on top of it
+        o.position.copy(EY.mid).addScaledVector(EY.up, top * 0.46);
+        kit(EY.H, o);
+      } else {
+        // procedural rider: GP's own units, where +Y is up and -Z is the way the face points
+        o.scale.setScalar(0.66 / OPEN);
+        const f=new THREE.Vector3(0,0,-1), u=new THREE.Vector3(0,1,0);
+        o.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(
+          f, u, new THREE.Vector3().crossVectors(f, u)));
+        o.position.set(0, 0.185, 0);   // measured: at 0.150 the brim sat across his eyes
+        kit(GP, o);
+      }
+    } else if(H.kind==='cap'){
       const dome=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.355,20,14),m));
       dome.position.set(0,0.175,0.015);
       dome.scale.set(1.06,0.78,1.04);
@@ -29979,6 +30030,15 @@ if(location.hash.includes('debug')){
     },
     gearWear(id){ const g=GEAR_BY_ID[id]; if(!g)return null;
       gearOn[g.slot]=id; equipChar(rider); return {...gearOn}; },
+    // gearOnChar() puts the previous character back before it returns, so anything measured
+    // or photographed after it is measured on whoever was there before -- four different
+    // animals in a row all reported the pug's numbers. This one LEAVES the character wearing
+    // the thing, which is what makes a per-character fit checkable at all.
+    gearAs(cid,gid){ const g=GEAR_BY_ID[gid]; if(!g)return {err:'no such gear'};
+      rider=cid; gearOn={eyes:'',head:'',body:''}; gearOn[g.slot]=gid;
+      gearPreviewAll=true; equipChar(cid); gearPreviewAll=false;
+      let R=null; try{ R=riderRig(); }catch(e){}
+      return {char:builtChar, model:!!(R&&R.bones&&R.bones.Head)}; },
     // gearOnChar() puts the old character back before it returns, so anything measured after it
     // is measured on whoever was there before -- four different animals in a row all reported
     // the pug's numbers. This one LEAVES the character wearing the thing.
