@@ -58,7 +58,7 @@ try{ fetch('sounds/turn.webm',{cache:'default'}).catch(function(){}); }catch(e){
 // ONE running build number, printed as hundreds: bump the last two digits, roll the front one at
 // 99. The why is under it — the note goes BELOW the literal on purpose, because the literal has
 // to stay inside the first 4 KB and a comment above it spends that budget.
-window.SURF_VERSION='10.25';
+window.SURF_VERSION='10.26';
 // ---- ...and why it is one number ----
 // It was major.minor.patch and it drifted. The 4 and 5 lines rolled over at .99 the way the
 // scheme intended -- 4.99.0 is followed by 5.00.0 -- but the 6 line never rolled and ran on to
@@ -6517,6 +6517,25 @@ function setMusic(v){
   _musLast=null; musicTick();
 }
 setInterval(musicTick,250);
+// A run can end in the middle of an abduction, and the give-back is on a timer that will not
+// fire once the world stops -- so nothing would stop the cue. Same reasoning as the loop
+// keep-alive: the condition is asked directly rather than hooked onto every way out.
+setInterval(()=>{
+  const a=_cues.ufo;
+  // !a._fade matters: without it this re-arms the fade every tick, clearing the previous one
+  // before it can reach its end and call pause(). Measured -- the cue sat at volume 0 and
+  // paused=false indefinitely, silent but still running.
+  if(!a||a.paused||a._fade)return;
+  // ASK THE STATE, do not hook the exits. ufoGiveBack is one way the costume comes off; ending
+  // the run is another, and that one clears ufoWas without going through it -- caught in
+  // testing, where a run that died mid-abduction left the cue playing to the end. The cue
+  // belongs to the sequence, so it runs while the sequence does and stops whenever it does not.
+  let live=false;
+  try{ live=(typeof running!=='undefined'&&running) &&
+            ((typeof ufoWas!=='undefined'&&!!ufoWas) ||
+             (typeof ufoPh!=='undefined'&&ufoPh!==0)); }catch(e){ live=false; }
+  if(!live)cueStop('ufo',600);
+},300);
 // ---------- SOUND EFFECTS ----------
 // Web Audio, not <audio>. A one-shot has to fire the instant the board touches down and has to
 // be able to overlap itself; an <audio> element does neither well. Decoded once into a buffer,
@@ -6620,6 +6639,42 @@ function sfxLoopStop(name,ms){
        L.g.gain.setTargetAtTime(0,t,s/3);
        L.src.stop(t+s+0.05); }catch(e){}
 }
+// ---- AND THE LONG ONES ----
+// A 42-second cue is the wrong shape for a decoded buffer: Web Audio would hold it as float32
+// stereo, about 16 MB of phone memory for one sound that most runs never hear. An <audio>
+// element streams it for the cost of a handle.
+const _cues={};
+function cueEl(name){
+  let a=_cues[name];
+  if(a)return a;
+  a=document.createElement('audio');
+  a.preload='auto'; a.volume=0; a.setAttribute('playsinline','');
+  for(const [src,type] of [['sounds/'+name+'.webm','audio/webm; codecs=opus'],
+                           ['sounds/'+name+'.m4a','audio/mp4; codecs="mp4a.40.2"']]){
+    const el=document.createElement('source'); el.src=src; el.type=type; a.appendChild(el);
+  }
+  document.body.appendChild(a);
+  return (_cues[name]=a);
+}
+function cue(name,vol){
+  if(!sfxOn)return;
+  const a=cueEl(name);
+  if(a._fade){ clearInterval(a._fade); a._fade=null; }
+  try{ a.currentTime=0; }catch(e){}
+  a.volume=(vol===undefined?0.75:vol);
+  const p=a.play(); if(p&&p.catch)p.catch(()=>{});
+}
+function cueStop(name,ms){
+  const a=_cues[name];
+  if(!a||a.paused)return;
+  if(a._fade)clearInterval(a._fade);
+  const t0=performance.now(), v0=a.volume, span=Math.max(60,ms||600);
+  a._fade=setInterval(()=>{
+    const k=Math.min(1,(performance.now()-t0)/span);
+    a.volume=Math.max(0,v0*(1-k));
+    if(k>=1){ clearInterval(a._fade); a._fade=null; try{ a.pause(); }catch(e){} }
+  },40);
+}
 // The context has to be BUILT inside a gesture or it is born suspended and some browsers never
 // let it out, so this rides the same unlock the music uses.
 function sfxWake(){
@@ -6630,6 +6685,7 @@ function sfxWake(){
   sfxLoad('under',['sounds/under.webm','sounds/under.m4a']);
   sfxLoad('ride', ['sounds/ride.webm','sounds/ride.m4a']);
   sfxLoad('turn', ['sounds/turn.webm','sounds/turn.m4a']);
+  cueEl('ufo');                       // starts buffering; nothing plays until a saucer comes
 }
 // ---- WARM THE CACHE WITH A PLAIN FETCH ----
 // A browser will not download a media element's source until it believes the media can
@@ -30287,6 +30343,9 @@ if(location.hash.includes('debug')){
               turnPanRange:_sfxLoops.turn?[+(_sfxLoops.turn.panMin||0).toFixed(2),
                                            +(_sfxLoops.turn.panMax||0).toFixed(2)]:null,
               carveMax:+_carveMax.toFixed(3),
+              ufoCue:_cues.ufo?{paused:_cues.ufo.paused, t:+_cues.ufo.currentTime.toFixed(2),
+                                dur:+(_cues.ufo.duration||0).toFixed(2),
+                                vol:+_cues.ufo.volume.toFixed(2), ready:_cues.ufo.readyState}:null,
               speed:(typeof speed!=='undefined')?+speed.toFixed(1):null,
               calls:Object.assign({},_sfxCalls),
               diveOn:(typeof diveOn!=='undefined')?!!diveOn:null,
@@ -40347,6 +40406,7 @@ function ufoBorrow(){
 function ufoGiveBack(quiet){
   if(!ufoWas)return;
   const was=ufoWas; ufoWas=null; ufoHold=0;
+  if(typeof cueStop==='function')cueStop('ufo',700);   // he is back on his own board: done
   if(CHAR_BY_ID[was.rider])equipChar(was.rider);
   if(BOARD_BY_ID[was.board])equipBoard(was.board);
   // ...and it says so when it wears off mid-ride, because a character changing under you with
@@ -40358,6 +40418,10 @@ function ufoStart(){
   if(!ufo)return false;
   ufoReset();
   ufoPh=UFOP.RISE; ufoT=0; ufo.visible=true;
+  // Timed to the whole sequence rather than to the saucer: it runs from here, under the rise
+  // and the beam and the lift, all the way through the borrow, and the cut is 42 s long
+  // because that is what RISE + BEAM + LIFT + UFO_KEEP comes to.
+  if(typeof cue==='function')cue('ufo',0.75);
   // ---- UP THE MIDDLE, AND FACING YOU ----
   // It used to break the surface seven to eleven feet off to one side and turn as it rose, on
   // the reasoning that it should be seen coming rather than appear overhead. On a phone that
