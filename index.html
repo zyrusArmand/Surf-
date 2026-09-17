@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.64';</script>
+<script>window.SURF_VERSION='10.65';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -2248,6 +2248,30 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     color:#dfeaf2; opacity:.82; margin-top:3px; }
   #spinGo[disabled] { opacity:.45; }
   #spin .go { margin-top:10px; }
+  /* ---- ON THE BEACH ---- */
+  /* The panel stops being a card and becomes a frame around the scene. The backdrop goes, the
+     card goes, and what is left is the sign at the top and the controls at the bottom with the
+     3D wheel standing on the sand between them. The drawn wheel is hidden rather than deleted:
+     it is still the source of truth for which slice was picked and how far to turn, and
+     spinDraw() still writes its labels -- it simply is not the thing being looked at any more. */
+  #spin.onbeach { background:none; backdrop-filter:none; -webkit-backdrop-filter:none;
+    pointer-events:none; display:flex; flex-direction:column; justify-content:space-between;
+    padding:calc(env(safe-area-inset-top,0px) + 14px) 16px
+            calc(env(safe-area-inset-bottom,0px) + 18px); }
+  #spin.onbeach .wrap { width:100%; max-width:min(92vw,430px); margin:0 auto;
+    background:none; border:none; box-shadow:none; padding:0; max-height:none; overflow:visible;
+    display:flex; flex-direction:column; height:100%;
+    /* the card's own blur, which is the whole point of a card and exactly wrong for a window:
+       cleared on the panel but not here, it frosted the beach inside a rounded rectangle you
+       could see the edge of against the sharp sand outside it */
+    backdrop-filter:none; -webkit-backdrop-filter:none; }
+  #spin.onbeach #spinStage { display:none; }
+  #spin.onbeach #spinRank { pointer-events:none; }
+  #spin.onbeach #spinSign { pointer-events:none; }
+  /* the result sits just above the buttons rather than under a wheel that is no longer there */
+  #spin.onbeach #spinWon { margin-top:auto; pointer-events:none;
+    text-shadow:0 2px 10px rgba(0,0,0,.65); }
+  #spin.onbeach .go { pointer-events:auto; }
   /* ---- the style shelf ---- */
   /* Not a rack: nothing here has a price or a photograph, so it is rows rather than tiles.
      A locked row still shows its name and what it is -- knowing what is up there is most of
@@ -12744,6 +12768,11 @@ let shopFillId=0, shopMenuWasUp=false;
 // headed. `var`, because the render loop reads them from thousands of lines above here.
 var shopCamE=0, shopCamGo=0, _shopWalk=null;
 var questCamE=0, questCamGo=0, _questWalk=null;
+// The spin's walk, and where the disc is being turned to. spinAim is the resting angle the
+// pick decided; spinTurn is where the mesh actually is, walked toward it a frame at a time in
+// wheelShow. Two numbers rather than one, so the panel can be closed mid-turn without the
+// wheel jumping to its answer.
+var spinCamE=0, spinCamGo=0, spinAim=0, spinTurn=0;
 var _qbRgh=null, _qbEnv=null, _qbSnd=0;
 // ---- WHICH SHEET YOU ARE READING, AND HOW FAR IN ----
 // -1 is the whole board. Anything else is one notice, and the lens goes and stands in front of
@@ -13950,7 +13979,24 @@ function openSpin(){
   buzz(8);
   document.getElementById('spinWon').innerHTML='';
   spinDraw();
+  // ---- THE WHEEL IS ON THE BEACH NOW ----
+  // The panel stops being a card over a blurred menu and becomes a frame around the scene: the
+  // lens walks out to the same sand the quest board stands on, the wheel is standing there, and
+  // the only DOM left over it is the sign, the result and the buttons. The board is sent away
+  // on the way in -- one pin serves both, so they must never be up together.
+  try{
+    if(typeof menuBeachOn==='function')menuBeachOn();
+    wantWheel();
+    questCamGo=0; shopCamGo=0; spinCamGo=1;
+    if(typeof stageRoomHold==='function')stageRoomHold(0,0);
+  }catch(e){}
+  document.getElementById('spin').classList.add('onbeach');
   document.getElementById('spin').classList.remove('hidden');
+}
+function closeSpin(){
+  spinCamGo=0;
+  const s=document.getElementById('spin');
+  s.classList.add('hidden'); s.classList.remove('onbeach');
 }
 function doSpin(){
   if(_spinBusy||!wheelReady())return;
@@ -13969,6 +14015,12 @@ function doSpin(){
   _spinTurns+=5;
   _spinRot=_spinTurns*360-mid+jitter;
   wh.style.transform='rotate('+_spinRot.toFixed(2)+'deg)';
+  // ---- and the MESH turns with it ----
+  // One source of truth, which is the rule this wheel has had since it was a conic gradient:
+  // the slice is picked first and the animation follows it, so the thing on screen cannot stop
+  // on a different slice from the one that was paid. Negated because the disc's own axis runs
+  // the other way from the CSS rotation it mirrors.
+  if(typeof spinAim==='number')spinAim=-_spinRot*Math.PI/180;
   setTimeout(()=>{
     const r=wheelClaim(P[i]);
     buzz(22);
@@ -13992,8 +14044,7 @@ document.getElementById('spinGo').onclick=doSpin;
 // wheel, a person reaches for the wheel. The hoop, the hub and the fin are all
 // pointer-events:none already, so a tap anywhere on the stage lands on the stage.
 document.getElementById('spinStage').onclick=doSpin;
-document.getElementById('spinClose').onclick=()=>
-  document.getElementById('spin').classList.add('hidden');
+document.getElementById('spinClose').onclick=closeSpin;
 spinPip();
 document.getElementById('hbLvBtn').onclick=()=>{
   buzz(8); drawLevelInfo();
@@ -23520,6 +23571,94 @@ function tikiShow(e,dt){
 // What it does NOT copy is the hut's five-megabyte problem. The board is 1.1 MB with no
 // textures, so it is fetched on the first press and that is fast enough to need no fallback
 // panel standing in for it.
+// ================= THE PRIZE WHEEL, ON THE SAME SAND =================
+// Everything below mirrors the quest board deliberately, because it is the same job and the
+// same beach -- the wheel stands where the board stands, is seen from the pose the board is
+// seen from, and is faded in the same way. The two are never up together: the spin panel turns
+// the board off on its way in, so one pin and one camera serve both.
+// What is different is that this model MOVES. It arrived as a single fused shell -- one node,
+// one mesh, no parts -- so tools/wheel/build.py cuts the disc out by shape and gives it its own
+// origin on the hub. Here that means spinning it is one line, and the frame stays put.
+let swModel=null, spinProp=null, spinDisc=null, _swAsked=0;
+function wantWheel(){
+  if(_swAsked)return; _swAsked=1;
+  if(typeof loadModel!=='function'){ _swAsked=0; return; }   // asked too early; let it retry
+  loadModel('wheel.glb',(s)=>{ swModel=s; placeWheel(); },0);
+}
+function placeWheel(){
+  if(!swModel||spinProp)return;
+  if(typeof menuProps==='undefined'||!menuProps){ setTimeout(placeWheel,200); return; }
+  const inner=cloneModel(swModel);
+  inner.traverse(o=>{ if(!o.isMesh||!o.material)return;
+    o.material=Array.isArray(o.material)?o.material.map(m=>m&&m.clone()):o.material.clone();
+    for(const mt of (Array.isArray(o.material)?o.material:[o.material])){
+      if(!mt)continue;
+      // the board's treatment rather than the hut's: this is painted wood that already sits
+      // mid-range, and it ships its own roughness map
+      if(mt.roughness!==undefined)mt.metalness=0;
+      mt.envMapIntensity=0.55;
+      mt.transparent=true; mt.opacity=0;
+      mt.needsUpdate=true; }
+    o.castShadow=true; o.receiveShadow=true;
+  });
+  spinProp=new THREE.Group();
+  spinProp.add(inner);
+  inner.updateMatrixWorld(true);
+  // ---- FIND THE DISC BEFORE THE GROUP IS RECENTRED ----
+  // The builder named it, and it is looked up ONCE here rather than searched for per frame.
+  // Recentring below moves the parent, not the child's own origin, so the hub the builder put
+  // under it survives and rotation.z remains the whole of the spin.
+  spinDisc=null;
+  inner.traverse(o=>{ if(!spinDisc&&o.name&&/disc/i.test(o.name))spinDisc=o; });
+  const bb=visBox(inner), c=bb.getCenter(new THREE.Vector3());
+  inner.position.sub(c);
+  spinProp.userData.h=Math.max(1e-4, bb.getSize(new THREE.Vector3()).y);
+  spinProp.visible=false;
+  menuProps.add(spinProp);
+  aimWheel();
+}
+var _aimWheelN=0, _aimWheelWhy='';
+function aimWheel(){
+  _aimWheelN++;
+  if(!spinProp||!menuProps){ _aimWheelWhy=(!spinProp?'noprop':'noprops'); return; }
+  if(spinProp.userData.stageHeld){ _aimWheelWhy='held'; spinProp.updateMatrixWorld(true); return; }
+  _aimWheelWhy='applied';
+  const P=MB_SW_PIN;
+  spinProp.position.set(P.p[0],P.p[1],P.p[2]);
+  spinProp.rotation.set(P.r[0]*Math.PI/180,P.r[1]*Math.PI/180,P.r[2]*Math.PI/180);
+  spinProp.scale.setScalar(P.s);
+  spinProp.updateMatrixWorld(true);
+  // the board's palms are this scene's palms -- same sand, same trees, nothing new to place
+  if(!qbTrees)placeBoardTrees();
+  aimBoardTrees();
+}
+function wheelShow(e,dt){
+  if(!spinProp)return;
+  const on=e>0.004;
+  spinProp.visible=on;
+  if(qbTrees&&e>0.004)qbTrees.visible=true;
+  if(!on)return;
+  const _d=(typeof dt==='number'&&dt>0)?dt:0;
+  spinProp.userData.inA=Math.min(1,(spinProp.userData.inA||0)+_d/0.55);
+  const o=spinProp.userData.inA*Math.min(1,Math.max(0,(e-0.05)/0.45));
+  const clear=(o>=0.999);
+  spinProp.traverse(x=>{ if(!x.isMesh||!x.material)return;
+    for(const m of (Array.isArray(x.material)?x.material:[x.material])){
+      if(!m)continue;
+      m.opacity=o;
+      if(m.transparent===clear){ m.transparent=!clear; m.needsUpdate=true; }
+    } });
+  // ---- the turn itself ----
+  // Eased here rather than by a CSS transition, because the thing turning is a mesh now. The
+  // target is set by doSpin and this walks to it, so a spin that finishes while the panel is
+  // being closed still lands on the slice that was actually paid out.
+  if(spinDisc){
+    const tgt=(typeof spinAim==='number')?spinAim:0;
+    const k=Math.min(1,_d*2.6);
+    spinTurn+=(tgt-spinTurn)*k;
+    spinDisc.rotation.z=spinTurn;
+  }
+}
 let qbModel=null, questBoard=null, qbSlots=null, _qbAsked=0;
 function wantBoard(){
   if(_qbAsked)return; _qbAsked=1;
@@ -24293,6 +24432,11 @@ let MB_QB_SINK=0.010;     // barely dug in: this has feet, the hut has posts
 // this is set; the derivation stays underneath for the day the pin comes off. Local rather than
 // world because menuProps carries a transform of its own that a world position would fight.
 const MB_QB_PIN={p:[-6.513,4.309,-16.887], r:[-0.9,-42.6,-1.0], s:2.331};
+// The wheel stands where the board stands. Same sand, same palms, same pose -- the two are
+// never up at once, because opening the spin turns the board off on its way in. Its own scale
+// because it is a different shape: the board is a wide flat face and this is 1.24 across by
+// 1.90 tall, so matching the board's 2.331 would have it towering over the same shot.
+const MB_SW_PIN={p:[-6.513,4.309,-16.887], r:[0,-42.6,0], s:1.298};
 // ---- AND TWO PALMS STAND BEHIND IT ----
 // The hut got these for exactly the reason this board needed them: standing on bare dune it had
 // nothing to be in front of -- an empty sky, an empty beach, and an object floating in the
@@ -24586,6 +24730,10 @@ const SHOP_CAM={x:-10.25, y:8.34, z:-45.03, yaw:-81.3, pitch:11.1, secs:0.95};
 // more to the sides of the board and exactly as much of the board itself.
 // Set by hand in the workshop; the readout gave -11.66, 8.29, -35.66 looking 110.8 by 3.6.
 const QB_CAM={x:-11.66, y:8.29, z:-35.66, yaw:110.8, pitch:3.6, secs:0.95};
+// The wheel's own shot, started as a copy of the board's because it is the same spot on the
+// same beach. Kept separate so the two can be framed apart -- a wheel wants to be square on
+// and a notice board wants to be readable, and those are not the same distance.
+const SW_CAM={x:-11.66, y:8.29, z:-35.66, yaw:112.33, pitch:-6.24, secs:0.95};
 // ---- THE WORDS ARE PAINTED ON THE MODEL NOW ----
 // Every one of them — the fill colour, the dark contour, the size, where it sits on its board,
 // which way it runs — was HTML text laid over the sign and solved every frame from the arms'
@@ -35055,6 +35203,44 @@ if(location.hash.includes('debug')){
               camAt:[QB_CAM.x,QB_CAM.y,QB_CAM.z], e:+questCamE.toFixed(3)};
     },
     qbCam(k,v){ if(v!==undefined)QB_CAM[k]=v; return QB_CAM; },
+    // ---- the wheel's own scene, in one call ----
+    // Whether the lens got there, whether the model arrived, whether the CUT produced a disc
+    // that the game can actually find by name, and where that disc is pointing. A wheel that
+    // does not turn and a wheel whose disc was never found look identical from outside.
+    spinScene(){
+      const d=(typeof spinDisc!=='undefined')?spinDisc:null;
+      return {e:+spinCamE.toFixed(3), go:spinCamGo|0,
+              prop:!!spinProp, disc:!!d, discName:d?d.name:null,
+              vis:!!(spinProp&&spinProp.visible),
+              op:(spinProp&&spinProp.userData)?+(spinProp.userData.inA||0).toFixed(3):null,
+              aim:+(spinAim*180/Math.PI).toFixed(1), turn:+(spinTurn*180/Math.PI).toFixed(1),
+              onbeach:!!document.getElementById('spin').classList.contains('onbeach'),
+              camAt:[SW_CAM.x,SW_CAM.y,SW_CAM.z],
+              scl:spinProp?+spinProp.scale.x.toFixed(3):null, pinS:MB_SW_PIN.s,
+              aimN:_aimWheelN, aimWhy:_aimWheelWhy,
+              fov:menuCam?menuCam.fov:null, asp:menuCam?+menuCam.aspect.toFixed(4):null,
+              held:!!(spinProp&&spinProp.userData&&spinProp.userData.stageHeld),
+              // ...and how big it actually lands on screen, as a fraction of the viewport, so
+              // the scale can be solved for rather than nudged. Framing a prop by eye off a
+              // screenshot has cost this file several rounds already.
+              box:(()=>{
+                if(!spinProp||!menuCam)return null;
+                menuCam.updateMatrixWorld(true); spinProp.updateMatrixWorld(true);
+                const b=visBox(spinProp), v=new THREE.Vector3();
+                const W=Math.max(1,innerWidth), H=Math.max(1,innerHeight);
+                let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+                for(let i=0;i<8;i++){
+                  v.set(i&1?b.max.x:b.min.x, i&2?b.max.y:b.min.y, i&4?b.max.z:b.min.z)
+                   .project(menuCam);
+                  const px=(v.x*0.5+0.5)*W, py=(-v.y*0.5+0.5)*H;
+                  if(px<x0)x0=px; if(px>x1)x1=px; if(py<y0)y0=py; if(py>y1)y1=py;
+                }
+                return {w:+((x1-x0)/W).toFixed(3), h:+((y1-y0)/H).toFixed(3),
+                        cx:+(((x0+x1)/2)/W).toFixed(3), cy:+(((y0+y1)/2)/H).toFixed(3)};
+              })()};
+    },
+    swPin(k,v){ if(v!==undefined)MB_SW_PIN[k]=v; return MB_SW_PIN; },
+    swCam(k,v){ if(v!==undefined)SW_CAM[k]=v; return SW_CAM; },
     // Which sheet is being read and how far in. Needed as a hook for the same reason every
     // other one here is: these live in the game's closure, so a probe reaching for questCamGo
     // by name gets a ReferenceError. That has now cost five probe runs in this session.
@@ -47785,6 +47971,14 @@ function renderMenuBeach(dt){
     menuCam.quaternion.slerp(_qbCamQ.setFromEuler(
       _stEul.set(QB_CAM.pitch*Math.PI/180,QB_CAM.yaw*Math.PI/180,0,'YXZ')),e);
   }
+  // The wheel's walk, onto a fixed pose exactly as the board's is, and for the same reason:
+  // however the title shot was framed on this screen, the wheel is seen from one place.
+  if(spinCamE>0.0001){
+    const e=spinCamE*spinCamE*(3-2*spinCamE);
+    menuCam.position.lerp(_qbCamP.set(SW_CAM.x,SW_CAM.y,SW_CAM.z),e);
+    menuCam.quaternion.slerp(_qbCamQ.setFromEuler(
+      _stEul.set(SW_CAM.pitch*Math.PI/180,SW_CAM.yaw*Math.PI/180,0,'YXZ')),e);
+  }
   // ---- ...AND THEN IN, ONTO ONE NOTICE ----
   // Applied after the walk, because it is an offset from where the walk put the lens -- the
   // same relationship the walk has to the staged shot. The aim is not touched: the sheet is put
@@ -48010,6 +48204,9 @@ function renderMenuBeach(dt){
     const qstep=_sd/Math.max(0.05,QB_CAM.secs);
     questCamE = questCamGo ? Math.min(1,questCamE+qstep) : Math.max(0,questCamE-qstep);
     if(questBoard){ if(questCamE>0.0001)aimBoard(); boardShow(questCamE,_sd); }
+    const wstep=_sd/Math.max(0.05,SW_CAM.secs);
+    spinCamE = spinCamGo ? Math.min(1,spinCamE+wstep) : Math.max(0,spinCamE-wstep);
+    if(spinProp){ if(spinCamE>0.0001)aimWheel(); wheelShow(spinCamE,_sd); }
     // ---- and the sand's SHINE comes down a little over there ----
     // Third go at this and the smallest. The first cut normalScale, which removed the grain that
     // breaks up a highlight and made it a smooth sheen; the second went at it again the same
