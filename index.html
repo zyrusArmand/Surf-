@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.62';</script>
+<script>window.SURF_VERSION='10.63';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -23173,7 +23173,27 @@ function placeTiki(){
       halo.material.map=t; halo.material.needsUpdate=true;
     });
     halo.position.z=0.006;
-    g.add(halo); g.add(face);
+    // ---- THE WORD, DRAWN RATHER THAN INHERITED ----
+    // The building carries its own carved lettering, and it cannot be used. It is carved relief
+    // rather than paint, so decimation flattens it -- proven rather than assumed: baking the
+    // colour map at 4096 instead of 2048 cost 3.4 MB and did not make it one pixel more legible,
+    // which rules texel density out. It also says GEAR on the fourth plaque where the tab is
+    // Style, so even intact it would be wrong. Drawn here it is sharp at any distance, correct,
+    // and free -- and it is the slot's own label, so the two cannot drift apart again.
+    // depthTest off, like the trim above and for the same reason: the counter is CURVED and this
+    // quad is flat, so the wood bulges in front of the middle two and bites words in half --
+    // "BOA", "ERS". Pushing it further out only trades that for a word floating off the plaque.
+    // Nothing is ever in front of the counter from this lens, so drawing over it is free.
+    const lab=new THREE.Mesh(new THREE.PlaneGeometry(SHOP_LAB.w,SHOP_LAB.h),
+      new THREE.MeshBasicMaterial({transparent:true, opacity:0, depthWrite:false,
+        depthTest:false, toneMapped:false, side:THREE.DoubleSide}));
+    lab.renderOrder=9;
+    lab.material.map=slotWordTex(sl.label);
+    lab.material.needsUpdate=true;
+    lab.position.set(0,SHOP_LAB.y,SHOP_LAB.z);
+    lab.userData.slotLit=1; lab.castShadow=false; lab.receiveShadow=false;
+    g.userData.lab=lab;
+    g.add(halo); g.add(face); g.add(lab);
     g.position.set(sl.x,SHOP_SLOT.y,SHOP_SLOT.z);
     face.userData.slotLit=1; halo.userData.slotLit=1;
     face.castShadow=false; face.receiveShadow=false;
@@ -23387,6 +23407,9 @@ function tikiShow(e,dt){
       const want=o*on*(0.90+0.10*Math.sin(T*2.4));
       const hm=g.userData.halo.material;
       hm.opacity+=(want-hm.opacity)*Math.min(1,(typeof dt==='number'?dt:0.016)*9);
+      // the word arrives with the building rather than with the light, so it is there to be read
+      // whether or not that plaque is the one currently lit
+      if(g.userData.lab)g.userData.lab.material.opacity=o*SHOP_LAB.a;
     }
   }
 }
@@ -24310,6 +24333,47 @@ for(const _sl of SHOP_SLOTS){
 // 0.20-0.25 across because that is the carving, while the plaque it sits on is wider and nearly
 // touches its neighbour. y and z are zero because the quads sit on the bar's own face.
 let SHOP_SLOT={y:0.0, z:0.012, w:0.235, h:0.215, col:0x0c86cf, glow:0, lit:0};
+// The drawn word, sitting where the model's own carved one is: across the lower third of the
+// plaque, just proud of it. Burnt umber rather than black, because the lettering on the sign
+// above is scorched wood and not ink, and this has to look like the same hand did it.
+// -0.068 put the word flush against the plaque's bottom edge, straddling the bevel, which on
+// screen reads as sitting UNDER the plaque rather than on it. Measured rather than nudged: the
+// face quad projects 89.4px for 0.215 of hut, so a world unit is 415.8 screen px, and lifting
+// the word the 14px it needed is 0.034 of them.
+// ...and then again, because the hit quad is not the plaque. The quad is the button, sized for a
+// thumb, and it hangs about a quarter of its height BELOW the carved panel it stands for -- so
+// "centred in the quad" is not "on the plaque", and each correction has to be read off the wood
+// rather than off the quad's own numbers.
+let SHOP_LAB={y:-0.002, z:0.009, w:0.212, h:0.058, col:'#4a2c14', a:0.94};
+// One canvas per word, cached: four of them exist for the life of the page. 512 across is far
+// more than the plaque is ever given on screen, which is the point -- the whole reason the
+// model's lettering fails is that it had no pixels to spare, and this one always does.
+const _slotWord={};
+function slotWordTex(word){
+  const k=String(word||'').toUpperCase();
+  if(_slotWord[k])return _slotWord[k];
+  const W=512,H=140,c=document.createElement('canvas');
+  c.width=W; c.height=H;
+  const x=c.getContext('2d');
+  x.clearRect(0,0,W,H);
+  let px=86;
+  x.textAlign='center'; x.textBaseline='middle';
+  // shrink to fit rather than overflow: SURFERS and BOARDS are not the same width, and a word
+  // running off its own plaque would look worse than a small one
+  do{ x.font='bold '+px+'px "Trebuchet MS",sans-serif'; px-=2; }
+  while(px>28 && x.measureText(k).width>W-56);
+  // the lighter line under it is the lip of the groove catching the sun, which is what makes a
+  // flat drawn word sit in the wood instead of on top of it
+  x.fillStyle='rgba(214,178,132,0.55)';
+  x.fillText(k,W/2,H/2+3);
+  x.fillStyle=SHOP_LAB.col;
+  x.fillText(k,W/2,H/2);
+  const t=new THREE.CanvasTexture(c);
+  if(THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding;
+  t.anisotropy=4; t.needsUpdate=true;
+  _slotWord[k]=t;
+  return t;
+}
 // Where the bar hangs inside the kiosk, in the kiosk's units. "Slightly above the bottom part"
 // -- the carved counter's top is around -0.42, so this sits just clear of it.
 // ---- CUT TO THE FRAME, NOT GUESSED AT ----
@@ -35008,6 +35072,19 @@ if(location.hash.includes('debug')){
           op:+g.userData.face.material.opacity.toFixed(3),
           at:g.getWorldPosition(new THREE.Vector3()).toArray().map(v=>+v.toFixed(2)),
           raw:raw(g),
+          // where the drawn word actually landed, rather than where the offset says it should.
+          // Aligning it by eye off a screenshot put it a plaque-height out; this is the same
+          // projection the face gets, so the two are directly comparable.
+          lab:(g.userData.lab?(()=>{ const m=g.userData.lab, hw=SHOP_LAB.w/2, hh=SHOP_LAB.h/2,
+              v=new THREE.Vector3(); let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+            m.updateMatrixWorld(true);
+            for(let i=0;i<4;i++){
+              v.set(i&1?hw:-hw,i&2?hh:-hh,0).applyMatrix4(m.matrixWorld).project(menuCam);
+              const px=(v.x*0.5+0.5)*W, py=(-v.y*0.5+0.5)*H;
+              if(px<x0)x0=px; if(px>x1)x1=px; if(py<y0)y0=py; if(py>y1)y1=py; }
+            return {cx:+((x0+x1)/2).toFixed(1), cy:+((y0+y1)/2).toFixed(1),
+                    w:+(x1-x0).toFixed(1), h:+(y1-y0).toFixed(1),
+                    op:+m.material.opacity.toFixed(3)}; })():null),
           btn:r(document.getElementById(g.userData.slot.id))})),
         keeper:(typeof pug==='undefined'||!pug)?null:{
           held:!!_keepHeld, scl:+pug.scale.x.toFixed(4), keptScl:+_keepScl.toFixed(4),
