@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.63';</script>
+<script>window.SURF_VERSION='10.64';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -6311,10 +6311,37 @@ const GEAR_BY_ID={}; for(const g of GEAR)GEAR_BY_ID[g.id]=g;
 // not earned, and the first one they earn is the first thing they see change.
 let gearOn={eyes:'', head:'', neck:'', body:''};
 function gearLvl(id){ const g=GEAR_BY_ID[id]; return g?g.lv:1; }
-function gearHave(id){ return level>=gearLvl(id); }
-// Gear has no owned[] of its own on purpose. A board can be unlocked and still not bought, so
-// the rack needs two facts about it; gear has one -- you are the rank or you are not -- and a
-// second table would only be a chance for the two to disagree after a save is edited.
+// ---- OR THE WHEEL GAVE IT TO YOU ----
+// Gear was gated on rank alone, which left the wheel nothing cosmetic it could hand over and
+// let you keep: every other slice is spent on the next run and gone. One map and one clause,
+// and because every shelf, preview and portrait already asks this function rather than
+// comparing levels itself, a won piece shows up everywhere at once.
+let ownedGear={};
+function gearHave(id){ return level>=gearLvl(id) || !!ownedGear[id]; }
+// A piece the RANK has locked, picked at random from what is left. Same argument as loanPick:
+// being shown something you already have is not a prize.
+function gearPick(){
+  const c=[];
+  try{ for(const g of GEAR){ if(!gearHave(g.id))c.push(g.id); } }catch(e){}
+  return c.length?c[(Math.random()*c.length)|0]:'';
+}
+// ...and a rider you have not unlocked, for one run. The board loan's twin, and locked the
+// same way: by level, not by price, so it is never a tease about money.
+function charPick(){
+  const c=[];
+  try{
+    for(const ch of CHARS){
+      if(ch.hidden||ownedChars[ch.id])continue;
+      if(charLvl(ch.id)>level)c.push(ch.id);
+    }
+  }catch(e){}
+  return c.length?c[(Math.random()*c.length)|0]:'';
+}
+// Gear had no owned[] of its own on purpose: a board can be unlocked and still not bought, so
+// the rack needs two facts about it, while gear had one -- you are the rank or you are not.
+// ownedGear exists now because the wheel needed something cosmetic it could hand over for
+// keeps, and the two cannot disagree the way that reasoning feared: it is an OR, never a
+// second gate, so a piece the rank already grants is unaffected by what is in the map.
 // ---- AND A PREVIEW IGNORES THE LEVEL GATE ----
 // Only a preview. The gate is what makes gear a reward, so it stays exactly as it is on the
 // rider -- but a locked row that cannot show you the thing is the whole reason this shelf read
@@ -6341,6 +6368,8 @@ let wheelLife=0;            // a second life
 let wheelX2=0;              // double shells on the run you go and earn them on
 let wheelChest=0;           // a chest, certain, instead of a timer that may not come round
 let wheelLoan='';           // a board you have not unlocked, for one run
+let wheelRider='';          // ...and a rider you have not unlocked, the same way
+let riderWas=null;          // who you were before the wheel lent you somebody
 let loanWas=null;           // ...and what you were riding before it, to give back
 // ---- THE DAILY GATE, OFF WHILE THE WHEEL IS BEING LOOKED AT ----
 // One switch and nothing else, because this is temporary: the gate is the whole point of a
@@ -6370,6 +6399,10 @@ function loanPick(){
 // can be left by more routes than the wipeout card -- quitting to the menu is one -- and a
 // loan that is returned only on the way out of the front door is a loan that leaks.
 function loanReturn(){
+  // Both loans are given back here, and unconditionally, because the reason this function
+  // exists at all -- a run can be left by more routes than the wipeout card -- is not a fact
+  // about boards. A rider left on loan is a rider you keep for free.
+  if(riderWas){ const c=riderWas.char; riderWas=null; try{ equipChar(c); }catch(e){} }
   if(!loanWas)return;
   const b=loanWas.board; loanWas=null;
   try{ equipBoard(b); }catch(e){}
@@ -6384,16 +6417,37 @@ function wheelPrizes(){
   const i=rankIdx(level), k=1+2.2*Math.sqrt(i/(RANKS.length-1));
   const sh=Math.round(500*k/50)*50;
   const loan=loanPick();
+  const gift=gearPick(), ride=charPick();
+  const jack=Math.round(sh*6/100)*100;
+  // Ten slices. Every one of them has to be a thing you would be pleased to land on, so the
+  // weights are not uniform: the two that are kept FOREVER -- a cosmetic and a jackpot -- are
+  // the rare ones, the ones spent on the next run are common, and nothing on here can set you
+  // back. The fallbacks matter more at ten than at six: three slices depend on there being
+  // something left to lend or give, and a late save has none of them, so each falls back to a
+  // prize rather than to a blank blade.
   return [
-    {k:'shells', w:18, n:sh,   label:sh.toLocaleString()+' shells'},
-    {k:'x2',     w:18, n:0,    label:'Double shells'},
+    {k:'shells', w:15, n:sh,   label:sh.toLocaleString()+' shells'},
+    {k:'x2',     w:14, n:0,    label:'Double shells'},
     // Falls back to shells when the rack is finished, which is the only state in which there
     // is no board left to lend. A blank slice would be worse than a small one.
-    loan?{k:'loan', w:16, n:0, id:loan, label:'Test ride'}
-        :{k:'shells', w:16, n:sh*2, label:(sh*2).toLocaleString()+' shells'},
-    {k:'chest',  w:16, n:0,    label:'Free chest'},
-    {k:'life',   w:18, n:1,    label:'Second life'},
-    {k:'swap',   w:14, n:0,    label:'Swap a quest'},
+    loan?{k:'loan', w:12, n:0, id:loan, label:'Test ride'}
+        :{k:'shells', w:12, n:sh*2, label:(sh*2).toLocaleString()+' shells'},
+    {k:'chest',  w:12, n:0,    label:'Free chest'},
+    {k:'life',   w:13, n:1,    label:'Second life'},
+    {k:'swap',   w:9,  n:0,    label:'Swap a quest'},
+    // ---- the four new ones ----
+    // Finish a quest, rather than swap one: the same board, the opposite direction. Swap takes
+    // the one you have done least on, this one pays out the one you are CLOSEST to landing, so
+    // the two can sit on the same wheel without either feeling like the other's weak twin.
+    {k:'quest',  w:9,  n:0,    label:'Finish a quest'},
+    // A rider for one run. The board loan's twin, and the reason both are worth having is that
+    // they advertise different halves of the shop.
+    ride?{k:'rider', w:9, n:0, id:ride, label:'Guest rider'}
+        :{k:'life',  w:9, n:1, label:'Second life'},
+    // The only slice you keep and can wear. Rare on purpose.
+    gift?{k:'gear', w:4, n:0, id:gift, label:'Free gear'}
+        :{k:'shells', w:4, n:jack, label:jack.toLocaleString()+' shells'},
+    {k:'jackpot',w:3,  n:jack, label:'Jackpot'},
   ];
 }
 function wheelPick(P){
@@ -6417,6 +6471,45 @@ function wheelClaim(p){
     const b=BOARD_BY_ID[p.id];
     out.note=b?('One run on the '+b.name+'.'):'One run on a locked board.';
     out.label='Test ride'+(b?' — '+b.name:'');
+  }
+  else if(p.k==='jackpot'){ coins+=p.n; showCoins(); out.note='+'+p.n.toLocaleString()+' shells, straight in.'; }
+  else if(p.k==='gear'){
+    ownedGear[p.id]=1;
+    const g=GEAR_BY_ID[p.id];
+    // worn immediately, because a cosmetic you have to go and find in a menu to see is a
+    // cosmetic you do not know you won
+    if(g){ try{ gearOn[g.slot]=p.id; equipChar(rider); }catch(e){} }
+    out.note=g?('The '+g.name+' is yours, and on.'):'A new piece is yours.';
+    out.label='Free gear'+(g?' — '+g.name:'');
+  }
+  else if(p.k==='rider'){
+    wheelRider=p.id;
+    const c=(typeof CHAR_BY_ID!=='undefined')?CHAR_BY_ID[p.id]:null;
+    out.note=c?('One run with '+c.name+'.'):'One run with a locked rider.';
+    out.label='Guest rider'+(c?' — '+c.name:'');
+  }
+  else if(p.k==='quest'){
+    // The mirror of the swap below: that one takes the least-finished quest away, this one
+    // finishes the nearest. Paid at the same hundred a quest normally pays, and marked done
+    // rather than replaced, so it is ticked off in front of you exactly like one you earned.
+    try{
+      ensureGoals();
+      let w=-1;
+      for(let j=0;j<goals.length;j++){
+        if(goals[j].done)continue;
+        const dj=goalDef(goals[j]);
+        if(w<0){ w=j; continue; }
+        const dw=goalDef(goals[w]);
+        if(goals[j].n/Math.max(1,dj.target) > goals[w].n/Math.max(1,dw.target))w=j;
+      }
+      if(w<0){ coins+=100; showCoins(); out.note='All three were already done. +100 instead.'; }
+      else{
+        const d=goalDef(goals[w]);
+        goals[w].n=d.target; goals[w].done=true;
+        coins+=100; showCoins();
+        out.note=d.text+' — done. +100';
+      }
+    }catch(e){ coins+=100; showCoins(); out.note='+100 shells.'; }
   }
   else if(p.k==='swap'){
     // ---- THE ONE THAT USED TO BE A PUNISHMENT ----
@@ -7284,6 +7377,13 @@ function loadSave(){
     // ...and only if it is still a board this build knows and you still do not own it: a loan
     // of something bought in the meantime is a loan of your own board.
     wheelLoan=(typeof v.wheelLoan==='string'&&v.wheelLoan&&!owned[v.wheelLoan])?v.wheelLoan:'';
+    wheelRider=(typeof v.wheelRider==='string'&&v.wheelRider&&!ownedChars[v.wheelRider])?v.wheelRider:'';
+    // Only ids that still exist, so a piece renamed out of GEAR cannot leave a dead key sitting
+    // in the map forever -- the same care the loan above takes about a board you since bought.
+    ownedGear={};
+    if(v.ownedGear&&typeof v.ownedGear==='object'){
+      for(const k in v.ownedGear)if(v.ownedGear[k]&&GEAR_BY_ID[k])ownedGear[k]=1;
+    }
     gearOn={eyes:'', head:'', neck:'', body:''};
     if(v.gearOn)for(const s of ['eyes','head','body']){
       const id=v.gearOn[s];
@@ -7317,7 +7417,7 @@ function saveGame(){
   // goal, a wipeout. One of those and the loan is permanent. So the loan outranks even the
   // borrow here: whatever else is going on, what goes to disk is the board from before it.
   if(typeof loanWas!=='undefined'&&loanWas)b=loanWas.board;
-  try{localStorage.setItem(SAVE_KEY,JSON.stringify({coins,xp,xpv:2,uname,owned,equipped:b,ownedChars,rider:r,goals,gearOn,wheelLast,wheelLife,wheelX2,wheelChest,wheelLoan}));}catch(e){}
+  try{localStorage.setItem(SAVE_KEY,JSON.stringify({coins,xp,xpv:2,uname,owned,equipped:b,ownedChars,rider:r,goals,gearOn,wheelLast,wheelLife,wheelX2,wheelChest,wheelLoan,wheelRider,ownedGear}));}catch(e){}
 }
 
 // ---------- telemetry ----------
@@ -25634,6 +25734,11 @@ function wheelSpend(){
     try{ equipBoard(wheelLoan); }catch(e){ loanWas=null; }
   }
   wheelLoan='';
+  if(wheelRider&&!ownedChars[wheelRider]){
+    riderWas={char:rider};
+    try{ equipChar(wheelRider); }catch(e){ riderWas=null; }
+  }
+  wheelRider='';
   if(wheelChest){ wheelChest=0; crateT=Math.min(crateT,1.5); }
   saveGame();
 }
