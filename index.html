@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.67';</script>
+<script>window.SURF_VERSION='10.68';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -6251,6 +6251,18 @@ let bandanaModel=null, shadesModel=null;
 // measured neck ring -- so the runtime tilt is zero. A lean that belongs to the object belongs
 // in the object; applying it here was a patch over a shape that was wrong.
 let BND_R=0.40, BND_Y=0.09, BND_TILT=0;
+// ---- HOW THE HAT AND THE SHADES SIT, AS NUMBERS THAT CAN BE SWEPT ----
+// These were literals buried in kitGear, which meant every trial cost a rebuild and a reload.
+// A hat and a pair of glasses are fitted by eye in the end -- there is no formula for "looks
+// worn" -- so the honest thing is to make them adjustable and then look.
+// HAT_FWD is a FRACTION OF THE SKULL'S OWN CENTRE along the look axis. The hat was pinned at
+// the eye plane (fraction 0), which is 26 units forward of the middle of this skull -- that is
+// a hat balanced over the brow rather than sitting on the head.
+let HAT_W=0.92, HAT_UP=0.42, HAT_FWD=0.80;
+// SHD_OUT is how far the LENS FACE stands proud of the eye midpoint, as a fraction of the
+// skull's own reach forward from there, replacing a multiple of the eyeball radius -- which on
+// a model-faced rider is a synthetic number with no relation to where the face actually is.
+let SHD_W=0.92, SHD_SEP=1.35, SHD_OUT=0.95, SHD_UP=0.0, SHD_TILT=0;
 loadModel('shades.glb',s=>{ shadesModel=s; if(typeof equipChar==='function'&&typeof rider!=='undefined'){ try{ equipChar(rider); }catch(e){} } },0);
 // The cattleman, modelled rather than lofted: swept from a profile, creased down the crown
 // and rolled at the brim. Lands Y-up with +X out the front, which is what the fit below reads.
@@ -16084,6 +16096,14 @@ function kitGear(C,bodyPatch){
         if('roughness' in m.material)m.material.roughness=E.mirror>0.5?0.12:0.34;
         m.castShadow=false; m.receiveShadow=false;
       }});
+      // ---- MEASURED WITH ITS OWN TRANSFORM CLEARED ----
+      // setFromObject reads WORLD space, and a glTF root node can carry a transform -- the
+      // wheel imported at scale 1.9016. Measured through it, this pair reported 1.479 across
+      // when the mesh is really 1.916, so every number derived from it was wrong by 30%: the
+      // width, the left-right centring and the height all at once. That is the pair sitting
+      // on the brow, off to one side and too big. The hat already cleared its transform
+      // before measuring; this never did.
+      o.position.set(0,0,0); o.rotation.set(0,0,0); o.scale.setScalar(1);
       o.updateMatrixWorld(true);
       const bb=new THREE.Box3().setFromObject(o), sz=bb.getSize(new THREE.Vector3());
       const c=bb.getCenter(new THREE.Vector3());
@@ -16111,7 +16131,7 @@ function kitGear(C,bodyPatch){
           const t=new THREE.Vector3(px,py,pz).sub(EY.mid).dot(EY.right);
           if(t<lo)lo=t; if(t>hi)hi=t;
         }
-        const wide=Math.max(EY.sep*1.35,(hi-lo)*0.92);
+        const wide=Math.max(EY.sep*SHD_SEP,(hi-lo)*SHD_W);
         const k=wide/Math.max(1e-4,sz.x);
         o.scale.setScalar(k);
         // Aim it: +X along the eye line, +Z out of the lenses along the look direction.
@@ -16120,9 +16140,21 @@ function kitGear(C,bodyPatch){
         // Sit the LENS FACE just proud of the eyeballs and let the arms run back past them,
         // rather than centring the bounding box on the eyes -- which buries half a pair of
         // glasses, arms and all, in the middle of the head.
-        const depth=sz.z*k, lensOut=EY.r*0.95-depth*0.5;
+        // ---- HOW FAR PROUD, MEASURED OFF THE FACE RATHER THAN OFF AN EYEBALL ----
+        // lensOut was EY.r*0.95. On a rider who brought his own face there are no eyeballs to
+        // read, so EY.r is a synthetic radius with no relation to where the muzzle actually
+        // is -- and the lens face landed back at the eye plane with the frame and both arms
+        // buried in the skull. The skull's own reach forward of the eye midpoint is the real
+        // number, and SHD_OUT is a fraction of it.
+        let fr=-Infinity;
+        for(const px of [HB.min.x,HB.max.x])for(const py of [HB.min.y,HB.max.y])for(const pz of [HB.min.z,HB.max.z]){
+          const f=new THREE.Vector3(px,py,pz).sub(EY.mid).dot(EY.fwd); if(f>fr)fr=f;
+        }
+        const depth=sz.z*k, lensOut=Math.max(EY.r*0.95, fr*SHD_OUT)-depth*0.5;
+        if(SHD_TILT)o.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(
+          new THREE.Vector3(1,0,0), THREE.MathUtils.degToRad(SHD_TILT)));
         o.position.copy(EY.mid)
-          .addScaledVector(EY.right,-c.x*k).addScaledVector(EY.up,-c.y*k)
+          .addScaledVector(EY.right,-c.x*k).addScaledVector(EY.up,-c.y*k+EY.sep*SHD_UP)
           .addScaledVector(EY.fwd,lensOut-c.z*k);
         kit(EY.H,o);
       } else {
@@ -16223,7 +16255,9 @@ function kitGear(C,bodyPatch){
         if('roughness' in mm.material)mm.material.roughness=brass?0.28:(leather?0.55:0.76);
         mm.castShadow=false; mm.receiveShadow=false;
       });
-      o.rotation.set(0,0,0); o.scale.setScalar(1); o.updateMatrixWorld(true);
+      o.position.set(0,0,0); o.rotation.set(0,0,0); o.scale.setScalar(1); o.updateMatrixWorld(true);
+      const hbb=new THREE.Box3().setFromObject(o);
+      const hc=hbb.getCenter(new THREE.Vector3());
       const EY=(typeof riderEyeFit==='function')?riderEyeFit():null;
       const _hb=(typeof headBoxLocal==='function')?headBoxLocal():null;
       const HB=_hb&&_hb.box;
@@ -16238,7 +16272,7 @@ function kitGear(C,bodyPatch){
         // Slightly UNDER the widest part of the skull, deliberately. The head goes into the
         // hat, so a little intersection is invisible and reads as worn; a gap reads as
         // balanced on top, which is what it looked like at 1.03.
-        o.scale.setScalar((hi-lo)*0.97/OPEN);
+        o.scale.setScalar((hi-lo)*HAT_W/OPEN);
         // model +X is the front, +Y is up; the third axis follows to keep it right-handed
         o.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(
           EY.fwd.clone(), EY.up.clone(), new THREE.Vector3().crossVectors(EY.fwd, EY.up)));
@@ -16246,7 +16280,30 @@ function kitGear(C,bodyPatch){
         // Measured on the pug: 0.46 perched it above the skull with daylight under the brim,
         // 0.26 pulled it down over his brow. 0.36 sits the band on the skull with the brim
         // clear of the eyes, which is where a hat actually sits.
-        o.position.copy(EY.mid).addScaledVector(EY.up, top * 0.36);
+        // ---- ...AND BACK ONTO THE SKULL, WHICH IT NEVER WAS ----
+        // This had no forward term at all, so the hat centred on the EYE midpoint. The skull
+        // runs from +21.6 in front of that eye plane to -73.9 behind it, so its middle is 26
+        // units back -- and a hat pinned at 0 is perched over the brow with the back of the
+        // crown hanging off the skull entirely. HAT_FWD walks it back toward that middle.
+        {
+          let bk=Infinity, fr=-Infinity;
+          for(const px of [HB.min.x,HB.max.x])for(const py of [HB.min.y,HB.max.y])for(const pz of [HB.min.z,HB.max.z]){
+            const f=new THREE.Vector3(px,py,pz).sub(EY.mid).dot(EY.fwd);
+            if(f<bk)bk=f; if(f>fr)fr=f;
+          }
+          // ---- PLACED BY ITS UNDERSIDE, NOT BY ITS ORIGIN ----
+          // top*0.36 moved the hat's ORIGIN, and where the origin sits inside the mesh is the
+          // model's business, not ours. Measured, the brim's lowest point landed at +54.8 with
+          // the skull topping out at +48.8 -- the whole hat hovering clear of the head, which
+          // is exactly what it looks like. HAT_UP now says where the UNDERSIDE goes, as a
+          // fraction of the skull's own height, so "sat down on the head" is what is asked for
+          // rather than hoped for. Model +X is the front and +Y is up, so hc.x is the
+          // fore-and-aft centre and hbb.min.y is the underside.
+          const kk=o.scale.x;
+          o.position.copy(EY.mid)
+            .addScaledVector(EY.up,  top*HAT_UP - hbb.min.y*kk)
+            .addScaledVector(EY.fwd, (fr+bk)*0.5*HAT_FWD - hc.x*kk);
+        }
         kit(EY.H, o);
       } else {
         // procedural rider: GP's own units, where +Y is up and -Z is the way the face points
@@ -31819,12 +31876,103 @@ if(location.hash.includes('debug')){
              ', position '+a.currentTime.toFixed(1)+'s. If you hear nothing now it is the device: '+
              'on iPhone the ring/silent switch mutes web audio, and no page can override it.';
     },
+    // The raw models, cleared of their own transform, so "model +X is the front and +Y is up"
+    // can be verified instead of believed. A hat placed by hbb.min.y is nonsense if the model
+    // is flat in Y.
+    gearModelBox(){
+      const one=(m,name)=>{
+        if(!m||typeof cloneModel!=='function')return null;
+        const o=cloneModel(m);
+        o.position.set(0,0,0); o.rotation.set(0,0,0); o.scale.setScalar(1);
+        o.updateMatrixWorld(true);
+        const b=new THREE.Box3().setFromObject(o), z=b.getSize(new THREE.Vector3());
+        return {name, min:[+b.min.x.toFixed(4),+b.min.y.toFixed(4),+b.min.z.toFixed(4)],
+                max:[+b.max.x.toFixed(4),+b.max.y.toFixed(4),+b.max.z.toFixed(4)],
+                size:[+z.x.toFixed(4),+z.y.toFixed(4),+z.z.toFixed(4)]};
+      };
+      return {hat:one(typeof hatModel!=='undefined'?hatModel:null,'cowboyhat'),
+              shades:one(typeof shadesModel!=='undefined'?shadesModel:null,'shades')};
+    },
+    hatFit(w,up,fwd){ if(w!==undefined)HAT_W=w; if(up!==undefined)HAT_UP=up;
+      if(fwd!==undefined)HAT_FWD=fwd; try{ equipChar(rider); }catch(e){}
+      return {HAT_W,HAT_UP,HAT_FWD}; },
+    shadeFit(w,out,up,tl){ if(w!==undefined)SHD_W=w; if(out!==undefined)SHD_OUT=out;
+      if(up!==undefined)SHD_UP=up; if(tl!==undefined)SHD_TILT=tl; try{ equipChar(rider); }catch(e){}
+      return {SHD_W,SHD_OUT,SHD_UP,SHD_TILT}; },
     bandFit(r,y,tl){ if(r!==undefined)BND_R=r; if(y!==undefined)BND_Y=y;
       if(tl!==undefined)BND_TILT=tl;
       try{ for(const k of Object.keys(prevCache))if(k[0]==='g'||k[0]==='c')delete prevCache[k]; }catch(e){}
       equipChar(rider); return {r:BND_R,y:BND_Y,tilt:BND_TILT}; },
     gearWear(id){ const g=GEAR_BY_ID[id]; if(!g)return null;
       gearOn[g.slot]=id; equipChar(rider); return {...gearOn}; },
+    // ---- WHERE THE GEAR ACTUALLY LANDED, IN THE UNITS THE CONSTANTS ARE WRITTEN IN ----
+    // The hat and the shades are both placed as offsets along the eye basis -- right, up, fwd
+    // from EY.mid -- so reporting a world position answers nothing. This resolves each part
+    // back onto that basis, which is the only frame in which "too high and too far back" is a
+    // number rather than an impression.
+    gearFit(){
+      const EY=(typeof riderEyeFit==='function')?riderEyeFit():null;
+      const hb=(typeof headBoxLocal==='function')?headBoxLocal():null;
+      const v=x=>x?[+x.x.toFixed(4),+x.y.toFixed(4),+x.z.toFixed(4)]:null;
+      const out={eye:null, box:null, parts:[]};
+      if(EY)out.eye={mid:v(EY.mid), right:v(EY.right), up:v(EY.up), fwd:v(EY.fwd),
+                     sep:+EY.sep.toFixed(4), r:+EY.r.toFixed(4)};
+      if(hb&&hb.box){
+        out.box={min:v(hb.box.min), max:v(hb.box.max)};
+        if(EY){ let lo=Infinity,hi=-Infinity,top=-Infinity,bot=Infinity,fr=-Infinity,bk=Infinity;
+          const B=hb.box;
+          for(const px of [B.min.x,B.max.x])for(const py of [B.min.y,B.max.y])for(const pz of [B.min.z,B.max.z]){
+            const q=new THREE.Vector3(px,py,pz).sub(EY.mid);
+            const t=q.dot(EY.right); if(t<lo)lo=t; if(t>hi)hi=t;
+            const u=q.dot(EY.up);    if(u>top)top=u; if(u<bot)bot=u;
+            const f=q.dot(EY.fwd);   if(f>fr)fr=f;   if(f<bk)bk=f; }
+          out.skull={wide:+(hi-lo).toFixed(4), top:+top.toFixed(4), bot:+bot.toFixed(4),
+                     front:+fr.toFixed(4), back:+bk.toFixed(4)}; }
+      }
+      for(const m of kitParts){
+        if(!m.userData||!m.userData.gear)continue;
+        m.updateWorldMatrix(true,false);
+        const row={slot:m.userData.gear, scl:+m.scale.x.toFixed(4), local:v(m.position)};
+        if(EY&&m.parent){
+          // the part's own origin, expressed on the eye basis -- directly comparable with the
+          // 0.36 and the lensOut that put it there
+          const q=m.position.clone().sub(EY.mid);
+          row.onEye={right:+q.dot(EY.right).toFixed(4), up:+q.dot(EY.up).toFixed(4),
+                     fwd:+q.dot(EY.fwd).toFixed(4)};
+          // ---- AND ITS EXTENT IN THE SAME SPACE THE SKULL IS MEASURED IN ----
+          // A world-space size cannot be compared with the skull box: the head bone carries its
+          // own scale, so the two are different units and reading them side by side is how the
+          // first pass of this came out meaningless. Every corner of every child geometry is
+          // walked into the PARENT's frame -- which is the head bone, the frame the skull box
+          // is already in -- and then onto the eye basis.
+          // updateWorldMatrix(true,false) refreshes ancestors and NOT descendants, so the
+          // children's world matrices were stale and the spans this printed did not move when
+          // the fit changed. World corners pulled back through the PARENT is the honest route.
+          m.updateWorldMatrix(true,true);
+          const pw=new THREE.Matrix4().copy(m.parent.matrixWorld).invert();
+          let lo={r:Infinity,u:Infinity,f:Infinity}, hi={r:-Infinity,u:-Infinity,f:-Infinity};
+          let any=false;
+          m.traverse(c=>{
+            if(!c.isMesh||!c.geometry)return;
+            if(!c.geometry.boundingBox)c.geometry.computeBoundingBox();
+            const bb=c.geometry.boundingBox; if(!bb)return;
+            for(const px of [bb.min.x,bb.max.x])for(const py of [bb.min.y,bb.max.y])for(const pz of [bb.min.z,bb.max.z]){
+              const w=new THREE.Vector3(px,py,pz).applyMatrix4(c.matrixWorld)
+                        .applyMatrix4(pw).sub(EY.mid);
+              const r=w.dot(EY.right), u=w.dot(EY.up), f=w.dot(EY.fwd);
+              if(r<lo.r)lo.r=r; if(r>hi.r)hi.r=r;
+              if(u<lo.u)lo.u=u; if(u>hi.u)hi.u=u;
+              if(f<lo.f)lo.f=f; if(f>hi.f)hi.f=f; any=true;
+            }
+          });
+          if(any)row.span={right:[+lo.r.toFixed(2),+hi.r.toFixed(2)],
+                           up:[+lo.u.toFixed(2),+hi.u.toFixed(2)],
+                           fwd:[+lo.f.toFixed(2),+hi.f.toFixed(2)]};
+        }
+        out.parts.push(row);
+      }
+      return out;
+    },
     // gearOnChar() puts the previous character back before it returns, so anything measured
     // or photographed after it is measured on whoever was there before -- four different
     // animals in a row all reported the pug's numbers. This one LEAVES the character wearing
