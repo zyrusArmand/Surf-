@@ -107,8 +107,23 @@ while len(low.data.uv_layers) > 1:
     low.data.uv_layers.remove(low.data.uv_layers[-1])
 bpy.ops.object.mode_set(mode='EDIT')
 bpy.ops.mesh.select_all(action='SELECT')
-bpy.ops.uv.smart_project(angle_limit=math.radians(78), island_margin=0.002,
+bpy.ops.uv.smart_project(angle_limit=math.radians(89), island_margin=0.0,
                          area_weight=0.0, correct_aspect=True, scale_to_bounds=False)
+# ---- PACK THE ATLAS, OR THE RESOLUTION IS A LIE ----
+# Measured against the hand-authored quest board: it puts 786 texture pixels on each world unit
+# of its surface from three 1024 maps, because its UVs fill 71% of the sheet. This pipeline was
+# filling 14.5% of a 2048, so the map was really a 780 -- which is the whole of why one model
+# reads sharp and the other reads like mush. The legacy packer boxes each island and packs the
+# boxes, wasting the corners; the newer one fits the outline and found 43%.
+bpy.ops.uv.select_all(action='SELECT')
+try: bpy.ops.uv.average_islands_scale()
+except Exception: pass
+for _kw in ({'shape_method':'CONCAVE','rotate':True,'rotate_method':'ANY',
+             'margin_method':'FRACTION','margin':0.0012,'scale':True},
+            {'shape_method':'CONCAVE','rotate':True,'margin':0.0012},
+            {'rotate':True,'margin':0.0016}, {'margin':0.0016}):
+    try: bpy.ops.uv.pack_islands(**_kw); break
+    except TypeError: continue
 bpy.ops.object.mode_set(mode='OBJECT')
 
 img_c = bpy.data.images.new("bakeColor", SIZE, SIZE, alpha=False)
@@ -134,7 +149,7 @@ bk.use_selected_to_active = True
 # from one board reach the one behind it
 bk.cage_extrusion = 0.010
 bk.max_ray_distance = 0.020
-bk.margin = 10
+bk.margin = 6
 bk.margin_type = 'ADJACENT_FACES'
 
 

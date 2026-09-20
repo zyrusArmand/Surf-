@@ -65,10 +65,39 @@ low.select_set(True)
 bpy.context.view_layer.objects.active = low
 while len(low.data.uv_layers) > 1:
     low.data.uv_layers.remove(low.data.uv_layers[-1])
+# ---- PACK THE ATLAS, OR THE RESOLUTION IS A LIE ----
+# Measured against the hand-authored quest board: that model puts 786 texture pixels on each
+# world unit of its surface from three 1024 maps, because its UVs fill 71% of the sheet. This
+# one managed 417 from a 2048 -- its UVs filled 14.5%. Six sevenths of the map was padding
+# between eight thousand slivers, so the "2048" was really a 780, and that gap is the whole of
+# why one reads sharp and the other reads like mush.
+# Three changes, none of which cost a byte: cut at a wider angle so there are fewer and larger
+# islands, normalise their scale so no island hogs texels it cannot use, and then pack hard.
 bpy.ops.object.mode_set(mode='EDIT')
 bpy.ops.mesh.select_all(action='SELECT')
-bpy.ops.uv.smart_project(angle_limit=math.radians(78), island_margin=0.002,
+bpy.ops.uv.smart_project(angle_limit=math.radians(89), island_margin=0.0,
                          area_weight=0.0, correct_aspect=True, scale_to_bounds=False)
+bpy.ops.uv.select_all(action='SELECT')
+try:
+    bpy.ops.uv.average_islands_scale()
+except Exception as e:
+    print("  (average_islands_scale skipped:", e, ")", flush=True)
+# The legacy packer boxes every island and packs the boxes, which on 7,000 irregular slivers
+# wastes most of the sheet in the corners it cannot use. The newer packer fits the island's
+# actual outline, and that is where the rest of the atlas is.
+_packed = False
+for kw in ({'shape_method':'CONCAVE','rotate':True,'rotate_method':'ANY',
+            'margin_method':'FRACTION','margin':0.0012,'scale':True},
+           {'shape_method':'CONCAVE','rotate':True,'margin':0.0012},
+           {'rotate':True,'margin':0.0016},
+           {'margin':0.0016}):
+    try:
+        bpy.ops.uv.pack_islands(**kw); _packed = True
+        print("  packed with", sorted(kw), flush=True); break
+    except TypeError as e:
+        continue
+if not _packed:
+    print("  (no pack_islands variant accepted)", flush=True)
 bpy.ops.object.mode_set(mode='OBJECT')
 
 # count islands, because "did the unwrap work" is the question that sank the last attempt
@@ -119,7 +148,7 @@ bk = sc.render.bake
 bk.use_selected_to_active = True
 bk.cage_extrusion = d * 0.03
 bk.max_ray_distance = d * 0.06
-bk.margin = 16
+bk.margin = 6
 bk.margin_type = 'ADJACENT_FACES'
 
 
