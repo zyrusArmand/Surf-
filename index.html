@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.71';</script>
+<script>window.SURF_VERSION='10.72';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -6250,7 +6250,14 @@ let bandanaModel=null, shadesModel=null;
 // The lean lives in the MODEL now -- the collar is built tilted, against the pug's own
 // measured neck ring -- so the runtime tilt is zero. A lean that belongs to the object belongs
 // in the object; applying it here was a patch over a shape that was wrong.
-let BND_R=0.40, BND_Y=0.09, BND_TILT=0;
+// BND_R is the collar's width as a fraction of the skull's, now that the model is measured
+// rather than assumed round. BND_TILT leans the drape back onto the chest -- the model hangs
+// it thirty-five degrees forward, so this is most of that, the other way.
+// Sign measured, not assumed: -30 swung the drape UP and OUT to 64 units in front of the face.
+// Rotation about the model's own X takes +Z (the drape) toward -Y for a POSITIVE angle, which
+// is down onto the chest. BND_Y goes below zero because the neck point is under the jaw, not
+// on it: at +0.09 the collar sat six units above the skull's bottom edge.
+let BND_R=0.96, BND_Y=-0.12, BND_TILT=32;
 // ---- HOW THE HAT AND THE SHADES SIT, AS NUMBERS THAT CAN BE SWEPT ----
 // These were literals buried in kitGear, which meant every trial cost a rebuild and a reload.
 // A hat and a pair of glasses are fitted by eye in the end -- there is no formula for "looks
@@ -6340,6 +6347,41 @@ const GEAR_SUITS=[
    vest:0x231f1c, shorts:0x231f1c, hem:0xf0a01e},
   {id:'sut_gold',    slot:'body', lv:104, name:'Gold Leaf Suit',  blurb:'Point break local. Dressed like it.',
    vest:0x6b5a1e, shorts:0x6b5a1e, hem:0xf7d565},
+  // ---- THE ELEVEN, from the reference sheet ----
+  // These are patterns, not colours: shirt and pants are painted to a canvas and cut from the
+  // rider's own body (see wearSuit). Where an outfit has a hat, it is its own head piece below,
+  // because a hat you cannot take off is a punishment and the slots already know that.
+  {id:'sut_surf',    slot:'body', lv:6,   name:'Surf Apparel',      blurb:'Tie-dye tee, checkerboard trunks. The uniform.',
+   shirt:{k:'tiedye',text:'SURF',sub:'ASTRO',hue:200}, sleeves:'short', pants:{k:'check',a:0x111111,b:0xf2f2f2,n:8}, len:'shorts'},
+  {id:'sut_wood',    slot:'body', lv:10,  name:'Woodworking Belt',  blurb:'Plaid, denim, and a belt full of answers.',
+   shirt:{k:'plaid',a:0xb8262a,b:0x1a1a1a,n:5}, sleeves:'long', pants:{k:'denim',c:0x3b5a8a,belt:true}, len:'long'},
+  {id:'sut_space',   slot:'body', lv:16,  name:'Space Explorer',    blurb:'Pressure suit. Patches earned, not bought.',
+   shirt:{k:'space'}, sleeves:'long', pants:{k:'space'}, len:'long', rough:0.5},
+  {id:'sut_dandy',   slot:'body', lv:20,  name:'Victorian Dandy',   blurb:'Brocade waistcoat and a cravat with opinions.',
+   shirt:{k:'brocade',c:0x6b4a1e}, sleeves:'long', pants:{k:'solid',c:0x2b2b30}, len:'long'},
+  {id:'sut_board',   slot:'body', lv:28,  name:'Board Game Theme',  blurb:'Loud shirt. Loudest player.',
+   shirt:{k:'hawaii',c:0xf3e6c8}, sleeves:'short', pants:{k:'solid',c:0x1f3a5c}, len:'shorts'},
+  {id:'sut_aviator', slot:'body', lv:36,  name:'The Honest Baseline', blurb:'Leather jacket, silk scarf, no autopilot.',
+   shirt:{k:'leather',c:0x5a3a1e}, sleeves:'long', pants:{k:'solid',c:0xc9b58a}, len:'long', rough:0.45},
+  {id:'sut_chef',    slot:'body', lv:44,  name:'Master Chef',       blurb:'Double-breasted whites. Yes, chef.',
+   shirt:{k:'chef'}, sleeves:'long', pants:{k:'stripes',a:0x3a3a3f,b:0x8a8a90,n:14,f:0.5}, len:'long'},
+  {id:'sut_samurai', slot:'body', lv:60,  name:'Samurai',           blurb:'Lacquered lames laced in gold.',
+   shirt:{k:'armor',c:0x8a1c1c}, sleeves:'short', pants:{k:'armor',c:0x3a1010}, len:'long', rough:0.35},
+  {id:'sut_skater',  slot:'body', lv:70,  name:'Retro Skater',      blurb:'Nineteen eighty-something, in full.',
+   shirt:{k:'track',a:0xe94b9c,b:0x2ec4b6,c:0xffd23f}, sleeves:'long', pants:{k:'track',a:0x2ec4b6,b:0xe94b9c,c:0xffd23f}, len:'long'},
+  {id:'sut_tech',    slot:'body', lv:88,  name:'Tech Professional', blurb:'Button-up, khakis, lanyard. Ships on Friday.',
+   shirt:{k:'button',c:0xbfd7ee,lanyard:true}, sleeves:'long', pants:{k:'solid',c:0xb59a6a}, len:'long'},
+  {id:'sut_wizard',  slot:'body', lv:96,  name:'Wizard',            blurb:'Robes cut from the night sky.',
+   shirt:{k:'stars',c:0x1c2a6b}, sleeves:'long', pants:{k:'stars',c:0x1c2a6b}, len:'long'},
+  // the headwear those outfits came with
+  {id:'hat_astro',   slot:'head', lv:16,  name:'Helmet',            blurb:'Sealed. Fogs up when he laughs.', col:0xf2f2f0, kind:'astro'},
+  {id:'hat_tophat',  slot:'head', lv:20,  name:'Top Hat',           blurb:'Silk. Tips itself.',               col:0x1b1b1f, band:0x3a2a1c, kind:'tophat'},
+  {id:'hat_band_navy',slot:'head',lv:28,  name:'Bandana Headband',  blurb:'Tied at the back, tails out.',      col:0x1f3a5c, kind:'headband'},
+  {id:'hat_aviator', slot:'head', lv:36,  name:'Aviator Cap',       blurb:'Goggles up. For now.',              col:0x4a2f16, kind:'aviator'},
+  {id:'hat_toque',   slot:'head', lv:44,  name:'Chef Toque',        blurb:'A hundred pleats, one for every way to cook an egg.', col:0xf7f7f4, kind:'toque'},
+  {id:'hat_samurai', slot:'head', lv:60,  name:'Kabuto',            blurb:'The crest goes at the front.',       col:0x3a1010, kind:'samurai'},
+  {id:'hat_band_pink',slot:'head',lv:70,  name:'Sweatband',         blurb:'Neon. Absorbent. Iconic.',            col:0xe94b9c, kind:'headband'},
+  {id:'hat_wizard',  slot:'head', lv:96,  name:'Wizard Hat',        blurb:'Pointed, starred, slightly bent.',    col:0x1c2a6b, kind:'wizard'},
 ];
 for(const g of GEAR_SUITS)GEAR.push(g);
 const GEAR_BY_ID={}; for(const g of GEAR)GEAR_BY_ID[g.id]=g;
@@ -16050,6 +16092,355 @@ function clearKit(){ for(const m of kitParts) if(m.parent)m.parent.remove(m); ki
 // them, which is the same trick the eyes use ten lines below.
 // The face is -Z. The eyes sit at z about -0.30 to -0.40 and y about 0.06 to 0.22, so shades
 // go across that plane and a hat goes on the crown above it.
+// ================= CLOTHES CUT FROM THE BODY THAT WEARS THEM =================
+// A garment on a modelled rider was two rings hung on the spine -- a cylinder near a body,
+// which is what "a gold tube" is. The comment on that code already said why: the vest system
+// cuts cloth from the PROCEDURAL torso, and a rider that arrived as a glb has none. This does
+// for a glb what bodyPatch does for the procedural body: it takes the rider's own triangles,
+// pushes them out along their normals, and binds the result to the same skeleton. It fits
+// because it IS the body, and it animates because the bones move it the way they move him.
+//
+// Which triangles is decided two ways at once. BONES say what a vertex belongs to -- the
+// skin weights already know whether it is torso, upper arm, thigh or head -- and that is what
+// keeps a shirt off the face and a pair of shorts off the shins. HEIGHT along the spine says
+// where a hem falls, and it is a straight line, which is what a hem is. Bone ownership alone
+// gives a ragged waist where influences cross over; a height cut gives a waistband.
+//
+// UVs are cylindrical about the spine, with the seam at the back, so a plaid runs round the
+// chest the way plaid does and lettering sits on the front. Every pattern is painted to a
+// canvas, so an outfit is a description and not a file.
+let GARM={lift:0.013, shirtLift:0.018, waist:0.10, tuck:0.08, collar:0.92,
+          shortHem:0.42, longHem:0.06, sleeveEnd:0.85};
+const _garmTex={};
+function garmentTex(spec){
+  const key=JSON.stringify(spec);
+  if(_garmTex[key])return _garmTex[key];
+  const W=(spec.w||512), H=(spec.h||512), c=document.createElement('canvas');
+  c.width=W; c.height=H; const x=c.getContext('2d');
+  const hex=v=>'#'+(v>>>0).toString(16).padStart(6,'0');
+  const fill=v=>{ x.fillStyle=hex(v); x.fillRect(0,0,W,H); };
+  const k=spec.k||'solid';
+  if(k==='solid'){ fill(spec.c); }
+  else if(k==='stripes'){
+    // horizontal bands; n is how many pairs across the height
+    fill(spec.a); x.fillStyle=hex(spec.b);
+    const n=spec.n||8, hh=H/n;
+    for(let i=0;i<n;i++)x.fillRect(0,i*hh,W,hh*(spec.f||0.5));
+  }
+  else if(k==='check'){
+    fill(spec.a); x.fillStyle=hex(spec.b);
+    const n=spec.n||10, s=W/n;
+    for(let i=0;i<n;i++)for(let j=0;j<n;j++)if((i+j)&1)x.fillRect(i*s,j*s,s+0.5,s+0.5);
+  }
+  else if(k==='plaid'){
+    fill(spec.a);
+    const n=spec.n||5, s=W/n;
+    x.globalAlpha=0.55; x.fillStyle=hex(spec.b);
+    for(let i=0;i<n;i++){ x.fillRect(i*s,0,s*0.45,H); x.fillRect(0,i*s,W,s*0.45); }
+    x.globalAlpha=0.9; x.fillStyle=hex(spec.c||spec.b);
+    for(let i=0;i<n;i++){ x.fillRect(i*s+s*0.18,0,s*0.08,H); x.fillRect(0,i*s+s*0.18,W,s*0.08); }
+    x.globalAlpha=1;
+  }
+  else if(k==='tiedye'){
+    // a spiral of hue out of the centre, which is what a tie-dye is, with the word on the chest
+    const cx=W*0.5, cy=H*0.55;
+    for(let y=0;y<H;y+=2)for(let xx=0;xx<W;xx+=2){
+      const dx=xx-cx, dy=y-cy, r=Math.hypot(dx,dy), a=Math.atan2(dy,dx);
+      const t=(r/W*3.2+a/(Math.PI*2)*2.0)%1;
+      x.fillStyle=`hsl(${(t*360+(spec.hue||0))|0},82%,${58+Math.sin(r*0.09)*10}%)`;
+      x.fillRect(xx,y,2,2);
+    }
+    if(spec.text){
+      x.textAlign='center'; x.textBaseline='middle';
+      x.font='900 '+(W*0.17)+'px "Trebuchet MS",sans-serif';
+      x.lineWidth=W*0.02; x.strokeStyle='rgba(0,0,0,0.55)';
+      x.strokeText(spec.text,W*0.5,H*0.40); x.fillStyle='#fff'; x.fillText(spec.text,W*0.5,H*0.40);
+      if(spec.sub){ x.font='800 '+(W*0.075)+'px "Trebuchet MS",sans-serif';
+        x.strokeText(spec.sub,W*0.5,H*0.53); x.fillText(spec.sub,W*0.5,H*0.53); }
+    }
+  }
+  else if(k==='denim'){
+    fill(spec.c||0x3b5a8a);
+    // weave noise, then the stitch lines that say "jeans"
+    for(let i=0;i<9000;i++){ x.fillStyle=`rgba(255,255,255,${Math.random()*0.10})`;
+      x.fillRect(Math.random()*W,Math.random()*H,2,1); }
+    x.strokeStyle='#d9a441'; x.lineWidth=2; x.setLineDash([6,5]);
+    x.beginPath(); x.moveTo(W*0.5,0); x.lineTo(W*0.5,H); x.stroke();
+    x.beginPath(); x.moveTo(0,H*0.06); x.lineTo(W,H*0.06); x.stroke(); x.setLineDash([]);
+    if(spec.belt){ x.fillStyle='#4a2f16'; x.fillRect(0,0,W,H*0.09);
+      x.fillStyle='#c9a227'; x.fillRect(W*0.47,H*0.015,W*0.06,H*0.06);
+      // a couple of leather pouches hanging off it
+      x.fillStyle='#6b4423'; x.fillRect(W*0.12,H*0.08,W*0.14,H*0.14); x.fillRect(W*0.74,H*0.08,W*0.14,H*0.14); }
+  }
+  else if(k==='stars'){
+    fill(spec.c||0x1c2a6b);
+    const star=(px,py,r,col)=>{ x.fillStyle=col; x.beginPath();
+      for(let i=0;i<10;i++){ const rr=i&1?r*0.45:r, a=i/10*Math.PI*2-Math.PI/2;
+        x[i?'lineTo':'moveTo'](px+Math.cos(a)*rr,py+Math.sin(a)*rr); } x.closePath(); x.fill(); };
+    for(let i=0;i<46;i++)star(Math.random()*W,Math.random()*H,6+Math.random()*12,i%3?'#f4d35e':'#ffffff');
+    for(let i=0;i<120;i++){ x.fillStyle='rgba(255,255,255,0.7)'; x.fillRect(Math.random()*W,Math.random()*H,2,2); }
+  }
+  else if(k==='chef'){
+    fill(0xf7f7f4);
+    x.fillStyle='#e6e6e0'; x.fillRect(W*0.5-1,0,2,H);          // the front seam
+    for(const bx of [W*0.40,W*0.60])for(let i=0;i<5;i++){      // double-breasted buttons
+      x.fillStyle='#d9d9d2'; x.beginPath(); x.arc(bx,H*0.16+i*H*0.15,W*0.022,0,Math.PI*2); x.fill(); }
+  }
+  else if(k==='armor'){
+    // lacquered lames: red bands laced with dark cord
+    fill(spec.c||0x8a1c1c);
+    const n=9, hh=H/n;
+    for(let i=0;i<n;i++){ x.fillStyle='rgba(0,0,0,0.42)'; x.fillRect(0,i*hh+hh*0.72,W,hh*0.28);
+      x.fillStyle='#e0b23a'; for(let j=0;j<12;j++)x.fillRect(j*W/12+W/24-2,i*hh+hh*0.30,4,hh*0.40); }
+  }
+  else if(k==='space'){
+    fill(0xf2f2f0);
+    x.strokeStyle='#b9bdc3'; x.lineWidth=3;
+    for(const yy of [0.22,0.48,0.74]){ x.beginPath(); x.moveTo(0,H*yy); x.lineTo(W,H*yy); x.stroke(); }
+    x.beginPath(); x.moveTo(W*0.5,0); x.lineTo(W*0.5,H); x.stroke();
+    // mission patch on the chest, flag on the arm
+    x.fillStyle='#1f4e9c'; x.beginPath(); x.arc(W*0.36,H*0.30,W*0.06,0,Math.PI*2); x.fill();
+    x.fillStyle='#d23c3c'; x.fillRect(W*0.60,H*0.26,W*0.10,H*0.07);
+  }
+  else if(k==='track'){
+    // an eighties tracksuit: three loud panels on the diagonal
+    fill(spec.a||0xe94b9c);
+    x.fillStyle=hex(spec.b||0x2ec4b6);
+    x.beginPath(); x.moveTo(0,H*0.30); x.lineTo(W,H*0.55); x.lineTo(W,H*0.72); x.lineTo(0,H*0.47); x.closePath(); x.fill();
+    x.fillStyle=hex(spec.c||0xffd23f);
+    x.beginPath(); x.moveTo(0,H*0.50); x.lineTo(W,H*0.75); x.lineTo(W,H*0.82); x.lineTo(0,H*0.57); x.closePath(); x.fill();
+    x.fillStyle='#ffffff'; x.fillRect(W*0.5-3,0,6,H);         // the zip
+  }
+  else if(k==='button'){
+    fill(spec.c||0xbfd7ee);
+    x.fillStyle='rgba(255,255,255,0.35)'; x.fillRect(W*0.46,0,W*0.08,H);   // the placket
+    for(let i=0;i<6;i++){ x.fillStyle='#ffffff'; x.beginPath(); x.arc(W*0.5,H*0.12+i*H*0.15,W*0.016,0,Math.PI*2); x.fill(); }
+    if(spec.lanyard){ x.strokeStyle='#1d1d1d'; x.lineWidth=5;
+      x.beginPath(); x.moveTo(W*0.40,0); x.lineTo(W*0.47,H*0.42); x.moveTo(W*0.60,0); x.lineTo(W*0.53,H*0.42); x.stroke();
+      x.fillStyle='#ffffff'; x.fillRect(W*0.44,H*0.42,W*0.12,H*0.16);
+      x.fillStyle='#d23c3c'; x.fillRect(W*0.44,H*0.42,W*0.12,H*0.04); }
+  }
+  else if(k==='leather'){
+    fill(spec.c||0x5a3a1e);
+    x.strokeStyle='rgba(0,0,0,0.45)'; x.lineWidth=3;
+    for(const xx of [0.20,0.50,0.80]){ x.beginPath(); x.moveTo(W*xx,0); x.lineTo(W*xx,H); x.stroke(); }
+    x.beginPath(); x.moveTo(0,H*0.30); x.lineTo(W,H*0.30); x.stroke();
+    x.fillStyle='#c9a227'; x.fillRect(W*0.32,H*0.14,W*0.10,H*0.06);   // wings badge
+    x.fillStyle='#e9e0c8'; x.fillRect(W*0.40,H*0.00,W*0.20,H*0.10);   // the scarf at the collar
+  }
+  else if(k==='brocade'){
+    fill(spec.c||0x6b4a1e);
+    x.fillStyle='rgba(212,175,55,0.75)';
+    const s=W/8;
+    for(let i=0;i<8;i++)for(let j=0;j<8;j++){ const cx=i*s+s/2+((j&1)?s/2:0), cy=j*s+s/2;
+      x.beginPath(); x.moveTo(cx,cy-s*0.32); x.lineTo(cx+s*0.22,cy); x.lineTo(cx,cy+s*0.32); x.lineTo(cx-s*0.22,cy); x.closePath(); x.fill(); }
+    x.fillStyle='#f4efe4'; x.fillRect(W*0.40,0,W*0.20,H*0.12);         // the cravat
+    for(let i=0;i<4;i++){ x.fillStyle='#c9a227'; x.beginPath(); x.arc(W*0.5,H*0.20+i*H*0.17,W*0.02,0,Math.PI*2); x.fill(); }
+  }
+  else if(k==='hawaii'){
+    fill(spec.c||0xf3e6c8);
+    for(let i=0;i<22;i++){ const px=Math.random()*W, py=Math.random()*H, r=W*0.045;
+      x.fillStyle=i%2?'#d94a4a':'#2f8f6b';
+      for(let p=0;p<5;p++){ const a=p/5*Math.PI*2; x.beginPath(); x.arc(px+Math.cos(a)*r,py+Math.sin(a)*r,r*0.7,0,Math.PI*2); x.fill(); }
+      x.fillStyle='#f4d35e'; x.beginPath(); x.arc(px,py,r*0.45,0,Math.PI*2); x.fill(); }
+  }
+  const t=new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping;
+  if(THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding;
+  t.anisotropy=4; t.needsUpdate=true;
+  _garmTex[key]=t; return t;
+}
+// The rider's skinned mesh, and the landmarks a garment is cut against -- all in the mesh's
+// own bind space, which is the one space nothing animates.
+function garmentFrame(mdl){
+  let sk=null; mdl.traverse(o=>{ if(!sk&&o.isSkinnedMesh&&o.skeleton)sk=o; });
+  if(!sk)return null;
+  const bones=sk.skeleton.bones, inv=sk.skeleton.boneInverses;
+  const bi={}; bones.forEach((b,i)=>{ bi[b.name]=i; });
+  const bindInv=new THREE.Matrix4().copy(sk.bindMatrixInverse);
+  const at=n=>{ const i=bi[n]; if(i===undefined)return null;
+    const m=new THREE.Matrix4().copy(inv[i]).invert().premultiply(bindInv);
+    return new THREE.Vector3().setFromMatrixPosition(m); };
+  const hipsB=at('Hips'), headB=at('Head'), frontB=at('headfront')||at('head_end');
+  if(!hipsB||!headB)return null;
+  // DIRECTIONS come from the bones -- they survive whatever scale the bind chain carries.
+  const up=headB.clone().sub(hipsB).normalize();
+  let fwd=frontB?frontB.clone().sub(headB):new THREE.Vector3(0,0,-1);
+  fwd.addScaledVector(up,-fwd.dot(up)); if(fwd.lengthSq()<1e-9)fwd.set(0,0,-1); fwd.normalize();
+  const right=new THREE.Vector3().crossVectors(up,fwd).normalize();
+  // ---- POSITIONS COME FROM THE VERTICES ----
+  // The first version of this put the bones through bindMatrixInverse and got a skeleton 0.67
+  // tall sitting at the origin under a mesh 1.7 tall sitting at y 3.4 -- every height cut then
+  // missed the body entirely, and a shirt came back as nothing but its sleeves. Whatever the
+  // right chain is, the vertices are already in the space the garment is cut in, and each one
+  // says which bone owns it. So a landmark is the mean of the vertices that bone owns. No
+  // chain to get wrong.
+  const g=sk.geometry, pos=g.attributes.position, si=g.attributes.skinIndex, sw=g.attributes.skinWeight;
+  const comp=(a,v,k)=>k===0?a.getX(v):k===1?a.getY(v):k===2?a.getZ(v):a.getW(v);
+  const acc={}; const p=new THREE.Vector3(); let cxs=0,czs=0,cn=0;
+  const CORE=new Set(['Hips','Spine','Spine01','Spine02','LeftShoulder','RightShoulder'].map(n=>bi[n]).filter(x=>x!==undefined));
+  for(let v=0;v<pos.count;v++){
+    p.fromBufferAttribute(pos,v);
+    let b0=0,w0=-1; for(let k=0;k<4;k++){ const w=comp(sw,v,k); if(w>w0){w0=w;b0=comp(si,v,k);} }
+    const nm=bones[b0]?bones[b0].name:'?';
+    const hh=p.dot(up);
+    const e=acc[nm]||(acc[nm]={s:0,n:0,lo:Infinity,hi:-Infinity}); e.s+=hh; e.n++; if(hh<e.lo)e.lo=hh; if(hh>e.hi)e.hi=hh;
+    if(CORE.has(b0)){ cxs+=p.dot(right); czs+=p.dot(fwd); cn++; }
+  }
+  const mean=n=>acc[n]?acc[n].s/acc[n].n:null, lo=n=>acc[n]?acc[n].lo:null, hi=n=>acc[n]?acc[n].hi:null;
+  const two=(f,a,b)=>{ const A=f(a),B=f(b); return A!==null&&B!==null?(A+B)/2:(A!==null?A:B); };
+  const hipsH=mean('Hips');
+  if(hipsH===null)return null;
+  const L={hips:hipsH,
+           shoulder:two(mean,'LeftShoulder','RightShoulder'),
+           // the collar is where the head begins, which is a harder line than any bone's mean
+           neck:(lo('Head')!==null?lo('Head'):two(hi,'LeftShoulder','RightShoulder')),
+           knee:two(mean,'LeftLeg','RightLeg'),
+           ankle:two(mean,'LeftFoot','RightFoot')};
+  if(L.shoulder===null)L.shoulder=hipsH+0.3; if(L.knee===null)L.knee=hipsH-0.3; if(L.ankle===null)L.ankle=L.knee-0.2;
+  // the spine axis the UVs wrap about: the core's own centre, in the right/fwd plane
+  const axisR=cn?cxs/cn:0, axisF=cn?czs/cn:0;
+  const bb=new THREE.Box3().setFromObject(mdl), size=bb.getSize(new THREE.Vector3());
+  return {sk, bi, up, fwd, right, L, axisR, axisF, hips:new THREE.Vector3(), tall:size.y};
+}
+// One garment. `part` is 'shirt' or 'pants'; the descriptor says how long it is.
+function cutGarment(F, part, D, tex){
+  const g=F.sk.geometry, pos=g.attributes.position, nrm=g.attributes.normal;
+  const si=g.attributes.skinIndex, sw=g.attributes.skinWeight;
+  if(!pos||!nrm||!si||!sw)return null;
+  const set=names=>{ const s=new Set(); for(const n of names)if(F.bi[n]!==undefined)s.add(F.bi[n]); return s; };
+  const CORE=set(['Hips','Spine','Spine01','Spine02','LeftShoulder','RightShoulder']);
+  const UPARM=set(['LeftArm','RightArm']), LOARM=set(['LeftForeArm','RightForeArm']);
+  const UPLEG=set(['LeftUpLeg','RightUpLeg']), LOLEG=set(['LeftLeg','RightLeg']);
+  // r128 has no BufferAttribute.getComponent -- that is r131 -- only getX/Y/Z/W. The first
+  // run of this threw on the first vertex.
+  const comp=(a,v,k)=>k===0?a.getX(v):k===1?a.getY(v):k===2?a.getZ(v):a.getW(v);
+  const own=(v,S)=>{ let s=0; for(let k=0;k<4;k++){ if(S.has(comp(si,v,k)))s+=comp(sw,v,k); } return s; };
+  const L=F.L, torso=Math.max(1e-4,L.shoulder-L.hips), thigh=Math.max(1e-4,L.hips-L.knee), shin=Math.max(1e-4,L.knee-L.ankle);
+  const waist=L.hips+GARM.waist*torso;
+  let lo,hi,lift;
+  if(part==='shirt'){ lo=waist-GARM.tuck*torso; hi=L.hips+GARM.collar*(L.neck-L.hips); lift=GARM.shirtLift; }
+  else { hi=waist+0.02*torso; lift=GARM.lift;
+         lo=(D.len==='long')?(L.ankle+GARM.longHem*shin):(L.knee+GARM.shortHem*thigh); }
+  const sleeves=D.sleeves||'none';
+  const p=new THREE.Vector3();
+  // keep: 0 = not this garment's, 1 = inside, 2 = on the right bones but past a hem. A
+  // triangle that straddles a hem is kept and its outside corners are slid up the spine to the
+  // hem line, so the edge is a line and not the sawtooth the chef's whites showed at every hem
+  // and cuff when only whole triangles were taken.
+  const keep=new Uint8Array(pos.count), wcore=new Uint8Array(pos.count);
+  for(let v=0;v<pos.count;v++){
+    p.fromBufferAttribute(pos,v); const hh=p.dot(F.up);
+    // ownership is the garment's bones TOGETHER: a belly vertex split half hip, half thigh
+    // belongs to both the shirt and the shorts by any sane reading, and reading each bone
+    // alone left it to neither -- a fur patch at the waist on every outfit
+    let k=0;
+    const wc=own(v,CORE); wcore[v]=wc>=0.5?1:0;
+    if(part==='shirt'){
+      const wa=(sleeves!=='none'?own(v,UPARM):0)+(sleeves==='long'?own(v,LOARM):0);
+      if(wc+wa>=0.5)k=(wa>wc)?1:((hh>=lo&&hh<=hi)?1:2);
+    } else {
+      const wl=own(v,UPLEG)+(D.len==='long'?own(v,LOLEG):0);
+      if(wc+wl>=0.5)k=(wl>wc)?(hh>=lo?1:2):((hh>=lo&&hh<=hi)?1:2);
+    }
+    keep[v]=k;
+  }
+  const idx=g.index?g.index.array:null, nTri=idx?idx.length/3:pos.count/3;
+  const tris=[];
+  for(let t=0;t<nTri;t++){
+    const a=idx?idx[t*3]:t*3, b=idx?idx[t*3+1]:t*3+1, c=idx?idx[t*3+2]:t*3+2;
+    const ka=keep[a], kb=keep[b], kc=keep[c];
+    if(ka&&kb&&kc&&(ka===1||kb===1||kc===1))tris.push(a,b,c);
+  }
+  if(tris.length<3){ if(typeof console!=='undefined')console.warn('cutGarment: nothing to cut for',part,'lo',lo.toFixed(3),'hi',hi.toFixed(3),'L',JSON.stringify(L)); return null; }
+  // ---- WELD BEFORE OFFSETTING, OR THE SHIRT SHATTERS ----
+  // The pug arrives as glTF, which splits every vertex at a UV or normal seam, so the body is
+  // thousands of shells whose normals disagree along their edges. Offset each shell along its
+  // own normals and the shells drift apart: at the working lift the fur showed through the
+  // whites in patches, and with the lift doubled the shirt came out as a heap of shards. So the
+  // cut is welded by position first and each welded vertex is pushed along the AVERAGE of the
+  // normals that met there -- one continuous surface a hair outside the body.
+  const eps=Math.max(1e-6,F.tall*5e-4), kmap=new Map(), order=[], NS=[], mIdx=new Int32Array(pos.count).fill(-1);
+  const nn=new THREE.Vector3();
+  for(const v of tris){
+    if(mIdx[v]>=0)continue;
+    p.fromBufferAttribute(pos,v);
+    const key=Math.round(p.x/eps)+','+Math.round(p.y/eps)+','+Math.round(p.z/eps);
+    let i=kmap.get(key);
+    if(i===undefined){ i=order.length; kmap.set(key,i); order.push(v); NS.push(new THREE.Vector3()); }
+    mIdx[v]=i; nn.fromBufferAttribute(nrm,v); NS[i].add(nn);
+  }
+  const n0=order.length, P=[], N=[], UV=[], SI=[], SW=[], rr=[];
+  const liftAbs=lift*F.tall;
+  for(let i=0;i<n0;i++){
+    const v=order[i];
+    p.fromBufferAttribute(pos,v);
+    nn.copy(NS[i]); if(nn.lengthSq()<1e-8)nn.fromBufferAttribute(nrm,v); nn.normalize();
+    if(keep[v]===2){ const h0=p.dot(F.up); p.addScaledVector(F.up, Math.min(hi,Math.max(lo,h0))-h0); }
+    p.addScaledVector(nn,liftAbs);
+    P.push(p.x,p.y,p.z); N.push(nn.x,nn.y,nn.z);
+    const hh=p.dot(F.up), ang=Math.atan2(p.dot(F.right)-F.axisR, p.dot(F.fwd)-F.axisF);
+    // minus: the rider's right is the viewer's left, and with the sign the other way the
+    // "SURF" on the tee read back to front
+    UV.push(0.5-ang/(Math.PI*2),                       // 0.5 is dead centre of the chest
+            1.0-(hh-lo)/Math.max(1e-4,hi-lo));         // 0 at the collar, 1 at the hem
+    if(keep[v]===1&&wcore[v])rr.push(Math.hypot(p.dot(F.right)-F.axisR, p.dot(F.fwd)-F.axisF));
+    for(let k=0;k<4;k++){ SI.push(comp(si,v,k)); SW.push(comp(sw,v,k)); }
+  }
+  // the back seam: a triangle whose corners sit either side of u=0|1 would smear the whole
+  // width of the print across itself, so its low-side corners get a copy at u+1 (the map
+  // repeats) and the seam stays a seam
+  const alt=new Map(), index=[];
+  const wrap=i=>{ let j=alt.get(i); if(j===undefined){ j=P.length/3; alt.set(i,j);
+    P.push(P[i*3],P[i*3+1],P[i*3+2]); N.push(N[i*3],N[i*3+1],N[i*3+2]); UV.push(UV[i*2]+1,UV[i*2+1]);
+    for(let k=0;k<4;k++){ SI.push(SI[i*4+k]); SW.push(SW[i*4+k]); } } return j; };
+  for(let t=0;t<tris.length;t+=3){
+    const a=mIdx[tris[t]], b=mIdx[tris[t+1]], c=mIdx[tris[t+2]];
+    if(a===b||b===c||a===c)continue;               // welded flat
+    const ua=UV[a*2], ub=UV[b*2], uc=UV[c*2];
+    if(Math.max(ua,ub,uc)-Math.min(ua,ub,uc)>0.5){ index.push(ua<0.5?wrap(a):a, ub<0.5?wrap(b):b, uc<0.5?wrap(c):c); }
+    else index.push(a,b,c);
+  }
+  // a seamless pattern is tiled round the body as many times as the body is wider than the
+  // garment is tall, so a check stays square instead of stretching into bands -- one map
+  // round a waist ten times its height made gingham shorts read as stripes. Prints (a logo,
+  // a chef's placket, a breastplate) are drawn once and are left alone.
+  if(D.tile&&rr.length){ const r=rr.reduce((s,v)=>s+v,0)/rr.length;
+    const tile=Math.max(1,Math.round(2*Math.PI*r/Math.max(1e-4,hi-lo)));
+    for(let i=0;i<UV.length;i+=2)UV[i]*=tile; }
+  const n=P.length/3;
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(P),3));
+  geo.setAttribute('normal',new THREE.BufferAttribute(new Float32Array(N),3));
+  geo.setAttribute('uv',new THREE.BufferAttribute(new Float32Array(UV),2));
+  geo.setAttribute('skinIndex',new THREE.BufferAttribute(new Float32Array(SI),4));
+  geo.setAttribute('skinWeight',new THREE.BufferAttribute(new Float32Array(SW),4));
+  geo.setIndex(index);
+  const m=PBR({color:0xffffff, roughness:D.rough!==undefined?D.rough:0.66, metalness:0.02, vivid:1.0});
+  m.color.set(0xffffff); m.map=tex; m.side=THREE.DoubleSide; m.needsUpdate=true;
+  const mesh=new THREE.SkinnedMesh(geo,m);
+  mesh.userData.part=part; mesh.userData.kept=n; mesh.userData.lo=+lo.toFixed(3); mesh.userData.hi=+hi.toFixed(3);
+  mesh.frustumCulled=false; mesh.castShadow=false; mesh.receiveShadow=true;
+  // same parent, same local transform, same bind -- so it is the same surface, a hair out
+  mesh.position.copy(F.sk.position); mesh.quaternion.copy(F.sk.quaternion); mesh.scale.copy(F.sk.scale);
+  mesh.bind(F.sk.skeleton, F.sk.bindMatrix);
+  return mesh;
+}
+// A suit descriptor to garments. The five original suits are colours in vest/shorts/hem; the
+// outfits are patterns in shirt/pants. Both go through here.
+function wearSuit(S, mdl){
+  const F=garmentFrame(mdl); if(!F)return false;
+  const hex=v=>({k:'solid',c:v});
+  const shirt=S.shirt||(S.vest!==undefined?hex(S.vest):null);
+  const pants=S.pants||(S.shorts!==undefined?hex(S.shorts):null);
+  let any=false;
+  const TILE=new Set(['stripes','check','plaid','stars','denim','leather','brocade','hawaii']);
+  const tiles=sp=>!!(sp&&TILE.has(sp.k||'solid')&&!sp.belt);
+  if(pants){ const m=cutGarment(F,'pants',{len:S.len||'shorts', tile:tiles(pants)},garmentTex(pants)); if(m){ kit(F.sk.parent,m); any=true; } }
+  if(shirt){ const m=cutGarment(F,'shirt',{sleeves:S.sleeves||(S.vest!==undefined?'none':'short'), tile:tiles(shirt)},garmentTex(shirt)); if(m){ kit(F.sk.parent,m); any=true; } }
+  return any;
+}
+
 function kitGear(C,bodyPatch){
   const E=gearWorn('eyes'), H=gearWorn('head'), S=gearWorn('body'), B=gearWorn('neck');
   // Tagged so the fit check can pick the gear back out of a kit that also holds ears, eyes,
@@ -16212,18 +16603,38 @@ function kitGear(C,bodyPatch){
         const u=p.dot(EY.up);    if(u<bot)bot=u;
       }
       const skull=hi-lo;
-      // A neck is a fraction of the width of the head above it, and the tie sits a little
-      // under the jaw rather than on it. Both numbers are tunable because neither is knowable
-      // from the rig: the pug arrives as a model, so the procedural torso the neck probe
-      // measures is not the body being worn, and the only honest way to set these is to put
-      // them on the animal and look.
-      o.scale.setScalar(skull*BND_R);
+      // ---- THIS IS NOT A UNIT RING, AND ITS ORIGIN IS NOT ITS COLLAR ----
+      // Measured, the model is 3.25 across by 2.12 tall by 2.59 deep, off-centre on every axis,
+      // with a knot at the back and a drape that hangs forward-and-down at about thirty-five
+      // degrees -- it was modelled hanging in air over a sloping chest. Scaling it as a unit
+      // ring and pinning its ORIGIN to the neck put the collar off to one side and the drape
+      // 45 units in front of a face whose muzzle stops at 21. So, as the hat now does: find
+      // the COLLAR (the top slice of the mesh), size that to the neck, seat that on the neck
+      // point, and lean the whole thing back so the drape lies on a chest that is vertical.
+      let bmin=new THREE.Vector3(Infinity,Infinity,Infinity), bmax=new THREE.Vector3(-Infinity,-Infinity,-Infinity);
+      const pts=[]; const _v=new THREE.Vector3();
+      o.traverse(mm=>{ if(!mm.isMesh||!mm.geometry||!mm.geometry.attributes.position)return;
+        const pa=mm.geometry.attributes.position; mm.updateWorldMatrix(true,false);
+        const rel=new THREE.Matrix4().copy(o.matrixWorld).invert().multiply(mm.matrixWorld);
+        for(let i=0;i<pa.count;i+=3){ _v.fromBufferAttribute(pa,i).applyMatrix4(rel);
+          bmin.min(_v); bmax.max(_v); pts.push(_v.x,_v.y,_v.z); } });
+      const bh=Math.max(1e-4,bmax.y-bmin.y);
+      // the collar is the top 30% of the mesh: its centre and width are what fit the neck
+      const cc=new THREE.Vector3(); let cn=0, cx0=Infinity, cx1=-Infinity;
+      for(let i=0;i<pts.length;i+=3){ if(pts[i+1]>bmax.y-bh*0.30){ cc.x+=pts[i]; cc.y+=pts[i+1]; cc.z+=pts[i+2]; cn++;
+        if(pts[i]<cx0)cx0=pts[i]; if(pts[i]>cx1)cx1=pts[i]; } }
+      if(cn){ cc.multiplyScalar(1/cn); } else { cc.copy(bmin).add(bmax).multiplyScalar(0.5); cx0=bmin.x; cx1=bmax.x; }
+      const collarW=Math.max(1e-4,cx1-cx0);
+      const k=skull*BND_R/collarW;
+      o.scale.setScalar(k);
       o.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(
         new THREE.Vector3().crossVectors(EY.up, EY.fwd), EY.up.clone(), EY.fwd.clone()));
-      // ...then lean it forward about the rider's own side axis
+      // lean it back onto the chest about the rider's own side axis
       if(BND_TILT)o.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(
         new THREE.Vector3(1,0,0), THREE.MathUtils.degToRad(BND_TILT)));
-      o.position.copy(EY.mid).addScaledVector(EY.up, bot+skull*BND_Y);
+      // the collar's centre lands on the neck point; the origin goes wherever that puts it
+      const neck=EY.mid.clone().addScaledVector(EY.up, bot+skull*BND_Y);
+      o.position.copy(neck).sub(cc.clone().multiplyScalar(k).applyQuaternion(o.quaternion));
       kit(EY.H, o);
     } else {
       o.scale.setScalar(0.33);
@@ -16336,6 +16747,74 @@ function kitGear(C,bodyPatch){
       const roll=kit(GP,new THREE.Mesh(new THREE.TorusGeometry(0.335,0.058,10,22),m));
       roll.position.set(0,0.060,0);
       roll.rotation.x=Math.PI/2;
+    } else if(H.kind==='toque'){
+      // the chef's hat: a stiff band, and a puffed crown that is mostly air
+      const band=kit(GP,new THREE.Mesh(new THREE.CylinderGeometry(0.345,0.335,0.14,22,1,true),m));
+      band.position.set(0,0.235,0);
+      const puff=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.36,20,14),m));
+      puff.position.set(0,0.46,0); puff.scale.set(1.0,0.78,1.0);
+      for(let i=0;i<6;i++){ const a2=i/6*Math.PI*2;
+        const pl=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.15,12,10),m));
+        pl.position.set(Math.sin(a2)*0.27,0.50,Math.cos(a2)*0.27); }
+    } else if(H.kind==='tophat'){
+      const brim=kit(GP,new THREE.Mesh(new THREE.CylinderGeometry(0.50,0.50,0.03,26),m));
+      brim.position.set(0,0.165,0);
+      const crown=kit(GP,new THREE.Mesh(new THREE.CylinderGeometry(0.325,0.31,0.44,24,1,false),m));
+      crown.position.set(0,0.395,0);
+      const rb=kit(GP,new THREE.Mesh(new THREE.CylinderGeometry(0.335,0.335,0.07,24,1,true),
+        PBR({color:H.band||0x2a1a10, roughness:0.5, metalness:0.05, vivid:1.0})));
+      rb.position.set(0,0.215,0);
+    } else if(H.kind==='wizard'){
+      const brim=kit(GP,new THREE.Mesh(new THREE.CylinderGeometry(0.54,0.56,0.03,26),m));
+      brim.position.set(0,0.165,0);
+      const cone=kit(GP,new THREE.Mesh(new THREE.ConeGeometry(0.31,0.80,20),m));
+      cone.position.set(0,0.56,-0.04); cone.rotation.x=-0.16;
+      // a scatter of stars, which is what makes a cone a wizard
+      const gold=PBR({color:0xf4d35e, roughness:0.4, metalness:0.3, vivid:1.2});
+      for(let i=0;i<7;i++){ const a2=i*2.4, y=0.30+i*0.075, r=0.31*(1-(y-0.16)/0.80)+0.01;
+        const st=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.03,8,6),gold));
+        st.position.set(Math.sin(a2)*r,y,Math.cos(a2)*r-0.04); }
+    } else if(H.kind==='headband'){
+      const hb=kit(GP,new THREE.Mesh(new THREE.TorusGeometry(0.345,0.048,10,26),m));
+      hb.position.set(0,0.150,0); hb.rotation.x=Math.PI/2;
+      // the knot at the back, and its two tails
+      const knot=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.075,10,8),m));
+      knot.position.set(0,0.150,0.345);
+      for(const sx of [-1,1]){ const tl=kit(GP,new THREE.Mesh(new THREE.BoxGeometry(0.06,0.22,0.02),m));
+        tl.position.set(sx*0.06,0.03,0.36); tl.rotation.z=sx*0.35; }
+    } else if(H.kind==='astro'){
+      // a bubble over the whole head, and the collar ring it seals to
+      const glass=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.50,26,18),
+        PBR({color:0xdff3ff, roughness:0.05, metalness:0.1, vivid:1.0, transparent:true, opacity:0.22})));
+      glass.position.set(0,0.06,-0.02);
+      const ring=kit(GP,new THREE.Mesh(new THREE.CylinderGeometry(0.44,0.46,0.10,26,1,false),
+        PBR({color:0xf2f2f0, roughness:0.45, metalness:0.15, vivid:1.0})));
+      ring.position.set(0,-0.40,-0.02);
+    } else if(H.kind==='aviator'){
+      const cap=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.36,20,14),m));
+      cap.position.set(0,0.16,0); cap.scale.set(1.06,0.82,1.06);
+      for(const sx of [-1,1]){ const flap=kit(GP,new THREE.Mesh(new THREE.BoxGeometry(0.10,0.22,0.16),m));
+        flap.position.set(sx*0.33,-0.02,0.02); }
+      const strap=kit(GP,new THREE.Mesh(new THREE.CylinderGeometry(0.37,0.37,0.05,24,1,true),
+        PBR({color:0x2a1a10, roughness:0.5, metalness:0.05, vivid:1.0})));
+      strap.position.set(0,0.235,0);
+      const gm=PBR({color:0x8a6b3a, roughness:0.35, metalness:0.4, vivid:1.1});
+      const lens=PBR({color:0x9fd4e8, roughness:0.08, metalness:0.2, vivid:1.0});
+      for(const sx of [-1,1]){
+        const rim=kit(GP,new THREE.Mesh(new THREE.TorusGeometry(0.11,0.028,10,20),gm));
+        rim.position.set(sx*0.13,0.25,-0.33); rim.rotation.y=sx*0.25;
+        const gl=kit(GP,new THREE.Mesh(new THREE.CircleGeometry(0.10,20),lens));
+        gl.position.set(sx*0.13,0.25,-0.335); gl.rotation.y=sx*0.25; }
+    } else if(H.kind==='samurai'){
+      const bowl=kit(GP,new THREE.Mesh(new THREE.SphereGeometry(0.375,22,14),m));
+      bowl.position.set(0,0.17,0); bowl.scale.set(1.08,0.74,1.08);
+      const guard=kit(GP,new THREE.Mesh(new THREE.CylinderGeometry(0.40,0.55,0.16,24,1,true),m));
+      guard.position.set(0,0.02,0.02);
+      const gold=PBR({color:0xd4af37, roughness:0.3, metalness:0.7, vivid:1.2});
+      for(const sx of [-1,1]){ const horn=kit(GP,new THREE.Mesh(new THREE.BoxGeometry(0.05,0.30,0.02),gold));
+        horn.position.set(sx*0.10,0.40,-0.30); horn.rotation.z=-sx*0.55; }
+      const disc=kit(GP,new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,0.02,16),gold));
+      disc.position.set(0,0.28,-0.34); disc.rotation.x=Math.PI/2;
     } else {                                     // crown: the one worn by exactly one surfer
       const band=kit(GP,new THREE.Mesh(new THREE.CylinderGeometry(0.335,0.345,0.145,22,1,true),m));
       band.position.set(0,0.330,0);
@@ -16367,55 +16846,15 @@ function kitGear(C,bodyPatch){
   const _mdl=(typeof riderModels!=='undefined')?riderModels[builtChar]:null;
   let _mrig=null; try{ if(typeof riderRig==='function')_mrig=riderRig(); }catch(e){}
   if(S&&_mrig&&_mrig.bones&&_mdl){
-    const spine=_mrig.bones.Spine01||_mrig.bones.Spine||_mrig.bones.Spine02;
-    // ---- PLACED OFF THE SKELETON, NOT OFF THE BOUNDING BOX ----
-    // A fraction of the height is not a body part. Sixty-two per cent of the way up is the chest
-    // on a pug and the FACE on a short-bodied, big-headed animal -- which is exactly what it did:
-    // a rash vest worn as a collar over the eyes. The skeleton already knows where the waist and
-    // the shoulders are on every one of these characters, and it is the only thing that does.
-    const B=_mrig.bones;
-    const wp=o=>{ const v=new THREE.Vector3(); o.updateMatrixWorld(true); o.getWorldPosition(v); return v; };
-    const hipBone=B.LeftUpLeg&&B.RightUpLeg?null:(B.Spine||spine);
-    if(spine){
-      _mdl.updateMatrixWorld(true);
-      const hip=(B.LeftUpLeg&&B.RightUpLeg)
-        ? wp(B.LeftUpLeg).add(wp(B.RightUpLeg)).multiplyScalar(0.5)
-        : wp(hipBone);
-      const chest=wp(B.Spine02||B.Spine01||spine);
-      // shoulder to shoulder is a real torso width; the bounding box is arms and ears
-      const R=(B.LeftArm&&B.RightArm)
-        // 0.42 of the shoulder gap left the body bulging out either side of the garment: the
-        // arm bones sit INSIDE the silhouette, so the gap between them is narrower than the
-        // chest it is measuring.
-        ? wp(B.LeftArm).distanceTo(wp(B.RightArm))*0.58
-        : (()=>{ const sz=new THREE.Box3().setFromObject(_mdl).getSize(new THREE.Vector3());
-                 return Math.min(sz.x,sz.z)*0.34; })();
-      // ---- HIPS TO HEAD, NOT HIPS TO Spine02 ----
-      // Measured on the pug: hips 3.229, Spine02 3.448 -- a rise of 0.218 on a body 1.84 tall.
-      // Spine02 is barely above the waist on these rigs, so scaling a garment by that span made
-      // a vest a hand's width tall, which is the teal badge. The head is where the torso
-      // actually ends, and it is the one landmark every one of these skeletons agrees on.
-      const topY=(B.Head?wp(B.Head).y:chest.y);
-      const _bsz=new THREE.Box3().setFromObject(_mdl).getSize(new THREE.Vector3());
-      const rise=Math.max(_bsz.y*0.25, topY-hip.y);
-      const cloth=c=>PBR({color:c, roughness:0.58, metalness:0.04, vivid:1.15});
-      // y is now a fraction from the HIPS to the CHEST rather than through the whole animal, so
-      // 0 is the waistband and 1 is the collarbone on every one of them.
-      const ring=(yFrac,hFrac,rk,col)=>{
-        const g=new THREE.Mesh(new THREE.CylinderGeometry(R*rk,R*rk*1.03,rise*hFrac,22,1,true),
-                               cloth(col));
-        const w=new THREE.Vector3((hip.x+chest.x)*0.5, hip.y+rise*yFrac, (hip.z+chest.z)*0.5);
-        spine.updateMatrixWorld(true);
-        g.position.copy(spine.worldToLocal(w.clone()));
-        const q=new THREE.Quaternion(); spine.getWorldQuaternion(q);
-        g.quaternion.copy(q.clone().invert());
-        const sc=new THREE.Vector3(); spine.matrixWorld.decompose(new THREE.Vector3(),new THREE.Quaternion(),sc);
-        g.scale.set(1/Math.max(1e-4,sc.x),1/Math.max(1e-4,sc.y),1/Math.max(1e-4,sc.z));
-        kit(spine,g);
-      };
-      // trunks sit on the waist and finish below it; the vest starts above them and runs up
-      if(S.shorts){ ring(-0.02,0.42,1.02,S.shorts); if(S.hem)ring(0.20,0.07,1.05,S.hem); }
-      if(S.vest){   ring(0.62,0.62,1.00,S.vest);    if(S.hem)ring(0.32,0.07,1.03,S.hem); }
+    // ---- CUT FROM HIS OWN BODY ----
+    // The two rings that stood here were the honest fallback for a rider with no procedural
+    // torso to cut from, and they looked like exactly what they were: a cylinder near a dog.
+    // wearSuit takes the model's own skinned triangles instead -- see the block above kitGear --
+    // so the garment fits because it is the body, and moves because the bones move it.
+    // Nothing here is a size or a position, which is still the point.
+    if(!wearSuit(S,_mdl)){
+      // no skinned mesh to cut from (should not happen on a glb rider): leave him bare rather
+      // than put the tube back
     }
   }
   else if(S&&typeof bodyPatch==='function'){
@@ -31906,8 +32345,63 @@ if(location.hash.includes('debug')){
                 size:[+z.x.toFixed(4),+z.y.toFixed(4),+z.z.toFixed(4)]};
       };
       return {hat:one(typeof hatModel!=='undefined'?hatModel:null,'cowboyhat'),
-              shades:one(typeof shadesModel!=='undefined'?shadesModel:null,'shades')};
+              shades:one(typeof shadesModel!=='undefined'?shadesModel:null,'shades'),
+              bandana:one(typeof bandanaModel!=='undefined'?bandanaModel:null,'bandana')};
     },
+    // the cut garments: are they skinned, how big, and how many -- so a suit that swaps to
+    // another can be seen to have taken its predecessor with it rather than stacking
+    // the frame a garment is cut against, with a handful of vertices classified -- because a
+    // shirt that comes back as only its sleeves means the core band selected nothing, and
+    // whether that is the bones or the heights is only answerable from the numbers
+    garmFrame(){
+      const mdl=(typeof riderModels!=='undefined')?riderModels[builtChar]:null;
+      const F=mdl?garmentFrame(mdl):null; if(!F)return null;
+      const g=F.sk.geometry, pos=g.attributes.position, si=g.attributes.skinIndex, sw=g.attributes.skinWeight;
+      const comp=(a,v,k)=>k===0?a.getX(v):k===1?a.getY(v):k===2?a.getZ(v):a.getW(v);
+      const names=F.sk.skeleton.bones.map(b=>b.name);
+      const hist={}; let hmin=Infinity,hmax=-Infinity; const p=new THREE.Vector3();
+      for(let v=0;v<pos.count;v+=7){
+        p.fromBufferAttribute(pos,v); const hh=p.dot(F.up);
+        if(hh<hmin)hmin=hh; if(hh>hmax)hmax=hh;
+        let bi=0,bw=-1; for(let k=0;k<4;k++){ const w=comp(sw,v,k); if(w>bw){bw=w;bi=comp(si,v,k);} }
+        const nm=names[bi]||('#'+bi); const e=hist[nm]||(hist[nm]={n:0,lo:Infinity,hi:-Infinity});
+        e.n++; if(hh<e.lo)e.lo=+hh.toFixed(3); if(hh>e.hi)e.hi=+hh.toFixed(3); }
+      return {L:F.L, tall:+F.tall.toFixed(3), hmin:+hmin.toFixed(3), hmax:+hmax.toFixed(3),
+              up:[+F.up.x.toFixed(3),+F.up.y.toFixed(3),+F.up.z.toFixed(3)], hist};
+    },
+    // the shirt's chest showed fur through it in patches. Two explanations, one instrument:
+    // triangles inside the height band that the bone rule threw out (a hole), against the
+    // body poking through a shirt that is there (an offset). Count the first directly; the
+    // second is answered by garmSet({shirtLift}) and a second look.
+    garmHoles(){
+      const mdl=(typeof riderModels!=='undefined')?riderModels[builtChar]:null;
+      const F=mdl?garmentFrame(mdl):null; if(!F)return null;
+      const g=F.sk.geometry, pos=g.attributes.position, si=g.attributes.skinIndex, sw=g.attributes.skinWeight;
+      const comp=(a,v,k)=>k===0?a.getX(v):k===1?a.getY(v):k===2?a.getZ(v):a.getW(v);
+      const names=F.sk.skeleton.bones.map(b=>b.name);
+      const CORE=new Set(['Hips','Spine','Spine01','Spine02','LeftShoulder','RightShoulder'].map(n=>F.bi[n]).filter(x=>x!==undefined));
+      const L=F.L, torso=L.shoulder-L.hips, waist=L.hips+GARM.waist*torso;
+      const lo=waist-GARM.tuck*torso, hi=L.hips+GARM.collar*(L.neck-L.hips);
+      const p=new THREE.Vector3(); const band=new Uint8Array(pos.count); const core=new Float32Array(pos.count); const top=new Int16Array(pos.count);
+      for(let v=0;v<pos.count;v++){ p.fromBufferAttribute(pos,v); const hh=p.dot(F.up); band[v]=(hh>=lo&&hh<=hi)?1:0;
+        let s=0,bi=0,bw=-1; for(let k=0;k<4;k++){ const w=comp(sw,v,k), b=comp(si,v,k); if(CORE.has(b))s+=w; if(!CORE.has(b)&&w>bw){bw=w;bi=b;} }
+        core[v]=s; top[v]=bi; }
+      const idx=g.index?g.index.array:null, nTri=idx?idx.length/3:pos.count/3;
+      let inBand=0, kept=0, dropped=0; const who={}; const wts=[0,0,0,0,0];
+      for(let t=0;t<nTri;t++){ const a=idx?idx[t*3]:t*3,b=idx?idx[t*3+1]:t*3+1,c=idx?idx[t*3+2]:t*3+2;
+        if(!(band[a]&&band[b]&&band[c]))continue; inBand++;
+        if(core[a]>=0.5&&core[b]>=0.5&&core[c]>=0.5){kept++;continue;}
+        dropped++; for(const v of [a,b,c]){ if(core[v]<0.5){ const nm=names[top[v]]||('#'+top[v]); who[nm]=(who[nm]||0)+1; wts[Math.min(4,Math.floor(core[v]*5))]++; } } }
+      return {lo:+lo.toFixed(3),hi:+hi.toFixed(3),inBand,kept,dropped,who,coreWeightHist:wts,GARM:Object.assign({},GARM)};
+    },
+    garmSet(o){ Object.assign(GARM,o||{}); try{ equipChar(rider); }catch(e){} return Object.assign({},GARM); },
+    garmInfo(){ const out=[];
+      for(const m of kitParts){ if(!m.userData||m.userData.gear!=='body')continue;
+        const b=new THREE.Box3().setFromObject(m), z=b.getSize(new THREE.Vector3());
+        out.push({part:m.userData.part||null, kept:m.userData.kept||null, lo:m.userData.lo, hi:m.userData.hi,
+                  skinned:!!m.isSkinnedMesh, tris:m.geometry&&m.geometry.index?m.geometry.index.count/3:null,
+                  size:[+z.x.toFixed(3),+z.y.toFixed(3),+z.z.toFixed(3)], map:!!(m.material&&m.material.map)}); }
+      return {n:out.length, parts:out, kitTotal:kitParts.length}; },
     hatFit(w,up,fwd){ if(w!==undefined)HAT_W=w; if(up!==undefined)HAT_UP=up;
       if(fwd!==undefined)HAT_FWD=fwd; try{ equipChar(rider); }catch(e){}
       return {HAT_W,HAT_UP,HAT_FWD}; },
