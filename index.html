@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.73';</script>
+<script>window.SURF_VERSION='10.74';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -6276,6 +6276,18 @@ loadModel('shades.glb',s=>{ shadesModel=s; if(typeof equipChar==='function'&&typ
 let hatModel=null;
 loadModel('cowboyhat.glb',s=>{ hatModel=s; if(typeof equipChar==='function'&&typeof rider!=='undefined'){ try{ equipChar(rider); }catch(e){} } },0);
 loadModel('bandana.glb',s=>{ bandanaModel=s; if(typeof equipChar==='function'&&typeof rider!=='undefined'){ try{ equipChar(rider); }catch(e){} } },0);
+// The pug's wardrobe: shirts, a vest and trousers built round its body in Blender
+// (tools/pug/garments.py) and skinned to its own bones. Clothes cut out of the body mesh were
+// tried at length and were a pug-shaped skin every time; these are tubes, with a collar, cuffs,
+// a hem and buttons, and they are what a shirt looks like.
+let garmModels=null;
+loadModel('garments.glb',s=>{ garmModels={};
+  // the loader splits a mesh with three materials into three children, "shirt_short_1..3",
+  // under a group that keeps the name and the extras -- so a garment is the group
+  s.traverse(o=>{ if(!o.isSkinnedMesh)return; const mm=/^(.*)_\d+$/.exec(o.name);
+    const key=(mm&&o.parent&&o.parent.name===mm[1])?mm[1]:o.name, extras=(mm&&o.parent)?o.parent.userData:o.userData;
+    (garmModels[key]||(garmModels[key]={pieces:[],extras})).pieces.push(o); });
+  if(typeof equipChar==='function'&&typeof rider!=='undefined'){ try{ equipChar(rider); }catch(e){} } },0);
 loadModel('board.glb',s=>{
   const fitted=skinAndFit('board',s,BOARD_BOX,orientBoard);
   // Match deck to deck rather than box to box. A thin model has nothing like the
@@ -16509,8 +16521,49 @@ function cutGarment(F, part, D, tex){
 }
 // A suit descriptor to garments. The five original suits are colours in vest/shorts/hem; the
 // outfits are patterns in shirt/pants. Both go through here.
+// One authored garment onto the live skeleton. The file's skin indices are in ITS joint
+// order, so they are rewritten by bone name onto the pug's; its geometry is in the same
+// armature space as the pug's own mesh (both exported from the same scene at identity), so
+// it takes the pug mesh's transform and bind, exactly as the cut garments did.
+function wearAuthored(F, name, D, tex){
+  const G=garmModels&&garmModels[name]; if(!G||!G.pieces.length)return null;
+  const out=[];
+  for(const src of G.pieces){ const m=wearPiece(F,src,G.extras||{},D,tex); if(m)out.push(m); }
+  return out.length?out:null;
+}
+function wearPiece(F, src, extras, D, tex){
+  if(!src.skeleton)return null;
+  const g=src.geometry.clone();
+  const names=src.skeleton.bones.map(b=>b.name), map=names.map(n=>F.bi[n]!==undefined?F.bi[n]:0);
+  const si=g.attributes.skinIndex; if(!si)return null;
+  const SI=new Float32Array(si.count*4);
+  for(let i=0;i<si.count;i++){ SI[i*4]=map[si.getX(i)]||0; SI[i*4+1]=map[si.getY(i)]||0; SI[i*4+2]=map[si.getZ(i)]||0; SI[i*4+3]=map[si.getW(i)]||0; }
+  g.setAttribute('skinIndex',new THREE.BufferAttribute(SI,4));
+  // the exporter writes v the glTF way up (0 at the top of the image); the painted canvases
+  // are ordinary textures (0 at the bottom), so v is turned over -- or "SURF" hangs upside
+  // down -- and a seamless pattern is tiled round the body by the measured circumference
+  if(g.attributes.uv){ const tile=D.tile?Math.max(1,Math.round(+(extras.circ_over_h)||1)):1;
+    const uv=g.attributes.uv, UV=new Float32Array(uv.count*2);
+    for(let i=0;i<uv.count;i++){ UV[i*2]=uv.getX(i)*tile; UV[i*2+1]=1-uv.getY(i); }
+    g.setAttribute('uv',new THREE.BufferAttribute(UV,2)); }
+  const m=PBR({color:0xffffff, roughness:D.rough!==undefined?D.rough:0.66, metalness:0.02, vivid:1.0});
+  m.color.set(0xffffff); m.map=tex; m.side=THREE.DoubleSide; m.needsUpdate=true;
+  const trimC=D.trim!==undefined?D.trim:garmentAvg(tex,0.72);
+  const mt=PBR({color:trimC, roughness:0.72, metalness:0.02, vivid:1.0}); mt.side=THREE.DoubleSide;
+  const lum=((trimC>>16&255)*0.3+(trimC>>8&255)*0.59+(trimC&255)*0.11);
+  const mb=PBR({color:D.btn!==undefined?D.btn:(lum<110?0xf2ead8:0x2a2622), roughness:0.35, metalness:0.05, vivid:1.0});
+  const srcMats=Array.isArray(src.material)?src.material:[src.material];
+  const mats=srcMats.map(sm=>{ const n=((sm&&sm.name)||'').split('.')[0]; return n==='trim'?mt:(n==='button'?(D.buttons===false?m:mb):m); });
+  const mesh=new THREE.SkinnedMesh(g,mats.length>1?mats:mats[0]);
+  mesh.userData.part=D.part; mesh.userData.kept=g.attributes.position.count; mesh.userData.authored=src.name;
+  mesh.frustumCulled=false; mesh.castShadow=false; mesh.receiveShadow=true;
+  mesh.position.copy(F.sk.position); mesh.quaternion.copy(F.sk.quaternion); mesh.scale.copy(F.sk.scale);
+  mesh.bind(F.sk.skeleton, F.sk.bindMatrix);
+  return mesh;
+}
 function wearSuit(S, mdl){
   const F=garmentFrame(mdl); if(!F)return false;
+  const authored=(builtChar==='pug')&&garmModels;
   const hex=v=>({k:'solid',c:v});
   const shirt=S.shirt||(S.vest!==undefined?hex(S.vest):null);
   const pants=S.pants||(S.shorts!==undefined?hex(S.shorts):null);
@@ -16518,9 +16571,14 @@ function wearSuit(S, mdl){
   const TILE=new Set(['stripes','check','plaid','stars','denim','leather','brocade','hawaii']);
   const tiles=sp=>!!(sp&&TILE.has(sp.k||'solid')&&!sp.belt);
   const BTN=new Set(['chef','button','brocade']);
-  if(pants){ const m=cutGarment(F,'pants',{len:S.len||'shorts', tile:tiles(pants), trim:pants.trim!==undefined?pants.trim:S.hem, rough:S.rough},garmentTex(pants)); if(m){ kit(F.sk.parent,m); any=true; } }
-  if(shirt){ const m=cutGarment(F,'shirt',{sleeves:S.sleeves||(S.vest!==undefined?'none':'short'), tile:tiles(shirt), trim:shirt.trim!==undefined?shirt.trim:S.hem, rough:S.rough,
-                                            buttons:BTN.has(shirt.k)||!!shirt.buttons, btn:shirt.btn},garmentTex(shirt)); if(m){ kit(F.sk.parent,m); any=true; } }
+  if(pants){ const D={part:'pants', len:S.len||'shorts', tile:tiles(pants), trim:pants.trim!==undefined?pants.trim:S.hem, rough:S.rough};
+    const m=authored?wearAuthored(F,D.len==='long'?'pants_long':'pants_short',D,garmentTex(pants)):cutGarment(F,'pants',D,garmentTex(pants));
+    if(m){ for(const p of [].concat(m))kit(F.sk.parent,p); any=true; } }
+  if(shirt){ const sl=S.sleeves||(S.vest!==undefined?'none':'short');
+    const D={part:'shirt', sleeves:sl, tile:tiles(shirt), trim:shirt.trim!==undefined?shirt.trim:S.hem, rough:S.rough,
+             buttons:BTN.has(shirt.k)||!!shirt.buttons, btn:shirt.btn};
+    const m=authored?wearAuthored(F,sl==='none'?'vest':(sl==='long'?'shirt_long':'shirt_short'),D,garmentTex(shirt)):cutGarment(F,'shirt',D,garmentTex(shirt));
+    if(m){ for(const p of [].concat(m))kit(F.sk.parent,p); any=true; } }
   return any;
 }
 
@@ -32478,10 +32536,16 @@ if(location.hash.includes('debug')){
       return {lo:+lo.toFixed(3),hi:+hi.toFixed(3),inBand,kept,dropped,who,coreWeightHist:wts,GARM:Object.assign({},GARM)};
     },
     garmSet(o){ Object.assign(GARM,o||{}); try{ equipChar(rider); }catch(e){} return Object.assign({},GARM); },
+    // the authored wardrobe as loaded: which pieces arrived, skinned or not, with what
+    garmAuth(){ if(!garmModels)return null; const out={};
+      for(const k in garmModels){ const G=garmModels[k];
+        out[k]={extras:G.extras, pieces:G.pieces.map(m=>({name:m.name, skeleton:!!m.skeleton, bones:m.skeleton?m.skeleton.bones.length:0,
+                verts:m.geometry?m.geometry.attributes.position.count:0, mat:m.material&&m.material.name}))}; }
+      return out; },
     garmInfo(){ const out=[];
       for(const m of kitParts){ if(!m.userData||m.userData.gear!=='body')continue;
         const b=new THREE.Box3().setFromObject(m), z=b.getSize(new THREE.Vector3());
-        out.push({part:m.userData.part||null, kept:m.userData.kept||null, lo:m.userData.lo, hi:m.userData.hi,
+        out.push({part:m.userData.part||null, authored:m.userData.authored||null, kept:m.userData.kept||null, lo:m.userData.lo, hi:m.userData.hi,
                   skinned:!!m.isSkinnedMesh, tris:m.geometry&&m.geometry.index?m.geometry.index.count/3:null,
                   size:[+z.x.toFixed(3),+z.y.toFixed(3),+z.z.toFixed(3)], map:!!(m.material&&m.material.map)}); }
       return {n:out.length, parts:out, kitTotal:kitParts.length}; },
