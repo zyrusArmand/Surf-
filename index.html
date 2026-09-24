@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.74';</script>
+<script>window.SURF_VERSION='10.75';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -6350,15 +6350,15 @@ const GEAR=[
 // t runs 0 at the hips to 1 at the shoulders, which is what TORSO_DEF is written along.
 const GEAR_SUITS=[
   {id:'sut_teal',    slot:'body', lv:13,  name:'Teal Rash Vest',  blurb:'Long sleeves cut off. Sun-bleached at the shoulder.',
-   vest:0x1f9aa8, hem:0xf2f7f6},
+   shirt:{k:'solid',c:0x1f9aa8,trim:0xf2f7f6}, sleeves:'short', hem:0xf2f7f6},
   {id:'sut_sunrise', slot:'body', lv:32,  name:'Sunrise Trunks',  blurb:'Loud enough to be seen from the beach.',
-   shorts:0xef6b3a, hem:0xffd98a},
+   pants:{k:'stripes',a:0xef6b3a,b:0xffd98a,n:6,f:0.18,trim:0xffd98a}, len:'shorts', hem:0xffd98a},
   {id:'sut_mono',    slot:'body', lv:53,  name:'Midnight Steamer',blurb:'Full suit. For the dark cold ones.',
-   vest:0x141a22, shorts:0x141a22, hem:0x3f5a6b},
+   shirt:{k:'solid',c:0x141a22,trim:0x3f5a6b}, sleeves:'long', pants:{k:'solid',c:0x141a22,trim:0x3f5a6b}, len:'long', hem:0x3f5a6b, rough:0.5},
   {id:'sut_tiger',   slot:'body', lv:81,  name:'Tiger Line Suit', blurb:'One stripe, all the way round.',
-   vest:0x231f1c, shorts:0x231f1c, hem:0xf0a01e},
+   shirt:{k:'stripes',a:0x231f1c,b:0xf0a01e,n:1,f:0.14,trim:0xf0a01e}, sleeves:'long', pants:{k:'stripes',a:0x231f1c,b:0xf0a01e,n:1,f:0.12,trim:0xf0a01e}, len:'long', hem:0xf0a01e, rough:0.5},
   {id:'sut_gold',    slot:'body', lv:104, name:'Gold Leaf Suit',  blurb:'Point break local. Dressed like it.',
-   vest:0x6b5a1e, shorts:0x6b5a1e, hem:0xf7d565},
+   shirt:{k:'brocade',c:0x8a7220,trim:0xf7d565}, sleeves:'long', pants:{k:'solid',c:0x4a3c12,trim:0xf7d565}, len:'long', hem:0xf7d565, rough:0.45},
   // ---- THE ELEVEN, from the reference sheet ----
   // These are patterns, not colours: shirt and pants are painted to a canvas and cut from the
   // rider's own body (see wearSuit). Where an outfit has a hat, it is its own head piece below,
@@ -16511,6 +16511,7 @@ function cutGarment(F, part, D, tex){
   const mats=[m,mt];
   if(btnCount){ const lum=((trimC>>16&255)*0.3+(trimC>>8&255)*0.59+(trimC&255)*0.11);
     const mb=PBR({color:D.btn!==undefined?D.btn:(lum<110?0xf2ead8:0x2a2622), roughness:0.35, metalness:0.05, vivid:1.0}); mats.push(mb); }
+  for(const x of mats){ x.skinning=true; x.needsUpdate=true; }   // or it is drawn in bind pose -- see wearPiece
   const mesh=new THREE.SkinnedMesh(geo,mats);
   mesh.userData.part=part; mesh.userData.kept=n; mesh.userData.lo=+lo.toFixed(3); mesh.userData.hi=+hi.toFixed(3);
   mesh.frustumCulled=false; mesh.castShadow=false; mesh.receiveShadow=true;
@@ -16554,6 +16555,12 @@ function wearPiece(F, src, extras, D, tex){
   const mb=PBR({color:D.btn!==undefined?D.btn:(lum<110?0xf2ead8:0x2a2622), roughness:0.35, metalness:0.05, vivid:1.0});
   const srcMats=Array.isArray(src.material)?src.material:[src.material];
   const mats=srcMats.map(sm=>{ const n=((sm&&sm.name)||'').split('.')[0]; return n==='trim'?mt:(n==='button'?(D.buttons===false?m:mb):m); });
+  // ---- AND THE SHADER HAS TO KNOW ----
+  // r128 only compiles the bone maths into a material that says `skinning`, and none of these
+  // did. The cloth sat in its bind pose while the body it was bound to walked off -- the CPU
+  // check (boneTransform) agreed the garments followed, because the CPU was not what was
+  // drawing them. Same trap as skinnable() above, same fix.
+  for(const x of mats){ x.skinning=true; x.needsUpdate=true; }
   const mesh=new THREE.SkinnedMesh(g,mats.length>1?mats:mats[0]);
   mesh.userData.part=D.part; mesh.userData.kept=g.attributes.position.count; mesh.userData.authored=src.name;
   mesh.frustumCulled=false; mesh.castShadow=false; mesh.receiveShadow=true;
@@ -32537,6 +32544,27 @@ if(location.hash.includes('debug')){
     },
     garmSet(o){ Object.assign(GARM,o||{}); try{ equipChar(rider); }catch(e){} return Object.assign({},GARM); },
     // the authored wardrobe as loaded: which pieces arrived, skinned or not, with what
+    sceneRoot(){ return scene; },
+    // does the cloth follow the body? A garment vertex against the body vertex nearest it at
+    // rest, both put through their skinning now -- the gap should stay at the stand-off
+    garmMove(){
+      const mdl=riderModels[builtChar]; if(!mdl)return null;
+      let body=null; mdl.traverse(o=>{ if(!body&&o.isSkinnedMesh&&!(o.userData&&o.userData.gear))body=o; });
+      if(!body)return null;
+      const hipsB=body.skeleton.bones.find(b=>b.name==='Hips'), hw=new THREE.Vector3(); if(hipsB)hipsB.getWorldPosition(hw);
+      const out={body:{name:body.name, vis:body.visible, skel:body.skeleton.uuid.slice(0,6), bindMode:body.bindMode,
+                       hips:[+hw.x.toFixed(2),+hw.y.toFixed(2),+hw.z.toFixed(2)]}, garm:[]};
+      const pos=body.geometry.attributes.position, bp=new THREE.Vector3(), a=new THREE.Vector3(), b=new THREE.Vector3();
+      for(const g of kitParts){ if(!g.userData||g.userData.gear!=='body'||!g.isSkinnedMesh)continue;
+        const gp=new THREE.Vector3().fromBufferAttribute(g.geometry.attributes.position,50);
+        let bi=0,bd=1e9; for(let i=0;i<pos.count;i+=2){ bp.fromBufferAttribute(pos,i); const d=bp.distanceTo(gp); if(d<bd){bd=d;bi=i;} }
+        g.boneTransform(50,a); g.localToWorld(a); body.boneTransform(bi,b); body.localToWorld(b);
+        out.garm.push({name:g.userData.authored||g.name, vis:g.visible, parent:g.parent===body.parent, sameSkel:g.skeleton===body.skeleton, bindMode:g.bindMode,
+          restGap:+bd.toFixed(3), nowGap:+a.distanceTo(b).toFixed(3), gv:[+a.x.toFixed(2),+a.y.toFixed(2),+a.z.toFixed(2)], bv:[+b.x.toFixed(2),+b.y.toFixed(2),+b.z.toFixed(2)]}); }
+      return out; },
+    kitBody(){ const chain=o=>{ const c=[]; let p=o; while(p){ c.push((p.name||p.type)+(p.visible?'':'[H]')+(p.userData&&p.userData.riderFor?'{'+p.userData.riderFor+'}':'')); p=p.parent; } return c.join(' < '); };
+      return {builtChar, rider, models:Object.keys(riderModels).filter(k=>riderModels[k]).map(k=>k+(riderModels[k].visible?'':'[H]')),
+              parts:kitParts.filter(m=>m.userData&&m.userData.gear==='body').map(m=>chain(m))}; },
     garmAuth(){ if(!garmModels)return null; const out={};
       for(const k in garmModels){ const G=garmModels[k];
         out[k]={extras:G.extras, pieces:G.pieces.map(m=>({name:m.name, skeleton:!!m.skeleton, bones:m.skeleton?m.skeleton.bones.length:0,
@@ -49292,6 +49320,11 @@ requestAnimationFrame(loop);
                 if(mr.idle)mr.idle(999); }
               else { const _fd=(typeof MB_FREEZE!=='undefined'&&MB_FREEZE)?0:mdt;
                      if(mr.show)mr.show(_fd); else if(mr.idle)mr.idle(_fd); } } }
+    // debug: bend him hard AFTER the show has written his pose, so a picture can say whether
+    // the clothes bend with him -- the one question the CPU skinning check could not answer
+    if(window.__surf&&window.__surf.poseBend){ const mr=modelRigs[builtChar];
+      const sp=mr&&mr.bones&&(mr.bones.Spine||mr.bones.Spine01), la=mr&&mr.bones&&mr.bones.LeftArm;
+      if(sp)sp.rotation.x+=0.9; if(la)la.rotation.z-=1.2; }
     // AFTER the show, which owns his pose -- this only borrows his scale for a third of a
     // second and hands it straight back. On the show's own clock, so a frozen menu does not
     // leave him mid-squash.
