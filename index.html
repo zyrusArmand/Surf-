@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.78';</script>
+<script>window.SURF_VERSION='10.79';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -22512,6 +22512,7 @@ const SHK_REACH=7.5;     // how near your lane it has to be to try at all
 const SHK_CHANCE=0.66;
 const SHK_PAST=2.2;      // feet beyond you it lands, so it crosses your line rather than stopping on it
 const SHK_CHEW=1.75;     // seconds in the mouth before it takes you under
+const EAT_CHIN=0.0;      // the clip line's height above the jaw hinge; see eatenClip
 const SHK_CHEW_RATE=13;  // how fast the jaw works while it has you
 const _shkY=new THREE.Vector3(0,1,0), _shkQ=new THREE.Quaternion();
 const _shkZ=new THREE.Vector3(0,0,1), _shkQ2=new THREE.Quaternion(), _shkV=new THREE.Vector3();
@@ -26409,6 +26410,7 @@ function releaseRope(withTrick){
 
 function reset(){
   runDist0=0; runSecs=0;
+  if(typeof eatenClip==='function')eatenClip(false);   // whatever the shark held, he is whole again
   // ---- and no saucer left over the water from the last run ----
   // OUTSIDE the if(wipe) below, which is the trap: everything from the arms coming down to
   // the ramp state is inside that block, so it only runs when the last run ended in a
@@ -27402,6 +27404,24 @@ function sharkLift(o){
   }
   return u.mouthDy;
 }
+// ---- NOTHING OF HIM BELOW THE JAW ----
+// He is bigger than the mouth, so whatever the jaws hold, his belly hangs out under the chin --
+// "pug shouldn't be able to be seen through sharks skin like the bottom circle showing up
+// under sharks mouth." Both are opaque and depth-tested; nothing is drawn through anything.
+// The body is simply outside the animal. So the rider is CLIPPED at the chin: a plane through
+// the jaw hinge, facing up, on every material he is drawn with, for as long as he is held.
+// What is above it -- the head between the teeth -- is what a shark with a mouthful shows.
+const _eatClip=new THREE.Plane(new THREE.Vector3(0,1,0),0);
+let _eatClipped=null;
+function eatenClip(on){
+  if(on){ if(_eatClipped)return; _eatClipped=[];
+    pug.traverse(o=>{ if(!o.isMesh||!o.material)return;
+      for(const m of (Array.isArray(o.material)?o.material:[o.material])){ if(!m)continue;
+        _eatClipped.push([m,m.clippingPlanes]); m.clippingPlanes=[_eatClip]; m.needsUpdate=true; } });
+  } else { if(!_eatClipped)return;
+    for(const [m,prev] of _eatClipped){ m.clippingPlanes=prev||null; m.needsUpdate=true; }
+    _eatClipped=null; }
+}
 function sharkMouth(o,out){
   const b=sharkJaw(o); if(!b)return out.copy(o.position);
   b.updateWorldMatrix(true,false);
@@ -27480,6 +27500,11 @@ function eatenStep(dt,w){
   sharkMouth(o,_shkV);
   px=_shkV.x; py=_shkV.y;
   player.position.copy(_shkV);
+  // the chin line: the hinge, a little under it, facing up -- in world, every frame, since
+  // the animal is still moving and leaning
+  { eatenClip(true);
+    _eatClip.normal.set(0,1,0);
+    _eatClip.constant=-(_eatJ.y+EAT_CHIN); }
   // limp, and carried by the animal rather than turning under his own momentum
   // ...and LIMP means limp. At eleven a second this was a vibration, not a body: the same
   // whipping the shark itself was doing, one object over, and the two together were the whole of
@@ -34368,6 +34393,16 @@ if(location.hash.includes('debug')){
       startEaten(s);
       return {ok:!!(wipe&&wipe.eaten), kind:s.userData.kind};
     },
+    // the shark's skin and the rider's: which of them is drawn without depth, or late -- a
+    // rider seen THROUGH a jaw is a draw-order fact before it is a modelling one
+    eatMats(){
+      const w=(typeof wipe!=='undefined')?wipe:null; const out={shark:[],rider:[]};
+      const one=o=>{ const r=[]; for(const m of (Array.isArray(o.material)?o.material:[o.material])){ if(!m)continue;
+        r.push({n:o.name||o.type, mat:m.type, tr:!!m.transparent, op:+(m.opacity).toFixed(2), dw:m.depthWrite!==false, dt:m.depthTest!==false, ro:o.renderOrder, side:m.side, at:m.alphaTest||0, vis:o.visible}); } return r; };
+      if(w&&w.eaten)w.eaten.traverse(o=>{ if(o.isMesh)out.shark.push(...one(o)); });
+      const mdl=riderModels[builtChar]; if(mdl)mdl.traverse(o=>{ if(o.isMesh)out.rider.push(...one(o)); });
+      if(typeof player!=='undefined')out.playerRO=player.renderOrder;
+      return out; },
     eatState(){
       const w=(typeof wipe!=='undefined')?wipe:null;
       if(!w||!w.eaten)return null;
