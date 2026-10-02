@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.76';</script>
+<script>window.SURF_VERSION='10.77';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -22502,6 +22502,7 @@ const SHK_CHEW=1.75;     // seconds in the mouth before it takes you under
 const SHK_CHEW_RATE=13;  // how fast the jaw works while it has you
 const _shkY=new THREE.Vector3(0,1,0), _shkQ=new THREE.Quaternion();
 const _shkZ=new THREE.Vector3(0,0,1), _shkQ2=new THREE.Quaternion(), _shkV=new THREE.Vector3();
+const _shkAx=new THREE.Vector3(0,0,1);   // the pitch axis across a leap's own heading
 // The bone of THIS clone, found once and kept. Returns null for the built-in procedural fin,
 // which is a blade with no bones at all — every caller has to cope with that, because the
 // model is one of the documented absences and the game runs without it.
@@ -25297,7 +25298,12 @@ const QB_CAM={x:-11.66, y:8.29, z:-35.66, yaw:110.8, pitch:3.6, secs:0.95};
 // The wheel's own shot, started as a copy of the board's because it is the same spot on the
 // same beach. Kept separate so the two can be framed apart -- a wheel wants to be square on
 // and a notice board wants to be readable, and those are not the same distance.
-const SW_CAM={x:-11.66, y:8.29, z:-35.66, yaw:112.33, pitch:-6.24, secs:0.95};
+// Walked in by measurement (tools: the spintune probe): the lens three quarters of the way
+// along its own line to the hub, which puts the hoop across nine tenths of the width, and
+// re-aimed so the hub sits a little under centre with the ticker clear of the sign above it.
+// The disc's face already pointed at the lens to within two degrees; the "misalignment" was
+// the shot caught mid-ease, when any off-axis lens pulls the lifted board ring off the rim.
+const SW_CAM={x:-12.638, y:8.332, z:-35.284, yaw:113.07, pitch:-8.0, secs:0.95};
 // How the board ring sits on the disc. Its own radius is 0.514 in the file and the rim's inner
 // edge is a little inside 0.6177, so it is brought down to clear it; z lifts it off the spokes
 // so it reads as boards laid ON the wheel rather than buried in it.
@@ -27350,10 +27356,14 @@ function startEaten(o){
   // simply be read off and carried, and it bleeds away as the animal settles with its mouth full.
   const u=o.userData;
   if(u.x0!==undefined&&u.aimX!==undefined){
-    const tx=u.aimX+((u.aimX-u.x0>0)?SHK_PAST:-SHK_PAST);
+    const tx=u.tx!==undefined?u.tx:(u.aimX+((u.aimX-u.x0>0)?SHK_PAST:-SHK_PAST));
+    const tz=u.tz!==undefined?u.tz:(u.aimZ!==undefined?u.aimZ+1.6:undefined);
     w.eatVX=(tx-u.x0)/SHK_ARC;
-    w.eatVZ=(u.aimZ!==undefined&&u.z0!==undefined)?(((u.aimZ+1.6)-u.z0)/SHK_ARC):0;
+    w.eatVZ=(tz!==undefined&&u.z0!==undefined)?((tz-u.z0)/SHK_ARC):0;
   } else { w.eatVX=0; w.eatVZ=0; }
+  // and the heading it arrived on is the heading it keeps: the chew used to snap it to a
+  // broadside quarter-turn whatever way it had come in
+  w.eatYaw=(u.yaw!==undefined)?u.yaw:(u.dir||1)*Math.PI/2;
 }
 // where the mouth actually is, taken off the jaw bone and the animal's own heading rather
 // than off a local offset — the bone sits at the HINGE, which is the back of the mouth, and
@@ -27423,7 +27433,7 @@ function eatenStep(dt,w){
     const rest=sea+sharkLift(o)+0.55+(1-f)*1.8+Math.sin(w.chew*3.2)*0.09*f;
     o.position.y+=(rest-o.position.y)*Math.min(1,dt*6);
     const th=Math.sin(w.chew*4.4)*0.10*Math.min(1,w.chew*2.0);
-    o.quaternion.setFromAxisAngle(_shkY,dir*Math.PI/2);
+    o.quaternion.setFromAxisAngle(_shkY,w.eatYaw);
     o.quaternion.premultiply(_shkQ2.setFromAxisAngle(_shkZ,th));
     if(Math.random()<dt*10)splash(o.position.x+(Math.random()-0.5)*2.0,sea,o.position.z+(Math.random()-0.5)*1.6,2);
     shake=Math.max(shake,0.14);
@@ -27436,7 +27446,7 @@ function eatenStep(dt,w){
     // being pulled under. A few inches of settle, so he is not nailed to the waterline.
     const g=Math.min(1,(w.chew-SHK_CHEW)/1.15);
     o.position.y+=((sea+sharkLift(o)+0.55-0.42*g)-o.position.y)*Math.min(1,dt*4);
-    o.quaternion.setFromAxisAngle(_shkY,dir*Math.PI/2);
+    o.quaternion.setFromAxisAngle(_shkY,w.eatYaw);
     o.quaternion.premultiply(_shkQ2.setFromAxisAngle(_shkZ,
       Math.sin((w.chew)*3.6)*0.09-dir*0.10*g));
     if(!w.splashed&&g>0.10){
@@ -27462,7 +27472,7 @@ function eatenStep(dt,w){
   // whipping the shark itself was doing, one object over, and the two together were the whole of
   // what made the sequence read as a machine going off rather than an animal eating. Slowed to
   // about a third and cut to a third, so he swings in the jaw instead of buzzing in it.
-  player.rotation.set(0.9+Math.sin(w.chew*3.6)*0.09, dir*Math.PI/2, Math.sin(w.chew*4.4)*0.11);
+  player.rotation.set(0.9+Math.sin(w.chew*3.6)*0.09, w.eatYaw, Math.sin(w.chew*4.4)*0.11);
   if(!rigPosed&&typeof armFrontJ!=='undefined'&&armFrontJ){
     const f=w.chew*3.8;
     armFrontJ.sh.rotation.x=0.9+Math.sin(f)*0.55;   armFrontJ.sh.rotation.z=1.0+Math.cos(f*0.9)*0.28;
@@ -27488,6 +27498,9 @@ function eatenStep(dt,w){
   // ON THE MOUTH, and far enough back to see it. Framed on the animal's ORIGIN at ten feet
   // it filled the screen corner to corner with the jaws — the one thing worth looking at —
   // half off the left edge. The head is where he is, so the head is what the shot is for.
+  // ...from where the rider's own camera already was -- behind him, looking down the water --
+  // so the shot does not swing round to the animal's flank. A hunter comes nose-first down
+  // the lane and that is the face you see; a sweeper crosses, and crosses in front of you.
   w.camX+=(_shkV.x*0.80-w.camX)*ease;
   w.camY+=(Math.max(sea+2.6,_shkV.y+1.7)-w.camY)*ease;
   w.camZ+=(o.position.z+17.0-w.camZ)*ease;
@@ -34334,7 +34347,10 @@ if(location.hash.includes('debug')){
       // shape a real leap leaves behind: launched nine feet off to one side, aimed at the rider.
       { const u=s.userData;
         u.dir=u.dir||1;
-        u.x0=px-u.dir*9; u.aimX=px; u.z0=pz-14; u.aimZ=pz; }
+        u.x0=px-u.dir*9; u.aimX=px; u.z0=pz-14; u.aimZ=pz;
+        // staged as a HUNTER's lunge -- the one that keeps its heading -- unless asked for the sweep
+        if(!(arguments[0]&&arguments[0].sweep)){ u.hunts=true; u.tx=u.aimX; u.tz=u.aimZ+4.5;
+          u.yaw=Math.atan2(u.tx-u.x0,u.tz-u.z0); } }
       startEaten(s);
       return {ok:!!(wipe&&wipe.eaten), kind:s.userData.kind};
     },
@@ -34350,7 +34366,7 @@ if(location.hash.includes('debug')){
       // flat 0.0 while the animal was visibly leaning. This is the honest quantity: how far the
       // orientation sits from a pure heading, however it got there.
       const base=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),
-                                                         (o.userData.dir||1)*Math.PI/2);
+                                                         (w.eatYaw!==undefined)?w.eatYaw:(o.userData.dir||1)*Math.PI/2);
       const dev=base.invert().multiply(o.quaternion);
       const lean=2*Math.acos(Math.min(1,Math.abs(dev.w)))*180/Math.PI;
       return {chew:+w.chew.toFixed(2), t:+w.t.toFixed(2),
@@ -36029,8 +36045,41 @@ if(location.hash.includes('debug')){
     // choice. Nothing a player can reach.
     spinSnap(){ if(typeof spinAim==='number'){ spinTurn=spinAim;
       if(spinBoards)spinBoards.rotation.z=spinTurn; } return +(spinTurn*180/Math.PI).toFixed(2); },
-    swPin(k,v){ if(v!==undefined)MB_SW_PIN[k]=v; return MB_SW_PIN; },
+    swPin(k,v){ if(v!==undefined){ MB_SW_PIN[k]=v; try{ aimWheel(); }catch(e){} } return MB_SW_PIN; },
+    // is the wheel square to the lens? 1 = its face points straight at the camera
+    swFace(){ if(!spinDisc||!menuCam)return null; const n=new THREE.Vector3(), w=new THREE.Vector3(), c=new THREE.Vector3();
+      spinDisc.updateWorldMatrix(true,false); spinDisc.getWorldDirection(n); spinDisc.getWorldPosition(w); menuCam.getWorldPosition(c);
+      const d=c.clone().sub(w); const dist=d.length(); d.normalize();
+      return {dot:+n.dot(d).toFixed(4), dist:+dist.toFixed(3), wheel:[+w.x.toFixed(3),+w.y.toFixed(3),+w.z.toFixed(3)], cam:[+c.x.toFixed(3),+c.y.toFixed(3),+c.z.toFixed(3)]}; },
     swCam(k,v){ if(v!==undefined)SW_CAM[k]=v; return SW_CAM; },
+    // where the wheel's parts land on screen: the prop's origin, the disc hub, the board ring's
+    // centre, and the rim's extent -- misalignment is a number before it is an opinion
+    spinProj(){ if(!spinProp||!menuCam)return null;
+      const W=innerWidth,H=innerHeight, pr=o=>{ const v=new THREE.Vector3(); o.getWorldPosition(v); v.project(menuCam);
+        return [+((v.x+1)/2*W).toFixed(1), +((1-v.y)/2*H).toFixed(1)]; };
+      const box=o=>{ const b=new THREE.Box3().setFromObject(o); const pts=[]; for(let i=0;i<8;i++){ const v=new THREE.Vector3(i&1?b.max.x:b.min.x,i&2?b.max.y:b.min.y,i&4?b.max.z:b.min.z).project(menuCam); pts.push([(v.x+1)/2*W,(1-v.y)/2*H]); }
+        const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]); return {x0:+Math.min(...xs).toFixed(0),x1:+Math.max(...xs).toFixed(0),y0:+Math.min(...ys).toFixed(0),y1:+Math.max(...ys).toFixed(0)}; };
+      let rim=null; spinProp.traverse(o=>{ if(!rim&&o.isMesh&&o!==spinDisc&&!(spinBoards&&spinBoards.getObjectById(o.id))&&/rim|ring|hoop/i.test(o.name))rim=o; });
+      return {W,H, prop:pr(spinProp), disc:spinDisc?pr(spinDisc):null, boards:spinBoards?pr(spinBoards):null,
+              discBox:spinDisc?box(spinDisc):null, boardsBox:spinBoards?box(spinBoards):null, propBox:box(spinProp),
+              rimName:rim?rim.name:null, rimBox:rim?box(rim):null,
+              // the disc's own geometry about its origin: if the rim is not centred on the hub
+              // the ring of boards (which is) can never sit inside it
+              discLocal:(()=>{ if(!spinDisc||!spinDisc.geometry)return null; const g=spinDisc.geometry; g.computeBoundingBox(); const b=g.boundingBox;
+                return {min:[+b.min.x.toFixed(3),+b.min.y.toFixed(3),+b.min.z.toFixed(3)], max:[+b.max.x.toFixed(3),+b.max.y.toFixed(3),+b.max.z.toFixed(3)],
+                        pos:[+spinDisc.position.x.toFixed(3),+spinDisc.position.y.toFixed(3),+spinDisc.position.z.toFixed(3)], scl:+spinDisc.scale.x.toFixed(3),
+                        rot:[+(spinDisc.rotation.x*180/Math.PI).toFixed(1),+(spinDisc.rotation.y*180/Math.PI).toFixed(1),+(spinDisc.rotation.z*180/Math.PI).toFixed(1)]}; })(),
+              boardsLocal:(()=>{ if(!spinBoards)return null; let m=null; spinBoards.traverse(o=>{ if(!m&&o.isMesh)m=o; }); if(!m)return null; const g=m.geometry; g.computeBoundingBox(); const b=g.boundingBox;
+                return {min:[+b.min.x.toFixed(3),+b.min.y.toFixed(3),+b.min.z.toFixed(3)], max:[+b.max.x.toFixed(3),+b.max.y.toFixed(3),+b.max.z.toFixed(3)],
+                        mpos:[+m.position.x.toFixed(3),+m.position.y.toFixed(3),+m.position.z.toFixed(3)], mscl:+m.scale.x.toFixed(3), inner:[+m.parent.position.x.toFixed(3),+m.parent.position.y.toFixed(3),+m.parent.position.z.toFixed(3)]}; })(),
+              // how deep the spokes sit inside the hoop: the boards want to lie just in front of
+              // them, not out at the rim's face where any off-axis lens pulls them off centre
+              discDepth:(()=>{ if(!spinDisc||!spinDisc.geometry)return null; const p=spinDisc.geometry.attributes.position; let zi=-1e9, zo=-1e9, zio=1e9, zoo=1e9;
+                for(let i=0;i<p.count;i++){ const x=p.getX(i),y=p.getY(i),z=p.getZ(i), r=Math.hypot(x,y); if(r<0.5){ if(z>zi)zi=z; if(z<zio)zio=z; } else if(r>0.56&&r<0.63){ if(z>zo)zo=z; if(z<zoo)zoo=z; } }
+                return {spokesZ:[+zio.toFixed(3),+zi.toFixed(3)], rimZ:[+zoo.toFixed(3),+zo.toFixed(3)]}; })(),
+              frameLocal:(()=>{ let f=null; spinProp.traverse(o=>{ if(!f&&o.isMesh&&/frame/i.test(o.name))f=o; }); if(!f)return null; const g=f.geometry; g.computeBoundingBox(); const b=g.boundingBox;
+                return {min:[+b.min.x.toFixed(3),+b.min.y.toFixed(3),+b.min.z.toFixed(3)], max:[+b.max.x.toFixed(3),+b.max.y.toFixed(3),+b.max.z.toFixed(3)], pos:[+f.position.x.toFixed(3),+f.position.y.toFixed(3),+f.position.z.toFixed(3)]}; })(),
+              names:(()=>{ const n=[]; spinProp.traverse(o=>{ if(o.isMesh)n.push(o.name); }); return n.slice(0,20); })()}; },
     // Which sheet is being read and how far in. Needed as a hook for the same reason every
     // other one here is: these live in the game's closure, so a probe reaching for questCamGo
     // by name gets a ReferenceError. That has now cost five probe runs in this session.
@@ -45149,8 +45198,21 @@ function update(dt){
       const togo=Math.max(0.35,(-o.position.z)/Math.max(8,eff));
       const _u=o.userData;
       if(!_u.atk){
-        o.position.x+=((_u.targetX-o.position.x)/togo)*dt;
+        const vx=(_u.targetX-o.position.x)/togo;
+        o.position.x+=vx*dt;
         if(Math.random()<dt*14)splash(o.position.x,o.position.y+0.1,o.position.z+1.4,1);
+        // ---- and a HUNTER points where it is going ----
+        // It drifts down on you with the sea and sidles into your lane, so its real track is
+        // toward you, not across you -- and the fin used to swim that track broadside, nose to
+        // the side of the screen, then lunge across the lane at the end of it and lie sideways
+        // in the shot with you in its mouth. "Shark should not turn to be sideways on screen.
+        // His direction should stay similar to when he first gets to you." So it is: heading is
+        // read off the velocity it actually has, here and through the leap and the chew below,
+        // and the lunge goes AT you rather than past your shoulder. A fin that is not hunting
+        // keeps its sweep, which is the classic crossing and reads right as one.
+        if(_u.hunts){ const want=Math.atan2(vx,Math.max(1,eff));
+          let d=want-o.rotation.y; d=Math.atan2(Math.sin(d),Math.cos(d));
+          o.rotation.y+=d*Math.min(1,dt*2.5); _u.yaw=o.rotation.y; }
       }
       // ---- IT LEAVES THE WATER ----
       // Committed a beat before it would have reached you, and only if it is near enough
@@ -45173,9 +45235,13 @@ function update(dt){
         const k=Math.min(1,_u.at/SHK_ARC);
         // it travels through where you were and out the far side, so it crosses your line
         // rather than stopping dead on it
-        const tx=_u.aimX+(_u.aimX-_u.x0>0?SHK_PAST:-SHK_PAST);
+        // a hunter lunges AT your lane and carries on past you down the water; the crossing
+        // past your shoulder (SHK_PAST) is kept for the sweep that is not aimed at you
+        const tx=_u.hunts?_u.aimX:(_u.aimX+(_u.aimX-_u.x0>0?SHK_PAST:-SHK_PAST));
+        const tz=_u.aimZ+(_u.hunts?4.5:1.6);
+        _u.tx=tx; _u.tz=tz;
         o.position.x=_u.x0+(tx-_u.x0)*k;
-        o.position.z=_u.z0+((_u.aimZ+1.6)-_u.z0)*k;
+        o.position.z=_u.z0+(tz-_u.z0)*k;
         const sea=swellH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock);
         const arc=Math.sin(Math.PI*k);
         // the lift is carried by the arc as well, so it leaves the water where it was
@@ -45185,10 +45251,16 @@ function update(dt){
         // itself rather than a curve of its own -- so the animal always points the way it
         // is actually going. A rotation about world Z tips the nose, and the sign is the
         // way the nose faces: +x up for dir +1, the other way for -1.
-        const dyk=Math.PI*Math.cos(Math.PI*k)*SHK_APEX, dxk=Math.abs(tx-_u.x0)+0.001;
-        const pitch=Math.atan2(dyk,dxk*1.35)*(_u.dir||1);
-        o.quaternion.setFromAxisAngle(_shkY,o.rotation.y===0?(_u.dir||1)*Math.PI/2:o.rotation.y);
-        o.quaternion.premultiply(_shkQ2.setFromAxisAngle(_shkZ,pitch));
+        // heading off the leap's own track; the nose pitches about the axis across that
+        // track, so it points along the arc whichever way the arc runs
+        const ldx=tx-_u.x0, ldz=tz-_u.z0;
+        const yaw=_u.hunts?Math.atan2(ldx,ldz):(o.rotation.y===0?(_u.dir||1)*Math.PI/2:o.rotation.y);
+        _u.yaw=yaw;
+        const dyk=Math.PI*Math.cos(Math.PI*k)*SHK_APEX, dhk=(_u.hunts?Math.hypot(ldx,ldz):Math.abs(ldx))+0.001;
+        const pitch=Math.atan2(dyk,dhk*1.35)*(_u.hunts?1:(_u.dir||1));
+        o.quaternion.setFromAxisAngle(_shkY,yaw);
+        if(_u.hunts)_shkAx.set(-Math.cos(yaw),0,Math.sin(yaw)); else _shkAx.copy(_shkZ);
+        o.quaternion.premultiply(_shkQ2.setFromAxisAngle(_shkAx,pitch));
         // ---- DID IT GET YOU ----
         // Tested once, at the apex, where the jaws are actually at you. Testing every frame
         // of the flight means the wide part of the arc counts as a hit and there is no dodge
