@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.82';</script>
+<script>window.SURF_VERSION='10.83';</script>
 <!-- the app icon: Astro on the sunset, built by icon/render.py + icon/compose.py -->
 <link rel="icon" type="image/png" sizes="32x32" href="icon/icon-32.png">
 <link rel="icon" href="icon/favicon.ico">
@@ -7236,6 +7236,7 @@ const GOAL_POOL=[
   {id:'dist800', text:'Surf 800 m in one run',    target:800,  ev:'dist',  run:true, icon:'sunset'},
   {id:'dist1500',text:'Surf 1,500 m in one run',  target:1500, ev:'dist',  run:true, icon:'sunrays'},
   {id:'trick1500',text:'1,500 trick points in a run', target:1500, ev:'score', run:true, icon:'boards'},
+  {id:'pearl10',  text:'Gather 10 pearls on a dive',  target:10,   ev:'pearl', icon:'shell'},
 ];
 let goals=null;
 function freshGoal(){
@@ -26501,6 +26502,7 @@ function reset(){
   // launch unpressable for the rest of the session, because diveGo returns early when he is
   // already under, so the button that starts the whole thing silently did nothing.
   diveOn=false; diveT=0; diveRise=0; diveDepth=0; jumpHeld=false;
+  if(typeof diveClear==='function')diveClear(); diveBonus=0; pearlsGot=0;
   if(typeof diveFog==='function')diveFog(0);
   diveLaunch=0; jetOn=0; launchLift=0; launchPike=0; launchFace=0; launchLoad=0; launchVY=0;
   _lbX=0; _lbZ=0;
@@ -26593,6 +26595,7 @@ function respawn(){
   player.rotation.set(0,0,0);
   handOn=false;handT=0;handPts=0;handRisk=0;handHold=0;pug.rotation.x=0;pug.position.y=0;wakeAir=false;_freeze=false;wipeSlow=0;
   diveOn=false;diveT=0;diveRise=0;diveDepth=0;jumpHeld=false;diveFog(0);
+  if(typeof diveClear==='function')diveClear(); pearlsGot=0;
   diveLaunch=0;jetOn=0;   // ...and no run starts half way through a launch
   if(diveProps)diveProps.visible=false; if(diveFish)diveFish.visible=false;
   if(diveJet)diveJet.visible=false; diveJetOn=0;
@@ -27928,7 +27931,7 @@ function gameOver(){
   const s=score|0, d=Math.round(dist);
   const newScore=s>best, newDist=bestDistBeat;
   if(newScore){best=s;saveBest();}
-  let earned=coinsFor(dist,s)+goalRunEnd(dist,s);
+  let earned=coinsFor(dist,s)+goalRunEnd(dist,s)+((typeof diveBonus==='number')?diveBonus:0);
   // ---- THE DOUBLER IS SPENT HERE AND ONLY HERE ----
   // This is the whole reason it beats a slice that simply hands over shells: it is worth
   // nothing until a run is finished, so the wheel points AT the game instead of standing in
@@ -29683,7 +29686,7 @@ function updateJetSki(dt,eff){
     // bracket a single set wave, one on the way in and one on the way out.
     if(swPh!==SWP.IDLE)skiT=Math.max(skiT,8);
     if(forkOn)skiT=Math.max(skiT,3.0);
-    if(skiT<=0&&dist>480&&swPh===SWP.IDLE&&!forkOn){skiT=62+Math.random()*38;spawnJetSki();}
+    if(skiT<=0&&dist>480&&swPh===SWP.IDLE&&!forkOn&&!diveOn&&diveLaunch<=0){skiT=62+Math.random()*38;spawnJetSki();}
   } else {
     // rips across the field
     jetSki.position.x+=skiDir*15*dt;      // slower, so it is on screen long enough to see
@@ -31739,7 +31742,7 @@ function updateSetWave(dt,eff){
       // ...and never in the chute. A set wave is a barrel forming on open ocean; thrown up
       // inside a gorge with the river falling through it, it is a tube standing in mid-air.
       // Excluded the same way the fork excludes it, one clause along.
-      if(swNext<=0&&!skiOn&&!whirl&&!hanging&&ufoPh===UFOP.OFF&&!forkOn&&!(fallPh>=0))startSetWave();
+      if(swNext<=0&&!skiOn&&!whirl&&!hanging&&ufoPh===UFOP.OFF&&!forkOn&&!(fallPh>=0)&&!diveOn&&diveLaunch<=0)startSetWave();
     }
     return;
   }
@@ -34316,6 +34319,22 @@ if(location.hash.includes('debug')){
     walk(x,z){ walkVX=x||0; walkVZ=z||0; return {vx:walkVX,vz:walkVZ,ph:forkPh}; },
     // ---- the dive, and the button that flies it ----
     dive(on){ return diveGo(on===undefined?!diveOn:!!on); },
+    diveClock(v){ if(v!==undefined)diveLeft=v; return {len:+diveLen.toFixed(1), left:+diveLeft.toFixed(1), exit:+diveExit.toFixed(2), air:_exitAir, breach:diveBreach, pearls:pearlsGot, bonus:diveBonus, jetGone, lift:+launchLift.toFixed(2), on:diveOn, py:+py.toFixed(2), depth:+diveDepth.toFixed(2), board:(typeof boardArt!=='undefined'&&boardArt)?boardArt.visible:null, run:running, wipe:wipe?(wipe.kind||true):null, pose:+divePose.toFixed(2), jetVis:!!(diveJet&&diveJet.visible),
+      vy:+vy.toFixed(2), airborne:!!airborne, gl:glPh, hang:!!hanging, sw:swPh, wk:+(wkA||0).toFixed(2), heli:+((typeof heliPose==='number')?heliPose:0).toFixed(2), lay:+((typeof fallLay==='number')?fallLay:0).toFixed(2),
+      pearlsVis:divePearls?divePearls.children.filter(g=>g.visible).length:0,
+      nearPearl:(()=>{ if(!divePearls)return null; let d=1e9; for(const g of divePearls.children){ if(!g.visible)continue; const q=Math.hypot(px-g.position.x,py-g.position.y,pz-g.position.z); if(q<d)d=q; } return +d.toFixed(1); })()}; },
+    // the hazards down there switched off, so a probe can measure the dive itself without the
+    // shark or a rock ending the run three seconds in
+    diveSafe(on){ DIVE_SAFE=!!on; return DIVE_SAFE; },
+    packNow(z){ dist=Math.max(dist,DIVE_PICK_DIST+1); jetPickT=0; jetAsk(); jetPickStep(0.016,0);
+      if(jetPick&&jetPickOn&&z!==undefined){ jetPick.position.z=pz+z; jetPick.position.x=px; }
+      return {tpl:!!jetTpl, on:jetPickOn, z:jetPick?+jetPick.position.z.toFixed(1):null}; },
+    packState(){ const out={on:jetPickOn, t:+jetPickT.toFixed(1), tpl:!!jetTpl, z:jetPick?+jetPick.position.z.toFixed(1):null, x:jetPick?+jetPick.position.x.toFixed(1):null, px:+px.toFixed(1), pz:+pz.toFixed(1)};
+      if(jetPick&&jetPick.userData.holder){ jetPick.updateMatrixWorld(true); const b=new THREE.Box3().setFromObject(jetPick.userData.holder); const z=b.getSize(new THREE.Vector3());
+        out.packSize=[+z.x.toFixed(2),+z.y.toFixed(2),+z.z.toFixed(2)]; out.packY=[+b.min.y.toFixed(2),+b.max.y.toFixed(2)]; let n=0; jetPick.userData.holder.traverse(o=>{ if(o.isMesh)n++; }); out.meshes=n;
+        const tb=jetTpl.userData.box; out.tplBox=[+(tb.max.x-tb.min.x).toFixed(3),+(tb.max.y-tb.min.y).toFixed(3),+(tb.max.z-tb.min.z).toFixed(3)]; }
+      return out; },
+    swimUp(on){ jumpHeld=!!on; steerY=on?1:0; return {held:jumpHeld, steerY}; },
     // the launch, which is now what a dive begins with: where he is in the arc, whether the pack
     // is the model or the built fallback, and whether the board has been let go yet
     launch(){ return {t:+diveLaunch.toFixed(2),
@@ -40745,7 +40764,7 @@ function floorStep(dt,eff){
     // there is nothing to tunnel through. Height matters too -- swimming over the top of one is a
     // dodge, and it should be, because up is a direction you have down here.
     const u=g.userData;
-    if(!wipe&&running&&diveOn&&u.hit>0){
+    if(!wipe&&running&&diveOn&&u.hit>0&&!DIVE_SAFE){
       const dx=px-g.position.x, dz=pz-g.position.z;
       if(u.k.tunnel){
         // ---- the arch, tested in its OWN frame ----
@@ -41128,7 +41147,7 @@ function dshkStep(dt,eff){
       if(!u.done&&g.position.z>pz-1.0){
         u.done=true;
         const off=Math.hypot(px-u.aimX,py-u.aimY);
-        if(off<DSHK_BITE&&running&&!wipe){
+        if(off<DSHK_BITE&&running&&!wipe&&!DIVE_SAFE){
           u.ph='bite';
           // ends the run the way the surface shark does. He is not surfaced first: the fog and
           // the sand are what say where this happened, and snapping them off at the moment of
@@ -41250,6 +41269,207 @@ function diveScenery(dt,eff){
 // control scheme, and a new control scheme is a thing to decide on purpose rather than to
 // arrive at while proving the camera can get wet.
 let diveOn=false, diveT=0, diveRise=0, diveDepth=0;
+let DIVE_SAFE=false;             // debug: no rock and no shark can end a dive
+// ============ THE DIVE AS A SET PIECE ============
+// It was a test-menu button: a launch, and then swimming with no way in from a run, nothing
+// to do down there and no way out. It is a thing that happens in a run now.
+//   IN:   past DIVE_PICK_DIST a jetpack floats down the lane the way the chest does. Ride
+//         through it and the launch fires.
+//   DOWN: twenty to fifty seconds, drawn fresh each time. Pearls hang in the lane and pay
+//         puka on the spot; the rocks and the shark down there end the run as they did.
+//   UP:   swim hard at the surface and he breaches -- out of the water in an arc and back
+//         in, the dive still on. A dolphin's move, worth points, and it is the one way to
+//         clear something at the top of the column.
+//   OUT:  when the clock runs out the pack lifts him up through the surface and over the
+//         top of an arc; the pack fades off his back on the way over, the board fades in
+//         on the water under him, and he lands on it riding. Nothing cuts.
+const DIVE_LEN_MIN=20, DIVE_LEN_MAX=50;   // seconds under, drawn per dive
+let diveLen=0, diveLeft=0, diveWarned=false;
+let diveExit=0;                  // seconds into the ride up and out; 0 when there is none
+let diveBreach=false, breachVY=0, breachN=0;
+let jetGone=false;               // the pack has faded off his back on the way out
+let diveBonus=0;                 // puka the pearls paid this run, shown live on the HUD
+let pearlsGot=0;
+let _exitAir=false, _exitT=0;
+const EXIT_T=2.0, EXIT_UP=6.2;   // the arc out: seconds surface to surface, feet of air
+const EXIT_RISE_V=12.5;          // ft/s the pack drives him up at under the water
+const PEARL_N=18, PEARL_PAY=8, PEARL_R=1.7;
+const DIVE_PICK_DIST=900;        // metres before the first pack can float by
+const DIVE_PICK_FIRST=[6,18], DIVE_PICK_GAP=[75,140];   // seconds: to the first, and between
+let divePearls=null, jetPick=null, jetPickOn=false, jetPickT=-1, jetPickBob=0;
+// a group faded by opacity, remembering what each material was so it can be put back exactly
+function fadeGroup(o,a){
+  o.traverse(n=>{ if(!n.isMesh||!n.material)return;
+    for(const m of (Array.isArray(n.material)?n.material:[n.material])){ if(!m)continue;
+      if(m.userData._fade0===undefined)m.userData._fade0={t:m.transparent,o:m.opacity};
+      m.opacity=m.userData._fade0.o*a; m.transparent=(a<0.999)?true:m.userData._fade0.t; m.needsUpdate=true; } });
+}
+function fadeRestore(o){
+  o.traverse(n=>{ if(!n.isMesh||!n.material)return;
+    for(const m of (Array.isArray(n.material)?n.material:[n.material])){ if(!m||!m.userData._fade0)continue;
+      m.opacity=m.userData._fade0.o; m.transparent=m.userData._fade0.t; m.needsUpdate=true; delete m.userData._fade0; } });
+}
+function diveClear(){
+  diveExit=0; diveBreach=false; breachVY=0; breachN=0; diveLeft=0; diveLen=0; diveWarned=false; jetGone=false;
+  _exitAir=false; _exitT=0;
+  if(diveJet)fadeRestore(diveJet);
+  if(typeof boardArt!=='undefined'&&boardArt)fadeRestore(boardArt);
+  if(divePearls)divePearls.visible=false;
+  if(jetPick){ jetPick.visible=false; } jetPickOn=false; jetPickT=-1;
+}
+// a soft round glow for a sprite: a plain SpriteMaterial is a SQUARE, and the first pearls
+// and the pack's halo came out as little white boxes in the water
+let _haloTex=null;
+function haloTex(){
+  if(_haloTex)return _haloTex;
+  const c=document.createElement('canvas'); c.width=c.height=128; const x=c.getContext('2d');
+  const g=x.createRadialGradient(64,64,0,64,64,64);
+  g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(0.35,'rgba(255,255,255,0.55)'); g.addColorStop(1,'rgba(255,255,255,0)');
+  x.fillStyle=g; x.fillRect(0,0,128,128);
+  _haloTex=new THREE.CanvasTexture(c); return _haloTex;
+}
+// ---- the pearls ----
+function buildPearls(){
+  if(divePearls)return divePearls;
+  divePearls=new THREE.Group(); divePearls.visible=false; scene.add(divePearls);
+  const geo=new THREE.SphereGeometry(0.30,18,14);
+  const mat=new THREE.MeshStandardMaterial({color:0xf4f7ff, emissive:0x8fd8ff, emissiveIntensity:0.55, roughness:0.25, metalness:0.1});
+  const halo=new THREE.SpriteMaterial({map:haloTex(), color:0xbfe9ff, transparent:true, opacity:0.55, depthWrite:false, blending:THREE.AdditiveBlending});
+  for(let i=0;i<PEARL_N;i++){
+    const g=new THREE.Group();
+    g.add(new THREE.Mesh(geo,mat));
+    const sp=new THREE.Sprite(halo); sp.scale.setScalar(1.6); g.add(sp);
+    g.userData.ph=Math.random()*6.28;
+    divePearls.add(g); pearlLay(g,true);
+  }
+  return divePearls;
+}
+function pearlLay(g,first){
+  g.position.z=-(DIVE_BORN+Math.random()*(first?110:70));
+  g.position.x=(Math.random()-0.5)*11;
+  g.userData.h=0.25+Math.random()*0.75;      // where in the column, 0 bed .. 1 ceiling
+  g.visible=true; g.userData.got=false;
+}
+function pearlStep(dt,eff,waterY){
+  const P=buildPearls(); P.visible=diveOn&&!wipe;
+  if(!P.visible)return;
+  const ceil=waterY-DIVE_TOP-0.6;
+  for(const g of P.children){
+    g.position.z+=eff*dt;
+    if(g.position.z>DIVE_BEHIND){ pearlLay(g,false); continue; }
+    const lo=bedH(g.position.x,g.position.z)+DIVE_CLEAR+0.3;
+    g.position.y=lo+(ceil-lo)*g.userData.h+Math.sin(tNow*1.6+g.userData.ph)*0.12;
+    g.rotation.y+=dt*0.8;
+    if(typeof fogCull==='function')fogCull(g);
+    if(g.userData.got||diveExit>0||diveBreach)continue;
+    const dx=px-g.position.x, dy=py-g.position.y, dz=pz-g.position.z;
+    if(dx*dx+dy*dy+dz*dz<PEARL_R*PEARL_R){
+      g.userData.got=true; g.visible=false; pearlsGot++;
+      diveBonus+=PEARL_PAY; score+=40; buzz(8);
+      if(typeof sfx==='function')sfx('buy',0.5,1.35);
+      goalEv('pearl',1);
+      msg('PEARL! +'+PEARL_PAY);
+    }
+  }
+}
+// ---- the pack floating in the lane ----
+function jetPickStep(dt,eff){
+  if(!running||wipe){ if(jetPick)jetPick.visible=false; jetPickOn=false; return; }
+  if(dist>DIVE_PICK_DIST-250)jetAsk();
+  if(!jetPickOn){
+    if(diveOn||diveLaunch>0||dist<DIVE_PICK_DIST)return;
+    if(jetPickT<0)jetPickT=DIVE_PICK_FIRST[0]+Math.random()*(DIVE_PICK_FIRST[1]-DIVE_PICK_FIRST[0]);
+    const busy=(swPh!==SWP.IDLE)||forkOn||hanging||(fallPh>=0)||(glPh!==GLP.OFF)||!!whirl||skiOn;
+    if(busy)return;
+    jetPickT-=dt;
+    if(jetPickT>0||!jetTpl)return;
+    if(!jetPick){
+      jetPick=new THREE.Group();
+      const m=cloneModel(jetTpl), b=jetTpl.userData.box;
+      const w=Math.max(1e-4,b.max.x-b.min.x), sc=(JET_TALL*4.6)/w;   // big enough to read from thirty feet down the lane
+      m.scale.set(sc,sc,sc*JET_WIDE);
+      m.position.set(-(b.min.x+b.max.x)*0.5*sc,-(b.min.y+b.max.y)*0.5*sc,-(b.min.z+b.max.z)*0.5*sc*JET_WIDE);
+      const h=new THREE.Group(); h.rotation.order=JET_ROT_ORDER; h.rotation.set(JET_ROT[0],JET_ROT[1],JET_ROT[2]); h.add(m);
+      const spin=new THREE.Group(); spin.add(h); spin.position.y=1.3; jetPick.add(spin); jetPick.userData.holder=spin;
+      const ring=new THREE.Mesh(new THREE.TorusGeometry(1.6,0.10,10,48),
+        new THREE.MeshBasicMaterial({color:0x7fe9ff,transparent:true,opacity:0.75,depthWrite:false}));
+      ring.rotation.x=Math.PI/2; jetPick.add(ring); jetPick.userData.ring=ring;
+      const halo=new THREE.Sprite(new THREE.SpriteMaterial({map:haloTex(),color:0x9ff0ff,transparent:true,opacity:0.5,depthWrite:false,blending:THREE.AdditiveBlending}));
+      halo.scale.setScalar(5.5); halo.position.y=1.0; jetPick.add(halo); jetPick.userData.halo=halo;
+      scene.add(jetPick);
+    }
+    jetPickOn=true; jetPick.visible=true; jetPickBob=0;
+    jetPick.position.set(Math.max(-12,Math.min(12,px+(Math.random()-0.5)*12)),0,-170);
+    msg('JETPACK AHEAD!');
+    return;
+  }
+  jetPickBob+=dt;
+  jetPick.position.z+=eff*dt;
+  const sea=swellH(jetPick.position.x,dist*WAVE_DRIFT+jetPick.position.z,waveClock);
+  jetPick.position.y=sea+0.55+Math.sin(jetPickBob*1.9)*0.16;
+  jetPick.userData.holder.rotation.y=jetPickBob*1.4;
+  jetPick.userData.ring.material.opacity=0.55+0.3*Math.sin(jetPickBob*2.8);
+  jetPick.userData.halo.material.opacity=0.35+0.25*Math.sin(jetPickBob*2.8+1);
+  if(jetPick.position.z>14){ jetPickOn=false; jetPick.visible=false;
+    jetPickT=DIVE_PICK_GAP[0]*0.5+Math.random()*30; return; }
+  if(!diveOn&&diveLaunch<=0&&Math.abs(jetPick.position.z-pz)<2.4&&Math.abs(jetPick.position.x-px)<2.4
+     &&Math.abs(py-jetPick.position.y)<2.4){
+    jetPickOn=false; jetPick.visible=false;
+    jetPickT=DIVE_PICK_GAP[0]+Math.random()*(DIVE_PICK_GAP[1]-DIVE_PICK_GAP[0]);
+    splash(px,py+0.3,pz,12,0x9ff0ff);
+    diveGo(true);
+  }
+}
+// ---- the breach ----
+function breachStep(dt,waterY){
+  py+=breachVY*dt; breachVY-=32.2*dt;
+  diveDepth=0; diveFog(0);
+  boardPitch+=((breachVY*0.05)-boardPitch)*Math.min(1,dt*5);
+  if(breachVY<0&&py<waterY-0.5){
+    diveBreach=false; diveRise=breachVY*0.75;
+    for(let i=0;i<18;i++)splash(px+(Math.random()-0.5)*2.6,waterY,pz+(Math.random()-0.5)*2.4,1);
+  }
+}
+// ---- the way out ----
+function diveExitStep(dt,waterY){
+  diveExit+=dt;
+  if(!_exitAir){
+    // under: the pack drives him up
+    diveRise+=(EXIT_RISE_V-diveRise)*Math.min(1,dt*3.5);
+    py+=diveRise*dt;
+    diveDepth=Math.max(0,waterY-py); diveFog(diveDepth);
+    boardPitch+=((diveRise*0.045)-boardPitch)*Math.min(1,dt*3.2);
+    if(py>=waterY-0.05){ _exitAir=true; _exitT=0;
+      for(let i=0;i<30;i++)splash(px+(Math.random()-0.5)*3.4,waterY,pz+(Math.random()-0.5)*3.0,1);
+      buzz([10,20,10]); }
+    return;
+  }
+  // in the air: a ballistic arc from the surface back to it, py pinned to the water and the
+  // lift carried on its own, exactly as the launch does it the other way round
+  _exitT+=dt;
+  const k=Math.max(0,Math.min(1,_exitT/EXIT_T));
+  py=waterY; diveDepth=0; diveFog(0); diveRise=0;
+  launchLift=4*EXIT_UP*k*(1-k);
+  launchVY=4*EXIT_UP*(1-2*k)/EXIT_T;
+  boardPitch+=(0-boardPitch)*Math.min(1,dt*6);
+  airborne=true; vy=0;
+  // the pack goes over the top of the arc and is gone before he is down
+  if(diveJet){ const f=1-Math.max(0,Math.min(1,(k-0.42)/0.38)); fadeGroup(diveJet,f);
+    if(k>=0.80&&!jetGone){ jetGone=true; sfxLoopStop('jet',250); } }
+  // ...and the board is already there when he arrives
+  if(typeof boardArt!=='undefined'&&boardArt){
+    const b=Math.max(0,Math.min(1,(k-0.45)/0.45));
+    if(b>0){ boardArt.visible=true; fadeGroup(boardArt,b); }
+  }
+  if(k>=1){
+    launchLift=0; launchVY=0; _exitAir=false; _exitT=0; diveExit=0;
+    if(diveJet)fadeRestore(diveJet);
+    if(typeof boardArt!=='undefined'&&boardArt)fadeRestore(boardArt);
+    diveUnder(false);
+    if(pearlsGot>0)msg('BACK ON THE BOARD! +'+(pearlsGot*PEARL_PAY)+' PUKA');
+    else msg('BACK ON THE BOARD!');
+  }
+}
 // ---- he does not SINK, he hangs ----
 // 3.2 ft/s hands-off was a stone going down: let go for two seconds and you were on the bottom,
 // and holding the button became something you did constantly rather than something you did to
@@ -41500,7 +41720,7 @@ function jetUpdate(dt){
   }
   if(g.parent!==pug&&want)pug.add(g);
   // nothing to show until the file is in: there is no built pack behind it any more
-  g.visible=want&&!!g.userData.real;
+  g.visible=want&&!!g.userData.real&&!jetGone;
   // ---- and the BOARD goes ----
   // He is not riding it, he is swimming, and a surfboard welded under a man doing the crawl is
   // the single loudest thing in the frame saying this is still the surf game with the water
@@ -41783,6 +42003,10 @@ function diveUnder(on){
     // The fallback is for the dive being entered any other way (the old button, a test hook).
     diveRise=(launchVY<-0.5)?launchVY:(-DIVE_PLUNGE_V*0.6);
     launchVY=0;
+    diveLen=DIVE_LEN_MIN+Math.random()*(DIVE_LEN_MAX-DIVE_LEN_MIN); diveLeft=diveLen; diveWarned=false;
+    diveExit=0; diveBreach=false; jetGone=false; pearlsGot=0; _exitAir=false; _exitT=0;
+    if(diveJet)fadeRestore(diveJet);
+    buildPearls(); for(const g of divePearls.children)pearlLay(g,true);
     msg('UNDER!');
     // a burst of white where he punches through, so the entry has a moment
     for(let i=0;i<26;i++)
@@ -41804,6 +42028,15 @@ function diveUnder(on){
 }
 function diveStep(dt,waterY){
   diveT+=dt;
+  pearlStep(dt,(typeof lastEff==='number'?lastEff:0),waterY);
+  if(diveExit>0){ diveExitStep(dt,waterY); return; }
+  if(diveBreach){ breachStep(dt,waterY); return; }
+  // ---- the clock ----
+  if(diveT>DIVE_PLUNGE&&!wipe){
+    diveLeft-=dt;
+    if(!diveWarned&&diveLeft<=8){ diveWarned=true; msg('8 SECONDS OF AIR'); buzz(12); }
+    if(diveLeft<=0){ diveExit=1e-3; _exitAir=false; _exitT=0; jetOn=1; msg('SURFACING!'); buzz([12,30]); return; }
+  }
   // hands off he settles, holding the button he climbs -- eased, because a diver has mass and
   // a step change in vertical speed reads as a lift rather than a swimmer
   const plunge=diveT<DIVE_PLUNGE;
@@ -41835,7 +42068,18 @@ function diveStep(dt,waterY){
   // how you dodge, so the escape was bound to the control you need most, and every hard dodge
   // upward ended the thing you were dodging in. He is held under the surface instead.
   const ceil=waterY-DIVE_TOP;
-  if(py>ceil){ py=ceil; diveRise=Math.min(diveRise,0); }
+  // ---- or he BREACHES ----
+  // Swimming hard at the surface used to stop dead at the ceiling. Arriving at it with speed
+  // takes him through: out of the water in an arc and back in, the dive still running --
+  // which is the dolphin's move, and the one way over something floating at the top.
+  if(py>ceil){
+    if(!plunge&&sy>0.5&&diveRise>DIVE_SWIM_V*0.55){
+      diveBreach=true; breachVY=Math.max(diveRise*1.4,17.0); breachN++;
+      score+=150; msg('BREACH! +150'); buzz([8,14,8]);
+      for(let i=0;i<20;i++)splash(px+(Math.random()-0.5)*2.6,waterY,pz+(Math.random()-0.5)*2.4,1);
+      return;
+    }
+    py=ceil; diveRise=Math.min(diveRise,0); }
   // ---- and the DEPTH is measured where he ENDED UP ----
   // It used to be taken above, between the two clamps, so it reported where he had tried to go
   // rather than where he is. Holding up against the ceiling that is a third of a foot of pure
@@ -41853,7 +42097,7 @@ function diveStep(dt,waterY){
   // Louder than it was, because what it now has to hold up is a gap the riding bed used to be
   // filling: six voices going quiet at once leaves a much bigger hole than one loop did, and
   // this is the thing that has to fill it.
-  if(diveOn||diveDepth>0.5)
+  if((diveOn||diveDepth>0.5)&&!diveBreach)
     sfxLoop('under',0.46+Math.min(1,diveDepth/3.0)*0.46,1.0);
 }
 // ---- and running aground, which is not a crash ----
@@ -42265,7 +42509,7 @@ function updateWhirl(dt,eff){
     if(swPh!==SWP.IDLE)whirlT=Math.max(whirlT,WH_AFTER_SET);
     if(forkOn)whirlT=Math.max(whirlT,3.0);
     // A whirlpool is a hole in flat water and there is no flat water in a fall.
-    if(whirlT<=0&&(dist>700||whTest)&&!forkOn&&!(fallPh>=0)){whirlT=WH_GAP+Math.random()*WH_GAP_R;whTest=false;spawnWhirl();}
+    if(whirlT<=0&&(dist>700||whTest)&&!forkOn&&!(fallPh>=0)&&!diveOn&&diveLaunch<=0){whirlT=WH_GAP+Math.random()*WH_GAP_R;whTest=false;spawnWhirl();}
     if(whA>0){whA=Math.max(0,whA-dt*5);whirlArt.scale.y=Math.max(0.001,whA);}
     if(whA<=0)whirlArt.visible=false;
     return;
@@ -43462,7 +43706,7 @@ function animateRig(dt,carve,grab,waterY){
     elF=[mx(elF[0],0.26),0,0]; elB=[mx(elB[0],0.26),0,0];
     armSpread*=1-h;
   }
-  divePose=ease(divePose,diveOn?1:0,dt,diveOn?7:5);
+  divePose=ease(divePose,(diveOn&&!(diveExit>0&&_exitAir))?1:0,dt,diveOn?7:5);
   // ---- and going over the top IS the swim pose arriving ----
   // Not an ease of its own: the fold and the pose are one movement, so the pike drives the
   // blend directly. Easing divePose from the moment the pack lights would lay him out flat
@@ -45592,7 +45836,7 @@ function update(dt){
     // air are carried in launchLift and nothing here knows about them. So every height test
     // below sees a board sitting on the surface, and a buoy passing underneath the top of the
     // dive ended the run mid-flight, from a lane he had already jumped out of.
-    if(diveLaunch>0&&launchLift>0.9)continue;
+    if((diveLaunch>0||diveExit>0)&&launchLift>0.9)continue;
     // the jelly closes fast and is only "at" you for a couple of frames, so its
     // window grows with speed — otherwise a jump can pass clean over the contact
     // The board is a 5m plank, not a point. Test it as a capsule running nose to
@@ -46231,6 +46475,7 @@ function update(dt){
   if(typeof turtleStep==='function')turtleStep(_clkDt||0.016,lastEff||0);
   if(typeof rayStep==='function')rayStep(_clkDt||0.016,lastEff||0);
   if(typeof dshkStep==='function')dshkStep(_clkDt||0.016,lastEff||0);
+  if(typeof jetPickStep==='function')jetPickStep(_clkDt||0.016,lastEff||0);
   // last, and after all three: it is the one thing that has to see every animal at once
   if(typeof diveSeparate==='function'&&(diveOn||diveDepth>0.5))diveSeparate(_clkDt||0.016);
   if(typeof kelpStep==='function')kelpStep(_clkDt||0.016);
@@ -46255,7 +46500,7 @@ function update(dt){
   hBestD.textContent='best '+Math.max(bd,ds).toLocaleString()+' m';
   hBestD.classList.toggle('new',ds>bd);
   // this run's take, not the wallet — the wallet is what the shop is for
-  hCoins.textContent=coinsFor(dist,score);
+  hCoins.textContent=coinsFor(dist,score)+((typeof diveBonus==='number')?diveBonus:0);
 }
 
 // ---------------------------------------------------------------------------
