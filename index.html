@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.79';</script>
+<script>window.SURF_VERSION='10.80';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -403,6 +403,10 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   #overlay.over #homeBar { display:none; }
   body.panel #homeBar { display:none; }
   #overlay.main #ovBtns { display:none; }
+  /* the sign's Play is off the screen (a wide window, or a stage drag): the plain pill stands
+     in, alone -- see the signpost layout */
+  body.signOff #overlay.main #ovBtns { display:flex; }
+  body.signOff #overlay.main #ovBtns > :not(#playRow), body.signOff #overlay.main #waveBtn { display:none; }
   .hbtn {
     position:absolute; pointer-events:auto; overflow:hidden;
     border-radius:50%; user-select:none; -webkit-tap-highlight-color:transparent;
@@ -23021,8 +23025,18 @@ const OCT_W=[0.16,0.34,0.08,0.20,0.50,0.34];
 // break the surface and go back under instead of waving below it.
 let OCT_LIFT=1.35;
 const keys={};
+// is the title screen up with nothing open over it -- the one state where a key should start a run
+function titleIdle(){
+  if(running||!overlay.classList.contains('main')||overlay.classList.contains('hidden'))return false;
+  for(const id of ['shop','quests','spin','settings','howto','mystats','profile','puka','levelInfo','viewer','crateOv']){
+    const el=document.getElementById(id); if(el&&!el.classList.contains('hidden'))return false; }
+  return true;
+}
 addEventListener('keydown',e=>{
   keys[e.code]=true;
+  // Enter or Space on the title screen is Play. A desktop player with a keyboard pressed every
+  // key and got nothing; the sign's Play is a thing you have to find with the mouse.
+  if((e.code==='Enter'||e.code==='Space')&&!e.repeat&&titleIdle()){ e.preventDefault(); startBtn.click(); return; }
   if(e.code==='Space'){e.preventDefault();doJump();}
   if(e.code==='KeyJ')startTrick('spin','key');
   if(e.code==='KeyK')startTrick('flip','key');
@@ -25665,6 +25679,11 @@ function placeSignpost(){
 // ray, because at 92 degrees those are not the same thing and the difference is a third of
 // the size (see _bpAt). Re-solved every frame, so it holds through the camera's drift and
 // through a turned phone without a resize handler.
+// where the post goes on a wide frame: a screen point (fractions of width and height), how
+// much it is lifted off the sand hit, a turn off square to the lens, and a size against the
+// pinned one. The aspect above which this takes over is a touch past square.
+let SP_LAND={asp:1.05, x:0.80, y:0.72, dist:8.0, lift:0.9, turn:0, s:1.6};
+const _spRay=new THREE.Raycaster(), _spDown=new THREE.Vector3(0,-1,0);
 function aimSignpost(){
   if(!signPost||typeof menuCam==='undefined'||!menuCam)return;
   // ---- a hand on the stage beats the aim ----
@@ -25683,8 +25702,38 @@ function aimSignpost(){
   // MB_SP_SIDE, MB_SP_FWD, MB_SP_TILT, MB_SP_ROLL and MB_SP_H are all still live — they are
   // what puts the post somewhere sane if the pin is ever taken off, and they are what the
   // Stage starts from.
-  if(MB_STAGED&&MB_PIN.signpost){ pinPiece(signPost, MB_PIN.signpost); return; }
+  // ---- ...EXCEPT ON A WIDE FRAME, where the pin is off the screen ----
+  // The whole set is staged for a phone held upright. On a laptop the lens walks in and the
+  // post, pinned down in the portrait frame's bottom-right corner, ends up beside or behind
+  // it -- its box projected to minus twenty-five thousand pixels -- and with it went Play,
+  // Shop and Quests. First desktop tester: "I could not figure out how to surf... arrow keys
+  // did nothing, and I couldn't click or swipe my way to the ocean." So on a frame wider than
+  // it is tall the post is set by SCREEN POINT instead: a ray through the lower right of the
+  // picture down onto the sand, and the post dug in where it lands, facing the lens.
+  if(MB_STAGED&&MB_PIN.signpost&&!((menuCam.aspect||0)>SP_LAND.asp)){ pinPiece(signPost, MB_PIN.signpost); return; }
   if(typeof menuProps==='undefined'||!menuProps||typeof mbAxes!=='function')return;
+  if(MB_STAGED&&MB_PIN.signpost&&(menuCam.aspect||0)>SP_LAND.asp){
+    menuCam.updateMatrixWorld(true); menuProps.updateWorldMatrix(true,false);
+    // a fixed distance out along the ray, then DOWN onto the sand there -- the ray's own
+    // landing on the sand was thirty feet off, out by the horizon, and the post came up the
+    // size of a matchstick with Quests behind a dune
+    _spV2.set(SP_LAND.x*2-1, 1-SP_LAND.y*2, 0.5).unproject(menuCam).sub(menuCam.position);
+    _spV2.y=0; _spV2.normalize();
+    const hit=menuCam.position.clone().addScaledVector(_spV2,SP_LAND.dist);
+    let gy=null;
+    if(sandField){ _spRay.set(_spP.set(hit.x,menuCam.position.y+30,hit.z),_spDown); _spRay.far=90;
+      const h=_spRay.intersectObject(sandField,false)[0]; if(h)gy=h.point.y; }
+    if(gy===null&&typeof beachSurfH==='function')gy=(beachSurfH(hit.x/MB_K,hit.z/MB_K)+sandFieldTop)*MB_K;
+    hit.y=(gy!==null)?gy:menuProps.getWorldPosition(_spP).y;
+    const lp=menuProps.worldToLocal(hit.clone());
+    const cp=menuProps.worldToLocal(menuCam.position.clone());
+    const P=MB_PIN.signpost;
+    signPost.position.set(lp.x, lp.y+SP_LAND.lift, lp.z);
+    signPost.rotation.set(P.r[0]*Math.PI/180, Math.atan2(cp.x-lp.x, cp.z-lp.z)+SP_LAND.turn*Math.PI/180, P.r[2]*Math.PI/180);
+    signPost.scale.setScalar(P.s*SP_LAND.s);
+    signPost.updateMatrixWorld(true);
+    return;
+  }
   menuCam.updateMatrixWorld(true);
   menuProps.updateWorldMatrix(true,false);
   const pscl=Math.max(1e-6, signPost.parent.getWorldScale(_spV).x);
@@ -25791,7 +25840,12 @@ function layoutSignButtons(){
     if(!el)continue;
     const o=arm[i];
     const cx=o.c[0], cy=o.c[1];
-    if(o.behind||cx<-70||cx>W+70||cy<-40||cy>H+40){ el.style.visibility='hidden'; continue; }
+    if(o.behind||cx<-70||cx>W+70||cy<-40||cy>H+40){ el.style.visibility='hidden';
+      // the painted Play is off the screen: the plain Play pill comes back, so there is always
+      // something that says Play on it
+      if(SP_IDS[i]==='dPlay')document.body.classList.add('signOff');
+      continue; }
+    if(SP_IDS[i]==='dPlay')document.body.classList.remove('signOff');
     // the bearing of THIS board as it lands on the screen, so the target lies along it. Kept
     // the same way up throughout: a plank whose far end projects to the left would otherwise
     // flip, which is a real case here because the arrows point both ways off the post.
@@ -32462,6 +32516,14 @@ if(location.hash.includes('debug')){
     garmSet(o){ Object.assign(GARM,o||{}); try{ equipChar(rider); }catch(e){} return Object.assign({},GARM); },
     // the authored wardrobe as loaded: which pieces arrived, skinned or not, with what
     sceneRoot(){ return scene; },
+    spLand(o){ Object.assign(SP_LAND,o||{}); return Object.assign({},SP_LAND); },
+    // where the title screen's signpost lands on screen, and the lens that put it there
+    signProj(){ if(!signPost||!menuCam)return null; const W=innerWidth,H=innerHeight;
+      signPost.updateWorldMatrix(true,true);
+      const b=new THREE.Box3().setFromObject(signPost); const pts=[]; for(let i=0;i<8;i++){ const v=new THREE.Vector3(i&1?b.max.x:b.min.x,i&2?b.max.y:b.min.y,i&4?b.max.z:b.min.z).project(menuCam); pts.push([Math.round((v.x+1)/2*W),Math.round((1-v.y)/2*H),+v.z.toFixed(2)]); }
+      const c=new THREE.Vector3(); menuCam.getWorldPosition(c);
+      return {W,H, box:{x0:Math.min(...pts.map(p=>p[0])),x1:Math.max(...pts.map(p=>p[0])),y0:Math.min(...pts.map(p=>p[1])),y1:Math.max(...pts.map(p=>p[1]))}, vis:signPost.visible,
+              cam:[+c.x.toFixed(2),+c.y.toFixed(2),+c.z.toFixed(2)], fov:menuCam.fov, asp:+menuCam.aspect.toFixed(3)}; },
     runStart(){ beginRun(); return running; }, runEnd(){ gameOver(); return overlayUp; },
     // does the cloth follow the body? A garment vertex against the body vertex nearest it at
     // rest, both put through their skinning now -- the gap should stay at the stand-off
