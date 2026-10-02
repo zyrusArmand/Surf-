@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.83';</script>
+<script>window.SURF_VERSION='10.84';</script>
 <!-- the app icon: Astro on the sunset, built by icon/render.py + icon/compose.py -->
 <link rel="icon" type="image/png" sizes="32x32" href="icon/icon-32.png">
 <link rel="icon" href="icon/favicon.ico">
@@ -34319,7 +34319,7 @@ if(location.hash.includes('debug')){
     walk(x,z){ walkVX=x||0; walkVZ=z||0; return {vx:walkVX,vz:walkVZ,ph:forkPh}; },
     // ---- the dive, and the button that flies it ----
     dive(on){ return diveGo(on===undefined?!diveOn:!!on); },
-    diveClock(v){ if(v!==undefined)diveLeft=v; return {len:+diveLen.toFixed(1), left:+diveLeft.toFixed(1), exit:+diveExit.toFixed(2), air:_exitAir, breach:diveBreach, pearls:pearlsGot, bonus:diveBonus, jetGone, lift:+launchLift.toFixed(2), on:diveOn, py:+py.toFixed(2), depth:+diveDepth.toFixed(2), board:(typeof boardArt!=='undefined'&&boardArt)?boardArt.visible:null, run:running, wipe:wipe?(wipe.kind||true):null, pose:+divePose.toFixed(2), jetVis:!!(diveJet&&diveJet.visible),
+    diveClock(v){ if(v!==undefined)diveLeft=v; return {len:+diveLen.toFixed(1), left:+diveLeft.toFixed(1), exit:+diveExit.toFixed(2), air:_exitAir, breach:diveBreach, pearls:pearlsGot, bonus:diveBonus, jetGone, lift:+launchLift.toFixed(2), on:diveOn, py:+py.toFixed(2), depth:+diveDepth.toFixed(2), board:(typeof boardArt!=='undefined'&&boardArt)?boardArt.visible:null, run:running, wipe:wipe?((typeof lastWipe!=='undefined'&&lastWipe&&lastWipe.kind)||true):null, pose:+divePose.toFixed(2), jetVis:!!(diveJet&&diveJet.visible),
       vy:+vy.toFixed(2), airborne:!!airborne, gl:glPh, hang:!!hanging, sw:swPh, wk:+(wkA||0).toFixed(2), heli:+((typeof heliPose==='number')?heliPose:0).toFixed(2), lay:+((typeof fallLay==='number')?fallLay:0).toFixed(2),
       pearlsVis:divePearls?divePearls.children.filter(g=>g.visible).length:0,
       nearPearl:(()=>{ if(!divePearls)return null; let d=1e9; for(const g of divePearls.children){ if(!g.visible)continue; const q=Math.hypot(px-g.position.x,py-g.position.y,pz-g.position.z); if(q<d)d=q; } return +d.toFixed(1); })()}; },
@@ -41290,8 +41290,9 @@ let diveBreach=false, breachVY=0, breachN=0;
 let jetGone=false;               // the pack has faded off his back on the way out
 let diveBonus=0;                 // puka the pearls paid this run, shown live on the HUD
 let pearlsGot=0;
-let _exitAir=false, _exitT=0;
+let _exitAir=false, _exitT=0, diveLandT=-99;
 const EXIT_T=2.0, EXIT_UP=6.2;   // the arc out: seconds surface to surface, feet of air
+const LAND_GRACE=0.9;            // seconds after he lands on the board before the lane can hit him
 const EXIT_RISE_V=12.5;          // ft/s the pack drives him up at under the water
 const PEARL_N=18, PEARL_PAY=8, PEARL_R=1.7;
 const DIVE_PICK_DIST=900;        // metres before the first pack can float by
@@ -41462,7 +41463,7 @@ function diveExitStep(dt,waterY){
     if(b>0){ boardArt.visible=true; fadeGroup(boardArt,b); }
   }
   if(k>=1){
-    launchLift=0; launchVY=0; _exitAir=false; _exitT=0; diveExit=0;
+    launchLift=0; launchVY=0; _exitAir=false; _exitT=0; diveExit=0; diveLandT=tNow;
     if(diveJet)fadeRestore(diveJet);
     if(typeof boardArt!=='undefined'&&boardArt)fadeRestore(boardArt);
     diveUnder(false);
@@ -45837,6 +45838,9 @@ function update(dt){
     // below sees a board sitting on the surface, and a buoy passing underneath the top of the
     // dive ended the run mid-flight, from a lane he had already jumped out of.
     if((diveLaunch>0||diveExit>0)&&launchLift>0.9)continue;
+    // ...and he is not handed straight to a log on the frame he lands: a short grace, the same
+    // idea as the respawn's cleared water, because a landing you cannot see coming is not a dodge
+    if(tNow-diveLandT<LAND_GRACE)continue;
     // the jelly closes fast and is only "at" you for a couple of frames, so its
     // window grows with speed — otherwise a jump can pass clean over the contact
     // The board is a 5m plank, not a point. Test it as a capsule running nose to
