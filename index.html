@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.77';</script>
+<script>window.SURF_VERSION='10.78';</script>
 <!-- The title track, asked for by the PARSER rather than by script. Creating the <audio>
      element in code cannot start this download early: the request is queued as a task, and no
      task runs until the whole inline script below has finished executing, which measured at
@@ -19040,6 +19040,9 @@ function libAdd(clips){
   }
 }
 const _fq=new THREE.Quaternion();      // scratch, for the yaw the handstand clip adds
+// how much a rider's legs answer the ride -- carve, swell, the breathing oscillators and
+// air. Declared ahead of both rigs that read it, so neither can reach it before it exists.
+let LEG_FOLD={carve:0.12, swell:0.22, bob:0.16, air:0.10};
 function setupModelRig(root,gltf,id){
   const clips=(gltf&&gltf.animations)||[];
   if(!THREE.AnimationMixer)return null;
@@ -19954,6 +19957,9 @@ function setupModelRig(root,gltf,id){
   // carve, the swell heaving under the board, the chop — plus a couple of slow oscillators
   // that never line up with each other, which is what keeps a loop from reading as a loop.
   R.sway=0; R.load=0; R.bob=0;
+  // how much the legs answer the ride: carve, swell, the breathing oscillators and air.
+  // They were 0.30, 0.5, 0.34 and 0.22 -- see the note at the knees. Tunable from the debug
+  // object as legFold().
   R.stance=function(dt,w){
     const B=this.bones, q=new THREE.Quaternion(), e=new THREE.Euler();
     const set=(n,x,y,z,k)=>{ const b=B[n], r=this.rest[n]; if(!b||!r)return;
@@ -19978,7 +19984,14 @@ function setupModelRig(root,gltf,id){
     // The crouch lives in the KNEES and the fold at the waist, not in the hips — dropping the
     // pelvis on top of a knee bend is what puts a rider's feet through his own board. Same
     // conclusion the built-in rig reached, for the same reason, and it is worth stating twice.
-    const load=0.30+this.load*0.30+Math.abs(swell)*0.5+this.bob*0.34+air*0.22
+    // ---- and they do NOT fold on every beat ----
+    // The knees answered everything at full size: each carve, each swell, each breath of the
+    // oscillators and every hop put him into a squat and back out again, so a run read as a
+    // rider doing deep knee bends. "Characters legs don't have to fold every time he does."
+    // The stance is still loaded, and still moves; the answers are a third to a half of what
+    // they were, so a carve settles him rather than crouching him. The launch wind-up keeps
+    // its full fold, because that one IS a crouch.
+    const load=0.30+this.load*LEG_FOLD.carve+Math.abs(swell)*LEG_FOLD.swell+this.bob*LEG_FOLD.bob+air*LEG_FOLD.air
                +(this.crouchW||0)*0.58;   // a wind-up; 0.95 folded him onto the deck
     const hip=-0.20-load*0.22, knee=load*1.05;
     // BOTH LEGS THE SAME. An asymmetric knee bend is what a carving surfer's legs really do,
@@ -32652,6 +32665,7 @@ if(location.hash.includes('debug')){
     // set the stance depth, so the feet can be measured with it and without it
     crouch(v,h){ if(v!==undefined)RIDE_CROUCH=v; if(h!==undefined)RIDE_HIP=h;
                  return {c:RIDE_CROUCH,h:RIDE_HIP}; },
+    legFold(o){ Object.assign(LEG_FOLD,o||{}); return Object.assign({},LEG_FOLD); },
     footProbe(){
       // In the BOARD's own frame, not the world's: the sea heaves and the hull pitches, so a
       // world height answers a different question every frame.
@@ -43125,7 +43139,9 @@ function animateRig(dt,carve,grab,waterY){
   // spots the landing, which is what makes the tuck read as effort rather than a pose.
   const rotQ = spinQ+flipQ+pitchQ;
   rigTuck = ease(rigTuck, (airborne||hanging)&&rotQ>0.15 && !grab ? 1 : 0, dt, rotQ>0.15?13:7);
-  const compress = airborne ? (grab?1.05:-0.16+rigTuck*1.30) : (g*0.42 + Math.abs(heave)*0.5 + chop*0.05 + (dragging?0.55:0));   // grabs crouch, no forward pitch
+  // the built-in body answers the carve and the swell at the same reduced size the model
+  // riders do -- see LEG_FOLD -- so it stops squatting on every turn
+  const compress = airborne ? (grab?1.05:-0.16+rigTuck*1.30) : (g*0.42*(LEG_FOLD.carve/0.30) + Math.abs(heave)*LEG_FOLD.swell + chop*0.05 + (dragging?0.55:0));   // grabs crouch, no forward pitch
   releaseKick=Math.max(0,releaseKick-dt);
   rigCrouch=ease(rigCrouch,compress-releaseKick*0.55,dt,9);   // pops upright out of a grab
   rigAir=ease(rigAir,airborne?1:0,dt,8);
