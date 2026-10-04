@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.87';</script>
+<script>window.SURF_VERSION='10.88';</script>
 <!-- the app icon: Astro on the sunset, built by icon/render.py + icon/compose.py -->
 <link rel="icon" type="image/png" sizes="32x32" href="icon/icon-32.png">
 <link rel="icon" href="icon/favicon.ico">
@@ -2191,6 +2191,27 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   #shopList .gsec { font-size:12px; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
     color:#bfe6ee; opacity:.72; margin:14px 2px 7px; grid-column:1/-1; }
   #shopList .gsec:first-child { margin-top:2px; }
+  /* ---- the trick shelf's slot picker ---- */
+  #slotPick { position:fixed; inset:0; z-index:16; display:flex; align-items:center; justify-content:center;
+    background:rgba(4,18,36,.62); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+    padding:18px; }
+  #slotPick.hidden { display:none; }
+  #slotPick .spbox { width:min(100%,360px); border-radius:22px; padding:18px 16px 14px; color:#fff;
+    background:linear-gradient(180deg, rgba(14,52,86,.97), rgba(9,33,60,.97));
+    border:1.5px solid rgba(255,255,255,.22); box-shadow:0 18px 50px rgba(0,10,30,.55);
+    text-align:center; }
+  #slotPick .sptitle { font-size:15px; font-weight:800; letter-spacing:.3px; margin-bottom:12px; }
+  #slotPick .sptitle b { color:#ffdf2e; }
+  #slotPick .sprow { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; margin-bottom:12px; }
+  #slotPick .sprow button { appearance:none; border-radius:14px; padding:9px 2px 7px; cursor:pointer;
+    background:rgba(255,255,255,.09); border:1.5px solid rgba(255,255,255,.26); color:#eaf6ff;
+    display:flex; flex-direction:column; align-items:center; gap:2px; min-width:0; }
+  #slotPick .sprow button .n { font-size:17px; font-weight:900; line-height:1; }
+  #slotPick .sprow button .ges { width:26px; height:26px; stroke-width:2.2; }
+  #slotPick .sprow button .w { font-size:8.5px; font-weight:800; letter-spacing:.5px; opacity:.85;
+    width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #slotPick .sprow button.cur { border-color:#ffdf2e; background:rgba(255,223,46,.16); }
+  #slotPick .sprow button:active { transform:scale(.94); }
   #shopList .grow { grid-column:1/-1; display:flex; align-items:center; gap:10px;
     padding:11px 13px; border-radius:13px; background:rgba(255,255,255,.055);
     border:1px solid rgba(255,255,255,.10); margin-bottom:8px; }
@@ -3114,13 +3135,23 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
 <div id="shop" class="hidden">
   <div class="shopwrap">
     <h2>Beach shop <span id="shopLv">Lv 1</span><span id="shopCoins">0 puka</span></h2>
-    <div id="shopTabs"><button class="tab on" data-tab="boards">Boards</button><button class="tab" data-tab="riders">Surfers</button><button class="tab" data-tab="gear">Style</button></div>
+    <div id="shopTabs"><button class="tab on" data-tab="boards">Boards</button><button class="tab" data-tab="riders">Surfers</button><button class="tab" data-tab="gear">Style</button><button class="tab" data-tab="tricks">Tricks</button></div>
     <div id="shopWin"><div id="shopList"></div></div>
     <!-- The picked-up board's figures, laid on the carved panel under the counter. Outside
          #shopWin on purpose: it is flown to the counter, not to the window, and nesting it
          would have it inherit the window's scroll and its mask. -->
     <div id="shopSill" class="empty"></div>
     <button class="go calm" id="shopClose"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg><span>Back</span></button>
+  </div>
+</div>
+<!-- which of the five buttons a bought trick goes on. A sibling of the shop rather than a child,
+     because in the stand the shop's window is flown about by transforms and a fixed box inside
+     one of those is fixed to the window, not the screen. -->
+<div id="slotPick" class="hidden">
+  <div class="spbox">
+    <div class="sptitle">Put <b id="spName"></b> on button</div>
+    <div class="sprow" id="spRow"></div>
+    <button class="go calm" id="spClose" type="button"><span>Cancel</span></button>
   </div>
 </div>
 <div id="clip" class="hidden">
@@ -6320,6 +6351,88 @@ function gearLvl(id){ const g=GEAR_BY_ID[id]; return g?g.lv:1; }
 // comparing levels itself, a won piece shows up everywhere at once.
 let ownedGear={};
 function gearHave(id){ return level>=gearLvl(id) || !!ownedGear[id]; }
+// ---------------------------------------------------------------------------
+// THE TRICK RACK
+// The five buttons down the right of the screen used to BE the five tricks. Now they are five
+// SLOTS, and what sits in each is yours to choose: the original five are free and in the slots
+// by default, and the board tricks below are bought on the Tricks shelf and dropped into any
+// slot you like, bumping whatever was there. A board trick is a skateboard flip done by the
+// board under his feet rather than by him: he pops, tucks, the board does its thing beneath
+// him and comes back under his paws. It is timed, not held -- one press, one trick -- so it
+// cannot be over-rotated, and lands as a 'sketchy' nothing if the water arrives first.
+//   axis   long = about the board's length (a kickflip), yaw = flat (a shove-it),
+//          pitch = end over end (an impossible), both = long + yaw (varial, tre)
+//   turns  full turns of the main axis; yaw = turns of the flat axis on a 'both'
+//   dir    which way; a heelflip is a kickflip the other way
+const TRICKS=[
+  {id:'roll', name:'Barrel roll', lab:'ROLL', kind:'base', price:0, blurb:'Hold to roll, let go square.'},
+  {id:'flip', name:'Flip',        lab:'FLIP', kind:'base', price:0, blurb:'Front or back, held and released.'},
+  {id:'spin', name:'Spin',        lab:'SPIN', kind:'base', price:0, blurb:'Flat spins. Half turns land switch.'},
+  {id:'hand', name:'Handstand',   lab:'HAND', kind:'base', price:0, blurb:'Hold it as long as you dare.'},
+  {id:'heli', name:'Helicopter',  lab:'HELI', kind:'base', price:0, blurb:'Nose down, three turns, up and out.'},
+  {id:'kickflip',  name:'Kickflip',     lab:'KICK',  kind:'board', axis:'long', turns:1, dir:1,  pts:220, price:600,  blurb:'The board flips once under your feet.'},
+  {id:'heelflip',  name:'Heelflip',     lab:'HEEL',  kind:'board', axis:'long', turns:1, dir:-1, pts:220, price:800,  blurb:'A kickflip the other way round.'},
+  {id:'shove',     name:'Pop shove-it', lab:'SHOVE', kind:'board', axis:'yaw',  turns:0.5, dir:1, pts:180, price:700,  blurb:'The board spins a flat 180 and you land it backwards.'},
+  {id:'bigshove',  name:'360 shove-it', lab:'360 SH',kind:'board', axis:'yaw',  turns:1, dir:1,  pts:320, price:1400, blurb:'A full flat turn of the board.'},
+  {id:'varial',    name:'Varial flip',  lab:'VARIAL',kind:'board', axis:'both', turns:1, yaw:0.5, dir:1, pts:420, price:1800, blurb:'Kickflip and shove-it at once.'},
+  {id:'impossible',name:'Impossible',   lab:'IMPOSS',kind:'board', axis:'pitch',turns:1, dir:1,  pts:480, price:2400, blurb:'The board wraps end over end around your back foot.'},
+  {id:'treflip',   name:'360 flip',     lab:'TRE',   kind:'board', axis:'both', turns:1, yaw:1, dir:1, pts:640, price:3200, blurb:'The tre flip. Kickflip plus a full shove-it.'}];
+const TRICK_BY_ID={}; for(const t of TRICKS)TRICK_BY_ID[t.id]=t;
+const TRICK_SLOTS_DEF=['roll','flip','spin','hand','heli'];
+const SLOT_IDS=['rollBtn','flipBtn','spinBtn','handBtn','heliBtn'];
+let ownedTricks={};
+let trickSlots=TRICK_SLOTS_DEF.slice();
+function trickHave(id){ const T=TRICK_BY_ID[id]; return !!T&&(T.kind==='base'||!!ownedTricks[id]); }
+// The icon on the button and on the shelf card, as the inside of a 24x24 svg. The original
+// five keep the gestures they were drawn with.
+const TRICK_ICON={
+  roll:'<path d="M17.9 7.4A6.7 6.7 0 1 1 12 4.3"/><path d="M9.4 1.6 12.2 4.4 9.4 7.2"/><path d="M4 10.3 2.1 11.9 4 13.5M20 10.3l1.9 1.6-1.9 1.6"/>',
+  flip:'<path d="M12 3.5v17M12 3.5l-3.3 3.5M12 3.5l3.3 3.5M12 20.5l-3.3-3.5M12 20.5l3.3-3.5"/>',
+  spin:'<ellipse cx="12" cy="12.4" rx="8.7" ry="4.5"/><path class="dot" d="M11.3 8.2 15.3 7.5 13.4 11.1Z" stroke="none"/>',
+  hand:'<circle class="dot" cx="8.2" cy="12" r="2.9"/><circle class="dot" cx="15.8" cy="12" r="2.9"/><path d="M19.8 6.7a8.1 8.1 0 0 1 0 10.6"/>',
+  heli:'<path d="M12 4.6c4.2 0 7.4 3.1 7.4 7.2s-3.2 7.6-7.4 7.6-7.4-3.3-7.4-7.1c0-3 2-5.3 4.5-5.3"/><path class="dot" d="M8.4 3.7 12.6 6.1 8.7 8.6Z" stroke="none"/>',
+  // a board seen from above with the roll drawn over and under it
+  kickflip:'<rect x="3.2" y="9.8" width="17.6" height="4.4" rx="2.2"/><path d="M5.5 6.4c3.4-2.6 9.6-2.6 13 0"/><path class="dot" d="M17.6 3.6 20.4 7.2 16.2 7.6Z" stroke="none"/><path d="M18.5 17.6c-3.4 2.6-9.6 2.6-13 0"/><path class="dot" d="M6.4 20.4 3.6 16.8 7.8 16.4Z" stroke="none"/>',
+  heelflip:'<rect x="3.2" y="9.8" width="17.6" height="4.4" rx="2.2"/><path d="M18.5 6.4c-3.4-2.6-9.6-2.6-13 0"/><path class="dot" d="M6.4 3.6 3.6 7.2 7.8 7.6Z" stroke="none"/><path d="M5.5 17.6c3.4 2.6 9.6 2.6 13 0"/><path class="dot" d="M17.6 20.4 20.4 16.8 16.2 16.4Z" stroke="none"/>',
+  // the flat half ring of a shove-it, and the whole ring of the 360
+  shove:'<rect x="6" y="10" width="12" height="4" rx="2"/><path d="M20.8 13.2A9 4.6 0 0 1 3.2 13.2"/><path class="dot" d="M2.4 9.8 6.2 12.4 2.6 14.8Z" stroke="none"/>',
+  bigshove:'<rect x="6.5" y="10" width="11" height="4" rx="2"/><ellipse cx="12" cy="12" rx="9.2" ry="4.8"/><path class="dot" d="M10.6 5.6 15 7 12.6 9.6Z" stroke="none"/>',
+  varial:'<rect x="6.5" y="10" width="11" height="4" rx="2"/><ellipse cx="12" cy="12" rx="9.2" ry="4.8"/><path d="M8.2 4.2c2.2-1.8 5.4-1.8 7.6 0"/><path class="dot" d="M15 2.2 17 5.2 13.4 5.4Z" stroke="none"/>',
+  // end over end: a loop standing up, the board through it
+  impossible:'<ellipse cx="12" cy="12" rx="4.6" ry="8.8"/><rect x="2.8" y="10.2" width="18.4" height="3.6" rx="1.8"/><path class="dot" d="M9.4 3 13.6 4.8 10.2 7.4Z" stroke="none"/>',
+  treflip:'<rect x="6.5" y="10" width="11" height="4" rx="2"/><ellipse cx="12" cy="12" rx="9.2" ry="4.8"/><path d="M7.6 4.6c2.6-2.2 6.2-2.2 8.8 0"/><path class="dot" d="M15.4 2.4 17.6 5.6 13.8 5.8Z" stroke="none"/><path d="M16.4 19.4c-2.6 2.2-6.2 2.2-8.8 0"/><path class="dot" d="M8.6 21.6 6.4 18.4 10.2 18.2Z" stroke="none"/>'};
+function trickSvg(id,cls){
+  return '<svg class="'+(cls||'ges')+'" viewBox="0 0 24 24">'+(TRICK_ICON[id]||TRICK_ICON.flip)+'</svg>';
+}
+// The shelf card's picture: the icon, large, on the same water the board cards are shot
+// against. Drawn rather than photographed because a trick has nothing to photograph.
+const _trickThumbs={};
+function trickThumb(id){
+  if(_trickThumbs[id])return _trickThumbs[id];
+  const svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 68">'+
+    '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5fc3ea"/><stop offset="1" stop-color="#1b6ea8"/></linearGradient></defs>'+
+    '<rect width="56" height="68" fill="url(#g)"/>'+
+    '<ellipse cx="28" cy="58" rx="20" ry="4" fill="#ffffff" opacity=".16"/>'+
+    '<g transform="translate(9 15) scale(1.6)" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'+
+    (TRICK_ICON[id]||'').replace(/class="dot"/g,'fill="#fff"')+'</g></svg>';
+  return _trickThumbs[id]='data:image/svg+xml;utf8,'+encodeURIComponent(svg);
+}
+// Writes the slots onto the five buttons. By element id rather than a cached list because it
+// is first called from the save loader, which runs long before the trick bar is wired up.
+function applyTrickSlots(){
+  for(let i=0;i<5;i++){
+    const el=document.getElementById(SLOT_IDS[i]); if(!el)continue;
+    const id=trickHave(trickSlots[i])?trickSlots[i]:TRICK_SLOTS_DEF[i];
+    trickSlots[i]=id;
+    const T=TRICK_BY_ID[id];
+    if(el.dataset.trick===id)continue;
+    el.dataset.trick=id;
+    el.classList.toggle('bought',T.kind==='board');
+    el.classList.remove('ready');
+    el.innerHTML=trickSvg(id)+'\n    '+T.lab;
+    el.setAttribute('aria-label',T.name+' (slot '+(i+1)+')');
+  }
+}
 // A piece the RANK has locked, picked at random from what is left. Same argument as loanPick:
 // being shown something you already have is not a prize.
 function gearPick(){
@@ -7387,6 +7500,20 @@ function loadSave(){
     if(v.ownedGear&&typeof v.ownedGear==='object'){
       for(const k in v.ownedGear)if(v.ownedGear[k]&&GEAR_BY_ID[k])ownedGear[k]=1;
     }
+    // the bought tricks, with the same care, and then the five slots: an id that is not
+    // owned any more, or is in two slots, gives its slot back to whichever original is free
+    ownedTricks={};
+    if(v.ownedTricks&&typeof v.ownedTricks==='object'){
+      for(const k in v.ownedTricks)if(v.ownedTricks[k]&&TRICK_BY_ID[k]&&TRICK_BY_ID[k].kind!=='base')ownedTricks[k]=1;
+    }
+    {
+      const want=Array.isArray(v.trickSlots)?v.trickSlots:[], out=[];
+      for(let i=0;i<5;i++){ const id=want[i];
+        out.push((typeof id==='string'&&trickHave(id)&&!out.includes(id))?id:null); }
+      for(let i=0;i<5;i++)if(!out[i])out[i]=TRICK_SLOTS_DEF.find(d=>!out.includes(d))||TRICK_SLOTS_DEF[i];
+      trickSlots=out;
+    }
+    applyTrickSlots();
     gearOn={eyes:'', head:'', neck:'', body:''};
     if(v.gearOn)for(const s of ['eyes','head','body']){
       const id=v.gearOn[s];
@@ -7420,7 +7547,7 @@ function saveGame(){
   // goal, a wipeout. One of those and the loan is permanent. So the loan outranks even the
   // borrow here: whatever else is going on, what goes to disk is the board from before it.
   if(typeof loanWas!=='undefined'&&loanWas)b=loanWas.board;
-  try{localStorage.setItem(SAVE_KEY,JSON.stringify({coins,xp,xpv:2,uname,owned,equipped:b,ownedChars,rider:r,goals,gearOn,wheelLast,wheelLife,wheelX2,wheelChest,wheelLoan,wheelRider,ownedGear}));}catch(e){}
+  try{localStorage.setItem(SAVE_KEY,JSON.stringify({coins,xp,xpv:2,uname,owned,equipped:b,ownedChars,rider:r,goals,gearOn,wheelLast,wheelLife,wheelX2,wheelChest,wheelLoan,wheelRider,ownedGear,ownedTricks,trickSlots}));}catch(e){}
 }
 
 // ---------- telemetry ----------
@@ -7504,7 +7631,10 @@ addEventListener('pagehide',saveNow);
 //             -- the only one of the four that is HELD rather than whipped
 //
 // Nothing for the heli yet, as asked.
-const TRICK_SFX={roll:'roll', flip:'flip', spin:'spin', handstand:'stand'};
+const TRICK_SFX={roll:'roll', flip:'flip', spin:'spin', handstand:'stand',
+  // the board tricks borrow the whip of the flip and the spin until they get their own
+  kickflip:'flip', heelflip:'flip', impossible:'flip', varial:'flip', treflip:'flip',
+  shove:'spin', bigshove:'spin'};
 function noteTrick(name,src){
   bump(stats.tricks,name);
   bump(stats.src,src||'gesture');
@@ -12846,6 +12976,7 @@ function drawShop(){
   for(const t of document.querySelectorAll('#shopTabs .tab'))
     t.classList.toggle('on',t.dataset.tab===shopTab);
   const jobs=[];
+  if(shopTab==='tricks'){ drawTrickShelf(false); showCoins(); return; }
   if(shopTab==='gear'){
     // ---- the same shelf as the other two ----
     // This was the one tab that looked like a different screen: a list of wide rows with the
@@ -12928,9 +13059,73 @@ function drawShop(){
       if(!prevCache['b:'+b.id])jobs.push([card.querySelector('.thumb'),()=>boardPreview(b.id)]);
       shopList.appendChild(card);
     }
+    // The stand has three plaques and no room on the bar for a fourth, so there the tricks are
+    // a second shelf under the boards -- which is where a skate shop keeps them anyway.
+    if(shop.classList.contains('instand'))drawTrickShelf(true);
   }
   if(jobs.length)fillThumbs(jobs);
   showCoins();
+}
+// ---- the trick shelf ----
+// Same tile as everything else. The foot says which button it is on, that it is owned, or
+// what it costs. A tap on one you do not own buys it; a tap on one you do opens the slot
+// picker, so putting a new trick on the bar is buy, tap, pick -- three taps, no menu.
+function drawTrickShelf(withHead){
+  if(withHead){ const h=document.createElement('div'); h.className='gsec'; h.textContent='Tricks'; shopList.appendChild(h); }
+  for(const T of TRICKS){
+    const have=trickHave(T.id), slot=trickSlots.indexOf(T.id);
+    const card=document.createElement('div');
+    card.className='card trick'+(slot>=0?' on':'')+(have?'':' lk');
+    const im=document.createElement('img');
+    im.className='thumb'; im.alt=T.name; im.draggable=false; im.src=trickThumb(T.id);
+    card.appendChild(im);
+    const foot=document.createElement('div'); foot.className='foot';
+    const nm=document.createElement('div'); nm.className='nm';
+    nm.textContent=T.name; foot.appendChild(nm);
+    const pr=document.createElement('div');
+    if(slot>=0){ pr.className='pr have'; pr.textContent='BUTTON '+(slot+1); }
+    else if(have){ pr.className='pr have'; pr.textContent='OWNED'; }
+    else { pr.className='pr'; pr.innerHTML=T.price.toLocaleString()+'<i class="pk"></i>'; }
+    foot.appendChild(pr);
+    card.appendChild(foot);
+    card.style.cursor='pointer';
+    card.onclick=()=>{
+      if(have){ buzz(10); openSlotPick(T.id); return; }
+      if(coins<T.price){ buzz(6); if(typeof sfxUi==='function')sfxUi('btn',0.35); return; }
+      coins-=T.price; ownedTricks[T.id]=1; noteBuy('trick',T.id,T.price);
+      saveGame(); showCoins(); drawShop();
+      openSlotPick(T.id);              // bought is halfway; it still has to go on a button
+    };
+    shopList.appendChild(card);
+  }
+}
+const slotPick=document.getElementById('slotPick');
+function openSlotPick(id){
+  const T=TRICK_BY_ID[id]; if(!T)return;
+  document.getElementById('spName').textContent=T.name;
+  const row=document.getElementById('spRow'); row.innerHTML='';
+  for(let i=0;i<5;i++){
+    const cur=TRICK_BY_ID[trickSlots[i]]||TRICK_BY_ID[TRICK_SLOTS_DEF[i]];
+    const b=document.createElement('button'); b.type='button';
+    b.className=cur.id===id?'cur':'';
+    b.innerHTML='<span class="n">'+(i+1)+'</span>'+trickSvg(cur.id)+'<span class="w">'+cur.lab+'</span>';
+    b.onclick=()=>{ buzz(10); assignTrick(id,i); };
+    row.appendChild(b);
+  }
+  slotPick.classList.remove('hidden');
+}
+function closeSlotPick(){ slotPick.classList.add('hidden'); }
+document.getElementById('spClose').onclick=()=>{ buzz(6); closeSlotPick(); };
+slotPick.onclick=e=>{ if(e.target===slotPick)closeSlotPick(); };
+// Into slot i. If it was already on another button the two swap, so rearranging the bar is
+// possible; otherwise whatever was on button i simply comes off (it stays owned).
+function assignTrick(id,i){
+  if(!trickHave(id)||i<0||i>4)return;
+  const prev=trickSlots.indexOf(id);
+  if(prev>=0&&prev!==i)trickSlots[prev]=trickSlots[i];
+  trickSlots[i]=id;
+  if(typeof sfxUi==='function')sfxUi('eqstyle',0.5);
+  saveGame(); applyTrickSlots(); closeSlotPick(); drawShop();
 }
 for(const t of document.querySelectorAll('#shopTabs .tab'))
   t.onclick=()=>{ shopTab=t.dataset.tab; drawShop(); };
@@ -14291,7 +14486,9 @@ const DEATH_NAME={buoy:'Buoy',log:'Log',jelly:'Jellyfish',bigfin:'Shark',octopus
   pearl:'Pearled the nose',land:'Bad landing',under:'Under-rotated',foam:'Ate it',
   debris:'Wreckage',rock:'Hit a rock'};
 const TRICK_NAME={roll:'Barrel rolls',flip:'Front / back flips',spin:'Spins',
-  grab:'Grabs landed',drag:'Hand drags',handstand:'Handstands'};
+  grab:'Grabs landed',drag:'Hand drags',handstand:'Handstands',heli:'Helicopters',
+  kickflip:'Kickflips',heelflip:'Heelflips',shove:'Pop shove-its',bigshove:'360 shove-its',
+  varial:'Varial flips',impossible:'Impossibles',treflip:'360 flips'};
 function tally(o,names){
   const ks=Object.keys(o||{}).sort((a,b)=>o[b]-o[a]);
   if(!ks.length)return '<div class="none">Nothing yet.</div>';
@@ -20042,7 +20239,8 @@ function setupModelRig(root,gltf,id){
     // they were, so a carve settles him rather than crouching him. The launch wind-up keeps
     // its full fold, because that one IS a crouch.
     const load=0.30+this.load*LEG_FOLD.carve+Math.abs(swell)*LEG_FOLD.swell+this.bob*LEG_FOLD.bob+air*LEG_FOLD.air
-               +(this.crouchW||0)*0.58;   // a wind-up; 0.95 folded him onto the deck
+               +(this.crouchW||0)*0.58    // a wind-up; 0.95 folded him onto the deck
+               +(this.tuckW||0)*0.90;     // knees up while the board flips under him
     const hip=-0.20-load*0.22, knee=load*1.05;
     // BOTH LEGS THE SAME. An asymmetric knee bend is what a carving surfer's legs really do,
     // and it was in here — and it is wrong for this rig, because bending one knee further than
@@ -22972,6 +23170,13 @@ function applyStance(){
 }
 let grabOn=false,grabPts=0,grabSide=1,grabSrc='gesture';
 let dragOn=false,dragPts=0,dragSide=1,dragSrc='gesture';
+// ---- the board trick in flight ----
+// kf is the one running (null for none); the three angles are what the board is currently
+// turned by about its own axes, on top of the stance; kfTuck is how far his feet are off it
+// (the rigs read it), kfY0 the board's resting height, which it drops away from and returns to.
+// var, like skiSit above: the rigs read kfTuck, and they are run for the title screen's
+// standing rider before this line would have executed as a let
+var kf=null, kfRoll=0, kfYaw=0, kfPitch=0, kfTuck=0, kfY0=null;
 let shake=0,boost=0,carrySpin=0,carryFlip=0,wobRoll=0,wobYaw=0,dayT=0;
 // The helicopter: he goes flat on the nose of the board, takes hold of it and BARREL
 // ROLLS — the board turning over about the way it is travelling, not spinning flat. It
@@ -23088,6 +23293,9 @@ addEventListener('keydown',e=>{
   if(e.code==='KeyK')startTrick('flip','key');
   if(e.code==='KeyL'){if(airborne||hanging)startTrick('grab','key');else startDrag('key');}
   if(e.code==='KeyH')handOn=true;
+  // 1 to 5 are the five buttons, whatever is on them
+  if(/^Digit[1-5]$/.test(e.code)&&!e.repeat&&typeof SLOT_ELS!=='undefined'){
+    const el=SLOT_ELS[+e.code[5]-1]; if(el&&el.dataset.trick)trickDown(el.dataset.trick); }
 });
 addEventListener('keyup',e=>{
   keys[e.code]=false;
@@ -23095,6 +23303,8 @@ addEventListener('keyup',e=>{
   if(e.code==='KeyK')releaseTrick('flip');
   if(e.code==='KeyL'){endGrab();endDrag();}
   if(e.code==='KeyH')handOn=false;
+  if(/^Digit[1-5]$/.test(e.code)&&typeof SLOT_ELS!=='undefined'){
+    const el=SLOT_ELS[+e.code[5]-1]; if(el&&el.dataset.trick)trickUp(el.dataset.trick); }
 });
 let steer=0;
 // ---- and UNDER the water there is a second axis ----
@@ -23378,10 +23588,28 @@ function spinBtnDown(set){
 const holdRoll =s2=>{flipHeld =s2;}; holdRoll.trick='roll';
 const holdFlip =s2=>{pitchHeld=s2;}; holdFlip.trick='flip';
 const holdSpin =s2=>{spinHeld =s2;}; holdSpin.trick='spin';
-holdBtn(rollBtn, spinBtnDown(holdRoll), ()=>{flipHeld=false;});
-holdBtn(flipBtn, spinBtnDown(holdFlip), ()=>{pitchHeld=false;});
-holdBtn(spinBtn, spinBtnDown(holdSpin), ()=>{spinHeld=false;});
-holdBtn(handBtn,()=>{handOn=true;handSrc='button';},()=>{handOn=false;});
+// ---- FIVE SLOTS, NOT FIVE BUTTONS ----
+// The element is wired once; what it does is read off data-trick at the moment of the press,
+// which is what lets the shop re-label a button without re-wiring anything. The held tricks
+// keep their hold-and-release; a board trick is a single press and ignores the release.
+const SLOT_ELS=SLOT_IDS.map(id=>document.getElementById(id));
+function trickDown(id){
+  if(id==='roll')spinBtnDown(holdRoll)();
+  else if(id==='flip')spinBtnDown(holdFlip)();
+  else if(id==='spin')spinBtnDown(holdSpin)();
+  else if(id==='hand'){ handOn=true; handSrc='button'; }
+  else if(id==='heli')startHeli('button');
+  else if(TRICK_BY_ID[id]&&TRICK_BY_ID[id].kind==='board')startBoardTrick(id,'button');
+}
+function trickUp(id){
+  if(id==='roll')flipHeld=false;
+  else if(id==='flip')pitchHeld=false;
+  else if(id==='spin')spinHeld=false;
+  else if(id==='hand')handOn=false;
+  else if(id==='heli')heliHeld=false;
+}
+for(const el of SLOT_ELS)if(el)holdBtn(el,()=>trickDown(el.dataset.trick),()=>trickUp(el.dataset.trick));
+applyTrickSlots();
 function startHeli(src){
   if(!running||wipe||hanging)return;
   if(heliAir||heliPh>=0){ heliHeld=true; return; }  // already in it — just take hold again
@@ -23391,7 +23619,6 @@ function startHeli(src){
   noteTrick('heli',src||'button');
   msg('HELICOPTER!');
 }
-holdBtn(heliBtn,()=>startHeli('button'),()=>{heliHeld=false;});
 // Runs the beats. It owns py outright while it is going, which is the only way he can
 // go UNDER the water and come back up — the ordinary ride physics exist to keep a board
 // on the surface and would fight it the whole way down.
@@ -26517,6 +26744,88 @@ function settleTricks(landed,keepPose){
   if(!keepPose)player.rotation.set(0,0,0);
   return pts;
 }
+// ---- BOARD TRICKS ----
+// One press. He pops if he is not already up, and the board does the whole figure under him
+// over about two thirds of a second: fast off the foot, slowing as it comes round, which is
+// the ease a flicked board really has. While it turns it drops a little and he pulls his feet
+// up, so the deck is not spinning through his paws; both come back as it finishes. Finishing
+// pays; the water arriving first does not, and the board is simply put back under him.
+function startBoardTrick(id,src){
+  const T=TRICK_BY_ID[id];
+  if(!T||T.kind!=='board'||!trickHave(id))return;
+  if(!running||wipe||hanging||kf)return;
+  if(typeof heliAir!=='undefined'&&heliAir)return;
+  if(!airborne)doJump();
+  if(!airborne)return;
+  if(kfY0===null)kfY0=boardArt.position.y;
+  kf={id, T, t:0, done:false,
+      // a 360 shove or a tre has further to go than a kickflip and gets a little longer for it
+      dur:0.62+(T.axis==='both'?0.14:0)+(T.axis==='yaw'&&T.turns>=1?0.10:0)+(T.axis==='pitch'?0.08:0)};
+  noteTrick(id,src||'button');
+  buzz(8);
+}
+function boardTrickPay(){
+  const T=kf.T;
+  const PT=(RIDER_PERK[rider]&&RIDER_PERK[rider].trick)||1;
+  const p=Math.round(T.pts*PT);
+  score+=p;
+  boost=Math.min(16,boost+3+Math.min(5,p/120));
+  msg(T.name.toUpperCase()+`! +${p}`);
+  buzz(p>=400?30:16);
+}
+// the way back to square: a half-turn shove is carried on round rather than unwound
+function kfSettle(a,dt){
+  const tgt=a>Math.PI-0.02?TURN:(a<-(Math.PI-0.02)?-TURN:0);
+  a=ease(a,tgt,dt,11);
+  return Math.abs(a-tgt)<0.012?0:a;
+}
+function boardTrickStep(dt){
+  if(kf){
+    kf.t+=dt;
+    const k=Math.min(1,kf.t/kf.dur);
+    const e=1-Math.pow(1-k,3);               // out: snaps away, floats home
+    const T=kf.T, a=e*TURN*T.dir;
+    kfRoll =(T.axis==='long'||T.axis==='both')?a*T.turns:0;
+    kfYaw  =T.axis==='yaw'?a*T.turns:(T.axis==='both'?a*(T.yaw||0):0);
+    kfPitch=T.axis==='pitch'?a*T.turns:0;
+    kfTuck=Math.sin(k*Math.PI);
+    if(k>=1&&!kf.done){ kf.done=true; boardTrickPay(); kf=null;
+      // a whole turn is square already; what is left is the half of a shove-it
+      kfRoll%=TURN; kfYaw%=TURN; kfPitch%=TURN; }
+    else if(!airborne||wipe){ kf=null; msg('SKETCHY'); }   // the water got there first
+  } else {
+    kfTuck=ease(kfTuck,0,dt,12); if(kfTuck<0.01)kfTuck=0;
+    // the board stays where it ended up for as long as he is in the air, and comes square
+    // under the splash when he lands
+    if(!airborne||wipe){ kfRoll=kfSettle(kfRoll,dt); kfYaw=kfSettle(kfYaw,dt); kfPitch=kfSettle(kfPitch,dt); }
+  }
+  if(typeof boardArt!=='undefined'&&boardArt){
+    const on=kf||kfRoll||kfYaw||kfPitch||kfTuck;
+    if(on){
+      if(kfY0===null)kfY0=boardArt.position.y;
+      boardArt.rotation.set(kfPitch,(switchRide?Math.PI:0)+kfYaw,kfRoll);
+      // The end-over-end wraps around his BACK FOOT, not the board's middle: a seven foot
+      // board turned about its centre sweeps its whole length up through him, while hinged
+      // a pace behind the middle it stands up behind him and comes down under him. Rotating
+      // about x by a carries the hinge (0,0,p) to (0,-p sin a, p cos a), so the group is
+      // moved by the difference to keep the hinge still.
+      const p=kfPitch?KF_HINGE:0, s=Math.sin(kfPitch), c=Math.cos(kfPitch);
+      boardArt.position.y=kfY0-kfTuck*0.34+p*s;
+      boardArt.position.z=p*(1-c);
+    } else if(kfY0!==null){
+      boardArt.rotation.set(0,switchRide?Math.PI:0,0);
+      boardArt.position.y=kfY0; boardArt.position.z=0; kfY0=null;
+    }
+  }
+}
+const KF_HINGE=1.3;    // feet behind the board's middle that the impossible turns about
+function boardTrickClear(){
+  kf=null; kfRoll=0; kfYaw=0; kfPitch=0; kfTuck=0;
+  if(typeof boardArt!=='undefined'&&boardArt){
+    boardArt.rotation.set(0,switchRide?Math.PI:0,0);
+    if(kfY0!==null){ boardArt.position.y=kfY0; boardArt.position.z=0; kfY0=null; }
+  }
+}
 function ropeAction(){
   if(!running)return;
   if(!hanging&&planeActive&&plane.position.z>-90&&plane.position.z<-4){
@@ -26561,6 +26870,7 @@ function reset(){
   diveLaunch=0; jetOn=0; launchLift=0; launchPike=0; launchFace=0; launchLoad=0; launchVY=0;
   _lbX=0; _lbZ=0;
   if(typeof boardArt!=='undefined'&&boardArt){ boardArt.position.x=0; boardArt.position.z=0; }
+  if(typeof boardTrickClear==='function')boardTrickClear();
   if(typeof divePose!=='undefined')divePose=0;
   if(typeof diveTurn!=='undefined')diveTurn=0;
   if(diveProps)diveProps.visible=false; if(diveFish)diveFish.visible=false;
@@ -32616,6 +32926,12 @@ if(location.hash.includes('debug')){
     runStart(){ beginRun(); return running; }, runEnd(){ gameOver(); return overlayUp; },
     // a jump and a trick on demand, and whether he is in the air -- for photographing a run
     jump(){ doJump(); return airborne; }, trick(t,on){ if(on===false)releaseTrick(t); else startTrick(t,'key'); return !!airborne; }, inAir(){ return !!airborne; },
+    // the board tricks: fire one (owning it for the run), and read the board's attitude
+    boardTrick(id){ if(id&&TRICK_BY_ID[id])ownedTricks[id]=1; startBoardTrick(id||'kickflip','key'); return {kf:!!kf, air:!!airborne}; },
+    btState(){ return {t:kf?+kf.t.toFixed(3):null, dur:kf?kf.dur:null, roll:+kfRoll.toFixed(3), yaw:+kfYaw.toFixed(3), pitch:+kfPitch.toFixed(3),
+      tuck:+kfTuck.toFixed(3), by:+boardArt.position.y.toFixed(3), rot:[+boardArt.rotation.x.toFixed(3),+boardArt.rotation.y.toFixed(3),+boardArt.rotation.z.toFixed(3)],
+      slots:trickSlots.slice(), bar:SLOT_ELS.map(el=>el?el.textContent.trim():null), score}; },
+    slots(ids){ if(Array.isArray(ids)){ for(const id of ids)if(TRICK_BY_ID[id])ownedTricks[id]=1; for(let i=0;i<5;i++)if(ids[i])assignTrick(ids[i],i); } return trickSlots.slice(); },
     // does the cloth follow the body? A garment vertex against the body vertex nearest it at
     // rest, both put through their skinning now -- the gap should stay at the stand-off
     garmMove(){
@@ -43568,7 +43884,8 @@ function animateRig(dt,carve,grab,waterY){
   // what makes a body spin. The moment the rotation runs out he opens back up and
   // spots the landing, which is what makes the tuck read as effort rather than a pose.
   const rotQ = spinQ+flipQ+pitchQ;
-  rigTuck = ease(rigTuck, (airborne||hanging)&&rotQ>0.15 && !grab ? 1 : 0, dt, rotQ>0.15?13:7);
+  // ...and he pulls his feet up off a board that is flipping under them
+  rigTuck = ease(rigTuck, ((airborne||hanging)&&rotQ>0.15 && !grab)||kfTuck>0.25 ? 1 : 0, dt, (rotQ>0.15||kfTuck>0.25)?13:7);
   // the built-in body answers the carve and the swell at the same reduced size the model
   // riders do -- see LEG_FOLD -- so it stops squatting on every turn
   const compress = airborne ? (grab?1.05:-0.16+rigTuck*1.30) : (g*0.42*(LEG_FOLD.carve/0.30) + Math.abs(heave)*LEG_FOLD.swell + chop*0.05 + (dragging?0.55:0));   // grabs crouch, no forward pitch
@@ -44137,6 +44454,7 @@ function updateHandstand(dt,carve){
                             (typeof fallLay!=='undefined')?fallLay:0);
     modelRig.swimW=(typeof divePose!=='undefined')?divePose:0;
     modelRig.crouchW=(typeof launchLoad!=='undefined')?launchLoad:0;
+    modelRig.tuckW=(typeof kfTuck!=='undefined')?kfTuck:0;     // feet up for a board trick
     // the tube's sit is hand-posed too, so the surfing stance has to stand down for it in
     // exactly the way it does for the dive -- otherwise the clip puts his legs back under him
     modelRig.tubeW=(typeof tubeSit!=='undefined')?tubeSit:0;
@@ -45041,10 +45359,12 @@ function update(dt){
   if(running)jumpBtn.classList.toggle('hidden',_ashore&&!diveOn);
   // the button lights while that axis is squared up — this is what teaches the timing
   const sqr=a2=>Math.abs(((a2+Math.PI)%(Math.PI*2))-Math.PI)<0.45;
-  rollBtn.classList.toggle('ready',flipHeld &&flipRot >0.5&&sqr(flipRot));
-  flipBtn.classList.toggle('ready',pitchHeld&&pitchRot>0.5&&sqr(pitchRot));
-  spinBtn.classList.toggle('ready',spinHeld &&spinRot >0.5&&sqr(spinRot));
-  heliBtn.classList.toggle('ready',heliAir&&flipRot>0.5&&sqr(flipRot));
+  // by the trick on the button, not by the button: the shop can move these around
+  const _rdy={roll:flipHeld &&flipRot >0.5&&sqr(flipRot),
+              flip:pitchHeld&&pitchRot>0.5&&sqr(pitchRot),
+              spin:spinHeld &&spinRot >0.5&&sqr(spinRot),
+              heli:heliAir&&flipRot>0.5&&sqr(flipRot)};
+  for(const el of SLOT_ELS)if(el)el.classList.toggle('ready',!!_rdy[el.dataset.trick]);
   jumpBtn.style.opacity=trickReady?'0.25':'1';
 
   // Pearling went with the fore-and-aft weight it depended on: without a way to put
@@ -45218,6 +45538,7 @@ function update(dt){
     player.rotation.set(-prog*Math.PI*2,spinRot,flipRot);
     if(prog>=1){score+=trick.pts;boost=Math.min(16,boost+6);msg(`${trick.name}! +${trick.pts}`);trick=null;}
   }
+  boardTrickStep(dt);
 
   // board rig: damped yaw/lean/pitch — eases onto the rail like a real board
   const grab=grabOn&&(airborne||hanging);
@@ -45388,7 +45709,8 @@ function update(dt){
   // shop's stand height, which reads boardArt.position.y).
   if(typeof boardArt!=='undefined'&&boardArt){
     if(diveLaunch>0){ boardArt.position.x=_lbX; boardArt.position.z=_lbZ; }
-    else if(boardArt.position.x||boardArt.position.z){ boardArt.position.x=0; boardArt.position.z=0; }
+    // ...unless the impossible has it hinged behind his back foot, which is a z of its own
+    else if((boardArt.position.x||boardArt.position.z)&&!kfPitch){ boardArt.position.x=0; boardArt.position.z=0; }
   }
   animateRig(dt,carve,grab,waterY);
   updateHandstand(dt,carve);
@@ -45402,6 +45724,8 @@ function update(dt){
   // of them would wipe it; after all of them it is the one thing left. pug hangs off rig,
   // which is unscaled, so this is feet.
   if(launchLift>0)pug.position.y+=launchLift;
+  // and off the deck of a board doing a kickflip under him, for the same reason
+  if(kfTuck>0)pug.position.y+=kfTuck*(kfPitch?0.55:0.34);
 
   // whitewater under the board + wash trail behind it
   // ---- and NOT while he is hanging under a canopy thirty feet up ----
