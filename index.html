@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.91';</script>
+<script>window.SURF_VERSION='10.92';</script>
 <!-- the app icon: Astro on the sunset, built by icon/render.py + icon/compose.py -->
 <link rel="icon" type="image/png" sizes="32x32" href="icon/icon-32.png">
 <link rel="icon" href="icon/favicon.ico">
@@ -20238,10 +20238,18 @@ function setupModelRig(root,gltf,id){
     // The stance is still loaded, and still moves; the answers are a third to a half of what
     // they were, so a carve settles him rather than crouching him. The launch wind-up keeps
     // its full fold, because that one IS a crouch.
+    // ---- the beats of a jump, handed over by the ride ----
+    // crouchB: the pop. extB: legs thrown straight as he leaves the water. airB: the tuck,
+    // which the extension stands down for. landB: the squash on touchdown.
+    const cB=this.crouchB||0, xB=this.extB||0, aB=(this.airB||0)*(1-xB), lB=this.landB||0;
     const load=0.30+this.load*LEG_FOLD.carve+Math.abs(swell)*LEG_FOLD.swell+this.bob*LEG_FOLD.bob+air*LEG_FOLD.air
                +(this.crouchW||0)*0.58    // a wind-up; 0.95 folded him onto the deck
-               +(this.tuckW||0)*0.90;     // knees up while the board flips under him
-    const hip=-0.20-load*0.22, knee=load*1.05;
+               +(this.tuckW||0)*1.10      // knees up while the board flips under him
+               +cB*0.95+aB*0.82+lB*0.85-xB*0.30;
+    // the thighs come up for a tuck -- knees toward the chest, not only bent -- which is the
+    // one place the hip is allowed to move, because in the air there is no deck to keep the
+    // feet on
+    const hip=-0.20-load*0.22+(this.tuckW||0)*0.42+aB*0.36, knee=Math.max(0,load*1.05);
     // BOTH LEGS THE SAME. An asymmetric knee bend is what a carving surfer's legs really do,
     // and it was in here — and it is wrong for this rig, because bending one knee further than
     // the other swings that foot along the deck. The ankle solve below holds a foot FLAT; it
@@ -20273,7 +20281,8 @@ function setupModelRig(root,gltf,id){
     // Rolled through the SPINE rather than the hips. Roll the hips and the legs go with them,
     // and then no amount of ankle work gets the soles back onto the deck; roll the spine and
     // the lean happens above the legs, which is also where it happens on a real one.
-    const lean=this.sway*0.30;
+    // a third more than it was: at 0.30 the lean was there and read as upright
+    const lean=this.sway*0.42;
     // ---- the two poses that override the surf stance, weighed out once ----
     // Declared HERE, above the first thing that reads them, and not with a typeof guard further
     // down: these are const, so a `typeof _sk` before this line does not return "undefined", it
@@ -20288,12 +20297,15 @@ function setupModelRig(root,gltf,id){
     // sitting bolt upright with your arms out front is being carried, not driving
     // and the fold is a SUGGESTION of lean, not a bow -- it stacks on pug.rotation.x, and the
     // two together were what put his nose on the console
-    set('Spine',   0.05+this.bob*0.02+0.05*_sk, -this.sway*0.10, lean*0.45);
-    set('Spine01', 0.05+0.04*_sk,               -this.sway*0.08, lean*0.35);
-    set('Spine02', 0.03+0.03*_sk,               -this.sway*0.06, lean*0.25);
+    // ...and the waist folds with the beats: curled in the tuck and the squash, opened by the
+    // extension, and a little more fold over the deck the harder he is carving
+    const fold=cB*0.22+aB*0.40+lB*0.20-xB*0.14+this.load*0.08;
+    set('Spine',   0.05+this.bob*0.02+0.05*_sk+fold*0.5, -this.sway*0.10, lean*0.50);
+    set('Spine01', 0.05+0.04*_sk+fold*0.3,               -this.sway*0.08, lean*0.38);
+    set('Spine02', 0.03+0.03*_sk+fold*0.2,               -this.sway*0.06, lean*0.26);
     // he looks down the line, and his head stays level while his body does not
     set('neck', -0.06, this.sway*0.20, -lean*0.30);
-    set('Head', -0.10+this.bob*0.03, this.sway*0.26, -lean*0.45);
+    set('Head', -0.10+this.bob*0.03-aB*0.16, this.sway*0.26, -lean*0.45);   // and spots the landing
     // ---- arms: they trail, they counter, and they never stop ----
     // A surfer's arms are the counterweight — they swing opposite the hips through a turn and
     // drift the whole time he is trimming. Both offset from each other so they never mirror.
@@ -20319,7 +20331,7 @@ function setupModelRig(root,gltf,id){
     // _sk is scaled by (1-_gl) so the two weights can never sum past one and the surf pose is
     // never asked for a negative share of him.
     const aSpread=spread*_base+1.30*_gl+0.04*_sk;   // grips measure 0.19 half-width on the rescaled hull
-    const aUp=-0.02*_base+(-0.55)*_gl+(-0.95)*_sk;
+    const aUp=(-0.02-xB*0.30-aB*0.12)*_base+(-0.55)*_gl+(-0.95)*_sk;   // arms thrown up off the pop
     set('LeftArm',  aUp+(sw1*0.11-this.sway*0.26)*_base, (0.05+sw1*0.10)*_base, -aSpread-this.sway*0.18*_base);
     set('RightArm', aUp+(sw2*0.11+this.sway*0.26)*_base,(-0.05+sw2*0.10)*_base,  aSpread-this.sway*0.18*_base);
     // elbows: a rider's arms are not straight rods out to the grips, they carry a working bend
@@ -23280,6 +23292,13 @@ var skiSit=0;                          // 0 standing on a board, 1 sat on the sk
 var tubeSit=0;                         // 0 standing on a board, 1 sat inside the tube
 var _rideFoam=0;                       // the board's own cloud, emitted per second
 var _railAcc=0;                        // rail spray owed, in droplets
+// ---- THE POSE BEATS ----
+// Four signals the ride writes and both rigs read, so a jump is a movement rather than a
+// change of altitude: a quick deeper crouch as he pops (poseCrouch), legs and arms thrown
+// straight as he leaves the water (poseExt), a tuck for as long as he is up (poseAir), and a
+// squash on touchdown that he stands back up out of (poseLand). poseTake is the clock the
+// first two are read off. var, like the rest of what the rigs read.
+var poseTake=0, poseCrouch=0, poseExt=0, poseAir=0, poseLand=0;
 var glFace=0;                          // 0 side-on to the board, 1 square to the nose under the wing
 var _jsFoam=0, _jsTail=0;              // its wake and its rooster tail, per second not per frame
 let lastKind='',sameRun=0,bigFinCd=6,octCd=0,laneSlot=(Math.random()*5)|0;
@@ -26677,7 +26696,7 @@ function doJump(){
   // with the ring pinning airborne to false every frame, nothing ever left the water.
   if(swTubeRide){
     if(swPipeAir)return;
-    swPipeAir=true; swRadV=-SW_PIPE_POP*BS.air; airborne=true; swAirT=0;
+    swPipeAir=true; swRadV=-SW_PIPE_POP*BS.air; airborne=true; swAirT=0; poseTake=1;
     // Lit here as well as in the frame loop. The loop sets it after the ring has run, which
     // is a frame away, and a trick pressed in that gap found the buttons still dead.
     trickReady=true;
@@ -26699,6 +26718,7 @@ function doJump(){
   // floating chest — sits 1.25 feet over the sea with a two foot grab window either side, so
   // it was never the jump that decided whether you reached it.
   vy=11.8*BS.air;airborne=true;
+  poseTake=1;                          // the pop: crouch, then extend -- see the pose beats
 }
 function startTrick(type,src){
   if(!running||!trickReady)return;
@@ -26831,7 +26851,9 @@ function boardTrickStep(dt){
     if(on){
       if(kfY0===null)kfY0=boardArt.position.y;
       boardArt.rotation.set(0,(switchRide?Math.PI:0)+kfYaw,kfRoll);
-      boardArt.position.y=kfY0-kfTuck*0.34;
+      // a hand's width, not a foot: with his knees now coming up to meet it the board only
+      // has to drop a little to clear his paws, and a small gap is what keeps him ON it
+      boardArt.position.y=kfY0-kfTuck*0.16;
     } else if(kfY0!==null){
       boardArt.rotation.set(0,switchRide?Math.PI:0,0);
       boardArt.position.y=kfY0; kfY0=null;
@@ -32971,6 +32993,7 @@ if(location.hash.includes('debug')){
       tuck:+kfTuck.toFixed(3), by:+boardArt.position.y.toFixed(3), rot:[+boardArt.rotation.x.toFixed(3),+boardArt.rotation.y.toFixed(3),+boardArt.rotation.z.toFixed(3)],
       slots:trickSlots.slice(), bar:SLOT_ELS.map(el=>el?el.textContent.trim():null), score}; },
     // what water is in the air and on the sea right now, by emitter
+    pose(){ return {take:+poseTake.toFixed(2), crouch:+poseCrouch.toFixed(2), ext:+poseExt.toFixed(2), air:+poseAir.toFixed(2), land:+poseLand.toFixed(2), up:!!airborne, py:+py.toFixed(2)}; },
     water(){ return {drops:splashes.length, trail:trail.length, smoke:WSMOKE.filter(p=>p.t>0).length,
                   cloud:boatFoam.length, puffs:puffs.length, vx:+vx.toFixed(2), speed:+speed.toFixed(1)}; },
     slots(ids){ if(Array.isArray(ids)){ for(const id of ids)if(TRICK_BY_ID[id])ownedTricks[id]=1; for(let i=0;i<5;i++)if(ids[i])assignTrick(ids[i],i); } return trickSlots.slice(); },
@@ -43915,6 +43938,18 @@ function menuCamera(dt){
 }
 function animateRig(dt,carve,grab,waterY){
   const g=Math.abs(carve);
+  // ---- the pose beats, stepped once per frame for both rigs ----
+  // poseTake runs 1 to 0 over about half a second from the pop. Read off it: a crouch that
+  // peaks almost at once and is gone by a fifth of a second, and an extension that peaks a
+  // quarter second in -- the legs thrown straight as he leaves the water. The tuck eases in
+  // behind the extension and holds while he is up; the landing squash is set by the touchdown
+  // and decays here.
+  poseTake=Math.max(0,poseTake-dt*2.2);
+  { const tp=1-poseTake;
+    poseCrouch=poseTake>0?Math.max(0,1-Math.abs(tp-0.16)/0.16):0;
+    poseExt   =poseTake>0?Math.max(0,1-Math.abs(tp-0.52)/0.30):0; }
+  poseAir=ease(poseAir,(airborne&&!hanging)?1:0,dt,airborne?8:14);
+  poseLand=Math.max(0,poseLand-dt*3.0);
   // how much the wave is heaving under the board right now
   const heave=(waveH(px,dist*WAVE_DRIFT+0.6,waveClock)-waveH(px,dist*WAVE_DRIFT-0.6,waveClock));
   const chop=Math.sin(tNow*4.2)*0.35+Math.sin(tNow*7.7)*0.18;
@@ -43930,7 +43965,10 @@ function animateRig(dt,carve,grab,waterY){
   rigTuck = ease(rigTuck, ((airborne||hanging)&&rotQ>0.15 && !grab)||kfTuck>0.25 ? 1 : 0, dt, (rotQ>0.15||kfTuck>0.25)?13:7);
   // the built-in body answers the carve and the swell at the same reduced size the model
   // riders do -- see LEG_FOLD -- so it stops squatting on every turn
-  const compress = airborne ? (grab?1.05:-0.16+rigTuck*1.30) : (g*0.42*(LEG_FOLD.carve/0.30) + Math.abs(heave)*LEG_FOLD.swell + chop*0.05 + (dragging?0.55:0));   // grabs crouch, no forward pitch
+  // ...plus the beats: the pop's crouch and extension, the tuck in the air, the squash on landing
+  const compress = (airborne ? (grab?1.05:-0.16+rigTuck*1.30+poseAir*0.60*(1-poseExt)-poseExt*0.45)
+                             : (g*0.42*(LEG_FOLD.carve/0.30) + Math.abs(heave)*LEG_FOLD.swell + chop*0.05 + (dragging?0.55:0) + poseLand*0.95))
+                   + poseCrouch*0.95;   // grabs crouch, no forward pitch
   releaseKick=Math.max(0,releaseKick-dt);
   rigCrouch=ease(rigCrouch,compress-releaseKick*0.55,dt,9);   // pops upright out of a grab
   rigAir=ease(rigAir,airborne?1:0,dt,8);
@@ -43986,7 +44024,8 @@ function animateRig(dt,carve,grab,waterY){
   const crouchLean = grab ? 0.62 : rigCrouch*0.30 + Math.max(0,boardPitch)*0.55;   // leans forward as the nose drops
   // and the chest comes out over the front foot, which is the other half of the stance
   spine.rotation.x=ease(spine.rotation.x,
-    (0.18+RIDE_LEAN+crouchLean+(airborne?-0.32:0)+leanW*0.80+rigTuck*0.85)*(1-heliPose)+0.62*heliPose,dt,8);
+    (0.18+RIDE_LEAN+crouchLean+(airborne?-0.32:0)+leanW*0.80+rigTuck*0.85
+     +poseAir*0.34*(1-poseExt)-poseExt*0.18+poseLand*0.22+poseCrouch*0.20)*(1-heliPose)+0.62*heliPose,dt,8);
   chestJ.rotation.y=ease(chestJ.rotation.y,0.20+carve*0.55,dt,7);   // shoulders swing with the turn
   chestJ.rotation.z=ease(chestJ.rotation.z,carve*0.14,dt,7);
   // head keeps looking down the line, level with the horizon
@@ -44497,6 +44536,8 @@ function updateHandstand(dt,carve){
     modelRig.swimW=(typeof divePose!=='undefined')?divePose:0;
     modelRig.crouchW=(typeof launchLoad!=='undefined')?launchLoad:0;
     modelRig.tuckW=(typeof kfTuck!=='undefined')?kfTuck:0;     // feet up for a board trick
+    // the pose beats -- see their declaration beside the ride's emitters
+    modelRig.crouchB=poseCrouch; modelRig.extB=poseExt; modelRig.airB=poseAir; modelRig.landB=poseLand;
     // the tube's sit is hand-posed too, so the surfing stance has to stand down for it in
     // exactly the way it does for the dive -- otherwise the clip puts his legs back under him
     modelRig.tubeW=(typeof tubeSit!=='undefined')?tubeSit:0;
@@ -45236,6 +45277,7 @@ function update(dt){
     vy-=(wakeAir?6.0:20)*dt;py+=vy*dt;      // off a wave that size, the way down is long
     if(py<=waterY&&wakeGrace<=0){
       const impact=Math.min(1.6,Math.max(0,-vy)/15);
+      poseLand=Math.min(1,0.55+impact*0.5);   // the knees take it, then he stands back up
       if(airborne){
         // the board hitting the water, loud in proportion to how far it fell, and pitched a
         // little differently every time so a run of landings does not turn into a metronome
@@ -45811,7 +45853,7 @@ function update(dt){
   // which is unscaled, so this is feet.
   if(launchLift>0)pug.position.y+=launchLift;
   // and off the deck of a board doing a kickflip under him, for the same reason
-  if(kfTuck>0)pug.position.y+=kfTuck*0.34;
+  if(kfTuck>0)pug.position.y+=kfTuck*0.16;   // the knees do the rest -- see tuckW in the stance
 
   // whitewater under the board + wash trail behind it
   // ---- and NOT while he is hanging under a canopy thirty feet up ----
