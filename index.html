@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.89';</script>
+<script>window.SURF_VERSION='10.90';</script>
 <!-- the app icon: Astro on the sunset, built by icon/render.py + icon/compose.py -->
 <link rel="icon" type="image/png" sizes="32x32" href="icon/icon-32.png">
 <link rel="icon" href="icon/favicon.ico">
@@ -1692,6 +1692,8 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     left:50%; transform:translateX(-50%); z-index:10;
     color:#fff; opacity:.55; font-size:13px; font-weight:bold; letter-spacing:.5px;
     text-shadow:0 1px 3px rgba(0,40,80,.6); pointer-events:none; }
+  /* on the menus only; it was sitting under the trick bar through every run */
+  body.inrun #ver { display:none; }
 
   /* No panel: the model is rendered onto the page's own canvas and this sits over it,
      with a scrim top and bottom so the type has something to be legible against and the
@@ -26975,6 +26977,7 @@ function respawn(){
   boardYaw=0;boardLean=0;boardPitch=0;lookX=0;leanW=0;pearlT=0;boost=0;sprayCd=0;clearCracks();heliPh=-1;heliT=0;heliPose=0;heliUsed=false;heliAir=false;heliHeld=false;heliIncline=0;heliSet=0;heliLay=0;
   spawnT=1.8;
   overlayUp=false;running=true;last=performance.now();
+  document.body.classList.add('inrun');
   player.visible=true; rig.visible=true; hud.style.display='';
   overlay.classList.add('hidden');jumpBtn.classList.remove('hidden');
   cocoReset();
@@ -27042,6 +27045,7 @@ const recordsBtn=document.getElementById('recordsBtn');
 const menuBtn=document.getElementById('menuBtn');
 function showMenu(mode){
   const over = mode==='over';
+  document.body.classList.remove('inrun');    // the version number comes back with the menus
   // ---- and the crash is OVER when the title screen comes up ----
   // Nothing cleared `wipe` on the way back to the menu — only the next reset() did, at the
   // start of the NEXT run — and the loop runs updateWipeout for as long as it is set. So the
@@ -27171,6 +27175,7 @@ function beginRun(){
   // under his feet by the first frame and not on the second.
   wheelSpend();
   running=true;overlayUp=false;last=performance.now();
+  document.body.classList.add('inrun');
 }
 startBtn.addEventListener('click',beginRun);
 document.getElementById('againBtn').addEventListener('click',()=>{ buzz(12); beginRun(); });
@@ -27634,7 +27639,13 @@ let swInvuln=false;                     // tests only, and never on in a real ru
 // var, not let, on the same reasoning the rest of this file uses it: this is read from the
 // frame loop and written from a reset that is defined ABOVE it, and being wrong about which
 // runs first is the one mistake here that costs a blank screen rather than a visible bug.
-const WIPE_SLOW=0.85;
+// ---- and it is a BEAT, not a scene ----
+// A third of a second at a third speed, easing back; then the card. The crash used to play
+// for over three seconds of the camera settling on empty water before the results came up,
+// which was dead air after the one moment worth watching. The tumble and the splashdown still
+// play out, behind the card, for anyone looking past it.
+const WIPE_SLOW=0.32;
+const WIPE_SHOW=0.95;   // REAL seconds from the hit to the results card
 var wipeSlow=0;
 function startWipeout(kind){
   if(wipe)return;
@@ -27728,7 +27739,9 @@ function startWipeout(kind){
     // seconds from hit to splash. Measured, he managed a quarter of a turn before the water
     // took him -- the tumble was there the whole time and had no time to happen in. Scaled so
     // a log gives about a second of air and a buoy half as long again, which is a wipeout.
-    vy:rider.vy*2.2+4.0, vz:rider.vz, vx:rider.vx,
+    // ...halved again now that the card comes up inside a second: the throw has to be over
+    // and the splash in before it does, or the beat is a man hanging in the air behind a menu.
+    vy:rider.vy*1.1+2.2, vz:rider.vz, vx:rider.vx,
     // a rotation already under way continues; otherwise the impact starts one
     // ---- A BODY, NOT A BALLOON ----
     // I tripled these to get a proper wipeout and overshot badly: measured, it was 7.9 turns
@@ -27742,7 +27755,7 @@ function startWipeout(kind){
     sy:carrySpin*0.18 + (Math.random()<0.5?-1:1)*(W.spin[1]*0.10+0.22),
     sz:carryFlip*0.18 + (Math.random()<0.5?-1:1)*(W.spin[2]*0.14+0.30),
     // the board is kicked out from under him and tumbles off on its own
-    bvx:-side*(2.8+Math.random()*2.4)-vx*0.35, bvy:rider.vy*1.15+7.0, bvz:rider.vz*0.45+1.2,
+    bvx:-side*(2.8+Math.random()*2.4)-vx*0.35, bvy:rider.vy*0.6+4.0, bvz:rider.vz*0.45+1.2,
     landed:false,
     // the board goes with him: kicked away and cartwheeling, not drifting off
     bsx:(Math.random()-0.5)*11, bsz:(Math.random()-0.5)*11,
@@ -27804,6 +27817,11 @@ function startEaten(o){
   // and the heading it arrived on is the heading it keeps: the chew used to snap it to a
   // broadside quarter-turn whatever way it had come in
   w.eatYaw=(u.yaw!==undefined)?u.yaw:(u.dir||1)*Math.PI/2;
+  // The bite is the beat. The worrying used to build to its splash a second and a half in,
+  // which the card now arrives before; the water goes up at the jaws the moment they close.
+  { const sea=waveH(o.position.x,dist*WAVE_DRIFT+o.position.z,waveClock);
+    splash(o.position.x,sea,o.position.z,30); pushTrail(o.position.x,sea,o.position.z,1.6);
+    shake=Math.max(shake,2.2); w.splashed=true; }
 }
 // where the mouth actually is, taken off the jaw bone and the animal's own heading rather
 // than off a local offset — the bone sits at the HINGE, which is the back of the mouth, and
@@ -27946,7 +27964,8 @@ function eatenStep(dt,w){
   }
   // the shot watches the ANIMAL, not the spot the rider used to be: he is inside it now, so
   // framing him is framing a shark's cheek
-  const ease=Math.min(1,dt*3.0);
+  // ...and gets there inside the beat: at 3.0 it was still on its way when the card came up
+  const ease=Math.min(1,dt*7.0);
   // EACH of the three, separately. startWipeout seeds atX and atY and leaves atZ out -- the
   // ordinary path fills it in with `w.atZ===undefined?mz:...` at the point of use -- so a
   // guard keyed on atX alone never fired for atZ, and `undefined + n` made the look-at target
@@ -27972,10 +27991,13 @@ function eatenStep(dt,w){
   w.atY+=(_shkV.y-w.atY)*ease;
   w.atZ+=(_shkV.z-w.atZ)*ease;
   camera.lookAt(w.atX,w.atY,w.atZ);
-  if(w.t>3.2)gameOver();
+  if(w.real>=WIPE_SHOW)gameOver();
 }
 function updateWipeout(dt){
   const w=wipe; w.t+=dt;
+  // the card is timed on the REAL clock: the slow motion stretches w.t, and a card that waited
+  // on game time waited through the stretch as well
+  w.real=(w.real||0)+((typeof _clkRaw==='number')?_clkRaw:dt);
   if(w.eaten){ eatenStep(dt,w); return; }
   // pug: thrown, tumbling, then splashdown
   // REAL GRAVITY. 22 is not an acceleration anybody has ever fallen under: a world unit
@@ -28224,7 +28246,7 @@ function updateWipeout(dt){
     w.atZ=(w.atZ===undefined?mz:w.atZ+(mz-w.atZ)*ease);
     camera.lookAt(w.atX,w.atY,w.atZ);
   }
-  if(w.t>3.2)gameOver();
+  if(w.real>=WIPE_SHOW)gameOver();
 }
 function updateWorldDuringWipeout(dt){
   tNow+=dt;
@@ -38605,7 +38627,7 @@ if(location.hash.includes('debug')){
       // worth watching, and stepping it is the only way to measure where a wipeout throws him.
       for(let i=0;i<n;i++){
         if(running){ runSecs+=h; update(h); }
-        else if(wipe){ updateWipeout(h); updateWorldDuringWipeout(h); }
+        else if(wipe){ _clkRaw=h; updateWipeout(h); updateWorldDuringWipeout(h); }   // the card is on the real clock
         else break;
       }
       return{ran:+(n*h).toFixed(3),running,wipe:!!wipe};
@@ -49976,7 +49998,7 @@ requestAnimationFrame(loop);
   // slows together rather than one layer sliding against another. See startWipeout.
   if(wipeSlow>0){
     wipeSlow=Math.max(0,wipeSlow-raw/WIPE_SLOW);
-    dt*=0.20+0.80*Math.pow(1-wipeSlow,1.6);
+    dt*=0.30+0.70*Math.pow(1-wipeSlow,1.6);
   }
   // ---- the menu is ANIMATION, not physics, and the physics clamp does it real harm ----
   // dt is capped at a thirtieth of a second so that one long frame cannot step the ride
