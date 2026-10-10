@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.92';</script>
+<script>window.SURF_VERSION='10.93';</script>
 <!-- the app icon: Astro on the sunset, built by icon/render.py + icon/compose.py -->
 <link rel="icon" type="image/png" sizes="32x32" href="icon/icon-32.png">
 <link rel="icon" href="icon/favicon.ico">
@@ -1694,6 +1694,34 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
     text-shadow:0 1px 3px rgba(0,40,80,.6); pointer-events:none; }
   /* on the menus only; it was sitting under the trick bar through every run */
   body.inrun #ver { display:none; }
+  /* ---- speed streaks ---- */
+  #speedFx { position:fixed; inset:0; pointer-events:none; z-index:1; opacity:0; visibility:hidden;
+    overflow:hidden; }
+  #speedFx.on { visibility:visible; }
+  #speedFx .sfs { position:absolute; top:-10%; bottom:-10%; width:24%; }   /* the middle stays clean */
+  /* leaned so the tops point in toward the vanishing point: what passes you at speed moves
+     down and OUT, and a rotation the other way swung the whole panel off the edge */
+  #speedFx .sfl { left:0; transform:rotate(6deg); transform-origin:50% 100%; }
+  #speedFx .sfr { right:0; transform:rotate(-6deg); transform-origin:50% 100%; }
+  #speedFx i { position:absolute; top:0; width:3px; height:26%; border-radius:3px;
+    background:linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,1) 40%, rgba(255,255,255,1) 60%, rgba(255,255,255,0));
+    animation:sfStreak .42s linear infinite; }
+  @keyframes sfStreak { from { transform:translateY(-40vh); } to { transform:translateY(120vh); } }
+  /* seven per side, scattered in from the edge and staggered so they never line up */
+  #speedFx .sfl i:nth-child(1){ left:6%;  animation-delay:-.05s; height:22%; opacity:.9; }
+  #speedFx .sfl i:nth-child(2){ left:18%; animation-delay:-.21s; height:30%; opacity:.6; }
+  #speedFx .sfl i:nth-child(3){ left:30%; animation-delay:-.33s; height:18%; opacity:.5; }
+  #speedFx .sfl i:nth-child(4){ left:11%; animation-delay:-.14s; height:34%; opacity:.7; }
+  #speedFx .sfl i:nth-child(5){ left:42%; animation-delay:-.27s; height:14%; opacity:.35; }
+  #speedFx .sfl i:nth-child(6){ left:24%; animation-delay:-.39s; height:24%; opacity:.55; }
+  #speedFx .sfl i:nth-child(7){ left:2%;  animation-delay:-.18s; height:30%; opacity:.8; }
+  #speedFx .sfr i:nth-child(1){ right:6%;  animation-delay:-.11s; height:22%; opacity:.9; }
+  #speedFx .sfr i:nth-child(2){ right:18%; animation-delay:-.29s; height:30%; opacity:.6; }
+  #speedFx .sfr i:nth-child(3){ right:30%; animation-delay:-.02s; height:18%; opacity:.5; }
+  #speedFx .sfr i:nth-child(4){ right:11%; animation-delay:-.36s; height:34%; opacity:.7; }
+  #speedFx .sfr i:nth-child(5){ right:42%; animation-delay:-.17s; height:14%; opacity:.35; }
+  #speedFx .sfr i:nth-child(6){ right:24%; animation-delay:-.24s; height:24%; opacity:.55; }
+  #speedFx .sfr i:nth-child(7){ right:2%;  animation-delay:-.31s; height:30%; opacity:.8; }
 
   /* No panel: the model is rendered onto the page's own canvas and this sits over it,
      with a scrim top and bottom so the type has something to be legible against and the
@@ -2720,6 +2748,10 @@ window.__vcheck={ran:false,asked:false,ok:null,found:null,mine:null,saw:null,act
   <div class="cell"><span class="lab">Puka</span><span class="val"><i class="pk"></i><span id="hCoins">0</span></span><span class="rec">this run</span></div>
 </div>
 <div id="trickmsg"></div>
+<!-- faint white streaks down both edges, shown by speed. Real elements rather than a gradient
+     trick so every phone browser draws them the same; the game only ever touches the
+     container's opacity. -->
+<div id="speedFx" aria-hidden="true"><div class="sfs sfl"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="sfs sfr"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
 <!-- The charge's clock. Middle of the screen in the title's own face, so it reads as part
      of the game rather than as instrumentation. Its own element rather than reusing
      trickmsg, which is a one-shot that fades and would fight a counter for the same box. -->
@@ -23299,6 +23331,12 @@ var _railAcc=0;                        // rail spray owed, in droplets
 // squash on touchdown that he stands back up out of (poseLand). poseTake is the clock the
 // first two are read off. var, like the rest of what the rigs read.
 var poseTake=0, poseCrouch=0, poseExt=0, poseAir=0, poseLand=0;
+// ---- SPEED ON THE LENS ----
+// camSpd is how fast he is going, 0 at the opening pace and 1 at the ceiling, eased so the
+// lens never jumps. It widens the field of view a little, leans the shot into a carve, and
+// brings up the streaks at the edges. CAM_FOV is the game's one lens; the menus put it back.
+var camSpd=0, camRoll=0;
+var CAM_FOV=62, CAM_FOV_FAST=7.5;    // degrees at rest, and how many more at the ceiling
 var glFace=0;                          // 0 side-on to the board, 1 square to the nose under the wing
 var _jsFoam=0, _jsTail=0;              // its wake and its rooster tail, per second not per frame
 let lastKind='',sameRun=0,bigFinCd=6,octCd=0,laneSlot=(Math.random()*5)|0;
@@ -27096,6 +27134,10 @@ const menuBtn=document.getElementById('menuBtn');
 function showMenu(mode){
   const over = mode==='over';
   document.body.classList.remove('inrun');    // the version number comes back with the menus
+  // and the lens goes back to rest: no speed on a menu, and no streaks
+  if(typeof camera!=='undefined'&&camera&&camera.fov!==CAM_FOV){ camera.fov=CAM_FOV; camera.updateProjectionMatrix(); }
+  camSpd=0; camRoll=0;
+  { const el=document.getElementById('speedFx'); if(el){ el.style.opacity='0'; el.classList.remove('on'); } }
   // ---- and the crash is OVER when the title screen comes up ----
   // Nothing cleared `wipe` on the way back to the menu — only the next reset() did, at the
   // start of the NEXT run — and the loop runs updateWipeout for as long as it is set. So the
@@ -32993,6 +33035,7 @@ if(location.hash.includes('debug')){
       tuck:+kfTuck.toFixed(3), by:+boardArt.position.y.toFixed(3), rot:[+boardArt.rotation.x.toFixed(3),+boardArt.rotation.y.toFixed(3),+boardArt.rotation.z.toFixed(3)],
       slots:trickSlots.slice(), bar:SLOT_ELS.map(el=>el?el.textContent.trim():null), score}; },
     // what water is in the air and on the sea right now, by emitter
+    lens(){ const el=document.getElementById('speedFx'); return {fov:+camera.fov.toFixed(2), spd:+camSpd.toFixed(3), roll:+camRoll.toFixed(4), eff:+(lastEff||0).toFixed(1), streak:el?+el.style.opacity:null, on:el?el.classList.contains('on'):null}; },
     pose(){ return {take:+poseTake.toFixed(2), crouch:+poseCrouch.toFixed(2), ext:+poseExt.toFixed(2), air:+poseAir.toFixed(2), land:+poseLand.toFixed(2), up:!!airborne, py:+py.toFixed(2)}; },
     water(){ return {drops:splashes.length, trail:trail.length, smoke:WSMOKE.filter(p=>p.t>0).length,
                   cloud:boatFoam.length, puffs:puffs.length, vx:+vx.toFixed(2), speed:+speed.toFixed(1)}; },
@@ -46968,6 +47011,24 @@ function update(dt){
     _fx=v.x; _fy=v.y; _fz=v.z;
   }
   camera.lookAt(_fx,_fy,_fz);
+  // ---- speed on the lens: a wider field, a lean into the carve, streaks at the edges ----
+  // The lens stays the lens in the barrel, where the shot is nailed down on purpose, and on
+  // the island and under the water, which have their own cameras.
+  {
+    const held=swTubeRide||_isle||diveOn;
+    const s=Math.max(0,Math.min(1,(eff-SPD_LO)/(SPD_HI-SPD_LO)));
+    camSpd=ease(camSpd,held?camSpd:s,dt,2.0);
+    const fovT=CAM_FOV+CAM_FOV_FAST*camSpd*camSpd;        // subtle low down, all of it at the top
+    if(Math.abs(camera.fov-fovT)>0.02){ camera.fov=fovT; camera.updateProjectionMatrix(); }
+    // a few degrees into the turn, more of them the faster he is going; rotateZ about the
+    // view axis is a roll of the picture and nothing else
+    camRoll=ease(camRoll,held?0:-carve*0.07*(0.45+0.55*camSpd),dt,4.5);
+    if(Math.abs(camRoll)>0.0005)camera.rotateZ(camRoll);
+    // the streaks come in over the top third of the range and never go fully opaque
+    const st=held?0:Math.max(0,Math.min(1,(camSpd-0.42)/0.58));
+    if(!window._sfxEl)window._sfxEl=document.getElementById('speedFx');
+    if(window._sfxEl){ window._sfxEl.style.opacity=(st*0.70).toFixed(3); window._sfxEl.classList.toggle('on',st>0.01); }
+  }
   // ---- AND THE SHOT TIPS DOWN THE FALL LINE ----
   // Last, on top of whatever aimed it, and on the CAMERA rather than the world: there is no
   // play-field group here, so tilting the world tilts the sky and the sun with it, and a
