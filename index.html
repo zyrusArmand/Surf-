@@ -10,7 +10,7 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.95';</script>
+<script>window.SURF_VERSION='10.96';</script>
 <!-- the app icon: Astro on the sunset, built by icon/render.py + icon/compose.py -->
 <link rel="icon" type="image/png" sizes="32x32" href="icon/icon-32.png">
 <link rel="icon" href="icon/favicon.ico">
@@ -3350,12 +3350,15 @@ function fxInit(){
     fxComp=new THREE.ShaderMaterial({uniforms:{tD:{value:null},tB:{value:null},
         tZ:{value:null},tF:{value:null},
         uAmt:{value:0.26},uVig:{value:0.14},uGrade:{value:0.0},
+        // the ride's own: shafts of light off the sun's bloom, and a blur at the edges at speed
+        uRays:{value:0.0},uSunUV:{value:new THREE.Vector2(0.5,0.3)},uSpeed:{value:0.0},
         uFish:{value:0.0},uTheta:{value:0.8},uAsp:{value:1.0},
         uDof:{value:0},uFocus:{value:30.0},uRange:{value:26.0},uNear:{value:0.1},uFar:{value:1600.0}},
       vertexShader:_FX_VS, fragmentShader:`
         varying vec2 vUv; uniform sampler2D tD; uniform sampler2D tB;
         uniform sampler2D tZ; uniform sampler2D tF;
         uniform float uAmt; uniform float uVig; uniform float uGrade;
+        uniform float uRays; uniform vec2 uSunUV; uniform float uSpeed;
         uniform float uFish; uniform float uTheta; uniform float uAsp;
         uniform float uDof; uniform float uFocus; uniform float uRange;
         uniform float uNear; uniform float uFar;
@@ -3422,6 +3425,31 @@ function fxInit(){
             c=mix(c,bl,coc);
           }
           c+=texture2D(tB,vUvF).rgb*uAmt;
+          // ---- SUN SHAFTS ----
+          // Light streaming from the sun across the frame, the thing every sunset photograph
+          // has and a rendered sky never does. Taken off the bloom texture rather than the
+          // frame: it already holds only what is genuinely bright -- the disc, its halo, the
+          // glitter -- and it is a quarter the size, so eight taps along the line to the sun
+          // cost almost nothing. Fades with distance from the sun so the far corner is clean.
+          if(uRays>0.001){
+            vec2 dir=uSunUV-vUvF; float len=length(dir); dir/=max(len,1e-4);
+            float stepL=min(len,0.55)/8.0; vec3 acc=vec3(0.0); float w=1.0, ws=0.0;
+            for(int i=1;i<=8;i++){ acc+=texture2D(tB,vUvF+dir*stepL*float(i)).rgb*w; ws+=w; w*=0.84; }
+            c+=acc/ws*uRays*(1.0-smoothstep(0.25,1.0,len));
+          }
+          // ---- and the EDGES SMEAR at speed ----
+          // A radial blur that only lives in the outer part of the frame and only when he is
+          // going fast: the centre, where the board and the water ahead are, stays sharp, and
+          // the edges stream past. Four taps, on those pixels only.
+          if(uSpeed>0.001){
+            vec2 d=vUvF-0.5;
+            float k=uSpeed*smoothstep(0.06,0.42,dot(d,d))*0.040;
+            if(k>0.0005){
+              vec3 b=c;
+              for(int i=1;i<=4;i++)b+=texture2D(tD,vUvF-d*k*float(i)).rgb;
+              c=b*0.2;
+            }
+          }
           // ---- the grade, in LINEAR, which is the only place it belongs ----
           // Done here rather than by moving the lights again, because "warm" and "warm light" are
           // different things: a warm key makes the lit faces gold and leaves the shadows where
@@ -3559,6 +3587,9 @@ function present(scn,cam,extra,dof,fish,grade){
       Math.atan(Math.hypot(asp,1)*Math.tan(cam.fov*Math.PI/360));
   }
   _fxPass(fxComp,null);
+  // the ride's two are per-frame: whoever wants them sets them before calling, and no other
+  // screen inherits them
+  fxComp.uniforms.uRays.value=0; fxComp.uniforms.uSpeed.value=0;
 }
 fxInit();
 addEventListener('resize',()=>{
@@ -4298,6 +4329,7 @@ const oceanMat=new THREE.ShaderMaterial({
       vec3 N = normalize(vN);
       vec3 L = normalize(uSun);
       vec3 V = normalize(cameraPosition - vW);
+      float dCam = length(cameraPosition - vW);
       float diff = max(dot(N,L),0.0);
       vec3 H = normalize(L+V);
       // ---- the chop, and it is FREE ----
@@ -4332,6 +4364,14 @@ const oceanMat=new THREE.ShaderMaterial({
         vec2 ca = texture2D(uChop, gp*0.055 + vec2( uT*0.0063,-uT*0.0052), -1.0).xy*2.0 - 1.0;
         vec2 cb = texture2D(uChop, gp*0.168 + vec2(-uT*0.0116, uT*0.0097), -1.0).xy*2.0 - 1.0;
         wob = ca + cb*0.78;
+        // ---- and a THIRD scale, close in ----
+        // Two feet across, and only within forty feet of the lens: the water under the board
+        // is the water being looked at, and at the two scales above it was a smooth sheet with
+        // a broad ripple on it. This is the fine texture a sea has when you are standing in it.
+        // Faded with distance so it costs nothing where it could not be seen and never adds
+        // shimmer to the far field.
+        vec2 cc = texture2D(uChop, gp*0.52 + vec2( uT*0.021,-uT*0.017), -1.0).xy*2.0 - 1.0;
+        wob += cc*0.45*(1.0-smoothstep(6.0,42.0,dCam));
       } else {
         wob = vec2(fbm(gp*1.85 + vec2(uT*0.21,-uT*0.17)) - 0.5,
                    fbm(gp*2.30 + vec2(-uT*0.19, uT*0.23)) - 0.5)
@@ -4401,11 +4441,33 @@ const oceanMat=new THREE.ShaderMaterial({
       vec3 lit = base*(0.38+0.72*diff);
       // WHICH band of sky is in the reflection depends on the angle: flat on you are looking at
       // the horizon, steeply down you are looking at the sky overhead.
-      vec3 skyRefl = mix(uSkyHi, uSky, smoothstep(0.15,0.85,fres));
+      // ---- REFLECTED, not blended ----
+      // This picked a band of sky by the Fresnel term alone, so every pixel at a given angle
+      // reflected the same colour whatever the water under it was doing. A reflection comes
+      // off the ripple: the reflected ray is bounced off the chopped normal, and WHERE it
+      // lands on the dome decides the colour -- low rays find the horizon band, steep ones
+      // the zenith, and the chop breaks the boundary between them into the moving, shifting
+      // reflection a real sea carries. The sun's own halo is laid into the dome too, so the
+      // water carries a soft warm bloom around the sun's image, not only the glitter track.
+      vec3 R = reflect(-V, Nr);
+      float ry = clamp(R.y, 0.0, 1.0);
+      vec3 skyRefl = mix(uSky, uSkyHi, smoothstep(0.0, 0.62, ry));
+      skyRefl += uGlow * pow(max(dot(R, L), 0.0), 40.0) * 0.55 * smoothstep(-0.12, 0.06, L.y);
       vec3 col = mix(lit, skyRefl, fres*0.88) + vec3(spec);
       // The glitter carries the SUN's colour, not white: at the end of the day the track is
       // the same orange the sky is, and that is half of why it reads as one light source.
       col += uGlow*gl;
+      // ---- LIGHT THROUGH THE CRESTS ----
+      // Water is not opaque. The top of a swell is thin enough that daylight comes through it,
+      // and looking toward the sun the crests glow turquoise from inside while the troughs
+      // stay deep -- the single biggest difference between a rendered sea and a photographed
+      // one, and this shader had none of it outside the set wave. Keyed on height so it lives
+      // in the crests, strongest looking into the light, and damped where the surface is
+      // already a mirror.
+      float thin = smoothstep(0.25*uPeak, 0.95*uPeak, hS);
+      float toSun = pow(max(dot(V, -L), 0.0), 2.6);
+      float sss = thin*(0.35 + 0.65*toSun)*(1.0-fres*0.5);
+      col += vec3(0.08,0.42,0.40)*sss*0.55;
       // Foam: crest caps, torn patches and fine flecks, all from drifting noise. Each
       // layer is anchored in a slower-moving frame than the one below it, because they
       // were all riding the full drift: at nearly four cycles a unit the flecks were
@@ -28889,6 +28951,9 @@ function updateDayCycle(){
   // the water's glitter belongs to the sun you can SEE, so it follows the disc
   oceanUniforms.uGlitL.value.set(sxn*130,sunY,-195).normalize();
   oceanUniforms.uGlow.value.copy(skyUniforms.uGlow.value);
+  // ...and the SPRAY is lit by the same sun: every drop is born with this colour, so at the
+  // end of the day the sheet off a rail goes gold with the sky instead of staying paper-white
+  if(typeof SPLASH_MAT!=='undefined')SPLASH_MAT.color.setHex(0xffffff).lerp(skyUniforms.uGlow.value,gAmt*0.45);
   // ...and the sky the WATER reflects follows the sky you can see, which it never did.
   oceanUniforms.uSky.value.copy(skyUniforms.uHorizon.value);
   oceanUniforms.uSkyHi.value.copy(skyUniforms.uMid.value);
@@ -39050,6 +39115,7 @@ if(location.hash.includes('debug')){
     // Read the clock WITHOUT setting it. dayAt(undefined) unpins the day as its way of saying
     // "back to normal", so calling it to find out what the day is destroys the answer — a
     // probe checking whether the UFO button had pinned night cleared the pin by asking.
+    dayPin(v){ dayForce=(v===undefined||v===null)?-1:+v; return dayForce; },   // pin the hour, 0..2; null unpins
     dayNow(){ return {dayForce, dayT:+dayT.toFixed(3), night:+nightAmt.toFixed(3),
                       moon:+moonAmt.toFixed(3), dark:+ufoDark.toFixed(1),
                       // whether the saucer's clock is running at all, which is the question
@@ -50283,8 +50349,22 @@ requestAnimationFrame(loop);
     }
     renderer.autoClear=true;
   }:null;
-  present(scene,camera,over);
+  // ---- the ride's own lens work, handed to the composite for this frame only ----
+  // Sun shafts from wherever the disc is on screen, scaled by how much daylight there is and
+  // off entirely once the sun has left the frame; the edge blur by the eased speed the camera
+  // already keys its field of view off. Both are cleared again inside present().
+  if(fxOn&&!diveOn){
+    _sunScr.setFromMatrixPosition(sunDisc.matrixWorld).project(camera);
+    const onScr=_sunScr.z<1&&Math.abs(_sunScr.x)<1.6&&Math.abs(_sunScr.y)<1.6;
+    fxComp.uniforms.uSunUV.value.set(_sunScr.x*0.5+0.5,_sunScr.y*0.5+0.5);
+    fxComp.uniforms.uRays.value=onScr?RIDE_RAYS*Math.max(0,Math.min(1,oceanUniforms.uLight.value)):0;
+    fxComp.uniforms.uSpeed.value=camSpd*camSpd;
+  }
+  present(scene,camera,over,null,0,RIDE_GRADE);
 }
+// the ride's film look: a touch of the menu's grade, and the sun's shafts at this strength
+var RIDE_GRADE=0.35, RIDE_RAYS=0.62;
+const _sunScr=new THREE.Vector3();
 requestAnimationFrame(loop);
 })();
 </script>
