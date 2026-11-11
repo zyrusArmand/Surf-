@@ -7,11 +7,11 @@ Shader "Surf/Ocean"
 {
     Properties
     {
-        _Deep ("Deep", Color) = (0.027, 0.298, 0.506, 1)
-        _Shallow ("Shallow", Color) = (0.153, 0.573, 0.769, 1)
-        _SkyLo ("Sky horizon", Color) = (0.56, 0.82, 0.96, 1)
-        _SkyHi ("Sky zenith", Color) = (0.25, 0.56, 0.84, 1)
-        _Glow ("Sun glow", Color) = (1, 0.95, 0.84, 1)
+        _Deep ("Deep", Vector) = (0.027, 0.298, 0.506, 1)
+        _Shallow ("Shallow", Vector) = (0.153, 0.573, 0.769, 1)
+        _SkyLo ("Sky horizon", Vector) = (0.56, 0.82, 0.96, 1)
+        _SkyHi ("Sky zenith", Vector) = (0.25, 0.56, 0.84, 1)
+        _Glow ("Sun glow", Vector) = (1, 0.95, 0.84, 1)
         _SunDir ("Sun direction", Vector) = (-0.45, 0.75, -0.5, 0)
         _Light ("Daylight", Float) = 1
         _Amp ("Swell amplitude", Float) = 1.35

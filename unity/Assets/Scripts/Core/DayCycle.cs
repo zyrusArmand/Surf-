@@ -7,6 +7,7 @@ public class DayCycle : MonoBehaviour
 {
     struct Key { public float t; public Color top, mid, hz, glow; public float gAmt, sunX, sunY; }
 
+    static Vector4 V(Color c) => new Vector4(c.r, c.g, c.b, 1f);
     static Color C(uint hex) => new Color(((hex >> 16) & 255) / 255f, ((hex >> 8) & 255) / 255f, (hex & 255) / 255f);
     static Key K(float t, uint top, uint mid, uint hz, uint glow, float g, float sx, float sy)
         => new Key { t = t, top = C(top), mid = C(mid), hz = C(hz), glow = C(glow), gAmt = g, sunX = sx, sunY = sy };
@@ -68,14 +69,16 @@ public class DayCycle : MonoBehaviour
 
         if (sky != null)
         {
-            sky.SetColor("_Top", top); sky.SetColor("_Mid", mid); sky.SetColor("_Horizon", hz);
-            sky.SetColor("_Glow", glow); sky.SetFloat("_GlowAmt", glowAmt);
+            // as vectors, not colours: the web hands these raw hex numbers to its shaders with no
+            // colour-space conversion, and the frame is encoded once at the end
+            sky.SetVector("_Top", V(top)); sky.SetVector("_Mid", V(mid)); sky.SetVector("_Horizon", V(hz));
+            sky.SetVector("_Glow", V(glow)); sky.SetFloat("_GlowAmt", glowAmt);
             sky.SetVector("_SunDir", sunDir);
             sky.SetFloat("_Blend", beachLook ? 0.58f : 0.30f);
         }
         if (ocean != null)
         {
-            ocean.SetColor("_SkyLo", hz); ocean.SetColor("_SkyHi", mid); ocean.SetColor("_Glow", glow);
+            ocean.SetVector("_SkyLo", V(hz)); ocean.SetVector("_SkyHi", V(mid)); ocean.SetVector("_Glow", V(glow));
             ocean.SetVector("_SunDir", sunDir); ocean.SetFloat("_Light", light);
         }
         if (sun != null)

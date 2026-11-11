@@ -70,7 +70,9 @@ public class Bootstrap : MonoBehaviour
         var prof = ScriptableObject.CreateInstance<UnityEngine.Rendering.VolumeProfile>(); vol.profile = prof;
         var bloom = prof.Add<UnityEngine.Rendering.Universal.Bloom>(); bloom.intensity.Override(0.28f); bloom.threshold.Override(1.04f);
         var vig = prof.Add<UnityEngine.Rendering.Universal.Vignette>(); vig.intensity.Override(0.16f);
-        var tone = prof.Add<UnityEngine.Rendering.Universal.Tonemapping>(); tone.mode.Override(UnityEngine.Rendering.Universal.TonemappingMode.ACES);
+        // no tone mapping: the web's sea and sky are drawn raw and encoded once, and that is
+        // where their colour comes from; a filmic curve on top is what made the sea grey
+        var tone = prof.Add<UnityEngine.Rendering.Universal.Tonemapping>(); tone.mode.Override(UnityEngine.Rendering.Universal.TonemappingMode.None);
 
         // the title screen's beach
         beach = gameObject.AddComponent<Beach>(); beach.Build(null);

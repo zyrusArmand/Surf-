@@ -48,11 +48,11 @@ Shader "Surf/Glass"
                 float3 ld = normalize(L.direction);
                 float diff = saturate(dot(N, ld));
                 float3 amb = SampleSH(N);
-                float3 col = i.col.rgb * (amb + L.color * diff * L.shadowAttenuation * 1.1);
+                float3 col = i.col.rgb * (amb + L.color * diff * 1.1);   // no self-shadow: the caster pass has no bias of its own
                 float3 H = normalize(ld + V);
                 float sp = pow(saturate(dot(N, H)), lerp(16.0, 160.0, _Gloss)) * _Spec;
                 float fr = pow(1.0 - saturate(dot(N, V)), 4.0) * _Fresnel;
-                col += L.color * sp * L.shadowAttenuation + amb * fr;
+                col += L.color * sp + amb * fr;
                 return half4(col, 1);
             }
             ENDHLSL

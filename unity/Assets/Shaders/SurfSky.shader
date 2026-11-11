@@ -5,10 +5,10 @@ Shader "Surf/Sky"
 {
     Properties
     {
-        _Top ("Zenith", Color) = (0.25, 0.56, 0.84, 1)
-        _Mid ("Mid", Color) = (0.56, 0.82, 0.96, 1)
-        _Horizon ("Horizon", Color) = (0.90, 0.96, 0.99, 1)
-        _Glow ("Glow", Color) = (1, 0.97, 0.92, 1)
+        _Top ("Zenith", Vector) = (0.25, 0.56, 0.84, 1)
+        _Mid ("Mid", Vector) = (0.56, 0.82, 0.96, 1)
+        _Horizon ("Horizon", Vector) = (0.90, 0.96, 0.99, 1)
+        _Glow ("Glow", Vector) = (1, 0.97, 0.92, 1)
         _GlowAmt ("Glow amount", Float) = 0.1
         _SunDir ("Sun direction", Vector) = (-0.45, 0.75, -0.5, 0)
         _SunSize ("Sun size", Float) = 0.045
