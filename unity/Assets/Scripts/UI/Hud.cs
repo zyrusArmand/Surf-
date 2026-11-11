@@ -10,7 +10,7 @@ public class Hud : MonoBehaviour
 {
     public BoardController rider;
     public System.Action onPlay, onMenu, onShop;
-    public Transform Canvas => canvas.transform;
+    public Transform UiRoot => canvas.transform;
     Image xpFill;
 
     Canvas canvas;

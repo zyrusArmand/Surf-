@@ -80,7 +80,7 @@ public class Bootstrap : MonoBehaviour
         hud.onPlay = Play; hud.onMenu = Menu; hud.onShop = () => shop.Show(true);
         spawner.onSplat = c => hud.Splat(c);
         hud.Build();
-        shop = new GameObject("Shop").AddComponent<Shop>(); shop.Build(hud.Canvas);
+        shop = new GameObject("Shop").AddComponent<Shop>(); shop.Build(hud.UiRoot);
         shop.onChange = () => { BuildRider(); if (beach.Showing) beach.PlaceRider(rider.transform, rig, boardGo); hud.ShowMenu(); };
         Menu();
     }
