@@ -69,9 +69,12 @@ public class BoardController : MonoBehaviour
     public System.Action onWipeout;
 
     /// the web's mapping of the four shop stats onto the ride
-    public void ApplyBoard(BoardCatalog.Board b)
+    public float statGlide = 1f, statTrick = 1f, statLuck = 1f;
+    /// the board and the rider added up, the web's applyBoardStats with the perk on top
+    public void ApplyStats(RideStats s)
     {
-        statSpeed = 1f + (b.speed - 5) * 0.040f; statTurn = 1f + (b.turn - 5) * 0.060f; statAir = 1f + (b.air - 5) * 0.080f; statGrip = 1f;
+        statSpeed = s.speed; statTurn = s.turn; statAir = s.air; statGrip = s.grip; statTop = s.top; statFloat = s.flo;
+        statGlide = s.glide; statTrick = s.trick; statLuck = s.luck;
     }
 
     public void Begin()
@@ -231,7 +234,7 @@ public class BoardController : MonoBehaviour
 
         // the curve: climbs with distance and never quite arrives
         speed = Mathf.Min(100f + statTop, (SpdLo + (SpdHi - SpdLo) * dist / (dist + SpdK)) * statSpeed + statTop);
-        boost = Mathf.Max(0f, boost - dt * 3.2f);
+        boost = Mathf.Max(0f, boost - dt * 3.0f / statGlide);      // glide: how long the speed you earned stays with you
         eff = Mathf.Max(16.2f, Mathf.Min(113f + statTop, speed + Mathf.Abs(vx) * 0.3f + trim + boost));
         dist += eff * dt * FtToM;
         WaveField.Drift = 0.46f + Mathf.Min(1f, dist / 9000f) * 0.16f;
@@ -380,6 +383,7 @@ public class BoardController : MonoBehaviour
             float off = Mathf.Max(half(spinRot), sq(flipRot), sq(pitchRot));
             if (off < 0.16f) { pts = Mathf.RoundToInt(pts * 2.0f); label += "PERFECT "; }
             else if (off < 0.45f) { pts = Mathf.RoundToInt(pts * 1.4f); label += "CLEAN "; }
+            pts = Mathf.RoundToInt(pts * statTrick);      // the rider's trick perk
             score += pts;
             boost = Mathf.Min(16f, boost + 5f + Mathf.Min(7f, pts / 110f));
             Say(label.Trim() + (names > 1 ? " COMBO" : "") + "! +" + pts);

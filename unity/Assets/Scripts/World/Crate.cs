@@ -10,7 +10,8 @@ public class Crate : MonoBehaviour
     public System.Action<Vector3, int> onSplash;
     bool on, held; float timer = 999f, bob; Transform obj; Light glow;
 
-    public void Reset() { on = false; held = false; timer = 9f + Random.value * 11f; if (obj != null) obj.gameObject.SetActive(false); }
+    float Luck => rider != null ? Mathf.Max(0.5f, rider.statLuck) : 1f;   // a lucky rider's chests come oftener
+    public void Reset() { on = false; held = false; timer = (9f + Random.value * 11f) / Luck; if (obj != null) obj.gameObject.SetActive(false); }
 
     void Build()
     {
@@ -45,7 +46,7 @@ public class Crate : MonoBehaviour
         obj.position = p;
         obj.rotation = Quaternion.Euler(0, obj.rotation.eulerAngles.y + dt * 1.7f * Mathf.Rad2Deg, Mathf.Sin(bob * 1.3f) * 0.06f * Mathf.Rad2Deg);
         glow.intensity = 1.6f + 0.8f * Mathf.Sin(bob * 2.6f);
-        if (p.z > 14f) { on = false; obj.gameObject.SetActive(false); timer = 8f + Random.value * 11f; return; }
+        if (p.z > 14f) { on = false; obj.gameObject.SetActive(false); timer = (8f + Random.value * 11f) / Luck; return; }
         if (r.running && Mathf.Abs(p.z - r.pz) < 2.2f && Mathf.Abs(p.x - r.px) < 2.2f && Mathf.Abs(r.py - p.y) < 2.0f)
         {
             on = false; held = true; obj.gameObject.SetActive(false);
