@@ -7,6 +7,9 @@ public static class BoardCatalog
     public class Board
     {
         public string id, name, blurb; public int price;
+        // straight off the spec sheet: a motor's top speed, how much wake it throws, a foil's lift,
+        // a seat (how far he sits down into it), and the file that stands in for the loft
+        public float top, wake = 1f, lift, seat, modelD; public string model; public bool tube, hidden;
         public int speed, turn, air, tough;
         public int nu = 220, nr = 52;
         public float L, W, T, noseA, tailA, noseW, tailW, rockN, noseR, rockT, tailR;
@@ -27,7 +30,7 @@ public static class BoardCatalog
             deckPow = 0.6f, hullPow = 0.44f, hullK = 0.6f, thPow = 0.5f, thSkew = 1f, swallow = 0f, asymW = 1f, asymZ = 0f, tipK = 1f, rough = 0.27f,
             pad = false, padU0 = 0.735f, padU1 = 0.945f, padW = 0.56f, pads = null, padCol = 0x22262b, finCol = 0x7a5227, special = false,
             fins = new Fin[] { new Fin { x = 0f, z = 3.091f, c = 0.935f, d = 0.905f, t = 0.034f, rake = 0.16f, cant = 0f } } },
-        new Board { id = "cattleclass", name = "Cattle Class", price = 36000, blurb = "Panelled, wired and lit from the middle. Rides like a dinner plate, which it also is.", speed = 7, turn = 2, air = 8, tough = 9,
+        new Board { id = "cattleclass", hidden = true, name = "Cattle Class", price = 36000, blurb = "Panelled, wired and lit from the middle. Rides like a dinner plate, which it also is.", speed = 7, turn = 2, air = 8, tough = 9,
             nu = 180, nr = 320, L = 4.6f, W = 2.3f, T = 0.2f, noseA = 0.5f, tailA = 0.5f, noseW = 0f, tailW = 0f, rockN = 0f, noseR = 0.3f, rockT = 0f, tailR = 0.3f,
             deckPow = 0.44f, hullPow = 0.44f, hullK = 0.9f, thPow = 0.75f, thSkew = 1f, swallow = 0f, asymW = 1f, asymZ = 0f, tipK = 1f, rough = 0.62f,
             pad = false, padU0 = 0.735f, padU1 = 0.945f, padW = 0.56f, pads = null, padCol = 0x22262b, finCol = 0x6ef2b4, special = false,
@@ -327,22 +330,22 @@ public static class BoardCatalog
             deckPow = 0.48f, hullPow = 0.36f, hullK = 0.62f, thPow = 0.5f, thSkew = 1f, swallow = 0f, asymW = 1f, asymZ = 0f, tipK = 1f, rough = 0.14f,
             pad = true, padU0 = 0.72f, padU1 = 0.945f, padW = 0.56f, pads = null, padCol = 0x1a1118, finCol = 0x14161b, special = false,
             fins = new Fin[] { new Fin { x = 0f, z = 2.272f, c = 0.49f, d = 0.466f, t = 0.026f, rake = 0.12f, cant = 0f }, new Fin { x = -0.378f, z = 1.982f, c = 0.423f, d = 0.401f, t = 0.024f, rake = 0.1f, cant = 0.22f }, new Fin { x = 0.29f, z = 1.982f, c = 0.423f, d = 0.401f, t = 0.024f, rake = 0.1f, cant = -0.22f } } },
-        new Board { id = "mako", name = "Mako eFoil", price = 45000, blurb = "Electric hydrofoil. Flies on a wing, leaves almost no wake, and is 21 mph faster than anything else out here.", speed = 10, turn = 10, air = 4, tough = 2,
+        new Board { id = "mako", top = 34f, wake = 0.22f, lift = 0.62f, name = "Mako eFoil", price = 45000, blurb = "Electric hydrofoil. Flies on a wing, leaves almost no wake, and is 21 mph faster than anything else out here.", speed = 10, turn = 10, air = 4, tough = 2,
             nu = 220, nr = 52, L = 5.2f, W = 0.945f, T = 0.394f, noseA = 4.8f, tailA = 4.8f, noseW = 0.5f, tailW = 0.66f, rockN = 0.208f, noseR = 0.3f, rockT = 0.1f, tailR = 0.24f,
             deckPow = 0.62f, hullPow = 0.5f, hullK = 0.56f, thPow = 0.5f, thSkew = 1f, swallow = 0f, asymW = 1f, asymZ = 0f, tipK = 1f, rough = 0.27f,
             pad = true, padU0 = 0.735f, padU1 = 0.945f, padW = 0.74f, pads = new float[][] { new float[] { 0.3f, 0.86f } }, padCol = 0x16181c, finCol = 0x1a1e24, special = true,
             fins = new Fin[] {  } },
-        new Board { id = "tube", name = "Turtle Bay Tube", price = 900000, blurb = "A printed pool tube. It is not a surfboard, it does not pretend to be one, and it costs more than the jet ski. You sit in the hole with your legs in the water and your arms over the side, and the sea takes you wherever it is going.", speed = 2, turn = 1, air = 1, tough = 10,
+        new Board { id = "tube", top = 26f, wake = 1.1f, lift = 0.1f, seat = 0.06f, modelD = 1.95f, model = "tube", tube = true, name = "Turtle Bay Tube", price = 900000, blurb = "A printed pool tube. It is not a surfboard, it does not pretend to be one, and it costs more than the jet ski. You sit in the hole with your legs in the water and your arms over the side, and the sea takes you wherever it is going.", speed = 2, turn = 1, air = 1, tough = 10,
             nu = 220, nr = 52, L = 1.95f, W = 1.18f, T = 0.33f, noseA = 2.4f, tailA = 2.4f, noseW = 0.88f, tailW = 0.88f, rockN = 0.1f, noseR = 0.48f, rockT = 0.1f, tailR = 0.48f,
             deckPow = 0.9f, hullPow = 0.9f, hullK = 0.3f, thPow = 0.5f, thSkew = 1f, swallow = 0f, asymW = 1f, asymZ = 0f, tipK = 1f, rough = 0.44f,
             pad = true, padU0 = 0.735f, padU1 = 0.945f, padW = 0.56f, pads = null, padCol = 0x2db4ac, finCol = 0x2db4ac, special = true,
             fins = new Fin[] {  } },
-        new Board { id = "skijet", name = "Kahuna 750", price = 500000, blurb = "A jet ski. Quicker than the eFoil, a wake you could ride, and a seat instead of a stance. It does not turn like a surfboard, because it is not one.", speed = 10, turn = 2, air = 2, tough = 9,
+        new Board { id = "skijet", top = 44f, wake = 2.3f, lift = 0.55f, seat = -0.2f, model = "jetski", name = "Kahuna 750", price = 500000, blurb = "A jet ski. Quicker than the eFoil, a wake you could ride, and a seat instead of a stance. It does not turn like a surfboard, because it is not one.", speed = 10, turn = 2, air = 2, tough = 9,
             nu = 220, nr = 52, L = 4.4f, W = 1.7f, T = 0.7f, noseA = 1.5f, tailA = 0.9f, noseW = 0.2f, tailW = 0.9f, rockN = 0.32f, noseR = 0.52f, rockT = 0.06f, tailR = 0.4f,
             deckPow = 0.7f, hullPow = 0.52f, hullK = 0.8f, thPow = 0.5f, thSkew = 1f, swallow = 0f, asymW = 1f, asymZ = 0f, tipK = 1f, rough = 0.42f,
             pad = true, padU0 = 0.735f, padU1 = 0.945f, padW = 0.62f, pads = new float[][] { new float[] { 0.34f, 0.78f } }, padCol = 0x191d22, finCol = 0x14181d, special = true,
             fins = new Fin[] {  } },
-        new Board { id = "tradewind", name = "Trade Wind 140", price = 1250000, blurb = "A kite twin-tip, and the priciest thing on the wall. Four foot six of carbon with no float in it: it goes where the rail is set, at a speed nothing else here touches, and it will not hold you up for a second without the kite.", speed = 10, turn = 5, air = 10, tough = 6,
+        new Board { id = "tradewind", top = 38f, wake = 0.3f, lift = 0f, modelD = 4.6f, model = "kiteboard", name = "Trade Wind 140", price = 1250000, blurb = "A kite twin-tip, and the priciest thing on the wall. Four foot six of carbon with no float in it: it goes where the rail is set, at a speed nothing else here touches, and it will not hold you up for a second without the kite.", speed = 10, turn = 5, air = 10, tough = 6,
             nu = 220, nr = 52, L = 4.6f, W = 0.69f, T = 0.048f, noseA = 1.684f, tailA = 1.684f, noseW = 0.66f, tailW = 0.66f, rockN = 0.23f, noseR = 0.37f, rockT = 0.23f, tailR = 0.37f,
             deckPow = 0.72f, hullPow = 0.72f, hullK = 1f, thPow = 0.5f, thSkew = 1f, swallow = 0f, asymW = 1f, asymZ = 0f, tipK = 1f, rough = 0.18f,
             pad = true, padU0 = 0.735f, padU1 = 0.945f, padW = 0.72f, pads = new float[][] { new float[] { 0.16f, 0.35f }, new float[] { 0.65f, 0.84f } }, padCol = 0x141821, finCol = 0x0f1319, special = true,
