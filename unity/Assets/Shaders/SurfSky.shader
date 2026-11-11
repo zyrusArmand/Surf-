@@ -164,6 +164,8 @@ Shader "Surf/Sky"
                 c += (_Glow.rgb * rim + float3(1.3, 1.2, 1.05) * _Glow.rgb * discS) * above * saturate(_GlowAmt * 2.0 + 0.3) * _SunOn;
                 // sRGB numbers to linear light, as the web does, and a dither against banding
                 c = pow(saturate(c), 2.2);
+                // the disc itself brighter than white, so the bloom (and the flare built from it) catch the sun and nothing else in the sky
+                c += float3(1.0, 0.93, 0.80) * discS * above * saturate(_GlowAmt * 2.0 + 0.3) * _SunOn * 2.4;
                 float dz = frac(sin(dot(i.pos.xy, float2(12.9898, 78.233))) * 43758.5453);
                 c += (dz - 0.5) / 255.0;
                 return fixed4(c, 1);

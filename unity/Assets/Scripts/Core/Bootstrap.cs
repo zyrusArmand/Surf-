@@ -11,7 +11,8 @@ public class Bootstrap : MonoBehaviour
     Quests quests; StatsPanel stats; SettingsPanel settings; SchoolPanel school; ProfilePanel profile; GuidePanel guide;
     WheelPanel wheel; LevelPanel levelInfo; PukaPanel puka; SecretPanel secret; int bankedDist, bankedScore, bankedCoins;
     bool over; float runSecs; bool palmSaid;
-    Vector3 hullMin, hullMax; bool hullOk; PlanarReflection reflect;      // the board's own box, in its frame, for the sea's dry-hull rule
+    Vector3 hullMin, hullMax; bool hullOk; PlanarReflection reflect;
+    UnityEngine.Rendering.Universal.DepthOfField dof; UnityEngine.Rendering.Universal.ScreenSpaceLensFlare flare;      // the board's own box, in its frame, for the sea's dry-hull rule
 
     void Start()
     {
@@ -79,8 +80,15 @@ public class Bootstrap : MonoBehaviour
         // post: bloom, a touch of vignette, ACES
         var volGo = new GameObject("Volume"); var vol = volGo.AddComponent<UnityEngine.Rendering.Volume>(); vol.isGlobal = true;
         var prof = ScriptableObject.CreateInstance<UnityEngine.Rendering.VolumeProfile>(); vol.profile = prof;
-        var bloom = prof.Add<UnityEngine.Rendering.Universal.Bloom>(); bloom.intensity.Override(0.28f); bloom.threshold.Override(1.04f);
+        var bloom = prof.Add<UnityEngine.Rendering.Universal.Bloom>(); bloom.intensity.Override(0.55f); bloom.threshold.Override(1.0f); bloom.scatter.Override(0.68f);   // only what is brighter than white: the sun, the glints
         var vig = prof.Add<UnityEngine.Rendering.Universal.Vignette>(); vig.intensity.Override(0.16f);
+        // a soft flare off the sun, built from the bloom's own bright pixels, so it is only ever where the sun is
+        flare = prof.Add<UnityEngine.Rendering.Universal.ScreenSpaceLensFlare>(); flare.intensity.Override(0.22f);
+        // the title's near-sand blur (web #nearBlur) as real depth of field: focused on the set, the sand at the lens soft
+        dof = prof.Add<UnityEngine.Rendering.Universal.DepthOfField>();
+        dof.mode.Override(UnityEngine.Rendering.Universal.DepthOfFieldMode.Bokeh);
+        dof.focalLength.Override(50f); dof.aperture.Override(3.5f); dof.focusDistance.Override(10.6f);
+        dof.active = false;
         // no tone mapping: the web's sea and sky are drawn raw and encoded once, and that is
         // where their colour comes from; a filmic curve on top is what made the sea grey
         var tone = prof.Add<UnityEngine.Rendering.Universal.Tonemapping>(); tone.mode.Override(UnityEngine.Rendering.Universal.TonemappingMode.None);
@@ -439,6 +447,8 @@ public class Bootstrap : MonoBehaviour
             ocean.material.SetVector("_HullS", new Vector4(hw * 0.96f, hl * 0.97f, hullMin.y, 1f));
         }
         else ocean.material.SetVector("_HullS", Vector4.zero);
+        if (dof != null) { dof.active = beach.Showing; if (beach.Showing) dof.focusDistance.value = Vector3.Distance(beach.camAt, beach.boardAt); }
+        if (flare != null) flare.active = !beach.Showing;
         if (reflect != null) { reflect.planeY = beach.Showing ? beach.seaLevel : 0f; reflect.on = !(dive != null && dive.On); }
         ocean.Tick(rider.t, rider.dist * WaveField.Drift, WaveField.Amp, rider.px, rider.pz + BoardController.BoardHalfL, wakeA, beach.Showing ? beach.seaLevel : 0f, beach.Showing ? -88f : 100000f);   // a shoreline far behind the rider keeps the open sea at full swell
         day.Apply(rider.dist);

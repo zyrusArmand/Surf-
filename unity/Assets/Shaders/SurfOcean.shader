@@ -333,6 +333,8 @@ Shader "Surf/Ocean"
                 col = lerp(col, _SkyLo.rgb, fog);
                 // the maths above runs in plain sRGB numbers, as the web's does; to linear here
                 col = pow(saturate(col), 2.2);
+                // the brightest glints go past white, so bloom picks out the sparkle and leaves the rest of the sea alone
+                col += pow(_Glow.rgb, 2.2) * max(0.0, (spec + gl) * shade - 0.30) * 2.6 * (1.0 - fog);
                 return half4(col * _Light, 1);
             }
             ENDHLSL
