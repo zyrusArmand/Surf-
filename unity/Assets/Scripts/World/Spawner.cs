@@ -100,11 +100,13 @@ public class Spawner : MonoBehaviour
             if (!r.running) continue;
 
             // the footprint on the water, then the height test
-            bool contact = Mathf.Abs(r.px - o.x) < o.hx + BoardController.BoardHalfW && Mathf.Abs(r.pz - o.z) < o.hz + BoardController.BoardHalfL;
-            if (!o.passed && o.z > r.pz + BoardController.BoardHalfL)
+            // the footprint shrinks with him under a coconut charge
+            float halfL = BoardController.BoardHalfL * Coconuts.SizeK, halfW = BoardController.BoardHalfW * Coconuts.SizeK;
+            bool contact = Mathf.Abs(r.px - o.x) < o.hx + halfW && Mathf.Abs(r.pz - o.z) < o.hz + halfL;
+            if (!o.passed && o.z > r.pz + halfL)
             {
                 o.passed = true;
-                float m = Mathf.Abs(r.px - o.x) - (o.hx + BoardController.BoardHalfW);
+                float m = Mathf.Abs(r.px - o.x) - (o.hx + halfW);
                 if (o.kind != "ramp" && !o.used && m > 0 && m < 1.5f) { r.score += 25; r.Say("CLOSE CALL! +25"); Sfx.Close(false); Sfx.Buzz(12); }
             }
             if (!contact) continue;

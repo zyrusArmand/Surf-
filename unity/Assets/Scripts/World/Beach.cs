@@ -186,7 +186,7 @@ public class Beach : MonoBehaviour
     }
 
     /// a husk: fibres running pole to pole, three faint ridges, darker and smoother at the ends
-    static void CoconutTextures(out Texture2D baseTex, out Texture2D nrmTex)
+    public static void CoconutTextures(out Texture2D baseTex, out Texture2D nrmTex)
     {
         const int S = 256;
         var h = new float[S * S]; var cols = new Color32[S * S]; var nrm = new Color32[S * S];

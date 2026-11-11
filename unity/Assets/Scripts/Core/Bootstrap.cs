@@ -7,7 +7,7 @@ public class Bootstrap : MonoBehaviour
 {
     BoardController rider; Spawner spawner; ChaseCamera chase; Hud hud; DayCycle day; Ocean ocean;
     ParticleSystem spray; Transform rig, pug; RiderRig riderRig; float wakeA;
-    Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop;
+    Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop; Coconuts cocos;
     Quests quests; StatsPanel stats; SettingsPanel settings; SchoolPanel school; ProfilePanel profile;
     bool over; float runSecs; bool palmSaid;
 
@@ -46,11 +46,12 @@ public class Bootstrap : MonoBehaviour
         setWave = new GameObject("SetWave").AddComponent<SetWave>(); setWave.rider = rider; setWave.day = day;
         whirl = new GameObject("Whirlpool").AddComponent<Whirlpool>(); whirl.rider = rider; whirl.spawner = spawner; whirl.setWave = setWave;
         crate = new GameObject("Crate").AddComponent<Crate>(); crate.rider = rider; crate.setWave = setWave;
+        cocos = new GameObject("Coconuts").AddComponent<Coconuts>(); cocos.rider = rider; cocos.setWave = setWave;
 
         // spray
         spray = BuildSpray();
         rider.onSplash = (p, n) => { spray.transform.position = p; spray.Emit(n); };
-        spawner.onSplash = rider.onSplash; setWave.onSplash = rider.onSplash; whirl.onSplash = rider.onSplash; crate.onSplash = rider.onSplash;
+        spawner.onSplash = rider.onSplash; setWave.onSplash = rider.onSplash; whirl.onSplash = rider.onSplash; crate.onSplash = rider.onSplash; cocos.onSplash = rider.onSplash;
         rider.onWipeout = () => { over = false; Sfx.Buzz(60, 50, 80); };
 
         // camera
@@ -119,7 +120,7 @@ public class Bootstrap : MonoBehaviour
 
     void Play()
     {
-        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset();
+        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset();
         Quests.Roll();
         rider.Begin(); runSecs = 0;
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
@@ -133,7 +134,7 @@ public class Bootstrap : MonoBehaviour
     /// the title: the ride stops, he floats in the lane, the dial comes up
     void Menu()
     {
-        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset();
+        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset();
         rider.Idle(0f);
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
@@ -173,7 +174,8 @@ public class Bootstrap : MonoBehaviour
             Sfx.RideBed(rider.speed, rider.carve, rider.airborne, rider.Submerged ? 1f : 0f);
             spawner.Step(dt);
             setWave.Step(dt);
-            whirl.Step(dt); crate.Step(dt);
+            whirl.Step(dt); crate.Step(dt); cocos.Step(dt);
+            rider.transform.localScale = Vector3.one * cocos.K;      // the coconut charge shrinks him
             Quests.Scan(rider, dt);
             if (Input.GetKeyDown(KeyCode.B)) setWave.summon = true;      // debug: bring a set now
             if (Input.GetKeyDown(KeyCode.V)) whirl.summon = true;        // debug: a whirlpool now
