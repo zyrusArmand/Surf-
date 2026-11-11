@@ -6,6 +6,9 @@
 // granted is dimmed. A tile is a picture and a price and nothing else: a tap opens the viewer
 // (Viewer.cs), where the thing is big enough to judge, its numbers are read, and it is bought,
 // ridden or worn. The photographs come from Previews, taken one a frame as tiles come into view.
+// Round the grid is the web's sheet (#shop, its h2, #shopTabs, #shopClose): the dusk wash, "Beach
+// shop" in gold top left, the level badge and the purse top right, five pill tabs, and "< Back"
+// on a full-width pill at the foot -- drawn by ShopArt from the stylesheet's numbers.
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -17,8 +20,27 @@ public class Shop : MonoBehaviour
     public System.Action onClose, onGuide;        // onGuide: the School tab hands over to Board school
     GameObject pane; Text tCoins, tLv; string tab = "boards";
     RectTransform view, content; ScrollRect scroll;
-    Image tabBoards, tabRiders, tabStyle;
+    RectTransform lvRt; Image lvArt;
     Viewer viewer;
+
+    // ---- the sheet's chrome, in the web's numbers at phone width (430; the canvas matches width) ----
+    // #shop pads 16px all round. h2: 26px gold, a 30px line from 16 (so centred at 31), 12px under
+    // it; #shopLv and the purse sit on its baseline. #shopTabs: five pills across the 398px, 8px
+    // apart, 37 tall from 59, 11px under them. #shopClose: .go.calm, 302 wide, 12px under the list,
+    // 16 off the bottom -- squeezed to 27 tall by the column it sits in, which is how the web draws it.
+    const float Side = 16f, RefH = 932f;
+    const float TitleY = 31f, LvY = 34.5f, LvH = 20f, CoinY = 33.2f;
+    const float TabTop = 59f, TabH = 37f, TabGap = 8f, TabW = (430f - 2f * Side - 4f * TabGap) / 5f;
+    const float ListTop = 107f, BackW = 302f, BackH = 27f, BackFoot = 16f, ListBottom = BackFoot + BackH + 12f;
+    const float NoteH = 35f;
+    static readonly string[] TabIds = { "school", "boards", "riders", "gear", "tricks" };
+    static readonly string[] TabNames = { "School", "Boards", "Surfers", "Style", "Tricks" };
+    static readonly Color TabText = ShopArt.Rgb(0xea, 0xf6, 0xff);           // #shopTabs .tab; .tab.on is #fff
+    readonly Image[] tabArt = new Image[5]; readonly Text[] tabLabel = new Text[5];
+
+    /// the sheet's colour y layout pixels down from the top, which is what every pill on it is composited over
+    static Color SheetAt(float y) => ShopArt.SheetAt(0.5f, y / RefH);
+    static Sprite TabSprite(bool on) => ShopArt.Pill(TabW, TabH, on ? ShopArt.Glass.TabOn : ShopArt.Glass.TabOff, SheetAt(TabTop + TabH * 0.5f));
 
     // #shopList: grid-template-columns repeat(auto-fill, minmax(104px, 1fr)), gap 8px, padding
     // 8px 2px 14px inside the sheet's 16px; a tile is aspect-ratio 560/1035
@@ -34,7 +56,7 @@ public class Shop : MonoBehaviour
 
     class Tile
     {
-        public string kind, id, name; public bool heading, muted, done;
+        public string kind, id, name; public bool heading, note, muted, done;
         public RectTransform rt; public RawImage thumb; public Text nm; public float y, h;
     }
     readonly List<Tile> tiles = new List<Tile>();
@@ -46,28 +68,42 @@ public class Shop : MonoBehaviour
     public void Build(Transform canvas)
     {
         pane = UiKit.Rect(canvas, "shop", Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero).gameObject;
-        var bg = pane.AddComponent<Image>(); bg.color = new Color(0.04f, 0.16f, 0.30f, 1f);   // opaque: nothing of the beach or the last run shows through
+        // #shop's background: the dusk wash with the sunset glow low in it, opaque enough that
+        // nothing of the beach or the last run shows through
+        var bg = pane.AddComponent<Image>(); bg.sprite = ShopArt.Sheet(); bg.type = Image.Type.Simple; bg.color = Color.white;
         var p = pane.transform;
-        UiKit.Label(p, "Shop", 34, Color.white, FontStyle.Bold, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(18, -14), new Vector2(200, 44), TextAnchor.MiddleLeft);
-        var pill = UiKit.Pic(p, "coins", UiKit.Rounded(112, 32, 16, 16, 16, 16, UiKit.Body.Pill, 1.5f), new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1), new Vector2(-66, -20), new Vector2(112, 32));
-        tCoins = UiKit.Label(pill.transform, "0", 15, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(6, 0), Vector2.zero);
-        var shell = UiKit.Icon("puka"); if (shell != null) { var im = UiKit.Pic(pill.transform, "puka", shell, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(9, 0), new Vector2(17, 17)); im.raycastTarget = false; }
-        // #shopLv: the level, parked against the purse -- together they answer "can I have this"
-        var lv = Solid.Pic(p, "level", Solid.Rounded(64, 26, 13, 1f), new Color(1f, 0.914f, 0.659f, 0.42f), new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1), new Vector2(-186, -23), new Vector2(64, 26));
-        lv.raycastTarget = false;
-        tLv = UiKit.Label(lv.transform, "Lv 1", 15, new Color(1f, 0.914f, 0.659f, 0.92f), FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, 0.5f);
-        var close = UiKit.Pic(p, "close", UiKit.Circle(40, UiKit.Body.Teal, 2f), new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1), new Vector2(-14, -16), new Vector2(40, 40));
-        UiKit.Label(close.transform, "×", 24, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, 1), Vector2.zero);
-        close.raycastTarget = true; UiKit.Pressable(close.gameObject, null, () => { Show(false); onClose?.Invoke(); });
-        // tabs
-        tabBoards = Tab(p, "Boards", 14, "boards"); tabRiders = Tab(p, "Riders", 118, "riders"); tabStyle = Tab(p, "Style", 222, "gear");
-        // the fourth tab is Board school: what these shapes ARE, which a shop sorted by price cannot say
-        var sch = UiKit.Pic(p, "tab:school", UiKit.Rounded(100, 34, 17, 17, 17, 17, UiKit.Body.Teal, 1.5f), new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(326, -66), new Vector2(100, 34));
-        UiKit.Label(sch.transform, "School", 14, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
-        sch.raycastTarget = true; UiKit.Pressable(sch.gameObject, null, () => { Sfx.Buzz(8); Show(false); onGuide?.Invoke(); });
-        // the shelf: a scrolling grid whose first and last 32px fade, so a tile leaving the view
-        // dissolves into the structure rather than being cut at a line
-        view = UiKit.Rect(p, "view", new Vector2(0, 0), new Vector2(1, 1), new Vector2(0.5f, 0.5f), new Vector2(0, -56), new Vector2(0, -112));
+        // #shop h2: "Beach shop", 26px #ffdf2e with a hard 2px 2px #b8641c shadow
+        var title = UiKit.Label(p, "Beach shop", 26, ShopArt.TitleGold, FontStyle.Bold, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 0.5f), new Vector2(Side, -TitleY), new Vector2(260, 34), TextAnchor.MiddleLeft, 1f);
+        ShopArt.Shade(title, ShopArt.TitleShade, 1f, new Vector2(2f, -2f));
+        // #shopCoins: the count in 19px cream, and the shell 1em square after it, flush right
+        tCoins = UiKit.Label(p, "0", 19, ShopArt.Cream, FontStyle.Bold, new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 0.5f), new Vector2(-(Side + 1.9f + 19f + 2.7f), -CoinY), new Vector2(160, 26), TextAnchor.MiddleRight, 0f);
+        var shell = UiKit.Icon("puka");
+        if (shell != null) { var im = UiKit.Pic(p, "puka", shell, new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 0.5f), new Vector2(-(Side + 1.9f), -CoinY), new Vector2(19, 19)); im.raycastTarget = false; }
+        // #shopLv: 16px cream at .92 in a hairline pill, parked 12px off the purse -- together they
+        // answer "can I have this" (sized to its text in Header)
+        lvRt = UiKit.Rect(p, "level", new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 0.5f), new Vector2(-120f, -LvY), new Vector2(52f, LvH));
+        lvArt = ShopArt.Art(lvRt, ShopArt.Pill(52f, LvH, ShopArt.Glass.Ring, SheetAt(LvY)));
+        tLv = UiKit.Label(lvRt, "Lv 1", 16, ShopArt.Mix(SheetAt(LvY), ShopArt.Cream, 0.92f), FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, 0f);
+        // #shopTabs, in the web's order: School (which hands over to Board school -- what these
+        // shapes ARE, which a shop sorted by price cannot say), Boards, Surfers, Style, Tricks
+        for (int i = 0; i < TabIds.Length; i++)
+        {
+            string tid = TabIds[i];
+            var th = ShopArt.Hit(p, "tab:" + tid, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(Side + i * (TabW + TabGap), -TabTop), new Vector2(TabW, TabH));
+            tabArt[i] = ShopArt.Art(th.transform, TabSprite(false));
+            tabLabel[i] = UiKit.Label(th.transform, TabNames[i], 13, TabText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, 0f);
+            ShopArt.Shade(tabLabel[i], ShopArt.TextShade, 0.45f, new Vector2(0f, -1f));      // text-shadow 0 1px 3px rgba(0,18,42,.6)
+            UiKit.Pressable(th.gameObject, null, () => Pick(tid));
+        }
+        // #shopClose: "< Back" on the deep-water glass, a gold ring round it
+        var back = ShopArt.Hit(p, "back", new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, BackFoot), new Vector2(BackW, BackH));
+        ShopArt.Art(back.transform, ShopArt.Pill(BackW, BackH, ShopArt.Glass.Calm, SheetAt(RefH - BackFoot - BackH * 0.5f)));
+        ShopArt.ChevronLabel(back.transform, "Back", 16, Color.white);
+        UiKit.Pressable(back.gameObject, null, () => { Show(false); onClose?.Invoke(); });
+        // the shelf: a scrolling grid whose first and last 30-odd px fade, so a tile leaving the
+        // view dissolves into the structure rather than being cut at a line
+        view = UiKit.Rect(p, "view", new Vector2(0, 0), new Vector2(1, 1), new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+        view.offsetMin = new Vector2(0f, ListBottom); view.offsetMax = new Vector2(0f, -ListTop);
         var mask = view.gameObject.AddComponent<RectMask2D>(); mask.softness = new Vector2Int(0, 32);
         var hit = view.gameObject.AddComponent<Image>(); hit.color = new Color(0, 0, 0, 0);     // a drag in a gap scrolls too
         scroll = view.gameObject.AddComponent<ScrollRect>(); scroll.horizontal = false; scroll.vertical = true; scroll.movementType = ScrollRect.MovementType.Clamped;
@@ -80,12 +116,26 @@ public class Shop : MonoBehaviour
         viewer.onClose = () => { pane.SetActive(true); Fill(true); };
     }
 
-    Image Tab(Transform p, string label, float x, string id)
+    /// a tab tapped: School closes the shop and opens Board school (the web's own hand-over);
+    /// the others change the shelf
+    void Pick(string id)
     {
-        var im = UiKit.Pic(p, "tab:" + id, UiKit.Rounded(100, 34, 17, 17, 17, 17, UiKit.Body.Teal, 1.5f), new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(x, -66), new Vector2(100, 34));
-        UiKit.Label(im.transform, label, 14, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
-        im.raycastTarget = true; UiKit.Pressable(im.gameObject, null, () => { tab = id; Fill(); });
-        return im;
+        if (id == "school") { Sfx.Buzz(8); Show(false); onGuide?.Invoke(); return; }
+        if (id == tab) return;
+        tab = id; Fill();
+    }
+
+    /// the purse and the level badge: the count flush right, the badge sized to its text and
+    /// parked 12px to the left of it
+    void Header()
+    {
+        tCoins.text = SaveData.Coins.ToString("N0");
+        tLv.text = "Lv " + Progress.Level;
+        float coinsW = tCoins.preferredWidth + 2.7f + 19f + 1.9f;
+        float lvW = Mathf.Ceil(tLv.preferredWidth) + 18f + 2f;          // padding 1px 9px, a 1px ring
+        lvRt.sizeDelta = new Vector2(lvW, LvH);
+        lvRt.anchoredPosition = new Vector2(-(Side + coinsW + 12f), -LvY);
+        lvArt.sprite = ShopArt.Pill(lvW, LvH, ShopArt.Glass.Ring, SheetAt(LvY));
     }
 
     public void Show(bool on)
@@ -95,8 +145,8 @@ public class Shop : MonoBehaviour
         if (on) Fill();
     }
 
-    /// opens straight onto one shelf: "boards", "riders" or "gear"
-    public void ShowOn(string which) { tab = which; Show(true); }
+    /// opens straight onto one shelf: "boards", "riders", "gear" or "tricks"
+    public void ShowOn(string which) { tab = which == "school" || string.IsNullOrEmpty(which) ? "boards" : which; Show(true); }
 
     // ---- the shelves, in the web's order: the rack by price, the cast by price, gear by slot ----
     static List<BoardCatalog.Board> RackOrder()
@@ -138,12 +188,20 @@ public class Shop : MonoBehaviour
         string wornNow = s.gearEyes + "|" + s.gearHead + "|" + s.gearNeck + "|" + s.gearBody;
         if (wornNow != wornSeen) { if (wornSeen != null) Previews.ForgetRiders(); wornSeen = wornNow; }
         if (s.rider != riderSeen) { if (riderSeen != null) Previews.ForgetGear(); riderSeen = s.rider; }
-        tCoins.text = SaveData.Coins.ToString("N0");
-        tLv.text = "Lv " + Progress.Level;
-        tabBoards.color = tab == "boards" ? Color.white : new Color(1, 1, 1, 0.55f);
-        tabRiders.color = tab == "riders" ? Color.white : new Color(1, 1, 1, 0.55f);
-        tabStyle.color = tab == "gear" ? Color.white : new Color(1, 1, 1, 0.55f);
-        if (tab == "boards")
+        Header();
+        for (int i = 0; i < TabIds.Length; i++)
+        {
+            bool sel = TabIds[i] == tab;
+            tabArt[i].sprite = TabSprite(sel);
+            tabLabel[i].color = sel ? Color.white : TabText;
+        }
+        if (tab == "tricks")
+        {
+            // the web's trick shelf is not in this port yet: its tab is, with the shelf's empty state
+            Heading("Tricks");
+            Note("The trick shelf is coming soon.");
+        }
+        else if (tab == "boards")
             foreach (var b in RackOrder())
             {
                 bool have = SaveData.Owns(b.id), on = SaveData.S.equipped == b.id;
@@ -190,8 +248,20 @@ public class Shop : MonoBehaviour
     /// .gsec: a slot heading across the whole grid
     void Heading(string title)
     {
-        var lb = UiKit.Label(content, title.ToUpperInvariant(), 12, new Color(0xbf / 255f, 0xe6 / 255f, 0xee / 255f, 0.72f), FontStyle.Bold, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), Vector2.zero, new Vector2(300, 15), TextAnchor.LowerLeft, 0.4f);
+        // #bfe6ee at .72, set opaque at what it shows over the sheet (a translucent label blends
+        // brighter in this project's linear space than in the browser)
+        var col = ShopArt.Mix(SheetAt(ListTop + 20f), ShopArt.Rgb(0xbf, 0xe6, 0xee), 0.72f);
+        var lb = UiKit.Label(content, title.ToUpperInvariant(), 12, col, FontStyle.Bold, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), Vector2.zero, new Vector2(300, 15), TextAnchor.LowerLeft, 0.4f);
         tiles.Add(new Tile { heading = true, rt = lb.rectTransform });
+    }
+
+    /// .none: a shelf's empty state -- 13px at .6, 10px above and below
+    void Note(string text)
+    {
+        var col = ShopArt.Mix(SheetAt(ListTop + 40f), Color.white, 0.6f);
+        var lb = UiKit.Label(content, text, 13, col, FontStyle.Normal, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), Vector2.zero, new Vector2(300, NoteH), TextAnchor.MiddleLeft, 0f);
+        lb.horizontalOverflow = HorizontalWrapMode.Wrap;
+        tiles.Add(new Tile { heading = true, note = true, rt = lb.rectTransform });
     }
 
     /// one niche: the shadow it casts, the light in it when it is in use, the photograph in the
@@ -285,6 +355,14 @@ public class Shop : MonoBehaviour
         for (int i = 0; i < tiles.Count; i++)
         {
             var t = tiles[i];
+            if (t.note)
+            {
+                if (rowOpen) { y += ch; rowOpen = false; }
+                t.rt.anchoredPosition = new Vector2(PadX + 2f, -y); t.rt.sizeDelta = new Vector2(inner - 4f, NoteH);
+                t.y = y; t.h = NoteH;
+                y += NoteH; any = true;
+                continue;
+            }
             if (t.heading)
             {
                 if (rowOpen) { y += ch; rowOpen = false; }
