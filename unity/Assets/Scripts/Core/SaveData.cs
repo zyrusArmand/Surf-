@@ -18,6 +18,20 @@ public class Save
     public int crates, closeCalls, barrels, tricks, jellies, ramps, totalDist, totalScore, secs, earned, revives;
     // settings: stored as "off" flags so a save written before they existed reads as all on
     public bool musicOff, sfxOff, buzzOff;
+    // the player's name on the profile
+    public string uname = "";
+    // the daily wheel: the day it was last spun (yyyy-mm-dd), and the prizes it hands out that
+    // last until used: a spare life, double puka on the next run, a chest next run, a board
+    // and a rider on loan (ids, cleared when bought or when the loan is used up)
+    public string wheelLast = ""; public bool wheelLife, wheelX2, wheelChest; public string wheelLoan = "", wheelRider = "";
+    // gear: the pieces owned and the one worn in each slot (eyes, head, neck, body)
+    public List<string> ownedGear = new List<string>();
+    public string gearEyes = "", gearHead = "", gearNeck = "", gearBody = "";
+    // the bought tricks and the five slots on the trick bar
+    public List<string> ownedTricks = new List<string>();
+    public List<string> trickSlots = new List<string>();
+    // dives and pearls, coconuts caught
+    public int pearls, dives, coconuts;
 }
 
 [System.Serializable]
@@ -40,6 +54,9 @@ public static class SaveData
             if (string.IsNullOrEmpty(s.equipped)) s.equipped = "astro";
             if (string.IsNullOrEmpty(s.rider)) s.rider = "pug";
             if (s.goals == null) s.goals = new List<GoalSave>();
+            if (s.ownedGear == null) s.ownedGear = new List<string>(); if (s.ownedTricks == null) s.ownedTricks = new List<string>(); if (s.trickSlots == null) s.trickSlots = new List<string>();
+            if (s.uname == null) s.uname = ""; if (s.wheelLast == null) s.wheelLast = ""; if (s.wheelLoan == null) s.wheelLoan = ""; if (s.wheelRider == null) s.wheelRider = "";
+            if (s.gearEyes == null) s.gearEyes = ""; if (s.gearHead == null) s.gearHead = ""; if (s.gearNeck == null) s.gearNeck = ""; if (s.gearBody == null) s.gearBody = "";
             // the older keys, carried across once
             if (s.best == 0 && PlayerPrefs.HasKey("best")) { s.best = PlayerPrefs.GetInt("best", 0); s.bestDist = PlayerPrefs.GetInt("bestDist", 0); s.coins = PlayerPrefs.GetInt("coins", 0); }
             return s;
