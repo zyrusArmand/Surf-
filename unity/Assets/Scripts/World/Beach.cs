@@ -25,10 +25,17 @@ public class Beach : MonoBehaviour
     public bool flipSign, flipPost, flipPalm, flipChest;
 
     [Header("The light and the sea")]
-    public Vector3 keyFrom = new Vector3(-0.943f, 0.117f, 0.31f);   // toward the sun, from the set
+    public Vector3 keyFrom = new Vector3(0.943f, 0.117f, 0.31f);    // toward the sun, from the set (already mirrored)
     public float seaLevel = 1.21f;
 
     public System.Action<string> onSign;       // "Play", "Shop", "Quests"
+
+    // The web camera looks down -z with +x on its right; Unity's, looking the same way, has +x on
+    // its left. So the measured scene is mirrored across x on the way in: positions flip x, and
+    // turns flip their yaw and roll. Text on the signs stays readable because a mirror of the
+    // layout is not a mirror of the models.
+    static Vector3 M(Vector3 p) => new Vector3(-p.x, p.y, p.z);
+    static Vector3 R(Vector3 e) => new Vector3(e.x, -e.y, -e.z);
 
     GameObject root; Transform post, pugSpot; Mesh sandMesh; float t;
     static readonly string[] Arms = { "Quests", "Shop", "Play" };   // bottom to top
@@ -52,7 +59,7 @@ public class Beach : MonoBehaviour
         float dry = Mathf.Clamp01((z + 85f) / 20f);
         float n = (Mathf.PerlinNoise(x * 0.07f + 3.1f, z * 0.09f) - 0.5f) * 0.9f + (Mathf.PerlinNoise(x * 0.23f, z * 0.27f + 7.7f) - 0.5f) * 0.25f;
         h += dry * n;
-        float d = Vector2.Distance(new Vector2(x, z), new Vector2(-15.3f, -50f));
+        float d = Vector2.Distance(new Vector2(x, z), new Vector2(15.3f, -50f));
         float flat = 1f - Mathf.Clamp01((d - 4f) / 4f); flat = flat * flat * (3f - 2f * flat);
         return Mathf.Lerp(h, 2.85f, flat);
     }
@@ -72,28 +79,28 @@ public class Beach : MonoBehaviour
         var smr = sandGo.GetComponent<MeshRenderer>(); smr.sharedMaterial = sm; smr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
 
         // the palm, leaning out to the right with the Surf sign hung in it
-        var palm = Prop("Palm", Models.Spawn("palm2", root.transform, palmHeight, PrimitiveType.Cylinder), palmTurn, flipPalm);
-        Settle(palm, palmBoxCentre.x, palmFoot.y, palmBoxCentre.z, false);
-        var sign = Prop("Sign", Models.Spawn("sign", root.transform, signHeight, PrimitiveType.Cube), signTurn, flipSign);
-        Settle(sign, signAt.x, signAt.y, signAt.z, true);
+        var palm = Prop("Palm", Models.Spawn("palm2", root.transform, palmHeight, PrimitiveType.Cylinder), R(palmTurn), flipPalm);
+        Settle(palm, -palmBoxCentre.x, palmFoot.y, palmBoxCentre.z, false);
+        var sign = Prop("Sign", Models.Spawn("sign", root.transform, signHeight, PrimitiveType.Cube), R(signTurn), flipSign);
+        Settle(sign, -signAt.x, signAt.y, signAt.z, true);
         // the board propped into the crook of the trunk
         var board = Models.Spawn("board", root.transform, 0.3f, PrimitiveType.Capsule);
         Models.FitLength(board, BoardController.BoardHalfL * 2f);
-        board.transform.rotation = Quaternion.Euler(boardTurn); Settle(board, boardAt.x, boardAt.y, boardAt.z, true);
+        board.transform.rotation = Quaternion.Euler(R(boardTurn)); Settle(board, -boardAt.x, boardAt.y, boardAt.z, true);
         // the chest
-        var chest = Prop("Chest", Models.Spawn("chest", root.transform, chestHeight, PrimitiveType.Cube), new Vector3(0, chestTurn, 0), flipChest);
-        Settle(chest, chestBottom.x, chestBottom.y, chestBottom.z, false);
+        var chest = Prop("Chest", Models.Spawn("chest", root.transform, chestHeight, PrimitiveType.Cube), new Vector3(0, -chestTurn, 0), flipChest);
+        Settle(chest, -chestBottom.x, chestBottom.y, chestBottom.z, false);
         // where the pug stands
-        pugSpot = new GameObject("PugSpot").transform; pugSpot.SetParent(root.transform, false); pugSpot.position = pugAt;
+        pugSpot = new GameObject("PugSpot").transform; pugSpot.SetParent(root.transform, false); pugSpot.position = M(pugAt);
         // the signpost: four feet from the lens, its arms are the menu, so each third gets a collider
-        var postGo = Prop("Signpost", Models.Spawn("menusign", root.transform, postHeight, PrimitiveType.Cube), postTurn, flipPost);
-        Settle(postGo, postAt.x, postAt.y, postAt.z, true);
+        var postGo = Prop("Signpost", Models.Spawn("menusign", root.transform, postHeight, PrimitiveType.Cube), R(postTurn), flipPost);
+        Settle(postGo, -postAt.x, postAt.y, postAt.z, true);
         post = postGo.transform;
         var b = Models.Bounds(postGo);
         for (int i = 0; i < 3; i++)
         {
             var arm = new GameObject("arm:" + Arms[i]); arm.transform.SetParent(root.transform, false);
-            arm.transform.position = new Vector3(postAt.x, postAt.y - postHeight / 2f + postHeight * (i + 0.5f) / 3f, postAt.z);
+            arm.transform.position = new Vector3(-postAt.x, postAt.y - postHeight / 2f + postHeight * (i + 0.5f) / 3f, postAt.z);
             arm.transform.rotation = post.rotation;
             var bc = arm.AddComponent<BoxCollider>(); bc.size = new Vector3(Mathf.Max(b.size.x, 1.2f), postHeight / 3f, Mathf.Max(b.size.z, 0.8f));
         }
@@ -145,7 +152,7 @@ public class Beach : MonoBehaviour
     /// the pug stands by the chest, a little bigger than he rides, with the ride's board hidden
     public void PlaceRider(Transform player, Transform rig, GameObject rideBoard)
     {
-        player.position = pugSpot.position; player.rotation = Quaternion.Euler(0, pugYaw + 70f, 0);   // the pug sits at -70 inside the rig
+        player.position = pugSpot.position; player.rotation = Quaternion.Euler(0, -pugYaw + 70f, 0);   // mirrored yaw; the pug sits at -70 inside the rig
         player.localScale = Vector3.one * pugScale;
         rig.localRotation = Quaternion.identity;
         if (rideBoard != null) rideBoard.SetActive(false);
@@ -155,9 +162,10 @@ public class Beach : MonoBehaviour
     public void PlaceCamera(Camera cam, float dt)
     {
         t += dt;
-        var at = camAt + new Vector3(Mathf.Sin(t * 0.21f) * 0.06f, Mathf.Sin(t * 0.17f + 1f) * 0.04f, 0);
+        var at = M(camAt) + new Vector3(Mathf.Sin(t * 0.21f) * 0.06f, Mathf.Sin(t * 0.17f + 1f) * 0.04f, 0);
         // the web camera looks down its -z; its YXZ turn applied to that is the direction we want
-        var dir = Quaternion.Euler(camTurn.x, camTurn.y, camTurn.z) * new Vector3(0, 0, -1);
+        var ct = R(camTurn);
+        var dir = Quaternion.Euler(ct.x, ct.y, ct.z) * new Vector3(0, 0, -1);
         cam.transform.position = at; cam.transform.rotation = Quaternion.LookRotation(dir, Vector3.up); cam.fieldOfView = camFov;
     }
 

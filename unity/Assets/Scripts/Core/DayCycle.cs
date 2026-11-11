@@ -63,7 +63,7 @@ public class DayCycle : MonoBehaviour
         {
             // the web title screen: deep blue zenith to a warm horizon, the sun low and left
             top = C(0x123a63); mid = C(0x577593); hz = C(0xd9a463); glow = C(0xffc073); glowAmt = 0.74f;
-            sunDir = new Vector3(0.3f * 130f, 0.08f * 118f, -195f).normalized; daylight = 1f; light = 1f;
+            sunDir = new Vector3(-0.3f * 130f, 0.08f * 118f, -195f).normalized; daylight = 1f; light = 1f;   // mirrored with the set
         }
 
         if (sky != null)

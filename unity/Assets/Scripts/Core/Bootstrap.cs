@@ -108,6 +108,7 @@ public class Bootstrap : MonoBehaviour
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
         beach.Show(true); day.pin = 0.47f; day.keyFrom = beach.keyFrom; day.beachLook = true;
+        WaveField.Amp = 0.78f;      // the web menu's starting swell, so the sea stays off the sand
         beach.PlaceRider(rider.transform, rig, boardGo);
         hud.ShowMenu();
     }
