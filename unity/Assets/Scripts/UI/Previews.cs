@@ -442,6 +442,17 @@ public static class Previews
         var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGBA32, false) { name = k, wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
         tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0, false);
         RenderTexture.active = prev;
+        // The stage is shot with the web's numbers in Unity's left-handed frame, which mirrors it:
+        // a camera looking down -z has +x on its left. Flipping each row puts it the web's way round.
+        {
+            var all = tex.GetPixels32(); int W = rt.width, H = rt.height;
+            for (int y = 0; y < H; y++)
+            {
+                int row = y * W;
+                for (int x = 0; x < W / 2; x++) { var c = all[row + x]; all[row + x] = all[row + W - 1 - x]; all[row + W - 1 - x] = c; }
+            }
+            tex.SetPixels32(all);
+        }
         if (mute)
         {
             // saturate(.55), the W3C matrix, on the sRGB bytes as a browser does it

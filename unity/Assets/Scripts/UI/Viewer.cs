@@ -43,6 +43,7 @@ public class Viewer : MonoBehaviour
         // the turntable: the stage's render, and the surface a drag lands on
         var vrt = UiKit.Rect(rootRt, "view", Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
         view = vrt.gameObject.AddComponent<RawImage>(); view.color = new Color(1, 1, 1, 0); view.raycastTarget = true;
+        view.uvRect = new Rect(1f, 0f, -1f, 1f);      // drawn mirrored in Unity's frame; shown the web's way round
         var et = vrt.gameObject.AddComponent<EventTrigger>();
         UiKit.Add(et, EventTriggerType.PointerDown, e => Grab(e as PointerEventData));
         UiKit.Add(et, EventTriggerType.Drag, e => DragTo(e as PointerEventData));
@@ -391,9 +392,8 @@ public class Viewer : MonoBehaviour
     void DragTo(PointerEventData e)
     {
         if (e == null || !grabbed || e.pointerId != grabId) return;
-        // the stage is drawn with the web's numbers in Unity's left-handed frame, which mirrors it,
-        // so the drag is subtracted to keep the near side under the finger
-        spin = grabSpin - (e.position.x - grabX) * (DragK / Mathf.Max(1, Screen.width));
+        // the picture is flipped back to the web's way round, so the near side follows the finger as the web's does
+        spin = grabSpin + (e.position.x - grabX) * (DragK / Mathf.Max(1, Screen.width));
     }
     void LetGo(PointerEventData e)
     {
