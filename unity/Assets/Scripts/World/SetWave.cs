@@ -17,7 +17,7 @@ public class SetWave : MonoBehaviour
 {
     public enum Phase { Idle = -1, Fly, Impact, Swell, Ride, Exit }
     public BoardController rider;
-    public DayCycle day;
+    public DayCycle day; public Ufo ufo;       // the set stands down while the saucer has him
     public System.Action<Vector3, int> onSplash;
 
     public const float CrashX = 46f, HoldX = 9.0f, Tube = 4.6f;
@@ -93,7 +93,7 @@ public class SetWave : MonoBehaviour
             {
                 if (!summon && !armed) { armed = true; next = Mathf.Min(next, 1.8f); }
                 next -= dt;
-                if (next <= 0 || summon) Begin();
+                if ((next <= 0 || summon) && (ufo == null || !ufo.Holds)) Begin();
             }
             Trim2(dt);
             return;

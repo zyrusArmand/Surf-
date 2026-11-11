@@ -1,16 +1,24 @@
 // Time of day, paced by distance the way the web game paces it: dawn through noon into sunset
 // and a short night, then round again. One table drives the sky dome, the sun light, the
 // ocean's reflected colours and the spray's tint, so nothing in the frame disagrees.
+//
+// The night half carries the moon on its own arc (the web's mX/mY keys: it is not the sun
+// mirrored, it rises in the east as the sun sets, is highest a little after the middle of the
+// night and sets in the west at dawn). Two facts come out of it for anything that glows or
+// waits for the dark: nightAmt, how far the sun is DOWN, which saturates the moment the disc
+// touches the sea; and moonAmt, how far the moon has cleared it, which is what "night proper"
+// means -- see Ufo.MoonUp.
 using UnityEngine;
 
 public class DayCycle : MonoBehaviour
 {
-    struct Key { public float t; public Color top, mid, hz, glow; public float gAmt, sunX, sunY; }
+    struct Key { public float t; public Color top, mid, hz, glow; public float gAmt, sunX, sunY, mX, mY; }
 
     static Vector4 V(Color c) => new Vector4(c.r, c.g, c.b, 1f);
     static Color C(uint hex) => new Color(((hex >> 16) & 255) / 255f, ((hex >> 8) & 255) / 255f, (hex & 255) / 255f);
-    static Key K(float t, uint top, uint mid, uint hz, uint glow, float g, float sx, float sy)
-        => new Key { t = t, top = C(top), mid = C(mid), hz = C(hz), glow = C(glow), gAmt = g, sunX = sx, sunY = sy };
+    // keys that predate the night have no moon of their own: it is under the water (web mY -0.5)
+    static Key K(float t, uint top, uint mid, uint hz, uint glow, float g, float sx, float sy, float mx = 0f, float my = -0.5f)
+        => new Key { t = t, top = C(top), mid = C(mid), hz = C(hz), glow = C(glow), gAmt = g, sunX = sx, sunY = sy, mX = mx, mY = my };
 
     static readonly Key[] Keys = {
         K(0.00f, 0x3a3f6e, 0x8f7f9e, 0xd7b6b8, 0xe0ab8c, 0.26f, -0.66f, -0.205f),
@@ -23,32 +31,40 @@ public class DayCycle : MonoBehaviour
         K(0.80f, 0x3d6fb4, 0xc9a6c0, 0xffa863, 0xff8f3c, 0.46f,  0.45f,  0.190f),
         K(0.90f, 0x2b3f80, 0xa85f86, 0xff6a3a, 0xff4f18, 0.66f,  0.57f,  0.040f),
         K(0.96f, 0x162452, 0x5a3168, 0xa8383a, 0xd8381a, 0.46f,  0.63f, -0.085f),
-        K(1.00f, 0x060a1c, 0x121a38, 0x33203f, 0x6a2418, 0.16f,  0.68f, -0.215f),
-        K(1.08f, 0x040814, 0x0a1024, 0x1a1430, 0x2e1a28, 0.07f,  0.78f, -0.40f),
-        K(1.35f, 0x02040e, 0x06091a, 0x0e1226, 0x18203a, 0.03f,  0.95f, -0.64f),
-        K(1.62f, 0x03060f, 0x080d1e, 0x14182e, 0x1c2440, 0.04f, -0.95f, -0.64f),
-        K(1.86f, 0x101a3c, 0x2c2856, 0x4e3458, 0x8a4442, 0.16f, -0.78f, -0.40f),
-        K(2.00f, 0x3a3f6e, 0x8f7f9e, 0xd7b6b8, 0xe0ab8c, 0.26f, -0.66f, -0.205f),
+        K(1.00f, 0x060a1c, 0x121a38, 0x33203f, 0x6a2418, 0.16f,  0.68f, -0.215f, -0.72f, -0.10f),
+        K(1.08f, 0x040814, 0x0a1024, 0x1a1430, 0x2e1a28, 0.07f,  0.78f, -0.40f,  -0.66f,  0.06f),
+        K(1.35f, 0x02040e, 0x06091a, 0x0e1226, 0x18203a, 0.03f,  0.95f, -0.64f,  -0.34f,  0.52f),
+        K(1.62f, 0x03060f, 0x080d1e, 0x14182e, 0x1c2440, 0.04f, -0.95f, -0.64f,   0.10f,  0.72f),
+        K(1.86f, 0x101a3c, 0x2c2856, 0x4e3458, 0x8a4442, 0.16f, -0.78f, -0.40f,   0.52f,  0.31f),
+        K(2.00f, 0x3a3f6e, 0x8f7f9e, 0xd7b6b8, 0xe0ab8c, 0.26f, -0.66f, -0.205f,  0.70f, -0.10f),
     };
 
     const float DayM = 5600f, NightM = 3400f, CycleM = DayM + NightM, DayStart = 0.18f;
+    // the web's MOON_I is 0.30 against a SUN_I of 1.75; the port's sun peaks at 1.25, so the
+    // moon is scaled by the same ratio to keep the two in the proportion the web has them
+    const float MoonI = 0.30f * (1.25f / 1.75f);
 
     public Material sky;        // Surf/Sky
     public Material ocean;      // Surf/Ocean
     public Light sun;
+    public Light moonLight;     // made here on first use when nothing hands one in
     public float pin = -1f;     // pin the hour (0..2) for looking; -1 follows the run
     public Vector3 keyFrom;     // when set, the sun light comes from this direction instead (the beach)
     public bool beachLook;      // the title screen's own sky and light, read off the web game
 
-    [HideInInspector] public float daylight = 1f;   // 0 night .. 1 noon
+    [HideInInspector] public float daylight = 1f;   // 0 night .. 1 noon (the web's lit)
     [HideInInspector] public Vector3 sunDir = new Vector3(-0.45f, 0.75f, -0.5f).normalized;
+    [HideInInspector] public Vector3 moonDir = Vector3.down;
     [HideInInspector] public Color glow = Color.white;
     [HideInInspector] public float glowAmt;
+    [HideInInspector] public float tod;             // where in the cycle, 0..2 (the web's dayT)
+    [HideInInspector] public float nightAmt;        // how dark it is out, 0 by day and 1 at night
+    [HideInInspector] public float moonAmt;         // how far the moon has cleared the sea, 0..1
 
     public void Apply(float distM)
     {
         float dc = ((distM + DayStart * DayM) % CycleM + CycleM) % CycleM;
-        float tod = pin >= 0f ? pin : (dc < DayM ? dc / DayM : 1f + (dc - DayM) / NightM);
+        tod = pin >= 0f ? pin : (dc < DayM ? dc / DayM : 1f + (dc - DayM) / NightM);
         int i = 0; while (i < Keys.Length - 2 && tod > Keys[i + 1].t) i++;
         Key A = Keys[i], B = Keys[i + 1];
         float k = Mathf.Clamp01((tod - A.t) / (B.t - A.t));
@@ -56,15 +72,23 @@ public class DayCycle : MonoBehaviour
         Color hz = Color.Lerp(A.hz, B.hz, k); glow = Color.Lerp(A.glow, B.glow, k);
         glowAmt = Mathf.Lerp(A.gAmt, B.gAmt, k);
         float sx = Mathf.Lerp(A.sunX, B.sunX, k), sy = Mathf.Lerp(A.sunY, B.sunY, k);
+        float mx = Mathf.Lerp(A.mX, B.mX, k), my = Mathf.Lerp(A.mY, B.mY, k);
         daylight = Mathf.Clamp01(sy * 2.6f);
         // the disc sits at (sx*130, sy*118, -195) in the web game; that is a direction here
         sunDir = new Vector3(sx * 130f, sy * 118f, -195f).normalized;
-        float light = 0.18f + 0.82f * daylight;
+        // the moon at (mx*130, my*118, -205); it fades in as it clears the sea, not at an hour
+        moonDir = new Vector3(mx * 130f, my * 118f, -205f).normalized;
+        float moonUp = Mathf.Clamp01((my + 0.02f) / 0.14f);
+        moonAmt = moonUp;
+        // out when the sun is down, gone once it is properly up
+        nightAmt = Mathf.Clamp01((0.085f - sy) / 0.13f);
+        float light = 0.18f + 0.82f * daylight + 0.22f * moonUp * (1f - daylight);
         if (beachLook)
         {
             // the web title screen: deep blue zenith to a warm horizon, the sun low and left
             top = C(0x123a63); mid = C(0x577593); hz = C(0xd9a463); glow = C(0xffc073); glowAmt = 0.74f;
             sunDir = new Vector3(-0.3f * 130f, 0.08f * 118f, -195f).normalized; daylight = 1f; light = 1f;   // mirrored with the set
+            moonUp = 0f; moonAmt = 0f; nightAmt = 0f;
         }
 
         if (sky != null)
@@ -76,11 +100,17 @@ public class DayCycle : MonoBehaviour
             sky.SetVector("_SunDir", sunDir);
             sky.SetFloat("_Blend", beachLook ? 0.58f : 0.30f);
             sky.SetFloat("_SunX", beachLook ? -0.3f : sx);
+            sky.SetVector("_MoonDir", moonDir);
+            sky.SetFloat("_MoonUp", moonUp);
+            // the stars shimmer slowly, the web's night*(0.80+0.20*sin(t*0.9))
+            sky.SetFloat("_Night", nightAmt * (0.80f + 0.20f * Mathf.Sin(Time.time * 0.9f)));
         }
         if (ocean != null)
         {
             ocean.SetVector("_SkyLo", V(hz)); ocean.SetVector("_SkyHi", V(mid)); ocean.SetVector("_Glow", V(glow));
-            ocean.SetVector("_SunDir", sunDir); ocean.SetFloat("_Light", light);
+            // the path on the water belongs to whatever is up: a moonpath once the sun is gone
+            bool moonPath = !beachLook && sy < 0.02f && moonUp > 0.02f;
+            ocean.SetVector("_SunDir", moonPath ? moonDir : sunDir); ocean.SetFloat("_Light", light);
         }
         if (sun != null)
         {
@@ -90,6 +120,18 @@ public class DayCycle : MonoBehaviour
             sun.transform.rotation = Quaternion.LookRotation(-aim);
             sun.color = beachLook ? C(0xffab63) : Color.Lerp(C(0xfff2cf), glow, Mathf.Min(0.55f, glowAmt * 0.62f));
             sun.intensity = beachLook ? 1.15f : 0.30f + 0.95f * daylight;
+        }
+        // the moon is a light rather than a colour, which is what stops the night going to nothing
+        if (moonLight == null && !beachLook)
+        {
+            var go = new GameObject("Moon"); moonLight = go.AddComponent<Light>();
+            moonLight.type = LightType.Directional; moonLight.shadows = LightShadows.None; moonLight.color = C(0xa8bcdf); moonLight.intensity = 0f;
+        }
+        if (moonLight != null)
+        {
+            Vector3 maim = new Vector3(mx * 60f, Mathf.Max(6f, my * 60f), -40f).normalized;
+            moonLight.transform.rotation = Quaternion.LookRotation(-maim);
+            moonLight.intensity = beachLook ? 0f : MoonI * moonUp * (1f - daylight);
         }
         if (beachLook)
         {
@@ -102,7 +144,8 @@ public class DayCycle : MonoBehaviour
         {
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
             RenderSettings.fog = true;
-            RenderSettings.ambientLight = Color.Lerp(mid * 0.55f, glow * 0.4f, glowAmt * 0.4f) * (0.3f + 0.7f * daylight);
+            // the web's hemisphere runs at 0.24 + 0.76*daylight + 0.20*moonUp
+            RenderSettings.ambientLight = Color.Lerp(mid * 0.55f, glow * 0.4f, glowAmt * 0.4f) * (0.3f + 0.7f * daylight + 0.20f * moonUp);
         }
         RenderSettings.fogColor = hz;
     }

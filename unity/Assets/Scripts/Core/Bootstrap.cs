@@ -7,7 +7,7 @@ public class Bootstrap : MonoBehaviour
 {
     BoardController rider; Spawner spawner; ChaseCamera chase; Hud hud; DayCycle day; Ocean ocean;
     ParticleSystem spray; Transform rig, pug; RiderRig riderRig; float wakeA;
-    Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop; Coconuts cocos;
+    Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop; Coconuts cocos; Ufo ufo;
     Quests quests; StatsPanel stats; SettingsPanel settings; SchoolPanel school; ProfilePanel profile; GuidePanel guide;
     bool over; float runSecs; bool palmSaid;
 
@@ -47,11 +47,12 @@ public class Bootstrap : MonoBehaviour
         whirl = new GameObject("Whirlpool").AddComponent<Whirlpool>(); whirl.rider = rider; whirl.spawner = spawner; whirl.setWave = setWave;
         crate = new GameObject("Crate").AddComponent<Crate>(); crate.rider = rider; crate.setWave = setWave;
         cocos = new GameObject("Coconuts").AddComponent<Coconuts>(); cocos.rider = rider; cocos.setWave = setWave;
+        ufo = new GameObject("Ufo").AddComponent<Ufo>(); ufo.rider = rider; ufo.day = day; ufo.setWave = setWave; ufo.rig = rig; ufo.onRebuild = BuildRider; setWave.ufo = ufo;
 
         // spray
         spray = BuildSpray();
         rider.onSplash = (p, n) => { spray.transform.position = p; spray.Emit(n); };
-        spawner.onSplash = rider.onSplash; setWave.onSplash = rider.onSplash; whirl.onSplash = rider.onSplash; crate.onSplash = rider.onSplash; cocos.onSplash = rider.onSplash;
+        spawner.onSplash = rider.onSplash; setWave.onSplash = rider.onSplash; whirl.onSplash = rider.onSplash; crate.onSplash = rider.onSplash; cocos.onSplash = rider.onSplash; ufo.onSplash = rider.onSplash;
         rider.onWipeout = () => { over = false; Sfx.Buzz(60, 50, 80); };
 
         // camera
@@ -107,10 +108,11 @@ public class Bootstrap : MonoBehaviour
     {
         if (boardGo != null) Destroy(boardGo);
         if (pug != null) Destroy(pug.gameObject);
-        var b = BoardCatalog.Get(SaveData.S.equipped);
+        // a loan (the wheel's, or the saucer's cow) outranks the equipped pair
+        var b = BoardCatalog.Get(string.IsNullOrEmpty(SaveData.S.wheelLoan) ? SaveData.S.equipped : SaveData.S.wheelLoan);
         var board = BoardMesh.Build(b); board.transform.SetParent(rig, false); boardGo = board;
         rider.ApplyBoard(b);
-        pug = Models.Spawn(SaveData.S.rider, rig, 1.9f, PrimitiveType.Capsule).transform;
+        pug = Models.Spawn(string.IsNullOrEmpty(SaveData.S.wheelRider) ? SaveData.S.rider : SaveData.S.wheelRider, rig, 1.9f, PrimitiveType.Capsule).transform;
         pug.localPosition = new Vector3(0, 0.19f, 0.2f); pug.localRotation = Quaternion.Euler(0, -70f, 0);
         if (pug.name.EndsWith("(stand-in)")) { pug.localScale = new Vector3(0.9f, 0.95f, 0.9f); pug.localPosition = new Vector3(0, 1.0f, 0.2f); pug.GetComponent<Renderer>().material.color = new Color(0.85f, 0.75f, 0.6f); }
         // the file's own clips would overwrite the bones every frame; the rig poses him instead
@@ -122,7 +124,7 @@ public class Bootstrap : MonoBehaviour
 
     void Play()
     {
-        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset();
+        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset();
         Quests.Roll();
         rider.Begin(); runSecs = 0;
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
@@ -136,7 +138,7 @@ public class Bootstrap : MonoBehaviour
     /// the title: the ride stops, he floats in the lane, the dial comes up
     void Menu()
     {
-        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset();
+        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset();
         rider.Idle(0f);
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
@@ -173,10 +175,11 @@ public class Bootstrap : MonoBehaviour
         if (rider.running)
         {
             rider.Step(dt); runSecs += dt;
-            Sfx.RideBed(rider.speed, rider.carve, rider.airborne, rider.Submerged ? 1f : 0f);
+            Sfx.RideBed(rider.speed, rider.carve, rider.airborne, rider.Submerged ? 1f : 0f, ufo.Duck);
             spawner.Step(dt);
             setWave.Step(dt);
-            whirl.Step(dt); crate.Step(dt); cocos.Step(dt);
+            whirl.Step(dt); crate.Step(dt); cocos.Step(dt); ufo.Step(dt);
+            if (Input.GetKeyDown(KeyCode.U)) ufo.summon = true;           // debug: the saucer now
             rider.transform.localScale = Vector3.one * cocos.K;      // the coconut charge shrinks him
             Quests.Scan(rider, dt);
             if (Input.GetKeyDown(KeyCode.B)) setWave.summon = true;      // debug: bring a set now
@@ -199,7 +202,7 @@ public class Bootstrap : MonoBehaviour
             wakeA = Mathf.Lerp(wakeA, 0f, dt * 4f);
             if (rider.wipeT >= 0.95f && !over)
             {
-                over = true;
+                over = true; ufo.RunEnd();
                 int d = Mathf.RoundToInt(rider.dist);
                 if (rider.score > SaveData.Best) SaveData.Best = rider.score;
                 if (d > SaveData.BestDist) SaveData.BestDist = d;
