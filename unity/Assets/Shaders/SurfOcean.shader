@@ -27,6 +27,7 @@ Shader "Surf/Ocean"
         _FallZF ("Chute origin", Float) = 0
         _FallT ("Chute travel", Float) = 0
         _FallLane ("Chute lane", Float) = 9
+        _HullS ("Hull half width, half length, bottom, on", Vector) = (0, 0, 0, 0)
         _SwA ("Set wave height", Float) = 0
         _SwX ("Set wave crest x", Float) = 0
         _SwS ("Set wave side", Float) = 1
@@ -54,6 +55,7 @@ Shader "Surf/Ocean"
             CBUFFER_START(UnityPerMaterial)
             float4 _Deep, _Shallow, _SkyLo, _SkyHi, _Glow, _SunDir;
             float _Light, _Amp, _Peak, _Dist, _T, _WakeX, _WakeZ, _WakeA, _Lift, _Shore, _ShoreW, _Calm, _SwA, _SwX, _SwS, _WhX, _WhZ, _WhA, _FallW, _FallZF, _FallT, _FallLane;
+            float4 _HullS; float4x4 _HullW2L;
             CBUFFER_END
             TEXTURE2D(_Chop); SAMPLER(sampler_Chop); float _ChopK;
             float4 _WaveA[7];   // dx, dz, k, a
@@ -150,6 +152,24 @@ Shader "Surf/Ocean"
                 float st = saturate((_Shore - wp.z) / _ShoreW); st = st * st * (3.0 - 2.0 * st);
                 h *= st; dhx *= st; dhz *= st;
                 wp.y = h + _Lift;
+                // ---- the board is a solid thing on the water: no crest comes up through the hull ----
+                // Inside the board's own outline (a rounded plan, narrowing to nose and tail) the
+                // surface is held just under its bottom, eased in over the last few inches of rail
+                // so it still sits IN the water rather than on a flat patch of it.
+                if (_HullS.w > 0.5)
+                {
+                    float3 lp = mul(_HullW2L, float4(wp, 1.0)).xyz;
+                    float fz = saturate(abs(lp.z) / max(0.01, _HullS.y));
+                    float half = _HullS.x * sqrt(saturate(1.0 - fz * fz * fz * fz));
+                    float inside = (1.0 - smoothstep(half - 0.12, half + 0.10, abs(lp.x))) * (1.0 - smoothstep(0.97, 1.04, fz));
+                    float upY = _HullW2L[1][1];                       // how a world rise moves along the board's own up
+                    float floor0 = _HullS.z - 0.03;
+                    if (inside > 0.001 && lp.y > floor0 && abs(upY) > 0.2)
+                    {
+                        float drop = (lp.y - floor0) / upY;
+                        wp.y -= drop * inside;
+                    }
+                }
                 o.w = wp;
                 o.n = normalize(float3(-dhx, 1.0, -dhz));
                 o.h = h;

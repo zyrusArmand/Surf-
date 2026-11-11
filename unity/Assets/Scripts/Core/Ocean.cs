@@ -7,7 +7,7 @@ public class Ocean : MonoBehaviour
 {
     public Material material;
     public float width = 300f, nearZ = 60f, farZ = -900f;
-    public int cols = 120, rows = 220;
+    public int cols = 400, rows = 340;      // across: three quarters of a foot apart, the web's density, so no crest is carried through the board
 
     readonly Vector4[] wa = new Vector4[7], wb = new Vector4[7];
 

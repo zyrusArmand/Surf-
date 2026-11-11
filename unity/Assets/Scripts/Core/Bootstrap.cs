@@ -11,6 +11,7 @@ public class Bootstrap : MonoBehaviour
     Quests quests; StatsPanel stats; SettingsPanel settings; SchoolPanel school; ProfilePanel profile; GuidePanel guide;
     WheelPanel wheel; LevelPanel levelInfo; PukaPanel puka; int bankedDist, bankedScore, bankedCoins;
     bool over; float runSecs; bool palmSaid;
+    Vector3 hullMin, hullMax; bool hullOk;      // the board's own box, in its frame, for the sea's dry-hull rule
 
     void Start()
     {
@@ -123,6 +124,25 @@ public class Bootstrap : MonoBehaviour
         Menu();
     }
 
+    // the board's box in its own frame: every visible mesh's corners brought into the board root
+    void MeasureHull()
+    {
+        hullOk = false; if (boardGo == null) return;
+        var root = boardGo.transform; Vector3 mn = Vector3.positiveInfinity, mx = Vector3.negativeInfinity;
+        foreach (var mf in boardGo.GetComponentsInChildren<MeshFilter>(false))
+        {
+            if (mf.sharedMesh == null) continue;
+            var mr = mf.GetComponent<MeshRenderer>(); if (mr == null || !mr.enabled) continue;
+            var b = mf.sharedMesh.bounds; var toRoot = root.worldToLocalMatrix * mf.transform.localToWorldMatrix;
+            for (int c = 0; c < 8; c++)
+            {
+                var p = toRoot.MultiplyPoint3x4(new Vector3((c & 1) == 0 ? b.min.x : b.max.x, (c & 2) == 0 ? b.min.y : b.max.y, (c & 4) == 0 ? b.min.z : b.max.z));
+                mn = Vector3.Min(mn, p); mx = Vector3.Max(mx, p);
+            }
+        }
+        if (mn.x <= mx.x) { hullMin = mn; hullMax = mx; hullOk = true; }
+    }
+
     // the equipped board and rider, from the save; called again when the shop changes them
     void BuildRider()
     {
@@ -131,6 +151,7 @@ public class Bootstrap : MonoBehaviour
         // a loan (the wheel's, or the saucer's cow) outranks the equipped pair
         var b = BoardCatalog.Get(string.IsNullOrEmpty(SaveData.S.wheelLoan) ? SaveData.S.equipped : SaveData.S.wheelLoan);
         var board = BoardMesh.Build(b); board.transform.SetParent(rig, false); boardGo = board; Hull.Board = board; Hull.ClearMarks();
+        MeasureHull();
         rider.ApplyStats(RideStats.For(b.id, string.IsNullOrEmpty(SaveData.S.wheelRider) ? SaveData.S.rider : SaveData.S.wheelRider));
         // the rider: a file when there is one, else one of the web's eleven built from primitives
         var rid = string.IsNullOrEmpty(SaveData.S.wheelRider) ? SaveData.S.rider : SaveData.S.wheelRider;
@@ -180,23 +201,62 @@ public class Bootstrap : MonoBehaviour
         hud.ShowMenu();
     }
 
+    // the web's drop: a soft round sprite, its alpha (1-r)^1.9 * (0.55 + 0.45 (1-r)^5), white,
+    // tinted per splash. A particle with no texture is a square, which is what the spray was.
+    static Texture2D dropTex;
+    public static Texture2D DropTex()
+    {
+        if (dropTex != null) return dropTex;
+        const int N = 64; dropTex = new Texture2D(N, N, TextureFormat.RGBA32, true) { wrapMode = TextureWrapMode.Clamp, name = "drop" };
+        var px = new Color32[N * N];
+        for (int y = 0; y < N; y++) for (int x = 0; x < N; x++)
+        {
+            float dx = (x + 0.5f) / N - 0.5f, dy = (y + 0.5f) / N - 0.5f, r = Mathf.Min(1f, Mathf.Sqrt(dx * dx + dy * dy) * 2f);
+            float a = Mathf.Pow(1 - r, 1.9f) * (0.55f + 0.45f * Mathf.Pow(1 - r, 5f));
+            px[y * N + x] = new Color32(255, 255, 255, (byte)Mathf.Clamp(Mathf.RoundToInt(a * 255f), 0, 255));
+        }
+        dropTex.SetPixels32(px); dropTex.Apply(true, true);
+        return dropTex;
+    }
+
+    /// a URP particle material that is actually see-through: the keyword and the blend, not just the slider
+    public static Material SoftParticles(Texture2D tex)
+    {
+        var sh = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+        if (sh == null) return null;
+        var m = new Material(sh);
+        m.SetFloat("_Surface", 1f); m.SetFloat("_Blend", 0f);
+        m.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        m.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        m.SetFloat("_ZWrite", 0f);
+        m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT"); m.SetOverrideTag("RenderType", "Transparent");
+        m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+        m.SetTexture("_BaseMap", tex); m.SetTexture("_MainTex", tex); m.SetColor("_BaseColor", Color.white);
+        return m;
+    }
+
     ParticleSystem BuildSpray()
     {
         var go = new GameObject("Spray"); var ps = go.AddComponent<ParticleSystem>();
-        var main = ps.main; main.startLifetime = 0.5f; main.startSpeed = 0f; main.startSize = new ParticleSystem.MinMaxCurve(0.12f, 0.5f);
-        main.gravityModifier = 0.6f; main.maxParticles = 600; main.simulationSpace = ParticleSystemSimulationSpace.World; main.playOnAwake = false;
-        main.startColor = new Color(1, 1, 1, 0.85f);
+        // the web's splash: scale (0.34 + r^3 * 1.9) * 0.34, out at +-3 a second across, 2 to 6 up,
+        // living 0.34 to 0.64 s under a gravity of 14
+        var main = ps.main; main.startLifetime = new ParticleSystem.MinMaxCurve(0.34f, 0.64f); main.startSpeed = 0f;
+        main.startSize = new ParticleSystem.MinMaxCurve(0.12f, 0.76f);
+        main.gravityModifier = 14f / 9.81f; main.maxParticles = 600; main.simulationSpace = ParticleSystemSimulationSpace.World; main.playOnAwake = false;
+        main.startColor = new Color(1, 1, 1, 1f);
         var em = ps.emission; em.enabled = false;
-        var sh = ps.shape; sh.enabled = true; sh.shapeType = ParticleSystemShapeType.Hemisphere; sh.radius = 0.9f;
+        var sh = ps.shape; sh.enabled = true; sh.shapeType = ParticleSystemShapeType.Sphere; sh.radius = 0.05f;
         var vel = ps.velocityOverLifetime; vel.enabled = true; vel.space = ParticleSystemSimulationSpace.World;
         vel.x = new ParticleSystem.MinMaxCurve(-3f, 3f); vel.y = new ParticleSystem.MinMaxCurve(2f, 6f); vel.z = new ParticleSystem.MinMaxCurve(-3f, 3f);
+        // the drop shrinks to 0.55 of itself as it goes and fades out at the end
+        var sz = ps.sizeOverLifetime; sz.enabled = true; sz.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(new Keyframe(0, 1f), new Keyframe(0.6f, 0.9f), new Keyframe(1, 0.55f)));
         var col = ps.colorOverLifetime; col.enabled = true;
         var g = new Gradient(); g.SetKeys(new[] { new GradientColorKey(Color.white, 0), new GradientColorKey(Color.white, 1) },
-                                         new[] { new GradientAlphaKey(0.9f, 0), new GradientAlphaKey(0.7f, 0.5f), new GradientAlphaKey(0f, 1) });
+                                         new[] { new GradientAlphaKey(1f, 0), new GradientAlphaKey(0.9f, 0.6f), new GradientAlphaKey(0f, 1) });
         col.color = g;
         var r = go.GetComponent<ParticleSystemRenderer>();
-        var sh2 = Shader.Find("Universal Render Pipeline/Particles/Unlit");
-        if (sh2 != null) { r.material = new Material(sh2); r.material.SetFloat("_Surface", 1); r.material.SetFloat("_Blend", 0); r.material.renderQueue = 3000; }
+        var m = SoftParticles(DropTex()); if (m != null) r.material = m;
+        r.renderMode = ParticleSystemRenderMode.Billboard;
         return ps;
     }
 
@@ -292,6 +352,18 @@ public class Bootstrap : MonoBehaviour
         }
         rig.localRotation = Quaternion.Euler(0, 0, -rider.carve * 8f);
 
+        // the sea is told where the hull is, so no crest comes up through it; not while he is
+        // under the water, on the barrel's wall, ashore, or going over
+        bool dry = hullOk && boardGo != null && boardGo.activeInHierarchy && !beach.Showing && rider.running && !rider.Submerged
+                   && !setWave.tubeRide && !(island != null && island.Ashore);
+        if (dry)
+        {
+            var bt = boardGo.transform;
+            float hw = Mathf.Max(Mathf.Abs(hullMin.x), Mathf.Abs(hullMax.x)), hl = Mathf.Max(Mathf.Abs(hullMin.z), Mathf.Abs(hullMax.z));
+            ocean.material.SetMatrix("_HullW2L", bt.worldToLocalMatrix);
+            ocean.material.SetVector("_HullS", new Vector4(hw * 0.96f, hl * 0.97f, hullMin.y, 1f));
+        }
+        else ocean.material.SetVector("_HullS", Vector4.zero);
         ocean.Tick(rider.t, rider.dist * WaveField.Drift, WaveField.Amp, rider.px, rider.pz + BoardController.BoardHalfL, wakeA, beach.Showing ? beach.seaLevel : 0f, beach.Showing ? -88f : 100000f);   // a shoreline far behind the rider keeps the open sea at full swell
         day.Apply(rider.dist);
         var pm = spray.main; pm.startColor = Color.Lerp(Color.white, day.glow, day.glowAmt * 0.45f);
