@@ -61,9 +61,10 @@ public class Ocean : MonoBehaviour
         mr.receiveShadows = false;
     }
 
-    public void Tick(float t, float dist, float amp, float wakeX, float wakeZ, float wakeA, float lift = 0f)
+    public void Tick(float t, float dist, float amp, float wakeX, float wakeZ, float wakeA, float lift = 0f, float shore = -1000f)
     {
         material.SetFloat("_Lift", lift);
+        material.SetFloat("_Shore", shore);
         material.SetFloat("_T", t);
         material.SetFloat("_Dist", dist);
         material.SetFloat("_Amp", amp);

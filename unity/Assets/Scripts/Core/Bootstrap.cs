@@ -190,7 +190,7 @@ public class Bootstrap : MonoBehaviour
         }
         rig.localRotation = Quaternion.Euler(0, 0, -rider.carve * 8f);
 
-        ocean.Tick(rider.t, rider.dist * WaveField.Drift, WaveField.Amp, rider.px, rider.pz + BoardController.BoardHalfL, wakeA, beach.Showing ? beach.seaLevel : 0f);
+        ocean.Tick(rider.t, rider.dist * WaveField.Drift, WaveField.Amp, rider.px, rider.pz + BoardController.BoardHalfL, wakeA, beach.Showing ? beach.seaLevel : 0f, beach.Showing ? -88f : -1000f);
         day.Apply(rider.dist);
         var pm = spray.main; pm.startColor = Color.Lerp(Color.white, day.glow, day.glowAmt * 0.45f);
         if (beach.Showing) beach.PlaceCamera(cam, dt); else chase.Step(dt);

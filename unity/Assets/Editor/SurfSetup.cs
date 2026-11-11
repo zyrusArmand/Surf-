@@ -31,6 +31,7 @@ public static class SurfSetup
             EnsurePlayerSettings();
             EnsureScene();
             EnsureModels();
+            EnsureTextures();
         }
         catch (System.Exception e)
         {
@@ -92,6 +93,14 @@ public static class SurfSetup
         if (File.Exists(ModelsMarker)) return;
         ReimportModels();
         File.WriteAllText(ModelsMarker, "done");
+    }
+
+    // the sand's bump map has to be imported AS a normal map, every load, since the file can
+    // arrive after the one-time model pass has already run
+    static void EnsureTextures()
+    {
+        var ti = AssetImporter.GetAtPath("Assets/Resources/Models/sand_normal.jpg") as TextureImporter;
+        if (ti != null && ti.textureType != TextureImporterType.NormalMap) { ti.textureType = TextureImporterType.NormalMap; ti.SaveAndReimport(); Debug.Log("Surf setup: sand bump map set to normal map"); }
     }
 
     [MenuItem("Surf/Reimport models")]

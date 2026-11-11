@@ -22,6 +22,8 @@ Shader "Surf/Ocean"
         _WakeZ ("Wake z", Float) = 0
         _WakeA ("Wake amount", Float) = 0
         _Lift ("Sea level", Float) = 0
+        _Shore ("Shore line (-z)", Float) = -1000
+        _ShoreW ("Shore taper width", Float) = 60
     }
     SubShader
     {
@@ -38,7 +40,7 @@ Shader "Surf/Ocean"
 
             CBUFFER_START(UnityPerMaterial)
             float4 _Deep, _Shallow, _SkyLo, _SkyHi, _Glow, _SunDir;
-            float _Light, _Amp, _Peak, _Dist, _T, _WakeX, _WakeZ, _WakeA, _Lift;
+            float _Light, _Amp, _Peak, _Dist, _T, _WakeX, _WakeZ, _WakeA, _Lift, _Shore, _ShoreW;
             CBUFFER_END
             float4 _WaveA[7];   // dx, dz, k, a
             float4 _WaveB[7];   // ek, ep, w, -
@@ -77,6 +79,9 @@ Shader "Surf/Ocean"
                 float3 wp = TransformObjectToWorld(i.pos.xyz);
                 float h, dhx, dhz;
                 field(float2(wp.x, wp.z + _Dist), h, dhx, dhz);
+                // the swell dies as it shoals: full out at sea, nothing at the waterline
+                float st = saturate((_Shore - wp.z) / _ShoreW); st = st * st * (3.0 - 2.0 * st);
+                h *= st; dhx *= st; dhz *= st;
                 wp.y = h + _Lift;
                 o.w = wp;
                 o.n = normalize(float3(-dhx, 1.0, -dhz));
