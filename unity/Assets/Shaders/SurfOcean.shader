@@ -41,7 +41,9 @@ Shader "Surf/Ocean"
     }
     SubShader
     {
-        Tags { "RenderType"="Opaque" "Queue"="Geometry" "RenderPipeline"="UniversalPipeline" }
+        // drawn after the solid world (but still writing depth) so the depth texture holds what is
+        // UNDER the water: that is how the foam finds where a buoy, a rock or the board meets it
+        Tags { "RenderType"="Opaque" "Queue"="Transparent-100" "RenderPipeline"="UniversalPipeline" }
         Pass
         {
             Name "Forward"
@@ -51,6 +53,9 @@ Shader "Surf/Ocean"
             #pragma fragment frag
             #pragma target 3.0
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+            // the reflection (PlanarReflection.cs), set globally
+            TEXTURE2D(_ReflTex); SAMPLER(sampler_ReflTex); float4x4 _ReflVP; float _ReflOn, _ReflY;
 
             CBUFFER_START(UnityPerMaterial)
             float4 _Deep, _Shallow, _SkyLo, _SkyHi, _Glow, _SunDir;
@@ -62,7 +67,7 @@ Shader "Surf/Ocean"
             float4 _WaveB[7];   // ek, ep, w, -
 
             struct A { float4 pos : POSITION; float2 uv : TEXCOORD0; };
-            struct V { float4 pos : SV_POSITION; float3 w : TEXCOORD0; float3 n : TEXCOORD1; float h : TEXCOORD2; float4 sw : TEXCOORD3; };
+            struct V { float4 pos : SV_POSITION; float3 w : TEXCOORD0; float3 n : TEXCOORD1; float h : TEXCOORD2; float4 sw : TEXCOORD3; float4 sp : TEXCOORD4; };
 
             // the field: height and its two slopes at a field point p (x, dist*drift+z)
             // the chute: the web's fallDip, the lane tipping down a fall, anchored at the rider
@@ -174,6 +179,7 @@ Shader "Surf/Ocean"
                 o.n = normalize(float3(-dhx, 1.0, -dhz));
                 o.h = h;
                 o.pos = TransformWorldToHClip(wp);
+                o.sp = ComputeScreenPos(o.pos);
                 return o;
             }
 
@@ -225,6 +231,19 @@ Shader "Surf/Ocean"
                 float3 R = reflect(-V, Nr);
                 float ry = saturate(R.y);
                 float3 skyRefl = lerp(_SkyLo.rgb, _SkyHi.rgb, smoothstep(0.0, 0.62, ry));
+                // the world in the water: the mirrored point looked up in the reflection, bent by the
+                // ripple; the painted sky gradient stays underneath it as the web's fallback
+                if (_ReflOn > 0.5)
+                {
+                    float3 mw = float3(i.w.x, 2.0 * _ReflY - i.w.y, i.w.z);
+                    mw.xz += (Nr.xz + float2(wob.x, wob.y) * 0.08) * (1.4 + 0.012 * dCam);
+                    float4 rc = mul(_ReflVP, float4(mw, 1.0));
+                    float2 ruv = rc.xy / max(1e-4, rc.w) * 0.5 + 0.5;
+                    float inside = smoothstep(0.0, 0.04, ruv.x) * smoothstep(1.0, 0.96, ruv.x) * smoothstep(0.0, 0.04, ruv.y) * smoothstep(1.0, 0.96, ruv.y);
+                    float3 rs = SAMPLE_TEXTURE2D(_ReflTex, sampler_ReflTex, saturate(ruv)).rgb;
+                    rs = pow(max(rs, 0.0), 1.0 / 2.2);                       // back to the plain numbers this shader works in
+                    skyRefl = lerp(skyRefl, rs, inside * (rc.w > 0.0 ? 0.92 : 0.0));
+                }
                 skyRefl += _Glow.rgb * pow(max(dot(R, L), 0.0), 40.0) * 0.55 * smoothstep(-0.12, 0.06, L.y);
                 float3 col = lerp(lit, skyRefl, fres * 0.88) + spec;
                 col += _Glow.rgb * gl;
@@ -275,6 +294,21 @@ Shader "Surf/Ocean"
                     col = lerp(col, float3(0.97, 0.99, 1.00), saturate(core * (0.80 + 0.40 * laceR + 0.30 * fleckR)) * 0.92);
                 }
                 col += pow(max(dot(N, H), 0.0), 480.0) * 0.6;
+                // ---- where things meet the water: a ring of foam round every buoy, log, rock and the
+                // hull, and the water going clear and turquoise as it shoals against the beach ----
+                {
+                    float2 suv = i.sp.xy / max(1e-4, i.sp.w);
+                    float scene = LinearEyeDepth(SampleSceneDepth(suv), _ZBufferParams);
+                    float under = scene - i.sp.w;                              // feet of water between the surface and whatever is beneath it
+                    if (under > 0.0 && under < 40.0)
+                    {
+                        float tear = fbm(fpF * 2.6 + float2(_T * 0.13, -_T * 0.10));
+                        float ring = (1.0 - smoothstep(0.0, 0.55 + 0.45 * tear, under)) * smoothstep(0.30, 0.65, tear + 0.25);
+                        float shallow = 1.0 - smoothstep(0.0, 5.0, under);
+                        col = lerp(col, col * float3(0.82, 1.06, 1.04) + float3(0.02, 0.10, 0.09), shallow * 0.45);
+                        col = lerp(col, float3(0.95, 0.98, 1.0), saturate(ring) * 0.85 * (1.0 - smoothstep(60.0, 140.0, dCam)));
+                    }
+                }
                 // aerial perspective: into the horizon's own colour
                 float fog = smoothstep(70.0, 230.0, dCam);
                 col = lerp(col, _SkyLo.rgb, fog);

@@ -11,7 +11,7 @@ public class Bootstrap : MonoBehaviour
     Quests quests; StatsPanel stats; SettingsPanel settings; SchoolPanel school; ProfilePanel profile; GuidePanel guide;
     WheelPanel wheel; LevelPanel levelInfo; PukaPanel puka; SecretPanel secret; int bankedDist, bankedScore, bankedCoins;
     bool over; float runSecs; bool palmSaid;
-    Vector3 hullMin, hullMax; bool hullOk;      // the board's own box, in its frame, for the sea's dry-hull rule
+    Vector3 hullMin, hullMax; bool hullOk; PlanarReflection reflect;      // the board's own box, in its frame, for the sea's dry-hull rule
 
     void Start()
     {
@@ -31,7 +31,7 @@ public class Bootstrap : MonoBehaviour
         RenderSettings.skybox = skyMat;
 
         // sea
-        var oceanGo = new GameObject("Ocean");
+        var oceanGo = new GameObject("Ocean"); oceanGo.layer = PlanarReflection.WaterLayer;   // the reflection does not draw the sea into itself
         ocean = oceanGo.AddComponent<Ocean>();
         ocean.Init(new Material(Shader.Find("Surf/Ocean")));
         var chop = Resources.Load<Texture2D>("Models/waternormals");
@@ -72,6 +72,8 @@ public class Bootstrap : MonoBehaviour
         Sfx.Init();
         var ucam = camGo.AddComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>();
         ucam.renderPostProcessing = true; ucam.antialiasing = UnityEngine.Rendering.Universal.AntialiasingMode.FastApproximateAntialiasing;
+        ucam.requiresDepthTexture = true;          // the sea reads what is under it for its contact foam and shallows
+        reflect = camGo.AddComponent<PlanarReflection>(); reflect.main = cam;
         chase = camGo.AddComponent<ChaseCamera>(); chase.rider = rider; chase.cam = cam; chase.dive = dive; chase.island = island; chase.chute = chute; island.chase = chase; chute.chase = chase;
 
         // post: bloom, a touch of vignette, ACES
@@ -437,6 +439,7 @@ public class Bootstrap : MonoBehaviour
             ocean.material.SetVector("_HullS", new Vector4(hw * 0.96f, hl * 0.97f, hullMin.y, 1f));
         }
         else ocean.material.SetVector("_HullS", Vector4.zero);
+        if (reflect != null) { reflect.planeY = beach.Showing ? beach.seaLevel : 0f; reflect.on = !(dive != null && dive.On); }
         ocean.Tick(rider.t, rider.dist * WaveField.Drift, WaveField.Amp, rider.px, rider.pz + BoardController.BoardHalfL, wakeA, beach.Showing ? beach.seaLevel : 0f, beach.Showing ? -88f : 100000f);   // a shoreline far behind the rider keeps the open sea at full swell
         day.Apply(rider.dist);
         var pm = spray.main; pm.startColor = Color.Lerp(Color.white, day.glow, day.glowAmt * 0.45f);
