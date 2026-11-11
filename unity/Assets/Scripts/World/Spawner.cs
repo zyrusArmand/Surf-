@@ -169,12 +169,27 @@ public class Spawner : MonoBehaviour
                 o.go.transform.rotation = Quaternion.Euler((o.rx + o.kax) * Mathf.Rad2Deg, 0, (o.rz + o.kaz) * Mathf.Rad2Deg);
                 continue;
             }
-            o.y += (oy - o.y) * Mathf.Min(1f, dt * (o.ramp ? 3f : 9f));
             float tilt = o.ramp ? 0.06f : 0.30f, span = o.ramp ? 3.2f : 1.6f;
             float slopeZ = (WaveField.Swell(o.x, fzBase + o.z + span, r.t) - WaveField.Swell(o.x, fzBase + o.z - span, r.t)) * tilt;
             float slopeX = (WaveField.Swell(o.x + span, fzBase + o.z, r.t) - WaveField.Swell(o.x - span, fzBase + o.z, r.t)) * tilt;
             float f = Mathf.Min(1f, dt * (o.ramp ? 2f : 6f));
-            o.rx += (slopeZ - o.rx) * f; o.rz += (-slopeX - o.rz) * f;
+            if (o.kind == "rock")
+            {
+                // A rock is lodged in the bed, not floating: it sits ON the chute's water wherever that
+                // is. Eased like a float it lagged the fall line by feet -- the water at its z rises at
+                // 0.47 x his speed as it comes up the drop toward him, and a nine-a-second follow left
+                // the whole cluster under the surface. And it lies along the slope: the float tilt
+                // above leans the +z end DOWN when the water there is higher (positive Euler x tips
+                // +z down), which on a 0.47 gradient stood it fifty degrees off the surface.
+                o.y = oy;
+                float gz = slopeZ / (tilt * 2f * span), gx = slopeX / (tilt * 2f * span);   // the true rise over run
+                o.rx += (-Mathf.Atan(gz) - o.rx) * f; o.rz += (Mathf.Atan(gx) - o.rz) * f;
+            }
+            else
+            {
+                o.y += (oy - o.y) * Mathf.Min(1f, dt * (o.ramp ? 3f : 9f));
+                o.rx += (slopeZ - o.rx) * f; o.rz += (-slopeX - o.rz) * f;
+            }
             o.go.transform.position = new Vector3(o.x, o.y, o.z);
             o.go.transform.rotation = Quaternion.Euler(o.rx * Mathf.Rad2Deg, 0, o.rz * Mathf.Rad2Deg + (o.kind == "buoy" ? Mathf.Sin(r.t * 2f + o.x) * 3.4f : 0));
             if (!r.running || r.Submerged) continue;        // under the water nothing floating on it can reach him

@@ -9,10 +9,12 @@
 //         always a gorge to be in, and ten wall falls streaming past and recycling. Walls,
 //         skirt, head and plume all scroll their water DOWN, tied to his speed.
 //   OUT:  2.8 s: the look fades, the push and the walls go with it, and the lane is the lane.
-// What the chute does to the WATER in the web -- fallDip, the descent profile pitched at 0.47
-// rise over run and banked up the sides -- lives in the ocean shader there, and this port's
-// shader is not edited: the sea stays level here and the gorge is built level with it. Dip()
-// below is the web's profile, for reference and for whoever adds the shader term.
+// What the chute does to the WATER -- the web's fallDip, the descent pitched at 0.47 rise over
+// run ahead of him, anchored so his own height stays near zero, banked up at the lane edges --
+// is WaveField.FallDip, inside Height and Swell and drawn by the ocean shader; this sets its
+// inputs every frame. The gorge goes down with it (web 15647-15693): every column of the rock
+// and the waterline skirt sits at the water's own height at its z, the head fall's foot stands
+// -Slope*HeadZ down, and the wall falls hang from the dropped rim as they stream past.
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -35,9 +37,8 @@ public class Chute : MonoBehaviour
     public const float CalmK = 0.94f;           // how much of the swell the chute takes out
     public const float Pitch = 0.16f;           // radians the shot tips at full weight (kept as the web keeps it; FALL_CAM is what the camera uses)
     public const float TiltK = 0.0f;            // the board's own nose-down, zero: the hull's pitch already does it
-    // the descent profile (web fallDip), not applied to this port's sea
-    public const float Slope = 0.47f, Ahead = 140f, Behind = 6f, Knee = 26f, Steep = 0.0f, StepZ = 95f, Ledge = 0f;
-    public const float Lip0 = 0.55f, Lip1 = 0.72f, LipX = 0.37f, LipA = 3.2f, Bank = 1.1f;
+    // the descent's gradient (web FALL_SLOPE); the profile itself is WaveField.FallDip
+    public const float Slope = 0.47f;
     public const float LookUp = 0.9f;           // seconds for the look to come up on the way in
 
     // ---- public state ----
@@ -51,9 +52,21 @@ public class Chute : MonoBehaviour
     public bool Busy => Ph >= 0;   // the set wave and the whirlpool wait
 
     // ---- private ----
-    GameObject grp; Material skirtL, skirtR, headMat, plumeMat; readonly List<Transform> sides = new List<Transform>();
-    readonly List<Material> sideMat = new List<Material>(); readonly List<float> sideRate = new List<float>();
+    GameObject grp; Material skirtL, skirtR, headMat, plumeMat; Transform head, plume;
     float clock, zf0; bool calmSet;
+
+    // A grid laid along one wall in the group's frame (no rotation: x across, z along the lane).
+    // Its columns are dropped to the water at their own z on each refresh -- the web bakes the
+    // same per-column drop into the geometry once (fallBuild's _P0 loop); here it is read off the
+    // live field, so it also carries the weight and the bank and it levels with the water on the
+    // way out instead of leaving the walls hanging below a sea that has come back up.
+    class Sheet { public Mesh mesh; public Vector3[] base0, v; public int nu, nv; public float faceX; public bool lit; }
+    readonly List<Sheet> sheets = new List<Sheet>();
+    float sheetW = -1f, sheetGx, sheetAge;
+
+    // one of the wall falls: four corners, its two ends each on the water below them (web fallSide)
+    class Fall { public Mesh mesh; public Material mat; public int sx; public float z, w, h, top, rate; public readonly Vector3[] v = new Vector3[4]; }
+    readonly List<Fall> sides = new List<Fall>();
 
     // =====================================================================================
     public void Reset()
@@ -91,23 +104,7 @@ public class Chute : MonoBehaviour
 
     /// the web's fallDip: the descent, pivoted on him and anchored at his own position, with the
     /// trough banked up at the lane's edge. In feet, on the field coordinate the sea is written in.
-    public float Dip(float x, float fieldZ)
-    {
-        if (W <= 0.001f) return 0f;
-        float Tt = Travel;
-        float d = Mathf.Max(Tt - Behind, Mathf.Min(Tt + Ahead, zf0 - fieldZ));
-        float u = Mathf.Min(1.6f, Mathf.Abs(x) / Lane);
-        float knee = Mathf.Max(0f, d - Knee);
-        float wob = Mathf.Sin(x * LipX) * LipA;
-        float A = -Slope * Tt - Steep * Mathf.Max(0f, Tt - Knee) + Stair(Tt + wob);
-        return W * (-Slope * d - Steep * knee + Stair(d + wob) - A) + Bank * W * u * u;
-    }
-    static float Stair(float d)
-    {
-        float ph = d / StepZ, k = Mathf.Floor(ph);
-        float f = Mathf.Clamp01((ph - k - Lip0) / (Lip1 - Lip0));
-        return -Ledge * (k + f * f * (3f - 2f * f));
-    }
+    public float Dip(float x, float fieldZ) => WaveField.FallDip(x, fieldZ);
 
     // =====================================================================================
     public void Step(float dt)
@@ -180,58 +177,112 @@ public class Chute : MonoBehaviour
         {
             // the rock: a grid pushed out by layered noise, never in past its own plane, its rim broken
             var rock = new GameObject(s < 0 ? "rockL" : "rockR", typeof(MeshFilter), typeof(MeshRenderer)); rock.transform.SetParent(grp.transform, false);
-            rock.GetComponent<MeshFilter>().sharedMesh = RockMesh(s);
+            var rs = RockMesh(s); sheets.Add(rs);
+            rock.GetComponent<MeshFilter>().sharedMesh = rs.mesh;
             var rm = new Material(lit); rm.SetTexture("_BaseMap", cliff); rm.SetTextureScale("_BaseMap", new Vector2(7f, 6f));
             rm.SetFloat("_Smoothness", 0.05f); rm.SetFloat("_Metallic", 0f); rm.SetFloat("_Cull", 0f);
             var rr = rock.GetComponent<MeshRenderer>(); rr.sharedMaterial = rm; rr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            // the skirt: spray where the river meets the stone, eighteen feet at the waterline
-            var sk = Quad("skirt", grp.transform, new Vector3(s * (Lane + 0.2f), -1f, -96f), new Vector3(300f, 18f, 1f), s, FallTex(), new Vector2(2f, 6f), 0.86f, out var skm);
+            // the skirt: spray where the river meets the stone, eighteen feet at the waterline,
+            // 84 by 3 like the web's so its columns can follow the water down the gorge
+            var ks = SkirtMesh(s); sheets.Add(ks);
+            var skm = Sheer(s < 0 ? "skirtL" : "skirtR", grp.transform, ks.mesh, FallTex(), new Vector2(2f, 6f), 0.86f);
             if (s < 0) skirtL = skm; else skirtR = skm;
         }
-        // the head of the gorge, its foot at the water (level here: the web's foot sits -Slope*HeadZ down the profile)
-        Quad("head", grp.transform, new Vector3(0f, HeadH * 0.5f - 6f, -HeadZ), new Vector3(HeadW, HeadH, 1f), 0, FallTex(), new Vector2(3.0f, 2.2f), 0.93f, out headMat);
-        Quad("plume", grp.transform, new Vector3(0f, HeadH * 0.22f, -HeadZ + 26f), new Vector3(HeadW * 1.5f, HeadH * 0.85f, 1f), 0, MistTex(), Vector2.one, 0.62f, out plumeMat);
+        // the head of the gorge; Scenery stands its foot -Slope*HeadZ down, where the web's is
+        head = Quad("head", grp.transform, new Vector3(0f, HeadH * 0.5f - 6f, -HeadZ), new Vector3(HeadW, HeadH, 1f), 0, FallTex(), new Vector2(3.0f, 2.2f), 0.93f, out headMat).transform;
+        plume = Quad("plume", grp.transform, new Vector3(0f, HeadH * 0.22f, -HeadZ + 26f), new Vector3(HeadW * 1.5f, HeadH * 0.85f, 1f), 0, MistTex(), Vector2.one, 0.62f, out plumeMat).transform;
         // and water comes off the walls: ten narrow falls hung from the rim, scrolling and recycling
         for (int i = 0; i < 10; i++)
         {
-            int sx = (i % 2 == 1) ? 1 : -1;
-            var q = Quad("sidefall", grp.transform, Vector3.zero, Vector3.one, sx, FallTex(), new Vector2(1f, 2.0f), 0.88f, out var qm);
-            sides.Add(q.transform); sideMat.Add(qm); sideRate.Add(1f);
-            SideLay(sides.Count - 1, sx, true);
+            var fl = new Fall { sx = (i % 2 == 1) ? 1 : -1, rate = 1f };
+            fl.mesh = new Mesh { name = "sidefall" }; fl.mesh.MarkDynamic();
+            fl.mesh.vertices = fl.v;
+            fl.mesh.uv = new[] { new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0f, 1f), new Vector2(1f, 1f) };
+            fl.mesh.triangles = new[] { 0, 2, 1, 1, 2, 3 };
+            fl.mat = Sheer("sidefall", grp.transform, fl.mesh, FallTex(), new Vector2(1f, 2.0f), 0.88f);
+            sides.Add(fl);
+            SideLay(fl, true);
         }
     }
 
-    // where one of the wall falls hangs, and how big: re-rolled every time it recycles (web fallSideLay)
-    void SideLay(int i, int sx, bool fresh)
+    // where one of the wall falls hangs, and how big: re-rolled every time it recycles (web fallSideLay).
+    // Hung from a top edge, top - h to top, measured up from the water under it (SidePlace).
+    void SideLay(Fall fl, bool fresh)
     {
-        float w = 9f + Random.value * 16f, h = 46f + Random.value * 54f;
-        var q = sides[i];
-        q.localScale = new Vector3(w, h, 1f);
-        float top = 26f + Random.value * 30f;
-        q.localPosition = new Vector3(sx * (Lane + 0.55f), top - h * 0.5f, fresh ? (-30f - Random.value * 260f) : (-250f - Random.value * 90f));
-        var c = sideMat[i].GetColor("_BaseColor"); c.a = 0.78f + Random.value * 0.20f; sideMat[i].SetColor("_BaseColor", c);
-        sideRate[i] = 0.7f + Random.value * 0.9f;
+        fl.w = 9f + Random.value * 16f; fl.h = 46f + Random.value * 54f;
+        fl.top = 26f + Random.value * 30f;
+        fl.z = fresh ? (-30f - Random.value * 260f) : (-250f - Random.value * 90f);
+        var c = fl.mat.GetColor("_BaseColor"); c.a = 0.78f + Random.value * 0.20f; fl.mat.SetColor("_BaseColor", c);
+        fl.rate = 0.7f + Random.value * 0.9f;
+    }
+
+    // ...and where it is this frame. The web hangs these at a fixed height over y = 0, which put the
+    // far ones forty feet clear of a rim that had gone sixty feet down with the river; each end of
+    // this one stands on the water below it instead, so the fall shears with the gorge it is on.
+    void SidePlace(Fall fl, float gx, float fz0)
+    {
+        float x = fl.sx * (Lane + 0.55f), z0 = fl.z - fl.w * 0.5f, z1 = fl.z + fl.w * 0.5f;
+        float d0 = WaveField.FallDip(gx + x, fz0 + z0), d1 = WaveField.FallDip(gx + x, fz0 + z1);
+        fl.v[0] = new Vector3(x, fl.top - fl.h + d0, z0); fl.v[1] = new Vector3(x, fl.top - fl.h + d1, z1);
+        fl.v[2] = new Vector3(x, fl.top + d0, z0);        fl.v[3] = new Vector3(x, fl.top + d1, z1);
+        fl.mesh.vertices = fl.v; fl.mesh.RecalculateBounds();
+    }
+
+    // every column of a wall grid onto the water at its z and at the wall's own x (bank included)
+    static void Refresh(Sheet s, float gx, float fz0)
+    {
+        int row = s.nu + 1;
+        for (int i = 0; i <= s.nu; i++)
+        {
+            float dy = WaveField.FallDip(gx + s.faceX, fz0 + s.base0[i].z);
+            for (int j = 0; j <= s.nv; j++) { int k = j * row + i; var b = s.base0[k]; s.v[k] = new Vector3(b.x, b.y + dy, b.z); }
+        }
+        s.mesh.vertices = s.v;
+        if (s.lit) s.mesh.RecalculateNormals();
+        s.mesh.RecalculateBounds();
     }
 
     void Scenery(float dt, BoardController r)
     {
         if (grp == null) return;
         // no gorge on the way in: open sea with an edge across it, the walls only once he is over it
-        grp.SetActive(Ph >= 1 && W > 0.01f);
-        grp.transform.position = new Vector3(r.px * 0.35f, 0f, r.pz);
+        bool show = Ph >= 1 && W > 0.01f;
+        if (show && !grp.activeSelf) sheetW = -1f;        // whatever the walls last stood on is stale
+        grp.SetActive(show);
+        float gx = r.px * 0.35f, fz0 = WaveField.Scroll + r.pz;   // group x; the field coordinate of the group's z = 0
+        grp.transform.position = new Vector3(gx, 0f, r.pz);
         float eff = r.eff;
+        // The profile is fixed relative to him (the web's whole reason for baking it), so the walls
+        // only need redoing when the weight or his lateral offset moves it; the timed refresh keeps
+        // them honest if the profile ever gets a term that travels (WaveField's ledges and knee).
+        sheetAge += dt;
+        if (show && (sheetW < 0f || Mathf.Abs(W - sheetW) > 0.002f || Mathf.Abs(gx - sheetGx) > 0.3f || sheetAge > 0.25f))
+        {
+            sheetW = W; sheetGx = gx; sheetAge = 0f;
+            for (int i = 0; i < sheets.Count; i++) Refresh(sheets[i], gx, fz0);
+        }
         Fade(skirtL, 0.90f * W); Fade(skirtR, 0.90f * W);
         Scroll(skirtL, -dt * (0.55f + eff * 0.016f)); Scroll(skirtR, -dt * (0.55f + eff * 0.016f));
+        // The head's foot at the web's -FALL_SLOPE*FALL_HEAD_Z (web 15759), weighted so it comes back up
+        // with the water on the way out. That is past FallDip's 140 ft clamp, so the foot is some
+        // thirteen feet under the pool, as in the web; the quad's lower six feet are below it anyway.
+        float foot = -Slope * HeadZ * W;
+        if (head != null) head.localPosition = new Vector3(0f, foot + HeadH * 0.5f - 6f, -HeadZ);
+        if (plume != null) plume.localPosition = new Vector3(0f, foot + HeadH * 0.22f, -HeadZ + 26f);
         Fade(headMat, 0.93f * W); Scroll(headMat, -dt * (0.85f + eff * 0.010f));
         float br = 0.52f + 0.16f * Mathf.Sin(clock * 0.55f) + 0.08f * Mathf.Sin(clock * 1.31f + 1.1f);
         Fade(plumeMat, br * W);
         if (plumeMat != null) { var o = plumeMat.GetTextureOffset("_BaseMap"); o.x = Mathf.Sin(clock * 0.07f) * 0.04f; plumeMat.SetTextureOffset("_BaseMap", o); }
+        // the wall falls stream past at his speed -- the same speed Travel advances at, so they keep
+        // pace with the water under them -- and recycle far ahead
         for (int i = 0; i < sides.Count; i++)
         {
-            var q = sides[i]; var p = q.localPosition; p.z += eff * dt; q.localPosition = p;
-            if (p.z > 30f) SideLay(i, q.localPosition.x < 0 ? -1 : 1, false);
-            Scroll(sideMat[i], -dt * (1.15f + eff * 0.02f) * sideRate[i]);
-            var c = sideMat[i].GetColor("_BaseColor"); c.a = Mathf.Min(c.a, 0.92f); sideMat[i].SetColor("_BaseColor", c);
+            var fl = sides[i];
+            fl.z += eff * dt;
+            if (fl.z > 30f) SideLay(fl, false);
+            if (show) SidePlace(fl, gx, fz0);
+            Scroll(fl.mat, -dt * (1.15f + eff * 0.02f) * fl.rate);
+            var c = fl.mat.GetColor("_BaseColor"); c.a = Mathf.Min(c.a, 0.92f); fl.mat.SetColor("_BaseColor", c);
         }
     }
 
@@ -251,10 +302,46 @@ public class Chute : MonoBehaviour
         return q;
     }
 
+    // the same textured, transparent, double-sided water on a mesh of its own, laid in the group's frame
+    static Material Sheer(string name, Transform parent, Mesh mesh, Texture2D tex, Vector2 tile, float alpha)
+    {
+        var go = new GameObject(name, typeof(MeshFilter), typeof(MeshRenderer)); go.transform.SetParent(parent, false);
+        go.GetComponent<MeshFilter>().sharedMesh = mesh;
+        var mat = Dive.Unlit(new Color(1f, 1f, 1f, alpha), true, false, true);
+        mat.SetTexture("_BaseMap", tex); mat.SetTextureScale("_BaseMap", tile);
+        var mr = go.GetComponent<MeshRenderer>(); mr.sharedMaterial = mat; mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; mr.receiveShadows = false;
+        return mat;
+    }
+
+    // the waterline skirt (web fallBuild's mk(sx, false)): 84 by 3, 300 long and 18 tall, centred 96
+    // ahead at 1 down, at sx*(Lane+0.2). Built level; Refresh drops each column to the water.
+    static Sheet SkirtMesh(int sx)
+    {
+        const int NU = 84, NV = 3;
+        var v = new Vector3[(NU + 1) * (NV + 1)]; var uv = new Vector2[v.Length];
+        for (int j = 0; j <= NV; j++) for (int i = 0; i <= NU; i++)
+        {
+            float u = i / (float)NU, w = j / (float)NV;
+            int k = j * (NU + 1) + i;
+            v[k] = new Vector3(sx * (Lane + 0.2f), -1f + (w - 0.5f) * 18f, -96f + (u - 0.5f) * 300f);
+            uv[k] = new Vector2(u, w);
+        }
+        var idx = new int[NU * NV * 6]; int n = 0;
+        for (int j = 0; j < NV; j++) for (int i = 0; i < NU; i++)
+        {
+            int a = j * (NU + 1) + i, b = a + 1, c = a + NU + 1, d = c + 1;
+            idx[n++] = a; idx[n++] = c; idx[n++] = b; idx[n++] = b; idx[n++] = c; idx[n++] = d;   // double-sided material: winding is moot
+        }
+        var m = new Mesh { name = sx < 0 ? "skirtL" : "skirtR" }; m.MarkDynamic();
+        m.vertices = v; m.uv = uv; m.triangles = idx; m.RecalculateBounds();
+        return new Sheet { mesh = m, base0 = v, v = (Vector3[])v.Clone(), nu = NU, nv = NV, faceX = sx * (Lane + 0.2f), lit = false };
+    }
+
     // the rock face (web fallBuild's mk(sx, true)): 84 by 20, 300 long and WallH tall, centred 96 ahead
     // at 26 up, its face at sx*(Lane+0.9). The relief retreats outward by up to 8.5 ft, the rim is
-    // pulled down raggedly over its top 38%. The descent is not baked in: the sea here is level.
-    static Mesh RockMesh(int sx)
+    // pulled down raggedly over its top 38%. Built level; Refresh drops each column to the water at
+    // its z, which is the web's baked drop (-FALL_SLOPE*d clamped to -FALL_BEHIND..FALL_AHEAD).
+    static Sheet RockMesh(int sx)
     {
         const int NU = 84, NV = 20;
         var v = new Vector3[(NU + 1) * (NV + 1)]; var uv = new Vector2[v.Length]; var cols = new Color[v.Length];
@@ -283,9 +370,9 @@ public class Chute : MonoBehaviour
             if (sx > 0) { idx[n++] = a; idx[n++] = c; idx[n++] = b; idx[n++] = b; idx[n++] = c; idx[n++] = d; }
             else { idx[n++] = a; idx[n++] = b; idx[n++] = c; idx[n++] = b; idx[n++] = d; idx[n++] = c; }
         }
-        var m = new Mesh { name = sx < 0 ? "rockL" : "rockR" }; m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+        var m = new Mesh { name = sx < 0 ? "rockL" : "rockR" }; m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32; m.MarkDynamic();
         m.vertices = v; m.uv = uv; m.colors = cols; m.triangles = idx; m.RecalculateNormals(); m.RecalculateBounds();
-        return m;
+        return new Sheet { mesh = m, base0 = v, v = (Vector3[])v.Clone(), nu = NU, nv = NV, faceX = sx * (Lane + 0.9f), lit = true };
     }
 
     // ---- the textures, drawn the way the web draws them on a canvas ----

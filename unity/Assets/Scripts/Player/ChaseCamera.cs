@@ -131,7 +131,10 @@ public class ChaseCamera : MonoBehaviour
         camSpd = Mathf.Lerp(camSpd, heldLens ? camSpd : s, Mathf.Min(1f, dt * 2f));
         cam.fieldOfView = Fov + FovFast * camSpd * camSpd;
         // no roll: the horizon stays level and only the rider leans into a carve
-        // and the shot tips down the fall line, last, on the camera rather than the world (web 47172-47192)
+        // and the shot tips down the fall line, last, on the camera rather than the world (web 47172-47192):
+        // lifted and nudged closer AFTER the aim, so the lift does not re-aim, then pitched. The water
+        // really drops now, but nothing else follows it: the fall is anchored at him, so waterY stays
+        // his own water and the web, too, measures the whole shot off that and nothing further down.
         float fw = chute != null ? chute.W : 0f;
         if (fw > 0.001f)
         {
