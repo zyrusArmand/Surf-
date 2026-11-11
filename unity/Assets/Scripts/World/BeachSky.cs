@@ -48,73 +48,60 @@ public class BeachSky
     }
 
     // ---------------------------------------------------------------- clouds
-    // Cumulus: each cloud a pile of lit puffs (Surf/CloudPuff), heaped highest in the middle and
-    // spread flat along a base, one mesh and one draw each. Where the web cut its clouds out of a
-    // painted canvas, these are lit by the title's own sun and sky, so they have a bright crown, a
-    // cool underside and a silver edge, and go gold with the sunset.
+    // Cumulus (Surf/Cumulus): one quad per cloud faced to the lens, its puffs summed in the shader
+    // into one density field with a flat base and billowed edges, and lit as a relief by the
+    // title's own sun and sky. One draw each; each cloud's puffs ride on its own property block.
     Material puffMat; Light sunLight;
     void BuildClouds()
     {
-        var sh = Shader.Find("Surf/CloudPuff");
+        var sh = Shader.Find("Surf/Cumulus");
         if (sh == null) return;
-        puffMat = new Material(sh) { name = "cloud puffs" };
+        puffMat = new Material(sh) { name = "cumulus" };
         puffMat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent - 20;   // after the opaque world, which covers it by depth
         var holder = new GameObject("Clouds").transform; holder.SetParent(root, false);
-        // the web's rule (sixteen of them, far out and high, 50..90% opaque), at the sizes and
+        // the web's rule (sixteen of them, far out and high, mostly opaque), at the sizes and
         // distances measured off the running title screen, a little fuller
         for (int i = 0; i < 16; i++)
         {
-            float w = 58f + R() * 70f, op = 0.62f + R() * 0.34f;
+            float w = 58f + R() * 70f, op = 0.85f + R() * 0.15f;
             var go = new GameObject("cloud", typeof(MeshFilter), typeof(MeshRenderer)); go.transform.SetParent(holder, false);
-            go.GetComponent<MeshFilter>().sharedMesh = Cumulus(w, op);
             var mr = go.GetComponent<MeshRenderer>(); mr.sharedMaterial = puffMat;
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; mr.receiveShadows = false;
             mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+            go.GetComponent<MeshFilter>().sharedMesh = Cumulus(w, op, mr);
             go.transform.position = new Vector3((R() - 0.5f) * 2f * CloudWrap, 70f + R() * 110f, -277f - R() * 219f);
             clouds.Add(new Cloud { t = go.transform, v = 0.9f + R() * 2.1f });
         }
     }
 
-    Mesh Cumulus(float W, float op)
+    Mesh Cumulus(float W, float op, MeshRenderer mr)
     {
-        int n = 16 + (int)(R() * 14f);
-        float H = W * (0.30f + R() * 0.14f);
-        var cs = new List<Vector3>(); var rs = new List<float>(); var hs = new List<float>();
-        // the base: a row of wide, low puffs that makes the flat underside
-        int nb = 5 + (int)(R() * 3f);
+        float H = W * (0.32f + R() * 0.14f);
+        var P = new Vector4[40]; int n = 0;
+        // a row of wide, low puffs along the base, then a heap climbing to the middle
+        const int nb = 8;
         for (int k = 0; k < nb; k++)
         {
-            float x = Mathf.Lerp(-0.42f, 0.42f, (k + 0.5f) / nb) * W + (R() - 0.5f) * W * 0.06f;
-            float r = W * (0.11f + 0.04f * R()) * (1f - 0.35f * Mathf.Abs(x / (W * 0.5f)));
-            cs.Add(new Vector3(x, r * 0.55f, (R() - 0.5f) * W * 0.10f)); rs.Add(r); hs.Add(0.05f);
+            float x = Mathf.Lerp(-0.42f, 0.42f, (k + 0.5f) / nb) * W;
+            float r = W * (0.10f + 0.03f * R()) * (1f - 0.3f * Mathf.Abs(x / (W * 0.5f)));
+            P[n++] = new Vector4(x, r * 0.5f, r, 0f);
         }
-        // the heap: puffs piled toward the middle, smaller as they climb
-        for (int k = 0; k < n; k++)
+        while (n < P.Length)
         {
-            float u = (R() + R() + R()) / 3f - 0.5f;                       // bunched to the middle
-            float x = u * W * 0.9f;
+            float u = (R() + R() + R()) / 3f - 0.5f, x = u * W * 0.9f;
             float top = H * Mathf.Pow(Mathf.Max(0f, 1f - (2f * x / W) * (2f * x / W)), 0.7f);
-            float y = Mathf.Pow(R(), 0.8f) * top * 0.78f + W * 0.06f;
-            float r = W * (0.085f + 0.09f * R()) * (1f - 0.40f * y / Mathf.Max(1f, H));
-            cs.Add(new Vector3(x, y, (R() - 0.5f) * W * 0.22f)); rs.Add(r); hs.Add(Mathf.Clamp01((y + r * 0.6f) / Mathf.Max(1f, H)));
+            float y = Mathf.Pow(R(), 0.7f) * top * 0.9f + W * 0.04f;
+            float r = W * (0.05f + 0.07f * R()) * (1f - 0.35f * y / H);
+            P[n++] = new Vector4(x, y, r, 0f);
         }
-        // far first, so the pile blends back to front from the title's lens
-        var order = new List<int>(); for (int k = 0; k < cs.Count; k++) order.Add(k);
-        order.Sort((a, b) => cs[a].z.CompareTo(cs[b].z));
-        var v = new List<Vector3>(); var uv = new List<Vector2>(); var uv2 = new List<Vector2>(); var uv3 = new List<Vector2>(); var idx = new List<int>();
-        foreach (int k in order)
-        {
-            int b0 = v.Count; float seed = R();
-            for (int c = 0; c < 4; c++)
-            {
-                v.Add(cs[k]); uv.Add(new Vector2(rs[k], seed)); uv3.Add(new Vector2(hs[k], op));
-            }
-            uv2.Add(new Vector2(-1, -1)); uv2.Add(new Vector2(1, -1)); uv2.Add(new Vector2(1, 1)); uv2.Add(new Vector2(-1, 1));
-            idx.Add(b0); idx.Add(b0 + 2); idx.Add(b0 + 1); idx.Add(b0); idx.Add(b0 + 3); idx.Add(b0 + 2);
-        }
+        var mpb = new MaterialPropertyBlock();
+        mpb.SetVectorArray("_P", P); mpb.SetFloat("_N", n); mpb.SetFloat("_H", H); mpb.SetFloat("_Op", op); mpb.SetFloat("_Seed", R() * 50f);
+        mr.SetPropertyBlock(mpb);
+        float hw = W * 0.625f, y0 = -H * 0.18f, y1 = H * 1.42f;
         var m = new Mesh { name = "cumulus" };
-        m.SetVertices(v); m.SetUVs(0, uv); m.SetUVs(1, uv2); m.SetUVs(2, uv3); m.SetTriangles(idx, 0);
-        m.bounds = new Bounds(new Vector3(0, H * 0.5f, 0), new Vector3(W * 1.4f, H * 1.8f, W * 0.6f));
+        m.vertices = new[] { new Vector3(-hw, y0, 0), new Vector3(hw, y0, 0), new Vector3(-hw, y1, 0), new Vector3(hw, y1, 0) };
+        m.triangles = new[] { 0, 2, 1, 1, 2, 3 };
+        m.RecalculateBounds();
         return m;
     }
 
@@ -126,10 +113,9 @@ public class BeachSky
             foreach (var l in Object.FindObjectsByType<Light>(FindObjectsSortMode.None))
                 if (l.type == LightType.Directional && l.name == "Sun") { sunLight = l; break; }
         var sky = RenderSettings.skybox;
-        if (sky != null && sky.HasProperty("_Top")) { puffMat.SetVector("_Sky", sky.GetVector("_Mid")); puffMat.SetVector("_Hz", sky.GetVector("_Horizon")); }
+        if (sky != null && sky.HasProperty("_Mid")) { puffMat.SetVector("_Sky", sky.GetVector("_Mid")); puffMat.SetVector("_Hz", sky.GetVector("_Horizon")); }
         if (sky != null && sky.HasProperty("_Glow")) puffMat.SetVector("_SunCol", Vector4.Lerp(new Vector4(1f, 0.97f, 0.92f, 1f), sky.GetVector("_Glow"), 0.55f));
         if (sunLight != null) puffMat.SetVector("_SunDir", -sunLight.transform.forward);
-        puffMat.SetFloat("_T", t);
     }
 
     static Mesh Quad()
