@@ -89,7 +89,7 @@ public class DayCycle : MonoBehaviour
             if (keyFrom.sqrMagnitude > 0.01f) aim = keyFrom.normalized;
             sun.transform.rotation = Quaternion.LookRotation(-aim);
             sun.color = beachLook ? C(0xffab63) : Color.Lerp(C(0xfff2cf), glow, Mathf.Min(0.55f, glowAmt * 0.62f));
-            sun.intensity = beachLook ? 1.9f : 0.35f + 1.45f * daylight;
+            sun.intensity = beachLook ? 1.15f : 0.30f + 0.95f * daylight;
         }
         if (beachLook)
         {

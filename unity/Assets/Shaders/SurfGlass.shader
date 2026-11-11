@@ -53,6 +53,10 @@ Shader "Surf/Glass"
                 float sp = pow(saturate(dot(N, H)), lerp(16.0, 160.0, _Gloss)) * _Spec;
                 float fr = pow(1.0 - saturate(dot(N, V)), 4.0) * _Fresnel;
                 col += L.color * sp + amb * fr;
+                // the web's boards are tone mapped (ACES, exposure 1.02) while its sea is not; the
+                // global curve is off for the sea's sake, so the board carries its own
+                col *= 1.02;
+                col = saturate((col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14));
                 return half4(col, 1);
             }
             ENDHLSL

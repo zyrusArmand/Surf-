@@ -55,9 +55,9 @@ public class Beach : MonoBehaviour
             float k = (z - ProfZ[i]) / (ProfZ[i + 1] - ProfZ[i]); k = k * k * (3f - 2f * k);
             h = Mathf.Lerp(ProfY[i], ProfY[i + 1], k);
         }
-        // dunes where the sand is dry, and the flat disc the set stands on
+        // broad dunes where the sand is dry (the fine relief is in the tiles), and the flat disc the set stands on
         float dry = Mathf.Clamp01((z + 85f) / 20f);
-        float n = (Mathf.PerlinNoise(x * 0.07f + 3.1f, z * 0.09f) - 0.5f) * 0.9f + (Mathf.PerlinNoise(x * 0.23f, z * 0.27f + 7.7f) - 0.5f) * 0.25f;
+        float n = (Mathf.PerlinNoise(x * 0.05f + 3.1f, z * 0.06f) - 0.5f) * 0.7f;
         h += dry * n;
         float d = Vector2.Distance(new Vector2(x, z), new Vector2(15.3f, -50f));
         float flat = 1f - Mathf.Clamp01((d - 4f) / 4f); flat = flat * flat * (3f - 2f * flat);
@@ -77,6 +77,8 @@ public class Beach : MonoBehaviour
         if (baseTex != null) sm.SetTexture("_BaseMap", baseTex);
         if (nrm != null) { sm.EnableKeyword("_NORMALMAP"); sm.SetTexture("_BumpMap", nrm); sm.SetFloat("_BumpScale", 1.35f); }
         var smr = sandGo.GetComponent<MeshRenderer>(); smr.sharedMaterial = sm; smr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        sandGo.transform.position = new Vector3(0, -0.35f, 0);     // a floor under the tiles, for the gaps
+        SandTiles();
 
         // the palm, leaning out to the right with the Surf sign hung in it
         var palm = Prop("Palm", Models.Spawn("palm2", root.transform, palmHeight, PrimitiveType.Cylinder), R(palmTurn), flipPalm);
@@ -103,6 +105,46 @@ public class Beach : MonoBehaviour
             var bc = arm.AddComponent<BoxCollider>(); bc.size = new Vector3(Mathf.Max(b.size.x, 1.2f), postHeight / 3f, Mathf.Max(b.size.z, 0.8f));
         }
         Show(false);
+    }
+
+    // The web beach is eighty-odd copies of one modelled sand tile with real dune relief, laid
+    // on a hexagonal grid at about half a tile's spacing so they overlap, each turned, scaled
+    // and tilted to the beach's slope. The same tile, the same layout.
+    void SandTiles()
+    {
+        var prefab = Resources.Load<GameObject>("Models/sand");
+        if (prefab == null) return;
+        var src = Object.Instantiate(prefab); src.SetActive(false);
+        var mf = src.GetComponentInChildren<MeshFilter>(); var mr = src.GetComponentInChildren<MeshRenderer>();
+        if (mf == null || mr == null) { Object.Destroy(src); return; }
+        Models.Repair(src);
+        var mesh = mf.sharedMesh; var mat = mr.sharedMaterial;
+        var bb = mesh.bounds; float span = Mathf.Max(bb.size.x, bb.size.z) * Mathf.Max(mf.transform.lossyScale.x, mf.transform.lossyScale.z);
+        float tile = 14f * 1.15f, baseK = tile / Mathf.Max(1e-4f, span);
+        float stepX = tile * 0.54f, stepZ = stepX * 0.866f;
+        float X = 34f * 1.15f, Z0 = 14f * 1.15f, Z1 = -68f * 1.15f;
+        float gx0 = -X - stepX * 0.5f, gz0 = Z1 - stepZ * 0.5f;
+        int nx = Mathf.CeilToInt((X * 2 + stepX) / stepX) + 1, nz = Mathf.CeilToInt((Z0 - Z1 + stepZ) / stepZ) + 1;
+        long rs = 20250823; System.Func<float> R = () => { rs = (rs * 1103515245L + 12345L) & 0x7fffffff; return rs / 2147483647f; };
+        var holder = new GameObject("SandTiles"); holder.transform.SetParent(root.transform, false);
+        float lift = -bb.min.y * mf.transform.lossyScale.y;
+        for (int ix = 0; ix < nx; ix++) for (int iz = 0; iz < nz; iz++)
+        {
+            float x = gx0 + (ix + 0.5f + ((iz & 1) == 1 ? 0.5f : 0f)) * stepX + (R() - 0.5f) * stepX * 0.34f;
+            float z = gz0 + (iz + 0.5f) * stepZ + (R() - 0.5f) * stepZ * 0.34f;
+            float k = baseK * (0.90f + R() * 0.26f);
+            float y = SandY(x, z) - lift * k * 0.55f;
+            // the slope under the tile, so it lies along the beach rather than through it
+            float hx = SandY(x + 2f, z) - SandY(x - 2f, z), hz = SandY(x, z + 2f) - SandY(x, z - 2f);
+            var nrm = new Vector3(-hx / 4f, 1f, -hz / 4f).normalized;
+            var t = new GameObject("tile", typeof(MeshFilter), typeof(MeshRenderer)); t.transform.SetParent(holder.transform, false);
+            t.GetComponent<MeshFilter>().sharedMesh = mesh; var tr = t.GetComponent<MeshRenderer>(); tr.sharedMaterial = mat;
+            tr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; tr.receiveShadows = true;
+            t.transform.position = new Vector3(x, y, z);
+            t.transform.rotation = Quaternion.FromToRotation(Vector3.up, nrm) * Quaternion.Euler(0, R() * 360f, 0) * mf.transform.rotation;
+            t.transform.localScale = mf.transform.lossyScale * k;
+        }
+        Object.Destroy(src);
     }
 
     GameObject leanBoard;

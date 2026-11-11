@@ -24,8 +24,16 @@ public static class UiKit
     // width just inside the edge. Edges flagged open (the trick column's left, JUMP's right) are
     // pushed out past the texture so they come out straight and unringed, the way the
     // stylesheet cuts them against the screen edge.
+    static readonly System.Collections.Generic.Dictionary<string, Sprite> cache = new System.Collections.Generic.Dictionary<string, Sprite>();
     public static Sprite Rounded(float w, float h, float rTL, float rTR, float rBR, float rBL, Body body, float ring,
                                  bool openLeft = false, bool openRight = false)
+    {
+        string key = w + "x" + h + ":" + rTL + "," + rTR + "," + rBR + "," + rBL + ":" + body + ":" + ring + ":" + openLeft + openRight;
+        if (cache.TryGetValue(key, out var cached) && cached != null) return cached;
+        var sp = Render(w, h, rTL, rTR, rBR, rBL, body, ring, openLeft, openRight);
+        cache[key] = sp; return sp;
+    }
+    static Sprite Render(float w, float h, float rTL, float rTR, float rBR, float rBL, Body body, float ring, bool openLeft, bool openRight)
     {
         int W = Mathf.CeilToInt(w * Scale), H = Mathf.CeilToInt(h * Scale);
         var tex = new Texture2D(W, H, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
