@@ -43,7 +43,7 @@ public class Bootstrap : MonoBehaviour
 
         // the water
         spawner = new GameObject("Spawner").AddComponent<Spawner>(); spawner.rider = rider;
-        setWave = new GameObject("SetWave").AddComponent<SetWave>(); setWave.rider = rider; setWave.day = day;
+        setWave = new GameObject("SetWave").AddComponent<SetWave>(); setWave.rider = rider; setWave.day = day; spawner.setWave = setWave;
         whirl = new GameObject("Whirlpool").AddComponent<Whirlpool>(); whirl.rider = rider; whirl.spawner = spawner; whirl.setWave = setWave;
         crate = new GameObject("Crate").AddComponent<Crate>(); crate.rider = rider; crate.setWave = setWave;
         cocos = new GameObject("Coconuts").AddComponent<Coconuts>(); cocos.rider = rider; cocos.setWave = setWave;

@@ -32,10 +32,39 @@ public class Spawner : MonoBehaviour
     const float ShkLead = 1.15f, ShkArc = 1.30f, ShkApex = 5.4f, ShkDodge = 3.2f, ShkOver = 3.4f, ShkReach = 7.5f, ShkChance = 0.66f, ShkPast = 2.2f;
     public const float ShkChew = 1.75f;
 
+    // ---- the banner plane: a tow passes low over the lane every forty to eighty seconds ----
+    public SetWave setWave;
+    Transform tow; bool towOn; float towT = 20f, towSpin;
+
+    void TowPlane(float dt, float eff)
+    {
+        bool setIdle = setWave == null || setWave.ph == SetWave.Phase.Idle;
+        if (setIdle) towT -= dt;
+        if (setIdle && towT <= 0f && !towOn)
+        {
+            if (tow == null)
+            {
+                var go = Models.Spawn("plane", null, 2f, PrimitiveType.Cube); Models.FitLength(go, 22f); go.name = "BannerPlane";
+                tow = go.transform;
+            }
+            towOn = true; tow.gameObject.SetActive(true);
+            tow.position = new Vector3(Random.value * 16f - 8f, 11f, -190f);
+            towT = 40f + Random.value * 38f;
+        }
+        if (towOn && setIdle)
+        {
+            towSpin += dt;
+            tow.position = new Vector3(tow.position.x, 11f + Mathf.Sin(towSpin * 1.5f) * 0.6f, tow.position.z + (eff * 0.45f + 12f) * dt);
+            tow.rotation = Quaternion.Euler(0, 180f, 0);      // nose toward the rider, flying in
+            if (tow.position.z > 40f) { towOn = false; tow.gameObject.SetActive(false); }
+        }
+    }
+
     public void Clear()
     {
         foreach (var o in obstacles) if (o.go) Destroy(o.go);
         obstacles.Clear(); spawnT = 1.8f; eater = null; bigFinCd = 0; octCd = 0;
+        towOn = false; towT = 20f + Random.value * 20f; if (tow != null) tow.gameObject.SetActive(false);
         foreach (var st in stars) if (st.go) Destroy(st.go);
         stars.Clear();
     }
@@ -47,6 +76,7 @@ public class Spawner : MonoBehaviour
         var r = rider; float eff = r.eff;
         spawnT -= dt;
         float distM = r.dist;
+        if (r.running) TowPlane(dt, eff);
         if (r.running && spawnT <= 0f)
         {
             float wantGap = Mathf.Max(15f, 24f - distM / 300f);
