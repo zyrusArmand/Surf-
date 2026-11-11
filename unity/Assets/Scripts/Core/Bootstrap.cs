@@ -77,9 +77,10 @@ public class Bootstrap : MonoBehaviour
         var tone = prof.Add<UnityEngine.Rendering.Universal.Tonemapping>(); tone.mode.Override(UnityEngine.Rendering.Universal.TonemappingMode.ACES);
 
         // HUD
-        hud = new GameObject("HUD").AddComponent<Hud>(); hud.rider = rider; hud.Build();
-        hud.onPlay = Play;
-        Play();
+        hud = new GameObject("HUD").AddComponent<Hud>(); hud.rider = rider;
+        hud.onPlay = Play; hud.onMenu = Menu;
+        hud.Build();
+        Menu();
     }
 
     void Play()
@@ -88,7 +89,18 @@ public class Bootstrap : MonoBehaviour
         rider.Begin();
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
-        hud.ShowCard(false, 0, 0, 0);
+        hud.ShowRide();
+        chase.Snap();
+    }
+
+    /// the title: the ride stops, he floats in the lane, the dial comes up
+    void Menu()
+    {
+        spawner.Clear();
+        rider.Idle(0f);
+        rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
+        over = false;
+        hud.ShowMenu();
         chase.Snap();
     }
 
@@ -143,6 +155,7 @@ public class Bootstrap : MonoBehaviour
                 hud.ShowCard(true, d, rider.score, SaveData.Best);
             }
         }
+        else rider.Idle(dt);
         // the pug's stance: the skeleton is posed when the file has one, else the stand-in squashes
         if (riderRig != null && riderRig.Ready)
         {
