@@ -65,6 +65,7 @@ public class Ocean : MonoBehaviour
     {
         material.SetFloat("_Lift", lift);
         material.SetFloat("_Calm", WaveField.Calm);
+        material.SetFloat("_WhX", WaveField.WhX); material.SetFloat("_WhZ", WaveField.WhZ); material.SetFloat("_WhA", WaveField.WhA);
         material.SetFloat("_SwA", WaveField.SetA); material.SetFloat("_SwX", WaveField.SetX); material.SetFloat("_SwS", WaveField.SetS);
         material.SetFloat("_Shore", shore);
         material.SetFloat("_T", t);

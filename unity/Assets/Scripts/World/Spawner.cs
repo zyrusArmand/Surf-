@@ -8,8 +8,12 @@ public class Spawner : MonoBehaviour
     public class Ob
     {
         public string kind; public GameObject go; public float x, z, y, floatOff, hx, hz, h;
-        public bool ramp, used, passed; public float rx, rz;
+        public bool ramp, used, passed, escape; public float rx, rz;
+        // the shark
+        public float dir, startX, targetX, at, x0, z0, aimX, aimZ, yaw; public bool hunts; public string atk;
     }
+    public Ob eater;                 // the shark that has him, while the chew lasts
+    float bigFinCd;
 
     public BoardController rider;
     public System.Action<Vector3, int> onSplash;
@@ -18,13 +22,17 @@ public class Spawner : MonoBehaviour
     const float FtToM = 0.3048f;
 
     static readonly Dictionary<string, float> FloatOff = new Dictionary<string, float> {
-        {"buoy",0.36f},{"jelly",0.34f},{"log",0.40f},{"ramp",0.02f} };
+        {"buoy",0.36f},{"jelly",0.34f},{"log",0.40f},{"ramp",0.02f},{"bigfin",0.28f} };
+    const float ShkLead = 1.15f, ShkArc = 1.30f, ShkApex = 5.4f, ShkDodge = 3.2f, ShkOver = 3.4f, ShkReach = 7.5f, ShkChance = 0.66f, ShkPast = 2.2f;
+    public const float ShkChew = 1.75f;
 
     public void Clear()
     {
         foreach (var o in obstacles) if (o.go) Destroy(o.go);
-        obstacles.Clear(); spawnT = 1.8f;
+        obstacles.Clear(); spawnT = 1.8f; eater = null; bigFinCd = 0;
     }
+
+    public void Remove(int i) { if (obstacles[i].go) Destroy(obstacles[i].go); obstacles.RemoveAt(i); }
 
     public void Step(float dt)
     {
@@ -39,6 +47,7 @@ public class Spawner : MonoBehaviour
             var weights = new List<(string, float)> { ("buoy", 22), ("log", 17) };
             if (distM >= 150) weights.Add(("ramp", 16));
             if (distM >= 340) weights.Add(("jelly", 20));
+            if (distM >= 560 && bigFinCd <= 0f) weights.Add(("bigfin", 11));
             string pick = "buoy";
             for (int tries = 0; tries < 8; tries++)
             {
@@ -49,6 +58,7 @@ public class Spawner : MonoBehaviour
                 pick = cand; break;
             }
             sameRun = pick == lastKind ? sameRun + 1 : 0; lastKind = pick;
+            if (pick == "bigfin") bigFinCd = 18f;
             laneSlot = (laneSlot + 1 + Random.Range(0, 3)) % 7;
             float laneX = (-3 + laneSlot) * 4.9f + (Random.value - 0.5f) * 3.0f;
             Make(pick, Mathf.Clamp(r.px * 0.55f + laneX, -17f, 17f), -170f);
@@ -58,11 +68,13 @@ public class Spawner : MonoBehaviour
                 Make(Random.value < 0.5f ? "buoy" : "log", edge, -176f);
             }
         }
+        bigFinCd -= dt;
         float fzBase = r.dist * WaveField.Drift;
         for (int i = obstacles.Count - 1; i >= 0; i--)
         {
             var o = obstacles[i];
             o.z += eff * dt;
+            if (o.kind == "bigfin" && Shark(o, dt, eff, fzBase)) continue;
             if (o.z > 30f) { Destroy(o.go); obstacles.RemoveAt(i); continue; }
             float oy = WaveField.Swell(o.x, fzBase + o.z, r.t) + o.floatOff;
             o.y += (oy - o.y) * Mathf.Min(1f, dt * (o.ramp ? 3f : 9f));
@@ -109,7 +121,72 @@ public class Spawner : MonoBehaviour
         }
     }
 
-    void Make(string kind, float x, float z)
+    // The big fin: it crosses the lane from one side toward where you are, and two times in
+    // three it hunts -- turning after you and, a second out, leaping clear of the water at you.
+    // Three feet of sidestep or enough air gets you past it for a bonus; otherwise it has you.
+    // Returns true when it has handled the obstacle's placement for this frame.
+    bool Shark(Ob o, float dt, float eff, float fzBase)
+    {
+        var r = rider;
+        float togo = Mathf.Max(0.35f, (-o.z) / Mathf.Max(8f, eff));
+        if (o.atk == null)
+        {
+            float vx = (o.targetX - o.x) / togo;
+            o.x += vx * dt;
+            if (Random.value < dt * 14f) onSplash?.Invoke(new Vector3(o.x, o.y + 0.1f, o.z + 1.4f), 1);
+            if (o.hunts) { float want = Mathf.Atan2(vx, Mathf.Max(1f, eff)); float d = Mathf.DeltaAngle(o.yaw * Mathf.Rad2Deg, want * Mathf.Rad2Deg) * Mathf.Deg2Rad; o.yaw += d * Mathf.Min(1f, dt * 2.5f); }
+            if (o.hunts && togo < ShkLead && r.running && o.z < 0 && Mathf.Abs(o.x - r.px) < ShkReach)
+            {
+                o.atk = "leap"; o.at = 0; o.x0 = o.x; o.z0 = o.z; o.aimX = r.px; o.aimZ = r.pz;
+                onSplash?.Invoke(new Vector3(o.x, o.y, o.z), 18);
+            }
+            return false;        // the usual float and tilt and contact test still apply
+        }
+        if (o.atk == "leap" || o.atk == "miss")
+        {
+            o.at += dt;
+            float k = Mathf.Min(1f, o.at / ShkArc);
+            float tx = o.hunts ? o.aimX : (o.aimX + (o.aimX - o.x0 > 0 ? ShkPast : -ShkPast));
+            float tz = o.aimZ + (o.hunts ? 4.5f : 1.6f);
+            o.x = o.x0 + (tx - o.x0) * k; o.z = o.z0 + (tz - o.z0) * k;
+            float sea = WaveField.Swell(o.x, fzBase + o.z, r.t);
+            float arc = Mathf.Sin(Mathf.PI * k);
+            o.y = sea + o.floatOff + (1.2f + ShkApex) * arc;
+            float ldx = tx - o.x0, ldz = tz - o.z0;
+            float yaw = o.hunts ? Mathf.Atan2(ldx, ldz) : o.yaw;
+            float dyk = Mathf.PI * Mathf.Cos(Mathf.PI * k) * ShkApex, dhk = (o.hunts ? Mathf.Sqrt(ldx * ldx + ldz * ldz) : Mathf.Abs(ldx)) + 0.001f;
+            float pitch = Mathf.Atan2(dyk, dhk * 1.35f);
+            o.go.transform.position = new Vector3(o.x, o.y, o.z);
+            o.go.transform.rotation = Quaternion.Euler(0, yaw * Mathf.Rad2Deg, 0) * Quaternion.Euler(-pitch * Mathf.Rad2Deg, 0, 0);
+            if (o.atk == "leap" && k >= 0.5f)
+            {
+                float off = Mathf.Abs(r.px - o.x);
+                if (off < ShkDodge && r.py < o.y + ShkOver && r.running)
+                {
+                    o.atk = "bite"; eater = o; o.at = 0;
+                    r.Wipeout("bigfin"); r.Say("EATEN!");
+                    return true;
+                }
+                o.atk = "miss"; r.score += 60; r.Say("DODGED THE SHARK! +60");
+            }
+            if (k >= 1f) { onSplash?.Invoke(new Vector3(o.x, o.y, o.z), 26); o.atk = "done"; o.targetX = o.x; o.y = sea + o.floatOff; }
+            return true;
+        }
+        if (o.atk == "bite")
+        {
+            // it takes him under over the chew, and the ride's wipeout follows it
+            o.at += dt; float k = Mathf.Min(1f, o.at / ShkChew);
+            float sea = WaveField.Swell(o.x, fzBase + o.z, r.t);
+            o.y = sea + o.floatOff + 2.0f * (1f - k) - 4.5f * k * k;
+            o.go.transform.position = new Vector3(o.x, o.y, o.z);
+            r.px = o.x; r.py = o.y + 1.1f; r.pz = o.z; r.vy = 0;
+            r.transform.position = new Vector3(r.px, r.py, r.pz);
+            return true;
+        }
+        return false;   // done: it swims on as a fin
+    }
+
+    public Ob Make(string kind, float x, float z)
     {
         var o = new Ob { kind = kind, x = x, z = z, floatOff = FloatOff[kind] };
         var holder = new GameObject(kind);
@@ -125,9 +202,22 @@ public class Spawner : MonoBehaviour
                 { var g = Models.Spawn("ramp", holder.transform, 1.6f, PrimitiveType.Cube); if (g.name.EndsWith("(stand-in)")) g.transform.localScale = new Vector3(4.6f, 1.2f, 6f); } break;
             case "jelly": o.hx = 1.1f; o.hz = 1.1f; o.h = 1.4f;
                 { var g = Models.Spawn("jelly", holder.transform, 2.6f, PrimitiveType.Sphere); } break;
+            case "bigfin": o.hx = 1.70f; o.hz = 0.50f; o.h = 4.2f;
+                {
+                    var g = Models.Spawn("bigfin", holder.transform, 3.4f, PrimitiveType.Cube);
+                    foreach (var a in g.GetComponentsInChildren<Animation>(true)) a.enabled = false;
+                    foreach (var a in g.GetComponentsInChildren<Animator>(true)) a.enabled = false;
+                    o.dir = Random.value < 0.5f ? 1f : -1f;
+                    o.hunts = Random.value < ShkChance;
+                    o.startX = rider.px - o.dir * (11f + Random.value * 5f);
+                    o.targetX = rider.px + o.dir * (0.5f + Random.value * 2.5f);
+                    o.x = o.startX; o.yaw = o.dir * Mathf.PI / 2f;
+                    g.transform.localRotation = Quaternion.Euler(0, o.dir > 0 ? 0 : 180f, 0);   // nose across the lane
+                } break;
         }
         o.go = holder;
         o.y = WaveField.Swell(x, rider.dist * WaveField.Drift + z, rider.t) + o.floatOff;
         obstacles.Add(o);
+        return o;
     }
 }

@@ -21,6 +21,18 @@ public static class WaveField
     // the peel is evaluated on world z (the field coordinate with the scroll taken back off).
     public const float SwFace = 10f, SwBack = 34f, SwPeak = 7f, SwBrk = 30f, SwPeel = 78f, SwColl = 26f, SwHold = 26f;
     public static float SetA, SetX, SetS = 1f;      // crest height, crest x, which side it came from
+
+    // ---- the whirlpool: a dip in the field, its centre in field space ----
+    public const float WhR = 20f;
+    public static float WhX, WhZ, WhA;
+    static float WhirlProfile(float k) => k * k * (3 - 2 * k) * (1 + 2.1f * Mathf.Pow(k, 7f));
+    public static float WhirlDip(float x, float fieldZ)
+    {
+        if (WhA <= 0.001f) return 0f;
+        float dx = x - WhX, dz = fieldZ - WhZ, d2 = dx * dx + dz * dz;
+        if (d2 >= WhR * WhR) return 0f;
+        return -WhA * WhirlProfile(1 - Mathf.Sqrt(d2) / WhR);
+    }
     public static float PeelA(float z) { float u = Mathf.Clamp01((z - (SwBrk - SwPeel)) / (SwPeel - SwHold)); return u * u * (3 - 2 * u); }
     public static float PeelB(float z) { float u = Mathf.Clamp01((z - SwBrk) / SwColl); return u * u * (3 - 2 * u); }
     public static float SetWaveH(float x, float fieldZ)
@@ -66,7 +78,7 @@ public static class WaveField
     {
         float h = 0f;
         for (int i = 0; i < Waves.Length; i++) h += Comp(Waves[i], x, fieldZ, t);
-        return h * Amp * Calm + SetWaveH(x, fieldZ);
+        return h * Amp * Calm + SetWaveH(x, fieldZ) + WhirlDip(x, fieldZ);
     }
 
     /// the long swell only: what a floating object rides, so buoys glide instead of vibrating
@@ -74,7 +86,7 @@ public static class WaveField
     {
         float h = 0f;
         for (int i = 0; i < 2; i++) h += Comp(Waves[i], x, fieldZ, t);
-        return h * Amp * 1.06f * Calm + SetWaveH(x, fieldZ);
+        return h * Amp * 1.06f * Calm + SetWaveH(x, fieldZ) + WhirlDip(x, fieldZ);
     }
 
     /// surface normal by finite difference, for tilting things that sit on it

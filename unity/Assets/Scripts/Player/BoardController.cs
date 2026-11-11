@@ -30,7 +30,7 @@ public class BoardController : MonoBehaviour
     public float waterY, carve;
     public float t;                     // the wave clock
     public string lastMsg; public float msgT;
-    public int coins;
+    public int coins, bonusCoins;      // puka from distance, plus what the chest and the rest hand over
 
     // ---- the pose beats both rigs read ----
     public float poseTake, poseCrouch, poseExt, poseAir, poseLand;
@@ -41,7 +41,7 @@ public class BoardController : MonoBehaviour
     public void Begin()
     {
         px = 0; py = 0; pz = 0; vx = 0; vy = 0; dist = 0; speed = SpdLo; eff = SpdLo; boost = 0; trim = 0;
-        airborne = false; running = true; wipe = false; wipeT = 0; score = 0; coins = 0;
+        airborne = false; running = true; wipe = false; wipeT = 0; score = 0; coins = 0; bonusCoins = 0;
         spinRot = flipRot = pitchRot = 0; spinHeld = flipHeld = pitchHeld = false;
         poseTake = poseCrouch = poseExt = poseAir = poseLand = 0;
         transform.rotation = Quaternion.identity;
@@ -156,7 +156,7 @@ public class BoardController : MonoBehaviour
         if (msgT > 0) msgT -= dt;
 
         // coins: a shell a few metres, the web game's pace
-        coins = (int)(dist * 0.18f);
+        coins = (int)(dist * 0.18f) + bonusCoins;
 
         // the transform: position, the trick rotation, and the carve lean on top
         transform.position = new Vector3(px, py, pz);
