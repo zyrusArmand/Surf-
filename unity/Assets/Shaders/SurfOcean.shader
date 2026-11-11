@@ -23,6 +23,10 @@ Shader "Surf/Ocean"
         _WakeA ("Wake amount", Float) = 0
         _Lift ("Sea level", Float) = 0
         _Calm ("Swell calm", Float) = 1
+        _FallW ("Chute", Float) = 0
+        _FallZF ("Chute origin", Float) = 0
+        _FallT ("Chute travel", Float) = 0
+        _FallLane ("Chute lane", Float) = 9
         _SwA ("Set wave height", Float) = 0
         _SwX ("Set wave crest x", Float) = 0
         _SwS ("Set wave side", Float) = 1
@@ -49,7 +53,7 @@ Shader "Surf/Ocean"
 
             CBUFFER_START(UnityPerMaterial)
             float4 _Deep, _Shallow, _SkyLo, _SkyHi, _Glow, _SunDir;
-            float _Light, _Amp, _Peak, _Dist, _T, _WakeX, _WakeZ, _WakeA, _Lift, _Shore, _ShoreW, _Calm, _SwA, _SwX, _SwS, _WhX, _WhZ, _WhA;
+            float _Light, _Amp, _Peak, _Dist, _T, _WakeX, _WakeZ, _WakeA, _Lift, _Shore, _ShoreW, _Calm, _SwA, _SwX, _SwS, _WhX, _WhZ, _WhA, _FallW, _FallZF, _FallT, _FallLane;
             CBUFFER_END
             TEXTURE2D(_Chop); SAMPLER(sampler_Chop); float _ChopK;
             float4 _WaveA[7];   // dx, dz, k, a
@@ -59,6 +63,17 @@ Shader "Surf/Ocean"
             struct V { float4 pos : SV_POSITION; float3 w : TEXCOORD0; float3 n : TEXCOORD1; float h : TEXCOORD2; float4 sw : TEXCOORD3; };
 
             // the field: height and its two slopes at a field point p (x, dist*drift+z)
+            // the chute: the web's fallDip, the lane tipping down a fall, anchored at the rider
+            float fallH(float2 q)
+            {
+                if (_FallW <= 0.002) return 0.0;
+                float d = clamp(_FallZF - q.y, _FallT - 6.0, _FallT + 140.0);
+                float u = min(1.6, abs(q.x) / max(0.001, _FallLane));
+                float wob = sin(q.x * 0.37) * 3.2;
+                float A = -0.47 * _FallT;
+                return _FallW * (-0.47 * d - A) + 1.1 * _FallW * u * u;
+            }
+
             void field(float2 p, out float h, out float dhx, out float dhz)
             {
                 h = 0; dhx = 0; dhz = 0;
@@ -73,6 +88,12 @@ Shader "Surf/Ocean"
                     dhx += c * a.x; dhz += c * a.y;
                 }
                 h *= _Amp * _Calm; dhx *= _Amp * _Calm; dhz *= _Amp * _Calm;
+                if (_FallW > 0.002)
+                {
+                    h += fallH(p);
+                    dhx += (fallH(p + float2(0.6, 0)) - fallH(p - float2(0.6, 0))) / 1.2;
+                    dhz += (fallH(p + float2(0, 0.6)) - fallH(p - float2(0, 0.6))) / 1.2;
+                }
                 // the whirlpool: a dip with a steep eye, its slope folded into the normal
                 if (_WhA > 0.001)
                 {

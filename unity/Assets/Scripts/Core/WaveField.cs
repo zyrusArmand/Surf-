@@ -33,6 +33,26 @@ public static class WaveField
         if (d2 >= WhR * WhR) return 0f;
         return -WhA * WhirlProfile(1 - Mathf.Sqrt(d2) / WhR);
     }
+    // ---- the chute: the lane tips down a fall, the profile anchored at the rider so his own height
+    // stays near zero however far down he has come (the web's fallDip). Set by Chute each frame. ----
+    public static float FallW, FallZF, FallT, FallLane = 9f;
+    const float FSlope = 0.47f, FAhead = 140f, FBehind = 6f, FKnee = 26f, FSteep = 0f, FStep = 95f, FLedge = 0f, FLip0 = 0.55f, FLip1 = 0.72f, FLipX = 0.37f, FLipA = 3.2f, FBank = 1.1f;
+    static float FallStair(float d)
+    {
+        float ph = d / FStep, k = Mathf.Floor(ph);
+        float f = Mathf.Clamp01((ph - k - FLip0) / (FLip1 - FLip0));
+        return -FLedge * (k + f * f * (3f - 2f * f));
+    }
+    public static float FallDip(float x, float fieldZ)
+    {
+        if (FallW <= 0.001f) return 0f;
+        float d = Mathf.Max(FallT - FBehind, Mathf.Min(FallT + FAhead, FallZF - fieldZ));
+        float u = Mathf.Min(1.6f, Mathf.Abs(x) / Mathf.Max(0.001f, FallLane));
+        float wob = Mathf.Sin(x * FLipX) * FLipA;
+        float A = -FSlope * FallT - FSteep * Mathf.Max(0f, FallT - FKnee) + FallStair(FallT + wob);
+        return FallW * (-FSlope * d - FSteep * Mathf.Max(0f, d - FKnee) + FallStair(d + wob) - A) + FBank * FallW * u * u;
+    }
+
     public static float PeelA(float z) { float u = Mathf.Clamp01((z - (SwBrk - SwPeel)) / (SwPeel - SwHold)); return u * u * (3 - 2 * u); }
     public static float PeelB(float z) { float u = Mathf.Clamp01((z - SwBrk) / SwColl); return u * u * (3 - 2 * u); }
     public static float SetWaveH(float x, float fieldZ)
@@ -78,7 +98,7 @@ public static class WaveField
     {
         float h = 0f;
         for (int i = 0; i < Waves.Length; i++) h += Comp(Waves[i], x, fieldZ, t);
-        return h * Amp * Calm + SetWaveH(x, fieldZ) + WhirlDip(x, fieldZ);
+        return h * Amp * Calm + SetWaveH(x, fieldZ) + WhirlDip(x, fieldZ) + FallDip(x, fieldZ);
     }
 
     /// the long swell only: what a floating object rides, so buoys glide instead of vibrating
@@ -86,7 +106,7 @@ public static class WaveField
     {
         float h = 0f;
         for (int i = 0; i < 2; i++) h += Comp(Waves[i], x, fieldZ, t);
-        return h * Amp * 1.06f * Calm + SetWaveH(x, fieldZ) + WhirlDip(x, fieldZ);
+        return h * Amp * 1.06f * Calm + SetWaveH(x, fieldZ) + WhirlDip(x, fieldZ) + FallDip(x, fieldZ);
     }
 
     /// surface normal by finite difference, for tilting things that sit on it

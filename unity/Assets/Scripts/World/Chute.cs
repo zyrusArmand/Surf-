@@ -58,6 +58,7 @@ public class Chute : MonoBehaviour
     // =====================================================================================
     public void Reset()
     {
+        WaveField.FallW = 0f; WaveField.FallT = 0f;
         End();
         W = 0; Lay = 0; Tilt = 0; summon = false; calmSet = false;
         Apply();
@@ -162,6 +163,7 @@ public class Chute : MonoBehaviour
             if (Ph >= 0) spawner.holdCast = !CastRocks;                      // the web's _inDrop gate; the rock rack otherwise
         }
         // the chop comes out of the field the board reads as well as the water on screen (web _fallCalm)
+        WaveField.FallW = W; WaveField.FallZF = zf0; WaveField.FallT = Travel; WaveField.FallLane = Lane;   // the sea tips down the fall
         if (W > 0.001f) { WaveField.Calm = 1f - W * CalmK; calmSet = true; }
         else if (calmSet) { calmSet = false; if (setWave == null || setWave.ph == SetWave.Phase.Idle) WaveField.Calm = 1f; }
     }
