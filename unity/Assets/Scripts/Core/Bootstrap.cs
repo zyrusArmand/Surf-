@@ -6,6 +6,7 @@ using UnityEngine;
 public class Bootstrap : MonoBehaviour
 {
     BoardController rider; Spawner spawner; ChaseCamera chase; Hud hud; DayCycle day; Ocean ocean;
+    Fx fx;
     ParticleSystem spray; Transform rig, pug; RiderRig riderRig; ProcRig procRig; float wakeA;
     Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop; Coconuts cocos; Ufo ufo; Dive dive; Island island; Chute chute;
     Quests quests; StatsPanel stats; SettingsPanel settings; SchoolPanel school; ProfilePanel profile; GuidePanel guide;
@@ -61,7 +62,8 @@ public class Bootstrap : MonoBehaviour
 
         // spray
         spray = BuildSpray();
-        rider.onSplash = (p, n) => { spray.transform.position = p; spray.Emit(n); };
+        fx = new GameObject("Fx").AddComponent<Fx>(); fx.rider = rider; fx.setWave = setWave; fx.dive = dive; fx.Build();
+        rider.onSplash = (p, n) => { spray.transform.position = p; spray.Emit(n); if (n >= 18) fx.Ring(p, n); };
         spawner.onSplash = rider.onSplash; setWave.onSplash = rider.onSplash; whirl.onSplash = rider.onSplash; crate.onSplash = rider.onSplash; cocos.onSplash = rider.onSplash; ufo.onSplash = rider.onSplash; dive.onSplash = rider.onSplash; island.onSplash = rider.onSplash; chute.onSplash = rider.onSplash;
         rider.onWipeout = () => { over = false; Sfx.Buzz(60, 50, 80); };
 
@@ -338,7 +340,7 @@ public class Bootstrap : MonoBehaviour
                                          new[] { new GradientAlphaKey(1f, 0), new GradientAlphaKey(0.9f, 0.6f), new GradientAlphaKey(0f, 1) });
         col.color = g;
         var r = go.GetComponent<ParticleSystemRenderer>();
-        var m = SoftParticles(DropTex()); if (m != null) r.material = m;
+        var m = SoftParticles(DropTex()); if (m != null) { Fx.Soften(m, 0.5f); r.material = m; }   // soft: drops fade into the board and the rider instead of cutting through
         r.renderMode = ParticleSystemRenderMode.Billboard;
         return ps;
     }
@@ -453,6 +455,7 @@ public class Bootstrap : MonoBehaviour
         ocean.Tick(rider.t, rider.dist * WaveField.Drift, WaveField.Amp, rider.px, rider.pz + BoardController.BoardHalfL, wakeA, beach.Showing ? beach.seaLevel : 0f, beach.Showing ? -88f : 100000f);   // a shoreline far behind the rider keeps the open sea at full swell
         day.Apply(rider.dist);
         var pm = spray.main; pm.startColor = Color.Lerp(Color.white, day.glow, day.glowAmt * 0.45f);
+        fx.Step(dt, pm.startColor.color);
         if (beach.Showing) beach.PlaceCamera(cam, dt); else chase.Step(dt);
     }
 }
