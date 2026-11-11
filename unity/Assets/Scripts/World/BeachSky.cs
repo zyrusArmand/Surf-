@@ -59,17 +59,17 @@ public class BeachSky
         puffMat = new Material(sh) { name = "cumulus" };
         puffMat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent - 20;   // after the opaque world, which covers it by depth
         var holder = new GameObject("Clouds").transform; holder.SetParent(root, false);
-        // the web's rule (sixteen of them, far out and high, mostly opaque), at the sizes and
-        // distances measured off the running title screen, a little fuller
+        // the web's rule exactly (web 12187-12195): sixteen of them, 34 to 96 feet across, half
+        // to nine tenths opaque, 56 to 140 up and 240 to 460 out
         for (int i = 0; i < 16; i++)
         {
-            float w = 58f + R() * 70f, op = 0.85f + R() * 0.15f;
+            float w = 34f + R() * 62f, op = 0.50f + R() * 0.40f;
             var go = new GameObject("cloud", typeof(MeshFilter), typeof(MeshRenderer)); go.transform.SetParent(holder, false);
             var mr = go.GetComponent<MeshRenderer>(); mr.sharedMaterial = puffMat;
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; mr.receiveShadows = false;
             mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
             go.GetComponent<MeshFilter>().sharedMesh = Cumulus(w, op, mr);
-            go.transform.position = new Vector3((R() - 0.5f) * 2f * CloudWrap, 70f + R() * 110f, -277f - R() * 219f);
+            go.transform.position = new Vector3((R() - 0.5f) * 2f * CloudWrap, 56f + R() * 84f, -240f - R() * 220f);
             clouds.Add(new Cloud { t = go.transform, v = 0.9f + R() * 2.1f });
         }
     }

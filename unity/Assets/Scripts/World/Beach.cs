@@ -72,6 +72,26 @@ public class Beach : MonoBehaviour
         return m;
     }
 
+    /// the beach's own shader (Surf/Sand) on the textures of whatever material the file brought;
+    /// falls back to the old look if the shader is not there
+    static Material SandShader(Material src, Texture baseT = null, Texture nrmT = null)
+    {
+        var sh = Shader.Find("Surf/Sand");
+        if (sh == null) return SandLook(src);
+        if (src != null)
+        {
+            foreach (var p in new[] { "baseColorTexture", "_BaseMap", "_MainTex" }) if (baseT == null && src.HasProperty(p)) baseT = src.GetTexture(p);
+            foreach (var p in new[] { "normalTexture", "_BumpMap" }) if (nrmT == null && src.HasProperty(p)) nrmT = src.GetTexture(p);
+        }
+        var m = new Material(sh) { name = "Sand" };
+        if (baseT != null) m.SetTexture("_BaseTex", Sharp(baseT));
+        if (nrmT != null) m.SetTexture("_NrmTex", Sharp(nrmT));
+        return m;
+    }
+
+    // filtered properly at the grazing angle the title looks along the beach, instead of going to mush
+    static Texture Sharp(Texture t) { if (t != null) { t.anisoLevel = 16; t.filterMode = FilterMode.Trilinear; } return t; }
+
     public static float SandY(float x, float z)
     {
         float h;
@@ -104,6 +124,7 @@ public class Beach : MonoBehaviour
         var baseTex = Resources.Load<Texture2D>("Models/sand_base"); var nrm = Resources.Load<Texture2D>("Models/sand_normal");
         if (baseTex != null) sm.SetTexture("_BaseMap", baseTex);
         if (nrm != null) { sm.EnableKeyword("_NORMALMAP"); sm.SetTexture("_BumpMap", nrm); sm.SetFloat("_BumpScale", 1.35f); }
+        if (Shader.Find("Surf/Sand") != null) { sm = SandShader(null, baseTex, nrm); sm.SetTextureScale("_BaseTex", Vector2.one); }
         var smr = sandGo.GetComponent<MeshRenderer>(); smr.sharedMaterial = sm; smr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         sandGo.transform.position = new Vector3(0, -0.35f, 0);     // a floor under the tiles, for the gaps
         SandTiles();
@@ -292,7 +313,7 @@ public class Beach : MonoBehaviour
         var mf = src.GetComponentInChildren<MeshFilter>(true); var mr = src.GetComponentInChildren<MeshRenderer>(true);
         if (mf == null || mr == null) { Object.Destroy(src); return; }
         Models.Repair(src);
-        var mat = SandLook(new Material(mr.sharedMaterial));
+        var mat = SandShader(mr.sharedMaterial);
         // ---- the piece, as the web prepares it (sandPrepare) ----
         // whatever the file wrapped the mesh in is baked into it, then it is centred in x and z.
         // The file's own node sits it almost entirely BELOW its origin; leaving that out stood

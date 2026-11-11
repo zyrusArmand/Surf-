@@ -56,19 +56,23 @@ Shader "Surf/Cumulus"
                 float n1 = fbm(p * 0.09 + _Seed), n2 = fbm(p * 0.28 + _Seed * 1.7);
                 float edgeZone = 1.0 - smoothstep(0.5, 1.3, D);
                 float dens = D + (n1 - 0.5) * (0.45 + 0.5 * edgeZone) + (n2 - 0.5) * (0.18 + 0.25 * edgeZone);
-                float a = smoothstep(0.36, 0.80, dens) * _Op;
+                float a = smoothstep(0.30, 0.98, dens);
+                a = a * a * (3.0 - 2.0 * a) * _Op;                        // a long soft rim, not a cut-out edge
                 if (a < 0.003) discard;
                 // the relief: the field's slope, plus broad billows, facing the lens
                 float n3 = fbm(p * 0.16 + _Seed * 2.3), n4 = fbm(p * 0.16 + _Seed * 5.1 + 9.0);
-                float3 n = normalize(float3(-g.x * 1.35 + (n3 - 0.5) * 0.9, -g.y * 1.35 + 0.30 + (n4 - 0.5) * 0.7, 1.0));
+                float3 n = normalize(float3(-g.x * 0.85 + (n3 - 0.5) * 0.55, -g.y * 0.85 + 0.35 + (n4 - 0.5) * 0.45, 1.0));
                 float3 L = normalize(mul((float3x3)UNITY_MATRIX_V, _SunDir.xyz));   // the sun in the lens's own frame
                 float wrap = saturate((dot(n, L) + 0.28) / 1.28); wrap = wrap * wrap * (3.0 - 2.0 * wrap);
                 float hgt = saturate(p.y / max(0.01, _H));
-                float3 shade = lerp(_Sky.rgb * 0.95 + 0.10, _Hz.rgb * 0.75 + 0.08, 0.35);
-                float3 col = lerp(shade * 0.92, _SunCol.rgb * 1.12 + 0.06, wrap) * (0.74 + 0.36 * smoothstep(0.0, 0.8, hgt)) * lerp(0.94, 1.04, n1);
-                col = lerp(col, col * float3(0.74, 0.80, 0.94), (1.0 - smoothstep(0.0, 0.45, hgt)) * 0.55);
+                // the web's clouds are a warm off-white with only a gentle fold of shade in them
+                // (about 215,205,190 on its title): lit white, the folds a touch of the sky's blue
+                float3 lit = _SunCol.rgb * 0.97 + 0.04;
+                float3 fold = lerp(lit, _Sky.rgb, 0.24) * 0.88;
+                float3 col = lerp(fold, lit, wrap) * (0.92 + 0.10 * smoothstep(0.0, 0.8, hgt)) * lerp(0.97, 1.02, n1);
+                col = lerp(col, col * float3(0.90, 0.92, 0.97), (1.0 - smoothstep(0.0, 0.45, hgt)) * 0.5);
                 float thin = 1.0 - smoothstep(0.42, 0.85, dens);
-                col += _SunCol.rgb * thin * 0.22;
+                col += _SunCol.rgb * thin * 0.10;
                 col = pow(saturate(col), 2.2);
                 return half4(col * a, a);
             }
