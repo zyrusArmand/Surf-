@@ -65,6 +65,7 @@ public static class SurfSetup
     {
         PlayerSettings.companyName = "Surf";
         PlayerSettings.productName = "Surf";
+        PlayerSettings.bundleVersion = "10.98";   // the web build this port tracks; the title prints it
         PlayerSettings.colorSpace = ColorSpace.Linear;
         PlayerSettings.defaultInterfaceOrientation = UIOrientation.Portrait;
         PlayerSettings.allowedAutorotateToLandscapeLeft = false;

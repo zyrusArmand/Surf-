@@ -9,6 +9,7 @@ public class Bootstrap : MonoBehaviour
     ParticleSystem spray; Transform rig, pug; RiderRig riderRig; float wakeA;
     Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop; Coconuts cocos; Ufo ufo; Dive dive;
     Quests quests; StatsPanel stats; SettingsPanel settings; SchoolPanel school; ProfilePanel profile; GuidePanel guide;
+    WheelPanel wheel; LevelPanel levelInfo; PukaPanel puka; int bankedDist, bankedScore, bankedCoins;
     bool over; float runSecs; bool palmSaid;
 
     void Start()
@@ -81,7 +82,7 @@ public class Bootstrap : MonoBehaviour
         beach.SetBoard(SaveData.S.equipped);
 
         // HUD
-        hud = new GameObject("HUD").AddComponent<Hud>(); hud.rider = rider;
+        hud = new GameObject("HUD").AddComponent<Hud>(); hud.rider = rider; hud.cocos = cocos; hud.chase = chase;
         hud.onPlay = Play; hud.onMenu = Menu; hud.onShop = () => shop.Show(true);
         spawner.onSplat = c => hud.Splat(c);
         hud.Build();
@@ -95,12 +96,25 @@ public class Bootstrap : MonoBehaviour
         profile = new GameObject("Profile").AddComponent<ProfilePanel>(); profile.Build(hud.UiRoot);
         guide = new GameObject("Guide").AddComponent<GuidePanel>(); guide.Build(hud.UiRoot);
         guide.onChange = shop.onChange; guide.onShop = () => shop.Show(true);
+        wheel = new GameObject("Wheel").AddComponent<WheelPanel>(); wheel.Build(hud.UiRoot);
+        levelInfo = new GameObject("LevelInfo").AddComponent<LevelPanel>(); levelInfo.Build(hud.UiRoot);
+        puka = new GameObject("Puka").AddComponent<PukaPanel>(); puka.Build(hud.UiRoot);
+        hud.onWheel = () => wheel.Show(true); hud.onLevel = () => levelInfo.Show(true); hud.onPuka = () => puka.Show(true);
+        wheel.onChange = shop.onChange;      // a loan or gear won shows at once; the purse refreshes
+        // a spare life from the wheel: back on the board where he went in, the water ahead cleared
+        hud.onRevive = () =>
+        {
+            bankedDist = Mathf.RoundToInt(rider.dist); bankedScore = rider.score; bankedCoins = rider.coins;
+            for (int i = spawner.obstacles.Count - 1; i >= 0; i--) if (spawner.obstacles[i].z > -48f) spawner.Remove(i);
+            spawner.eater = null; setWave.Reset(); whirl.Reset();
+            rider.Revive(); over = false; hud.ShowRide(); chase.Snap();
+        };
         hud.onQuests = () => quests.Show(true); hud.onSettings = () => settings.Show(true);
         hud.onProfile = () => profile.Show(true); hud.onSchool = () => school.Show(true);
         profile.onStats = () => stats.Show(true);
         Quests.onToast = hud.Toast;
         settings.onChange = () => Sfx.Refresh();
-        quests.onClose = settings.onClose = profile.onClose = stats.onClose = school.onClose = guide.onClose = () => { if (!rider.running && !rider.wipe) hud.ShowMenu(); };
+        quests.onClose = settings.onClose = profile.onClose = stats.onClose = school.onClose = guide.onClose = wheel.onClose = levelInfo.onClose = puka.onClose = () => { if (!rider.running && !rider.wipe) hud.ShowMenu(); };
         Menu();
     }
 
@@ -127,6 +141,7 @@ public class Bootstrap : MonoBehaviour
     {
         spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset();
         Quests.Roll();
+        if (Wheel.RunStart()) BuildRider(); if (Wheel.ConsumeChest()) crate.Soon(); bankedDist = bankedScore = bankedCoins = 0;
         rider.Begin(); runSecs = 0;
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
@@ -139,6 +154,7 @@ public class Bootstrap : MonoBehaviour
     /// the title: the ride stops, he floats in the lane, the dial comes up
     void Menu()
     {
+        if (Wheel.RunEnd()) BuildRider();        // a loan from the wheel is given back
         spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset();
         rider.Idle(0f);
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
@@ -206,16 +222,22 @@ public class Bootstrap : MonoBehaviour
             if (rider.wipeT >= 0.95f && !over)
             {
                 over = true; ufo.RunEnd();
-                int d = Mathf.RoundToInt(rider.dist);
+                // the card, as the web fills it: what this run (since any revive) earned, doubled by the
+                // wheel if it said so, the levels crossed and what they opened, the goals
+                int d = Mathf.RoundToInt(rider.dist), dd = d - bankedDist, ds = rider.score - bankedScore;
                 if (rider.score > SaveData.Best) SaveData.Best = rider.score;
                 if (d > SaveData.BestDist) SaveData.BestDist = d;
-                SaveData.Coins += rider.coins; SaveData.S.runs++;
-                int goalPay = Quests.RunEnd(d, rider.score); SaveData.Coins += goalPay;      // distance and trick-point goals
-                Stats.Bump("dist", d); Stats.Bump("score", rider.score); Stats.Bump("earned", rider.coins + goalPay);
-                Stats.Bump("secs", Mathf.RoundToInt(runSecs));
-                int xpGain = d + Mathf.RoundToInt(rider.score / 10f), pay = Progress.AddXp(xpGain);
-                SaveData.Flush();
-                hud.ShowCard(true, d, rider.score, SaveData.Best, xpGain, pay);
+                if (bankedDist == 0) SaveData.S.runs++;
+                int goalPay = Quests.RunEnd(d, rider.score);      // distance and trick-point goals
+                int earned = (rider.coins - bankedCoins) + goalPay; bool dbl = Wheel.ConsumeX2(); if (dbl) earned *= 2;
+                SaveData.Coins += earned;
+                Stats.Bump("dist", dd); Stats.Bump("score", ds); Stats.Bump("earned", earned); Stats.Bump("secs", Mathf.RoundToInt(runSecs));
+                int was = Progress.Level, xpGain = dd + Mathf.RoundToInt(ds / 10f), lvPay = Progress.AddXp(xpGain), now = Progress.Level;
+                int rkPay = Rungs.RankPayBetween(was, now); SaveData.Coins += rkPay;
+                var rc = new Hud.RunCard { dist = d, score = rider.score, earned = earned, doubled = dbl, lvUp = now - was, level = now, pay = lvPay + rkPay, rankUp = Rungs.RankIdx(now) > Rungs.RankIdx(was), rider = Hud.RiderName() };
+                for (int L = was + 1; L <= now; L++) rc.unlocked.AddRange(Rungs.UnlocksAt(L));
+                Wheel.RunEnd(); SaveData.Flush();
+                hud.ShowCard(true, rc);
             }
         }
         else
@@ -227,7 +249,7 @@ public class Bootstrap : MonoBehaviour
             beach.PlaceRider(rider.transform, rig, boardGo);
             // a tap on the signpost, away from the pills
             bool over2 = UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject();
-            bool paneOpen = shop.Open || quests.Open || stats.Open || settings.Open || school.Open || profile.Open || guide.Open;
+            bool paneOpen = shop.Open || quests.Open || stats.Open || settings.Open || school.Open || profile.Open || guide.Open || wheel.Open || levelInfo.Open || puka.Open;
             if (Input.GetMouseButtonDown(0) && !over2 && !paneOpen) beach.Tap(cam, Input.mousePosition);
             for (int i = 0; i < Input.touchCount; i++)
             {

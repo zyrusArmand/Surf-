@@ -11,6 +11,7 @@ public class Crate : MonoBehaviour
     bool on, held; float timer = 999f, bob; Transform obj; Light glow;
 
     float Luck => rider != null ? Mathf.Max(0.5f, rider.statLuck) : 1f;   // a lucky rider's chests come oftener
+    public void Soon() { timer = Mathf.Min(timer, 1.5f); }      // the wheel's chest prize: one straight away
     public void Reset() { on = false; held = false; timer = (9f + Random.value * 11f) / Luck; if (obj != null) obj.gameObject.SetActive(false); }
 
     void Build()

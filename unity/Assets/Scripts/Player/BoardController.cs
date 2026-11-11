@@ -13,7 +13,7 @@ public class BoardController : MonoBehaviour
     const float SpdK = 210f * (SpdHi - SpdLo);
     const float FtToM = 0.3048f;
     public const float BoardHalfL = 2.45f, BoardHalfW = 0.55f;
-    const float LaneLim = 17f;
+    public float laneLim = 17f;             // the lane's half-width this frame: the island widens it, the chute squeezes it (web 44899)
     const float LandYaw = 0.88f, LandFlip = 0.72f;
     const float SpinRate = Mathf.PI * 2f * 1.35f, FlipRate = Mathf.PI * 2f * 1.25f;
     const float Turn = Mathf.PI * 2f;
@@ -65,6 +65,14 @@ public class BoardController : MonoBehaviour
     /// under the water, nothing floating on it can reach him
     public bool Submerged => heliPh >= HeliUnder || diveShield;
 
+    // ---- the island (World/Island.cs owns him from the beaching to the walk, as the dive does) ----
+    public bool isleOn;                              // beached, running off the board or walking: py is not ours
+    public bool ashore;                              // on his own legs (web forkPh 3 and 4): no speed, no carve, the metres come from his feet
+    public float isleFace;                           // radians of heading ashore, 0 facing away from the lens (web forkFace)
+    public float isleWalk, isleRate = 1f;            // for the rig: the walk clip's weight 0..1 and its rate (web walkW / walkRate)
+    // ---- the chute (World/Chute.cs): the slope pushes past the ordinary ceiling (web 45175-45178) ----
+    public float chutePush;                          // FALL_PUSH * fallW, feet a second on top of whatever the board was doing
+
     public System.Action<Vector3, int> onSplash;   // where, how many drops
     public System.Action onWipeout;
 
@@ -86,7 +94,33 @@ public class BoardController : MonoBehaviour
         handOn = false; handT = handPts = handRisk = handHold = handAcc = 0;
         heliPh = -1; heliT = heliPose = heliLay = heliIncline = heliSet = heliCrouch = 0; heliUsed = heliAir = heliHeld = false;
         diveOn = false; diveShield = false; divePitch = divePose = divePike = diveLoad = diveLift = 0;
+        isleOn = false; ashore = false; isleFace = 0; isleWalk = 0; isleRate = 1f; chutePush = 0; laneLim = 17f;
         transform.rotation = Quaternion.identity;
+    }
+
+    /// the web's respawn after a revive: back on the board where he went in, everything kept
+    public void Revive()
+    {
+        wipe = false; running = true; wipeT = 0; vx = vy = 0; airborne = false; px = 0; pz = 0; py = waterY;
+        spinRot = flipRot = pitchRot = 0; spinHeld = flipHeld = pitchHeld = false;
+        handOn = false; handT = handPts = handRisk = handHold = handAcc = 0;
+        heliPh = -1; heliT = heliPose = heliLay = heliIncline = heliSet = heliCrouch = 0; heliUsed = heliAir = heliHeld = false;
+        diveOn = false; diveShield = false; divePitch = divePose = divePike = diveLoad = diveLift = 0;
+        isleOn = false; ashore = false; isleFace = 0; isleWalk = 0; isleRate = 1f; chutePush = 0; laneLim = 17f;
+        poseTake = poseCrouch = poseExt = poseAir = poseLand = 0; transform.rotation = Quaternion.identity;
+        Say("BACK UP!");
+    }
+
+    /// the run ends where he stands, no tumble (web forkIslandDone -> gameOver): the ride's own
+    /// end-of-run branch picks it up from here, the way a wipeout would, with the crash already over
+    public void End(string msg)
+    {
+        if (wipe) return;
+        wipe = true; running = false; wipeT = 0.95f;
+        handOn = false; handPts = 0; handHold = 0;
+        heliPh = -1; heliAir = false; heliHeld = false; heliSet = 0; heliLay = 0; heliUsed = false;
+        Say(msg);
+        onWipeout?.Invoke();
     }
 
     static float Ease(float cur, float tgt, float dt, float k) { return cur + (tgt - cur) * Mathf.Min(1f, dt * k); }
@@ -111,7 +145,7 @@ public class BoardController : MonoBehaviour
 
     public void Jump()
     {
-        if (!running || airborne || heliPh >= 0 || diveOn) return;   // the helicopter and the dive own him through their beats
+        if (!running || airborne || heliPh >= 0 || diveOn || isleOn) return;   // the helicopter, the dive and the island own him through their beats
         vy = 11.8f * statAir; airborne = true; poseTake = 1f;
     }
 
@@ -132,7 +166,7 @@ public class BoardController : MonoBehaviour
     {
         if (!running || wipe) return;
         if (heliAir || heliPh >= 0) { heliHeld = true; return; }
-        if (airborne || diveOn) return;
+        if (airborne || diveOn || isleOn) return;
         heliHeld = true;
         heliPh = 0; heliT = 0; heliUsed = true;
         Say("HELICOPTER!");
@@ -233,22 +267,25 @@ public class BoardController : MonoBehaviour
         if (!running) { if (wipe) wipeT += dt; return; }
 
         // the curve: climbs with distance and never quite arrives
-        speed = Mathf.Min(100f + statTop, (SpdLo + (SpdHi - SpdLo) * dist / (dist + SpdK)) * statSpeed + statTop);
+        // Ashore there is no curve (web 45176): he is on his legs, the speed is nil and the metres
+        // come from his feet (Island adds them). The chute pushes past the ordinary ceiling (web 45177).
+        speed = ashore ? 0f : Mathf.Min(100f + statTop, (SpdLo + (SpdHi - SpdLo) * dist / (dist + SpdK)) * statSpeed + statTop);
         boost = Mathf.Max(0f, boost - dt * 3.0f / statGlide);      // glide: how long the speed you earned stays with you
-        eff = Mathf.Max(16.2f, Mathf.Min(113f + statTop, speed + Mathf.Abs(vx) * 0.3f + trim + boost));
-        dist += eff * dt * FtToM;
+        eff = ashore ? 0f : Mathf.Max(16.2f, Mathf.Min(113f + statTop + chutePush, speed + Mathf.Abs(vx) * 0.3f + trim + boost + chutePush));
+        if (!ashore) dist += eff * dt * FtToM;
         WaveField.Drift = 0.46f + Mathf.Min(1f, dist / 9000f) * 0.16f;
         WaveField.Scroll = dist * WaveField.Drift;
         float stage = Mathf.Min(1f, dist / 9000f);
         WaveField.Amp = Mathf.Max(0.34f, 1.12f + stage * 1.0f + Mathf.Sin(t * 0.07f) * (0.34f + stage * 0.5f) * 0.6f);
 
         // the carve: push, grip, slide
-        float sx = Mathf.Clamp(steer, -1f, 1f);
+        float sx = ashore ? 0f : Mathf.Clamp(steer, -1f, 1f);
         vx += sx * 55f * statTurn * dt;
         vx -= vx * 3.4f * statGrip * dt;
+        if (ashore) vx = 0f;                                       // the stick walks him; the steering is let go of (web 45400, 45423)
         px += vx * dt;
-        if (px < -LaneLim) { px = -LaneLim; vx = 0; }
-        if (px > LaneLim) { px = LaneLim; vx = 0; }
+        if (px < -laneLim) { px = -laneLim; vx = 0; }
+        if (px > laneLim) { px = laneLim; vx = 0; }
         carve = Mathf.Clamp(vx / 9f, -1f, 1f);
 
         // the water under him, read a little ahead and behind so he rides the crest not the spike
@@ -272,7 +309,7 @@ public class BoardController : MonoBehaviour
         heliCrouch = Ease(heliCrouch, 0f, dt, 9f);
 
         if (heliPh >= 0) HeliStep(dt);          // the helicopter drives him itself (web 45394)
-        else if (diveOn) vy = 0;                // the dive owns py outright, launch to landing (web 45330-45347)
+        else if (diveOn || isleOn) vy = 0;      // the dive owns py outright, launch to landing (web 45330-45347); the island likewise, beaching to the walk (web 45359-45449)
         else if (airborne)
         {
             vy -= 20f * dt; py += vy * dt;
@@ -302,7 +339,7 @@ public class BoardController : MonoBehaviour
         }
 
         // the held rotations, only in the air (and not under the water: there is no board to roll, web 45621)
-        if (airborne && !diveOn)
+        if (airborne && !diveOn && !isleOn)
         {
             float SR = SpinRate * statAir, FR = FlipRate * statAir;
             if (heliAir)
@@ -329,7 +366,7 @@ public class BoardController : MonoBehaviour
 
         // the handstand (web 44625-44627): the button eases him up at 7 and down at 9, and handT
         // is what the rig turns him over by and what the scoring reads
-        bool handWant = handOn && !wipe && !diveOn;
+        bool handWant = handOn && !wipe && !diveOn && !isleOn;    // nothing to stand on his hands on, ashore (web 45618)
         handT += ((handWant ? 1f : 0f) - handT) * Mathf.Min(1f, dt * (handWant ? 7f : 9f));
         if (handT < 0.002f && !handWant) handT = 0f;
         HandstandScore(dt, handWant);
@@ -362,6 +399,7 @@ public class BoardController : MonoBehaviour
             pitch = divePitch - 0.72f * divePike; roll = -carve * 0.55f;
         }
         transform.rotation = trick * Quaternion.Euler(pitch * Mathf.Rad2Deg, yaw * Mathf.Rad2Deg, roll * Mathf.Rad2Deg);
+        // Island.Step re-places him after this when it has him (the beaching pitch, then his own heading ashore)
     }
 
     /// everything he threw in the air, scored and judged together
@@ -399,6 +437,7 @@ public class BoardController : MonoBehaviour
     {
         if (wipe) return;
         wipe = true; running = false; wipeT = 0;
+        isleOn = false; ashore = false;                                          // not his to hold any more
         handOn = false; handPts = 0; handHold = 0;                              // handT itself eases off in the tumble
         heliPh = -1; heliAir = false; heliHeld = false; heliSet = 0; heliLay = 0; heliUsed = false;
         Say(kind == "land" ? "BAD LANDING" : "WIPEOUT");
@@ -415,6 +454,11 @@ public class BoardController : MonoBehaviour
         // he comes down off his hands and off the nose as he goes over, the rates the ride uses
         handT += (0f - handT) * Mathf.Min(1f, dt * 9f);
         heliPose = Ease(heliPose, 0f, dt, 6f); heliCrouch = Ease(heliCrouch, 0f, dt, 9f);
+        if (isleOn)
+        {
+            // the run ended on the sand (End): he stands where he stopped while the card comes up
+            vy = 0; transform.position = new Vector3(px, py, pz); return;
+        }
         if (diveOn)
         {
             // taken under the water: he tumbles where he is and settles a little, and is not
