@@ -19,7 +19,7 @@ public class Beach : MonoBehaviour
     public Vector3 signAt = new Vector3(-14.06f, 8.90f, -50.77f); public Vector3 signTurn = new Vector3(19.8f, 13.6f, -1.4f); public float signHeight = 1.15f;
     public Vector3 postAt = new Vector3(-11.88f, 4.37f, -44.75f); public Vector3 postTurn = new Vector3(3.39f, -6.82f, -6.2f); public float postHeight = 1.48f;
     public Vector3 chestBottom = new Vector3(-17.02f, 2.95f, -50.22f); public float chestTurn = 37.4f, chestHeight = 2.65f;
-    public Vector3 pugAt = new Vector3(-15.29f, 2.85f, -49.62f); public float pugYaw = -99.2f, pugScale = 1.32f;
+    public Vector3 pugAt = new Vector3(-15.29f, 2.85f, -49.62f); public float pugFace = 64f, pugScale = 1.32f;   // pugFace: his yaw in Unity, toward the lens
     public Vector3 boardAt = new Vector3(-14.62f, 4.84f, -50.92f); public Vector3 boardTurn = new Vector3(72.5f, -54.3f, -20.9f);
     [Header("Mirror switches, in case a model imports facing the other way")]
     public bool flipSign, flipPost, flipPalm, flipChest;
@@ -84,14 +84,13 @@ public class Beach : MonoBehaviour
         var sign = Prop("Sign", Models.Spawn("sign", root.transform, signHeight, PrimitiveType.Cube), R(signTurn), flipSign);
         Settle(sign, -signAt.x, signAt.y, signAt.z, true);
         // the board propped into the crook of the trunk
-        var board = Models.Spawn("board", root.transform, 0.3f, PrimitiveType.Capsule);
-        Models.FitLength(board, BoardController.BoardHalfL * 2f);
+        var board = BoardMesh.Build("board"); board.transform.SetParent(root.transform, false);
         board.transform.rotation = Quaternion.Euler(R(boardTurn)); Settle(board, -boardAt.x, boardAt.y, boardAt.z, true);
         // the chest
         var chest = Prop("Chest", Models.Spawn("chest", root.transform, chestHeight, PrimitiveType.Cube), new Vector3(0, -chestTurn, 0), flipChest);
-        Settle(chest, -chestBottom.x, chestBottom.y, chestBottom.z, false);
+        Settle(chest, -chestBottom.x, SandY(-chestBottom.x, chestBottom.z) - 0.04f, chestBottom.z, false);
         // where the pug stands
-        pugSpot = new GameObject("PugSpot").transform; pugSpot.SetParent(root.transform, false); pugSpot.position = M(pugAt);
+        pugSpot = new GameObject("PugSpot").transform; pugSpot.SetParent(root.transform, false); pugSpot.position = new Vector3(-pugAt.x, SandY(-pugAt.x, pugAt.z), pugAt.z);
         // the signpost: four feet from the lens, its arms are the menu, so each third gets a collider
         var postGo = Prop("Signpost", Models.Spawn("menusign", root.transform, postHeight, PrimitiveType.Cube), R(postTurn), flipPost);
         Settle(postGo, -postAt.x, postAt.y, postAt.z, true);
@@ -140,7 +139,8 @@ public class Beach : MonoBehaviour
         for (int j = 0; j < nz; j++) for (int i = 0; i < nx; i++)
         {
             int a = j * (nx + 1) + i, bq = a + 1, c = a + nx + 1, e = c + 1;
-            idx[n++] = a; idx[n++] = c; idx[n++] = bq; idx[n++] = bq; idx[n++] = c; idx[n++] = e;
+            // clockwise seen from above, which is the side Unity draws
+            idx[n++] = a; idx[n++] = bq; idx[n++] = c; idx[n++] = bq; idx[n++] = e; idx[n++] = c;
         }
         m.vertices = v; m.uv = uv; m.triangles = idx; m.RecalculateNormals(); m.RecalculateTangents(); m.RecalculateBounds();
         return m;
@@ -152,7 +152,7 @@ public class Beach : MonoBehaviour
     /// the pug stands by the chest, a little bigger than he rides, with the ride's board hidden
     public void PlaceRider(Transform player, Transform rig, GameObject rideBoard)
     {
-        player.position = pugSpot.position; player.rotation = Quaternion.Euler(0, -pugYaw + 70f, 0);   // mirrored yaw; the pug sits at -70 inside the rig
+        player.position = pugSpot.position; player.rotation = Quaternion.Euler(0, pugFace, 0);
         player.localScale = Vector3.one * pugScale;
         rig.localRotation = Quaternion.identity;
         if (rideBoard != null) rideBoard.SetActive(false);
