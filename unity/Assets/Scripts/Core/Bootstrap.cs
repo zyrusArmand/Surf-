@@ -94,7 +94,7 @@ public class Bootstrap : MonoBehaviour
         rider.Begin();
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
-        beach.Show(false); boardGo.SetActive(true); day.pin = -1f;
+        beach.Show(false); boardGo.SetActive(true); day.pin = -1f; day.keyFrom = Vector3.zero;
         hud.ShowRide();
         chase.Snap();
     }
@@ -106,7 +106,7 @@ public class Bootstrap : MonoBehaviour
         rider.Idle(0f);
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
-        beach.Show(true); day.pin = 0.47f;
+        beach.Show(true); day.pin = 0.47f; day.keyFrom = beach.sunFrom;
         beach.PlaceRider(rider.transform, rig, boardGo);
         hud.ShowMenu();
     }
