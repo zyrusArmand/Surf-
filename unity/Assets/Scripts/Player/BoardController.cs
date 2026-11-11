@@ -55,6 +55,7 @@ public class BoardController : MonoBehaviour
         vx -= vx * 3.4f * dt; px += vx * dt; px -= px * Mathf.Min(1f, dt * 1.5f);
         carve = Mathf.Clamp(vx / 9f, -1f, 1f);
         eff = Mathf.Max(0f, eff - dt * 20f);
+        WaveField.Scroll = dist * WaveField.Drift;
         float fz = dist * WaveField.Drift + pz;
         waterY = WaveField.Height(px, fz, t) + 0.05f;
         py = waterY;
@@ -90,6 +91,7 @@ public class BoardController : MonoBehaviour
         eff = Mathf.Max(16.2f, Mathf.Min(113f + statTop, speed + Mathf.Abs(vx) * 0.3f + trim + boost));
         dist += eff * dt * FtToM;
         WaveField.Drift = 0.46f + Mathf.Min(1f, dist / 9000f) * 0.16f;
+        WaveField.Scroll = dist * WaveField.Drift;
         float stage = Mathf.Min(1f, dist / 9000f);
         WaveField.Amp = Mathf.Max(0.34f, 1.12f + stage * 1.0f + Mathf.Sin(t * 0.07f) * (0.34f + stage * 0.5f) * 0.6f);
 

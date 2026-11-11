@@ -13,6 +13,24 @@ public static class WaveField
     public const float EnvBase = 0.32f, EnvSwing = 0.68f;
     public static float Drift = 0.46f;     // climbs slightly with distance, see BoardController
     public static float Amp = 1.35f;       // the set's current size, 0.34 .. 2.6
+    public static float Scroll;            // dist * Drift: the field coordinate's offset this frame
+    public static float Calm = 1f;         // the swell dies down inside the tube
+
+    // ---- the set wave: a wall standing across the lane, steep front face, long shoulder ----
+    // It does not scroll: it stands still in the world while the swell rolls past under it, so
+    // the peel is evaluated on world z (the field coordinate with the scroll taken back off).
+    public const float SwFace = 10f, SwBack = 34f, SwPeak = 7f, SwBrk = 30f, SwPeel = 78f, SwColl = 26f, SwHold = 26f;
+    public static float SetA, SetX, SetS = 1f;      // crest height, crest x, which side it came from
+    public static float PeelA(float z) { float u = Mathf.Clamp01((z - (SwBrk - SwPeel)) / (SwPeel - SwHold)); return u * u * (3 - 2 * u); }
+    public static float PeelB(float z) { float u = Mathf.Clamp01((z - SwBrk) / SwColl); return u * u * (3 - 2 * u); }
+    public static float SetWaveH(float x, float fieldZ)
+    {
+        if (SetA <= 0.0015f) return 0f;
+        float d = (x - SetX) * SetS, f;
+        if (d <= 0) { float k = Mathf.Max(0f, 1 + d / SwFace); f = Mathf.Pow(k, 3.2f); }
+        else { float k = Mathf.Max(0f, 1 - d / SwBack); f = 0.34f + 0.66f * k * k * (3 - 2 * k); }
+        return SetA * (1 - 0.55f * PeelB(fieldZ - Scroll)) * f;
+    }
 
     public static readonly Wave[] Waves = Build(new float[][] {
         new[]{ 0.00f, 1.00f, 0.190f, 1.000f, 0.38f, 0.00f },
@@ -48,7 +66,7 @@ public static class WaveField
     {
         float h = 0f;
         for (int i = 0; i < Waves.Length; i++) h += Comp(Waves[i], x, fieldZ, t);
-        return h * Amp;
+        return h * Amp * Calm + SetWaveH(x, fieldZ);
     }
 
     /// the long swell only: what a floating object rides, so buoys glide instead of vibrating
@@ -56,7 +74,7 @@ public static class WaveField
     {
         float h = 0f;
         for (int i = 0; i < 2; i++) h += Comp(Waves[i], x, fieldZ, t);
-        return h * Amp * 1.06f;
+        return h * Amp * 1.06f * Calm + SetWaveH(x, fieldZ);
     }
 
     /// surface normal by finite difference, for tilting things that sit on it

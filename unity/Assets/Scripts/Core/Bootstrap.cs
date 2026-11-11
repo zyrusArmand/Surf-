@@ -7,7 +7,7 @@ public class Bootstrap : MonoBehaviour
 {
     BoardController rider; Spawner spawner; ChaseCamera chase; Hud hud; DayCycle day; Ocean ocean;
     ParticleSystem spray; Transform rig, pug; RiderRig riderRig; float wakeA;
-    Beach beach; Camera cam; GameObject boardGo;
+    Beach beach; Camera cam; GameObject boardGo; SetWave setWave;
     bool over;
 
     void Start()
@@ -51,11 +51,12 @@ public class Bootstrap : MonoBehaviour
 
         // the water
         spawner = new GameObject("Spawner").AddComponent<Spawner>(); spawner.rider = rider;
+        setWave = new GameObject("SetWave").AddComponent<SetWave>(); setWave.rider = rider;
 
         // spray
         spray = BuildSpray();
         rider.onSplash = (p, n) => { spray.transform.position = p; spray.Emit(n); };
-        spawner.onSplash = rider.onSplash;
+        spawner.onSplash = rider.onSplash; setWave.onSplash = rider.onSplash;
         rider.onWipeout = () => { over = false; };
 
         // camera
@@ -89,7 +90,7 @@ public class Bootstrap : MonoBehaviour
 
     void Play()
     {
-        spawner.Clear();
+        spawner.Clear(); setWave.Reset();
         rider.Begin();
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
@@ -102,7 +103,7 @@ public class Bootstrap : MonoBehaviour
     /// the title: the ride stops, he floats in the lane, the dial comes up
     void Menu()
     {
-        spawner.Clear();
+        spawner.Clear(); setWave.Reset();
         rider.Idle(0f);
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
@@ -139,6 +140,9 @@ public class Bootstrap : MonoBehaviour
         {
             rider.Step(dt);
             spawner.Step(dt);
+            setWave.Step(dt);
+            if (Input.GetKeyDown(KeyCode.B)) setWave.summon = true;      // debug: bring a set now
+            chase.swCam = setWave.cam;
             // rail spray while carving
             float cv = Mathf.Abs(rider.carve);
             if (!rider.airborne && cv > 0.22f && Random.value < dt * 30f * cv)

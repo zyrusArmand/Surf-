@@ -64,6 +64,8 @@ public class Ocean : MonoBehaviour
     public void Tick(float t, float dist, float amp, float wakeX, float wakeZ, float wakeA, float lift = 0f, float shore = 100000f)
     {
         material.SetFloat("_Lift", lift);
+        material.SetFloat("_Calm", WaveField.Calm);
+        material.SetFloat("_SwA", WaveField.SetA); material.SetFloat("_SwX", WaveField.SetX); material.SetFloat("_SwS", WaveField.SetS);
         material.SetFloat("_Shore", shore);
         material.SetFloat("_T", t);
         material.SetFloat("_Dist", dist);

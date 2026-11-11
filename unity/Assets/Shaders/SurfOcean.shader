@@ -22,6 +22,10 @@ Shader "Surf/Ocean"
         _WakeZ ("Wake z", Float) = 0
         _WakeA ("Wake amount", Float) = 0
         _Lift ("Sea level", Float) = 0
+        _Calm ("Swell calm", Float) = 1
+        _SwA ("Set wave height", Float) = 0
+        _SwX ("Set wave crest x", Float) = 0
+        _SwS ("Set wave side", Float) = 1
         _Chop ("Chop normals", 2D) = "bump" {}
         _ChopK ("Chop from texture", Float) = 0
         _Shore ("Shore line (-z)", Float) = 100000
@@ -42,14 +46,14 @@ Shader "Surf/Ocean"
 
             CBUFFER_START(UnityPerMaterial)
             float4 _Deep, _Shallow, _SkyLo, _SkyHi, _Glow, _SunDir;
-            float _Light, _Amp, _Peak, _Dist, _T, _WakeX, _WakeZ, _WakeA, _Lift, _Shore, _ShoreW;
+            float _Light, _Amp, _Peak, _Dist, _T, _WakeX, _WakeZ, _WakeA, _Lift, _Shore, _ShoreW, _Calm, _SwA, _SwX, _SwS;
             CBUFFER_END
             TEXTURE2D(_Chop); SAMPLER(sampler_Chop); float _ChopK;
             float4 _WaveA[7];   // dx, dz, k, a
             float4 _WaveB[7];   // ek, ep, w, -
 
             struct A { float4 pos : POSITION; float2 uv : TEXCOORD0; };
-            struct V { float4 pos : SV_POSITION; float3 w : TEXCOORD0; float3 n : TEXCOORD1; float h : TEXCOORD2; };
+            struct V { float4 pos : SV_POSITION; float3 w : TEXCOORD0; float3 n : TEXCOORD1; float h : TEXCOORD2; float4 sw : TEXCOORD3; };
 
             // the field: height and its two slopes at a field point p (x, dist*drift+z)
             void field(float2 p, out float h, out float dhx, out float dhz)
@@ -65,7 +69,7 @@ Shader "Surf/Ocean"
                     float c = a.w * e * a.z * cos(ph);
                     dhx += c * a.x; dhz += c * a.y;
                 }
-                h *= _Amp; dhx *= _Amp; dhz *= _Amp;
+                h *= _Amp * _Calm; dhx *= _Amp * _Calm; dhz *= _Amp * _Calm;
                 // the rider's wake: a ridge in the water itself, so it is lit and foamed like a wave
                 if (_WakeA > 0.001)
                 {
@@ -82,6 +86,22 @@ Shader "Surf/Ocean"
                 float3 wp = TransformObjectToWorld(i.pos.xyz);
                 float h, dhx, dhz;
                 field(float2(wp.x, wp.z + _Dist), h, dhx, dhz);
+                // the set wave: steep front face, long shoulder, its height falling away behind
+                // the break into whitewater. sw = (face 0..1, broken 0..1, thrown 0..1, metres out)
+                o.sw = float4(0, 0, 0, 999);
+                if (_SwA > 0.0015)
+                {
+                    float d = (wp.x - _SwX) * _SwS, f, dfdd;
+                    if (d <= 0.0) { float k = saturate(1.0 + d / 10.0); f = pow(k, 3.2); dfdd = (k > 0.0) ? (3.2 * pow(k, 2.2) / 10.0) : 0.0; }
+                    else { float k = saturate(1.0 - d / 34.0); f = 0.34 + 0.66 * k * k * (3.0 - 2.0 * k); dfdd = (k > 0.0 && k < 1.0) ? (-0.66 * 6.0 * k * (1.0 - k) / 34.0) : 0.0; }
+                    float wz = wp.z;
+                    float ub = saturate((wz - 30.0) / 26.0); float b = ub * ub * (3.0 - 2.0 * ub);
+                    float dbdz = (ub > 0.0 && ub < 1.0) ? (6.0 * ub * (1.0 - ub) / 26.0) : 0.0;
+                    float m = 1.0 - 0.55 * b;
+                    h += _SwA * m * f; dhx += _SwA * m * dfdd * _SwS; dhz += _SwA * (-0.55 * dbdz) * f;
+                    float ua = saturate((wz - (30.0 - 78.0)) / (78.0 - 26.0));
+                    o.sw = float4(f, b, ua * ua * (3.0 - 2.0 * ua), d);
+                }
                 // the swell dies as it shoals: full out at sea, nothing at the waterline
                 float st = saturate((_Shore - wp.z) / _ShoreW); st = st * st * (3.0 - 2.0 * st);
                 h *= st; dhx *= st; dhz *= st;
@@ -134,7 +154,7 @@ Shader "Surf/Ocean"
                 float lowSun = smoothstep(0.46, 0.04, L.y);
                 float gl = pow(max(dot(Ng, H), 0.0), lerp(78.0, 22.0, lowSun)) * 0.62;
                 gl *= smoothstep(-0.10, 0.05, L.y) * lerp(0.55, 1.0, lowSun);
-                float hS = i.h;
+                float hS = i.h - i.sw.x * _SwA;      // the swell's own height, the wall taken out
                 float3 base = lerp(_Deep.rgb, _Shallow.rgb, saturate(hS * 0.28 + 0.5));
                 float3 lit = base * (0.38 + 0.72 * diff);
                 // the sky reflected off the ripple, with the sun's halo laid into the dome
@@ -169,6 +189,27 @@ Shader "Surf/Ocean"
                     foam = max(foam, wf * (0.6 + 0.4 * lace));
                 }
                 col = lerp(col, float3(0.94, 0.97, 1.0), foam * 0.66);
+                // the set wave's face: a darker band low on the wall, green light through it, foam
+                // along the crest, and the sections behind the break collapsed to whitewater
+                if (_SwA > 0.0015)
+                {
+                    float vSw = i.sw.x, vBrk = i.sw.y, vPa = i.sw.z, vDx = i.sw.w;
+                    float laceR = smoothstep(0.40, 0.84, fbm(fpM * 1.45 + float2(-_T*0.07, _T*0.06)));
+                    float fleckR = smoothstep(0.56, 0.93, fbm(fpF * 3.90 + float2(_T*0.11, _T*0.09)));
+                    col = lerp(col, _Deep.rgb * 0.86, smoothstep(0.05, 0.42, vSw) * (1.0 - smoothstep(0.52, 0.95, vSw)) * 0.34);
+                    col += float3(0.10, 0.60, 0.62) * smoothstep(0.14, 0.86, vSw) * 0.30;
+                    float swFoam = smoothstep(0.62, 1.0, vSw) * (0.45 + 0.55 * laceR + 0.35 * fleckR);
+                    col = lerp(col, float3(0.96, 0.99, 1.0), saturate(swFoam) * 0.40);
+                    float ww = vBrk * smoothstep(0.04, 0.34, vSw);
+                    col = lerp(col, float3(0.90, 0.95, 0.97), saturate(ww * (0.52 + 0.34 * laceR + 0.30 * fleckR)) * 0.88);
+                    // the whitewater at the foot of the thrown section, where the lip lands
+                    float land = smoothstep(-19.0, -13.0, vDx) * (1.0 - smoothstep(-3.0, -0.2, vDx));
+                    land *= vPa * (0.80 + 0.50 * vBrk);
+                    col = lerp(col, float3(0.93, 0.97, 0.99), saturate(land * (0.72 + 0.55 * laceR + 0.40 * fleckR)) * 0.96);
+                    float core = smoothstep(-11.0, -6.5, vDx) * (1.0 - smoothstep(-5.0, -1.8, vDx));
+                    core *= vPa;
+                    col = lerp(col, float3(0.97, 0.99, 1.00), saturate(core * (0.80 + 0.40 * laceR + 0.30 * fleckR)) * 0.92);
+                }
                 col += pow(max(dot(N, H), 0.0), 480.0) * 0.6;
                 // aerial perspective: into the horizon's own colour
                 float fog = smoothstep(70.0, 230.0, dCam);
