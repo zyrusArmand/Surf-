@@ -52,8 +52,11 @@ Shader "Surf/Ocean"
             #pragma vertex vert
             #pragma fragment frag
             #pragma target 3.0
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT _SHADOWS_SOFT_LOW _SHADOWS_SOFT_MEDIUM _SHADOWS_SOFT_HIGH
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Shadows.hlsl"
             // the reflection (PlanarReflection.cs), set globally
             TEXTURE2D(_ReflTex); SAMPLER(sampler_ReflTex); float4x4 _ReflVP; float _ReflOn, _ReflY;
 
@@ -226,7 +229,23 @@ Shader "Surf/Ocean"
                 gl *= smoothstep(-0.10, 0.05, L.y) * lerp(0.55, 1.0, lowSun);
                 float hS = i.h - i.sw.x * _SwA;      // the swell's own height, the wall taken out
                 float3 base = lerp(_Deep.rgb, _Shallow.rgb, saturate(hS * 0.28 + 0.5));
-                float3 lit = base * (0.38 + 0.72 * diff);
+                // what stands between the sun and this bit of sea: the rider, the palm, the buoys, the lip
+                float shade = MainLightRealtimeShadow(TransformWorldToShadowCoord(i.w));
+                shade = lerp(shade, 1.0, GetMainLightShadowFade(i.w));
+                // and the board's own contact shadow: the water right under and round the hull darkens,
+                // most when the board sits on it, gone once it is a couple of feet up
+                if (_HullS.w > 0.5)
+                {
+                    float3 hp = mul(_HullW2L, float4(i.w, 1.0)).xyz;
+                    float hz = saturate(abs(hp.z) / max(0.01, _HullS.y));
+                    float hw = _HullS.x * sqrt(saturate(1.0 - hz * hz * hz * hz));
+                    float2 out2 = float2(max(0.0, abs(hp.x) - hw), max(0.0, abs(hp.z) - _HullS.y));
+                    float gap = max(0.0, _HullS.z - hp.y);
+                    float hug = exp(-dot(out2, out2) / (0.18 + 0.30 * gap));
+                    shade = min(shade, 1.0 - hug * 0.55 * (1.0 - smoothstep(0.15, 2.4, gap)));
+                }
+                float sunLit = lerp(0.52, 1.0, shade);
+                float3 lit = base * (0.38 + 0.72 * diff * shade) * lerp(0.86, 1.0, shade);
                 // the sky reflected off the ripple, with the sun's halo laid into the dome
                 float3 R = reflect(-V, Nr);
                 float ry = saturate(R.y);
@@ -245,13 +264,13 @@ Shader "Surf/Ocean"
                     skyRefl = lerp(skyRefl, rs, inside * (rc.w > 0.0 ? 0.92 : 0.0));
                 }
                 skyRefl += _Glow.rgb * pow(max(dot(R, L), 0.0), 40.0) * 0.55 * smoothstep(-0.12, 0.06, L.y);
-                float3 col = lerp(lit, skyRefl, fres * 0.88) + spec;
-                col += _Glow.rgb * gl;
+                float3 col = lerp(lit, skyRefl, fres * 0.88) + spec * shade;
+                col += _Glow.rgb * gl * shade;
                 // light through the crests
                 float thin = smoothstep(0.25 * _Peak, 0.95 * _Peak, hS);
                 float toSun = pow(max(dot(V, -L), 0.0), 2.6);
                 float sss = thin * (0.35 + 0.65 * toSun) * (1.0 - fres * 0.5);
-                col += float3(0.08, 0.42, 0.40) * sss * 0.55;
+                col += float3(0.08, 0.42, 0.40) * sss * 0.55 * sunLit;
                 // foam: high AND steep, torn by drifting noise
                 float2 fpC = float2(i.w.x, i.w.z + _Dist * 0.55);
                 float2 fpM = float2(i.w.x, i.w.z + _Dist * 0.30);
@@ -293,7 +312,7 @@ Shader "Surf/Ocean"
                     core *= vPa;
                     col = lerp(col, float3(0.97, 0.99, 1.00), saturate(core * (0.80 + 0.40 * laceR + 0.30 * fleckR)) * 0.92);
                 }
-                col += pow(max(dot(N, H), 0.0), 480.0) * 0.6;
+                col += pow(max(dot(N, H), 0.0), 480.0) * 0.6 * shade;
                 // ---- where things meet the water: a ring of foam round every buoy, log, rock and the
                 // hull, and the water going clear and turquoise as it shoals against the beach ----
                 {

@@ -28,6 +28,7 @@ public static class SurfSetup
         try
         {
             EnsurePipeline();
+            EnsureAmbientOcclusion();
             EnsurePlayerSettings();
             EnsureScene();
             EnsureModels();
@@ -37,6 +38,31 @@ public static class SurfSetup
         {
             Debug.LogWarning("Surf setup: " + e.Message + " (open Surf > Set up project to retry)");
         }
+    }
+
+    // Screen-space ambient occlusion on the renderer: the soft darkening where the palm meets the
+    // sand, under the rider's arms, round the coconuts and the shop's shelves. Half resolution and
+    // a short radius so it grounds things without costing a phone its frame rate. The sea sits in
+    // the transparent queue, so it is never touched by it.
+    static void EnsureAmbientOcclusion()
+    {
+        var data = AssetDatabase.LoadAssetAtPath<UniversalRendererData>(RendererPath);
+        if (data == null) return;
+        foreach (var f in data.rendererFeatures) if (f != null && f.GetType().Name == "ScreenSpaceAmbientOcclusion") return;
+        var t = typeof(UniversalRendererData).Assembly.GetType("UnityEngine.Rendering.Universal.ScreenSpaceAmbientOcclusion");
+        if (t == null) return;
+        var ssao = (ScriptableRendererFeature)ScriptableObject.CreateInstance(t);
+        ssao.name = "SSAO";
+        AssetDatabase.AddObjectToAsset(ssao, data);
+        var so = new SerializedObject(ssao);
+        void F(string n, float v) { var p = so.FindProperty("m_Settings." + n); if (p != null) p.floatValue = v; }
+        void B(string n, bool v) { var p = so.FindProperty("m_Settings." + n); if (p != null) p.boolValue = v; }
+        F("Intensity", 1.1f); F("Radius", 0.32f); F("DirectLightingStrength", 0.22f); F("Falloff", 140f);
+        B("Downsample", true); B("AfterOpaque", false);
+        so.ApplyModifiedPropertiesWithoutUndo();
+        data.rendererFeatures.Add(ssao);
+        EditorUtility.SetDirty(ssao); EditorUtility.SetDirty(data);
+        AssetDatabase.SaveAssets();
     }
 
     static void EnsurePipeline()
