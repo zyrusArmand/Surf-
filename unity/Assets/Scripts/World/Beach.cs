@@ -47,7 +47,7 @@ public class Beach : MonoBehaviour
     BeachSky sky;
     Transform[] cocos = new Transform[0]; Vector3[] cocoHome = new Vector3[0]; Quaternion[] cocoTurn = new Quaternion[0]; float[] cocoPhase = new float[0];
     Transform[] bowls = new Transform[0]; Quaternion[] bowlTurn = new Quaternion[0];
-    GltfClips idle;
+    GltfClips idle; TitleGesture gesture;
     Camera shotCam; float savedFar; bool farSaved;
 
     // the beach profile along z, read off the web sand with a ray every five feet
@@ -259,17 +259,22 @@ public class Beach : MonoBehaviour
         }
     }
 
-    /// On the beach the rider is not held in a hand-made pose: his own file's standing clip
-    /// plays, looping, with a slow breath in it (the pug's 'Stand_and_Chat'; a rider whose file
-    /// has a 'rest' clip gets that). Off stops it and leaves the Animator switched off again,
+    /// On the beach the rider stands in his own stance and, if his file has 'Stand_and_Chat',
+    /// plays it every few seconds on his back and head only (TitleGesture, the web's loiter); a
+    /// rider whose file has a 'rest' clip loops that instead. Off stops it and leaves the Animator switched off again,
     /// which is how BuildRider wants it for the ride, where RiderRig poses the bones by hand.
     /// Safe to call every frame; it only starts the clip once per rider.
     public void IdleAnim(Transform pug, bool on)
     {
         if (on && !Showing) on = false;      // the beach only
         if (idle != null && (!on || pug == null || idle.root != pug || !idle.Valid)) { idle.Stop(); idle = null; }
-        if (!on || pug == null || idle != null) return;
-        idle = GltfClips.Start(pug, pug.name, new[] { "Stand_and_Chat", "rest" });
+        if (gesture != null && (!on || pug == null || gesture.transform != pug)) { Object.Destroy(gesture); gesture = null; }
+        if (!on || pug == null || idle != null || gesture != null) return;
+        // a file with the chat gets the web's loiter: the chat now and then, on his back and head only
+        var chat = GltfClips.Find(pug.name, "Stand_and_Chat");
+        if (chat != null) { gesture = TitleGesture.Attach(pug, chat); return; }
+        // a file drawn for its own body with a 'rest' clip plays that, looping
+        idle = GltfClips.Start(pug, pug.name, new[] { "rest" });
         if (idle == null) return;
         idle.SetSpeed(0, 0.9f);
         idle.SetTime(0, Random.value * idle.Length(0));
@@ -422,7 +427,7 @@ public class Beach : MonoBehaviour
         if (rideBoard != null) rideBoard.SetActive(false);
         // and he stands the way his file stands, not frozen: the rider is the thing under the rig
         // that carries the RiderRig, whichever file the shop put there
-        if (idle == null || !idle.Valid)
+        if ((idle == null || !idle.Valid) && gesture == null)
         {
             var rr = rig.GetComponentInChildren<RiderRig>(true);
             if (rr != null) IdleAnim(rr.transform, true);
