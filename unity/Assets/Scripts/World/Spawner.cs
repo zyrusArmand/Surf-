@@ -9,6 +9,8 @@ public class Spawner : MonoBehaviour
     {
         public string kind; public GameObject go; public float x, z, y, floatOff, hx, hz, h;
         public bool ramp, used, passed, escape; public float rx, rz;
+        // knocked: shoved aside, lifted and set spinning by the thing that hit it
+        public bool knocked; public float kvx, kvy, kvz, ksx, ksz, ky, kax, kaz;
         // the shark
         public float dir, startX, targetX, at, x0, z0, aimX, aimZ, yaw; public bool hunts; public string atk;
     }
@@ -60,8 +62,17 @@ public class Spawner : MonoBehaviour
         }
     }
 
+    void Knock(Ob o, BoardController r, float side, float up, float upR, float spin)
+    {
+        if (o.knocked) return;
+        o.knocked = true;
+        o.kvx = (o.x - r.px) * side + (Random.value - 0.5f) * 2.4f; o.kvy = up + Random.value * upR; o.kvz = 2.2f + r.eff * 0.06f;
+        o.ksx = (Random.value - 0.5f) * spin; o.ksz = (Random.value - 0.5f) * spin;
+    }
+
     public void Clear()
     {
+        Hull.Reset();
         foreach (var o in obstacles) if (o.go) Destroy(o.go);
         obstacles.Clear(); spawnT = 1.8f; eater = null; bigFinCd = 0; octCd = 0;
         towOn = false; towT = 20f + Random.value * 20f; if (tow != null) tow.gameObject.SetActive(false);
@@ -119,6 +130,17 @@ public class Spawner : MonoBehaviour
             if (o.kind == "octopus") Octopus(o, dt);
             if (o.z > 30f) { Destroy(o.go); obstacles.RemoveAt(i); continue; }
             float oy = WaveField.Swell(o.x, fzBase + o.z, r.t) + o.floatOff;
+            if (o.knocked)
+            {
+                // it takes the impact too: flung off, falling back, spinning as it goes
+                o.kvy -= 14f * dt; o.x += o.kvx * dt; o.z += o.kvz * dt; o.ky += o.kvy * dt;
+                o.kax += o.ksx * dt; o.kaz += o.ksz * dt;
+                if (o.ky < 0f && o.kvy < 0f) { o.ky = 0f; o.kvy = 0f; o.kvx *= 0.6f; o.kvz *= 0.6f; o.ksx *= 0.5f; o.ksz *= 0.5f; }
+                o.y = oy + o.ky; o.used = true;
+                o.go.transform.position = new Vector3(o.x, o.y, o.z);
+                o.go.transform.rotation = Quaternion.Euler((o.rx + o.kax) * Mathf.Rad2Deg, 0, (o.rz + o.kaz) * Mathf.Rad2Deg);
+                continue;
+            }
             o.y += (oy - o.y) * Mathf.Min(1f, dt * (o.ramp ? 3f : 9f));
             float tilt = o.ramp ? 0.06f : 0.30f, span = o.ramp ? 3.2f : 1.6f;
             float slopeZ = (WaveField.Swell(o.x, fzBase + o.z + span, r.t) - WaveField.Swell(o.x, fzBase + o.z - span, r.t)) * tilt;
@@ -160,6 +182,11 @@ public class Spawner : MonoBehaviour
             }
             else if (r.py < r.waterY + o.h && !r.Submerged)     // under the water in the helicopter nothing on it can touch him
             {
+                float topY = r.waterY + o.h;
+                // dropping onto the top of it is not driving into its side: that costs the board a
+                // crack and throws you back up, and the thing itself is shoved aside and set spinning
+                Knock(o, r, 0.7f, 1.4f, 1.6f, 5f);
+                if (r.vy < -0.5f && r.py > topY - 0.55f) { Hull.Hit(r, topY); onSplash?.Invoke(new Vector3(o.x, topY, o.z), 18); continue; }
                 r.Wipeout(o.kind);
             }
         }
