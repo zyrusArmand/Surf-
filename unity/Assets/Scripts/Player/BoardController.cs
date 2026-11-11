@@ -38,6 +38,12 @@ public class BoardController : MonoBehaviour
     public System.Action<Vector3, int> onSplash;   // where, how many drops
     public System.Action onWipeout;
 
+    /// the web's mapping of the four shop stats onto the ride
+    public void ApplyBoard(BoardCatalog.Board b)
+    {
+        statSpeed = 1f + (b.speed - 5) * 0.040f; statTurn = 1f + (b.turn - 5) * 0.060f; statAir = 1f + (b.air - 5) * 0.080f; statGrip = 1f;
+    }
+
     public void Begin()
     {
         px = 0; py = 0; pz = 0; vx = 0; vy = 0; dist = 0; speed = SpdLo; eff = SpdLo; boost = 0; trim = 0;

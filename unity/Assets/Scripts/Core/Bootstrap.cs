@@ -7,7 +7,7 @@ public class Bootstrap : MonoBehaviour
 {
     BoardController rider; Spawner spawner; ChaseCamera chase; Hud hud; DayCycle day; Ocean ocean;
     ParticleSystem spray; Transform rig, pug; RiderRig riderRig; float wakeA;
-    Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate;
+    Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop;
     bool over;
 
     void Start()
@@ -38,16 +38,7 @@ public class Bootstrap : MonoBehaviour
         // the board and the rider
         var player = new GameObject("Player"); rider = player.AddComponent<BoardController>();
         rig = new GameObject("rig").transform; rig.SetParent(player.transform, false);
-        // the board is built, not loaded: the web game's own Astro Original, nose toward -z,
-        // its middle on the rig's origin as the web keeps it
-        var board = BoardMesh.Build("board"); board.transform.SetParent(rig, false); boardGo = board;
-        pug = Models.Spawn("pug", rig, 1.9f, PrimitiveType.Capsule).transform;
-        pug.localPosition = new Vector3(0, 0.19f, 0.2f); pug.localRotation = Quaternion.Euler(0, -70f, 0);
-        if (pug.name.EndsWith("(stand-in)")) { pug.localScale = new Vector3(0.9f, 0.95f, 0.9f); pug.localPosition = new Vector3(0, 1.0f, 0.2f); pug.GetComponent<Renderer>().material.color = new Color(0.85f, 0.75f, 0.6f); }
-        // the file's own clips would overwrite the bones every frame; the rig poses him instead
-        foreach (var a in pug.GetComponentsInChildren<Animation>(true)) { a.Stop(); a.enabled = false; }
-        foreach (var a in pug.GetComponentsInChildren<Animator>(true)) a.enabled = false;
-        riderRig = pug.gameObject.AddComponent<RiderRig>(); riderRig.Init(rider);
+        BuildRider();
 
         // the water
         spawner = new GameObject("Spawner").AddComponent<Spawner>(); spawner.rider = rider;
@@ -81,14 +72,35 @@ public class Bootstrap : MonoBehaviour
 
         // the title screen's beach
         beach = gameObject.AddComponent<Beach>(); beach.Build(null);
-        beach.onSign = s => { if (s == "Play") Play(); else hud.Toast(s + " is coming in the next round"); };
+        beach.onSign = s => { if (s == "Play") Play(); else if (s == "Shop") shop.Show(true); else hud.Toast(s + " is coming in the next round"); };
+        beach.SetBoard(SaveData.S.equipped);
 
         // HUD
         hud = new GameObject("HUD").AddComponent<Hud>(); hud.rider = rider;
-        hud.onPlay = Play; hud.onMenu = Menu;
+        hud.onPlay = Play; hud.onMenu = Menu; hud.onShop = () => shop.Show(true);
         spawner.onSplat = c => hud.Splat(c);
         hud.Build();
+        shop = new GameObject("Shop").AddComponent<Shop>(); shop.Build(hud.Canvas);
+        shop.onChange = () => { BuildRider(); if (beach.Showing) beach.PlaceRider(rider.transform, rig, boardGo); hud.ShowMenu(); };
         Menu();
+    }
+
+    // the equipped board and rider, from the save; called again when the shop changes them
+    void BuildRider()
+    {
+        if (boardGo != null) Destroy(boardGo);
+        if (pug != null) Destroy(pug.gameObject);
+        var b = BoardCatalog.Get(SaveData.S.equipped);
+        var board = BoardMesh.Build(b); board.transform.SetParent(rig, false); boardGo = board;
+        rider.ApplyBoard(b);
+        pug = Models.Spawn(SaveData.S.rider, rig, 1.9f, PrimitiveType.Capsule).transform;
+        pug.localPosition = new Vector3(0, 0.19f, 0.2f); pug.localRotation = Quaternion.Euler(0, -70f, 0);
+        if (pug.name.EndsWith("(stand-in)")) { pug.localScale = new Vector3(0.9f, 0.95f, 0.9f); pug.localPosition = new Vector3(0, 1.0f, 0.2f); pug.GetComponent<Renderer>().material.color = new Color(0.85f, 0.75f, 0.6f); }
+        // the file's own clips would overwrite the bones every frame; the rig poses him instead
+        foreach (var a in pug.GetComponentsInChildren<Animation>(true)) { a.Stop(); a.enabled = false; }
+        foreach (var a in pug.GetComponentsInChildren<Animator>(true)) a.enabled = false;
+        riderRig = pug.gameObject.AddComponent<RiderRig>(); riderRig.Init(rider);
+        if (beach != null) beach.SetBoard(b.id);
     }
 
     void Play()
@@ -168,8 +180,10 @@ public class Bootstrap : MonoBehaviour
                 int d = Mathf.RoundToInt(rider.dist);
                 if (rider.score > SaveData.Best) SaveData.Best = rider.score;
                 if (d > SaveData.BestDist) SaveData.BestDist = d;
-                SaveData.Coins += rider.coins; SaveData.Flush();
-                hud.ShowCard(true, d, rider.score, SaveData.Best);
+                SaveData.Coins += rider.coins; SaveData.S.runs++;
+                int xpGain = d + Mathf.RoundToInt(rider.score / 10f), pay = Progress.AddXp(xpGain);
+                SaveData.Flush();
+                hud.ShowCard(true, d, rider.score, SaveData.Best, xpGain, pay);
             }
         }
         else
@@ -178,12 +192,12 @@ public class Bootstrap : MonoBehaviour
             beach.PlaceRider(rider.transform, rig, boardGo);
             // a tap on the signpost, away from the pills
             bool over2 = UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject();
-            if (Input.GetMouseButtonDown(0) && !over2) beach.Tap(cam, Input.mousePosition);
+            if (Input.GetMouseButtonDown(0) && !over2 && !shop.Open) beach.Tap(cam, Input.mousePosition);
             for (int i = 0; i < Input.touchCount; i++)
             {
                 var tc = Input.GetTouch(i);
                 bool overT = UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject(tc.fingerId);
-                if (tc.phase == TouchPhase.Began && !overT) beach.Tap(cam, tc.position);
+                if (tc.phase == TouchPhase.Began && !overT && !shop.Open) beach.Tap(cam, tc.position);
             }
         }
         // the pug's stance: the skeleton is posed when the file has one, else the stand-in squashes

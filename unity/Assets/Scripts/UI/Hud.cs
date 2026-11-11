@@ -9,7 +9,9 @@ using UnityEngine.EventSystems;
 public class Hud : MonoBehaviour
 {
     public BoardController rider;
-    public System.Action onPlay, onMenu;
+    public System.Action onPlay, onMenu, onShop;
+    public Transform Canvas => canvas.transform;
+    Image xpFill;
 
     Canvas canvas;
     GameObject menu, ride, card, bar, jump;
@@ -52,7 +54,7 @@ public class Hud : MonoBehaviour
         var track = UiKit.Pic(m, "xp", UiKit.Rounded(150, 7, 3.5f, 3.5f, 3.5f, 3.5f, UiKit.Body.Pill, 0), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -48), new Vector2(150, 7));
         track.color = new Color(0.12f, 0.22f, 0.45f, 0.95f); track.raycastTarget = false;
         var fill = UiKit.Pic(m, "xpfill", UiKit.Rounded(150, 7, 3.5f, 3.5f, 3.5f, 3.5f, UiKit.Body.Pill, 0), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, 1), new Vector2(-75, -48), new Vector2(150, 7));
-        fill.color = new Color(1f, 0.72f, 0.1f); fill.type = Image.Type.Filled; fill.fillMethod = Image.FillMethod.Horizontal; fill.fillAmount = 0.35f; fill.raycastTarget = false;
+        fill.color = new Color(1f, 0.72f, 0.1f); fill.type = Image.Type.Filled; fill.fillMethod = Image.FillMethod.Horizontal; fill.fillAmount = 0.35f; fill.raycastTarget = false; xpFill = fill;
         // settings and profile
         Round(m, "Settings", "\u2699", -10); Round(m, "Profile", "\u263A", -52);
     }
@@ -148,6 +150,10 @@ public class Hud : MonoBehaviour
         UiKit.Label(mb.transform, "⌂", 17, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, 6), Vector2.zero);
         UiKit.Label(mb.transform, "MENU", 8, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -12), Vector2.zero);
         mb.raycastTarget = true; UiKit.Pressable(mb.gameObject, null, () => onMenu?.Invoke());
+        var sb = UiKit.Pic(c, "shop", UiKit.Circle(54, UiKit.Body.Teal, 2f), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(124, 36), new Vector2(54, 54));
+        UiKit.Label(sb.transform, "\u2302", 17, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, 6), Vector2.zero);
+        UiKit.Label(sb.transform, "SHOP", 8, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -12), Vector2.zero);
+        sb.raycastTarget = true; UiKit.Pressable(sb.gameObject, null, () => onShop?.Invoke());
         card.SetActive(false);
     }
 
@@ -156,7 +162,7 @@ public class Hud : MonoBehaviour
     {
         menu.SetActive(true); ride.SetActive(false); card.SetActive(false);
         tMenuCoins.text = SaveData.Coins.ToString("N0");
-        tMenuBest.text = "Level 1";
+        tMenuBest.text = "Level " + Progress.Level; if (xpFill != null) xpFill.fillAmount = Progress.Frac;
     }
 
     public void ShowRide()
@@ -166,10 +172,10 @@ public class Hud : MonoBehaviour
         tBestS.color = tBestD.color = new Color(1, 1, 1, 0.52f);
     }
 
-    public void ShowCard(bool on, int dist, int score, int best)
+    public void ShowCard(bool on, int dist, int score, int best, int xp = 0, int pay = 0)
     {
         card.SetActive(on); bar.SetActive(!on); jump.SetActive(!on);
-        if (on) tCardBody.text = dist + " m\n" + score.ToString("N0") + " trick points\nbest " + best.ToString("N0");
+        if (on) tCardBody.text = dist + " m\n" + score.ToString("N0") + " trick points\nbest " + best.ToString("N0") + "\n+" + xp + " XP" + (pay > 0 ? "  \u00B7  level up! +" + pay + " puka" : "");
     }
 
     public void Toast(string s) { tToast.text = s; tToast.gameObject.SetActive(true); toastT = 1.8f; }

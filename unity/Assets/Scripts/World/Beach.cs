@@ -84,8 +84,7 @@ public class Beach : MonoBehaviour
         var sign = Prop("Sign", Models.Spawn("sign", root.transform, signHeight, PrimitiveType.Cube), R(signTurn), flipSign);
         Settle(sign, -signAt.x, signAt.y, signAt.z, true);
         // the board propped into the crook of the trunk
-        var board = BoardMesh.Build("board"); board.transform.SetParent(root.transform, false);
-        board.transform.rotation = Quaternion.Euler(R(boardTurn)); Settle(board, -boardAt.x, boardAt.y, boardAt.z, true);
+        SetBoard(SaveData.S.equipped);
         // the chest
         var chest = Prop("Chest", Models.Spawn("chest", root.transform, chestHeight, PrimitiveType.Cube), new Vector3(0, -chestTurn, 0), flipChest);
         Settle(chest, -chestBottom.x, SandY(-chestBottom.x, chestBottom.z) - 0.04f, chestBottom.z, false);
@@ -104,6 +103,16 @@ public class Beach : MonoBehaviour
             var bc = arm.AddComponent<BoxCollider>(); bc.size = new Vector3(Mathf.Max(b.size.x, 1.2f), postHeight / 3f, Mathf.Max(b.size.z, 0.8f));
         }
         Show(false);
+    }
+
+    GameObject leanBoard;
+    /// the board propped against the trunk is the one equipped
+    public void SetBoard(string id)
+    {
+        if (root == null) return;
+        if (leanBoard != null) Destroy(leanBoard);
+        leanBoard = BoardMesh.Build(id); leanBoard.transform.SetParent(root.transform, false);
+        leanBoard.transform.rotation = Quaternion.Euler(R(boardTurn)); Settle(leanBoard, -boardAt.x, boardAt.y, boardAt.z, true);
     }
 
     GameObject Prop(string n, GameObject go, Vector3 turn, bool flip)
