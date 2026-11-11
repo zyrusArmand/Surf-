@@ -8,7 +8,7 @@ using UnityEngine;
 
 public class Coconuts : MonoBehaviour
 {
-    public BoardController rider; public SetWave setWave;
+    public BoardController rider; public SetWave setWave; public Island island;
     public System.Action<Vector3, int> onSplash;
     public const int Max = 3;               // nuts to a charge
     public const float Hold = 20f;          // seconds the charge runs once it closes
@@ -86,7 +86,7 @@ public class Coconuts : MonoBehaviour
         }
         SizeK = K;
         // no new nuts while a charge is running: the meter is full and has nowhere to put them
-        if (r.running && (setWave == null || setWave.ph == SetWave.Phase.Idle) && r.dist > 60f && power <= 0)
+        if (r.running && (setWave == null || setWave.ph == SetWave.Phase.Idle) && r.dist > 60f && power <= 0 && (island == null || !island.On))
         {
             timer -= dt;
             if (timer <= 0) { timer = 5f + Random.value * 6f; Spawn(); }

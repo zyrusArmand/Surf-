@@ -30,17 +30,26 @@ public class Spawner : MonoBehaviour
     const float FtToM = 0.3048f;
 
     static readonly Dictionary<string, float> FloatOff = new Dictionary<string, float> {
-        {"buoy",0.36f},{"jelly",0.34f},{"log",0.40f},{"ramp",0.02f},{"bigfin",0.28f},{"octopus",-0.10f} };
+        {"buoy",0.36f},{"jelly",0.34f},{"log",0.40f},{"ramp",0.02f},{"bigfin",0.28f},{"octopus",-0.10f},{"rock",0.0f} };
+
+    // ---- the set pieces stand the rack down ----
+    // The fork casts its own run down the channel he took and the chute its own rack, so the
+    // ordinary spawner holds for the length of either (web 46175, 46182). holdCast is written
+    // each frame by Island/Chute; chuteW is the chute's weight 0..1, which swaps the rack for
+    // rock, timber and the odd slab and tightens the gap by 30% (web 46192, 46213-46214).
+    public bool holdCast;
+    public float chuteW;
     const float ShkLead = 1.15f, ShkArc = 1.30f, ShkApex = 5.4f, ShkDodge = 3.2f, ShkOver = 3.4f, ShkReach = 7.5f, ShkChance = 0.66f, ShkPast = 2.2f;
     public const float ShkChew = 1.75f;
 
     // ---- the banner plane: a tow passes low over the lane every forty to eighty seconds ----
-    public SetWave setWave;
+    public SetWave setWave; public Island island;
     Transform tow; bool towOn; float towT = 20f, towSpin;
 
     void TowPlane(float dt, float eff)
     {
         bool setIdle = setWave == null || setWave.ph == SetWave.Phase.Idle;
+        if (island != null && island.On) towT = Mathf.Max(towT, 2.0f);   // no banner tow over a beach
         if (setIdle) towT -= dt;
         if (setIdle && towT <= 0f && !towOn)
         {
@@ -74,7 +83,7 @@ public class Spawner : MonoBehaviour
     {
         Hull.Reset();
         foreach (var o in obstacles) if (o.go) Destroy(o.go);
-        obstacles.Clear(); spawnT = 1.8f; eater = null; bigFinCd = 0; octCd = 0;
+        obstacles.Clear(); spawnT = 1.8f; eater = null; bigFinCd = 0; octCd = 0; holdCast = false; chuteW = 0;
         towOn = false; towT = 20f + Random.value * 20f; if (tow != null) tow.gameObject.SetActive(false);
         foreach (var st in stars) if (st.go) Destroy(st.go);
         stars.Clear();
@@ -82,23 +91,41 @@ public class Spawner : MonoBehaviour
 
     public void Remove(int i) { if (obstacles[i].go) Destroy(obstacles[i].go); obstacles.RemoveAt(i); }
 
+    /// everything on the water goes, and nothing else changes (web fallGo: whatever was already
+    /// in the lane when the drop was armed would otherwise ride into it)
+    public void ClearObstacles()
+    {
+        foreach (var o in obstacles) if (o.go) Destroy(o.go);
+        obstacles.Clear(); eater = null;
+    }
+
     public void Step(float dt)
     {
         var r = rider; float eff = r.eff;
         spawnT -= dt;
         float distM = r.dist;
         if (r.running) TowPlane(dt, eff);
-        if (r.running && spawnT <= 0f)
+        if (holdCast) spawnT = Mathf.Max(spawnT, 0.5f);
+        if (r.running && spawnT <= 0f && !holdCast)
         {
-            float wantGap = Mathf.Max(15f, 24f - distM / 300f);
+            float wantGap = Mathf.Max(15f, 24f - distM / 300f) * (1f - 0.30f * chuteW);
             spawnT = Mathf.Max(0.40f, wantGap / Mathf.Max(16f, eff)) * (0.75f + Random.value * 0.5f);
             // buoys and logs are the whole game to begin with; ramps, then jellyfish
-            var weights = new List<(string, float)> { ("buoy", 22), ("log", 17) };
-            if (distM >= 150) weights.Add(("ramp", 16));
-            if (distM >= 340) weights.Add(("jelly", 20));
-            if (distM >= 560 && bigFinCd <= 0f) weights.Add(("bigfin", 11));
-            if (distM >= 780 && octCd <= 0) weights.Add(("octopus", Mathf.Min(30f, 4f + Mathf.Max(0f, (distM - 780f) / 28f))));
-            string pick = "buoy";
+            var weights = new List<(string, float)>();
+            if (chuteW > 0.5f)
+            {
+                // the chute casts its own: nothing that floats, only what a river puts in there
+                weights.Add(("rock", 34)); weights.Add(("log", 28)); weights.Add(("ramp", 22));
+            }
+            else
+            {
+                weights.Add(("buoy", 22)); weights.Add(("log", 17));
+                if (distM >= 150) weights.Add(("ramp", 16));
+                if (distM >= 340) weights.Add(("jelly", 20));
+                if (distM >= 560 && bigFinCd <= 0f) weights.Add(("bigfin", 11));
+                if (distM >= 780 && octCd <= 0) weights.Add(("octopus", Mathf.Min(30f, 4f + Mathf.Max(0f, (distM - 780f) / 28f))));
+            }
+            string pick = weights[0].Item1;
             for (int tries = 0; tries < 8; tries++)
             {
                 float total = 0; foreach (var w in weights) total += w.Item2;
@@ -112,8 +139,9 @@ public class Spawner : MonoBehaviour
             octCd = Mathf.Max(0, octCd - 1); if (pick == "octopus") octCd = 3;
             laneSlot = (laneSlot + 1 + Random.Range(0, 3)) % 7;
             float laneX = (-3 + laneSlot) * 4.9f + (Random.value - 0.5f) * 3.0f;
-            Make(pick, Mathf.Clamp(r.px * 0.55f + laneX, -17f, 17f), -170f);
-            if (distM > 600 && Random.value < 0.30f)
+            float lim = Mathf.Min(17f, r.laneLim);
+            Make(pick, Mathf.Clamp(r.px * 0.55f + laneX, -lim, lim), -170f);
+            if (distM > 600 && Random.value < 0.30f && chuteW <= 0.5f)
             {
                 float edge = (Random.value < 0.5f ? -1 : 1) * (11.5f + Random.value * 4.5f);
                 Make(Random.value < 0.5f ? "buoy" : "log", edge, -176f);
@@ -342,6 +370,31 @@ public class Spawner : MonoBehaviour
                 { var g = Models.Spawn("ramp", holder.transform, 1.6f, PrimitiveType.Cube); if (g.name.EndsWith("(stand-in)")) g.transform.localScale = new Vector3(4.6f, 1.2f, 6f); } break;
             case "jelly": o.hx = 1.1f; o.hz = 1.1f; o.h = 1.4f;
                 { var g = Models.Spawn("jelly", holder.transform, 2.6f, PrimitiveType.Sphere); } break;
+            case "rock": o.hx = 1.55f; o.hz = 0.95f; o.h = 1.15f;
+                // the chute's own hazard (web 22652-22675): wide and LOW, the opposite of the rest of
+                // the rack. At chute speed there is no steering round it; it is broad enough that
+                // going round is not on and short enough that going over it is. Five overlapping
+                // lumps, because a boulder in white water is a cluster and one shape is a traffic cone;
+                // a sheet of white water breaking over it, which is what makes it read as IN the fall.
+                {
+                    var lit = Shader.Find("Universal Render Pipeline/Lit"); if (lit == null) lit = Shader.Find("Standard");
+                    var grey = new Material(lit); grey.SetColor("_BaseColor", new Color(0x6b / 255f, 0x6f / 255f, 0x74 / 255f)); grey.SetFloat("_Smoothness", 1f - 0.92f); grey.SetFloat("_Metallic", 0f);
+                    var wet = new Material(lit); wet.SetColor("_BaseColor", new Color(0x4a / 255f, 0x50 / 255f, 0x54 / 255f)); wet.SetFloat("_Smoothness", 1f - 0.62f); wet.SetFloat("_Metallic", 0f);
+                    for (int i = 0; i < 5; i++)
+                    {
+                        float a2 = i / 5f * Mathf.PI * 2f, rr = 0.55f + Random.value * 0.55f;
+                        var lump = GameObject.CreatePrimitive(PrimitiveType.Sphere); var lc = lump.GetComponent<Collider>(); if (lc != null) Destroy(lc);
+                        lump.name = "lump"; lump.transform.SetParent(holder.transform, false);
+                        lump.transform.localPosition = new Vector3(Mathf.Cos(a2) * 0.85f * (i > 0 ? 1f : 0f), 0.10f + Random.value * 0.30f, Mathf.Sin(a2) * 0.55f * (i > 0 ? 1f : 0f));
+                        lump.transform.localRotation = Quaternion.Euler(Random.value * 3f * Mathf.Rad2Deg, Random.value * 3f * Mathf.Rad2Deg, Random.value * 3f * Mathf.Rad2Deg);
+                        lump.transform.localScale = new Vector3(rr * 2f, rr * 2f * 0.72f, rr * 2f);   // a unit sphere is radius 0.5
+                        var lr = lump.GetComponent<MeshRenderer>(); lr.sharedMaterial = i == 0 ? wet : grey; lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    }
+                    var foam = GameObject.CreatePrimitive(PrimitiveType.Sphere); var fc = foam.GetComponent<Collider>(); if (fc != null) Destroy(fc);
+                    foam.name = "foam"; foam.transform.SetParent(holder.transform, false);
+                    foam.transform.localPosition = new Vector3(0, 0.30f, 0); foam.transform.localScale = new Vector3(1.15f * 2f * 1.5f, 1.15f * 2f * 0.34f, 1.15f * 2f * 0.85f);
+                    var fr = foam.GetComponent<MeshRenderer>(); fr.sharedMaterial = Dive.Unlit(new Color(0xea / 255f, 0xf7 / 255f, 1f, 0.34f), true); fr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                } break;
             case "octopus": o.hx = 1.6f; o.hz = 1.6f; o.h = 1.4f;
                 {
                     var g = Models.Spawn("octopus", holder.transform, 2.4f, PrimitiveType.Sphere);

@@ -6,7 +6,7 @@ using UnityEngine;
 
 public class Crate : MonoBehaviour
 {
-    public BoardController rider; public SetWave setWave;
+    public BoardController rider; public SetWave setWave; public Island island;   // no chest drifting up the sand
     public System.Action<Vector3, int> onSplash;
     bool on, held; float timer = 999f, bob; Transform obj; Light glow;
 
@@ -30,7 +30,7 @@ public class Crate : MonoBehaviour
         bob += dt;
         if (!on)
         {
-            if (!held && r.running && (setWave == null || setWave.ph == SetWave.Phase.Idle) && r.dist > 120f)
+            if (!held && r.running && (setWave == null || setWave.ph == SetWave.Phase.Idle) && r.dist > 120f && (island == null || !island.On))
             {
                 timer -= dt;
                 if (timer <= 0f)

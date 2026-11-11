@@ -6,8 +6,8 @@ using UnityEngine;
 public class Bootstrap : MonoBehaviour
 {
     BoardController rider; Spawner spawner; ChaseCamera chase; Hud hud; DayCycle day; Ocean ocean;
-    ParticleSystem spray; Transform rig, pug; RiderRig riderRig; float wakeA;
-    Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop; Coconuts cocos; Ufo ufo; Dive dive;
+    ParticleSystem spray; Transform rig, pug; RiderRig riderRig; ProcRig procRig; float wakeA;
+    Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop; Coconuts cocos; Ufo ufo; Dive dive; Island island; Chute chute;
     Quests quests; StatsPanel stats; SettingsPanel settings; SchoolPanel school; ProfilePanel profile; GuidePanel guide;
     WheelPanel wheel; LevelPanel levelInfo; PukaPanel puka; int bankedDist, bankedScore, bankedCoins;
     bool over; float runSecs; bool palmSaid;
@@ -50,11 +50,15 @@ public class Bootstrap : MonoBehaviour
         cocos = new GameObject("Coconuts").AddComponent<Coconuts>(); cocos.rider = rider; cocos.setWave = setWave;
         dive = new GameObject("Dive").AddComponent<Dive>(); dive.rider = rider; dive.setWave = setWave; setWave.dive = dive; whirl.dive = dive;
         ufo = new GameObject("Ufo").AddComponent<Ufo>(); ufo.rider = rider; ufo.day = day; ufo.setWave = setWave; ufo.rig = rig; ufo.onRebuild = BuildRider; setWave.ufo = ufo;
+        island = new GameObject("Island").AddComponent<Island>(); island.rider = rider; island.spawner = spawner; island.setWave = setWave;
+        chute = new GameObject("Chute").AddComponent<Chute>(); chute.rider = rider; chute.spawner = spawner; chute.setWave = setWave; chute.whirl = whirl;
+        island.chute = chute; chute.island = island; setWave.island = island; setWave.chute = chute; whirl.island = island; whirl.chute = chute; dive.island = island; dive.chute = chute;
+        crate.island = island; cocos.island = island; spawner.island = island;
 
         // spray
         spray = BuildSpray();
         rider.onSplash = (p, n) => { spray.transform.position = p; spray.Emit(n); };
-        spawner.onSplash = rider.onSplash; setWave.onSplash = rider.onSplash; whirl.onSplash = rider.onSplash; crate.onSplash = rider.onSplash; cocos.onSplash = rider.onSplash; ufo.onSplash = rider.onSplash; dive.onSplash = rider.onSplash;
+        spawner.onSplash = rider.onSplash; setWave.onSplash = rider.onSplash; whirl.onSplash = rider.onSplash; crate.onSplash = rider.onSplash; cocos.onSplash = rider.onSplash; ufo.onSplash = rider.onSplash; dive.onSplash = rider.onSplash; island.onSplash = rider.onSplash; chute.onSplash = rider.onSplash;
         rider.onWipeout = () => { over = false; Sfx.Buzz(60, 50, 80); };
 
         // camera
@@ -65,7 +69,7 @@ public class Bootstrap : MonoBehaviour
         Sfx.Init();
         var ucam = camGo.AddComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>();
         ucam.renderPostProcessing = true; ucam.antialiasing = UnityEngine.Rendering.Universal.AntialiasingMode.FastApproximateAntialiasing;
-        chase = camGo.AddComponent<ChaseCamera>(); chase.rider = rider; chase.cam = cam; chase.dive = dive;
+        chase = camGo.AddComponent<ChaseCamera>(); chase.rider = rider; chase.cam = cam; chase.dive = dive; chase.island = island; chase.chute = chute; island.chase = chase; chute.chase = chase;
 
         // post: bloom, a touch of vignette, ACES
         var volGo = new GameObject("Volume"); var vol = volGo.AddComponent<UnityEngine.Rendering.Volume>(); vol.isGlobal = true;
@@ -128,21 +132,29 @@ public class Bootstrap : MonoBehaviour
         var b = BoardCatalog.Get(string.IsNullOrEmpty(SaveData.S.wheelLoan) ? SaveData.S.equipped : SaveData.S.wheelLoan);
         var board = BoardMesh.Build(b); board.transform.SetParent(rig, false); boardGo = board; Hull.Board = board; Hull.ClearMarks();
         rider.ApplyStats(RideStats.For(b.id, string.IsNullOrEmpty(SaveData.S.wheelRider) ? SaveData.S.rider : SaveData.S.wheelRider));
-        pug = Models.Spawn(string.IsNullOrEmpty(SaveData.S.wheelRider) ? SaveData.S.rider : SaveData.S.wheelRider, rig, 1.9f, PrimitiveType.Capsule).transform;
+        // the rider: a file when there is one, else one of the web's eleven built from primitives
+        var rid = string.IsNullOrEmpty(SaveData.S.wheelRider) ? SaveData.S.rider : SaveData.S.wheelRider;
+        bool proc = Resources.Load<GameObject>("Models/" + rid) == null && ProcRider.Has(rid);
+        pug = (proc ? ProcRider.Build(rid, rig) : Models.Spawn(rid, rig, 1.9f, PrimitiveType.Capsule)).transform;
         pug.localPosition = new Vector3(0, 0.19f, 0.2f); pug.localRotation = Quaternion.Euler(0, -70f, 0);
         if (pug.name.EndsWith("(stand-in)")) { pug.localScale = new Vector3(0.9f, 0.95f, 0.9f); pug.localPosition = new Vector3(0, 1.0f, 0.2f); pug.GetComponent<Renderer>().material.color = new Color(0.85f, 0.75f, 0.6f); }
         // the file's own clips would overwrite the bones every frame; the rig poses him instead
         foreach (var a in pug.GetComponentsInChildren<Animation>(true)) { a.Stop(); a.enabled = false; }
         foreach (var a in pug.GetComponentsInChildren<Animator>(true)) a.enabled = false;
-        riderRig = pug.gameObject.AddComponent<RiderRig>(); riderRig.Init(rider);
-        riderRig.SetBoard(b);          // the ring and the ski are sat in, not stood on
-        Gear.Dress(pug, SaveData.S);   // what the save says he wears; a rider without the bones is skipped
+        riderRig = null; procRig = null;
+        if (proc) { procRig = pug.gameObject.AddComponent<ProcRig>(); procRig.Init(rider); }
+        else
+        {
+            riderRig = pug.gameObject.AddComponent<RiderRig>(); riderRig.Init(rider);
+            riderRig.SetBoard(b);          // the ring and the ski are sat in, not stood on
+            Gear.Dress(pug, SaveData.S);   // what the save says he wears; a rider without the bones is skipped
+        }
         if (beach != null) beach.SetBoard(b.id);
     }
 
     void Play()
     {
-        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset();
+        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset(); island.Reset(); chute.Reset();
         Quests.Roll();
         if (Wheel.RunStart()) BuildRider(); if (Wheel.ConsumeChest()) crate.Soon(); bankedDist = bankedScore = bankedCoins = 0;
         rider.Begin(); runSecs = 0;
@@ -158,7 +170,7 @@ public class Bootstrap : MonoBehaviour
     void Menu()
     {
         if (Wheel.RunEnd()) BuildRider();        // a loan from the wheel is given back
-        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset();
+        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset(); island.Reset(); chute.Reset();
         rider.Idle(0f);
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
@@ -199,9 +211,12 @@ public class Bootstrap : MonoBehaviour
             spawner.Step(dt);
             setWave.Step(dt);
             dive.Step(dt);                                   // after the set wave: the launch assigns pz over its trim
+            island.Step(dt); chute.Step(dt);
             whirl.Step(dt); crate.Step(dt); cocos.Step(dt); ufo.Step(dt);
             if (Input.GetKeyDown(KeyCode.U)) ufo.summon = true;           // debug: the saucer now
             if (Input.GetKeyDown(KeyCode.N)) dive.summon = true;          // debug: a jetpack now
+            if (Input.GetKeyDown(KeyCode.I)) island.summon = true;        // debug: the island fork now
+            if (Input.GetKeyDown(KeyCode.F)) chute.summon = true;         // debug: the chute now
             rider.transform.localScale = Vector3.one * cocos.K;      // the coconut charge shrinks him
             Quests.Scan(rider, dt);
             if (Input.GetKeyDown(KeyCode.B)) setWave.summon = true;      // debug: bring a set now
@@ -262,7 +277,11 @@ public class Bootstrap : MonoBehaviour
             }
         }
         // the pug's stance: the skeleton is posed when the file has one, else the stand-in squashes
-        if (riderRig != null && riderRig.Ready)
+        if (procRig != null && procRig.Ready)
+        {
+            if (rider.running || rider.wipe) procRig.Stance(dt, 1f); else procRig.Idle(dt, Mathf.Min(1f, dt * 4f));
+        }
+        else if (riderRig != null && riderRig.Ready)
         {
             if (rider.running || rider.wipe) riderRig.Stance(dt, 1f); else riderRig.Idle(dt, Mathf.Min(1f, dt * 4f));
         }
