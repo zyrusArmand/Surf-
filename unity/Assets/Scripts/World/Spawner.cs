@@ -118,7 +118,9 @@ public class Spawner : MonoBehaviour
         {
             case "buoy": o.hx = 1.25f; o.hz = 1.25f; o.h = 2.4f; Models.Spawn("buoy", holder.transform, 4.2f, PrimitiveType.Cylinder); break;
             case "log": o.hx = 3.1f; o.hz = 0.95f; o.h = 1.15f;
-                { var g = Models.Spawn("log", holder.transform, 1.2f, PrimitiveType.Capsule); Models.FitLength(g, 6.4f); g.transform.localRotation *= Quaternion.Euler(0, 90, 0); } break;
+                { var g = Models.Spawn("log", holder.transform, 1.2f, PrimitiveType.Capsule); Models.FitLength(g, 6.4f);
+                  // FitLength lays the long side along z; a log floats ACROSS the lane, so a quarter turn in the parent's frame
+                  g.transform.localRotation = Quaternion.Euler(0, 90, 0) * g.transform.localRotation; } break;
             case "ramp": o.hx = 2.4f; o.hz = 3.0f; o.h = 1.6f; o.ramp = true;
                 { var g = Models.Spawn("ramp", holder.transform, 1.6f, PrimitiveType.Cube); if (g.name.EndsWith("(stand-in)")) g.transform.localScale = new Vector3(4.6f, 1.2f, 6f); } break;
             case "jelly": o.hx = 1.1f; o.hz = 1.1f; o.h = 1.4f;
