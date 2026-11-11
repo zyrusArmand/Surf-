@@ -6,7 +6,7 @@ using UnityEngine;
 public class Bootstrap : MonoBehaviour
 {
     BoardController rider; Spawner spawner; ChaseCamera chase; Hud hud; DayCycle day; Ocean ocean;
-    ParticleSystem spray; Transform rig, pug; float wakeA;
+    ParticleSystem spray; Transform rig, pug; RiderRig riderRig; float wakeA;
     bool over;
 
     void Start()
@@ -46,6 +46,10 @@ public class Bootstrap : MonoBehaviour
         pug = Models.Spawn("pug", rig, 1.9f, PrimitiveType.Capsule).transform;
         pug.localPosition = new Vector3(0, bb.max.y - 0.02f, 0.2f); pug.localRotation = Quaternion.Euler(0, -70f, 0);
         if (pug.name.EndsWith("(stand-in)")) { pug.localScale = new Vector3(0.9f, 0.95f, 0.9f); pug.localPosition = new Vector3(0, 1.0f, 0.2f); pug.GetComponent<Renderer>().material.color = new Color(0.85f, 0.75f, 0.6f); }
+        // the file's own clips would overwrite the bones every frame; the rig poses him instead
+        foreach (var a in pug.GetComponentsInChildren<Animation>(true)) { a.Stop(); a.enabled = false; }
+        foreach (var a in pug.GetComponentsInChildren<Animator>(true)) a.enabled = false;
+        riderRig = pug.gameObject.AddComponent<RiderRig>(); riderRig.Init(rider);
 
         // the water
         spawner = new GameObject("Spawner").AddComponent<Spawner>(); spawner.rider = rider;
@@ -139,9 +143,16 @@ public class Bootstrap : MonoBehaviour
                 hud.ShowCard(true, d, rider.score, SaveData.Best);
             }
         }
-        // the pug's stance: crouch and tuck through the pose beats
-        float crouch = 0.3f + rider.poseCrouch * 0.5f + rider.poseAir * 0.35f + rider.poseLand * 0.45f - rider.poseExt * 0.25f + Mathf.Abs(rider.carve) * 0.15f;
-        pug.localScale = new Vector3(pug.localScale.x, Mathf.Lerp(pug.localScale.y, 1f - crouch * 0.18f, dt * 12f), pug.localScale.z);
+        // the pug's stance: the skeleton is posed when the file has one, else the stand-in squashes
+        if (riderRig != null && riderRig.Ready)
+        {
+            if (rider.running || rider.wipe) riderRig.Stance(dt, 1f); else riderRig.Idle(dt, Mathf.Min(1f, dt * 4f));
+        }
+        else
+        {
+            float crouch = 0.3f + rider.poseCrouch * 0.5f + rider.poseAir * 0.35f + rider.poseLand * 0.45f - rider.poseExt * 0.25f + Mathf.Abs(rider.carve) * 0.15f;
+            pug.localScale = new Vector3(pug.localScale.x, Mathf.Lerp(pug.localScale.y, 1f - crouch * 0.18f, dt * 12f), pug.localScale.z);
+        }
         rig.localRotation = Quaternion.Euler(0, 0, -rider.carve * 8f);
 
         ocean.Tick(rider.t, rider.dist * WaveField.Drift, WaveField.Amp, rider.px, rider.pz + BoardController.BoardHalfL, wakeA);
