@@ -14,6 +14,7 @@ public static class Models
         {
             go = Object.Instantiate(prefab, parent);
             go.name = name;
+            Repair(go);
             Fit(go, targetHeight);
         }
         else
@@ -25,6 +26,38 @@ public static class Models
             var col = go.GetComponent<Collider>(); if (col) Object.Destroy(col);
         }
         return go;
+    }
+
+    /// A material whose shader does not run on this pipeline draws bright pink. That happens when
+    /// a model was imported before the project switched to URP. Swap any such material for a URP
+    /// Lit one carrying the same colour and texture, so the model shows up either way.
+    public static void Repair(GameObject go)
+    {
+        var lit = Shader.Find("Universal Render Pipeline/Lit");
+        if (lit == null) return;
+        foreach (var r in go.GetComponentsInChildren<Renderer>(true))
+        {
+            var mats = r.sharedMaterials; bool changed = false;
+            for (int i = 0; i < mats.Length; i++)
+            {
+                var m = mats[i];
+                if (m != null && m.shader != null && m.shader.isSupported && !m.shader.name.Contains("InternalError")) continue;
+                var n = new Material(lit);
+                if (m != null)
+                {
+                    Texture tex = null; Color col = Color.white;
+                    foreach (var key in new[] { "baseColorTexture", "_BaseMap", "_MainTex" })
+                        if (m.HasProperty(key) && m.GetTexture(key) != null) { tex = m.GetTexture(key); break; }
+                    foreach (var key in new[] { "baseColorFactor", "_BaseColor", "_Color" })
+                        if (m.HasProperty(key)) { col = m.GetColor(key); break; }
+                    if (tex != null) n.SetTexture("_BaseMap", tex);
+                    n.SetColor("_BaseColor", col);
+                    n.name = m.name + " (repaired)";
+                }
+                mats[i] = n; changed = true;
+            }
+            if (changed) r.sharedMaterials = mats;
+        }
     }
 
     /// scale so the object stands targetHeight tall, and sit it on its own feet at y=0

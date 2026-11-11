@@ -30,6 +30,7 @@ public static class SurfSetup
             EnsurePipeline();
             EnsurePlayerSettings();
             EnsureScene();
+            EnsureModels();
         }
         catch (System.Exception e)
         {
@@ -78,6 +79,27 @@ public static class SurfSetup
             var ih = so.FindProperty("activeInputHandler");
             if (ih != null && ih.intValue == 1) { ih.intValue = 2; so.ApplyModifiedProperties(); }
         }
+    }
+
+    // The .glb files are imported the moment the project first opens, a few seconds before
+    // EnsurePipeline switches the project to URP, so their materials come out built for the
+    // wrong renderer and draw pink. Import them once more now that URP is in place. The marker
+    // lives in Library, which is per machine and never committed, so this runs once per clone.
+    const string ModelsMarker = "Library/surf-models-urp";
+    static void EnsureModels()
+    {
+        if (GraphicsSettings.defaultRenderPipeline == null) return;
+        if (File.Exists(ModelsMarker)) return;
+        ReimportModels();
+        File.WriteAllText(ModelsMarker, "done");
+    }
+
+    [MenuItem("Surf/Reimport models")]
+    public static void ReimportModels()
+    {
+        AssetDatabase.ImportAsset("Assets/Resources/Models", ImportAssetOptions.ImportRecursive | ImportAssetOptions.ForceUpdate);
+        AssetDatabase.Refresh();
+        Debug.Log("Surf setup: models imported for the current render pipeline");
     }
 
     static void EnsureScene()
