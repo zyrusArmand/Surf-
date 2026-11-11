@@ -7,6 +7,7 @@ public class Bootstrap : MonoBehaviour
 {
     BoardController rider; Spawner spawner; ChaseCamera chase; Hud hud; DayCycle day; Ocean ocean;
     ParticleSystem spray; Transform rig, pug; RiderRig riderRig; float wakeA;
+    Beach beach; Camera cam; GameObject boardGo;
     bool over;
 
     void Start()
@@ -35,7 +36,7 @@ public class Bootstrap : MonoBehaviour
         // the board and the rider
         var player = new GameObject("Player"); rider = player.AddComponent<BoardController>();
         rig = new GameObject("rig").transform; rig.SetParent(player.transform, false);
-        var board = Models.Spawn("board", rig, 0.3f, PrimitiveType.Capsule);
+        var board = Models.Spawn("board", rig, 0.3f, PrimitiveType.Capsule); boardGo = board;
         Models.FitLength(board, BoardController.BoardHalfL * 2f);
         if (board.name.EndsWith("(stand-in)")) { board.transform.localScale = new Vector3(1.1f, 0.18f, 4.9f); board.transform.localRotation = Quaternion.identity; board.transform.localPosition = Vector3.zero; board.GetComponent<Renderer>().material.color = new Color(0.95f, 0.45f, 0.55f); }
         // the board floats with its underside just under the surface and its deck above it;
@@ -61,7 +62,7 @@ public class Bootstrap : MonoBehaviour
         rider.onWipeout = () => { over = false; };
 
         // camera
-        var camGo = new GameObject("Camera"); var cam = camGo.AddComponent<Camera>();
+        var camGo = new GameObject("Camera"); cam = camGo.AddComponent<Camera>(); camGo.tag = "MainCamera";
         cam.nearClipPlane = 0.5f; cam.farClipPlane = 500f; cam.fieldOfView = 62f;
         cam.clearFlags = CameraClearFlags.Skybox;
         camGo.AddComponent<AudioListener>();
@@ -76,6 +77,10 @@ public class Bootstrap : MonoBehaviour
         var vig = prof.Add<UnityEngine.Rendering.Universal.Vignette>(); vig.intensity.Override(0.16f);
         var tone = prof.Add<UnityEngine.Rendering.Universal.Tonemapping>(); tone.mode.Override(UnityEngine.Rendering.Universal.TonemappingMode.ACES);
 
+        // the title screen's beach
+        beach = gameObject.AddComponent<Beach>(); beach.Build(null);
+        beach.onSign = s => { if (s == "Play") Play(); else hud.Toast(s + " is coming in the next round"); };
+
         // HUD
         hud = new GameObject("HUD").AddComponent<Hud>(); hud.rider = rider;
         hud.onPlay = Play; hud.onMenu = Menu;
@@ -89,6 +94,7 @@ public class Bootstrap : MonoBehaviour
         rider.Begin();
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
+        beach.Show(false); boardGo.SetActive(true); day.pin = -1f;
         hud.ShowRide();
         chase.Snap();
     }
@@ -100,8 +106,9 @@ public class Bootstrap : MonoBehaviour
         rider.Idle(0f);
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
+        beach.Show(true); day.pin = 0.47f;
+        beach.PlaceRider(rider.transform, rig, boardGo);
         hud.ShowMenu();
-        chase.Snap();
     }
 
     ParticleSystem BuildSpray()
@@ -155,7 +162,20 @@ public class Bootstrap : MonoBehaviour
                 hud.ShowCard(true, d, rider.score, SaveData.Best);
             }
         }
-        else rider.Idle(dt);
+        else
+        {
+            rider.Idle(dt);
+            beach.PlaceRider(rider.transform, rig, boardGo);
+            // a tap on the signpost, away from the pills
+            bool over2 = UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject();
+            if (Input.GetMouseButtonDown(0) && !over2) beach.Tap(cam, Input.mousePosition);
+            for (int i = 0; i < Input.touchCount; i++)
+            {
+                var tc = Input.GetTouch(i);
+                bool overT = UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject(tc.fingerId);
+                if (tc.phase == TouchPhase.Began && !overT) beach.Tap(cam, tc.position);
+            }
+        }
         // the pug's stance: the skeleton is posed when the file has one, else the stand-in squashes
         if (riderRig != null && riderRig.Ready)
         {
@@ -171,6 +191,6 @@ public class Bootstrap : MonoBehaviour
         ocean.Tick(rider.t, rider.dist * WaveField.Drift, WaveField.Amp, rider.px, rider.pz + BoardController.BoardHalfL, wakeA);
         day.Apply(rider.dist);
         var pm = spray.main; pm.startColor = Color.Lerp(Color.white, day.glow, day.glowAmt * 0.45f);
-        chase.Step(dt);
+        if (beach.Showing) beach.PlaceCamera(cam, dt); else chase.Step(dt);
     }
 }

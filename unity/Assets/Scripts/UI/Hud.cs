@@ -34,50 +34,35 @@ public class Hud : MonoBehaviour
     }
 
     // ---- the title ----
+    // The scene is the menu: the signpost on the beach carries Play, Shop and Quests. The
+    // overlay is only the web game's top bar: puka on the left, the level and its bar in the
+    // middle, settings and profile on the right.
     void BuildMenu(Transform root)
     {
         menu = UiKit.Rect(root, "menu", Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero).gameObject;
         var m = menu.transform;
-        // the word, with the sea behind it
-        UiKit.Label(m, "Surf", 64, Color.white, FontStyle.Bold, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -92), new Vector2(400, 80), TextAnchor.MiddleCenter, 0.9f);
-        UiKit.Label(m, "a pug, a board, and a long way to go", 13, new Color(1, 1, 1, 0.78f), FontStyle.Bold, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -170), new Vector2(400, 20));
-        // the top bar: puka on the left, best on the right
-        var pill = UiKit.Pic(m, "puka", UiKit.Rounded(118, 32, 16, 16, 16, 16, UiKit.Body.Pill, 1.5f), new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(12, -14), new Vector2(118, 32));
-        tMenuCoins = UiKit.Label(pill.transform, "0", 14.5f, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(8, 0), Vector2.zero);
-        UiKit.Label(pill.transform, "●", 10, UiKit.Gold, FontStyle.Bold, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(12, 0), new Vector2(14, 14), TextAnchor.MiddleCenter, 0);
-        var bp = UiKit.Pic(m, "best", UiKit.Rounded(150, 32, 16, 16, 16, 16, UiKit.Body.Pill, 1.5f), new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1), new Vector2(-12, -14), new Vector2(150, 32));
-        tMenuBest = UiKit.Label(bp.transform, "best 0", 13, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
-        // the dial: three a side, PLAY on the sand between them
-        Dial(m, "Board", true, 120); Dial(m, "Shop", true, 60); Dial(m, "Tricks", true, 0);
-        Dial(m, "Quests", false, 120); Dial(m, "Settings", false, 60); Dial(m, "Stats", false, 0);
-        var play = UiKit.Pic(m, "play", UiKit.Circle(84, UiKit.Body.Teal, 2.5f), new Vector2(0.5f, 0.07f), new Vector2(0.5f, 0.07f), new Vector2(0.5f, 0), Vector2.zero, new Vector2(84, 84));
-        UiKit.Label(play.transform, "▶", 22, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(2, 8), Vector2.zero);
-        UiKit.Label(play.transform, "PLAY", 12, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -16), Vector2.zero);
-        play.raycastTarget = true;
-        UiKit.Pressable(play.gameObject, null, () => onPlay?.Invoke());
+        var pill = UiKit.Pic(m, "puka", UiKit.Rounded(104, 34, 17, 17, 17, 17, UiKit.Body.Pill, 1.5f), new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(10, -12), new Vector2(104, 34));
+        UiKit.Label(pill.transform, "\u25CF", 11, new Color(0.55f, 0.85f, 0.95f), FontStyle.Bold, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(10, 0), new Vector2(14, 14), TextAnchor.MiddleCenter, 0);
+        tMenuCoins = UiKit.Label(pill.transform, "0", 14.5f, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(4, 0), Vector2.zero);
+        UiKit.Label(pill.transform, "+", 16, new Color(0.45f, 0.9f, 0.55f), FontStyle.Bold, new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-9, 0), new Vector2(16, 16), TextAnchor.MiddleCenter, 0);
+        pill.raycastTarget = true; UiKit.Pressable(pill.gameObject, null, () => Toast("The puka store is coming in the next round"));
+        // the level, and the bar under it
+        var lv = UiKit.Pic(m, "level", UiKit.Rounded(96, 30, 15, 15, 15, 15, UiKit.Body.Pill, 1.5f), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -12), new Vector2(96, 30));
+        tMenuBest = UiKit.Label(lv.transform, "Level 1", 14, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+        var track = UiKit.Pic(m, "xp", UiKit.Rounded(150, 7, 3.5f, 3.5f, 3.5f, 3.5f, UiKit.Body.Pill, 0), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -48), new Vector2(150, 7));
+        track.color = new Color(0.12f, 0.22f, 0.45f, 0.95f); track.raycastTarget = false;
+        var fill = UiKit.Pic(m, "xpfill", UiKit.Rounded(150, 7, 3.5f, 3.5f, 3.5f, 3.5f, UiKit.Body.Pill, 0), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, 1), new Vector2(-75, -48), new Vector2(150, 7));
+        fill.color = new Color(1f, 0.72f, 0.1f); fill.type = Image.Type.Filled; fill.fillMethod = Image.FillMethod.Horizontal; fill.fillAmount = 0.35f; fill.raycastTarget = false;
+        // settings and profile
+        Round(m, "Settings", "\u2699", -10); Round(m, "Profile", "\u263A", -52);
     }
 
-    void Dial(Transform m, string name, bool left, float up)
+    void Round(Transform m, string name, string glyph, float x)
     {
-        var ax = left ? 0f : 1f;
-        var im = UiKit.Pic(m, name, UiKit.Circle(54, UiKit.Body.Teal, 2f), new Vector2(ax, 0.13f), new Vector2(ax, 0.13f), new Vector2(ax, 0), new Vector2(left ? 14 : -14, up), new Vector2(54, 54));
-        UiKit.Label(im.transform, Glyph(name), 17, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, 6), Vector2.zero, TextAnchor.MiddleCenter, 0.9f);
-        UiKit.Label(im.transform, name.ToUpper(), 8, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -12), Vector2.zero);
+        var im = UiKit.Pic(m, name, UiKit.Circle(36, UiKit.Body.Pill, 1.5f), new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1), new Vector2(x, -11), new Vector2(36, 36));
+        UiKit.Label(im.transform, glyph, 18, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, 1), Vector2.zero);
         im.raycastTarget = true;
         UiKit.Pressable(im.gameObject, null, () => Toast(name + " is coming in the next round"));
-    }
-
-    static string Glyph(string n)
-    {
-        switch (n)
-        {
-            case "Board": return "◆";     // a diamond, for the board's outline
-            case "Shop": return "⌂";      // a house
-            case "Tricks": return "↻";    // a turn
-            case "Quests": return "⚑";    // a flag
-            case "Settings": return "⚙";  // a gear
-            default: return "≡";          // stats: bars
-        }
     }
 
     // ---- the ride ----
@@ -153,7 +138,7 @@ public class Hud : MonoBehaviour
     {
         menu.SetActive(true); ride.SetActive(false); card.SetActive(false);
         tMenuCoins.text = SaveData.Coins.ToString("N0");
-        tMenuBest.text = "best " + SaveData.Best.ToString("N0") + " · " + SaveData.BestDist + " m";
+        tMenuBest.text = "Level 1";
     }
 
     public void ShowRide()
