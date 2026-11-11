@@ -23,6 +23,10 @@ public class Beach : MonoBehaviour
     public Vector3 boardAt = new Vector3(-14.62f, 4.84f, -50.92f); public Vector3 boardTurn = new Vector3(72.5f, -54.3f, -20.9f);
     [Header("Mirror switches, in case a model imports facing the other way")]
     public bool flipSign, flipPost, flipPalm, flipChest;
+    [Header("The small stuff")]
+    public float cocoHeight = 1.17f;      // the nuts in the crown, feet tall
+    public float bowlHeight = 0.46f;      // the split shells on the sand
+    public float birdYaw = 90f;           // the gull model faces +z; its flock flies along +x. 270 if they fly backwards.
 
     [Header("The light and the sea")]
     public Vector3 keyFrom = new Vector3(0.943f, 0.117f, 0.31f);    // toward the sun, from the set (already mirrored)
@@ -39,6 +43,12 @@ public class Beach : MonoBehaviour
 
     GameObject root; Transform post, pugSpot; Mesh sandMesh; float t;
     static readonly string[] Arms = { "Quests", "Shop", "Play" };   // bottom to top
+    // the sky, the nuts and the shells, and the rider's own standing clip
+    BeachSky sky;
+    Transform[] cocos = new Transform[0]; Vector3[] cocoHome = new Vector3[0]; Quaternion[] cocoTurn = new Quaternion[0]; float[] cocoPhase = new float[0];
+    Transform[] bowls = new Transform[0]; Quaternion[] bowlTurn = new Quaternion[0];
+    GltfClips idle;
+    Camera shotCam; float savedFar; bool farSaved;
 
     // the beach profile along z, read off the web sand with a ray every five feet
     static readonly float[] ProfZ = { 20, 0, -20, -25, -30, -35, -40, -45, -50, -55, -60, -65, -70, -75, -80, -85, -90, -100, -120, -160, -300 };
@@ -104,7 +114,147 @@ public class Beach : MonoBehaviour
             arm.transform.rotation = post.rotation;
             var bc = arm.AddComponent<BoxCollider>(); bc.size = new Vector3(Mathf.Max(b.size.x, 1.2f), postHeight / 3f, Mathf.Max(b.size.z, 0.8f));
         }
+        // the coconuts in the crown and the split shells on the sand
+        Coconuts();
+        // the clouds and the gulls, far out over the water
+        sky = new BeachSky { birdYaw = birdYaw };
+        sky.Build(root.transform, 20250823);
         Show(false);
+    }
+
+    // ---- the coconuts: three in the crown, nodding on the same gust as the fronds, and two
+    // half shells on the sand, at the spots measured off the web title screen ----
+    // The web's coconut.glb is five and a half megabytes of mesh for a brown ball ten feet up,
+    // so the nut is a sphere with a fibrous husk baked into a texture and a normal map instead.
+    // The shells are the web's own cocobowl.glb.
+    void Coconuts()
+    {
+        var brng = new System.Random(4171);
+        System.Func<float> rnd = () => (float)brng.NextDouble();
+        var lit = Shader.Find("Universal Render Pipeline/Lit");
+        // on the tree: measured world positions (web frame), each ~1.17 feet tall
+        var nutAt = new[] { new Vector3(-13.71f, 10.965f, -50.85f), new Vector3(-15.13f, 10.96f, -51.0f), new Vector3(-14.29f, 10.96f, -52.16f) };
+        cocos = new Transform[nutAt.Length]; cocoHome = new Vector3[nutAt.Length]; cocoTurn = new Quaternion[nutAt.Length]; cocoPhase = new float[nutAt.Length];
+        Material nutMat = null;
+        if (lit != null)
+        {
+            CoconutTextures(out var baseTex, out var nrmTex);
+            nutMat = new Material(lit); nutMat.name = "coconut";
+            nutMat.SetTexture("_BaseMap", baseTex); nutMat.SetColor("_BaseColor", Color.white); nutMat.SetFloat("_Smoothness", 0.24f);
+            nutMat.EnableKeyword("_NORMALMAP"); nutMat.SetTexture("_BumpMap", nrmTex); nutMat.SetFloat("_BumpScale", 1.2f);
+        }
+        for (int i = 0; i < nutAt.Length; i++)
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Sphere); go.name = "Coconut";
+            var col = go.GetComponent<Collider>(); if (col != null) Destroy(col);
+            go.transform.SetParent(root.transform, false);
+            if (nutMat != null) go.GetComponent<MeshRenderer>().sharedMaterial = nutMat;
+            // the web's turn for the i-th nut round the trunk, mirrored with the set
+            float a2 = i / (float)nutAt.Length * Mathf.PI * 2f + 0.7f;
+            var turn = Quaternion.Euler(R(new Vector3(0.3f + a2 * 0.11f, a2 * 1.7f, 0.2f * Mathf.Sin(a2 * 2.3f)) * Mathf.Rad2Deg));
+            go.transform.rotation = turn;
+            go.transform.localScale = new Vector3(cocoHeight * 0.86f, cocoHeight, cocoHeight * 0.86f);   // a husked nut is an egg, not a ball
+            go.transform.position = M(nutAt[i]);
+            cocos[i] = go.transform; cocoHome[i] = go.transform.position; cocoTurn[i] = turn; cocoPhase[i] = a2;
+        }
+        // on the sand: two half shells, one open to the sky and one mouth down, as the web lays them
+        var bowlAt = new[] { new Vector3(-15.42f, 3.58f, -46.89f), new Vector3(-12.55f, 3.76f, -46.06f) };
+        bool haveBowl = Resources.Load<GameObject>("Models/cocobowl") != null;
+        bowls = new Transform[bowlAt.Length]; bowlTurn = new Quaternion[bowlAt.Length];
+        for (int i = 0; i < bowlAt.Length; i++)
+        {
+            GameObject go;
+            if (haveBowl) { go = Models.Spawn("cocobowl", root.transform, 1f, PrimitiveType.Sphere); go.name = "Bowl"; }
+            else
+            {
+                go = GameObject.CreatePrimitive(PrimitiveType.Sphere); go.name = "Bowl (stand-in)";
+                var col = go.GetComponent<Collider>(); if (col != null) Destroy(col);
+                go.transform.SetParent(root.transform, false); go.transform.localScale = new Vector3(1f, 0.68f, 1f);
+                if (nutMat != null) go.GetComponent<MeshRenderer>().sharedMaterial = nutMat;
+            }
+            // The shell is modelled standing on its cut edge with its axis along z (its box is
+            // 0.99 x 1.00 x 0.68), so a quarter turn about x stands it up; then dome up or dome
+            // down, at any yaw, with a couple of degrees of tilt for the sand under it.
+            float ty = rnd() * 360f, up = i == 0 ? 0f : 180f, tx = (rnd() - 0.5f) * 9f, tz = (rnd() - 0.5f) * 9f;
+            var turn = Quaternion.Euler(0, ty, 0) * Quaternion.Euler(-90f + up + tx, 0, 0) * Quaternion.Euler(0, 0, tz);
+            go.transform.rotation = turn;
+            var b = Models.Bounds(go);
+            if (b.size.y > 1e-4f) go.transform.localScale = go.transform.localScale * (bowlHeight / b.size.y);
+            Settle(go, -bowlAt[i].x, bowlAt[i].y, bowlAt[i].z, true);
+            bowls[i] = go.transform; bowlTurn[i] = turn;
+        }
+    }
+
+    /// a husk: fibres running pole to pole, three faint ridges, darker and smoother at the ends
+    static void CoconutTextures(out Texture2D baseTex, out Texture2D nrmTex)
+    {
+        const int S = 256;
+        var h = new float[S * S]; var cols = new Color32[S * S]; var nrm = new Color32[S * S];
+        for (int y = 0; y < S; y++)
+        for (int x = 0; x < S; x++)
+        {
+            float u = x / (float)S, v = y / (float)S;
+            float fib = Mathf.PerlinNoise(u * 48f + 7.3f, v * 6f + 1.1f) * 0.6f + Mathf.PerlinNoise(u * 110f + 3.7f, v * 14f + 9.2f) * 0.4f;
+            float sm = Mathf.Abs(Mathf.Repeat(u * 3f, 1f) - 0.5f);
+            float seam = Mathf.Clamp01(1f - sm / 0.07f);
+            float pole = Mathf.Clamp01((Mathf.Abs(v - 0.5f) - 0.34f) / 0.16f);
+            h[y * S + x] = fib * (1f - pole * 0.6f) - seam * 0.3f;
+            float l = 0.72f + 0.6f * (fib - 0.5f);
+            var c = new Color(0.47f * l, 0.30f * l, 0.14f * l, 1f);
+            c = Color.Lerp(c, new Color(0.22f, 0.13f, 0.06f, 1f), Mathf.Clamp01(seam * 0.55f + pole * 0.5f));
+            cols[y * S + x] = c;
+        }
+        for (int y = 0; y < S; y++)
+        for (int x = 0; x < S; x++)
+        {
+            float hx = h[y * S + (x + 1) % S] - h[y * S + (x + S - 1) % S];
+            float hy = h[((y + 1) % S) * S + x] - h[((y + S - 1) % S) * S + x];
+            var nv = new Vector3(-hx * 6f, -hy * 6f, 1f).normalized;
+            nrm[y * S + x] = new Color32((byte)Mathf.RoundToInt((nv.x * 0.5f + 0.5f) * 255f), (byte)Mathf.RoundToInt((nv.y * 0.5f + 0.5f) * 255f), (byte)Mathf.RoundToInt((nv.z * 0.5f + 0.5f) * 255f), 255);
+        }
+        baseTex = new Texture2D(S, S, TextureFormat.RGBA32, true) { name = "coconut", wrapMode = TextureWrapMode.Repeat };
+        baseTex.SetPixels32(cols); baseTex.Apply(true, true);
+        nrmTex = new Texture2D(S, S, TextureFormat.RGBA32, true, true) { name = "coconut normal", wrapMode = TextureWrapMode.Repeat };
+        nrmTex.SetPixels32(nrm); nrmTex.Apply(true, true);
+    }
+
+    /// the same slow gust as the web's fronds: the nuts nod on their stems and the shells rock on the sand
+    void Animate(Camera cam, float dt)
+    {
+        if (sky != null) sky.Animate(cam, dt);
+        float gu = 0.35f + 0.65f * (0.5f + 0.5f * Mathf.Sin(t * 0.23f + 0.6f));
+        for (int i = 0; i < cocos.Length; i++)
+        {
+            if (cocos[i] == null) continue;
+            float a2 = cocoPhase[i];
+            float s1 = Mathf.Sin(t * 0.83f + a2 * 2.1f), s2 = Mathf.Sin(t * 1.45f + a2 * 3.7f);
+            float amp = cocoHeight * 0.15f * gu;
+            // the web's offsets, with x and the z-turn mirrored like everything else on the set
+            cocos[i].position = cocoHome[i] + new Vector3(-amp * (s1 * 0.80f + s2 * 0.30f), -amp * Mathf.Abs(s1) * 0.22f, amp * (s2 * 0.70f - s1 * 0.25f));
+            cocos[i].rotation = Quaternion.Euler(0.11f * gu * s1 * Mathf.Rad2Deg, 0, -0.11f * gu * s2 * Mathf.Rad2Deg) * cocoTurn[i];
+        }
+        for (int i = 0; i < bowls.Length; i++)
+        {
+            if (bowls[i] == null) continue;
+            float ph = i * 2.3f + 0.7f;
+            bowls[i].rotation = bowlTurn[i] * Quaternion.Euler(0.045f * gu * Mathf.Sin(t * 1.63f + ph * 1.4f) * Mathf.Rad2Deg, 0, 0.055f * gu * Mathf.Sin(t * 1.10f + ph) * Mathf.Rad2Deg);
+        }
+    }
+
+    /// On the beach the rider is not held in a hand-made pose: his own file's standing clip
+    /// plays, looping, with a slow breath in it (the pug's 'Stand_and_Chat'; a rider whose file
+    /// has a 'rest' clip gets that). Off stops it and leaves the Animator switched off again,
+    /// which is how BuildRider wants it for the ride, where RiderRig poses the bones by hand.
+    /// Safe to call every frame; it only starts the clip once per rider.
+    public void IdleAnim(Transform pug, bool on)
+    {
+        if (on && !Showing) on = false;      // the beach only
+        if (idle != null && (!on || pug == null || idle.root != pug || !idle.Valid)) { idle.Stop(); idle = null; }
+        if (!on || pug == null || idle != null) return;
+        idle = GltfClips.Start(pug, pug.name, new[] { "Stand_and_Chat", "rest" });
+        if (idle == null) return;
+        idle.SetSpeed(0, 0.9f);
+        idle.SetTime(0, Random.value * idle.Length(0));
     }
 
     // The web beach is eighty-odd copies of one modelled sand tile with real dune relief, laid
@@ -197,7 +347,16 @@ public class Beach : MonoBehaviour
         return m;
     }
 
-    public void Show(bool on) { if (root != null) root.SetActive(on); }
+    public void Show(bool on)
+    {
+        if (root != null) root.SetActive(on);
+        if (sky != null) sky.Pause(!on);
+        if (!on)
+        {
+            IdleAnim(null, false);                                             // the ride poses him by hand from here
+            if (shotCam != null && farSaved) shotCam.farClipPlane = savedFar;   // the lens back to the ride's reach
+        }
+    }
     public bool Showing => root != null && root.activeSelf;
 
     /// the pug stands by the chest, a little bigger than he rides, with the ride's board hidden
@@ -207,6 +366,13 @@ public class Beach : MonoBehaviour
         player.localScale = Vector3.one * pugScale;
         rig.localRotation = Quaternion.identity;
         if (rideBoard != null) rideBoard.SetActive(false);
+        // and he stands the way his file stands, not frozen: the rider is the thing under the rig
+        // that carries the RiderRig, whichever file the shop put there
+        if (idle == null || !idle.Valid)
+        {
+            var rr = rig.GetComponentInChildren<RiderRig>(true);
+            if (rr != null) IdleAnim(rr.transform, true);
+        }
     }
 
     /// the measured shot, with a slow breath so it is not a photograph
@@ -218,6 +384,12 @@ public class Beach : MonoBehaviour
         var ct = R(camTurn);
         var dir = Quaternion.Euler(ct.x, ct.y, ct.z) * new Vector3(0, 0, -1);
         cam.transform.position = at; cam.transform.rotation = Quaternion.LookRotation(dir, Vector3.up); cam.fieldOfView = camFov;
+        // the clouds hang up to five hundred feet out and the ride's lens stops there, so the
+        // beach reaches further and hands the old distance back when it goes (see Show)
+        shotCam = cam;
+        if (!farSaved) { savedFar = cam.farClipPlane; farSaved = true; }
+        if (cam.farClipPlane < 1000f) cam.farClipPlane = 1000f;
+        Animate(cam, dt);
     }
 
     /// a tap on the signpost: which arm was hit

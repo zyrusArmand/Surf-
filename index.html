@@ -10,7 +10,63 @@
      note explaining the numbering, and the cache-warming fetches that were added in front of it
      over a dozen builds walked it out to byte 5188 -- past the window, silently. Up here
      nothing can get in front of it, because nothing comes before the viewport. -->
-<script>window.SURF_VERSION='10.96';</script>
+<script>window.SURF_VERSION='10.97';</script>
+<!-- RUN.world. Inside the platform's sandbox the browser's own storage is switched off, so the
+     save would be gone every time the game was opened. The bridge below stands a memory copy
+     in for localStorage, fills it from the player's cloud bucket (RundotGameAPI.appStorage)
+     before the game boots, and writes every change back, debounced, and again when the host
+     pauses or quits the game. Outside RUN -- GitHub Pages, a local file -- the browser's own
+     storage works and none of this runs. -->
+<script>
+(function(){
+  var q; try{ q=new URLSearchParams(location.search); }catch(e){ q=null; }
+  var hosted=(q&&q.has('_pid'))||typeof window.ReactNativeWebView!=='undefined';
+  var native=false; try{ localStorage.getItem('surfProbe'); native=true; }catch(e){}
+  if(native&&!hosted) return;                         // the browser keeps the save itself
+  var mem={}, dirty={}, loaded=false, api=null, timer=0;
+  // a save the browser already holds is carried across, and the cloud's copy wins over it
+  if(native){ try{ for(var i=0;i<localStorage.length;i++){ var kk=localStorage.key(i); mem[kk]=localStorage.getItem(kk); } }catch(e){} }
+  function has(k){ return Object.prototype.hasOwnProperty.call(mem,k); }
+  function flush(){
+    if(timer){ clearTimeout(timer); timer=0; }
+    if(!loaded||!api) return;                         // never write over a save that was not read first
+    var sets=[], dels=[];
+    for(var k in dirty){ if(has(k)) sets.push({key:k,value:mem[k]}); else dels.push(k); }
+    dirty={};
+    var p=Promise.resolve();
+    if(sets.length) p=p.then(function(){ return api.appStorage.setMultipleItems(sets); });
+    if(dels.length) p=p.then(function(){ return api.appStorage.removeMultipleItems(dels); });
+    p.catch(function(e){ console.warn('cloud save failed', e); });
+  }
+  function touch(k){ dirty[k]=1; if(!timer) timer=setTimeout(flush,400); }
+  var shim={
+    getItem:function(k){ k=String(k); return has(k)?mem[k]:null; },
+    setItem:function(k,v){ k=String(k); mem[k]=String(v); touch(k); },
+    removeItem:function(k){ k=String(k); if(has(k)){ delete mem[k]; touch(k); } },
+    clear:function(){ for(var k in mem){ delete mem[k]; touch(k); } },
+    key:function(i){ return Object.keys(mem)[i]||null; },
+    get length(){ return Object.keys(mem).length; }
+  };
+  try{ Object.defineProperty(window,'localStorage',{value:shim,configurable:true,writable:true}); }catch(e){}
+  window.__surfCloud={ flush:flush, get loaded(){ return loaded; }, get hosted(){ return hosted; } };
+  if(!hosted) return;                                 // sandboxed but not on RUN: memory only
+  window.__surfCloudReady=new Promise(function(done){
+    var over=setTimeout(done,6000);                   // boot anyway if the platform never answers
+    import('./vendor/rundot-sdk.mjs').then(function(m){
+      api=m.default||m.RundotGameAPI||m;
+      var init=api.initializeAsync?api.initializeAsync():null;
+      return Promise.resolve(init).catch(function(){}).then(function(){
+        // the storage surface is installed once the host has answered; wait for it
+        return new Promise(function(ok,no){ var n=0; (function poll(){ if(api.appStorage) ok(api.appStorage.getAllData()); else if(++n>50) no(new Error('no app storage')); else setTimeout(poll,100); })(); });
+      });
+    }).then(function(all){
+      if(all&&typeof all==='object') for(var k in all) if(typeof all[k]==='string') mem[k]=all[k];
+      loaded=true;
+      if(api.lifecycles){ try{ api.lifecycles.onPause(flush); api.lifecycles.onQuit(flush); }catch(e){} }
+    }).catch(function(e){ console.warn('cloud load failed', e); }).then(function(){ clearTimeout(over); done(); });
+  });
+})();
+</script>
 <!-- the app icon: Astro on the sunset, built by icon/render.py + icon/compose.py -->
 <link rel="icon" type="image/png" sizes="32x32" href="icon/icon-32.png">
 <link rel="icon" href="icon/favicon.ico">
@@ -3212,7 +3268,7 @@ if(typeof THREE==='undefined'){
   document.getElementById('overlay').style.display='none';
 }
 </script>
-<script>
+<script id="surfGame" type="surf/game">
 if(typeof THREE!=='undefined')(() => {
 const hud=document.getElementById('hud'), trickmsg=document.getElementById('trickmsg');
 const hScore=document.getElementById('hScore'), hDist=document.getElementById('hDist');
@@ -50366,6 +50422,21 @@ requestAnimationFrame(loop);
 var RIDE_GRADE=0.35, RIDE_RAYS=0.62;
 const _sunScr=new THREE.Vector3();
 requestAnimationFrame(loop);
+})();
+</script>
+<script>
+// The game above is held as text and started here. On RUN.world that waits for the cloud save
+// to be read (the bridge at the top of the page); everywhere else it starts at once, exactly
+// as it did when the tag ran on its own. If the page's load event has already gone by when
+// it starts, it is sent again so the loading bar's kick still fires.
+(function(){
+  var src=document.getElementById('surfGame').textContent;
+  function run(){
+    var late=document.readyState==='complete';
+    var s=document.createElement('script'); s.textContent=src; document.head.appendChild(s);
+    if(late) window.dispatchEvent(new Event('load'));
+  }
+  if(window.__surfCloudReady) window.__surfCloudReady.then(run,run); else run();
 })();
 </script>
 </body>
