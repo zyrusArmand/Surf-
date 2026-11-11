@@ -270,7 +270,13 @@ public class Spawner : MonoBehaviour
         holder.transform.SetParent(transform, false);
         switch (kind)
         {
-            case "buoy": o.hx = 1.25f; o.hz = 1.25f; o.h = 2.4f; Models.Spawn("buoy", holder.transform, 4.2f, PrimitiveType.Cylinder); break;
+            case "buoy":
+                // two liveries, picked at random as the web picks them: the danger buoy, and the
+                // small channel marker at 1.18 against its 2.00; the hitbox is the original's
+                o.hx = 1.25f; o.hz = 1.25f; o.h = 2.4f;
+                if (Random.value < 0.5f && Resources.Load<GameObject>("Models/buoy2") != null) Models.Spawn("buoy2", holder.transform, 4.2f * 1.18f / 2.00f, PrimitiveType.Cylinder);
+                else Models.Spawn("buoy", holder.transform, 4.2f, PrimitiveType.Cylinder);
+                break;
             case "log": o.hx = 3.1f; o.hz = 0.95f; o.h = 1.15f;
                 { var g = Models.Spawn("log", holder.transform, 1.2f, PrimitiveType.Capsule); Models.FitLength(g, 6.4f);
                   // FitLength lays the long side along z; a log floats ACROSS the lane, so a quarter turn in the parent's frame
