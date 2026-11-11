@@ -75,6 +75,7 @@ public class DayCycle : MonoBehaviour
             sky.SetVector("_Glow", V(glow)); sky.SetFloat("_GlowAmt", glowAmt);
             sky.SetVector("_SunDir", sunDir);
             sky.SetFloat("_Blend", beachLook ? 0.58f : 0.30f);
+            sky.SetFloat("_SunX", beachLook ? -0.3f : sx);
         }
         if (ocean != null)
         {

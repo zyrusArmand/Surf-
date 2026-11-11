@@ -29,6 +29,8 @@ public class Bootstrap : MonoBehaviour
         var oceanGo = new GameObject("Ocean");
         ocean = oceanGo.AddComponent<Ocean>();
         ocean.Init(new Material(Shader.Find("Surf/Ocean")));
+        var chop = Resources.Load<Texture2D>("Models/waternormals");
+        if (chop != null) { chop.wrapMode = TextureWrapMode.Repeat; ocean.material.SetTexture("_Chop", chop); ocean.material.SetFloat("_ChopK", 1f); }
 
         day = gameObject.AddComponent<DayCycle>();
         day.sky = skyMat; day.ocean = ocean.material; day.sun = sun;

@@ -101,6 +101,9 @@ public static class SurfSetup
     {
         var ti = AssetImporter.GetAtPath("Assets/Resources/Models/sand_normal.jpg") as TextureImporter;
         if (ti != null && ti.textureType != TextureImporterType.NormalMap) { ti.textureType = TextureImporterType.NormalMap; ti.SaveAndReimport(); Debug.Log("Surf setup: sand bump map set to normal map"); }
+        // the sea's chop map is read as raw numbers, not colour: no sRGB, tiled, mipmapped
+        var tc = AssetImporter.GetAtPath("Assets/Resources/Models/waternormals.png") as TextureImporter;
+        if (tc != null && (tc.sRGBTexture || tc.wrapMode != TextureWrapMode.Repeat)) { tc.sRGBTexture = false; tc.wrapMode = TextureWrapMode.Repeat; tc.mipmapEnabled = true; tc.SaveAndReimport(); Debug.Log("Surf setup: chop map set to linear"); }
     }
 
     [MenuItem("Surf/Reimport models")]

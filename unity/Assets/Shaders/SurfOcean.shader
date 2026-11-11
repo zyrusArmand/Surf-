@@ -22,6 +22,8 @@ Shader "Surf/Ocean"
         _WakeZ ("Wake z", Float) = 0
         _WakeA ("Wake amount", Float) = 0
         _Lift ("Sea level", Float) = 0
+        _Chop ("Chop normals", 2D) = "bump" {}
+        _ChopK ("Chop from texture", Float) = 0
         _Shore ("Shore line (-z)", Float) = 100000
         _ShoreW ("Shore taper width", Float) = 60
     }
@@ -42,6 +44,7 @@ Shader "Surf/Ocean"
             float4 _Deep, _Shallow, _SkyLo, _SkyHi, _Glow, _SunDir;
             float _Light, _Amp, _Peak, _Dist, _T, _WakeX, _WakeZ, _WakeA, _Lift, _Shore, _ShoreW;
             CBUFFER_END
+            TEXTURE2D(_Chop); SAMPLER(sampler_Chop); float _ChopK;
             float4 _WaveA[7];   // dx, dz, k, a
             float4 _WaveB[7];   // ek, ep, w, -
 
@@ -106,10 +109,23 @@ Shader "Surf/Ocean"
                 float3 H = normalize(L + V);
                 // chop: a centimetre-scale tilt on the normal, at three scales, the finest only close in
                 float2 gp = float2(i.w.x, i.w.z + _Dist * 0.22);
-                float2 wob = float2(fbm(gp*1.85 + float2(_T*0.21, -_T*0.17)) - 0.5,
-                                    fbm(gp*2.30 + float2(-_T*0.19, _T*0.23)) - 0.5);
-                wob += float2(fbm(gp*6.40 + float2(_T*0.44, _T*0.31)) - 0.5,
-                              fbm(gp*7.90 + float2(-_T*0.37, _T*0.41)) - 0.5) * 0.55 * (1.0 - smoothstep(6.0, 42.0, dCam));
+                float2 wob;
+                if (_ChopK > 0.5)
+                {
+                    // the web's tiled chop map at three scales, the finest only close in
+                    float2 ca = SAMPLE_TEXTURE2D(_Chop, sampler_Chop, gp*0.055 + float2( _T*0.0063, -_T*0.0052)).xy * 2.0 - 1.0;
+                    float2 cb = SAMPLE_TEXTURE2D(_Chop, sampler_Chop, gp*0.168 + float2(-_T*0.0116,  _T*0.0097)).xy * 2.0 - 1.0;
+                    wob = ca + cb * 0.78;
+                    float2 cc = SAMPLE_TEXTURE2D(_Chop, sampler_Chop, gp*0.52 + float2( _T*0.021, -_T*0.017)).xy * 2.0 - 1.0;
+                    wob += cc * 0.45 * (1.0 - smoothstep(6.0, 42.0, dCam));
+                }
+                else
+                {
+                    wob = float2(fbm(gp*1.85 + float2(_T*0.21, -_T*0.17)) - 0.5,
+                                 fbm(gp*2.30 + float2(-_T*0.19, _T*0.23)) - 0.5)
+                        + float2(fbm(gp*6.40 + float2(_T*0.44, _T*0.31)) - 0.5,
+                                 fbm(gp*7.90 + float2(-_T*0.37, _T*0.41)) - 0.5) * 0.55;
+                }
                 float3 Nr = normalize(N + float3(wob.x, 0, wob.y) * 0.20);
                 float spec = pow(max(dot(Nr, H), 0.0), 140.0) * 0.9;
                 float fres = pow(1.0 - max(dot(Nr, V), 0.0), 3.0);
@@ -157,6 +173,8 @@ Shader "Surf/Ocean"
                 // aerial perspective: into the horizon's own colour
                 float fog = smoothstep(70.0, 230.0, dCam);
                 col = lerp(col, _SkyLo.rgb, fog);
+                // the maths above runs in plain sRGB numbers, as the web's does; to linear here
+                col = pow(saturate(col), 2.2);
                 return half4(col * _Light, 1);
             }
             ENDHLSL
