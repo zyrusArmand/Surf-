@@ -13,7 +13,13 @@ public class Spawner : MonoBehaviour
         public float dir, startX, targetX, at, x0, z0, aimX, aimZ, yaw; public bool hunts; public string atk;
     }
     public Ob eater;                 // the shark that has him, while the chew lasts
-    float bigFinCd;
+    float bigFinCd; int octCd;
+    public System.Action<Color> onSplat;      // a starfish in the face
+
+    // the octopus's starfish, lobbed at where he will be
+    class Star { public GameObject go; public float vx, vy, vz, sx, sy, t; }
+    readonly List<Star> stars = new List<Star>();
+    static Mesh starMesh; static Material starMat;
 
     public BoardController rider;
     public System.Action<Vector3, int> onSplash;
@@ -22,14 +28,16 @@ public class Spawner : MonoBehaviour
     const float FtToM = 0.3048f;
 
     static readonly Dictionary<string, float> FloatOff = new Dictionary<string, float> {
-        {"buoy",0.36f},{"jelly",0.34f},{"log",0.40f},{"ramp",0.02f},{"bigfin",0.28f} };
+        {"buoy",0.36f},{"jelly",0.34f},{"log",0.40f},{"ramp",0.02f},{"bigfin",0.28f},{"octopus",-0.10f} };
     const float ShkLead = 1.15f, ShkArc = 1.30f, ShkApex = 5.4f, ShkDodge = 3.2f, ShkOver = 3.4f, ShkReach = 7.5f, ShkChance = 0.66f, ShkPast = 2.2f;
     public const float ShkChew = 1.75f;
 
     public void Clear()
     {
         foreach (var o in obstacles) if (o.go) Destroy(o.go);
-        obstacles.Clear(); spawnT = 1.8f; eater = null; bigFinCd = 0;
+        obstacles.Clear(); spawnT = 1.8f; eater = null; bigFinCd = 0; octCd = 0;
+        foreach (var st in stars) if (st.go) Destroy(st.go);
+        stars.Clear();
     }
 
     public void Remove(int i) { if (obstacles[i].go) Destroy(obstacles[i].go); obstacles.RemoveAt(i); }
@@ -48,6 +56,7 @@ public class Spawner : MonoBehaviour
             if (distM >= 150) weights.Add(("ramp", 16));
             if (distM >= 340) weights.Add(("jelly", 20));
             if (distM >= 560 && bigFinCd <= 0f) weights.Add(("bigfin", 11));
+            if (distM >= 780 && octCd <= 0) weights.Add(("octopus", Mathf.Min(30f, 4f + Mathf.Max(0f, (distM - 780f) / 28f))));
             string pick = "buoy";
             for (int tries = 0; tries < 8; tries++)
             {
@@ -59,6 +68,7 @@ public class Spawner : MonoBehaviour
             }
             sameRun = pick == lastKind ? sameRun + 1 : 0; lastKind = pick;
             if (pick == "bigfin") bigFinCd = 18f;
+            octCd = Mathf.Max(0, octCd - 1); if (pick == "octopus") octCd = 3;
             laneSlot = (laneSlot + 1 + Random.Range(0, 3)) % 7;
             float laneX = (-3 + laneSlot) * 4.9f + (Random.value - 0.5f) * 3.0f;
             Make(pick, Mathf.Clamp(r.px * 0.55f + laneX, -17f, 17f), -170f);
@@ -70,11 +80,13 @@ public class Spawner : MonoBehaviour
         }
         bigFinCd -= dt;
         float fzBase = r.dist * WaveField.Drift;
+        Stars(dt, eff, fzBase);
         for (int i = obstacles.Count - 1; i >= 0; i--)
         {
             var o = obstacles[i];
             o.z += eff * dt;
             if (o.kind == "bigfin" && Shark(o, dt, eff, fzBase)) continue;
+            if (o.kind == "octopus") Octopus(o, dt);
             if (o.z > 30f) { Destroy(o.go); obstacles.RemoveAt(i); continue; }
             float oy = WaveField.Swell(o.x, fzBase + o.z, r.t) + o.floatOff;
             o.y += (oy - o.y) * Mathf.Min(1f, dt * (o.ramp ? 3f : 9f));
@@ -186,6 +198,68 @@ public class Spawner : MonoBehaviour
         return false;   // done: it swims on as a fin
     }
 
+    // the octopus bobs in its own time and, once it is in range ahead, lobs starfish at him
+    void Octopus(Ob o, float dt)
+    {
+        o.at += dt;
+        if (o.z > -100f && o.z < -4f)
+        {
+            o.aimZ -= dt;          // aimZ doubles as the throw timer here
+            if (o.aimZ <= 0f) { o.aimZ = 0.85f + Random.value * 0.85f; Throw(o); }
+        }
+    }
+
+    void Throw(Ob o)
+    {
+        var r = rider;
+        if (starMesh == null)
+        {
+            // a flat five-pointed star
+            var v = new List<Vector3>(); var idx = new List<int>();
+            v.Add(Vector3.zero);
+            for (int i = 0; i < 10; i++) { float a = i / 10f * Mathf.PI * 2f, rr = (i % 2 == 0) ? 0.55f : 0.24f; v.Add(new Vector3(Mathf.Cos(a) * rr, 0, Mathf.Sin(a) * rr)); }
+            for (int i = 0; i < 10; i++) { idx.Add(0); idx.Add(1 + (i + 1) % 10); idx.Add(1 + i); idx.Add(0); idx.Add(1 + i); idx.Add(1 + (i + 1) % 10); }
+            starMesh = new Mesh { name = "star" }; starMesh.SetVertices(v); starMesh.SetTriangles(idx, 0); starMesh.RecalculateNormals();
+            starMat = new Material(Shader.Find("Universal Render Pipeline/Lit")); starMat.SetColor("_BaseColor", new Color(1f, 0.54f, 0.24f)); starMat.SetFloat("_Smoothness", 0.3f);
+        }
+        var go = new GameObject("star", typeof(MeshFilter), typeof(MeshRenderer)); go.transform.SetParent(transform, false);
+        go.GetComponent<MeshFilter>().sharedMesh = starMesh; go.GetComponent<MeshRenderer>().sharedMaterial = starMat;
+        float fx = o.x, fy = o.y + 1.15f, fz = o.z;
+        go.transform.position = new Vector3(fx, fy, fz); go.transform.rotation = Random.rotation;
+        bool onTarget = Random.value < 0.55f;
+        float wide = onTarget ? 0f : (Random.value < 0.5f ? -1f : 1f) * (2.6f + Random.value * 3.8f);
+        float tx = r.px + r.vx * 0.22f + wide, ty = r.py + 0.55f, tz = 0f;
+        float T = Mathf.Max(0.40f, Mathf.Sqrt((tx - fx) * (tx - fx) + (tz - fz) * (tz - fz)) / (26f + Random.value * 5f));
+        stars.Add(new Star { go = go, vx = (tx - fx) / T, vy = ((ty - fy) + 0.5f * 13f * T * T) / T, vz = (tz - fz) / T - r.eff * 0.4f,
+                             sx = (Random.value - 0.5f) * 13f, sy = (Random.value - 0.5f) * 13f });
+    }
+
+    void Stars(float dt, float eff, float fzBase)
+    {
+        var r = rider;
+        for (int i = stars.Count - 1; i >= 0; i--)
+        {
+            var st = stars[i]; st.t += dt; st.vy -= 13f * dt;
+            var p = st.go.transform.position;
+            p.x += st.vx * dt; p.y += st.vy * dt; p.z += st.vz * dt + eff * dt * 0.4f;
+            st.go.transform.position = p;
+            st.go.transform.rotation *= Quaternion.Euler(st.sx * dt * Mathf.Rad2Deg, st.sy * dt * Mathf.Rad2Deg, 0);
+            bool hit = r.running && Mathf.Abs(p.x - r.px) < 1.5f && Mathf.Abs(p.z - r.pz) < 2.2f && Mathf.Abs(p.y - r.py) < 2.2f;
+            float sea = WaveField.Height(p.x, fzBase + p.z, r.t);
+            if (hit)
+            {
+                onSplat?.Invoke(new Color(1f, 0.54f, 0.24f)); r.Say("SPLAT!");
+                onSplash?.Invoke(p, 10);
+                Destroy(st.go); stars.RemoveAt(i); continue;
+            }
+            if (p.y < sea || st.t > 5f || p.z > 18f)
+            {
+                if (p.y < sea) onSplash?.Invoke(new Vector3(p.x, sea, p.z), 6);
+                Destroy(st.go); stars.RemoveAt(i);
+            }
+        }
+    }
+
     public Ob Make(string kind, float x, float z)
     {
         var o = new Ob { kind = kind, x = x, z = z, floatOff = FloatOff[kind] };
@@ -202,6 +276,13 @@ public class Spawner : MonoBehaviour
                 { var g = Models.Spawn("ramp", holder.transform, 1.6f, PrimitiveType.Cube); if (g.name.EndsWith("(stand-in)")) g.transform.localScale = new Vector3(4.6f, 1.2f, 6f); } break;
             case "jelly": o.hx = 1.1f; o.hz = 1.1f; o.h = 1.4f;
                 { var g = Models.Spawn("jelly", holder.transform, 2.6f, PrimitiveType.Sphere); } break;
+            case "octopus": o.hx = 1.6f; o.hz = 1.6f; o.h = 1.4f;
+                {
+                    var g = Models.Spawn("octopus", holder.transform, 2.4f, PrimitiveType.Sphere);
+                    foreach (var a in g.GetComponentsInChildren<Animation>(true)) a.enabled = false;
+                    foreach (var a in g.GetComponentsInChildren<Animator>(true)) a.enabled = false;
+                    o.aimZ = 0.8f + Random.value;      // first throw
+                } break;
             case "bigfin": o.hx = 1.70f; o.hz = 0.50f; o.h = 4.2f;
                 {
                     var g = Models.Spawn("bigfin", holder.transform, 3.4f, PrimitiveType.Cube);

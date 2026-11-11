@@ -86,6 +86,7 @@ public class Bootstrap : MonoBehaviour
         // HUD
         hud = new GameObject("HUD").AddComponent<Hud>(); hud.rider = rider;
         hud.onPlay = Play; hud.onMenu = Menu;
+        spawner.onSplat = c => hud.Splat(c);
         hud.Build();
         Menu();
     }
