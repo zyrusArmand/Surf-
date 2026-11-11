@@ -77,6 +77,13 @@ public class Spawner : MonoBehaviour
         o.knocked = true;
         o.kvx = (o.x - r.px) * side + (Random.value - 0.5f) * 2.4f; o.kvy = up + Random.value * upR; o.kvz = 2.2f + r.eff * 0.06f;
         o.ksx = (Random.value - 0.5f) * spin; o.ksz = (Random.value - 0.5f) * spin;
+        // from here it is a real body in the water: thrown with the web's numbers, then left to
+        // gravity, the swell under it, the other things it hits and the board
+        if (o.go != null)
+        {
+            float mass = o.kind == "log" ? 4f : o.kind == "ramp" ? 5f : o.kind == "jelly" ? 0.6f : 3f;
+            Buoyancy.Make(o.go, r, new Vector3(o.kvx, o.kvy, r.eff + o.kvz), new Vector3(o.ksx, 0f, o.ksz), mass);
+        }
     }
 
     public void Clear()
@@ -158,6 +165,13 @@ public class Spawner : MonoBehaviour
             if (o.kind == "octopus") Octopus(o, dt);
             if (o.z > 30f) { Destroy(o.go); obstacles.RemoveAt(i); continue; }
             float oy = WaveField.Swell(o.x, fzBase + o.z, r.t) + o.floatOff;
+            if (o.knocked && o.go != null && o.go.GetComponent<Rigidbody>() != null)
+            {
+                // physics has it now: just keep the record where the body actually is
+                var bp = o.go.transform.position; o.x = bp.x; o.y = bp.y; o.z = bp.z; o.used = true;
+                if (o.z > 30f || o.y < -60f) { Destroy(o.go); obstacles.RemoveAt(i); }
+                continue;
+            }
             if (o.knocked)
             {
                 // it takes the impact too: flung off, falling back, spinning as it goes

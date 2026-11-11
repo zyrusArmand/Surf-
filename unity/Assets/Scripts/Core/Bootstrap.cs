@@ -16,6 +16,7 @@ public class Bootstrap : MonoBehaviour
     void Start()
     {
         Application.targetFrameRate = 60;
+        Physics.gravity = new Vector3(0f, -32.2f, 0f);      // the world is in feet
         QualitySettings.vSyncCount = 0;
 
         // light
@@ -160,6 +161,17 @@ public class Bootstrap : MonoBehaviour
         if (mn.x <= mx.x) { hullMin = mn; hullMax = mx; hullOk = true; }
     }
 
+    // the board is a solid thing: a box round its hull on a kinematic body, so what floats and
+    // tumbles in the water knocks against it
+    void Solidify()
+    {
+        if (boardGo == null || !hullOk) return;
+        var box = boardGo.GetComponent<BoxCollider>(); if (box == null) box = boardGo.AddComponent<BoxCollider>();
+        box.center = (hullMin + hullMax) * 0.5f; box.size = hullMax - hullMin;
+        var rb = boardGo.GetComponent<Rigidbody>(); if (rb == null) rb = boardGo.AddComponent<Rigidbody>();
+        rb.isKinematic = true; rb.useGravity = false; rb.interpolation = RigidbodyInterpolation.Interpolate;
+    }
+
     // the equipped board and rider, from the save; called again when the shop changes them
     void BuildRider()
     {
@@ -168,7 +180,7 @@ public class Bootstrap : MonoBehaviour
         // a loan (the wheel's, or the saucer's cow) outranks the equipped pair
         var b = BoardCatalog.Get(string.IsNullOrEmpty(SaveData.S.wheelLoan) ? SaveData.S.equipped : SaveData.S.wheelLoan);
         var board = BoardMesh.Build(b); board.transform.SetParent(rig, false); boardGo = board; Hull.Board = board; Hull.ClearMarks();
-        MeasureHull();
+        MeasureHull(); Solidify();
         rider.ApplyStats(RideStats.For(b.id, string.IsNullOrEmpty(SaveData.S.wheelRider) ? SaveData.S.rider : SaveData.S.wheelRider));
         // the rider: a file when there is one, else one of the web's eleven built from primitives
         var rid = string.IsNullOrEmpty(SaveData.S.wheelRider) ? SaveData.S.rider : SaveData.S.wheelRider;
@@ -259,7 +271,8 @@ public class Bootstrap : MonoBehaviour
         // living 0.34 to 0.64 s under a gravity of 14
         var main = ps.main; main.startLifetime = new ParticleSystem.MinMaxCurve(0.34f, 0.64f); main.startSpeed = 0f;
         main.startSize = new ParticleSystem.MinMaxCurve(0.12f, 0.76f);
-        main.gravityModifier = 14f / 9.81f; main.maxParticles = 600; main.simulationSpace = ParticleSystemSimulationSpace.World; main.playOnAwake = false;
+        main.gravityModifier = 14f / 32.2f; main.maxParticles = 600;   // gravity: the web's 14 against the world's 32.2 feet
+        main.simulationSpace = ParticleSystemSimulationSpace.World; main.playOnAwake = false;
         main.startColor = new Color(1, 1, 1, 1f);
         var em = ps.emission; em.enabled = false;
         var sh = ps.shape; sh.enabled = true; sh.shapeType = ParticleSystemShapeType.Sphere; sh.radius = 0.05f;
