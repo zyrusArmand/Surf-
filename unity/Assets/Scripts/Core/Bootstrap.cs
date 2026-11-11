@@ -96,6 +96,7 @@ public class Bootstrap : MonoBehaviour
         profile = new GameObject("Profile").AddComponent<ProfilePanel>(); profile.Build(hud.UiRoot);
         guide = new GameObject("Guide").AddComponent<GuidePanel>(); guide.Build(hud.UiRoot);
         guide.onChange = shop.onChange; guide.onShop = () => shop.Show(true);
+        shop.onGuide = () => guide.Show(true);
         wheel = new GameObject("Wheel").AddComponent<WheelPanel>(); wheel.Build(hud.UiRoot);
         levelInfo = new GameObject("LevelInfo").AddComponent<LevelPanel>(); levelInfo.Build(hud.UiRoot);
         puka = new GameObject("Puka").AddComponent<PukaPanel>(); puka.Build(hud.UiRoot);
@@ -134,6 +135,7 @@ public class Bootstrap : MonoBehaviour
         foreach (var a in pug.GetComponentsInChildren<Animation>(true)) { a.Stop(); a.enabled = false; }
         foreach (var a in pug.GetComponentsInChildren<Animator>(true)) a.enabled = false;
         riderRig = pug.gameObject.AddComponent<RiderRig>(); riderRig.Init(rider);
+        Gear.Dress(pug, SaveData.S);   // what the save says he wears; a rider without the bones is skipped
         if (beach != null) beach.SetBoard(b.id);
     }
 
