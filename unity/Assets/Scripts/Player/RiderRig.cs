@@ -17,6 +17,13 @@ public class RiderRig : MonoBehaviour
     // the two tricks, 0..1, read off the rider every Stance: the handstand's blend (web handT),
     // the helicopter's lie-down (web heliPose) and its crouch beat (web rigCrouch under the beats)
     public float handW, heliW, heliCrouchW;
+    // the seat, 0 standing on a board and 1 sat: the web's tubeSit and skiSit, eased at five a
+    // second toward 1 while that is the board in use and he is not wiping out, so equipping the
+    // ski is somebody getting on rather than somebody teleporting into a seated pose. sitW is
+    // the larger of the two; tubeW is sat IN the ring, skiW astride the ski
+    public float sitW, tubeW, skiW;
+    float seat;                           // web spec.seat: how far below the board's origin he sits, in feet
+    bool onTube, onSki;                   // what the board in use is (SetBoard)
 
     readonly Dictionary<string, Transform> bones = new Dictionary<string, Transform>();
     readonly Dictionary<string, Quaternion> rest = new Dictionary<string, Quaternion>();
@@ -53,6 +60,16 @@ public class RiderRig : MonoBehaviour
         homePos = transform.localPosition; homeRot = transform.localRotation;
         handLift = MeasureHandLift();
         ready = true;
+    }
+
+    /// The board he is on, which says whether he stands on it or sits: the tube (spec tube) is
+    /// sat in, the jet ski sat on, and either carries the seat drop; everything else, the kite
+    /// twin-tip included, is ridden standing. Safe before or after Init, and with null.
+    public void SetBoard(BoardCatalog.Board b)
+    {
+        seat = b != null ? b.seat : 0f;
+        onTube = b != null && b.tube;
+        onSki = b != null && !b.tube && (b.id == "skijet" || b.seat != 0f);
     }
 
     // The handstand pose, the web's HAND_POSE (44566-44573) in the upright frame: arms thrown
@@ -101,12 +118,69 @@ public class RiderRig : MonoBehaviour
     // The rider group itself. The handstand turns him over about the deck line and lifts him
     // onto his paws (web 44736-44737); the helicopter turns him to face the nose, lays him flat
     // along the deck and slides him up it (web 44338, 44353, 44358). Both pivot at his feet.
-    void Group(float h1, float h2)
+    // The seat (web 44535-44542 for the ring, 44550-44600 for the ski): square to the nose, since
+    // his stance is side-on to a board and nobody rides a jet ski sideways; the faintest lean
+    // back in the ring, as anyone sitting has, and a touch forward on the ski, which is driving
+    // rather than being carried; and DOWN onto the seat rather than standing on it. The web's
+    // deck solver lets go for the sit, so the spec's seat is the only term setting his height:
+    // the group goes to -seat from the board's origin, where it stood on the deck. In the ring he
+    // is over the hole, and on the ski half a foot forward onto the front of the saddle, which is
+    // the one place a dog's reach and a man's bars agree.
+    void Group(float h1, float h2, float tw, float sk)
     {
-        float xr = h1 * Mathf.PI - 1.36f * h2;
-        var yaw = Quaternion.Slerp(homeRot, Quaternion.identity, h2);
+        float sit = Mathf.Clamp01(tw + sk);
+        float xr = h1 * Mathf.PI - 1.36f * h2 + 0.06f * tw - 0.05f * sk;
+        var yaw = Quaternion.Slerp(homeRot, Quaternion.identity, Mathf.Clamp01(h2 + sit));
         transform.localRotation = Quaternion.AngleAxis(xr * Mathf.Rad2Deg, Vector3.right) * yaw;
-        transform.localPosition = homePos + new Vector3(0f, h1 * handLift, -0.92f * h2);
+        var pos = homePos + new Vector3(0f, h1 * handLift, -0.92f * h2);
+        pos.y = Mx(pos.y, -seat, sit);
+        pos.x = Mx(pos.x, 0f, tw);
+        pos.z = Mx(pos.z, 0f, tw) - 0.50f * sk;
+        transform.localPosition = pos;
+    }
+
+    // which side of him a limb's root hangs on, along his own right: +1 or -1
+    float Side(Transform b, Vector3 right) => Vector3.Dot(b.position - bones["Hips"].position, right) < 0f ? -1f : 1f;
+
+    // the web's aim: turn a limb's root so the line from it to its child lies along t (a world
+    // direction), by w, whichever way the file was rigged
+    static void Aim(Transform bone, Transform child, Vector3 t, float w)
+    {
+        var d = child.position - bone.position;
+        if (d.sqrMagnitude < 1e-8f) return;
+        d.Normalize();
+        bone.rotation = Quaternion.Slerp(bone.rotation, Quaternion.FromToRotation(d, t) * bone.rotation, w);
+    }
+
+    // ---- SAT IN A RING (web R.tube, 19925-19968) ----
+    // Not a variation on the ski's pose: on a ski he is astride a hull with his weight forward
+    // over bars; here he is dropped through a hole with nothing under him. Arms out to the sides
+    // and a little behind him, which is where they go when you are holding yourself up on a rim,
+    // the elbows eased straight; legs straight down through the hole with a slow swing, because
+    // they are in the water, the knees eased straight. Aimed in the group's own axes rather than
+    // posed, as the web does it, and laid over the surfing stance, which stands down for it.
+    void TubePose(float w)
+    {
+        if (w <= 0.001f) return;
+        Vector3 up = transform.up, right = transform.right, back = transform.forward;   // he faces -z of his group
+        float T = rider != null ? rider.t : Time.time;
+        foreach (var s in new[] { "Left", "Right" })
+        {
+            if (!bones.TryGetValue(s + "Arm", out var sh)) continue;
+            if (!bones.TryGetValue(s + "Hand", out var hand) && !bones.TryGetValue(s + "ForeArm", out hand)) continue;
+            float sgn = Side(sh, right);
+            Aim(sh, hand, (right * (sgn * 0.92f) + back * 0.30f - up * 0.24f).normalized, w);
+            if (bones.TryGetValue(s + "ForeArm", out var fa) && rest.TryGetValue(s + "ForeArm", out var fr)) fa.localRotation = Quaternion.Slerp(fa.localRotation, fr, w * 0.7f);
+        }
+        foreach (var s in new[] { "Left", "Right" })
+        {
+            if (!bones.TryGetValue(s + "UpLeg", out var th)) continue;
+            if (!bones.TryGetValue(s + "Leg", out var shin) && !bones.TryGetValue(s + "Foot", out shin)) continue;
+            float sgn = Side(th, right);
+            float kick = Mathf.Sin(T * 1.5f + (sgn > 0f ? 0f : 1.7f)) * 0.13f;
+            Aim(th, shin, (-up + back * kick + right * (sgn * 0.10f)).normalized, w);
+            if (bones.TryGetValue(s + "Leg", out var sb) && rest.TryGetValue(s + "Leg", out var sr)) sb.localRotation = Quaternion.Slerp(sb.localRotation, sr, w * 0.8f);
+        }
     }
 
     // Arms down, whatever pose the file was modelled in. Each shoulder's REST is turned, once,
@@ -168,6 +242,13 @@ public class RiderRig : MonoBehaviour
         if (!ready || rider == null) return;
         handW = rider.handT; heliW = rider.heliPose; heliCrouchW = rider.heliCrouch;
         float h1 = Mathf.Clamp01(handW), h2 = Mathf.Clamp01(heliW), hc = Mathf.Clamp01(heliCrouchW);
+        // the seat, eased rather than switched (web 44228-44230); the ski's share of him is sk,
+        // and the surf pose is never asked for a negative share (web _base)
+        float wantT = (onTube && !rider.wipe) ? 1f : 0f, wantS = (onSki && !rider.wipe) ? 1f : 0f;
+        tubeW += (wantT - tubeW) * Mathf.Min(1f, dt * 5f);
+        skiW += (wantS - skiW) * Mathf.Min(1f, dt * 5f);
+        sitW = Mathf.Max(tubeW, skiW);
+        float tw = Mathf.Clamp01(tubeW), sk = Mathf.Clamp01(skiW), baseW = Mathf.Max(0f, 1f - sk);
         float carve = rider.carve;
         float air = rider.airborne ? 1f : 0f;
         sway += (carve - sway) * Mathf.Min(1f, dt * 5.5f);
@@ -184,23 +265,33 @@ public class RiderRig : MonoBehaviour
         float lo = 0.30f + load * FoldCarve + Mathf.Abs(swell) * FoldSwell + bob * FoldBob + air * FoldAir
                  + crouchW * 0.58f + hc * 0.24f + tuckW * 1.10f + cB * 0.95f + aB * 0.82f + lB * 0.85f - xB * 0.30f;
         float hip = -0.20f - lo * 0.22f + tuckW * 0.42f + aB * 0.36f, knee = Mathf.Max(0f, lo * 1.05f);
-        float hipL = hip, hipR = hip, hipZL = 0.06f, hipZR = -0.06f, kneeL = knee, kneeR = knee;
+        // on the jet ski he is SAT, which these bones have to be told (web 20419-20439): sitting is
+        // the thigh brought forward toward horizontal, the knee open enough that the shin drops
+        // into the well rather than folding back under the seat, and the splay wide enough to
+        // clear the hull's shoulder instead of gripping a board that is not there
+        float sHip = Mx(hip, 1.46f, sk), sKnee = Mx(knee, 1.08f, sk);
+        float hipL = sHip, hipR = sHip, hipZL = 0.06f + 0.58f * sk, hipZR = -0.06f - 0.58f * sk, kneeL = sKnee, kneeR = sKnee;
 
         float lean = sway * 0.42f;
+        // and a fold forward at the waist on the ski, a suggestion of lean rather than a bow
         float fold = cB * 0.22f + aB * 0.40f + lB * 0.20f - xB * 0.14f + load * 0.08f + hc * 0.30f;
-        float s0x = 0.05f + bob * 0.02f + fold * 0.5f, s0y = -sway * 0.10f, s0z = lean * 0.50f;
-        float s1x = 0.05f + fold * 0.3f, s1y = -sway * 0.08f, s1z = lean * 0.38f;
-        float s2x = 0.03f + fold * 0.2f, s2y = -sway * 0.06f, s2z = lean * 0.26f;
+        float s0x = 0.05f + bob * 0.02f + 0.05f * sk + fold * 0.5f, s0y = -sway * 0.10f, s0z = lean * 0.50f;
+        float s1x = 0.05f + 0.04f * sk + fold * 0.3f, s1y = -sway * 0.08f, s1z = lean * 0.38f;
+        float s2x = 0.03f + 0.03f * sk + fold * 0.2f, s2y = -sway * 0.06f, s2z = lean * 0.26f;
         float nkX = -0.06f, nkY = sway * 0.20f, nkZ = -lean * 0.30f;
         float hdX = -0.10f + bob * 0.03f - aB * 0.16f, hdY = sway * 0.26f, hdZ = -lean * 0.45f;
 
         float sw1 = Mathf.Sin(T * 1.55f), sw2 = Mathf.Sin(T * 1.85f + 2.2f), fl = Mathf.Sin(T * 2.35f + 0.7f);
         float spread = 0.34f + load * 0.30f + air * 0.55f;
-        float aUp = -0.02f - xB * 0.30f - aB * 0.12f;
-        float laX = aUp + sw1 * 0.11f - sway * 0.26f, laY = 0.05f + sw1 * 0.10f, laZ = -spread - sway * 0.18f;
-        float raX = aUp + sw2 * 0.11f + sway * 0.26f, raY = -0.05f + sw2 * 0.10f, raZ = spread - sway * 0.18f;
-        float lfX = fl * 0.18f - load * 0.14f, lfZ = -0.08f - load * 0.16f;
-        float rfX = -fl * 0.18f - load * 0.14f, rfZ = 0.08f + load * 0.16f;
+        // and ON THE SKI the arms go forward, onto the bars (web 20482-20499): shoulders rotated
+        // forward and only slightly out (the grips measure 0.19 half-width on the hull), elbows
+        // carrying a working bend, both hands the same; the surf arms fade by his share
+        float aSpread = spread * baseW + 0.04f * sk;
+        float aUp = (-0.02f - xB * 0.30f - aB * 0.12f) * baseW - 0.95f * sk;
+        float laX = aUp + (sw1 * 0.11f - sway * 0.26f) * baseW, laY = (0.05f + sw1 * 0.10f) * baseW, laZ = -aSpread - sway * 0.18f * baseW;
+        float raX = aUp + (sw2 * 0.11f + sway * 0.26f) * baseW, raY = (-0.05f + sw2 * 0.10f) * baseW, raZ = aSpread - sway * 0.18f * baseW;
+        float lfX = (fl * 0.18f - load * 0.14f) * baseW + 0.42f * sk, lfZ = (-0.08f - load * 0.16f) * baseW - 0.16f * sk;
+        float rfX = (-fl * 0.18f - load * 0.14f) * baseW + 0.42f * sk, rfZ = (0.08f + load * 0.16f) * baseW + 0.16f * sk;
         float footA = 0f, footW = 0f;         // an ankle angle laid over the plant, for the feet that leave the deck
 
         if (h2 > 0.02f)
@@ -237,23 +328,28 @@ public class RiderRig : MonoBehaviour
             footA = Mx(footA, 0.34f, h1); footW = 1f - (1f - footW) * (1f - h1);
         }
 
-        Set("LeftUpLeg", hipL, 0, hipZL, w); Set("RightUpLeg", hipR, 0, hipZR, w);
-        Set("LeftLeg", kneeL, 0, 0, w); Set("RightLeg", kneeR, 0, 0, w);
-        Set("Spine", s0x, s0y, s0z, w);
-        Set("Spine01", s1x, s1y, s1z, w);
-        Set("Spine02", s2x, s2y, s2z, w);
-        Set("neck", nkX, nkY, nkZ, w);
-        Set("Head", hdX, hdY, hdZ, w);
-        Set("LeftArm", laX, laY, laZ, w);
-        Set("RightArm", raX, raY, raZ, w);
-        Set("LeftForeArm", lfX, 0, lfZ, w);
-        Set("RightForeArm", rfX, 0, rfZ, w);
+        // the tube's sit is hand-posed too, so the surfing stance has to stand down for it (web
+        // 20353-20354): faded by exactly the ring's share of him, so the two never fight
+        float ws = w * (1f - tw);
+        Set("LeftUpLeg", hipL, 0, hipZL, ws); Set("RightUpLeg", hipR, 0, hipZR, ws);
+        Set("LeftLeg", kneeL, 0, 0, ws); Set("RightLeg", kneeR, 0, 0, ws);
+        Set("Spine", s0x, s0y, s0z, ws);
+        Set("Spine01", s1x, s1y, s1z, ws);
+        Set("Spine02", s2x, s2y, s2z, ws);
+        Set("neck", nkX, nkY, nkZ, ws);
+        Set("Head", hdX, hdY, hdZ, ws);
+        Set("LeftArm", laX, laY, laZ, ws);
+        Set("RightArm", raX, raY, raZ, ws);
+        Set("LeftForeArm", lfX, 0, lfZ, ws);
+        Set("RightForeArm", rfX, 0, rfZ, ws);
 
-        Plant("LeftUpLeg", "LeftLeg", "LeftFoot", w);
-        Plant("RightUpLeg", "RightLeg", "RightFoot", w);
-        if (footW > 0f) { Set("LeftFoot", footA, 0, 0, w * footW); Set("RightFoot", footA, 0, 0, w * footW); }
+        Plant("LeftUpLeg", "LeftLeg", "LeftFoot", ws);
+        Plant("RightUpLeg", "RightLeg", "RightFoot", ws);
+        if (footW > 0f) { Set("LeftFoot", footA, 0, 0, ws * footW); Set("RightFoot", footA, 0, 0, ws * footW); }
 
-        Group(h1, h2);
+        Group(h1, h2, tw, sk);
+        // the ring's sit goes on last, over the stance, in the group's axes as it now stands (web 44757)
+        if (tw > 0.01f) TubePose(w * tw);
     }
 
     /// standing about: arms down, weight settled, a slow breath
@@ -270,7 +366,9 @@ public class RiderRig : MonoBehaviour
         Set("LeftForeArm", 0.12f, 0, -0.06f, w); Set("RightForeArm", 0.12f, 0, 0.06f, w);
         Plant("LeftUpLeg", "LeftLeg", "LeftFoot", w);
         Plant("RightUpLeg", "RightLeg", "RightFoot", w);
-        Group(0f, 0f);   // back on his feet, however the last run left him
+        // off the seat: the next run has him getting on again, as the web's ease does
+        tubeW += (0f - tubeW) * Mathf.Min(1f, dt * 5f); skiW += (0f - skiW) * Mathf.Min(1f, dt * 5f); sitW = Mathf.Max(tubeW, skiW);
+        Group(0f, 0f, 0f, 0f);   // back on his feet, however the last run left him
     }
 
     public bool Ready => ready;

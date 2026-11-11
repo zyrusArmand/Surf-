@@ -135,6 +135,7 @@ public class Bootstrap : MonoBehaviour
         foreach (var a in pug.GetComponentsInChildren<Animation>(true)) { a.Stop(); a.enabled = false; }
         foreach (var a in pug.GetComponentsInChildren<Animator>(true)) a.enabled = false;
         riderRig = pug.gameObject.AddComponent<RiderRig>(); riderRig.Init(rider);
+        riderRig.SetBoard(b);          // the ring and the ski are sat in, not stood on
         Gear.Dress(pug, SaveData.S);   // what the save says he wears; a rider without the bones is skipped
         if (beach != null) beach.SetBoard(b.id);
     }

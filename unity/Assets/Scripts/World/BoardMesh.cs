@@ -136,7 +136,7 @@ public static class BoardMesh
                     int A = i * (PV + 1) + j, B = A + 1, C = A + PV + 1, D = C + 1;
                     pix.Add(A); pix.Add(B); pix.Add(C); pix.Add(B); pix.Add(D); pix.Add(C);
                 }
-                var pm = new Mesh { name = "pad" }; pm.SetVertices(pp); pm.SetTriangles(pix, 0); pm.RecalculateNormals();
+                var pm = new Mesh { name = "pad" }; pm.SetVertices(pp); pm.SetTriangles(pix, 0); pm.RecalculateNormals(); pm.RecalculateBounds();
                 var pad = new GameObject("pad", typeof(MeshFilter), typeof(MeshRenderer)); pad.transform.SetParent(root.transform, false);
                 pad.GetComponent<MeshFilter>().sharedMesh = pm; pad.GetComponent<MeshRenderer>().sharedMaterial = Flat(S.padCol, 0.22f);
             }
@@ -155,7 +155,131 @@ public static class BoardMesh
             fg.transform.localPosition = new Vector3(f.x, hullY + 0.004f, f.z);
             fg.transform.localRotation = Quaternion.Euler(0, f.x == 0 ? 0 : -Mathf.Sign(f.x) * FinToe * Mathf.Rad2Deg, -ct * Mathf.Rad2Deg);
         }
+        // a board may wear a model over its loft: the tube, the jet ski and the kite twin-tip
+        if (!string.IsNullOrEmpty(S.model)) Dress(root, S);
         return root;
+    }
+
+    // ---- a board may wear a MODEL over its loft (the web's boardArtFor) ----
+    // The loft is built regardless: it is the box the file is fitted into, and it is the board
+    // that is there when the file is not -- a board whose art depends on a file is a board that
+    // is sometimes invisible, so the loft is never skipped. With the file in, the loft's deck,
+    // pads and fins go dark and the file stands in their place, fitted the way the web's
+    // fitToBox fits it: a quarter turn lays its longest side along the box's longest side, it is
+    // scaled so that side matches, and it is centred on the box. The web's rider lines the decks
+    // up to one slab height, which the port does not, so the box is where the loft is.
+    // ---- and a board may say how big its model is, in feet ----
+    // For a lofted board the box is not the published L: the outline runs to +/-W about the
+    // centreline, so the slab is L long by about 1.65 W ACROSS, and for anything wider than it is
+    // long the width is what the model would be fitted to. The tube found this: W 1.18 on a ring
+    // meant to be two feet came out at the slab's width. modelD says the fitted size outright,
+    // in feet: the box is scaled about its centre so its longest side is modelD, and the model
+    // is fitted to that. The slab keeps its own size and stays the collision box.
+    static void Dress(GameObject root, BoardCatalog.Board S)
+    {
+        if (Resources.Load<GameObject>("Models/" + S.model) == null) { Debug.LogWarning("board model " + S.model + " not found; " + S.id + " keeps its loft"); return; }
+        var frame = root.transform;
+        var box = LocalBox(root, frame);
+        if (box.size.sqrMagnitude < 1e-8f) return;
+        if (S.modelD > 0f)
+        {
+            float k = S.modelD / Mathf.Max(1e-6f, Mathf.Max(box.size.x, box.size.y, box.size.z));
+            box = new Bounds(box.center, box.size * k);
+        }
+        var go = Models.Spawn(S.model, frame, 1f, PrimitiveType.Cube);
+        FitBox(go, frame, box);
+        // it drives bow-first: the ride points -z the way it travels, and half the time a fitted
+        // model's long axis lands the other way round (the web's skiBowAt, run on every file)
+        if (BowAt(go, frame) > 0)
+        {
+            go.transform.localRotation = Quaternion.Euler(0, 180f, 0) * go.transform.localRotation;
+            var b = LocalBox(go, frame);
+            go.transform.localPosition += box.center - b.center;
+        }
+        // the loft goes dark: the deck, the pads and the fins, the model in their place
+        for (int i = 0; i < frame.childCount; i++) { var c = frame.GetChild(i); if (c != go.transform) c.gameObject.SetActive(false); }
+    }
+
+    /// the box of everything drawn under go, in frame's own axes (the corners of each mesh's
+    /// box run through the transforms, so a turned fin or a spun model still measures right)
+    static Bounds LocalBox(GameObject go, Transform frame)
+    {
+        bool any = false; var b = new Bounds();
+        var toFrame = frame.worldToLocalMatrix;
+        foreach (var mf in go.GetComponentsInChildren<MeshFilter>())
+        {
+            var m = mf.sharedMesh; if (m == null) continue;
+            var M = toFrame * mf.transform.localToWorldMatrix; var mb = m.bounds;
+            for (int c = 0; c < 8; c++)
+            {
+                var corner = new Vector3((c & 1) == 0 ? mb.min.x : mb.max.x, (c & 2) == 0 ? mb.min.y : mb.max.y, (c & 4) == 0 ? mb.min.z : mb.max.z);
+                var p = M.MultiplyPoint3x4(corner);
+                if (!any) { b = new Bounds(p, Vector3.zero); any = true; } else b.Encapsulate(p);
+            }
+        }
+        return b;
+    }
+
+    // the web's longAxis, ties broken the same way: x first, then y
+    static int LongAxis(Vector3 v) => (v.x >= v.y && v.x >= v.z) ? 0 : (v.y >= v.z ? 1 : 2);
+
+    /// the web's fitToBox: a quarter turn that lays the model's longest side along the target's
+    /// longest side (a board exported down Blender's x still lands nose to tail), the scale that
+    /// matches those two sides, and the model's box centred on the target's. go's parent is frame,
+    /// so its local position, turn and scale are in the frame's axes; each turn is applied on the
+    /// left, so it moves the frame's axes whatever the model's own are.
+    static void FitBox(GameObject go, Transform frame, Bounds target)
+    {
+        var b = LocalBox(go, frame);
+        int a = LongAxis(b.size), t = LongAxis(target.size);
+        if (a != t)
+        {
+            Quaternion q = Quaternion.identity;
+            if (a == 0 && t == 1) q = Quaternion.Euler(0, 0, 90); else if (a == 1 && t == 0) q = Quaternion.Euler(0, 0, -90);
+            else if (a == 0 && t == 2) q = Quaternion.Euler(0, 90, 0); else if (a == 2 && t == 0) q = Quaternion.Euler(0, -90, 0);
+            else if (a == 1 && t == 2) q = Quaternion.Euler(-90, 0, 0); else if (a == 2 && t == 1) q = Quaternion.Euler(90, 0, 0);
+            go.transform.localRotation = q * go.transform.localRotation;
+            b = LocalBox(go, frame);
+        }
+        float k = Mathf.Max(target.size.x, target.size.y, target.size.z) / Mathf.Max(1e-6f, Mathf.Max(b.size.x, b.size.y, b.size.z));
+        go.transform.localScale = go.transform.localScale * k;
+        b = LocalBox(go, frame);
+        go.transform.localPosition += target.center - b.center;
+    }
+
+    /// Which end of a hull is the bow, as a sign: +1 if it points down +z, -1 if down -z (the
+    /// web's skiBowAt). A bow is narrow and carries the height; a stern is wide, low and square.
+    /// Comparing the two halves on both counts is steadier than either alone -- some hulls are
+    /// barely tapered, some barely stepped -- so the two votes are summed and the sign of the
+    /// total is the answer. A ring or a twin-tip is the same both ways, and lands on -1.
+    /// Read off the vertices in the frame's axes; a mesh that cannot be read here says -1.
+    static int BowAt(GameObject go, Transform frame)
+    {
+        var pts = new List<Vector3>();
+        try
+        {
+            var toFrame = frame.worldToLocalMatrix;
+            foreach (var mf in go.GetComponentsInChildren<MeshFilter>())
+            {
+                var m = mf.sharedMesh; if (m == null || !m.isReadable) continue;
+                var M = toFrame * mf.transform.localToWorldMatrix; var v = m.vertices;
+                for (int i = 0; i < v.Length; i += 3) pts.Add(M.MultiplyPoint3x4(v[i]));
+            }
+        }
+        catch { pts.Clear(); }
+        if (pts.Count == 0) return -1;
+        float lo = float.PositiveInfinity, hi = float.NegativeInfinity;
+        foreach (var p in pts) { if (p.z < lo) lo = p.z; if (p.z > hi) hi = p.z; }
+        if (!(hi > lo)) return -1;
+        float mid = (lo + hi) * 0.5f, wN = 0, wP = 0, hN = float.NegativeInfinity, hP = float.NegativeInfinity;
+        foreach (var p in pts)
+        {
+            float w = Mathf.Abs(p.x);
+            if (p.z < mid) { if (w > wN) wN = w; if (p.y > hN) hN = p.y; }
+            else { if (w > wP) wP = w; if (p.y > hP) hP = p.y; }
+        }
+        // the narrower half is the bow; the taller half holds the console, which sits forward of centre
+        return ((wP < wN ? 1 : -1) + (hP > hN ? 1 : -1)) >= 0 ? 1 : -1;
     }
 
     static Mesh FinMesh(float cL, float d, float ft, float rk)
