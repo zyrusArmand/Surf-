@@ -90,6 +90,7 @@ public static class Progress
         for (int L = was + 1; L <= now; L++) pay += LevelPay(L);
         SaveData.Coins += pay; return pay;
     }
-    static readonly (int, string)[] Ranks = { (1, "Sandcastle Kid"), (4, "Beach Grom"), (8, "Rookie Surfer"), (14, "Local"), (22, "Charger"), (32, "Barrel Hunter"), (45, "Pro"), (60, "Legend"), (80, "Kahuna"), (100, "Big Kahuna") };
+    // the web's RANKS, level by level
+    public static readonly (int, string)[] Ranks = { (1, "Sandcastle Kid"), (4, "Beach Grom"), (8, "Rookie Surfer"), (13, "Whitewater Rider"), (19, "Green Wave Rider"), (25, "Line-up Regular"), (32, "Solid Surfer"), (39, "Wave Hunter"), (46, "Rail Carver"), (53, "Great Surfer"), (60, "Barrel Dodger"), (67, "Awesome Shredder"), (74, "Reef Breaker"), (81, "Point Break Local"), (87, "Storm Chaser"), (93, "Big Wave Charger"), (99, "Tube Master"), (104, "Legend of the Point"), (108, "The Big Kahuna"), (111, "Wave Whisperer") };
     public static string Rank { get { int L = Level; string r = Ranks[0].Item2; foreach (var k in Ranks) if (L >= k.Item1) r = k.Item2; return r; } }
 }

@@ -8,7 +8,7 @@ public class Bootstrap : MonoBehaviour
     BoardController rider; Spawner spawner; ChaseCamera chase; Hud hud; DayCycle day; Ocean ocean;
     ParticleSystem spray; Transform rig, pug; RiderRig riderRig; float wakeA;
     Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop; Coconuts cocos;
-    Quests quests; StatsPanel stats; SettingsPanel settings; SchoolPanel school; ProfilePanel profile;
+    Quests quests; StatsPanel stats; SettingsPanel settings; SchoolPanel school; ProfilePanel profile; GuidePanel guide;
     bool over; float runSecs; bool palmSaid;
 
     void Start()
@@ -91,12 +91,14 @@ public class Bootstrap : MonoBehaviour
         settings = new GameObject("Settings").AddComponent<SettingsPanel>(); settings.Build(hud.UiRoot);
         school = new GameObject("School").AddComponent<SchoolPanel>(); school.Build(hud.UiRoot);
         profile = new GameObject("Profile").AddComponent<ProfilePanel>(); profile.Build(hud.UiRoot);
+        guide = new GameObject("Guide").AddComponent<GuidePanel>(); guide.Build(hud.UiRoot);
+        guide.onChange = shop.onChange; guide.onShop = () => shop.Show(true);
         hud.onQuests = () => quests.Show(true); hud.onSettings = () => settings.Show(true);
         hud.onProfile = () => profile.Show(true); hud.onSchool = () => school.Show(true);
         profile.onStats = () => stats.Show(true);
         Quests.onToast = hud.Toast;
         settings.onChange = () => Sfx.Refresh();
-        quests.onClose = settings.onClose = profile.onClose = stats.onClose = school.onClose = () => { if (!rider.running && !rider.wipe) hud.ShowMenu(); };
+        quests.onClose = settings.onClose = profile.onClose = stats.onClose = school.onClose = guide.onClose = () => { if (!rider.running && !rider.wipe) hud.ShowMenu(); };
         Menu();
     }
 
@@ -219,7 +221,7 @@ public class Bootstrap : MonoBehaviour
             beach.PlaceRider(rider.transform, rig, boardGo);
             // a tap on the signpost, away from the pills
             bool over2 = UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject();
-            bool paneOpen = shop.Open || quests.Open || stats.Open || settings.Open || school.Open || profile.Open;
+            bool paneOpen = shop.Open || quests.Open || stats.Open || settings.Open || school.Open || profile.Open || guide.Open;
             if (Input.GetMouseButtonDown(0) && !over2 && !paneOpen) beach.Tap(cam, Input.mousePosition);
             for (int i = 0; i < Input.touchCount; i++)
             {
