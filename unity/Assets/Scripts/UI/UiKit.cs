@@ -174,9 +174,13 @@ public static class UiKit
     public static void Pressable(GameObject go, System.Action down = null, System.Action up = null)
     {
         var et = go.GetComponent<EventTrigger>() ?? go.AddComponent<EventTrigger>();
-        Add(et, EventTriggerType.PointerDown, _ => { go.transform.localScale = Vector3.one * 0.9f; down?.Invoke(); });
-        Add(et, EventTriggerType.PointerUp, _ => { go.transform.localScale = Vector3.one; up?.Invoke(); });
-        Add(et, EventTriggerType.PointerExit, _ => { if (go.transform.localScale.x < 1f) { go.transform.localScale = Vector3.one; up?.Invoke(); } });
+        var pa = go.GetComponent<PressAnim>() ?? go.AddComponent<PressAnim>();
+        // A hold button (one with a down) lets go when the finger slides off; a tap button is
+        // cancelled by sliding off instead, and never fires twice (exit and then up both used to).
+        bool held = false, hold = down != null;
+        Add(et, EventTriggerType.PointerDown, _ => { held = true; pa.Press(true); down?.Invoke(); });
+        Add(et, EventTriggerType.PointerUp, _ => { pa.Press(false); if (held) { held = false; up?.Invoke(); } });
+        Add(et, EventTriggerType.PointerExit, _ => { if (!held) return; held = false; pa.Press(false); if (hold) up?.Invoke(); });
     }
 
     public static void Add(EventTrigger et, EventTriggerType type, UnityEngine.Events.UnityAction<BaseEventData> cb)
