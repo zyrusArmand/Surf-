@@ -42,7 +42,7 @@ public class Hud : MonoBehaviour
         menu = UiKit.Rect(root, "menu", Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero).gameObject;
         var m = menu.transform;
         var pill = UiKit.Pic(m, "puka", UiKit.Rounded(104, 34, 17, 17, 17, 17, UiKit.Body.Pill, 1.5f), new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(10, -12), new Vector2(104, 34));
-        UiKit.Label(pill.transform, "\u25CF", 11, new Color(0.55f, 0.85f, 0.95f), FontStyle.Bold, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(10, 0), new Vector2(14, 14), TextAnchor.MiddleCenter, 0);
+        Shell(pill.transform, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(10, 0), 17);
         tMenuCoins = UiKit.Label(pill.transform, "0", 14.5f, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(4, 0), Vector2.zero);
         UiKit.Label(pill.transform, "+", 16, new Color(0.45f, 0.9f, 0.55f), FontStyle.Bold, new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-9, 0), new Vector2(16, 16), TextAnchor.MiddleCenter, 0);
         pill.raycastTarget = true; UiKit.Pressable(pill.gameObject, null, () => Toast("The puka store is coming in the next round"));
@@ -77,6 +77,8 @@ public class Hud : MonoBehaviour
         tDist = Cell(r, "DIST", 0.375f, out tBestD, "best 0 m");
         tMph = Cell(r, "MPH", 0.625f, out _, "");
         tCoins = Cell(r, "PUKA", 0.875f, out _, "this run");
+        Shell(r, new Vector2(0.875f, 1), new Vector2(0.875f, 1), new Vector2(1, 0.5f), new Vector2(-20, -44), 19);
+        tCoins.alignment = TextAnchor.MiddleLeft; tCoins.rectTransform.anchoredPosition = new Vector2(12, -30);
         for (int i = 1; i < 4; i++)
         {
             var hl = UiKit.Pic(r, "hairline", UiKit.Rounded(1, 40, 0, 0, 0, 0, UiKit.Body.Glass, 0), new Vector2(i * 0.25f, 1), new Vector2(i * 0.25f, 1), new Vector2(0.5f, 1), new Vector2(0, -20), new Vector2(1, 40));
@@ -85,11 +87,12 @@ public class Hud : MonoBehaviour
         // the trick message
         tMsg = UiKit.Label(r, "", 30, UiKit.TrickYellow, FontStyle.Bold, new Vector2(0.5f, 0.78f), new Vector2(0.5f, 0.78f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(420, 50), TextAnchor.MiddleCenter, 0.6f);
         // the trick column: 70 by 56, six apart, cut flat against the left edge
-        bar = UiKit.Rect(r, "bar", new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, 96), new Vector2(70, 180)).gameObject;
-        Hold(bar.transform, "ROLL", 2, "roll"); Hold(bar.transform, "FLIP", 1, "flip"); Hold(bar.transform, "SPIN", 0, "spin");
+        bar = UiKit.Rect(r, "bar", new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, 96), new Vector2(70, 304)).gameObject;
+        Hold(bar.transform, "ROLL", 4, "roll"); Hold(bar.transform, "FLIP", 3, "flip"); Hold(bar.transform, "SPIN", 2, "spin");
+        Hold(bar.transform, "HAND", 1, "hand"); Hold(bar.transform, "HELI", 0, "heli");
         // JUMP: 106 by 86, cut flat against the right edge
         var j = UiKit.Pic(r, "jump", UiKit.Rounded(106, 86, 27, 0, 0, 27, UiKit.Body.Glass, 2.5f, false, true), new Vector2(1, 0), new Vector2(1, 0), new Vector2(1, 0), new Vector2(0, 46), new Vector2(106, 86));
-        UiKit.Label(j.transform, "▲", 20, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, 12), Vector2.zero);
+        Ges(j.transform, "jump", 27, new Vector2(0, 14));
         UiKit.Label(j.transform, "JUMP", 17, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -14), Vector2.zero);
         j.raycastTarget = true; jump = j.gameObject;
         UiKit.Pressable(jump, () => rider.Jump());
@@ -107,13 +110,28 @@ public class Hud : MonoBehaviour
     void Hold(Transform p, string label, int i, string trick)
     {
         var im = UiKit.Pic(p, label, UiKit.Rounded(70, 56, 0, 18, 18, 0, UiKit.Body.Glass, 2f, true, false), new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, i * 62), new Vector2(70, 56));
-        UiKit.Label(im.transform, Arrow(trick), 16, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, 8), Vector2.zero);
-        UiKit.Label(im.transform, label, 9.5f, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -14), Vector2.zero);
+        Ges(im.transform, trick, 30, new Vector2(0, 7));
+        UiKit.Label(im.transform, label, 9.5f, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -16), Vector2.zero);
         im.raycastTarget = true;
-        UiKit.Pressable(im.gameObject, () => rider.Hold(trick, true), () => rider.Hold(trick, false));
+        if (trick == "hand" || trick == "heli") UiKit.Pressable(im.gameObject, null, () => Toast((trick == "hand" ? "The handstand" : "The helicopter") + " is coming in the next round"));
+        else UiKit.Pressable(im.gameObject, () => rider.Hold(trick, true), () => rider.Hold(trick, false));
     }
 
-    static string Arrow(string trick) => trick == "spin" ? "↻" : trick == "flip" ? "↕" : "↔";
+    // the gesture icon the web draws on every button, from the same SVG
+    static void Ges(Transform p, string name, float size, Vector2 pos)
+    {
+        var sp = UiKit.Icon("ges_" + name);
+        if (sp == null) { UiKit.Label(p, name.ToUpper().Substring(0, 1), size * 0.6f, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), pos, Vector2.zero); return; }
+        var im = UiKit.Pic(p, "ges", sp, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), pos, new Vector2(size, size));
+        im.raycastTarget = false; im.preserveAspect = true;
+    }
+
+    // the puka shell
+    static void Shell(Transform p, Vector2 aMin, Vector2 aMax, Vector2 pivot, Vector2 pos, float size)
+    {
+        var sp = UiKit.Icon("puka"); if (sp == null) return;
+        var im = UiKit.Pic(p, "puka", sp, aMin, aMax, pivot, pos, new Vector2(size, size)); im.raycastTarget = false; im.preserveAspect = true;
+    }
 
     // ---- the card ----
     void BuildCard(Transform root)
