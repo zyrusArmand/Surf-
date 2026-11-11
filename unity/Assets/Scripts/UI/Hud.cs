@@ -1,6 +1,7 @@
-// The HUD and the controls, built in code so there is no prefab to wire: the four figures
-// across the top, the trick buttons down the left, JUMP bottom right, a steering strip, and
-// the run card. Touch and keyboard both work.
+// Every screen the game has so far, built in code from UiKit: the title with its dial of six
+// buttons around PLAY, the ride's HUD band and the trick column and JUMP, the trick message,
+// and the card after a wipeout. Sizes and positions are the web stylesheet's, in points on a
+// 430-wide phone.
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
@@ -8,106 +9,184 @@ using UnityEngine.EventSystems;
 public class Hud : MonoBehaviour
 {
     public BoardController rider;
-    public System.Action onPlay;
+    public System.Action onPlay, onMenu;
 
-    Canvas canvas; Font font;
-    Text tScore, tDist, tMph, tCoins, tMsg, tCardTitle, tCardBody;
-    GameObject card; GameObject bar;
+    Canvas canvas;
+    GameObject menu, ride, card, bar, jump;
+    Text tScore, tDist, tMph, tCoins, tBestS, tBestD, tMsg, tCardTitle, tCardBody, tMenuBest, tMenuCoins, tToast;
+    float toastT;
     int steerPointer = -1; float steerX0; float steerVal;
 
     public void Build()
     {
-        font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         var cgo = new GameObject("Canvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
         canvas = cgo.GetComponent<Canvas>(); canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         var sc = cgo.GetComponent<CanvasScaler>(); sc.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        sc.referenceResolution = new Vector2(430, 932); sc.matchWidthOrHeight = 0.5f;
+        sc.referenceResolution = new Vector2(430, 932); sc.matchWidthOrHeight = 0f;   // match width: a phone is held upright
         if (Object.FindFirstObjectByType<EventSystem>() == null) new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
+        BuildMenu(cgo.transform);
+        BuildRide(cgo.transform);
+        BuildCard(cgo.transform);
+        // the toast, for buttons whose screens are not built yet
+        tToast = UiKit.Label(cgo.transform, "", 15, Color.white, FontStyle.Bold, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 120), new Vector2(360, 40));
+        tToast.gameObject.SetActive(false);
+        ShowMenu();
+    }
 
-        // top row
-        var top = Panel(cgo.transform, "top", new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -60), new Vector2(0, 0), new Color(0.01f, 0.08f, 0.16f, 0.25f));
-        tScore = Cell(top.transform, "TRICKS", 0.125f); tDist = Cell(top.transform, "DIST", 0.375f);
-        tMph = Cell(top.transform, "MPH", 0.625f); tCoins = Cell(top.transform, "PUKA", 0.875f);
+    // ---- the title ----
+    void BuildMenu(Transform root)
+    {
+        menu = UiKit.Rect(root, "menu", Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero).gameObject;
+        var m = menu.transform;
+        // the word, with the sea behind it
+        UiKit.Label(m, "Surf", 64, Color.white, FontStyle.Bold, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -92), new Vector2(400, 80), TextAnchor.MiddleCenter, 0.9f);
+        UiKit.Label(m, "a pug, a board, and a long way to go", 13, new Color(1, 1, 1, 0.78f), FontStyle.Bold, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -170), new Vector2(400, 20));
+        // the top bar: puka on the left, best on the right
+        var pill = UiKit.Pic(m, "puka", UiKit.Rounded(118, 32, 16, 16, 16, 16, UiKit.Body.Pill, 1.5f), new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(12, -14), new Vector2(118, 32));
+        tMenuCoins = UiKit.Label(pill.transform, "0", 14.5f, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(8, 0), Vector2.zero);
+        UiKit.Label(pill.transform, "●", 10, UiKit.Gold, FontStyle.Bold, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(12, 0), new Vector2(14, 14), TextAnchor.MiddleCenter, 0);
+        var bp = UiKit.Pic(m, "best", UiKit.Rounded(150, 32, 16, 16, 16, 16, UiKit.Body.Pill, 1.5f), new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1), new Vector2(-12, -14), new Vector2(150, 32));
+        tMenuBest = UiKit.Label(bp.transform, "best 0", 13, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+        // the dial: three a side, PLAY on the sand between them
+        Dial(m, "Board", true, 120); Dial(m, "Shop", true, 60); Dial(m, "Tricks", true, 0);
+        Dial(m, "Quests", false, 120); Dial(m, "Settings", false, 60); Dial(m, "Stats", false, 0);
+        var play = UiKit.Pic(m, "play", UiKit.Circle(84, UiKit.Body.Teal, 2.5f), new Vector2(0.5f, 0.07f), new Vector2(0.5f, 0.07f), new Vector2(0.5f, 0), Vector2.zero, new Vector2(84, 84));
+        UiKit.Label(play.transform, "▶", 22, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(2, 8), Vector2.zero);
+        UiKit.Label(play.transform, "PLAY", 12, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -16), Vector2.zero);
+        play.raycastTarget = true;
+        UiKit.Pressable(play.gameObject, null, () => onPlay?.Invoke());
+    }
+
+    void Dial(Transform m, string name, bool left, float up)
+    {
+        var ax = left ? 0f : 1f;
+        var im = UiKit.Pic(m, name, UiKit.Circle(54, UiKit.Body.Teal, 2f), new Vector2(ax, 0.13f), new Vector2(ax, 0.13f), new Vector2(ax, 0), new Vector2(left ? 14 : -14, up), new Vector2(54, 54));
+        UiKit.Label(im.transform, Glyph(name), 17, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, 6), Vector2.zero, TextAnchor.MiddleCenter, 0.9f);
+        UiKit.Label(im.transform, name.ToUpper(), 8, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -12), Vector2.zero);
+        im.raycastTarget = true;
+        UiKit.Pressable(im.gameObject, null, () => Toast(name + " is coming in the next round"));
+    }
+
+    static string Glyph(string n)
+    {
+        switch (n)
+        {
+            case "Board": return "◆";     // a diamond, for the board's outline
+            case "Shop": return "⌂";      // a house
+            case "Tricks": return "↻";    // a turn
+            case "Quests": return "⚑";    // a flag
+            case "Settings": return "⚙";  // a gear
+            default: return "≡";          // stats: bars
+        }
+    }
+
+    // ---- the ride ----
+    void BuildRide(Transform root)
+    {
+        ride = UiKit.Rect(root, "ride", Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero).gameObject;
+        var r = ride.transform;
+        // the band across the top, with four cells and a hairline between each pair
+        var band = UiKit.Pic(r, "band", UiKit.Rounded(430, 78, 0, 0, 0, 0, UiKit.Body.Band, 0), new Vector2(0, 1), new Vector2(1, 1), new Vector2(0.5f, 1), Vector2.zero, new Vector2(0, 78));
+        band.raycastTarget = false;
+        tScore = Cell(r, "TRICKS", 0.125f, out tBestS, "best 0");
+        tDist = Cell(r, "DIST", 0.375f, out tBestD, "best 0 m");
+        tMph = Cell(r, "MPH", 0.625f, out _, "");
+        tCoins = Cell(r, "PUKA", 0.875f, out _, "this run");
+        for (int i = 1; i < 4; i++)
+        {
+            var hl = UiKit.Pic(r, "hairline", UiKit.Rounded(1, 40, 0, 0, 0, 0, UiKit.Body.Glass, 0), new Vector2(i * 0.25f, 1), new Vector2(i * 0.25f, 1), new Vector2(0.5f, 1), new Vector2(0, -20), new Vector2(1, 40));
+            hl.color = new Color(1, 1, 1, 0.24f); hl.raycastTarget = false;
+        }
         // the trick message
-        tMsg = Label(cgo.transform, "", 30, new Vector2(0.5f, 0.68f), new Vector2(0.5f, 0.68f), Vector2.zero, new Vector2(400, 50));
-        tMsg.color = new Color(1f, 0.87f, 0.18f); tMsg.fontStyle = FontStyle.Bold;
-        // trick bar: three held buttons down the left
-        bar = new GameObject("bar"); bar.transform.SetParent(cgo.transform, false);
-        var brt = bar.AddComponent<RectTransform>(); brt.anchorMin = new Vector2(0, 0.5f); brt.anchorMax = new Vector2(0, 0.5f);
-        brt.pivot = new Vector2(0, 0.5f); brt.anchoredPosition = new Vector2(0, -80); brt.sizeDelta = new Vector2(76, 200);
-        HoldButton(bar.transform, "ROLL", 0, "roll"); HoldButton(bar.transform, "FLIP", 1, "flip"); HoldButton(bar.transform, "SPIN", 2, "spin");
-        // jump
-        var jump = Button(cgo.transform, "JUMP", new Vector2(1, 0), new Vector2(1, 0), new Vector2(-10, 60), new Vector2(110, 70));
-        var jt = jump.AddComponent<EventTrigger>();
-        Add(jt, EventTriggerType.PointerDown, _ => rider.Jump());
-        // the card
-        card = Panel(cgo.transform, "card", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(340, 300), new Color(0.03f, 0.13f, 0.24f, 0.94f));
-        tCardTitle = Label(card.transform, "Wipeout!", 40, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -40), new Vector2(320, 60));
-        tCardBody = Label(card.transform, "", 22, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 10), new Vector2(320, 120));
-        var again = Button(card.transform, "AGAIN", new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 40), new Vector2(200, 56));
-        again.GetComponent<Button>().onClick.AddListener(() => onPlay?.Invoke());
+        tMsg = UiKit.Label(r, "", 30, UiKit.TrickYellow, FontStyle.Bold, new Vector2(0.5f, 0.78f), new Vector2(0.5f, 0.78f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(420, 50), TextAnchor.MiddleCenter, 0.6f);
+        // the trick column: 70 by 56, six apart, cut flat against the left edge
+        bar = UiKit.Rect(r, "bar", new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, 96), new Vector2(70, 180)).gameObject;
+        Hold(bar.transform, "ROLL", 2, "roll"); Hold(bar.transform, "FLIP", 1, "flip"); Hold(bar.transform, "SPIN", 0, "spin");
+        // JUMP: 106 by 86, cut flat against the right edge
+        var j = UiKit.Pic(r, "jump", UiKit.Rounded(106, 86, 27, 0, 0, 27, UiKit.Body.Glass, 2.5f, false, true), new Vector2(1, 0), new Vector2(1, 0), new Vector2(1, 0), new Vector2(0, 46), new Vector2(106, 86));
+        UiKit.Label(j.transform, "▲", 20, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, 12), Vector2.zero);
+        UiKit.Label(j.transform, "JUMP", 17, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -14), Vector2.zero);
+        j.raycastTarget = true; jump = j.gameObject;
+        UiKit.Pressable(jump, () => rider.Jump());
+    }
+
+    Text Cell(Transform p, string lab, float ax, out Text rec, string recText)
+    {
+        var a = new Vector2(ax, 1);
+        UiKit.Label(p, lab, 10, new Color(1, 1, 1, 0.60f), FontStyle.Bold, a, a, new Vector2(0.5f, 1), new Vector2(0, -16), new Vector2(100, 14), TextAnchor.MiddleCenter, 0.6f);
+        var v = UiKit.Label(p, "0", 22, Color.white, FontStyle.Bold, a, a, new Vector2(0.5f, 1), new Vector2(0, -30), new Vector2(106, 28), TextAnchor.MiddleCenter, 0.6f);
+        rec = UiKit.Label(p, recText, 9.5f, new Color(1, 1, 1, 0.52f), FontStyle.Bold, a, a, new Vector2(0.5f, 1), new Vector2(0, -58), new Vector2(100, 14), TextAnchor.MiddleCenter, 0.6f);
+        return v;
+    }
+
+    void Hold(Transform p, string label, int i, string trick)
+    {
+        var im = UiKit.Pic(p, label, UiKit.Rounded(70, 56, 0, 18, 18, 0, UiKit.Body.Glass, 2f, true, false), new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, i * 62), new Vector2(70, 56));
+        UiKit.Label(im.transform, Arrow(trick), 16, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, 8), Vector2.zero);
+        UiKit.Label(im.transform, label, 9.5f, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -14), Vector2.zero);
+        im.raycastTarget = true;
+        UiKit.Pressable(im.gameObject, () => rider.Hold(trick, true), () => rider.Hold(trick, false));
+    }
+
+    static string Arrow(string trick) => trick == "spin" ? "↻" : trick == "flip" ? "↕" : "↔";
+
+    // ---- the card ----
+    void BuildCard(Transform root)
+    {
+        card = UiKit.Pic(root, "card", UiKit.Rounded(340, 300, 26, 26, 26, 26, UiKit.Body.Card, 1.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 20), new Vector2(340, 300)).gameObject;
+        var c = card.transform;
+        tCardTitle = UiKit.Label(c, "Wipeout!", 40, Color.white, FontStyle.Bold, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -22), new Vector2(320, 50));
+        tCardBody = UiKit.Label(c, "", 20, new Color(1, 1, 1, 0.92f), FontStyle.Bold, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 14), new Vector2(320, 110));
+        var again = UiKit.Pic(c, "again", UiKit.Circle(84, UiKit.Body.Teal, 2.5f), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(34, 22), new Vector2(84, 84));
+        UiKit.Label(again.transform, "▶", 22, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(2, 8), Vector2.zero);
+        UiKit.Label(again.transform, "AGAIN", 11, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -16), Vector2.zero);
+        again.raycastTarget = true; UiKit.Pressable(again.gameObject, null, () => onPlay?.Invoke());
+        var mb = UiKit.Pic(c, "menu", UiKit.Circle(54, UiKit.Body.Teal, 2f), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(-64, 36), new Vector2(54, 54));
+        UiKit.Label(mb.transform, "⌂", 17, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, 6), Vector2.zero);
+        UiKit.Label(mb.transform, "MENU", 8, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -12), Vector2.zero);
+        mb.raycastTarget = true; UiKit.Pressable(mb.gameObject, null, () => onMenu?.Invoke());
         card.SetActive(false);
     }
 
-    GameObject Panel(Transform p, string n, Vector2 aMin, Vector2 aMax, Vector2 pos, Vector2 size, Color c)
+    // ---- the screens ----
+    public void ShowMenu()
     {
-        var go = new GameObject(n, typeof(RectTransform), typeof(Image)); go.transform.SetParent(p, false);
-        var rt = go.GetComponent<RectTransform>(); rt.anchorMin = aMin; rt.anchorMax = aMax; rt.anchoredPosition = pos; rt.sizeDelta = size;
-        if (aMin.y == 1 && aMax.y == 1 && aMin.x == 0 && aMax.x == 1) { rt.pivot = new Vector2(0.5f, 1); rt.anchoredPosition = Vector2.zero; rt.sizeDelta = new Vector2(0, 110); }
-        go.GetComponent<Image>().color = c; return go;
+        menu.SetActive(true); ride.SetActive(false); card.SetActive(false);
+        tMenuCoins.text = SaveData.Coins.ToString("N0");
+        tMenuBest.text = "best " + SaveData.Best.ToString("N0") + " · " + SaveData.BestDist + " m";
     }
-    Text Cell(Transform p, string lab, float ax)
+
+    public void ShowRide()
     {
-        Label(p, lab, 13, new Vector2(ax, 1), new Vector2(ax, 1), new Vector2(0, -28), new Vector2(100, 20)).color = new Color(1, 1, 1, 0.7f);
-        return Label(p, "0", 30, new Vector2(ax, 1), new Vector2(ax, 1), new Vector2(0, -66), new Vector2(110, 40));
-    }
-    Text Label(Transform p, string s, int size, Vector2 aMin, Vector2 aMax, Vector2 pos, Vector2 sz)
-    {
-        var go = new GameObject("label", typeof(RectTransform), typeof(Text)); go.transform.SetParent(p, false);
-        var rt = go.GetComponent<RectTransform>(); rt.anchorMin = aMin; rt.anchorMax = aMax; rt.anchoredPosition = pos; rt.sizeDelta = sz;
-        var t = go.GetComponent<Text>(); t.font = font; t.fontSize = size; t.text = s; t.alignment = TextAnchor.MiddleCenter; t.color = Color.white; t.fontStyle = FontStyle.Bold;
-        t.horizontalOverflow = HorizontalWrapMode.Overflow; return t;
-    }
-    GameObject Button(Transform p, string s, Vector2 aMin, Vector2 aMax, Vector2 pos, Vector2 sz)
-    {
-        var go = new GameObject(s, typeof(RectTransform), typeof(Image), typeof(Button)); go.transform.SetParent(p, false);
-        var rt = go.GetComponent<RectTransform>(); rt.anchorMin = aMin; rt.anchorMax = aMax; rt.pivot = new Vector2(aMin.x, aMin.y); rt.anchoredPosition = pos; rt.sizeDelta = sz;
-        go.GetComponent<Image>().color = new Color(0.16f, 0.45f, 0.70f, 0.85f);
-        Label(go.transform, s, 20, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
-        return go;
-    }
-    void HoldButton(Transform p, string s, int i, string trick)
-    {
-        var go = Button(p, s, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, -i * 66), new Vector2(72, 58));
-        go.GetComponent<RectTransform>().pivot = new Vector2(0, 1);
-        var et = go.AddComponent<EventTrigger>();
-        Add(et, EventTriggerType.PointerDown, _ => rider.Hold(trick, true));
-        Add(et, EventTriggerType.PointerUp, _ => rider.Hold(trick, false));
-        Add(et, EventTriggerType.PointerExit, _ => rider.Hold(trick, false));
-    }
-    static void Add(EventTrigger et, EventTriggerType type, UnityEngine.Events.UnityAction<BaseEventData> cb)
-    {
-        var e = new EventTrigger.Entry { eventID = type }; e.callback.AddListener(cb); et.triggers.Add(e);
+        menu.SetActive(false); ride.SetActive(true); card.SetActive(false); bar.SetActive(true); jump.SetActive(true);
+        tBestS.text = "best " + SaveData.Best.ToString("N0"); tBestD.text = "best " + SaveData.BestDist + " m";
+        tBestS.color = tBestD.color = new Color(1, 1, 1, 0.52f);
     }
 
     public void ShowCard(bool on, int dist, int score, int best)
     {
-        card.SetActive(on); bar.SetActive(!on);
-        if (on) tCardBody.text = dist + " m\n" + score + " trick points\nbest " + best;
+        card.SetActive(on); bar.SetActive(!on); jump.SetActive(!on);
+        if (on) tCardBody.text = dist + " m\n" + score.ToString("N0") + " trick points\nbest " + best.ToString("N0");
     }
+
+    public void Toast(string s) { tToast.text = s; tToast.gameObject.SetActive(true); toastT = 1.8f; }
 
     void Update()
     {
-        if (rider == null) return;
+        if (toastT > 0) { toastT -= Time.deltaTime; if (toastT <= 0) tToast.gameObject.SetActive(false); }
+        if (rider == null || !ride.activeSelf) return;
         tScore.text = rider.score.ToString("N0");
         tDist.text = Mathf.RoundToInt(rider.dist) + " m";
         tMph.text = ((int)(rider.eff * 0.62f)).ToString();
         tCoins.text = rider.coins.ToString("N0");
         tMsg.text = rider.msgT > 0 ? rider.lastMsg : "";
+        // the record lights up for the rest of the run once you pass it
+        if (rider.score > SaveData.Best && SaveData.Best > 0) tBestS.color = new Color(1f, 0.886f, 0.369f, 0.95f);
+        if (rider.dist > SaveData.BestDist && SaveData.BestDist > 0) tBestD.color = new Color(1f, 0.886f, 0.369f, 0.95f);
 
-        // steering: keys, or a finger dragged on the right half of the screen below the HUD
+        // steering: keys, or a finger dragged on the screen away from the buttons
         float k = (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow) ? -1 : 0) + (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow) ? 1 : 0);
-        float touch = 0f;
+        float touch;
         for (int i = 0; i < Input.touchCount; i++)
         {
             var tc = Input.GetTouch(i);

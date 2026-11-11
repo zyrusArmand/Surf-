@@ -47,6 +47,23 @@ public class BoardController : MonoBehaviour
         transform.rotation = Quaternion.identity;
     }
 
+    /// the title screen: he floats on the swell in the lane, not moving, while the sea rolls past
+    public void Idle(float dt)
+    {
+        t += dt;
+        running = false; wipe = false; airborne = false;
+        vx -= vx * 3.4f * dt; px += vx * dt; px -= px * Mathf.Min(1f, dt * 1.5f);
+        carve = Mathf.Clamp(vx / 9f, -1f, 1f);
+        eff = Mathf.Max(0f, eff - dt * 20f);
+        float fz = dist * WaveField.Drift + pz;
+        waterY = WaveField.Height(px, fz, t) + 0.05f;
+        py = waterY;
+        transform.position = new Vector3(px, py, pz);
+        float ahead = WaveField.Height(px, fz - 2.2f, t), behind = WaveField.Height(px, fz + 2.2f, t);
+        float pitch = Mathf.Atan2(ahead - behind, 4.4f) * 0.8f;
+        transform.rotation = Quaternion.Euler(pitch * Mathf.Rad2Deg, 0, 0);
+    }
+
     public void Jump()
     {
         if (!running || airborne) return;

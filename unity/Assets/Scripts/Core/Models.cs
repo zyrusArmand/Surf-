@@ -78,10 +78,14 @@ public static class Models
         float longest = Mathf.Max(b.size.x, b.size.y, b.size.z);
         if (longest < 1e-4f) return;
         go.transform.localScale = go.transform.localScale * (targetLength / longest);
-        // lay the long side along z, which is the way everything here travels
+        // lay the LONGEST side along z, which is the way everything here travels, and then the
+        // THINNEST side along y so the deck faces up. Each turn is applied in the parent's frame
+        // (rotation on the left) so it moves world axes, whatever the model's own axes are.
         b = Bounds(go);
-        if (b.size.x > b.size.z) go.transform.localRotation *= Quaternion.Euler(0, 90, 0);
-        else if (b.size.y > b.size.z) go.transform.localRotation *= Quaternion.Euler(90, 0, 0);
+        if (b.size.x >= b.size.y && b.size.x >= b.size.z) go.transform.localRotation = Quaternion.Euler(0, 90, 0) * go.transform.localRotation;
+        else if (b.size.y >= b.size.x && b.size.y >= b.size.z) go.transform.localRotation = Quaternion.Euler(90, 0, 0) * go.transform.localRotation;
+        b = Bounds(go);
+        if (b.size.x < b.size.y) go.transform.localRotation = Quaternion.Euler(0, 0, 90) * go.transform.localRotation;
         b = Bounds(go);
         go.transform.localPosition -= new Vector3(b.center.x, b.center.y, b.center.z) - go.transform.localPosition;
     }
