@@ -35,7 +35,7 @@ public class SetWave : MonoBehaviour
     public float ang, angV, rad, radV, airT, cut;
     bool armed, sweep2;
     Transform plane; Vector3 planePrev; bool planePrevOk;
-    GameObject curl; Material curlMat;
+    GameObject curl, foam; Material curlMat, foamMat;
     public bool summon;      // debug: bring one now
 
     void Awake() { next = 30f + Random.value * 15f; }
@@ -47,6 +47,7 @@ public class SetWave : MonoBehaviour
         tubeRide = false; onLip = false; pipeAir = false; ang = 0; angV = 0; rad = float.NaN; radV = 0; loops = 0; cut = 0;
         if (plane != null) plane.gameObject.SetActive(false);
         if (curl != null) curl.SetActive(false);
+        if (foam != null) foam.SetActive(false);
     }
 
     void EnsurePlane()
@@ -62,6 +63,7 @@ public class SetWave : MonoBehaviour
     {
         if (curl != null) return;
         curl = CurlShell.Make(out curlMat);
+        foam = CurlShell.MakeFoam(out foamMat);
     }
 
     // ---- the tube's own axis and bore, read out of the lip's geometry ----
@@ -327,7 +329,7 @@ public class SetWave : MonoBehaviour
     // the lip, sat on the crest: pitched over as it forms, folded down as it closes out
     void PlaceCurl(float dt)
     {
-        if (curlA <= 0.004f) { if (curl != null) curl.SetActive(false); return; }
+        if (curlA <= 0.004f) { if (curl != null) curl.SetActive(false); if (foam != null) foam.SetActive(false); return; }
         EnsureCurl();
         curl.SetActive(true);
         float fold = (1 - 0.72f * close) * form;
@@ -340,11 +342,18 @@ public class SetWave : MonoBehaviour
         curlMat.SetFloat("_T", rider.t);
         curlMat.SetFloat("_Close", close);
         curlMat.SetFloat("_Cut", cut);
-        if (day != null)
-        {
-            curlMat.SetVector("_SunDir", day.sunDir);
-            curlMat.SetFloat("_Light", 0.18f + 0.82f * day.daylight);
-        }
+        float light = day != null ? 0.18f + 0.82f * day.daylight : 1f;
+        if (day != null) curlMat.SetVector("_SunDir", day.sunDir);
+        curlMat.SetFloat("_Light", light);
+        // the foam bank is the shell's shadow: same frame, same fade, same near-lens cut. No
+        // landing, no foam: it fades in over the last quarter of the formation, when the
+        // curtain actually reaches the water.
+        float lf = Mathf.Clamp01((form - 0.72f) / 0.24f);
+        foam.SetActive(true);
+        var ft = foam.transform; ft.position = tr.position; ft.rotation = tr.rotation; ft.localScale = tr.localScale;
+        foamMat.SetFloat("_T", rider.t); foamMat.SetFloat("_Fade", curlA * lf * lf * (3 - 2 * lf));
+        foamMat.SetFloat("_Cut", cut); foamMat.SetFloat("_Light", light);
+        foamMat.SetVector("_Rider", new Vector4(rider.px, rider.py, rider.pz, 0));
     }
 
     void Begin()
@@ -374,6 +383,7 @@ public class SetWave : MonoBehaviour
         ph = Phase.Idle; WaveField.SetA = 0; cam = 0; close = 0; form = 0; curlA = 0; WaveField.Calm = 1f;
         tubeRide = false; pipeAir = false; rad = float.NaN;
         if (curl != null) curl.SetActive(false);
+        if (foam != null) foam.SetActive(false);
         next = 45f + Random.value * 30f;
     }
 }

@@ -90,6 +90,66 @@ public static class CurlShell
         return m;
     }
 
+    // ---- the foam bank: puffs on the tube's own cross-section, filling the open sector from the
+    // curtain's tip round the bottom, climbing as the section nears the break so the O closes
+    // just behind the rider and the far mouth stays open (the web's buildFoamGeom) ----
+    static float H(float a, float b) { float x = Mathf.Sin(a * 127.1f + b * 311.7f) * 43758.5453f; return x - Mathf.Floor(x); }
+
+    public static Mesh BuildFoam()
+    {
+        const int M = 7, NZf = 110;
+        float sa = Mathf.Sin(Alpha), ca = Mathf.Cos(Alpha);
+        var pos = new System.Collections.Generic.List<Vector3>(); var uv = new System.Collections.Generic.List<Vector2>(); var uv2 = new System.Collections.Generic.List<Vector2>();
+        var idx = new System.Collections.Generic.List<int>();
+        for (int i = 0; i <= NZf; i++)
+        {
+            float zt = i / (float)NZf, z = Z0 + (Z1 - Z0) * zt;
+            float pa = WaveField.PeelA(z), pb = WaveField.PeelB(z);
+            float rad = R * (0.16f + 0.84f * pa) * (1 - 0.55f * pb);
+            float swp = Sweep * (0.30f + 0.70f * pa);
+            float fold = 1 - 0.38f * pb;
+            float drop = -WaveField.SwPeak * 0.55f * pb / Mathf.Max(0.05f, fold);
+            float thB = Alpha + Mathf.PI * 0.80f;
+            float gate = Mathf.Clamp01((pa - 0.22f) / 0.30f);
+            float cu = Mathf.Clamp01((z + 18f) / 20f), climb = cu * cu * (3 - 2 * cu);
+            for (int k = 0; k < M; k++)
+            {
+                float tt = 0.16f + 0.84f * k / (M - 1);
+                float keep = Mathf.Clamp01((tt - (1 - climb - 0.24f)) / 0.30f);
+                float R0 = rad * (0.16f + 0.20f * pa) * (1 + 1.0f * pb) * gate * keep * (0.55f + 0.45f * Mathf.Sin(Mathf.PI * tt));
+                if (R0 < 0.30f) continue;
+                float th = swp + (thB - swp) * tt, pp = Alpha - th;
+                float cf = (sa - Mathf.Sin(pp)) * rad, cy = (Mathf.Cos(pp) - ca) * rad;
+                float dx = sa * rad - cf, dy = -ca * rad - cy, L = Mathf.Max(1e-6f, Mathf.Sqrt(dx * dx + dy * dy));
+                cf += dx / L * R0 * 0.45f; cy += dy / L * R0 * 0.45f;
+                var c = new Vector3(cf + (H(i, k) - 0.5f) * R0 * (0.8f + 1.1f * climb), cy + drop + (H(k, i) - 0.5f) * R0 * 0.5f, z + (H(i * 3, k * 5) - 0.5f) * 1.2f);
+                float size = R0 * (1.15f + 0.55f * H(i * 1.3f, k * 2.7f)) * (1 + 0.35f * climb);
+                float seed = H(i * 7.1f, k * 9.3f);
+                int b0 = pos.Count;
+                pos.Add(c); pos.Add(c); pos.Add(c); pos.Add(c);
+                var sz = new Vector2(size, seed); uv.Add(sz); uv.Add(sz); uv.Add(sz); uv.Add(sz);
+                uv2.Add(new Vector2(-1, -1)); uv2.Add(new Vector2(1, -1)); uv2.Add(new Vector2(1, 1)); uv2.Add(new Vector2(-1, 1));
+                idx.Add(b0); idx.Add(b0 + 1); idx.Add(b0 + 2); idx.Add(b0); idx.Add(b0 + 2); idx.Add(b0 + 3);
+            }
+        }
+        var m = new Mesh { name = "foambank", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+        m.SetVertices(pos); m.SetUVs(0, uv); m.SetUVs(1, uv2); m.SetTriangles(idx, 0);
+        m.bounds = new Bounds(new Vector3(0, 0, (Z0 + Z1) * 0.5f), new Vector3(60f, 60f, Z1 - Z0 + 20f));
+        return m;
+    }
+
+    public static GameObject MakeFoam(out Material mat)
+    {
+        var go = new GameObject("FoamBank", typeof(MeshFilter), typeof(MeshRenderer));
+        go.GetComponent<MeshFilter>().sharedMesh = BuildFoam();
+        var sh = Shader.Find("Surf/FoamBank");
+        mat = new Material(sh != null ? sh : Shader.Find("Universal Render Pipeline/Unlit"));
+        var mr = go.GetComponent<MeshRenderer>();
+        mr.sharedMaterial = mat; mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; mr.receiveShadows = false;
+        go.SetActive(false);
+        return go;
+    }
+
     /// the shell, drawn with Surf/Curl, hidden until the set wave stands it up
     public static GameObject Make(out Material mat)
     {
