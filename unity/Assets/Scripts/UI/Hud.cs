@@ -15,6 +15,7 @@ public class Hud : MonoBehaviour
     public System.Action onWheel, onLevel, onPuka;        // the bar's wheel, the level pill, the + on the purse
     public System.Action onRevive;                        // the card's free life was taken: put him back on the board
     public Coconuts cocos;                                // the coconut meter reads the charge
+    public Island island; public Dive dive;               // the walk stick ashore; the air left under water
     public ChaseCamera chase;                             // the speed streaks read the lens
     public Transform UiRoot => canvas.transform;
     Image xpFill;
@@ -133,6 +134,53 @@ public class Hud : MonoBehaviour
         UiKit.Pressable(jump, () => { Sfx.Buzz(10); rider.Jump(); });
         BuildStreaks(r);
         BuildCoco(r);
+        BuildStick(r);
+    }
+
+    // ---- the walk stick: a ring low on the right while he is on the island, the nub follows
+    // the finger and the island reads it as a direction ----
+    RectTransform stickRt, stickNub; int stickId = -1; Vector2 stickC;
+    void BuildStick(Transform r)
+    {
+        stickRt = UiKit.Rect(r, "walkStick", new Vector2(1, 0), new Vector2(1, 0), new Vector2(1, 0), new Vector2(-28, 150), new Vector2(120, 120));
+        var ring = UiKit.Pic(stickRt, "ring", UiKit.Circle(120, UiKit.Body.Glass, 2.5f), Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+        ring.raycastTarget = true; ring.color = new Color(1, 1, 1, 0.9f);
+        var nub = UiKit.Pic(stickRt, "nub", UiKit.Circle(44, UiKit.Body.Teal, 2f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(44, 44));
+        nub.raycastTarget = false; stickNub = nub.rectTransform;
+        stickRt.gameObject.SetActive(false);
+    }
+
+    void StepStick()
+    {
+        if (stickRt == null || island == null) return;
+        bool on = island.StickOn;
+        if (stickRt.gameObject.activeSelf != on) { stickRt.gameObject.SetActive(on); if (!on) { island.walkX = island.walkY = 0; stickId = -1; stickNub.anchoredPosition = Vector2.zero; } }
+        if (!on) return;
+        Vector2 v = Vector2.zero; bool held = false;
+        for (int i = 0; i < Input.touchCount; i++)
+        {
+            var tc = Input.GetTouch(i);
+            if (tc.phase == TouchPhase.Began && stickId < 0 && RectTransformUtility.RectangleContainsScreenPoint(stickRt, tc.position)) { stickId = tc.fingerId; RectTransformUtility.ScreenPointToLocalPointInRectangle(stickRt, tc.position, null, out stickC); }
+            if (tc.fingerId == stickId)
+            {
+                if (tc.phase == TouchPhase.Ended || tc.phase == TouchPhase.Canceled) { stickId = -1; continue; }
+                RectTransformUtility.ScreenPointToLocalPointInRectangle(stickRt, tc.position, null, out var lp);
+                v = (lp - stickC) / 40f; held = true;
+            }
+        }
+        if (Input.touchCount == 0)
+        {
+            if (Input.GetMouseButtonDown(0) && RectTransformUtility.RectangleContainsScreenPoint(stickRt, Input.mousePosition)) { stickId = 98; RectTransformUtility.ScreenPointToLocalPointInRectangle(stickRt, Input.mousePosition, null, out stickC); }
+            if (stickId == 98 && Input.GetMouseButton(0)) { RectTransformUtility.ScreenPointToLocalPointInRectangle(stickRt, Input.mousePosition, null, out var lp); v = (lp - stickC) / 40f; held = true; }
+            else if (stickId == 98) stickId = -1;
+        }
+        if (v.magnitude > 1f) v.Normalize();
+        // keys walk too
+        float kx = (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow) ? -1 : 0) + (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow) ? 1 : 0);
+        float ky = (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow) ? -1 : 0) + (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow) ? 1 : 0);
+        if (!held) v = new Vector2(kx, ky);
+        island.walkX = Mathf.Clamp(v.x, -1f, 1f); island.walkY = Mathf.Clamp(v.y, -1f, 1f);
+        stickNub.anchoredPosition = v * 40f;
     }
 
     // ---- the speed streaks: seven a side, leaned in toward the vanishing point, raining down
@@ -559,9 +607,14 @@ public class Hud : MonoBehaviour
         }
         if (rider == null || !ride.activeSelf) return;
         StepRideFx(Time.deltaTime);
+        StepStick();
+        // the trick column stands down under the water and on the sand; the lens cell reads the air left on a dive
+        bool noTricks = (dive != null && dive.On) || (island != null && island.Ashore);
+        if (bar.activeSelf == noTricks) bar.SetActive(!noTricks);
+        if (jump.activeSelf == (island != null && island.Ashore)) jump.SetActive(!(island != null && island.Ashore));
         tScore.text = rider.score.ToString("N0");
         tDist.text = Mathf.RoundToInt(rider.dist) + " m";
-        tMph.text = ((int)(rider.eff * 0.62f)).ToString();
+        tMph.text = dive != null && dive.On ? "AIR " + Mathf.CeilToInt(dive.Left) : ((int)(rider.eff * 0.62f)).ToString();
         tCoins.text = rider.coins.ToString("N0");
         tMsg.text = rider.msgT > 0 ? rider.lastMsg : "";
         // the record lights up for the rest of the run once you pass it

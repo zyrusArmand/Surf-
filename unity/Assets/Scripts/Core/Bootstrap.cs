@@ -86,7 +86,7 @@ public class Bootstrap : MonoBehaviour
         beach.SetBoard(SaveData.S.equipped);
 
         // HUD
-        hud = new GameObject("HUD").AddComponent<Hud>(); hud.rider = rider; hud.cocos = cocos; hud.chase = chase;
+        hud = new GameObject("HUD").AddComponent<Hud>(); hud.rider = rider; hud.cocos = cocos; hud.chase = chase; hud.island = island; hud.dive = dive;
         hud.onPlay = Play; hud.onMenu = Menu; hud.onShop = () => shop.Show(true);
         spawner.onSplat = c => hud.Splat(c);
         hud.Build();
