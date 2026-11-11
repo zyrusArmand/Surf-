@@ -48,42 +48,74 @@ public class BeachSky
     }
 
     // ---------------------------------------------------------------- clouds
+    // Cumulus (Surf/Cumulus): one quad per cloud faced to the lens, its puffs summed in the shader
+    // into one density field with a flat base and billowed edges, and lit as a relief by the
+    // title's own sun and sky. One draw each; each cloud's puffs ride on its own property block.
+    Material puffMat; Light sunLight;
     void BuildClouds()
     {
-        var texes = new Texture2D[] { CloudTexture(1), CloudTexture(23), CloudTexture(41), CloudTexture(73) };
-        var mesh = Quad();
-        var sh = Shader.Find("Surf/Cloud");
-        bool own = sh != null;
-        if (sh == null) sh = Shader.Find("Universal Render Pipeline/Unlit");
+        var sh = Shader.Find("Surf/Cumulus");
         if (sh == null) return;
+        puffMat = new Material(sh) { name = "cumulus" };
+        puffMat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent - 20;   // after the opaque world, which covers it by depth
         var holder = new GameObject("Clouds").transform; holder.SetParent(root, false);
-        // the web's rule (sixteen, 34..96 wide, half as tall, 50..90% opaque, far out and high),
-        // at the sizes and distances measured off the running title screen
+        // the web's rule (sixteen of them, far out and high, mostly opaque), at the sizes and
+        // distances measured off the running title screen, a little fuller
         for (int i = 0; i < 16; i++)
         {
-            float w = 50f + R() * 60f;
+            float w = 58f + R() * 70f, op = 0.85f + R() * 0.15f;
             var go = new GameObject("cloud", typeof(MeshFilter), typeof(MeshRenderer)); go.transform.SetParent(holder, false);
-            go.GetComponent<MeshFilter>().sharedMesh = mesh;
-            var m = new Material(sh);
-            var tex = texes[(int)(R() * texes.Length) % texes.Length];
-            float op = 0.50f + R() * 0.40f;
-            if (own) { m.SetTexture("_BaseMap", tex); m.SetColor("_Color", new Color(1f, 1f, 1f, op)); }
-            else
-            {
-                // URP's Unlit, set up transparent the way its inspector would
-                m.SetTexture("_BaseMap", tex); m.SetColor("_BaseColor", new Color(1f, 1f, 1f, op));
-                m.SetFloat("_Surface", 1f); m.SetFloat("_Blend", 0f); m.SetFloat("_Cull", 0f); m.SetFloat("_ZWrite", 0f);
-                m.SetFloat("_SrcBlend", 5f); m.SetFloat("_DstBlend", 10f); m.SetFloat("_SrcBlendAlpha", 1f); m.SetFloat("_DstBlendAlpha", 10f);
-                m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
-            }
-            m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent - 20;   // before anything else see-through: the sea and the sand are opaque and cover it by depth
-            var mr = go.GetComponent<MeshRenderer>(); mr.sharedMaterial = m;
+            var mr = go.GetComponent<MeshRenderer>(); mr.sharedMaterial = puffMat;
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; mr.receiveShadows = false;
             mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+            go.GetComponent<MeshFilter>().sharedMesh = Cumulus(w, op, mr);
             go.transform.position = new Vector3((R() - 0.5f) * 2f * CloudWrap, 70f + R() * 110f, -277f - R() * 219f);
-            go.transform.localScale = new Vector3(w * (R() < 0.5f ? -1f : 1f), w * 0.5f, 1f);     // a mirror now and then: four cut-outs read as eight
             clouds.Add(new Cloud { t = go.transform, v = 0.9f + R() * 2.1f });
         }
+    }
+
+    Mesh Cumulus(float W, float op, MeshRenderer mr)
+    {
+        float H = W * (0.32f + R() * 0.14f);
+        var P = new Vector4[40]; int n = 0;
+        // a row of wide, low puffs along the base, then a heap climbing to the middle
+        const int nb = 8;
+        for (int k = 0; k < nb; k++)
+        {
+            float x = Mathf.Lerp(-0.42f, 0.42f, (k + 0.5f) / nb) * W;
+            float r = W * (0.10f + 0.03f * R()) * (1f - 0.3f * Mathf.Abs(x / (W * 0.5f)));
+            P[n++] = new Vector4(x, r * 0.5f, r, 0f);
+        }
+        while (n < P.Length)
+        {
+            float u = (R() + R() + R()) / 3f - 0.5f, x = u * W * 0.9f;
+            float top = H * Mathf.Pow(Mathf.Max(0f, 1f - (2f * x / W) * (2f * x / W)), 0.7f);
+            float y = Mathf.Pow(R(), 0.7f) * top * 0.9f + W * 0.04f;
+            float r = W * (0.05f + 0.07f * R()) * (1f - 0.35f * y / H);
+            P[n++] = new Vector4(x, y, r, 0f);
+        }
+        var mpb = new MaterialPropertyBlock();
+        mpb.SetVectorArray("_P", P); mpb.SetFloat("_N", n); mpb.SetFloat("_H", H); mpb.SetFloat("_Op", op); mpb.SetFloat("_Seed", R() * 50f);
+        mr.SetPropertyBlock(mpb);
+        float hw = W * 0.625f, y0 = -H * 0.18f, y1 = H * 1.42f;
+        var m = new Mesh { name = "cumulus" };
+        m.vertices = new[] { new Vector3(-hw, y0, 0), new Vector3(hw, y0, 0), new Vector3(-hw, y1, 0), new Vector3(hw, y1, 0) };
+        m.triangles = new[] { 0, 2, 1, 1, 2, 3 };
+        m.RecalculateBounds();
+        return m;
+    }
+
+    // the clouds take the live sky's colours and the sun's, every frame, so they turn with the light
+    void LightClouds()
+    {
+        if (puffMat == null) return;
+        if (sunLight == null)
+            foreach (var l in Object.FindObjectsByType<Light>(FindObjectsSortMode.None))
+                if (l.type == LightType.Directional && l.name == "Sun") { sunLight = l; break; }
+        var sky = RenderSettings.skybox;
+        if (sky != null && sky.HasProperty("_Mid")) { puffMat.SetVector("_Sky", sky.GetVector("_Mid")); puffMat.SetVector("_Hz", sky.GetVector("_Horizon")); }
+        if (sky != null && sky.HasProperty("_Glow")) puffMat.SetVector("_SunCol", Vector4.Lerp(new Vector4(1f, 0.97f, 0.92f, 1f), sky.GetVector("_Glow"), 0.55f));
+        if (sunLight != null) puffMat.SetVector("_SunDir", -sunLight.transform.forward);
     }
 
     static Mesh Quad()
@@ -335,6 +367,7 @@ public class BeachSky
         if (cam != null)
         {
             var look = cam.transform.rotation;
+            LightClouds();
             foreach (var c in clouds)
             {
                 var p = c.t.position; p.x += c.v * dt;

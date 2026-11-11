@@ -98,6 +98,7 @@ public class DayCycle : MonoBehaviour
             sky.SetVector("_Top", V(top)); sky.SetVector("_Mid", V(mid)); sky.SetVector("_Horizon", V(hz));
             sky.SetVector("_Glow", V(glow)); sky.SetFloat("_GlowAmt", glowAmt);
             sky.SetVector("_SunDir", sunDir);
+            sky.SetFloat("_SunOn", beachLook ? 0f : 1f);       // the web's title sky has no sun disc; its sun is the ride's alone
             sky.SetFloat("_Blend", beachLook ? 0.58f : 0.30f);
             sky.SetFloat("_SunX", beachLook ? -0.3f : sx);
             sky.SetVector("_MoonDir", moonDir);

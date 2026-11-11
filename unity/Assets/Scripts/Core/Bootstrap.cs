@@ -23,6 +23,7 @@ public class Bootstrap : MonoBehaviour
         var sunGo = new GameObject("Sun"); var sun = sunGo.AddComponent<Light>();
         sun.type = LightType.Directional; sun.shadows = LightShadows.Soft; sun.shadowStrength = 0.75f;
         RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+        SkyReflection();
         RenderSettings.fog = true; RenderSettings.fogMode = FogMode.Linear; RenderSettings.fogStartDistance = 120f; RenderSettings.fogEndDistance = 330f;
 
         // sky
@@ -160,6 +161,48 @@ public class Bootstrap : MonoBehaviour
         }
         if (mn.x <= mx.x) { hullMin = mn; hullMax = mx; hullOk = true; }
     }
+
+    // ---- what the models see reflected: the web's baked environment (bakeEnv) ----
+    // A sky that runs from the horizon's pale blue to the zenith's deep one, dark sea below the
+    // horizon and the sun as a warm ball, at 55% (what PBR() gives every material). Without it the
+    // boards, the chest and the buoys reflected nothing at all, which is the matte look.
+    static void SkyReflection()
+    {
+        const int N = 64;
+        var cube = new Cubemap(N, TextureFormat.RGBAHalf, true) { name = "SkyEnv", wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Trilinear };
+        Color top = Raw(0x2f7fc4), hor = Raw(0x9fd0e8), ground = Raw(0x14567f), sun = Raw(0xfff0cf);
+        var sunDir = new Vector3(22f, 26f, -18f).normalized;          // the web's (-22, 26, -18), mirrored with the set
+        float sunCos = Mathf.Cos(Mathf.Asin(3.4f / 38.5f));
+        var faces = new[] { CubemapFace.PositiveX, CubemapFace.NegativeX, CubemapFace.PositiveY, CubemapFace.NegativeY, CubemapFace.PositiveZ, CubemapFace.NegativeZ };
+        var px = new Color[N * N];
+        foreach (var f in faces)
+        {
+            for (int y = 0; y < N; y++) for (int x = 0; x < N; x++)
+            {
+                float u = (x + 0.5f) / N * 2f - 1f, v = (y + 0.5f) / N * 2f - 1f;
+                Vector3 d;
+                switch (f)
+                {
+                    case CubemapFace.PositiveX: d = new Vector3(1, -v, -u); break;
+                    case CubemapFace.NegativeX: d = new Vector3(-1, -v, u); break;
+                    case CubemapFace.PositiveY: d = new Vector3(u, 1, v); break;
+                    case CubemapFace.NegativeY: d = new Vector3(u, -1, -v); break;
+                    case CubemapFace.PositiveZ: d = new Vector3(u, -v, 1); break;
+                    default: d = new Vector3(-u, -v, -1); break;
+                }
+                d.Normalize();
+                Color c = d.y >= -0.02f ? Color.Lerp(hor, top, Mathf.Pow(Mathf.Clamp01(d.y), 0.55f)) : ground;
+                if (Vector3.Dot(d, sunDir) > sunCos) c = sun;
+                px[y * N + x] = c;
+            }
+            cube.SetPixels(px, f);
+        }
+        cube.Apply(true, false);
+        RenderSettings.defaultReflectionMode = UnityEngine.Rendering.DefaultReflectionMode.Custom;
+        RenderSettings.customReflectionTexture = cube;
+        RenderSettings.reflectionIntensity = 0.55f;
+    }
+    static Color Raw(int hex) => new Color(((hex >> 16) & 255) / 255f, ((hex >> 8) & 255) / 255f, (hex & 255) / 255f, 1f);   // the web's raw numbers, no conversion
 
     // the board is a solid thing: a box round its hull on a kinematic body, so what floats and
     // tumbles in the water knocks against it

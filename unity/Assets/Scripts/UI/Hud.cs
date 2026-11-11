@@ -64,31 +64,71 @@ public class Hud : MonoBehaviour
             verTaps = now - verTapT < 1.2f ? verTaps + 1 : 1; verTapT = now;
             if (verTaps >= 5) { verTaps = 0; Sfx.Buzz(20); onSecret?.Invoke(); }
         });
-        var pill = UiKit.Pic(m, "puka", UiKit.Rounded(104, 34, 17, 17, 17, 17, UiKit.Body.Pill, 1.5f), new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(10, -12), new Vector2(104, 34));
-        Shell(pill.transform, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(10, 0), 17);
-        tMenuCoins = UiKit.Label(pill.transform, "0", 14.5f, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(-4, 0), Vector2.zero);
-        pill.raycastTarget = false;
-        // the +: a green disc, the one button on the bar that is about money, and it opens the sheet that says there is none to take
-        var plus = Solid.Pic(pill.transform, "plus", Solid.Circle(20), Solid.Rgba(72, 180, 90), new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-6, 0), new Vector2(20, 20));
-        Solid.Pic(plus.transform, "bar", Solid.Rounded(2.6f, 12, 1.3f), Color.white, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(2.6f - 20, 12 - 20));
-        Solid.Pic(plus.transform, "bar", Solid.Rounded(12, 2.6f, 1.3f), Color.white, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(12 - 20, 2.6f - 20));
+        // ---- the bar, the web's #homeBar: 10 from the top, 12 in from each side ----
+        Color pillTop = Solid.Rgba(0x3c, 0x60, 0x99), pillBot = Solid.Rgba(0x2a, 0x44, 0x72), rim = Solid.Rgba(160, 196, 240, 0.26f);
+        // the purse: navy pill, 30 tall, the shell, the count, and the green + inside it
+        purse = Solid.Pic(m, "puka", Solid.VGradient(120, 30, 15, pillTop, pillBot, rim, 1f), Color.white, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(12, -10), new Vector2(120, 30));
+        purseSh = Drop(purse.rectTransform);
+        Shell(purse.transform, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(10, 0), 17);
+        tMenuCoins = UiKit.Label(purse.transform, "0", 14.5f, Color.white, FontStyle.Bold, new Vector2(0, 0), new Vector2(0, 1), new Vector2(0, 0.5f), new Vector2(31, 0), new Vector2(80, 0), TextAnchor.MiddleLeft, 0.45f);
+        purse.raycastTarget = false;
+        plus = Solid.Pic(purse.transform, "plus", Solid.VGradient(20, 20, 10, Solid.Rgba(0x5c, 0xc9, 0x6d), Solid.Rgba(0x35, 0xa0, 0x48), Color.clear, 0f), Color.white, new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-4, 0), new Vector2(20, 20));
+        var plusIcon = UiKit.Icon("bar_plus");
+        if (plusIcon != null) { var pi = UiKit.Pic(plus.transform, "glyph", plusIcon, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(20, 20)); pi.raycastTarget = false; }
         plus.raycastTarget = true; UiKit.Pressable(plus.gameObject, null, () => { Sfx.Buzz(8); onPuka?.Invoke(); });
-        // the level, a BUTTON because it is the one readout that raises a question it does not answer, and the bar under it
-        var lv = UiKit.Pic(m, "level", UiKit.Rounded(96, 30, 15, 15, 15, 15, UiKit.Body.Pill, 1.5f), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -12), new Vector2(96, 30));
-        tMenuBest = UiKit.Label(lv.transform, "Level 1", 14, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
-        lv.raycastTarget = true; UiKit.Pressable(lv.gameObject, null, () => { Sfx.Buzz(8); onLevel?.Invoke(); });
-        var track = UiKit.Pic(m, "xp", UiKit.Rounded(150, 7, 3.5f, 3.5f, 3.5f, 3.5f, UiKit.Body.Pill, 0), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -48), new Vector2(150, 7));
-        track.color = new Color(0.12f, 0.22f, 0.45f, 0.95f); track.raycastTarget = false;
-        var fill = UiKit.Pic(m, "xpfill", UiKit.Rounded(150, 7, 3.5f, 3.5f, 3.5f, 3.5f, UiKit.Body.Pill, 0), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, 1), new Vector2(-75, -48), new Vector2(150, 7));
-        fill.color = new Color(1f, 0.72f, 0.1f); fill.type = Image.Type.Filled; fill.fillMethod = Image.FillMethod.Horizontal; fill.fillAmount = 0.35f; fill.raycastTarget = false; xpFill = fill;
-        // settings, the wheel and the profile, in the web's order
-        Round(m, "Settings", "⚙", -94, () => onSettings?.Invoke());
-        var wheel = Round(m, "Wheel", "", -52, () => { Sfx.Buzz(8); onWheel?.Invoke(); });
-        WheelIcon(wheel.transform);
+        // the level: the same pill centred on the screen, gold ink, 17 bold
+        lvPill = Solid.Pic(m, "level", Solid.VGradient(96, 30, 15, pillTop, pillBot, rim, 1f), Color.white, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -10), new Vector2(96, 30));
+        lvSh = Drop(lvPill.rectTransform);
+        tMenuBest = UiKit.Label(lvPill.transform, "Level 1", 17, Solid.Rgba(0xff, 0xd2, 0x4a), FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, 0.45f);
+        lvPill.raycastTarget = true; UiKit.Pressable(lvPill.gameObject, null, () => { Sfx.Buzz(8); onLevel?.Invoke(); });
+        // the XP bar under it: 232 by 8, a dark track, an orange-to-gold fill with a warm halo
+        var halo = Solid.Pic(m, "xpglow", Solid.Rounded(250, 26, 13), Solid.Rgba(255, 168, 48, 0.16f), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -36), new Vector2(250, 26));
+        halo.raycastTarget = false;
+        var track = Solid.Pic(m, "xp", Solid.Rounded(232, 8, 4), Solid.Rgba(0x24, 0x39, 0x5f), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -45), new Vector2(232, 8));
+        track.raycastTarget = false;
+        var fill = Solid.Pic(track.transform, "xpfill", Solid.Gradient(232, 8, 4, Solid.Rgba(0xf7, 0x94, 0x1e), Solid.Rgba(0xff, 0xd9, 0x3b)), Color.white, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+        fill.type = Image.Type.Filled; fill.fillMethod = Image.FillMethod.Horizontal; fill.fillAmount = 0.35f; fill.raycastTarget = false; xpFill = fill;
+        // settings and profile: 32 blue discs on the right, nine apart; the wheel under the purse
+        Disc(m, "Settings", "bar_gear", new Vector2(1, 1), new Vector2(-12 - 32 - 9, -9), () => onSettings?.Invoke());
+        Disc(m, "Profile", "bar_prof", new Vector2(1, 1), new Vector2(-12, -9), () => onProfile?.Invoke());
+        var wheel = Disc(m, "Wheel", "bar_wheel", new Vector2(0, 1), new Vector2(12, -66), () => { Sfx.Buzz(8); onWheel?.Invoke(); });
         // the dot is the whole interface: an unspun day shows it, a day already taken shows a plain wheel
         pip = Solid.Pic(wheel.transform, "pip", Solid.Circle(13), Solid.Rgba(8, 26, 40, 0.75f), new Vector2(1, 1), new Vector2(1, 1), new Vector2(0.5f, 0.5f), new Vector2(-6.5f, -6.5f), new Vector2(13, 13));
         Solid.Pic(pip.transform, "dot", Solid.Circle(9), Solid.Rgba(255, 212, 46), Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-4, -4));
-        Round(m, "Profile", "☺", -10, () => onProfile?.Invoke());
+    }
+
+    Image purse, plus, lvPill, purseSh, lvSh;
+
+    // the pills size to what they say, as the web's flex pills do
+    void SizeBar()
+    {
+        if (purse == null || lvPill == null) return;
+        float pw = 31f + tMenuCoins.preferredWidth + 4f + 2f + 20f + 4f;
+        purse.rectTransform.sizeDelta = new Vector2(pw, 30); if (purseSh != null) purseSh.rectTransform.sizeDelta = new Vector2(pw + 12, 42);
+        if (purseSh != null) purseSh.sprite = Solid.Rounded(pw + 12, 42, 21);
+        purse.sprite = Solid.VGradient(Mathf.Round(pw), 30, 15, Solid.Rgba(0x3c, 0x60, 0x99), Solid.Rgba(0x2a, 0x44, 0x72), Solid.Rgba(160, 196, 240, 0.26f), 1f);
+        float lw = tMenuBest.preferredWidth + 24f;
+        lvPill.rectTransform.sizeDelta = new Vector2(lw, 30); if (lvSh != null) { lvSh.rectTransform.sizeDelta = new Vector2(lw + 12, 42); lvSh.sprite = Solid.Rounded(lw + 12, 42, 21); }
+        lvPill.sprite = Solid.VGradient(Mathf.Round(lw), 30, 15, Solid.Rgba(0x3c, 0x60, 0x99), Solid.Rgba(0x2a, 0x44, 0x72), Solid.Rgba(160, 196, 240, 0.26f), 1f);
+    }
+
+    // the web's soft drop shadow under a pill: 0 2px 8px rgba(4,14,36,.34)
+    static Image Drop(RectTransform rt)
+    {
+        var sh = Solid.Pic(rt.parent, rt.name + ":shadow", Solid.Rounded(rt.sizeDelta.x + 12, rt.sizeDelta.y + 12, (rt.sizeDelta.y + 12) * 0.5f), Solid.Rgba(4, 14, 36, 0.20f), rt.anchorMin, rt.anchorMax, rt.pivot, rt.anchoredPosition + new Vector2(rt.pivot.x == 0 ? -6 : rt.pivot.x == 1 ? 6 : 0, -2 + 6 * (rt.pivot.y - 0.5f) * 2f), rt.sizeDelta + new Vector2(12, 12));
+        sh.raycastTarget = false; sh.transform.SetSiblingIndex(rt.GetSiblingIndex());
+        return sh;
+    }
+
+    Image Disc(Transform m, string name, string icon, Vector2 anchor, Vector2 pos, System.Action tap)
+    {
+        var im = Solid.Pic(m, name, Solid.VGradient(32, 32, 16, Solid.Rgba(0x4a, 0x72, 0xb4), Solid.Rgba(0x31, 0x4f, 0x85), Solid.Rgba(160, 196, 240, 0.26f), 1f), Color.white, anchor, anchor, anchor, pos, new Vector2(32, 32));
+        Drop(im.rectTransform);
+        var sp = UiKit.Icon(icon);
+        if (sp != null) { var g = UiKit.Pic(im.transform, "glyph", sp, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(sp.rect.width / 4f, sp.rect.height / 4f)); g.raycastTarget = false; }
+        im.raycastTarget = true;
+        UiKit.Pressable(im.gameObject, null, tap);
+        return im;
     }
 
     Image Round(Transform m, string name, string glyph, float x, System.Action tap)
@@ -559,6 +599,7 @@ public class Hud : MonoBehaviour
         tMenuCoins.text = SaveData.Coins.ToString("N0");
         tMenuBest.text = "Level " + Progress.Level; if (xpFill != null) xpFill.fillAmount = Progress.Frac;
         if (pip != null) pip.gameObject.SetActive(Wheel.Ready);
+        SizeBar();
     }
 
     public void ShowRide()

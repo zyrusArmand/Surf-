@@ -54,6 +54,24 @@ public class Beach : MonoBehaviour
     static readonly float[] ProfZ = { 20, 0, -20, -25, -30, -35, -40, -45, -50, -55, -60, -65, -70, -75, -80, -85, -90, -100, -120, -160, -300 };
     static readonly float[] ProfY = { 7.2f, 7.0f, 6.7f, 6.6f, 6.0f, 4.9f, 4.3f, 4.1f, 3.7f, 3.9f, 4.2f, 3.5f, 2.4f, 1.8f, 1.3f, 0.6f, 0.0f, -1.2f, -3.0f, -4.6f, -6f };
 
+    /// the web's sand material (sand.glb's own, retuned): a warm tint of 1.04 / 0.99 / 0.95, rough to at
+    /// least 0.82, never metal, the normal map at 1.35, and almost none of the sky's reflection (0.14
+    /// against everything else's 0.55), which is what kept it from going pale and blue
+    static Material SandLook(Material m, bool tint = true)
+    {
+        if (tint)
+        {
+            foreach (var p in new[] { "_BaseColor", "baseColorFactor", "_Color" })
+                if (m.HasProperty(p)) { var c = m.GetColor(p); m.SetColor(p, new Color(c.r * 1.04f, c.g * 0.99f, c.b * 0.95f, c.a)); }
+        }
+        if (m.HasProperty("_Smoothness")) m.SetFloat("_Smoothness", Mathf.Min(m.GetFloat("_Smoothness"), 0.18f));
+        if (m.HasProperty("roughnessFactor")) m.SetFloat("roughnessFactor", Mathf.Max(m.GetFloat("roughnessFactor"), 0.82f));
+        foreach (var p in new[] { "_Metallic", "metallicFactor" }) if (m.HasProperty(p)) m.SetFloat(p, 0f);
+        foreach (var p in new[] { "_BumpScale", "normalTexture_scale" }) if (m.HasProperty(p)) m.SetFloat(p, 1.35f);
+        if (m.HasProperty("_EnvironmentReflections")) { m.SetFloat("_EnvironmentReflections", 0f); m.EnableKeyword("_ENVIRONMENTREFLECTIONS_OFF"); }
+        return m;
+    }
+
     public static float SandY(float x, float z)
     {
         float h;
@@ -82,7 +100,7 @@ public class Beach : MonoBehaviour
         sandMesh = BuildSand(-70f, 70f, 24f, -110f, 140, 134);
         sandGo.GetComponent<MeshFilter>().sharedMesh = sandMesh;
         var lit = Shader.Find("Universal Render Pipeline/Lit");
-        var sm = new Material(lit); sm.SetColor("_BaseColor", new Color(1f, 0.97f, 0.9f)); sm.SetFloat("_Smoothness", 0.08f);
+        var sm = new Material(lit); sm.SetColor("_BaseColor", new Color(1f, 0.97f, 0.9f)); sm.SetFloat("_Smoothness", 0.08f); SandLook(sm, false);
         var baseTex = Resources.Load<Texture2D>("Models/sand_base"); var nrm = Resources.Load<Texture2D>("Models/sand_normal");
         if (baseTex != null) sm.SetTexture("_BaseMap", baseTex);
         if (nrm != null) { sm.EnableKeyword("_NORMALMAP"); sm.SetTexture("_BumpMap", nrm); sm.SetFloat("_BumpScale", 1.35f); }
@@ -269,7 +287,7 @@ public class Beach : MonoBehaviour
         var mf = src.GetComponentInChildren<MeshFilter>(true); var mr = src.GetComponentInChildren<MeshRenderer>(true);
         if (mf == null || mr == null) { Object.Destroy(src); return; }
         Models.Repair(src);
-        var mat = mr.sharedMaterial;
+        var mat = SandLook(new Material(mr.sharedMaterial));
         // ---- the piece, as the web prepares it (sandPrepare) ----
         // whatever the file wrapped the mesh in is baked into it, then it is centred in x and z.
         // The file's own node sits it almost entirely BELOW its origin; leaving that out stood

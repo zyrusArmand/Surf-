@@ -21,6 +21,7 @@ Shader "Surf/Sky"
         _SunX ("Sun x (web)", Float) = 0
         _SunDir ("Sun direction", Vector) = (-0.45, 0.75, -0.5, 0)
         _SunSize ("Sun size", Float) = 0.045
+        _SunOn ("Sun disc on", Float) = 1
         _Blend ("Horizon blend", Float) = 0.30
         _MoonDir ("Moon direction", Vector) = (0, -1, 0, 0)
         _MoonUp ("Moon up (0..1)", Float) = 0
@@ -39,6 +40,7 @@ Shader "Surf/Sky"
             #pragma fragment frag
             #include "UnityCG.cginc"
             float4 _Top, _Mid, _Horizon, _Glow, _SunDir, _MoonDir;
+            float _SunOn;
             float _GlowAmt, _SunX, _SunSize, _Blend, _MoonUp, _MoonSize, _Night, _StarSize;
             struct A { float4 pos : POSITION; };
             struct V { float4 pos : SV_POSITION; float3 d : TEXCOORD0; };
@@ -159,7 +161,7 @@ Shader "Surf/Sky"
                 float cosA = dot(vP, L);
                 float discS = smoothstep(cos(_SunSize * 1.15), cos(_SunSize * 0.85), cosA);
                 float rim = pow(max(cosA, 0.0), 180.0) * 0.45;
-                c += (_Glow.rgb * rim + float3(1.3, 1.2, 1.05) * _Glow.rgb * discS) * above * saturate(_GlowAmt * 2.0 + 0.3);
+                c += (_Glow.rgb * rim + float3(1.3, 1.2, 1.05) * _Glow.rgb * discS) * above * saturate(_GlowAmt * 2.0 + 0.3) * _SunOn;
                 // sRGB numbers to linear light, as the web does, and a dither against banding
                 c = pow(saturate(c), 2.2);
                 float dz = frac(sin(dot(i.pos.xy, float2(12.9898, 78.233))) * 43758.5453);

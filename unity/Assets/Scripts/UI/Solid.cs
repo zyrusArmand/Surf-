@@ -41,6 +41,30 @@ public static class Solid
     public static Sprite Circle(float d, float ring = 0f) => Rounded(d, d, d / 2, ring);
 
     /// a left-to-right gradient between two colours, with rounded ends
+    /// a rounded shape filled top to bottom (CSS linear-gradient(180deg, top, bottom)) with a hairline
+    /// rim drawn over it, as the web's pills and discs are
+    public static Sprite VGradient(float w, float h, float r, Color top, Color bottom, Color rim, float rimW)
+    {
+        string key = "v:" + w + "x" + h + ":" + r + ":" + top + ":" + bottom + ":" + rim + ":" + rimW;
+        if (cache.TryGetValue(key, out var sp) && sp != null) return sp;
+        r = Mathf.Min(r, Mathf.Min(w, h) * 0.5f);
+        int W = Mathf.CeilToInt(w * Scale), H = Mathf.CeilToInt(h * Scale);
+        var tex = new Texture2D(W, H, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+        var px = new Color[W * H];
+        for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++)
+        {
+            float ux = (x + 0.5f) / Scale, uy = (y + 0.5f) / Scale;
+            var c = Color.Lerp(bottom, top, (y + 0.5f) / H);       // texture rows run bottom-up
+            float cov = Cover(w, h, r, ux, uy, 0f);
+            if (rimW > 0f) { float rc = Cover(w, h, r, ux, uy, rimW) * rim.a; c = Color.Lerp(c, new Color(rim.r, rim.g, rim.b, 1f), rc); }
+            c.a = cov; px[y * W + x] = c;
+        }
+        tex.SetPixels(px); tex.Apply(false, true);
+        sp = Sprite.Create(tex, new Rect(0, 0, W, H), new Vector2(0.5f, 0.5f), Scale);
+        cache[key] = sp; return sp;
+    }
+
     public static Sprite Gradient(float w, float h, float r, Color a, Color b)
     {
         string key = "g:" + w + "x" + h + ":" + r + ":" + a + ":" + b;
