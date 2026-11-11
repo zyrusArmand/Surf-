@@ -31,8 +31,8 @@ public class ChaseCamera : MonoBehaviour
         float s = Mathf.Clamp01((r.eff - 16.2f) / (52f - 16.2f));
         camSpd = Mathf.Lerp(camSpd, s, Mathf.Min(1f, dt * 2f));
         cam.fieldOfView = Fov + FovFast * camSpd * camSpd;
-        camRoll = Mathf.Lerp(camRoll, -r.carve * 0.07f * (0.45f + 0.55f * camSpd), Mathf.Min(1f, dt * 4.5f));
-        transform.rotation *= Quaternion.Euler(0, 0, camRoll * Mathf.Rad2Deg);
+        // no roll: the horizon stays level and only the rider leans into a carve
+        camRoll = 0f;
     }
 
     public float Speed => camSpd;
