@@ -265,34 +265,70 @@ public class Beach : MonoBehaviour
         var prefab = Resources.Load<GameObject>("Models/sand");
         if (prefab == null) return;
         var src = Object.Instantiate(prefab); src.SetActive(false);
-        var mf = src.GetComponentInChildren<MeshFilter>(); var mr = src.GetComponentInChildren<MeshRenderer>();
+        src.transform.position = Vector3.zero; src.transform.rotation = Quaternion.identity; src.transform.localScale = Vector3.one;
+        var mf = src.GetComponentInChildren<MeshFilter>(true); var mr = src.GetComponentInChildren<MeshRenderer>(true);
         if (mf == null || mr == null) { Object.Destroy(src); return; }
         Models.Repair(src);
-        var mesh = mf.sharedMesh; var mat = mr.sharedMaterial;
-        var bb = mesh.bounds; float span = Mathf.Max(bb.size.x, bb.size.z) * Mathf.Max(mf.transform.lossyScale.x, mf.transform.lossyScale.z);
-        float tile = 14f * 1.15f, baseK = tile / Mathf.Max(1e-4f, span);
-        float stepX = tile * 0.54f, stepZ = stepX * 0.866f;
+        var mat = mr.sharedMaterial;
+        // ---- the piece, as the web prepares it (sandPrepare) ----
+        // whatever the file wrapped the mesh in is baked into it, then it is centred in x and z.
+        // The file's own node sits it almost entirely BELOW its origin; leaving that out stood
+        // every tile two and a half feet proud of the beach, right in front of the title's lens.
+        var srcMesh = mf.sharedMesh;
+        var rel = src.transform.worldToLocalMatrix * mf.transform.localToWorldMatrix;
+        var v = srcMesh.vertices; var nrmIn = srcMesh.normals; var tanIn = srcMesh.tangents;
+        for (int i = 0; i < v.Length; i++) v[i] = rel.MultiplyPoint3x4(v[i]);
+        if (nrmIn != null && nrmIn.Length == v.Length) for (int i = 0; i < nrmIn.Length; i++) nrmIn[i] = rel.MultiplyVector(nrmIn[i]).normalized;
+        if (tanIn != null && tanIn.Length == v.Length) for (int i = 0; i < tanIn.Length; i++) { var t3 = rel.MultiplyVector(new Vector3(tanIn[i].x, tanIn[i].y, tanIn[i].z)).normalized; tanIn[i] = new Vector4(t3.x, t3.y, t3.z, tanIn[i].w); }
+        Vector3 mn = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue), mx = -mn;
+        foreach (var p in v) { mn = Vector3.Min(mn, p); mx = Vector3.Max(mx, p); }
+        float cx = (mn.x + mx.x) * 0.5f, cz = (mn.z + mx.z) * 0.5f, sy = 0f;
+        for (int i = 0; i < v.Length; i++) { v[i] = new Vector3(v[i].x - cx, v[i].y, v[i].z - cz); sy += v[i].y; }
+        float mid = sy / Mathf.Max(1, v.Length), maxY = mx.y;
+        var mesh = new Mesh { name = "sandTile", indexFormat = srcMesh.indexFormat };
+        mesh.vertices = v; mesh.uv = srcMesh.uv;
+        if (nrmIn != null && nrmIn.Length == v.Length) mesh.normals = nrmIn;
+        if (tanIn != null && tanIn.Length == v.Length) mesh.tangents = tanIn;
+        var tris = srcMesh.triangles;
+        if (rel.determinant < 0) for (int i = 0; i < tris.Length; i += 3) { int a0 = tris[i + 1]; tris[i + 1] = tris[i + 2]; tris[i + 2] = a0; }
+        mesh.triangles = tris;
+        if (nrmIn == null || nrmIn.Length != v.Length) mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+        float spanX = Mathf.Max(1e-4f, mx.x - mn.x), spanZ = Mathf.Max(1e-4f, mx.z - mn.z);
+
+        // ---- the field, the web's numbers (SAND_TILE 14, GAP 0.54, JIT 0.34, RELIEF 0.32, SINK 0.62,
+        // TILT 0.9, DIP 0.34; the grid x +-34, z 14..-68, all at the beach's 1.15) ----
+        const float Tile = 14f * 1.15f, Gap = 0.54f, Jit = 0.34f, Relief = 0.32f, Sink = 0.62f, TiltK = 0.9f, DipK = 0.34f, MbZ = -44f;
+        float baseK = Tile / Mathf.Max(spanX, spanZ);
+        float stepX = Mathf.Max(0.6f, Mathf.Min(spanX, spanZ) * baseK * Gap), stepZ = stepX * 0.866f;
         float X = 34f * 1.15f, Z0 = 14f * 1.15f, Z1 = -68f * 1.15f;
         float gx0 = -X - stepX * 0.5f, gz0 = Z1 - stepZ * 0.5f;
         int nx = Mathf.CeilToInt((X * 2 + stepX) / stepX) + 1, nz = Mathf.CeilToInt((Z0 - Z1 + stepZ) / stepZ) + 1;
         long rs = 20250823; System.Func<float> R = () => { rs = (rs * 1103515245L + 12345L) & 0x7fffffff; return rs / 2147483647f; };
+        System.Func<float, float, float, float> Ss = (a, b, x0) => { float u = Mathf.Clamp01((x0 - a) / (b - a)); return u * u * (3 - 2 * u); };
         var holder = new GameObject("SandTiles"); holder.transform.SetParent(root.transform, false);
-        float lift = -bb.min.y * mf.transform.lossyScale.y;
+        float dd = Mathf.Max(0.6f, Tile * 0.35f);
         for (int ix = 0; ix < nx; ix++) for (int iz = 0; iz < nz; iz++)
         {
-            float x = gx0 + (ix + 0.5f + ((iz & 1) == 1 ? 0.5f : 0f)) * stepX + (R() - 0.5f) * stepX * 0.34f;
-            float z = gz0 + (iz + 0.5f) * stepZ + (R() - 0.5f) * stepZ * 0.34f;
-            float k = baseK * (0.90f + R() * 0.26f);
-            float y = SandY(x, z) - lift * k * 0.55f;
-            // the slope under the tile, so it lies along the beach rather than through it
-            float hx = SandY(x + 2f, z) - SandY(x - 2f, z), hz = SandY(x, z + 2f) - SandY(x, z - 2f);
-            var nrm = new Vector3(-hx / 4f, 1f, -hz / 4f).normalized;
+            float x = gx0 + (ix + 0.5f + ((iz & 1) == 1 ? 0.5f : 0f)) * stepX + (R() - 0.5f) * stepX * Jit;
+            float z = gz0 + (iz + 0.5f) * stepZ + (R() - 0.5f) * stepZ * Jit;
+            float k = baseK * (0.90f + R() * 0.26f), kyU = k * Relief;
+            // flattened round the props, so nothing stands in a hollow or on a hump
+            float dO = Mathf.Sqrt(x * x + z * z), dS = Mathf.Sqrt(x * x + (z - MbZ) * (z - MbZ));
+            float fw = Mathf.Min(Ss(3f, 24f, dO), Ss(4f, 24f, dS));
+            float h0 = SandY(x, z);
+            float gx = (SandY(x + dd, z) - SandY(x - dd, z)) / (2 * dd), gz = (SandY(x, z + dd) - SandY(x, z - dd)) / (2 * dd);
+            var nrm = new Vector3(-gx, 1f, -gz).normalized;
+            float h = h0 - DipK * (1 - fw);
+            var q = Quaternion.Euler(0, R() * 360f, 0);
+            var axis = Vector3.Cross(Vector3.up, nrm); float s2 = axis.magnitude;
+            if (s2 > 1e-4f) q = Quaternion.AngleAxis(Mathf.Asin(Mathf.Min(1f, s2)) * TiltK * Mathf.Rad2Deg, axis / s2) * q;
             var t = new GameObject("tile", typeof(MeshFilter), typeof(MeshRenderer)); t.transform.SetParent(holder.transform, false);
             t.GetComponent<MeshFilter>().sharedMesh = mesh; var tr = t.GetComponent<MeshRenderer>(); tr.sharedMaterial = mat;
             tr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; tr.receiveShadows = true;
-            t.transform.position = new Vector3(x, y, z);
-            t.transform.rotation = Quaternion.FromToRotation(Vector3.up, nrm) * Quaternion.Euler(0, R() * 360f, 0) * mf.transform.rotation;
-            t.transform.localScale = mf.transform.lossyScale * k;
+            t.transform.position = new Vector3(x, h - (mid + Sink * (maxY - mid)) * kyU, z);
+            t.transform.rotation = q;
+            t.transform.localScale = new Vector3(k, kyU, k);
         }
         Object.Destroy(src);
     }
