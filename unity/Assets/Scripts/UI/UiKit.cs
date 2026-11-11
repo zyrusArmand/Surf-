@@ -14,7 +14,25 @@ public static class UiKit
     public static readonly Color TrickYellow = new Color(1f, 0.875f, 0.18f);       // #ffdf2e
     const float Scale = 2f;
 
-    public static Font Font => _font ?? (_font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf"));
+    // The web sets every word in Trebuchet MS. It is on Windows, macOS and iOS, so it is taken
+    // from the system; where it is missing (Android) the nearest humanist sans is used, as the
+    // browser would, and the built-in font is the last resort.
+    public static Font Font
+    {
+        get
+        {
+            if (_font != null) return _font;
+            try
+            {
+                var have = new System.Collections.Generic.HashSet<string>(UnityEngine.Font.GetOSInstalledFontNames());
+                foreach (var name in new[] { "Trebuchet MS", "Trebuchet", "Verdana", "Segoe UI", "Roboto", "Helvetica Neue", "Arial" })
+                    if (have.Contains(name)) { _font = UnityEngine.Font.CreateDynamicFontFromOSFont(name, 32); break; }
+            }
+            catch { _font = null; }
+            if (_font == null) _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            return _font;
+        }
+    }
     static Font _font;
 
     public enum Body { Glass, Teal, Card, Band, Pill }
