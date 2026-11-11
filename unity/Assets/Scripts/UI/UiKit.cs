@@ -108,6 +108,16 @@ public static class UiKit
         return new Color(rgb.x, rgb.y, rgb.z, a);
     }
 
+    /// an icon rendered from the web game's own SVG, under Resources/UI
+    static readonly System.Collections.Generic.Dictionary<string, Sprite> icons = new System.Collections.Generic.Dictionary<string, Sprite>();
+    public static Sprite Icon(string name)
+    {
+        if (icons.TryGetValue(name, out var sp)) return sp;
+        var tex = Resources.Load<Texture2D>("UI/" + name);
+        sp = tex == null ? null : Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100f);
+        icons[name] = sp; return sp;
+    }
+
     // ---- the elements ----
     public static RectTransform Rect(Transform parent, string name, Vector2 aMin, Vector2 aMax, Vector2 pivot, Vector2 pos, Vector2 size)
     {
