@@ -22,7 +22,7 @@ Shader "Surf/Ocean"
         _WakeZ ("Wake z", Float) = 0
         _WakeA ("Wake amount", Float) = 0
         _Lift ("Sea level", Float) = 0
-        _Shore ("Shore line (-z)", Float) = -1000
+        _Shore ("Shore line (-z)", Float) = 100000
         _ShoreW ("Shore taper width", Float) = 60
     }
     SubShader

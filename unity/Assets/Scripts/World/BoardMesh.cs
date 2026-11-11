@@ -109,7 +109,8 @@ public static class BoardMesh
         var root = new GameObject(name);
         if (glass == null)
         {
-            var sh = Shader.Find("Surf/Glass") ?? Shader.Find("Universal Render Pipeline/Lit");
+            var sh = Shader.Find("Surf/Glass");
+            if (sh == null) { Debug.LogWarning("Surf/Glass shader not found; the board falls back to Lit"); sh = Shader.Find("Universal Render Pipeline/Lit"); }
             glass = new Material(sh);
             padMat = new Material(Shader.Find("Universal Render Pipeline/Lit")); padMat.SetColor("_BaseColor", Vivid(0x2a1d38)); padMat.SetFloat("_Smoothness", 0.22f);
             finMat = new Material(Shader.Find("Universal Render Pipeline/Lit")); finMat.SetColor("_BaseColor", Vivid(0xf7ead0)); finMat.SetFloat("_Smoothness", 0.86f);

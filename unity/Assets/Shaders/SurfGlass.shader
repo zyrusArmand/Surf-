@@ -57,7 +57,5 @@ Shader "Surf/Glass"
             }
             ENDHLSL
         }
-        // shadows onto the water and the sand
-        UsePass "Universal Render Pipeline/Lit/ShadowCaster"
     }
 }
