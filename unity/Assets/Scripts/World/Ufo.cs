@@ -189,7 +189,7 @@ public class Ufo : MonoBehaviour
             holder.position = up;
             if (t < 0.12f) onSplash?.Invoke(new Vector3(up.x, sea, up.z), 26);
             if (Random.value < dt * 26f && t < 4.5f)
-                Drip(up.x + (Random.value - 0.5f) * Scale * 0.8f, up.y - halfH * 0.5f, up.z + (Random.value - 0.5f) * Scale * 0.8f);
+                SpawnDrip(up.x + (Random.value - 0.5f) * Scale * 0.8f, up.y - halfH * 0.5f, up.z + (Random.value - 0.5f) * Scale * 0.8f);
             if (t >= 2.2f) { ph = Phase.Beam; t = 0f; }
         }
         else if (ph == Phase.Beam)
@@ -200,7 +200,7 @@ public class Ufo : MonoBehaviour
             up.y += ((sea + Hover) - up.y) * Mathf.Min(1f, dt * 1.6f);
             holder.position = up;
             if (Random.value < dt * 8f && t < 2.5f)
-                Drip(up.x + (Random.value - 0.5f) * Scale * 0.7f, up.y - halfH * 0.5f, up.z + (Random.value - 0.5f) * Scale * 0.7f);
+                SpawnDrip(up.x + (Random.value - 0.5f) * Scale * 0.7f, up.y - halfH * 0.5f, up.z + (Random.value - 0.5f) * Scale * 0.7f);
             float k = Mathf.Min(1f, t / 0.7f);
             float reach = Mathf.Min(1f, t / Reach);           // the far end travels down rather than arriving whole
             BeamTo(sea, k, reach, new Vector3(r.px, r.py + 0.2f, r.pz), true);
