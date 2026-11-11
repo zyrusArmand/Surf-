@@ -74,7 +74,7 @@ public class Bootstrap : MonoBehaviour
         camGo.AddComponent<AudioListener>();
         Sfx.Init();
         var ucam = camGo.AddComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>();
-        ucam.renderPostProcessing = true; ucam.antialiasing = UnityEngine.Rendering.Universal.AntialiasingMode.FastApproximateAntialiasing;
+        ucam.renderPostProcessing = true; ucam.antialiasing = UnityEngine.Rendering.Universal.AntialiasingMode.None; cam.allowMSAA = true;   // the pipeline's 4x MSAA: crisp edges, no FXAA smearing the texture detail
         ucam.requiresDepthTexture = true;          // the sea reads what is under it for its contact foam and shallows
         reflect = camGo.AddComponent<PlanarReflection>(); reflect.main = cam;
         chase = camGo.AddComponent<ChaseCamera>(); chase.rider = rider; chase.cam = cam; chase.dive = dive; chase.island = island; chase.chute = chute; island.chase = chase; chute.chase = chase;
