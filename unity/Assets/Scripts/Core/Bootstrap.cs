@@ -38,8 +38,13 @@ public class Bootstrap : MonoBehaviour
         var board = Models.Spawn("board", rig, 0.3f, PrimitiveType.Capsule);
         Models.FitLength(board, BoardController.BoardHalfL * 2f);
         if (board.name.EndsWith("(stand-in)")) { board.transform.localScale = new Vector3(1.1f, 0.18f, 4.9f); board.transform.localRotation = Quaternion.identity; board.transform.localPosition = Vector3.zero; board.GetComponent<Renderer>().material.color = new Color(0.95f, 0.45f, 0.55f); }
+        // the board floats with its underside just under the surface and its deck above it;
+        // FitLength centred it on the water line, which hid half of it under an opaque sea
+        var bb = Models.Bounds(board);
+        board.transform.localPosition += new Vector3(0, -0.12f - bb.min.y, 0);
+        bb = Models.Bounds(board);
         pug = Models.Spawn("pug", rig, 1.9f, PrimitiveType.Capsule).transform;
-        pug.localPosition = new Vector3(0, 0.12f, 0.2f); pug.localRotation = Quaternion.Euler(0, -70f, 0);
+        pug.localPosition = new Vector3(0, bb.max.y - 0.02f, 0.2f); pug.localRotation = Quaternion.Euler(0, -70f, 0);
         if (pug.name.EndsWith("(stand-in)")) { pug.localScale = new Vector3(0.9f, 0.95f, 0.9f); pug.localPosition = new Vector3(0, 1.0f, 0.2f); pug.GetComponent<Renderer>().material.color = new Color(0.85f, 0.75f, 0.6f); }
 
         // the water
