@@ -1,119 +1,133 @@
-// The title screen's beach: a straight shore looking out to sea, dry sand in the foreground
-// rising to a berm, a palm with the Surf sign hung in it, the chest with a board, the pug
-// standing by it, and the signpost whose arms are the menu. The same props the web game's
-// beach is built from. Everything is placed on a public field so it can be nudged in the
-// Inspector while looking at it, which is how the web game's beach was composed too.
+// The title screen's beach, laid out from the web game's actual scene: every position, size
+// and turn below was read off the running web game at phone size (430 by 932), in its own
+// world units, which are the same feet and the same axes this project uses (-z is out to
+// sea). The camera stands almost on the sand four feet from the signpost with a 92-degree
+// lens looking slightly up, which is why the sign, the board and the palm tower over it.
 using UnityEngine;
 
 public class Beach : MonoBehaviour
 {
-    [Header("Where things stand (feet; -z is out to sea)")]
-    public Vector3 palmAt = new Vector3(-2.5f, 0, -13f);
-    public float palmHeight = 27f, palmLean = 4f, palmTurn = 20f;
-    public Vector3 signOnPalm = new Vector3(0.95f, 10.5f, 1.1f);   // relative to the palm's foot
-    public float signHeight = 1.4f, signTurn = -8f;
-    public Vector3 chestAt = new Vector3(-7f, 0, -1.5f);
-    public float chestSize = 2.6f, chestTurn = 28f;
-    public Vector3 pugAt = new Vector3(-3.8f, 0, 2.2f);
-    public float pugTurn = 196f;
-    public Vector3 postAt = new Vector3(7.2f, 0, 5.5f);
-    public float postHeight = 9.5f, postTurn = -14f;
-    public Vector3 boardAt = new Vector3(0.9f, 0, -10.5f);
-    public float boardLean = 22f, boardTurn = -30f;
-    [Header("The shot (heights are above the sand at that spot)")]
-    public Vector3 camAt = new Vector3(0.6f, 6.2f, 22f);
-    public Vector3 camAim = new Vector3(-0.4f, 4.6f, -8f);
-    public float camFov = 58f;
-    [Header("The light: the key comes from behind the camera so the props face it lit")]
-    public Vector3 sunFrom = new Vector3(0.55f, 0.62f, 0.55f);
+    [Header("The shot, as measured")]
+    public Vector3 camAt = new Vector3(-11.75f, 4.84f, -40.69f);
+    public Vector3 camTurn = new Vector3(19.8f, 13.6f, 0f);     // pitch up, yaw, roll (web YXZ)
+    public float camFov = 92f;
+
+    [Header("The props (world feet)")]
+    public Vector3 palmFoot = new Vector3(-12.87f, -0.44f, -51.53f);
+    public Vector3 palmBoxCentre = new Vector3(-14.97f, 0, -51.8f);
+    public float palmHeight = 19.7f; public Vector3 palmTurn = new Vector3(0, 173.1f, 7.8f);
+    public Vector3 signAt = new Vector3(-14.06f, 8.90f, -50.77f); public Vector3 signTurn = new Vector3(19.8f, 13.6f, -1.4f); public float signHeight = 1.15f;
+    public Vector3 postAt = new Vector3(-11.88f, 4.37f, -44.75f); public Vector3 postTurn = new Vector3(3.39f, -6.82f, -6.2f); public float postHeight = 1.48f;
+    public Vector3 chestBottom = new Vector3(-17.02f, 2.95f, -50.22f); public float chestTurn = 37.4f, chestHeight = 2.65f;
+    public Vector3 pugAt = new Vector3(-15.29f, 2.85f, -49.62f); public float pugYaw = -99.2f, pugScale = 1.32f;
+    public Vector3 boardAt = new Vector3(-14.62f, 4.84f, -50.92f); public Vector3 boardTurn = new Vector3(72.5f, -54.3f, -20.9f);
+    [Header("Mirror switches, in case a model imports facing the other way")]
+    public bool flipSign, flipPost, flipPalm, flipChest;
+
+    [Header("The light and the sea")]
+    public Vector3 keyFrom = new Vector3(-0.943f, 0.117f, 0.31f);   // toward the sun, from the set
+    public float seaLevel = 1.21f;
 
     public System.Action<string> onSign;       // "Play", "Shop", "Quests"
 
-    GameObject root; Transform palm, post, pugSpot; GameObject leanBoard;
-    Mesh sandMesh; float t;
+    GameObject root; Transform post, pugSpot; Mesh sandMesh; float t;
     static readonly string[] Arms = { "Quests", "Shop", "Play" };   // bottom to top
 
-    // the beach profile: under water a long way out, rising to dry sand with a berm at the tide line
-    static float SS(float a, float b, float x) { float k = Mathf.Clamp01((x - a) / (b - a)); return k * k * (3f - 2f * k); }
+    // the beach profile along z, read off the web sand with a ray every five feet
+    static readonly float[] ProfZ = { 20, 0, -20, -25, -30, -35, -40, -45, -50, -55, -60, -65, -70, -75, -80, -85, -90, -100, -120, -160, -300 };
+    static readonly float[] ProfY = { 7.2f, 7.0f, 6.7f, 6.6f, 6.0f, 4.9f, 4.3f, 4.1f, 3.7f, 3.9f, 4.2f, 3.5f, 2.4f, 1.8f, 1.3f, 0.6f, 0.0f, -1.2f, -3.0f, -4.6f, -6f };
+
     public static float SandY(float x, float z)
     {
-        float h = 9.0f * SS(-180f, 10f, z) - 4.6f;
-        float d = SS(-68f, -52f, z); h += d * d * 1.6f;
-        // dunes, only where the sand is dry enough for the wind to shape it
-        float dry = SS(-60f, -46f, z);
-        float n = Mathf.PerlinNoise(x * 0.055f + 3.1f, z * 0.075f) - 0.5f;
-        float n2 = Mathf.PerlinNoise(x * 0.21f, z * 0.26f + 7.7f) - 0.5f;
-        h += dry * (n * 1.9f + n2 * 0.45f);
-        return h;
+        float h;
+        if (z >= ProfZ[0]) h = ProfY[0];
+        else if (z <= ProfZ[ProfZ.Length - 1]) h = ProfY[ProfY.Length - 1];
+        else
+        {
+            int i = 0; while (z < ProfZ[i + 1]) i++;
+            float k = (z - ProfZ[i]) / (ProfZ[i + 1] - ProfZ[i]); k = k * k * (3f - 2f * k);
+            h = Mathf.Lerp(ProfY[i], ProfY[i + 1], k);
+        }
+        // dunes where the sand is dry, and the flat disc the set stands on
+        float dry = Mathf.Clamp01((z + 85f) / 20f);
+        float n = (Mathf.PerlinNoise(x * 0.07f + 3.1f, z * 0.09f) - 0.5f) * 0.9f + (Mathf.PerlinNoise(x * 0.23f, z * 0.27f + 7.7f) - 0.5f) * 0.25f;
+        h += dry * n;
+        float d = Vector2.Distance(new Vector2(x, z), new Vector2(-15.3f, -50f));
+        float flat = 1f - Mathf.Clamp01((d - 4f) / 4f); flat = flat * flat * (3f - 2f * flat);
+        return Mathf.Lerp(h, 2.85f, flat);
     }
 
     public void Build(Transform parent)
     {
         root = new GameObject("Beach"); root.transform.SetParent(parent, false);
-        // the sand
+        // the sand, textured with the web beach's own sand
         var sandGo = new GameObject("Sand", typeof(MeshFilter), typeof(MeshRenderer)); sandGo.transform.SetParent(root.transform, false);
-        sandMesh = BuildSand(760f, 460f, -100f, 190, 230);
+        sandMesh = BuildSand(-70f, 70f, 24f, -110f, 140, 134);
         sandGo.GetComponent<MeshFilter>().sharedMesh = sandMesh;
         var lit = Shader.Find("Universal Render Pipeline/Lit");
-        var sm = new Material(lit); sm.SetColor("_BaseColor", new Color(0.78f, 0.70f, 0.56f)); sm.SetFloat("_Smoothness", 0.12f);
-        var grain = Resources.Load<Texture2D>("Models/sandgrain");
-        if (grain != null) { sm.EnableKeyword("_NORMALMAP"); sm.SetTexture("_BumpMap", grain); sm.SetFloat("_BumpScale", 0.9f); sm.SetTextureScale("_BumpMap", new Vector2(90f, 55f)); }
+        var sm = new Material(lit); sm.SetColor("_BaseColor", new Color(1f, 0.97f, 0.9f)); sm.SetFloat("_Smoothness", 0.08f);
+        var baseTex = Resources.Load<Texture2D>("Models/sand_base"); var nrm = Resources.Load<Texture2D>("Models/sand_normal");
+        if (baseTex != null) sm.SetTexture("_BaseMap", baseTex);
+        if (nrm != null) { sm.EnableKeyword("_NORMALMAP"); sm.SetTexture("_BumpMap", nrm); sm.SetFloat("_BumpScale", 1.35f); }
         var smr = sandGo.GetComponent<MeshRenderer>(); smr.sharedMaterial = sm; smr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
 
-        // the palm, with the sign hung in it and a board leaning on the trunk
-        palm = Spot("Palm", palmAt);
-        var palmGo = Models.Spawn("palm", palm, palmHeight, PrimitiveType.Cylinder);
-        palm.localRotation = Quaternion.Euler(0, palmTurn, 0) * Quaternion.Euler(0, 0, -palmLean);
-        var signSpot = new GameObject("SignSpot").transform; signSpot.SetParent(palm, false);
-        signSpot.localPosition = signOnPalm; signSpot.localRotation = Quaternion.Euler(0, signTurn, 0);
-        Models.Spawn("sign", signSpot, signHeight, PrimitiveType.Cube);
-        var boardSpot = Spot("BoardSpot", boardAt);
-        leanBoard = Models.Spawn("board", boardSpot, 0.3f, PrimitiveType.Capsule);
-        Models.FitLength(leanBoard, BoardController.BoardHalfL * 2f);
-        boardSpot.localRotation = Quaternion.Euler(0, boardTurn, 0) * Quaternion.Euler(90f - boardLean, 0, 0);
-        boardSpot.localPosition += new Vector3(0, BoardController.BoardHalfL * Mathf.Cos(boardLean * Mathf.Deg2Rad), 0);
-
+        // the palm, leaning out to the right with the Surf sign hung in it
+        var palm = Prop("Palm", Models.Spawn("palm2", root.transform, palmHeight, PrimitiveType.Cylinder), palmTurn, flipPalm);
+        Settle(palm, palmBoxCentre.x, palmFoot.y, palmBoxCentre.z, false);
+        var sign = Prop("Sign", Models.Spawn("sign", root.transform, signHeight, PrimitiveType.Cube), signTurn, flipSign);
+        Settle(sign, signAt.x, signAt.y, signAt.z, true);
+        // the board propped into the crook of the trunk
+        var board = Models.Spawn("board", root.transform, 0.3f, PrimitiveType.Capsule);
+        Models.FitLength(board, BoardController.BoardHalfL * 2f);
+        board.transform.rotation = Quaternion.Euler(boardTurn); Settle(board, boardAt.x, boardAt.y, boardAt.z, true);
         // the chest
-        var chestSpot = Spot("Chest", chestAt);
-        Models.Spawn("chest", chestSpot, chestSize, PrimitiveType.Cube);
-        chestSpot.localRotation = Quaternion.Euler(0, chestTurn, 0);
-
+        var chest = Prop("Chest", Models.Spawn("chest", root.transform, chestHeight, PrimitiveType.Cube), new Vector3(0, chestTurn, 0), flipChest);
+        Settle(chest, chestBottom.x, chestBottom.y, chestBottom.z, false);
         // where the pug stands
-        pugSpot = Spot("PugSpot", pugAt);
-
-        // the signpost: its arms are the menu, so each third of it gets a collider to tap
-        post = Spot("Signpost", postAt);
-        var postGo = Models.Spawn("menusign", post, postHeight, PrimitiveType.Cube);
-        post.localRotation = Quaternion.Euler(0, postTurn, 0);
+        pugSpot = new GameObject("PugSpot").transform; pugSpot.SetParent(root.transform, false); pugSpot.position = pugAt;
+        // the signpost: four feet from the lens, its arms are the menu, so each third gets a collider
+        var postGo = Prop("Signpost", Models.Spawn("menusign", root.transform, postHeight, PrimitiveType.Cube), postTurn, flipPost);
+        Settle(postGo, postAt.x, postAt.y, postAt.z, true);
+        post = postGo.transform;
         var b = Models.Bounds(postGo);
         for (int i = 0; i < 3; i++)
         {
-            var arm = new GameObject("arm:" + Arms[i]); arm.transform.SetParent(post, false);
-            var bc = arm.AddComponent<BoxCollider>();
-            float h = b.size.y / 3f;
-            bc.center = new Vector3(b.center.x, b.min.y + h * (i + 0.5f), b.center.z);
-            bc.size = new Vector3(b.size.x, h, Mathf.Max(b.size.z, 1f));
+            var arm = new GameObject("arm:" + Arms[i]); arm.transform.SetParent(root.transform, false);
+            arm.transform.position = new Vector3(postAt.x, postAt.y - postHeight / 2f + postHeight * (i + 0.5f) / 3f, postAt.z);
+            arm.transform.rotation = post.rotation;
+            var bc = arm.AddComponent<BoxCollider>(); bc.size = new Vector3(Mathf.Max(b.size.x, 1.2f), postHeight / 3f, Mathf.Max(b.size.z, 0.8f));
         }
         Show(false);
     }
 
-    Transform Spot(string n, Vector3 at)
+    GameObject Prop(string n, GameObject go, Vector3 turn, bool flip)
     {
-        var s = new GameObject(n).transform; s.SetParent(root.transform, false);
-        s.localPosition = new Vector3(at.x, SandY(at.x, at.z) + at.y, at.z);
-        return s;
+        go.name = n;
+        go.transform.rotation = Quaternion.Euler(turn) * (flip ? Quaternion.Euler(0, 180f, 0) : Quaternion.identity);
+        return go;
     }
 
-    Mesh BuildSand(float w, float d, float zc, int nx, int nz)
+    // move a prop so its world box sits where the web one was: centred in x and z, and either
+    // centred or stood on its bottom in y
+    static void Settle(GameObject go, float cx, float y, float cz, bool centreY)
+    {
+        var rs = go.GetComponentsInChildren<Renderer>();
+        if (rs.Length == 0) { go.transform.position = new Vector3(cx, y, cz); return; }
+        var b = rs[0].bounds; foreach (var r in rs) b.Encapsulate(r.bounds);
+        var want = new Vector3(cx, centreY ? y : y + b.extents.y, cz);
+        go.transform.position += want - b.center;
+    }
+
+    Mesh BuildSand(float x0, float x1, float z0, float z1, int nx, int nz)
     {
         var m = new Mesh { name = "sand" }; m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
         var v = new Vector3[(nx + 1) * (nz + 1)]; var uv = new Vector2[v.Length];
         for (int j = 0; j <= nz; j++)
         for (int i = 0; i <= nx; i++)
         {
-            float x = (i / (float)nx - 0.5f) * w, z = zc + (j / (float)nz - 0.5f) * d;
+            float x = Mathf.Lerp(x0, x1, i / (float)nx), z = Mathf.Lerp(z0, z1, j / (float)nz);
             v[j * (nx + 1) + i] = new Vector3(x, SandY(x, z), z);
-            uv[j * (nx + 1) + i] = new Vector2(i / (float)nx, j / (float)nz);
+            uv[j * (nx + 1) + i] = new Vector2(x / 16f, z / 16f);     // one sand tile every sixteen feet, as the web beach tiles it
         }
         var idx = new int[nx * nz * 6]; int n = 0;
         for (int j = 0; j < nz; j++) for (int i = 0; i < nx; i++)
@@ -121,29 +135,30 @@ public class Beach : MonoBehaviour
             int a = j * (nx + 1) + i, bq = a + 1, c = a + nx + 1, e = c + 1;
             idx[n++] = a; idx[n++] = c; idx[n++] = bq; idx[n++] = bq; idx[n++] = c; idx[n++] = e;
         }
-        m.vertices = v; m.uv = uv; m.triangles = idx; m.RecalculateNormals(); m.RecalculateBounds();
+        m.vertices = v; m.uv = uv; m.triangles = idx; m.RecalculateNormals(); m.RecalculateTangents(); m.RecalculateBounds();
         return m;
     }
 
     public void Show(bool on) { if (root != null) root.SetActive(on); }
     public bool Showing => root != null && root.activeSelf;
 
-    /// the pug and his board go to their spots on the sand; the ride's board is hidden under him
+    /// the pug stands by the chest, a little bigger than he rides, with the ride's board hidden
     public void PlaceRider(Transform player, Transform rig, GameObject rideBoard)
     {
-        player.position = pugSpot.position; player.rotation = Quaternion.Euler(0, pugTurn, 0);
+        player.position = pugSpot.position; player.rotation = Quaternion.Euler(0, pugYaw + 70f, 0);   // the pug sits at -70 inside the rig
+        player.localScale = Vector3.one * pugScale;
         rig.localRotation = Quaternion.identity;
         if (rideBoard != null) rideBoard.SetActive(false);
     }
 
-    /// the shot, with a slow breath so it is not a photograph
+    /// the measured shot, with a slow breath so it is not a photograph
     public void PlaceCamera(Camera cam, float dt)
     {
         t += dt;
-        var at = camAt + new Vector3(Mathf.Sin(t * 0.21f) * 0.25f, Mathf.Sin(t * 0.17f + 1f) * 0.12f, 0);
-        at.y += SandY(camAt.x, camAt.z);
-        var aim = camAim; aim.y += SandY(camAim.x, camAim.z);
-        cam.transform.position = at; cam.transform.LookAt(aim, Vector3.up); cam.fieldOfView = camFov;
+        var at = camAt + new Vector3(Mathf.Sin(t * 0.21f) * 0.06f, Mathf.Sin(t * 0.17f + 1f) * 0.04f, 0);
+        // the web camera looks down its -z; its YXZ turn applied to that is the direction we want
+        var dir = Quaternion.Euler(camTurn.x, camTurn.y, camTurn.z) * new Vector3(0, 0, -1);
+        cam.transform.position = at; cam.transform.rotation = Quaternion.LookRotation(dir, Vector3.up); cam.fieldOfView = camFov;
     }
 
     /// a tap on the signpost: which arm was hit

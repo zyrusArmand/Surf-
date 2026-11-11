@@ -98,7 +98,7 @@ public static class SurfSetup
     public static void ReimportModels()
     {
         // the sand grain is a normal map, which the importer has to be told
-        var ti = AssetImporter.GetAtPath("Assets/Resources/Models/sandgrain.png") as TextureImporter;
+        var ti = AssetImporter.GetAtPath("Assets/Resources/Models/sand_normal.jpg") as TextureImporter;
         if (ti != null && ti.textureType != TextureImporterType.NormalMap) { ti.textureType = TextureImporterType.NormalMap; ti.SaveAndReimport(); }
         AssetDatabase.ImportAsset("Assets/Resources/Models", ImportAssetOptions.ImportRecursive | ImportAssetOptions.ForceUpdate);
         AssetDatabase.Refresh();

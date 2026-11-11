@@ -6,7 +6,7 @@ using UnityEngine;
 public class Ocean : MonoBehaviour
 {
     public Material material;
-    public float width = 260f, nearZ = 60f, farZ = -340f;
+    public float width = 300f, nearZ = 60f, farZ = -900f;
     public int cols = 120, rows = 220;
 
     readonly Vector4[] wa = new Vector4[7], wb = new Vector4[7];
@@ -61,8 +61,9 @@ public class Ocean : MonoBehaviour
         mr.receiveShadows = false;
     }
 
-    public void Tick(float t, float dist, float amp, float wakeX, float wakeZ, float wakeA)
+    public void Tick(float t, float dist, float amp, float wakeX, float wakeZ, float wakeA, float lift = 0f)
     {
+        material.SetFloat("_Lift", lift);
         material.SetFloat("_T", t);
         material.SetFloat("_Dist", dist);
         material.SetFloat("_Amp", amp);

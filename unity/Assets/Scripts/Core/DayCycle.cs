@@ -37,6 +37,7 @@ public class DayCycle : MonoBehaviour
     public Light sun;
     public float pin = -1f;     // pin the hour (0..2) for looking; -1 follows the run
     public Vector3 keyFrom;     // when set, the sun light comes from this direction instead (the beach)
+    public bool beachLook;      // the title screen's own sky and light, read off the web game
 
     [HideInInspector] public float daylight = 1f;   // 0 night .. 1 noon
     [HideInInspector] public Vector3 sunDir = new Vector3(-0.45f, 0.75f, -0.5f).normalized;
@@ -58,12 +59,19 @@ public class DayCycle : MonoBehaviour
         // the disc sits at (sx*130, sy*118, -195) in the web game; that is a direction here
         sunDir = new Vector3(sx * 130f, sy * 118f, -195f).normalized;
         float light = 0.18f + 0.82f * daylight;
+        if (beachLook)
+        {
+            // the web title screen: deep blue zenith to a warm horizon, the sun low and left
+            top = C(0x123a63); mid = C(0x577593); hz = C(0xd9a463); glow = C(0xffc073); glowAmt = 0.74f;
+            sunDir = new Vector3(0.3f * 130f, 0.08f * 118f, -195f).normalized; daylight = 1f; light = 1f;
+        }
 
         if (sky != null)
         {
             sky.SetColor("_Top", top); sky.SetColor("_Mid", mid); sky.SetColor("_Horizon", hz);
             sky.SetColor("_Glow", glow); sky.SetFloat("_GlowAmt", glowAmt);
             sky.SetVector("_SunDir", sunDir);
+            sky.SetFloat("_Blend", beachLook ? 0.58f : 0.30f);
         }
         if (ocean != null)
         {
@@ -76,10 +84,22 @@ public class DayCycle : MonoBehaviour
             Vector3 aim = new Vector3(sx * 130f, Mathf.Max(sy * 118f, 26f), -195f).normalized;
             if (keyFrom.sqrMagnitude > 0.01f) aim = keyFrom.normalized;
             sun.transform.rotation = Quaternion.LookRotation(-aim);
-            sun.color = Color.Lerp(C(0xfff2cf), glow, Mathf.Min(0.55f, glowAmt * 0.62f));
-            sun.intensity = 0.35f + 1.45f * daylight;
+            sun.color = beachLook ? C(0xffab63) : Color.Lerp(C(0xfff2cf), glow, Mathf.Min(0.55f, glowAmt * 0.62f));
+            sun.intensity = beachLook ? 1.9f : 0.35f + 1.45f * daylight;
         }
-        RenderSettings.ambientLight = Color.Lerp(mid * 0.55f, glow * 0.4f, glowAmt * 0.4f) * (0.3f + 0.7f * daylight);
+        if (beachLook)
+        {
+            // the web beach's hemisphere light: sky blue above, warm sand below
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
+            RenderSettings.ambientSkyColor = C(0xbcd6ef) * 0.9f; RenderSettings.ambientEquatorColor = Color.Lerp(C(0xbcd6ef), C(0xe0b078), 0.5f) * 0.85f; RenderSettings.ambientGroundColor = C(0xe0b078) * 0.8f;
+            RenderSettings.fog = false;
+        }
+        else
+        {
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+            RenderSettings.fog = true;
+            RenderSettings.ambientLight = Color.Lerp(mid * 0.55f, glow * 0.4f, glowAmt * 0.4f) * (0.3f + 0.7f * daylight);
+        }
         RenderSettings.fogColor = hz;
     }
 }

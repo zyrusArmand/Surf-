@@ -94,7 +94,8 @@ public class Bootstrap : MonoBehaviour
         rider.Begin();
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
-        beach.Show(false); boardGo.SetActive(true); day.pin = -1f; day.keyFrom = Vector3.zero;
+        beach.Show(false); boardGo.SetActive(true); day.pin = -1f; day.keyFrom = Vector3.zero; day.beachLook = false;
+        rider.transform.localScale = Vector3.one;
         hud.ShowRide();
         chase.Snap();
     }
@@ -106,7 +107,7 @@ public class Bootstrap : MonoBehaviour
         rider.Idle(0f);
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
-        beach.Show(true); day.pin = 0.47f; day.keyFrom = beach.sunFrom;
+        beach.Show(true); day.pin = 0.47f; day.keyFrom = beach.keyFrom; day.beachLook = true;
         beach.PlaceRider(rider.transform, rig, boardGo);
         hud.ShowMenu();
     }
@@ -188,7 +189,7 @@ public class Bootstrap : MonoBehaviour
         }
         rig.localRotation = Quaternion.Euler(0, 0, -rider.carve * 8f);
 
-        ocean.Tick(rider.t, rider.dist * WaveField.Drift, WaveField.Amp, rider.px, rider.pz + BoardController.BoardHalfL, wakeA);
+        ocean.Tick(rider.t, rider.dist * WaveField.Drift, WaveField.Amp, rider.px, rider.pz + BoardController.BoardHalfL, wakeA, beach.Showing ? beach.seaLevel : 0f);
         day.Apply(rider.dist);
         var pm = spray.main; pm.startColor = Color.Lerp(Color.white, day.glow, day.glowAmt * 0.45f);
         if (beach.Showing) beach.PlaceCamera(cam, dt); else chase.Step(dt);
