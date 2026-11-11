@@ -26,6 +26,9 @@ Shader "Surf/Ocean"
         _SwA ("Set wave height", Float) = 0
         _SwX ("Set wave crest x", Float) = 0
         _SwS ("Set wave side", Float) = 1
+        _WhX ("Whirl x", Float) = 0
+        _WhZ ("Whirl z (field)", Float) = 0
+        _WhA ("Whirl depth", Float) = 0
         _Chop ("Chop normals", 2D) = "bump" {}
         _ChopK ("Chop from texture", Float) = 0
         _Shore ("Shore line (-z)", Float) = 100000
@@ -46,7 +49,7 @@ Shader "Surf/Ocean"
 
             CBUFFER_START(UnityPerMaterial)
             float4 _Deep, _Shallow, _SkyLo, _SkyHi, _Glow, _SunDir;
-            float _Light, _Amp, _Peak, _Dist, _T, _WakeX, _WakeZ, _WakeA, _Lift, _Shore, _ShoreW, _Calm, _SwA, _SwX, _SwS;
+            float _Light, _Amp, _Peak, _Dist, _T, _WakeX, _WakeZ, _WakeA, _Lift, _Shore, _ShoreW, _Calm, _SwA, _SwX, _SwS, _WhX, _WhZ, _WhA;
             CBUFFER_END
             TEXTURE2D(_Chop); SAMPLER(sampler_Chop); float _ChopK;
             float4 _WaveA[7];   // dx, dz, k, a
@@ -70,6 +73,26 @@ Shader "Surf/Ocean"
                     dhx += c * a.x; dhz += c * a.y;
                 }
                 h *= _Amp * _Calm; dhx *= _Amp * _Calm; dhz *= _Amp * _Calm;
+                // the whirlpool: a dip with a steep eye, its slope folded into the normal
+                if (_WhA > 0.001)
+                {
+                    float2 wd = float2(p.x - _WhX, p.y - _WhZ);
+                    float r = length(wd);
+                    if (r < 20.0)
+                    {
+                        float k = 1.0 - r / 20.0;
+                        float k7 = pow(k, 7.0);
+                        float f = k * k * (3.0 - 2.0 * k) * (1.0 + 2.1 * k7);
+                        h -= _WhA * f;
+                        if (r > 1e-4)
+                        {
+                            float dsm = 6.0 * k * (1.0 - k);
+                            float dfdk = dsm * (1.0 + 2.1 * k7) + k * k * (3.0 - 2.0 * k) * 14.7 * pow(k, 6.0);
+                            float dfdr = dfdk * (-1.0 / 20.0);
+                            dhx -= _WhA * dfdr * (wd.x / r); dhz -= _WhA * dfdr * (wd.y / r);
+                        }
+                    }
+                }
                 // the rider's wake: a ridge in the water itself, so it is lit and foamed like a wave
                 if (_WakeA > 0.001)
                 {

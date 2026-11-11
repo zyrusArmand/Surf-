@@ -7,7 +7,7 @@ public class Bootstrap : MonoBehaviour
 {
     BoardController rider; Spawner spawner; ChaseCamera chase; Hud hud; DayCycle day; Ocean ocean;
     ParticleSystem spray; Transform rig, pug; RiderRig riderRig; float wakeA;
-    Beach beach; Camera cam; GameObject boardGo; SetWave setWave;
+    Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate;
     bool over;
 
     void Start()
@@ -52,11 +52,13 @@ public class Bootstrap : MonoBehaviour
         // the water
         spawner = new GameObject("Spawner").AddComponent<Spawner>(); spawner.rider = rider;
         setWave = new GameObject("SetWave").AddComponent<SetWave>(); setWave.rider = rider;
+        whirl = new GameObject("Whirlpool").AddComponent<Whirlpool>(); whirl.rider = rider; whirl.spawner = spawner; whirl.setWave = setWave;
+        crate = new GameObject("Crate").AddComponent<Crate>(); crate.rider = rider; crate.setWave = setWave;
 
         // spray
         spray = BuildSpray();
         rider.onSplash = (p, n) => { spray.transform.position = p; spray.Emit(n); };
-        spawner.onSplash = rider.onSplash; setWave.onSplash = rider.onSplash;
+        spawner.onSplash = rider.onSplash; setWave.onSplash = rider.onSplash; whirl.onSplash = rider.onSplash; crate.onSplash = rider.onSplash;
         rider.onWipeout = () => { over = false; };
 
         // camera
@@ -84,13 +86,14 @@ public class Bootstrap : MonoBehaviour
         // HUD
         hud = new GameObject("HUD").AddComponent<Hud>(); hud.rider = rider;
         hud.onPlay = Play; hud.onMenu = Menu;
+        spawner.onSplat = c => hud.Splat(c);
         hud.Build();
         Menu();
     }
 
     void Play()
     {
-        spawner.Clear(); setWave.Reset();
+        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset();
         rider.Begin();
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
@@ -103,7 +106,7 @@ public class Bootstrap : MonoBehaviour
     /// the title: the ride stops, he floats in the lane, the dial comes up
     void Menu()
     {
-        spawner.Clear(); setWave.Reset();
+        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset();
         rider.Idle(0f);
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
@@ -141,7 +144,9 @@ public class Bootstrap : MonoBehaviour
             rider.Step(dt);
             spawner.Step(dt);
             setWave.Step(dt);
+            whirl.Step(dt); crate.Step(dt);
             if (Input.GetKeyDown(KeyCode.B)) setWave.summon = true;      // debug: bring a set now
+            if (Input.GetKeyDown(KeyCode.V)) whirl.summon = true;        // debug: a whirlpool now
             chase.swCam = setWave.cam;
             // rail spray while carving
             float cv = Mathf.Abs(rider.carve);
@@ -154,8 +159,8 @@ public class Bootstrap : MonoBehaviour
         }
         else if (rider.wipe)
         {
-            rider.WipeStep(dt);
-            spawner.Step(dt);
+            if (spawner.eater != null && spawner.eater.at < Spawner.ShkChew) { rider.wipeT += dt; spawner.Step(dt); }   // in the shark's mouth
+            else { rider.WipeStep(dt); spawner.Step(dt); }
             wakeA = Mathf.Lerp(wakeA, 0f, dt * 4f);
             if (rider.wipeT >= 0.95f && !over)
             {

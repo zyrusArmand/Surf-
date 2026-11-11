@@ -174,9 +174,44 @@ public class Hud : MonoBehaviour
 
     public void Toast(string s) { tToast.text = s; tToast.gameObject.SetActive(true); toastT = 1.8f; }
 
+    // a starfish in the face: three soft blots over the picture, sliding down and fading
+    Image[] splat; float splatT; Vector2[] splatV;
+    public void Splat(Color tint)
+    {
+        if (splat == null)
+        {
+            splat = new Image[3]; splatV = new Vector2[3];
+            for (int i = 0; i < 3; i++)
+            {
+                float d = 150f + i * 70f;
+                splat[i] = UiKit.Pic(ride.transform, "splat", UiKit.Circle(d, UiKit.Body.Glass, 0), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(d, d));
+                splat[i].raycastTarget = false; splat[i].gameObject.SetActive(false);
+            }
+        }
+        for (int i = 0; i < 3; i++)
+        {
+            splat[i].gameObject.SetActive(true);
+            splat[i].color = new Color(tint.r, tint.g, tint.b, 0.92f);
+            splat[i].rectTransform.anchoredPosition = new Vector2((Random.value - 0.5f) * 260f, (Random.value - 0.5f) * 420f);
+            splat[i].rectTransform.localScale = Vector3.one * (0.7f + Random.value * 0.8f);
+            splatV[i] = new Vector2((Random.value - 0.5f) * 20f, -30f - Random.value * 40f);
+        }
+        splatT = 2.4f;
+    }
+
     void Update()
     {
         if (toastT > 0) { toastT -= Time.deltaTime; if (toastT <= 0) tToast.gameObject.SetActive(false); }
+        if (splatT > 0 && splat != null)
+        {
+            splatT -= Time.deltaTime; float k = Mathf.Clamp01(splatT / 2.4f);
+            for (int i = 0; i < 3; i++)
+            {
+                var c = splat[i].color; c.a = 0.92f * k * k; splat[i].color = c;
+                splat[i].rectTransform.anchoredPosition += splatV[i] * Time.deltaTime * (1f - k);
+                if (splatT <= 0) splat[i].gameObject.SetActive(false);
+            }
+        }
         if (rider == null || !ride.activeSelf) return;
         tScore.text = rider.score.ToString("N0");
         tDist.text = Mathf.RoundToInt(rider.dist) + " m";
