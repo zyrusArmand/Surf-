@@ -19,8 +19,10 @@ system at a time, in the order they matter.
 
 ## Opening it the first time (about 15 minutes, mostly downloads)
 
-1. Install **Unity Hub** from unity.com, then from the Hub install **Unity 2022.3 LTS**
-   (any 2022.3.x). While installing, tick **iOS Build Support** and **Android Build Support**.
+1. Install **Unity Hub** from unity.com, then from the Hub (Installs > Install Editor) install
+   the latest **Unity 6 LTS** (any 6000.x). While installing, tick **iOS Build Support** and
+   **Android Build Support**. If the Hub says the project wants a version you do not have,
+   pick the one you installed; it upgrades the project on the way in.
 2. In the Hub, press **Add** and choose this `unity` folder. Open it. The first open takes a
    few minutes: it fetches the Universal Render Pipeline and the glTF importer.
 3. A script in `Assets/Editor` runs on its own and sets the project up: the render pipeline,

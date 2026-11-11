@@ -22,7 +22,7 @@ public class Hud : MonoBehaviour
         canvas = cgo.GetComponent<Canvas>(); canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         var sc = cgo.GetComponent<CanvasScaler>(); sc.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         sc.referenceResolution = new Vector2(430, 932); sc.matchWidthOrHeight = 0.5f;
-        if (FindObjectOfType<EventSystem>() == null) new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
+        if (Object.FindFirstObjectByType<EventSystem>() == null) new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
 
         // top row
         var top = Panel(cgo.transform, "top", new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -60), new Vector2(0, 0), new Color(0.01f, 0.08f, 0.16f, 0.25f));

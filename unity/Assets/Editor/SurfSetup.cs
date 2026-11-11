@@ -39,7 +39,7 @@ public static class SurfSetup
 
     static void EnsurePipeline()
     {
-        if (GraphicsSettings.renderPipelineAsset != null) return;
+        if (GraphicsSettings.defaultRenderPipeline != null) return;
         Directory.CreateDirectory("Assets/Settings");
         var asset = AssetDatabase.LoadAssetAtPath<UniversalRenderPipelineAsset>(PipelinePath);
         if (asset == null)
@@ -54,7 +54,7 @@ public static class SurfSetup
             AssetDatabase.CreateAsset(asset, PipelinePath);
             AssetDatabase.SaveAssets();
         }
-        GraphicsSettings.renderPipelineAsset = asset;
+        GraphicsSettings.defaultRenderPipeline = asset;
         QualitySettings.renderPipeline = asset;
         Debug.Log("Surf setup: URP assigned");
     }
@@ -68,8 +68,16 @@ public static class SurfSetup
         PlayerSettings.allowedAutorotateToLandscapeLeft = false;
         PlayerSettings.allowedAutorotateToLandscapeRight = false;
         PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;
-        PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.iOS, "com.surf.pug");
-        PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.surf.pug");
+        PlayerSettings.SetApplicationIdentifier(UnityEditor.Build.NamedBuildTarget.iOS, "com.surf.pug");
+        PlayerSettings.SetApplicationIdentifier(UnityEditor.Build.NamedBuildTarget.Android, "com.surf.pug");
+        // the scripts read the classic Input class; make sure the project answers it (2 = both systems)
+        var ps = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/ProjectSettings.asset");
+        if (ps != null && ps.Length > 0)
+        {
+            var so = new SerializedObject(ps[0]);
+            var ih = so.FindProperty("activeInputHandler");
+            if (ih != null && ih.intValue == 1) { ih.intValue = 2; so.ApplyModifiedProperties(); }
+        }
     }
 
     static void EnsureScene()
