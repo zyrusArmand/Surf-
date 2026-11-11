@@ -14,12 +14,17 @@ public class RiderRig : MonoBehaviour
 {
     public BoardController rider;
     public float crouchW, tuckW;          // a wind-up, and the knees-up while the board flips under him
+    // the two tricks, 0..1, read off the rider every Stance: the handstand's blend (web handT),
+    // the helicopter's lie-down (web heliPose) and its crouch beat (web rigCrouch under the beats)
+    public float handW, heliW, heliCrouchW;
 
     readonly Dictionary<string, Transform> bones = new Dictionary<string, Transform>();
     readonly Dictionary<string, Quaternion> rest = new Dictionary<string, Quaternion>();
     readonly Dictionary<string, Quaternion> chainRest = new Dictionary<string, Quaternion>();
     float sway, load, bob;
     bool ready;
+    Vector3 homePos; Quaternion homeRot;  // where the ride parks him on the deck, which the tricks turn him away from
+    float handLift;                       // web HAND_LIFT: how far up to put him, inverted, so his paws land on the deck
 
     static readonly string[] Posed = { "LeftArm", "RightArm", "LeftForeArm", "RightForeArm", "LeftUpLeg", "RightUpLeg",
                                        "LeftLeg", "RightLeg", "Spine", "Spine01", "Spine02", "neck", "Head", "LeftFoot", "RightFoot", "Hips" };
@@ -45,7 +50,63 @@ public class RiderRig : MonoBehaviour
             foreach (var n in new[] { "Hips", s + "UpLeg", s + "Leg" }) if (bones.TryGetValue(n, out var b)) acc = acc * b.localRotation;
             chainRest[s + "Foot"] = acc;
         }
+        homePos = transform.localPosition; homeRot = transform.localRotation;
+        handLift = MeasureHandLift();
         ready = true;
+    }
+
+    // The handstand pose, the web's HAND_POSE (44566-44573) in the upright frame: arms thrown
+    // overhead so that, turned over, they reach down to the deck; legs straight and a little apart;
+    // chin tucked. The front limb's numbers serve both sides here, mirrored in y and z.
+    void HandPose(float w)
+    {
+        Set("LeftArm", -2.62f, 0, -0.30f, w); Set("RightArm", -2.62f, 0, 0.30f, w);
+        Set("LeftForeArm", -0.18f, 0, 0, w); Set("RightForeArm", -0.18f, 0, 0, w);
+        Set("LeftUpLeg", 0.16f, 0, -0.15f, w); Set("RightUpLeg", 0.16f, 0, 0.15f, w);
+        Set("LeftLeg", -0.12f, 0, 0, w); Set("RightLeg", -0.12f, 0, 0, w);
+        Set("LeftFoot", 0.34f, 0, 0, w); Set("RightFoot", 0.34f, 0, 0, w);
+        Set("Head", -0.92f, 0, 0, w);
+    }
+
+    // web measureHandLift (44603-44624): where his feet rest when upright, plus how far the raised
+    // paws reach above the deck in the pose, plus a little daylight. Turning him over sends that
+    // reach the other way, so lifting by the two together puts his paws exactly where his feet were.
+    // Measured off the bones (the hand chain's ends are the paws) in the parent's units, up the
+    // parent's axis, which is his own axis while he is upright.
+    float MeasureHandLift()
+    {
+        var par = transform.parent;
+        float Up(Transform b)
+        {
+            var p = par != null ? par.InverseTransformPoint(b.position) : b.position;
+            return p.y - transform.localPosition.y;
+        }
+        float stand = float.PositiveInfinity;
+        foreach (var fn in new[] { "LeftFoot", "RightFoot" })
+            if (bones.TryGetValue(fn, out var fb)) foreach (var c in fb.GetComponentsInChildren<Transform>(true)) stand = Mathf.Min(stand, Up(c));
+        if (float.IsInfinity(stand)) stand = 0f;
+        var keep = new List<KeyValuePair<Transform, Quaternion>>();
+        foreach (var n in Posed) if (bones.TryGetValue(n, out var pb)) keep.Add(new KeyValuePair<Transform, Quaternion>(pb, pb.localRotation));
+        HandPose(1f);
+        float reach = float.NegativeInfinity;
+        foreach (var hn in new[] { "LeftHand", "RightHand", "LeftForeArm", "RightForeArm" })
+            if (bones.TryGetValue(hn, out var hb)) foreach (var c in hb.GetComponentsInChildren<Transform>(true)) reach = Mathf.Max(reach, Up(c));
+        foreach (var kv in keep) kv.Key.localRotation = kv.Value;
+        if (float.IsInfinity(reach)) return 0f;
+        return stand + reach + 0.10f;
+    }
+
+    static float Mx(float a, float b, float h) { return a * (1f - h) + b * h; }
+
+    // The rider group itself. The handstand turns him over about the deck line and lifts him
+    // onto his paws (web 44736-44737); the helicopter turns him to face the nose, lays him flat
+    // along the deck and slides him up it (web 44338, 44353, 44358). Both pivot at his feet.
+    void Group(float h1, float h2)
+    {
+        float xr = h1 * Mathf.PI - 1.36f * h2;
+        var yaw = Quaternion.Slerp(homeRot, Quaternion.identity, h2);
+        transform.localRotation = Quaternion.AngleAxis(xr * Mathf.Rad2Deg, Vector3.right) * yaw;
+        transform.localPosition = homePos + new Vector3(0f, h1 * handLift, -0.92f * h2);
     }
 
     // Arms down, whatever pose the file was modelled in. Each shoulder's REST is turned, once,
@@ -105,6 +166,8 @@ public class RiderRig : MonoBehaviour
     public void Stance(float dt, float w)
     {
         if (!ready || rider == null) return;
+        handW = rider.handT; heliW = rider.heliPose; heliCrouchW = rider.heliCrouch;
+        float h1 = Mathf.Clamp01(handW), h2 = Mathf.Clamp01(heliW), hc = Mathf.Clamp01(heliCrouchW);
         float carve = rider.carve;
         float air = rider.airborne ? 1f : 0f;
         sway += (carve - sway) * Mathf.Min(1f, dt * 5.5f);
@@ -115,31 +178,82 @@ public class RiderRig : MonoBehaviour
         float fz = rider.dist * WaveField.Drift;
         float swell = WaveField.Height(rider.px, fz + 0.6f, T) - WaveField.Height(rider.px, fz - 0.6f, T);
 
+        // the helicopter's crouch beat rides in like a wind-up: the web caps what it puts in the
+        // knees (rigCrouch 0.92 bends them as 0.26 would) and leans the chest by 0.30 of it
         float cB = rider.poseCrouch, xB = rider.poseExt, aB = rider.poseAir * (1f - xB), lB = rider.poseLand;
         float lo = 0.30f + load * FoldCarve + Mathf.Abs(swell) * FoldSwell + bob * FoldBob + air * FoldAir
-                 + crouchW * 0.58f + tuckW * 1.10f + cB * 0.95f + aB * 0.82f + lB * 0.85f - xB * 0.30f;
+                 + crouchW * 0.58f + hc * 0.24f + tuckW * 1.10f + cB * 0.95f + aB * 0.82f + lB * 0.85f - xB * 0.30f;
         float hip = -0.20f - lo * 0.22f + tuckW * 0.42f + aB * 0.36f, knee = Mathf.Max(0f, lo * 1.05f);
-        Set("LeftUpLeg", hip, 0, 0.06f, w); Set("RightUpLeg", hip, 0, -0.06f, w);
-        Set("LeftLeg", knee, 0, 0, w); Set("RightLeg", knee, 0, 0, w);
+        float hipL = hip, hipR = hip, hipZL = 0.06f, hipZR = -0.06f, kneeL = knee, kneeR = knee;
 
         float lean = sway * 0.42f;
-        float fold = cB * 0.22f + aB * 0.40f + lB * 0.20f - xB * 0.14f + load * 0.08f;
-        Set("Spine", 0.05f + bob * 0.02f + fold * 0.5f, -sway * 0.10f, lean * 0.50f, w);
-        Set("Spine01", 0.05f + fold * 0.3f, -sway * 0.08f, lean * 0.38f, w);
-        Set("Spine02", 0.03f + fold * 0.2f, -sway * 0.06f, lean * 0.26f, w);
-        Set("neck", -0.06f, sway * 0.20f, -lean * 0.30f, w);
-        Set("Head", -0.10f + bob * 0.03f - aB * 0.16f, sway * 0.26f, -lean * 0.45f, w);
+        float fold = cB * 0.22f + aB * 0.40f + lB * 0.20f - xB * 0.14f + load * 0.08f + hc * 0.30f;
+        float s0x = 0.05f + bob * 0.02f + fold * 0.5f, s0y = -sway * 0.10f, s0z = lean * 0.50f;
+        float s1x = 0.05f + fold * 0.3f, s1y = -sway * 0.08f, s1z = lean * 0.38f;
+        float s2x = 0.03f + fold * 0.2f, s2y = -sway * 0.06f, s2z = lean * 0.26f;
+        float nkX = -0.06f, nkY = sway * 0.20f, nkZ = -lean * 0.30f;
+        float hdX = -0.10f + bob * 0.03f - aB * 0.16f, hdY = sway * 0.26f, hdZ = -lean * 0.45f;
 
         float sw1 = Mathf.Sin(T * 1.55f), sw2 = Mathf.Sin(T * 1.85f + 2.2f), fl = Mathf.Sin(T * 2.35f + 0.7f);
         float spread = 0.34f + load * 0.30f + air * 0.55f;
         float aUp = -0.02f - xB * 0.30f - aB * 0.12f;
-        Set("LeftArm", aUp + sw1 * 0.11f - sway * 0.26f, 0.05f + sw1 * 0.10f, -spread - sway * 0.18f, w);
-        Set("RightArm", aUp + sw2 * 0.11f + sway * 0.26f, -0.05f + sw2 * 0.10f, spread - sway * 0.18f, w);
-        Set("LeftForeArm", fl * 0.18f - load * 0.14f, 0, -0.08f - load * 0.16f, w);
-        Set("RightForeArm", -fl * 0.18f - load * 0.14f, 0, 0.08f + load * 0.16f, w);
+        float laX = aUp + sw1 * 0.11f - sway * 0.26f, laY = 0.05f + sw1 * 0.10f, laZ = -spread - sway * 0.18f;
+        float raX = aUp + sw2 * 0.11f + sway * 0.26f, raY = -0.05f + sw2 * 0.10f, raZ = spread - sway * 0.18f;
+        float lfX = fl * 0.18f - load * 0.14f, lfZ = -0.08f - load * 0.16f;
+        float rfX = -fl * 0.18f - load * 0.14f, rfZ = 0.08f + load * 0.16f;
+        float footA = 0f, footW = 0f;         // an ankle angle laid over the plant, for the feet that leave the deck
+
+        if (h2 > 0.02f)
+        {
+            // the helicopter (web 44265-44277, 44149-44151, 44360-44364): both arms straight out
+            // over the nose first, then hauling in until the elbows fold and his face is at the
+            // tip; the chest goes down to 0.62 forward and square to the board; the legs trail
+            // straight; chin up off the deck, eyes past the tip.
+            float pull = h2;
+            laX = Mx(laX, 2.12f + pull * 0.26f, h2); laY = Mx(laY, 0.15f, h2); laZ = Mx(laZ, -0.30f, h2);
+            raX = Mx(raX, 2.12f + pull * 0.26f, h2); raY = Mx(raY, -0.15f, h2); raZ = Mx(raZ, 0.30f, h2);
+            lfX = Mx(lfX, 0.28f + pull * 1.42f, h2); lfZ = Mx(lfZ, 0f, h2);
+            rfX = Mx(rfX, 0.28f + pull * 1.42f, h2); rfZ = Mx(rfZ, 0f, h2);
+            hipL = Mx(hipL, -0.30f, h2); hipR = Mx(hipR, -0.30f, h2); hipZL = Mx(hipZL, 0f, h2); hipZR = Mx(hipZR, 0f, h2);
+            kneeL = Mx(kneeL, 0.34f, h2); kneeR = Mx(kneeR, 0.34f, h2);
+            s0x = Mx(s0x, 0.62f * 0.5f, h2); s0y = Mx(s0y, 0f, h2); s0z = Mx(s0z, 0f, h2);
+            s1x = Mx(s1x, 0.62f * 0.3f, h2); s1y = Mx(s1y, 0f, h2); s1z = Mx(s1z, 0f, h2);
+            s2x = Mx(s2x, 0.62f * 0.2f, h2); s2y = Mx(s2y, 0f, h2); s2z = Mx(s2z, 0f, h2);
+            nkX = Mx(nkX, -0.62f * 0.8f, h2); nkY = Mx(nkY, 0f, h2); nkZ = Mx(nkZ, 0f, h2);
+            hdX = Mx(hdX, 0.66f, h2); hdY = Mx(hdY, 0f, h2); hdZ = Mx(hdZ, 0f, h2);
+            footA = -0.20f; footW = h2;
+        }
+        if (h1 > 0.002f)
+        {
+            // the handstand (web HAND_POSE 44566-44573, blended by handT as applyHandPose does):
+            // arms thrown overhead so that, turned over, they reach down to the deck and take his
+            // weight; legs straight and a little apart; chin tucked
+            laX = Mx(laX, -2.62f, h1); laY = Mx(laY, 0f, h1); laZ = Mx(laZ, -0.30f, h1);
+            raX = Mx(raX, -2.62f, h1); raY = Mx(raY, 0f, h1); raZ = Mx(raZ, 0.30f, h1);
+            lfX = Mx(lfX, -0.18f, h1); rfX = Mx(rfX, -0.18f, h1);
+            hipL = Mx(hipL, 0.16f, h1); hipR = Mx(hipR, 0.16f, h1); hipZL = Mx(hipZL, -0.15f, h1); hipZR = Mx(hipZR, 0.15f, h1);
+            kneeL = Mx(kneeL, -0.12f, h1); kneeR = Mx(kneeR, -0.12f, h1);
+            hdX = Mx(hdX, -0.92f, h1);
+            footA = Mx(footA, 0.34f, h1); footW = 1f - (1f - footW) * (1f - h1);
+        }
+
+        Set("LeftUpLeg", hipL, 0, hipZL, w); Set("RightUpLeg", hipR, 0, hipZR, w);
+        Set("LeftLeg", kneeL, 0, 0, w); Set("RightLeg", kneeR, 0, 0, w);
+        Set("Spine", s0x, s0y, s0z, w);
+        Set("Spine01", s1x, s1y, s1z, w);
+        Set("Spine02", s2x, s2y, s2z, w);
+        Set("neck", nkX, nkY, nkZ, w);
+        Set("Head", hdX, hdY, hdZ, w);
+        Set("LeftArm", laX, laY, laZ, w);
+        Set("RightArm", raX, raY, raZ, w);
+        Set("LeftForeArm", lfX, 0, lfZ, w);
+        Set("RightForeArm", rfX, 0, rfZ, w);
 
         Plant("LeftUpLeg", "LeftLeg", "LeftFoot", w);
         Plant("RightUpLeg", "RightLeg", "RightFoot", w);
+        if (footW > 0f) { Set("LeftFoot", footA, 0, 0, w * footW); Set("RightFoot", footA, 0, 0, w * footW); }
+
+        Group(h1, h2);
     }
 
     /// standing about: arms down, weight settled, a slow breath
@@ -156,6 +270,7 @@ public class RiderRig : MonoBehaviour
         Set("LeftForeArm", 0.12f, 0, -0.06f, w); Set("RightForeArm", 0.12f, 0, 0.06f, w);
         Plant("LeftUpLeg", "LeftLeg", "LeftFoot", w);
         Plant("RightUpLeg", "RightLeg", "RightFoot", w);
+        Group(0f, 0f);   // back on his feet, however the last run left him
     }
 
     public bool Ready => ready;

@@ -114,7 +114,7 @@ public class SetWave : MonoBehaviour
             {
                 ph = Phase.Impact; t = 0; plane.gameObject.SetActive(false);
                 onSplash?.Invoke(new Vector3(side * CrashX, 0, -168f), 120);
-                r.Say("IMPACT!");
+                r.Say("IMPACT!"); Sfx.Buzz(26);
             }
             return;
         }
@@ -366,6 +366,7 @@ public class SetWave : MonoBehaviour
         rider.score += bonus;
         rider.Say(loops > 0 ? "SPAT OUT! " + loops + " LOOP" + (loops > 1 ? "S" : "") + " +" + bonus
                 : (ride + over > 11f ? "SPAT OUT! DEEP BARREL +" + bonus : "OUT CLEAN! +" + bonus));
+        Sfx.Buzz(30);
     }
 
     void End()

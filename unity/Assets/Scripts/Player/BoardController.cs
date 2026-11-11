@@ -6,7 +6,7 @@ using UnityEngine;
 public class BoardController : MonoBehaviour
 {
     // ---- the board's stats, Astro's originals ----
-    public float statSpeed = 1f, statTurn = 1f, statAir = 1f, statGrip = 1f, statTop = 0f;
+    public float statSpeed = 1f, statTurn = 1f, statAir = 1f, statGrip = 1f, statTop = 0f, statFloat = 1f;
 
     // ---- the speed curve ----
     const float SpdLo = 16.2f, SpdHi = 52f;
@@ -28,12 +28,35 @@ public class BoardController : MonoBehaviour
     public bool spinHeld, flipHeld, pitchHeld;
     public float steer;                 // -1..1 from the input layer
     public float waterY, carve;
+    public float hullPitch, hullRoll;   // how the water under the hull lies: nose up on a climb, inside rail down
     public float t;                     // the wave clock
     public string lastMsg; public float msgT;
     public int coins, bonusCoins;      // puka from distance, plus what the chest and the rest hand over
 
     // ---- the pose beats both rigs read ----
     public float poseTake, poseCrouch, poseExt, poseAir, poseLand;
+
+    // ---- the handstand (web 23288-23290, 44625-44627, 44744-44775) ----
+    // Held on the water or in the air: he goes up on his front paws and it pays while it is
+    // held, more in the air and more through a carve, tiring after a few seconds; past nine
+    // his arms give out. Releasing banks what it earned.
+    public bool handOn;                              // the button
+    public float handT, handPts, handRisk, handHold; // the blend 0..1 (the rig reads it), what this stand has earned, (vestigial) risk, seconds held
+    float handAcc;                                   // the fraction of a point not yet on the integer score
+
+    // ---- the helicopter (web 23324-23370, 23770-23849, 44141-44143, 45706-45722, 26873-26880) ----
+    // Choreographed, not held: crouch, lay out along the deck, hop, dive nose first, two seconds
+    // under, fired back out at forty-five degrees and popped. In the air the board barrel-rolls
+    // for as long as the button is held, once it has levelled off.
+    const float HeliRate = Mathf.PI * 2f * 2.15f, HeliPop = 18.6f;
+    static readonly float[] HeliPhase = { 0.42f, 0.50f, 0.28f, 0.52f, 0.96f, 0.52f };   // crouch, lay, hop, dive, deep, surface
+    public const int PhCrouch = 0, PhLay = 1, PhHop = 2, PhDive = 3, PhDeep = 4, PhSurf = 5;
+    public const int HeliUnder = PhDive;             // from this beat on he is in the water, not on it
+    const float HeliOut = -0.785f, HeliSettle = 0.34f;
+    public int heliPh = -1;                          // the beat running, -1 for none
+    public float heliT, heliPose, heliLay, heliIncline, heliSet, heliCrouch;
+    public bool heliUsed, heliAir, heliHeld;
+    public bool Submerged => heliPh >= HeliUnder;
 
     public System.Action<Vector3, int> onSplash;   // where, how many drops
     public System.Action onWipeout;
@@ -50,8 +73,12 @@ public class BoardController : MonoBehaviour
         airborne = false; running = true; wipe = false; wipeT = 0; score = 0; coins = 0; bonusCoins = 0;
         spinRot = flipRot = pitchRot = 0; spinHeld = flipHeld = pitchHeld = false;
         poseTake = poseCrouch = poseExt = poseAir = poseLand = 0;
+        handOn = false; handT = handPts = handRisk = handHold = handAcc = 0;
+        heliPh = -1; heliT = heliPose = heliLay = heliIncline = heliSet = heliCrouch = 0; heliUsed = heliAir = heliHeld = false;
         transform.rotation = Quaternion.identity;
     }
+
+    static float Ease(float cur, float tgt, float dt, float k) { return cur + (tgt - cur) * Mathf.Min(1f, dt * k); }
 
     /// the title screen: he floats on the swell in the lane, not moving, while the sea rolls past
     public void Idle(float dt)
@@ -73,17 +100,120 @@ public class BoardController : MonoBehaviour
 
     public void Jump()
     {
-        if (!running || airborne) return;
+        if (!running || airborne || heliPh >= 0) return;   // the helicopter owns him through its beats
         vy = 11.8f * statAir; airborne = true; poseTake = 1f;
     }
 
-    /// hold-to-turn: he keeps rotating for as long as the button is down
+    /// hold-to-turn: he keeps rotating for as long as the button is down. The handstand is
+    /// held too, but on the water; the helicopter starts on the press and the hold is the roll.
     public void Hold(string trick, bool down)
     {
+        if (trick == "hand") { handOn = down; return; }
+        if (trick == "heli") { if (down) StartHeli(); else heliHeld = false; return; }
         if (down && running && !wipe && !airborne) Jump();
         if (trick == "spin") spinHeld = down;
         else if (trick == "roll") flipHeld = down;
         else if (trick == "flip") pitchHeld = down;
+    }
+
+    /// web 23770-23778: it can only be STARTED off the water; pressed again mid-trick it just takes hold
+    void StartHeli()
+    {
+        if (!running || wipe) return;
+        if (heliAir || heliPh >= 0) { heliHeld = true; return; }
+        if (airborne) return;
+        heliHeld = true;
+        heliPh = 0; heliT = 0; heliUsed = true;
+        Say("HELICOPTER!");
+    }
+
+    /// web 23782-23849: the beats. It owns py outright while it runs, which is how he goes under.
+    void HeliStep(float dt)
+    {
+        heliT += dt;
+        float dur = HeliPhase[heliPh], k = Mathf.Min(1f, heliT / dur);
+        float smooth = k * k * (3f - 2f * k);
+        if (heliPh == PhCrouch)                 // he drops onto the deck and takes hold
+        {
+            heliCrouch = Mathf.Max(heliCrouch, 0.30f + smooth * 0.62f);
+            heliLay = smooth * 0.34f;
+            py = waterY;
+        }
+        else if (heliPh == PhLay)               // flat along the deck, hands to the nose
+        {
+            heliCrouch = Mathf.Max(heliCrouch, 0.92f);
+            heliLay = 0.34f + smooth * 0.66f;
+            py = waterY;
+        }
+        else if (heliPh == PhHop)               // a small hop, and the nose comes down
+        {
+            heliLay = 1f;
+            py = waterY + Mathf.Sin(k * Mathf.PI) * 0.66f;
+            heliIncline = smooth * 0.24f;
+        }
+        else if (heliPh == PhDive)              // nose first, only slightly angled
+        {
+            heliLay = 1f;
+            py = waterY - smooth * 2.45f;
+            heliIncline = 0.24f + smooth * 0.21f;
+            if (heliT - dt <= 0f) onSplash?.Invoke(new Vector3(px, waterY, pz), 26);
+            if (Random.value < dt * 30f) onSplash?.Invoke(new Vector3(px + (Random.value - 0.5f) * 0.9f, waterY, pz + 0.2f), 1);
+        }
+        else if (heliPh == PhDeep)              // ...and stays down there, climbing back toward the surface
+        {
+            heliLay = 1f;
+            float climb = Mathf.Sin(Mathf.PI * (0.5f + k * 0.5f));   // 1 at the bottom, 0 at the top
+            py = waterY - 1.25f - climb * 1.20f;
+            heliIncline = 0.45f - smooth * 0.35f;                     // levelling out under the water
+            if (Random.value < dt * 46f) onSplash?.Invoke(new Vector3(px + (Random.value - 0.5f) * 1.5f, waterY, pz + 0.2f + Random.value * 0.9f), 1);
+        }
+        else if (heliPh == PhSurf)              // fired back out, leaning back at 45
+        {
+            heliLay = 1f;
+            float shot = k * k;                                       // slow to leave, then all at once
+            py = waterY - 1.25f + shot * 1.75f;
+            heliIncline = 0.10f + (HeliOut - 0.10f) * shot;
+            if (Random.value < dt * (18f + k * 44f)) onSplash?.Invoke(new Vector3(px + (Random.value - 0.5f) * 1.2f, waterY, pz + 0.3f), 2);
+        }
+        vy = 0f;
+        if (k >= 1f)
+        {
+            heliPh++; heliT = 0f;
+            if (heliPh >= HeliPhase.Length)     // hand over to the launch
+            {
+                heliPh = -1; heliAir = true;
+                vy = HeliPop * statAir; airborne = true;
+                heliIncline = HeliOut; heliSet = HeliSettle;   // out leaning back; the roll waits for him to level
+                onSplash?.Invoke(new Vector3(px, waterY, pz), 34);
+            }
+        }
+    }
+
+    /// web 44744-44775: what a handstand pays and what it costs
+    void HandstandScore(float dt, bool want)
+    {
+        if (handT > 0.55f)
+        {
+            handHold += dt;
+            float tire = Mathf.Max(0f, 1f - Mathf.Max(0f, handHold - 3.4f) / 2.6f);
+            float rate = (airborne ? 46f : 26f) * (1f + Mathf.Min(1f, Mathf.Abs(carve)) * 0.4f) * tire;
+            handPts += rate * dt;
+            handAcc += rate * dt;
+            int whole = Mathf.FloorToInt(handAcc); score += whole; handAcc -= whole;
+            handRisk = 0f;   // steering on his hands no longer throws him; only time does
+            if (handHold > 9.0f) { Wipeout("foam"); Say("ARMS GAVE OUT!"); return; }
+        }
+        else handHold = Mathf.Max(0f, handHold - dt * 2.2f);
+        if (!want && handPts > 0f)
+        {
+            if (handPts >= 30f)
+            {
+                int p = Mathf.RoundToInt(handPts);
+                score += Mathf.RoundToInt(p * 0.35f); boost = Mathf.Min(16f, boost + 3.5f);
+                Say("HANDSTAND! +" + Mathf.RoundToInt(p * 1.35f));
+            }
+            handPts = 0f;
+        }
     }
 
     public void Step(float dt)
@@ -111,12 +241,27 @@ public class BoardController : MonoBehaviour
         carve = Mathf.Clamp(vx / 9f, -1f, 1f);
 
         // the water under him, read a little ahead and behind so he rides the crest not the spike
+        // Where the hull wants to float (web 45097-45152): a rigid hull does not follow one
+        // point on the water. Sampled under the nose, the tail and both rails, it rests on the
+        // highest water beneath it so a crest cannot slice through the ends, answers to the mean
+        // under the whole length as well, and a hard carve drives the inside rail in.
         float fz = dist * WaveField.Drift + pz;
-        float hMean = (WaveField.Height(px, fz - 1.2f, t) + WaveField.Height(px, fz + 1.2f, t)) * 0.5f;
-        float hHigh = Mathf.Max(WaveField.Height(px, fz, t), hMean);
-        waterY = hHigh * 0.88f + hMean * 0.12f + 0.05f;
+        float hC = WaveField.Height(px, fz, t);
+        float hN = WaveField.Height(px, fz - 2.55f, t), hT = WaveField.Height(px, fz + 2.55f, t);
+        float hL = WaveField.Height(px - 0.58f, fz, t), hR = WaveField.Height(px + 0.58f, fz, t);
+        hullPitch = Mathf.Atan2(hN - hT, 5.10f); hullRoll = Mathf.Atan2(hR - hL, 1.16f);
+        trim = (hT - hN) * 3.8f;                                   // dropping down a face drives, climbing one costs
+        float hHigh = Mathf.Max(Mathf.Max(hC, hN), Mathf.Max(hT, (hL + hR) * 0.5f));
+        float hMean = hC * 0.34f + hN * 0.20f + hT * 0.20f + hL * 0.13f + hR * 0.13f;
+        float dig = Mathf.Max(0f, Mathf.Abs(carve) - 0.20f) / 0.80f;
+        float railDig = Mathf.Min(0.17f, dig * dig * 0.17f);
+        waterY = hHigh * 0.88f + hMean * 0.12f + 0.05f - railDig + (statFloat - 1f) * 0.30f;
 
-        if (airborne)
+        // the helicopter's crouch beat eases off on its own (web 44096), the beats re-assert it
+        heliCrouch = Ease(heliCrouch, 0f, dt, 9f);
+
+        if (heliPh >= 0) HeliStep(dt);          // the helicopter drives him itself (web 45394)
+        else if (airborne)
         {
             vy -= 20f * dt; py += vy * dt;
             if (py <= waterY)
@@ -124,6 +269,7 @@ public class BoardController : MonoBehaviour
                 float impact = Mathf.Min(1.6f, Mathf.Max(0f, -vy) / 15f);
                 poseLand = Mathf.Min(1f, 0.55f + impact * 0.5f);
                 onSplash?.Invoke(new Vector3(px, waterY, pz), 20 + (int)(impact * 40));
+                Sfx.Land(impact);
                 bool anySpin = spinRot > 0.4f || flipRot > 0.4f || pitchRot > 0.4f;
                 if (anySpin)
                 {
@@ -134,6 +280,7 @@ public class BoardController : MonoBehaviour
                     else { Settle(false); Wipeout("land"); return; }
                 }
                 airborne = false; py = waterY; vy = 0;
+                heliUsed = false; heliAir = false; heliHeld = false; heliSet = 0; heliLay = 0;   // down is down, rolled or not
             }
         }
         else
@@ -146,11 +293,35 @@ public class BoardController : MonoBehaviour
         if (airborne)
         {
             float SR = SpinRate * statAir, FR = FlipRate * statAir;
+            if (heliAir)
+            {
+                // web 45706-45722: flipRot is the roll axis, the board turning over the way it is
+                // going. It turns for as long as you hold, but not until he is straight: he
+                // leaves the water leaning back and the settle is a beat, not a lockout.
+                if (heliSet > 0) heliSet = Mathf.Max(0f, heliSet - dt);
+                if (heliHeld && heliSet <= 0) flipRot += dt * HeliRate * statAir;
+                heliIncline = Ease(heliIncline, 0f, dt, heliSet > 0 ? 9f : 6f);   // dead level through the rolls
+            }
             if (spinHeld) spinRot += dt * SR;
             if (flipHeld) flipRot += dt * FR;
             if (pitchHeld) pitchRot += dt * FR;
         }
         else { spinHeld = flipHeld = pitchHeld = false; }
+        Sfx.TrickTurn("spin", spinRot, spinHeld); Sfx.TrickTurn("roll", flipRot, flipHeld); Sfx.TrickTurn("flip", pitchRot, pitchHeld);
+        if (heliPh < 0 && !heliAir) heliIncline = Ease(heliIncline, 0f, dt, 4f);   // web 45929
+
+        // the lie-down the rig reads (web 44141-44143): scripted off the beats, eased only on the way out
+        bool heliOnNow = heliAir || heliPh >= 1;
+        if (heliPh >= 0) heliPose = heliLay;
+        else heliPose = Ease(heliPose, heliOnNow ? 1f : 0f, dt, heliOnNow ? 12f : 6f);
+
+        // the handstand (web 44625-44627): the button eases him up at 7 and down at 9, and handT
+        // is what the rig turns him over by and what the scoring reads
+        bool handWant = handOn && !wipe;
+        handT += ((handWant ? 1f : 0f) - handT) * Mathf.Min(1f, dt * (handWant ? 7f : 9f));
+        if (handT < 0.002f && !handWant) handT = 0f;
+        HandstandScore(dt, handWant);
+        if (wipe) return;                      // his arms gave out
 
         // the pose beats
         poseTake = Mathf.Max(0f, poseTake - dt * 2.2f);
@@ -167,14 +338,10 @@ public class BoardController : MonoBehaviour
         // the transform: position, the trick rotation, and the carve lean on top
         transform.position = new Vector3(px, py, pz);
         var trick = Quaternion.Euler(pitchRot * Mathf.Rad2Deg, spinRot * Mathf.Rad2Deg, flipRot * Mathf.Rad2Deg);
-        float yaw = -carve * 0.30f, roll = -carve * 0.55f;
-        float pitch = 0f;
-        if (!airborne)
-        {
-            float ahead = WaveField.Height(px, fz - 2.2f, t), behind = WaveField.Height(px, fz + 2.2f, t);
-            pitch = Mathf.Atan2(ahead - behind, 4.4f) * 0.8f;
-        }
-        else pitch = Mathf.Clamp(-vy * 0.03f, -0.35f, 0.35f);
+        // the board lies along the water it rests on (web 45838, 45908), and leans into the carve
+        float yaw = -carve * 0.30f, roll = -carve * 0.55f + (airborne ? 0f : hullRoll * 1.20f);
+        float pitch = airborne ? Mathf.Clamp(-vy * 0.03f, -0.35f, 0.35f) : Mathf.Clamp(hullPitch * 1.02f, -0.62f, 0.68f);
+        pitch += heliIncline;                  // the helicopter's nose-down and the lean-back out (web 45949)
         transform.rotation = trick * Quaternion.Euler(pitch * Mathf.Rad2Deg, yaw * Mathf.Rad2Deg, roll * Mathf.Rad2Deg);
     }
 
@@ -186,6 +353,9 @@ public class BoardController : MonoBehaviour
         if (spinRot > 0.4f) { pts += Mathf.FloorToInt(spinRevs * 4) * 90; names++; label += Mathf.RoundToInt(spinRevs * 360) + "° SPIN "; }
         if (flipRot > 0.4f) { pts += Mathf.FloorToInt(flipRevs * 4) * 110; names++; label += Mathf.RoundToInt(flipRevs * 360) + "° ROLL "; }
         if (pitchRot > 0.4f) { pts += Mathf.FloorToInt(pitchRevs * 4) * 130; names++; label += Mathf.RoundToInt(pitchRevs * 360) + "° FLIP "; }
+        // web 26873-26880: the helicopter scores as the roll it is, and takes the name when it was rolled that way
+        if (heliUsed && flipRot > 0.4f) { pts = Mathf.RoundToInt(pts * 1.35f); label = label.Replace("° ROLL", "° HELICOPTER"); }
+        heliUsed = false; heliAir = false; heliPh = -1; heliHeld = false; heliSet = 0; heliLay = 0;
         if (landed && pts > 0)
         {
             if (names > 1) pts = Mathf.RoundToInt(pts * 1.5f);
@@ -197,6 +367,7 @@ public class BoardController : MonoBehaviour
             score += pts;
             boost = Mathf.Min(16f, boost + 5f + Mathf.Min(7f, pts / 110f));
             Say(label.Trim() + (names > 1 ? " COMBO" : "") + "! +" + pts);
+            Sfx.Buzz(pts >= 400 ? 35 : 20);
         }
         spinRot = flipRot = pitchRot = 0; spinHeld = flipHeld = pitchHeld = false;
         return pts;
@@ -208,7 +379,10 @@ public class BoardController : MonoBehaviour
     {
         if (wipe) return;
         wipe = true; running = false; wipeT = 0;
+        handOn = false; handPts = 0; handHold = 0;                              // handT itself eases off in the tumble
+        heliPh = -1; heliAir = false; heliHeld = false; heliSet = 0; heliLay = 0; heliUsed = false;
         Say(kind == "land" ? "BAD LANDING" : "WIPEOUT");
+        Sfx.Hit(kind);
         onSplash?.Invoke(new Vector3(px, waterY, pz), 60);
         onWipeout?.Invoke();
     }
@@ -218,6 +392,9 @@ public class BoardController : MonoBehaviour
     {
         wipeT += dt;
         float k = Mathf.Min(1f, wipeT / 0.95f);
+        // he comes down off his hands and off the nose as he goes over, the rates the ride uses
+        handT += (0f - handT) * Mathf.Min(1f, dt * 9f);
+        heliPose = Ease(heliPose, 0f, dt, 6f); heliCrouch = Ease(heliCrouch, 0f, dt, 9f);
         vy -= 32.2f * dt; py += vy * dt;
         float sea = WaveField.Height(px, dist * WaveField.Drift + pz, t) + 0.13f;
         if (py < sea) { py = sea - Mathf.Min(1.26f, k * 1.6f); vy = 0; }

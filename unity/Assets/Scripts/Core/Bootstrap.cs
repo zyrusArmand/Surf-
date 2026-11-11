@@ -9,7 +9,7 @@ public class Bootstrap : MonoBehaviour
     ParticleSystem spray; Transform rig, pug; RiderRig riderRig; float wakeA;
     Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop;
     Quests quests; StatsPanel stats; SettingsPanel settings; SchoolPanel school; ProfilePanel profile;
-    bool over; float runSecs;
+    bool over; float runSecs; bool palmSaid;
 
     void Start()
     {
@@ -51,13 +51,14 @@ public class Bootstrap : MonoBehaviour
         spray = BuildSpray();
         rider.onSplash = (p, n) => { spray.transform.position = p; spray.Emit(n); };
         spawner.onSplash = rider.onSplash; setWave.onSplash = rider.onSplash; whirl.onSplash = rider.onSplash; crate.onSplash = rider.onSplash;
-        rider.onWipeout = () => { over = false; };
+        rider.onWipeout = () => { over = false; Sfx.Buzz(60, 50, 80); };
 
         // camera
         var camGo = new GameObject("Camera"); cam = camGo.AddComponent<Camera>(); camGo.tag = "MainCamera";
         cam.nearClipPlane = 0.5f; cam.farClipPlane = 500f; cam.fieldOfView = 62f;
         cam.clearFlags = CameraClearFlags.Skybox;
         camGo.AddComponent<AudioListener>();
+        Sfx.Init();
         var ucam = camGo.AddComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>();
         ucam.renderPostProcessing = true; ucam.antialiasing = UnityEngine.Rendering.Universal.AntialiasingMode.FastApproximateAntialiasing;
         chase = camGo.AddComponent<ChaseCamera>(); chase.rider = rider; chase.cam = cam;
@@ -93,6 +94,7 @@ public class Bootstrap : MonoBehaviour
         hud.onProfile = () => profile.Show(true); hud.onSchool = () => school.Show(true);
         profile.onStats = () => stats.Show(true);
         Quests.onToast = hud.Toast;
+        settings.onChange = () => Sfx.Refresh();
         quests.onClose = settings.onClose = profile.onClose = stats.onClose = school.onClose = () => { if (!rider.running && !rider.wipe) hud.ShowMenu(); };
         Menu();
     }
@@ -164,9 +166,11 @@ public class Bootstrap : MonoBehaviour
     void Update()
     {
         float dt = Mathf.Min(0.033f, Time.deltaTime);
+        Sfx.MusicTick(!rider.running);       // the title track whenever a run is not in progress
         if (rider.running)
         {
             rider.Step(dt); runSecs += dt;
+            Sfx.RideBed(rider.speed, rider.carve, rider.airborne, rider.Submerged ? 1f : 0f);
             spawner.Step(dt);
             setWave.Step(dt);
             whirl.Step(dt); crate.Step(dt);
@@ -207,6 +211,9 @@ public class Bootstrap : MonoBehaviour
         else
         {
             rider.Idle(dt);
+            if (Random.value < dt / 11.5f) Sfx.Gull(40f, 210f, true);
+            float gust = 0.10f + 0.95f * Mathf.Pow(0.5f + 0.5f * Mathf.Sin(Time.time * 0.21f), 1.5f);
+            if (gust < 0.42f) palmSaid = false; else if (gust > 0.62f && !palmSaid) { palmSaid = true; Sfx.Palm(); }
             beach.PlaceRider(rider.transform, rig, boardGo);
             // a tap on the signpost, away from the pills
             bool over2 = UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject();

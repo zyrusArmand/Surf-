@@ -52,7 +52,7 @@ public class Crate : MonoBehaviour
             float q = Random.value;
             int n = q < 0.10f ? 200 + 25 * Random.Range(0, 7) : q < 0.32f ? 100 : q < 0.64f ? 50 : 25;
             r.coins += n;
-            r.Say("TREASURE CHEST! +" + n + " PUKA");
+            r.Say("TREASURE CHEST! +" + n + " PUKA"); Sfx.Buzz(25);
             onSplash?.Invoke(new Vector3(r.px, r.py + 0.3f, r.pz), 14);
         }
     }

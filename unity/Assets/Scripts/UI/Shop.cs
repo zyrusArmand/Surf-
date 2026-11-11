@@ -57,11 +57,11 @@ public class Shop : MonoBehaviour
         tabBoards.color = tab == "boards" ? Color.white : new Color(1, 1, 1, 0.55f);
         tabRiders.color = tab == "riders" ? Color.white : new Color(1, 1, 1, 0.55f);
         if (tab == "boards") foreach (var b in BoardCatalog.All) Card(b.name, b.blurb, b.price, SaveData.Owns(b.id), SaveData.S.equipped == b.id, new[] { b.speed, b.turn, b.air, b.tough }, null,
-            () => { if (SaveData.Coins >= b.price) { SaveData.Coins -= b.price; SaveData.S.owned.Add(b.id); SaveData.S.equipped = b.id; SaveData.Flush(); onChange?.Invoke(); Fill(); } },
-            () => { SaveData.S.equipped = b.id; SaveData.Flush(); onChange?.Invoke(); Fill(); });
+            () => { Sfx.Buzz(10); if (SaveData.Coins >= b.price) { SaveData.Coins -= b.price; SaveData.S.owned.Add(b.id); SaveData.S.equipped = b.id; SaveData.Flush(); Sfx.Buy(); Sfx.Buzz(16); onChange?.Invoke(); Fill(); } },
+            () => { Sfx.Buzz(10); SaveData.S.equipped = b.id; SaveData.Flush(); Sfx.EquipBoard(); onChange?.Invoke(); Fill(); });
         else foreach (var r in RiderCatalog.All) Card(r.name, r.blurb, r.price, SaveData.OwnsRider(r.id), SaveData.S.rider == r.id, null, r.perk,
-            () => { if (SaveData.Coins >= r.price) { SaveData.Coins -= r.price; SaveData.S.ownedChars.Add(r.id); SaveData.S.rider = r.id; SaveData.Flush(); onChange?.Invoke(); Fill(); } },
-            () => { SaveData.S.rider = r.id; SaveData.Flush(); onChange?.Invoke(); Fill(); });
+            () => { Sfx.Buzz(10); if (SaveData.Coins >= r.price) { SaveData.Coins -= r.price; SaveData.S.ownedChars.Add(r.id); SaveData.S.rider = r.id; SaveData.Flush(); Sfx.Buy(); Sfx.Buzz(16); onChange?.Invoke(); Fill(); } },
+            () => { Sfx.Buzz(10); SaveData.S.rider = r.id; SaveData.Flush(); Sfx.EquipRider(); onChange?.Invoke(); Fill(); });
         scroll.verticalNormalizedPosition = 1f;
     }
 

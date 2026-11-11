@@ -105,7 +105,7 @@ public class Spawner : MonoBehaviour
             {
                 o.passed = true;
                 float m = Mathf.Abs(r.px - o.x) - (o.hx + BoardController.BoardHalfW);
-                if (o.kind != "ramp" && !o.used && m > 0 && m < 1.5f) { r.score += 25; r.Say("CLOSE CALL! +25"); }
+                if (o.kind != "ramp" && !o.used && m > 0 && m < 1.5f) { r.score += 25; r.Say("CLOSE CALL! +25"); Sfx.Close(false); Sfx.Buzz(12); }
             }
             if (!contact) continue;
             if (o.ramp)
@@ -114,7 +114,7 @@ public class Spawner : MonoBehaviour
                 if (!r.airborne && !o.used && o.z > r.pz - 1.5f)
                 {
                     o.used = true; r.vy = 15.5f * r.statAir; r.airborne = true; r.boost = Mathf.Min(16f, r.boost + 4f); r.poseTake = 1f;
-                    r.Say("RAMP!");
+                    r.Say("RAMP!"); Sfx.Buzz(12);
                 }
             }
             else if (o.kind == "jelly" && r.py < o.y + o.h + 0.35f)
@@ -123,10 +123,10 @@ public class Spawner : MonoBehaviour
                 bool over = r.airborne && r.py > o.y + 0.10f;
                 r.vy = over ? Mathf.Max(12.5f, -r.vy * 0.85f + 9f) : Mathf.Max(9f, r.vy + 8f);
                 r.airborne = true; r.py = Mathf.Max(r.py, o.y + 0.9f);
-                r.score += 60; r.boost = Mathf.Min(16f, r.boost + 3f); r.Say("JELLY BOUNCE! +60");
+                r.score += 60; r.boost = Mathf.Min(16f, r.boost + 3f); r.Say("JELLY BOUNCE! +60"); Sfx.Jelly(over); Sfx.Buzz(15);
                 onSplash?.Invoke(new Vector3(o.x, o.y + 0.5f, o.z), over ? 14 : 20);
             }
-            else if (r.py < r.waterY + o.h)
+            else if (r.py < r.waterY + o.h && !r.Submerged)     // under the water in the helicopter nothing on it can touch him
             {
                 r.Wipeout(o.kind);
             }
@@ -176,10 +176,10 @@ public class Spawner : MonoBehaviour
                 if (off < ShkDodge && r.py < o.y + ShkOver && r.running)
                 {
                     o.atk = "bite"; eater = o; o.at = 0;
-                    r.Wipeout("bigfin"); r.Say("EATEN!");
+                    r.Wipeout("bigfin"); r.Say("EATEN!"); Sfx.Buzz(22);
                     return true;
                 }
-                o.atk = "miss"; r.score += 60; r.Say("DODGED THE SHARK! +60");
+                o.atk = "miss"; r.score += 60; r.Say("DODGED THE SHARK! +60"); Sfx.Close(true); Sfx.Buzz(14);
             }
             if (k >= 1f) { onSplash?.Invoke(new Vector3(o.x, o.y, o.z), 26); o.atk = "done"; o.targetX = o.x; o.y = sea + o.floatOff; }
             return true;
@@ -212,6 +212,7 @@ public class Spawner : MonoBehaviour
     void Throw(Ob o)
     {
         var r = rider;
+        Sfx.StarThrow();
         if (starMesh == null)
         {
             // a flat five-pointed star
@@ -248,13 +249,13 @@ public class Spawner : MonoBehaviour
             float sea = WaveField.Height(p.x, fzBase + p.z, r.t);
             if (hit)
             {
-                onSplat?.Invoke(new Color(1f, 0.54f, 0.24f)); r.Say("SPLAT!");
+                onSplat?.Invoke(new Color(1f, 0.54f, 0.24f)); r.Say("SPLAT!"); Sfx.StarHit(true);
                 onSplash?.Invoke(p, 10);
                 Destroy(st.go); stars.RemoveAt(i); continue;
             }
             if (p.y < sea || st.t > 5f || p.z > 18f)
             {
-                if (p.y < sea) onSplash?.Invoke(new Vector3(p.x, sea, p.z), 6);
+                if (p.y < sea) { onSplash?.Invoke(new Vector3(p.x, sea, p.z), 6); Sfx.StarMiss(Mathf.Sqrt((p.x - r.px) * (p.x - r.px) + (p.z - r.pz) * (p.z - r.pz))); }
                 Destroy(st.go); stars.RemoveAt(i);
             }
         }

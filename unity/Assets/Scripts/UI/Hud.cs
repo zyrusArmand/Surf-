@@ -97,7 +97,7 @@ public class Hud : MonoBehaviour
         Ges(j.transform, "jump", 27, new Vector2(0, 14));
         UiKit.Label(j.transform, "JUMP", 17, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -14), Vector2.zero);
         j.raycastTarget = true; jump = j.gameObject;
-        UiKit.Pressable(jump, () => rider.Jump());
+        UiKit.Pressable(jump, () => { Sfx.Buzz(10); rider.Jump(); });
     }
 
     Text Cell(Transform p, string lab, float ax, out Text rec, string recText)
@@ -115,8 +115,8 @@ public class Hud : MonoBehaviour
         Ges(im.transform, trick, 30, new Vector2(0, 7));
         UiKit.Label(im.transform, label, 9.5f, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -16), Vector2.zero);
         im.raycastTarget = true;
-        if (trick == "hand" || trick == "heli") UiKit.Pressable(im.gameObject, null, () => Toast((trick == "hand" ? "The handstand" : "The helicopter") + " is coming in the next round"));
-        else UiKit.Pressable(im.gameObject, () => rider.Hold(trick, true), () => rider.Hold(trick, false));
+        // all five hold and release; the rider sorts out what each one means
+        UiKit.Pressable(im.gameObject, () => { Sfx.Buzz(8); Sfx.Trick(trick); rider.Hold(trick, true); }, () => rider.Hold(trick, false));
     }
 
     // the gesture icon the web draws on every button, from the same SVG
@@ -145,15 +145,15 @@ public class Hud : MonoBehaviour
         var again = UiKit.Pic(c, "again", UiKit.Circle(84, UiKit.Body.Teal, 2.5f), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(34, 22), new Vector2(84, 84));
         UiKit.Label(again.transform, "▶", 22, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(2, 8), Vector2.zero);
         UiKit.Label(again.transform, "AGAIN", 11, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -16), Vector2.zero);
-        again.raycastTarget = true; UiKit.Pressable(again.gameObject, null, () => onPlay?.Invoke());
+        again.raycastTarget = true; UiKit.Pressable(again.gameObject, null, () => { Sfx.Buzz(12); onPlay?.Invoke(); });
         var mb = UiKit.Pic(c, "menu", UiKit.Circle(54, UiKit.Body.Teal, 2f), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(-64, 36), new Vector2(54, 54));
         UiKit.Label(mb.transform, "⌂", 17, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, 6), Vector2.zero);
         UiKit.Label(mb.transform, "MENU", 8, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -12), Vector2.zero);
-        mb.raycastTarget = true; UiKit.Pressable(mb.gameObject, null, () => onMenu?.Invoke());
+        mb.raycastTarget = true; UiKit.Pressable(mb.gameObject, null, () => { Sfx.Buzz(8); onMenu?.Invoke(); });
         var sb = UiKit.Pic(c, "shop", UiKit.Circle(54, UiKit.Body.Teal, 2f), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(124, 36), new Vector2(54, 54));
         UiKit.Label(sb.transform, "\u2302", 17, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, 6), Vector2.zero);
         UiKit.Label(sb.transform, "SHOP", 8, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -12), Vector2.zero);
-        sb.raycastTarget = true; UiKit.Pressable(sb.gameObject, null, () => onShop?.Invoke());
+        sb.raycastTarget = true; UiKit.Pressable(sb.gameObject, null, () => { Sfx.Buzz(8); onShop?.Invoke(); });
         card.SetActive(false);
     }
 
@@ -252,9 +252,11 @@ public class Hud : MonoBehaviour
         }
         else if (Input.touchCount == 0 && steerPointer == 99) { steerPointer = -1; touch = 0; }
         rider.steer = Mathf.Clamp(k + touch, -1f, 1f);
-        if (Input.GetKeyDown(KeyCode.Space)) rider.Jump();
-        if (Input.GetKeyDown(KeyCode.J)) rider.Hold("spin", true); if (Input.GetKeyUp(KeyCode.J)) rider.Hold("spin", false);
-        if (Input.GetKeyDown(KeyCode.K)) rider.Hold("flip", true); if (Input.GetKeyUp(KeyCode.K)) rider.Hold("flip", false);
-        if (Input.GetKeyDown(KeyCode.L)) rider.Hold("roll", true); if (Input.GetKeyUp(KeyCode.L)) rider.Hold("roll", false);
+        if (Input.GetKeyDown(KeyCode.Space)) { Sfx.Buzz(10); rider.Jump(); }
+        if (Input.GetKeyDown(KeyCode.J)) { Sfx.Trick("spin"); rider.Hold("spin", true); } if (Input.GetKeyUp(KeyCode.J)) rider.Hold("spin", false);
+        if (Input.GetKeyDown(KeyCode.K)) { Sfx.Trick("flip"); rider.Hold("flip", true); } if (Input.GetKeyUp(KeyCode.K)) rider.Hold("flip", false);
+        if (Input.GetKeyDown(KeyCode.L)) { Sfx.Trick("roll"); rider.Hold("roll", true); } if (Input.GetKeyUp(KeyCode.L)) rider.Hold("roll", false);
+        if (Input.GetKeyDown(KeyCode.H)) rider.Hold("hand", true); if (Input.GetKeyUp(KeyCode.H)) rider.Hold("hand", false);
+        if (Input.GetKeyDown(KeyCode.G)) rider.Hold("heli", true); if (Input.GetKeyUp(KeyCode.G)) rider.Hold("heli", false);
     }
 }
