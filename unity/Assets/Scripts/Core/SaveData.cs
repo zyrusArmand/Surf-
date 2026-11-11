@@ -67,6 +67,13 @@ public static class SaveData
     public static int Coins { get => S.coins; set { S.coins = Mathf.Max(0, value); } }
     public static bool Owns(string id) => S.owned.Contains(id);
     public static bool OwnsRider(string id) => S.ownedChars.Contains(id);
+    /// the secret panel's Reset: everything back to a first launch
+    public static void Wipe()
+    {
+        try { PlayerPrefs.DeleteKey(Key); PlayerPrefs.DeleteKey("best"); PlayerPrefs.DeleteKey("bestDist"); PlayerPrefs.DeleteKey("coins"); PlayerPrefs.Save(); } catch { }
+        s = new Save(); Flush();
+    }
+
     public static void Flush()
     {
         try { PlayerPrefs.SetString(Key, JsonUtility.ToJson(S)); PlayerPrefs.Save(); } catch { }

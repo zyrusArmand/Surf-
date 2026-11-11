@@ -9,7 +9,7 @@ public class Bootstrap : MonoBehaviour
     ParticleSystem spray; Transform rig, pug; RiderRig riderRig; ProcRig procRig; float wakeA;
     Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop; Coconuts cocos; Ufo ufo; Dive dive; Island island; Chute chute;
     Quests quests; StatsPanel stats; SettingsPanel settings; SchoolPanel school; ProfilePanel profile; GuidePanel guide;
-    WheelPanel wheel; LevelPanel levelInfo; PukaPanel puka; int bankedDist, bankedScore, bankedCoins;
+    WheelPanel wheel; LevelPanel levelInfo; PukaPanel puka; SecretPanel secret; int bankedDist, bankedScore, bankedCoins;
     bool over; float runSecs; bool palmSaid;
     Vector3 hullMin, hullMax; bool hullOk;      // the board's own box, in its frame, for the sea's dry-hull rule
 
@@ -105,6 +105,23 @@ public class Bootstrap : MonoBehaviour
         wheel = new GameObject("Wheel").AddComponent<WheelPanel>(); wheel.Build(hud.UiRoot);
         levelInfo = new GameObject("LevelInfo").AddComponent<LevelPanel>(); levelInfo.Build(hud.UiRoot);
         puka = new GameObject("Puka").AddComponent<PukaPanel>(); puka.Build(hud.UiRoot);
+        // the secret panel: five taps on the version
+        secret = new GameObject("Secret").AddComponent<SecretPanel>(); secret.Build(hud.UiRoot);
+        hud.onSecret = () => secret.Show(true);
+        secret.onChange = shop.onChange;
+        secret.onTest = what =>
+        {
+            Play();
+            switch (what)
+            {
+                case "wave": setWave.summon = true; break;
+                case "whirl": whirl.summon = true; break;
+                case "ufo": ufo.summon = true; break;
+                case "fork": island.summon = true; break;
+                case "dive": dive.summon = true; break;
+                case "drop": chute.summon = true; break;
+            }
+        };
         hud.onWheel = () => wheel.Show(true); hud.onLevel = () => levelInfo.Show(true); hud.onPuka = () => puka.Show(true);
         wheel.onChange = shop.onChange;      // a loan or gear won shows at once; the purse refreshes
         // a spare life from the wheel: back on the board where he went in, the water ahead cleared
@@ -120,7 +137,7 @@ public class Bootstrap : MonoBehaviour
         profile.onStats = () => stats.Show(true);
         Quests.onToast = hud.Toast;
         settings.onChange = () => Sfx.Refresh();
-        quests.onClose = settings.onClose = profile.onClose = stats.onClose = school.onClose = guide.onClose = wheel.onClose = levelInfo.onClose = puka.onClose = () => { if (!rider.running && !rider.wipe) hud.ShowMenu(); };
+        quests.onClose = settings.onClose = profile.onClose = stats.onClose = school.onClose = guide.onClose = wheel.onClose = levelInfo.onClose = puka.onClose = secret.onClose = () => { if (!rider.running && !rider.wipe) hud.ShowMenu(); };
         Menu();
     }
 
@@ -327,7 +344,7 @@ public class Bootstrap : MonoBehaviour
             beach.PlaceRider(rider.transform, rig, boardGo);
             // a tap on the signpost, away from the pills
             bool over2 = UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject();
-            bool paneOpen = shop.Open || quests.Open || stats.Open || settings.Open || school.Open || profile.Open || guide.Open || wheel.Open || levelInfo.Open || puka.Open;
+            bool paneOpen = shop.Open || quests.Open || stats.Open || settings.Open || school.Open || profile.Open || guide.Open || wheel.Open || levelInfo.Open || puka.Open || secret.Open;
             if (Input.GetMouseButtonDown(0) && !over2 && !paneOpen) beach.Tap(cam, Input.mousePosition);
             for (int i = 0; i < Input.touchCount; i++)
             {

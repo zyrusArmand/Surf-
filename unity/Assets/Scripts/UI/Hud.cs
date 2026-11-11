@@ -13,6 +13,8 @@ public class Hud : MonoBehaviour
     public BoardController rider;
     public System.Action onPlay, onMenu, onShop, onQuests, onSettings, onProfile, onSchool;
     public System.Action onWheel, onLevel, onPuka;        // the bar's wheel, the level pill, the + on the purse
+    public System.Action onSecret;                        // five taps on the version
+    int verTaps; float verTapT;
     public System.Action onRevive;                        // the card's free life was taken: put him back on the board
     public Coconuts cocos;                                // the coconut meter reads the charge
     public Island island; public Dive dive;               // the walk stick ashore; the air left under water
@@ -53,7 +55,15 @@ public class Hud : MonoBehaviour
         menu = UiKit.Rect(root, "menu", Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero).gameObject;
         var m = menu.transform;
         // the version, small at the foot of the beach, as the web prints it
-        UiKit.Label(m, "v" + Application.version, 12, new Color(1, 1, 1, 0.62f), FontStyle.Bold, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 14), new Vector2(200, 16), TextAnchor.MiddleCenter, 0.5f);
+        // five taps on it open the secret panel, as the web's version does
+        var ver = UiKit.Label(m, "v" + Application.version, 12, new Color(1, 1, 1, 0.62f), FontStyle.Bold, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 14), new Vector2(200, 16), TextAnchor.MiddleCenter, 0.5f);
+        ver.raycastTarget = true;
+        UiKit.Pressable(ver.gameObject, null, () =>
+        {
+            float now = Time.unscaledTime;
+            verTaps = now - verTapT < 1.2f ? verTaps + 1 : 1; verTapT = now;
+            if (verTaps >= 5) { verTaps = 0; Sfx.Buzz(20); onSecret?.Invoke(); }
+        });
         var pill = UiKit.Pic(m, "puka", UiKit.Rounded(104, 34, 17, 17, 17, 17, UiKit.Body.Pill, 1.5f), new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(10, -12), new Vector2(104, 34));
         Shell(pill.transform, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(10, 0), 17);
         tMenuCoins = UiKit.Label(pill.transform, "0", 14.5f, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(-4, 0), Vector2.zero);
