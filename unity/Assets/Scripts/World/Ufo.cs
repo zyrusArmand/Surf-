@@ -605,7 +605,7 @@ public class Ufo : MonoBehaviour
     }
 
     // ---- the drops: a handful off the hull for the first few seconds out of the sea, pooled ----
-    void Drip(float x, float y, float z)
+    void SpawnDrip(float x, float y, float z)
     {
         if (drips.Count > 90) return;
         if (dripMat == null)
