@@ -20,10 +20,12 @@ public class Beach : MonoBehaviour
     public float postHeight = 9.5f, postTurn = -14f;
     public Vector3 boardAt = new Vector3(0.9f, 0, -10.5f);
     public float boardLean = 22f, boardTurn = -30f;
-    [Header("The shot")]
-    public Vector3 camAt = new Vector3(0.6f, 6.6f, 22f);
-    public Vector3 camAim = new Vector3(-0.4f, 5.0f, -8f);
+    [Header("The shot (heights are above the sand at that spot)")]
+    public Vector3 camAt = new Vector3(0.6f, 6.2f, 22f);
+    public Vector3 camAim = new Vector3(-0.4f, 4.6f, -8f);
     public float camFov = 58f;
+    [Header("The light: the key comes from behind the camera so the props face it lit")]
+    public Vector3 sunFrom = new Vector3(0.55f, 0.62f, 0.55f);
 
     public System.Action<string> onSign;       // "Play", "Shop", "Quests"
 
@@ -60,7 +62,7 @@ public class Beach : MonoBehaviour
 
         // the palm, with the sign hung in it and a board leaning on the trunk
         palm = Spot("Palm", palmAt);
-        var palmGo = Models.Spawn("palmlod", palm, palmHeight, PrimitiveType.Cylinder);
+        var palmGo = Models.Spawn("palm", palm, palmHeight, PrimitiveType.Cylinder);
         palm.localRotation = Quaternion.Euler(0, palmTurn, 0) * Quaternion.Euler(0, 0, -palmLean);
         var signSpot = new GameObject("SignSpot").transform; signSpot.SetParent(palm, false);
         signSpot.localPosition = signOnPalm; signSpot.localRotation = Quaternion.Euler(0, signTurn, 0);
@@ -139,7 +141,9 @@ public class Beach : MonoBehaviour
     {
         t += dt;
         var at = camAt + new Vector3(Mathf.Sin(t * 0.21f) * 0.25f, Mathf.Sin(t * 0.17f + 1f) * 0.12f, 0);
-        cam.transform.position = at; cam.transform.LookAt(camAim, Vector3.up); cam.fieldOfView = camFov;
+        at.y += SandY(camAt.x, camAt.z);
+        var aim = camAim; aim.y += SandY(camAim.x, camAim.z);
+        cam.transform.position = at; cam.transform.LookAt(aim, Vector3.up); cam.fieldOfView = camFov;
     }
 
     /// a tap on the signpost: which arm was hit

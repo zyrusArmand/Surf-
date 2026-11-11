@@ -36,6 +36,7 @@ public class DayCycle : MonoBehaviour
     public Material ocean;      // Surf/Ocean
     public Light sun;
     public float pin = -1f;     // pin the hour (0..2) for looking; -1 follows the run
+    public Vector3 keyFrom;     // when set, the sun light comes from this direction instead (the beach)
 
     [HideInInspector] public float daylight = 1f;   // 0 night .. 1 noon
     [HideInInspector] public Vector3 sunDir = new Vector3(-0.45f, 0.75f, -0.5f).normalized;
@@ -73,6 +74,7 @@ public class DayCycle : MonoBehaviour
         {
             // held above the horizon: a light from below is a torch under the chin
             Vector3 aim = new Vector3(sx * 130f, Mathf.Max(sy * 118f, 26f), -195f).normalized;
+            if (keyFrom.sqrMagnitude > 0.01f) aim = keyFrom.normalized;
             sun.transform.rotation = Quaternion.LookRotation(-aim);
             sun.color = Color.Lerp(C(0xfff2cf), glow, Mathf.Min(0.55f, glowAmt * 0.62f));
             sun.intensity = 0.35f + 1.45f * daylight;
