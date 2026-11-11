@@ -204,11 +204,11 @@ public class Hud : MonoBehaviour
         if (toastT > 0) { toastT -= Time.deltaTime; if (toastT <= 0) tToast.gameObject.SetActive(false); }
         if (splatT > 0 && splat != null)
         {
-            splatT -= Time.deltaTime; float k = Mathf.Clamp01(splatT / 2.4f);
+            splatT -= Time.deltaTime; float sk = Mathf.Clamp01(splatT / 2.4f);
             for (int i = 0; i < 3; i++)
             {
-                var c = splat[i].color; c.a = 0.92f * k * k; splat[i].color = c;
-                splat[i].rectTransform.anchoredPosition += splatV[i] * Time.deltaTime * (1f - k);
+                var c = splat[i].color; c.a = 0.92f * sk * sk; splat[i].color = c;
+                splat[i].rectTransform.anchoredPosition += splatV[i] * Time.deltaTime * (1f - sk);
                 if (splatT <= 0) splat[i].gameObject.SetActive(false);
             }
         }

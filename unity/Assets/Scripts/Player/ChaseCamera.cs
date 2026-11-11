@@ -7,12 +7,12 @@ public class ChaseCamera : MonoBehaviour
     public BoardController rider;
     public Camera cam;
     public float swCam;          // 0..1 while the set wave stands: lower, further back, aimed down the line
-    float camX, camY = 4.9f, camZ = 11f, lookX, camSpd, camRoll;
+    float camX, camY = 4.9f, camZ = 11f, lookX, camSpd;
     const float Fov = 62f, FovFast = 7.5f;
 
     public void Snap()
     {
-        camX = rider.px; lookX = rider.px; camY = rider.waterY + 4.9f; camZ = 11f; camSpd = 0; camRoll = 0;
+        camX = rider.px; lookX = rider.px; camY = rider.waterY + 4.9f; camZ = 11f; camSpd = 0;
     }
 
     public void Step(float dt)
@@ -33,7 +33,6 @@ public class ChaseCamera : MonoBehaviour
         camSpd = Mathf.Lerp(camSpd, s, Mathf.Min(1f, dt * 2f));
         cam.fieldOfView = Fov + FovFast * camSpd * camSpd;
         // no roll: the horizon stays level and only the rider leans into a carve
-        camRoll = 0f;
     }
 
     public float Speed => camSpd;
