@@ -110,7 +110,7 @@ public class Bootstrap : MonoBehaviour
         if (pug != null) Destroy(pug.gameObject);
         // a loan (the wheel's, or the saucer's cow) outranks the equipped pair
         var b = BoardCatalog.Get(string.IsNullOrEmpty(SaveData.S.wheelLoan) ? SaveData.S.equipped : SaveData.S.wheelLoan);
-        var board = BoardMesh.Build(b); board.transform.SetParent(rig, false); boardGo = board;
+        var board = BoardMesh.Build(b); board.transform.SetParent(rig, false); boardGo = board; Hull.Board = board; Hull.ClearMarks();
         rider.ApplyBoard(b);
         pug = Models.Spawn(string.IsNullOrEmpty(SaveData.S.wheelRider) ? SaveData.S.rider : SaveData.S.wheelRider, rig, 1.9f, PrimitiveType.Capsule).transform;
         pug.localPosition = new Vector3(0, 0.19f, 0.2f); pug.localRotation = Quaternion.Euler(0, -70f, 0);
