@@ -12,7 +12,16 @@ public class Save
     public List<string> ownedChars = new List<string> { "pug" };
     public string equipped = "astro", rider = "pug";
     public int runs;
+    // the three goals on the board (see Quests): the pool id, the count so far, and the tick
+    public List<GoalSave> goals = new List<GoalSave>();
+    // the run history behind Stats, the web's surfStats counters that the port can feed
+    public int crates, closeCalls, barrels, tricks, jellies, ramps, totalDist, totalScore, secs, earned, revives;
+    // settings: stored as "off" flags so a save written before they existed reads as all on
+    public bool musicOff, sfxOff, buzzOff;
 }
+
+[System.Serializable]
+public class GoalSave { public string id; public int n; public bool done; }
 
 public static class SaveData
 {
@@ -30,6 +39,7 @@ public static class SaveData
             if (s.ownedChars == null || s.ownedChars.Count == 0) s.ownedChars = new List<string> { "pug" };
             if (string.IsNullOrEmpty(s.equipped)) s.equipped = "astro";
             if (string.IsNullOrEmpty(s.rider)) s.rider = "pug";
+            if (s.goals == null) s.goals = new List<GoalSave>();
             // the older keys, carried across once
             if (s.best == 0 && PlayerPrefs.HasKey("best")) { s.best = PlayerPrefs.GetInt("best", 0); s.bestDist = PlayerPrefs.GetInt("bestDist", 0); s.coins = PlayerPrefs.GetInt("coins", 0); }
             return s;

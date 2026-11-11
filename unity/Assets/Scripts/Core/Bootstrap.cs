@@ -8,7 +8,8 @@ public class Bootstrap : MonoBehaviour
     BoardController rider; Spawner spawner; ChaseCamera chase; Hud hud; DayCycle day; Ocean ocean;
     ParticleSystem spray; Transform rig, pug; RiderRig riderRig; float wakeA;
     Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop;
-    bool over;
+    Quests quests; StatsPanel stats; SettingsPanel settings; SchoolPanel school; ProfilePanel profile;
+    bool over; float runSecs;
 
     void Start()
     {
@@ -42,7 +43,7 @@ public class Bootstrap : MonoBehaviour
 
         // the water
         spawner = new GameObject("Spawner").AddComponent<Spawner>(); spawner.rider = rider;
-        setWave = new GameObject("SetWave").AddComponent<SetWave>(); setWave.rider = rider;
+        setWave = new GameObject("SetWave").AddComponent<SetWave>(); setWave.rider = rider; setWave.day = day;
         whirl = new GameObject("Whirlpool").AddComponent<Whirlpool>(); whirl.rider = rider; whirl.spawner = spawner; whirl.setWave = setWave;
         crate = new GameObject("Crate").AddComponent<Crate>(); crate.rider = rider; crate.setWave = setWave;
 
@@ -72,7 +73,7 @@ public class Bootstrap : MonoBehaviour
 
         // the title screen's beach
         beach = gameObject.AddComponent<Beach>(); beach.Build(null);
-        beach.onSign = s => { if (s == "Play") Play(); else if (s == "Shop") shop.Show(true); else hud.Toast(s + " is coming in the next round"); };
+        beach.onSign = s => { if (s == "Play") Play(); else if (s == "Shop") shop.Show(true); else if (s == "Quests") quests.Show(true); else school.Show(true); };
         beach.SetBoard(SaveData.S.equipped);
 
         // HUD
@@ -82,6 +83,17 @@ public class Bootstrap : MonoBehaviour
         hud.Build();
         shop = new GameObject("Shop").AddComponent<Shop>(); shop.Build(hud.UiRoot);
         shop.onChange = () => { BuildRider(); if (beach.Showing) beach.PlaceRider(rider.transform, rig, boardGo); hud.ShowMenu(); };
+        // the other panes: quests, stats, settings, the trick school, the profile
+        quests = new GameObject("Quests").AddComponent<Quests>(); quests.Build(hud.UiRoot);
+        stats = new GameObject("Stats").AddComponent<StatsPanel>(); stats.Build(hud.UiRoot);
+        settings = new GameObject("Settings").AddComponent<SettingsPanel>(); settings.Build(hud.UiRoot);
+        school = new GameObject("School").AddComponent<SchoolPanel>(); school.Build(hud.UiRoot);
+        profile = new GameObject("Profile").AddComponent<ProfilePanel>(); profile.Build(hud.UiRoot);
+        hud.onQuests = () => quests.Show(true); hud.onSettings = () => settings.Show(true);
+        hud.onProfile = () => profile.Show(true); hud.onSchool = () => school.Show(true);
+        profile.onStats = () => stats.Show(true);
+        Quests.onToast = hud.Toast;
+        quests.onClose = settings.onClose = profile.onClose = stats.onClose = school.onClose = () => { if (!rider.running && !rider.wipe) hud.ShowMenu(); };
         Menu();
     }
 
@@ -106,7 +118,8 @@ public class Bootstrap : MonoBehaviour
     void Play()
     {
         spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset();
-        rider.Begin();
+        Quests.Roll();
+        rider.Begin(); runSecs = 0;
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
         beach.Show(false); boardGo.SetActive(true); day.pin = -1f; day.keyFrom = Vector3.zero; day.beachLook = false;
@@ -153,13 +166,14 @@ public class Bootstrap : MonoBehaviour
         float dt = Mathf.Min(0.033f, Time.deltaTime);
         if (rider.running)
         {
-            rider.Step(dt);
+            rider.Step(dt); runSecs += dt;
             spawner.Step(dt);
             setWave.Step(dt);
             whirl.Step(dt); crate.Step(dt);
+            Quests.Scan(rider, dt);
             if (Input.GetKeyDown(KeyCode.B)) setWave.summon = true;      // debug: bring a set now
             if (Input.GetKeyDown(KeyCode.V)) whirl.summon = true;        // debug: a whirlpool now
-            chase.swCam = setWave.cam;
+            chase.swCam = setWave.cam; chase.hold = setWave.tubeRide;
             // rail spray while carving
             float cv = Mathf.Abs(rider.carve);
             if (!rider.airborne && cv > 0.22f && Random.value < dt * 30f * cv)
@@ -171,6 +185,7 @@ public class Bootstrap : MonoBehaviour
         }
         else if (rider.wipe)
         {
+            chase.hold = false;
             if (spawner.eater != null && spawner.eater.at < Spawner.ShkChew) { rider.wipeT += dt; spawner.Step(dt); }   // in the shark's mouth
             else { rider.WipeStep(dt); spawner.Step(dt); }
             wakeA = Mathf.Lerp(wakeA, 0f, dt * 4f);
@@ -181,6 +196,9 @@ public class Bootstrap : MonoBehaviour
                 if (rider.score > SaveData.Best) SaveData.Best = rider.score;
                 if (d > SaveData.BestDist) SaveData.BestDist = d;
                 SaveData.Coins += rider.coins; SaveData.S.runs++;
+                int goalPay = Quests.RunEnd(d, rider.score); SaveData.Coins += goalPay;      // distance and trick-point goals
+                Stats.Bump("dist", d); Stats.Bump("score", rider.score); Stats.Bump("earned", rider.coins + goalPay);
+                Stats.Bump("secs", Mathf.RoundToInt(runSecs));
                 int xpGain = d + Mathf.RoundToInt(rider.score / 10f), pay = Progress.AddXp(xpGain);
                 SaveData.Flush();
                 hud.ShowCard(true, d, rider.score, SaveData.Best, xpGain, pay);
@@ -192,12 +210,13 @@ public class Bootstrap : MonoBehaviour
             beach.PlaceRider(rider.transform, rig, boardGo);
             // a tap on the signpost, away from the pills
             bool over2 = UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject();
-            if (Input.GetMouseButtonDown(0) && !over2 && !shop.Open) beach.Tap(cam, Input.mousePosition);
+            bool paneOpen = shop.Open || quests.Open || stats.Open || settings.Open || school.Open || profile.Open;
+            if (Input.GetMouseButtonDown(0) && !over2 && !paneOpen) beach.Tap(cam, Input.mousePosition);
             for (int i = 0; i < Input.touchCount; i++)
             {
                 var tc = Input.GetTouch(i);
                 bool overT = UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject(tc.fingerId);
-                if (tc.phase == TouchPhase.Began && !overT && !shop.Open) beach.Tap(cam, tc.position);
+                if (tc.phase == TouchPhase.Began && !overT && !paneOpen) beach.Tap(cam, tc.position);
             }
         }
         // the pug's stance: the skeleton is posed when the file has one, else the stand-in squashes

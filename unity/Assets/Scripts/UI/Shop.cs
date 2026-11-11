@@ -17,7 +17,7 @@ public class Shop : MonoBehaviour
     public void Build(Transform canvas)
     {
         pane = UiKit.Rect(canvas, "shop", Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero).gameObject;
-        var bg = pane.AddComponent<Image>(); bg.color = new Color(0.04f, 0.16f, 0.30f, 0.96f);
+        var bg = pane.AddComponent<Image>(); bg.color = new Color(0.04f, 0.16f, 0.30f, 1f);   // opaque: nothing of the beach or the last run shows through
         var p = pane.transform;
         UiKit.Label(p, "Shop", 34, Color.white, FontStyle.Bold, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(18, -14), new Vector2(200, 44), TextAnchor.MiddleLeft);
         var pill = UiKit.Pic(p, "coins", UiKit.Rounded(112, 32, 16, 16, 16, 16, UiKit.Body.Pill, 1.5f), new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1), new Vector2(-66, -20), new Vector2(112, 32));

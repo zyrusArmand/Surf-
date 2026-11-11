@@ -7,17 +7,29 @@ public class ChaseCamera : MonoBehaviour
     public BoardController rider;
     public Camera cam;
     public float swCam;          // 0..1 while the set wave stands: lower, further back, aimed down the line
+    public bool hold;            // the ring has the rider: the shot stops following and holds where it was
     float camX, camY = 4.9f, camZ = 11f, lookX, camSpd;
+    bool held; Vector3 heldPos, heldAim;
     const float Fov = 62f, FovFast = 7.5f;
 
     public void Snap()
     {
-        camX = rider.px; lookX = rider.px; camY = rider.waterY + 4.9f; camZ = 11f; camSpd = 0;
+        camX = rider.px; lookX = rider.px; camY = rider.waterY + 4.9f; camZ = 11f; camSpd = 0; held = false;
     }
 
     public void Step(float dt)
     {
         var r = rider;
+        if (hold)
+        {
+            // No barrel camera: the ride camera simply stops when the ring takes charge. Any
+            // re-placement is a snap at the instant of takeover, which is what gets noticed.
+            if (!held) { held = true; heldPos = transform.position; heldAim = new Vector3(lookX, r.waterY + 1.05f + swCam * 1.5f, -14f - swCam * 10f); }
+            transform.position = heldPos; transform.LookAt(heldAim, Vector3.up);
+            camX = heldPos.x; camY = heldPos.y; camZ = heldPos.z;
+            return;
+        }
+        held = false;
         float airH = Mathf.Max(0f, r.py - r.waterY);
         camX += (r.px - camX) * Mathf.Min(1f, dt * 7f);
         lookX += (r.px - lookX) * Mathf.Min(1f, dt * 7f);

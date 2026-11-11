@@ -9,7 +9,7 @@ using UnityEngine.EventSystems;
 public class Hud : MonoBehaviour
 {
     public BoardController rider;
-    public System.Action onPlay, onMenu, onShop;
+    public System.Action onPlay, onMenu, onShop, onQuests, onSettings, onProfile, onSchool;
     public Transform UiRoot => canvas.transform;
     Image xpFill;
 
@@ -56,15 +56,15 @@ public class Hud : MonoBehaviour
         var fill = UiKit.Pic(m, "xpfill", UiKit.Rounded(150, 7, 3.5f, 3.5f, 3.5f, 3.5f, UiKit.Body.Pill, 0), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, 1), new Vector2(-75, -48), new Vector2(150, 7));
         fill.color = new Color(1f, 0.72f, 0.1f); fill.type = Image.Type.Filled; fill.fillMethod = Image.FillMethod.Horizontal; fill.fillAmount = 0.35f; fill.raycastTarget = false; xpFill = fill;
         // settings and profile
-        Round(m, "Settings", "\u2699", -10); Round(m, "Profile", "\u263A", -52);
+        Round(m, "Settings", "\u2699", -10, () => onSettings?.Invoke()); Round(m, "Profile", "\u263A", -52, () => onProfile?.Invoke());
     }
 
-    void Round(Transform m, string name, string glyph, float x)
+    void Round(Transform m, string name, string glyph, float x, System.Action tap)
     {
         var im = UiKit.Pic(m, name, UiKit.Circle(36, UiKit.Body.Pill, 1.5f), new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1), new Vector2(x, -11), new Vector2(36, 36));
         UiKit.Label(im.transform, glyph, 18, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, 1), Vector2.zero);
         im.raycastTarget = true;
-        UiKit.Pressable(im.gameObject, null, () => Toast(name + " is coming in the next round"));
+        UiKit.Pressable(im.gameObject, null, tap);
     }
 
     // ---- the ride ----
