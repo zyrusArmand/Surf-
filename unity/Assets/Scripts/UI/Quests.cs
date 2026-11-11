@@ -21,6 +21,7 @@ public class Quests : MonoBehaviour
         new Goal { id = "dist800",   text = "Surf 800 m in one run",       target = 800,  ev = "dist",  run = true },
         new Goal { id = "dist1500",  text = "Surf 1,500 m in one run",     target = 1500, ev = "dist",  run = true },
         new Goal { id = "trick1500", text = "1,500 trick points in a run", target = 1500, ev = "score", run = true },
+        new Goal { id = "pearl10",   text = "Gather 10 pearls on a dive",  target = 10,   ev = "pearl" },
     };
     public const int Pay = 100;
     public static System.Action<string> onToast;      // "GOAL DONE! +100", for the HUD to show
@@ -101,6 +102,7 @@ public class Quests : MonoBehaviour
         else if (m.StartsWith("SPAT OUT") || m.StartsWith("OUT CLEAN")) { Event("barrel", 1); Stats.Bump("barrels"); }
         else if (m.StartsWith("JELLY BOUNCE")) { Event("jelly", 1); Stats.Bump("jellies"); }
         else if (m.StartsWith("RAMP")) { Event("ramp", 1); Stats.Bump("ramps"); }
+        else if (m.StartsWith("PEARL!")) Event("pearl", 1);
         else if (m.Contains("° ")) Stats.Bump("tricks");       // "540° SPIN! +…": a trick landed
     }
 

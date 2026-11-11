@@ -7,7 +7,7 @@ public class Bootstrap : MonoBehaviour
 {
     BoardController rider; Spawner spawner; ChaseCamera chase; Hud hud; DayCycle day; Ocean ocean;
     ParticleSystem spray; Transform rig, pug; RiderRig riderRig; float wakeA;
-    Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop; Coconuts cocos; Ufo ufo;
+    Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop; Coconuts cocos; Ufo ufo; Dive dive;
     Quests quests; StatsPanel stats; SettingsPanel settings; SchoolPanel school; ProfilePanel profile; GuidePanel guide;
     bool over; float runSecs; bool palmSaid;
 
@@ -47,12 +47,13 @@ public class Bootstrap : MonoBehaviour
         whirl = new GameObject("Whirlpool").AddComponent<Whirlpool>(); whirl.rider = rider; whirl.spawner = spawner; whirl.setWave = setWave;
         crate = new GameObject("Crate").AddComponent<Crate>(); crate.rider = rider; crate.setWave = setWave;
         cocos = new GameObject("Coconuts").AddComponent<Coconuts>(); cocos.rider = rider; cocos.setWave = setWave;
+        dive = new GameObject("Dive").AddComponent<Dive>(); dive.rider = rider; dive.setWave = setWave; setWave.dive = dive; whirl.dive = dive;
         ufo = new GameObject("Ufo").AddComponent<Ufo>(); ufo.rider = rider; ufo.day = day; ufo.setWave = setWave; ufo.rig = rig; ufo.onRebuild = BuildRider; setWave.ufo = ufo;
 
         // spray
         spray = BuildSpray();
         rider.onSplash = (p, n) => { spray.transform.position = p; spray.Emit(n); };
-        spawner.onSplash = rider.onSplash; setWave.onSplash = rider.onSplash; whirl.onSplash = rider.onSplash; crate.onSplash = rider.onSplash; cocos.onSplash = rider.onSplash; ufo.onSplash = rider.onSplash;
+        spawner.onSplash = rider.onSplash; setWave.onSplash = rider.onSplash; whirl.onSplash = rider.onSplash; crate.onSplash = rider.onSplash; cocos.onSplash = rider.onSplash; ufo.onSplash = rider.onSplash; dive.onSplash = rider.onSplash;
         rider.onWipeout = () => { over = false; Sfx.Buzz(60, 50, 80); };
 
         // camera
@@ -63,7 +64,7 @@ public class Bootstrap : MonoBehaviour
         Sfx.Init();
         var ucam = camGo.AddComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>();
         ucam.renderPostProcessing = true; ucam.antialiasing = UnityEngine.Rendering.Universal.AntialiasingMode.FastApproximateAntialiasing;
-        chase = camGo.AddComponent<ChaseCamera>(); chase.rider = rider; chase.cam = cam;
+        chase = camGo.AddComponent<ChaseCamera>(); chase.rider = rider; chase.cam = cam; chase.dive = dive;
 
         // post: bloom, a touch of vignette, ACES
         var volGo = new GameObject("Volume"); var vol = volGo.AddComponent<UnityEngine.Rendering.Volume>(); vol.isGlobal = true;
@@ -124,7 +125,7 @@ public class Bootstrap : MonoBehaviour
 
     void Play()
     {
-        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset();
+        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset();
         Quests.Roll();
         rider.Begin(); runSecs = 0;
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
@@ -138,7 +139,7 @@ public class Bootstrap : MonoBehaviour
     /// the title: the ride stops, he floats in the lane, the dial comes up
     void Menu()
     {
-        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset();
+        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset();
         rider.Idle(0f);
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
@@ -175,11 +176,13 @@ public class Bootstrap : MonoBehaviour
         if (rider.running)
         {
             rider.Step(dt); runSecs += dt;
-            Sfx.RideBed(rider.speed, rider.carve, rider.airborne, rider.Submerged ? 1f : 0f, ufo.Duck);
+            Sfx.RideBed(rider.speed, rider.carve, rider.airborne, Mathf.Max(dive.Sub, rider.Submerged ? 1f : 0f), ufo.Duck);
             spawner.Step(dt);
             setWave.Step(dt);
+            dive.Step(dt);                                   // after the set wave: the launch assigns pz over its trim
             whirl.Step(dt); crate.Step(dt); cocos.Step(dt); ufo.Step(dt);
             if (Input.GetKeyDown(KeyCode.U)) ufo.summon = true;           // debug: the saucer now
+            if (Input.GetKeyDown(KeyCode.N)) dive.summon = true;          // debug: a jetpack now
             rider.transform.localScale = Vector3.one * cocos.K;      // the coconut charge shrinks him
             Quests.Scan(rider, dt);
             if (Input.GetKeyDown(KeyCode.B)) setWave.summon = true;      // debug: bring a set now

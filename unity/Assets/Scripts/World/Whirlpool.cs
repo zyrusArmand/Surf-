@@ -6,7 +6,7 @@ using UnityEngine;
 
 public class Whirlpool : MonoBehaviour
 {
-    public BoardController rider; public Spawner spawner; public SetWave setWave;
+    public BoardController rider; public Spawner spawner; public SetWave setWave; public Dive dive;
     public System.Action<Vector3, int> onSplash;
     public const float R = 20f, Gap = 62f, GapR = 78f, AfterSet = 17f;
     public bool summon;
@@ -83,7 +83,7 @@ public class Whirlpool : MonoBehaviour
         {
             timer -= dt;
             if (setWave != null && setWave.ph != SetWave.Phase.Idle) timer = Mathf.Max(timer, AfterSet);
-            if ((timer <= 0f && r.dist > 700f) || summon) { timer = Gap + Random.value * GapR; summon = false; Spawn(); }
+            if (((timer <= 0f && r.dist > 700f) || summon) && (dive == null || !dive.Busy)) { timer = Gap + Random.value * GapR; summon = false; Spawn(); }
             if (WaveField.WhA > 0) { WaveField.WhA = Mathf.Max(0f, WaveField.WhA - dt * 5f); if (artGo != null) artGo.transform.localScale = new Vector3(1, Mathf.Max(0.001f, WaveField.WhA), 1); }
             if (WaveField.WhA <= 0 && artGo != null) artGo.SetActive(false);
             return;

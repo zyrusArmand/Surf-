@@ -149,7 +149,7 @@ public class Spawner : MonoBehaviour
             o.rx += (slopeZ - o.rx) * f; o.rz += (-slopeX - o.rz) * f;
             o.go.transform.position = new Vector3(o.x, o.y, o.z);
             o.go.transform.rotation = Quaternion.Euler(o.rx * Mathf.Rad2Deg, 0, o.rz * Mathf.Rad2Deg + (o.kind == "buoy" ? Mathf.Sin(r.t * 2f + o.x) * 3.4f : 0));
-            if (!r.running) continue;
+            if (!r.running || r.Submerged) continue;        // under the water nothing floating on it can reach him
 
             // the footprint on the water, then the height test
             // the footprint shrinks with him under a coconut charge

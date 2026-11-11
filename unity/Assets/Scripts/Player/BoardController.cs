@@ -56,7 +56,14 @@ public class BoardController : MonoBehaviour
     public int heliPh = -1;                          // the beat running, -1 for none
     public float heliT, heliPose, heliLay, heliIncline, heliSet, heliCrouch;
     public bool heliUsed, heliAir, heliHeld;
-    public bool Submerged => heliPh >= HeliUnder;
+
+    // ---- the dive (World/Dive.cs owns him while it runs, the way the helicopter beats do) ----
+    public bool diveOn;                              // the launch, the swim or the way out is running: py is not ours
+    public bool diveShield;                          // deeper than anything's draft, over the lane in the arc, or just landed: nothing can hit him
+    public float divePitch;                          // the board tips the way he swims (web boardPitch under water)
+    public float divePose, divePike, diveLoad, diveLift;   // for the rig: 0..1 face-down swim, the fold over the arc, the crouch, feet of air
+    /// under the water, nothing floating on it can reach him
+    public bool Submerged => heliPh >= HeliUnder || diveShield;
 
     public System.Action<Vector3, int> onSplash;   // where, how many drops
     public System.Action onWipeout;
@@ -75,6 +82,7 @@ public class BoardController : MonoBehaviour
         poseTake = poseCrouch = poseExt = poseAir = poseLand = 0;
         handOn = false; handT = handPts = handRisk = handHold = handAcc = 0;
         heliPh = -1; heliT = heliPose = heliLay = heliIncline = heliSet = heliCrouch = 0; heliUsed = heliAir = heliHeld = false;
+        diveOn = false; diveShield = false; divePitch = divePose = divePike = diveLoad = diveLift = 0;
         transform.rotation = Quaternion.identity;
     }
 
@@ -100,7 +108,7 @@ public class BoardController : MonoBehaviour
 
     public void Jump()
     {
-        if (!running || airborne || heliPh >= 0) return;   // the helicopter owns him through its beats
+        if (!running || airborne || heliPh >= 0 || diveOn) return;   // the helicopter and the dive own him through their beats
         vy = 11.8f * statAir; airborne = true; poseTake = 1f;
     }
 
@@ -121,7 +129,7 @@ public class BoardController : MonoBehaviour
     {
         if (!running || wipe) return;
         if (heliAir || heliPh >= 0) { heliHeld = true; return; }
-        if (airborne) return;
+        if (airborne || diveOn) return;
         heliHeld = true;
         heliPh = 0; heliT = 0; heliUsed = true;
         Say("HELICOPTER!");
@@ -261,6 +269,7 @@ public class BoardController : MonoBehaviour
         heliCrouch = Ease(heliCrouch, 0f, dt, 9f);
 
         if (heliPh >= 0) HeliStep(dt);          // the helicopter drives him itself (web 45394)
+        else if (diveOn) vy = 0;                // the dive owns py outright, launch to landing (web 45330-45347)
         else if (airborne)
         {
             vy -= 20f * dt; py += vy * dt;
@@ -289,8 +298,8 @@ public class BoardController : MonoBehaviour
             vy = 0;
         }
 
-        // the held rotations, only in the air
-        if (airborne)
+        // the held rotations, only in the air (and not under the water: there is no board to roll, web 45621)
+        if (airborne && !diveOn)
         {
             float SR = SpinRate * statAir, FR = FlipRate * statAir;
             if (heliAir)
@@ -317,7 +326,7 @@ public class BoardController : MonoBehaviour
 
         // the handstand (web 44625-44627): the button eases him up at 7 and down at 9, and handT
         // is what the rig turns him over by and what the scoring reads
-        bool handWant = handOn && !wipe;
+        bool handWant = handOn && !wipe && !diveOn;
         handT += ((handWant ? 1f : 0f) - handT) * Mathf.Min(1f, dt * (handWant ? 7f : 9f));
         if (handT < 0.002f && !handWant) handT = 0f;
         HandstandScore(dt, handWant);
@@ -342,6 +351,13 @@ public class BoardController : MonoBehaviour
         float yaw = -carve * 0.30f, roll = -carve * 0.55f + (airborne ? 0f : hullRoll * 1.20f);
         float pitch = airborne ? Mathf.Clamp(-vy * 0.03f, -0.35f, 0.35f) : Mathf.Clamp(hullPitch * 1.02f, -0.62f, 0.68f);
         pitch += heliIncline;                  // the helicopter's nose-down and the lean-back out (web 45949)
+        if (diveOn)
+        {
+            // the board goes with him in this port: it tips the way he swims and folds over the
+            // top of the launch with him (the web pikes the rider alone, 0.72 past level), and no
+            // carve rolls him about the lane under the water (web 46015)
+            pitch = divePitch - 0.72f * divePike; roll = -carve * 0.55f;
+        }
         transform.rotation = trick * Quaternion.Euler(pitch * Mathf.Rad2Deg, yaw * Mathf.Rad2Deg, roll * Mathf.Rad2Deg);
     }
 
@@ -395,9 +411,18 @@ public class BoardController : MonoBehaviour
         // he comes down off his hands and off the nose as he goes over, the rates the ride uses
         handT += (0f - handT) * Mathf.Min(1f, dt * 9f);
         heliPose = Ease(heliPose, 0f, dt, 6f); heliCrouch = Ease(heliCrouch, 0f, dt, 9f);
-        vy -= 32.2f * dt; py += vy * dt;
-        float sea = WaveField.Height(px, dist * WaveField.Drift + pz, t) + 0.13f;
-        if (py < sea) { py = sea - Mathf.Min(1.26f, k * 1.6f); vy = 0; }
+        if (diveOn)
+        {
+            // taken under the water: he tumbles where he is and settles a little, and is not
+            // surfaced first (web 41783: the fog and the sand say where this happened)
+            vy = 0; py -= dt * 0.8f;
+        }
+        else
+        {
+            vy -= 32.2f * dt; py += vy * dt;
+            float sea = WaveField.Height(px, dist * WaveField.Drift + pz, t) + 0.13f;
+            if (py < sea) { py = sea - Mathf.Min(1.26f, k * 1.6f); vy = 0; }
+        }
         transform.position = new Vector3(px, py, pz);
         transform.rotation *= Quaternion.Euler(dt * 260f * (1f - k), dt * 90f * (1f - k), dt * 140f * (1f - k));
     }
