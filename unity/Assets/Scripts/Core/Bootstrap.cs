@@ -236,7 +236,7 @@ public class Bootstrap : MonoBehaviour
         var box = boardGo.GetComponent<BoxCollider>(); if (box == null) box = boardGo.AddComponent<BoxCollider>();
         box.center = (hullMin + hullMax) * 0.5f; box.size = hullMax - hullMin;
         var rb = boardGo.GetComponent<Rigidbody>(); if (rb == null) rb = boardGo.AddComponent<Rigidbody>();
-        rb.isKinematic = true; rb.useGravity = false; rb.interpolation = RigidbodyInterpolation.Interpolate;
+        rb.isKinematic = true; rb.useGravity = false; rb.interpolation = RigidbodyInterpolation.None;   // carried by the rig: interpolating it left the board a step behind (and under) him
     }
 
     // the equipped board and rider, from the save; called again when the shop changes them

@@ -194,6 +194,18 @@ Shader "Surf/Ocean"
 
             half4 frag(V i) : SV_Target
             {
+                // ---- and per pixel: no water inside the hull ----
+                // The sea's vertices are a foot or two apart, so the vertex push above cannot hold a
+                // crest out of the whole outline; between them the water still showed through the
+                // deck. Any bit of sea inside the board's plan and above its bottom is simply not
+                // drawn: the board itself is what is seen there, as it would be.
+                if (_HullS.w > 0.5)
+                {
+                    float3 hq = mul(_HullW2L, float4(i.w, 1.0)).xyz;
+                    float qz = abs(hq.z) / max(0.01, _HullS.y);
+                    float qw = _HullS.x * sqrt(saturate(1.0 - qz * qz * qz * qz));
+                    if (qz < 1.0 && abs(hq.x) < qw && hq.y > _HullS.z) discard;
+                }
                 float3 N = normalize(i.n);
                 float3 L = normalize(_SunDir.xyz);
                 float3 V = normalize(_WorldSpaceCameraPos - i.w);
