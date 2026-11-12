@@ -180,7 +180,7 @@ Shader "Surf/Ocean"
                     float half = _HullS.x * sqrt(saturate(1.0 - fz * fz * fz * fz));
                     float inside = (1.0 - smoothstep(half - 0.12, half + 0.10, abs(lp.x))) * (1.0 - smoothstep(0.97, 1.04, fz));
                     float upY = _HullW2L[1][1];                       // how a world rise moves along the board's own up
-                    float floor0 = _HullS.z - 0.03;
+                    float floor0 = _HullS.z + _HullC.z * fz * fz + 0.10;      // just above the underside: the rails still sit IN the water, the deck stays out of it
                     if (inside > 0.001 && lp.y > floor0 && abs(upY) > 0.2)
                     {
                         float drop = (lp.y - floor0) / upY;
@@ -213,10 +213,11 @@ Shader "Surf/Ocean"
                     float3 hq = mul(_HullW2L, float4(i.w, 1.0)).xyz; hq.xz -= _HullC.xy;
                     float qz = abs(hq.z) / max(0.01, _HullS.y * 0.94);
                     float qw = _HullS.x * 0.92 * sqrt(saturate(1.0 - qz * qz * qz * qz));
-                    // above the underside, which rises toward nose and tail with the rocker: cut lower
-                    // than that and a hole opens to the sky under the ends; cut higher (the middle of the
-                    // board's whole height, nose tip included) and water lies across the deck
-                    if (qz < 1.0 && abs(hq.x) < qw && hq.y > _HullS.z + _HullC.z * qz * qz + 0.02) discard;
+                    // only at the DECK: the rails may sit in the water with a real waterline round them,
+                    // which the depth test draws; what never shows is water lying across the deck. The
+                    // underside rises toward nose and tail with the rocker (_HullC.z), and the deck is the
+                    // board's own thickness (_HullC.w) above it
+                    if (qz < 1.0 && abs(hq.x) < qw && hq.y > _HullS.z + _HullC.z * qz * qz + _HullC.w * 0.8) discard;
                 }
                 float3 N = normalize(i.n);
                 float3 L = normalize(_SunDir.xyz);
@@ -281,8 +282,14 @@ Shader "Surf/Ocean"
                 // ripple; the painted sky gradient stays underneath it as the web's fallback
                 if (_ReflOn > 0.5)
                 {
-                    float3 mw = float3(i.w.x, 2.0 * _ReflY - i.w.y, i.w.z);
-                    mw.xz += (Nr.xz + float2(wob.x, wob.y) * 0.08) * (1.4 + 0.012 * dCam);
+                    // Mirrored about THIS bit of water, not the sea's mean level: the texture is the world
+                    // mirrored about _ReflY, and a point mirrored about the local surface h instead sits
+                    // 2(h - _ReflY) lower in it, which is exactly what looking it up at the unmirrored
+                    // surface point gives. So a buoy on a crest has its reflection start at its waterline
+                    // rather than two feet under it. The ripple then bends it by a small, fixed amount
+                    // (it grew with distance before, and along the view that read as a gap too).
+                    float3 mw = i.w;
+                    mw.xz += (Nr.xz + float2(wob.x, wob.y) * 0.05) * 0.55;
                     float4 rc = mul(_ReflVP, float4(mw, 1.0));
                     float2 ruv = rc.xy / max(1e-4, rc.w) * 0.5 + 0.5;
                     float inside = smoothstep(0.0, 0.04, ruv.x) * smoothstep(1.0, 0.96, ruv.x) * smoothstep(0.0, 0.04, ruv.y) * smoothstep(1.0, 0.96, ruv.y);

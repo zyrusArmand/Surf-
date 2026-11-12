@@ -14,7 +14,9 @@ public class Bootstrap : MonoBehaviour
     bool over; float runSecs; bool palmSaid;
     Boat boat;                                        // the tow boat and its paraglide, on demand only (web 15187)
     Vector3 boardBasePos; Quaternion boardBaseRot;   // where the board sits in the rig when no board trick has it
-    Vector3 hullMin, hullMax; bool hullOk; float hullRise; PlanarReflection reflect;
+    Vector3 hullMin, hullMax; bool hullOk; float hullRise, hullThick = 0.2f, floatLift;
+    // where the hull is checked against the sea: the middle, both rails, the rails fore and aft, the tail
+    static readonly Vector2[] FloatPts = { new Vector2(0f, 0f), new Vector2(0.9f, 0f), new Vector2(-0.9f, 0f), new Vector2(0.75f, 0.45f), new Vector2(-0.75f, 0.45f), new Vector2(0.75f, -0.45f), new Vector2(-0.75f, -0.45f), new Vector2(0f, 0.8f) }; PlanarReflection reflect;
     UnityEngine.Rendering.Universal.DepthOfField dof; UnityEngine.Rendering.Universal.ScreenSpaceLensFlare flare;      // the board's own box, in its frame, for the sea's dry-hull rule
 
     // Whatever scene is open when Play is pressed, the game builds itself: an empty or untitled
@@ -201,7 +203,7 @@ public class Bootstrap : MonoBehaviour
         // off the hull's own vertices (a board built here is always readable; a file may not be)
         hullRise = 0f;
         if (!hullOk) return;
-        float cz = (mn.z + mx.z) * 0.5f, hl = Mathf.Max(1e-3f, (mx.z - mn.z) * 0.5f), botC = float.MaxValue, botE = float.MaxValue;
+        float cz = (mn.z + mx.z) * 0.5f, hl = Mathf.Max(1e-3f, (mx.z - mn.z) * 0.5f), botC = float.MaxValue, botE = float.MaxValue, topC = float.MinValue;
         foreach (var mf in boardGo.GetComponentsInChildren<MeshFilter>(false))
         {
             if (mf.sharedMesh == null || mf.name == "fin" || !mf.sharedMesh.isReadable) continue;
@@ -209,10 +211,11 @@ public class Bootstrap : MonoBehaviour
             foreach (var v0 in mf.sharedMesh.vertices)
             {
                 var p = toRoot.MultiplyPoint3x4(v0); float q = Mathf.Abs(p.z - cz) / hl;
-                if (q < 0.15f) botC = Mathf.Min(botC, p.y); else if (q > 0.80f && q < 0.92f) botE = Mathf.Min(botE, p.y);
+                if (q < 0.15f) { botC = Mathf.Min(botC, p.y); topC = Mathf.Max(topC, p.y); } else if (q > 0.80f && q < 0.92f) botE = Mathf.Min(botE, p.y);
             }
         }
         if (botC < float.MaxValue && botE < float.MaxValue) hullRise = Mathf.Max(0f, botE - botC) / (0.86f * 0.86f);
+        hullThick = (botC < float.MaxValue && topC > botC) ? topC - botC : Mathf.Max(0.08f, (mx.y - mn.y) * 0.4f);
     }
 
     // ---- what the models see reflected: the web's baked environment (bakeEnv) ----
@@ -421,12 +424,15 @@ public class Bootstrap : MonoBehaviour
             if (Input.GetKeyDown(KeyCode.B)) setWave.summon = true;      // debug: bring a set now
             if (Input.GetKeyDown(KeyCode.V)) whirl.summon = true;        // debug: a whirlpool now
             chase.swCam = setWave.cam; chase.hold = setWave.tubeRide;
-            // rail spray while carving
+            // the carve's spray: off the TAIL, from the outside rail, flung up and out (Fx.Carve)
             float cv = Mathf.Abs(rider.carve);
-            if (!rider.airborne && cv > 0.22f && Random.value < dt * 30f * cv)
+            if (!rider.airborne && !rider.wipe && cv > 0.22f && boardGo != null && hullOk)
             {
-                spray.transform.position = new Vector3(rider.px - Mathf.Sign(rider.carve) * 0.75f, rider.waterY + 0.15f, rider.pz + 0.5f);
-                spray.Emit(Mathf.CeilToInt(cv * 4));
+                float outS = -Mathf.Sign(rider.carve);
+                float hcx = (hullMin.x + hullMax.x) * 0.5f, hcz = (hullMin.z + hullMax.z) * 0.5f, hhw = (hullMax.x - hullMin.x) * 0.5f, hhl = (hullMax.z - hullMin.z) * 0.5f;
+                var tail = boardGo.transform.TransformPoint(new Vector3(hcx, hullMin.y + hullRise * 0.5f, hcz + hhl * 0.78f));
+                tail.x += outS * hhw * 0.85f; tail.y = Mathf.Max(tail.y, rider.waterY - 0.05f);
+                fx.Carve(tail, outS, Mathf.InverseLerp(0.22f, 1f, cv), dt);
             }
             wakeA = Mathf.Lerp(wakeA, rider.airborne ? 0f : 0.35f, dt * 4f);
         }
@@ -475,6 +481,40 @@ public class Bootstrap : MonoBehaviour
                 if (tc.phase == TouchPhase.Began && !overT && !paneOpen) beach.Tap(cam, tc.position);
             }
         }
+        // ---- the board rides ON the water ----
+        // The ride floats him on the waves' height under a handful of points, then leans the whole
+        // rider up to forty degrees into a carve about the board's centreline, which drove the
+        // inside rail a third of a foot under. Here the hull's underside is checked against the
+        // sea itself, at the middle, nose, tail and both rails, and if any of it is deeper than a
+        // real board sits (a couple of inches; more on the rails the harder he carves, which is
+        // the rail biting) the whole rider is lifted onto it. Up at once, down gently.
+        if (rider.running)
+        {
+            float need = 0f;
+            bool onWater = !rider.airborne && !rider.wipe && !rider.Submerged && !setWave.tubeRide && !(island != null && island.Ashore) && !(dive != null && dive.On) && hullOk && boardGo != null;
+            if (onWater)
+            {
+                var bt = boardGo.transform; float tw = rider.t, fz0 = WaveField.Scroll;
+                float hcx = (hullMin.x + hullMax.x) * 0.5f, hcz = (hullMin.z + hullMax.z) * 0.5f, hhw = (hullMax.x - hullMin.x) * 0.5f, hhl = (hullMax.z - hullMin.z) * 0.5f;
+                float dC = 0.06f, dR = 0.06f + 0.10f * Mathf.Abs(rider.carve);
+                for (int i = 0; i < FloatPts.Length; i++)
+                {
+                    float lx = FloatPts[i].x, lz = FloatPts[i].y, q = Mathf.Abs(lz);      // across and along, as fractions of the half-width and half-length (+z the tail)
+                    var p = bt.TransformPoint(new Vector3(hcx + lx * hhw, hullMin.y + hullRise * q * q, hcz + lz * hhl));
+                    float sea = WaveField.Height(p.x, fz0 + p.z, tw);
+                    need = Mathf.Max(need, sea - (lx != 0f ? dR : dC) - p.y);
+                }
+                // the nose, last: ahead of him and up on the rocker
+                {
+                    var p = bt.TransformPoint(new Vector3(hcx, hullMin.y + hullRise * 0.64f, hcz - 0.8f * hhl));
+                    need = Mathf.Max(need, WaveField.Height(p.x, fz0 + p.z, tw) - dC - p.y);
+                }
+            }
+            need = Mathf.Clamp(need, 0f, 1.2f);
+            floatLift = need > floatLift ? need : Mathf.MoveTowards(floatLift, need, dt * 1.5f);
+            rider.transform.position += Vector3.up * floatLift;
+        }
+        else floatLift = 0f;
         // a board trick: the board turns under him and drops a hand's width while he tucks (web 27016-27026).
         // glTF turns are mirrored into Unity, so the yaw and the roll change sign
         if (boardGo != null)
@@ -511,7 +551,7 @@ public class Bootstrap : MonoBehaviour
             float hw = (hullMax.x - hullMin.x) * 0.5f, hl = (hullMax.z - hullMin.z) * 0.5f;
             ocean.material.SetMatrix("_HullW2L", bt.worldToLocalMatrix);
             ocean.material.SetVector("_HullS", new Vector4(hw * 0.96f, hl * 0.97f, hullMin.y, 1f));
-            ocean.material.SetVector("_HullC", new Vector4((hullMin.x + hullMax.x) * 0.5f, (hullMin.z + hullMax.z) * 0.5f, hullRise, 0f));
+            ocean.material.SetVector("_HullC", new Vector4((hullMin.x + hullMax.x) * 0.5f, (hullMin.z + hullMax.z) * 0.5f, hullRise, hullThick));
         }
         else ocean.material.SetVector("_HullS", Vector4.zero);
         bool fast = SaveData.S.fastFx;

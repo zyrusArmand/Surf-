@@ -66,7 +66,9 @@ public class PlanarReflection : MonoBehaviour
         rc.ResetProjectionMatrix();
         // cut away everything under the water: an oblique near plane on the sea's surface
         var w2c = rc.worldToCameraMatrix;
-        var cpos = w2c.MultiplyPoint(new Vector3(0f, planeY - 0.05f, 0f));
+        // a foot and a half under the mean level: the sea shader mirrors about the LOCAL surface, so a
+        // buoy in a trough still has to be in the picture down to its waterline
+        var cpos = w2c.MultiplyPoint(new Vector3(0f, planeY - 1.5f, 0f));
         var cn = w2c.MultiplyVector(Vector3.up).normalized;
         var clip = new Vector4(cn.x, cn.y, cn.z, -Vector3.Dot(cpos, cn));
         rc.projectionMatrix = rc.CalculateObliqueMatrix(clip);
