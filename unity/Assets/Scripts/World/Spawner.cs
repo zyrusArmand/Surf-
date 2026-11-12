@@ -26,6 +26,29 @@ public class Spawner : MonoBehaviour
     public BoardController rider;
     public System.Action<Vector3, int> onSplash;
     public readonly List<Ob> obstacles = new List<Ob>();
+
+    // ---- seated on the mirror, for the sea's reflection only (PlanarReflection) ----
+    // Each floating thing is moved so its waterline (the swell it rides, where its holder's height
+    // is measured from) sits on the reflection's plane, and put back the moment that render is done.
+    readonly List<(Transform t, float dy)> reflShift = new List<(Transform, float)>();
+    public void SeatForReflection(float planeY)
+    {
+        reflShift.Clear();
+        if (rider == null) return;
+        float fz0 = WaveField.Scroll;
+        foreach (var o in obstacles)
+        {
+            if (o.go == null || !o.go.activeInHierarchy || o.knocked) continue;
+            float dy = planeY - WaveField.Swell(o.x, fz0 + o.z, rider.t);
+            o.go.transform.position += new Vector3(0f, dy, 0f);
+            reflShift.Add((o.go.transform, dy));
+        }
+    }
+    public void UnseatAfterReflection()
+    {
+        foreach (var s in reflShift) if (s.t != null) s.t.position -= new Vector3(0f, s.dy, 0f);
+        reflShift.Clear();
+    }
     float spawnT = 1.8f; int laneSlot; string lastKind = ""; int sameRun;
     const float FtToM = 0.3048f;
 

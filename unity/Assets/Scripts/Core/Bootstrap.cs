@@ -28,6 +28,7 @@ public class Bootstrap : MonoBehaviour
         }
         return wakeHist[0].y;
     }
+    float riderReflShift;
     Vector3 pugBase = Vector3.one; GltfClips riderClips;   // the rider's fitted scale; the clip a rig-less rider plays
     Vector3 hullMin, hullMax; bool hullOk; float hullRise, hullThick = 0.2f, floatLift;
     // where the hull is checked against the sea: the middle, both rails, the rails fore and aft, the tail
@@ -125,6 +126,19 @@ public class Bootstrap : MonoBehaviour
         ucam.renderPostProcessing = true; ucam.antialiasing = UnityEngine.Rendering.Universal.AntialiasingMode.None; cam.allowMSAA = true;   // the pipeline's 4x MSAA: crisp edges, no FXAA smearing the texture detail
         ucam.requiresDepthTexture = true;          // the sea reads what is under it for its contact foam and shallows
         reflect = camGo.AddComponent<PlanarReflection>(); reflect.main = cam;
+        // for the reflection's own render only: the floating things and the rider seated on the mirror,
+        // each by the water under it, and put straight back afterwards
+        reflect.beforeRender = y =>
+        {
+            spawner.SeatForReflection(y);
+            riderReflShift = rider.running ? y - rider.waterY : 0f;
+            if (riderReflShift != 0f) rider.transform.position += new Vector3(0f, riderReflShift, 0f);
+        };
+        reflect.afterRender = () =>
+        {
+            spawner.UnseatAfterReflection();
+            if (riderReflShift != 0f) { rider.transform.position -= new Vector3(0f, riderReflShift, 0f); riderReflShift = 0f; }
+        };
         chase = camGo.AddComponent<ChaseCamera>(); chase.rider = rider; chase.cam = cam; chase.dive = dive; chase.island = island; chase.chute = chute; island.chase = chase; chute.chase = chase;
 
         // post: bloom, a touch of vignette, ACES

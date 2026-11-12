@@ -363,13 +363,12 @@ Shader "Surf/Ocean"
                 // ripple; the painted sky gradient stays underneath it as the web's fallback
                 if (_ReflOn > 0.5)
                 {
-                    // Mirrored about THIS bit of water, not the sea's mean level: the texture is the world
-                    // mirrored about _ReflY, and a point mirrored about the local surface h instead sits
-                    // 2(h - _ReflY) lower in it, which is exactly what looking it up at the unmirrored
-                    // surface point gives. So a buoy on a crest has its reflection start at its waterline
-                    // rather than two feet under it. The ripple then bends it by a small, fixed amount
-                    // (it grew with distance before, and along the view that read as a gap too).
-                    float3 mw = i.w;
+                    // The ripple bends it by a small, fixed amount (it grew with distance before, and along
+                    // the view that read as a gap).
+                    // looked up on the mean level: the floating things were each moved, for the reflection's
+                    // own render, so their waterline sits there (PlanarReflection.beforeRender), which puts
+                    // every reflection's start at its own waterline and mirrors nothing from under the sea
+                    float3 mw = float3(i.w.x, _ReflY, i.w.z);
                     mw.xz += (Nr.xz + float2(wob.x, wob.y) * 0.05) * 0.55;
                     float4 rc = mul(_ReflVP, float4(mw, 1.0));
                     float2 ruv = rc.xy / max(1e-4, rc.w) * 0.5 + 0.5;

@@ -14,9 +14,29 @@ public class PlanarReflection : MonoBehaviour
     public float planeY;                 // the sea's mean level (0 out at sea, the beach's sea level on the title)
     public bool on = true;
     public float scale = 0.5f;           // of the screen's resolution
+    // Each floating thing rides the swell at its own height, so no single mirror plane is right for
+    // all of them. For the reflection's own render only, whoever owns them moves each one so its
+    // waterline sits on planeY (beforeRender) and puts it back straight after (afterRender); the
+    // sea looks its reflection up on planeY too, so every reflection starts at its own waterline.
+    public System.Action<float> beforeRender;
+    public System.Action afterRender;
     Camera rc; RenderTexture rt;
     static readonly int TexId = Shader.PropertyToID("_ReflTex"), VpId = Shader.PropertyToID("_ReflVP"), OnId = Shader.PropertyToID("_ReflOn"), YId = Shader.PropertyToID("_ReflY");
     public const int WaterLayer = 4, UiLayer = 5, StageLayer = 30;
+
+    void OnEnable()
+    {
+        UnityEngine.Rendering.RenderPipelineManager.beginCameraRendering += Begin;
+        UnityEngine.Rendering.RenderPipelineManager.endCameraRendering += End;
+    }
+    void OnDisable()
+    {
+        UnityEngine.Rendering.RenderPipelineManager.beginCameraRendering -= Begin;
+        UnityEngine.Rendering.RenderPipelineManager.endCameraRendering -= End;
+    }
+    bool shifted;
+    void Begin(UnityEngine.Rendering.ScriptableRenderContext ctx, Camera c) { if (c == rc && rc != null && !shifted) { shifted = true; beforeRender?.Invoke(planeY); } }
+    void End(UnityEngine.Rendering.ScriptableRenderContext ctx, Camera c) { if (c == rc && shifted) { shifted = false; afterRender?.Invoke(); } }
 
     void Start()
     {
@@ -68,9 +88,10 @@ public class PlanarReflection : MonoBehaviour
         rc.ResetProjectionMatrix();
         // cut away everything under the water: an oblique near plane on the sea's surface
         var w2c = rc.worldToCameraMatrix;
-        // a foot and a half under the mean level: the sea shader mirrors about the LOCAL surface, so a
-        // buoy in a trough still has to be in the picture down to its waterline
-        var cpos = w2c.MultiplyPoint(new Vector3(0f, planeY - 1.5f, 0f));
+        // at the mean level itself: the floating things are seated on it for this render (beforeRender),
+        // so anything under it is under the water and must not be mirrored up (a log's submerged half
+        // came back as a dark band above it)
+        var cpos = w2c.MultiplyPoint(new Vector3(0f, planeY - 0.02f, 0f));
         var cn = w2c.MultiplyVector(Vector3.up).normalized;
         var clip = new Vector4(cn.x, cn.y, cn.z, -Vector3.Dot(cpos, cn));
         rc.projectionMatrix = rc.CalculateObliqueMatrix(clip);
