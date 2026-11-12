@@ -322,7 +322,8 @@ public class Bootstrap : MonoBehaviour
             riderRig = pug.gameObject.AddComponent<RiderRig>(); riderRig.Init(rider);
             riderRig.SetBoard(b);          // the ring and the ski are sat in, not stood on
             Gear.Dress(pug, SaveData.S);   // what the save says he wears; a rider without the bones is skipped
-            Character(pug.gameObject);     // tone mapped as the web tone maps him (Surf/Character)
+            // (Surf/Character is not applied: lit by its own Lambert it came out far darker than URP Lit,
+            // which also takes the sky's reflection and the scene's GI; the rider stays on URP Lit)
         }
         if (beach != null) beach.SetBoard(b.id);
     }
