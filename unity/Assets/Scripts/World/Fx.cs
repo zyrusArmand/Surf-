@@ -12,7 +12,7 @@ public class Fx : MonoBehaviour
     public BoardController rider;
     public SetWave setWave;
     public Dive dive;
-    ParticleSystem rings, trail, mist, carve;
+    ParticleSystem rings, trail, mist, carve, carveMist;
     RectTransform lens; RawImage[] drops; float[] dropT, dropV; float lensT;
     bool wasUnder; float trailAcc, mistAcc;
 
@@ -22,6 +22,7 @@ public class Fx : MonoBehaviour
         trail = Make("FoamTrail", FoamTex(), 500, true);
         mist = Make("BarrelMist", Bootstrap.DropTex(), 260, false);
         carve = MakeCarve();
+        carveMist = MakeCarveMist();
         BuildLens();
     }
 
@@ -70,7 +71,7 @@ public class Fx : MonoBehaviour
                   new[] { new GradientAlphaKey(0.95f, 0), new GradientAlphaKey(0.75f, 0.6f), new GradientAlphaKey(0f, 1) });
         col.color = g;
         var r = go.GetComponent<ParticleSystemRenderer>();
-        r.renderMode = ParticleSystemRenderMode.Stretch; r.velocityScale = 0.035f; r.lengthScale = 1.6f;
+        r.renderMode = ParticleSystemRenderMode.Stretch; r.velocityScale = 0.012f; r.lengthScale = 1.0f;   // drops, a little drawn out by their speed, not dashes
         r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows = false;
         var m = Bootstrap.SoftParticles(Bootstrap.DropTex());
         if (m != null) { Soften(m, 0.3f); r.material = m; }
@@ -83,22 +84,68 @@ public class Fx : MonoBehaviour
     public void Carve(Vector3 tail, float outward, float k, float dt)
     {
         if (carve == null) return;
-        carveAcc += dt * 150f * k * k;
+        // A carve throws a curtain of water off the tail: up, out past the rail and BACK, which is
+        // toward the lens, fanning as it goes. Fine drops make the curtain, a few heavy ones arc
+        // further, and a mist hangs in it and drifts back.
+        float back = (rider != null ? rider.eff : 20f) * 0.22f;     // the water he leaves runs back past the lens with the run
+        carveAcc += dt * 240f * k * k;
         while (carveAcc >= 1f)
         {
             carveAcc -= 1f;
-            float r1 = Random.value, r2 = Random.value;
+            float fan = Random.value, heavy = Random.value < 0.12f ? 1f : 0f;
+            // the fan: from mostly out-and-up at one edge to mostly back-and-up at the other
+            float outV = (1.5f + 5.5f * (1f - fan)) * (0.55f + 0.45f * k);
+            float backV = back + (2.0f + 9.0f * fan) * (0.6f + 0.4f * k);
+            float upV = (3.5f + 6.5f * Random.value) * (0.5f + 0.5f * k) * (1f + 0.35f * heavy);
             var ep = new ParticleSystem.EmitParams
             {
-                position = tail + new Vector3(outward * Random.value * 0.25f, Random.value * 0.08f, (Random.value - 0.5f) * 0.5f),
-                velocity = new Vector3(outward * (2.5f + 6.5f * r1) * (0.5f + 0.5f * k), (3.0f + 6.0f * r2) * (0.45f + 0.55f * k), 1.5f + 3.5f * Random.value),
-                startSize = 0.05f + 0.13f * Random.value * Random.value,
-                startLifetime = 0.45f + 0.40f * Random.value,
-                startColor = Color.white
+                position = tail + new Vector3(outward * Random.value * 0.3f, Random.value * 0.1f, (Random.value - 0.3f) * 0.9f),
+                velocity = new Vector3(outward * outV, upV, backV),
+                startSize = heavy > 0f ? 0.16f + 0.14f * Random.value : 0.04f + 0.11f * Random.value * Random.value,
+                startLifetime = 0.55f + 0.55f * Random.value + 0.3f * heavy,
+                startColor = new Color(1f, 1f, 1f, 0.75f + 0.25f * Random.value)
             };
             carve.Emit(ep, 1);
+            if (carveMist != null && Random.value < 0.22f)
+            {
+                var em = new ParticleSystem.EmitParams
+                {
+                    position = tail + new Vector3(outward * (0.2f + Random.value * 0.6f), 0.2f + Random.value * 0.5f, Random.value * 0.8f),
+                    velocity = new Vector3(outward * outV * 0.35f, upV * 0.35f, backV * 0.7f),
+                    startSize = 0.6f + 0.9f * Random.value * k,
+                    startLifetime = 0.7f + 0.6f * Random.value,
+                    startColor = new Color(1f, 1f, 1f, 0.16f + 0.12f * k)
+                };
+                carveMist.Emit(em, 1);
+            }
         }
     }
+
+    // the mist in a carve's spray: soft, growing, drifting back and fading
+    ParticleSystem MakeCarveMist()
+    {
+        var go = new GameObject("CarveMist"); go.transform.SetParent(transform, false);
+        var ps = go.AddComponent<ParticleSystem>();
+        var main = ps.main; main.startSpeed = 0f; main.maxParticles = 300; main.playOnAwake = false;
+        main.simulationSpace = ParticleSystemSimulationSpace.World; main.gravityModifier = 0.12f;
+        var em = ps.emission; em.enabled = false;
+        var sh = ps.shape; sh.enabled = false;
+        var drag = ps.limitVelocityOverLifetime; drag.enabled = true; drag.drag = 2.4f; drag.limit = 1000f;
+        var sz = ps.sizeOverLifetime; sz.enabled = true;
+        sz.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(new Keyframe(0, 0.5f), new Keyframe(1, 1.9f)));
+        var col = ps.colorOverLifetime; col.enabled = true;
+        var g = new Gradient();
+        g.SetKeys(new[] { new GradientColorKey(Color.white, 0), new GradientColorKey(Color.white, 1) },
+                  new[] { new GradientAlphaKey(0f, 0), new GradientAlphaKey(1f, 0.15f), new GradientAlphaKey(0.5f, 0.6f), new GradientAlphaKey(0f, 1) });
+        col.color = g;
+        var r = go.GetComponent<ParticleSystemRenderer>();
+        r.renderMode = ParticleSystemRenderMode.Billboard;
+        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows = false;
+        var m = Bootstrap.SoftParticles(Bootstrap.DropTex());
+        if (m != null) { Soften(m, 0.8f); r.material = m; }
+        return ps;
+    }
+
 
     /// soft particles: fade out over the last few inches before they meet whatever is behind them
     public static void Soften(Material m, float far)
@@ -132,7 +179,7 @@ public class Fx : MonoBehaviour
     public void Step(float dt, Color tint)
     {
         if (rider == null) return;
-        SetTint(rings, tint); SetTint(trail, tint); SetTint(mist, tint); SetTint(carve, tint);
+        SetTint(rings, tint); SetTint(trail, tint); SetTint(mist, tint); SetTint(carve, tint); SetTint(carveMist, tint);
         // the foam trail off the tail, while he is on the water and moving
         bool onWater = rider.running && !rider.airborne && !rider.wipe && !rider.Submerged && (dive == null || !dive.On);
         if (onWater)
