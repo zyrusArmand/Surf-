@@ -3,6 +3,7 @@
 // and the trick column and JUMP, the trick message, and the card after a wipeout with its
 // rows, its free life, the row of buttons and the two offers. Sizes and positions are the web
 // stylesheet's, in points on a 430-wide phone.
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -25,7 +26,7 @@ public class Hud : MonoBehaviour
     Canvas canvas;
     GameObject menu, ride, card, bar, jump;
     Text tScore, tDist, tMph, tCoins, tBestS, tBestD, tMsg, tMenuBest, tMenuCoins, tToast;
-    Transform cardRoot; RectTransform cardStack;
+    RectTransform cardRoot;
     Image pip;                                            // the wheel button's dot: an unspun day shows it
     float toastT;
     int steerPointer = -1; float steerX0; float steerVal;
@@ -389,10 +390,14 @@ public class Hud : MonoBehaviour
     }
 
     // ---- the card ----
-    // The web's run card: the two figures the run is about, what it paid (and whether the wheel
-    // doubled it), the level it reached if it reached one and what that opened, the three goals
-    // with a bar each; then the row the beach already taught you (Again, the free Life, Menu,
-    // Share) and the two offers under it.
+    // The web's run card (gameOver ~28523, the .over rules ~1525-1739, measured off the page at
+    // 430 wide): "Astro's Run Ended" in gold, then one glass card -- the two figures the run is
+    // about on a tile each, what it paid, the level it reached if it reached one and what that
+    // opened (or what the next level opens), a hairline, and the three goals with a bar each --
+    // then one row: Again, the warm pill, beside the dial's round glass buttons (the free Life
+    // while there is one, Menu, Share), and the two offers under it, and the version at the foot.
+    // Everything glass on it is frosted over the frame the run ended on (CardArt): the frame is
+    // taken at the end of the frame the card is asked for, and the card goes up on the next.
     public class RunCard
     {
         public int dist, score, earned; public bool doubled;
@@ -400,18 +405,25 @@ public class Hud : MonoBehaviour
         public List<string> unlocked = new List<string>();        // what the promotion opened, by name
         public string rider = "Astro";                            // whose run it was, first name
     }
-    RunCard shown;
+    RunCard shown, pendingRc;
+    int cardToken; bool cardPending; float cardAskedT;
+    readonly List<Object> cardMade = new List<Object>();          // the pictures this card drew, destroyed with it
 
     static readonly Color Ink = Solid.Rgba(4, 22, 42);
     static readonly Color Earn = Solid.Rgba(255, 223, 46);        // #ffdf2e
     static readonly Color Gilt = Solid.Rgba(255, 233, 138);       // #ffe98a
     static readonly Color Mist = Solid.Rgba(207, 228, 242);       // #cfe4f2
+    static readonly Color Rope = Solid.Rgba(242, 211, 145);       // #f2d391, the dial's glyphs
+    static readonly Color FlatSea = ShopArt.Rgb(70, 104, 124);    // what the glass is laid on when the frame cannot be had
+    static readonly Vector2 TL = new Vector2(0, 1);
+    // #overlay's 20px padding either side of a 430 phone, and the row under the card:
+    // #ovBtns' 20 and #overRow's 12 over the row, 56 discs, 22 to the offers, 47.4 of offer
+    const float CardW = 390f, DiscD = 56f, DiscGap = 10f, AgainH = 48f, OfferH = 47.4f, OfferGap = 8f;
 
     void BuildCard(Transform root)
     {
         card = UiKit.Rect(root, "card", Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero).gameObject;
-        cardStack = UiKit.Rect(card.transform, "stack", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -40), new Vector2(430, 10));
-        cardRoot = cardStack;
+        cardRoot = UiKit.Rect(card.transform, "stack", Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
         card.SetActive(false);
     }
 
@@ -426,183 +438,337 @@ public class Hud : MonoBehaviour
 
     public void ShowCard(bool on, RunCard rc)
     {
-        card.SetActive(on); bar.SetActive(!on); jump.SetActive(!on);
-        if (!on || rc == null) return;
-        shown = rc;
+        bar.SetActive(!on); jump.SetActive(!on);
+        if (!on || rc == null) { DropCard(); card.SetActive(false); return; }
+        // the ride's band goes with the trick column (showMenu hides #hud for the card), so the
+        // frame taken for the glass is the wipeout and nothing laid over it
+        ride.SetActive(false);
+        DropCard();
+        card.SetActive(false);
+        shown = rc; pendingRc = rc; cardPending = true; cardAskedT = Time.unscaledTime;
+        StartCoroutine(GrabThenShow(++cardToken));
+    }
+
+    /// the frame, read back once it has been drawn, then the card built over it
+    IEnumerator GrabThenShow(int token)
+    {
+        yield return new WaitForEndOfFrame();
+        if (token != cardToken || !cardPending) yield break;
+        var rt = (RectTransform)canvas.transform;
+        CardArt.Backdrop bd = null; Texture2D shot = null;
+        try { shot = ScreenCapture.CaptureScreenshotAsTexture(); bd = CardArt.Grab(shot, rt.rect.width, rt.rect.height, 14f); }
+        catch (System.Exception e) { Debug.LogWarning("Hud: the run card's frame could not be read back: " + e.Message); bd = null; }
+        if (shot != null) Destroy(shot);
+        BuildCardNow(bd);
+    }
+
+    /// the card's pictures and rows, gone
+    void DropCard()
+    {
+        cardPending = false;
+        if (cardRoot != null) Pane.Clear(cardRoot);
+        foreach (var o in cardMade) if (o != null) Destroy(o);
+        cardMade.Clear();
+    }
+
+    void BuildCardNow(CardArt.Backdrop bd)
+    {
+        cardPending = false;
+        var rc = pendingRc; if (rc == null) return;
+        var root = (RectTransform)canvas.transform;
+        float W = root.rect.width, H = root.rect.height;
+        if (bd == null) bd = CardArt.Flat(FlatSea, W, H);
         Pane.Clear(cardRoot);
-        float W = 390f, y = 0f;
-        UiKit.Label(cardRoot, rc.rider + "'s Run Ended", 44, Color.white, FontStyle.Bold, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -y), new Vector2(430, 52));
-        y += 52 + 10;
-        y += Rcard(rc, W, y);
-        // the row: one obvious Again, the rest small and round
-        y += 20;
-        var again = UiKit.Pic(cardRoot, "again", UiKit.Rounded(302, 48, 24, 24, 24, 24, UiKit.Body.Teal, 2f), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -y), new Vector2(302, 48));
-        UiKit.Label(again.transform, "▶  AGAIN", 16, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
-        again.raycastTarget = true; UiKit.Pressable(again.gameObject, null, () => { Sfx.Buzz(12); onPlay?.Invoke(); });
-        y += 48 + 10;
-        var discs = new List<(string name, string glyph, System.Action tap)>();
-        if (Wheel.Revives > 0) discs.Add(("LIFE", "♥", Revive));          // the free life is the one that comes and goes
-        discs.Add(("MENU", "⌂", () => { Sfx.Buzz(8); onMenu?.Invoke(); }));
-        discs.Add(("SHARE", "", Share));
-        float total = discs.Count * 56 + (discs.Count - 1) * 10, x0 = -total / 2 + 28;
+        float X = (W - CardW) * 0.5f;
+
+        // #overlay.over's wash, live over the moving sea
+        var scrimTex = CardArt.ScrimTexture(bd); cardMade.Add(scrimTex);
+        var scrim = UiKit.Rect(cardRoot, "scrim", Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero).gameObject.AddComponent<RawImage>();
+        scrim.texture = scrimTex; scrim.raycastTarget = false;
+
+        // ---- the card's rows, top to bottom, in card px (its 1px border and 16px padding included) ----
+        var goals = Quests.Ensure();
+        bool got = rc.unlocked.Count > 0;
+        int nxL = 0, nxMore = 0; string nxName = got ? null : Ladder.NextUnlock(out nxL, out nxMore);
+        bool next = nxName != null;
+        const float In = 17f, InW = CardW - 34f;                 // 1px border + 16px padding each side
+        float y = In + 77.2f + 13f;                              // the tiles, then .rearn's 13px margin
+        float earnTop = y; y += 34.1f;
+        float lvlTop = -1f; if (rc.lvUp > 0) { y += 10f; lvlTop = y; y += 43.35f; }
+        float gotTop = -1f; if (got || next) { gotTop = y; y += 27.9f; }
+        y += 11f; float ruleTop = y; y += 1f + 4f;               // .rrule: margin 11px 2px 4px
+        var goalTop = new float[goals.Count];
+        for (int i = 0; i < goals.Count; i++) { y += 7f; goalTop[i] = y; y += 53.7f; }
+        float cardH = y + 14f + 1f;
+
+        // #overlay.over: padding 6vh over, max(9vh, 62px) under, the block centred in what is left
+        // ("safe": packed from the top when it does not fit)
+        float total = 26.5f + 2f + 10f + cardH + 20f + 12f + DiscD + 22f + OfferH;
+        float padTop = 0.06f * H, padBot = Mathf.Max(0.09f * H, 62f);
+        float top = padTop + Mathf.Max(0f, (H - padTop - padBot - total) * 0.5f);
+        float Y = top + 26.5f + 2f + 10f;
+
+        // h1#ovTitle: clamp(15px, 5.6vw, 30px) -- 24 on a phone -- gold, a soft seat of a shadow
+        var title = UiKit.Label(cardRoot, rc.rider + "'s Run Ended", 24, Earn, FontStyle.Bold, TL, TL, new Vector2(0.5f, 1), new Vector2(W * 0.5f, -top), new Vector2(W - 12f, 26.5f), TextAnchor.MiddleCenter, 0f);
+        ShopArt.Shade(title, ShopArt.Rgb(130, 66, 10), 0.42f, new Vector2(0f, -2f));
+
+        // ---- the glass and what is painted on it ----
+        var cardBox = new CardArt.Box { x = 0, y = 0, w = CardW, h = cardH, r = 20, c0 = Solid.Rgba(255, 246, 228, 0.20f), c1 = Solid.Rgba(255, 236, 208, 0.08f), p1 = 0.46f, c2 = Solid.Rgba(226, 242, 255, 0.10f), edge = Solid.Rgba(255, 244, 222, 0.32f), hi = Solid.Rgba(255, 250, 236, 0.40f) };
+        var boxes = new List<CardArt.Box>();
+        float tw = (InW - 12f) / 2f;
+        for (int i = 0; i < 2; i++)                               // .rstat
+            boxes.Add(new CardArt.Box { x = In + i * (tw + 12f), y = In, w = tw, h = 77.2f, r = 14, c0 = new Color(Ink.r, Ink.g, Ink.b, 0.20f), c1 = new Color(Ink.r, Ink.g, Ink.b, 0.20f), edge = new Color(1, 1, 1, 0.14f), hi = new Color(1, 1, 1, 0.10f) });
+        if (lvlTop >= 0f)                                         // .rlvl, and .rlvl.up on a promotion
+            boxes.Add(rc.rankUp
+                ? new CardArt.Box { x = In, y = lvlTop, w = InW, h = 43.35f, r = 11, c0 = Solid.Rgba(255, 236, 160, 0.34f), c1 = Solid.Rgba(255, 196, 52, 0.16f), edge = Solid.Rgba(255, 238, 182, 0.62f), ring = Solid.Rgba(255, 226, 140, 0.22f), glow = Solid.Rgba(255, 182, 40, 0.18f), glowY = 3f, glowBlur = 14f, hi = Solid.Rgba(255, 250, 226, 0.34f) }
+                : new CardArt.Box { x = In, y = lvlTop, w = InW, h = 43.35f, r = 11, c0 = Solid.Rgba(255, 222, 120, 0.20f), c1 = Solid.Rgba(255, 190, 60, 0.10f), edge = Solid.Rgba(255, 224, 150, 0.38f) });
+        boxes.Add(new CardArt.Box { x = In + 2f, y = ruleTop, w = InW - 4f, h = 1f, r = 0, across = true, c0 = new Color(1, 1, 1, 0f), c1 = new Color(1, 1, 1, 0.26f), p1 = 0.5f, c2 = new Color(1, 1, 1, 0f) });
+        var fracs = new float[goals.Count];
+        for (int i = 0; i < goals.Count; i++)
+        {
+            var g = goals[i]; var d = Quests.Def(g.id);
+            fracs[i] = g.done ? 1f : Mathf.Clamp01(Mathf.Min(g.n, d.target) / (float)Mathf.Max(1, d.target));
+            boxes.Add(new CardArt.Box { x = In, y = goalTop[i], w = InW, h = 53.7f, r = 12, c0 = g.done ? Solid.Rgba(255, 214, 90, 0.14f) : new Color(Ink.r, Ink.g, Ink.b, 0.18f), c1 = g.done ? Solid.Rgba(255, 214, 90, 0.14f) : new Color(Ink.r, Ink.g, Ink.b, 0.18f), edge = g.done ? Solid.Rgba(255, 230, 160, 0.34f) : new Color(1, 1, 1, 0.11f) });
+            // .bar: 6 tall, 7 under the line; the fill runs blue to gold across its own width and its glow stays in the track
+            var track = new CardArt.Box { x = In + 12f, y = goalTop[i] + 1f + 8f + 21.7f + 7f, w = InW - 24f, h = 6f, r = 3f, c0 = new Color(Ink.r, Ink.g, Ink.b, 0.34f), c1 = new Color(Ink.r, Ink.g, Ink.b, 0.34f), hi = Solid.Rgba(0, 16, 34, 0.35f), hiY = 1f, hiBlur = 1f, under = new Color(1, 1, 1, 0.12f) };
+            boxes.Add(track);
+            if (fracs[i] > 0f)
+                boxes.Add(new CardArt.Box { x = track.x, y = track.y, w = track.w * fracs[i], h = 6f, r = 3f, across = true, clip = track,
+                    c0 = g.done ? Gilt : Solid.Rgba(111, 220, 255), c1 = g.done ? Gilt : Earn,
+                    glow = g.done ? Solid.Rgba(255, 220, 120, 0.45f) : Solid.Rgba(120, 220, 255, 0.5f), glowBlur = 8f });
+        }
+        System.Func<float, float, Color> seen;
+        var cardSp = CardArt.Bake(cardBox, boxes, X, Y, bd, out seen);
+        cardMade.Add(cardSp.texture); cardMade.Add(cardSp);
+        var cardIm = UiKit.Pic(cardRoot, "rcard", cardSp, TL, TL, TL, new Vector2(X - CardArt.Pad, -(Y - CardArt.Pad)), new Vector2(CardW + 2f * CardArt.Pad, cardH + 2f * CardArt.Pad));
+        cardIm.raycastTarget = false;
+        var c = UiKit.Rect(cardRoot, "rows", TL, TL, TL, new Vector2(X, -Y), new Vector2(CardW, cardH));
+
+        // ---- the type on it ----
+        // .rstat: the figure 32px over its word, 12px caps at .72 tracked .12em
+        for (int i = 0; i < 2; i++)
+        {
+            float tx = In + i * (tw + 12f);
+            string word = i == 0 ? "DISTANCE" : "TRICKS";
+            var v = Txt(c, i == 0 ? Pane.N(rc.dist) + " m" : Pane.N(rc.score), 32, Color.white, tx, In + 1f + 10f + 16.8f, tw, TextAnchor.MiddleCenter);
+            ShopArt.Shade(v, ShopArt.Rgb(0, 20, 40), 0.35f, new Vector2(0f, -1.5f));
+            if (i == 0) CountUp.On(v, rc.dist, "", " m", 0.9f, 0.15f); else CountUp.On(v, rc.score, "", "", 0.9f, 0.25f);
+            float wy = In + 1f + 10f + 33.6f + 2f + 9.3f;
+            var wd = Txt(c, word, 12, ShopArt.Mix(seen(tx + tw * 0.5f, wy), Color.white, 0.72f), tx, wy, tw, TextAnchor.MiddleCenter);
+            ShopArt.Shade(wd, ShopArt.Rgb(0, 20, 40), 0.3f, new Vector2(0f, -1f));
+            Tracking.On(wd, 0.12f);
+        }
+        // .rearn: the shell 1.45em, 9px, "EARNED: 21 SHELLS" 22px gold tracked .05em, and the wheel's x2 when it doubled
+        {
+            float cy = earnTop + 17.05f;
+            string full = "EARNED: " + Pane.N(rc.earned) + " SHELLS";
+            var t = Txt(c, full, 22, Earn, 0f, cy, 300f, TextAnchor.MiddleLeft);
+            ShopArt.Shade(t, ShopArt.Rgb(120, 60, 10), 0.45f, new Vector2(0f, -2f));
+            Tracking.On(t, 0.05f);
+            float textW = t.preferredWidth + Tracking.Extra(full, 22, 0.05f);
+            float badgeW = 0f; Text bt = null;
+            if (rc.doubled)
+            {
+                bt = Txt(c, "×2 from the wheel", 12.5f, Solid.Rgba(14, 26, 18), 0f, cy, 160f, TextAnchor.MiddleCenter);
+                bt.GetComponent<Shadow>().enabled = false;
+                Tracking.On(bt, 0.04f);
+                badgeW = bt.preferredWidth + Tracking.Extra(bt.text, 12.5f, 0.04f) + 14f;
+            }
+            float rowW = 31.9f + 9f + textW + (rc.doubled ? 15f + badgeW : 0f), x0 = (CardW - rowW) * 0.5f;
+            Pic(c, "puka", 31.9f, x0, cy, Color.white);
+            t.rectTransform.anchoredPosition = new Vector2(x0 + 31.9f + 9f, -cy); t.rectTransform.sizeDelta = new Vector2(textW + 4f, 36f);
+            CountUp.On(t, rc.earned, "EARNED: ", " SHELLS", 1.0f, 0.45f);
+            if (bt != null)
+            {
+                // .x2: #0e1a12 on a mint pill, linear-gradient(180deg, #9df5c8, #4fd79a), 2px 7px 3px
+                float bx = x0 + 31.9f + 9f + textW + 15f;
+                var pill = Solid.Pic(c, "x2", Solid.VGradient(Mathf.Round(badgeW), 24.4f, 12.2f, Solid.Rgba(157, 245, 200), Solid.Rgba(79, 215, 154), Color.clear, 0f), Color.white, TL, TL, new Vector2(0, 0.5f), new Vector2(bx, -cy), new Vector2(Mathf.Round(badgeW), 24.4f));
+                pill.transform.SetSiblingIndex(bt.transform.GetSiblingIndex());
+                bt.rectTransform.anchoredPosition = new Vector2(bx, -cy + 0.5f); bt.rectTransform.sizeDelta = new Vector2(badgeW, 20f);
+            }
+        }
+        // .rlvl: "Level 5" 17px #ffe98a, the rank (a star and #fff3c8 on a promotion), "+1,100" and a shell at the right
+        if (lvlTop >= 0f)
+        {
+            float cy = lvlTop + 1f + 7f + 13.2f, lx = In + 1f + 11f, rx = In + InW - 1f - 11f;
+            string lv = "Level " + rc.level;
+            var b = Txt(c, lv, 17, Gilt, lx, cy, 120f, TextAnchor.MiddleLeft); Tracking.On(b, 0.02f);
+            float bW = b.preferredWidth + Tracking.Extra(lv, 17, 0.02f);
+            Pic(c, "puka", 16.8f, rx - 16.8f, cy, Color.white);
+            var em = Txt(c, "+" + Pane.N(rc.pay), 16, Earn, rx - 16.8f - 3f - 140f, cy, 140f, TextAnchor.MiddleRight);
+            float emL = rx - 16.8f - 3f - em.preferredWidth;
+            float sx = lx + bW + 8f, sw = Mathf.Max(20f, emL - 8f - sx);
+            string rank = (rc.rankUp ? "★ " : "") + Rungs.RankAt(rc.level);
+            var sp = Txt(c, rank, 14, rc.rankUp ? Solid.Rgba(255, 243, 200) : ShopArt.Mix(seen(sx + 20f, cy), Color.white, 0.85f), sx, cy, sw, TextAnchor.MiddleLeft, rc.rankUp ? FontStyle.Bold : FontStyle.Normal);
+            Ellipsize(sp, rank, sw);
+        }
+        // .rgot: "UNLOCKED" 11.5px caps tracked .1em, then the names; or "NEXT" and what the next level opens
+        if (gotTop >= 0f)
+        {
+            float cy = gotTop + 5f + 10.45f;
+            string head = got ? "UNLOCKED" : "NEXT";
+            string body = got ? string.Join(" · ", rc.unlocked.GetRange(0, Mathf.Min(3, rc.unlocked.Count))) + (rc.unlocked.Count > 3 ? " +" + (rc.unlocked.Count - 3) : "")
+                              : "Lv " + nxL + " · " + nxName + (nxMore > 0 ? " +" + nxMore : "");
+            Color hc = got ? ShopArt.Mix(seen(60f, cy), Solid.Rgba(255, 217, 138), 0.78f) : ShopArt.Mix(seen(60f, cy), Mist, 0.62f);
+            Color bc = got ? Solid.Rgba(253, 243, 220) : ShopArt.Mix(seen(CardW * 0.5f, cy), Solid.Rgba(231, 238, 246), 0.80f);
+            var hs = Txt(c, head, 11.5f, hc, 0f, cy + 0.6f, 100f, TextAnchor.MiddleLeft); Tracking.On(hs, 0.1f);
+            float hW = hs.preferredWidth + Tracking.Extra(head, 11.5f, 0.1f);
+            var bs = Txt(c, body, 13.5f, bc, 0f, cy, 300f, TextAnchor.MiddleLeft);
+            float room = InW - 12f - hW - 7f;
+            Ellipsize(bs, body, room);
+            float bW = Mathf.Min(room, bs.preferredWidth), x0 = (CardW - (hW + 7f + bW)) * 0.5f;
+            hs.rectTransform.anchoredPosition = new Vector2(x0, -(cy + 0.6f));
+            bs.rectTransform.anchoredPosition = new Vector2(x0 + hW + 7f, -cy); bs.rectTransform.sizeDelta = new Vector2(bW + 4f, bs.rectTransform.sizeDelta.y);
+        }
+        // the goals: the icon (the drawing as a mask, in the row's colour), the words, the count, the bar
+        for (int i = 0; i < goals.Count; i++)
+        {
+            var g = goals[i]; var d = Quests.Def(g.id);
+            float cy = goalTop[i] + 1f + 8f + 10.85f, lx = In + 1f + 11f, rx = In + InW - 1f - 11f;
+            Pic(c, "goal_" + GoalIcon(g.id), 18f, lx, cy, g.done ? Gilt : ShopArt.Mix(seen(lx + 9f, cy), Mist, 0.9f));
+            string count = g.done ? "DONE +" + Quests.Pay : Pane.N(Mathf.Min(g.n, d.target)) + " / " + Pane.N(d.target);
+            var b = Txt(c, count, 12.5f, g.done ? Gilt : Mist, rx - 120f, cy + 0.6f, 120f, TextAnchor.MiddleRight);
+            Tracking.On(b, 0.03f);
+            float bW = b.preferredWidth + Tracking.Extra(count, 12.5f, 0.03f);
+            float sx = lx + 20f + 9f, sw = rx - bW - 9f - sx;
+            var s = Txt(c, d.text, 14, ShopArt.Mix(seen(sx + 20f, cy), g.done ? Gilt : Solid.Rgba(244, 248, 252), 0.95f), sx, cy, sw, TextAnchor.MiddleLeft);
+            Ellipsize(s, d.text, sw);
+        }
+
+        // ---- the row: Again, then the dial's discs ----
+        float rowTop = Y + cardH + 20f + 12f;
+        System.Func<float, float, System.Func<float, float, Color>> under = (ox, oy) => (px, py) => bd.Under(ox + px, oy + py);
+        var discs = new List<(string name, string icon, System.Action tap)>();
+        if (Wheel.Revives > 0) discs.Add(("Life", "ob_life", Revive));          // the free life is the one that comes and goes
+        discs.Add(("Menu", "ob_menu", () => { Sfx.Buzz(8); onMenu?.Invoke(); }));
+        discs.Add(("Share", "ob_share", Share));
+        float againW = CardW - discs.Count * (DiscD + DiscGap);
+        {
+            float ay = rowTop + DiscD - AgainH;                    // the row aligns its items to the foot
+            var again = Glass(ShopArt.Glass.Again, X, ay, againW, AgainH, under(X, ay), -1f);
+            // the play triangle 18px in #f2d391, 8px, "Again" 16px tracked .6px
+            var t = UiKit.Label(again.transform, "Again", 16, Color.white, FontStyle.Bold, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(200, 24), TextAnchor.MiddleCenter, 0f);
+            ShopArt.Shade(t, ShopArt.TextShade, 0.6f, new Vector2(0f, -1f));
+            Tracking.On(t, 0.6f / 16f);
+            float tW = t.preferredWidth + Tracking.Extra("Again", 16, 0.6f / 16f), grp = 18f + 8f + tW;
+            t.rectTransform.anchoredPosition = new Vector2(-grp * 0.5f + 26f + tW * 0.5f, 0f);
+            Glyph(again.transform, "ob_play", 18f, new Vector2(-grp * 0.5f + 9f, 0f));
+            UiKit.Pressable(again.gameObject, null, () => { Sfx.Buzz(12); onPlay?.Invoke(); });
+        }
         for (int i = 0; i < discs.Count; i++)
         {
-            var d = discs[i];
-            var im = UiKit.Pic(cardRoot, d.name, UiKit.Circle(56, UiKit.Body.Teal, 2f), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(x0 + i * 66, -y), new Vector2(56, 56));
-            if (d.glyph != "") UiKit.Label(im.transform, d.glyph, 17, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, 6), Vector2.zero);
-            else ShareIcon(im.transform);
-            UiKit.Label(im.transform, d.name, 9.5f, UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -13), Vector2.zero);
-            im.raycastTarget = true; UiKit.Pressable(im.gameObject, null, d.tap);
+            var dd = discs[i];
+            float dx = X + againW + DiscGap + i * (DiscD + DiscGap);
+            var disc = Glass(ShopArt.Glass.Disc, dx, rowTop, DiscD, DiscD, under(dx, rowTop), -1f);
+            // svg 40% of the 52px inside, 1px, the word 9.5px tracked .7px: centred as a column
+            Glyph(disc.transform, dd.icon, 20.8f, new Vector2(0f, DiscD * 0.5f - 22f));
+            var lb = UiKit.Label(disc.transform, dd.name, 9.5f, Color.white, FontStyle.Bold, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, DiscD * 0.5f - 38.9f), new Vector2(DiscD, 12f), TextAnchor.MiddleCenter, 0f);
+            ShopArt.Shade(lb, ShopArt.TextShade, 0.7f, new Vector2(0f, -1f));
+            Tracking.On(lb, 0.7f / 9.5f);
+            UiKit.Pressable(disc.gameObject, null, dd.tap);
         }
-        y += 56 + 12;
-        // the two offers: on the web they are paid for by watching a clip, and there are no ads
-        // in this build, so they read as the web's and sit greyed, saying so when tapped
-        Offer(W, y, -1, "Double coins"); Offer(W, y, 1, "Second life");
-        y += 50;
-        cardStack.sizeDelta = new Vector2(430, y);
-        float H = ((RectTransform)canvas.transform).rect.height;
-        cardStack.anchoredPosition = new Vector2(0, -Mathf.Max(36f, (H - y) * 0.5f));
+        // ---- the offers: one quiet strip under the row ----
+        float offY = rowTop + DiscD + 22f, offW = (CardW - OfferGap) * 0.5f;
+        Offer(bd, X, offY, offW, "Double coins", rc.earned <= 0);     // .rwd[disabled] when there is nothing to double
+        Offer(bd, X + offW + OfferGap, offY, offW, "Second life", false);
+
+        // #ver: the version, 13px at .55, 24px off the foot
+        string vs = "v" + Application.version;
+        var ver = UiKit.Label(cardRoot, vs, 13, ShopArt.Mix(bd.Under(W * 0.5f, H - 31f), Color.white, 0.55f), FontStyle.Bold, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 24), new Vector2(200, 15), TextAnchor.MiddleCenter, 0f);
+        ShopArt.Shade(ver, ShopArt.Rgb(0, 40, 80), 0.6f, new Vector2(0f, -1f));
+        Tracking.On(ver, 0.5f / 13f);
+
+        card.SetActive(true);
     }
 
-    void Offer(float W, float y, int side, string label)
+    /// a frosted control: the glass drawn over the frame behind it, and a rect that takes the finger
+    Image Glass(ShopArt.Glass g, float x, float y, float w, float h, System.Func<float, float, Color> backAt, float radius)
     {
-        float w = (W - 8) / 2;
-        var im = UiKit.Pic(cardRoot, label, UiKit.Rounded(w, 50, 14, 14, 14, 14, UiKit.Body.Glass, 1f), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(side * (w / 2 + 4), -y), new Vector2(w, 50));
-        UiKit.Label(im.transform, label, 13.5f, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, 8), Vector2.zero, TextAnchor.MiddleCenter, 0.7f);
-        UiKit.Label(im.transform, "▸  WATCH AD", 10.5f, new Color(Gilt.r, Gilt.g, Gilt.b, 0.85f), FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -10), Vector2.zero, TextAnchor.MiddleCenter, 0.5f);
-        var cg = im.gameObject.AddComponent<CanvasGroup>(); cg.alpha = 0.45f;
-        im.raycastTarget = true; UiKit.Pressable(im.gameObject, null, () => Toast("No ads in this build — the heart is the free life"));
+        var hit = ShopArt.Hit(cardRoot, g.ToString(), TL, TL, TL, new Vector2(x, -y), new Vector2(w, h));
+        var sp = ShopArt.PillOver(w, h, g, backAt, radius);
+        cardMade.Add(sp.texture); cardMade.Add(sp);
+        ShopArt.Art(hit.transform, sp);
+        return hit;
     }
 
-    // the glass card with the run's rows; returns its height
-    float Rcard(RunCard rc, float W, float top)
+    /// .rwd: the offer's name 13.5px, and under it a small arrow and WATCH AD in gold caps tracked .14em
+    void Offer(CardArt.Backdrop bd, float x, float y, float w, string label, bool off)
     {
-        bool got = rc.unlocked.Count > 0;
-        bool next = !got && Ladder.NextUnlock(out int nxL, out int nxMore) != null;
-        var goals = Quests.Ensure();
-        float h = 16 + 62 + 13 + 32 + (rc.lvUp > 0 ? 10 + 36 : 0) + (got || next ? 24 : 0) + 11 + 1 + 4 + goals.Count * (7 + 48) + 14;
-        var c = UiKit.Pic(cardRoot, "rcard", UiKit.Rounded(W, h, 20, 20, 20, 20, UiKit.Body.Card, 1f), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -top), new Vector2(W, h)).transform;
-        float cy = 16f, iw = W - 32;
-        // the two figures the run is about: a tile each
-        float tw = (W - 32 - 12) / 2;
-        CountUp.On(Tile(c, -(W / 2) + 16 + tw / 2, cy, tw, "DISTANCE", Pane.N(rc.dist) + " m"), rc.dist, "", " m", 0.9f, 0.15f);
-        CountUp.On(Tile(c, (W / 2) - 16 - tw / 2, cy, tw, "TRICKS", Pane.N(rc.score)), rc.score, "", "", 0.9f, 0.25f);
-        cy += 62 + 13;
-        // what it paid, which is the line anybody came for
-        var earn = Line(c, cy, iw, 32, 9);
-        Icon(earn, "puka", 32);
-        CountUp.On(Flow(earn, "EARNED: " + Pane.N(rc.earned) + " PUKA", 22, Earn, 0.7f), rc.earned, "EARNED: ", " PUKA", 1.0f, 0.45f);
-        if (rc.doubled)
+        var im = Glass(ShopArt.Glass.Offer, x, y, w, OfferH, (px, py) => bd.Under(x + px, y + py), 14f);
+        var t = UiKit.Label(im.transform, label, 13.5f, Color.white, FontStyle.Bold, TL, new Vector2(1, 1), new Vector2(0.5f, 0.5f), new Vector2(0f, -16.4f), new Vector2(0f, 18f), TextAnchor.MiddleCenter, 0f);
+        ShopArt.Shade(t, ShopArt.TextShade, 0.7f, new Vector2(0f, -1f));
+        Tracking.On(t, 0.02f);
+        // the arrow and the words share the em's .85; the arrow its own .9 on top
+        Color back = ShopArt.Saturate(bd.Under(x + w * 0.5f, y + 31.6f), 1.35f);
+        const string ad = "WATCH AD";
+        var e = UiKit.Label(im.transform, ad, 10.5f, ShopArt.Mix(back, Gilt, 0.85f), FontStyle.Bold, TL, new Vector2(1, 1), new Vector2(0.5f, 0.5f), new Vector2(0f, -31.6f), new Vector2(0f, 14f), TextAnchor.MiddleCenter, 0f);
+        Tracking.On(e, 0.14f);
+        float eW = e.preferredWidth + Tracking.Extra(ad, 10.5f, 0.14f), grp = 6f + 4f + eW;
+        e.rectTransform.anchoredPosition = new Vector2(-grp * 0.5f + 10f + eW * 0.5f, -31.6f);
+        var tri = UiKit.Icon("ob_tri");
+        if (tri != null)
         {
-            var x2 = Solid.Pic(earn, "x2", Solid.Rounded(118, 20, 10), Solid.Rgba(118, 230, 177), Vector2.zero, Vector2.zero, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(118, 20));
-            var le = x2.gameObject.AddComponent<LayoutElement>(); le.preferredWidth = 118; le.preferredHeight = 20;
-            UiKit.Label(x2.transform, "×2 from the wheel", 12.5f, Solid.Rgba(14, 26, 18), FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, 0f);
+            var a = UiKit.Pic(im.transform, "arrow", tri, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 0.5f), new Vector2(-grp * 0.5f + 3f, -31.6f), new Vector2(6f, 8f));
+            a.color = ShopArt.Mix(back, Gilt, 0.85f * 0.9f); a.raycastTarget = false;
         }
-        cy += 32;
-        // the level you just reached, only on the runs that levelled you up
-        if (rc.lvUp > 0)
-        {
-            cy += 10;
-            Box(c, cy, iw, 36, 11, rc.rankUp ? Solid.Rgba(255, 236, 160, 0.34f) : Solid.Rgba(255, 222, 120, 0.20f), rc.rankUp ? Solid.Rgba(255, 238, 182, 0.62f) : Solid.Rgba(255, 224, 150, 0.38f));
-            var row = Line(c, cy, iw - 22, 36, 8, TextAnchor.MiddleLeft);
-            Flow(row, "Level " + rc.level, 17, Gilt, 0.6f);
-            var rk = Flow(row, (rc.rankUp ? "★ " : "") + Rungs.RankAt(rc.level), 14, rc.rankUp ? Solid.Rgba(255, 243, 200) : new Color(1, 1, 1, 0.85f), 0.5f);
-            rk.GetComponent<LayoutElement>().flexibleWidth = 1;
-            Flow(row, "+" + Pane.N(rc.pay), 16, Earn, 0.6f);
-            Icon(row, "puka", 17);
-            cy += 36;
-        }
-        // what it opened, by name; or when it opened nothing, what the next level could
-        if (got || next)
-        {
-            var row = Line(c, cy, iw, 24, 7);
-            if (got)
-            {
-                Flow(row, "UNLOCKED", 11.5f, new Color(1f, 0.851f, 0.541f, 0.78f), 0.4f);
-                string names = string.Join(" · ", rc.unlocked.GetRange(0, Mathf.Min(3, rc.unlocked.Count)));
-                Flow(row, names + (rc.unlocked.Count > 3 ? " +" + (rc.unlocked.Count - 3) : ""), 13.5f, Solid.Rgba(253, 243, 220), 0.4f);
-            }
-            else
-            {
-                string nm = Ladder.NextUnlock(out nxL, out nxMore);
-                Flow(row, "NEXT", 11.5f, new Color(Mist.r, Mist.g, Mist.b, 0.62f), 0.4f);
-                Flow(row, "Lv " + nxL + " · " + nm + (nxMore > 0 ? " +" + nxMore : ""), 13.5f, Solid.Rgba(231, 238, 246, 0.80f), 0.4f);
-            }
-            cy += 24;
-        }
-        cy += 11;
-        Solid.Pic(c, "rule", Solid.Rounded(iw - 4, 1, 0), new Color(1, 1, 1, 0.22f), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -cy), new Vector2(iw - 4, 1));
-        cy += 1 + 4;
-        // the goals: three quiet rows, a thin bar each
-        foreach (var g in goals)
-        {
-            cy += 7;
-            var d = Quests.Def(g.id);
-            int n = Mathf.Min(g.n, d.target); float frac = g.done ? 1f : n / (float)Mathf.Max(1, d.target);
-            Box(c, cy, iw, 48, 12, g.done ? Solid.Rgba(255, 214, 90, 0.14f) : new Color(Ink.r, Ink.g, Ink.b, 0.18f), g.done ? Solid.Rgba(255, 230, 160, 0.34f) : new Color(1, 1, 1, 0.11f));
-            UiKit.Label(c, d.text, 14, g.done ? Gilt : Solid.Rgba(244, 248, 252, 0.95f), FontStyle.Bold, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -cy - 8), new Vector2(iw - 22, 18), TextAnchor.MiddleLeft, 0.5f);
-            UiKit.Label(c, g.done ? "DONE +" + Quests.Pay : Pane.N(n) + " / " + Pane.N(d.target), 12.5f, g.done ? Gilt : Mist, FontStyle.Bold, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -cy - 8), new Vector2(iw - 22, 18), TextAnchor.MiddleRight, 0.5f);
-            float bw = iw - 22;
-            Solid.Pic(c, "track", Solid.Rounded(bw, 6, 3), new Color(Ink.r, Ink.g, Ink.b, 0.34f), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -cy - 33), new Vector2(bw, 6));
-            if (frac > 0)
-            {
-                var fillS = g.done ? Solid.Rounded(bw, 6, 3) : Solid.Gradient(bw, 6, 3, Solid.Rgba(111, 220, 255), Earn);
-                Solid.Pic(c, "fill", fillS, g.done ? Gilt : Color.white, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, 1), new Vector2(-bw / 2, -cy - 33), new Vector2(bw * frac, 6));
-            }
-            cy += 48;
-        }
-        return h;
+        if (off) { var cg = im.gameObject.AddComponent<CanvasGroup>(); cg.alpha = 0.45f; cg.interactable = false; }
+        // there are no ads in this build: the strip reads as the web's and says so when tapped
+        UiKit.Pressable(im.gameObject, null, () => { if (!off) Toast("No ads in this build — the heart is the free life"); });
     }
 
-    // a stat tile: the number on top, the word under it
-    static Text Tile(Transform c, float x, float y, float w, string word, string value)
+    /// a line of the card's type: left edge x, centred on cy, w wide, in card px
+    static Text Txt(Transform c, string s, float size, Color col, float x, float cy, float w, TextAnchor al, FontStyle st = FontStyle.Bold)
     {
-        Solid.Pic(c, "tile", Solid.Rounded(w, 62, 14), new Color(Ink.r, Ink.g, Ink.b, 0.20f), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(x, -y), new Vector2(w, 62));
-        Solid.Pic(c, "edge", Solid.Rounded(w, 62, 14, 1f), new Color(1, 1, 1, 0.14f), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(x, -y), new Vector2(w, 62));
-        var v = UiKit.Label(c, value, 32, Color.white, FontStyle.Bold, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(x, -y - 6), new Vector2(w, 36), TextAnchor.MiddleCenter, 0.7f);
-        UiKit.Label(c, word, 12, new Color(1, 1, 1, 0.72f), FontStyle.Bold, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(x, -y - 42), new Vector2(w, 16), TextAnchor.MiddleCenter, 0.5f);
-        return v;
-    }
-
-    // a tinted box with a hairline edge
-    static void Box(Transform c, float y, float w, float h, float r, Color fill, Color edge)
-    {
-        Solid.Pic(c, "box", Solid.Rounded(w, h, r), fill, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -y), new Vector2(w, h));
-        Solid.Pic(c, "edge", Solid.Rounded(w, h, r, 1f), edge, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -y), new Vector2(w, h));
-    }
-
-    // a row laid out left to right, centred unless told otherwise
-    static Transform Line(Transform c, float y, float w, float h, float gap, TextAnchor align = TextAnchor.MiddleCenter)
-    {
-        var rt = UiKit.Rect(c, "line", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -y), new Vector2(w, h));
-        var hl = rt.gameObject.AddComponent<HorizontalLayoutGroup>();
-        hl.spacing = gap; hl.childAlignment = align; hl.childControlWidth = true; hl.childControlHeight = true; hl.childForceExpandWidth = false; hl.childForceExpandHeight = false;
-        return rt;
-    }
-
-    static Text Flow(Transform row, string s, float size, Color col, float shadow)
-    {
-        var t = UiKit.Label(row, s, size, col, FontStyle.Bold, Vector2.zero, Vector2.zero, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, shadow);
-        var le = t.gameObject.AddComponent<LayoutElement>(); le.preferredWidth = t.preferredWidth + 2; le.preferredHeight = size + 6;
+        var t = UiKit.Label(c, s, size, col, st, TL, TL, new Vector2(0, 0.5f), new Vector2(x, -cy), new Vector2(w, Mathf.Ceil(size * 1.6f)), al, 0.3f);
         return t;
     }
 
-    static void Icon(Transform row, string name, float size)
+    /// a picture from Resources/UI, size px square, its left edge at x and centred on cy
+    static Image Pic(Transform c, string name, float size, float x, float cy, Color tint)
     {
-        var sp = UiKit.Icon(name); if (sp == null) return;
-        var im = UiKit.Pic(row, name, sp, Vector2.zero, Vector2.zero, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(size, size));
-        im.preserveAspect = true; im.raycastTarget = false;
-        var le = im.gameObject.AddComponent<LayoutElement>(); le.preferredWidth = size; le.preferredHeight = size;
+        var sp = UiKit.Icon(name); if (sp == null) return null;
+        var im = UiKit.Pic(c, name, sp, TL, TL, new Vector2(0, 0.5f), new Vector2(x, -cy), new Vector2(size, size));
+        im.preserveAspect = true; im.raycastTarget = false; im.color = tint;
+        return im;
     }
 
-    // the web's share glyph: three nodes and the two lines between them
-    static void ShareIcon(Transform p)
+    /// one of the dial's glyphs in #f2d391 with its drop shadow, centred at pos in the control
+    static void Glyph(Transform p, string name, float size, Vector2 pos)
     {
-        var col = UiKit.GoldText;
-        foreach (var v in new[] { new Vector2(6, 12), new Vector2(-6, 6), new Vector2(6, 0) })
-            Solid.Pic(p, "node", Solid.Circle(5.5f), col, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), v, new Vector2(5.5f, 5.5f));
-        var a = Solid.Pic(p, "link", Solid.Rounded(13, 1.6f, 0.8f), col, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 9), new Vector2(13, 1.6f)); a.rectTransform.localEulerAngles = new Vector3(0, 0, 27);
-        var b = Solid.Pic(p, "link", Solid.Rounded(13, 1.6f, 0.8f), col, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 3), new Vector2(13, 1.6f)); b.rectTransform.localEulerAngles = new Vector3(0, 0, -27);
+        var sp = UiKit.Icon(name); if (sp == null) return;
+        var im = UiKit.Pic(p, name, sp, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), pos, new Vector2(size, size));
+        im.color = Rope; im.raycastTarget = false; im.preserveAspect = true;
+        ShopArt.Shade(im, Solid.Rgba(0, 16, 22), 0.6f, new Vector2(0f, -1f));
+    }
+
+    /// the web's GOAL_POOL icons (web 7524)
+    static string GoalIcon(string id)
+    {
+        switch (id)
+        {
+            case "barrel1": return "wave";
+            case "chest1": return "shell";
+            case "close3": return "fin";
+            case "jelly3": return "star";
+            case "ramp3": return "dolphin";
+            case "dist800": return "sunset";
+            case "dist1500": return "sunrays";
+            case "trick1500": return "boards";
+            case "pearl10": return "shell";
+        }
+        return "wave";
+    }
+
+    /// text-overflow: ellipsis
+    static void Ellipsize(Text t, string full, float w)
+    {
+        t.text = full;
+        if (t.preferredWidth <= w) return;
+        for (int n = full.Length - 1; n > 1; n--)
+        {
+            t.text = full.Substring(0, n).TrimEnd() + "…";
+            if (t.preferredWidth <= w) return;
+        }
     }
 
     // the free life: one second chance a run, two when the wheel banked one
@@ -627,7 +793,7 @@ public class Hud : MonoBehaviour
     // ---- the screens ----
     public void ShowMenu()
     {
-        menu.SetActive(true); ride.SetActive(false); card.SetActive(false);
+        menu.SetActive(true); ride.SetActive(false); card.SetActive(false); DropCard();
         tMenuCoins.text = SaveData.Coins.ToString("N0");
         tMenuBest.text = "Level " + Progress.Level; if (xpFill != null) xpFill.fillAmount = Progress.Frac;
         if (pip != null) pip.gameObject.SetActive(Wheel.Ready);
@@ -636,7 +802,7 @@ public class Hud : MonoBehaviour
 
     public void ShowRide()
     {
-        menu.SetActive(false); ride.SetActive(true); card.SetActive(false); bar.SetActive(true); jump.SetActive(true);
+        menu.SetActive(false); ride.SetActive(true); card.SetActive(false); bar.SetActive(true); jump.SetActive(true); DropCard();
         ApplyTrickSlots();
         tBestS.text = "best " + SaveData.Best.ToString("N0"); tBestD.text = "best " + SaveData.BestDist + " m";
         tBestS.color = tBestD.color = new Color(1, 1, 1, 0.52f);
@@ -671,6 +837,9 @@ public class Hud : MonoBehaviour
 
     void Update()
     {
+        // the frame for the card's glass is read at the end of a drawn frame; if none comes (a
+        // device that has stopped presenting), the card still goes up, on the even sea colour
+        if (cardPending && Time.unscaledTime - cardAskedT > 0.5f) BuildCardNow(null);
         if (toastT > 0) { toastT -= Time.deltaTime; if (toastT <= 0) tToast.gameObject.SetActive(false); }
         if (splatT > 0 && splat != null)
         {

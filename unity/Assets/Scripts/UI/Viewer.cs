@@ -22,6 +22,7 @@ public class Viewer : MonoBehaviour
     // .go: min(302px, 80vw) by 42 (11px padding round a 16px line and the 1.5px ring); 8px
     // between the two; the sheet's 18px bottom padding; #vStats' 16px margin under the plate
     const float GoW = 302f, GoH = 42f, Gap = 8f, Foot = 18f, PlateGap = 16f;
+    const float GoTrack = 0.6f / 16f;           // .go's letter-spacing .6px on its 16px
     static readonly Color ClearCol = Previews.Horizon;
     // what the bottom block sits on: the water in front of the sand's near edge -- and that water
     // as the buttons' backdrop blur and saturate(135%) hand it to their glass
@@ -79,6 +80,7 @@ public class Viewer : MonoBehaviour
         buyArt = ShopArt.Art(buy.transform, LitGo());
         tBuy = UiKit.Label(buy.transform, "", 16, Color.white, FontStyle.Bold, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(270, 24), TextAnchor.MiddleCenter, 0f);
         ShopArt.Shade(tBuy, ShopArt.TextShade, 0.6f, new Vector2(0f, -1f));
+        Tracking.On(tBuy, GoTrack);
         var pk = UiKit.Icon("puka");
         buyPk = UiKit.Pic(buy.transform, "puka", pk, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(14, 14));
         buyPk.raycastTarget = false; buyPk.gameObject.SetActive(false);
@@ -179,13 +181,19 @@ public class Viewer : MonoBehaviour
         Pane.Clear(plate);
         plateH = 0f;
         plateW = Mathf.Max(200f, Mathf.Min(520f, rootRt.rect.width - 32f) - 28f);   // .vbot is min(520px, 100%) with 14px either side
+        // #vStats: a 1px rim, padding 13 15 11, rows 5px apart (.st's margins collapse between
+        // them). A row is as tall as what is in it: the 10px label's line (11.5) when the board
+        // is the one ridden and the change column is empty, the 12px change's (14) when it is not
+        // -- measured on the page, 16px a row against 19, which is why the plate is shorter on
+        // the board you ride.
         if (kind == "board")
         {
             var b = BoardCatalog.Get(id); string eq = SaveData.S.equipped;
             var c = id == eq ? null : BoardCatalog.Get(eq);
             int[] v = { b.speed, b.turn, b.air, b.tough };
             int[] cv = c == null ? null : new[] { c.speed, c.turn, c.air, c.tough };
-            plateH = 13f + 5f + 4 * 14f + 3 * 5f + 5f + 11f;
+            float rh = cv == null ? LabelLine : DeltaLine;
+            plateH = PlateTop + 4 * rh + 3 * 5f + PlateFoot;
             PlateBack();
             for (int r = 0; r < 4; r++)
             {
@@ -197,7 +205,7 @@ public class Viewer : MonoBehaviour
                     else if (d < 0) { dt = d.ToString(); dc = Previews.Hex(0xffab8e); }
                     else { dt = "·"; dc = ShopArt.Mix(PlateSeen, Color.white, 0.34f); }
                 }
-                Row(13f + 5f + r * 19f, StatLabel[r], StatColor(StatCls[r]), v[r], true, dt, dc);
+                Row(PlateTop + r * (rh + 5f), rh, StatLabel[r], StatColor(StatCls[r]), v[r], true, dt, dc);
             }
         }
         else if (kind == "rider")
@@ -208,18 +216,23 @@ public class Viewer : MonoBehaviour
                 string cls, label; PerkRow(key, out cls, out label);
                 // a perk of 1.10 is ten percent, and ten percent of the bar is one segment
                 int n = key == "lives" ? 3 : Mathf.Clamp(Rungs.JsRound((pv - 1.0) * 100.0 / 3.5), 1, 10);
-                plateH = 13f + 5f + 14f + 5f + 13f + 11f;
+                // the one row, and under it .perkTx -- which the stylesheet only styles inside #shop,
+                // so in the viewer it is the page's own 16px white, an 18px line, flush left
+                plateH = PlateTop + LabelLine + 5f + 18f + 11f + 1f;          // no row margin under .perkTx: the padding and the rim
                 PlateBack();
-                Row(18f, label, StatColor(cls), n, false, "", Color.white);
-                var tx = UiKit.Label(plate, text, 11, ShopArt.Mix(PlateSeen, Color.white, 0.82f), FontStyle.Normal, new Vector2(0, 1), new Vector2(1, 1), new Vector2(0.5f, 1), new Vector2(0, -37f), new Vector2(-30, 13), TextAnchor.MiddleLeft, 0.4f);
+                Row(PlateTop, LabelLine, label, StatColor(cls), n, false, "", Color.white);
+                var tx = UiKit.Label(plate, text, 16, Color.white, FontStyle.Normal, new Vector2(0, 1), new Vector2(1, 1), new Vector2(0.5f, 0.5f), new Vector2(0, -(PlateTop + LabelLine + 5f + 9f)), new Vector2(-32, 18), TextAnchor.MiddleLeft, 0.4f);
                 tx.raycastTarget = false;
             }
             else
             {
-                plateH = 13f + 5f + 14f + 5f + 11f;
+                // "Perk" and .perkNone's "The honest baseline" -- again unstyled out here: 16px, bold, white
+                float rh = 18.5f;
+                plateH = PlateTop + rh + PlateFoot;
                 PlateBack();
-                UiKit.Label(plate, "Perk", 10, ShopArt.Mix(PlateSeen, Color.white, 0.7f), FontStyle.Bold, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(15, -18f), new Vector2(48, 14), TextAnchor.MiddleRight, 0.4f);
-                UiKit.Label(plate, "The honest baseline", 11, ShopArt.Mix(PlateSeen, Color.white, 0.7f), FontStyle.Bold, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(71, -18f), new Vector2(240, 14), TextAnchor.MiddleLeft, 0.4f);
+                var pl = UiKit.Label(plate, "Perk", 10, ShopArt.Mix(PlateSeen, Color.white, 0.7f), FontStyle.Bold, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 0.5f), new Vector2(PlateIn, -(PlateTop + rh * 0.5f)), new Vector2(48, 14), TextAnchor.MiddleRight, 0.4f);
+                Tracking.On(pl, 0.1f);
+                UiKit.Label(plate, "The honest baseline", 16, Color.white, FontStyle.Bold, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 0.5f), new Vector2(PlateIn + 48f + 8f, -(PlateTop + rh * 0.5f)), new Vector2(280, 20), TextAnchor.MiddleLeft, 0.4f);
             }
         }
         plate.gameObject.SetActive(plateH > 0f);
@@ -242,28 +255,35 @@ public class Viewer : MonoBehaviour
         rim.raycastTarget = false;
     }
 
-    /// one row at `top` from the plate's top: the label right-aligned in 48px, ten segments, and the change
-    void Row(float top, string label, Color col, int n, bool withDelta, string dTxt, Color dCol)
+    // the plate's insides, measured on the page: 1px rim + 13px padding + the first row's 5px
+    // margin over the first row, 5 + 11 + 1 under the last; 1 + 15 in from either side
+    const float PlateTop = 19f, PlateFoot = 17f, PlateIn = 16f, LabelLine = 11.5f, DeltaLine = 14f;
+
+    /// one row `h` tall at `top` from the plate's top: the label right-aligned in 48px (10px caps
+    /// at .7, tracked .1em), ten segments 9px tall centred on the row, and the change in 26px
+    void Row(float top, float h, string label, Color col, int n, bool withDelta, string dTxt, Color dCol)
     {
-        UiKit.Label(plate, label, 10, ShopArt.Mix(PlateSeen, Color.white, 0.7f), FontStyle.Bold, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(15, -top), new Vector2(48, 14), TextAnchor.MiddleRight, 0.4f);
-        float x0 = 15f + 48f + 8f, x1 = plateW - 15f - (withDelta ? 8f + 26f : 0f);
+        float cy = top + h * 0.5f, segY = cy - 4.5f;
+        var lb = UiKit.Label(plate, label, 10, ShopArt.Mix(PlateSeen, Color.white, 0.7f), FontStyle.Bold, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 0.5f), new Vector2(PlateIn, -cy), new Vector2(48, 14), TextAnchor.MiddleRight, 0.4f);
+        Tracking.On(lb, 0.1f);
+        float x0 = PlateIn + 48f + 8f, x1 = plateW - PlateIn - (withDelta ? 8f + 26f : 0f);
         float sw = Mathf.Max(2f, (x1 - x0 - 9 * 3f) / 10f);
         n = Mathf.Clamp(n, 0, 10);
         if (n > 0)
         {
             // box-shadow 0 0 8px currentColor, one soft light under the lit run
             float runW = n * sw + (n - 1) * 3f;
-            var gl = UiKit.Pic(plate, "glow", Soft(), new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(x0 - SoftPad, -(top + 2.5f) + SoftPad), new Vector2(runW + SoftPad * 2f, 9f + SoftPad * 2f));
+            var gl = UiKit.Pic(plate, "glow", Soft(), new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(x0 - SoftPad, -segY + SoftPad), new Vector2(runW + SoftPad * 2f, 9f + SoftPad * 2f));
             gl.type = Image.Type.Sliced; gl.color = new Color(col.r, col.g, col.b, ShopArt.LinA(0.45f, col, PlateSeen)); gl.raycastTarget = false;
         }
         var segSprite = Solid.Rounded(sw, 9f, 2f);
         var segOff = new Color(1, 1, 1, ShopArt.LinA(0.14f, Color.white, PlateSeen));
         for (int i = 0; i < 10; i++)
         {
-            var s = Solid.Pic(plate, "seg", segSprite, i < n ? col : segOff, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(x0 + i * (sw + 3f), -(top + 2.5f)), new Vector2(sw, 9f));
+            var s = Solid.Pic(plate, "seg", segSprite, i < n ? col : segOff, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(x0 + i * (sw + 3f), -segY), new Vector2(sw, 9f));
             s.raycastTarget = false;
         }
-        if (withDelta) UiKit.Label(plate, dTxt, 12, dCol, FontStyle.Bold, new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1), new Vector2(-15, -top), new Vector2(26, 14), TextAnchor.MiddleRight, 0.4f);
+        if (withDelta) UiKit.Label(plate, dTxt, 12, dCol, FontStyle.Bold, new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 0.5f), new Vector2(-PlateIn, -cy), new Vector2(26, 14), TextAnchor.MiddleRight, 0.4f);
     }
 
     static Color StatColor(string cls)
@@ -391,11 +411,12 @@ public class Viewer : MonoBehaviour
         buyArt.sprite = lit ? LitGo() : AltGo();
         tBuy.text = label;
         tBuy.color = Color.white;
-        // the puka sits after the figure: the pair is centred as one
-        float pw = tBuy.preferredWidth, shift = pk ? (5f + 14f) * 0.5f : 0f;
+        // the puka sits after the figure, the .go's 8px gap and its own 5px margin from it: the
+        // pair is centred as one
+        float pw = tBuy.preferredWidth + Tracking.Extra(label, 16, GoTrack), shift = pk ? (13f + 14f) * 0.5f : 0f;
         tBuy.rectTransform.anchoredPosition = new Vector2(-shift, 0);
         buyPk.gameObject.SetActive(pk && buyPk.sprite != null);
-        buyPk.rectTransform.anchoredPosition = new Vector2(-shift + pw * 0.5f + 5f + 7f, 0);
+        buyPk.rectTransform.anchoredPosition = new Vector2(-shift + pw * 0.5f + 13f + 7f, 0);
     }
 
     void Changed()

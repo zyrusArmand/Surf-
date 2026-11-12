@@ -32,7 +32,7 @@ public class Shop : MonoBehaviour
     // apart, 37 tall from 59, 11px under them. #shopClose: .go.calm, 302 wide, 12px under the list,
     // 16 off the bottom -- squeezed to 27 tall by the column it sits in, which is how the web draws it.
     const float Side = 16f, RefH = 932f;
-    const float TitleY = 31f, LvY = 34.5f, LvH = 20f, CoinY = 33.2f;
+    const float TitleY = 31f, LvY = 35f, LvH = 22f, CoinY = 33.2f;      // the badge, measured: 22 tall from 24 -- its 16px line in 1px of padding and a 1px ring
     const float TabTop = 59f, TabH = 37f, TabGap = 8f, TabW = (430f - 2f * Side - 4f * TabGap) / 5f;
     const float ListTop = 107f, BackW = 302f, BackH = 27f, BackFoot = 16f, ListBottom = BackFoot + BackH + 12f;
     const float NoteH = 35f;
@@ -99,6 +99,7 @@ public class Shop : MonoBehaviour
             tabArt[i] = ShopArt.Art(th.transform, TabSprite(false));
             tabLabel[i] = UiKit.Label(th.transform, TabNames[i], 13, TabText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, 0f);
             ShopArt.Shade(tabLabel[i], ShopArt.TextShade, 0.45f, new Vector2(0f, -1f));      // text-shadow 0 1px 3px rgba(0,18,42,.6)
+            Tracking.On(tabLabel[i], 0.3f / 13f);                                             // letter-spacing .3px
             UiKit.Pressable(th.gameObject, null, () => Pick(tid));
         }
         // #shopClose: "< Back" on the deep-water glass, a gold ring round it
@@ -265,6 +266,7 @@ public class Shop : MonoBehaviour
         // brighter in this project's linear space than in the browser)
         var col = ShopArt.Mix(SheetAt(ListTop + 20f), ShopArt.Rgb(0xbf, 0xe6, 0xee), 0.72f);
         var lb = UiKit.Label(content, title.ToUpperInvariant(), 12, col, FontStyle.Bold, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), Vector2.zero, new Vector2(300, 15), TextAnchor.LowerLeft, 0.4f);
+        Tracking.On(lb, 0.12f);                                                           // letter-spacing .12em
         tiles.Add(new Tile { heading = true, rt = lb.rectTransform });
     }
 
@@ -473,8 +475,9 @@ public class Shop : MonoBehaviour
     // one already holding this trick ringed gold; and Cancel on .go.calm under them. A sibling
     // of the shop's sheet rather than a child of it, as the web's is, so it covers the tabs too.
     GameObject pick; Text pickTitle; RectTransform pickRow; string pickId;
-    const float PickW = 360f, PickPadX = 16f, PickTitleY = 27f, PickRowTop = 48f, PickBtnH = 76f, PickBtnGap = 6f;
-    const float PickCancelTop = 136f, PickCancelW = 302f, PickCancelH = 44f, PickH = 194f;
+    // measured on the page: the row 75 tall from 48, Cancel the .go's 42 from 135, the box 192
+    const float PickW = 360f, PickPadX = 16f, PickTitleY = 27f, PickRowTop = 48f, PickBtnH = 75f, PickBtnGap = 6f;
+    const float PickCancelTop = 135f, PickCancelW = 302f, PickCancelH = 42f, PickH = 192f;
     static readonly Color PickTop = ShopArt.Rgb(14, 52, 86), PickBot = ShopArt.Rgb(9, 33, 60);     // .spbox, at .97 (taken as opaque)
     /// the box's colour y layout pixels down from its top: what every button on it is composited over
     static Color PickAt(float y) => Color.Lerp(PickTop, PickBot, Mathf.Clamp01(y / PickH));
@@ -501,12 +504,14 @@ public class Shop : MonoBehaviour
         // .sptitle: 15px bold white, the trick's name in <b> at #ffdf2e
         pickTitle = UiKit.Label(box, "", 15, Color.white, FontStyle.Bold, new Vector2(0.5f, 1), new Vector2(0.5f, 1), c, new Vector2(0f, -PickTitleY), new Vector2(PickW - 2f * PickPadX, 20f), TextAnchor.MiddleCenter, 0f);
         pickTitle.supportRichText = true;
+        Tracking.On(pickTitle, 0.3f / 15f);                                               // letter-spacing .3px
         pickRow = UiKit.Rect(box, "row", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0f, -PickRowTop), new Vector2(PickW - 2f * PickPadX, PickBtnH));
         // #spClose: .go.calm, min(302px, 80vw) wide, "Cancel"
         var cancel = ShopArt.Hit(box, "cancel", new Vector2(0.5f, 1), new Vector2(0.5f, 1), c, new Vector2(0f, -(PickCancelTop + PickCancelH * 0.5f)), new Vector2(PickCancelW, PickCancelH));
         ShopArt.Art(cancel.transform, ShopArt.Pill(PickCancelW, PickCancelH, ShopArt.Glass.Calm, PickAt(PickCancelTop + PickCancelH * 0.5f)));
         var cl = UiKit.Label(cancel.transform, "Cancel", 16, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, c, Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, 0f);
         ShopArt.Shade(cl, ShopArt.TextShade, 0.6f, new Vector2(0f, -1f));
+        Tracking.On(cl, 0.6f / 16f);                                                      // .go: letter-spacing .6px
         UiKit.Pressable(cancel.gameObject, null, () => { Sfx.Buzz(6); CloseSlotPick(); });
         pick.SetActive(false);
     }
@@ -533,15 +538,16 @@ public class Shop : MonoBehaviour
             // padding 9 2 7, a column 2px apart: the number (17px, line-height 1), the 26px
             // gesture, the short name (8.5px at .85, cut with an ellipsis)
             var c = new Vector2(0.5f, 1);
-            UiKit.Label(b.transform, (i + 1).ToString(), 17, TabText, FontStyle.Bold, c, c, new Vector2(0.5f, 0.5f), new Vector2(0f, -19f), new Vector2(bw, 20f), TextAnchor.MiddleCenter, 0f);
+            UiKit.Label(b.transform, (i + 1).ToString(), 17, TabText, FontStyle.Bold, c, c, new Vector2(0.5f, 0.5f), new Vector2(0f, -18.5f), new Vector2(bw, 20f), TextAnchor.MiddleCenter, 0f);
             var sp = UiKit.Icon("ges_" + cur.id);
             if (sp != null)
             {
-                var g = UiKit.Pic(b.transform, "ges", sp, c, c, new Vector2(0.5f, 0.5f), new Vector2(0f, -42.5f), new Vector2(26f, 26f));
+                var g = UiKit.Pic(b.transform, "ges", sp, c, c, new Vector2(0.5f, 0.5f), new Vector2(0f, -42f), new Vector2(26f, 26f));
                 g.raycastTarget = false; g.preserveAspect = true;
             }
-            var w = UiKit.Label(b.transform, cur.lab, 8.5f, ShopArt.Mix(fill, TabText, 0.85f), FontStyle.Bold, c, c, new Vector2(0.5f, 0.5f), new Vector2(0f, -62.5f), new Vector2(bw - 4f, 12f), TextAnchor.MiddleCenter, 0f);
-            Ellipsize(w, cur.lab, bw - 4f);
+            var w = UiKit.Label(b.transform, cur.lab, 8.5f, ShopArt.Mix(fill, TabText, 0.85f), FontStyle.Bold, c, c, new Vector2(0.5f, 0.5f), new Vector2(0f, -62f), new Vector2(bw - 4f, 12f), TextAnchor.MiddleCenter, 0f);
+            Ellipsize(w, cur.lab, bw - 4f - Tracking.Extra(cur.lab, 8.5f, 0.5f / 8.5f));
+            Tracking.On(w, 0.5f / 8.5f);                                                  // letter-spacing .5px
             int slot = i;
             UiKit.Pressable(b.gameObject, null, () => { Sfx.Buzz(10); AssignSlot(slot); });
         }

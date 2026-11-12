@@ -1,6 +1,8 @@
 // The shop's and the viewer's own surfaces, drawn from the web stylesheet's numbers: the sheet's
 // dusk wash (#shop), the pill buttons (.go, .go.alt, .go.calm with the gold ring), the tabs
-// (#shopTabs .tab / .tab.on), the Lv badge, and the "<" chevron the Back buttons carry.
+// (#shopTabs .tab / .tab.on), the Lv badge, and the "<" chevron the Back buttons carry -- and the
+// run card's row (the dial's round .hbtn.glass, the warm Again, the .rwd offers), which PillOver
+// draws over the frame behind them rather than over one flat colour.
 //
 // Two things about the browser have to be reproduced on purpose here:
 //  * A browser blends a translucent layer in sRGB; this project renders in linear space, where
@@ -19,7 +21,7 @@ public static class ShopArt
     const float Dense = 3f;                 // texels per layout pixel for a small pill: crisp at a phone's 3x
     public const float Pad = 18f;           // room round a pill for its drop shadow and glow
 
-    public enum Glass { Amber, Alt, Calm, TabOff, TabOn, Ring }
+    public enum Glass { Amber, Alt, Calm, TabOff, TabOn, Ring, Disc, Again, Offer }
 
     public static Color Rgb(int r, int g, int b, float a = 1f) => new Color(r / 255f, g / 255f, b / 255f, a);
 
@@ -116,6 +118,8 @@ public static class ShopArt
         public float shA, shY, shBlur;                           // 0 shY shBlur rgba(0,18,42,shA)
         public Color glow; public float glowBlur;                // 0 0 glowBlur glow
         public Color ring; public float ringW;
+        public bool dot;                                         // .glass::before: the small teal streak the dial's discs carry
+        public Color rim2; public float rim2Off, rim2Blur, rim2Spread;   // .glass::after: inset 0 -off blur -spread rim2
     }
 
     static Spec Of(Glass g)
@@ -151,6 +155,26 @@ public static class ShopArt
             case Glass.Ring:        // #shopLv: a hairline and nothing inside
                 s.hollow = true; s.ring = Rgb(255, 233, 168, 0.42f); s.ringW = 1f;
                 break;
+            // ---- the run card's row (web 1724-1739): the dial's .hbtn.glass discs and the warm Again ----
+            case Glass.Disc:        // .hbtn.glass at 56: .glass, the 2px gold ring, its own streak and rim light
+                s.saturate = true; s.glass = true; s.dot = true;
+                s.hl = 0.88f; s.foot = Rgb(165, 225, 255, 0.42f); s.shA = 0.26f; s.ringW = 2f;
+                s.rim2 = Rgb(150, 225, 220, 0.55f); s.rim2Off = 1.5f; s.rim2Blur = 4f; s.rim2Spread = 2f;
+                break;
+            case Glass.Again:       // .ob-again: .go's amber in a disc's body, ringed cream rather than gold
+                s.saturate = true; s.glass = true; s.tint = true; s.dot = true;
+                s.t0 = Rgb(255, 196, 74, 0.30f); s.t1 = Rgb(255, 150, 30, 0.15f); s.tp = 0.55f; s.t2 = Rgb(255, 214, 120, 0.20f);
+                s.hl = 0.88f; s.foot = Rgb(255, 226, 170, 0.50f); s.shA = 0.26f;
+                s.glow = Rgb(255, 178, 50, 0.22f); s.glowBlur = 20f;
+                s.ring = Rgb(255, 236, 190, 0.80f);
+                s.rim2 = Rgb(150, 225, 220, 0.55f); s.rim2Off = 1.5f; s.rim2Blur = 4f; s.rim2Spread = 2f;
+                break;
+            case Glass.Offer:       // .rwd (web 1702): a lighter sheet, a hairline white rim, no ring of gold
+                s.saturate = true; s.tint = true;
+                s.t0 = Rgb(255, 255, 255, 0.17f); s.t1 = Rgb(255, 255, 255, 0.05f); s.tp = 0.55f; s.t2 = Rgb(255, 255, 255, 0.08f);
+                s.hl = 0.60f; s.hlW = 1.2f; s.shA = 0.22f; s.shBlur = 12f;
+                s.ring = Rgb(255, 255, 255, 0.30f); s.ringW = 1f;
+                break;
         }
         return s;
     }
@@ -183,17 +207,32 @@ public static class ShopArt
         string key = g + ":" + w.ToString("0.0") + "x" + h.ToString("0.0") + ":" + ColorUtility.ToHtmlStringRGB(back);
         Sprite hit;
         if (cache.TryGetValue(key, out hit) && hit != null) return hit;
+        hit = Draw(w, h, g, (x, y) => back, -1f, key);
+        cache[key] = hit;
+        return hit;
+    }
+
+    /// the same glass over a backdrop that changes across it -- `backAt(x, y)` in layout px from
+    /// the pill's top left, Pad of room outside included -- with corners of `radius` (a capsule
+    /// when negative). Not cached: the caller owns the texture and destroys it with the sprite.
+    public static Sprite PillOver(float w, float h, Glass g, System.Func<float, float, Color> backAt, float radius = -1f)
+    {
+        return Draw(w, h, g, backAt, radius, g + " over");
+    }
+
+    static Sprite Draw(float w, float h, Glass g, System.Func<float, float, Color> backAt, float radius, string key)
+    {
         var sp = Of(g);
         float S = w > 150f ? 2f : Dense;     // the long pills at 2x: a third of a megabyte each rather than a megabyte, and quicker to draw
-        Color B = sp.saturate ? Saturate(back, 1.35f) : back; B.a = 1f;
-        float bw = sp.ringW, r = h * 0.5f, ri = Mathf.Max(0f, r - bw), iw = w - 2f * bw, ih = h - 2f * bw;
-        Color ringC = Over(B, sp.ring); ringC.a = 1f;
+        float bw = sp.ringW, r = radius < 0f ? h * 0.5f : Mathf.Min(radius, h * 0.5f), ri = Mathf.Max(0f, r - bw), iw = w - 2f * bw, ih = h - 2f * bw;
         int TW = Mathf.CeilToInt((w + 2f * Pad) * S), TH = Mathf.CeilToInt((h + 2f * Pad) * S);
         var px = new Color[TW * TH];
         for (int py = 0; py < TH; py++)
         for (int qx = 0; qx < TW; qx++)
         {
             float x = (qx + 0.5f) / S - Pad, y = (TH - 1 - py + 0.5f) / S - Pad;     // layout px, y down from the pill's top
+            Color B = backAt(x, y); if (sp.saturate) B = Saturate(B, 1.35f); B.a = 1f;
+            Color ringC = Over(B, sp.ring); ringC.a = 1f;
             float d = Sd(x, y, w, h, r);
             float cover = Mathf.Clamp01(0.5f - d * S);
             // outside: the drop shadow and the glow, then the alpha that blends right in linear
@@ -208,7 +247,7 @@ public static class ShopArt
                 float a = sp.glow.a * (1f - Phi(d / (sp.glowBlur * 0.5f)));
                 if (a > 0f) o = Over(o, new Color(sp.glow.r, sp.glow.g, sp.glow.b, a));
             }
-            if (o.a > 0f) o.a = LinA(o.a, o, B);
+            if (o.a > 0.002f) o.a = LinA(o.a, o, B); else o = new Color(0f, 0f, 0f, 0f);
             if (cover <= 0f) { px[py * TW + qx] = o; continue; }
             // the padding box: everything but the ring
             float di = Sd(x - bw, y - bw, iw, ih, ri);
@@ -233,6 +272,26 @@ public static class ShopArt
                     float sh = Sd(x - bw, y - bw + sp.footOff, iw, ih, ri) - sp.footSpread;
                     float a = sp.foot.a * Phi(sh / (sp.footBlur * 0.5f)) * ci;
                     if (a > 0f) inside = Over(inside, new Color(sp.foot.r, sp.foot.g, sp.foot.b, a));
+                }
+                if (sp.rim2.a > 0f)
+                {
+                    float sh = Sd(x - bw, y - bw + sp.rim2Off, iw, ih, ri) - sp.rim2Spread;
+                    float a = sp.rim2.a * Phi(sh / (sp.rim2Blur * 0.5f)) * ci;
+                    if (a > 0f) inside = Over(inside, new Color(sp.rim2.r, sp.rim2.g, sp.rim2.b, a));
+                }
+                if (sp.dot)
+                {
+                    // .hbtn.glass::before: left and right 19%, top 7%, 17% tall, an ellipse, rgba(206,246,242,.30)
+                    // fading to .04 at 78% of its height and to nothing at the foot
+                    float ex = (x - bw - iw * 0.5f) / (iw * 0.31f), top = 0.07f * ih, hh = 0.17f * ih;
+                    float ty = (y - bw - top) / Mathf.Max(0.01f, hh), ey = ty * 2f - 1f;
+                    float e = ex * ex + ey * ey;
+                    if (e < 1f && ty >= 0f)
+                    {
+                        float edge = Mathf.Clamp01((1f - Mathf.Sqrt(e)) * Mathf.Min(iw * 0.31f, hh * 0.5f) * S);
+                        float a = (ty < 0.78f ? Mathf.Lerp(0.30f, 0.04f, ty / 0.78f) : Mathf.Lerp(0.04f, 0f, (ty - 0.78f) / 0.22f)) * edge * ci;
+                        if (a > 0f) inside = Over(inside, Rgb(206, 246, 242, a));
+                    }
                 }
                 if (sp.streak)
                 {
@@ -269,9 +328,7 @@ public static class ShopArt
         }
         var tex = new Texture2D(TW, TH, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear, name = "pill " + key };
         tex.SetPixels(px); tex.Apply(false, true);
-        hit = Sprite.Create(tex, new Rect(0, 0, TW, TH), new Vector2(0.5f, 0.5f), S);
-        cache[key] = hit;
-        return hit;
+        return Sprite.Create(tex, new Rect(0, 0, TW, TH), new Vector2(0.5f, 0.5f), S);
     }
 
     /// the pill's picture inside a control: a child Pad bigger on every side, so the control's
@@ -330,7 +387,8 @@ public static class ShopArt
     {
         var t = UiKit.Label(p, text, size, col, FontStyle.Bold, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(220, size + 10f), TextAnchor.MiddleCenter, 0f);
         Shade(t, TextShade, 0.6f, new Vector2(0f, -1f));
-        float tw = t.preferredWidth, total = 17f + 8f + tw;
+        Tracking.On(t, 0.6f / size);                                          // .go: letter-spacing .6px
+        float tw = t.preferredWidth + Tracking.Extra(text, size, 0.6f / size), total = 17f + 8f + tw;
         t.rectTransform.anchoredPosition = new Vector2(-total * 0.5f + 25f + tw * 0.5f, 0f);
         var ic = UiKit.Pic(p, "chevron", Chevron(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-total * 0.5f + 8.5f, 0f), new Vector2(17f, 17f));
         ic.color = col; ic.raycastTarget = false;
