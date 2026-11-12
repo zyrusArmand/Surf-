@@ -95,16 +95,40 @@ Shader "Surf/Ocean"
             // the rails) and peels off the tail as two ridges that open and settle behind him, with
             // the water drawn in a little straight behind the tail. (A single hump across the lane
             // read as an arc drawn on the sea; switched on AT the tail it lifted the water over it.)
+            // The rings a splash sends out through the water (Fx.Hit): a crest running out at five
+            // feet a second with a trough and a smaller crest behind it, dying away over a couple of
+            // seconds and a dozen feet, and the dent the thing punched in, filling back in fast.
+            // In the sea's own height and slope, so they are lit like water and not drawn on it.
+            float4 _Rip[4];      // x, field z, age, height
+            float ripH(float2 p)
+            {
+                float h = 0.0;
+                [unroll] for (int k = 0; k < 4; k++)
+                {
+                    float4 R = _Rip[k];
+                    if (R.w > 0.0)
+                    {
+                        float r = length(p - R.xy), age = R.z;
+                        float d = r - (0.6 + 5.0 * age);
+                        float env = R.w * exp(-age * 1.7) * saturate(1.4 - r / 12.0);
+                        h += env * (exp(-d * d / 0.16) - 0.55 * exp(-(d + 0.75) * (d + 0.75) / 0.22) + 0.30 * exp(-(d + 1.55) * (d + 1.55) / 0.30));
+                        h -= R.w * 1.4 * exp(-r * r / 0.9) * exp(-age * 6.0);
+                    }
+                }
+                return h;
+            }
+            bool ripOn() { return _Rip[0].w + _Rip[1].w + _Rip[2].w + _Rip[3].w > 0.0; }
+
             float wakeH(float2 p)
             {
                 float dz = p.y - (_Dist + _WakeZ);              // feet behind the tail; negative is along the board
                 float ax = abs(p.x - _WakeX);
                 float arm = 0.55 + 0.30 * max(dz, 0.0);
                 float da = ax - arm;
-                float wide = 0.10 + 0.025 * max(dz, 0.0);       // each ridge broadens as it travels
+                float wide = 0.30 + 0.07 * max(dz, 0.0);        // each ridge a broad swell, broadening as it travels (narrower read as a drawn line)
                 float ridge = exp(-da * da / wide) * smoothstep(-1.6, -0.2, dz) * exp(-max(dz, 0.0) / 18.0);
                 float trough = exp(-ax * ax / 0.35) * smoothstep(-0.2, 0.9, dz) * exp(-max(dz, 0.0) / 6.0);
-                return _WakeA * (0.62 * ridge - 0.22 * trough);
+                return _WakeA * (0.55 * ridge - 0.22 * trough);
             }
 
             void field(float2 p, out float h, out float dhx, out float dhz)
@@ -154,6 +178,7 @@ Shader "Surf/Ocean"
                     // narrower than the sea's vertices are apart
                     h += wakeH(p);
                 }
+                if (ripOn()) h += ripH(p);     // the splash rings, the same way
             }
 
             V vert(A i)
@@ -249,6 +274,13 @@ Shader "Surf/Ocean"
                     float gx = (wakeH(pw + float2(we, 0)) - wakeH(pw - float2(we, 0))) / (2.0 * we);
                     float gz = (wakeH(pw + float2(0, we)) - wakeH(pw - float2(0, we))) / (2.0 * we);
                     N = normalize(N + float3(-gx, 0.0, -gz));
+                }
+                if (ripOn())
+                {
+                    float2 pr = float2(i.w.x, i.w.z + _Dist); const float re = 0.06;
+                    float rx = (ripH(pr + float2(re, 0)) - ripH(pr - float2(re, 0))) / (2.0 * re);
+                    float rz = (ripH(pr + float2(0, re)) - ripH(pr - float2(0, re))) / (2.0 * re);
+                    N = normalize(N + float3(-rx, 0.0, -rz));
                 }
                 float3 L = normalize(_SunDir.xyz);
                 float3 V = normalize(_WorldSpaceCameraPos - i.w);
@@ -366,7 +398,7 @@ Shader "Surf/Ocean"
                     float ax = abs(i.w.x - _WakeX), armF = 0.55 + 0.30 * max(dz, 0.0);
                     float along = smoothstep(-1.6, -0.2, dz) * exp(-max(dz, 0.0) / 14.0);   // from where the rails meet the water, as the ridges do
                     float churn = saturate(1.0 - ax / (0.6 + 0.12 * max(dz, 0.0))) * 0.75 * smoothstep(-0.3, 0.8, dz);
-                    float arms = exp(-(ax - armF) * (ax - armF) / (0.18 + 0.03 * max(dz, 0.0)));
+                    float arms = exp(-(ax - armF) * (ax - armF) / (0.30 + 0.07 * max(dz, 0.0)));
                     float wf = along * max(churn, arms) * _WakeA * 1.6;
                     foam = max(foam, wf * (0.6 + 0.4 * lace));
                 }

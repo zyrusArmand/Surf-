@@ -84,7 +84,7 @@ public class Bootstrap : MonoBehaviour
         // spray
         spray = BuildSpray();
         fx = new GameObject("Fx").AddComponent<Fx>(); fx.rider = rider; fx.setWave = setWave; fx.dive = dive; fx.Build();
-        rider.onSplash = (p, n) => { spray.transform.position = p; spray.Emit(n); if (n >= 18) fx.Ring(p, n); };
+        rider.onSplash = (p, n) => fx.Hit(p, n);     // every splash in the game: drops, mist, foam and a ring of wave in the sea itself
         spawner.onSplash = rider.onSplash; setWave.onSplash = rider.onSplash; whirl.onSplash = rider.onSplash; crate.onSplash = rider.onSplash; cocos.onSplash = rider.onSplash; ufo.onSplash = rider.onSplash; dive.onSplash = rider.onSplash; island.onSplash = rider.onSplash; chute.onSplash = rider.onSplash;
         rider.onWipeout = () => { over = false; Sfx.Buzz(60, 50, 80); };
 

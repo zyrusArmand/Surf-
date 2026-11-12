@@ -1,5 +1,5 @@
-// The water's small effects, on top of the web's spray: a ring spreading on the surface where
-// he lands or goes in, a trail of foam blotches peeling off the tail of the board, mist hanging
+// The water's small effects: every splash (Hit: a crown of drops, a mist, foam left on the water
+// and a real ring of wave running out through the sea's own surface), a trail of foam blotches peeling off the tail of the board, mist hanging
 // in the barrel while the ring has him, and drops of water on the lens after a wipeout or when
 // the camera comes back up out of a dive. All particles, all soft (they fade where they meet the
 // sea instead of cutting through it), and all carried toward the camera at the run's speed,
@@ -12,13 +12,14 @@ public class Fx : MonoBehaviour
     public BoardController rider;
     public SetWave setWave;
     public Dive dive;
-    ParticleSystem rings, trail, mist, carve, carveMist;
+    ParticleSystem trail, mist, carve, carveMist;
+    readonly Vector4[] rip = new Vector4[4];        // the rings of wave in the sea: x, field z, age, height (Surf/Ocean _Rip)
+    static readonly int RipId = Shader.PropertyToID("_Rip");
     RectTransform lens; RawImage[] drops; float[] dropT, dropV; float lensT;
     bool wasUnder; float trailAcc, mistAcc;
 
     public void Build()
     {
-        rings = Make("SplashRings", RingTex(), 120, true);
         trail = Make("FoamTrail", FoamTex(), 500, true);
         mist = Make("BarrelMist", Bootstrap.DropTex(), 260, false);
         carve = MakeCarve();
@@ -156,22 +157,85 @@ public class Fx : MonoBehaviour
         m.SetVector("_SoftParticleFadeParams", new Vector4(0f, 1f / Mathf.Max(0.01f, far), 0f, 0f));
     }
 
-    /// a ring spreading on the water where something hit it; bigger for a bigger splash
-    public void Ring(Vector3 p, int n)
+    // ---- a splash, as water makes one ----
+    // Whatever hit the sea (a landing, a bounce, something knocked in, a drip off his paws): a
+    // crown of small drops thrown out and up, wider across than along for a flat thing slapping
+    // down; a mist hanging in it for anything big; torn foam left where it went in, riding the
+    // swell and carried off with the water; and a real ring of wave running out through the sea's
+    // own surface (Surf/Ocean _Rip), lit like the rest of it. No flat ring drawn on top, no
+    // round blobs: those read as a sticker and as glitter.
+    public void Hit(Vector3 p, int n)
     {
-        if (rings == null) return;
-        float k = Mathf.Clamp01(n / 60f);
-        var ep = new ParticleSystem.EmitParams
+        float k = Mathf.Clamp01(n / 60f), flow = Flow();
+        float sea = rider != null ? WaveField.Height(p.x, WaveField.Scroll + p.z, rider.t) : p.y;
+        bool atSea = Mathf.Abs(p.y - sea) < 1.2f;
+        if (p.y < sea - 1.0f) return;     // under the water (the dive's own splashes): nothing is thrown into the air
+        // the drops: a drip (the handstand's and the helicopter's, thirty and more a second) is
+        // only its own few; a real splash is a crown
+        int count = n < 6 ? n : Mathf.Min(220, 4 + Mathf.RoundToInt(n * 2.6f));
+        if (carve != null)
+            for (int i = 0; i < count; i++)
+            {
+                float a = Random.value * Mathf.PI * 2f, cx = Mathf.Cos(a), cz = Mathf.Sin(a) * 0.55f;
+                float hs = (1.2f + 5.0f * Random.value) * (0.35f + 0.65f * k);
+                float up = 1.0f + (1.5f + 5.5f * Random.value * Random.value) * (0.3f + 0.7f * k);
+                var ep = new ParticleSystem.EmitParams
+                {
+                    position = p + new Vector3(cx * (0.35f + 0.25f * Random.value), 0.05f, cz * 1.6f + (Random.value - 0.5f) * 0.4f),
+                    velocity = new Vector3(cx * hs, up, cz * hs + flow * 0.15f),
+                    startSize = 0.035f + 0.10f * Random.value * Random.value + 0.08f * k * Random.value,
+                    startLifetime = 0.4f + 0.5f * Random.value,
+                    startColor = new Color(1f, 1f, 1f, 0.7f + 0.3f * Random.value)
+                };
+                carve.Emit(ep, 1);
+            }
+        // the mist, for anything bigger than a drip
+        if (carveMist != null && n >= 10)
+            for (int i = 0, m = 2 + n / 6; i < m; i++)
+            {
+                var ep = new ParticleSystem.EmitParams
+                {
+                    position = p + new Vector3((Random.value - 0.5f) * 1.6f, 0.2f + Random.value * 0.4f, (Random.value - 0.5f) * 2.2f),
+                    velocity = new Vector3((Random.value - 0.5f) * 2f, 0.8f + Random.value * 1.5f * k, flow * 0.5f),
+                    startSize = 0.6f + 1.2f * k * Random.value + 0.3f,
+                    startLifetime = 0.7f + 0.6f * Random.value,
+                    startColor = new Color(1f, 1f, 1f, 0.12f + 0.12f * k)
+                };
+                carveMist.Emit(ep, 1);
+            }
+        if (atSea && n >= 6)
         {
-            position = new Vector3(p.x, p.y + 0.06f, p.z),
-            velocity = new Vector3(0f, 0f, Flow()),
-            startSize = 3.2f + 5.5f * k,
-            startLifetime = 0.9f + 0.6f * k,
-            startColor = new Color(1f, 1f, 1f, 0.55f + 0.35f * k),
-            rotation = Random.value * 360f
-        };
-        rings.Emit(ep, 1);
+            // the foam it leaves
+            if (trail != null)
+                for (int i = 0, m = 2 + n / 7; i < m; i++)
+                {
+                    float a = Random.value * Mathf.PI * 2f, rr = (0.4f + 1.4f * k) * Mathf.Sqrt(Random.value);
+                    var ep = new ParticleSystem.EmitParams
+                    {
+                        position = new Vector3(p.x + Mathf.Cos(a) * rr * 1.3f, sea + 0.05f, p.z + Mathf.Sin(a) * rr),
+                        velocity = new Vector3((Random.value - 0.5f) * 0.4f, 0f, flow * 0.96f),
+                        startSize = 0.8f + 1.3f * k * Random.value + 0.4f * Random.value,
+                        startLifetime = 1.4f + 1.2f * Random.value,
+                        startColor = new Color(1f, 1f, 1f, 0.45f + 0.25f * k),
+                        rotation = Random.value * 360f
+                    };
+                    trail.Emit(ep, 1);
+                }
+            // and the ring of wave
+            AddRipple(p.x, WaveField.Scroll + p.z, 0.04f + 0.16f * k);
+        }
         if (n >= 60) Splash();            // a wipeout: the lens takes some of it
+    }
+
+    void AddRipple(float x, float fz, float amp)
+    {
+        int slot = 0; float oldest = -1f;
+        for (int i = 0; i < rip.Length; i++)
+        {
+            if (rip[i].w <= 0f) { slot = i; break; }
+            if (rip[i].z > oldest) { oldest = rip[i].z; slot = i; }
+        }
+        rip[slot] = new Vector4(x, fz, 0f, amp);
     }
 
     float Flow() => rider != null && rider.running ? rider.eff : 0f;
@@ -179,7 +243,7 @@ public class Fx : MonoBehaviour
     public void Step(float dt, Color tint)
     {
         if (rider == null) return;
-        SetTint(rings, tint); SetTint(trail, tint); SetTint(mist, tint); SetTint(carve, tint); SetTint(carveMist, tint);
+        SetTint(trail, tint); SetTint(mist, tint); SetTint(carve, tint); SetTint(carveMist, tint);
         // the foam trail off the tail, while he is on the water and moving
         bool onWater = rider.running && !rider.airborne && !rider.wipe && !rider.Submerged && (dive == null || !dive.On);
         if (onWater)
@@ -227,7 +291,11 @@ public class Fx : MonoBehaviour
         if (wasUnder && !under) Splash();
         wasUnder = under;
         StepLens(Time.unscaledDeltaTime);
-        Ride(rings); Ride(trail);
+        Ride(trail);
+        // the rings of wave age and die away; the sea reads them every frame
+        for (int i = 0; i < rip.Length; i++)
+            if (rip[i].w > 0f) { rip[i].z += dt; if (rip[i].z > 2.6f) rip[i] = Vector4.zero; }
+        Shader.SetGlobalVectorArray(RipId, rip);
     }
 
     // what lies flat on the water rides its swell: each one put back on the surface where it now is
@@ -315,27 +383,7 @@ public class Fx : MonoBehaviour
     }
 
     // ---- textures, made here ----
-    static Texture2D ringTex, foamTex, lensTex;
-
-    // a soft ring with a torn edge: the spreading lip of a splash seen from above
-    static Texture2D RingTex()
-    {
-        if (ringTex != null) return ringTex;
-        const int N = 128; ringTex = new Texture2D(N, N, TextureFormat.RGBA32, true) { wrapMode = TextureWrapMode.Clamp, name = "ring" };
-        var px = new Color32[N * N];
-        for (int y = 0; y < N; y++) for (int x = 0; x < N; x++)
-        {
-            float dx = (x + 0.5f) / N - 0.5f, dy = (y + 0.5f) / N - 0.5f;
-            float r = Mathf.Sqrt(dx * dx + dy * dy) * 2f, ang = Mathf.Atan2(dy, dx);
-            float tear = 0.5f + 0.5f * Mathf.PerlinNoise(Mathf.Cos(ang) * 3f + 5f, Mathf.Sin(ang) * 3f + 5f);
-            float band = Mathf.Exp(-Mathf.Pow((r - 0.80f) / (0.07f + 0.05f * tear), 2f));
-            float inner = Mathf.Exp(-Mathf.Pow((r - 0.55f) / 0.12f, 2f)) * 0.25f;
-            float a = Mathf.Clamp01((band * (0.55f + 0.45f * tear) + inner) * (r < 1f ? 1f : 0f));
-            px[y * N + x] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(a * 255f));
-        }
-        ringTex.SetPixels32(px); ringTex.Apply(true, true);
-        return ringTex;
-    }
+    static Texture2D foamTex, lensTex;
 
     // a foam blotch: a few soft lumps with holes torn in them
     static Texture2D FoamTex()
