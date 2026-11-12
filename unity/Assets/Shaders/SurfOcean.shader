@@ -95,11 +95,14 @@ Shader "Surf/Ocean"
             // the rails) and peels off the tail as two ridges that open and settle behind him, with
             // the water drawn in a little straight behind the tail. (A single hump across the lane
             // read as an arc drawn on the sea; switched on AT the tail it lifted the water over it.)
-            // The rings a splash sends out through the water (Fx.Hit): a crest running out at five
-            // feet a second with a trough and a smaller crest behind it, dying away over a couple of
-            // seconds and a dozen feet, and the dent the thing punched in, filling back in fast.
-            // In the sea's own height and slope, so they are lit like water and not drawn on it.
+            // The rings a splash sends out through the water (Fx.Hit): from the OUTLINE of what hit
+            // it (the board's own, half width x half length on its heading, as a rounded stadium; a
+            // small circle for anything else), a crest running out at three feet a second with a
+            // trough and a smaller crest behind, gone within about five feet and a second and a half,
+            // and the dent it punched, filling back in fast. In the sea's own height and slope, so
+            // they are lit like water and not drawn on it.
             float4 _Rip[4];      // x, field z, age, height
+            float4 _RipS[4];     // half width, half length, sin and cos of the heading
             float ripH(float2 p)
             {
                 float h = 0.0;
@@ -108,11 +111,16 @@ Shader "Surf/Ocean"
                     float4 R = _Rip[k];
                     if (R.w > 0.0)
                     {
-                        float r = length(p - R.xy), age = R.z;
-                        float d = r - (0.6 + 5.0 * age);
-                        float env = R.w * exp(-age * 1.7) * saturate(1.4 - r / 12.0);
-                        h += env * (exp(-d * d / 0.16) - 0.55 * exp(-(d + 0.75) * (d + 0.75) / 0.22) + 0.30 * exp(-(d + 1.55) * (d + 1.55) / 0.30));
-                        h -= R.w * 1.4 * exp(-r * r / 0.9) * exp(-age * 6.0);
+                        float4 S = _RipS[k];
+                        float2 q = p - R.xy;
+                        float2 lq = float2(q.x * S.w - q.y * S.z, q.x * S.z + q.y * S.w);    // into the shape's own frame
+                        float hw = max(S.x, 0.05), hl = max(S.y, hw);
+                        float r = max(0.0, length(float2(lq.x, max(abs(lq.y) - (hl - hw), 0.0))) - hw);   // feet out from the outline
+                        float age = R.z;
+                        float d = r - (0.25 + 3.2 * age);
+                        float env = R.w * exp(-age * 2.4) * saturate(1.2 - r / 5.0);
+                        h += env * (exp(-d * d / 0.14) - 0.55 * exp(-(d + 0.65) * (d + 0.65) / 0.18) + 0.30 * exp(-(d + 1.3) * (d + 1.3) / 0.24));
+                        h -= R.w * 1.2 * exp(-r * r / 0.25) * exp(-age * 6.0);
                     }
                 }
                 return h;

@@ -99,7 +99,18 @@ public class Bootstrap : MonoBehaviour
         // spray
         spray = BuildSpray();
         fx = new GameObject("Fx").AddComponent<Fx>(); fx.rider = rider; fx.setWave = setWave; fx.dive = dive; fx.Build();
-        rider.onSplash = (p, n) => fx.Hit(p, n);     // every splash in the game: drops, mist, foam and a ring of wave in the sea itself
+        // every splash in the game: drops, mist, foam and a ring of wave in the sea itself; when it is
+        // the board slapping down, the ring starts from the board's own outline, centred on the board
+        rider.onSplash = (p, n) =>
+        {
+            bool board = n >= 6 && hullOk && boardGo != null && rider.running && Mathf.Abs(p.x - rider.px) < 1.5f && Mathf.Abs(p.z - rider.pz) < 2.5f;
+            if (!board) { fx.Hit(p, n); return; }
+            var bt = boardGo.transform; var sc = bt.lossyScale;
+            var c = bt.TransformPoint(new Vector3((hullMin.x + hullMax.x) * 0.5f, 0f, (hullMin.z + hullMax.z) * 0.5f));
+            float yaw = bt.eulerAngles.y * Mathf.Deg2Rad;
+            var shape = new Vector4((hullMax.x - hullMin.x) * 0.5f * Mathf.Abs(sc.x), (hullMax.z - hullMin.z) * 0.5f * Mathf.Abs(sc.z), Mathf.Sin(yaw), Mathf.Cos(yaw));
+            fx.Hit(new Vector3(c.x, p.y, c.z), n, shape);
+        };
         spawner.onSplash = rider.onSplash; setWave.onSplash = rider.onSplash; whirl.onSplash = rider.onSplash; crate.onSplash = rider.onSplash; cocos.onSplash = rider.onSplash; ufo.onSplash = rider.onSplash; dive.onSplash = rider.onSplash; island.onSplash = rider.onSplash; chute.onSplash = rider.onSplash;
         rider.onWipeout = () => { over = false; Sfx.Buzz(60, 50, 80); };
 

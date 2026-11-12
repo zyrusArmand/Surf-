@@ -14,7 +14,9 @@ public class Fx : MonoBehaviour
     public Dive dive;
     ParticleSystem trail, mist, carve, carveMist;
     readonly Vector4[] rip = new Vector4[4];        // the rings of wave in the sea: x, field z, age, height (Surf/Ocean _Rip)
-    static readonly int RipId = Shader.PropertyToID("_Rip");
+    readonly Vector4[] ripS = new Vector4[4];       // and the shape each starts from: half width, half length, sin and cos of its heading (_RipS)
+    static readonly int RipId = Shader.PropertyToID("_Rip"), RipSId = Shader.PropertyToID("_RipS");
+    static readonly Vector4 Round = new Vector4(0.35f, 0.35f, 0f, 1f);   // anything that is not the board: a small round splash
     RectTransform lens; RawImage[] drops; float[] dropT, dropV; float lensT;
     bool wasUnder; float trailAcc, mistAcc;
 
@@ -164,7 +166,9 @@ public class Fx : MonoBehaviour
     // swell and carried off with the water; and a real ring of wave running out through the sea's
     // own surface (Surf/Ocean _Rip), lit like the rest of it. No flat ring drawn on top, no
     // round blobs: those read as a sticker and as glitter.
-    public void Hit(Vector3 p, int n)
+    /// `shape` is the board's outline when the board itself hit the water (half width, half length,
+    /// sin and cos of its heading, centred on p); left out, the splash is round
+    public void Hit(Vector3 p, int n, Vector4 shape = default)
     {
         float k = Mathf.Clamp01(n / 60f), flow = Flow();
         float sea = rider != null ? WaveField.Height(p.x, WaveField.Scroll + p.z, rider.t) : p.y;
@@ -222,12 +226,12 @@ public class Fx : MonoBehaviour
                     trail.Emit(ep, 1);
                 }
             // and the ring of wave
-            AddRipple(p.x, WaveField.Scroll + p.z, 0.04f + 0.16f * k);
+            AddRipple(p.x, WaveField.Scroll + p.z, 0.04f + 0.16f * k, shape.x > 0f ? shape : Round);
         }
         if (n >= 60) Splash();            // a wipeout: the lens takes some of it
     }
 
-    void AddRipple(float x, float fz, float amp)
+    void AddRipple(float x, float fz, float amp, Vector4 shape)
     {
         int slot = 0; float oldest = -1f;
         for (int i = 0; i < rip.Length; i++)
@@ -235,7 +239,7 @@ public class Fx : MonoBehaviour
             if (rip[i].w <= 0f) { slot = i; break; }
             if (rip[i].z > oldest) { oldest = rip[i].z; slot = i; }
         }
-        rip[slot] = new Vector4(x, fz, 0f, amp);
+        rip[slot] = new Vector4(x, fz, 0f, amp); ripS[slot] = shape;
     }
 
     float Flow() => rider != null && rider.running ? rider.eff : 0f;
@@ -294,8 +298,8 @@ public class Fx : MonoBehaviour
         Ride(trail);
         // the rings of wave age and die away; the sea reads them every frame
         for (int i = 0; i < rip.Length; i++)
-            if (rip[i].w > 0f) { rip[i].z += dt; if (rip[i].z > 2.6f) rip[i] = Vector4.zero; }
-        Shader.SetGlobalVectorArray(RipId, rip);
+            if (rip[i].w > 0f) { rip[i].z += dt; if (rip[i].z > 1.6f) rip[i] = Vector4.zero; }
+        Shader.SetGlobalVectorArray(RipId, rip); Shader.SetGlobalVectorArray(RipSId, ripS);
     }
 
     // what lies flat on the water rides its swell: each one put back on the surface where it now is
