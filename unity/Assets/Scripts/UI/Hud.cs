@@ -454,13 +454,13 @@ public class Hud : MonoBehaviour
         float cy = 16f, iw = W - 32;
         // the two figures the run is about: a tile each
         float tw = (W - 32 - 12) / 2;
-        Tile(c, -(W / 2) + 16 + tw / 2, cy, tw, "DISTANCE", Pane.N(rc.dist) + " m");
-        Tile(c, (W / 2) - 16 - tw / 2, cy, tw, "TRICKS", Pane.N(rc.score));
+        CountUp.On(Tile(c, -(W / 2) + 16 + tw / 2, cy, tw, "DISTANCE", Pane.N(rc.dist) + " m"), rc.dist, "", " m", 0.9f, 0.15f);
+        CountUp.On(Tile(c, (W / 2) - 16 - tw / 2, cy, tw, "TRICKS", Pane.N(rc.score)), rc.score, "", "", 0.9f, 0.25f);
         cy += 62 + 13;
         // what it paid, which is the line anybody came for
         var earn = Line(c, cy, iw, 32, 9);
         Icon(earn, "puka", 32);
-        Flow(earn, "EARNED: " + Pane.N(rc.earned) + " PUKA", 22, Earn, 0.7f);
+        CountUp.On(Flow(earn, "EARNED: " + Pane.N(rc.earned) + " PUKA", 22, Earn, 0.7f), rc.earned, "EARNED: ", " PUKA", 1.0f, 0.45f);
         if (rc.doubled)
         {
             var x2 = Solid.Pic(earn, "x2", Solid.Rounded(118, 20, 10), Solid.Rgba(118, 230, 177), Vector2.zero, Vector2.zero, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(118, 20));
@@ -524,12 +524,13 @@ public class Hud : MonoBehaviour
     }
 
     // a stat tile: the number on top, the word under it
-    static void Tile(Transform c, float x, float y, float w, string word, string value)
+    static Text Tile(Transform c, float x, float y, float w, string word, string value)
     {
         Solid.Pic(c, "tile", Solid.Rounded(w, 62, 14), new Color(Ink.r, Ink.g, Ink.b, 0.20f), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(x, -y), new Vector2(w, 62));
         Solid.Pic(c, "edge", Solid.Rounded(w, 62, 14, 1f), new Color(1, 1, 1, 0.14f), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(x, -y), new Vector2(w, 62));
-        UiKit.Label(c, value, 32, Color.white, FontStyle.Bold, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(x, -y - 6), new Vector2(w, 36), TextAnchor.MiddleCenter, 0.7f);
+        var v = UiKit.Label(c, value, 32, Color.white, FontStyle.Bold, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(x, -y - 6), new Vector2(w, 36), TextAnchor.MiddleCenter, 0.7f);
         UiKit.Label(c, word, 12, new Color(1, 1, 1, 0.72f), FontStyle.Bold, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(x, -y - 42), new Vector2(w, 16), TextAnchor.MiddleCenter, 0.5f);
+        return v;
     }
 
     // a tinted box with a hairline edge

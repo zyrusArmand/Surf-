@@ -29,6 +29,7 @@ public static class Pane
         var vl = content.gameObject.AddComponent<VerticalLayoutGroup>(); vl.padding = new RectOffset(14, 14, 10, 20); vl.spacing = 10; vl.childControlHeight = false; vl.childControlWidth = true; vl.childForceExpandHeight = false;
         var fit = content.gameObject.AddComponent<ContentSizeFitter>(); fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         scroll.content = content; scroll.viewport = view;
+        pane.AddComponent<PaneIn>().target = view;      // the column eases in; the opaque backing does not
         pane.SetActive(false);
         return pane;
     }

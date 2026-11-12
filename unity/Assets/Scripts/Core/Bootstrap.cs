@@ -27,11 +27,16 @@ public class Bootstrap : MonoBehaviour
         new GameObject("Surf").AddComponent<Bootstrap>();
     }
 
-    void Start()
+    // Start is a coroutine for one reason: to put the loading screen up and let it draw before
+    // the second or two the whole world takes to build. Nothing runs in Update until it is done.
+    bool ready;
+    System.Collections.IEnumerator Start()
     {
         Application.targetFrameRate = 60;
         Physics.gravity = new Vector3(0f, -32.2f, 0f);      // the world is in feet
         QualitySettings.vSyncCount = 0;
+        var load = Loading.Show(); load.Set(0.12f);
+        yield return null;
 
         // light
         var sunGo = new GameObject("Sun"); var sun = sunGo.AddComponent<Light>();
@@ -165,6 +170,7 @@ public class Bootstrap : MonoBehaviour
         settings.onChange = () => Sfx.Refresh();
         quests.onClose = settings.onClose = profile.onClose = stats.onClose = school.onClose = guide.onClose = wheel.onClose = levelInfo.onClose = puka.onClose = secret.onClose = () => { if (!rider.running && !rider.wipe) hud.ShowMenu(); };
         Menu();
+        ready = true; load.Hide();
     }
 
     // the board's box in its own frame: every visible mesh's corners brought into the board root
@@ -360,6 +366,7 @@ public class Bootstrap : MonoBehaviour
 
     void Update()
     {
+        if (!ready) return;
         float dt = Mathf.Min(0.033f, Time.deltaTime);
         Sfx.MusicTick(!rider.running);       // the title track whenever a run is not in progress
         if (rider.running)
