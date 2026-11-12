@@ -186,7 +186,9 @@ Shader "Surf/Ocean"
                     inside *= step(0.0001, half + 0.10 - abs(lp.x)) * step(fzR, 1.04);
                     float upY = _HullW2L[1][1];                       // how a world rise moves along the board's own up
                     float floor0 = _HullS.z + _HullC.z * fz * fz + 0.10;      // just above the underside: the rails still sit IN the water, the deck stays out of it
-                    if (inside > 0.001 && lp.y > floor0 && abs(upY) > 0.2)
+                    // only while the board is the right way up: upside down in a flip the sign of upY
+                    // turned the push into a pull and drew the sea up after it in a spike
+                    if (inside > 0.001 && lp.y > floor0 && upY > 0.5)
                     {
                         float drop = (lp.y - floor0) / upY;
                         wp.y -= drop * inside;
