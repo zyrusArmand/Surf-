@@ -218,6 +218,11 @@ public class Bootstrap : MonoBehaviour
             bankedDist = Mathf.RoundToInt(rider.dist); bankedScore = rider.score; bankedCoins = rider.coins;
             for (int i = spawner.obstacles.Count - 1; i >= 0; i--) if (spawner.obstacles[i].z > -48f) spawner.Remove(i);
             spawner.eater = null; setWave.Reset(); whirl.Reset();
+            // the rest of the web's respawn (27157-27195): a fresh board (the cracks mended), no
+            // coconut charge carried over (the web drops it at the wipeout), the fork island, the
+            // dive and the boat or wing all put away, and no boost banked from before the crash
+            Hull.Reset(); cocos.Reset(); island.Reset(); dive.Reset(); boat.Reset(); rider.boost = 0f;
+            spawner.ClearTow();
             ski.Revive();                                    // the ski and its wake put away, the next one 26 s out (web 27178)
             rider.Revive(); over = false; hud.ShowRide(); chase.Snap();
         };

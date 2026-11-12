@@ -35,7 +35,7 @@ public class SetWave : MonoBehaviour
     public int loops;
     public float ang, angV, rad, radV, airT, cut;
     bool armed, sweep2;
-    Transform plane; Vector3 planePrev; bool planePrevOk;
+    Transform plane; Vector3 planePrev; bool planePrevOk; PlaneProps planeProps;
     GameObject curl, foam; Material curlMat, foamMat;
     public bool summon;      // debug: bring one now
 
@@ -55,6 +55,7 @@ public class SetWave : MonoBehaviour
     {
         if (plane != null) return;
         var go = Models.Spawn("plane", null, 2f, PrimitiveType.Cube);
+        planeProps = PlaneProps.Attach(go);          // the props turn, and run down as it goes in (web 32392)
         Models.FitLength(go, 22f);
         go.name = "TowPlane";
         plane = go.transform; plane.gameObject.SetActive(false);
@@ -94,7 +95,7 @@ public class SetWave : MonoBehaviour
             {
                 if (!summon && !armed) { armed = true; next = Mathf.Min(next, 1.8f); }
                 next -= dt;
-                if ((next <= 0 || summon) && (ufo == null || !ufo.Holds) && (dive == null || !dive.Busy) && (island == null || !island.Busy) && (chute == null || !chute.Busy) && (ski == null || !ski.On)) Begin();
+                if ((next <= 0 || summon) && !r.hanging && (ufo == null || !ufo.Holds) && (dive == null || !dive.Busy) && (island == null || !island.Busy) && (chute == null || !chute.Busy) && (ski == null || !ski.On)) Begin();
             }
             Trim2(dt);
             return;
@@ -112,6 +113,7 @@ public class SetWave : MonoBehaviour
                 if (d.sqrMagnitude > 1e-7f) plane.rotation = Quaternion.LookRotation(d.normalized, Vector3.up) * Quaternion.Euler(0, 180f, 0);
             }
             plane.position = p; planePrev = p; planePrevOk = true;
+            if (planeProps != null) planeProps.rate = 40f - 32f * k;          // the engine giving up (web 32392)
             plane.rotation *= Quaternion.Euler(-(0.18f + 1.27f * e) * Mathf.Rad2Deg * 0.35f, 0, side * 0.34f * Mathf.Min(1f, k * 1.4f) * Mathf.Rad2Deg);
             if (t >= FlyS)
             {

@@ -32,7 +32,7 @@ public static class Hull
         r.poseLand = 0.8f;
         Sfx.Land(1.4f); Sfx.Buzz(40);
         Mark((Random.value - 0.5f) * 0.6f, Mathf.Clamp((Random.value - 0.5f) * 3.2f, -2.1f, 2.1f));
-        if (Cracks >= Lives) { r.Wipeout("snap"); r.Say("SNAPPED!"); return; }
+        if (Cracks >= Lives) { r.Wipeout("snap"); return; }          // "BOARD SNAPPED!", the web's own line for it
         r.Say("CRACKED! " + (Lives - Cracks) + " LEFT");
     }
 

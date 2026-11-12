@@ -77,6 +77,17 @@ public class BoardController : MonoBehaviour
     // ---- off the top of a jet ski's wake (World/JetSki.cs, web 23333-23339, 45313-45318, 45456-45457) ----
     public bool wakeAir;                             // launched off a wake: the way down is long, under 6 rather than 20
     public float wakeGrace;                          // seconds the landing test is held off while the ridge slides out from under him
+    // ---- on the tow plane's rope (World/Spawner.cs flies the plane; web 27036-27049, 45353-45358) ----
+    // Hooked, he is drawn up to 5.4 ft over the water and pulled in under the plane, paid 60 a
+    // second, and can throw tricks, which bank as soon as he squares up. Like the paraglide it
+    // counts as in the air, so nothing on the water touches him and nothing lands him.
+    public bool hanging;                             // on the line (web hanging): py and px are the rope's
+    public bool ropeOffer;                           // the plane is in reach: the ROPE! button is up (the spawner writes it)
+    public float towX;                               // where the plane is across the lane
+    public System.Action onRope;                     // the ROPE! / LET GO button (the spawner answers it)
+    float hangAcc;                                   // the fraction of a point not yet on the integer score
+    float supT = -1f;                                // the Superman backflip off the line, seconds in; -1 for none
+    const float HangY = 5.4f, SupDur = 0.8f; const int SupPts = 500;
 
     public System.Action<Vector3, int> onSplash;   // where, how many drops
     public System.Action onWipeout;
@@ -100,6 +111,7 @@ public class BoardController : MonoBehaviour
         heliPh = -1; heliT = heliPose = heliLay = heliIncline = heliSet = heliCrouch = 0; heliUsed = heliAir = heliHeld = false; BoardTrickClear();
         diveOn = false; diveShield = false; divePitch = divePose = divePike = diveLoad = diveLift = 0;
         isleOn = false; ashore = false; isleFace = 0; isleWalk = 0; isleRate = 1f; chutePush = 0; laneLim = 17f;
+        hanging = false; ropeOffer = false; hangAcc = 0; supT = -1f;
         transform.rotation = Quaternion.identity;
     }
 
@@ -113,6 +125,7 @@ public class BoardController : MonoBehaviour
         diveOn = false; diveShield = false; divePitch = divePose = divePike = diveLoad = diveLift = 0;
         isleOn = false; ashore = false; isleFace = 0; isleWalk = 0; isleRate = 1f; chutePush = 0; laneLim = 17f;
         poseTake = poseCrouch = poseExt = poseAir = poseLand = 0; transform.rotation = Quaternion.identity;
+        hanging = false; ropeOffer = false; hangAcc = 0; supT = -1f;         // off the rope (web respawn 27184)
         Say("BACK UP!");
     }
 
@@ -125,6 +138,7 @@ public class BoardController : MonoBehaviour
         handOn = false; handPts = 0; handHold = 0;
         heliPh = -1; heliAir = false; heliHeld = false; heliSet = 0; heliLay = 0; heliUsed = false;
         kf = null;                                   // a board trick in hand when he goes over just stops
+        hanging = false; ropeOffer = false; supT = -1f;
         Say(msg);
         onWipeout?.Invoke();
     }
@@ -141,7 +155,7 @@ public class BoardController : MonoBehaviour
     void StartBoardTrick(TrickCatalog.Trick T)
     {
         if (T == null || !T.Board || !TrickCatalog.Have(T.id)) return;
-        if (!running || wipe || kf != null || heliAir) return;
+        if (!running || wipe || kf != null || heliAir || hanging) return;     // not on the rope (web 26970)
         if (!airborne) Jump();
         if (!airborne) return;
         kf = T; kfT = 0f;
@@ -213,8 +227,26 @@ public class BoardController : MonoBehaviour
 
     public void Jump()
     {
-        if (!running || airborne || heliPh >= 0 || diveOn || isleOn) return;   // the helicopter, the dive and the island own him through their beats
+        if (!running || airborne || heliPh >= 0 || diveOn || isleOn || hanging) return;   // the helicopter, the dive, the island and the rope own him through their beats
         vy = 11.8f * statAir; airborne = true; poseTake = 1f;
+    }
+
+    /// web ropeAction's hook (27038-27040): on the line, off whatever he was doing on the water.
+    /// Not out of a beat that owns him: the helicopter's, the dive's, the island's, the wing's.
+    public void Hook()
+    {
+        if (!running || wipe || hanging || heliPh >= 0 || diveOn || isleOn || glideOn) return;
+        hanging = true; wakeAir = false; airborne = true; vy = 0f; hangAcc = 0f;
+        Say("HOOKED!");
+    }
+
+    /// web releaseRope (27045-27049): he drops off with a little lift; let go on purpose and he
+    /// throws a Superman backflip off it, paid when it comes round
+    public void ReleaseRope(bool withTrick)
+    {
+        if (!hanging) return;
+        hanging = false; vy = 6f; airborne = true;
+        if (withTrick) { supT = 0f; Say("SUPERMAN!"); }
     }
 
     /// hold-to-turn: he keeps rotating for as long as the button is down. The handstand is
@@ -389,6 +421,17 @@ public class BoardController : MonoBehaviour
         if (heliPh >= 0) HeliStep(dt);          // the helicopter drives him itself (web 45394)
         else if (diveOn || isleOn) vy = 0;      // the dive owns py outright, launch to landing (web 45330-45347); the island likewise, beaching to the walk (web 45359-45449)
         else if (glideOn) vy = 0;               // and the paraglide, tow to splashdown: forty feet up passes every test below, which would start landing him (web 45348-45352)
+        else if (hanging)
+        {
+            // on the plane's rope (web 45353-45357): drawn up high enough to throw tricks and
+            // pulled in under the plane, paid as long as he hangs on; above the landing test,
+            // which would otherwise call five feet of air a jump and bring him down
+            airborne = true; vy = 0f;
+            py += (HangY - py) * Mathf.Min(1f, dt * 2.4f);
+            px += (towX - px) * Mathf.Min(1f, dt * 1.5f);
+            hangAcc += 60f * dt; int whole = Mathf.FloorToInt(hangAcc); score += whole; hangAcc -= whole;
+            speed = Mathf.Min(60f, speed + 14f * dt);
+        }
         else if (airborne)
         {
             vy -= (wakeAir ? 6f : 20f) * dt; py += vy * dt;      // off a wave that size, the way down is long (web 45456)
@@ -405,7 +448,8 @@ public class BoardController : MonoBehaviour
                     float offF = Mathf.Max(Mathf.Abs(Mathf.Repeat(flipRot + Mathf.PI, Turn) - Mathf.PI),
                                            Mathf.Abs(Mathf.Repeat(pitchRot + Mathf.PI, Turn) - Mathf.PI));
                     if (offS < LandYaw && offF < LandFlip) Settle(true);
-                    else { Settle(false); Wipeout("land"); return; }
+                    // short on the flip is under-rotated; otherwise the yaw was off and it is sketchy (web 45500)
+                    else { Settle(false); Wipeout(offF >= LandFlip ? "under" : "land"); return; }
                 }
                 airborne = false; py = waterY; vy = 0;
                 heliUsed = false; heliAir = false; heliHeld = false; heliSet = 0; heliLay = 0;   // down is down, rolled or not
@@ -435,6 +479,16 @@ public class BoardController : MonoBehaviour
             if (pitchHeld) pitchRot += dt * FR;
         }
         else { spinHeld = flipHeld = pitchHeld = false; }
+        // On the rope there is no landing to judge a rotation, so it banks as soon as he lets go
+        // of the button near square (web 45836-45841; the flip is counted here as well, since in
+        // this port it is held like the other two rather than queued a whole turn at a time)
+        if (hanging && !spinHeld && !flipHeld && !pitchHeld && (spinRot > 0.4f || flipRot > 0.4f || pitchRot > 0.4f))
+        {
+            float offS = Mathf.Abs(Mathf.Repeat(spinRot + Mathf.PI / 2f, Mathf.PI) - Mathf.PI / 2f);
+            float offF = Mathf.Max(Mathf.Abs(Mathf.Repeat(flipRot + Mathf.PI, Turn) - Mathf.PI),
+                                   Mathf.Abs(Mathf.Repeat(pitchRot + Mathf.PI, Turn) - Mathf.PI));
+            if (offS < 0.7f && offF < 0.7f) Settle(true);
+        }
         Sfx.TrickTurn("spin", spinRot, spinHeld); Sfx.TrickTurn("roll", flipRot, flipHeld); Sfx.TrickTurn("flip", pitchRot, pitchHeld);
         if (heliPh < 0 && !heliAir) heliIncline = Ease(heliIncline, 0f, dt, 4f);   // web 45929
 
@@ -445,7 +499,7 @@ public class BoardController : MonoBehaviour
 
         // the handstand (web 44625-44627): the button eases him up at 7 and down at 9, and handT
         // is what the rig turns him over by and what the scoring reads
-        bool handWant = handOn && !wipe && !diveOn && !isleOn;    // nothing to stand on his hands on, ashore (web 45618)
+        bool handWant = handOn && !wipe && !diveOn && !isleOn && !hanging;    // nothing to stand on his hands on, ashore (web 45618), or on the rope (web 44682)
         handT += ((handWant ? 1f : 0f) - handT) * Mathf.Min(1f, dt * (handWant ? 7f : 9f));
         if (handT < 0.002f && !handWant) handT = 0f;
         HandstandScore(dt, handWant);
@@ -456,9 +510,17 @@ public class BoardController : MonoBehaviour
         float tp = 1f - poseTake;
         poseCrouch = poseTake > 0 ? Mathf.Max(0f, 1f - Mathf.Abs(tp - 0.16f) / 0.16f) : 0f;
         poseExt = poseTake > 0 ? Mathf.Max(0f, 1f - Mathf.Abs(tp - 0.52f) / 0.30f) : 0f;
-        poseAir = Mathf.Lerp(poseAir, airborne ? 1f : 0f, Mathf.Min(1f, dt * (airborne ? 8f : 14f)));
+        poseAir = Mathf.Lerp(poseAir, (airborne && !hanging) ? 1f : 0f, Mathf.Min(1f, dt * (airborne ? 8f : 14f)));   // hanging off a rope is not a jump (web 44130)
         poseLand = Mathf.Max(0f, poseLand - dt * 3.0f);
         if (msgT > 0) msgT -= dt;
+        // the Superman backflip off the line (web 45843-45848): a whole turn back over 0.8 s,
+        // paid when it comes round
+        float sup = 0f;
+        if (supT >= 0f)
+        {
+            supT += dt; sup = Mathf.Min(1f, supT / SupDur);
+            if (sup >= 1f) { score += SupPts; boost = Mathf.Min(16f, boost + 6f); Say("SUPERMAN BACKFLIP! +" + SupPts); supT = -1f; sup = 0f; }
+        }
 
         // coins: a shell a few metres, the web game's pace
         // the web's pay (coinsFor, web 10096-10098): a shell every five metres and one for every
@@ -480,6 +542,7 @@ public class BoardController : MonoBehaviour
             pitch = divePitch - 0.72f * divePike; roll = -carve * 0.55f;
         }
         transform.rotation = trick * Quaternion.Euler(pitch * Mathf.Rad2Deg, yaw * Mathf.Rad2Deg, roll * Mathf.Rad2Deg);
+        if (sup > 0f) transform.rotation = Quaternion.AngleAxis(-sup * 360f, Vector3.right) * transform.rotation;   // the backflip turns him end over end, outside everything else (web player.rotation.x)
         // Island.Step re-places him after this when it has him (the beaching pitch, then his own heading ashore)
     }
 
@@ -500,12 +563,17 @@ public class BoardController : MonoBehaviour
             float sq(float a) => Mathf.Abs(Mathf.Repeat(a + Mathf.PI, Turn) - Mathf.PI);
             float half(float a) => Mathf.Abs(Mathf.Repeat(a + Mathf.PI / 2f, Mathf.PI) - Mathf.PI / 2f);
             float off = Mathf.Max(half(spinRot), sq(flipRot), sq(pitchRot));
-            if (off < 0.16f) { pts = Mathf.RoundToInt(pts * 2.0f); label += "PERFECT "; }
-            else if (off < 0.45f) { pts = Mathf.RoundToInt(pts * 1.4f); label += "CLEAN "; }
+            // the window narrows with every crack (web 26945): damage costs you style, not just health
+            float tight = 1f - Hull.Cracks * 0.20f;
+            if (off < 0.16f * tight) { pts = Mathf.RoundToInt(pts * 2.0f); label += "PERFECT "; names++; }
+            else if (off < 0.45f * tight) { pts = Mathf.RoundToInt(pts * 1.4f); label += "CLEAN "; names++; }
             pts = Mathf.RoundToInt(pts * statTrick);      // the rider's trick perk
             score += pts;
             boost = Mathf.Min(16f, boost + 5f + Mathf.Min(7f, pts / 110f));
-            Say(label.Trim() + (names > 1 ? " COMBO" : "") + "! +" + pts);
+            // the web's line: the names joined with " + ", PERFECT and CLEAN counted among them, so a
+            // clean single spin reads "360° SPIN + CLEAN COMBO! +126" (web 26950)
+            var parts = System.Text.RegularExpressions.Regex.Split(label.Trim(), @"(?<=SPIN|ROLL|FLIP|HELICOPTER|PERFECT|CLEAN) ");
+            Say(string.Join(" + ", parts) + (names > 1 ? " COMBO" : "") + "! +" + pts);
             Sfx.Buzz(pts >= 400 ? 35 : 20);
         }
         spinRot = flipRot = pitchRot = 0; spinHeld = flipHeld = pitchHeld = false;
@@ -514,6 +582,27 @@ public class BoardController : MonoBehaviour
 
     public void Say(string s) { lastMsg = s; msgT = 0.9f; }
 
+    /// what the crash is called, the web's WIPE table (27623): each thing that ends a run says what it was
+    public static string WipeMsg(string kind)
+    {
+        switch (kind)
+        {
+            case "buoy": return "BUOY!";
+            case "jelly": return "ZAPPED!";                    // the web adds a lightning emoji the HUD font has no glyph for
+            case "log": return "LOG!";
+            case "bigfin": return "SHARK!";
+            case "rock": return "ROCK!";
+            case "octopus": return "TENTACLED!";
+            case "pearl": return "PEARLED!";
+            case "land": return "SKETCHY LANDING!";
+            case "under": return "UNDER-ROTATED!";
+            case "foam": return "ATE IT!";
+            case "debris": return "WRECKAGE!";
+            case "snap": return "BOARD SNAPPED!";
+        }
+        return "WIPEOUT!";
+    }
+
     public void Wipeout(string kind)
     {
         if (wipe) return;
@@ -521,7 +610,8 @@ public class BoardController : MonoBehaviour
         isleOn = false; ashore = false;                                          // not his to hold any more
         handOn = false; handPts = 0; handHold = 0;                              // handT itself eases off in the tumble
         heliPh = -1; heliAir = false; heliHeld = false; heliSet = 0; heliLay = 0; heliUsed = false;
-        Say(kind == "land" ? "BAD LANDING" : "WIPEOUT");
+        hanging = false; ropeOffer = false; supT = -1f;                          // off the rope (web 27914)
+        Say(WipeMsg(kind));
         Sfx.Hit(kind);
         onSplash?.Invoke(new Vector3(px, waterY, pz), 60);
         onWipeout?.Invoke();

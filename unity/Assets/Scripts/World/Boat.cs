@@ -164,6 +164,7 @@ public class Boat : MonoBehaviour
     {
         var r = rider;
         if (gl != Glide.Off || !r.running || r.wipe) return false;
+        if (r.hanging) r.ReleaseRope(false);           // off the plane's rope first (web 31782)
         BuildRig();
         gl = Glide.Tow; glT = 0f; glAge = 0f; glVx = glRoll = glRollV = glPitch = glPitchV = glYaw = 0f;
         wingOn = true; ropeOn = true; glScale = 0.2f;

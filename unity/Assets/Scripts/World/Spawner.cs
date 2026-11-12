@@ -71,14 +71,31 @@ public class Spawner : MonoBehaviour
 
     // ---- the banner plane: a tow passes low over the lane every forty to eighty seconds ----
     public SetWave setWave; public Island island;
-    Transform tow; bool towOn; float towT = 20f, towSpin;
+    Transform tow; bool towOn; float towT = 34f, towSpin;
+    // The web fits its model into the box of the plane it builds from primitives, by the longest
+    // side (PLANE_BOX 22460-22464, fitToBox 5661), and flies it at scale 1 ("the banner tow passes
+    // close; it needs no help", 46662): 6.5 ft across the wings. At 22 ft it was over three times
+    // that, its floats hung down to seven and a half feet, and at the same 11 ft it read as a
+    // plane skimming the water at head height rather than one passing well over him.
+    const float TowSpan = 6.5f;
+    // ---- and its rope (web 22479-22481, 27036-27049, 45353-45358, 46676-46686) ----
+    // While the plane is between 90 and 4 ft ahead the ROPE! button is up. Take it and he is
+    // HOOKED: towed up under the plane (BoardController owns that, rider.hanging) until he lets
+    // go, which is a Superman backflip off the line, or the plane passes 2 ft behind him and he
+    // drops off. The rope is a plain white line from just over his head to just under the plane.
+    const float RopeFar = -90f, RopeNear = -4f, RopeDrop = 2f;
+    LineRenderer towRope;
 
     void TowPlane(float dt, float eff)
     {
+        var r = rider;
+        if (r.onRope == null) r.onRope = RopeAction;
         bool setIdle = setWave == null || setWave.ph == SetWave.Phase.Idle;
         if (island != null && island.On) towT = Mathf.Max(towT, 2.0f);   // no banner tow over a beach
         if (setIdle) towT -= dt;
-        if (setIdle && towT <= 0f && !towOn)
+        // the set wave takes the sky, and whatever tow was out goes with it (web 32301-32302)
+        if (!setIdle && towOn) { towOn = false; tow.gameObject.SetActive(false); if (r.hanging) r.ReleaseRope(false); }
+        if (r.running && setIdle && towT <= 0f && !towOn)
         {
             if (tow == null)
             {
@@ -87,7 +104,9 @@ public class Spawner : MonoBehaviour
                 // along z. Sized by its longest side, the wingspan; then turned a quarter so the nose
                 // points down the lane at the lens, the way it flies in (web 22465), and re-centred.
                 var holder = new GameObject("BannerPlane");
-                var go = Models.Spawn("plane", holder.transform, 2f, PrimitiveType.Cube); Models.FitLength(go, 22f);
+                var go = Models.Spawn("plane", holder.transform, 2f, PrimitiveType.Cube);
+                PlaneProps.Attach(go);                                           // its two props turn (web 46669)
+                Models.FitLength(go, TowSpan);
                 if (!go.name.EndsWith("(stand-in)"))
                 {
                     go.transform.localRotation = Quaternion.Euler(0f, -90f, 0f) * go.transform.localRotation;
@@ -99,6 +118,8 @@ public class Spawner : MonoBehaviour
             tow.position = new Vector3(Random.value * 16f - 8f, 11f, -190f);
             towT = 40f + Random.value * 38f;
         }
+        // It flies on through a wipeout as well: the world keeps running under the crash, and a
+        // plane frozen in the sky over the tumble was the one thing that stopped.
         if (towOn && setIdle)
         {
             towSpin += dt;
@@ -108,6 +129,53 @@ public class Spawner : MonoBehaviour
             tow.rotation = Quaternion.Euler(Mathf.Cos(towSpin * 1.5f) * 2.5f, Mathf.Sin(towSpin * 0.4f) * 3f, Mathf.Sin(towSpin * 0.7f) * 6f);
             if (tow.position.z > 40f) { towOn = false; tow.gameObject.SetActive(false); }
         }
+        // the offer is a window, not an event: in reach, the button is up (web 46676-46677)
+        r.ropeOffer = towOn && r.running && !r.wipe && tow.position.z > RopeFar && tow.position.z < RopeNear;
+        if (r.hanging)
+        {
+            if (r.isleOn || r.diveOn || r.glideOn) r.hanging = false;         // something else has him now: the line is simply gone
+            else if (!towOn || tow.position.z > RopeDrop) r.ReleaseRope(false);    // it has gone over him (web 45358, 46674)
+            else r.towX = tow.position.x;                                     // the rope pulls him in under it
+        }
+        TowRope();
+    }
+
+    /// a revive puts the tow away and the next one 30-54 s out (web respawn 27186)
+    public void ClearTow()
+    {
+        towOn = false; if (tow != null) tow.gameObject.SetActive(false);
+        towT = 30f + Random.value * 24f; TowRope();
+    }
+
+    // web ropeAction (27036-27044): inside the window it hooks him; on the line it lets him go
+    void RopeAction()
+    {
+        var r = rider;
+        if (r == null || !r.running) return;
+        if (r.hanging) { r.ReleaseRope(true); return; }
+        if (r.ropeOffer && towOn) { r.towX = tow.position.x; r.Hook(); TowRope(); }
+    }
+
+    // the line, from just over his head to just under the plane (web 46681-46686)
+    void TowRope()
+    {
+        var r = rider;
+        bool on = r.hanging && towOn && tow != null;
+        if (towRope == null)
+        {
+            if (!on) return;
+            var go = new GameObject("TowRope");
+            go.transform.SetParent(transform, false);
+            towRope = go.AddComponent<LineRenderer>();
+            towRope.useWorldSpace = true; towRope.positionCount = 2;
+            towRope.widthMultiplier = 0.045f; towRope.numCapVertices = 0;
+            towRope.sharedMaterial = Dive.Unlit(Color.white, false);
+            towRope.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; towRope.receiveShadows = false;
+        }
+        if (towRope.gameObject.activeSelf != on) towRope.gameObject.SetActive(on);
+        if (!on) return;
+        towRope.SetPosition(0, new Vector3(r.px, r.py + 1.2f, r.pz - 0.5f));
+        towRope.SetPosition(1, tow.position + new Vector3(0f, -0.6f, 0f));
     }
 
     void Knock(Ob o, BoardController r, float side, float up, float upR, float spin)
@@ -133,7 +201,9 @@ public class Spawner : MonoBehaviour
         // off six seconds, a random lane
         obstacles.Clear(); spawnT = 2.0f; eater = null; bigFinCd = 6f; octCd = 0; holdCast = false; chuteW = 0;
         lastKind = ""; sameRun = 0; laneSlot = Random.Range(0, 5);
-        towOn = false; towT = 20f + Random.value * 20f; if (tow != null) tow.gameObject.SetActive(false);
+        // the first tow comes 34 to 60 s into a run (web reset 27114)
+        towOn = false; towT = 34f + Random.value * 26f; if (tow != null) tow.gameObject.SetActive(false);
+        if (towRope != null) towRope.gameObject.SetActive(false);
         foreach (var st in stars) if (st.go) Destroy(st.go);
         stars.Clear();
     }
@@ -153,7 +223,7 @@ public class Spawner : MonoBehaviour
         var r = rider; float eff = r.eff;
         spawnT -= dt;
         float distM = r.dist;
-        if (r.running) TowPlane(dt, eff);
+        TowPlane(dt, eff);                 // it only sets off while he is riding; one already out flies on through a crash
         if (setWave != null && setWave.ph != SetWave.Phase.Idle) spawnT = Mathf.Max(spawnT, 0.6f);   // nothing new is cast while the set wave is up (web 46170)
         if (holdCast) spawnT = Mathf.Max(spawnT, 0.5f);
         if (r.running && spawnT <= 0f && !holdCast)
@@ -268,7 +338,9 @@ public class Spawner : MonoBehaviour
             {
                 o.passed = true;
                 float m = Mathf.Abs(r.px - o.x) - (o.hx + halfW);
-                if (o.kind != "ramp" && !o.used && m > 0 && m < 1.5f && !r.glideOn) { r.score += 25; r.Say("CLOSE CALL! +25"); Sfx.Close(false); Sfx.Buzz(12); }
+                // only for the things that would have ended it (web 46583): not a rock, not a ramp
+                bool harmful = o.kind == "buoy" || o.kind == "log" || o.kind == "jelly" || o.kind == "bigfin" || o.kind == "octopus";
+                if (harmful && !o.used && m > 0 && m < 1.5f && !r.glideOn && !r.hanging) { r.score += 25; r.Say("CLOSE CALL! +25"); Sfx.Close(false); Sfx.Buzz(12); }
             }
             if (!contact) continue;
             if (o.ramp)
@@ -289,7 +361,7 @@ public class Spawner : MonoBehaviour
                 r.score += 60; r.boost = Mathf.Min(16f, r.boost + 3f); r.Say("JELLY BOUNCE! +60"); Sfx.Jelly(over); Sfx.Buzz(15);
                 onSplash?.Invoke(new Vector3(o.x, o.y + 0.5f, o.z), over ? 14 : 20);
             }
-            else if (r.py < r.waterY + o.h && !r.Submerged && !r.glideOn)     // under the water in the helicopter nothing on it can touch him; nor on the paraglide's line (web 46633)
+            else if (r.py < r.waterY + o.h && !r.Submerged && !r.glideOn && !r.hanging)     // under the water in the helicopter nothing on it can touch him; nor on the paraglide's line or the plane's rope (web 46633)
             {
                 float topY = r.waterY + o.h;
                 // dropping onto the top of it is not driving into its side: that costs the board a
@@ -326,7 +398,7 @@ public class Spawner : MonoBehaviour
             o.x += vx * dt;
             if (Random.value < dt * 14f) onSplash?.Invoke(new Vector3(o.x, o.y + 0.1f, o.z + 1.4f), 1);
             if (o.hunts) { float want = Mathf.Atan2(vx, Mathf.Max(1f, eff)); float d = Mathf.DeltaAngle(o.yaw * Mathf.Rad2Deg, want * Mathf.Rad2Deg) * Mathf.Deg2Rad; o.yaw += d * Mathf.Min(1f, dt * 2.5f); }
-            if (o.hunts && togo < ShkLead && r.running && !r.glideOn && o.z < 0 && Mathf.Abs(o.x - r.px) < ShkReach)   // not at a man on a wing (web 46303)
+            if (o.hunts && togo < ShkLead && r.running && !r.glideOn && !r.hanging && o.z < 0 && Mathf.Abs(o.x - r.px) < ShkReach)   // not at a man on a wing (web 46303)
             {
                 o.atk = "leap"; o.at = 0; o.x0 = o.x; o.z0 = o.z; o.aimX = r.px; o.aimZ = r.pz;
                 onSplash?.Invoke(new Vector3(o.x, o.y, o.z), 18);
@@ -354,7 +426,7 @@ public class Spawner : MonoBehaviour
             if (o.atk == "leap" && k >= 0.5f)
             {
                 float off = Mathf.Abs(r.px - o.x);
-                if (off < ShkDodge && r.py < o.y + ShkOver && r.running)
+                if (off < ShkDodge && r.py < o.y + ShkOver && r.running && !r.hanging)   // not a man on the tow rope (web 46349)
                 {
                     o.atk = "bite"; eater = o; o.at = 0;
                     r.Wipeout("bigfin"); r.Say("EATEN!"); Sfx.Buzz(22);
@@ -482,12 +554,17 @@ public class Spawner : MonoBehaviour
             case "buoy":
                 // two liveries, picked at random as the web picks them: the danger buoy, and the
                 // small channel marker at 1.18 against its 2.00; the hitbox is the original's
-                o.hx = 1.25f; o.hz = 1.25f; o.h = 2.4f;
-                if (Random.value < 0.5f && Resources.Load<GameObject>("Models/buoy2") != null) Models.Spawn("buoy2", holder.transform, 4.2f * 1.18f / 2.00f, PrimitiveType.Cylinder);
-                else Models.Spawn("buoy", holder.transform, 4.2f, PrimitiveType.Cylinder);
+                // the hitbox scales with the livery, as the web's does (OBST_SIZE 23169, 23275): its
+                // r 0.85 / h 2.2 times 2.00 for the danger buoy, 1.18 for the channel marker. The
+                // danger buoy is 4.4 ft tall to the hit test -- not a thing a plain hop clears.
+                if (Random.value < 0.5f && Resources.Load<GameObject>("Models/buoy2") != null)
+                { Models.Spawn("buoy2", holder.transform, 4.2f * 1.18f / 2.00f, PrimitiveType.Cylinder); o.hx = o.hz = 0.85f * 1.18f; o.h = 2.2f * 1.18f; }
+                else { Models.Spawn("buoy", holder.transform, 4.2f, PrimitiveType.Cylinder); o.hx = o.hz = 0.85f * 2.00f; o.h = 2.2f * 2.00f; }
                 break;
-            case "log": o.hx = 3.1f; o.hz = 0.95f; o.h = 1.15f;
-                { var g = Models.Spawn("log", holder.transform, 1.2f, PrimitiveType.Capsule); Models.FitLength(g, 6.4f);
+            // the web's log (22764): five feet of trunk, its hitbox 2.50 across the lane and 0.62 along
+            // it -- a plank, long and thin. It was drawn 6.4 ft long here, with a box to match.
+            case "log": o.hx = 2.50f; o.hz = 0.62f; o.h = 1.1f;
+                { var g = Models.Spawn("log", holder.transform, 1.2f, PrimitiveType.Capsule); Models.FitLength(g, 5.0f);
                   // FitLength lays the long side along z; a log floats ACROSS the lane, so a quarter turn in the parent's frame
                   g.transform.localRotation = Quaternion.Euler(0, 90, 0) * g.transform.localRotation; } break;
             case "ramp": o.hx = 1.70f; o.hz = 2.55f; o.h = 1.6f; o.ramp = true;
@@ -506,7 +583,7 @@ public class Spawner : MonoBehaviour
                     float tier = RampTiers[Random.Range(0, RampTiers.Length)];
                     o.rampSink = RampH * tier * RampSink; o.rampLift = 1f - tier * RampLaunchDrop;
                 } break;
-            case "jelly": o.hx = 1.1f; o.hz = 1.1f; o.h = 1.4f;
+            case "jelly": o.hx = 1.05f; o.hz = 1.05f; o.h = 1.6f;          // web 22750
                 { var g = Models.Spawn("jelly", holder.transform, 2.6f, PrimitiveType.Sphere); } break;
             case "rock": o.hx = 1.55f; o.hz = 0.95f; o.h = 1.15f;
                 // the chute's own hazard (web 22652-22675): wide and LOW, the opposite of the rest of
@@ -533,7 +610,7 @@ public class Spawner : MonoBehaviour
                     foam.transform.localPosition = new Vector3(0, 0.30f, 0); foam.transform.localScale = new Vector3(1.15f * 2f * 1.5f, 1.15f * 2f * 0.34f, 1.15f * 2f * 0.85f);
                     var fr = foam.GetComponent<MeshRenderer>(); fr.sharedMaterial = Dive.Unlit(new Color(0xea / 255f, 0xf7 / 255f, 1f, 0.34f), true); fr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 } break;
-            case "octopus": o.hx = 1.6f; o.hz = 1.6f; o.h = 1.4f;
+            case "octopus": o.hx = 1.25f; o.hz = 1.25f; o.h = 2.4f;        // the body only, its arms are not a wall (web 22649)
                 {
                     var g = Models.Spawn("octopus", holder.transform, 2.4f, PrimitiveType.Sphere);
                     foreach (var a in g.GetComponentsInChildren<Animation>(true)) a.enabled = false;

@@ -184,9 +184,30 @@ public class Hud : MonoBehaviour
         UiKit.Label(j.transform, "JUMP", 17, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -14), Vector2.zero);
         j.raycastTarget = true; jump = j.gameObject;
         UiKit.Pressable(jump, () => { Sfx.Buzz(10); rider.Jump(); });
+        BuildRope(r);
         BuildStreaks(r);
         BuildCoco(r);
         BuildStick(r);
+    }
+
+    // ---- ROPE! (web #ropeBtn, 1111): JUMP's shape one slot up, 142 off the bottom. It is up
+    // while the tow plane is in reach and while he hangs from it, when it reads LET GO ----
+    GameObject ropeBtn; Text tRope;
+    void BuildRope(Transform r)
+    {
+        var b = UiKit.Pic(r, "rope", UiKit.Rounded(106, 86, 27, 0, 0, 27, UiKit.Body.Glass, 2.5f, false, true), new Vector2(1, 0), new Vector2(1, 0), new Vector2(1, 0), new Vector2(0, 142), new Vector2(106, 86));
+        tRope = UiKit.Label(b.transform, "ROPE!", 15, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+        b.raycastTarget = true; ropeBtn = b.gameObject;
+        UiKit.Pressable(ropeBtn, () => rider.onRope?.Invoke());
+        ropeBtn.SetActive(false);
+    }
+    void StepRope()
+    {
+        if (ropeBtn == null) return;
+        bool show = rider.running && !rider.wipe && (rider.ropeOffer || rider.hanging);
+        if (ropeBtn.activeSelf != show) ropeBtn.SetActive(show);
+        string s = rider.hanging ? "LET GO" : "ROPE!";
+        if (show && tRope.text != s) tRope.text = s;
     }
 
     // ---- the walk stick: a ring low on the right while he is on the island, the nub follows
@@ -846,6 +867,7 @@ public class Hud : MonoBehaviour
         if (rider == null || !ride.activeSelf) return;
         StepRideFx(Time.deltaTime);
         StepStick();
+        StepRope();
         // the trick column stands down under the water and on the sand; the lens cell reads the air left on a dive
         bool noTricks = (dive != null && dive.On) || (island != null && island.Ashore);
         if (bar.activeSelf == noTricks) bar.SetActive(!noTricks);
@@ -889,5 +911,6 @@ public class Hud : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.L)) { Sfx.Trick("roll"); rider.Hold("roll", true); } if (Input.GetKeyUp(KeyCode.L)) rider.Hold("roll", false);
         if (Input.GetKeyDown(KeyCode.H)) rider.Hold("hand", true); if (Input.GetKeyUp(KeyCode.H)) rider.Hold("hand", false);
         if (Input.GetKeyDown(KeyCode.G)) rider.Hold("heli", true); if (Input.GetKeyUp(KeyCode.G)) rider.Hold("heli", false);
+        if (Input.GetKeyDown(KeyCode.R)) rider.onRope?.Invoke();      // the ROPE! button, for a keyboard
     }
 }

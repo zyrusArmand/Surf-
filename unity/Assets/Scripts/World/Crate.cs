@@ -53,7 +53,9 @@ public class Crate : MonoBehaviour
             on = false; held = true; obj.gameObject.SetActive(false);
             float q = Random.value;
             int n = q < 0.10f ? 200 + 25 * Random.Range(0, 7) : q < 0.32f ? 100 : q < 0.64f ? 50 : 25;
-            r.coins += n;
+            // into bonusCoins, which the run's total is built from: coins itself is recomputed from
+            // distance and score every frame, so adding to it lost the chest's pay the next frame
+            r.bonusCoins += n;
             r.Say("TREASURE CHEST! +" + n + " PUKA"); Sfx.Buzz(25);
             onSplash?.Invoke(new Vector3(r.px, r.py + 0.3f, r.pz), 14);
         }
