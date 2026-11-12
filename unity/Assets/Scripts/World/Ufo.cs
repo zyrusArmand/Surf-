@@ -74,6 +74,7 @@ public class Ufo : MonoBehaviour
     public Transform Saucer => holder;
 
     Transform holder; float halfH, emitY, emitR; Transform beam; Material beamMat; Light lamp;
+    Transform pool; Material poolMat; ParticleSystem motes; float moteAcc;   // the pool of light on the sea, and the motes drawn up the beam
     string wasWheelRider, wasWheelLoan; bool cueLive;
     // the drops off the hull, pooled
     class Drip { public Transform m; public float vy, t; }
@@ -117,7 +118,7 @@ public class Ufo : MonoBehaviour
         ph = Phase.Off; t = 0; grab = false;
         foreach (var d in drips) Pool(d.m);
         drips.Clear();
-        if (holder != null) { holder.gameObject.SetActive(false); if (beamMat != null) beamMat.SetFloat("_Alpha", 0f); }
+        if (holder != null) { holder.gameObject.SetActive(false); if (beamMat != null) beamMat.SetFloat("_Alpha", 0f); if (poolMat != null) poolMat.SetFloat("_Alpha", 0f); }
         if (lamp != null) lamp.intensity = 0f;
     }
 
@@ -285,8 +286,39 @@ public class Ufo : MonoBehaviour
         beam.localRotation = Quaternion.FromToRotation(Vector3.down, D);
         beam.localScale = new Vector3(BeamW, len, BeamW);
         beam.localPosition = new Vector3(D.x * len * 0.5f, top + D.y * len * 0.5f, D.z * len * 0.5f);
-        // a slow throb, so it reads as something running rather than a painted cone
-        beamMat.SetFloat("_Alpha", k * (0.30f + 0.07f * Mathf.Sin(t * 7.0f)));
+        // its strength, with a slow throb in it; how long it is, so the climbing bands keep their spacing
+        beamMat.SetFloat("_Alpha", k * (0.88f + 0.12f * Mathf.Sin(t * 7.0f)));
+        beamMat.SetFloat("_Len", len);
+        // where it lands: the pool on the water, as wide as the light has reached
+        var bottom = up + new Vector3(D.x * len, top + D.y * len, D.z * len);
+        if (pool != null)
+        {
+            float landed = reach >= 0.98f ? 1f : 0f;
+            pool.position = new Vector3(bottom.x, sea + 0.12f, bottom.z); pool.rotation = Quaternion.identity;
+            pool.localScale = Vector3.one * (BeamW * 2.6f);
+            poolMat.SetFloat("_Alpha", k * landed);
+        }
+        // and the motes it draws up from the sea toward the hull
+        if (motes != null && k > 0.3f && reach > 0.4f)
+        {
+            moteAcc += Time.deltaTime * 70f * k;
+            var topW = up + new Vector3(0f, top, 0f);
+            while (moteAcc >= 1f)
+            {
+                moteAcc -= 1f;
+                float s = Random.value, a = Random.value * Mathf.PI * 2f;
+                float rad = Mathf.Lerp(BeamW, emitR, s) * Mathf.Sqrt(Random.value) * 0.8f;
+                var ep = new ParticleSystem.EmitParams
+                {
+                    position = Vector3.Lerp(bottom, topW, s * reach) + new Vector3(Mathf.Cos(a) * rad, 0f, Mathf.Sin(a) * rad),
+                    velocity = -D * (4f + 5f * Random.value),
+                    startSize = 0.05f + 0.10f * Random.value,
+                    startLifetime = 0.5f + 0.7f * Random.value,
+                    startColor = Color.white
+                };
+                motes.Emit(ep, 1);
+            }
+        }
         if (lamp != null)
         {
             lamp.transform.localPosition = new Vector3(D.x * len * 0.4f, top + D.y * len * 0.4f, D.z * len * 0.4f);
@@ -493,13 +525,47 @@ public class Ufo : MonoBehaviour
         var bg = new GameObject("beam"); beam = bg.transform; beam.SetParent(holder, false);
         var mf = bg.AddComponent<MeshFilter>(); var mr = bg.AddComponent<MeshRenderer>();
         mf.sharedMesh = Cone(Mathf.Min(0.95f, emitR / BeamW), 1f, 30);
-        var bs = Shader.Find("Surf/Beam");
+        var bs = Shader.Find("Surf/TractorBeam"); if (bs == null) bs = Shader.Find("Surf/Beam");
         beamMat = new Material(bs != null ? bs : Shader.Find("Universal Render Pipeline/Unlit"));
         beamMat.SetColor("_Color", Col(0x7dff9a)); beamMat.SetFloat("_Alpha", 0f);
         beamMat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One); beamMat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.One);
         beamMat.renderQueue = 3100;
         mr.sharedMaterial = beamMat; mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; mr.receiveShadows = false;
-        // no pool on the water: the beam ends where it ends
+        // the pool of light where it meets the sea, rings running out of it
+        var ps = Shader.Find("Surf/BeamPool");
+        if (ps != null)
+        {
+            var pg = new GameObject("pool", typeof(MeshFilter), typeof(MeshRenderer)); pool = pg.transform; pool.SetParent(holder, false);
+            var q = new Mesh { name = "pool" };
+            q.vertices = new[] { new Vector3(-0.5f, 0, -0.5f), new Vector3(0.5f, 0, -0.5f), new Vector3(-0.5f, 0, 0.5f), new Vector3(0.5f, 0, 0.5f) };
+            q.uv = new[] { new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 1), new Vector2(1, 1) };
+            q.triangles = new[] { 0, 2, 1, 1, 2, 3 }; q.RecalculateBounds();
+            pg.GetComponent<MeshFilter>().sharedMesh = q;
+            poolMat = new Material(ps); poolMat.SetColor("_Color", Col(0x7dff9a)); poolMat.SetFloat("_Alpha", 0f); poolMat.renderQueue = 3090;
+            var pr = pg.GetComponent<MeshRenderer>(); pr.sharedMaterial = poolMat; pr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; pr.receiveShadows = false;
+        }
+        // glowing motes of spray drawn up the beam toward the hull
+        {
+            var mg = new GameObject("motes"); mg.transform.SetParent(transform, false);
+            motes = mg.AddComponent<ParticleSystem>();
+            var main = motes.main; main.startSpeed = 0f; main.maxParticles = 300; main.playOnAwake = false;
+            main.simulationSpace = ParticleSystemSimulationSpace.World; main.gravityModifier = 0f;
+            var em = motes.emission; em.enabled = false; var sh = motes.shape; sh.enabled = false;
+            var col = motes.colorOverLifetime; col.enabled = true;
+            var g = new Gradient();
+            g.SetKeys(new[] { new GradientColorKey(Color.white, 0), new GradientColorKey(Color.white, 1) },
+                      new[] { new GradientAlphaKey(0f, 0), new GradientAlphaKey(1f, 0.2f), new GradientAlphaKey(0.8f, 0.7f), new GradientAlphaKey(0f, 1) });
+            col.color = g;
+            var r = mg.GetComponent<ParticleSystemRenderer>(); r.renderMode = ParticleSystemRenderMode.Billboard;
+            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows = false;
+            var m = Bootstrap.SoftParticles(Bootstrap.DropTex());
+            if (m != null)
+            {
+                m.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One); m.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.One);   // light, added
+                m.SetColor("_BaseColor", new Color(1.2f, 2.8f, 1.5f, 1f));
+                r.material = m;
+            }
+        }
         var lg = new GameObject("light"); lg.transform.SetParent(holder, false);
         lamp = lg.AddComponent<Light>(); lamp.type = LightType.Point; lamp.color = Col(0x8dffa8); lamp.range = 90f; lamp.intensity = 0f;
         holder.gameObject.SetActive(false);
