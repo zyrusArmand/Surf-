@@ -331,7 +331,14 @@ Shader "Surf/Ocean"
                 if (_WakeA > 0.001)
                 {
                     float dz = (i.w.z + _Dist) - (_Dist + _WakeZ);
-                    float wf = exp(-dz * dz / 60.0) * (dz > 0 ? 1 : 0) * saturate(1.0 - abs(i.w.x - _WakeX) / 2.4) * _WakeA;
+                    // fading in off the tail rather than switched on along a line there (which drew a
+                    // straight edge across the water behind the board), and following the wake's V: a
+                    // churned strip straight behind, and foam along the two arms as they open
+                    float ax = abs(i.w.x - _WakeX), armF = 0.45 + 0.32 * max(dz, 0.0);
+                    float along = smoothstep(-0.4, 1.8, dz) * exp(-max(dz, 0.0) / 14.0);
+                    float churn = saturate(1.0 - ax / (0.9 + 0.12 * max(dz, 0.0))) * 0.75;
+                    float arms = exp(-(ax - armF) * (ax - armF) / 0.35);
+                    float wf = along * max(churn, arms) * _WakeA * 1.6;
                     foam = max(foam, wf * (0.6 + 0.4 * lace));
                 }
                 col = lerp(col, float3(0.94, 0.97, 1.0), foam * 0.66);
