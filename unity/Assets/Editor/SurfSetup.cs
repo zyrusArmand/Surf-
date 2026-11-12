@@ -29,6 +29,7 @@ public static class SurfSetup
         {
             EnsurePipeline();
             EnsureAmbientOcclusion();
+            EnsureShaderKeep();
             EnsurePlayerSettings();
             EnsureScene();
             // after a crash Unity reopens on an empty Untitled scene; put the game's own back
@@ -66,6 +67,47 @@ public static class SurfSetup
         data.rendererFeatures.Add(ssao);
         EditorUtility.SetDirty(ssao); EditorUtility.SetDirty(data);
         AssetDatabase.SaveAssets();
+    }
+
+    // ---- the shaders a build must carry ----
+    // Everything here is built at runtime and finds its shaders by name (Shader.Find). A player
+    // build only packs the shaders some asset uses, and nothing in the project used these, so on a
+    // phone the sea, the sky, the sand, the board and the effects would come up missing or pink.
+    // One small material per shader (and per keyword set the code switches on at runtime) in a
+    // Resources folder makes the build carry them. Safe to run again: it only adds what is absent.
+    const string KeepDir = "Assets/Resources/ShaderKeep";
+    static void EnsureShaderKeep()
+    {
+        const string Lit = "Universal Render Pipeline/Lit", Unlit = "Universal Render Pipeline/Unlit", PUnlit = "Universal Render Pipeline/Particles/Unlit";
+        var want = new (string shader, string[] kw, bool clear)[] {
+            ("Surf/Ocean", null, false), ("Surf/Sky", null, false), ("Surf/Sand", null, false), ("Surf/Glass", null, false),
+            ("Surf/Cumulus", null, false), ("Surf/Cloud", null, false), ("Surf/Curl", null, false), ("Surf/FoamBank", null, false),
+            ("Surf/Beam", null, false), ("Surf/Whirl", null, false), ("Surf/Character", null, false),
+            (Lit, null, false), (Lit, new[] { "_NORMALMAP" }, false), (Lit, new[] { "_EMISSION" }, false), (Lit, new[] { "_NORMALMAP", "_EMISSION" }, false),
+            (Lit, new[] { "_NORMALMAP", "_ENVIRONMENTREFLECTIONS_OFF" }, false), (Lit, new[] { "_SPECULARHIGHLIGHTS_OFF" }, false),
+            (Lit, new[] { "_SURFACE_TYPE_TRANSPARENT" }, true), (Lit, new[] { "_SURFACE_TYPE_TRANSPARENT", "_EMISSION" }, true),
+            (Unlit, null, false), (Unlit, new[] { "_SURFACE_TYPE_TRANSPARENT" }, true),
+            (PUnlit, new[] { "_SURFACE_TYPE_TRANSPARENT" }, true), (PUnlit, new[] { "_SURFACE_TYPE_TRANSPARENT", "_SOFTPARTICLES_ON" }, true),
+        };
+        bool made = false;
+        foreach (var w in want)
+        {
+            string name = (w.shader + (w.kw != null ? "_" + string.Join("_", w.kw) : "")).Replace('/', '_').Replace(' ', '_');
+            string path = KeepDir + "/" + name + ".mat";
+            if (File.Exists(path)) continue;
+            var sh = Shader.Find(w.shader);
+            if (sh == null) continue;
+            Directory.CreateDirectory(KeepDir);
+            var m = new Material(sh) { name = name };
+            if (w.kw != null) foreach (var k in w.kw) m.EnableKeyword(k);
+            if (w.clear)
+            {
+                if (m.HasProperty("_Surface")) m.SetFloat("_Surface", 1f);
+                m.SetOverrideTag("RenderType", "Transparent"); m.renderQueue = (int)RenderQueue.Transparent;
+            }
+            AssetDatabase.CreateAsset(m, path); made = true;
+        }
+        if (made) AssetDatabase.SaveAssets();
     }
 
     static void EnsurePipeline()

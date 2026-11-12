@@ -54,6 +54,7 @@ public class Bootstrap : MonoBehaviour
         Physics.gravity = new Vector3(0f, -32.2f, 0f);      // the world is in feet
         QualitySettings.vSyncCount = 0;
         var load = Loading.Show(); load.Set(0.12f);
+        FpsMeter.Install();             // a Development Build shows how it is running, for the phone test
         yield return null;
 
         // light
