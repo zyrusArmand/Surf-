@@ -279,6 +279,9 @@ public class Spawner : MonoBehaviour
         {
             var o = obstacles[i];
             o.z += eff * dt;
+            // the set wave runs over everything already on the water rather than it vanishing:
+            // pushed past him and culled by the usual rule (web 46526)
+            if (setWave != null && setWave.Sweeping && o.kind != "debris") o.z += 42f * dt;
             if (o.kind == "bigfin" && Shark(o, dt, eff, fzBase)) continue;
             if (o.kind == "octopus") Octopus(o, dt);
             if (o.z > 30f) { Destroy(o.go); obstacles.RemoveAt(i); continue; }

@@ -34,7 +34,10 @@ public class SetWave : MonoBehaviour
     public bool tubeRide, onLip, pipeAir;      // is the ring in charge; is he on the thrown lip; off the wall
     public int loops;
     public float ang, angV, rad, radV, airT, cut;
-    bool armed, sweep2;
+    bool armed, sweep2; float scoreAcc;
+    public Whirlpool whirl;              // no set wave while a whirlpool is up (web 32347)
+    /// from the impact to the end the swell runs everything already on the water past him (web swSweep)
+    public bool Sweeping => ph != Phase.Idle && ph != Phase.Fly;
     Transform plane; Vector3 planePrev; bool planePrevOk; PlaneProps planeProps;
     GameObject curl, foam; Material curlMat, foamMat;
     public bool summon;      // debug: bring one now
@@ -95,7 +98,7 @@ public class SetWave : MonoBehaviour
             {
                 if (!summon && !armed) { armed = true; next = Mathf.Min(next, 1.8f); }
                 next -= dt;
-                if ((next <= 0 || summon) && !r.hanging && (ufo == null || !ufo.Holds) && (dive == null || !dive.Busy) && (island == null || !island.Busy) && (chute == null || !chute.Busy) && (ski == null || !ski.On)) Begin();
+                if ((next <= 0 || summon) && !r.hanging && (whirl == null || !whirl.On) && (ufo == null || !ufo.Holds) && (dive == null || !dive.Busy) && (island == null || !island.Busy) && (chute == null || !chute.Busy) && (ski == null || !ski.On)) Begin();
             }
             Trim2(dt);
             return;
@@ -119,7 +122,7 @@ public class SetWave : MonoBehaviour
             {
                 ph = Phase.Impact; t = 0; plane.gameObject.SetActive(false);
                 onSplash?.Invoke(new Vector3(side * CrashX, 0, -168f), 120);
-                r.Say("IMPACT!"); Sfx.Buzz(26);
+                r.Say("IMPACT!");                         // no buzz: the web has none here (32400)
             }
             return;
         }
@@ -159,7 +162,9 @@ public class SetWave : MonoBehaviour
             float sweet = Mathf.Max(0f, 1 - Mathf.Abs(dp - 1.2f) / 3.2f);
             deep = Mathf.Max(deep, sweet);
             float rate = (240f + 960f * sweet * sweet) * Mathf.Max(0f, 1 - over / 45f);
-            r.score += Mathf.RoundToInt(rate * dt); pts += rate * dt;
+            // the web adds the fraction too: rounded every frame, 240 a second at 60 fps came to 240
+            // but at 144 fps to 288 (each frame's 1.67 rounding up to 2)
+            scoreAcc += rate * dt; int whole = Mathf.FloorToInt(scoreAcc); r.score += whole; scoreAcc -= whole; pts += rate * dt;
             Ring(dt);
             PlaceCurl(dt);
             Trim2(dt);
@@ -378,7 +383,6 @@ public class SetWave : MonoBehaviour
         rider.score += bonus;
         rider.Say(loops > 0 ? "SPAT OUT! " + loops + " LOOP" + (loops > 1 ? "S" : "") + " +" + bonus
                 : (ride + over > 11f ? "SPAT OUT! DEEP BARREL +" + bonus : "OUT CLEAN! +" + bonus));
-        Sfx.Buzz(30);
     }
 
     void End()

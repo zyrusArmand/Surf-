@@ -204,6 +204,7 @@ public class BoardController : MonoBehaviour
     }
 
     void BoardTrickClear() { kf = null; kfRoll = kfYaw = kfTuck = 0f; }
+    float tNow;                          // the real clock the wave clock's surge is keyed to (web tNow)
 
     static float Ease(float cur, float tgt, float dt, float k) { return cur + (tgt - cur) * Mathf.Min(1f, dt * k); }
 
@@ -366,7 +367,10 @@ public class BoardController : MonoBehaviour
 
     public void Step(float dt)
     {
-        t += dt * (1f + 0.55f * Mathf.Sin(t * 0.045f) + 0.28f * Mathf.Sin(t * 0.017f + 1.3f)) * 0.5f + dt * 0.5f;
+        // the web's wave clock (46758): the swell surges and eases instead of ticking at one rate,
+        // the surge keyed to the real clock (tNow), not to itself, and at its full depth
+        tNow += dt;
+        t += dt * (1f + 0.55f * Mathf.Sin(tNow * 0.045f) + 0.28f * Mathf.Sin(tNow * 0.017f + 1.3f));
         BoardTrickStep(dt);
         if (!running) { if (wipe) wipeT += dt; return; }
 
@@ -384,7 +388,10 @@ public class BoardController : MonoBehaviour
         WaveField.Drift = 0.46f + Mathf.Min(1f, dist / 9000f) * 0.16f;
         WaveField.Scroll = dist * WaveField.Drift;
         float stage = Mathf.Min(1f, dist / 9000f);
-        WaveField.Amp = Mathf.Max(0.34f, 1.12f + stage * 1.0f + Mathf.Sin(t * 0.07f) * (0.34f + stage * 0.5f) * 0.6f);
+        // sets roll through small, medium, large and the odd extra-large (web 4058, 46754): three slow
+        // sines, not one, so the size wanders instead of breathing on a single beat
+        float setNoise = 0.45f * Mathf.Sin(t * 0.055f) + 0.30f * Mathf.Sin(t * 0.021f + 2.1f) + 0.25f * Mathf.Sin(t * 0.009f + 4.7f);
+        WaveField.Amp = Mathf.Max(0.34f, 1.12f + stage * 1.0f + setNoise * (0.34f + stage * 0.5f));
 
         // the carve: push, grip, slide
         float sx = ashore ? 0f : Mathf.Clamp(steer, -1f, 1f);

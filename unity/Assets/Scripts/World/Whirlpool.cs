@@ -12,6 +12,7 @@ public class Whirlpool : MonoBehaviour
     public bool summon;
 
     float timer; bool on; float x, z, spin; bool hit;
+    public bool On => on;
     Mesh art; GameObject artGo; Material artMat; float spinA;
     Vector3[] artBase;
 
@@ -131,7 +132,7 @@ public class Whirlpool : MonoBehaviour
         Build();
         var r = rider;
         x = Mathf.Clamp(r.px + (Random.value - 0.5f) * 7f, -4f, 4f); z = -112f; spin = Random.value < 0.5f ? -1f : 1f; hit = false; on = true;
-        r.Say("WHIRLPOOL!"); Sfx.Buzz(20, 30, 20);
+        r.Say("WHIRLPOOL!");                      // no buzz: the web has none here (43107)
         float side = spin > 0 ? 1f : -1f;
         var a = spawner.Make("ramp", Mathf.Clamp(x - side * R * 0.62f, -15.5f, 15.5f), z + 15f); if (a != null) a.escape = true;
         var b = spawner.Make("jelly", Mathf.Clamp(x + side * R * 0.58f, -15.5f, 15.5f), z + 23f); if (b != null) b.escape = true;

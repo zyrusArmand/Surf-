@@ -100,7 +100,7 @@ public class Bootstrap : MonoBehaviour
         ufo = new GameObject("Ufo").AddComponent<Ufo>(); ufo.rider = rider; ufo.day = day; ufo.setWave = setWave; ufo.rig = rig; ufo.onRebuild = BuildRider; setWave.ufo = ufo;
         island = new GameObject("Island").AddComponent<Island>(); island.rider = rider; island.spawner = spawner; island.setWave = setWave;
         chute = new GameObject("Chute").AddComponent<Chute>(); chute.rider = rider; chute.spawner = spawner; chute.setWave = setWave; chute.whirl = whirl;
-        island.chute = chute; chute.island = island; setWave.island = island; setWave.chute = chute; whirl.island = island; whirl.chute = chute; dive.island = island; dive.chute = chute;
+        island.chute = chute; chute.island = island; setWave.island = island; setWave.chute = chute; setWave.whirl = whirl; whirl.island = island; whirl.chute = chute; dive.island = island; dive.chute = chute;
         crate.island = island; cocos.island = island; spawner.island = island;
         ski = new GameObject("JetSki").AddComponent<JetSki>(); ski.rider = rider; ski.setWave = setWave; ski.dive = dive; ski.island = island; setWave.ski = ski; dive.ski = ski;
 
