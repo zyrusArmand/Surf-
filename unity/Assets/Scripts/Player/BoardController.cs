@@ -11,7 +11,6 @@ public class BoardController : MonoBehaviour
     // ---- the speed curve ----
     const float SpdLo = 16.2f, SpdHi = 52f;
     const float SpdK = 210f * (SpdHi - SpdLo);
-    const float FtToM = 0.3048f;
     public const float BoardHalfL = 2.45f, BoardHalfW = 0.55f;
     public float laneLim = 17f;             // the lane's half-width this frame: the island widens it, the chute squeezes it (web 44899)
     const float LandYaw = 0.88f, LandFlip = 0.72f;
@@ -342,7 +341,11 @@ public class BoardController : MonoBehaviour
         speed = ashore ? 0f : Mathf.Min(100f + statTop, (SpdLo + (SpdHi - SpdLo) * dist / (dist + SpdK)) * statSpeed + statTop);
         boost = Mathf.Max(0f, boost - dt * 3.0f / statGlide);      // glide: how long the speed you earned stays with you
         eff = ashore ? 0f : Mathf.Max(16.2f, Mathf.Min(113f + statTop + chutePush, speed + Mathf.Abs(vx) * 0.3f + trim + boost + chutePush));
-        if (!ashore) dist += eff * dt * FtToM;
+        // the web's distance is the world's own units (web 45184: dist += eff*dt), and every gate in
+        // the game is keyed to it (ramps at 150, jellyfish 340, sharks 560, octopuses 780, the set wave
+        // at 5000, the day). Converted to true metres it ran at 0.3048 of the web's and all of them
+        // came three times late, the spacing tightened three times slower, and the swell rolled by slow.
+        if (!ashore) dist += eff * dt;
         WaveField.Drift = 0.46f + Mathf.Min(1f, dist / 9000f) * 0.16f;
         WaveField.Scroll = dist * WaveField.Drift;
         float stage = Mathf.Min(1f, dist / 9000f);
@@ -453,7 +456,9 @@ public class BoardController : MonoBehaviour
         if (msgT > 0) msgT -= dt;
 
         // coins: a shell a few metres, the web game's pace
-        coins = (int)(dist * 0.18f) + bonusCoins;
+        // the web's pay (coinsFor, web 10096-10098): a shell every five metres and one for every
+        // eighteen trick points, plus what the chest, the pearls and the island hand over
+        coins = Mathf.FloorToInt(dist / 5f) + Mathf.FloorToInt(score / 18f) + bonusCoins;
 
         // the transform: position, the trick rotation, and the carve lean on top
         transform.position = new Vector3(px, py, pz);

@@ -50,7 +50,6 @@ public class Spawner : MonoBehaviour
         reflShift.Clear();
     }
     float spawnT = 1.8f; int laneSlot; string lastKind = ""; int sameRun;
-    const float FtToM = 0.3048f;
 
     static readonly Dictionary<string, float> FloatOff = new Dictionary<string, float> {
         {"buoy",0.36f},{"jelly",0.34f},{"log",0.40f},{"ramp",0.02f},{"bigfin",0.28f},{"octopus",-0.10f},{"rock",0.0f} };
@@ -128,7 +127,10 @@ public class Spawner : MonoBehaviour
     {
         Hull.Reset();
         foreach (var o in obstacles) if (o.go) Destroy(o.go);
-        obstacles.Clear(); spawnT = 1.8f; eater = null; bigFinCd = 0; octCd = 0; holdCast = false; chuteW = 0;
+        // a run's start as the web's (27117): a little open water first, a fresh streak, the fin held
+        // off six seconds, a random lane
+        obstacles.Clear(); spawnT = 2.0f; eater = null; bigFinCd = 6f; octCd = 0; holdCast = false; chuteW = 0;
+        lastKind = ""; sameRun = 0; laneSlot = Random.Range(0, 5);
         towOn = false; towT = 20f + Random.value * 20f; if (tow != null) tow.gameObject.SetActive(false);
         foreach (var st in stars) if (st.go) Destroy(st.go);
         stars.Clear();
@@ -150,6 +152,7 @@ public class Spawner : MonoBehaviour
         spawnT -= dt;
         float distM = r.dist;
         if (r.running) TowPlane(dt, eff);
+        if (setWave != null && setWave.ph != SetWave.Phase.Idle) spawnT = Mathf.Max(spawnT, 0.6f);   // nothing new is cast while the set wave is up (web 46170)
         if (holdCast) spawnT = Mathf.Max(spawnT, 0.5f);
         if (r.running && spawnT <= 0f && !holdCast)
         {
@@ -167,32 +170,37 @@ public class Spawner : MonoBehaviour
                 weights.Add(("buoy", 22)); weights.Add(("log", 17));
                 if (distM >= 150) weights.Add(("ramp", 16));
                 if (distM >= 340) weights.Add(("jelly", 20));
-                if (distM >= 560 && bigFinCd <= 0f) weights.Add(("bigfin", 11));
-                if (distM >= 780 && octCd <= 0) weights.Add(("octopus", Mathf.Min(30f, 4f + Mathf.Max(0f, (distM - 780f) / 28f))));
+                if (distM >= 560) weights.Add(("bigfin", 11));
+                if (distM >= 780) weights.Add(("octopus", Mathf.Min(30f, 4f + Mathf.Max(0f, (distM - 780f) / 28f))));
             }
-            string pick = weights[0].Item1;
+            // the web's pick exactly (46199-46213): eight tries, each rejected if it would make a third
+            // in a row, a fin inside its cooldown or a thrower inside its; all eight rejected is a buoy
+            string pick = null;
             for (int tries = 0; tries < 8; tries++)
             {
                 float total = 0; foreach (var w in weights) total += w.Item2;
                 float roll = Random.value * total; string cand = weights[0].Item1;
                 foreach (var w in weights) { roll -= w.Item2; if (roll <= 0) { cand = w.Item1; break; } }
                 if (cand == lastKind && sameRun >= 2) continue;
+                if (cand == "bigfin" && bigFinCd > 0f) continue;
+                if (cand == "octopus" && octCd > 0) continue;
                 pick = cand; break;
             }
-            sameRun = pick == lastKind ? sameRun + 1 : 0; lastKind = pick;
-            if (pick == "bigfin") bigFinCd = 18f;
+            if (pick == null) pick = "buoy";
+            sameRun = pick == lastKind ? sameRun + 1 : 1; lastKind = pick;
+            if (pick == "bigfin") bigFinCd = 9f;
             octCd = Mathf.Max(0, octCd - 1); if (pick == "octopus") octCd = 3;
             laneSlot = (laneSlot + 1 + Random.Range(0, 3)) % 7;
             float laneX = (-3 + laneSlot) * 4.9f + (Random.value - 0.5f) * 3.0f;
             float lim = Mathf.Min(17f, r.laneLim);
             Make(pick, Mathf.Clamp(r.px * 0.55f + laneX, -lim, lim), -170f);
-            if (distM > 600 && Random.value < 0.30f && chuteW <= 0.5f)
+            if (distM > 600 && Random.value < 0.30f)
             {
                 float edge = (Random.value < 0.5f ? -1 : 1) * (11.5f + Random.value * 4.5f);
                 Make(Random.value < 0.5f ? "buoy" : "log", edge, -176f);
             }
         }
-        bigFinCd -= dt;
+        bigFinCd = Mathf.Max(0f, bigFinCd - dt);
         float fzBase = r.dist * WaveField.Drift;
         Stars(dt, eff, fzBase);
         for (int i = obstacles.Count - 1; i >= 0; i--)
@@ -243,7 +251,11 @@ public class Spawner : MonoBehaviour
                 o.rx += (slopeZ - o.rx) * f; o.rz += (-slopeX - o.rz) * f;
             }
             o.go.transform.position = new Vector3(o.x, o.y, o.z);
-            o.go.transform.rotation = Quaternion.Euler(o.rx * Mathf.Rad2Deg, 0, o.rz * Mathf.Rad2Deg + (o.kind == "buoy" ? Mathf.Sin(r.t * 2f + o.x) * 3.4f : 0));
+            var tiltQ = Quaternion.Euler(o.rx * Mathf.Rad2Deg, 0, o.rz * Mathf.Rad2Deg + (o.kind == "buoy" ? Mathf.Sin(r.t * 2f + o.x) * 3.4f : 0));
+            // the shark keeps its heading under the swell's tilt (web: rotation.y is its own, only x
+            // and z come from the water); writing yaw 0 here every frame threw it away, and it slid
+            // across the lane side-on and never turned to come at him
+            o.go.transform.rotation = o.kind == "bigfin" ? Quaternion.Euler(0f, SharkYaw(o, o.yaw), 0f) * tiltQ : tiltQ;
             if (!r.running || r.Submerged) continue;        // under the water nothing floating on it can reach him
 
             // the footprint on the water, then the height test
@@ -291,6 +303,16 @@ public class Spawner : MonoBehaviour
     // three it hunts -- turning after you and, a second out, leaping clear of the water at you.
     // Three feet of sidestep or enough air gets you past it for a bonus; otherwise it has you.
     // Returns true when it has handled the obstacle's placement for this frame.
+    // The web's heading w is the direction the nose points in world terms, (sin w, cos w) across and
+    // down the lane (0 is straight at the camera). The model's own nose lies along its length, +x
+    // turned to the side it crosses from (o.dir, the child's half turn), so the holder's yaw that puts
+    // that nose on (sin w, cos w) is this one, in degrees.
+    static float SharkYaw(Ob o, float w)
+    {
+        float nx = Mathf.Sin(w), nz = Mathf.Cos(w);
+        return Mathf.Atan2(-nz * o.dir, nx * o.dir) * Mathf.Rad2Deg;
+    }
+
     bool Shark(Ob o, float dt, float eff, float fzBase)
     {
         var r = rider;
@@ -323,7 +345,9 @@ public class Spawner : MonoBehaviour
             float dyk = Mathf.PI * Mathf.Cos(Mathf.PI * k) * ShkApex, dhk = (o.hunts ? Mathf.Sqrt(ldx * ldx + ldz * ldz) : Mathf.Abs(ldx)) + 0.001f;
             float pitch = Mathf.Atan2(dyk, dhk * 1.35f);
             o.go.transform.position = new Vector3(o.x, o.y, o.z);
-            o.go.transform.rotation = Quaternion.Euler(0, yaw * Mathf.Rad2Deg, 0) * Quaternion.Euler(-pitch * Mathf.Rad2Deg, 0, 0);
+            // nose up out of the water and over: pitched about its BEAM (its length lies along its own
+            // x, so a turn about x rolled it instead of lifting the nose)
+            o.go.transform.rotation = Quaternion.Euler(0f, SharkYaw(o, yaw), 0f) * Quaternion.Euler(0f, 0f, pitch * o.dir * Mathf.Rad2Deg);
             if (o.atk == "leap" && k >= 0.5f)
             {
                 float off = Mathf.Abs(r.px - o.x);
