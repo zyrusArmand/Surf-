@@ -21,11 +21,12 @@ public class Spawner : MonoBehaviour
     public Ob eater;                 // the shark that has him, while the chew lasts
     float bigFinCd; int octCd;
     public System.Action<Color> onSplat;      // a starfish in the face
+    public System.Action onClearSplat;        // a new run or a revive takes it off the lens (web respawn 27189)
 
     // the octopus's starfish, lobbed at where he will be
-    class Star { public GameObject go; public float vx, vy, vz, sx, sy, t; }
+    class Star { public GameObject go; public float vx, vy, vz, sx, sy, t; public int variant; }
+    float splatCd;                        // one starfish on the lens at a time (web splatCd)
     readonly List<Star> stars = new List<Star>();
-    static Mesh starMesh; static Material starMat;
 
     public BoardController rider;
     public System.Action<Vector3, int> onSplash;
@@ -317,7 +318,7 @@ public class Spawner : MonoBehaviour
         towOn = false; towT = 34f + Random.value * 26f; if (tow != null) tow.gameObject.SetActive(false);
         if (towRope != null) towRope.gameObject.SetActive(false);
         foreach (var st in stars) if (st.go) Destroy(st.go);
-        stars.Clear();
+        stars.Clear(); splatCd = 0f; onClearSplat?.Invoke();
     }
 
     public void Remove(int i) { if (obstacles[i].go) Destroy(obstacles[i].go); obstacles.RemoveAt(i); }
@@ -628,31 +629,23 @@ public class Spawner : MonoBehaviour
     {
         var r = rider;
         Sfx.StarThrow();
-        if (starMesh == null)
-        {
-            // a flat five-pointed star
-            var v = new List<Vector3>(); var idx = new List<int>();
-            v.Add(Vector3.zero);
-            for (int i = 0; i < 10; i++) { float a = i / 10f * Mathf.PI * 2f, rr = (i % 2 == 0) ? 0.55f : 0.24f; v.Add(new Vector3(Mathf.Cos(a) * rr, 0, Mathf.Sin(a) * rr)); }
-            for (int i = 0; i < 10; i++) { idx.Add(0); idx.Add(1 + (i + 1) % 10); idx.Add(1 + i); idx.Add(0); idx.Add(1 + i); idx.Add(1 + (i + 1) % 10); }
-            starMesh = new Mesh { name = "star" }; starMesh.SetVertices(v); starMesh.SetTriangles(idx, 0); starMesh.RecalculateNormals();
-            starMat = new Material(Shader.Find("Universal Render Pipeline/Lit")); starMat.SetColor("_BaseColor", new Color(1f, 0.54f, 0.24f)); starMat.SetFloat("_Smoothness", 0.3f);
-        }
-        var go = new GameObject("star", typeof(MeshFilter), typeof(MeshRenderer)); go.transform.SetParent(transform, false);
-        go.GetComponent<MeshFilter>().sharedMesh = starMesh; go.GetComponent<MeshRenderer>().sharedMaterial = starMat;
+        // the web's starfish (buildStarfish): a little character with eyes and a grin, in one of three colours
+        int variant = Random.Range(0, Starfish.Variants);
+        var go = Starfish.Build(variant, transform);
         float fx = o.x, fy = o.y + 1.15f, fz = o.z;
         go.transform.position = new Vector3(fx, fy, fz); go.transform.rotation = Random.rotation;
         bool onTarget = Random.value < 0.55f;
         float wide = onTarget ? 0f : (Random.value < 0.5f ? -1f : 1f) * (2.6f + Random.value * 3.8f);
         float tx = r.px + r.vx * 0.22f + wide, ty = r.py + 0.55f, tz = 0f;
         float T = Mathf.Max(0.40f, Mathf.Sqrt((tx - fx) * (tx - fx) + (tz - fz) * (tz - fz)) / (26f + Random.value * 5f));
-        stars.Add(new Star { go = go, vx = (tx - fx) / T, vy = ((ty - fy) + 0.5f * 13f * T * T) / T, vz = (tz - fz) / T - r.eff * 0.4f,
+        stars.Add(new Star { go = go, variant = variant, vx = (tx - fx) / T, vy = ((ty - fy) + 0.5f * 13f * T * T) / T, vz = (tz - fz) / T - r.eff * 0.4f,
                              sx = (Random.value - 0.5f) * 13f, sy = (Random.value - 0.5f) * 13f });
     }
 
     void Stars(float dt, float eff, float fzBase)
     {
         var r = rider;
+        splatCd = Mathf.Max(0f, splatCd - dt);
         for (int i = stars.Count - 1; i >= 0; i--)
         {
             var st = stars[i]; st.t += dt; st.vy -= 13f * dt;
@@ -664,7 +657,12 @@ public class Spawner : MonoBehaviour
             float sea = WaveField.Height(p.x, fzBase + p.z, r.t);
             if (hit)
             {
-                onSplat?.Invoke(new Color(1f, 0.54f, 0.24f)); r.Say("SPLAT!"); Sfx.StarHit(true);
+                // one on the lens at a time (web 43994-43998): the next to land while it is still
+                // there only splashes, and sounds quieter
+                bool lens = splatCd <= 0f;
+                Sfx.StarHit(lens);
+                if (lens) { onSplat?.Invoke(Starfish.Tint(st.variant)); r.Say("SPLAT!"); splatCd = 2.4f + 0.9f; }
+                else onSplash?.Invoke(p, 6);
                 onSplash?.Invoke(p, 10);
                 Destroy(st.go); stars.RemoveAt(i); continue;
             }

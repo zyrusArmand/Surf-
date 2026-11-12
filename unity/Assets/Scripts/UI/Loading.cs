@@ -31,7 +31,7 @@ public class Loading : MonoBehaviour
         var f = Solid.Pic(track.transform, "fill", Solid.Rounded(BarW, 8, 4), new Color32(0xff, 0xb8, 0x2c, 255), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(BarW, 8));
         f.type = Image.Type.Filled; f.fillMethod = Image.FillMethod.Horizontal; f.fillOrigin = 0; f.fillAmount = 0.03f;
         l.fill = f;
-        UiKit.Label(root, "v" + Application.version, 11, new Color(1, 1, 1, 0.7f), FontStyle.Bold, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 26), new Vector2(200, 16), TextAnchor.MiddleCenter, 0.4f);
+        UiKit.Label(root, "v" + UiKit.Version, 11, new Color(1, 1, 1, 0.7f), FontStyle.Bold, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 26), new Vector2(200, 16), TextAnchor.MiddleCenter, 0.4f);
         return l;
     }
 

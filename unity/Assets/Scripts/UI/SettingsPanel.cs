@@ -56,7 +56,7 @@ public class SettingsPanel : MonoBehaviour
         Pane.Note(content, "Vibration is the phone’s own buzzer, so it does what the phone allows: on an iPhone that is one short tap, and only with System Haptics on.", 48, 11.5f);
         Pane.Row(content, "Your record", Pane.N(s.bestDist) + " m");
         Pane.Row(content, "Best trick score", Pane.N(s.best));
-        Pane.Row(content, "Version", "v" + Application.version);
+        Pane.Row(content, "Version", "v" + UiKit.Version);
         scroll.verticalNormalizedPosition = 1f;
     }
 }

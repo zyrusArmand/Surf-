@@ -23,7 +23,7 @@ public class SecretPanel : MonoBehaviour
     {
         Pane.Clear(content);
         var s = SaveData.S;
-        Pane.Note(content, "v" + Application.version + " · on this device only", 22);
+        Pane.Note(content, "v" + UiKit.Version + " · on this device only", 22);
         Pane.Heading(content, "Save");
         var c1 = Pane.Card(content, "save", 52);
         Btn(c1, "Copy", 12f, 110, false, () =>

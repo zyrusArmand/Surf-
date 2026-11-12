@@ -10,6 +10,11 @@ public static class UiKit
 {
     public static readonly Color Gold = new Color(0.847f, 0.698f, 0.388f);        // #d8b263, the ring everywhere
     public static readonly Color GoldText = new Color(0.949f, 0.827f, 0.569f);    // #f2d391, the dial's lettering
+    // The game's version, the web's (window.SURF_VERSION, index.html line 13). Shown on the title,
+    // the loading screen, the run card and Settings. It was Application.version, the Unity project's
+    // own build number, which is not kept in the repo and so read whatever each machine had set.
+    // Keep it with the web's when the web moves on.
+    public const string Version = "10.98";
     public static readonly Color Navy = new Color(0f, 0.07f, 0.165f);              // the text shadow
     public static readonly Color TrickYellow = new Color(1f, 0.875f, 0.18f);       // #ffdf2e
     const float Scale = 2f;

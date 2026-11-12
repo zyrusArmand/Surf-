@@ -9,12 +9,12 @@ public class Crate : MonoBehaviour
     public BoardController rider; public SetWave setWave; public Island island;   // no chest drifting up the sand
     public System.Action<Vector3, int> onSplash;
     public ChestCeremony ceremony;                                                 // where a caught chest is opened
-    bool on, held; float timer = 999f, bob; Transform obj; Light glow;
+    bool on, held, pin, inTube; float timer = 999f, bob; Transform obj; Light glow;
 
     float Luck => rider != null ? Mathf.Max(0.5f, rider.statLuck) : 1f;   // a lucky rider's chests come oftener
     public void Soon() { timer = Mathf.Min(timer, 1.5f); }      // the wheel's chest prize: one straight away
     /// a new run or the title sweeps away a ceremony that may still be up, and shows no card for it (web crateCeremonyEnd from beginRun)
-    public void Reset() { on = false; held = false; timer = (9f + Random.value * 11f) / Luck; if (obj != null) obj.gameObject.SetActive(false); if (ceremony != null) ceremony.End(); }
+    public void Reset() { on = false; held = false; pin = false; inTube = false; timer = (9f + Random.value * 11f) / Luck; if (obj != null) obj.gameObject.SetActive(false); if (ceremony != null) ceremony.End(); }
 
     /// the run is over: a chest in hand is opened now, and `then` (the run card) waits until the
     /// player carries on from it. False when there is no chest, and the card goes straight up.
@@ -24,6 +24,16 @@ public class Crate : MonoBehaviour
         held = false;                                            // web crateCeremony: crateHeld = false
         ceremony.Play(then);
         return true;
+    }
+
+    /// The rare chest in the barrel (web 44934-44940): when the set wave first goes hollow round him,
+    /// three times in ten a chest hangs low in the pocket, so taking it means leaving the wall
+    /// mid-orbit. Pinned where it is; gone again if the barrel closes first.
+    public void PlantInTube(float x, float z)
+    {
+        if (on || held) return;
+        Build(); on = true; pin = true; inTube = true; obj.gameObject.SetActive(true);
+        obj.position = new Vector3(x, 0f, z);
     }
 
     void Build()
@@ -53,16 +63,23 @@ public class Crate : MonoBehaviour
             }
             return;
         }
-        var p = obj.position; p.z += eff * dt;
-        float sea = WaveField.Swell(p.x, WaveField.Scroll + p.z, r.t);
-        p.y = sea + 1.25f + Mathf.Sin(bob * 1.7f) * 0.20f;
+        if (inTube && (setWave == null || !setWave.tubeRide || setWave.ph != SetWave.Phase.Ride))
+        {
+            on = false; inTube = false; pin = false; obj.gameObject.SetActive(false);
+            timer = 6f + Random.value * 9f; return;
+        }
+        var p = obj.position; if (!pin) p.z += eff * dt;
+        // in the barrel it rides the whole wave, the set wave's wall included, a little lower
+        float sea = inTube ? WaveField.Height(p.x, WaveField.Scroll + p.z, r.t) : WaveField.Swell(p.x, WaveField.Scroll + p.z, r.t);
+        p.y = sea + (inTube ? 1.15f : 1.25f) + Mathf.Sin(bob * 1.7f) * (inTube ? 0.12f : 0.20f);
         obj.position = p;
         obj.rotation = Quaternion.Euler(0, obj.rotation.eulerAngles.y + dt * 1.7f * Mathf.Rad2Deg, Mathf.Sin(bob * 1.3f) * 0.06f * Mathf.Rad2Deg);
         glow.intensity = 1.6f + 0.8f * Mathf.Sin(bob * 2.6f);
-        if (p.z > 14f) { on = false; obj.gameObject.SetActive(false); timer = 8f + Random.value * 11f; return; }   // a miss re-arms at 8-19 s, luck or not (web 26685)
+        if (!pin && p.z > 14f) { on = false; obj.gameObject.SetActive(false); timer = 8f + Random.value * 11f; return; }   // a miss re-arms at 8-19 s, luck or not (web 26685)
         if (r.running && Mathf.Abs(p.z - r.pz) < 2.2f && Mathf.Abs(p.x - r.px) < 2.2f && Mathf.Abs(r.py - p.y) < 2.0f)
         {
-            on = false; held = true; obj.gameObject.SetActive(false);
+            on = false; held = true; obj.gameObject.SetActive(false); pin = false;
+            if (inTube) { inTube = false; r.score += 150; }       // taken mid-barrel, it pays extra (web 26693)
             // nothing is paid here: the chest is kept, and opened after the run (the line also
             // ticks the chest goal and the crates counter, Quests.Scan)
             r.Say("TREASURE CHEST!"); Sfx.Buzz(25);

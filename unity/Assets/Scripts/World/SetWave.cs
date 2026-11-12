@@ -35,7 +35,8 @@ public class SetWave : MonoBehaviour
     public int loops;
     public float ang, angV, rad, radV, airT, cut;
     bool armed, sweep2; float scoreAcc;
-    public Whirlpool whirl;              // no set wave while a whirlpool is up (web 32347)
+    public Whirlpool whirl;
+    public Crate crate;                  // the chest that sometimes hangs in the barrel              // no set wave while a whirlpool is up (web 32347)
     /// from the impact to the end the swell runs everything already on the water past him (web swSweep)
     public bool Sweeping => ph != Phase.Idle && ph != Phase.Fly;
     Transform plane; Vector3 planePrev; bool planePrevOk; PlaneProps planeProps;
@@ -208,6 +209,8 @@ public class SetWave : MonoBehaviour
                 tubeRide = true;
                 if (!wasTube)
                 {
+                    // the rare chest in the barrel, hanging low over the pocket (web 44934-44940)
+                    if (crate != null && Random.value < 0.30f) crate.PlantInTube(TubeC, r.pz - 1.0f);
                     // join the ring wherever he already is
                     ang = Mathf.Atan2((r.px - cx) * side, -(r.py - cy));
                     angV = r.vx * side / Mathf.Max(1.5f, R);

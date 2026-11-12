@@ -105,7 +105,7 @@ public class Bootstrap : MonoBehaviour
         ufo = new GameObject("Ufo").AddComponent<Ufo>(); ufo.rider = rider; ufo.day = day; ufo.setWave = setWave; ufo.rig = rig; ufo.onRebuild = BuildRider; setWave.ufo = ufo;
         island = new GameObject("Island").AddComponent<Island>(); island.rider = rider; island.spawner = spawner; island.setWave = setWave;
         chute = new GameObject("Chute").AddComponent<Chute>(); chute.rider = rider; chute.spawner = spawner; chute.setWave = setWave; chute.whirl = whirl;
-        island.chute = chute; chute.island = island; setWave.island = island; setWave.chute = chute; setWave.whirl = whirl; rider.rideRamps = spawner.RideRamps; whirl.island = island; whirl.chute = chute; dive.island = island; dive.chute = chute;
+        island.chute = chute; chute.island = island; setWave.island = island; setWave.chute = chute; setWave.whirl = whirl; setWave.crate = crate; rider.rideRamps = spawner.RideRamps; whirl.island = island; whirl.chute = chute; dive.island = island; dive.chute = chute;
         crate.island = island; cocos.island = island; spawner.island = island;
         ski = new GameObject("JetSki").AddComponent<JetSki>(); ski.rider = rider; ski.setWave = setWave; ski.dive = dive; ski.island = island; setWave.ski = ski; dive.ski = ski;
 
@@ -182,7 +182,10 @@ public class Bootstrap : MonoBehaviour
         // HUD
         hud = new GameObject("HUD").AddComponent<Hud>(); hud.rider = rider; hud.cocos = cocos; hud.chase = chase; hud.island = island; hud.dive = dive;
         hud.onPlay = Play; hud.onMenu = Menu; hud.onShop = () => shop.Show(true);
-        spawner.onSplat = c => hud.Splat(c);
+        // the starfish that hits the lens is the starfish itself, pressed on the glass (web splatOnScreen)
+        var splat = cam.gameObject.AddComponent<StarSplat>(); splat.cam = cam;
+        spawner.onSplat = c => splat.Show(c);
+        spawner.onClearSplat = () => splat.Hide();
         hud.Build();
         crate.ceremony = new GameObject("ChestCeremony").AddComponent<ChestCeremony>(); crate.ceremony.cam = cam; crate.ceremony.ui = hud.UiRoot;
         boat = new GameObject("Boat").AddComponent<Boat>(); boat.rider = rider; boat.spawner = spawner; boat.chase = chase; boat.dive = dive;
@@ -237,7 +240,7 @@ public class Bootstrap : MonoBehaviour
             // coconut charge carried over (the web drops it at the wipeout), the fork island, the
             // dive and the boat or wing all put away, and no boost banked from before the crash
             Hull.Reset(); cocos.Reset(); island.Reset(); dive.Reset(); boat.Reset(); rider.boost = 0f;
-            spawner.ClearTow();
+            spawner.ClearTow(); spawner.onClearSplat?.Invoke();
             ski.Revive();                                    // the ski and its wake put away, the next one 26 s out (web 27178)
             rider.Revive(); over = false; hud.ShowRide(); chase.Snap();
         };

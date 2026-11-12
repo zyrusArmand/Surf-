@@ -58,7 +58,7 @@ public class Hud : MonoBehaviour
         var m = menu.transform;
         // the version, small at the foot of the beach, as the web prints it
         // five taps on it open the secret panel, as the web's version does
-        var ver = UiKit.Label(m, "v" + Application.version, 12, new Color(1, 1, 1, 0.62f), FontStyle.Bold, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 14), new Vector2(200, 16), TextAnchor.MiddleCenter, 0.5f);
+        var ver = UiKit.Label(m, "v" + UiKit.Version, 12, new Color(1, 1, 1, 0.62f), FontStyle.Bold, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 14), new Vector2(200, 16), TextAnchor.MiddleCenter, 0.5f);
         ver.raycastTarget = true;
         UiKit.Pressable(ver.gameObject, null, () =>
         {
@@ -772,7 +772,7 @@ public class Hud : MonoBehaviour
         Offer(bd, X + offW + OfferGap, offY, offW, "Second life", false, SecondLife);
 
         // #ver: the version, 13px at .55, 24px off the foot
-        string vs = "v" + Application.version;
+        string vs = "v" + UiKit.Version;
         var ver = UiKit.Label(cardRoot, vs, 13, ShopArt.Mix(bd.Under(W * 0.5f, H - 31f), Color.white, 0.55f), FontStyle.Bold, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 24), new Vector2(200, 15), TextAnchor.MiddleCenter, 0f);
         ShopArt.Shade(ver, ShopArt.Rgb(0, 40, 80), 0.6f, new Vector2(0f, -1f));
         Tracking.On(ver, 0.5f / 13f);
