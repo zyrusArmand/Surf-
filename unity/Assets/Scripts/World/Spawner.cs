@@ -14,6 +14,7 @@ public class Spawner : MonoBehaviour
         // the shark
         public float dir, startX, targetX, at, x0, z0, aimX, aimZ, yaw; public bool hunts; public string atk;
         // its jaw (a bone in the model), how far the mouth sits under the holder, and the bite clock
+        public float lx = float.NaN;     // where it was across the lane last frame, for the swept contact test
         public Transform jaw; public Quaternion jawRest; public float jawAng = float.NaN, jawT, bite = -1f, lift = 1.2f;
     }
     public Ob eater;                 // the shark that has him, while the chew lasts
@@ -178,11 +179,11 @@ public class Spawner : MonoBehaviour
         towRope.SetPosition(1, tow.position + new Vector3(0f, -0.6f, 0f));
     }
 
-    void Knock(Ob o, BoardController r, float side, float up, float upR, float spin)
+    void Knock(Ob o, BoardController r, float side, float sideR, float up, float upR, float back, float backK, float spin)
     {
         if (o.knocked) return;
         o.knocked = true;
-        o.kvx = (o.x - r.px) * side + (Random.value - 0.5f) * 2.4f; o.kvy = up + Random.value * upR; o.kvz = 2.2f + r.eff * 0.06f;
+        o.kvx = (o.x - r.px) * side + (Random.value - 0.5f) * sideR; o.kvy = up + Random.value * upR; o.kvz = back + r.eff * backK;
         o.ksx = (Random.value - 0.5f) * spin; o.ksz = (Random.value - 0.5f) * spin;
         // from here it is a real body in the water: thrown with the web's numbers, then left to
         // gravity, the swell under it, the other things it hits and the board
@@ -336,7 +337,26 @@ public class Spawner : MonoBehaviour
             // the footprint on the water, then the height test
             // the footprint shrinks with him under a coconut charge
             float halfL = BoardController.BoardHalfL * Coconuts.SizeK, halfW = BoardController.BoardHalfW * Coconuts.SizeK;
-            bool contact = Mathf.Abs(r.px - o.x) < o.hx + halfW && Mathf.Abs(r.pz - o.z) < o.hz + halfL;
+            bool contact;
+            if (o.ramp) contact = Mathf.Abs(r.px - o.x) < o.hx + halfW && Mathf.Abs(r.pz - o.z) < o.hz + halfL;
+            else
+            {
+                // the web's test (46547-46558): the thing is an ellipse, not a box, so its corners do
+                // not reach out and take you; and it is swept over where it was a frame ago, across
+                // the lane and along it, so a fast pass cannot step through it between two frames
+                float RX = o.hx + halfW, RZ = o.hz;
+                float ox0 = float.IsNaN(o.lx) ? o.x : o.lx;
+                float xlo = Mathf.Min(ox0, o.x), xhi = Mathf.Max(ox0, o.x);
+                float dxo = r.px < xlo ? xlo - r.px : (r.px > xhi ? r.px - xhi : 0f);
+                contact = false;
+                if (dxo < RX)
+                {
+                    float reach = RZ * Mathf.Sqrt(Mathf.Max(0f, 1f - (dxo / RX) * (dxo / RX)));
+                    float z1 = o.z, z0 = z1 - eff * dt;
+                    contact = Mathf.Min(z0, z1) - reach < r.pz + halfL && Mathf.Max(z0, z1) + reach > r.pz - halfL;
+                }
+            }
+            o.lx = o.x;
             if (!o.passed && o.z > r.pz + halfL)
             {
                 o.passed = true;
@@ -369,8 +389,10 @@ public class Spawner : MonoBehaviour
                 float topY = r.waterY + o.h;
                 // dropping onto the top of it is not driving into its side: that costs the board a
                 // crack and throws you back up, and the thing itself is shoved aside and set spinning
-                Knock(o, r, 0.7f, 1.4f, 1.6f, 5f);
-                if (r.vy < -0.5f && r.py > topY - 0.55f) { Hull.Hit(r, topY); onSplash?.Invoke(new Vector3(o.x, topY, o.z), 18); continue; }
+                // knocked off the top it is shoved gently (web boardHit 27822); driven into, it goes
+                // harder, higher and spinning faster (web 46641)
+                if (r.vy < -0.5f && r.py > topY - 0.55f) { Knock(o, r, 0.7f, 2.0f, 1.4f, 1.6f, 1.8f, 0.05f, 5f); Hull.Hit(r, topY); onSplash?.Invoke(new Vector3(o.x, topY, o.z), 18); continue; }
+                Knock(o, r, 0.9f, 2.4f, 2.0f, 2.4f, 2.2f, 0.06f, 6f);
                 r.Wipeout(o.kind);
             }
         }
@@ -587,7 +609,12 @@ public class Spawner : MonoBehaviour
                     o.rampSink = RampH * tier * RampSink; o.rampLift = 1f - tier * RampLaunchDrop;
                 } break;
             case "jelly": o.hx = 1.05f; o.hz = 1.05f; o.h = 1.6f;          // web 22750
-                { var g = Models.Spawn("jelly", holder.transform, 2.6f, PrimitiveType.Sphere); } break;
+                {
+                    // the web keeps both jellyfish models and picks one at random each time (OBST_VARIANTS);
+                    // both are fitted to the same box
+                    string jm = Random.value < 0.5f && Resources.Load<GameObject>("Models/jelly2") != null ? "jelly2" : "jelly";
+                    var g = Models.Spawn(jm, holder.transform, 2.6f, PrimitiveType.Sphere);
+                } break;
             case "rock": o.hx = 1.55f; o.hz = 0.95f; o.h = 1.15f;
                 // the chute's own hazard (web 22652-22675): wide and LOW, the opposite of the rest of
                 // the rack. At chute speed there is no steering round it; it is broad enough that
