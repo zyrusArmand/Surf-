@@ -31,6 +31,9 @@ public static class SurfSetup
             EnsureAmbientOcclusion();
             EnsurePlayerSettings();
             EnsureScene();
+            // after a crash Unity reopens on an empty Untitled scene; put the game's own back
+            var act = EditorSceneManager.GetActiveScene();
+            if (string.IsNullOrEmpty(act.path) && !act.isDirty && File.Exists(ScenePath)) EditorSceneManager.OpenScene(ScenePath);
             EnsureModels();
             EnsureTextures();
         }

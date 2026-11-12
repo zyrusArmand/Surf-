@@ -15,6 +15,18 @@ public class Bootstrap : MonoBehaviour
     Vector3 hullMin, hullMax; bool hullOk; PlanarReflection reflect;
     UnityEngine.Rendering.Universal.DepthOfField dof; UnityEngine.Rendering.Universal.ScreenSpaceLensFlare flare;      // the board's own box, in its frame, for the sea's dry-hull rule
 
+    // Whatever scene is open when Play is pressed, the game builds itself: an empty or untitled
+    // scene (what Unity opens after a crash) gets the Surf object too, and its stock camera and
+    // light are switched off so they cannot fight the game's own.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+    static void AutoStart()
+    {
+        if (FindFirstObjectByType<Bootstrap>() != null) return;
+        foreach (var c in FindObjectsByType<Camera>(FindObjectsSortMode.None)) c.gameObject.SetActive(false);
+        foreach (var l in FindObjectsByType<Light>(FindObjectsSortMode.None)) l.gameObject.SetActive(false);
+        new GameObject("Surf").AddComponent<Bootstrap>();
+    }
+
     void Start()
     {
         Application.targetFrameRate = 60;
