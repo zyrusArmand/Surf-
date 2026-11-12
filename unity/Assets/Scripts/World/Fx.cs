@@ -12,7 +12,9 @@ public class Fx : MonoBehaviour
     public BoardController rider;
     public SetWave setWave;
     public Dive dive;
-    ParticleSystem trail, mist, carve, carveMist;
+    ParticleSystem trail, mist, carve, carveMist, clumps, sparkle;
+    public Vector3 tail; public bool tailOk;          // the board's tail at the water, set each frame by Bootstrap
+    float clumpAcc, fizzAcc;
     readonly Vector4[] rip = new Vector4[4];        // the rings of wave in the sea: x, field z, age, height (Surf/Ocean _Rip)
     readonly Vector4[] ripS = new Vector4[4];       // and the shape each starts from: half width, half length, sin and cos of its heading (_RipS)
     static readonly int RipId = Shader.PropertyToID("_Rip"), RipSId = Shader.PropertyToID("_RipS");
@@ -26,6 +28,8 @@ public class Fx : MonoBehaviour
         mist = Make("BarrelMist", Bootstrap.DropTex(), 260, false);
         carve = MakeCarve();
         carveMist = MakeCarveMist();
+        clumps = MakeClumps();
+        sparkle = MakeSparkle();
         BuildLens();
     }
 
@@ -61,7 +65,7 @@ public class Fx : MonoBehaviour
     {
         var go = new GameObject("CarveSpray"); go.transform.SetParent(transform, false);
         var ps = go.AddComponent<ParticleSystem>();
-        var main = ps.main; main.startSpeed = 0f; main.maxParticles = 900; main.playOnAwake = false;
+        var main = ps.main; main.startSpeed = 0f; main.maxParticles = 1600; main.playOnAwake = false;
         main.simulationSpace = ParticleSystemSimulationSpace.World; main.gravityModifier = 0.85f;
         var em = ps.emission; em.enabled = false;
         var sh = ps.shape; sh.enabled = false;
@@ -87,41 +91,122 @@ public class Fx : MonoBehaviour
     public void Carve(Vector3 tail, float outward, float k, float dt)
     {
         if (carve == null) return;
-        // A carve throws a curtain of water off the tail: up, out past the rail and BACK, which is
-        // toward the lens, fanning as it goes. Fine drops make the curtain, a few heavy ones arc
-        // further, and a mist hangs in it and drifts back.
+        // A carve throws a curtain off the rail: dense and white at its root, fanning up, out and
+        // BACK (toward the lens) into a sheet of drops, the finest of them catching the sun. Fine
+        // drops make the sheet and a fifth are heavy ones that arc higher and longer; clumps of
+        // whitewater make its solid core; a mist hangs in it; glints sparkle through it.
         float back = (rider != null ? rider.eff : 20f) * 0.22f;     // the water he leaves runs back past the lens with the run
-        carveAcc += dt * 240f * k * k;
+        carveAcc += dt * 420f * Mathf.Pow(k, 1.5f);
         while (carveAcc >= 1f)
         {
             carveAcc -= 1f;
-            float fan = Random.value, heavy = Random.value < 0.12f ? 1f : 0f;
+            float fan = Random.value, heavy = Random.value < 0.2f ? 1f : 0f;
             // the fan: from mostly out-and-up at one edge to mostly back-and-up at the other
-            float outV = (1.5f + 5.5f * (1f - fan)) * (0.55f + 0.45f * k);
-            float backV = back + (2.0f + 9.0f * fan) * (0.6f + 0.4f * k);
-            float upV = (3.5f + 6.5f * Random.value) * (0.5f + 0.5f * k) * (1f + 0.35f * heavy);
+            float outV = (2.0f + 7.0f * (1f - fan)) * (0.55f + 0.45f * k);
+            float backV = back + (2.0f + 10.0f * fan) * (0.6f + 0.4f * k);
+            float upV = (4.0f + 9.0f * Random.value) * (0.5f + 0.5f * k) * (1f + 0.3f * heavy);
+            var vel = new Vector3(outward * outV, upV, backV);
             var ep = new ParticleSystem.EmitParams
             {
-                position = tail + new Vector3(outward * Random.value * 0.3f, Random.value * 0.1f, (Random.value - 0.3f) * 0.9f),
-                velocity = new Vector3(outward * outV, upV, backV),
-                startSize = heavy > 0f ? 0.16f + 0.14f * Random.value : 0.04f + 0.11f * Random.value * Random.value,
-                startLifetime = 0.55f + 0.55f * Random.value + 0.3f * heavy,
-                startColor = new Color(1f, 1f, 1f, 0.75f + 0.25f * Random.value)
+                position = tail + new Vector3(outward * Random.value * 0.35f, Random.value * 0.12f, (Random.value - 0.3f) * 1.0f),
+                velocity = vel,
+                startSize = heavy > 0f ? 0.14f + 0.16f * Random.value : 0.04f + 0.10f * Random.value * Random.value,
+                startLifetime = 0.6f + 0.6f * Random.value + 0.3f * heavy,
+                startColor = new Color(1f, 1f, 1f, 0.8f + 0.2f * Random.value)
             };
             carve.Emit(ep, 1);
-            if (carveMist != null && Random.value < 0.22f)
+            float r = Random.value;
+            if (clumps != null && r < 0.20f)
+            {
+                // the curtain's solid white core: whitewater thrown with it, slower, bigger, nearer the rail
+                var ec = new ParticleSystem.EmitParams
+                {
+                    position = tail + new Vector3(outward * (0.2f + Random.value * 0.6f), 0.15f + Random.value * 0.5f, Random.value * 0.6f),
+                    velocity = vel * (0.35f + 0.25f * Random.value),
+                    startSize = 0.5f + 0.9f * k * Random.value + 0.2f,
+                    startLifetime = 0.45f + 0.5f * Random.value,
+                    startColor = new Color(1f, 1f, 1f, 0.9f),
+                    rotation = Random.value * 360f
+                };
+                clumps.Emit(ec, 1);
+            }
+            if (sparkle != null && r > 0.55f)
+            {
+                var es = new ParticleSystem.EmitParams
+                {
+                    position = ep.position, velocity = vel * (0.9f + 0.3f * Random.value),
+                    startSize = 0.02f + 0.04f * Random.value,
+                    startLifetime = 0.35f + 0.4f * Random.value,
+                    startColor = Color.white
+                };
+                sparkle.Emit(es, 1);
+            }
+            if (carveMist != null && r > 0.20f && r < 0.30f)
             {
                 var em = new ParticleSystem.EmitParams
                 {
                     position = tail + new Vector3(outward * (0.2f + Random.value * 0.6f), 0.2f + Random.value * 0.5f, Random.value * 0.8f),
                     velocity = new Vector3(outward * outV * 0.35f, upV * 0.35f, backV * 0.7f),
-                    startSize = 0.6f + 0.9f * Random.value * k,
+                    startSize = 0.7f + 1.1f * Random.value * k,
                     startLifetime = 0.7f + 0.6f * Random.value,
-                    startColor = new Color(1f, 1f, 1f, 0.16f + 0.12f * k)
+                    startColor = new Color(1f, 1f, 1f, 0.18f + 0.12f * k)
                 };
                 carveMist.Emit(em, 1);
             }
         }
+    }
+
+    // torn clumps of whitewater: the trail's churn and a carve's core. Four shapes in one texture,
+    // each puff picks one; shaded bright on top and grey-blue beneath so it reads as foam with
+    // volume, not a flat sticker; soft where it meets the water
+    ParticleSystem MakeClumps()
+    {
+        var go = new GameObject("Whitewater"); go.transform.SetParent(transform, false);
+        var ps = go.AddComponent<ParticleSystem>();
+        var main = ps.main; main.startSpeed = 0f; main.maxParticles = 700; main.playOnAwake = false;
+        main.simulationSpace = ParticleSystemSimulationSpace.World; main.gravityModifier = 0.25f;
+        var em = ps.emission; em.enabled = false;
+        var sh = ps.shape; sh.enabled = false;
+        var drag = ps.limitVelocityOverLifetime; drag.enabled = true; drag.drag = 1.8f; drag.limit = 1000f;
+        var ts = ps.textureSheetAnimation; ts.enabled = true; ts.numTilesX = 2; ts.numTilesY = 2;
+        ts.animation = ParticleSystemAnimationType.WholeSheet;
+        ts.frameOverTime = new ParticleSystem.MinMaxCurve(0f, 0.999f);   // a random tile per puff, held for its life (normalised over the sheet)
+        var sz = ps.sizeOverLifetime; sz.enabled = true;
+        sz.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(new Keyframe(0, 0.6f), new Keyframe(1, 1.5f)));
+        var col = ps.colorOverLifetime; col.enabled = true;
+        var g = new Gradient();
+        g.SetKeys(new[] { new GradientColorKey(Color.white, 0), new GradientColorKey(Color.white, 1) },
+                  new[] { new GradientAlphaKey(0f, 0), new GradientAlphaKey(1f, 0.08f), new GradientAlphaKey(0.7f, 0.5f), new GradientAlphaKey(0f, 1) });
+        col.color = g;
+        var rr = go.GetComponent<ParticleSystemRenderer>();
+        rr.renderMode = ParticleSystemRenderMode.Billboard;
+        rr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; rr.receiveShadows = false;
+        var m = Bootstrap.SoftParticles(FoamClumpTex());
+        if (m != null) { Soften(m, 0.6f); rr.material = m; }
+        return ps;
+    }
+
+    // glints: the finest drops in a carve, brighter than white so the bloom catches them
+    ParticleSystem MakeSparkle()
+    {
+        var go = new GameObject("Glints"); go.transform.SetParent(transform, false);
+        var ps = go.AddComponent<ParticleSystem>();
+        var main = ps.main; main.startSpeed = 0f; main.maxParticles = 600; main.playOnAwake = false;
+        main.simulationSpace = ParticleSystemSimulationSpace.World; main.gravityModifier = 0.85f;
+        var em = ps.emission; em.enabled = false;
+        var sh = ps.shape; sh.enabled = false;
+        var drag = ps.limitVelocityOverLifetime; drag.enabled = true; drag.drag = 1.6f; drag.limit = 1000f;
+        var col = ps.colorOverLifetime; col.enabled = true;
+        var g = new Gradient();
+        g.SetKeys(new[] { new GradientColorKey(Color.white, 0), new GradientColorKey(Color.white, 1) },
+                  new[] { new GradientAlphaKey(1f, 0), new GradientAlphaKey(0.8f, 0.6f), new GradientAlphaKey(0f, 1) });
+        col.color = g;
+        var r = go.GetComponent<ParticleSystemRenderer>();
+        r.renderMode = ParticleSystemRenderMode.Stretch; r.velocityScale = 0.01f; r.lengthScale = 1.0f;
+        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows = false;
+        var m = Bootstrap.SoftParticles(Bootstrap.DropTex());
+        if (m != null) { m.SetColor("_BaseColor", new Color(2.6f, 2.5f, 2.3f, 1f)); r.material = m; }
+        return ps;
     }
 
     // the mist in a carve's spray: soft, growing, drifting back and fading
@@ -247,7 +332,8 @@ public class Fx : MonoBehaviour
     public void Step(float dt, Color tint)
     {
         if (rider == null) return;
-        SetTint(trail, tint); SetTint(mist, tint); SetTint(carve, tint); SetTint(carveMist, tint);
+        SetTint(trail, tint); SetTint(mist, tint); SetTint(carve, tint); SetTint(carveMist, tint); SetTint(clumps, tint);
+        if (sparkle != null) { var sr = sparkle.GetComponent<ParticleSystemRenderer>(); if (sr.sharedMaterial != null) sr.sharedMaterial.SetColor("_BaseColor", tint * 2.6f); }   // past white: the bloom picks them out as glints
         // the foam trail off the tail, while he is on the water and moving
         bool onWater = rider.running && !rider.airborne && !rider.wipe && !rider.Submerged && (dive == null || !dive.On);
         if (onWater)
@@ -268,8 +354,46 @@ public class Fx : MonoBehaviour
                 };
                 trail.Emit(ep, 1);
             }
+            // the whitewater off the tail: torn clumps rising off it and rolling back with the water,
+            // more the faster he goes and the harder he carves, with a fizz of drops in it
+            if (tailOk && clumps != null)
+            {
+                float sp = Mathf.InverseLerp(14f, 50f, rider.eff), cv = Mathf.Abs(rider.carve);
+                clumpAcc += dt * (Mathf.Lerp(10f, 28f, sp) + 50f * cv);
+                while (clumpAcc >= 1f)
+                {
+                    clumpAcc -= 1f;
+                    var ep = new ParticleSystem.EmitParams
+                    {
+                        position = tail + new Vector3((Random.value - 0.5f) * 0.7f, 0.1f + Random.value * 0.25f, Random.value * 0.4f),
+                        velocity = new Vector3((Random.value - 0.5f) * 1.6f, 0.6f + Random.value * 1.4f * (0.6f + cv), rider.eff * 0.85f + 0.5f + Random.value * 2f),
+                        startSize = (0.45f + 0.6f * Random.value) * (1f + 0.8f * cv),
+                        startLifetime = 0.55f + 0.6f * Random.value,
+                        startColor = new Color(1f, 1f, 1f, 0.85f),
+                        rotation = Random.value * 360f
+                    };
+                    clumps.Emit(ep, 1);
+                }
+                if (carve != null)
+                {
+                    fizzAcc += dt * (18f + 30f * sp);
+                    while (fizzAcc >= 1f)
+                    {
+                        fizzAcc -= 1f;
+                        var ep = new ParticleSystem.EmitParams
+                        {
+                            position = tail + new Vector3((Random.value - 0.5f) * 0.6f, 0.08f, Random.value * 0.3f),
+                            velocity = new Vector3((Random.value - 0.5f) * 2.4f, 1.5f + Random.value * 2.5f, rider.eff * 0.8f + Random.value * 2f),
+                            startSize = 0.03f + 0.06f * Random.value,
+                            startLifetime = 0.3f + 0.35f * Random.value,
+                            startColor = new Color(1f, 1f, 1f, 0.8f)
+                        };
+                        carve.Emit(ep, 1);
+                    }
+                }
+            }
         }
-        else trailAcc = 0f;
+        else { trailAcc = 0f; clumpAcc = 0f; fizzAcc = 0f; }
         // mist hanging in the barrel while the ring has him
         if (setWave != null && setWave.tubeRide)
         {
@@ -387,7 +511,49 @@ public class Fx : MonoBehaviour
     }
 
     // ---- textures, made here ----
-    static Texture2D foamTex, lensTex;
+    static Texture2D foamTex, lensTex, clumpTex;
+
+    static float H21(float a, float b) { float s = Mathf.Sin(a * 127.1f + b * 311.7f) * 43758.5453f; return s - Mathf.Floor(s); }
+    static float Vn(float u, float v)
+    {
+        float i = Mathf.Floor(u), j = Mathf.Floor(v), f = u - i, g = v - j, F = f * f * (3 - 2 * f), G = g * g * (3 - 2 * g);
+        return (H21(i, j) * (1 - F) + H21(i + 1, j) * F) * (1 - G) + (H21(i, j + 1) * (1 - F) + H21(i + 1, j + 1) * F) * G;
+    }
+
+    // four torn whitewater clumps in a 2x2 sheet: a handful of overlapping soft lumps eroded by
+    // noise, holed through in places, shaded as a lump lit from above (worked out in a browser
+    // mock of this same code before it went in)
+    static Texture2D FoamClumpTex()
+    {
+        if (clumpTex != null) return clumpTex;
+        const int N = 128;
+        clumpTex = new Texture2D(N * 2, N * 2, TextureFormat.RGBA32, true) { wrapMode = TextureWrapMode.Clamp, name = "whitewater" };
+        var px = new Color32[N * N * 4];
+        for (int variant = 0; variant < 4; variant++)
+        {
+            long sd = variant * 17 + 3; System.Func<float> R = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647f; };
+            var L = new Vector3[11];
+            for (int k = 0; k < L.Length; k++) { float a = R() * 6.283f, rr = Mathf.Sqrt(R()) * 0.28f; L[k] = new Vector3(0.5f + Mathf.Cos(a) * rr, 0.52f + Mathf.Sin(a) * rr * 0.75f, 0.10f + R() * 0.12f); }
+            int ox = (variant % 2) * N, oy = (variant / 2) * N;
+            for (int yy = 0; yy < N; yy++) for (int xx = 0; xx < N; xx++)
+            {
+                float u = (xx + 0.5f) / N, v = (yy + 0.5f) / N, dens = 0f, hy = 0f, top = 0f;
+                foreach (var l in L)
+                {
+                    float dx = (u - l.x) / l.z, dy = (v - l.y) / l.z, q = 1f - (dx * dx + dy * dy);
+                    if (q > 0f) { float w = q * q; dens += w; hy += dy * w; top += Mathf.Sqrt(q) * w; }
+                }
+                float n1 = Vn(u * 6 + variant * 3, v * 6), n2 = Vn(u * 13, v * 13 + variant), n3 = Vn(u * 26 + variant, v * 26);
+                float al = Mathf.Clamp01((dens - 0.28f + (n1 - 0.5f) * 0.50f + (n2 - 0.5f) * 0.30f + (n3 - 0.5f) * 0.12f) * 2.0f);
+                al *= 0.62f + 0.38f * Mathf.Clamp01((n2 - 0.25f) * 2.0f);
+                // the texture's v runs up where the mock's y ran down: the lump's top is lit
+                float lit = Mathf.Clamp01(0.58f + hy / (dens + 1e-3f) * 0.40f + top / (dens + 1e-3f) * 0.22f + (n2 - 0.5f) * 0.14f + (n3 - 0.5f) * 0.06f);
+                px[(oy + yy) * N * 2 + ox + xx] = new Color32((byte)(255 * (0.70f + 0.30f * lit)), (byte)(255 * (0.74f + 0.26f * lit)), (byte)(255 * (0.80f + 0.20f * lit)), (byte)(255 * al));
+            }
+        }
+        clumpTex.SetPixels32(px); clumpTex.Apply(true, true);
+        return clumpTex;
+    }
 
     // a foam blotch: a few soft lumps with holes torn in them
     static Texture2D FoamTex()

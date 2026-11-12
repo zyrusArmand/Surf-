@@ -622,6 +622,13 @@ public class Bootstrap : MonoBehaviour
         ocean.Tick(rider.t, rider.dist * WaveField.Drift, WaveField.Amp, rider.px, rider.pz + BoardController.BoardHalfL, wakeA, beach.Showing ? beach.seaLevel : 0f, beach.Showing ? -88f : 100000f);   // a shoreline far behind the rider keeps the open sea at full swell
         day.Apply(rider.dist);
         var pm = spray.main; pm.startColor = Color.Lerp(Color.white, day.glow, day.glowAmt * 0.45f);
+        // where the board's tail meets the water, for the whitewater it sheds
+        fx.tailOk = hullOk && boardGo != null && rider.running;
+        if (fx.tailOk)
+        {
+            var tp = boardGo.transform.TransformPoint(new Vector3((hullMin.x + hullMax.x) * 0.5f, hullMin.y + hullRise * 0.5f, (hullMin.z + hullMax.z) * 0.5f + (hullMax.z - hullMin.z) * 0.5f * 0.82f));
+            fx.tail = new Vector3(tp.x, Mathf.Max(tp.y, rider.waterY - 0.05f), tp.z);
+        }
         fx.Step(dt, pm.startColor.color);
         if (beach.Showing) beach.PlaceCamera(cam, dt); else chase.Step(dt);
     }
