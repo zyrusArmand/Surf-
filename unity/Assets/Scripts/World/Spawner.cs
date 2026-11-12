@@ -445,6 +445,24 @@ public class Spawner : MonoBehaviour
                 } break;
         }
         o.go = holder;
+        // ---- sat IN the water, not on it ----
+        // The web's float heights assumed its own model pivots; here the buoy is stood on its base
+        // and the log centred, so the buoy hung a third of a foot clear of the sea and the log
+        // barely touched it, and both read as hovering (and their reflections as detached). Each
+        // floating thing is seated by its own measured bottom instead: a buoy's float base half a
+        // foot under, a log a bit under half its thickness, a jellyfish a third of its height.
+        float draft = kind == "buoy" ? 0.5f : kind == "log" ? 0.45f : kind == "jelly" ? 0.33f : -1f;
+        if (draft >= 0f)
+        {
+            var rs = holder.GetComponentsInChildren<Renderer>();
+            if (rs.Length > 0)
+            {
+                var bb = rs[0].bounds; foreach (var rr in rs) bb.Encapsulate(rr.bounds);
+                float bottom = bb.min.y - holder.transform.position.y, tall = bb.size.y;
+                float sink = kind == "buoy" ? draft : draft * Mathf.Min(tall, kind == "log" ? 1.6f : 2.6f);
+                o.floatOff = -bottom - sink;
+            }
+        }
         o.y = WaveField.Swell(x, rider.dist * WaveField.Drift + z, rider.t) + o.floatOff;
         obstacles.Add(o);
         return o;

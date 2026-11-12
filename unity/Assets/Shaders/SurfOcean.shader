@@ -134,12 +134,13 @@ Shader "Surf/Ocean"
                 if (_WakeA > 0.001)
                 {
                     float dz = p.y - (_Dist + _WakeZ);
-                    // the ridge rises behind the tail, not AT it: switched on at the tail it lifted the
-                    // water over the back of the board
-                    float dzb = dz - 2.6;
-                    float ez = exp(-dzb * dzb / 18.0) * smoothstep(0.0, 2.2, dz);
-                    float ax = saturate(1.0 - abs(p.x - _WakeX) / 3.5);
-                    h += _WakeA * ez * ax;
+                    // a V, as a hull's wake is: two low ridges peeling off the tail and opening as they
+                    // go, fading behind him. (A single hump across the lane read as an arc drawn on the
+                    // sea; switched on AT the tail it lifted the water over the back of the board.)
+                    float arm = 0.45 + 0.32 * max(dz, 0.0);
+                    float da = abs(p.x - _WakeX) - arm;
+                    float ridge = exp(-da * da / 0.30) * smoothstep(0.0, 1.6, dz) * exp(-max(dz, 0.0) / 16.0);
+                    h += _WakeA * 0.45 * ridge;
                 }
             }
 

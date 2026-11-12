@@ -118,7 +118,11 @@ public class DayCycle : MonoBehaviour
             // held above the horizon: a light from below is a torch under the chin
             Vector3 aim = new Vector3(sx * 130f, Mathf.Max(sy * 118f, 26f), -195f).normalized;
             if (keyFrom.sqrMagnitude > 0.01f) aim = keyFrom.normalized;
-            sun.transform.rotation = Quaternion.LookRotation(-aim);
+            // the light that casts the shadows turns in steps of a fifth of a degree rather than a
+            // hair every frame: a shadow map re-fitted to a sun that never stops moving makes every
+            // shadow edge crawl and flicker. The sky and the sea keep the smooth sun (sunDir).
+            var want = Quaternion.LookRotation(-aim);
+            if (Quaternion.Angle(sun.transform.rotation, want) > 0.2f || beachLook) sun.transform.rotation = want;
             sun.color = beachLook ? C(0xffab63) : Color.Lerp(C(0xfff2cf), glow, Mathf.Min(0.55f, glowAmt * 0.62f));
             sun.intensity = beachLook ? 1.15f : 0.30f + 0.95f * daylight;
         }
