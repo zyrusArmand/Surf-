@@ -130,7 +130,9 @@ public class RiderRig : MonoBehaviour
     {
         float sit = Mathf.Clamp01(tw + sk);
         float xr = h1 * Mathf.PI - 1.36f * h2 + 0.06f * tw - 0.05f * sk;
-        var yaw = Quaternion.Slerp(homeRot, Quaternion.identity, Mathf.Clamp01(h2 + sit));
+        // under the canopy he faces the way he is going, the same eased whole-body turn (web 44234, 44520-44523)
+        float gl = rider != null ? Mathf.Clamp01(rider.glideFace) : 0f;
+        var yaw = Quaternion.Slerp(homeRot, Quaternion.identity, Mathf.Clamp01(h2 + sit + gl));
         transform.localRotation = Quaternion.AngleAxis(xr * Mathf.Rad2Deg, Vector3.right) * yaw;
         var pos = homePos + new Vector3(0f, h1 * handLift, -0.92f * h2);
         pos.y = Mx(pos.y, -seat, sit);
@@ -248,9 +250,12 @@ public class RiderRig : MonoBehaviour
         tubeW += (wantT - tubeW) * Mathf.Min(1f, dt * 5f);
         skiW += (wantS - skiW) * Mathf.Min(1f, dt * 5f);
         sitW = Mathf.Max(tubeW, skiW);
-        float tw = Mathf.Clamp01(tubeW), sk = Mathf.Clamp01(skiW), baseW = Mathf.Max(0f, 1f - sk);
+        // and under the paraglide both arms go up and out to the toggles (web 20453-20494): the
+        // glide wins over the ski's bars where both are up (skA), so the shares never pass one
+        float gl = Mathf.Clamp01(rider.glideFace);
+        float tw = Mathf.Clamp01(tubeW), sk = Mathf.Clamp01(skiW), skA = sk * (1f - gl), baseW = Mathf.Max(0f, 1f - gl - skA);
         float carve = rider.carve;
-        float air = rider.airborne ? 1f : 0f;
+        float air = (rider.airborne && !rider.glideOn) ? 1f : 0f;   // hanging in a harness is not a jump
         sway += (carve - sway) * Mathf.Min(1f, dt * 5.5f);
         load += (Mathf.Abs(carve) - load) * Mathf.Min(1f, dt * 4.5f);
         float T = rider.t;
@@ -286,12 +291,12 @@ public class RiderRig : MonoBehaviour
         // and ON THE SKI the arms go forward, onto the bars (web 20482-20499): shoulders rotated
         // forward and only slightly out (the grips measure 0.19 half-width on the hull), elbows
         // carrying a working bend, both hands the same; the surf arms fade by his share
-        float aSpread = spread * baseW + 0.04f * sk;
-        float aUp = (-0.02f - xB * 0.30f - aB * 0.12f) * baseW - 0.95f * sk;
+        float aSpread = spread * baseW + 1.30f * gl + 0.04f * skA;
+        float aUp = (-0.02f - xB * 0.30f - aB * 0.12f) * baseW - 0.55f * gl - 0.95f * skA;
         float laX = aUp + (sw1 * 0.11f - sway * 0.26f) * baseW, laY = (0.05f + sw1 * 0.10f) * baseW, laZ = -aSpread - sway * 0.18f * baseW;
         float raX = aUp + (sw2 * 0.11f + sway * 0.26f) * baseW, raY = (-0.05f + sw2 * 0.10f) * baseW, raZ = aSpread - sway * 0.18f * baseW;
-        float lfX = (fl * 0.18f - load * 0.14f) * baseW + 0.42f * sk, lfZ = (-0.08f - load * 0.16f) * baseW - 0.16f * sk;
-        float rfX = (-fl * 0.18f - load * 0.14f) * baseW + 0.42f * sk, rfZ = (0.08f + load * 0.16f) * baseW + 0.16f * sk;
+        float lfX = (fl * 0.18f - load * 0.14f) * baseW + 0.42f * skA, lfZ = (-0.08f - load * 0.16f) * baseW - 0.16f * skA;
+        float rfX = (-fl * 0.18f - load * 0.14f) * baseW + 0.42f * skA, rfZ = (0.08f + load * 0.16f) * baseW + 0.16f * skA;
         float footA = 0f, footW = 0f;         // an ankle angle laid over the plant, for the feet that leave the deck
 
         if (h2 > 0.02f)

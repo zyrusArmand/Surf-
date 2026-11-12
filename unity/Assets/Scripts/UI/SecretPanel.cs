@@ -50,7 +50,7 @@ public class SecretPanel : MonoBehaviour
         Btn(c2, "Test wave", 12f, 116, true, () => Test("wave"));
         Btn(c2, "Test whirl", 134f, 116, true, () => Test("whirl"));
         Btn(c2, "UFO", 256f, 64, true, () => Test("ufo"));
-        Btn(c2, "Boat", 326f, 64, false, () => Toast("The boat is not in this build yet"));
+        Btn(c2, "Boat", 326f, 64, true, () => Test("boat"));
 
         Pane.Heading(content, "Set pieces — test only, not in the game");
         var c3 = Pane.Card(content, "pieces", 52);

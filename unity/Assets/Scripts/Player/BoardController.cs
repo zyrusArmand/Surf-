@@ -72,6 +72,9 @@ public class BoardController : MonoBehaviour
     public float isleWalk, isleRate = 1f;            // for the rig: the walk clip's weight 0..1 and its rate (web walkW / walkRate)
     // ---- the chute (World/Chute.cs): the slope pushes past the ordinary ceiling (web 45175-45178) ----
     public float chutePush;                          // FALL_PUSH * fallW, feet a second on top of whatever the board was doing
+    // ---- the paraglide (World/Boat.cs owns him from the tow to the splashdown, as the dive does) ----
+    public bool glideOn;                             // on the line or under the wing (web glPh >= 0): py is not ours, and he counts as in the air
+    public float glideFace;                          // for the rig: 0 side-on to the board, 1 square to the nose with his arms out to the toggles (web glFace)
 
     public System.Action<Vector3, int> onSplash;   // where, how many drops
     public System.Action onWipeout;
@@ -378,6 +381,7 @@ public class BoardController : MonoBehaviour
 
         if (heliPh >= 0) HeliStep(dt);          // the helicopter drives him itself (web 45394)
         else if (diveOn || isleOn) vy = 0;      // the dive owns py outright, launch to landing (web 45330-45347); the island likewise, beaching to the walk (web 45359-45449)
+        else if (glideOn) vy = 0;               // and the paraglide, tow to splashdown: forty feet up passes every test below, which would start landing him (web 45348-45352)
         else if (airborne)
         {
             vy -= 20f * dt; py += vy * dt;

@@ -216,7 +216,7 @@ public class Spawner : MonoBehaviour
             {
                 o.passed = true;
                 float m = Mathf.Abs(r.px - o.x) - (o.hx + halfW);
-                if (o.kind != "ramp" && !o.used && m > 0 && m < 1.5f) { r.score += 25; r.Say("CLOSE CALL! +25"); Sfx.Close(false); Sfx.Buzz(12); }
+                if (o.kind != "ramp" && !o.used && m > 0 && m < 1.5f && !r.glideOn) { r.score += 25; r.Say("CLOSE CALL! +25"); Sfx.Close(false); Sfx.Buzz(12); }
             }
             if (!contact) continue;
             if (o.ramp)
@@ -237,7 +237,7 @@ public class Spawner : MonoBehaviour
                 r.score += 60; r.boost = Mathf.Min(16f, r.boost + 3f); r.Say("JELLY BOUNCE! +60"); Sfx.Jelly(over); Sfx.Buzz(15);
                 onSplash?.Invoke(new Vector3(o.x, o.y + 0.5f, o.z), over ? 14 : 20);
             }
-            else if (r.py < r.waterY + o.h && !r.Submerged)     // under the water in the helicopter nothing on it can touch him
+            else if (r.py < r.waterY + o.h && !r.Submerged && !r.glideOn)     // under the water in the helicopter nothing on it can touch him; nor on the paraglide's line (web 46633)
             {
                 float topY = r.waterY + o.h;
                 // dropping onto the top of it is not driving into its side: that costs the board a
@@ -263,7 +263,7 @@ public class Spawner : MonoBehaviour
             o.x += vx * dt;
             if (Random.value < dt * 14f) onSplash?.Invoke(new Vector3(o.x, o.y + 0.1f, o.z + 1.4f), 1);
             if (o.hunts) { float want = Mathf.Atan2(vx, Mathf.Max(1f, eff)); float d = Mathf.DeltaAngle(o.yaw * Mathf.Rad2Deg, want * Mathf.Rad2Deg) * Mathf.Deg2Rad; o.yaw += d * Mathf.Min(1f, dt * 2.5f); }
-            if (o.hunts && togo < ShkLead && r.running && o.z < 0 && Mathf.Abs(o.x - r.px) < ShkReach)
+            if (o.hunts && togo < ShkLead && r.running && !r.glideOn && o.z < 0 && Mathf.Abs(o.x - r.px) < ShkReach)   // not at a man on a wing (web 46303)
             {
                 o.atk = "leap"; o.at = 0; o.x0 = o.x; o.z0 = o.z; o.aimX = r.px; o.aimZ = r.pz;
                 onSplash?.Invoke(new Vector3(o.x, o.y, o.z), 18);

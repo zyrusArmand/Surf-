@@ -115,7 +115,7 @@ public class Whirlpool : MonoBehaviour
             if (!held && nr <= 1.9f) { onSplash?.Invoke(new Vector3(o.x, o.y, o.z), 14); spawner.Remove(i); }
         }
         float dxp = x - r.px, dzp = z - r.pz, d = Mathf.Sqrt(dxp * dxp + dzp * dzp);
-        if (d < R * 1.5f && r.running)
+        if (d < R * 1.5f && r.running && !r.glideOn)       // nothing pulls a man on a wing (web whirlHolds)
         {
             float pull = 1f - d / (R * 1.5f), inv = 1f / Mathf.Max(0.5f, d);
             r.vx += (dxp * inv) * pull * pull * 30f * dt;

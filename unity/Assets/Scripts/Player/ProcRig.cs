@@ -74,7 +74,8 @@ public class ProcRig : MonoBehaviour
     {
         float T = Time.time;
         float carve = live ? rider.carve : 0f;
-        bool air = live && rider.airborne;
+        bool air = live && rider.airborne && !rider.glideOn;   // hanging in a harness is not a jump
+        float gf = live ? Mathf.Clamp01(rider.glideFace) : 0f; // square to the nose under the canopy (web glFace)
         float cB = live ? rider.poseCrouch : 0f, xB = live ? rider.poseExt : 0f, aB = live ? rider.poseAir : 0f, lB = live ? rider.poseLand : 0f;
         handW = live ? rider.handT : 0f; heliW = live ? rider.heliPose : 0f; heliCrouchW = live ? rider.heliCrouch : 0f;
         float h1 = Mathf.Clamp01(handW), h2 = Mathf.Clamp01(heliW), hc = Mathf.Clamp01(heliCrouchW);
@@ -150,6 +151,14 @@ public class ProcRig : MonoBehaviour
             teB = 0.18f - drag2 * 0.12f;
             spread = Mathf.Sin(T * 2.4f) * 0.16f + heave * 0.55f;   // arms sway with the swell and the ride
         }
+        if (live && rider.glideOn)
+        {
+            // both arms out to the TOGGLES (web 44244-44260): up and out at about shoulder height,
+            // elbows nearly straight, just under a right angle so the reach is at its widest
+            tF = new Vector3(0.06f, 0.34f, -1.88f); teF = 0.04f;
+            tB = new Vector3(0.06f, -0.34f, 1.88f); teB = 0.04f;
+            spread = 0f;
+        }
         if (h2 > 0.02f)
         {
             // both arms straight out over the nose first, then hauling in until the elbows fold
@@ -191,6 +200,14 @@ public class ProcRig : MonoBehaviour
             oKneeB.x = Mx(oKneeB.x, -0.12f, h1); oAnkleB.x = Mx(oAnkleB.x, 0.34f, h1);
             oHead.x = Mx(oHead.x, -0.92f, h1);
         }
+        if (gf > 0.02f && h2 <= 0.02f)
+        {
+            // under the canopy, hanging: the legs come forward and down rather than braced on a
+            // deck he is no longer standing on, and the head looks where he faces (web 44520-44529)
+            oHipF.x = Mx(oHipF.x, 0.34f, gf); oKneeF.x = Mx(oKneeF.x, 0.30f, gf); oAnkleF.x = Mx(oAnkleF.x, -0.12f, gf);
+            oHipB.x = Mx(oHipB.x, 0.34f, gf); oKneeB.x = Mx(oKneeB.x, 0.30f, gf); oAnkleB.x = Mx(oAnkleB.x, -0.12f, gf);
+            oHead.y *= 1f - gf;
+        }
 
         b.pelvis.localPosition = Vector3.Lerp(b.pelvis.localPosition, new Vector3(0f, pelvisY, 0.02f), w);
         Set(b.pelvis, ProcRider.RotXYZ(pelvisR.x, pelvisR.y, pelvisR.z), w);
@@ -209,7 +226,7 @@ public class ProcRig : MonoBehaviour
         Set(b.armB.sh, ProcRider.RotXYZ(oShB.x, oShB.y, oShB.z), w);
         Set(b.armB.el, ProcRider.RotXYZ(oElB, 0f, 0f), w);
 
-        Group(h1, h2);
+        Group(h1, h2, gf);
         legDrop = ProcRider.MeasureLegDrop(b);   // for next frame's pelvis height, as updateLimbs measures it
         b.Sweep();                                // the visible limb is swept from wherever the joints ended up
     }
@@ -219,10 +236,11 @@ public class ProcRig : MonoBehaviour
     // The rider group itself (web 44394-44415, 44792-44793). The handstand turns him over about
     // the deck line and lifts him onto his paws; the helicopter turns him to face the nose, lays
     // him flat along the deck and slides him up it. Both pivot at his feet.
-    void Group(float h1, float h2)
+    void Group(float h1, float h2, float gf = 0f)
     {
         float xr = h1 * Mathf.PI - 1.36f * h2;
-        var yaw = Quaternion.Slerp(homeRot, Quaternion.identity, h2);
+        // gf: under the canopy he faces the way he is going, the same eased turn (web 44523)
+        var yaw = Quaternion.Slerp(homeRot, Quaternion.identity, Mathf.Clamp01(h2 + gf));
         transform.localRotation = Quaternion.AngleAxis(xr * Mathf.Rad2Deg, Vector3.right) * yaw;
         transform.localPosition = homePos + new Vector3(0f, h1 * handLift, -0.92f * h2);
     }

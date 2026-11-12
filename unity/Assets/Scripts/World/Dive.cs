@@ -441,7 +441,8 @@ public class Dive : MonoBehaviour
         {
             if (On || Launch > 0f || r.dist < PickDist) return;
             if (pickT < 0f) pickT = PickFirstA + Random.value * (PickFirstB - PickFirstA);
-            bool busy = (setWave != null && setWave.ph != SetWave.Phase.Idle) || WaveField.WhA > 0.001f || (island != null && island.Busy) || (chute != null && chute.Busy);
+            bool busy = (setWave != null && setWave.ph != SetWave.Phase.Idle) || WaveField.WhA > 0.001f || (island != null && island.Busy) || (chute != null && chute.Busy)
+                        || r.glideOn;                                  // and no pack while he is on the paraglide (web 42014)
             if (busy) return;
             pickT -= dt;
             if (pickT > 0f) return;

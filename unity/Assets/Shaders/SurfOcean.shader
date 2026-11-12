@@ -34,6 +34,11 @@ Shader "Surf/Ocean"
         _WhX ("Whirl x", Float) = 0
         _WhZ ("Whirl z (field)", Float) = 0
         _WhA ("Whirl depth", Float) = 0
+        _BtX ("Boat stern x", Float) = 0
+        _BtZ ("Boat stern z", Float) = 0
+        _BtSn ("Boat heading sin", Float) = 0
+        _BtCs ("Boat heading cos", Float) = 1
+        _BtA ("Boat wake amount", Float) = 0
         _Chop ("Chop normals", 2D) = "bump" {}
         _ChopK ("Chop from texture", Float) = 0
         _Shore ("Shore line (-z)", Float) = 100000
@@ -64,6 +69,7 @@ Shader "Surf/Ocean"
             float4 _Deep, _Shallow, _SkyLo, _SkyHi, _Glow, _SunDir;
             float _Light, _Amp, _Peak, _Dist, _T, _WakeX, _WakeZ, _WakeA, _Lift, _Shore, _ShoreW, _Calm, _SwA, _SwX, _SwS, _WhX, _WhZ, _WhA, _FallW, _FallZF, _FallT, _FallLane;
             float4 _HullS, _HullC; float4x4 _HullW2L;      // _HullC: the plan's centre (x, z) and the deck's top, in the board's frame
+            float _BtX, _BtZ, _BtSn, _BtCs, _BtA;           // the tow boat's stern, heading and how hard it is making way (Boat.cs)
             CBUFFER_END
             TEXTURE2D(_Chop); SAMPLER(sampler_Chop); float _ChopK;
             float4 _WaveA[7];   // dx, dz, k, a
@@ -331,6 +337,28 @@ Shader "Surf/Ocean"
                     float core = smoothstep(-11.0, -6.5, vDx) * (1.0 - smoothstep(-5.0, -1.8, vDx));
                     core *= vPa;
                     col = lerp(col, float3(0.97, 0.99, 1.00), saturate(core * (0.80 + 0.40 * laceR + 0.30 * fleckR)) * 0.92);
+                }
+                // ---- and the tow boat's V (web 4795-4813) ----
+                // The one part of the boat's wake the web kept when the ribbons and the foam cloud
+                // were switched off: along and across the hull's heading, arms opening at 0.35 a foot
+                // astern from 2.2 ft off the stern, and the propeller's churn straight behind it.
+                if (_BtA > 0.001)
+                {
+                    float2 bd = float2(i.w.x - _BtX, i.w.z - _BtZ);
+                    float av = bd.x * _BtSn + bd.y * _BtCs;     // along, astern positive
+                    float cv = bd.x * _BtCs - bd.y * _BtSn;     // across
+                    if (av > -4.0 && av < 150.0)
+                    {
+                        float laceB = smoothstep(0.40, 0.84, fbm(fpM * 1.45 + float2(-_T*0.07, _T*0.06)));
+                        float fleckB = smoothstep(0.56, 0.93, fbm(fpF * 3.90 + float2(_T*0.11, _T*0.09)));
+                        float ac = abs(cv);
+                        float arm = 2.2 + max(av, 0.0) * 0.35;
+                        float ridge = 1.0 - smoothstep(1.5, 4.6, abs(ac - arm));
+                        float churn = (1.0 - smoothstep(2.2, 6.5, ac)) * exp(-max(av, 0.0) * 0.026);
+                        float fadeB = 1.0 - smoothstep(0.0, 132.0, max(av, 0.0));
+                        float fB = saturate(ridge * fadeB + churn) * _BtA;
+                        col = lerp(col, float3(0.96, 0.99, 1.0), saturate(fB * (0.92 + 0.28 * laceB + 0.20 * fleckB)) * 0.97);
+                    }
                 }
                 col += pow(max(dot(N, H), 0.0), 480.0) * 0.6 * shade;
                 // ---- where things meet the water: a ring of foam round every buoy, log, rock and the

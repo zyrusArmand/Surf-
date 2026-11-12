@@ -12,6 +12,7 @@ public class Bootstrap : MonoBehaviour
     Quests quests; StatsPanel stats; SettingsPanel settings; SchoolPanel school; ProfilePanel profile; GuidePanel guide;
     WheelPanel wheel; LevelPanel levelInfo; PukaPanel puka; SecretPanel secret; int bankedDist, bankedScore, bankedCoins;
     bool over; float runSecs; bool palmSaid;
+    Boat boat;                                        // the tow boat and its paraglide, on demand only (web 15187)
     Vector3 boardBasePos; Quaternion boardBaseRot;   // where the board sits in the rig when no board trick has it
     Vector3 hullMin, hullMax; bool hullOk; PlanarReflection reflect;
     UnityEngine.Rendering.Universal.DepthOfField dof; UnityEngine.Rendering.Universal.ScreenSpaceLensFlare flare;      // the board's own box, in its frame, for the sea's dry-hull rule
@@ -123,6 +124,8 @@ public class Bootstrap : MonoBehaviour
         hud.onPlay = Play; hud.onMenu = Menu; hud.onShop = () => shop.Show(true);
         spawner.onSplat = c => hud.Splat(c);
         hud.Build();
+        boat = new GameObject("Boat").AddComponent<Boat>(); boat.rider = rider; boat.spawner = spawner; boat.chase = chase; boat.dive = dive;
+        boat.rig = rig; boat.ui = hud.UiRoot; boat.sea = ocean.material; boat.onSplash = rider.onSplash;
         shop = new GameObject("Shop").AddComponent<Shop>(); shop.Build(hud.UiRoot);
         shop.onChange = () => { BuildRider(); if (beach.Showing) beach.PlaceRider(rider.transform, rig, boardGo); hud.ShowMenu(); };
         // the other panes: quests, stats, settings, the trick school, the profile
@@ -152,6 +155,7 @@ public class Bootstrap : MonoBehaviour
                 case "fork": island.summon = true; break;
                 case "dive": dive.summon = true; break;
                 case "drop": chute.summon = true; break;
+                case "boat": boat.summon = true; break;
             }
         };
         hud.onWheel = () => wheel.Show(true); hud.onLevel = () => levelInfo.Show(true); hud.onPuka = () => puka.Show(true);
@@ -281,7 +285,7 @@ public class Bootstrap : MonoBehaviour
 
     void Play()
     {
-        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset(); island.Reset(); chute.Reset();
+        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset(); island.Reset(); chute.Reset(); boat.Reset();
         Quests.Roll();
         if (Wheel.RunStart()) BuildRider(); if (Wheel.ConsumeChest()) crate.Soon(); bankedDist = bankedScore = bankedCoins = 0;
         rider.Begin(); runSecs = 0;
@@ -297,7 +301,7 @@ public class Bootstrap : MonoBehaviour
     void Menu()
     {
         if (Wheel.RunEnd()) BuildRider();        // a loan from the wheel is given back
-        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset(); island.Reset(); chute.Reset();
+        spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset(); island.Reset(); chute.Reset(); boat.Reset();
         rider.Idle(0f);
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
@@ -391,6 +395,7 @@ public class Bootstrap : MonoBehaviour
             dive.Step(dt);                                   // after the set wave: the launch assigns pz over its trim
             island.Step(dt); chute.Step(dt);
             whirl.Step(dt); crate.Step(dt); cocos.Step(dt); ufo.Step(dt);
+            boat.Step(dt);                                   // after the spawner: the bow shoves what it has just placed
             if (Input.GetKeyDown(KeyCode.U)) ufo.summon = true;           // debug: the saucer now
             if (Input.GetKeyDown(KeyCode.N)) dive.summon = true;          // debug: a jetpack now
             if (Input.GetKeyDown(KeyCode.I)) island.summon = true;        // debug: the island fork now

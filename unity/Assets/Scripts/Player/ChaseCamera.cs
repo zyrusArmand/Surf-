@@ -26,6 +26,7 @@ public class ChaseCamera : MonoBehaviour
     public Chute chute;          // optional: the lens tips down the fall line
     public float swCam;          // 0..1 while the set wave stands: lower, further back, aimed down the line
     public bool hold;            // the ring has the rider: the shot stops following and holds where it was
+    public float glide;          // 1 under the paraglide (web glCam): the eye climbs with him one for one, sits 16 ft further back, and aims past him at the wing
     float camX, camY = 4.9f, camZ = 11f, lookX, camSpd;
     bool held; Vector3 heldPos, heldAim;
     const float Fov = 62f, FovFast = 7.5f;
@@ -67,10 +68,13 @@ public class ChaseCamera : MonoBehaviour
         if (!isle)
         {
             // ...and it stands down entirely once he is ashore: one owner of the camera at a time (web 46862)
-            float wantY = r.waterY + 4.9f - swCam * 2.15f + airH * 0.62f;
+            // under the canopy the eye tracks his height one for one, or the wing renders off the top
+            // of the frame for the whole flight; and it sits further back, the wing is seventeen
+            // feet across (web 46831-46873)
+            float wantY = r.waterY + 4.9f - swCam * 2.15f + airH * (0.62f + 0.38f * glide);
             camY += (wantY - camY) * Mathf.Min(1f, dt * (airH > 0.5f ? 4f : 2.5f));
             if (!under) camY = Mathf.Max(camY, r.waterY + 2.3f);     // a rising face cannot close over the lens; wrong for a dive (web 46870)
-            camZ += ((11.0f + swCam * 4.6f + r.eff * 0.05f + airH * 0.22f + r.pz * 0.42f) - camZ) * Mathf.Min(1f, dt * 2.4f);
+            camZ += ((11.0f + swCam * 4.6f + r.eff * 0.05f + airH * 0.22f + r.pz * 0.42f + glide * 16f) - camZ) * Mathf.Min(1f, dt * 2.4f);
         }
         if (diveShot)
         {
@@ -101,7 +105,7 @@ public class ChaseCamera : MonoBehaviour
             camY += ((g + IsleCamUp) - camY) * k;
         }
         transform.position = new Vector3(camX, camY, camZ);
-        var aim = new Vector3(lookX, r.waterY + 1.05f + swCam * 1.5f + airH * 0.62f, -14f - swCam * 10f);
+        var aim = new Vector3(lookX, r.waterY + 1.05f + swCam * 1.5f + airH * (0.62f + 0.38f * glide) + glide * 7.5f, -14f - swCam * 10f);   // a little past him under the wing (web 46894)
         if (isle) { aim.y = island.Ground() + IsleAimUp; aim.z = r.pz - IsleAimAhead; }   // at HIM, not at a point fourteen feet in front of the origin (web 46898)
         if (diveShot)
         {
