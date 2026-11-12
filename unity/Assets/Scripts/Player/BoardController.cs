@@ -135,7 +135,6 @@ public class BoardController : MonoBehaviour
     // and the board is simply put back under him as he lands.
     TrickCatalog.Trick kf; float kfT, kfDur;
     public float kfRoll, kfYaw, kfTuck;          // radians, about the board's long axis and its up; 0..1
-    const float Turn = Mathf.PI * 2f;
 
     void StartBoardTrick(TrickCatalog.Trick T)
     {
