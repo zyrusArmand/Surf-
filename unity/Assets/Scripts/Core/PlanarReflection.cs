@@ -40,7 +40,9 @@ public class PlanarReflection : MonoBehaviour
         int w = Mathf.Max(64, Mathf.RoundToInt(Screen.width * scale)), h = Mathf.Max(64, Mathf.RoundToInt(Screen.height * scale));
         if (rt != null && rt.width == w && rt.height == h) return;
         if (rt != null) { rc.targetTexture = null; rt.Release(); Destroy(rt); }
-        rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGBHalf) { name = "SeaReflection", wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+        // with mips, so the sea can soften it by how rough the water is (a hard half-size picture
+        // laid on the water read as dark blocks with stepped edges)
+        rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGBHalf) { name = "SeaReflection", wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Trilinear, useMipMap = true, autoGenerateMips = true };
         rt.Create();
         rc.targetTexture = rt;
         Shader.SetGlobalTexture(TexId, rt);

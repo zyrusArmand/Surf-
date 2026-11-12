@@ -256,11 +256,10 @@ Shader "Surf/Ocean"
                 float hS = i.h - i.sw.x * _SwA;      // the swell's own height, the wall taken out
                 float3 base = lerp(_Deep.rgb, _Shallow.rgb, saturate(hS * 0.28 + 0.5));
                 // what stands between the sun and this bit of sea: the rider, the palm, the buoys, the lip
-                float shade = MainLightRealtimeShadow(TransformWorldToShadowCoord(i.w));
-                shade = lerp(shade, 1.0, GetMainLightShadowFade(i.w));
-                // water is not a diffuse surface: a shadow on it is a faint dimming, never a hole. And
-                // a low sun throws every shadow tens of feet across the sea, so they fade out as it sets
-                shade = lerp(1.0, shade, 0.45 * smoothstep(0.10, 0.45, L.y));
+                // No sun shadows on the open sea. Water is not a diffuse surface and barely shows one,
+                // and with the sun low (most of this game) every log's and buoy's shadow was thrown tens
+                // of feet across the water as a dark slab. Only the board's own contact shade is kept.
+                float shade = 1.0;
                 // and the board's own contact shadow: the water right under and round the hull darkens,
                 // most when the board sits on it, gone once it is a couple of feet up
                 if (_HullS.w > 0.5)
@@ -297,9 +296,16 @@ Shader "Surf/Ocean"
                     // bottom of the picture (it is mirrored about its own height now), and fading there
                     // drew a straight line across the sea behind the board; clamped, it just continues
                     float inside = smoothstep(0.0, 0.04, ruv.x) * smoothstep(1.0, 0.96, ruv.x);
-                    float3 rs = SAMPLE_TEXTURE2D(_ReflTex, sampler_ReflTex, saturate(ruv)).rgb;
+                    // a choppy sea breaks a reflection up and draws it out down the water: bent by the
+                    // ripple in the picture itself (more up and down than across), softened from the
+                    // picture's mips, and gathered from three taps down the line
+                    ruv += float2(Nr.x * 0.022 + wob.x * 0.004, Nr.z * 0.05 + wob.y * 0.008);
+                    float lod = 1.2 + 1.3 * saturate(dCam / 90.0);
+                    float3 rs = SAMPLE_TEXTURE2D_LOD(_ReflTex, sampler_ReflTex, saturate(ruv), lod).rgb * 0.5
+                              + SAMPLE_TEXTURE2D_LOD(_ReflTex, sampler_ReflTex, saturate(ruv + float2(0.0, 0.012)), lod).rgb * 0.25
+                              + SAMPLE_TEXTURE2D_LOD(_ReflTex, sampler_ReflTex, saturate(ruv - float2(0.0, 0.012)), lod).rgb * 0.25;
                     rs = pow(max(rs, 0.0), 1.0 / 2.2);                       // back to the plain numbers this shader works in
-                    skyRefl = lerp(skyRefl, rs, inside * (rc.w > 0.0 ? 0.92 : 0.0));
+                    skyRefl = lerp(skyRefl, rs, inside * (rc.w > 0.0 ? 0.78 : 0.0));
                 }
                 skyRefl += _Glow.rgb * pow(max(dot(R, L), 0.0), 40.0) * 0.55 * smoothstep(-0.12, 0.06, L.y);
                 float3 col = lerp(lit, skyRefl, fres * 0.88) + spec * shade;
