@@ -15,10 +15,11 @@ public class PukaPanel : MonoBehaviour
 
     public void Build(Transform canvas)
     {
-        pane = Pane.Build(canvas, "puka", "Puka", () => { Show(false); onClose?.Invoke(); }, out content, out scroll);
+        pane = Pane.Build(canvas, "puka", "Get puka", () => { Show(false); onClose?.Invoke(); }, out content, out scroll);
     }
 
-    public void Show(bool on) { pane.SetActive(on); if (on) { Sfx.Buzz(8); Fill(); } }
+    // the tap is answered by the button that opened it (the bar's level pill or its +), once
+    public void Show(bool on) { pane.SetActive(on); if (on) Fill(); }
 
     void Fill()
     {

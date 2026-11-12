@@ -288,11 +288,18 @@ public class GuidePanel : MonoBehaviour
             var fill = UiKit.Pic(card, "fill", UiKit.Rounded(80, 7, 3.5f, 3.5f, 3.5f, 3.5f, UiKit.Body.Pill, 0), new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, 0), new Vector2(sx, 22), new Vector2(80, 7));
             fill.color = UiKit.Gold; fill.type = Image.Type.Filled; fill.fillMethod = Image.FillMethod.Horizontal; fill.fillAmount = vals[i] / 10f; fill.raycastTarget = false;
         }
-        string label = inUse ? "IN USE" : owned ? "EQUIP" : locked ? "Level " + Ladder.BoardLvl(bb.id) : bb.price.ToString("N0");
-        bool dim = inUse || locked;
-        var btn2 = UiKit.Pic(card, "btn", UiKit.Rounded(110, 40, 20, 20, 20, 20, dim ? UiKit.Body.Pill : UiKit.Body.Teal, dim ? 0 : 2f), new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1), new Vector2(-14, -14), new Vector2(110, 40));
-        UiKit.Label(btn2.transform, label, 14, dim ? new Color(1, 1, 1, 0.7f) : UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(owned || locked ? 0 : 6, 0), Vector2.zero);
-        if (!owned && !locked) { var shell = UiKit.Icon("puka"); if (shell != null) { var im = UiKit.Pic(btn2.transform, "puka", shell, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(10, 0), new Vector2(16, 16)); im.raycastTarget = false; } }
+        // the web's full shop card (shopCard with stats): RIDING on the one in use, Ride it on
+        // one owned, the level on one the ladder holds back, the price on one for sale -- and when
+        // the purse is short, how far short, on a button that does nothing until it is not
+        bool shortOf = !owned && !locked && SaveData.Coins < bb.price;
+        string label = inUse ? "RIDING" : owned ? "Ride it" : locked ? "Level " + Ladder.BoardLvl(bb.id)
+                     : shortOf ? (bb.price - SaveData.Coins).ToString("N0") + " to go" : bb.price.ToString("N0");
+        bool dim = inUse || locked || shortOf;
+        bool pk = !owned && !locked;
+        float bw = shortOf ? 138f : 110f;
+        var btn2 = UiKit.Pic(card, "btn", UiKit.Rounded(bw, 40, 20, 20, 20, 20, dim ? UiKit.Body.Pill : UiKit.Body.Teal, dim ? 0 : 2f), new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1), new Vector2(-14, -14), new Vector2(bw, 40));
+        UiKit.Label(btn2.transform, label, shortOf ? 12.5f : 14, dim ? new Color(1, 1, 1, 0.7f) : UiKit.GoldText, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(pk ? 6 : 0, 0), Vector2.zero);
+        if (pk) { var shell = UiKit.Icon("puka"); if (shell != null) { var im = UiKit.Pic(btn2.transform, "puka", shell, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(10, 0), new Vector2(16, 16)); im.raycastTarget = false; if (dim) im.color = new Color(1, 1, 1, 0.7f); } }
         btn2.raycastTarget = true;
         if (!dim) UiKit.Pressable(btn2.gameObject, null, () =>
         {
@@ -303,7 +310,7 @@ public class GuidePanel : MonoBehaviour
         });
         Pane.Go(content, "See the whole rack", () => { Sfx.Buzz(8); Show(false); onShop?.Invoke(); });
         // two taps and it names a shape
-        Pane.Go(content, quizOn ? "Hide the match" : "Match me", () => { Sfx.Buzz(8); quizOn = !quizOn; Fill(); });
+        Pane.Go(content, "Match me", () => { Sfx.Buzz(8); quizOn = !quizOn; Fill(); });
         if (quizOn) Quiz();
     }
 

@@ -16,7 +16,8 @@ public class LevelPanel : MonoBehaviour
         pane = Pane.Build(canvas, "levelInfo", "Your level", () => { Show(false); onClose?.Invoke(); }, out content, out scroll);
     }
 
-    public void Show(bool on) { pane.SetActive(on); if (on) { Sfx.Buzz(8); Fill(); } }
+    // the tap is answered by the button that opened it (the bar's level pill or its +), once
+    public void Show(bool on) { pane.SetActive(on); if (on) Fill(); }
 
     // the web's .rank: the title leads, because it is the answer to "what am I"
     void Title(string s)
@@ -51,13 +52,13 @@ public class LevelPanel : MonoBehaviour
             "so distance is the spine and tricks are the multiplier on it. The rungs get further apart as you climb: each one is 600 × (level − 1)^1.45, " +
             "which is why the first arrives inside a run or two and the later ones take a session. There are " + Progress.Cap + " of them.", 150);
         Pane.Heading(content, "What a level pays");
-        Pane.Note(content, "Reaching a level pays " + Progress.LevelPay(1) + " puka for every level you have reached — " + Pane.N(Progress.LevelPay(L)) + " at level " + L +
+        Pane.Note(content, "Reaching a level pays " + Progress.LevelPay(1) + " shells for every level you have reached — " + Pane.N(Progress.LevelPay(L)) + " at level " + L +
             ", and " + Pane.N(Progress.LevelPay(L + 1)) + " for the next one. It is paid on the card for the run that earned it, and a run that takes you up two levels pays for both.", 76);
         int ri = Rungs.RankIdx(L);
         string more = Rungs.NextRank(L, out int nAt, out string nName)
             ? ", and " + Pane.N(Rungs.RankPay(Rungs.RankRungAt(nAt))) + " when you make " + nName + " at level " + nAt + "." : ".";
-        Pane.Note(content, "A new title pays a good deal more on top: " + Pane.N(Rungs.RankPay(ri)) + " puka for " + Rungs.RankAt(L) + more +
-            " There are twenty titles across the ladder and they are worth 210,000 puka between them.", 76);
+        Pane.Note(content, "A new title pays a good deal more on top: " + Pane.N(Rungs.RankPay(ri)) + " shells for " + Rungs.RankAt(L) + more +
+            " There are twenty titles across the ladder and they are worth 210,000 shells between them.", 76);
         // what it is FOR, by name: boards, riders and gear whose gate is a level still ahead
         var nx = new System.Collections.Generic.List<(int L, string name)>();
         for (int l = L + 1; l <= Progress.Cap; l++) foreach (var name in Rungs.UnlocksAt(l)) nx.Add((l, name));

@@ -166,7 +166,8 @@ public class Bootstrap : MonoBehaviour
 
         // the title screen's beach
         beach = gameObject.AddComponent<Beach>(); beach.Build(null);
-        beach.onSign = s => { if (s == "Play") Play(); else if (s == "Shop") shop.Show(true); else if (s == "Quests") quests.Show(true); else school.Show(true); };
+        // every arm answers the finger as the web's dial does: buzz(12) for Play, buzz(8) for the rest
+        beach.onSign = s => { Sfx.Buzz(s == "Play" ? 12 : 8); if (s == "Play") Play(); else if (s == "Shop") shop.Show(true); else if (s == "Quests") quests.Show(true); else school.Show(true); };
         beach.SetBoard(SaveData.S.equipped);
 
         // HUD

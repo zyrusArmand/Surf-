@@ -10,18 +10,18 @@ using UnityEngine.UI;
 
 public class Quests : MonoBehaviour
 {
-    public class Goal { public string id, text, ev; public int target; public bool run; }
-    // the web's GOAL_POOL, less the pearl dive, which the port does not have yet
+    public class Goal { public string id, text, ev, icon; public int target; public bool run; }
+    // the web's GOAL_POOL, with the line drawing each one wears (Resources/UI/goal_<icon>)
     public static readonly Goal[] Pool = {
-        new Goal { id = "barrel1",   text = "Ride a barrel",               target = 1,    ev = "barrel" },
-        new Goal { id = "chest1",    text = "Catch a treasure chest",      target = 1,    ev = "chest" },
-        new Goal { id = "close3",    text = "Shave 3 close calls",         target = 3,    ev = "close" },
-        new Goal { id = "jelly3",    text = "Bounce 3 jellyfish",          target = 3,    ev = "jelly" },
-        new Goal { id = "ramp3",     text = "Launch off 3 ramps",          target = 3,    ev = "ramp" },
-        new Goal { id = "dist800",   text = "Surf 800 m in one run",       target = 800,  ev = "dist",  run = true },
-        new Goal { id = "dist1500",  text = "Surf 1,500 m in one run",     target = 1500, ev = "dist",  run = true },
-        new Goal { id = "trick1500", text = "1,500 trick points in a run", target = 1500, ev = "score", run = true },
-        new Goal { id = "pearl10",   text = "Gather 10 pearls on a dive",  target = 10,   ev = "pearl" },
+        new Goal { id = "barrel1",   text = "Ride a barrel",               target = 1,    ev = "barrel", icon = "wave" },
+        new Goal { id = "chest1",    text = "Catch a treasure chest",      target = 1,    ev = "chest",  icon = "shell" },
+        new Goal { id = "close3",    text = "Shave 3 close calls",         target = 3,    ev = "close",  icon = "fin" },
+        new Goal { id = "jelly3",    text = "Bounce 3 jellyfish",          target = 3,    ev = "jelly",  icon = "star" },
+        new Goal { id = "ramp3",     text = "Launch off 3 ramps",          target = 3,    ev = "ramp",   icon = "dolphin" },
+        new Goal { id = "dist800",   text = "Surf 800 m in one run",       target = 800,  ev = "dist",   icon = "sunset",  run = true },
+        new Goal { id = "dist1500",  text = "Surf 1,500 m in one run",     target = 1500, ev = "dist",   icon = "sunrays", run = true },
+        new Goal { id = "trick1500", text = "1,500 trick points in a run", target = 1500, ev = "score",  icon = "boards",  run = true },
+        new Goal { id = "pearl10",   text = "Gather 10 pearls on a dive",  target = 10,   ev = "pearl",  icon = "shell" },
     };
     public const int Pay = 100;
     public static System.Action<string> onToast;      // "GOAL DONE! +100", for the HUD to show
@@ -59,7 +59,7 @@ public class Quests : MonoBehaviour
             g.n = Mathf.Min(d.target, g.n + n);
             if (g.n >= d.target) { SaveData.Coins += Pay; paid = true; g.done = true; }
         }
-        if (paid) { SaveData.Flush(); onToast?.Invoke("GOAL DONE! +" + Pay); }
+        if (paid) { SaveData.Flush(); Sfx.Buzz(30); onToast?.Invoke("GOAL DONE! +" + Pay); }
     }
 
     /// the run-scoped goals, settled once; returns the puka they paid, for the caller to bank
@@ -89,6 +89,8 @@ public class Quests : MonoBehaviour
     // The water (Spawner, Crate, SetWave) tells the rider what happened with Say(), and that is
     // the one place every event already passes through. Called once a frame from the game loop
     // after the world has stepped; a message is new when msgT did not simply tick down.
+    // The tricks are counted here too, for Stats: the web counts each one as it is thrown, and
+    // the port counts it as it lands, which is the only moment the ride says its name.
     static float prevT; static string prevMsg;
     public static void Scan(BoardController r, float dt)
     {
@@ -99,12 +101,26 @@ public class Quests : MonoBehaviour
         string m = r.lastMsg ?? "";
         if (m.StartsWith("CLOSE CALL") || m.StartsWith("DODGED THE SHARK")) { Event("close", 1); Stats.Bump("closeCalls"); }
         else if (m.StartsWith("TREASURE CHEST")) { Event("chest", 1); Stats.Bump("crates"); }
-        else if (m.StartsWith("SPAT OUT") || m.StartsWith("OUT CLEAN")) { Event("barrel", 1); Stats.Bump("barrels"); }
+        else if (m.StartsWith("SPAT OUT") || m.StartsWith("OUT CLEAN")) { Event("barrel", 1); Stats.Bump("barrels"); Stats.Trick("barrel"); }   // the web notes a barrel as a trick too
         else if (m.StartsWith("JELLY BOUNCE")) { Event("jelly", 1); Stats.Bump("jellies"); }
         else if (m.StartsWith("RAMP")) { Event("ramp", 1); Stats.Bump("ramps"); }
         else if (m.StartsWith("PEARL!")) Event("pearl", 1);
-        else if (m.Contains("° ")) Stats.Bump("tricks");       // "540° SPIN! +…": a trick landed
+        else if (m.StartsWith("HANDSTAND! +")) Stats.Trick("handstand");
+        else if (m.Contains("° "))
+        {
+            // "540° SPIN 360° FLIP CLEAN COMBO! +…": every figure in it was a trick, counted under
+            // the web's key for it, so a combo is as many tricks as it has parts
+            foreach (System.Text.RegularExpressions.Match x in Figure.Matches(m))
+                Stats.Trick(x.Groups[1].Value == "SPIN" ? "spin" : x.Groups[1].Value == "ROLL" ? "roll" : x.Groups[1].Value == "FLIP" ? "flip" : "heli");
+        }
+        else
+        {
+            // a board trick says its own name: "KICKFLIP! +220"
+            foreach (var T in TrickCatalog.All)
+                if (T.Board && m.StartsWith(T.name.ToUpperInvariant() + "! +")) { Stats.Trick(T.id); break; }
+        }
     }
+    static readonly System.Text.RegularExpressions.Regex Figure = new System.Text.RegularExpressions.Regex(@"\d+° (SPIN|ROLL|FLIP|HELICOPTER)\b");
 
     // ---- the panel ----
     public System.Action onClose;
@@ -126,8 +142,17 @@ public class Quests : MonoBehaviour
         {
             var d = Def(g.id);
             int n = Mathf.Min(g.n, d.target);
-            if (g.done) Pane.Bar(content, d.text, "DONE +" + Pay, 1f, true);
-            else Pane.Bar(content, d.text, Pane.N(n) + " / " + Pane.N(d.target), n / (float)d.target);
+            var c = g.done ? Pane.Bar(content, d.text, "DONE +" + Pay, 1f, true)
+                           : Pane.Bar(content, d.text, Pane.N(n) + " / " + Pane.N(d.target), n / (float)d.target);
+            // the goal's line drawing in front of its words, gold with the rest of the row once done
+            var ic = UiKit.Icon("goal_" + d.icon);
+            if (ic != null)
+            {
+                var im = UiKit.Pic(c, "icon", ic, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 0.5f), new Vector2(16, -19), new Vector2(19, 19));
+                im.preserveAspect = true; im.raycastTarget = false; im.color = g.done ? UiKit.GoldText : Pane.Dim;
+                // the words move over for it: the web's 23px icon column
+                foreach (var t in c.GetComponentsInChildren<Text>()) if (t.alignment == TextAnchor.MiddleLeft) { var rt = t.rectTransform; rt.anchoredPosition += new Vector2(11.5f, 0); rt.sizeDelta -= new Vector2(23f, 0); }
+            }
         }
         scroll.verticalNormalizedPosition = 1f;
     }

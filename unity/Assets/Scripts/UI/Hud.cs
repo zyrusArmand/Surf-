@@ -741,23 +741,8 @@ public class Hud : MonoBehaviour
         ShopArt.Shade(im, Solid.Rgba(0, 16, 22), 0.6f, new Vector2(0f, -1f));
     }
 
-    /// the web's GOAL_POOL icons (web 7524)
-    static string GoalIcon(string id)
-    {
-        switch (id)
-        {
-            case "barrel1": return "wave";
-            case "chest1": return "shell";
-            case "close3": return "fin";
-            case "jelly3": return "star";
-            case "ramp3": return "dolphin";
-            case "dist800": return "sunset";
-            case "dist1500": return "sunrays";
-            case "trick1500": return "boards";
-            case "pearl10": return "shell";
-        }
-        return "wave";
-    }
+    /// the web's GOAL_POOL icons (web 7524), read off the pool so the card and the quest sheet agree
+    static string GoalIcon(string id) { var d = Quests.Def(id); return string.IsNullOrEmpty(d.icon) ? "wave" : d.icon; }
 
     /// text-overflow: ellipsis
     static void Ellipsize(Text t, string full, float w)

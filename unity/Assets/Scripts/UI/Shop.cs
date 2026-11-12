@@ -3,9 +3,11 @@
 // grid of carved niches -- every item stands in ui/shelf_frame.png, its photograph in the
 // opening, its name and its price on the wooden shelf under it -- dense to browse, three across
 // on a phone. The one standing in use is lit in the niche; a piece of gear the rank has not
-// granted is dimmed. A tile is a picture and a price and nothing else: a tap opens the viewer
-// (Viewer.cs), where the thing is big enough to judge, its numbers are read, and it is bought,
-// ridden or worn. The photographs come from Previews, taken one a frame as tiles come into view.
+// granted is dimmed. A tile is a picture and a price and nothing else: a tap on a board or a
+// rider opens the viewer (Viewer.cs), where the thing is big enough to judge, its numbers are
+// read, and it is bought or ridden; a tap on a piece of gear you have puts it on or takes it off
+// there and then, as the web's Style shelf does. The photographs come from Previews, taken one a
+// frame as tiles come into view.
 // Round the grid is the web's sheet (#shop, its h2, #shopTabs, #shopClose): the dusk wash, "Beach
 // shop" in gold top left, the level badge and the purse top right, five pill tabs, and "< Back"
 // on a full-width pill at the foot -- drawn by ShopArt from the stylesheet's numbers.
@@ -62,7 +64,7 @@ public class Shop : MonoBehaviour
 
     class Tile
     {
-        public string kind, id, name; public bool heading, note, muted, done;
+        public string kind, id, name; public bool heading, note, muted, done, wear;
         public RectTransform rt; public RawImage thumb; public Text nm; public float y, h;
     }
     readonly List<Tile> tiles = new List<Tile>();
@@ -146,16 +148,20 @@ public class Shop : MonoBehaviour
         lvArt.sprite = ShopArt.Pill(lvW, LvH, ShopArt.Glass.Ring, SheetAt(LvY));
     }
 
-    public void Show(bool on)
+    /// The sheet always opens on Boards, wherever it was left (the web's shop button sets
+    /// shopTab='boards' before it draws, and board school's "See the whole rack" opens it there).
+    public void Show(bool on) => ShowOn(on ? "boards" : null);
+
+    /// opens straight onto one shelf: "boards", "riders", "gear" or "tricks"; null closes it
+    public void ShowOn(string which)
     {
+        bool on = which != null;
         if (!on && viewer != null && viewer.Open) viewer.Hide();
         CloseSlotPick();
+        if (on) tab = which == "school" || which == "" ? "boards" : which;
         pane.SetActive(on);
         if (on) Fill();
     }
-
-    /// opens straight onto one shelf: "boards", "riders", "gear" or "tricks"
-    public void ShowOn(string which) { tab = which == "school" || string.IsNullOrEmpty(which) ? "boards" : which; Show(true); }
 
     // ---- the shelves, in the web's order: the rack by price, the cast by price, gear by slot ----
     static List<BoardCatalog.Board> RackOrder()
@@ -251,6 +257,10 @@ public class Shop : MonoBehaviour
                     if (on) Add("gear", g.id, g.name, "WEARING", PrHave, true, false);
                     else if (have) Add("gear", g.id, g.name, "OWNED", PrHave, false, false);
                     else Add("gear", g.id, g.name, "Lv " + g.lv, PrLock, false, true);
+                    // ...and the tile IS the switch, as the web's is: one you have goes on with a
+                    // tap and comes off with another (a hat you cannot remove is a punishment); one
+                    // the rank has not granted yet takes no tap at all
+                    tiles[tiles.Count - 1].wear = have;
                 }
             }
         }
@@ -337,8 +347,11 @@ public class Shop : MonoBehaviour
             tiles.Add(t);
             return;
         }
-        // the whole tile opens the viewer: one look at the thing bigger than a thumbnail before any shell is spent
-        Tappable(fr.gameObject, () => OpenViewer(kind, id));
+        // the whole tile opens the viewer: one look at the thing bigger than a thumbnail before any
+        // shell is spent. Gear is not bought, so it has no viewer: its tile is worn or taken off in
+        // place (Fill marks the ones you have; WearTap ignores the rest)
+        if (kind == "gear") Tappable(fr.gameObject, () => { if (t.wear) WearTap(id); });
+        else Tappable(fr.gameObject, () => OpenViewer(kind, id));
         tiles.Add(t);
         if (Previews.Done(kind, id)) Assign(t);     // already photographed: no blue flash
     }
@@ -454,6 +467,20 @@ public class Shop : MonoBehaviour
         else if (Previews.Done(t.kind, t.id)) t.done = true;          // it could not be photographed: the sky stays
     }
 
+    /// the gear shelf's tap (web drawShop's gear card): on if it was off, off if it was on, the
+    /// style chime, and the rider rebuilt wearing it -- every rider card is retaken by Fill
+    void WearTap(string id)
+    {
+        var g = GearCatalog.Get(id); if (g == null || !GearCatalog.Have(id)) return;
+        Sfx.Buzz(10);
+        bool on = GearCatalog.On(SaveData.S, g.slot) == id;
+        GearCatalog.SetOn(SaveData.S, g.slot, on ? "" : id);
+        SaveData.Flush();
+        Sfx.EquipStyle();
+        onChange?.Invoke();
+        Fill(true);
+    }
+
     // ---- the trick shelf's tap, and the slot picker ----
     /// web 13242-13248: owned opens the picker; not owned and affordable is bought there and then
     /// and the picker follows, because bought is halfway -- it still has to go on a button
@@ -461,7 +488,7 @@ public class Shop : MonoBehaviour
     {
         var T = TrickCatalog.Get(id); if (T == null) return;
         if (TrickCatalog.Have(id)) { Sfx.Buzz(10); OpenSlotPick(id); return; }
-        if (SaveData.Coins < T.price) { Sfx.Buzz(6); return; }      // a tile that says no still answers the finger
+        if (SaveData.Coins < T.price) { Sfx.Buzz(6); Sfx.Ui("btn", 0.35f); return; }      // a tile that says no still answers the finger
         if (!TrickCatalog.Buy(id)) return;
         Sfx.Buy();                                                   // noteBuy's chime
         Fill(true);

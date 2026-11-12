@@ -118,11 +118,11 @@ public static class Wheel
         string loan = LoanPick(), ride = RiderPick(), gift = GearPick();
         int jack = Rungs.JsRound(sh * 6 / 100.0) * 100;
         return new List<Prize> {
-            new Prize { k = "shells",  w = 15, n = sh,   label = N(sh) + " puka" },
-            new Prize { k = "x2",      w = 14, n = 0,    label = "Double puka" },
+            new Prize { k = "shells",  w = 15, n = sh,   label = N(sh) + " shells" },
+            new Prize { k = "x2",      w = 14, n = 0,    label = "Double shells" },
             // falls back to puka when the rack is finished, the only state with no board left to lend
             loan != "" ? new Prize { k = "loan", w = 12, id = loan, label = "Test ride" }
-                       : new Prize { k = "shells", w = 12, n = sh * 2, label = N(sh * 2) + " puka" },
+                       : new Prize { k = "shells", w = 12, n = sh * 2, label = N(sh * 2) + " shells" },
             new Prize { k = "chest",   w = 12, n = 0,    label = "Free chest" },
             new Prize { k = "life",    w = 13, n = 1,    label = "Second life" },
             new Prize { k = "swap",    w = 9,  n = 0,    label = "Swap a quest" },
@@ -131,7 +131,7 @@ public static class Wheel
                        : new Prize { k = "life", w = 9, n = 1, label = "Second life" },
             // the only slice you keep and can wear; rare on purpose, and puka once the shelf is empty
             gift != "" ? new Prize { k = "gear", w = 4, id = gift, label = "Free gear" }
-                       : new Prize { k = "shells", w = 4, n = jack, label = N(jack) + " puka" },
+                       : new Prize { k = "shells", w = 4, n = jack, label = N(jack) + " shells" },
             new Prize { k = "jackpot", w = 3,  n = jack, label = "Jackpot" },
         };
     }
@@ -162,7 +162,7 @@ public static class Wheel
                 o.label = "Test ride" + (b != null ? " — " + b.name : "");
                 break;
             }
-            case "jackpot": SaveData.Coins += p.n; o.note = "+" + N(p.n) + " puka, straight in."; break;
+            case "jackpot": SaveData.Coins += p.n; o.note = "+" + N(p.n) + " shells, straight in."; break;
             case "gear":
             {
                 // worn at once: a cosmetic you have to go and find in a menu is one you do not know you won
