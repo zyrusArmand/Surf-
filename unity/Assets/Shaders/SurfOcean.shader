@@ -63,7 +63,7 @@ Shader "Surf/Ocean"
             CBUFFER_START(UnityPerMaterial)
             float4 _Deep, _Shallow, _SkyLo, _SkyHi, _Glow, _SunDir;
             float _Light, _Amp, _Peak, _Dist, _T, _WakeX, _WakeZ, _WakeA, _Lift, _Shore, _ShoreW, _Calm, _SwA, _SwX, _SwS, _WhX, _WhZ, _WhA, _FallW, _FallZF, _FallT, _FallLane;
-            float4 _HullS; float4x4 _HullW2L;
+            float4 _HullS, _HullC; float4x4 _HullW2L;      // _HullC: the plan's centre (x, z) and the deck's top, in the board's frame
             CBUFFER_END
             TEXTURE2D(_Chop); SAMPLER(sampler_Chop); float _ChopK;
             float4 _WaveA[7];   // dx, dz, k, a
@@ -128,7 +128,10 @@ Shader "Surf/Ocean"
                 if (_WakeA > 0.001)
                 {
                     float dz = p.y - (_Dist + _WakeZ);
-                    float ez = exp(-dz * dz / 18.0) * (dz > 0 ? 1 : 0);
+                    // the ridge rises behind the tail, not AT it: switched on at the tail it lifted the
+                    // water over the back of the board
+                    float dzb = dz - 2.6;
+                    float ez = exp(-dzb * dzb / 18.0) * smoothstep(0.0, 2.2, dz);
                     float ax = saturate(1.0 - abs(p.x - _WakeX) / 3.5);
                     h += _WakeA * ez * ax;
                 }
@@ -166,7 +169,7 @@ Shader "Surf/Ocean"
                 // so it still sits IN the water rather than on a flat patch of it.
                 if (_HullS.w > 0.5)
                 {
-                    float3 lp = mul(_HullW2L, float4(wp, 1.0)).xyz;
+                    float3 lp = mul(_HullW2L, float4(wp, 1.0)).xyz; lp.xz -= _HullC.xy;
                     float fz = saturate(abs(lp.z) / max(0.01, _HullS.y));
                     float half = _HullS.x * sqrt(saturate(1.0 - fz * fz * fz * fz));
                     float inside = (1.0 - smoothstep(half - 0.12, half + 0.10, abs(lp.x))) * (1.0 - smoothstep(0.97, 1.04, fz));
@@ -201,10 +204,12 @@ Shader "Surf/Ocean"
                 // drawn: the board itself is what is seen there, as it would be.
                 if (_HullS.w > 0.5)
                 {
-                    float3 hq = mul(_HullW2L, float4(i.w, 1.0)).xyz;
-                    float qz = abs(hq.z) / max(0.01, _HullS.y);
-                    float qw = _HullS.x * sqrt(saturate(1.0 - qz * qz * qz * qz));
-                    if (qz < 1.0 && abs(hq.x) < qw && hq.y > _HullS.z) discard;
+                    float3 hq = mul(_HullW2L, float4(i.w, 1.0)).xyz; hq.xz -= _HullC.xy;
+                    float qz = abs(hq.z) / max(0.01, _HullS.y * 0.94);
+                    float qw = _HullS.x * 0.92 * sqrt(saturate(1.0 - qz * qz * qz * qz));
+                    // above the middle of the board's thickness only: under that the rocker can lift the
+                    // hull clear of it, and cutting the sea there would open a hole to the sky
+                    if (qz < 1.0 && abs(hq.x) < qw && hq.y > lerp(_HullS.z, _HullC.z, 0.5)) discard;
                 }
                 float3 N = normalize(i.n);
                 float3 L = normalize(_SunDir.xyz);
@@ -251,7 +256,7 @@ Shader "Surf/Ocean"
                 // most when the board sits on it, gone once it is a couple of feet up
                 if (_HullS.w > 0.5)
                 {
-                    float3 hp = mul(_HullW2L, float4(i.w, 1.0)).xyz;
+                    float3 hp = mul(_HullW2L, float4(i.w, 1.0)).xyz; hp.xz -= _HullC.xy;
                     float hz = saturate(abs(hp.z) / max(0.01, _HullS.y));
                     float hw = _HullS.x * sqrt(saturate(1.0 - hz * hz * hz * hz));
                     float2 out2 = float2(max(0.0, abs(hp.x) - hw), max(0.0, abs(hp.z) - _HullS.y));

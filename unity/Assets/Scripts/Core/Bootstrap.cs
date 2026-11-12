@@ -176,6 +176,7 @@ public class Bootstrap : MonoBehaviour
         {
             if (mf.sharedMesh == null) continue;
             var mr = mf.GetComponent<MeshRenderer>(); if (mr == null || !mr.enabled) continue;
+            if (mf.name == "fin") continue;              // the fin hangs below the hull; the hull is what floats
             var b = mf.sharedMesh.bounds; var toRoot = root.worldToLocalMatrix * mf.transform.localToWorldMatrix;
             for (int c = 0; c < 8; c++)
             {
@@ -456,9 +457,11 @@ public class Bootstrap : MonoBehaviour
         if (dry)
         {
             var bt = boardGo.transform;
-            float hw = Mathf.Max(Mathf.Abs(hullMin.x), Mathf.Abs(hullMax.x)), hl = Mathf.Max(Mathf.Abs(hullMin.z), Mathf.Abs(hullMax.z));
+            // the plan about its own centre: the board's pivot is not always in the middle of it
+            float hw = (hullMax.x - hullMin.x) * 0.5f, hl = (hullMax.z - hullMin.z) * 0.5f;
             ocean.material.SetMatrix("_HullW2L", bt.worldToLocalMatrix);
             ocean.material.SetVector("_HullS", new Vector4(hw * 0.96f, hl * 0.97f, hullMin.y, 1f));
+            ocean.material.SetVector("_HullC", new Vector4((hullMin.x + hullMax.x) * 0.5f, (hullMin.z + hullMax.z) * 0.5f, hullMax.y, 0f));
         }
         else ocean.material.SetVector("_HullS", Vector4.zero);
         if (dof != null) { dof.active = beach.Showing; if (beach.Showing) dof.focusDistance.value = Vector3.Distance(beach.camAt, beach.boardAt); }
