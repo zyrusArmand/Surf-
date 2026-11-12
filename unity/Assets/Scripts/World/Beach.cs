@@ -39,6 +39,36 @@ public class Beach : MonoBehaviour
     // turns flip their yaw and roll. Text on the signs stays readable because a mirror of the
     // layout is not a mirror of the models.
     static Vector3 M(Vector3 p) => new Vector3(-p.x, p.y, p.z);
+
+    // ---- placed on the trunk the palm actually has ----
+    // The sign, the coconuts and the board were set at the web's absolute coordinates, which are
+    // only right if the palm stands exactly as the web's does; any difference in how it stands and
+    // the trunk was no longer behind them (the sign off the trunk, the nuts below the crown, the
+    // board leaning on air). Each is now placed where it sits RELATIVE to the trunk on the web --
+    // read off the web's own trunk line in world space (its trunkLine, sampled on the live page):
+    // the sign 0.84 ft in front of the trunk at 8.8 ft, the nuts round it at 10.9 ft, the board
+    // against it at 4.6 ft -- and measured on the palm drawn here: the model's trunk runs straight
+    // up its own axis from its foot, through 0.5 of its height before the crown.
+    Vector3 trunkA, trunkB; float trunkK = 1f; bool trunkOk;
+    const float WebFootY = -0.44f, WebPalmH = 19.67f;
+    void MeasureTrunk(GameObject palm)
+    {
+        trunkOk = false; if (palm == null || palm.name.EndsWith("(stand-in)")) return;
+        trunkA = palm.transform.TransformPoint(Vector3.zero);
+        trunkB = palm.transform.TransformPoint(new Vector3(0f, 0.5f, 0f));
+        var b = Models.Bounds(palm);
+        trunkK = Mathf.Max(0.5f, b.size.y / WebPalmH);
+        trunkOk = Mathf.Abs(trunkB.y - trunkA.y) > 0.5f;
+    }
+    /// where something sits that, on the web, sits `webOff` (web world axes) from its trunk at web height webY
+    Vector3 OnTrunk(float webY, Vector3 webOff)
+    {
+        var off = new Vector3(-webOff.x, webOff.y, webOff.z) * trunkK;      // the set is mirrored across x here
+        if (!trunkOk) return new Vector3(0f, webY, 0f) + off;
+        float y = trunkA.y + (webY - WebFootY) * trunkK;
+        float t = (y - trunkA.y) / (trunkB.y - trunkA.y);
+        return Vector3.LerpUnclamped(trunkA, trunkB, t) + off;
+    }
     static Vector3 R(Vector3 e) => new Vector3(e.x, -e.y, -e.z);
 
     GameObject root; Transform post, pugSpot; Mesh sandMesh; float t;
@@ -132,8 +162,10 @@ public class Beach : MonoBehaviour
         // the palm, leaning out to the right with the Surf sign hung in it
         var palm = Prop("Palm", Models.Spawn("palm2", root.transform, palmHeight, PrimitiveType.Cylinder), R(palmTurn), flipPalm);
         Settle(palm, -palmBoxCentre.x, palmFoot.y, palmBoxCentre.z, false);
+        MeasureTrunk(palm);
         var sign = Prop("Sign", Models.Spawn("sign", root.transform, signHeight, PrimitiveType.Cube), R(signTurn), flipSign);
-        Settle(sign, -signAt.x, signAt.y, signAt.z, true);
+        var sAt = OnTrunk(8.797f, new Vector3(0.045f, 0.116f, 0.842f));
+        Settle(sign, sAt.x, sAt.y, sAt.z, true);
         // the board propped into the crook of the trunk
         SetBoard(SaveData.S.equipped);
         // the chest
@@ -172,7 +204,8 @@ public class Beach : MonoBehaviour
         System.Func<float> rnd = () => (float)brng.NextDouble();
         var lit = Shader.Find("Universal Render Pipeline/Lit");
         // on the tree: measured world positions (web frame), each ~1.17 feet tall
-        var nutAt = new[] { new Vector3(-13.71f, 10.965f, -50.85f), new Vector3(-15.13f, 10.96f, -51.0f), new Vector3(-14.29f, 10.96f, -52.16f) };
+        // round the trunk where the crown starts, as on the web (offsets from its trunk at 10.9 ft)
+        var nutAt = new[] { new Vector3(0.693f, 0.074f, 0.797f), new Vector3(-0.727f, 0.069f, 0.647f), new Vector3(0.113f, 0.069f, -0.513f) };
         cocos = new Transform[nutAt.Length]; cocoHome = new Vector3[nutAt.Length]; cocoTurn = new Quaternion[nutAt.Length]; cocoPhase = new float[nutAt.Length];
         Material nutMat = null;
         if (lit != null)
@@ -193,7 +226,7 @@ public class Beach : MonoBehaviour
             var turn = Quaternion.Euler(R(new Vector3(0.3f + a2 * 0.11f, a2 * 1.7f, 0.2f * Mathf.Sin(a2 * 2.3f)) * Mathf.Rad2Deg));
             go.transform.rotation = turn;
             go.transform.localScale = new Vector3(cocoHeight * 0.86f, cocoHeight, cocoHeight * 0.86f);   // a husked nut is an egg, not a ball
-            go.transform.position = M(nutAt[i]);
+            go.transform.position = OnTrunk(10.891f, nutAt[i]);
             cocos[i] = go.transform; cocoHome[i] = go.transform.position; cocoTurn[i] = turn; cocoPhase[i] = a2;
         }
         // on the sand: two half shells, one open to the sky and one mouth down, as the web lays them
@@ -384,7 +417,9 @@ public class Beach : MonoBehaviour
         if (root == null) return;
         if (leanBoard != null) Destroy(leanBoard);
         leanBoard = BoardMesh.Build(id); leanBoard.transform.SetParent(root.transform, false);
-        leanBoard.transform.rotation = Quaternion.Euler(R(boardTurn)); Settle(leanBoard, -boardAt.x, boardAt.y, boardAt.z, true);
+        leanBoard.transform.rotation = Quaternion.Euler(R(boardTurn));
+        var bAt = OnTrunk(4.625f, new Vector3(-1.186f, 0.215f, 0.653f));   // propped against the trunk, as on the web
+        Settle(leanBoard, bAt.x, bAt.y, bAt.z, true);
     }
 
     GameObject Prop(string n, GameObject go, Vector3 turn, bool flip)
