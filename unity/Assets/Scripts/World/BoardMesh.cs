@@ -95,7 +95,10 @@ public static class BoardMesh
         for (int i = 0; i < NU; i++) for (int j = 0; j < NR; j++)
         {
             int j2 = (j + 1) % NR, A = i * NR + j, B = i * NR + j2, C = (i + 1) * NR + j, D = (i + 1) * NR + j2;
-            idx.Add(A); idx.Add(B); idx.Add(C); idx.Add(B); idx.Add(D); idx.Add(C);
+            // wound so the shell faces OUT in Unity: (A, B, C) as three.js orders it put the deck's
+            // faces looking down into the board, which culled the deck from above and showed the
+            // inside of the hull — the board read as a hollow canoe with the sea in it
+            idx.Add(A); idx.Add(C); idx.Add(B); idx.Add(B); idx.Add(C); idx.Add(D);
         }
         foreach (var (ring, fwd) in new[] { (0, false), (NU, true) })
         {
@@ -134,7 +137,7 @@ public static class BoardMesh
                 for (int i = 0; i < PU; i++) for (int j = 0; j < PV; j++)
                 {
                     int A = i * (PV + 1) + j, B = A + 1, C = A + PV + 1, D = C + 1;
-                    pix.Add(A); pix.Add(B); pix.Add(C); pix.Add(B); pix.Add(D); pix.Add(C);
+                    pix.Add(A); pix.Add(C); pix.Add(B); pix.Add(B); pix.Add(C); pix.Add(D);   // facing up out of the deck in Unity, as the shell now does
                 }
                 var pm = new Mesh { name = "pad" }; pm.SetVertices(pp); pm.SetTriangles(pix, 0); pm.RecalculateNormals(); pm.RecalculateBounds();
                 var pad = new GameObject("pad", typeof(MeshFilter), typeof(MeshRenderer)); pad.transform.SetParent(root.transform, false);
@@ -309,6 +312,8 @@ public static class BoardMesh
             int a = w0 + i * 2, b2 = a + 1, c = w0 + ((i + 1) % n) * 2, d2 = c + 1;
             idx.Add(a); idx.Add(c); idx.Add(b2); idx.Add(b2); idx.Add(c); idx.Add(d2);
         }
+        // the outline was laid out for three.js's winding: every face turned round so it faces out in Unity
+        for (int i = 0; i + 2 < idx.Count; i += 3) { int t0 = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = t0; }
         var m = new Mesh { name = "fin" }; m.SetVertices(v); m.SetTriangles(idx, 0); m.RecalculateNormals(); m.RecalculateBounds();
         return m;
     }
