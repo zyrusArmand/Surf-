@@ -54,6 +54,8 @@ public class BoardController : MonoBehaviour
     public bool TrickReady => (airborne && (pipeAir || py > waterY + 0.8f)) || hanging;
     public float steer;                 // -1..1 from the input layer
     public float waterY, carve;
+    public float rampPitch;             // the deck's climb under him while he rides a ramp (the spawner sets it)
+    public System.Action<float> rideRamps;   // the spawner's ramp ride, run straight after he settles on the water
     public float hullPitch, hullRoll;   // how the water under the hull lies: nose up on a climb, inside rail down
     public float t;                     // the wave clock
     public string lastMsg; public float msgT;
@@ -667,6 +669,7 @@ public class BoardController : MonoBehaviour
             py += (waterY - py) * Mathf.Min(1f, dt * 14f);
             vy = 0;
         }
+        rideRamps?.Invoke(dt);                  // a ramp's deck under him wins over the sea (web 45531-45602)
 
         // the hand drag (web 45737-45752): leaving the water ends it, and while it lasts it pays 70
         // a second and the paw throws spray off that rail
@@ -768,7 +771,7 @@ public class BoardController : MonoBehaviour
         // the board lies along the water it rests on (web 45838, 45908), and leans into the carve
         float yaw = -carve * 0.30f, roll = -carve * 0.55f + (airborne ? 0f : hullRoll * 1.20f);
         if (grabOn && airborne) roll += grabSide * 0.30f;             // tipped toward the rail he is holding (web 45984)
-        float pitch = airborne ? Mathf.Clamp(-vy * 0.03f, -0.35f, 0.35f) : Mathf.Clamp(hullPitch * 1.02f, -0.62f, 0.68f);
+        float pitch = rampPitch != 0f ? rampPitch : airborne ? Mathf.Clamp(-vy * 0.03f, -0.35f, 0.35f) : Mathf.Clamp(hullPitch * 1.02f, -0.62f, 0.68f);   // on a ramp, along its deck (web 45954)
         pitch += heliIncline;                  // the helicopter's nose-down and the lean-back out (web 45949)
         if (diveOn)
         {

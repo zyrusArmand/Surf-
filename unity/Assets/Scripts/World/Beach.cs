@@ -163,6 +163,7 @@ public class Beach : MonoBehaviour
         var palm = Prop("Palm", Models.Spawn("palm2", root.transform, palmHeight, PrimitiveType.Cylinder), R(palmTurn), flipPalm);
         Settle(palm, -palmBoxCentre.x, palmFoot.y, palmBoxCentre.z, false);
         MeasureTrunk(palm);
+        palmGo = palm;
         var sign = Prop("Sign", Models.Spawn("sign", root.transform, signHeight, PrimitiveType.Cube), R(signTurn), flipSign);
         var sAt = OnTrunk(8.797f, new Vector3(0.045f, 0.116f, 0.842f));
         Settle(sign, sAt.x, sAt.y, sAt.z, true);
@@ -384,6 +385,7 @@ public class Beach : MonoBehaviour
         long rs = 20250823; System.Func<float> R = () => { rs = (rs * 1103515245L + 12345L) & 0x7fffffff; return rs / 2147483647f; };
         System.Func<float, float, float, float> Ss = (a, b, x0) => { float u = Mathf.Clamp01((x0 - a) / (b - a)); return u * u * (3 - 2 * u); };
         var holder = new GameObject("SandTiles"); holder.transform.SetParent(root.transform, false);
+        tileHolder = holder.transform; tileV = v; tileT = tris; tileR = Mathf.Max(spanX, spanZ) * 0.5f;
         float dd = Mathf.Max(0.6f, Tile * 0.35f);
         for (int ix = 0; ix < nx; ix++) for (int iz = 0; iz < nz; iz++)
         {
@@ -408,6 +410,45 @@ public class Beach : MonoBehaviour
             t.transform.localScale = new Vector3(k, kyU, k);
         }
         Object.Destroy(src);
+    }
+
+    // ---- the drawn sand, for things that stand on it away from the set ----
+    // The tiles carry the beach's real relief and lie over the analytic profile by a varying few
+    // inches, so a prop stood on SandY alone can hover or sink. This asks the tiles themselves,
+    // as the web's groundTopOver asks its sand field: a ray straight down through every tile near
+    // the point, the highest hit wins, and the floor under the tiles is the fallback. It walks
+    // triangles, so it is for placing something once, not for every frame.
+    GameObject palmGo;
+    Transform tileHolder; Vector3[] tileV; int[] tileT; float tileR;
+    public Transform Root => root != null ? root.transform : null;
+    /// the title's palm, for scenery that is a copy of it
+    public GameObject PalmGo => palmGo;
+    public float GroundTop(float x, float z)
+    {
+        float best = SandY(x, z) - 0.35f;                        // the floor mesh under the tiles
+        if (tileHolder == null || tileV == null || tileT == null) return best;
+        var from = new Vector3(x, 200f, z);
+        for (int c = 0; c < tileHolder.childCount; c++)
+        {
+            var t = tileHolder.GetChild(c);
+            float reach = tileR * Mathf.Abs(t.lossyScale.x) * 1.15f;
+            if (Mathf.Abs(t.position.x - x) > reach || Mathf.Abs(t.position.z - z) > reach) continue;
+            var o = t.InverseTransformPoint(from); var d = t.InverseTransformVector(Vector3.down);
+            for (int i = 0; i + 2 < tileT.Length; i += 3)
+            {
+                Vector3 a = tileV[tileT[i]], e1 = tileV[tileT[i + 1]] - a, e2 = tileV[tileT[i + 2]] - a;
+                var p = Vector3.Cross(d, e2); float det = Vector3.Dot(e1, p);
+                if (Mathf.Abs(det) < 1e-9f) continue;
+                float inv = 1f / det; var s = o - a;
+                float u = Vector3.Dot(s, p) * inv; if (u < 0f || u > 1f) continue;
+                var q = Vector3.Cross(s, e1);
+                float w = Vector3.Dot(d, q) * inv; if (w < 0f || u + w > 1f) continue;
+                float k = Vector3.Dot(e2, q) * inv; if (k < 0f) continue;
+                float y = t.TransformPoint(o + d * k).y;
+                if (y > best) best = y;
+            }
+        }
+        return best;
     }
 
     GameObject leanBoard;

@@ -8,6 +8,7 @@ public class Spawner : MonoBehaviour
     public class Ob
     {
         public string kind; public GameObject go; public float x, z, y, floatOff, hx, hz, h;
+        public float[] rampProf;          // the deck's height a fraction along it, over the holder (web rampProfile)
         public bool ramp, used, passed, escape; public float rx, rz, rampSink, rampLift = 1f;
         // knocked: shoved aside, lifted and set spinning by the thing that hit it
         public bool knocked; public float kvx, kvy, kvz, ksx, ksz, ky, kax, kaz;
@@ -63,7 +64,10 @@ public class Spawner : MonoBehaviour
     // each frame by Island/Chute; chuteW is the chute's weight 0..1, which swaps the rack for
     // rock, timber and the odd slab and tightens the gap by 30% (web 46192, 46213-46214).
     // the ramp, as the web builds it and sinks it (22780, 23179-23187)
-    const float RampL = 2.55f, RampH = 2.15f, RampSink = 0.26f, RampLaunchDrop = 0.35f;
+    // The built-in wedge's numbers; a modelled ramp is fitted to that wedge and drawn half as big
+    // again (OBST_SIZE ramp 1.50, 23169), and its length, height and width scale with it (23280).
+    const float RampSize = 1.5f, RampL = 2.55f * RampSize, RampH = 2.15f * RampSize, RampW = 1.62f * RampSize, RampP = 1.85f;
+    const float RampSink = 0.26f, RampLaunchDrop = 0.35f, RampMinVy = 17.0f;
     static readonly float[] RampTiers = { 0f, 0.42f, 0.74f, 1f };
     public bool holdCast;
     public float chuteW;
@@ -139,6 +143,113 @@ public class Spawner : MonoBehaviour
             else r.towX = tow.position.x;                                     // the rope pulls him in under it
         }
         TowRope();
+    }
+
+    // ---- the ramp is ridden, not bumped (web 45531-45602) ----
+    // While he is over a ramp's deck and not clear above it, he is ON it: lifted to the deck's
+    // height, rising as fast as it climbs under him, and the launch it would give from here is
+    // kept. When he leaves it he flies at the better of that launch and the floor 17 x the
+    // ramp's lift, capped at 28 -- a fast run off a steep lip throws further, a crawl still
+    // clears it. RAMP! +50 three quarters of the way up. Called by the rider straight after he
+    // has settled on the water, so the deck wins over the sea under it.
+    Ob onRamp; float rampExitV, rampExitL = 1f;
+    static float[] rampProfCache;
+    const int RampN = 24;
+    public void RideRamps(float dt)
+    {
+        var r = rider;
+        if (r == null || r.hanging || r.wipe || !r.running || r.diveOn || r.isleOn || r.glideOn || r.heliPh >= 0) { onRamp = null; r.rampPitch = 0f; return; }
+        Ob best = null; float bt = 0f, bsy = 0f;
+        foreach (var o in obstacles)
+        {
+            if (!o.ramp || o.knocked) continue;
+            float local = r.pz - o.z, tt = (RampL - local) / (2f * RampL);
+            if (!(tt >= 0f && tt <= 1f)) continue;
+            if (Mathf.Abs(r.px - o.x) > RampW + BoardController.BoardHalfW * 0.6f) continue;
+            float sy = o.y + RampRise(o, tt);
+            if (r.py > sy + 1.4f) continue;                // clearing it in the air
+            best = o; bt = tt; bsy = sy;
+        }
+        if (best != null)
+        {
+            float prev = r.py;
+            r.py = Mathf.Max(r.py, bsy);
+            bool lifted = bsy > prev - 0.05f;
+            r.vy = Mathf.Min(30f, Mathf.Max(r.vy, (r.py - prev) / Mathf.Max(1e-3f, dt)));
+            r.airborne = false; r.wakeAir = false;
+            rampExitV = RampH * RampP * Mathf.Pow(Mathf.Max(1e-3f, bt), RampP - 1f) / (2f * RampL) * Mathf.Max(8f, r.eff) * best.rampLift;
+            rampExitL = best.rampLift;
+            r.rampPitch = lifted ? Mathf.Atan(RampSlope(best, Mathf.Max(1e-3f, bt))) : 0f;
+            if (!best.used && bt > 0.72f)
+            {
+                best.used = true;
+                r.score += 50; r.boost = Mathf.Min(16f, r.boost + 4f); r.Say("RAMP! +50"); Sfx.Buzz(12);
+                onSplash?.Invoke(new Vector3(r.px, r.py - 0.2f, r.pz + 1.2f), 10);
+            }
+            onRamp = best;
+        }
+        else if (onRamp != null)
+        {
+            onRamp = null; r.airborne = true; r.poseTake = 1f;
+            r.vy = Mathf.Max(r.vy, Mathf.Min(28f, Mathf.Max(rampExitV, RampMinVy * rampExitL)));
+            rampExitV = 0f; rampExitL = 1f; r.rampPitch = 0f;
+        }
+        else r.rampPitch = 0f;
+    }
+
+    static float RampRise(Ob o, float t)
+    {
+        var p = o.rampProf;
+        if (p == null) return -0.30f + RampH * Mathf.Pow(Mathf.Clamp01(t), RampP);
+        float f = Mathf.Clamp01(t) * (p.Length - 1); int i = Mathf.Min(p.Length - 2, Mathf.FloorToInt(f));
+        return p[i] + (p[i + 1] - p[i]) * (f - i);
+    }
+    static float RampSlope(Ob o, float t)
+    {
+        var p = o.rampProf;
+        if (p == null) return RampH * RampP * Mathf.Pow(Mathf.Max(1e-3f, t), RampP - 1f) / (2f * RampL);
+        float f = Mathf.Clamp01(t) * (p.Length - 1); int i = Mathf.Min(p.Length - 2, Mathf.FloorToInt(f));
+        return (p[i + 1] - p[i]) * (p.Length - 1) / (2f * RampL);
+    }
+
+    // The deck read off the model itself, as the web's rampProfile does (23118): a line dropped at
+    // the centre every 1/24 of its length, the highest surface it meets, misses filled from the
+    // last seen and made never to fall. Over the holder, so it rides with the tier's sink. Read once
+    // (every ramp is the same file at the same fit); null if the mesh cannot be read, and the
+    // wedge's own curve stands in.
+    static float[] RampProfile(Transform holder)
+    {
+        if (rampProfCache != null) return rampProfCache;
+        var tris = new List<Vector3>();
+        foreach (var mf in holder.GetComponentsInChildren<MeshFilter>())
+        {
+            var m = mf.sharedMesh; if (m == null || !m.isReadable) continue;
+            var v = m.vertices; var ix = m.triangles;
+            var toH = holder.worldToLocalMatrix * mf.transform.localToWorldMatrix;
+            for (int k = 0; k + 2 < ix.Length; k += 3) { tris.Add(toH.MultiplyPoint3x4(v[ix[k]])); tris.Add(toH.MultiplyPoint3x4(v[ix[k + 1]])); tris.Add(toH.MultiplyPoint3x4(v[ix[k + 2]])); }
+        }
+        if (tris.Count == 0) return null;
+        var raw = new float?[RampN + 1]; int hits = 0;
+        for (int i = 0; i <= RampN; i++)
+        {
+            float t = i / (float)RampN, z = RampL - 2f * RampL * t, top = float.NegativeInfinity;
+            for (int k = 0; k + 2 < tris.Count; k += 3)
+            {
+                Vector3 a = tris[k], b = tris[k + 1], c = tris[k + 2];
+                float d = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z); if (Mathf.Abs(d) < 1e-9f) continue;
+                float w0 = ((b.z - c.z) * (0f - c.x) + (c.x - b.x) * (z - c.z)) / d;
+                float w1 = ((c.z - a.z) * (0f - c.x) + (a.x - c.x) * (z - c.z)) / d, w2 = 1f - w0 - w1;
+                if (w0 < 0f || w1 < 0f || w2 < 0f) continue;
+                top = Mathf.Max(top, w0 * a.y + w1 * b.y + w2 * c.y);
+            }
+            if (!float.IsNegativeInfinity(top)) { raw[i] = top; hits++; }
+        }
+        if (hits < RampN * 0.6f) return null;
+        var outP = new float[RampN + 1]; float last = 0f;
+        for (int i = 0; i <= RampN; i++) { if (raw[i].HasValue) last = raw[i].Value; outP[i] = last; }
+        for (int i = 1; i <= RampN; i++) if (outP[i] < outP[i - 1]) outP[i] = outP[i - 1];
+        rampProfCache = outP;
+        return outP;
     }
 
     /// a revive puts the tow away and the next one 30-54 s out (web respawn 27186)
@@ -368,12 +479,8 @@ public class Spawner : MonoBehaviour
             if (!contact) continue;
             if (o.ramp)
             {
-                // a surface, not a thing to hit: ride up it and leave the top
-                if (!r.airborne && !o.used && o.z > r.pz - 1.5f)
-                {
-                    o.used = true; r.vy = 15.5f * r.statAir * o.rampLift; r.airborne = true; r.boost = Mathf.Min(16f, r.boost + 4f); r.poseTake = 1f;
-                    r.Say("RAMP!"); Sfx.Buzz(12);
-                }
+                // a surface, not a thing to hit: RideRamps (called from the ride's own step) carries
+                // him up its deck and off the lip
             }
             else if (o.kind == "jelly" && r.py < o.y + o.h + 0.35f)
             {
@@ -592,7 +699,7 @@ public class Spawner : MonoBehaviour
                 { var g = Models.Spawn("log", holder.transform, 1.2f, PrimitiveType.Capsule); Models.FitLength(g, 5.0f);
                   // FitLength lays the long side along z; a log floats ACROSS the lane, so a quarter turn in the parent's frame
                   g.transform.localRotation = Quaternion.Euler(0, 90, 0) * g.transform.localRotation; } break;
-            case "ramp": o.hx = 1.70f; o.hz = 2.55f; o.h = 1.6f; o.ramp = true;
+            case "ramp": o.hx = 1.70f * RampSize; o.hz = 2.55f * RampSize; o.h = 1.6f; o.ramp = true;
                 {
                     // the web's ramp (22780-22862): 5.1 feet up its length (RL 2.55 each way), lip at
                     // the far end (-z, which is how the file has it), skirt 0.30 under the deck line
@@ -603,6 +710,7 @@ public class Spawner : MonoBehaviour
                         Models.FitLength(g, RampL * 2f);
                         var rb = Models.Bounds(g);
                         g.transform.position += new Vector3(0f, -0.30f - (rb.min.y - holder.transform.position.y), 0f);
+                        o.rampProf = RampProfile(holder.transform);
                     }
                     // one of four heights in the water (web RAMP_TIERS): the deeper it sits, the lower it launches
                     float tier = RampTiers[Random.Range(0, RampTiers.Length)];

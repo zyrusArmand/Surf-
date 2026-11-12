@@ -9,7 +9,7 @@ public class Bootstrap : MonoBehaviour
     Fx fx;
     ParticleSystem spray; Transform rig, pug; RiderRig riderRig; ProcRig procRig; float wakeA;
     Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop; Coconuts cocos; Ufo ufo; Dive dive; Island island; Chute chute;
-    Quests quests; StatsPanel stats; SettingsPanel settings; SchoolPanel school; ProfilePanel profile; GuidePanel guide;
+    Quests quests; QuestBoard questBoard; StatsPanel stats; SettingsPanel settings; SchoolPanel school; ProfilePanel profile; GuidePanel guide;
     WheelPanel wheel; LevelPanel levelInfo; PukaPanel puka; SecretPanel secret; int bankedDist, bankedScore, bankedCoins;
     bool over; float runSecs; bool palmSaid;
     Boat boat;                                        // the tow boat and its paraglide, on demand only (web 15187)
@@ -105,7 +105,7 @@ public class Bootstrap : MonoBehaviour
         ufo = new GameObject("Ufo").AddComponent<Ufo>(); ufo.rider = rider; ufo.day = day; ufo.setWave = setWave; ufo.rig = rig; ufo.onRebuild = BuildRider; setWave.ufo = ufo;
         island = new GameObject("Island").AddComponent<Island>(); island.rider = rider; island.spawner = spawner; island.setWave = setWave;
         chute = new GameObject("Chute").AddComponent<Chute>(); chute.rider = rider; chute.spawner = spawner; chute.setWave = setWave; chute.whirl = whirl;
-        island.chute = chute; chute.island = island; setWave.island = island; setWave.chute = chute; setWave.whirl = whirl; whirl.island = island; whirl.chute = chute; dive.island = island; dive.chute = chute;
+        island.chute = chute; chute.island = island; setWave.island = island; setWave.chute = chute; setWave.whirl = whirl; rider.rideRamps = spawner.RideRamps; whirl.island = island; whirl.chute = chute; dive.island = island; dive.chute = chute;
         crate.island = island; cocos.island = island; spawner.island = island;
         ski = new GameObject("JetSki").AddComponent<JetSki>(); ski.rider = rider; ski.setWave = setWave; ski.dive = dive; ski.island = island; setWave.ski = ski; dive.ski = ski;
 
@@ -172,7 +172,7 @@ public class Bootstrap : MonoBehaviour
         // the title screen's beach
         beach = gameObject.AddComponent<Beach>(); beach.Build(null);
         // every arm answers the finger as the web's dial does: buzz(12) for Play, buzz(8) for the rest
-        beach.onSign = s => { Sfx.Buzz(s == "Play" ? 12 : 8); if (s == "Play") Play(); else if (s == "Shop") shop.Show(true); else if (s == "Quests") quests.Show(true); else school.Show(true); };
+        beach.onSign = s => { Sfx.Buzz(s == "Play" ? 12 : 8); if (s == "Play") Play(); else if (s == "Shop") shop.Show(true); else if (s == "Quests") { if (questBoard == null || !questBoard.Go()) quests.Show(true); } else school.Show(true); };
         beach.SetBoard(SaveData.S.equipped);
         // the ride's clouds and gulls (the web's skyLayer); it runs itself and stands down on the title
         var skyLife = new GameObject("SkyLife").AddComponent<SkyLife>();
@@ -191,6 +191,11 @@ public class Bootstrap : MonoBehaviour
         shop.onChange = () => { BuildRider(); if (beach.Showing) beach.PlaceRider(rider.transform, rig, boardGo); hud.ShowMenu(); };
         // the other panes: quests, stats, settings, the trick school, the profile
         quests = new GameObject("Quests").AddComponent<Quests>(); quests.Build(hud.UiRoot);
+        // Quests is a place on the beach (web 14070): the board, with the panel as its fallback
+        questBoard = new GameObject("QuestBoard").AddComponent<QuestBoard>(); questBoard.Init(beach);
+        questBoard.onFallback = () => quests.Show(true);
+        questBoard.onShop = () => { Sfx.Buzz(8); shop.Show(true); };
+        questBoard.blocked = () => rider.running || rider.wipe || shop.Open || quests.Open || stats.Open || settings.Open || school.Open || profile.Open || guide.Open || wheel.Open || levelInfo.Open || puka.Open || secret.Open;
         stats = new GameObject("Stats").AddComponent<StatsPanel>(); stats.Build(hud.UiRoot);
         settings = new GameObject("Settings").AddComponent<SettingsPanel>(); settings.Build(hud.UiRoot);
         school = new GameObject("School").AddComponent<SchoolPanel>(); school.Build(hud.UiRoot);
@@ -402,6 +407,7 @@ public class Bootstrap : MonoBehaviour
     {
         spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset(); island.Reset(); chute.Reset(); boat.Reset();
         ski.Reset();
+        if (questBoard != null) questBoard.Reset();      // the lens home and the board put away (web 27353)
         Quests.Roll();
         if (Wheel.RunStart()) BuildRider(); if (Wheel.ConsumeChest()) crate.Soon(); bankedDist = bankedScore = bankedCoins = 0;
         rider.Begin(); runSecs = 0;
@@ -502,12 +508,6 @@ public class Bootstrap : MonoBehaviour
     {
         if (!ready) return;
         float dt = Mathf.Min(0.033f, Time.deltaTime);
-        Sfx.MusicTick(!rider.running);       // the title track whenever a run is not in progress
-        if (rider.running)
-        {
-            rider.Step(dt); runSecs += dt;
-            Sfx.RideBed(rider.speed, rider.carve, rider.airborne, Mathf.Max(dive.Sub, rider.Submerged ? 1f : 0f), ufo.Duck);
-            spawner.Step(dt);
         // The crash's hit-stop (web 50313-50319): decayed on the RAW frame time, so the slow motion
         // cannot slow its own clock and stall; applied to dt, so the tumble, the spray, the camera
         // and the water all slow together rather than one sliding against another.
@@ -516,6 +516,12 @@ public class Bootstrap : MonoBehaviour
             rider.wipeSlow = Mathf.Max(0f, rider.wipeSlow - Time.deltaTime / BoardController.WipeSlowSecs);
             dt *= 0.30f + 0.70f * Mathf.Pow(1f - rider.wipeSlow, 1.6f);
         }
+        Sfx.MusicTick(!rider.running);       // the title track whenever a run is not in progress
+        if (rider.running)
+        {
+            rider.Step(dt); runSecs += dt;
+            Sfx.RideBed(rider.speed, rider.carve, rider.airborne, Mathf.Max(dive.Sub, rider.Submerged ? 1f : 0f), ufo.Duck);
+            spawner.Step(dt);
             setWave.Step(dt);
             dive.Step(dt);                                   // after the set wave: the launch assigns pz over its trim
             island.Step(dt); chute.Step(dt);
@@ -583,6 +589,8 @@ public class Bootstrap : MonoBehaviour
             // a tap on the signpost, away from the pills
             bool over2 = UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject();
             bool paneOpen = shop.Open || quests.Open || stats.Open || settings.Open || school.Open || profile.Open || guide.Open || wheel.Open || levelInfo.Open || puka.Open || secret.Open;
+            // the signpost is the title's; once the lens has turned toward the board it is not in shot
+            if (questBoard != null && questBoard.Away > 0.01f) paneOpen = true;
             if (Input.GetMouseButtonDown(0) && !over2 && !paneOpen) beach.Tap(cam, Input.mousePosition);
             for (int i = 0; i < Input.touchCount; i++)
             {
@@ -675,7 +683,10 @@ public class Bootstrap : MonoBehaviour
         }
         else ocean.material.SetVector("_HullS", Vector4.zero);
         bool fast = SaveData.S.fastFx;
-        if (dof != null) { dof.active = beach.Showing && !fast; if (beach.Showing) dof.focusDistance.value = Vector3.Distance(beach.camAt, beach.boardAt); }
+        // Off while the lens walks to the quest board and while it stands there: the web drops its
+        // blur for the pan, and at the board its focus band (25 ft either side of the title's
+        // surfboard) leaves everything in that shot sharp, which a lens focused on the title cannot.
+        if (dof != null) { dof.active = beach.Showing && !fast && (questBoard == null || questBoard.Away < 0.002f); if (beach.Showing) dof.focusDistance.value = Vector3.Distance(beach.camAt, beach.boardAt); }
         if (flare != null) flare.active = !beach.Showing && !fast;
         if (reflect != null) { reflect.planeY = beach.Showing ? beach.seaLevel : 0f; reflect.on = !fast && !(dive != null && dive.On); }
         // where the board has been across the lane, so the wake follows the path he drew (Surf/Ocean _WakeP)
@@ -701,6 +712,7 @@ public class Bootstrap : MonoBehaviour
             fx.tailHalfW = (hullMax.x - hullMin.x) * 0.5f * Mathf.Abs(bt.lossyScale.x);
         }
         fx.Step(dt, pm.startColor.color);
-        if (beach.Showing) beach.PlaceCamera(cam, dt); else chase.Step(dt);
+        if (beach.Showing) { beach.PlaceCamera(cam, dt); if (questBoard != null) questBoard.Step(cam, dt); }
+        else chase.Step(dt);
     }
 }
