@@ -14,6 +14,20 @@ public class Bootstrap : MonoBehaviour
     bool over; float runSecs; bool palmSaid;
     Boat boat;                                        // the tow boat and its paraglide, on demand only (web 15187)
     Vector3 boardBasePos; Quaternion boardBaseRot;   // where the board sits in the rig when no board trick has it
+    readonly System.Collections.Generic.List<Vector2> wakeHist = new System.Collections.Generic.List<Vector2>();   // (time, x) of the board, the last few seconds
+    readonly float[] wakeP = new float[8];
+    float WakeXAt(float tt)
+    {
+        int n = wakeHist.Count;
+        if (n == 0) return rider.px;
+        if (tt >= wakeHist[n - 1].x) return wakeHist[n - 1].y;
+        for (int i = n - 1; i > 0; i--)
+        {
+            var a = wakeHist[i - 1]; var b = wakeHist[i];
+            if (tt >= a.x) return Mathf.Lerp(a.y, b.y, (tt - a.x) / Mathf.Max(1e-4f, b.x - a.x));
+        }
+        return wakeHist[0].y;
+    }
     Vector3 hullMin, hullMax; bool hullOk; float hullRise, hullThick = 0.2f, floatLift;
     // where the hull is checked against the sea: the middle, both rails, the rails fore and aft, the tail
     static readonly Vector2[] FloatPts = { new Vector2(0f, 0f), new Vector2(0.9f, 0f), new Vector2(-0.9f, 0f), new Vector2(0.75f, 0.45f), new Vector2(-0.75f, 0.45f), new Vector2(0.75f, -0.45f), new Vector2(-0.75f, -0.45f), new Vector2(0f, 0.8f) }; PlanarReflection reflect;
@@ -585,6 +599,14 @@ public class Bootstrap : MonoBehaviour
         if (dof != null) { dof.active = beach.Showing && !fast; if (beach.Showing) dof.focusDistance.value = Vector3.Distance(beach.camAt, beach.boardAt); }
         if (flare != null) flare.active = !beach.Showing && !fast;
         if (reflect != null) { reflect.planeY = beach.Showing ? beach.seaLevel : 0f; reflect.on = !fast && !(dive != null && dive.On); }
+        // where the board has been across the lane, so the wake follows the path he drew (Surf/Ocean _WakeP)
+        if (rider.running) { wakeHist.Add(new Vector2(Time.time, rider.px)); while (wakeHist.Count > 2 && wakeHist[1].x < Time.time - 4f) wakeHist.RemoveAt(0); }
+        else wakeHist.Clear();
+        {
+            float sp = Mathf.Max(6f, rider.eff);        // the water runs back past him at the run's speed
+            for (int i = 0; i < wakeP.Length; i++) wakeP[i] = WakeXAt(Time.time - i * 3f / sp);
+            ocean.material.SetFloatArray("_WakeP", wakeP); ocean.material.SetFloat("_WakeC", rider.carve);
+        }
         ocean.Tick(rider.t, rider.dist * WaveField.Drift, WaveField.Amp, rider.px, rider.pz + BoardController.BoardHalfL, wakeA, beach.Showing ? beach.seaLevel : 0f, beach.Showing ? -88f : 100000f);   // a shoreline far behind the rider keeps the open sea at full swell
         day.Apply(rider.dist);
         var pm = spray.main; pm.startColor = Color.Lerp(Color.white, day.glow, day.glowAmt * 0.45f);

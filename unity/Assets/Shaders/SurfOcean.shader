@@ -119,14 +119,26 @@ Shader "Surf/Ocean"
             }
             bool ripOn() { return _Rip[0].w + _Rip[1].w + _Rip[2].w + _Rip[3].w > 0.0; }
 
+            // The wake is the path the board drew through the water, not a fixed V behind where it
+            // is now: _WakeP holds where the board was across the lane when it passed the water that
+            // is now 0, 3, 6 ... 21 feet behind the tail, so a carve bends the trail back to where he
+            // came from. _WakeC is the carve (-1..1): the arm on the side he is moving toward stands
+            // taller, so the two catch the light differently through a turn.
+            float _WakeP[8]; float _WakeC;
+            float wakeCx(float dz)
+            {
+                float u = clamp(dz / 3.0, 0.0, 6.999); int i0 = (int)u;
+                return lerp(_WakeP[i0], _WakeP[i0 + 1], u - i0);
+            }
             float wakeH(float2 p)
             {
                 float dz = p.y - (_Dist + _WakeZ);              // feet behind the tail; negative is along the board
-                float ax = abs(p.x - _WakeX);
+                float sx = p.x - wakeCx(dz), ax = abs(sx);
                 float arm = 0.55 + 0.30 * max(dz, 0.0);
                 float da = ax - arm;
                 float wide = 0.30 + 0.07 * max(dz, 0.0);        // each ridge a broad swell, broadening as it travels (narrower read as a drawn line)
-                float ridge = exp(-da * da / wide) * smoothstep(-1.6, -0.2, dz) * exp(-max(dz, 0.0) / 18.0);
+                float ridge = exp(-da * da / wide) * smoothstep(-1.6, -0.2, dz) * exp(-max(dz, 0.0) / 18.0)
+                            * (1.0 + 0.5 * _WakeC * (sx >= 0.0 ? 1.0 : -1.0));
                 float trough = exp(-ax * ax / 0.35) * smoothstep(-0.2, 0.9, dz) * exp(-max(dz, 0.0) / 6.0);
                 return _WakeA * (0.55 * ridge - 0.22 * trough);
             }
@@ -395,11 +407,13 @@ Shader "Surf/Ocean"
                     // fading in off the tail rather than switched on along a line there (which drew a
                     // straight edge across the water behind the board), and following the wake's V: a
                     // churned strip straight behind, and foam along the two arms as they open
-                    float ax = abs(i.w.x - _WakeX), armF = 0.55 + 0.30 * max(dz, 0.0);
+                    float ax = abs(i.w.x - wakeCx(dz)), armF = 0.55 + 0.30 * max(dz, 0.0);
                     float along = smoothstep(-1.6, -0.2, dz) * exp(-max(dz, 0.0) / 14.0);   // from where the rails meet the water, as the ridges do
                     float churn = saturate(1.0 - ax / (0.6 + 0.12 * max(dz, 0.0))) * 0.75 * smoothstep(-0.3, 0.8, dz);
                     float arms = exp(-(ax - armF) * (ax - armF) / (0.30 + 0.07 * max(dz, 0.0)));
-                    float wf = along * max(churn, arms) * _WakeA * 1.6;
+                    // the arms are mostly glassy ridges, the light off their shape; the foam is the churn
+                    // close behind the board, with only a little lace out along the arms
+                    float wf = along * max(churn, arms * 0.45 * exp(-max(dz, 0.0) / 7.0)) * _WakeA * 1.6;
                     foam = max(foam, wf * (0.6 + 0.4 * lace));
                 }
                 col = lerp(col, float3(0.94, 0.97, 1.0), foam * 0.66);
