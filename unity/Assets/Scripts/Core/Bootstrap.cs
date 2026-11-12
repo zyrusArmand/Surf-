@@ -569,6 +569,7 @@ public class Bootstrap : MonoBehaviour
         // the sea is told where the hull is, so no crest comes up through it; not while he is
         // under the water, on the barrel's wall, ashore, or going over
         bool dry = hullOk && boardGo != null && boardGo.activeInHierarchy && !beach.Showing && rider.running && !rider.Submerged && !rider.airborne
+                   && Vector3.Dot(boardGo.transform.up, Vector3.up) > 0.6f
                    && !setWave.tubeRide && !(island != null && island.Ashore);
         if (dry)
         {

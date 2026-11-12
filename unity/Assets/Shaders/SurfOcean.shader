@@ -224,7 +224,9 @@ Shader "Surf/Ocean"
                     // which the depth test draws; what never shows is water lying across the deck. The
                     // underside rises toward nose and tail with the rocker (_HullC.z), and the deck is the
                     // board's own thickness (_HullC.w) above it
-                    if (qz < 1.0 && abs(hq.x) < qw && hq.y > _HullS.z + _HullC.z * qz * qz + _HullC.w * 0.8) discard;
+                    // and only with the board lying flat: tipped up in a flip or a bad landing its plan
+                    // stands on edge and the cut sliced a wedge out of the sea down to the sky
+                    if (_HullW2L[1][1] > 0.5 && qz < 1.0 && abs(hq.x) < qw && hq.y > _HullS.z + _HullC.z * qz * qz + _HullC.w * 0.8) discard;
                 }
                 float3 N = normalize(i.n);
                 float3 L = normalize(_SunDir.xyz);
