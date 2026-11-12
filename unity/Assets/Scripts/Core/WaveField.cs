@@ -33,6 +33,19 @@ public static class WaveField
         if (d2 >= WhR * WhR) return 0f;
         return -WhA * WhirlProfile(1 - Mathf.Sqrt(d2) / WhR);
     }
+    // ---- the jet ski's wake: a broad ridge across the lane rolling in at the rider (web wakeBump,
+    // 3782-3794). Not an object on the sea but the sea itself, so the board and everything afloat
+    // ride over it; Surf/Ocean carries the same term (_SkiA). Set by JetSki each frame. ----
+    public const float SkiSigma = 18f, SkiHalf = 64f;
+    public static float SkiA, SkiX, SkiZ;           // height, lateral centre, centre in field space
+    public static float SkiWakeH(float x, float fieldZ)
+    {
+        if (SkiA <= 0.001f) return 0f;
+        float dz = fieldZ - SkiZ;
+        float ez = Mathf.Exp(-(dz * dz) / (2f * SkiSigma * SkiSigma));
+        float ax = Mathf.Clamp01(1f - Mathf.Abs(x - SkiX) / SkiHalf);
+        return SkiA * ez * ax * ax * (3f - 2f * ax);
+    }
     // ---- the chute: the lane tips down a fall, the profile anchored at the rider so his own height
     // stays near zero however far down he has come (the web's fallDip). Set by Chute each frame. ----
     public static float FallW, FallZF, FallT, FallLane = 9f;
@@ -98,7 +111,7 @@ public static class WaveField
     {
         float h = 0f;
         for (int i = 0; i < Waves.Length; i++) h += Comp(Waves[i], x, fieldZ, t);
-        return h * Amp * Calm + SetWaveH(x, fieldZ) + WhirlDip(x, fieldZ) + FallDip(x, fieldZ);
+        return h * Amp * Calm + SetWaveH(x, fieldZ) + WhirlDip(x, fieldZ) + FallDip(x, fieldZ) + SkiWakeH(x, fieldZ);
     }
 
     /// the long swell only: what a floating object rides, so buoys glide instead of vibrating
@@ -106,7 +119,7 @@ public static class WaveField
     {
         float h = 0f;
         for (int i = 0; i < 2; i++) h += Comp(Waves[i], x, fieldZ, t);
-        return h * Amp * 1.06f * Calm + SetWaveH(x, fieldZ) + WhirlDip(x, fieldZ) + FallDip(x, fieldZ);
+        return h * Amp * 1.06f * Calm + SetWaveH(x, fieldZ) + WhirlDip(x, fieldZ) + FallDip(x, fieldZ) + SkiWakeH(x, fieldZ);
     }
 
     /// surface normal by finite difference, for tilting things that sit on it

@@ -13,6 +13,7 @@ public class Bootstrap : MonoBehaviour
     WheelPanel wheel; LevelPanel levelInfo; PukaPanel puka; SecretPanel secret; int bankedDist, bankedScore, bankedCoins;
     bool over; float runSecs; bool palmSaid;
     Boat boat;                                        // the tow boat and its paraglide, on demand only (web 15187)
+    JetSki ski;                                       // the jet ski and the wake it throws at you (web 29842-30405)
     Vector3 boardBasePos; Quaternion boardBaseRot;   // where the board sits in the rig when no board trick has it
     readonly System.Collections.Generic.List<Vector2> wakeHist = new System.Collections.Generic.List<Vector2>();   // (time, x) of the board, the last few seconds
     readonly float[] wakeP = new float[8];
@@ -97,6 +98,7 @@ public class Bootstrap : MonoBehaviour
         chute = new GameObject("Chute").AddComponent<Chute>(); chute.rider = rider; chute.spawner = spawner; chute.setWave = setWave; chute.whirl = whirl;
         island.chute = chute; chute.island = island; setWave.island = island; setWave.chute = chute; whirl.island = island; whirl.chute = chute; dive.island = island; dive.chute = chute;
         crate.island = island; cocos.island = island; spawner.island = island;
+        ski = new GameObject("JetSki").AddComponent<JetSki>(); ski.rider = rider; ski.setWave = setWave; ski.dive = dive; ski.island = island; setWave.ski = ski; dive.ski = ski;
 
         // spray
         spray = BuildSpray();
@@ -114,6 +116,7 @@ public class Bootstrap : MonoBehaviour
             fx.Hit(new Vector3(c.x, p.y, c.z), n, shape);
         };
         spawner.onSplash = rider.onSplash; setWave.onSplash = rider.onSplash; whirl.onSplash = rider.onSplash; crate.onSplash = rider.onSplash; cocos.onSplash = rider.onSplash; ufo.onSplash = rider.onSplash; dive.onSplash = rider.onSplash; island.onSplash = rider.onSplash; chute.onSplash = rider.onSplash;
+        ski.onSplash = rider.onSplash;
         rider.onWipeout = () => { over = false; Sfx.Buzz(60, 50, 80); };
 
         // camera
@@ -199,6 +202,7 @@ public class Bootstrap : MonoBehaviour
                 case "dive": dive.summon = true; break;
                 case "drop": chute.summon = true; break;
                 case "boat": boat.summon = true; break;
+                case "ski": ski.summon = true; break;
             }
         };
         hud.onWheel = () => wheel.Show(true); hud.onLevel = () => levelInfo.Show(true); hud.onPuka = () => puka.Show(true);
@@ -209,6 +213,7 @@ public class Bootstrap : MonoBehaviour
             bankedDist = Mathf.RoundToInt(rider.dist); bankedScore = rider.score; bankedCoins = rider.coins;
             for (int i = spawner.obstacles.Count - 1; i >= 0; i--) if (spawner.obstacles[i].z > -48f) spawner.Remove(i);
             spawner.eater = null; setWave.Reset(); whirl.Reset();
+            ski.Revive();                                    // the ski and its wake put away, the next one 26 s out (web 27178)
             rider.Revive(); over = false; hud.ShowRide(); chase.Snap();
         };
         hud.onQuests = () => quests.Show(true); hud.onSettings = () => settings.Show(true);
@@ -376,6 +381,7 @@ public class Bootstrap : MonoBehaviour
     void Play()
     {
         spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset(); island.Reset(); chute.Reset(); boat.Reset();
+        ski.Reset();
         Quests.Roll();
         if (Wheel.RunStart()) BuildRider(); if (Wheel.ConsumeChest()) crate.Soon(); bankedDist = bankedScore = bankedCoins = 0;
         rider.Begin(); runSecs = 0;
@@ -392,6 +398,7 @@ public class Bootstrap : MonoBehaviour
     {
         if (Wheel.RunEnd()) BuildRider();        // a loan from the wheel is given back
         spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset(); island.Reset(); chute.Reset(); boat.Reset();
+        ski.Reset();
         rider.Idle(0f);
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
@@ -485,6 +492,7 @@ public class Bootstrap : MonoBehaviour
             dive.Step(dt);                                   // after the set wave: the launch assigns pz over its trim
             island.Step(dt); chute.Step(dt);
             whirl.Step(dt); crate.Step(dt); cocos.Step(dt); ufo.Step(dt);
+            ski.Step(dt);                                    // after the ride, as the web's updateJetSki: the launch it fires is his next frame's
             boat.Step(dt);                                   // after the spawner: the bow shoves what it has just placed
             if (Input.GetKeyDown(KeyCode.U)) ufo.summon = true;           // debug: the saucer now
             if (Input.GetKeyDown(KeyCode.N)) dive.summon = true;          // debug: a jetpack now

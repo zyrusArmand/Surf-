@@ -34,6 +34,9 @@ Shader "Surf/Ocean"
         _WhX ("Whirl x", Float) = 0
         _WhZ ("Whirl z (field)", Float) = 0
         _WhA ("Whirl depth", Float) = 0
+        _SkiX ("Jet ski wake x", Float) = 0
+        _SkiZ ("Jet ski wake z (field)", Float) = 0
+        _SkiA ("Jet ski wake height", Float) = 0
         _BtX ("Boat stern x", Float) = 0
         _BtZ ("Boat stern z", Float) = 0
         _BtSn ("Boat heading sin", Float) = 0
@@ -70,6 +73,7 @@ Shader "Surf/Ocean"
             float _Light, _Amp, _Peak, _Dist, _T, _WakeX, _WakeZ, _WakeA, _Lift, _Shore, _ShoreW, _Calm, _SwA, _SwX, _SwS, _WhX, _WhZ, _WhA, _FallW, _FallZF, _FallT, _FallLane;
             float4 _HullS, _HullC; float4x4 _HullW2L;      // _HullC: the plan's centre (x, z) and the rocker (how far the underside rises to the ends), in the board's frame
             float _BtX, _BtZ, _BtSn, _BtCs, _BtA;           // the tow boat's stern, heading and how hard it is making way (Boat.cs)
+            float _SkiX, _SkiZ, _SkiA;                      // the jet ski's wake: lateral centre, centre in field z, height (JetSki.cs)
             CBUFFER_END
             TEXTURE2D(_Chop); SAMPLER(sampler_Chop); float _ChopK;
             float4 _WaveA[7];   // dx, dz, k, a
@@ -151,6 +155,19 @@ Shader "Surf/Ocean"
                 return _WakeA * (0.55 * ridge - 0.22 * trough);
             }
 
+            // The jet ski's wake (web wakeBump 3782-3794, and its copy in the web's sea 4255-4266):
+            // a broad ridge across the lane, a gaussian 18 ft deep along it, eased off over 64 ft
+            // either side of where the ski crossed, the same as WaveField.SkiWakeH. In the field like
+            // the rider's wake and the rings, its slope taken per pixel in frag the same way, so it
+            // is lit, foamed and fogged as the sea it is.
+            float skiH(float2 p)
+            {
+                float sdz = p.y - _SkiZ;
+                float sez = exp(-(sdz * sdz) / (2.0 * 18.0 * 18.0));
+                float sax = saturate(1.0 - abs(p.x - _SkiX) / 64.0);
+                return _SkiA * sez * sax * sax * (3.0 - 2.0 * sax);
+            }
+
             void field(float2 p, out float h, out float dhx, out float dhz)
             {
                 h = 0; dhx = 0; dhz = 0;
@@ -199,6 +216,7 @@ Shader "Surf/Ocean"
                     h += wakeH(p);
                 }
                 if (ripOn()) h += ripH(p);     // the splash rings, the same way
+                if (_SkiA > 0.001) h += skiH(p);   // and the jet ski's wake
             }
 
             V vert(A i)
@@ -301,6 +319,13 @@ Shader "Surf/Ocean"
                     float rx = (ripH(pr + float2(re, 0)) - ripH(pr - float2(re, 0))) / (2.0 * re);
                     float rz = (ripH(pr + float2(0, re)) - ripH(pr - float2(0, re))) / (2.0 * re);
                     N = normalize(N + float3(-rx, 0.0, -rz));
+                }
+                if (_SkiA > 0.001)
+                {
+                    float2 pk = float2(i.w.x, i.w.z + _Dist); const float ke = 0.25;
+                    float kx = (skiH(pk + float2(ke, 0)) - skiH(pk - float2(ke, 0))) / (2.0 * ke);
+                    float kz = (skiH(pk + float2(0, ke)) - skiH(pk - float2(0, ke))) / (2.0 * ke);
+                    N = normalize(N + float3(-kx, 0.0, -kz));
                 }
                 float3 L = normalize(_SunDir.xyz);
                 float3 V = normalize(_WorldSpaceCameraPos - i.w);

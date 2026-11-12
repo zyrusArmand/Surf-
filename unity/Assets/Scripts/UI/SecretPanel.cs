@@ -7,7 +7,7 @@ using UnityEngine.UI;
 public class SecretPanel : MonoBehaviour
 {
     public System.Action onClose, onChange;
-    public System.Action<string> onTest;      // "wave", "whirl", "ufo", "fork", "dive", "drop": start a run with it
+    public System.Action<string> onTest;      // "wave", "whirl", "ufo", "boat", "ski", "fork", "dive", "drop": start a run with it
     GameObject pane; RectTransform content; ScrollRect scroll;
     bool claimArmed, wipeArmed;
     public bool Open => pane != null && pane.activeSelf;
@@ -47,10 +47,11 @@ public class SecretPanel : MonoBehaviour
 
         Pane.Heading(content, "Hazards & events");
         var c2 = Pane.Card(content, "hazards", 52);
-        Btn(c2, "Test wave", 12f, 116, true, () => Test("wave"));
-        Btn(c2, "Test whirl", 134f, 116, true, () => Test("whirl"));
-        Btn(c2, "UFO", 256f, 64, true, () => Test("ufo"));
-        Btn(c2, "Boat", 326f, 64, true, () => Test("boat"));
+        Btn(c2, "Test wave", 12f, 88, true, () => Test("wave"));
+        Btn(c2, "Test whirl", 106f, 88, true, () => Test("whirl"));
+        Btn(c2, "UFO", 200f, 58, true, () => Test("ufo"));
+        Btn(c2, "Boat", 264f, 58, true, () => Test("boat"));
+        Btn(c2, "Jet ski", 328f, 62, true, () => Test("ski"));
 
         Pane.Heading(content, "Set pieces — test only, not in the game");
         var c3 = Pane.Card(content, "pieces", 52);

@@ -72,7 +72,9 @@ public class Ocean : MonoBehaviour
         material.SetFloat("_T", t);
         material.SetFloat("_Dist", dist);
         material.SetFloat("_Amp", amp);
-        material.SetFloat("_Peak", 1.58f * amp);
+        // the jet ski's wake, and the foam line raised with it so only its crest foams (web 46757)
+        material.SetFloat("_SkiX", WaveField.SkiX); material.SetFloat("_SkiZ", WaveField.SkiZ); material.SetFloat("_SkiA", WaveField.SkiA);
+        material.SetFloat("_Peak", 1.58f * amp + WaveField.SkiA * 0.60f);
         material.SetFloat("_WakeX", wakeX);
         material.SetFloat("_WakeZ", wakeZ);
         material.SetFloat("_WakeA", wakeA);

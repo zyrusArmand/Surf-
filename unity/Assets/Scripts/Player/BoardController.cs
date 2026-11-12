@@ -74,6 +74,9 @@ public class BoardController : MonoBehaviour
     // ---- the paraglide (World/Boat.cs owns him from the tow to the splashdown, as the dive does) ----
     public bool glideOn;                             // on the line or under the wing (web glPh >= 0): py is not ours, and he counts as in the air
     public float glideFace;                          // for the rig: 0 side-on to the board, 1 square to the nose with his arms out to the toggles (web glFace)
+    // ---- off the top of a jet ski's wake (World/JetSki.cs, web 23333-23339, 45313-45318, 45456-45457) ----
+    public bool wakeAir;                             // launched off a wake: the way down is long, under 6 rather than 20
+    public float wakeGrace;                          // seconds the landing test is held off while the ridge slides out from under him
 
     public System.Action<Vector3, int> onSplash;   // where, how many drops
     public System.Action onWipeout;
@@ -381,13 +384,15 @@ public class BoardController : MonoBehaviour
         // the helicopter's crouch beat eases off on its own (web 44096), the beats re-assert it
         heliCrouch = Ease(heliCrouch, 0f, dt, 9f);
 
+        wakeGrace = Mathf.Max(0f, wakeGrace - dt);
+        if (!airborne) wakeAir = false;         // whatever put him down (a landing, the dive, a wipeout), he is not off a wake any more
         if (heliPh >= 0) HeliStep(dt);          // the helicopter drives him itself (web 45394)
         else if (diveOn || isleOn) vy = 0;      // the dive owns py outright, launch to landing (web 45330-45347); the island likewise, beaching to the walk (web 45359-45449)
         else if (glideOn) vy = 0;               // and the paraglide, tow to splashdown: forty feet up passes every test below, which would start landing him (web 45348-45352)
         else if (airborne)
         {
-            vy -= 20f * dt; py += vy * dt;
-            if (py <= waterY)
+            vy -= (wakeAir ? 6f : 20f) * dt; py += vy * dt;      // off a wave that size, the way down is long (web 45456)
+            if (py <= waterY && wakeGrace <= 0f)
             {
                 float impact = Mathf.Min(1.6f, Mathf.Max(0f, -vy) / 15f);
                 poseLand = Mathf.Min(1f, 0.55f + impact * 0.5f);

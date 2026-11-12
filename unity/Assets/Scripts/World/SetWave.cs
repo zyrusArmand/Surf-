@@ -18,6 +18,7 @@ public class SetWave : MonoBehaviour
     public enum Phase { Idle = -1, Fly, Impact, Swell, Ride, Exit }
     public BoardController rider;
     public DayCycle day; public Ufo ufo; public Dive dive; public Island island; public Chute chute;   // the set stands down while another piece has him
+    public JetSki ski;                          // and while a jet ski is crossing (web 32347 !skiOn)
     public System.Action<Vector3, int> onSplash;
 
     public const float CrashX = 46f, HoldX = 9.0f, Tube = 4.6f;
@@ -93,7 +94,7 @@ public class SetWave : MonoBehaviour
             {
                 if (!summon && !armed) { armed = true; next = Mathf.Min(next, 1.8f); }
                 next -= dt;
-                if ((next <= 0 || summon) && (ufo == null || !ufo.Holds) && (dive == null || !dive.Busy) && (island == null || !island.Busy) && (chute == null || !chute.Busy)) Begin();
+                if ((next <= 0 || summon) && (ufo == null || !ufo.Holds) && (dive == null || !dive.Busy) && (island == null || !island.Busy) && (chute == null || !chute.Busy) && (ski == null || !ski.On)) Begin();
             }
             Trim2(dt);
             return;

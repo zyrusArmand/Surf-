@@ -70,6 +70,7 @@ public class Dive : MonoBehaviour
     public float JetOn;            // the pack's thrust, 0 idle .. 1 full
     public bool PickOn;            // a jetpack is floating in the lane
     public Island island; public Chute chute;   // optional: no pack while either has the lane
+    public JetSki ski;                          // optional: nor while a jet ski is crossing (web 42014 skiOn)
     public float steerY;           // -1..1 from the HUD, if it wants to drive the vertical
     public bool jumpHeld;          // the jump button held: climbs
     public bool summon;            // debug: launch now
@@ -442,7 +443,8 @@ public class Dive : MonoBehaviour
             if (On || Launch > 0f || r.dist < PickDist) return;
             if (pickT < 0f) pickT = PickFirstA + Random.value * (PickFirstB - PickFirstA);
             bool busy = (setWave != null && setWave.ph != SetWave.Phase.Idle) || WaveField.WhA > 0.001f || (island != null && island.Busy) || (chute != null && chute.Busy)
-                        || r.glideOn;                                  // and no pack while he is on the paraglide (web 42014)
+                        || r.glideOn                                   // and no pack while he is on the paraglide (web 42014)
+                        || (ski != null && ski.On);                    // or a jet ski is crossing (web 42014)
             if (busy) return;
             pickT -= dt;
             if (pickT > 0f) return;
