@@ -14,7 +14,7 @@ public class Bootstrap : MonoBehaviour
     bool over; float runSecs; bool palmSaid;
     Boat boat;                                        // the tow boat and its paraglide, on demand only (web 15187)
     Vector3 boardBasePos; Quaternion boardBaseRot;   // where the board sits in the rig when no board trick has it
-    Vector3 hullMin, hullMax; bool hullOk; PlanarReflection reflect;
+    Vector3 hullMin, hullMax; bool hullOk; float hullRise; PlanarReflection reflect;
     UnityEngine.Rendering.Universal.DepthOfField dof; UnityEngine.Rendering.Universal.ScreenSpaceLensFlare flare;      // the board's own box, in its frame, for the sea's dry-hull rule
 
     // Whatever scene is open when Play is pressed, the game builds itself: an empty or untitled
@@ -197,6 +197,22 @@ public class Bootstrap : MonoBehaviour
             }
         }
         if (mn.x <= mx.x) { hullMin = mn; hullMax = mx; hullOk = true; }
+        // the rocker: how far the underside rises from the middle of the board to its ends, read
+        // off the hull's own vertices (a board built here is always readable; a file may not be)
+        hullRise = 0f;
+        if (!hullOk) return;
+        float cz = (mn.z + mx.z) * 0.5f, hl = Mathf.Max(1e-3f, (mx.z - mn.z) * 0.5f), botC = float.MaxValue, botE = float.MaxValue;
+        foreach (var mf in boardGo.GetComponentsInChildren<MeshFilter>(false))
+        {
+            if (mf.sharedMesh == null || mf.name == "fin" || !mf.sharedMesh.isReadable) continue;
+            var toRoot = root.worldToLocalMatrix * mf.transform.localToWorldMatrix;
+            foreach (var v0 in mf.sharedMesh.vertices)
+            {
+                var p = toRoot.MultiplyPoint3x4(v0); float q = Mathf.Abs(p.z - cz) / hl;
+                if (q < 0.15f) botC = Mathf.Min(botC, p.y); else if (q > 0.80f && q < 0.92f) botE = Mathf.Min(botE, p.y);
+            }
+        }
+        if (botC < float.MaxValue && botE < float.MaxValue) hullRise = Mathf.Max(0f, botE - botC) / (0.86f * 0.86f);
     }
 
     // ---- what the models see reflected: the web's baked environment (bakeEnv) ----
@@ -495,7 +511,7 @@ public class Bootstrap : MonoBehaviour
             float hw = (hullMax.x - hullMin.x) * 0.5f, hl = (hullMax.z - hullMin.z) * 0.5f;
             ocean.material.SetMatrix("_HullW2L", bt.worldToLocalMatrix);
             ocean.material.SetVector("_HullS", new Vector4(hw * 0.96f, hl * 0.97f, hullMin.y, 1f));
-            ocean.material.SetVector("_HullC", new Vector4((hullMin.x + hullMax.x) * 0.5f, (hullMin.z + hullMax.z) * 0.5f, hullMax.y, 0f));
+            ocean.material.SetVector("_HullC", new Vector4((hullMin.x + hullMax.x) * 0.5f, (hullMin.z + hullMax.z) * 0.5f, hullRise, 0f));
         }
         else ocean.material.SetVector("_HullS", Vector4.zero);
         bool fast = SaveData.S.fastFx;

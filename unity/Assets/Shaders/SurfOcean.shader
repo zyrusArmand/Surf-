@@ -68,7 +68,7 @@ Shader "Surf/Ocean"
             CBUFFER_START(UnityPerMaterial)
             float4 _Deep, _Shallow, _SkyLo, _SkyHi, _Glow, _SunDir;
             float _Light, _Amp, _Peak, _Dist, _T, _WakeX, _WakeZ, _WakeA, _Lift, _Shore, _ShoreW, _Calm, _SwA, _SwX, _SwS, _WhX, _WhZ, _WhA, _FallW, _FallZF, _FallT, _FallLane;
-            float4 _HullS, _HullC; float4x4 _HullW2L;      // _HullC: the plan's centre (x, z) and the deck's top, in the board's frame
+            float4 _HullS, _HullC; float4x4 _HullW2L;      // _HullC: the plan's centre (x, z) and the rocker (how far the underside rises to the ends), in the board's frame
             float _BtX, _BtZ, _BtSn, _BtCs, _BtA;           // the tow boat's stern, heading and how hard it is making way (Boat.cs)
             CBUFFER_END
             TEXTURE2D(_Chop); SAMPLER(sampler_Chop); float _ChopK;
@@ -213,9 +213,10 @@ Shader "Surf/Ocean"
                     float3 hq = mul(_HullW2L, float4(i.w, 1.0)).xyz; hq.xz -= _HullC.xy;
                     float qz = abs(hq.z) / max(0.01, _HullS.y * 0.94);
                     float qw = _HullS.x * 0.92 * sqrt(saturate(1.0 - qz * qz * qz * qz));
-                    // above the middle of the board's thickness only: under that the rocker can lift the
-                    // hull clear of it, and cutting the sea there would open a hole to the sky
-                    if (qz < 1.0 && abs(hq.x) < qw && hq.y > lerp(_HullS.z, _HullC.z, 0.5)) discard;
+                    // above the underside, which rises toward nose and tail with the rocker: cut lower
+                    // than that and a hole opens to the sky under the ends; cut higher (the middle of the
+                    // board's whole height, nose tip included) and water lies across the deck
+                    if (qz < 1.0 && abs(hq.x) < qw && hq.y > _HullS.z + _HullC.z * qz * qz + 0.02) discard;
                 }
                 float3 N = normalize(i.n);
                 float3 L = normalize(_SunDir.xyz);
