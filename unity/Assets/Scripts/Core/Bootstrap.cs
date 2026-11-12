@@ -167,9 +167,10 @@ public class Bootstrap : MonoBehaviour
         hud.onProfile = () => profile.Show(true); hud.onSchool = () => school.Show(true);
         profile.onStats = () => stats.Show(true);
         Quests.onToast = hud.Toast;
-        settings.onChange = () => Sfx.Refresh();
+        settings.onChange = () => { Sfx.Refresh(); ApplyGfx(); };
         quests.onClose = settings.onClose = profile.onClose = stats.onClose = school.onClose = guide.onClose = wheel.onClose = levelInfo.onClose = puka.onClose = secret.onClose = () => { if (!rider.running && !rider.wipe) hud.ShowMenu(); };
         Menu();
+        ApplyGfx();
         ready = true; load.Hide();
     }
 
@@ -364,6 +365,16 @@ public class Bootstrap : MonoBehaviour
         return ps;
     }
 
+    // the renderer's ambient occlusion follows Settings > Graphics; it is an asset, so it is put
+    // back on when the game closes rather than left switched off in the project
+    static void Ssao(bool on)
+    {
+        foreach (var f in Resources.FindObjectsOfTypeAll<UnityEngine.Rendering.Universal.ScriptableRendererFeature>())
+            if (f != null && f.GetType().Name == "ScreenSpaceAmbientOcclusion") f.SetActive(on);
+    }
+    void ApplyGfx() { Ssao(!SaveData.S.fastFx); }
+    void OnApplicationQuit() { Ssao(true); }
+
     void Update()
     {
         if (!ready) return;
@@ -471,9 +482,10 @@ public class Bootstrap : MonoBehaviour
             ocean.material.SetVector("_HullC", new Vector4((hullMin.x + hullMax.x) * 0.5f, (hullMin.z + hullMax.z) * 0.5f, hullMax.y, 0f));
         }
         else ocean.material.SetVector("_HullS", Vector4.zero);
-        if (dof != null) { dof.active = beach.Showing; if (beach.Showing) dof.focusDistance.value = Vector3.Distance(beach.camAt, beach.boardAt); }
-        if (flare != null) flare.active = !beach.Showing;
-        if (reflect != null) { reflect.planeY = beach.Showing ? beach.seaLevel : 0f; reflect.on = !(dive != null && dive.On); }
+        bool fast = SaveData.S.fastFx;
+        if (dof != null) { dof.active = beach.Showing && !fast; if (beach.Showing) dof.focusDistance.value = Vector3.Distance(beach.camAt, beach.boardAt); }
+        if (flare != null) flare.active = !beach.Showing && !fast;
+        if (reflect != null) { reflect.planeY = beach.Showing ? beach.seaLevel : 0f; reflect.on = !fast && !(dive != null && dive.On); }
         ocean.Tick(rider.t, rider.dist * WaveField.Drift, WaveField.Amp, rider.px, rider.pz + BoardController.BoardHalfL, wakeA, beach.Showing ? beach.seaLevel : 0f, beach.Showing ? -88f : 100000f);   // a shoreline far behind the rider keeps the open sea at full swell
         day.Apply(rider.dist);
         var pm = spray.main; pm.startColor = Color.Lerp(Color.white, day.glow, day.glowAmt * 0.45f);

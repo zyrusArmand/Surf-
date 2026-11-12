@@ -35,6 +35,10 @@ public class SettingsPanel : MonoBehaviour
         Switch("Music", !s.musicOff, () => s.musicOff = !s.musicOff);
         Switch("Sound effects", !s.sfxOff, () => s.sfxOff = !s.sfxOff);
         Switch("Vibration", !s.buzzOff, () => s.buzzOff = !s.buzzOff);
+        // the picture: High is everything; Fast keeps the look but drops the costly extras for an older phone
+        var g = Pane.Card(content, "sw:Graphics", 48);
+        UiKit.Label(g, "Graphics", 14, Pane.Dim, FontStyle.Normal, new Vector2(0, 0), new Vector2(1, 1), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-32, 0), TextAnchor.MiddleLeft, 0.5f);
+        Pane.Button(g, s.fastFx ? "Fast" : "High", 72, !s.fastFx, () => { s.fastFx = !s.fastFx; SaveData.Flush(); onChange?.Invoke(); Fill(); });
         Pane.Note(content, "Vibration is the phone’s own buzzer, so it does what the phone allows: on an iPhone that is one short tap, and only with System Haptics on.", 48, 11.5f);
         Pane.Row(content, "Your record", Pane.N(s.bestDist) + " m");
         Pane.Row(content, "Best trick score", Pane.N(s.best));

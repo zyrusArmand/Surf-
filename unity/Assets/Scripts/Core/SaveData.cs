@@ -18,6 +18,7 @@ public class Save
     public int crates, closeCalls, barrels, tricks, jellies, ramps, totalDist, totalScore, secs, earned, revives;
     // settings: stored as "off" flags so a save written before they existed reads as all on
     public bool musicOff, sfxOff, buzzOff;
+    public bool fastFx;          // Settings > Graphics: Fast drops the sea's reflection, the depth of field, the flare and the ambient occlusion
     // the player's name on the profile
     public string uname = "";
     // the daily wheel: the day it was last spun (yyyy-mm-dd), and the prizes it hands out that
