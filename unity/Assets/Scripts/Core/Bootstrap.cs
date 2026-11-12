@@ -28,6 +28,7 @@ public class Bootstrap : MonoBehaviour
         }
         return wakeHist[0].y;
     }
+    Vector3 pugBase = Vector3.one; GltfClips riderClips;   // the rider's fitted scale; the clip a rig-less rider plays
     Vector3 hullMin, hullMax; bool hullOk; float hullRise, hullThick = 0.2f, floatLift;
     // where the hull is checked against the sea: the middle, both rails, the rails fore and aft, the tail
     static readonly Vector2[] FloatPts = { new Vector2(0f, 0f), new Vector2(0.9f, 0f), new Vector2(-0.9f, 0f), new Vector2(0.75f, 0.45f), new Vector2(-0.75f, 0.45f), new Vector2(0.75f, -0.45f), new Vector2(-0.75f, -0.45f), new Vector2(0f, 0.8f) }; PlanarReflection reflect;
@@ -325,6 +326,7 @@ public class Bootstrap : MonoBehaviour
     void BuildRider()
     {
         if (boardGo != null) Destroy(boardGo);
+        if (riderClips != null) { riderClips.Stop(); riderClips = null; }
         if (pug != null) Destroy(pug.gameObject);
         // a loan (the wheel's, or the saucer's cow) outranks the equipped pair
         var b = BoardCatalog.Get(string.IsNullOrEmpty(SaveData.S.wheelLoan) ? SaveData.S.equipped : SaveData.S.wheelLoan);
@@ -342,12 +344,15 @@ public class Bootstrap : MonoBehaviour
         foreach (var a in pug.GetComponentsInChildren<Animation>(true)) { a.Stop(); a.enabled = false; }
         foreach (var a in pug.GetComponentsInChildren<Animator>(true)) a.enabled = false;
         riderRig = null; procRig = null;
+        pugBase = pug.localScale;                      // its fitted scale: the fallback squash works relative to this
         if (proc) { procRig = pug.gameObject.AddComponent<ProcRig>(); procRig.Init(rider); }
         else
         {
             riderRig = pug.gameObject.AddComponent<RiderRig>(); riderRig.Init(rider);
             riderRig.SetBoard(b);          // the ring and the ski are sat in, not stood on
             Gear.Dress(pug, SaveData.S);   // what the save says he wears; a rider without the bones is skipped
+            // a body the rig cannot pose plays its own file's standing clip instead of standing stiff
+            if (!riderRig.Ready) riderClips = GltfClips.Start(pug, rid, new[] { "rest", "Stand_and_Chat", "walk" });
             // (Surf/Character is not applied: lit by its own Lambert it came out far darker than URP Lit,
             // which also takes the sky's reflection and the scene's GI; the rider stays on URP Lit)
         }
@@ -587,8 +592,12 @@ public class Bootstrap : MonoBehaviour
         }
         else
         {
+            // a body the rig cannot pose (a stand-in, or the cow, whose skeleton is a quadruped's)
+            // squashes with the ride instead -- relative to its OWN scale: the cow's file is tiny
+            // and she is fitted up some six hundred times, and easing her height toward 1 flattened
+            // her to nothing within a second, which is why she never came down off the saucer
             float crouch = 0.3f + rider.poseCrouch * 0.5f + rider.poseAir * 0.35f + rider.poseLand * 0.45f - rider.poseExt * 0.25f + Mathf.Abs(rider.carve) * 0.15f;
-            pug.localScale = new Vector3(pug.localScale.x, Mathf.Lerp(pug.localScale.y, 1f - crouch * 0.18f, dt * 12f), pug.localScale.z);
+            pug.localScale = new Vector3(pugBase.x, Mathf.Lerp(pug.localScale.y, pugBase.y * (1f - (crouch - 0.3f) * 0.18f), dt * 12f), pugBase.z);
         }
         rig.localRotation = Quaternion.Euler(0, 0, -rider.carve * 8f);
 
@@ -628,6 +637,9 @@ public class Bootstrap : MonoBehaviour
         {
             var tp = boardGo.transform.TransformPoint(new Vector3((hullMin.x + hullMax.x) * 0.5f, hullMin.y + hullRise * 0.5f, (hullMin.z + hullMax.z) * 0.5f + (hullMax.z - hullMin.z) * 0.5f * 0.82f));
             fx.tail = new Vector3(tp.x, Mathf.Max(tp.y, rider.waterY - 0.05f), tp.z);
+            var bt = boardGo.transform;
+            fx.tailRight = new Vector3(bt.right.x, 0f, bt.right.z).normalized; fx.tailFwd = new Vector3(-bt.forward.x, 0f, -bt.forward.z).normalized;   // the board's nose is its -z
+            fx.tailHalfW = (hullMax.x - hullMin.x) * 0.5f * Mathf.Abs(bt.lossyScale.x);
         }
         fx.Step(dt, pm.startColor.color);
         if (beach.Showing) beach.PlaceCamera(cam, dt); else chase.Step(dt);

@@ -13,7 +13,7 @@ public class Fx : MonoBehaviour
     public SetWave setWave;
     public Dive dive;
     ParticleSystem trail, mist, carve, carveMist, clumps, sparkle;
-    public Vector3 tail; public bool tailOk;          // the board's tail at the water, set each frame by Bootstrap
+    public Vector3 tail, tailRight = Vector3.right, tailFwd = Vector3.forward; public float tailHalfW = 0.55f; public bool tailOk;   // the board's tail at the water, its axes and half width, set each frame by Bootstrap
     float clumpAcc, fizzAcc;
     readonly Vector4[] rip = new Vector4[4];        // the rings of wave in the sea: x, field z, age, height (Surf/Ocean _Rip)
     readonly Vector4[] ripS = new Vector4[4];       // and the shape each starts from: half width, half length, sin and cos of its heading (_RipS)
@@ -78,7 +78,7 @@ public class Fx : MonoBehaviour
                   new[] { new GradientAlphaKey(0.95f, 0), new GradientAlphaKey(0.75f, 0.6f), new GradientAlphaKey(0f, 1) });
         col.color = g;
         var r = go.GetComponent<ParticleSystemRenderer>();
-        r.renderMode = ParticleSystemRenderMode.Stretch; r.velocityScale = 0.012f; r.lengthScale = 1.0f;   // drops, a little drawn out by their speed, not dashes
+        r.renderMode = ParticleSystemRenderMode.Stretch; r.velocityScale = 0.005f; r.lengthScale = 1.0f;   // drops, only a little drawn out by their speed: more read as dashes
         r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows = false;
         var m = Bootstrap.SoftParticles(Bootstrap.DropTex());
         if (m != null) { Soften(m, 0.3f); r.material = m; }
@@ -123,14 +123,14 @@ public class Fx : MonoBehaviour
                 {
                     position = tail + new Vector3(outward * (0.2f + Random.value * 0.6f), 0.15f + Random.value * 0.5f, Random.value * 0.6f),
                     velocity = vel * (0.35f + 0.25f * Random.value),
-                    startSize = 0.5f + 0.9f * k * Random.value + 0.2f,
-                    startLifetime = 0.45f + 0.5f * Random.value,
-                    startColor = new Color(1f, 1f, 1f, 0.9f),
+                    startSize = 0.3f + 0.45f * k * Random.value + 0.15f,
+                    startLifetime = 0.4f + 0.45f * Random.value,
+                    startColor = new Color(1f, 1f, 1f, 0.55f),
                     rotation = Random.value * 360f
                 };
                 clumps.Emit(ec, 1);
             }
-            if (sparkle != null && r > 0.55f)
+            if (sparkle != null && r > 0.85f)
             {
                 var es = new ParticleSystem.EmitParams
                 {
@@ -179,7 +179,8 @@ public class Fx : MonoBehaviour
                   new[] { new GradientAlphaKey(0f, 0), new GradientAlphaKey(1f, 0.08f), new GradientAlphaKey(0.7f, 0.5f), new GradientAlphaKey(0f, 1) });
         col.color = g;
         var rr = go.GetComponent<ParticleSystemRenderer>();
-        rr.renderMode = ParticleSystemRenderMode.Billboard;
+        // drawn out along their flight: torn streaks of white water, not round puffs
+        rr.renderMode = ParticleSystemRenderMode.Stretch; rr.velocityScale = 0.05f; rr.lengthScale = 1.4f;
         rr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; rr.receiveShadows = false;
         var m = Bootstrap.SoftParticles(FoamClumpTex());
         if (m != null) { Soften(m, 0.6f); rr.material = m; }
@@ -202,7 +203,7 @@ public class Fx : MonoBehaviour
                   new[] { new GradientAlphaKey(1f, 0), new GradientAlphaKey(0.8f, 0.6f), new GradientAlphaKey(0f, 1) });
         col.color = g;
         var r = go.GetComponent<ParticleSystemRenderer>();
-        r.renderMode = ParticleSystemRenderMode.Stretch; r.velocityScale = 0.01f; r.lengthScale = 1.0f;
+        r.renderMode = ParticleSystemRenderMode.Billboard;   // points of light, not streaks
         r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows = false;
         var m = Bootstrap.SoftParticles(Bootstrap.DropTex());
         if (m != null) { m.SetColor("_BaseColor", new Color(2.6f, 2.5f, 2.3f, 1f)); r.material = m; }
@@ -336,64 +337,53 @@ public class Fx : MonoBehaviour
         if (sparkle != null) { var sr = sparkle.GetComponent<ParticleSystemRenderer>(); if (sr.sharedMaterial != null) sr.sharedMaterial.SetColor("_BaseColor", tint * 2.6f); }   // past white: the bloom picks them out as glints
         // the foam trail off the tail, while he is on the water and moving
         bool onWater = rider.running && !rider.airborne && !rider.wipe && !rider.Submerged && (dive == null || !dive.On);
-        if (onWater)
+        if (onWater && tailOk)
         {
-            float rate = Mathf.Lerp(10f, 34f, Mathf.InverseLerp(14f, 50f, rider.eff));
-            trailAcc += dt * rate;
+            // ---- the white water a board sheds, as real ones do: off the RAILS, not its middle ----
+            // The water the hull pushes aside peels off both rails over the back third of the board
+            // as a thin lacy sheet, low and drifting back, and settles behind as lace along each
+            // side. Round puffs out of the centre of the tail read as smoke; this reads as water.
+            float sp = Mathf.InverseLerp(14f, 50f, rider.eff), cv = Mathf.Abs(rider.carve);
+            // the lace it leaves on the surface, along both rails
+            trailAcc += dt * Mathf.Lerp(14f, 40f, sp);
             while (trailAcc >= 1f)
             {
                 trailAcc -= 1f;
+                float side = Random.value < 0.5f ? -1f : 1f;
+                var at = tail + tailRight * side * tailHalfW * (0.8f + 0.3f * Random.value) + tailFwd * Random.value * 1.4f;   // along the back third of the rail, toward the nose
                 var ep = new ParticleSystem.EmitParams
                 {
-                    position = new Vector3(rider.px + (Random.value - 0.5f) * 0.6f, rider.waterY + 0.05f, rider.pz + 2.2f + Random.value * 0.4f),
-                    velocity = new Vector3((Random.value - 0.5f) * 0.6f, 0f, rider.eff * 0.96f),
-                    startSize = 0.9f + Random.value * 0.9f,
-                    startLifetime = 1.1f + Random.value * 0.8f,
-                    startColor = new Color(1f, 1f, 1f, 0.45f + Random.value * 0.25f),
+                    position = new Vector3(at.x, rider.waterY + 0.05f, at.z),
+                    velocity = new Vector3(side * (0.3f + 0.6f * Random.value), 0f, rider.eff * 0.96f),
+                    startSize = 0.45f + Random.value * 0.6f,
+                    startLifetime = 1.2f + Random.value * 1.0f,
+                    startColor = new Color(1f, 1f, 1f, 0.35f + Random.value * 0.25f),
                     rotation = Random.value * 360f
                 };
                 trail.Emit(ep, 1);
             }
-            // the whitewater off the tail: torn clumps rising off it and rolling back with the water,
-            // more the faster he goes and the harder he carves, with a fizz of drops in it
-            if (tailOk && clumps != null)
+            // the sheet off the rails: fine drops, low, peeling outward and back
+            if (carve != null)
             {
-                float sp = Mathf.InverseLerp(14f, 50f, rider.eff), cv = Mathf.Abs(rider.carve);
-                clumpAcc += dt * (Mathf.Lerp(10f, 28f, sp) + 50f * cv);
-                while (clumpAcc >= 1f)
+                fizzAcc += dt * (20f + 50f * sp + 40f * cv);
+                while (fizzAcc >= 1f)
                 {
-                    clumpAcc -= 1f;
+                    fizzAcc -= 1f;
+                    float side = Random.value < 0.5f ? -1f : 1f;
+                    var at = tail + tailRight * side * tailHalfW * 0.95f + tailFwd * Random.value * 1.6f;
                     var ep = new ParticleSystem.EmitParams
                     {
-                        position = tail + new Vector3((Random.value - 0.5f) * 0.7f, 0.1f + Random.value * 0.25f, Random.value * 0.4f),
-                        velocity = new Vector3((Random.value - 0.5f) * 1.6f, 0.6f + Random.value * 1.4f * (0.6f + cv), rider.eff * 0.85f + 0.5f + Random.value * 2f),
-                        startSize = (0.45f + 0.6f * Random.value) * (1f + 0.8f * cv),
-                        startLifetime = 0.55f + 0.6f * Random.value,
-                        startColor = new Color(1f, 1f, 1f, 0.85f),
-                        rotation = Random.value * 360f
+                        position = new Vector3(at.x, rider.waterY + 0.04f, at.z),
+                        velocity = new Vector3(side * (0.8f + 1.8f * Random.value), 0.7f + 1.6f * Random.value * (0.5f + sp), rider.eff * 0.85f + Random.value * 1.5f),
+                        startSize = 0.03f + 0.06f * Random.value,
+                        startLifetime = 0.3f + 0.35f * Random.value,
+                        startColor = new Color(1f, 1f, 1f, 0.6f + 0.3f * Random.value)
                     };
-                    clumps.Emit(ep, 1);
-                }
-                if (carve != null)
-                {
-                    fizzAcc += dt * (18f + 30f * sp);
-                    while (fizzAcc >= 1f)
-                    {
-                        fizzAcc -= 1f;
-                        var ep = new ParticleSystem.EmitParams
-                        {
-                            position = tail + new Vector3((Random.value - 0.5f) * 0.6f, 0.08f, Random.value * 0.3f),
-                            velocity = new Vector3((Random.value - 0.5f) * 2.4f, 1.5f + Random.value * 2.5f, rider.eff * 0.8f + Random.value * 2f),
-                            startSize = 0.03f + 0.06f * Random.value,
-                            startLifetime = 0.3f + 0.35f * Random.value,
-                            startColor = new Color(1f, 1f, 1f, 0.8f)
-                        };
-                        carve.Emit(ep, 1);
-                    }
+                    carve.Emit(ep, 1);
                 }
             }
         }
-        else { trailAcc = 0f; clumpAcc = 0f; fizzAcc = 0f; }
+        else { trailAcc = 0f; fizzAcc = 0f; }
         // mist hanging in the barrel while the ring has him
         if (setWave != null && setWave.tubeRide)
         {
