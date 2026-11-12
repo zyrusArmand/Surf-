@@ -58,8 +58,18 @@ public class Spawner : MonoBehaviour
         {
             if (tow == null)
             {
-                var go = Models.Spawn("plane", null, 2f, PrimitiveType.Cube); Models.FitLength(go, 22f); go.name = "BannerPlane";
-                tow = go.transform;
+                // The file lays the seaplane's fuselage along x (nose at -x in the file, so +x once
+                // the importer has mirrored it; the tall tail fin at the other end) and its wings
+                // along z. Sized by its longest side, the wingspan; then turned a quarter so the nose
+                // points down the lane at the lens, the way it flies in (web 22465), and re-centred.
+                var holder = new GameObject("BannerPlane");
+                var go = Models.Spawn("plane", holder.transform, 2f, PrimitiveType.Cube); Models.FitLength(go, 22f);
+                if (!go.name.EndsWith("(stand-in)"))
+                {
+                    go.transform.localRotation = Quaternion.Euler(0f, -90f, 0f) * go.transform.localRotation;
+                    var pb = Models.Bounds(go); go.transform.position -= pb.center - holder.transform.position;
+                }
+                tow = holder.transform;
             }
             towOn = true; tow.gameObject.SetActive(true);
             tow.position = new Vector3(Random.value * 16f - 8f, 11f, -190f);
@@ -69,7 +79,9 @@ public class Spawner : MonoBehaviour
         {
             towSpin += dt;
             tow.position = new Vector3(tow.position.x, 11f + Mathf.Sin(towSpin * 1.5f) * 0.6f, tow.position.z + (eff * 0.45f + 12f) * dt);
-            tow.rotation = Quaternion.Euler(0, 180f, 0);      // nose toward the rider, flying in
+            // nose toward the rider, flying in: a slow bank one way and the other, and the nose
+            // riding up and down a touch with the bob, so it reads as flying rather than hung there
+            tow.rotation = Quaternion.Euler(Mathf.Cos(towSpin * 1.5f) * 2.5f, Mathf.Sin(towSpin * 0.4f) * 3f, Mathf.Sin(towSpin * 0.7f) * 6f);
             if (tow.position.z > 40f) { towOn = false; tow.gameObject.SetActive(false); }
         }
     }
