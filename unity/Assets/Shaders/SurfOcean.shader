@@ -305,13 +305,13 @@ Shader "Surf/Ocean"
                     // a choppy sea breaks a reflection up and draws it out down the water: bent by the
                     // ripple in the picture itself (more up and down than across), softened from the
                     // picture's mips, and gathered from three taps down the line
-                    ruv += float2(Nr.x * 0.022 + wob.x * 0.004, Nr.z * 0.05 + wob.y * 0.008);
-                    float lod = 1.2 + 1.3 * saturate(dCam / 90.0);
+                    ruv += float2(Nr.x * 0.010 + wob.x * 0.002, Nr.z * 0.024 + wob.y * 0.004);
+                    float lod = 0.6 + 0.9 * saturate(dCam / 90.0);
                     float3 rs = SAMPLE_TEXTURE2D_LOD(_ReflTex, sampler_ReflTex, saturate(ruv), lod).rgb * 0.5
-                              + SAMPLE_TEXTURE2D_LOD(_ReflTex, sampler_ReflTex, saturate(ruv + float2(0.0, 0.012)), lod).rgb * 0.25
-                              + SAMPLE_TEXTURE2D_LOD(_ReflTex, sampler_ReflTex, saturate(ruv - float2(0.0, 0.012)), lod).rgb * 0.25;
+                              + SAMPLE_TEXTURE2D_LOD(_ReflTex, sampler_ReflTex, saturate(ruv + float2(0.0, 0.007)), lod).rgb * 0.25
+                              + SAMPLE_TEXTURE2D_LOD(_ReflTex, sampler_ReflTex, saturate(ruv - float2(0.0, 0.007)), lod).rgb * 0.25;
                     rs = pow(max(rs, 0.0), 1.0 / 2.2);                       // back to the plain numbers this shader works in
-                    skyRefl = lerp(skyRefl, rs, inside * (rc.w > 0.0 ? 0.78 : 0.0));
+                    skyRefl = lerp(skyRefl, rs, inside * (rc.w > 0.0 ? 0.94 : 0.0));
                 }
                 skyRefl += _Glow.rgb * pow(max(dot(R, L), 0.0), 40.0) * 0.55 * smoothstep(-0.12, 0.06, L.y);
                 float3 col = lerp(lit, skyRefl, fres * 0.88) + spec * shade;
