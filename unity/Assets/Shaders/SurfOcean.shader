@@ -90,6 +90,23 @@ Shader "Surf/Ocean"
                 return _FallW * (-0.47 * d - A) + 1.1 * _FallW * u * u;
             }
 
+            // The board's wake: a V, as a hull's is. The water the rails push aside stands up along
+            // them from where the board sits in the sea (a foot and a half up from the tail, hugging
+            // the rails) and peels off the tail as two ridges that open and settle behind him, with
+            // the water drawn in a little straight behind the tail. (A single hump across the lane
+            // read as an arc drawn on the sea; switched on AT the tail it lifted the water over it.)
+            float wakeH(float2 p)
+            {
+                float dz = p.y - (_Dist + _WakeZ);              // feet behind the tail; negative is along the board
+                float ax = abs(p.x - _WakeX);
+                float arm = 0.55 + 0.30 * max(dz, 0.0);
+                float da = ax - arm;
+                float wide = 0.10 + 0.025 * max(dz, 0.0);       // each ridge broadens as it travels
+                float ridge = exp(-da * da / wide) * smoothstep(-1.6, -0.2, dz) * exp(-max(dz, 0.0) / 18.0);
+                float trough = exp(-ax * ax / 0.35) * smoothstep(-0.2, 0.9, dz) * exp(-max(dz, 0.0) / 6.0);
+                return _WakeA * (0.62 * ridge - 0.22 * trough);
+            }
+
             void field(float2 p, out float h, out float dhx, out float dhz)
             {
                 h = 0; dhx = 0; dhz = 0;
@@ -133,14 +150,9 @@ Shader "Surf/Ocean"
                 // the rider's wake: a ridge in the water itself, so it is lit and foamed like a wave
                 if (_WakeA > 0.001)
                 {
-                    float dz = p.y - (_Dist + _WakeZ);
-                    // a V, as a hull's wake is: two low ridges peeling off the tail and opening as they
-                    // go, fading behind him. (A single hump across the lane read as an arc drawn on the
-                    // sea; switched on AT the tail it lifted the water over the back of the board.)
-                    float arm = 0.45 + 0.32 * max(dz, 0.0);
-                    float da = abs(p.x - _WakeX) - arm;
-                    float ridge = exp(-da * da / 0.30) * smoothstep(0.0, 1.6, dz) * exp(-max(dz, 0.0) / 16.0);
-                    h += _WakeA * 0.45 * ridge;
+                    // the height here; its slope is taken per pixel in frag, since the ridges are
+                    // narrower than the sea's vertices are apart
+                    h += wakeH(p);
                 }
             }
 
@@ -229,6 +241,15 @@ Shader "Surf/Ocean"
                     if (_HullW2L[1][1] > 0.5 && qz < 1.0 && abs(hq.x) < qw && hq.y > _HullS.z + _HullC.z * qz * qz + _HullC.w * 0.8) discard;
                 }
                 float3 N = normalize(i.n);
+                // the wake's slope, per pixel: lit as water standing up along the rails and peeling off
+                // the tail, not painted on a flat sea
+                if (_WakeA > 0.001)
+                {
+                    float2 pw = float2(i.w.x, i.w.z + _Dist); const float we = 0.05;
+                    float gx = (wakeH(pw + float2(we, 0)) - wakeH(pw - float2(we, 0))) / (2.0 * we);
+                    float gz = (wakeH(pw + float2(0, we)) - wakeH(pw - float2(0, we))) / (2.0 * we);
+                    N = normalize(N + float3(-gx, 0.0, -gz));
+                }
                 float3 L = normalize(_SunDir.xyz);
                 float3 V = normalize(_WorldSpaceCameraPos - i.w);
                 float dCam = length(_WorldSpaceCameraPos - i.w);
@@ -342,10 +363,10 @@ Shader "Surf/Ocean"
                     // fading in off the tail rather than switched on along a line there (which drew a
                     // straight edge across the water behind the board), and following the wake's V: a
                     // churned strip straight behind, and foam along the two arms as they open
-                    float ax = abs(i.w.x - _WakeX), armF = 0.45 + 0.32 * max(dz, 0.0);
-                    float along = smoothstep(-0.4, 1.8, dz) * exp(-max(dz, 0.0) / 14.0);
-                    float churn = saturate(1.0 - ax / (0.9 + 0.12 * max(dz, 0.0))) * 0.75;
-                    float arms = exp(-(ax - armF) * (ax - armF) / 0.35);
+                    float ax = abs(i.w.x - _WakeX), armF = 0.55 + 0.30 * max(dz, 0.0);
+                    float along = smoothstep(-1.6, -0.2, dz) * exp(-max(dz, 0.0) / 14.0);   // from where the rails meet the water, as the ridges do
+                    float churn = saturate(1.0 - ax / (0.6 + 0.12 * max(dz, 0.0))) * 0.75 * smoothstep(-0.3, 0.8, dz);
+                    float arms = exp(-(ax - armF) * (ax - armF) / (0.18 + 0.03 * max(dz, 0.0)));
                     float wf = along * max(churn, arms) * _WakeA * 1.6;
                     foam = max(foam, wf * (0.6 + 0.4 * lace));
                 }
