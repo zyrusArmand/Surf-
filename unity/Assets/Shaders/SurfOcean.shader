@@ -177,9 +177,13 @@ Shader "Surf/Ocean"
                 if (_HullS.w > 0.5)
                 {
                     float3 lp = mul(_HullW2L, float4(wp, 1.0)).xyz; lp.xz -= _HullC.xy;
-                    float fz = saturate(abs(lp.z) / max(0.01, _HullS.y));
+                    // fzR is NOT clamped: clamped at 1 it never passed the end of the board, so every bit
+                    // of sea in line with the board, ahead or behind and however far, counted as partly
+                    // inside it and had its crests cut down (small divots straight up the lane)
+                    float fzR = abs(lp.z) / max(0.01, _HullS.y), fz = saturate(fzR);
                     float half = _HullS.x * sqrt(saturate(1.0 - fz * fz * fz * fz));
-                    float inside = (1.0 - smoothstep(half - 0.12, half + 0.10, abs(lp.x))) * (1.0 - smoothstep(0.97, 1.04, fz));
+                    float inside = (1.0 - smoothstep(half - 0.12, half + 0.10, abs(lp.x))) * (1.0 - smoothstep(0.97, 1.04, fzR));
+                    inside *= step(0.0001, half + 0.10 - abs(lp.x)) * step(fzR, 1.04);
                     float upY = _HullW2L[1][1];                       // how a world rise moves along the board's own up
                     float floor0 = _HullS.z + _HullC.z * fz * fz + 0.10;      // just above the underside: the rails still sit IN the water, the deck stays out of it
                     if (inside > 0.001 && lp.y > floor0 && abs(upY) > 0.2)
