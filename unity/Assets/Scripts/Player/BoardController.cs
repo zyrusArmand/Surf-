@@ -92,7 +92,7 @@ public class BoardController : MonoBehaviour
         spinRot = flipRot = pitchRot = 0; spinHeld = flipHeld = pitchHeld = false;
         poseTake = poseCrouch = poseExt = poseAir = poseLand = 0;
         handOn = false; handT = handPts = handRisk = handHold = handAcc = 0;
-        heliPh = -1; heliT = heliPose = heliLay = heliIncline = heliSet = heliCrouch = 0; heliUsed = heliAir = heliHeld = false;
+        heliPh = -1; heliT = heliPose = heliLay = heliIncline = heliSet = heliCrouch = 0; heliUsed = heliAir = heliHeld = false; BoardTrickClear();
         diveOn = false; diveShield = false; divePitch = divePose = divePike = diveLoad = diveLift = 0;
         isleOn = false; ashore = false; isleFace = 0; isleWalk = 0; isleRate = 1f; chutePush = 0; laneLim = 17f;
         transform.rotation = Quaternion.identity;
@@ -104,7 +104,7 @@ public class BoardController : MonoBehaviour
         wipe = false; running = true; wipeT = 0; vx = vy = 0; airborne = false; px = 0; pz = 0; py = waterY;
         spinRot = flipRot = pitchRot = 0; spinHeld = flipHeld = pitchHeld = false;
         handOn = false; handT = handPts = handRisk = handHold = handAcc = 0;
-        heliPh = -1; heliT = heliPose = heliLay = heliIncline = heliSet = heliCrouch = 0; heliUsed = heliAir = heliHeld = false;
+        heliPh = -1; heliT = heliPose = heliLay = heliIncline = heliSet = heliCrouch = 0; heliUsed = heliAir = heliHeld = false; BoardTrickClear();
         diveOn = false; diveShield = false; divePitch = divePose = divePike = diveLoad = diveLift = 0;
         isleOn = false; ashore = false; isleFace = 0; isleWalk = 0; isleRate = 1f; chutePush = 0; laneLim = 17f;
         poseTake = poseCrouch = poseExt = poseAir = poseLand = 0; transform.rotation = Quaternion.identity;
@@ -119,9 +119,73 @@ public class BoardController : MonoBehaviour
         wipe = true; running = false; wipeT = 0.95f;
         handOn = false; handPts = 0; handHold = 0;
         heliPh = -1; heliAir = false; heliHeld = false; heliSet = 0; heliLay = 0; heliUsed = false;
+        kf = null;                                   // a board trick in hand when he goes over just stops
         Say(msg);
         onWipeout?.Invoke();
     }
+
+    // ---- BOARD TRICKS (web 26961-27030) ----
+    // One press. He pops if he is not already up, and the board does the whole figure under him
+    // over about two thirds of a second: fast off the foot, slowing as it comes round. While it
+    // turns it drops a hand's width and he pulls his feet up (kfTuck, read by the rig), so the
+    // deck is not spinning through his paws. Finishing pays; the water arriving first does not,
+    // and the board is simply put back under him as he lands.
+    TrickCatalog.Trick kf; float kfT, kfDur;
+    public float kfRoll, kfYaw, kfTuck;          // radians, about the board's long axis and its up; 0..1
+    const float Turn = Mathf.PI * 2f;
+
+    void StartBoardTrick(TrickCatalog.Trick T)
+    {
+        if (T == null || !T.Board || !TrickCatalog.Have(T.id)) return;
+        if (!running || wipe || kf != null || heliAir) return;
+        if (!airborne) Jump();
+        if (!airborne) return;
+        kf = T; kfT = 0f;
+        // a 360 shove or a tre has further to go than a kickflip and gets a little longer for it
+        kfDur = 0.62f + (T.axis == "both" ? 0.14f : 0f) + (T.axis == "yaw" && T.turns >= 1f ? 0.10f : 0f);
+        Sfx.Buzz(8);
+    }
+
+    void BoardTrickPay()
+    {
+        int p = Mathf.RoundToInt(kf.pts * statTrick);
+        score += p;
+        boost = Mathf.Min(16f, boost + 3f + Mathf.Min(5f, p / 120f));
+        Say(kf.name.ToUpper() + "! +" + p);
+        Sfx.Buzz(p >= 400 ? 30 : 16);
+    }
+
+    // the way back to square: a half-turn shove is carried on round rather than unwound
+    static float KfSettle(float a, float dt)
+    {
+        float tgt = a > Mathf.PI - 0.02f ? Turn : (a < -(Mathf.PI - 0.02f) ? -Turn : 0f);
+        a = Ease(a, tgt, dt, 11f);
+        return Mathf.Abs(a - tgt) < 0.012f ? 0f : a;
+    }
+
+    void BoardTrickStep(float dt)
+    {
+        if (kf != null)
+        {
+            kfT += dt;
+            float k = Mathf.Min(1f, kfT / kfDur);
+            float e = 1f - Mathf.Pow(1f - k, 3f);            // out: snaps away, floats home
+            float a = e * Turn * kf.dir;
+            kfRoll = (kf.axis == "long" || kf.axis == "both") ? a * kf.turns : 0f;
+            kfYaw = kf.axis == "yaw" ? a * kf.turns : (kf.axis == "both" ? a * kf.yaw : 0f);
+            kfTuck = Mathf.Sin(k * Mathf.PI);
+            if (k >= 1f) { BoardTrickPay(); kf = null; kfRoll %= Turn; kfYaw %= Turn; }   // a whole turn is square already
+            else if (!airborne || wipe) { kf = null; Say("SKETCHY"); }                     // the water got there first
+        }
+        else
+        {
+            kfTuck = Ease(kfTuck, 0f, dt, 12f); if (kfTuck < 0.01f) kfTuck = 0f;
+            // the board stays where it ended up while he is in the air, and comes square under the splash
+            if (!airborne || wipe) { kfRoll = KfSettle(kfRoll, dt); kfYaw = KfSettle(kfYaw, dt); }
+        }
+    }
+
+    void BoardTrickClear() { kf = null; kfRoll = kfYaw = kfTuck = 0f; }
 
     static float Ease(float cur, float tgt, float dt, float k) { return cur + (tgt - cur) * Mathf.Min(1f, dt * k); }
 
@@ -153,6 +217,9 @@ public class BoardController : MonoBehaviour
     /// held too, but on the water; the helicopter starts on the press and the hold is the roll.
     public void Hold(string trick, bool down)
     {
+        // a board trick is one press; the release means nothing to it (web 23815)
+        var bt = TrickCatalog.Get(trick);
+        if (bt != null && bt.Board) { if (down) StartBoardTrick(bt); return; }
         if (trick == "hand") { handOn = down; return; }
         if (trick == "heli") { if (down) StartHeli(); else heliHeld = false; return; }
         if (down && running && !wipe && !airborne) Jump();
@@ -264,6 +331,7 @@ public class BoardController : MonoBehaviour
     public void Step(float dt)
     {
         t += dt * (1f + 0.55f * Mathf.Sin(t * 0.045f) + 0.28f * Mathf.Sin(t * 0.017f + 1.3f)) * 0.5f + dt * 0.5f;
+        BoardTrickStep(dt);
         if (!running) { if (wipe) wipeT += dt; return; }
 
         // the curve: climbs with distance and never quite arrives

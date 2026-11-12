@@ -12,6 +12,7 @@ public class Bootstrap : MonoBehaviour
     Quests quests; StatsPanel stats; SettingsPanel settings; SchoolPanel school; ProfilePanel profile; GuidePanel guide;
     WheelPanel wheel; LevelPanel levelInfo; PukaPanel puka; SecretPanel secret; int bankedDist, bankedScore, bankedCoins;
     bool over; float runSecs; bool palmSaid;
+    Vector3 boardBasePos; Quaternion boardBaseRot;   // where the board sits in the rig when no board trick has it
     Vector3 hullMin, hullMax; bool hullOk; PlanarReflection reflect;
     UnityEngine.Rendering.Universal.DepthOfField dof; UnityEngine.Rendering.Universal.ScreenSpaceLensFlare flare;      // the board's own box, in its frame, for the sea's dry-hull rule
 
@@ -255,6 +256,7 @@ public class Bootstrap : MonoBehaviour
         // a loan (the wheel's, or the saucer's cow) outranks the equipped pair
         var b = BoardCatalog.Get(string.IsNullOrEmpty(SaveData.S.wheelLoan) ? SaveData.S.equipped : SaveData.S.wheelLoan);
         var board = BoardMesh.Build(b); board.transform.SetParent(rig, false); boardGo = board; Hull.Board = board; Hull.ClearMarks();
+        boardBasePos = board.transform.localPosition; boardBaseRot = board.transform.localRotation;
         MeasureHull(); Solidify();
         rider.ApplyStats(RideStats.For(b.id, string.IsNullOrEmpty(SaveData.S.wheelRider) ? SaveData.S.rider : SaveData.S.wheelRider));
         // the rider: a file when there is one, else one of the web's eleven built from primitives
@@ -452,6 +454,15 @@ public class Bootstrap : MonoBehaviour
                 if (tc.phase == TouchPhase.Began && !overT && !paneOpen) beach.Tap(cam, tc.position);
             }
         }
+        // a board trick: the board turns under him and drops a hand's width while he tucks (web 27016-27026).
+        // glTF turns are mirrored into Unity, so the yaw and the roll change sign
+        if (boardGo != null)
+        {
+            boardGo.transform.localPosition = boardBasePos - new Vector3(0f, rider.kfTuck * 0.16f, 0f);
+            boardGo.transform.localRotation = boardBaseRot * Quaternion.Euler(0f, -rider.kfYaw * Mathf.Rad2Deg, -rider.kfRoll * Mathf.Rad2Deg);
+        }
+        if (riderRig != null) riderRig.tuckW = rider.kfTuck;
+        if (procRig != null) procRig.tuckW = rider.kfTuck;
         // the pug's stance: the skeleton is posed when the file has one, else the stand-in squashes
         if (procRig != null && procRig.Ready)
         {

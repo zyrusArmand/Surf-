@@ -9,6 +9,9 @@
 // Round the grid is the web's sheet (#shop, its h2, #shopTabs, #shopClose): the dusk wash, "Beach
 // shop" in gold top left, the level badge and the purse top right, five pill tabs, and "< Back"
 // on a full-width pill at the foot -- drawn by ShopArt from the stylesheet's numbers.
+// The Tricks tab is the trick shelf (drawTrickShelf, web 13219-13279): the same niches, but a
+// tap does not open the viewer -- one not owned is bought on the spot, one owned opens the slot
+// picker (#slotPick) to put it on one of the five trick buttons. Buy, tap, pick: three taps.
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -53,6 +56,9 @@ public class Shop : MonoBehaviour
     // the shot 164/250 = 0.656, so the shot's sides are trimmed to fit
     static readonly Rect Cover = CoverRect();
     static Rect CoverRect() { float hole = 0.746f / (0.682f * Aspect), shot = Previews.W / (float)Previews.H, u = Mathf.Min(1f, hole / shot); return new Rect((1f - u) * 0.5f, 0f, u, 1f); }
+    // ...and a trick's drawn picture, 56 by 68, trimmed the same way
+    static readonly Rect TrickCover = TrickCoverRect();
+    static Rect TrickCoverRect() { float hole = 0.746f / (0.682f * Aspect), shot = 56f / 68f, u = Mathf.Min(1f, hole / shot); return new Rect((1f - u) * 0.5f, 0f, u, 1f); }
 
     class Tile
     {
@@ -110,6 +116,7 @@ public class Shop : MonoBehaviour
         content = UiKit.Rect(view, "content", new Vector2(0, 1), new Vector2(1, 1), new Vector2(0.5f, 1), Vector2.zero, new Vector2(0, 0));
         scroll.content = content; scroll.viewport = view;
         pane.SetActive(false);
+        BuildSlotPick(canvas);
         // the full-screen look, over everything, coming back here on Back
         viewer = gameObject.AddComponent<Viewer>(); viewer.Build(canvas);
         viewer.onChange = () => onChange?.Invoke();
@@ -141,6 +148,7 @@ public class Shop : MonoBehaviour
     public void Show(bool on)
     {
         if (!on && viewer != null && viewer.Open) viewer.Hide();
+        CloseSlotPick();
         pane.SetActive(on);
         if (on) Fill();
     }
@@ -196,11 +204,16 @@ public class Shop : MonoBehaviour
             tabLabel[i].color = sel ? Color.white : TabText;
         }
         if (tab == "tricks")
-        {
-            // the web's trick shelf is not in this port yet: its tab is, with the shelf's empty state
-            Heading("Tricks");
-            Note("The trick shelf is coming soon.");
-        }
+            // the trick shelf (drawTrickShelf, web 13223), in the table's order with the free five
+            // first and no heading (the tab is the heading). The foot says which button it is on,
+            // that it is owned, or what it costs; one not owned yet is dimmed (.card.lk)
+            foreach (var T in TrickCatalog.All)
+            {
+                bool have = TrickCatalog.Have(T.id); int slot = TrickCatalog.SlotOf(T.id);
+                if (slot >= 0) Add("trick", T.id, T.name, "BUTTON " + (slot + 1), PrHave, true, false);
+                else if (have) Add("trick", T.id, T.name, "OWNED", PrHave, false, false);
+                else Add("trick", T.id, T.name, T.price.ToString("N0"), PrPrice, false, true);
+            }
         else if (tab == "boards")
             foreach (var b in RackOrder())
             {
@@ -309,6 +322,19 @@ public class Shop : MonoBehaviour
         }
         // .card.lk: opacity .54, and the picture's colour taken down (Previews.Muted)
         if (muted) { var cg = rt.gameObject.AddComponent<CanvasGroup>(); cg.alpha = 0.54f; }
+        if (kind == "trick")
+        {
+            // a trick has nothing to photograph: its picture is drawn (trickThumb, web 6557), the
+            // icon large on the water, loaded rather than queued -- the _lk one is .card.lk's
+            // saturate(.55). The tap buys or opens the slot picker; there is no viewer for a trick
+            var tx = Resources.Load<Texture2D>("UI/trick_" + id + (muted ? "_lk" : ""));
+            if (tx == null && muted) tx = Resources.Load<Texture2D>("UI/trick_" + id);
+            if (tx != null) { t.thumb.texture = tx; t.thumb.color = Color.white; t.thumb.uvRect = TrickCover; }
+            t.done = true;
+            Tappable(fr.gameObject, () => TrickTap(id));
+            tiles.Add(t);
+            return;
+        }
         // the whole tile opens the viewer: one look at the thing bigger than a thumbnail before any shell is spent
         Tappable(fr.gameObject, () => OpenViewer(kind, id));
         tiles.Add(t);
@@ -401,6 +427,8 @@ public class Shop : MonoBehaviour
     void Update()
     {
         if (pane == null || !pane.activeSelf) return;
+        // the phone's back closes the slot picker, as the viewer's does (Escape is Android's back)
+        if (pick != null && pick.activeSelf && Input.GetKeyDown(KeyCode.Escape)) CloseSlotPick();
         if (Mathf.Abs(view.rect.width - laidW) > 0.5f) Layout();
         Previews.Pump();
         float top = content.anchoredPosition.y, vh = view.rect.height;
@@ -423,6 +451,116 @@ public class Shop : MonoBehaviour
         if (sp != null) { t.thumb.texture = sp.texture; t.thumb.color = Color.white; t.done = true; }
         else if (Previews.Done(t.kind, t.id)) t.done = true;          // it could not be photographed: the sky stays
     }
+
+    // ---- the trick shelf's tap, and the slot picker ----
+    /// web 13242-13248: owned opens the picker; not owned and affordable is bought there and then
+    /// and the picker follows, because bought is halfway -- it still has to go on a button
+    void TrickTap(string id)
+    {
+        var T = TrickCatalog.Get(id); if (T == null) return;
+        if (TrickCatalog.Have(id)) { Sfx.Buzz(10); OpenSlotPick(id); return; }
+        if (SaveData.Coins < T.price) { Sfx.Buzz(6); return; }      // a tile that says no still answers the finger
+        if (!TrickCatalog.Buy(id)) return;
+        Sfx.Buy();                                                   // noteBuy's chime
+        Fill(true);
+        OpenSlotPick(id);
+    }
+
+    // #slotPick (web 2281-2300, markup 3240): the sheet dimmed under rgba(4,18,36,.62); a box
+    // min(100%, 360px) wide, 22px corners, padding 18 16 14, the deep-water gradient with a
+    // hairline rim; "Put <name> on button" in 15px with the name gold; five buttons in a row 6px
+    // apart, each the slot's number, the gesture of what is on it now and its short name, the
+    // one already holding this trick ringed gold; and Cancel on .go.calm under them. A sibling
+    // of the shop's sheet rather than a child of it, as the web's is, so it covers the tabs too.
+    GameObject pick; Text pickTitle; RectTransform pickRow; string pickId;
+    const float PickW = 360f, PickPadX = 16f, PickTitleY = 27f, PickRowTop = 48f, PickBtnH = 76f, PickBtnGap = 6f;
+    const float PickCancelTop = 136f, PickCancelW = 302f, PickCancelH = 44f, PickH = 194f;
+    static readonly Color PickTop = ShopArt.Rgb(14, 52, 86), PickBot = ShopArt.Rgb(9, 33, 60);     // .spbox, at .97 (taken as opaque)
+    /// the box's colour y layout pixels down from its top: what every button on it is composited over
+    static Color PickAt(float y) => Color.Lerp(PickTop, PickBot, Mathf.Clamp01(y / PickH));
+
+    void BuildSlotPick(Transform canvas)
+    {
+        var c = new Vector2(0.5f, 0.5f);
+        var root = UiKit.Rect(canvas, "slotPick", Vector2.zero, Vector2.one, c, Vector2.zero, Vector2.zero);
+        pick = root.gameObject;
+        // the dim, which is also the way out: a tap outside the box closes it (web 13269)
+        var dimC = ShopArt.Rgb(4, 18, 36);
+        var dim = UiKit.Rect(root, "dim", Vector2.zero, Vector2.one, c, Vector2.zero, Vector2.zero).gameObject.AddComponent<Image>();
+        dim.color = new Color(dimC.r, dimC.g, dimC.b, ShopArt.LinA(0.62f, dimC, SheetAt(RefH * 0.5f)));
+        dim.raycastTarget = true;
+        var et = dim.gameObject.AddComponent<EventTrigger>();
+        UiKit.Add(et, EventTriggerType.PointerClick, _ => CloseSlotPick());
+        // the box: a sibling of the dim, so a tap on it is not a tap on the dim
+        var box = UiKit.Rect(root, "box", c, c, c, Vector2.zero, new Vector2(PickW, PickH));
+        // box-shadow 0 18px 50px rgba(0,10,30,.55): the soft sprite at five times its size
+        var sh = UiKit.Pic(box, "shadow", Viewer.Soft(), Vector2.zero, Vector2.one, c, new Vector2(0f, -18f), new Vector2(Viewer.SoftPad * 10f, Viewer.SoftPad * 10f));
+        sh.type = Image.Type.Sliced; sh.pixelsPerUnitMultiplier = 0.2f; sh.color = new Color(0f, 10 / 255f, 30 / 255f, 0.55f); sh.raycastTarget = false;
+        var face = UiKit.Pic(box, "face", Solid.VGradient(PickW, PickH, 22f, PickTop, PickBot, new Color(1f, 1f, 1f, 0.22f), 1.5f), Vector2.zero, Vector2.one, c, Vector2.zero, Vector2.zero);
+        face.raycastTarget = true;
+        // .sptitle: 15px bold white, the trick's name in <b> at #ffdf2e
+        pickTitle = UiKit.Label(box, "", 15, Color.white, FontStyle.Bold, new Vector2(0.5f, 1), new Vector2(0.5f, 1), c, new Vector2(0f, -PickTitleY), new Vector2(PickW - 2f * PickPadX, 20f), TextAnchor.MiddleCenter, 0f);
+        pickTitle.supportRichText = true;
+        pickRow = UiKit.Rect(box, "row", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0f, -PickRowTop), new Vector2(PickW - 2f * PickPadX, PickBtnH));
+        // #spClose: .go.calm, min(302px, 80vw) wide, "Cancel"
+        var cancel = ShopArt.Hit(box, "cancel", new Vector2(0.5f, 1), new Vector2(0.5f, 1), c, new Vector2(0f, -(PickCancelTop + PickCancelH * 0.5f)), new Vector2(PickCancelW, PickCancelH));
+        ShopArt.Art(cancel.transform, ShopArt.Pill(PickCancelW, PickCancelH, ShopArt.Glass.Calm, PickAt(PickCancelTop + PickCancelH * 0.5f)));
+        var cl = UiKit.Label(cancel.transform, "Cancel", 16, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, c, Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, 0f);
+        ShopArt.Shade(cl, ShopArt.TextShade, 0.6f, new Vector2(0f, -1f));
+        UiKit.Pressable(cancel.gameObject, null, () => { Sfx.Buzz(6); CloseSlotPick(); });
+        pick.SetActive(false);
+    }
+
+    /// openSlotPick (web 13253): the row is rebuilt each time, showing what is on each button now
+    void OpenSlotPick(string id)
+    {
+        var T = TrickCatalog.Get(id); if (T == null || pick == null) return;
+        pickId = id;
+        pickTitle.text = "Put <color=#ffdf2e>" + T.name + "</color> on button";
+        foreach (Transform ch in pickRow) { ch.gameObject.SetActive(false); Destroy(ch.gameObject); }
+        float rowW = PickW - 2f * PickPadX, bw = (rowW - (TrickCatalog.SlotCount - 1) * PickBtnGap) / TrickCatalog.SlotCount;
+        Color back = PickAt(PickRowTop + PickBtnH * 0.5f);
+        for (int i = 0; i < TrickCatalog.SlotCount; i++)
+        {
+            var cur = TrickCatalog.Get(TrickCatalog.Slot(i)) ?? TrickCatalog.Get(TrickCatalog.DefSlots[i]);
+            bool isCur = cur.id == id;
+            // .sprow button: rgba(255,255,255,.09) in a 1.5px rgba(255,255,255,.26) rim, 14px
+            // corners; .cur: rgba(255,223,46,.16) in a #ffdf2e rim -- composited opaque over the box
+            Color fill = isCur ? ShopArt.Mix(back, HaveCol, 0.16f) : ShopArt.Mix(back, Color.white, 0.09f);
+            Color rim = isCur ? HaveCol : new Color(1f, 1f, 1f, 0.26f);
+            var b = UiKit.Pic(pickRow, "slot" + (i + 1), Solid.VGradient(bw, PickBtnH, 14f, fill, fill, rim, 1.5f), new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(i * (bw + PickBtnGap), 0f), new Vector2(bw, PickBtnH));
+            b.raycastTarget = true;
+            // padding 9 2 7, a column 2px apart: the number (17px, line-height 1), the 26px
+            // gesture, the short name (8.5px at .85, cut with an ellipsis)
+            var c = new Vector2(0.5f, 1);
+            UiKit.Label(b.transform, (i + 1).ToString(), 17, TabText, FontStyle.Bold, c, c, new Vector2(0.5f, 0.5f), new Vector2(0f, -19f), new Vector2(bw, 20f), TextAnchor.MiddleCenter, 0f);
+            var sp = UiKit.Icon("ges_" + cur.id);
+            if (sp != null)
+            {
+                var g = UiKit.Pic(b.transform, "ges", sp, c, c, new Vector2(0.5f, 0.5f), new Vector2(0f, -42.5f), new Vector2(26f, 26f));
+                g.raycastTarget = false; g.preserveAspect = true;
+            }
+            var w = UiKit.Label(b.transform, cur.lab, 8.5f, ShopArt.Mix(fill, TabText, 0.85f), FontStyle.Bold, c, c, new Vector2(0.5f, 0.5f), new Vector2(0f, -62.5f), new Vector2(bw - 4f, 12f), TextAnchor.MiddleCenter, 0f);
+            Ellipsize(w, cur.lab, bw - 4f);
+            int slot = i;
+            UiKit.Pressable(b.gameObject, null, () => { Sfx.Buzz(10); AssignSlot(slot); });
+        }
+        pick.SetActive(true);
+    }
+
+    /// assignTrick's tail (web 13277-13278): the chime of putting something on, the save, and
+    /// the shelf redrawn with the new BUTTON numbers. The ride's buttons read the slots when the
+    /// next run starts (Hud.ApplyTrickSlots).
+    void AssignSlot(int i)
+    {
+        if (string.IsNullOrEmpty(pickId)) return;
+        TrickCatalog.Assign(pickId, i);
+        Sfx.Ui("eqstyle", 0.5f);
+        CloseSlotPick();
+        Fill(true);
+    }
+
+    void CloseSlotPick() { if (pick != null) pick.SetActive(false); pickId = null; }
 
     // ---- the frame, and the light inside the opening ----
     static Sprite frame;

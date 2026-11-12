@@ -174,8 +174,9 @@ public class Hud : MonoBehaviour
         tMsg = UiKit.Label(r, "", 30, UiKit.TrickYellow, FontStyle.Bold, new Vector2(0.5f, 0.78f), new Vector2(0.5f, 0.78f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(420, 50), TextAnchor.MiddleCenter, 0.6f);
         // the trick column: 70 by 56, six apart, cut flat against the left edge
         bar = UiKit.Rect(r, "bar", new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, 96), new Vector2(70, 304)).gameObject;
-        Hold(bar.transform, "ROLL", 4, "roll"); Hold(bar.transform, "FLIP", 3, "flip"); Hold(bar.transform, "SPIN", 2, "spin");
-        Hold(bar.transform, "HAND", 1, "hand"); Hold(bar.transform, "HELI", 0, "heli");
+        // five SLOTS, top first, filled from the trick rack (web 6570-6585; ROLL FLIP SPIN HAND HELI until something is bought)
+        for (int s = 0; s < TrickCatalog.SlotCount; s++) Hold(bar.transform, s);
+        ApplyTrickSlots();
         // JUMP: 106 by 86, cut flat against the right edge
         var j = UiKit.Pic(r, "jump", UiKit.Rounded(106, 86, 27, 0, 0, 27, UiKit.Body.Glass, 2.5f, false, true), new Vector2(1, 0), new Vector2(1, 0), new Vector2(1, 0), new Vector2(0, 46), new Vector2(106, 86));
         Ges(j.transform, "jump", 27, new Vector2(0, 14));
@@ -330,14 +331,44 @@ public class Hud : MonoBehaviour
         return v;
     }
 
-    void Hold(Transform p, string label, int i, string trick)
+    // ---- the trick column: five slots, not five buttons (web 23804-23825) ----
+    // Each button is wired once; what it does is read off its slot at the moment of the press,
+    // which is what lets the shop's Tricks shelf re-label a button without re-wiring anything.
+    readonly Image[] slotGes = new Image[TrickCatalog.SlotCount];
+    readonly Text[] slotLab = new Text[TrickCatalog.SlotCount];
+    readonly string[] slotOn = new string[TrickCatalog.SlotCount];
+
+    void Hold(Transform p, int slot)
     {
-        var im = UiKit.Pic(p, label, UiKit.Rounded(70, 56, 0, 18, 18, 0, UiKit.Body.Glass, 2f, true, false), new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, i * 62), new Vector2(70, 56));
-        Ges(im.transform, trick, 30, new Vector2(0, 7));
-        UiKit.Label(im.transform, label, 9.5f, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -16), Vector2.zero);
+        int i = TrickCatalog.SlotCount - 1 - slot;          // slot 0 is the top button
+        var im = UiKit.Pic(p, "slot" + (slot + 1), UiKit.Rounded(70, 56, 0, 18, 18, 0, UiKit.Body.Glass, 2f, true, false), new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, i * 62), new Vector2(70, 56));
+        var g = UiKit.Pic(im.transform, "ges", null, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 7), new Vector2(30, 30));
+        g.raycastTarget = false; g.preserveAspect = true; slotGes[slot] = g;
+        slotLab[slot] = UiKit.Label(im.transform, "", 9.5f, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -16), Vector2.zero);
         im.raycastTarget = true;
-        // all five hold and release; the rider sorts out what each one means
-        UiKit.Pressable(im.gameObject, () => { Sfx.Buzz(8); Sfx.Trick(trick); rider.Hold(trick, true); }, () => rider.Hold(trick, false));
+        // the held five hold and release and the rider sorts out what each one means; the release
+        // lets go of whatever the press started
+        string held = null;
+        UiKit.Pressable(im.gameObject, () => { held = slotOn[slot] ?? TrickCatalog.DefSlots[slot]; Sfx.Buzz(8); Sfx.Trick(held); rider.Hold(held, true); },
+                                       () => { if (held != null) rider.Hold(held, false); held = null; });
+    }
+
+    /// applyTrickSlots (web 6572): writes the slots onto the five buttons, the gesture and the
+    /// short name of what is on each. Called when the column is built and at every run's start,
+    /// so a change made on the shelf is on the bar the next time it is seen.
+    public void ApplyTrickSlots()
+    {
+        for (int s = 0; s < TrickCatalog.SlotCount; s++)
+        {
+            if (slotGes[s] == null) continue;
+            string id = TrickCatalog.Slot(s);
+            var T = TrickCatalog.Get(id) ?? TrickCatalog.Get(TrickCatalog.DefSlots[s]);
+            if (slotOn[s] == T.id) continue;
+            slotOn[s] = T.id;
+            var sp = UiKit.Icon("ges_" + T.id);
+            slotGes[s].sprite = sp; slotGes[s].enabled = sp != null;
+            slotLab[s].text = T.lab;
+        }
     }
 
     // the gesture icon the web draws on every button, from the same SVG
@@ -606,6 +637,7 @@ public class Hud : MonoBehaviour
     public void ShowRide()
     {
         menu.SetActive(false); ride.SetActive(true); card.SetActive(false); bar.SetActive(true); jump.SetActive(true);
+        ApplyTrickSlots();
         tBestS.text = "best " + SaveData.Best.ToString("N0"); tBestD.text = "best " + SaveData.BestDist + " m";
         tBestS.color = tBestD.color = new Color(1, 1, 1, 0.52f);
     }
