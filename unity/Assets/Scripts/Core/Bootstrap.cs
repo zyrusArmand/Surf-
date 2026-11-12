@@ -637,6 +637,9 @@ public class Bootstrap : MonoBehaviour
         {
             var tp = boardGo.transform.TransformPoint(new Vector3((hullMin.x + hullMax.x) * 0.5f, hullMin.y + hullRise * 0.5f, (hullMin.z + hullMax.z) * 0.5f + (hullMax.z - hullMin.z) * 0.5f * 0.82f));
             fx.tail = new Vector3(tp.x, Mathf.Max(tp.y, rider.waterY - 0.05f), tp.z);
+            var bt = boardGo.transform;
+            fx.tailRight = new Vector3(bt.right.x, 0f, bt.right.z).normalized; fx.tailFwd = new Vector3(-bt.forward.x, 0f, -bt.forward.z).normalized;   // the board's nose is its -z
+            fx.tailHalfW = (hullMax.x - hullMin.x) * 0.5f * Mathf.Abs(bt.lossyScale.x);
         }
         fx.Step(dt, pm.startColor.color);
         if (beach.Showing) beach.PlaceCamera(cam, dt); else chase.Step(dt);
