@@ -480,7 +480,7 @@ public class Boat : MonoBehaviour
             // the trick takes the wing with him (web 31931-31944)
             glider.localScale = Vector3.one * glScale;
             glider.position = new Vector3(r.px, r.py + 0.95f, r.pz - 0.3f);
-            var trick = Quaternion.Euler(r.pitchRot * Mathf.Rad2Deg, r.spinRot * Mathf.Rad2Deg, r.flipRot * Mathf.Rad2Deg);
+            var trick = r.TrickRotation();                 // each axis the way it was thrown (web 45830-45834)
             glider.rotation = trick * Quaternion.Euler(glPitch * Mathf.Rad2Deg, glYaw * Mathf.Rad2Deg, glRoll * Mathf.Rad2Deg);
         }
         // the control lines, canopy to hand, each hand to the anchor on its own side; and the bar

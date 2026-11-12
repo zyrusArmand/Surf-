@@ -306,13 +306,14 @@ public class SetWave : MonoBehaviour
                 r.carve = Mathf.Lerp(r.carve, Mathf.Clamp(angV / 2.4f, -1f, 1f), Mathf.Min(1f, dt * 6f));
                 // the board lies on the wall: its deck faces the tube's axis
                 r.transform.position = new Vector3(r.px, r.py, r.pz);
-                var trick = Quaternion.Euler(r.pitchRot * Mathf.Rad2Deg, r.spinRot * Mathf.Rad2Deg, r.flipRot * Mathf.Rad2Deg);
+                var trick = r.TrickRotation();                 // each axis the way it was thrown (web 45830-45834)
                 var wall = Quaternion.FromToRotation(Vector3.up, new Vector3(-ux, -uy, 0f).normalized);
                 r.transform.rotation = wall * trick;
             }
         }
         else if (ph != Phase.Ride) { ang = 0; angV = 0; }
         if (!tubeRide && pipeAir) { pipeAir = false; radV = 0; }   // the wave ended mid-air
+        r.pipeAir = tubeRide && pipeAir;                             // off the wall counts as clear for the trick gate (web 45608)
         if (!tubeRide) rad = float.NaN;
     }
 
@@ -327,8 +328,9 @@ public class SetWave : MonoBehaviour
             float offF = Mathf.Max(Mathf.Abs(Mathf.Repeat(r.flipRot + Mathf.PI, Mathf.PI * 2f) - Mathf.PI),
                                    Mathf.Abs(Mathf.Repeat(r.pitchRot + Mathf.PI, Mathf.PI * 2f) - Mathf.PI));
             if (offS < LandYaw && offF < LandFlip) r.Settle(true);
-            else { r.Settle(false); r.airborne = false; r.vy = 0; r.Wipeout(offF >= LandFlip ? "under" : "land"); return; }
+            else { r.CarryTurn(); r.Settle(false); r.airborne = false; r.vy = 0; r.Wipeout(offF >= LandFlip ? "under" : "land"); return; }
         }
+        else if (r.grabOn) { r.Settle(false); r.airborne = false; r.vy = 0; r.Wipeout("foam"); return; }   // still on the rail (web 32024)
         else r.Settle(false);
         r.airborne = false; r.vy = 0; r.poseLand = 0.7f;
         onSplash?.Invoke(new Vector3(r.px, r.py, r.pz), 14);

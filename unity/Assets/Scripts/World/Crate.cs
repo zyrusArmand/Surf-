@@ -1,18 +1,30 @@
 // The treasure chest: one a run, floating down the lane past 120 m, spinning so it reads as a
-// chest and not a box, bobbing on the swell with a glow under it. Ride through it to take it;
-// it pays out in puka on the spot (the web's roll: mostly 25 or 50, sometimes 100 or 200+).
-// Boards and riders from the chest come with the shop.
+// chest and not a box, bobbing on the swell with a glow under it. Ride through it to take it.
+// Taking it only says so and keeps it (web 26690-26696, crateHeld): it is opened after the run,
+// before the card, in the ceremony (UI/ChestCeremony.cs), and what is inside is rolled then.
 using UnityEngine;
 
 public class Crate : MonoBehaviour
 {
     public BoardController rider; public SetWave setWave; public Island island;   // no chest drifting up the sand
     public System.Action<Vector3, int> onSplash;
+    public ChestCeremony ceremony;                                                 // where a caught chest is opened
     bool on, held; float timer = 999f, bob; Transform obj; Light glow;
 
     float Luck => rider != null ? Mathf.Max(0.5f, rider.statLuck) : 1f;   // a lucky rider's chests come oftener
     public void Soon() { timer = Mathf.Min(timer, 1.5f); }      // the wheel's chest prize: one straight away
-    public void Reset() { on = false; held = false; timer = (9f + Random.value * 11f) / Luck; if (obj != null) obj.gameObject.SetActive(false); }
+    /// a new run or the title sweeps away a ceremony that may still be up, and shows no card for it (web crateCeremonyEnd from beginRun)
+    public void Reset() { on = false; held = false; timer = (9f + Random.value * 11f) / Luck; if (obj != null) obj.gameObject.SetActive(false); if (ceremony != null) ceremony.End(); }
+
+    /// the run is over: a chest in hand is opened now, and `then` (the run card) waits until the
+    /// player carries on from it. False when there is no chest, and the card goes straight up.
+    public bool Open(System.Action then)
+    {
+        if (!held || ceremony == null) return false;
+        held = false;                                            // web crateCeremony: crateHeld = false
+        ceremony.Play(then);
+        return true;
+    }
 
     void Build()
     {
@@ -51,12 +63,9 @@ public class Crate : MonoBehaviour
         if (r.running && Mathf.Abs(p.z - r.pz) < 2.2f && Mathf.Abs(p.x - r.px) < 2.2f && Mathf.Abs(r.py - p.y) < 2.0f)
         {
             on = false; held = true; obj.gameObject.SetActive(false);
-            float q = Random.value;
-            int n = q < 0.10f ? 200 + 25 * Random.Range(0, 7) : q < 0.32f ? 100 : q < 0.64f ? 50 : 25;
-            // into bonusCoins, which the run's total is built from: coins itself is recomputed from
-            // distance and score every frame, so adding to it lost the chest's pay the next frame
-            r.bonusCoins += n;
-            r.Say("TREASURE CHEST! +" + n + " PUKA"); Sfx.Buzz(25);
+            // nothing is paid here: the chest is kept, and opened after the run (the line also
+            // ticks the chest goal and the crates counter, Quests.Scan)
+            r.Say("TREASURE CHEST!"); Sfx.Buzz(25);
             onSplash?.Invoke(new Vector3(r.px, r.py + 0.3f, r.pz), 14);
         }
     }

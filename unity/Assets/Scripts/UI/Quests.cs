@@ -106,6 +106,8 @@ public class Quests : MonoBehaviour
         else if (m.StartsWith("RAMP")) { Event("ramp", 1); Stats.Bump("ramps"); }
         else if (m.StartsWith("PEARL!")) Event("pearl", 1);
         else if (m.StartsWith("HANDSTAND! +")) Stats.Trick("handstand");
+        else if (m.StartsWith("INDY GRAB! +") || m.StartsWith("MELON GRAB! +")) Stats.Trick("grab");   // web endGrab's noteTrick (26916)
+        else if (m.StartsWith("HAND DRAG! +")) Stats.Trick("drag");                                     // web endDrag's (26909)
         else if (m.Contains("° "))
         {
             // "540° SPIN 360° FLIP CLEAN COMBO! +…": every figure in it was a trick, counted under

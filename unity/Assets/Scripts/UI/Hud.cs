@@ -25,6 +25,7 @@ public class Hud : MonoBehaviour
 
     Canvas canvas;
     GameObject menu, ride, card, bar, jump;
+    CanvasGroup jumpCg;                                   // JUMP dims to a quarter once a trick is live
     Text tScore, tDist, tMph, tCoins, tBestS, tBestD, tMsg, tMenuBest, tMenuCoins, tToast;
     RectTransform cardRoot;
     Image pip;                                            // the wheel button's dot: an unspun day shows it
@@ -183,7 +184,11 @@ public class Hud : MonoBehaviour
         Ges(j.transform, "jump", 27, new Vector2(0, 14));
         UiKit.Label(j.transform, "JUMP", 17, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -14), Vector2.zero);
         j.raycastTarget = true; jump = j.gameObject;
-        UiKit.Pressable(jump, () => { Sfx.Buzz(10); rider.Jump(); });
+        jumpCg = jump.AddComponent<CanvasGroup>();
+        // a tap on the water and a HOLD under it (web 23740-23753): the held state is recorded beside
+        // the tap, and the dive reads it to climb; nothing above the water does
+        UiKit.Pressable(jump, () => { Sfx.Buzz(10); if (dive != null) dive.jumpHeld = true; rider.Jump(); },
+                              () => { if (dive != null) dive.jumpHeld = false; });
         BuildRope(r);
         BuildStreaks(r);
         BuildCoco(r);
@@ -368,11 +373,82 @@ public class Hud : MonoBehaviour
         g.raycastTarget = false; g.preserveAspect = true; slotGes[slot] = g;
         slotLab[slot] = UiKit.Label(im.transform, "", 9.5f, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0, -16), Vector2.zero);
         im.raycastTarget = true;
+        // .tbtn.ready: the release cue, laid over the glass and under the gesture and the name
+        slotReady[slot] = ReadyGlow(im.transform);
         // the held five hold and release and the rider sorts out what each one means; the release
-        // lets go of whatever the press started
-        string held = null;
-        UiKit.Pressable(im.gameObject, () => { held = slotOn[slot] ?? TrickCatalog.DefSlots[slot]; Sfx.Buzz(8); Sfx.Trick(held); rider.Hold(held, true); },
-                                       () => { if (held != null) rider.Hold(held, false); held = null; });
+        // lets go of whatever the press started. The rider plays the trick's sound, and only when
+        // the press really starts it (web noteTrick).
+        UiKit.Pressable(im.gameObject, () => { Sfx.Buzz(8); SlotDown(slot); }, () => SlotUp(slot));
+    }
+
+    readonly string[] slotHeld = new string[TrickCatalog.SlotCount];
+    readonly GameObject[] slotReady = new GameObject[TrickCatalog.SlotCount];
+    /// web trickDown / trickUp (23809-23823): the button and its number key go through here alike
+    void SlotDown(int slot)
+    {
+        // a press is never refused for a release that went missing (the column hidden under a held finger)
+        slotHeld[slot] = slotOn[slot] ?? TrickCatalog.DefSlots[slot];
+        rider.Hold(slotHeld[slot], true);
+    }
+    void SlotUp(int slot)
+    {
+        if (slotHeld[slot] == null) return;
+        rider.Hold(slotHeld[slot], false);
+        slotHeld[slot] = null;
+    }
+
+    // The ready cue (web .tbtn.ready, 2756-2759): a warm wash over the glass, the rim gone to
+    // #fff8c0, a 3px ring of rgba(255,246,150,.92) round the outside and a 26px glow of
+    // rgba(255,224,60,.75) past that. The button is cut flat against the screen's left edge, so
+    // the shape is only rounded on its right, and the glow is drawn out to the right, up and down.
+    static Sprite readySprite;
+    const float ReadyG = 28f;
+    static GameObject ReadyGlow(Transform slot)
+    {
+        if (readySprite == null)
+        {
+            const float S = 2f, w = 70f, h = 56f, r = 18f, G = ReadyG;
+            int W = Mathf.CeilToInt((w + G) * S), H = Mathf.CeilToInt((h + 2f * G) * S);
+            var tex = new Texture2D(W, H, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+            var px = new Color[W * H];
+            Color wash0 = Solid.Rgba(255, 247, 190, 0.34f), wash1 = Solid.Rgba(255, 226, 110, 0.16f);
+            Color rim = Solid.Rgba(255, 248, 192), ring = Solid.Rgba(255, 246, 150, 0.92f), glow = Solid.Rgba(255, 224, 60, 0.75f);
+            for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+            {
+                float ux = (x + 0.5f) / S, uy = (y + 0.5f) / S - G;            // the button's own box is 0..w by 0..h
+                // signed distance to the button: open on the left, rounded top right and bottom right
+                float cx = (w - 40f) * 0.5f, hx = (w + 40f) * 0.5f, cy = h * 0.5f, hy = h * 0.5f;
+                float rr = ux > cx ? r : 0f;
+                float qx = Mathf.Abs(ux - cx) - (hx - rr), qy = Mathf.Abs(uy - cy) - (hy - rr);
+                float d = new Vector2(Mathf.Max(qx, 0f), Mathf.Max(qy, 0f)).magnitude + Mathf.Min(Mathf.Max(qx, qy), 0f) - rr;
+                Color c;
+                if (d <= 0f)
+                {
+                    // the wash, along the stylesheet's 157 degrees, and the 2px rim inside the edge
+                    float t = Mathf.Clamp01((ux / w) * 0.4f + (1f - uy / h) * 0.6f);
+                    c = Color.Lerp(wash0, wash1, t);
+                    float rimK = Mathf.Clamp01((d + 2f) * S + 0.5f);
+                    c = Color.Lerp(c, rim, rimK);
+                }
+                else
+                {
+                    // the ring, then the glow falling away as a blurred shadow does
+                    float g = glow.a * 0.5f * Mathf.Exp(-(d * d) / (2f * 9f * 9f));
+                    c = new Color(glow.r, glow.g, glow.b, g);
+                    float ringK = Mathf.Clamp01((3f - d) * S + 0.5f) * Mathf.Clamp01(d * S + 0.5f);
+                    if (ringK > 0f) c = Color.Lerp(c, ring, ringK * ring.a);
+                }
+                px[y * W + x] = c;
+            }
+            tex.SetPixels(px); tex.Apply(false, true);
+            readySprite = Sprite.Create(tex, new Rect(0, 0, W, H), new Vector2(0.5f, 0.5f), S);
+        }
+        var im = UiKit.Pic(slot, "ready", readySprite, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(0, 0.5f), Vector2.zero, new Vector2(70f + ReadyG, 56f + 2f * ReadyG));
+        im.raycastTarget = false;
+        im.transform.SetAsFirstSibling();
+        im.gameObject.SetActive(false);
+        return im.gameObject;
     }
 
     /// applyTrickSlots (web 6572): writes the slots onto the five buttons, the gesture and the
@@ -467,6 +543,7 @@ public class Hud : MonoBehaviour
         DropCard();
         card.SetActive(false);
         shown = rc; pendingRc = rc; cardPending = true; cardAskedT = Time.unscaledTime;
+        runEarned = rc.earned; runDoubled = false;            // what DOUBLE COINS would pay again, and it has not yet (web 28576)
         StartCoroutine(GrabThenShow(++cardToken));
     }
 
@@ -596,7 +673,8 @@ public class Hud : MonoBehaviour
                 badgeW = bt.preferredWidth + Tracking.Extra(bt.text, 12.5f, 0.04f) + 14f;
             }
             float rowW = 31.9f + 9f + textW + (rc.doubled ? 15f + badgeW : 0f), x0 = (CardW - rowW) * 0.5f;
-            Pic(c, "puka", 31.9f, x0, cy, Color.white);
+            earnPk = Pic(c, "puka", 31.9f, x0, cy, Color.white);
+            earnT = t; earnCy = cy; earnBadge = bt; earnBadgeW = badgeW; earnPill = null;   // kept, so DOUBLE COINS can say what it paid
             t.rectTransform.anchoredPosition = new Vector2(x0 + 31.9f + 9f, -cy); t.rectTransform.sizeDelta = new Vector2(textW + 4f, 36f);
             CountUp.On(t, rc.earned, "EARNED: ", " SHELLS", 1.0f, 0.45f);
             if (bt != null)
@@ -604,7 +682,7 @@ public class Hud : MonoBehaviour
                 // .x2: #0e1a12 on a mint pill, linear-gradient(180deg, #9df5c8, #4fd79a), 2px 7px 3px
                 float bx = x0 + 31.9f + 9f + textW + 15f;
                 var pill = Solid.Pic(c, "x2", Solid.VGradient(Mathf.Round(badgeW), 24.4f, 12.2f, Solid.Rgba(157, 245, 200), Solid.Rgba(79, 215, 154), Color.clear, 0f), Color.white, TL, TL, new Vector2(0, 0.5f), new Vector2(bx, -cy), new Vector2(Mathf.Round(badgeW), 24.4f));
-                pill.transform.SetSiblingIndex(bt.transform.GetSiblingIndex());
+                pill.transform.SetSiblingIndex(bt.transform.GetSiblingIndex()); earnPill = pill;
                 bt.rectTransform.anchoredPosition = new Vector2(bx, -cy + 0.5f); bt.rectTransform.sizeDelta = new Vector2(badgeW, 20f);
             }
         }
@@ -690,8 +768,8 @@ public class Hud : MonoBehaviour
         }
         // ---- the offers: one quiet strip under the row ----
         float offY = rowTop + DiscD + 22f, offW = (CardW - OfferGap) * 0.5f;
-        Offer(bd, X, offY, offW, "Double coins", rc.earned <= 0);     // .rwd[disabled] when there is nothing to double
-        Offer(bd, X + offW + OfferGap, offY, offW, "Second life", false);
+        Offer(bd, X, offY, offW, "Double coins", !(runEarned > 0 && !runDoubled), DoubleCoins);     // .rwd[disabled] when there is nothing to double
+        Offer(bd, X + offW + OfferGap, offY, offW, "Second life", false, SecondLife);
 
         // #ver: the version, 13px at .55, 24px off the foot
         string vs = "v" + Application.version;
@@ -713,7 +791,7 @@ public class Hud : MonoBehaviour
     }
 
     /// .rwd: the offer's name 13.5px, and under it a small arrow and WATCH AD in gold caps tracked .14em
-    void Offer(CardArt.Backdrop bd, float x, float y, float w, string label, bool off)
+    void Offer(CardArt.Backdrop bd, float x, float y, float w, string label, bool off, System.Action<GameObject> tap)
     {
         var im = Glass(ShopArt.Glass.Offer, x, y, w, OfferH, (px, py) => bd.Under(x + px, y + py), 14f);
         var t = UiKit.Label(im.transform, label, 13.5f, Color.white, FontStyle.Bold, TL, new Vector2(1, 1), new Vector2(0.5f, 0.5f), new Vector2(0f, -16.4f), new Vector2(0f, 18f), TextAnchor.MiddleCenter, 0f);
@@ -732,9 +810,76 @@ public class Hud : MonoBehaviour
             var a = UiKit.Pic(im.transform, "arrow", tri, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 0.5f), new Vector2(-grp * 0.5f + 3f, -31.6f), new Vector2(6f, 8f));
             a.color = ShopArt.Mix(back, Gilt, 0.85f * 0.9f); a.raycastTarget = false;
         }
-        if (off) { var cg = im.gameObject.AddComponent<CanvasGroup>(); cg.alpha = 0.45f; cg.interactable = false; }
-        // there are no ads in this build: the strip reads as the web's and says so when tapped
-        UiKit.Pressable(im.gameObject, null, () => { if (!off) Toast("No ads in this build — the heart is the free life"); });
+        if (off) Grey(im.gameObject, true);
+        // the web's placeholder: a five-second clip, then the reward (web 27202-27243)
+        UiKit.Pressable(im.gameObject, null, () => { if (!Greyed(im.gameObject)) tap?.Invoke(im.gameObject); });
+    }
+
+    // ---- the two offers and the free life all ride the one placeholder clip (web 27202-27255) ----
+    // A real build hands this slot to a rewarded-ad SDK; nothing here talks to a network. Spent
+    // offers grey out in place rather than going, so the row keeps its shape.
+    int runEarned; bool runDoubled, clipOn;
+    Text earnT, earnBadge; Image earnPk, earnPill; float earnCy, earnBadgeW;
+
+    static void Grey(GameObject g, bool on)
+    {
+        var cg = g.GetComponent<CanvasGroup>(); if (cg == null) cg = g.AddComponent<CanvasGroup>();
+        cg.alpha = on ? 0.45f : 1f; cg.interactable = !on;
+    }
+    static bool Greyed(GameObject g) { var cg = g.GetComponent<CanvasGroup>(); return cg != null && !cg.interactable; }
+
+    /// DOUBLE COINS: the run's earnings paid a second time once the clip has played, and the card says so
+    void DoubleCoins(GameObject g)
+    {
+        if (runDoubled || runEarned <= 0 || clipOn) return;
+        runDoubled = true; Grey(g, true); Sfx.Buzz(10);
+        Stats.Bump("revives");                                   // the web counts every clip watched here
+        clipOn = true;
+        AdClip.Play(canvas.transform, () =>
+        {
+            clipOn = false;
+            SaveData.Coins += runEarned; Stats.Bump("earned", runEarned); SaveData.Flush();
+            SetEarned(runEarned * 2);
+        });
+    }
+
+    /// SECOND LIFE: shown on every card and pays out either way, spending the free life first if
+    /// it is still in hand (web 27232-27242)
+    void SecondLife(GameObject g)
+    {
+        if (clipOn) return;
+        if (Wheel.Revives > 0) Wheel.Revives--;
+        Grey(g, true); Sfx.Buzz(10);
+        Stats.Bump("revives");
+        clipOn = true;
+        AdClip.Play(canvas.transform, () => { clipOn = false; Grey(g, false); ShowCard(false, null); onRevive?.Invoke(); });
+    }
+
+    /// the earned line rewritten in place after a double, and the row centred again on its new width
+    void SetEarned(int n)
+    {
+        if (earnT == null) return;
+        var cu = earnT.GetComponent<CountUp>(); if (cu != null) cu.enabled = false;
+        string full = "EARNED: " + Pane.N(n) + " SHELLS";
+        earnT.text = full;
+        float textW = earnT.preferredWidth + Tracking.Extra(full, 22, 0.05f);
+        float rowW = 31.9f + 9f + textW + (earnBadge != null ? 15f + earnBadgeW : 0f), x0 = (CardW - rowW) * 0.5f;
+        if (earnPk != null) earnPk.rectTransform.anchoredPosition = new Vector2(x0, -earnCy);
+        earnT.rectTransform.anchoredPosition = new Vector2(x0 + 31.9f + 9f, -earnCy); earnT.rectTransform.sizeDelta = new Vector2(textW + 4f, 36f);
+        if (earnBadge != null)
+        {
+            float bx = x0 + 31.9f + 9f + textW + 15f;
+            if (earnPill != null) earnPill.rectTransform.anchoredPosition = new Vector2(bx, -earnCy);
+            earnBadge.rectTransform.anchoredPosition = new Vector2(bx, -earnCy + 0.5f);
+        }
+    }
+
+    /// the chest ceremony plays over the crash with nothing of the HUD's up and the card held back
+    /// behind it (web showMenu('over') hides #hud, then crateCeremony hides the overlay)
+    public void ShowNone()
+    {
+        menu.SetActive(false); ride.SetActive(false); bar.SetActive(false); jump.SetActive(false);
+        card.SetActive(false); DropCard();
     }
 
     /// a line of the card's type: left edge x, centred on cy, w wide, in card px
@@ -777,14 +922,15 @@ public class Hud : MonoBehaviour
         }
     }
 
-    // the free life: one second chance a run, two when the wheel banked one
+    // the free life: one second chance a run, two when the wheel banked one. It plays the same
+    // five-second placeholder before putting him back (web 27244-27255).
     void Revive()
     {
-        if (Wheel.Revives <= 0) return;
+        if (Wheel.Revives <= 0 || clipOn) return;
         Wheel.Revives--; Sfx.Buzz(10);
         Stats.Bump("revives");
-        ShowCard(false, null);
-        onRevive?.Invoke();
+        clipOn = true;
+        AdClip.Play(canvas.transform, () => { clipOn = false; ShowCard(false, null); onRevive?.Invoke(); });
     }
 
     // the wipeout card is the shareable moment: the line goes to the clipboard, as the web's fallback does
@@ -810,7 +956,8 @@ public class Hud : MonoBehaviour
     {
         menu.SetActive(false); ride.SetActive(true); card.SetActive(false); bar.SetActive(true); jump.SetActive(true); DropCard();
         ApplyTrickSlots();
-        tBestS.text = "best " + SaveData.Best.ToString("N0"); tBestD.text = "best " + SaveData.BestDist + " m";
+        DropSteer(); auxId = -1; auxArmed = false; auxHand = false;   // no finger or drag carried over from the last screen
+        tBestS.text = "best " + SaveData.Best.ToString("N0"); tBestD.text = "best " + SaveData.BestDist.ToString("N0") + " m";
         tBestS.color = tBestD.color = new Color(1, 1, 1, 0.52f);
     }
 
@@ -868,49 +1015,242 @@ public class Hud : MonoBehaviour
         StepRideFx(Time.deltaTime);
         StepStick();
         StepRope();
-        // the trick column stands down under the water and on the sand; the lens cell reads the air left on a dive
-        bool noTricks = (dive != null && dive.On) || (island != null && island.Ashore);
-        if (bar.activeSelf == noTricks) bar.SetActive(!noTricks);
-        if (jump.activeSelf == (island != null && island.Ashore)) jump.SetActive(!(island != null && island.Ashore));
+        // The trick column stands down under the water and on the sand, and JUMP on the sand (under
+        // the water it is the one button there, held to climb). Both go the moment he wipes out,
+        // not when the card comes up (web 27912, 45620-45632). Anything held on the column is let
+        // go as it hides, since a finger on a button that is no longer there never lifts off it.
+        bool ashore = island != null && island.Ashore, under = dive != null && dive.On;
+        bool showBar = rider.running && !under && !ashore, showJump = rider.running && !ashore;
+        if (bar.activeSelf != showBar) { if (!showBar) for (int s = 0; s < TrickCatalog.SlotCount; s++) SlotUp(s); bar.SetActive(showBar); }
+        if (jump.activeSelf != showJump) { if (!showJump && dive != null) dive.jumpHeld = false; jump.SetActive(showJump); }
+        // the button lights while that axis is squared up, which is what teaches the timing (web 45633-45640)
+        if (showBar)
+            for (int s = 0; s < TrickCatalog.SlotCount; s++)
+            {
+                if (slotReady[s] == null) continue;
+                string id = slotOn[s];
+                bool rdy = id == "roll" ? rider.flipHeld && rider.flipRot > 0.5f && Square(rider.flipRot)
+                         : id == "flip" ? rider.pitchHeld && rider.pitchRot > 0.5f && Square(rider.pitchRot)
+                         : id == "spin" ? rider.spinHeld && rider.spinRot > 0.5f && Square(rider.spinRot)
+                         : id == "heli" && rider.heliAir && rider.flipRot > 0.5f && Square(rider.flipRot);
+                if (slotReady[s].activeSelf != rdy) slotReady[s].SetActive(rdy);
+            }
+        if (jumpCg != null) jumpCg.alpha = rider.TrickReady ? 0.25f : 1f;   // web 45641
+        // the band (web 47217-47228): every figure with its separators, and each record counting
+        // the run in progress, lit for as long as the run is past it
+        int ds = Mathf.RoundToInt(rider.dist);
         tScore.text = rider.score.ToString("N0");
-        tDist.text = Mathf.RoundToInt(rider.dist) + " m";
-        tMph.text = dive != null && dive.On ? "AIR " + Mathf.CeilToInt(dive.Left) : ((int)(rider.eff * 0.62f)).ToString();
+        tDist.text = ds.ToString("N0") + " m";
+        tMph.text = ((int)(rider.eff * 0.62f)).ToString();
         tCoins.text = rider.coins.ToString("N0");
         tMsg.text = rider.msgT > 0 ? rider.lastMsg : "";
-        // the record lights up for the rest of the run once you pass it
-        if (rider.score > SaveData.Best && SaveData.Best > 0) tBestS.color = new Color(1f, 0.886f, 0.369f, 0.95f);
-        if (rider.dist > SaveData.BestDist && SaveData.BestDist > 0) tBestD.color = new Color(1f, 0.886f, 0.369f, 0.95f);
+        tBestS.text = "best " + Mathf.Max(SaveData.Best, rider.score).ToString("N0");
+        tBestD.text = "best " + Mathf.Max(SaveData.BestDist, ds).ToString("N0") + " m";
+        tBestS.color = rider.score > SaveData.Best ? RecNew : RecOld;
+        tBestD.color = ds > SaveData.BestDist ? RecNew : RecOld;
 
-        // steering: keys, or a finger dragged on the screen away from the buttons
+        // steering: keys, or a finger (or the mouse) dragged on the water, which also throws tricks
         float k2 = (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow) ? -1 : 0) + (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow) ? 1 : 0);
-        float touch;
+        StepGestures(ashore, under);
+        rider.steer = Mathf.Clamp(k2 + steerVal, -1f, 1f);
+
+        // the keys (web 23499-23521): J spins and K rolls, but only once he is up, and neither pops
+        // him; L takes the rail in the air and puts a paw in the water on it; H stands on his hands;
+        // 1 to 5 are the five buttons, whatever is on them. R is the rope button, for a keyboard.
+        if (Input.GetKeyDown(KeyCode.Space)) { Sfx.Buzz(10); rider.Jump(); }
+        if (Input.GetKeyDown(KeyCode.J)) rider.StartTrick("spin"); if (Input.GetKeyUp(KeyCode.J)) rider.ReleaseTrick("spin");
+        if (Input.GetKeyDown(KeyCode.K)) rider.StartTrick("roll"); if (Input.GetKeyUp(KeyCode.K)) rider.ReleaseTrick("roll");
+        if (Input.GetKeyDown(KeyCode.L)) { if (rider.airborne || rider.hanging) rider.StartTrick("grab"); else rider.StartDrag(); }
+        if (Input.GetKeyUp(KeyCode.L)) { rider.EndGrab(); rider.EndDrag(); }
+        if (Input.GetKeyDown(KeyCode.H)) rider.Hold("hand", true); if (Input.GetKeyUp(KeyCode.H)) rider.Hold("hand", false);
+        for (int s = 0; s < TrickCatalog.SlotCount && s < SlotKeys.Length; s++)
+        {
+            if (Input.GetKeyDown(SlotKeys[s])) SlotDown(s);
+            if (Input.GetKeyUp(SlotKeys[s])) SlotUp(s);
+        }
+        if (Input.GetKeyDown(KeyCode.R)) rider.onRope?.Invoke();      // the ROPE! button, for a keyboard
+    }
+
+    static readonly KeyCode[] SlotKeys = { KeyCode.Alpha1, KeyCode.Alpha2, KeyCode.Alpha3, KeyCode.Alpha4, KeyCode.Alpha5 };
+    static readonly Color RecOld = new Color(1, 1, 1, 0.52f), RecNew = new Color(1f, 0.886f, 0.369f, 0.95f);   // #hud .rec, and .rec.new (web 244)
+    static bool Square(float a) => Mathf.Abs(Mathf.Repeat(a + Mathf.PI, Mathf.PI * 2f) - Mathf.PI) < 0.45f;
+
+    // ---- the gestures on the water (web 23530-23735, 23906-23919) ----
+    // Tap to jump, tap again in the air for another roll; swipe up or down for a roll that way,
+    // and across in the air for a flip; draw a loop for a spin; hold still to grab the rail in the
+    // air or drag a paw on the water; a second finger held is a handstand. All of it is measured
+    // from where the finger went down, kept apart from the steering anchor, which is dragged along
+    // as the swipe runs past its stop so a long carve can keep going. Positions are taken in the
+    // page's own terms (y down from the top) so every sign below reads as the web's does, and the
+    // web's CSS pixels are the canvas's units.
+    const float TapS = 0.270f, HoldS = 0.235f, TapSlop = 24f;
+    const int MouseId = -99;
+    float touchX0, gT0, gX0, gY0, gMove, gFireT = -99f;
+    bool gSwiped, gGrab, gHoldArmed;
+    readonly List<Vector2> cPts = new List<Vector2>();
+    float cAng, cLast; bool cHas, cCirc;
+    int auxId = -1; float auxT0; bool auxHand, auxArmed;
+    bool touchMode;                                       // a real touch has been seen: the mouse stands down for good
+    Vector2 lastMouse;
+
+    Vector2 Page(Vector2 screen) => new Vector2(screen.x, Screen.height - screen.y);
+    float Css => canvas != null && canvas.scaleFactor > 0f ? canvas.scaleFactor : Screen.width / 430f;
+
+    void DropSteer() { steerPointer = -1; steerVal = 0f; gHoldArmed = false; }
+    void CircleReset() { cPts.Clear(); cAng = 0f; cCirc = false; cHas = false; }
+    void Fired(Vector2 p) { gFireT = Time.unscaledTime; gX0 = p.x; gY0 = p.y; }
+    // one gesture per flick: without this a single swipe throws three rotations before the finger stops
+    bool CanFire() => Time.unscaledTime - gFireT > 0.25f;
+
+    /// a loop drawn with one finger: the angle swept round a rolling centre of the recent path, so
+    /// where on the glass it is drawn and how big does not matter; three quarters of a turn is a spin
+    int CircleFeed(Vector2 p)
+    {
+        cPts.Add(p);
+        if (cPts.Count > 12) cPts.RemoveAt(0);
+        if (cPts.Count < 4) return 0;
+        Vector2 m = Vector2.zero;
+        foreach (var q in cPts) m += q;
+        m /= cPts.Count;
+        if ((p - m).magnitude < Screen.width * 0.045f) { cHas = false; return 0; }   // too tight to be a deliberate loop
+        float a = Mathf.Atan2(p.y - m.y, p.x - m.x);
+        if (cHas)
+        {
+            float d = a - cLast;
+            while (d > Mathf.PI) d -= Mathf.PI * 2f;
+            while (d < -Mathf.PI) d += Mathf.PI * 2f;
+            if (Mathf.Abs(d) < 1.2f) cAng += d;                      // jumps are not sweep
+            if (Mathf.Abs(cAng) > 0.55f) cCirc = true;               // flagged early, so the first quarter is not read as a flick
+        }
+        cLast = a; cHas = true;
+        if (Mathf.Abs(cAng) > Mathf.PI * 1.5f)
+        {
+            int dir = cAng > 0f ? -1 : 1;
+            cAng = 0f; cPts.Clear();
+            return dir;
+        }
+        return 0;
+    }
+
+    void GestureStart(Vector2 p)
+    {
+        touchX0 = p.x;
+        gT0 = Time.unscaledTime; gX0 = p.x; gY0 = p.y; gMove = 0f; gSwiped = false; gGrab = false;
+        CircleReset(); gFireT = -99f;
+    }
+
+    // the steering finger moved: steer by it, and read it for a loop (web 23637-23667)
+    void GestureMove(Vector2 p, bool under, bool mouse)
+    {
+        float range = Screen.width * 0.16f;
+        float v = (p.x - touchX0) / range;
+        if (v > 1f) { touchX0 = p.x - range; v = 1f; }               // let the swipe keep going
+        if (v < -1f) { touchX0 = p.x + range; v = -1f; }
+        steerVal = v;                                                // side to side and nothing else
+        if (under) return;                                           // the dive reads the vertical itself, and nothing down there is a trick
+        float dx = p.x - gX0, dy = p.y - gY0;
+        gMove = Mathf.Max(gMove, Mathf.Sqrt(dx * dx + dy * dy));
+        int loop = CircleFeed(p);
+        if (loop != 0 && CanFire()) { gSwiped = true; gHoldArmed = false; rider.AddSpin(loop); Fired(p); }
+        else if (!mouse && !gGrab && (Mathf.Abs(dx) > TapSlop * Css || Mathf.Abs(dy) > TapSlop * Css)) gHoldArmed = false;
+    }
+
+    // the steering finger lifted: a tap, a straight swipe, or the end of a hold (web 23679-23695, 23906-23916)
+    void GestureEnd(Vector2 p)
+    {
+        float dx = p.x - gX0, dy = p.y - gY0;
+        bool up = rider.airborne || rider.hanging;
+        if (gGrab) { rider.EndGrab(); rider.EndDrag(); }
+        else if (!gSwiped && Time.unscaledTime - gT0 < TapS && gMove < TapSlop * Css)
+        {
+            if (up) rider.AddRoll(rider.flipSign);                   // keep tapping, keep rolling
+            else rider.Jump();
+        }
+        else if (!cCirc && !gSwiped)
+        {
+            if (Mathf.Abs(dy) > Screen.height * 0.09f && Mathf.Abs(dy) > Mathf.Abs(dx) * 1.3f) rider.AddRoll(dy < 0f ? 1f : -1f);
+            else if (up && Mathf.Abs(dx) > Screen.width * 0.19f && Mathf.Abs(dx) > Mathf.Abs(dy) * 1.3f) rider.AddFlip(dx > 0f ? 1f : -1f);
+        }
+    }
+
+    void ReleaseAux()
+    {
+        auxId = -1; auxArmed = false;
+        if (auxHand) { rider.handOn = false; auxHand = false; }
+    }
+
+    void StepGestures(bool ashore, bool under)
+    {
+        float now = Time.unscaledTime;
+        var es = EventSystem.current;
+        if (Input.touchCount > 0) touchMode = true;
+        // a finger the system took away without an end (a notification, a system swipe) would hold
+        // its slot for good; reclaim both (web 23597-23617)
+        if (steerPointer >= 0 && !Alive(steerPointer)) DropSteer();
+        if (auxId >= 0 && !Alive(auxId)) ReleaseAux();
         for (int i = 0; i < Input.touchCount; i++)
         {
             var tc = Input.GetTouch(i);
-            bool overUi = EventSystem.current != null && EventSystem.current.IsPointerOverGameObject(tc.fingerId);
-            if (tc.phase == TouchPhase.Began && !overUi && steerPointer < 0) { steerPointer = tc.fingerId; steerX0 = tc.position.x; }
-            if (tc.fingerId == steerPointer)
+            var p = Page(tc.position);
+            if (tc.phase == TouchPhase.Began)
             {
-                if (tc.phase == TouchPhase.Ended || tc.phase == TouchPhase.Canceled) { steerPointer = -1; steerVal = 0; }
-                else steerVal = Mathf.Clamp((tc.position.x - steerX0) / (Screen.width * 0.18f), -1f, 1f);
+                // ashore the glass is not a steering wheel; the walk ring has its own finger
+                if (ashore) continue;
+                if (es != null && es.IsPointerOverGameObject(tc.fingerId)) continue;
+                if (steerPointer < 0) { steerPointer = tc.fingerId; GestureStart(p); gHoldArmed = true; }
+                else if (auxId < 0 && rider.running) { auxId = tc.fingerId; auxT0 = now; auxHand = false; auxArmed = true; }
+            }
+            else if (tc.fingerId == steerPointer && tc.phase == TouchPhase.Moved) GestureMove(p, under, false);
+            if (tc.phase == TouchPhase.Ended || tc.phase == TouchPhase.Canceled)
+            {
+                if (tc.fingerId == auxId) ReleaseAux();
+                if (tc.fingerId == steerPointer)
+                {
+                    gHoldArmed = false;
+                    // under the water this finger was swimming, not performing
+                    if (!under) { float dx = p.x - gX0, dy = p.y - gY0; gMove = Mathf.Max(gMove, Mathf.Sqrt(dx * dx + dy * dy)); GestureEnd(p); }
+                    DropSteer();
+                }
             }
         }
-        if (Input.touchCount == 0) { steerPointer = -1; steerVal = 0; }
-        touch = steerVal;
-        // mouse drag for the editor
-        if (Input.touchCount == 0 && Input.GetMouseButton(0) && !(EventSystem.current != null && EventSystem.current.IsPointerOverGameObject()))
+        // held still: take hold of the rail in the air, or put a paw in the water on it (web 23625-23629)
+        if (gHoldArmed && steerPointer >= 0 && now - gT0 >= HoldS)
         {
-            if (steerPointer < 0) { steerPointer = 99; steerX0 = Input.mousePosition.x; }
-            touch = Mathf.Clamp((Input.mousePosition.x - steerX0) / (Screen.width * 0.18f), -1f, 1f);
+            gHoldArmed = false;
+            if (!(gMove > TapSlop * Css || gSwiped || under))
+            {
+                gGrab = true;
+                if (rider.airborne || rider.hanging) rider.StartTrick("grab"); else rider.StartDrag();
+            }
         }
-        else if (Input.touchCount == 0 && steerPointer == 99) { steerPointer = -1; touch = 0; }
-        rider.steer = Mathf.Clamp(k2 + touch, -1f, 1f);
-        if (Input.GetKeyDown(KeyCode.Space)) { Sfx.Buzz(10); rider.Jump(); }
-        if (Input.GetKeyDown(KeyCode.J)) { Sfx.Trick("spin"); rider.Hold("spin", true); } if (Input.GetKeyUp(KeyCode.J)) rider.Hold("spin", false);
-        if (Input.GetKeyDown(KeyCode.K)) { Sfx.Trick("flip"); rider.Hold("flip", true); } if (Input.GetKeyUp(KeyCode.K)) rider.Hold("flip", false);
-        if (Input.GetKeyDown(KeyCode.L)) { Sfx.Trick("roll"); rider.Hold("roll", true); } if (Input.GetKeyUp(KeyCode.L)) rider.Hold("roll", false);
-        if (Input.GetKeyDown(KeyCode.H)) rider.Hold("hand", true); if (Input.GetKeyUp(KeyCode.H)) rider.Hold("hand", false);
-        if (Input.GetKeyDown(KeyCode.G)) rider.Hold("heli", true); if (Input.GetKeyUp(KeyCode.G)) rider.Hold("heli", false);
-        if (Input.GetKeyDown(KeyCode.R)) rider.onRope?.Invoke();      // the ROPE! button, for a keyboard
+        // a second finger held is a handstand (web 23630-23634)
+        if (auxArmed && auxId >= 0 && now - auxT0 >= HoldS + 0.015f) { auxArmed = false; auxHand = true; rider.handOn = true; }
+        if (touchMode)
+        {
+            if (Input.touchCount == 0) { if (steerPointer >= 0) DropSteer(); if (auxId >= 0) ReleaseAux(); }
+            return;
+        }
+        // ---- the mouse, for a desktop: the same drag, loops and flicks, but no hold (web 23708-23736) ----
+        bool overUi = es != null && es.IsPointerOverGameObject();
+        var mp = Page(Input.mousePosition);
+        if (Input.GetMouseButtonDown(0) && rider.running && !ashore && !overUi && steerPointer < 0)
+        { steerPointer = MouseId; GestureStart(mp); lastMouse = mp; }
+        if (steerPointer == MouseId)
+        {
+            if (Input.GetMouseButton(0)) { if (mp != lastMouse) GestureMove(mp, under, true); lastMouse = mp; }
+            else
+            {
+                if (rider.running && !under) GestureEnd(lastMouse);
+                rider.EndGrab(); rider.EndDrag();
+                DropSteer();
+            }
+        }
+    }
+
+    bool Alive(int id)
+    {
+        if (id == MouseId) return true;
+        for (int i = 0; i < Input.touchCount; i++) if (Input.GetTouch(i).fingerId == id) return true;
+        return false;
     }
 }

@@ -22,7 +22,8 @@ public class RiderRig : MonoBehaviour
     // ski is somebody getting on rather than somebody teleporting into a seated pose. sitW is
     // the larger of the two; tubeW is sat IN the ring, skiW astride the ski
     public float sitW, tubeW, skiW;
-    float seat;                           // web spec.seat: how far below the board's origin he sits, in feet
+    float grabW, dragW;                   // the grab's and the hand drag's eased share of him
+    float seat;                          // web spec.seat: how far below the board's origin he sits, in feet
     bool onTube, onSki;                   // what the board in use is (SetBoard)
 
     readonly Dictionary<string, Transform> bones = new Dictionary<string, Transform>();
@@ -126,13 +127,15 @@ public class RiderRig : MonoBehaviour
     // the group goes to -seat from the board's origin, where it stood on the deck. In the ring he
     // is over the hole, and on the ski half a foot forward onto the front of the saddle, which is
     // the one place a dog's reach and a man's bars agree.
-    void Group(float h1, float h2, float tw, float sk)
+    void Group(float h1, float h2, float tw, float sk, bool sw = false)
     {
         float sit = Mathf.Clamp01(tw + sk);
         float xr = h1 * Mathf.PI - 1.36f * h2 + 0.06f * tw - 0.05f * sk;
         // under the canopy he faces the way he is going, the same eased whole-body turn (web 44234, 44520-44523)
         float gl = rider != null ? Mathf.Clamp01(rider.glideFace) : 0f;
         var yaw = Quaternion.Slerp(homeRot, Quaternion.identity, Mathf.Clamp01(h2 + sit + gl));
+        // riding switch he is turned round on the board, half a turn on top of all of it (web applyStance 23359)
+        if (sw) yaw = Quaternion.AngleAxis(180f, Vector3.up) * yaw;
         transform.localRotation = Quaternion.AngleAxis(xr * Mathf.Rad2Deg, Vector3.right) * yaw;
         var pos = homePos + new Vector3(0f, h1 * handLift, -0.92f * h2);
         pos.y = Mx(pos.y, -seat, sit);
@@ -299,6 +302,47 @@ public class RiderRig : MonoBehaviour
         float rfX = (-fl * 0.18f - load * 0.14f) * baseW + 0.42f * skA, rfZ = (0.08f + load * 0.16f) * baseW + 0.16f * skA;
         float footA = 0f, footW = 0f;         // an ankle angle laid over the plant, for the feet that leave the deck
 
+        // ---- the grab, the hand drag and the wave (web 44137-44152, 44200-44203, 44237-44243,
+        // 44275-44281, 44331-44343) ----
+        // Laid over the stance by an eased share each, in the web's joint numbers as the helicopter
+        // and the handstand below are: the left arm is his front one and the right his back one.
+        bool grabNow = rider.grabOn && rider.airborne && !rider.wipe, dragNow = rider.dragOn && !rider.airborne && !rider.wipe;
+        grabW += ((grabNow ? 1f : 0f) - grabW) * Mathf.Min(1f, dt * 10f);
+        dragW += ((dragNow ? 1f : 0f) - dragW) * Mathf.Min(1f, dt * 10f);
+        // The web's grab and drag crouches (1.05 and 0.55 on rigCrouch) mostly run into the knees'
+        // 0.26 ceiling, so what reaches the legs is a little extra bend, not a fold; the release
+        // pops him back up past where he was.
+        float kick = rider.releaseKick * 0.55f;
+        lo = Mathf.Max(0f, lo + grabW * 0.15f + dragW * 0.12f - kick * 0.42f);
+        hip = -0.20f - lo * 0.22f + tuckW * 0.42f + aB * 0.36f; knee = Mathf.Max(0f, lo * 1.05f);
+        hipL = hipR = Mx(hip, 1.46f, sk); kneeL = kneeR = Mx(knee, 1.08f, sk);
+        if (rider.waveT > 0f && air <= 0f)
+        {
+            // just come round to face the lens after a half turn: a hand up and a wave, eased up into it and down out of it
+            float el = BoardController.WaveDur - rider.waveT;
+            float k = Mathf.Min(1f, el / 0.26f) * Mathf.Min(1f, rider.waveT / 0.36f) * baseW * (1f - dragW), wv = Mathf.Sin(el * 8.6f);
+            laX = Mx(laX, 0.06f, k); laY = Mx(laY, 0.10f, k); laZ = Mx(laZ, -2.52f - wv * 0.46f, k);
+            lfX = Mx(lfX, 0.52f + wv * 0.32f, k); lfZ = Mx(lfZ, 0f, k);
+        }
+        if (dragW > 0.01f)
+        {
+            // crouched low with one paw carving through the water beside the board, the other up for balance
+            float ds = rider.dragSide, d = dragW, dl = ds * 0.42f * d;
+            laX = Mx(laX, 1.15f, d); laY = Mx(laY, ds * 0.25f, d); laZ = Mx(laZ, 1.05f * ds, d); lfX = Mx(lfX, 0.55f, d); lfZ = Mx(lfZ, 0f, d);
+            raX = Mx(raX, -0.35f, d); raY = Mx(raY, -0.15f, d); raZ = Mx(raZ, -1.45f, d); rfX = Mx(rfX, 0.30f, d); rfZ = Mx(rfZ, 0f, d);
+            s0z += dl * 0.45f; s1z += dl * 0.33f; s2z += dl * 0.22f;
+        }
+        if (grabW > 0.01f)
+        {
+            // folded right over, the front paw down on the rail under the board and the free one
+            // thrown high behind; leaned over the rail he holds and well forward at the waist
+            float gs = rider.grabSide, gw = grabW, gl2 = gs * 0.58f * gw;
+            laX = Mx(laX, 0.22f, gw); laY = Mx(laY, gs * 0.18f, gw); laZ = Mx(laZ, gs * 0.52f, gw); lfX = Mx(lfX, 0.30f, gw); lfZ = Mx(lfZ, 0f, gw);
+            raX = Mx(raX, -0.55f, gw); raY = Mx(raY, -0.25f, gw); raZ = Mx(raZ, -1.85f, gw); rfX = Mx(rfX, -0.50f, gw); rfZ = Mx(rfZ, 0f, gw);
+            s0z += gl2 * 0.45f; s1z += gl2 * 0.33f; s2z += gl2 * 0.22f;
+            s0x += 0.62f * 0.5f * gw; s1x += 0.62f * 0.3f * gw; s2x += 0.62f * 0.2f * gw;
+        }
+
         if (h2 > 0.02f)
         {
             // the helicopter (web 44265-44277, 44149-44151, 44360-44364): both arms straight out
@@ -352,7 +396,7 @@ public class RiderRig : MonoBehaviour
         Plant("RightUpLeg", "RightLeg", "RightFoot", ws);
         if (footW > 0f) { Set("LeftFoot", footA, 0, 0, ws * footW); Set("RightFoot", footA, 0, 0, ws * footW); }
 
-        Group(h1, h2, tw, sk);
+        Group(h1, h2, tw, sk, rider.switchRide);
         // the ring's sit goes on last, over the stance, in the group's axes as it now stands (web 44757)
         if (tw > 0.01f) TubePose(w * tw);
     }

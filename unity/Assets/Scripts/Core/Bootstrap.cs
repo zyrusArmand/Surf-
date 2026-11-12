@@ -15,6 +15,10 @@ public class Bootstrap : MonoBehaviour
     Boat boat;                                        // the tow boat and its paraglide, on demand only (web 15187)
     JetSki ski;                                       // the jet ski and the wake it throws at you (web 29842-30405)
     Vector3 boardBasePos; Quaternion boardBaseRot;   // where the board sits in the rig when no board trick has it
+    // riding switch the board is turned round in the rig, so its own +z (the tail) leads: whatever
+    // is placed at "the tail" or "the nose" in the board's frame takes the other end (web 23351-23357)
+    bool BoardSwitched => rider != null && rider.switchRide && (rider.running || rider.wipe);
+    float TailZ => BoardSwitched ? -1f : 1f;
     readonly System.Collections.Generic.List<Vector2> wakeHist = new System.Collections.Generic.List<Vector2>();   // (time, x) of the board, the last few seconds
     readonly float[] wakeP = new float[8];
     float WakeXAt(float tt)
@@ -93,6 +97,7 @@ public class Bootstrap : MonoBehaviour
         // the water
         spawner = new GameObject("Spawner").AddComponent<Spawner>(); spawner.rider = rider;
         setWave = new GameObject("SetWave").AddComponent<SetWave>(); setWave.rider = rider; setWave.day = day; spawner.setWave = setWave;
+        rider.ring = setWave; rider.seat = rig;          // a crash on the barrel's wall is thrown off the ring; the kicked board starts where it sat
         whirl = new GameObject("Whirlpool").AddComponent<Whirlpool>(); whirl.rider = rider; whirl.spawner = spawner; whirl.setWave = setWave;
         crate = new GameObject("Crate").AddComponent<Crate>(); crate.rider = rider; crate.setWave = setWave;
         cocos = new GameObject("Coconuts").AddComponent<Coconuts>(); cocos.rider = rider; cocos.setWave = setWave;
@@ -179,6 +184,7 @@ public class Bootstrap : MonoBehaviour
         hud.onPlay = Play; hud.onMenu = Menu; hud.onShop = () => shop.Show(true);
         spawner.onSplat = c => hud.Splat(c);
         hud.Build();
+        crate.ceremony = new GameObject("ChestCeremony").AddComponent<ChestCeremony>(); crate.ceremony.cam = cam; crate.ceremony.ui = hud.UiRoot;
         boat = new GameObject("Boat").AddComponent<Boat>(); boat.rider = rider; boat.spawner = spawner; boat.chase = chase; boat.dive = dive;
         boat.rig = rig; boat.ui = hud.UiRoot; boat.sea = ocean.material; boat.onSplash = rider.onSplash;
         shop = new GameObject("Shop").AddComponent<Shop>(); shop.Build(hud.UiRoot);
@@ -502,6 +508,14 @@ public class Bootstrap : MonoBehaviour
             rider.Step(dt); runSecs += dt;
             Sfx.RideBed(rider.speed, rider.carve, rider.airborne, Mathf.Max(dive.Sub, rider.Submerged ? 1f : 0f), ufo.Duck);
             spawner.Step(dt);
+        // The crash's hit-stop (web 50313-50319): decayed on the RAW frame time, so the slow motion
+        // cannot slow its own clock and stall; applied to dt, so the tumble, the spray, the camera
+        // and the water all slow together rather than one sliding against another.
+        if (rider.wipeSlow > 0f)
+        {
+            rider.wipeSlow = Mathf.Max(0f, rider.wipeSlow - Time.deltaTime / BoardController.WipeSlowSecs);
+            dt *= 0.30f + 0.70f * Mathf.Pow(1f - rider.wipeSlow, 1.6f);
+        }
             setWave.Step(dt);
             dive.Step(dt);                                   // after the set wave: the launch assigns pz over its trim
             island.Step(dt); chute.Step(dt);
@@ -523,7 +537,7 @@ public class Bootstrap : MonoBehaviour
             {
                 float outS = -Mathf.Sign(rider.carve);
                 float hcx = (hullMin.x + hullMax.x) * 0.5f, hcz = (hullMin.z + hullMax.z) * 0.5f, hhw = (hullMax.x - hullMin.x) * 0.5f, hhl = (hullMax.z - hullMin.z) * 0.5f;
-                var tail = boardGo.transform.TransformPoint(new Vector3(hcx, hullMin.y + hullRise * 0.5f, hcz + hhl * 0.78f));
+                var tail = boardGo.transform.TransformPoint(new Vector3(hcx, hullMin.y + hullRise * 0.5f, hcz + hhl * 0.78f * TailZ));
                 tail.x += outS * hhw * 0.85f; tail.y = Mathf.Max(tail.y, rider.waterY - 0.05f);
                 fx.Carve(tail, outS, Mathf.InverseLerp(0.22f, 1f, cv), dt);
             }
@@ -532,10 +546,11 @@ public class Bootstrap : MonoBehaviour
         else if (rider.wipe)
         {
             chase.hold = false;
-            if (spawner.eater != null && spawner.eater.at < Spawner.ShkChew) { rider.wipeT += dt; spawner.Step(dt); }   // in the shark's mouth
+            rider.wipeReal += Time.deltaTime;                // the card waits on the real clock, not the slowed one (web 28224)
+            if (spawner.eater != null && spawner.eater.at < Spawner.ShkChew) { rider.WipeHeld(dt); spawner.Step(dt); }   // in the shark's mouth
             else { rider.WipeStep(dt); spawner.Step(dt); }
             wakeA = Mathf.Lerp(wakeA, 0f, dt * 4f);
-            if (rider.wipeT >= 0.95f && !over)
+            if (rider.wipeReal >= BoardController.WipeShow && !over)
             {
                 over = true; ufo.RunEnd();
                 // the card, as the web fills it: what this run (since any revive) earned, doubled by the
@@ -553,7 +568,9 @@ public class Bootstrap : MonoBehaviour
                 var rc = new Hud.RunCard { dist = d, score = rider.score, earned = earned, doubled = dbl, lvUp = now - was, level = now, pay = lvPay + rkPay, rankUp = Rungs.RankIdx(now) > Rungs.RankIdx(was), rider = Hud.RiderName() };
                 for (int L = was + 1; L <= now; L++) rc.unlocked.AddRange(Rungs.UnlocksAt(L));
                 Wheel.RunEnd(); SaveData.Flush();
-                hud.ShowCard(true, rc);
+                // a chest caught on the run is opened first, and the card waits its turn behind it (web 28615)
+                if (crate.Open(() => hud.ShowCard(true, rc))) hud.ShowNone();
+                else hud.ShowCard(true, rc);
             }
         }
         else
@@ -599,7 +616,7 @@ public class Bootstrap : MonoBehaviour
                 }
                 // the nose, last: ahead of him and up on the rocker
                 {
-                    var p = bt.TransformPoint(new Vector3(hcx, hullMin.y + hullRise * 0.64f, hcz - 0.8f * hhl));
+                    var p = bt.TransformPoint(new Vector3(hcx, hullMin.y + hullRise * 0.64f, hcz - 0.8f * hhl * TailZ));
                     need = Mathf.Max(need, WaveField.Height(p.x, fz0 + p.z, tw) - dC - p.y);
                 }
             }
@@ -613,7 +630,12 @@ public class Bootstrap : MonoBehaviour
         if (boardGo != null)
         {
             boardGo.transform.localPosition = boardBasePos - new Vector3(0f, rider.kfTuck * 0.16f, 0f);
-            boardGo.transform.localRotation = boardBaseRot * Quaternion.Euler(0f, -rider.kfYaw * Mathf.Rad2Deg, -rider.kfRoll * Mathf.Rad2Deg);
+            // riding switch the board is turned round too, fins and paint with it (web applyStance 23368, 27019)
+            boardGo.transform.localRotation = boardBaseRot * Quaternion.Euler(0f, (BoardSwitched ? 180f : 0f) - rider.kfYaw * Mathf.Rad2Deg, -rider.kfRoll * Mathf.Rad2Deg);
+            // kicked out from under him in a crash, it flies and cartwheels on its own (web 27982-27986,
+            // 28408-28445), so it is placed in the world rather than in the rig he is tumbling with
+            if (rider.wipe && rider.boardFree && spawner.eater == null)
+                boardGo.transform.SetPositionAndRotation(rider.boardAt + rider.boardRot * boardBasePos, rider.boardRot * boardBaseRot);
         }
         if (riderRig != null) riderRig.tuckW = rider.kfTuck;
         if (procRig != null) procRig.tuckW = rider.kfTuck;
@@ -671,10 +693,11 @@ public class Bootstrap : MonoBehaviour
         fx.tailOk = hullOk && boardGo != null && rider.running;
         if (fx.tailOk)
         {
-            var tp = boardGo.transform.TransformPoint(new Vector3((hullMin.x + hullMax.x) * 0.5f, hullMin.y + hullRise * 0.5f, (hullMin.z + hullMax.z) * 0.5f + (hullMax.z - hullMin.z) * 0.5f * 0.82f));
+            var tp = boardGo.transform.TransformPoint(new Vector3((hullMin.x + hullMax.x) * 0.5f, hullMin.y + hullRise * 0.5f, (hullMin.z + hullMax.z) * 0.5f + (hullMax.z - hullMin.z) * 0.5f * 0.82f * TailZ));
             fx.tail = new Vector3(tp.x, Mathf.Max(tp.y, rider.waterY - 0.05f), tp.z);
             var bt = boardGo.transform;
-            fx.tailRight = new Vector3(bt.right.x, 0f, bt.right.z).normalized; fx.tailFwd = new Vector3(-bt.forward.x, 0f, -bt.forward.z).normalized;   // the board's nose is its -z
+            // the board's nose is its -z (its +z riding switch, when the trailing end is the nose)
+            fx.tailRight = new Vector3(bt.right.x, 0f, bt.right.z).normalized * TailZ; fx.tailFwd = new Vector3(-bt.forward.x, 0f, -bt.forward.z).normalized * TailZ;
             fx.tailHalfW = (hullMax.x - hullMin.x) * 0.5f * Mathf.Abs(bt.lossyScale.x);
         }
         fx.Step(dt, pm.startColor.color);

@@ -89,13 +89,17 @@ public class ProcRig : MonoBehaviour
         float chop = Mathf.Sin(T * 4.2f) * 0.35f + Mathf.Sin(T * 7.7f) * 0.18f;
 
         // ---- the tuck while a rotation runs, the crouch under everything (web 44137-44153) ----
-        bool rotating = air && (rider.spinHeld || rider.flipHeld || rider.pitchHeld);
+        // The tuck is for a QUEUED turn, the committed whole revolution a tap throws, and never
+        // while he has hold of the rail; a held button turns him with his arms out.
+        bool grab = live && rider.grabOn && rider.airborne && !rider.wipe;            // web grab (45852)
+        bool dragging = live && rider.dragOn && !rider.airborne && !rider.wipe;       // web dragging (44137)
+        bool rotating = air && rider.spinQ + rider.flipQ + rider.pitchQ > 0.15f && !grab;
         bool tuckOn = rotating || tuckW > 0.25f;
         rigTuck = Ease(rigTuck, tuckOn ? 1f : 0f, dt, tuckOn ? 13f : 7f);
-        float compress = (air ? (-0.16f + rigTuck * 1.30f + aB * 0.60f * (1f - xB) - xB * 0.45f)
-                              : (g * 0.42f * (FoldCarve / 0.30f) + Mathf.Abs(heave) * FoldSwell + chop * 0.05f + lB * 0.95f))
+        float compress = (air ? (grab ? 1.05f : -0.16f + rigTuck * 1.30f + aB * 0.60f * (1f - xB) - xB * 0.45f)
+                              : (g * 0.42f * (FoldCarve / 0.30f) + Mathf.Abs(heave) * FoldSwell + chop * 0.05f + (dragging ? 0.55f : 0f) + lB * 0.95f))
                        + cB * 0.95f + hc * 0.92f;   // the helicopter's crouch beat sets rigCrouch to 0.92 in the web
-        rigCrouch = Ease(rigCrouch, compress, dt, 9f);
+        rigCrouch = Ease(rigCrouch, compress - (live ? rider.releaseKick : 0f) * 0.55f, dt, 9f);   // pops upright out of a grab
 
         // ---- the pelvis: down by what the knees take out of the legs (web 44164-44168) ----
         float pelvisY = PelvisHeight() - RideCrouch * RideHip - Mathf.Max(0f, Mathf.Min(0.24f, rigCrouch)) * 0.14f - crouchW * 0.11f;
@@ -114,15 +118,19 @@ public class ProcRig : MonoBehaviour
         hipB.y = -StanceRot; hipB.z = carve * 0.08f;
 
         // ---- spine, chest, neck, head (web 44202-44219) ----
-        spineR.z = Ease(spineR.z, carve * 0.16f, dt, 8f);   // stays stacked over the rail he is on
-        float crouchLean = rigCrouch * 0.30f;
+        // stays stacked over the rail he is on; over the one he is holding, or the paw in the water
+        float gSide = grab ? rider.grabSide : 0f, dragLean = dragging ? rider.dragSide * 0.42f : 0f;
+        spineR.z = Ease(spineR.z, carve * 0.16f + gSide * 0.58f + dragLean, dt, 8f);
+        float crouchLean = grab ? 0.62f : rigCrouch * 0.30f;
         spineR.x = Ease(spineR.x,
             (0.18f + RideLean + crouchLean + (air ? -0.32f : 0f) + rigTuck * 0.85f
              + aB * 0.34f * (1f - xB) - xB * 0.18f + lB * 0.22f + cB * 0.20f) * (1f - h2) + 0.62f * h2, dt, 8f);
         chestR.y = Ease(chestR.y, 0.20f + carve * 0.55f, dt, 7f);   // shoulders swing with the turn
         chestR.z = Ease(chestR.z, carve * 0.14f, dt, 7f);
         neckR.x = Ease(neckR.x, -spineR.x * 0.8f + (air ? 0.12f : 0f) + rigTuck * 0.46f, dt, 9f);
-        headR.y = Ease(headR.y, -1.05f + carve * 0.34f, dt, 6f);   // head down the line, a few degrees back toward the lens
+        // head down the line, a few degrees back toward the lens; riding switch he looks over the
+        // other shoulder (web 44212)
+        headR.y = Ease(headR.y, (live && rider.switchRide ? -0.69f : -1.05f) + carve * 0.34f, dt, 6f);
         headR.z = Ease(headR.z, -carve * 0.10f, dt, 6f);
 
         // ---- ears flap with speed and motion (web 44221) ----
@@ -150,6 +158,24 @@ public class ProcRig : MonoBehaviour
             tB = new Vector3(-1.30f - drag2 * 0.30f, -0.12f, 0.10f + drag2 * 0.14f);
             teB = 0.18f - drag2 * 0.12f;
             spread = Mathf.Sin(T * 2.4f) * 0.16f + heave * 0.55f;   // arms sway with the swell and the ride
+            if (dragging)
+            {
+                // crouched low with one paw carving through the water beside the board (web 44275-44281)
+                float ds = rider.dragSide;
+                tF = new Vector3(1.15f, ds * 0.25f, 1.05f * ds); teF = 0.55f;   // reaching down and out to the surface
+                tB = new Vector3(-0.35f, -0.15f, -1.45f); teB = 0.30f;          // the other paw up for balance
+                spread = 0f;
+            }
+            else if (live && rider.waveT > 0f)
+            {
+                // just come round to face the lens after a half turn: a hand up and a wave for three
+                // seconds, eased up into it and back down out of it (web 44331-44343)
+                float el = BoardController.WaveDur - rider.waveT;
+                float k = Mathf.Min(1f, el / 0.26f) * Mathf.Min(1f, rider.waveT / 0.36f), wv = Mathf.Sin(el * 8.6f);
+                tF = new Vector3(Mx(tF.x, 0.06f, k), Mx(tF.y, 0.10f, k), Mx(tF.z, -2.52f - wv * 0.46f, k));
+                teF = Mx(teF, 0.52f + wv * 0.32f, k);
+                spread *= 1f - k;
+            }
         }
         if (live && rider.glideOn)
         {
@@ -157,6 +183,15 @@ public class ProcRig : MonoBehaviour
             // elbows nearly straight, just under a right angle so the reach is at its widest
             tF = new Vector3(0.06f, 0.34f, -1.88f); teF = 0.04f;
             tB = new Vector3(0.06f, -0.34f, 1.88f); teB = 0.04f;
+            spread = 0f;
+        }
+        if (grab)
+        {
+            // fold right over and take the rail underneath the board: the arm hangs down and out to
+            // it, small angles so the paw lands on the edge, the free paw thrown high behind (web 44237-44243)
+            float gs = rider.grabSide;
+            tF = new Vector3(0.22f, gs * 0.18f, gs * 0.52f); teF = 0.30f;
+            tB = new Vector3(-0.55f, -0.25f, -1.85f); teB = -0.50f;
             spread = 0f;
         }
         if (h2 > 0.02f)
@@ -226,7 +261,7 @@ public class ProcRig : MonoBehaviour
         Set(b.armB.sh, ProcRider.RotXYZ(oShB.x, oShB.y, oShB.z), w);
         Set(b.armB.el, ProcRider.RotXYZ(oElB, 0f, 0f), w);
 
-        Group(h1, h2, gf);
+        Group(h1, h2, gf, live && rider.switchRide);
         legDrop = ProcRider.MeasureLegDrop(b);   // for next frame's pelvis height, as updateLimbs measures it
         b.Sweep();                                // the visible limb is swept from wherever the joints ended up
     }
@@ -236,11 +271,13 @@ public class ProcRig : MonoBehaviour
     // The rider group itself (web 44394-44415, 44792-44793). The handstand turns him over about
     // the deck line and lifts him onto his paws; the helicopter turns him to face the nose, lays
     // him flat along the deck and slides him up it. Both pivot at his feet.
-    void Group(float h1, float h2, float gf = 0f)
+    void Group(float h1, float h2, float gf = 0f, bool sw = false)
     {
         float xr = h1 * Mathf.PI - 1.36f * h2;
         // gf: under the canopy he faces the way he is going, the same eased turn (web 44523)
         var yaw = Quaternion.Slerp(homeRot, Quaternion.identity, Mathf.Clamp01(h2 + gf));
+        // riding switch he is turned round on the board, half a turn on top of all of it (web applyStance 23359)
+        if (sw) yaw = Quaternion.AngleAxis(180f, Vector3.up) * yaw;
         transform.localRotation = Quaternion.AngleAxis(xr * Mathf.Rad2Deg, Vector3.right) * yaw;
         transform.localPosition = homePos + new Vector3(0f, h1 * handLift, -0.92f * h2);
     }
