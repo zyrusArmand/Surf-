@@ -54,6 +54,7 @@ public class BoardController : MonoBehaviour
     public bool TrickReady => (airborne && (pipeAir || py > waterY + 0.8f)) || hanging;
     public float steer;                 // -1..1 from the input layer
     public float waterY, carve;
+    float prevWaterY = float.NaN;       // last frame's water height, for the float spring's damping
     public float rampPitch;             // the deck's climb under him while he rides a ramp (the spawner sets it)
     public System.Action<float> rideRamps;   // the spawner's ramp ride, run straight after he settles on the water
     public float hullPitch, hullRoll;   // how the water under the hull lies: nose up on a climb, inside rail down
@@ -219,7 +220,7 @@ public class BoardController : MonoBehaviour
     /// the web's respawn after a revive: back on the board where he went in, everything kept
     public void Revive()
     {
-        wipe = false; running = true; wipeT = 0; vx = vy = 0; airborne = false; px = 0; pz = 0; py = waterY;
+        wipe = false; running = true; wipeT = 0; vx = vy = 0; airborne = false; px = 0; pz = 0; py = waterY; prevWaterY = float.NaN;
         spinRot = flipRot = pitchRot = 0; spinHeld = flipHeld = pitchHeld = false;
         handOn = false; handT = handPts = handRisk = handHold = handAcc = 0;
         heliPh = -1; heliT = heliPose = heliLay = heliIncline = heliSet = heliCrouch = 0; heliUsed = heliAir = heliHeld = false; BoardTrickClear();
@@ -626,10 +627,11 @@ public class BoardController : MonoBehaviour
             hangAcc += 60f * dt; int whole = Mathf.FloorToInt(hangAcc); score += whole; hangAcc -= whole;
             speed = Mathf.Min(60f, speed + 14f * dt);
         }
-        else if (airborne)
+        else if (airborne || py > waterY + 0.55f)                // clear of the water: off a jump, or the sea dropped away under him (web 45452)
         {
             vy -= (wakeAir ? 6f : 20f) * dt; py += vy * dt;      // off a wave that size, the way down is long (web 45456)
-            if (py <= waterY && wakeGrace <= 0f)
+            if (py <= waterY && wakeGrace <= 0f && !airborne) { vy *= 0.34f; }   // just back onto the water off a dropping face: the spring takes him from here
+            else if (py <= waterY && wakeGrace <= 0f)
             {
                 float impact = Mathf.Min(1.6f, Mathf.Max(0f, -vy) / 15f);
                 poseLand = Mathf.Min(1f, 0.55f + impact * 0.5f);
@@ -660,15 +662,27 @@ public class BoardController : MonoBehaviour
                 else if (grabOn) { Settle(false); Wipeout("foam"); return; }
                 // a turn still queued when the water arrives is not carried into the next jump
                 spinQ = flipQ = pitchQ = 0f;
-                airborne = false; py = waterY; vy = 0;
+                // he keeps a third of the speed he came down at and digs in, and the spring below
+                // brings him back up through the water (web 45505), rather than stopping dead on it
+                airborne = false; vy *= 0.34f;
                 heliUsed = false; heliAir = false; heliHeld = false; heliSet = 0; heliLay = 0;   // down is down, rolled or not
             }
         }
         else
         {
-            py += (waterY - py) * Mathf.Min(1f, dt * 14f);
-            vy = 0;
+            // ---- floated, on a spring (web 45509-45515) ----
+            // The board is held to the water by a stiff damped spring rather than pinned to it:
+            // it rides up a face and drops down the back with a little give, settles after a
+            // landing, and the damping is measured against the water's own rise and fall so it
+            // follows the swell without lagging it. It never buries itself more than 0.45 ft.
+            float wDot = float.IsNaN(prevWaterY) ? 0f : Mathf.Clamp((waterY - prevWaterY) / Mathf.Max(1e-3f, dt), -14f, 14f);
+            vy += ((waterY - py) * 56f - (vy - wDot) * 10.4f) * dt;
+            vy = Mathf.Clamp(vy, -24f, 24f);
+            py += vy * dt;
+            if (py < waterY - 0.45f) { py = waterY - 0.45f; vy = Mathf.Max(vy, 0f); }
+            if (vy < -5.5f && Random.value < dt * 26f) onSplash?.Invoke(new Vector3(px + (Random.value - 0.5f) * 0.8f, py + 0.15f, pz - 0.6f), 2);
         }
+        prevWaterY = waterY;
         rideRamps?.Invoke(dt);                  // a ramp's deck under him wins over the sea (web 45531-45602)
 
         // the hand drag (web 45737-45752): leaving the water ends it, and while it lasts it pays 70

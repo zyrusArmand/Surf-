@@ -59,7 +59,7 @@ public class Crate : MonoBehaviour
         obj.position = p;
         obj.rotation = Quaternion.Euler(0, obj.rotation.eulerAngles.y + dt * 1.7f * Mathf.Rad2Deg, Mathf.Sin(bob * 1.3f) * 0.06f * Mathf.Rad2Deg);
         glow.intensity = 1.6f + 0.8f * Mathf.Sin(bob * 2.6f);
-        if (p.z > 14f) { on = false; obj.gameObject.SetActive(false); timer = (8f + Random.value * 11f) / Luck; return; }
+        if (p.z > 14f) { on = false; obj.gameObject.SetActive(false); timer = 8f + Random.value * 11f; return; }   // a miss re-arms at 8-19 s, luck or not (web 26685)
         if (r.running && Mathf.Abs(p.z - r.pz) < 2.2f && Mathf.Abs(p.x - r.px) < 2.2f && Mathf.Abs(r.py - p.y) < 2.0f)
         {
             on = false; held = true; obj.gameObject.SetActive(false);
