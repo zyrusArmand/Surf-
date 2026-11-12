@@ -224,7 +224,7 @@ public class JetSki : MonoBehaviour
         gt.rotation = cam.transform.rotation;
         float gd = Vector3.Distance(cam.transform.position, root.position);
         gt.localScale = Vector3.one * (gd * 0.30f * (0.94f + 0.10f * Mathf.Sin(now * 1.5f) + 0.045f * Mathf.Sin(now * 2.6f)));
-        glintMat.SetColor("_BaseColor", new Color(1f, 1f, 1f, 0.58f + 0.14f * Mathf.Sin(now * 1.5f)));
+        if (glintMat != null) glintMat.SetColor("_BaseColor", new Color(1f, 1f, 1f, 0.58f + 0.14f * Mathf.Sin(now * 1.5f)));
     }
 
     // web 30332-30340: from just behind the jet nozzle, thrown back the way it came and up

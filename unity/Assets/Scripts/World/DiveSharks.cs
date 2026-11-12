@@ -66,6 +66,7 @@ public class DiveSharks : MonoBehaviour
 
     // =====================================================================================
     // ---- the step (web dshkStep 41719-41816) ----
+    bool laid;
     public void Step(float dt, bool diveOn, float eff)
     {
         var r = rider; if (r == null) return;
@@ -75,9 +76,10 @@ public class DiveSharks : MonoBehaviour
         if (!on)
         {
             // laid out again while the dive is not on, so the next one starts clean
-            if (!diveOn && sharks.Count > 0) { foreach (var s in sharks) Lay(s); nextT = GapMin; }
+            if (!diveOn && sharks.Count > 0 && !laid) { foreach (var s in sharks) Lay(s); nextT = GapMin; laid = true; }   // once, not every frame
             return;
         }
+        laid = false;
         nextT -= dt;
         if (nextT <= 0f && sharks.Count < Max)
         {

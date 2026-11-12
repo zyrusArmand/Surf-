@@ -955,6 +955,7 @@ public class Hud : MonoBehaviour
     public void ShowRide()
     {
         menu.SetActive(false); ride.SetActive(true); card.SetActive(false); bar.SetActive(true); jump.SetActive(true); DropCard();
+        holdOff = Input.touchCount > 0 || Input.GetMouseButton(0);
         ApplyTrickSlots();
         DropSteer(); auxId = -1; auxArmed = false; auxHand = false;   // no finger or drag carried over from the last screen
         tBestS.text = "best " + SaveData.Best.ToString("N0"); tBestD.text = "best " + SaveData.BestDist.ToString("N0") + " m";
@@ -1096,7 +1097,9 @@ public class Hud : MonoBehaviour
     Vector2 Page(Vector2 screen) => new Vector2(screen.x, Screen.height - screen.y);
     float Css => canvas != null && canvas.scaleFactor > 0f ? canvas.scaleFactor : Screen.width / 430f;
 
-    void DropSteer() { steerPointer = -1; steerVal = 0f; gHoldArmed = false; }
+    // a finger lost without an end (the system took it) also lets go of a grab or a drag it held
+    void DropSteer() { if (gGrab) { rider.EndGrab(); rider.EndDrag(); gGrab = false; } steerPointer = -1; steerVal = 0f; gHoldArmed = false; }
+    bool holdOff;
     void CircleReset() { cPts.Clear(); cAng = 0f; cCirc = false; cHas = false; }
     void Fired(Vector2 p) { gFireT = Time.unscaledTime; gX0 = p.x; gY0 = p.y; }
     // one gesture per flick: without this a single swipe throws three rotations before the finger stops
@@ -1184,6 +1187,9 @@ public class Hud : MonoBehaviour
         float now = Time.unscaledTime;
         var es = EventSystem.current;
         if (Input.touchCount > 0) touchMode = true;
+        // the press that started the run is not the run's first gesture: nothing new begins until
+        // every finger (and the mouse) has come off the glass once
+        if (holdOff && Input.touchCount == 0 && !Input.GetMouseButton(0)) holdOff = false;
         // a finger the system took away without an end (a notification, a system swipe) would hold
         // its slot for good; reclaim both (web 23597-23617)
         if (steerPointer >= 0 && !Alive(steerPointer)) DropSteer();
@@ -1196,7 +1202,8 @@ public class Hud : MonoBehaviour
             {
                 // ashore the glass is not a steering wheel; the walk ring has its own finger
                 if (ashore) continue;
-                if (es != null && es.IsPointerOverGameObject(tc.fingerId)) continue;
+                if (UiKit.OverUI(tc.position)) continue;
+                if (holdOff) continue;                    // the finger that pressed Play is still down
                 if (steerPointer < 0) { steerPointer = tc.fingerId; GestureStart(p); gHoldArmed = true; }
                 else if (auxId < 0 && rider.running) { auxId = tc.fingerId; auxT0 = now; auxHand = false; auxArmed = true; }
             }
@@ -1231,9 +1238,9 @@ public class Hud : MonoBehaviour
             return;
         }
         // ---- the mouse, for a desktop: the same drag, loops and flicks, but no hold (web 23708-23736) ----
-        bool overUi = es != null && es.IsPointerOverGameObject();
+        bool overUi = UiKit.OverUI(Input.mousePosition);
         var mp = Page(Input.mousePosition);
-        if (Input.GetMouseButtonDown(0) && rider.running && !ashore && !overUi && steerPointer < 0)
+        if (Input.GetMouseButtonDown(0) && rider.running && !ashore && !overUi && steerPointer < 0 && !holdOff)
         { steerPointer = MouseId; GestureStart(mp); lastMouse = mp; }
         if (steerPointer == MouseId)
         {

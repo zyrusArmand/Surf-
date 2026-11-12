@@ -45,14 +45,33 @@ public static class Starfish
         black = Lit(new Color(0x1a / 255f, 0x10 / 255f, 0x16 / 255f), 0.18f);
     }
 
-    /// one starfish, its face toward +z, about 1.1 ft tip to tip (the web's 0.92 scale)
+    static Mesh whole;     // body, bumps, eyes and grin in one mesh: submesh 0 the skin, 1 the pale dots, 2 the black
+
+    /// one starfish, its face toward +z, about 1.1 ft tip to tip (the web's 0.92 scale). One object
+    /// and one mesh, three materials: built from forty-odd parts once, then shared, so a throw is
+    /// one GameObject rather than forty.
     public static GameObject Build(int variant, Transform parent, Material skinOverride = null)
     {
         Ensure();
-        var g = new GameObject("starfish");
+        if (whole == null) whole = Bake();
+        var g = new GameObject("starfish", typeof(MeshFilter), typeof(MeshRenderer));
         g.transform.SetParent(parent, false);
-        var skin = skinOverride != null ? skinOverride : skins[((variant % 3) + 3) % 3];
-        Part(g, body, skin, Vector3.zero, Vector3.one);
+        g.GetComponent<MeshFilter>().sharedMesh = whole;
+        var mr = g.GetComponent<MeshRenderer>();
+        mr.sharedMaterials = new[] { skinOverride != null ? skinOverride : skins[((variant % 3) + 3) % 3], dot, black };
+        mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        g.transform.localScale = Vector3.one * 0.92f;
+        return g;
+    }
+
+    static Mesh Bake()
+    {
+        var skinP = new System.Collections.Generic.List<CombineInstance>();
+        var dotP = new System.Collections.Generic.List<CombineInstance>();
+        var blackP = new System.Collections.Generic.List<CombineInstance>();
+        void Add(System.Collections.Generic.List<CombineInstance> to, Mesh m, Vector3 pos, Vector3 scale)
+            => to.Add(new CombineInstance { mesh = m, transform = Matrix4x4.TRS(pos, Quaternion.identity, scale) });
+        Add(skinP, body, Vector3.zero, Vector3.one);
         const int N = 5;
         for (int i = 0; i < N; i++)
         {
@@ -61,32 +80,33 @@ public static class Starfish
             {
                 float d = 0.27f + k * 0.135f, rr = 0.050f - k * 0.009f;
                 foreach (float zz in new[] { 0.185f, -0.185f })        // the body's faces sit at |z| 0.18: these read as bumps
-                    Part(g, sphere, dot, new Vector3(Mathf.Cos(a) * d, Mathf.Sin(a) * d, zz), new Vector3(rr * 2f, rr * 2f, rr));
+                    Add(dotP, sphere, new Vector3(Mathf.Cos(a) * d, Mathf.Sin(a) * d, zz), new Vector3(rr * 2f, rr * 2f, rr));
             }
         }
         foreach (float sx in new[] { -1f, 1f })
         {
-            Part(g, sphere, black, new Vector3(sx * 0.125f, 0.115f, 0.200f), new Vector3(0.066f * 2f * 0.88f, 0.066f * 2f * 1.1f, 0.066f * 2f * 0.42f));
-            Part(g, sphere, dot, new Vector3(sx * 0.148f, 0.150f, 0.224f), new Vector3(0.042f, 0.042f, 0.021f));
+            Add(blackP, sphere, new Vector3(sx * 0.125f, 0.115f, 0.200f), new Vector3(0.066f * 2f * 0.88f, 0.066f * 2f * 1.1f, 0.066f * 2f * 0.42f));
+            Add(dotP, sphere, new Vector3(sx * 0.148f, 0.150f, 0.224f), new Vector3(0.042f, 0.042f, 0.021f));
         }
         // the grin: the lower half of a small ring, drawn as a row of beads
         for (int i = 0; i <= 8; i++)
         {
             float a = Mathf.PI + i / 8f * Mathf.PI;
-            Part(g, sphere, black, new Vector3(Mathf.Cos(a) * 0.088f, -0.010f + Mathf.Sin(a) * 0.088f, 0.203f), new Vector3(0.042f, 0.042f, 0.019f));
+            Add(blackP, sphere, new Vector3(Mathf.Cos(a) * 0.088f, -0.010f + Mathf.Sin(a) * 0.088f, 0.203f), new Vector3(0.042f, 0.042f, 0.019f));
         }
-        g.transform.localScale = Vector3.one * 0.92f;
-        return g;
-    }
-
-    static void Part(GameObject g, Mesh m, Material mat, Vector3 pos, Vector3 scale)
-    {
-        var p = new GameObject("p", typeof(MeshFilter), typeof(MeshRenderer));
-        p.transform.SetParent(g.transform, false);
-        p.transform.localPosition = pos; p.transform.localScale = scale;
-        p.GetComponent<MeshFilter>().sharedMesh = m;
-        var mr = p.GetComponent<MeshRenderer>(); mr.sharedMaterial = mat;
-        mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        Mesh Merge(System.Collections.Generic.List<CombineInstance> parts)
+        {
+            var m = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+            m.CombineMeshes(parts.ToArray(), true, true);
+            return m;
+        }
+        var subs = new[] { Merge(skinP), Merge(dotP), Merge(blackP) };
+        var outM = new Mesh { name = "starfish", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+        var ci = new CombineInstance[3];
+        for (int i = 0; i < 3; i++) ci[i] = new CombineInstance { mesh = subs[i], transform = Matrix4x4.identity };
+        outM.CombineMeshes(ci, false, false);                        // three submeshes, one per material
+        outM.RecalculateBounds();
+        return outM;
     }
 
     // The body: the web's outline (each arm a pair of quadratic curves through a valley pulled out
@@ -144,7 +164,24 @@ public static class Starfish
             }
         }
         var mesh = new Mesh { name = "starfish" };
-        mesh.SetVertices(v); mesh.SetTriangles(idx, 0); mesh.RecalculateNormals(); mesh.RecalculateBounds();
+        mesh.SetVertices(v); mesh.SetTriangles(idx, 0); mesh.RecalculateNormals();
+        // Each face has its own copy of the rim ring, so the normals there were each face's own and
+        // met in a crease round the edge. Set both copies to the edge's own outward direction (in
+        // the plane of the star, across the outline), so the light rolls round the edge instead.
+        var nrm = mesh.normals;
+        for (int face = 0; face < 2; face++)
+        {
+            int baseV = face * ((Rings + 1) * M + 1);
+            for (int j = 0; j < M; j++)
+            {
+                Vector2 prev = outline[(j - 1 + M) % M], next = outline[(j + 1) % M];
+                Vector2 tan = next - prev; var outw = new Vector2(tan.y, -tan.x);   // the outline runs anticlockwise: right of it is outward
+                if (outw.sqrMagnitude < 1e-10f) outw = outline[j];
+                outw.Normalize();
+                nrm[baseV + j] = new Vector3(outw.x, outw.y, 0f);
+            }
+        }
+        mesh.normals = nrm; mesh.RecalculateBounds();
         return mesh;
     }
 }
@@ -168,7 +205,7 @@ public class StarSplat : MonoBehaviour
             skin = new Material(Shader.Find("Universal Render Pipeline/Lit"));
             skin.SetFloat("_Smoothness", 0.48f); skin.SetFloat("_Metallic", 0f);
             star = Starfish.Build(0, cam.transform, skin);
-            foreach (var r in star.GetComponentsInChildren<Renderer>()) r.gameObject.layer = cam.gameObject.layer;
+            star.layer = cam.gameObject.layer;
         }
         skin.SetColor("_BaseColor", tint);
         t = Dur; spin = (Random.value - 0.5f) * 0.9f; sx = (Random.value - 0.5f) * 0.28f;

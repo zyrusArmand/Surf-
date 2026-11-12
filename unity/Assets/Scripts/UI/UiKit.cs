@@ -15,6 +15,23 @@ public static class UiKit
     // own build number, which is not kept in the repo and so read whatever each machine had set.
     // Keep it with the web's when the web moves on.
     public const string Version = "10.98";
+
+    // Is the UI under this screen point? Asked of the EventSystem directly rather than through
+    // IsPointerOverGameObject, which only knows about a touch once the EventSystem's own Update
+    // has seen it -- in the frame a finger lands, if that has not run yet, a press on a button
+    // read as a press on the water as well. And for a touch it must be asked with the finger's id,
+    // which the plain overload does not do.
+    static readonly System.Collections.Generic.List<UnityEngine.EventSystems.RaycastResult> uiHits = new System.Collections.Generic.List<UnityEngine.EventSystems.RaycastResult>();
+    static UnityEngine.EventSystems.PointerEventData uiProbe;
+    public static bool OverUI(Vector2 screen)
+    {
+        var es = UnityEngine.EventSystems.EventSystem.current;
+        if (es == null) return false;
+        if (uiProbe == null) uiProbe = new UnityEngine.EventSystems.PointerEventData(es);
+        uiProbe.position = screen; uiHits.Clear();
+        es.RaycastAll(uiProbe, uiHits);
+        return uiHits.Count > 0;
+    }
     public static readonly Color Navy = new Color(0f, 0.07f, 0.165f);              // the text shadow
     public static readonly Color TrickYellow = new Color(1f, 0.875f, 0.18f);       // #ffdf2e
     const float Scale = 2f;

@@ -196,6 +196,7 @@ public class BoardController : MonoBehaviour
     public void Begin()
     {
         px = 0; py = 0; pz = 0; vx = 0; vy = 0; dist = 0; speed = SpdLo; eff = SpdLo; boost = 0; trim = 0;
+        msgT = 0f; lastMsg = ""; prevWaterY = float.NaN;                   // the last run's crash line does not open this one, nor its water the spring
         airborne = false; running = true; wipe = false; wipeT = 0; score = 0; coins = 0; bonusCoins = 0;
         spinRot = flipRot = pitchRot = 0; spinHeld = flipHeld = pitchHeld = false;
         poseTake = poseCrouch = poseExt = poseAir = poseLand = 0;
@@ -259,6 +260,7 @@ public class BoardController : MonoBehaviour
     {
         if (T == null || !T.Board || !TrickCatalog.Have(T.id)) return;
         if (!running || wipe || kf != null || heliAir || hanging) return;     // not on the rope (web 26970)
+        if (diveOn || isleOn || glideOn || heliPh >= 0) return;              // nor under the water, ashore, on the wing or in the helicopter's beats: the keys could reach it there
         if (!airborne) Jump();
         if (!airborne) return;
         kf = T; kfT = 0f;
@@ -417,6 +419,7 @@ public class BoardController : MonoBehaviour
     public void StartTrick(string type)
     {
         if (!running || !TrickReady) return;
+        if (diveOn || isleOn || glideOn || heliPh >= 0) return;              // a key press must not start one where the buttons are hidden (a grab under the dive wiped him on landing)
         if (type == "spin") spinHeld = true;
         else if (type == "roll") flipHeld = true;
         else if (type == "grab" && !grabOn) { grabOn = true; grabPts = 0f; grabSide = vx >= 0f ? 1 : -1; }
@@ -880,6 +883,7 @@ public class BoardController : MonoBehaviour
     public void Wipeout(string kind)
     {
         if (wipe) return;
+        waveT = 0f;                                                           // no waving to the lens on the way down
         // what he was doing, read before any of it is cleared: the launch is built from it
         bool onRing = ring != null && ring.tubeRide && !float.IsNaN(ring.rad);
         // The board flies off on its own only from the open water. Under the water it stays with

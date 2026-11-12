@@ -154,7 +154,11 @@ public class Spawner : MonoBehaviour
     // clears it. RAMP! +50 three quarters of the way up. Called by the rider straight after he
     // has settled on the water, so the deck wins over the sea under it.
     Ob onRamp; float rampExitV, rampExitL = 1f;
-    static float[] rampProfCache;
+    /// a crash on a deck must not leave a launch waiting: the next frame he runs would fling him
+    public void ClearRide() { onRamp = null; rampExitV = 0f; rampExitL = 1f; if (rider != null) rider.rampPitch = 0f; }
+    /// a revive takes the starfish out of the air and puts the next spawn a breath away (web respawn 27189-27190, spawnT 1.8)
+    public void ClearStars() { foreach (var st in stars) if (st.go) Destroy(st.go); stars.Clear(); splatCd = 0f; spawnT = Mathf.Max(spawnT, 1.8f); }
+    static float[] rampProfCache; static bool rampProfFailed;
     const int RampN = 24;
     public void RideRamps(float dt)
     {
@@ -221,6 +225,7 @@ public class Spawner : MonoBehaviour
     static float[] RampProfile(Transform holder)
     {
         if (rampProfCache != null) return rampProfCache;
+        if (rampProfFailed) return null;                 // read once: a deck that could not be read is not read again per ramp
         var tris = new List<Vector3>();
         foreach (var mf in holder.GetComponentsInChildren<MeshFilter>())
         {
@@ -229,7 +234,7 @@ public class Spawner : MonoBehaviour
             var toH = holder.worldToLocalMatrix * mf.transform.localToWorldMatrix;
             for (int k = 0; k + 2 < ix.Length; k += 3) { tris.Add(toH.MultiplyPoint3x4(v[ix[k]])); tris.Add(toH.MultiplyPoint3x4(v[ix[k + 1]])); tris.Add(toH.MultiplyPoint3x4(v[ix[k + 2]])); }
         }
-        if (tris.Count == 0) return null;
+        if (tris.Count == 0) { rampProfFailed = true; return null; }
         var raw = new float?[RampN + 1]; int hits = 0;
         for (int i = 0; i <= RampN; i++)
         {
@@ -245,7 +250,7 @@ public class Spawner : MonoBehaviour
             }
             if (!float.IsNegativeInfinity(top)) { raw[i] = top; hits++; }
         }
-        if (hits < RampN * 0.6f) return null;
+        if (hits < RampN * 0.6f) { rampProfFailed = true; return null; }
         var outP = new float[RampN + 1]; float last = 0f;
         for (int i = 0; i <= RampN; i++) { if (raw[i].HasValue) last = raw[i].Value; outP[i] = last; }
         for (int i = 1; i <= RampN; i++) if (outP[i] < outP[i - 1]) outP[i] = outP[i - 1];
@@ -318,7 +323,7 @@ public class Spawner : MonoBehaviour
         towOn = false; towT = 34f + Random.value * 26f; if (tow != null) tow.gameObject.SetActive(false);
         if (towRope != null) towRope.gameObject.SetActive(false);
         foreach (var st in stars) if (st.go) Destroy(st.go);
-        stars.Clear(); splatCd = 0f; onClearSplat?.Invoke();
+        stars.Clear(); splatCd = 0f; onClearSplat?.Invoke(); ClearRide();
     }
 
     public void Remove(int i) { if (obstacles[i].go) Destroy(obstacles[i].go); obstacles.RemoveAt(i); }
@@ -444,7 +449,7 @@ public class Spawner : MonoBehaviour
             // and z come from the water); writing yaw 0 here every frame threw it away, and it slid
             // across the lane side-on and never turned to come at him
             o.go.transform.rotation = o.kind == "bigfin" ? Quaternion.Euler(0f, SharkYaw(o, o.yaw), 0f) * tiltQ : tiltQ;
-            if (!r.running || r.Submerged) continue;        // under the water nothing floating on it can reach him
+            if (!r.running || r.Submerged) { o.lx = o.x; continue; }   // under the water nothing floating on it can reach him (and the swept test starts afresh when he is back)
 
             // the footprint on the water, then the height test
             // the footprint shrinks with him under a coconut charge
@@ -565,7 +570,8 @@ public class Spawner : MonoBehaviour
                     r.Wipeout("bigfin"); r.Say("EATEN!"); Sfx.Buzz(22);
                     return true;
                 }
-                o.atk = "miss"; r.score += 60; r.Say("DODGED THE SHARK! +60"); Sfx.Close(true); Sfx.Buzz(14);
+                o.atk = "miss";
+                if (r.running) { r.score += 60; r.Say("DODGED THE SHARK! +60"); Sfx.Close(true); Sfx.Buzz(14); }   // not paid to a man already down to something else
             }
             if (k >= 1f) { onSplash?.Invoke(new Vector3(o.x, o.y, o.z), 26); o.atk = "done"; o.targetX = o.x; o.y = sea + o.floatOff; }
             return true;
@@ -808,6 +814,9 @@ public class Spawner : MonoBehaviour
                 // web's height, which the jellyfish bounce and the knocks are measured from
                 float shift = -sink - o.floatOff - bottom;
                 foreach (Transform c in holder.transform) c.localPosition += new Vector3(0f, shift, 0f);
+                // a buoy's hit height is its drawn top over the water: the web's 4.4 / 2.6 stood
+                // above the model as drawn and seated here, an invisible wall over a buoy cleared
+                if (kind == "buoy") o.h = tall - sink;
             }
         }
         if (o.ramp) o.floatOff -= o.rampSink;

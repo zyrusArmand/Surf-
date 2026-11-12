@@ -240,7 +240,7 @@ public class Bootstrap : MonoBehaviour
             // coconut charge carried over (the web drops it at the wipeout), the fork island, the
             // dive and the boat or wing all put away, and no boost banked from before the crash
             Hull.Reset(); cocos.Reset(); island.Reset(); dive.Reset(); boat.Reset(); rider.boost = 0f;
-            spawner.ClearTow(); spawner.onClearSplat?.Invoke();
+            spawner.ClearTow(); spawner.onClearSplat?.Invoke(); spawner.ClearRide(); spawner.ClearStars();
             ski.Revive();                                    // the ski and its wake put away, the next one 26 s out (web 27178)
             rider.Revive(); over = false; hud.ShowRide(); chase.Snap();
         };
@@ -412,7 +412,7 @@ public class Bootstrap : MonoBehaviour
         ski.Reset();
         if (questBoard != null) questBoard.Reset();      // the lens home and the board put away (web 27353)
         Quests.Roll();
-        if (Wheel.RunStart()) BuildRider(); if (Wheel.ConsumeChest()) crate.Soon(); bankedDist = bankedScore = bankedCoins = 0;
+        if (Wheel.RunStart() | loanBack) { loanBack = false; BuildRider(); } if (Wheel.ConsumeChest()) crate.Soon(); bankedDist = bankedScore = bankedCoins = 0;
         rider.Begin(); runSecs = 0;
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
@@ -422,10 +422,12 @@ public class Bootstrap : MonoBehaviour
         chase.Snap();
     }
 
+    bool loanBack;        // a wheel loan ended with the run; the board goes back at the title or the next run
+
     /// the title: the ride stops, he floats in the lane, the dial comes up
     void Menu()
     {
-        if (Wheel.RunEnd()) BuildRider();        // a loan from the wheel is given back
+        if (Wheel.RunEnd() | loanBack) { loanBack = false; BuildRider(); }        // a loan from the wheel is given back
         spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset(); island.Reset(); chute.Reset(); boat.Reset();
         ski.Reset();
         rider.Idle(0f);
@@ -576,7 +578,7 @@ public class Bootstrap : MonoBehaviour
                 int rkPay = Rungs.RankPayBetween(was, now); SaveData.Coins += rkPay;
                 var rc = new Hud.RunCard { dist = d, score = rider.score, earned = earned, doubled = dbl, lvUp = now - was, level = now, pay = lvPay + rkPay, rankUp = Rungs.RankIdx(now) > Rungs.RankIdx(was), rider = Hud.RiderName() };
                 for (int L = was + 1; L <= now; L++) rc.unlocked.AddRange(Rungs.UnlocksAt(L));
-                Wheel.RunEnd(); SaveData.Flush();
+                loanBack |= Wheel.RunEnd(); SaveData.Flush();      // the loan is over; the board goes back at the title or the next run
                 // a chest caught on the run is opened first, and the card waits its turn behind it (web 28615)
                 if (crate.Open(() => hud.ShowCard(true, rc))) hud.ShowNone();
                 else hud.ShowCard(true, rc);
@@ -594,11 +596,13 @@ public class Bootstrap : MonoBehaviour
             bool paneOpen = shop.Open || quests.Open || stats.Open || settings.Open || school.Open || profile.Open || guide.Open || wheel.Open || levelInfo.Open || puka.Open || secret.Open;
             // the signpost is the title's; once the lens has turned toward the board it is not in shot
             if (questBoard != null && questBoard.Away > 0.01f) paneOpen = true;
-            if (Input.GetMouseButtonDown(0) && !over2 && !paneOpen) beach.Tap(cam, Input.mousePosition);
+            // a phone reports every touch as a mouse click as well: the mouse is read only when there
+            // is no touch, or one tap pressed the arm twice and a pill over an arm pressed both
+            if (Input.touchCount == 0 && Input.GetMouseButtonDown(0) && !UiKit.OverUI(Input.mousePosition) && !paneOpen) beach.Tap(cam, Input.mousePosition);
             for (int i = 0; i < Input.touchCount; i++)
             {
                 var tc = Input.GetTouch(i);
-                bool overT = UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject(tc.fingerId);
+                bool overT = UiKit.OverUI(tc.position);
                 if (tc.phase == TouchPhase.Began && !overT && !paneOpen) beach.Tap(cam, tc.position);
             }
         }

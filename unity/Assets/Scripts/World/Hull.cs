@@ -248,6 +248,7 @@ public static class Hull
         if (markMat == null)
         {
             var sh = Shader.Find("Universal Render Pipeline/Unlit");
+            if (sh == null) sh = Shader.Find("Universal Render Pipeline/Lit");     // never throw here: the crack is drawn before the snap is decided
             markMat = new Material(sh); markMat.SetColor("_BaseColor", new Color(0.078f, 0.063f, 0.051f, 0.9f));
             markMat.SetFloat("_Surface", 1); markMat.SetFloat("_Blend", 0); markMat.renderQueue = 3001;
             markMat.SetInt("_ZWrite", 0); markMat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
