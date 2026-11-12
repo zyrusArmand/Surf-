@@ -15,7 +15,7 @@ Shader "Surf/Sand"
         _BaseTex ("Base", 2D) = "white" {}
         _NrmTex ("Normal", 2D) = "bump" {}
         _NrmK ("Normal strength", Float) = 1.35
-        _Grade ("Grade (sRGB multiplier on the texture)", Color) = (1.0, 0.99, 0.97, 1)
+        _Grade ("Grade (sRGB multiplier on the texture)", Color) = (1.04, 1.07, 1.13, 1)
         _Gain ("Gain", Float) = 1.0
         _ShadowK ("Shadow darkness", Float) = 0.42
         _Detail ("Close-up detail", Float) = 1.0
@@ -101,7 +101,13 @@ Shader "Surf/Sand"
                 N = normalize(N + float3(-tilt.x, 0.0, -tilt.y));
 
                 // ---- the light ----
-                float4 sc = TransformWorldToShadowCoord(i.w);
+                // The shadow is looked up a little off the surface, along its normal and toward the
+                // sun. With the title's sun only a few degrees up, a lookup on the surface itself
+                // lands half inside the sand's own shadow-map depth and the beach shades itself in
+                // speckles (acne), which read as dull, dirty sand.
+                Light L0 = GetMainLight();
+                float3 Ls = normalize(L0.direction);
+                float4 sc = TransformWorldToShadowCoord(i.w + N0 * 0.12 + Ls * 0.15);
                 Light L = GetMainLight(sc);
                 float shadow = lerp(L.shadowAttenuation, 1.0, GetMainLightShadowFade(i.w));
                 float3 Ld = normalize(L.direction);
@@ -114,9 +120,10 @@ Shader "Surf/Sand"
                     shade *= lerp(1.0, ao.indirectAmbientOcclusion, 0.8);
                 #endif
                 float3 col = albedo * _Grade.rgb * _Gain * shade;
-                // the key's warmth on what it reaches, a little cooler in the shade
-                float3 keyC = pow(max(L.color, 0.0), 1.0 / 2.2) / max(1e-3, max(L.color.r, max(L.color.g, L.color.b)));
-                col *= lerp(float3(0.93, 0.96, 1.04), lerp(float3(1, 1, 1), keyC, 0.10), shadow);
+                // a little cooler in the shade, where only the sky lights it. (The grade above carries
+                // the sky's blue-white fill the web's hemisphere light gives the whole beach,
+                // 0xdfeeff at 0.62; with no sky term the sand came out orange and dull.)
+                col *= lerp(float3(0.93, 0.96, 1.04), float3(1, 1, 1), shadow);
 
                 // the odd grain of quartz catching the sun
                 float3 Vw = normalize(GetWorldSpaceViewDir(i.w));
