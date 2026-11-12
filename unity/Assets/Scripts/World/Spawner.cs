@@ -13,6 +13,8 @@ public class Spawner : MonoBehaviour
         public bool knocked; public float kvx, kvy, kvz, ksx, ksz, ky, kax, kaz;
         // the shark
         public float dir, startX, targetX, at, x0, z0, aimX, aimZ, yaw; public bool hunts; public string atk;
+        // its jaw (a bone in the model), how far the mouth sits under the holder, and the bite clock
+        public Transform jaw; public Quaternion jawRest; public float jawAng = float.NaN, jawT, bite = -1f, lift = 1.2f;
     }
     public Ob eater;                 // the shark that has him, while the chew lasts
     float bigFinCd; int octCd;
@@ -317,6 +319,7 @@ public class Spawner : MonoBehaviour
     {
         var r = rider;
         float togo = Mathf.Max(0.35f, (-o.z) / Mathf.Max(8f, eff));
+        SharkJaw(o, dt, togo);
         if (o.atk == null)
         {
             float vx = (o.targetX - o.x) / togo;
@@ -339,7 +342,7 @@ public class Spawner : MonoBehaviour
             o.x = o.x0 + (tx - o.x0) * k; o.z = o.z0 + (tz - o.z0) * k;
             float sea = WaveField.Swell(o.x, fzBase + o.z, r.t);
             float arc = Mathf.Sin(Mathf.PI * k);
-            o.y = sea + o.floatOff + (1.2f + ShkApex) * arc;
+            o.y = sea + o.floatOff + (o.lift + ShkApex) * arc;       // the JAWS clear the water by the apex, not the fin
             float ldx = tx - o.x0, ldz = tz - o.z0;
             float yaw = o.hunts ? Mathf.Atan2(ldx, ldz) : o.yaw;
             float dyk = Mathf.PI * Mathf.Cos(Mathf.PI * k) * ShkApex, dhk = (o.hunts ? Mathf.Sqrt(ldx * ldx + ldz * ldz) : Mathf.Abs(ldx)) + 0.001f;
@@ -367,13 +370,43 @@ public class Spawner : MonoBehaviour
             // it takes him under over the chew, and the ride's wipeout follows it
             o.at += dt; float k = Mathf.Min(1f, o.at / ShkChew);
             float sea = WaveField.Swell(o.x, fzBase + o.z, r.t);
-            o.y = sea + o.floatOff + 2.0f * (1f - k) - 4.5f * k * k;
+            o.y = sea + o.floatOff + (o.lift + 2.0f) * (1f - k) - 4.5f * k * k;
             o.go.transform.position = new Vector3(o.x, o.y, o.z);
-            r.px = o.x; r.py = o.y + 1.1f; r.pz = o.z; r.vy = 0;
+            r.px = o.x; r.py = o.y - o.lift + 0.2f; r.pz = o.z; r.vy = 0;      // held in the mouth, not on its back
             r.transform.position = new Vector3(r.px, r.py, r.pz);
             return true;
         }
         return false;   // done: it swims on as a fin
+    }
+
+    // ---- the jaw works (web 46375-46407) ----
+    // Cruising it chews slowly open and shut, so the mouth never reads as a frozen model; a beat
+    // before it reaches your lane it snaps shut and falls open again; in a leap it gapes on the
+    // way up and shuts at the apex, where the strike is decided; holding you it stays half shut.
+    // Angles are the web's degrees about the bone's own hinge (its Y), positive shutting. The
+    // import mirrors x, which turns a rotation about Y the other way, hence the minus.
+    const float JawShut = 58f, JawIdle = 17f, JawSwing = 11f, JawRate = 1.7f, JawEase = 13f, BiteSecs = 0.85f, BiteLead = 0.55f, BiteX = 5.0f;
+    void SharkJaw(Ob o, float dt, float togo)
+    {
+        if (o.jaw == null) return;
+        var r = rider;
+        o.jawT += dt;
+        if (o.bite < 0f && o.atk == null && togo < BiteLead && Mathf.Abs(o.x - r.px) < BiteX) o.bite = 0f;
+        float want;
+        if (o.atk == "leap" || o.atk == "miss")
+        {
+            float k = Mathf.Min(1f, o.at / ShkArc);
+            want = k < 0.5f ? -14f - 6f * Mathf.Sin(Mathf.PI * k) : JawShut * Mathf.Max(0f, 1f - (k - 0.5f) / 0.34f);
+        }
+        else if (o.atk == "bite") want = JawShut * 0.42f;
+        else if (o.bite >= 0f && o.bite < BiteSecs)
+        {
+            o.bite += dt; float b = o.bite / BiteSecs;
+            want = JawShut * Mathf.Clamp01(b < 0.30f ? b / 0.30f : 1f - (b - 0.55f) / 0.45f);
+        }
+        else want = JawIdle + Mathf.Sin(o.jawT * JawRate) * JawSwing;
+        o.jawAng = float.IsNaN(o.jawAng) ? want : o.jawAng + (want - o.jawAng) * Mathf.Min(1f, dt * JawEase);
+        o.jaw.localRotation = o.jawRest * Quaternion.AngleAxis(-o.jawAng, Vector3.up);
     }
 
     // the octopus bobs in its own time and, once it is in range ahead, lobs starfish at him
@@ -512,6 +545,28 @@ public class Spawner : MonoBehaviour
                     var g = Models.Spawn("bigfin", holder.transform, 3.4f, PrimitiveType.Cube);
                     foreach (var a in g.GetComponentsInChildren<Animation>(true)) a.enabled = false;
                     foreach (var a in g.GetComponentsInChildren<Animator>(true)) a.enabled = false;
+                    // ---- a shark IN the water, with only its fin out (web 23218-23268) ----
+                    // Fitted 3.4 ft tall and stood on its belly at the holder, the whole animal lay ON
+                    // the sea: a small fish floating side-on, which is what read as a shark that was
+                    // not swimming. The web fits it nine feet long, squashes it across its beam to
+                    // 0.74, and drops it until only the top 0.36 ft is above the waterline, so the
+                    // fin cuts the water and the body is a dark shape under it.
+                    var sb = Models.Bounds(g);
+                    float sLong = Mathf.Max(sb.size.x, sb.size.z);
+                    if (sLong > 1e-4f)
+                    {
+                        var ls = g.transform.localScale * (9f / sLong);
+                        ls.z *= 0.74f;
+                        g.transform.localScale = ls;
+                        sb = Models.Bounds(g);
+                        g.transform.localPosition += new Vector3(-sb.center.x, (0.36f - o.floatOff) - sb.max.y, -sb.center.z);
+                    }
+                    foreach (var t in g.GetComponentsInChildren<Transform>(true))
+                        if (t.name == "Jaw") { o.jaw = t; o.jawRest = t.localRotation; break; }
+                    o.jawT = Random.value * 6f;
+                    // how far the mouth sits under the holder: the leap lifts by this as well, so the
+                    // jaws (not the fin) clear the water by the apex
+                    if (o.jaw != null) o.lift = Mathf.Max(0f, holder.transform.position.y - o.jaw.position.y);
                     o.dir = Random.value < 0.5f ? 1f : -1f;
                     o.hunts = Random.value < ShkChance;
                     o.startX = rider.px - o.dir * (11f + Random.value * 5f);

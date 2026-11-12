@@ -33,10 +33,16 @@ public class Save
     public List<string> trickSlots = new List<string>();
     // dives and pearls, coconuts caught
     public int pearls, dives, coconuts;
+    // the web's stats.tricks: how many of each trick, by the web's own key (roll, flip, spin,
+    // heli, handstand, barrel, and the board tricks by id), for Stats' "Favourite trick"
+    public List<Tally> trickTally = new List<Tally>();
 }
 
 [System.Serializable]
 public class GoalSave { public string id; public int n; public bool done; }
+
+[System.Serializable]
+public class Tally { public string k; public int n; }
 
 public static class SaveData
 {
@@ -58,6 +64,8 @@ public static class SaveData
             if (s.ownedGear == null) s.ownedGear = new List<string>(); if (s.ownedTricks == null) s.ownedTricks = new List<string>(); if (s.trickSlots == null) s.trickSlots = new List<string>();
             if (s.uname == null) s.uname = ""; if (s.wheelLast == null) s.wheelLast = ""; if (s.wheelLoan == null) s.wheelLoan = ""; if (s.wheelRider == null) s.wheelRider = "";
             if (s.gearEyes == null) s.gearEyes = ""; if (s.gearHead == null) s.gearHead = ""; if (s.gearNeck == null) s.gearNeck = ""; if (s.gearBody == null) s.gearBody = "";
+            if (s.trickTally == null) s.trickTally = new List<Tally>();
+            s.uname = CleanName(s.uname);
             // the older keys, carried across once
             if (s.best == 0 && PlayerPrefs.HasKey("best")) { s.best = PlayerPrefs.GetInt("best", 0); s.bestDist = PlayerPrefs.GetInt("bestDist", 0); s.coins = PlayerPrefs.GetInt("coins", 0); }
             return s;
@@ -66,6 +74,19 @@ public static class SaveData
     public static int Best { get => S.best; set { S.best = value; } }
     public static int BestDist { get => S.bestDist; set { S.bestDist = value; } }
     public static int Coins { get => S.coins; set { S.coins = Mathf.Max(0, value); } }
+    // ---- your name ----
+    // Nothing is sent anywhere; it lives in the save like everything else. Trimmed and capped on
+    // the way in (the web's setUname) so a pasted essay cannot break the row it is drawn in.
+    public const int NameMax = 16;
+    public static string CleanName(string v)
+    {
+        v = System.Text.RegularExpressions.Regex.Replace(v ?? "", @"\s+", " ").Trim();
+        return v.Length > NameMax ? v.Substring(0, NameMax) : v;
+    }
+    /// the web's unameOr: the name, or "Surfer" until one is given
+    public static string NameOr => string.IsNullOrEmpty(S.uname) ? "Surfer" : S.uname;
+    public static void SetName(string v) { S.uname = CleanName(v); Flush(); }
+
     public static bool Owns(string id) => S.owned.Contains(id);
     public static bool OwnsRider(string id) => S.ownedChars.Contains(id);
     /// the secret panel's Reset: everything back to a first launch

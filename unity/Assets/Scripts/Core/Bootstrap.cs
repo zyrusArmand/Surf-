@@ -76,7 +76,11 @@ public class Bootstrap : MonoBehaviour
         ocean = oceanGo.AddComponent<Ocean>();
         ocean.Init(new Material(Shader.Find("Surf/Ocean")));
         var chop = Resources.Load<Texture2D>("Models/waternormals");
-        if (chop != null) { chop.wrapMode = TextureWrapMode.Repeat; ocean.material.SetTexture("_Chop", chop); ocean.material.SetFloat("_ChopK", 1f); }
+        // Filtered as the web filters it (10246): trilinear and anisotropic. Bilinear, the sea is seen
+        // at a grazing angle almost everywhere, so each step from one mip to the next fell on a hard
+        // line straight across the water at a fixed distance from the lens -- bands of different
+        // ripple running left to right through the sea, and moving as the camera bobbed.
+        if (chop != null) { chop.wrapMode = TextureWrapMode.Repeat; chop.filterMode = FilterMode.Trilinear; chop.anisoLevel = 8; ocean.material.SetTexture("_Chop", chop); ocean.material.SetFloat("_ChopK", 1f); }
 
         day = gameObject.AddComponent<DayCycle>();
         day.sky = skyMat; day.ocean = ocean.material; day.sun = sun;
