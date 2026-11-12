@@ -53,6 +53,13 @@ Shader "Surf/Glass"
                 float sp = pow(saturate(dot(N, H)), lerp(16.0, 160.0, _Gloss)) * _Spec;
                 float fr = pow(1.0 - saturate(dot(N, V)), 4.0) * _Fresnel;
                 col += L.color * sp + amb * fr;
+                // the sky in the gloss, as the web's boards carry it (an environment map on a glossy
+                // coat): a little face-on, most of it at a glancing angle. Without it a board with the
+                // sun behind it went dark on the water, lit only by the ambient
+                float3 R = reflect(-V, N);
+                float F = 0.04 + 0.96 * pow(1.0 - saturate(dot(N, V)), 5.0);
+                float3 env = GlossyEnvironmentReflection(R, 1.0 - _Gloss * 0.85, 1.0);
+                col = col * (1.0 - F * 0.35) + env * lerp(0.12, 0.85, F);
                 // the web's boards are tone mapped (ACES, exposure 1.02) while its sea is not; the
                 // global curve is off for the sea's sake, so the board carries its own
                 col *= 1.02;

@@ -293,7 +293,10 @@ Shader "Surf/Ocean"
                     mw.xz += (Nr.xz + float2(wob.x, wob.y) * 0.05) * 0.55;
                     float4 rc = mul(_ReflVP, float4(mw, 1.0));
                     float2 ruv = rc.xy / max(1e-4, rc.w) * 0.5 + 0.5;
-                    float inside = smoothstep(0.0, 0.04, ruv.x) * smoothstep(1.0, 0.96, ruv.x) * smoothstep(0.0, 0.04, ruv.y) * smoothstep(1.0, 0.96, ruv.y);
+                    // faded only at the sides: water close to the lens looks its reflection up below the
+                    // bottom of the picture (it is mirrored about its own height now), and fading there
+                    // drew a straight line across the sea behind the board; clamped, it just continues
+                    float inside = smoothstep(0.0, 0.04, ruv.x) * smoothstep(1.0, 0.96, ruv.x);
                     float3 rs = SAMPLE_TEXTURE2D(_ReflTex, sampler_ReflTex, saturate(ruv)).rgb;
                     rs = pow(max(rs, 0.0), 1.0 / 2.2);                       // back to the plain numbers this shader works in
                     skyRefl = lerp(skyRefl, rs, inside * (rc.w > 0.0 ? 0.92 : 0.0));

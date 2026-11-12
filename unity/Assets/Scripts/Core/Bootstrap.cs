@@ -181,6 +181,30 @@ public class Bootstrap : MonoBehaviour
         ready = true; load.Hide();
     }
 
+    /// the rider's (and what he wears') opaque materials onto Surf/Character, keeping their
+    /// texture and colour; anything see-through (lenses, glass) is left as it is
+    static void Character(GameObject go)
+    {
+        var sh = Shader.Find("Surf/Character");
+        if (sh == null || go == null) return;
+        foreach (var r in go.GetComponentsInChildren<Renderer>(true))
+        {
+            var ms = r.sharedMaterials; bool changed = false;
+            for (int i = 0; i < ms.Length; i++)
+            {
+                var src = ms[i];
+                if (src == null || src.shader == sh || src.renderQueue >= 2450) continue;
+                var m = new Material(sh) { name = src.name + " (character)" };
+                Texture t = null; foreach (var p in new[] { "baseColorTexture", "_BaseMap", "_MainTex" }) if (t == null && src.HasProperty(p)) t = src.GetTexture(p);
+                Color c = Color.white; foreach (var p in new[] { "baseColorFactor", "_BaseColor", "_Color" }) if (src.HasProperty(p)) { c = src.GetColor(p); break; }
+                if (t != null) m.SetTexture("_BaseMap", t);
+                m.SetColor("_BaseColor", c);
+                ms[i] = m; changed = true;
+            }
+            if (changed) r.sharedMaterials = ms;
+        }
+    }
+
     // the board's box in its own frame: every visible mesh's corners brought into the board root
     void MeasureHull()
     {
@@ -298,6 +322,7 @@ public class Bootstrap : MonoBehaviour
             riderRig = pug.gameObject.AddComponent<RiderRig>(); riderRig.Init(rider);
             riderRig.SetBoard(b);          // the ring and the ski are sat in, not stood on
             Gear.Dress(pug, SaveData.S);   // what the save says he wears; a rider without the bones is skipped
+            Character(pug.gameObject);     // tone mapped as the web tone maps him (Surf/Character)
         }
         if (beach != null) beach.SetBoard(b.id);
     }

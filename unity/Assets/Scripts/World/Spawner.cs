@@ -8,7 +8,7 @@ public class Spawner : MonoBehaviour
     public class Ob
     {
         public string kind; public GameObject go; public float x, z, y, floatOff, hx, hz, h;
-        public bool ramp, used, passed, escape; public float rx, rz;
+        public bool ramp, used, passed, escape; public float rx, rz, rampSink, rampLift = 1f;
         // knocked: shoved aside, lifted and set spinning by the thing that hit it
         public bool knocked; public float kvx, kvy, kvz, ksx, ksz, ky, kax, kaz;
         // the shark
@@ -37,6 +37,9 @@ public class Spawner : MonoBehaviour
     // ordinary spawner holds for the length of either (web 46175, 46182). holdCast is written
     // each frame by Island/Chute; chuteW is the chute's weight 0..1, which swaps the rack for
     // rock, timber and the odd slab and tightens the gap by 30% (web 46192, 46213-46214).
+    // the ramp, as the web builds it and sinks it (22780, 23179-23187)
+    const float RampL = 2.55f, RampH = 2.15f, RampSink = 0.26f, RampLaunchDrop = 0.35f;
+    static readonly float[] RampTiers = { 0f, 0.42f, 0.74f, 1f };
     public bool holdCast;
     public float chuteW;
     const float ShkLead = 1.15f, ShkArc = 1.30f, ShkApex = 5.4f, ShkDodge = 3.2f, ShkOver = 3.4f, ShkReach = 7.5f, ShkChance = 0.66f, ShkPast = 2.2f;
@@ -224,7 +227,7 @@ public class Spawner : MonoBehaviour
                 // a surface, not a thing to hit: ride up it and leave the top
                 if (!r.airborne && !o.used && o.z > r.pz - 1.5f)
                 {
-                    o.used = true; r.vy = 15.5f * r.statAir; r.airborne = true; r.boost = Mathf.Min(16f, r.boost + 4f); r.poseTake = 1f;
+                    o.used = true; r.vy = 15.5f * r.statAir * o.rampLift; r.airborne = true; r.boost = Mathf.Min(16f, r.boost + 4f); r.poseTake = 1f;
                     r.Say("RAMP!"); Sfx.Buzz(12);
                 }
             }
@@ -395,8 +398,22 @@ public class Spawner : MonoBehaviour
                 { var g = Models.Spawn("log", holder.transform, 1.2f, PrimitiveType.Capsule); Models.FitLength(g, 6.4f);
                   // FitLength lays the long side along z; a log floats ACROSS the lane, so a quarter turn in the parent's frame
                   g.transform.localRotation = Quaternion.Euler(0, 90, 0) * g.transform.localRotation; } break;
-            case "ramp": o.hx = 2.4f; o.hz = 3.0f; o.h = 1.6f; o.ramp = true;
-                { var g = Models.Spawn("ramp", holder.transform, 1.6f, PrimitiveType.Cube); if (g.name.EndsWith("(stand-in)")) g.transform.localScale = new Vector3(4.6f, 1.2f, 6f); } break;
+            case "ramp": o.hx = 1.70f; o.hz = 2.55f; o.h = 1.6f; o.ramp = true;
+                {
+                    // the web's ramp (22780-22862): 5.1 feet up its length (RL 2.55 each way), lip at
+                    // the far end (-z, which is how the file has it), skirt 0.30 under the deck line
+                    var g = Models.Spawn("ramp", holder.transform, 1.6f, PrimitiveType.Cube);
+                    if (g.name.EndsWith("(stand-in)")) g.transform.localScale = new Vector3(4.6f, 1.2f, 6f);
+                    else
+                    {
+                        Models.FitLength(g, RampL * 2f);
+                        var rb = Models.Bounds(g);
+                        g.transform.position += new Vector3(0f, -0.30f - (rb.min.y - holder.transform.position.y), 0f);
+                    }
+                    // one of four heights in the water (web RAMP_TIERS): the deeper it sits, the lower it launches
+                    float tier = RampTiers[Random.Range(0, RampTiers.Length)];
+                    o.rampSink = RampH * tier * RampSink; o.rampLift = 1f - tier * RampLaunchDrop;
+                } break;
             case "jelly": o.hx = 1.1f; o.hz = 1.1f; o.h = 1.4f;
                 { var g = Models.Spawn("jelly", holder.transform, 2.6f, PrimitiveType.Sphere); } break;
             case "rock": o.hx = 1.55f; o.hz = 0.95f; o.h = 1.15f;
@@ -450,8 +467,8 @@ public class Spawner : MonoBehaviour
         // and the log centred, so the buoy hung a third of a foot clear of the sea and the log
         // barely touched it, and both read as hovering (and their reflections as detached). Each
         // floating thing is seated by its own measured bottom instead: a buoy's float base half a
-        // foot under, a log a bit under half its thickness, a jellyfish a third of its height.
-        float draft = kind == "buoy" ? 0.5f : kind == "log" ? 0.45f : kind == "jelly" ? 0.33f : -1f;
+        // foot under, a log a bit under half its thickness, a jellyfish with only the top of its bell out.
+        float draft = kind == "buoy" ? 0.5f : kind == "log" ? 0.45f : kind == "jelly" ? 0.72f : -1f;   // a jellyfish is IN the sea: the top of its bell out, the tentacles under
         if (draft >= 0f)
         {
             var rs = holder.GetComponentsInChildren<Renderer>();
@@ -460,9 +477,13 @@ public class Spawner : MonoBehaviour
                 var bb = rs[0].bounds; foreach (var rr in rs) bb.Encapsulate(rr.bounds);
                 float bottom = bb.min.y - holder.transform.position.y, tall = bb.size.y;
                 float sink = kind == "buoy" ? draft : draft * Mathf.Min(tall, kind == "log" ? 1.6f : 2.6f);
-                o.floatOff = -bottom - sink;
+                // the MODEL is moved down inside its holder, not the holder: the holder keeps the
+                // web's height, which the jellyfish bounce and the knocks are measured from
+                float shift = -sink - o.floatOff - bottom;
+                foreach (Transform c in holder.transform) c.localPosition += new Vector3(0f, shift, 0f);
             }
         }
+        if (o.ramp) o.floatOff -= o.rampSink;
         o.y = WaveField.Swell(x, rider.dist * WaveField.Drift + z, rider.t) + o.floatOff;
         obstacles.Add(o);
         return o;
