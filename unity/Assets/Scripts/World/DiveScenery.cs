@@ -2,8 +2,8 @@
 // the sand (and four arches you can swim through), clumps of kelp rooted in it and swaying, and
 // turtles and rays going about their business in the column. Everything is born out past the
 // fog and recycled behind him; the rocks and the arches are solid and end the run (web 41398).
-// The web's dive shark (dshk) is not here. The turtle's bone-driven stroke is not either: the
-// files play as they come. Models are the web's own, under Resources/Models.
+// The web's dive sharks (dshk) are in DiveSharks.cs, stepped by Dive. The turtle's bone-driven
+// stroke is not ported: the files play as they come. Models are the web's own, under Resources/Models.
 using System.Collections.Generic;
 using UnityEngine;
 

@@ -6,6 +6,7 @@
 //         0.9 s, then he hangs: the vertical is the swipe (or W/S, or the jump button held)
 //         at nine feet a second. Pearls hang in the lane and pay puka on the spot. Swim hard
 //         at the surface and he breaches: out in an arc and back in, the dive still on.
+//         Sharks cruise the column, and one that notices him can bite (DiveSharks.cs).
 //   OUT:  when the clock runs out the pack lifts him up through the surface and over an arc
 //         back onto the board. Running out of air never ends the run; it surfaces him.
 //
@@ -86,6 +87,7 @@ public class Dive : MonoBehaviour
     Transform pack; Light packGlow; Material[] nozzleMats;
     GameObject pearlRoot; Transform[] pearls; float[] pearlH, pearlPh; bool[] pearlGot;
     GameObject dome; Material domeMat; DiveBed bed; DiveScenery scenery;
+    DiveSharks sharks;                                  // the sharks under (web dshk), made on the first dive
     Color[] packGlowBase;
     bool fogSet; float fog0Start, fog0End; FogMode fog0Mode;
     public const float JetTall = 0.55f, JetWide = 1.72f;   // feet up his spine; the tanks fattened across
@@ -102,6 +104,7 @@ public class Dive : MonoBehaviour
         if (pearlRoot != null) pearlRoot.SetActive(false);
         if (pack != null) pack.gameObject.SetActive(false);
         if (scenery != null) { scenery.Relay(); scenery.Show(false); }
+        if (sharks != null) sharks.Reset();
         if (rider != null) { rider.diveOn = false; rider.diveShield = false; rider.divePitch = 0; rider.divePose = 0; rider.divePike = 0; rider.diveLoad = 0; rider.diveLift = 0; }
         Sfx.LoopStop("jet", 180);
         ApplyLook();
@@ -154,6 +157,9 @@ public class Dive : MonoBehaviour
             float camZ = chase != null ? chase.transform.position.z : 11f;
             scenery.Step(dt, show, On, r.eff, camZ, fogSet ? RenderSettings.fogEndDistance : FogOff);
         }
+        // the sharks, after the scenery as the web steps dshkStep after it (web 47200-47203)
+        if (On && r.running && sharks == null) { sharks = new GameObject("DiveSharksRoot").AddComponent<DiveSharks>(); sharks.rider = r; }
+        if (sharks != null) sharks.Step(dt, On, r.eff);
         // the swim pose the rig reads: the fold IS the pose arriving, the dive's own ease owns it after
         bool want = On && !(Exit > 0f && exitAir);
         Pose += ((want ? 1f : 0f) - Pose) * Mathf.Min(1f, dt * (On ? 7f : 5f));
