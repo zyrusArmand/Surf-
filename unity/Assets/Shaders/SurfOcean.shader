@@ -232,6 +232,9 @@ Shader "Surf/Ocean"
                 // what stands between the sun and this bit of sea: the rider, the palm, the buoys, the lip
                 float shade = MainLightRealtimeShadow(TransformWorldToShadowCoord(i.w));
                 shade = lerp(shade, 1.0, GetMainLightShadowFade(i.w));
+                // water is not a diffuse surface: a shadow on it is a faint dimming, never a hole. And
+                // a low sun throws every shadow tens of feet across the sea, so they fade out as it sets
+                shade = lerp(1.0, shade, 0.45 * smoothstep(0.10, 0.45, L.y));
                 // and the board's own contact shadow: the water right under and round the hull darkens,
                 // most when the board sits on it, gone once it is a couple of feet up
                 if (_HullS.w > 0.5)
@@ -242,7 +245,7 @@ Shader "Surf/Ocean"
                     float2 out2 = float2(max(0.0, abs(hp.x) - hw), max(0.0, abs(hp.z) - _HullS.y));
                     float gap = max(0.0, _HullS.z - hp.y);
                     float hug = exp(-dot(out2, out2) / (0.18 + 0.30 * gap));
-                    shade = min(shade, 1.0 - hug * 0.55 * (1.0 - smoothstep(0.15, 2.4, gap)));
+                    shade = min(shade, 1.0 - hug * 0.38 * (1.0 - smoothstep(0.15, 2.4, gap)));
                 }
                 float sunLit = lerp(0.52, 1.0, shade);
                 float3 lit = base * (0.38 + 0.72 * diff * shade) * lerp(0.86, 1.0, shade);
@@ -265,7 +268,7 @@ Shader "Surf/Ocean"
                 }
                 skyRefl += _Glow.rgb * pow(max(dot(R, L), 0.0), 40.0) * 0.55 * smoothstep(-0.12, 0.06, L.y);
                 float3 col = lerp(lit, skyRefl, fres * 0.88) + spec * shade;
-                col += _Glow.rgb * gl * shade;
+                col += _Glow.rgb * gl * lerp(1.0, shade, 0.5);
                 // light through the crests
                 float thin = smoothstep(0.25 * _Peak, 0.95 * _Peak, hS);
                 float toSun = pow(max(dot(V, -L), 0.0), 2.6);
