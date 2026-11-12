@@ -147,10 +147,24 @@ public class DayCycle : MonoBehaviour
         }
         else
         {
-            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
             RenderSettings.fog = true;
-            // the web's hemisphere runs at 0.24 + 0.76*daylight + 0.20*moonUp
-            RenderSettings.ambientLight = Color.Lerp(mid * 0.55f, glow * 0.4f, glowAmt * 0.4f) * (0.3f + 0.7f * daylight + 0.20f * moonUp);
+            // ---- the web's hemisphere light, as it is (3657, 29050-29109) ----
+            // Sky 0xdfeeff above, the sea's shallow colour warmed by the glow below (the bounce off
+            // the water), at 0.62 x (0.24 + 0.76 daylight + 0.20 moonUp). three r128 takes those
+            // numbers as linear and a lit surface gets albedo x that, no pi. The flat grey this
+            // replaces came to about a twentieth of it at the dawn a run starts in, and the side of
+            // anything facing away from the sun -- a log, a buoy, the pug, the board's rails --
+            // went nearly black against the web's. (The web adds a sky environment map on top;
+            // that part is left out here, so this is the lower bound of its fill, not more.)
+            // Unity reads ambient colours as sRGB, so the web's linear numbers go in encoded.
+            float hemiI = 0.62f * (0.24f + 0.76f * daylight + 0.20f * moonUp);
+            Color skyL = new Color(0.875f, 0.933f, 1.0f) * hemiI;
+            Color shal = new Color(0.153f, 0.573f, 0.769f);
+            Color grL = Color.Lerp(shal, glow, glowAmt * 0.50f) * 0.62f * hemiI;
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
+            RenderSettings.ambientSkyColor = skyL.gamma;
+            RenderSettings.ambientEquatorColor = Color.Lerp(skyL, grL, 0.5f).gamma;
+            RenderSettings.ambientGroundColor = grL.gamma;
         }
         RenderSettings.fogColor = hz;
     }
