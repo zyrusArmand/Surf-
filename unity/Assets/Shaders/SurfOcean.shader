@@ -256,9 +256,9 @@ Shader "Surf/Ocean"
                     // of sea in line with the board, ahead or behind and however far, counted as partly
                     // inside it and had its crests cut down (small divots straight up the lane)
                     float fzR = abs(lp.z) / max(0.01, _HullS.y), fz = saturate(fzR);
-                    float half = _HullS.x * sqrt(saturate(1.0 - fz * fz * fz * fz));
-                    float inside = (1.0 - smoothstep(half - 0.12, half + 0.10, abs(lp.x))) * (1.0 - smoothstep(0.97, 1.04, fzR));
-                    inside *= step(0.0001, half + 0.10 - abs(lp.x)) * step(fzR, 1.04);
+                    float halfW = _HullS.x * sqrt(saturate(1.0 - fz * fz * fz * fz));   // not "half": that is a type in HLSL
+                    float inside = (1.0 - smoothstep(halfW - 0.12, halfW + 0.10, abs(lp.x))) * (1.0 - smoothstep(0.97, 1.04, fzR));
+                    inside *= step(0.0001, halfW + 0.10 - abs(lp.x)) * step(fzR, 1.04);
                     float upY = _HullW2L[1][1];                       // how a world rise moves along the board's own up
                     float floor0 = _HullS.z + _HullC.z * fz * fz + 0.10;      // just above the underside: the rails still sit IN the water, the deck stays out of it
                     // only while the board is the right way up: upside down in a flip the sign of upY

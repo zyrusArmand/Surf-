@@ -280,12 +280,14 @@ public static class SkyKit
     }
 
     /// set a cloud's opacity (the fade at the ends of its drift)
+    static readonly Color[] opBuf = new Color[4];
     public static void SetOpacity(GameObject cloud, float a)
     {
         if (cloud == null) return;
         var mf = cloud.GetComponent<MeshFilter>(); if (mf == null || mf.sharedMesh == null) return;
         var c = new Color(1f, 1f, 1f, a);
-        mf.sharedMesh.colors = new[] { c, c, c, c };
+        opBuf[0] = opBuf[1] = opBuf[2] = opBuf[3] = c;
+        mf.sharedMesh.colors = opBuf;                 // copied in by the mesh, so one buffer serves every cloud
     }
 
     static DayCycle day;
@@ -331,7 +333,11 @@ public static class SkyKit
             go.transform.localScale = go.transform.localScale * (span / s * sz);
             go.transform.localRotation = Quaternion.Euler(0, yaw, 0);
             foreach (var rr in go.GetComponentsInChildren<Renderer>(true)) { rr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; rr.receiveShadows = false; }
-            foreach (var smr in go.GetComponentsInChildren<SkinnedMeshRenderer>(true)) smr.updateWhenOffscreen = true;
+            // skinned only while on screen: two dozen gulls skinned every frame, most of them behind
+            // the lens or off its edge, is wasted work on a phone. The bounds are padded to cover the
+            // wings' full beat, so a bird is never culled while a wingtip is still in shot.
+            foreach (var smr in go.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            { smr.updateWhenOffscreen = false; var lb = smr.localBounds; lb.Expand(lb.size.magnitude * 1.5f); smr.localBounds = lb; }
             b.t = go.transform;
             b.clips = GltfClips.Start(go.transform, "bird_rigged", new[] { "flap", "glide" });
             if (b.clips != null)

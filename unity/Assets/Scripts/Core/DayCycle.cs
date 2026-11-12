@@ -121,10 +121,11 @@ public class DayCycle : MonoBehaviour
                 sky.SetFloat("_CloudsOn", 1f);
                 sky.SetVector("_CloudSun", cloudKey); sky.SetVector("_CloudLit", cloudSun); sky.SetFloat("_CloudLight", cloudLight);
                 // the wind, plus a sliver of the run's own travel: the high sky slides back overhead
-                // far slower than anything below it. Wrapped at the noise's full period (every
-                // scale the shader reads it at repeats within a hundred), so it never loses precision.
-                cloudDrift = Mathf.Repeat(cloudDrift + Time.deltaTime * 0.0035f, 100f);
-                sky.SetVector("_CloudScroll", new Vector4(cloudDrift, Mathf.Repeat(-distM * 0.00045f, 100f), 0f, 0f));
+                // far slower than anything below it. Wrapped at 200, where every scale the shader
+                // reads the noise at lands on a whole tile (at 100 two of them were half a tile out,
+                // so the veil would jump), and it never loses precision.
+                cloudDrift = Mathf.Repeat(cloudDrift + Time.deltaTime * 0.0035f, 200f);
+                sky.SetVector("_CloudScroll", new Vector4(cloudDrift, Mathf.Repeat(-distM * 0.00045f, 200f), 0f, 0f));
             }
         }
         if (ocean != null)

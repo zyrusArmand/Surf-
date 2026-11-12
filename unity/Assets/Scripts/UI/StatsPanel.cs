@@ -42,7 +42,8 @@ public static class Stats
         if (t == null) { t = new Tally { k = name, n = 0 }; s.trickTally.Add(t); }
         t.n++;
         s.tricks++;
-        SaveData.Flush();
+        // not flushed here: a write to disk on every trick hitches a phone mid-combo; the run's end
+        // writes the save as it always has
     }
 
     /// the most-done trick, or null before the first

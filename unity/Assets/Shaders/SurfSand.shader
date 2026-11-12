@@ -15,7 +15,9 @@ Shader "Surf/Sand"
         _BaseTex ("Base", 2D) = "white" {}
         _NrmTex ("Normal", 2D) = "bump" {}
         _NrmK ("Normal strength", Float) = 1.35
-        _Grade ("Grade (sRGB multiplier on the texture)", Color) = (1.04, 1.07, 1.13, 1)
+        // a Vector, not a Color: in a linear project Unity converts a Color property to linear before
+        // the shader sees it, and this is a plain multiplier on sRGB numbers (1.13 would arrive as 1.31)
+        _Grade ("Grade (sRGB multiplier on the texture)", Vector) = (1.04, 1.07, 1.13, 1)
         _Gain ("Gain", Float) = 1.0
         _ShadowK ("Shadow darkness", Float) = 0.42
         _Detail ("Close-up detail", Float) = 1.0

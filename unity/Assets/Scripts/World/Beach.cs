@@ -431,7 +431,7 @@ public class Beach : MonoBehaviour
         for (int c = 0; c < tileHolder.childCount; c++)
         {
             var t = tileHolder.GetChild(c);
-            float reach = tileR * Mathf.Abs(t.lossyScale.x) * 1.15f;
+            float reach = tileR * Mathf.Abs(t.lossyScale.x) * 1.45f;     // a tile turned 45 degrees reaches out to root 2 of its radius along an axis
             if (Mathf.Abs(t.position.x - x) > reach || Mathf.Abs(t.position.z - z) > reach) continue;
             var o = t.InverseTransformPoint(from); var d = t.InverseTransformVector(Vector3.down);
             for (int i = 0; i + 2 < tileT.Length; i += 3)
