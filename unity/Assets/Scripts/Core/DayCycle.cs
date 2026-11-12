@@ -60,6 +60,13 @@ public class DayCycle : MonoBehaviour
     [HideInInspector] public float tod;             // where in the cycle, 0..2 (the web's dayT)
     [HideInInspector] public float nightAmt;        // how dark it is out, 0 by day and 1 at night
     [HideInInspector] public float moonAmt;         // how far the moon has cleared the sea, 0..1
+    // what the clouds are lit by (SkyKit.LightClouds, and the dome's own high cloud): the sky's
+    // raw colours, the light they catch and where it comes from, the glow under their bases
+    [HideInInspector] public Vector4 skyTop, skyMid, skyHz;
+    [HideInInspector] public Vector3 cloudKey = new Vector3(-0.45f, 0.75f, -0.5f).normalized;
+    [HideInInspector] public Vector4 cloudSun = Vector4.one, cloudUnder;
+    [HideInInspector] public float cloudLight = 1f;
+    float cloudDrift;                                // the high cloud's wind, accumulated
 
     public void Apply(float distM)
     {
@@ -91,6 +98,8 @@ public class DayCycle : MonoBehaviour
             moonUp = 0f; moonAmt = 0f; nightAmt = 0f;
         }
 
+        Clouds(top, mid, hz, sy, light: beachLook ? 1f : 0.10f + 0.90f * daylight + 0.25f * moonUp * (1f - daylight), moonUp: moonUp);
+
         if (sky != null)
         {
             // as vectors, not colours: the web hands these raw hex numbers to its shaders with no
@@ -105,6 +114,18 @@ public class DayCycle : MonoBehaviour
             sky.SetFloat("_MoonUp", moonUp);
             // the stars shimmer slowly, the web's night*(0.80+0.20*sin(t*0.9))
             sky.SetFloat("_Night", nightAmt * (0.80f + 0.20f * Mathf.Sin(Time.time * 0.9f)));
+            // the high cloud: its noise once, then the light it catches and its drift
+            if (sky.HasProperty("_CloudNoise"))
+            {
+                if (sky.GetTexture("_CloudNoise") != SkyKit.SkyNoise()) sky.SetTexture("_CloudNoise", SkyKit.SkyNoise());
+                sky.SetFloat("_CloudsOn", 1f);
+                sky.SetVector("_CloudSun", cloudKey); sky.SetVector("_CloudLit", cloudSun); sky.SetFloat("_CloudLight", cloudLight);
+                // the wind, plus a sliver of the run's own travel: the high sky slides back overhead
+                // far slower than anything below it. Wrapped at the noise's full period (every
+                // scale the shader reads it at repeats within a hundred), so it never loses precision.
+                cloudDrift = Mathf.Repeat(cloudDrift + Time.deltaTime * 0.0035f, 100f);
+                sky.SetVector("_CloudScroll", new Vector4(cloudDrift, Mathf.Repeat(-distM * 0.00045f, 100f), 0f, 0f));
+            }
         }
         if (ocean != null)
         {
@@ -167,5 +188,28 @@ public class DayCycle : MonoBehaviour
             RenderSettings.ambientGroundColor = grL.gamma;
         }
         RenderSettings.fogColor = hz;
+    }
+
+    // ---- the light on the clouds ----
+    // The web tints each cloud white-to-glow by the glow amount and dims it by how much sun is on
+    // the scene, which leaves a sunset's clouds grey: the sea has lost the light by then and the
+    // clouds have not. So the clouds keep it a while longer -- full with the sun a tenth up, the
+    // last red going as it sinks a fifth under -- and after dark the moon is the light they catch.
+    void Clouds(Color top, Color mid, Color hz, float sy, float light, float moonUp)
+    {
+        skyTop = V(top); skyMid = V(mid); skyHz = V(hz);
+        float y = beachLook ? 0.3f : sy;
+        float k = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(-0.22f, 0.10f, y));
+        Vector3 key = beachLook && keyFrom.sqrMagnitude > 0.01f ? keyFrom.normalized : sunDir;
+        float mw = beachLook ? 0f : Mathf.Clamp01((0.02f - key.y) / 0.10f) * moonUp;
+        if (mw > 0f) key = Vector3.Lerp(key, moonDir, mw).normalized;
+        cloudKey = key;
+        Color sc = Color.Lerp(Color.white, glow, Mathf.Min(1f, glowAmt * 0.95f)) * (0.06f + 0.94f * k);
+        sc = Color.Lerp(sc, new Color(0.55f, 0.66f, 0.88f) * 0.24f, mw * (1f - k));
+        cloudSun = new Vector4(sc.r, sc.g, sc.b, 1f);
+        // the underside burn: the glow, pushed toward a backlit edge's hot white (web cloudUnder)
+        Color un = Color.Lerp(glow, new Color(1.55f, 1.48f, 1.34f), 0.25f);
+        cloudUnder = new Vector4(un.r, un.g, un.b, Mathf.Min(1f, glowAmt * 1.10f) * k);
+        cloudLight = light;
     }
 }

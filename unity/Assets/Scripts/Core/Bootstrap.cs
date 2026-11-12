@@ -169,6 +169,10 @@ public class Bootstrap : MonoBehaviour
         // every arm answers the finger as the web's dial does: buzz(12) for Play, buzz(8) for the rest
         beach.onSign = s => { Sfx.Buzz(s == "Play" ? 12 : 8); if (s == "Play") Play(); else if (s == "Shop") shop.Show(true); else if (s == "Quests") quests.Show(true); else school.Show(true); };
         beach.SetBoard(SaveData.S.equipped);
+        // the ride's clouds and gulls (the web's skyLayer); it runs itself and stands down on the title
+        var skyLife = new GameObject("SkyLife").AddComponent<SkyLife>();
+        skyLife.rider = rider; skyLife.cam = cam; skyLife.beach = beach; skyLife.dive = dive; skyLife.day = day;
+        skyLife.Build();
 
         // HUD
         hud = new GameObject("HUD").AddComponent<Hud>(); hud.rider = rider; hud.cocos = cocos; hud.chase = chase; hud.island = island; hud.dive = dive;

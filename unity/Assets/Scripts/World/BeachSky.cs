@@ -1,31 +1,32 @@
 // Sky furniture over the title screen's beach: the web game's clouds and gulls.
 //
-// CLOUDS are the web's cloudTexture() brought across pixel for pixel: a pile of soft radial
-// lumps on a flat base, shaded underneath, then re-cut against a wobbling noise threshold so
-// the edge goes cauliflower rather than reading as nine circles. Sixteen of them on quads,
-// far out over the water, billboarded to the lens and drifting slowly across.
+// CLOUDS are the web's sixteen, laid out by its own rule (sizes, heights, distances, drift),
+// but each is a lit cumulus from SkyKit's atlas rather than a flat cut-out: billboarded to the
+// lens and lit by the title's sun and sky every frame (Surf/Cumulus). The web's cloudTexture()
+// is still here, pixel for pixel, for the shop's preview stage that shows one.
 //
 // GULLS are models/bird_rigged.glb, which carries a flap and a glide clip on its skeleton;
 // each bird blends between the two on its own timer, the way the web's beatGull does, and
 // the flocks (a V, a loose bunch, a solo) circle slowly out over the sea. Without the file,
-// a drawn silhouette flies the same paths with the web's own asymmetric wingbeat.
+// a drawn silhouette flies the same paths with the web's own asymmetric wingbeat. On top of
+// those, now and then a stray -- one, two or three gulls -- crosses the whole view at its own
+// height and pace, so the sky is never the same four flocks going round.
 using System.Collections.Generic;
 using UnityEngine;
 
 public class BeachSky
 {
     class Cloud { public Transform t; public float v; }
-    class Bird
-    {
-        public Transform t; public GltfClips clips;         // the modelled gull
-        public Transform wingL, wingR;                       // or the drawn one
-        public float f, p, up, dn, dwK;                      // the drawn beat
-        public bool glide; public float gT, wF, flapRate, glideRate;
-    }
     class Flock
     {
-        public Transform t; public readonly List<Bird> birds = new List<Bird>();
+        public Transform t; public readonly List<SkyKit.Gull> birds = new List<SkyKit.Gull>();
         public Vector3 c; public float rx, rz, w, th, bob, dir;
+    }
+    // a stray crossing the view: its birds come out of the spare pool and go back when it is done
+    class Stray
+    {
+        public Transform t; public readonly List<SkyKit.Gull> birds = new List<SkyKit.Gull>();
+        public float v, bob;
     }
 
     public float birdYaw = 90f;     // the model faces +z; a flock flies along its own +x
@@ -33,7 +34,9 @@ public class BeachSky
 
     readonly List<Cloud> clouds = new List<Cloud>();
     readonly List<Flock> flocks = new List<Flock>();
-    Transform root; float t;
+    readonly List<Stray> strays = new List<Stray>();
+    readonly List<SkyKit.Gull> spare = new List<SkyKit.Gull>();
+    Transform root, gulls, pool; float t, strayT = 4f;
     System.Random rng;
     float R() => (float)rng.NextDouble();
 
@@ -48,74 +51,23 @@ public class BeachSky
     }
 
     // ---------------------------------------------------------------- clouds
-    // Cumulus (Surf/Cumulus): one quad per cloud faced to the lens, its puffs summed in the shader
-    // into one density field with a flat base and billowed edges, and lit as a relief by the
-    // title's own sun and sky. One draw each; each cloud's puffs ride on its own property block.
-    Material puffMat; Light sunLight;
+    // One quad per cloud faced to the lens, lit by Surf/Cumulus; they all share one material, which
+    // SkyKit.LightClouds sets from the day cycle (on the title, the title's own sun and sky).
     void BuildClouds()
     {
-        var sh = Shader.Find("Surf/Cumulus");
-        if (sh == null) return;
-        puffMat = new Material(sh) { name = "cumulus" };
-        puffMat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent - 20;   // after the opaque world, which covers it by depth
+        if (SkyKit.CloudMaterial() == null) return;
         var holder = new GameObject("Clouds").transform; holder.SetParent(root, false);
-        // the web's rule exactly (web 12187-12195): sixteen of them, 34 to 96 feet across, half
-        // to nine tenths opaque, 56 to 140 up and 240 to 460 out
+        // the web's rule exactly (web 12187-12195): sixteen of them, 34 to 96 feet across, 56 to
+        // 140 up and 240 to 460 out. Its opacity (half to nine tenths) was for a soft cut-out; a
+        // lit cloud is solid in the core and soft at the rim on its own, so the range sits higher.
         for (int i = 0; i < 16; i++)
         {
-            float w = 34f + R() * 62f, op = 0.50f + R() * 0.40f;
-            var go = new GameObject("cloud", typeof(MeshFilter), typeof(MeshRenderer)); go.transform.SetParent(holder, false);
-            var mr = go.GetComponent<MeshRenderer>(); mr.sharedMaterial = puffMat;
-            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; mr.receiveShadows = false;
-            mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
-            go.GetComponent<MeshFilter>().sharedMesh = Cumulus(w, op, mr);
+            float w = 34f + R() * 62f, op = 0.62f + R() * 0.36f;
+            var go = SkyKit.Cloud(holder, w, (int)(R() * SkyKit.Shapes), op);
+            if (go == null) return;
             go.transform.position = new Vector3((R() - 0.5f) * 2f * CloudWrap, 56f + R() * 84f, -240f - R() * 220f);
             clouds.Add(new Cloud { t = go.transform, v = 0.9f + R() * 2.1f });
         }
-    }
-
-    Mesh Cumulus(float W, float op, MeshRenderer mr)
-    {
-        float H = W * (0.32f + R() * 0.14f);
-        var P = new Vector4[40]; int n = 0;
-        // a row of wide, low puffs along the base, then a heap climbing to the middle
-        const int nb = 8;
-        for (int k = 0; k < nb; k++)
-        {
-            float x = Mathf.Lerp(-0.42f, 0.42f, (k + 0.5f) / nb) * W;
-            float r = W * (0.10f + 0.03f * R()) * (1f - 0.3f * Mathf.Abs(x / (W * 0.5f)));
-            P[n++] = new Vector4(x, r * 0.5f, r, 0f);
-        }
-        while (n < P.Length)
-        {
-            float u = (R() + R() + R()) / 3f - 0.5f, x = u * W * 0.9f;
-            float top = H * Mathf.Pow(Mathf.Max(0f, 1f - (2f * x / W) * (2f * x / W)), 0.7f);
-            float y = Mathf.Pow(R(), 0.7f) * top * 0.9f + W * 0.04f;
-            float r = W * (0.05f + 0.07f * R()) * (1f - 0.35f * y / H);
-            P[n++] = new Vector4(x, y, r, 0f);
-        }
-        var mpb = new MaterialPropertyBlock();
-        mpb.SetVectorArray("_P", P); mpb.SetFloat("_N", n); mpb.SetFloat("_H", H); mpb.SetFloat("_Op", op); mpb.SetFloat("_Seed", R() * 50f);
-        mr.SetPropertyBlock(mpb);
-        float hw = W * 0.625f, y0 = -H * 0.18f, y1 = H * 1.42f;
-        var m = new Mesh { name = "cumulus" };
-        m.vertices = new[] { new Vector3(-hw, y0, 0), new Vector3(hw, y0, 0), new Vector3(-hw, y1, 0), new Vector3(hw, y1, 0) };
-        m.triangles = new[] { 0, 2, 1, 1, 2, 3 };
-        m.RecalculateBounds();
-        return m;
-    }
-
-    // the clouds take the live sky's colours and the sun's, every frame, so they turn with the light
-    void LightClouds()
-    {
-        if (puffMat == null) return;
-        if (sunLight == null)
-            foreach (var l in Object.FindObjectsByType<Light>(FindObjectsSortMode.None))
-                if (l.type == LightType.Directional && l.name == "Sun") { sunLight = l; break; }
-        var sky = RenderSettings.skybox;
-        if (sky != null && sky.HasProperty("_Mid")) { puffMat.SetVector("_Sky", sky.GetVector("_Mid")); puffMat.SetVector("_Hz", sky.GetVector("_Horizon")); }
-        if (sky != null && sky.HasProperty("_Glow")) puffMat.SetVector("_SunCol", Vector4.Lerp(new Vector4(1f, 0.97f, 0.92f, 1f), sky.GetVector("_Glow"), 0.55f));
-        if (sunLight != null) puffMat.SetVector("_SunDir", -sunLight.transform.forward);
     }
 
     static Mesh Quad()
@@ -236,65 +188,20 @@ public class BeachSky
     // second solo, is left out to keep the skinned count down)
     static readonly int[] FlightN = { 5, 3, 1, 4 };
     static readonly bool[] FlightV = { true, false, false, true };
+    const int SpareN = 6;           // the strays' pool: at most this many crossing at once
 
     void BuildBirds()
     {
-        var prefab = Resources.Load<GameObject>("Models/bird_rigged");
-        var holder = new GameObject("Gulls").transform; holder.SetParent(root, false);
-        Material silhouette = null;
+        gulls = new GameObject("Gulls").transform; gulls.SetParent(root, false);
         for (int f = 0; f < FlightN.Length; f++)
         {
             var fl = new Flock();
-            var fg = new GameObject("flock " + f).transform; fg.SetParent(holder, false); fl.t = fg;
+            var fg = new GameObject("flock " + f).transform; fg.SetParent(gulls, false); fl.t = fg;
             float beat = 1.7f + R() * 2.0f;            // the flock's rate; its birds take it with a little jitter
             for (int i = 0; i < FlightN[f]; i++)
             {
-                Vector3 at;
-                if (FlightV[f])
-                {
-                    int r = (i + 1) / 2; float sd = (i % 2) == 1 ? 1f : -1f;
-                    at = new Vector3(-r * (2.6f + R() * 0.42f), (R() - 0.5f) * 0.6f, r > 0 ? sd * r * (2.0f + R() * 0.3f) : 0f);
-                }
-                else if (FlightN[f] == 1) at = Vector3.zero;
-                else at = new Vector3((R() - 0.5f) * 7f, (R() - 0.5f) * 2.4f, (R() - 0.5f) * 7f);
-                float sz = 0.8f + R() * 0.5f;
-                var b = new Bird();
-                if (prefab != null)
-                {
-                    var go = Models.Spawn("bird_rigged", fg, 1f, PrimitiveType.Sphere);
-                    var bb = Models.Bounds(go);
-                    float span = Mathf.Max(1e-3f, Mathf.Max(bb.size.x, bb.size.z));
-                    go.transform.localScale = go.transform.localScale * (birdSpan / span * sz);
-                    go.transform.localRotation = Quaternion.Euler(0, birdYaw, 0);
-                    go.transform.localPosition = at;
-                    foreach (var rr in go.GetComponentsInChildren<Renderer>(true)) { rr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; rr.receiveShadows = false; }
-                    foreach (var smr in go.GetComponentsInChildren<SkinnedMeshRenderer>(true)) smr.updateWhenOffscreen = true;
-                    b.t = go.transform;
-                    b.clips = GltfClips.Start(go.transform, "bird_rigged", new[] { "flap", "glide" });
-                    if (b.clips != null)
-                    {
-                        b.flapRate = beat * (0.94f + R() * 0.12f);
-                        b.glideRate = 0.5f + R() * 0.4f;
-                        b.clips.SetSpeed(0, b.flapRate); b.clips.SetSpeed(1, b.glideRate);
-                        b.clips.SetTime(0, R() * b.clips.Length(0)); b.clips.SetTime(1, R() * b.clips.Length(1));
-                    }
-                }
-                else
-                {
-                    if (silhouette == null)
-                    {
-                        var ush = Shader.Find("Universal Render Pipeline/Unlit");
-                        silhouette = ush != null ? new Material(ush) : null;
-                        if (silhouette != null) { silhouette.SetColor("_BaseColor", new Color(0.93f, 0.95f, 0.98f)); silhouette.SetFloat("_Cull", 0f); }
-                    }
-                    b.t = DrawnGull(fg, silhouette, out b.wingL, out b.wingR);
-                    b.t.localPosition = at; b.t.localScale = Vector3.one * sz;
-                }
-                // the drawn beat's own numbers, per bird (used when there is no clip to play)
-                b.f = 10f + R() * 8.5f; b.p = R() * Mathf.PI * 2f;
-                b.up = 0.92f + R() * 0.42f; b.dn = -0.52f - R() * 0.34f; b.dwK = 0.82f + R() * 0.40f;
-                b.glide = R() < 0.35f; b.gT = 1.5f + R() * 4.5f; b.wF = b.glide ? 0f : 1f;
-                if (b.clips != null) { b.clips.SetWeight(0, b.wF); b.clips.SetWeight(1, 1f - b.wF); }
+                var b = SkyKit.MakeGull(fg, birdSpan, 0.8f + R() * 0.5f, beat, birdYaw, R);
+                b.t.localPosition = SkyKit.FlightSpot(i, FlightN[f], FlightV[f], R);
                 fl.birds.Add(b);
             }
             // the web beach's flocks hang 14..60 up and 110..220 out, scattered across 260 of x;
@@ -308,44 +215,64 @@ public class BeachSky
             flocks.Add(fl);
         }
         PlaceFlocks();
+        // the strays' birds, made now (a gull is a skinned model with its own clip graph, too much
+        // to build in the middle of a frame) and put away until one is wanted
+        pool = new GameObject("spare gulls").transform; pool.SetParent(gulls, false);
+        for (int i = 0; i < SpareN; i++)
+        {
+            var b = SkyKit.MakeGull(pool, birdSpan, 0.8f + R() * 0.5f, 1.7f + R() * 2.0f, birdYaw, R);
+            SkyKit.Show(b, false);
+            spare.Add(b);
+        }
     }
 
-    /// the web's drawn gull: two wing triangles on a flat body, hinged at the shoulders
-    static Transform DrawnGull(Transform parent, Material mat, out Transform wingL, out Transform wingR)
+    // A stray: one, two or three gulls in from one side of the bay at a height of their own,
+    // straight across and out of the other, in the web beach's band (14 to 60 up, 110 to 220 out)
+    // and now and then higher, where a lone bird rides the air with its wings still.
+    void LaunchStray()
     {
-        var g = new GameObject("gull").transform; g.SetParent(parent, false);
-        var wing = new Mesh { name = "wing" };
-        // the root at the shoulder, the tip 1.5 feet out along +z, swept back along -x
-        wing.vertices = new[] { new Vector3(0, 0, 0), new Vector3(-0.42f, 0, 0.05f), new Vector3(-0.55f, 0, 1.5f) };
-        wing.triangles = new[] { 0, 1, 2 };
-        wing.RecalculateNormals(); wing.RecalculateBounds();
-        wingL = Part(g, "wingL", wing, mat, Quaternion.identity);
-        wingR = Part(g, "wingR", wing, mat, Quaternion.Euler(0, 180f, 0));
-        var body = new Mesh { name = "body" };
-        body.vertices = new[] { new Vector3(0.28f, 0, 0), new Vector3(-0.2f, 0, 0.14f), new Vector3(-0.2f, 0, -0.14f) };
-        body.triangles = new[] { 0, 1, 2 };
-        body.RecalculateNormals(); body.RecalculateBounds();
-        Part(g, "body", body, mat, Quaternion.identity);
-        return g;
+        float q = R();
+        int n = Mathf.Min(spare.Count, q < 0.5f ? 1 : q < 0.8f ? 2 : 3);
+        if (n <= 0) return;
+        var st = new Stray();
+        st.t = new GameObject("stray").transform; st.t.SetParent(gulls, false);
+        float dir = R() < 0.5f ? -1f : 1f, beat = 1.7f + R() * 2.0f;
+        bool high = n == 1 && R() < 0.4f;
+        st.v = dir * (high ? 3f + R() * 3f : 5f + R() * 5f);
+        st.bob = R() * Mathf.PI * 2f;
+        st.t.position = new Vector3(-dir * 205f, high ? 64f + R() * 50f : 14f + R() * 46f, -110f - R() * 130f);
+        st.t.rotation = Quaternion.LookRotation(new Vector3(dir, 0f, 0f), Vector3.up) * Quaternion.Euler(0, -90f, 0);
+        st.t.localScale = Vector3.one * (0.7f + R() * 0.9f);
+        for (int i = 0; i < n; i++)
+        {
+            var b = spare[spare.Count - 1]; spare.RemoveAt(spare.Count - 1);
+            b.t.SetParent(st.t, false);
+            b.t.localPosition = SkyKit.FlightSpot(i, n, false, R);
+            SkyKit.Rebeat(b, beat, R);
+            if (high) { b.glide = true; b.gT = 3f + R() * 4f; }
+            SkyKit.Show(b, true);
+            st.birds.Add(b);
+        }
+        strays.Add(st);
     }
 
-    static Transform Part(Transform parent, string n, Mesh m, Material mat, Quaternion rot)
+    void StepStrays(float dt)
     {
-        var go = new GameObject(n, typeof(MeshFilter), typeof(MeshRenderer)); go.transform.SetParent(parent, false);
-        go.GetComponent<MeshFilter>().sharedMesh = m;
-        var mr = go.GetComponent<MeshRenderer>(); if (mat != null) mr.sharedMaterial = mat;
-        mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; mr.receiveShadows = false;
-        go.transform.localRotation = rot;
-        return go.transform;
-    }
-
-    // the web's gullAngle: the downstroke is the fast half, the recovery takes half again as long
-    static float GullAngle(float w, Bird u)
-    {
-        float dw = Mathf.Clamp(0.38f * u.dwK, 0.12f, 0.88f);
-        return w < dw
-            ? u.up - (u.up - u.dn) * (0.5f - 0.5f * Mathf.Cos(Mathf.PI * (w / dw)))
-            : u.dn + (u.up - u.dn) * (0.5f - 0.5f * Mathf.Cos(Mathf.PI * ((w - dw) / (1f - dw))));
+        strayT -= dt;
+        if (strayT <= 0f) { strayT = 5f + R() * 9f; if (strays.Count < 3) LaunchStray(); }
+        for (int k = strays.Count - 1; k >= 0; k--)
+        {
+            var st = strays[k];
+            var p = st.t.position; p.x += st.v * dt; p.y += Mathf.Sin(t * 0.7f + st.bob) * dt * 1.5f;
+            st.t.position = p;
+            foreach (var b in st.birds) SkyKit.Beat(b, t, dt, R);
+            if (Mathf.Abs(p.x) > 210f)
+            {
+                foreach (var b in st.birds) { SkyKit.Show(b, false); b.t.SetParent(pool, false); spare.Add(b); }
+                Object.Destroy(st.t.gameObject);
+                strays.RemoveAt(k);
+            }
+        }
     }
 
     void PlaceFlocks()
@@ -367,7 +294,7 @@ public class BeachSky
         if (cam != null)
         {
             var look = cam.transform.rotation;
-            LightClouds();
+            SkyKit.LightClouds();
             foreach (var c in clouds)
             {
                 var p = c.t.position; p.x += c.v * dt;
@@ -378,33 +305,16 @@ public class BeachSky
         foreach (var fl in flocks)
         {
             fl.th += fl.w * fl.dir * dt;
-            foreach (var b in fl.birds)
-            {
-                // a gull glides most of the time and flaps in bursts; the change of habit is a crossfade
-                b.gT -= dt;
-                if (b.gT <= 0f) { b.glide = !b.glide; b.gT = (b.glide ? 1.2f : 2.2f) + R() * 4.5f; }
-                b.wF = Mathf.MoveTowards(b.wF, b.glide ? 0f : 1f, dt / 0.55f);
-                if (b.clips != null && b.clips.Valid)
-                {
-                    b.clips.SetWeight(0, b.wF);
-                    if (b.clips.Count > 1) b.clips.SetWeight(1, 1f - b.wF);
-                }
-                else if (b.wingL != null && b.wingR != null)
-                {
-                    float w = Mathf.Repeat((t * b.f + b.p) / (Mathf.PI * 2f), 1f);
-                    // positive about x drops a tip here, and the web's angle is positive raised
-                    float a = -GullAngle(w, b) * Mathf.Lerp(0.12f, 1f, b.wF) * Mathf.Rad2Deg;
-                    b.wingL.localRotation = Quaternion.Euler(a, 0, 0);
-                    b.wingR.localRotation = Quaternion.Euler(a, 180f, 0);
-                }
-            }
+            foreach (var b in fl.birds) SkyKit.Beat(b, t, dt, R);
         }
         PlaceFlocks();
+        StepStrays(dt);
     }
 
     /// the beach is hidden: hold the wingbeats so nothing animates off screen
     public void Pause(bool on)
     {
         foreach (var fl in flocks) foreach (var b in fl.birds) if (b.clips != null && b.clips.Valid) b.clips.Pause(on);
+        foreach (var st in strays) foreach (var b in st.birds) if (b.clips != null && b.clips.Valid) b.clips.Pause(on);
     }
 }
