@@ -54,6 +54,46 @@ public static class BoardMesh
         flat[hex] = m; return m;
     }
 
+    // ---- the grip pad's grooves ----
+    // The web's pad is a flat matte patch in its colour (8047: roughness 0.78); here it keeps that
+    // colour and finish, and carries a diamond-groove relief, so it reads as foam traction rather
+    // than a hole in the deck. A small normal map made once, tiled every half foot.
+    static Texture2D grooves; static readonly Dictionary<uint, Material> padMats = new Dictionary<uint, Material>();
+    static Texture2D Grooves()
+    {
+        if (grooves != null) return grooves;
+        const int N = 128;
+        var px = new Color[N * N]; var h = new float[N * N];
+        for (int y = 0; y < N; y++)
+            for (int x = 0; x < N; x++)
+            {
+                // two families of grooves at plus and minus 45 degrees, four of each across a tile,
+                // with rounded shoulders, so the cells between them are diamonds
+                float a = Mathf.Repeat((x + y) / (float)N * 4f, 1f), b = Mathf.Repeat((x - y) / (float)N * 4f, 1f);
+                float ga = Mathf.SmoothStep(0f, 1f, Mathf.Abs(a - 0.5f) * 2f), gb = Mathf.SmoothStep(0f, 1f, Mathf.Abs(b - 0.5f) * 2f);
+                h[y * N + x] = Mathf.Min(1f - Mathf.Pow(1f - ga, 6f), 1f - Mathf.Pow(1f - gb, 6f));
+            }
+        for (int y = 0; y < N; y++)
+            for (int x = 0; x < N; x++)
+            {
+                float dx = h[y * N + (x + 1) % N] - h[y * N + (x + N - 1) % N], dy = h[((y + 1) % N) * N + x] - h[((y + N - 1) % N) * N + x];
+                var n = new Vector3(-dx * 1.6f, -dy * 1.6f, 1f).normalized;
+                // alpha 1: URP's unpacking takes x from red times alpha on desktop and from red on
+                // phones, so a plain RGB normal with alpha 1 reads the same on both
+                px[y * N + x] = new Color(n.x * 0.5f + 0.5f, n.y * 0.5f + 0.5f, n.z * 0.5f + 0.5f, 1f);
+            }
+        grooves = new Texture2D(N, N, TextureFormat.RGBA32, true, true) { name = "padGrooves", wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Trilinear, anisoLevel = 4 };
+        grooves.SetPixels(px); grooves.Apply(true, true);
+        return grooves;
+    }
+    static Material PadMat(uint hex)
+    {
+        if (padMats.TryGetValue(hex, out var m)) return m;
+        m = new Material(Shader.Find("Universal Render Pipeline/Lit")); m.SetColor("_BaseColor", Vivid(hex)); m.SetFloat("_Smoothness", 0.22f);
+        m.SetTexture("_BumpMap", Grooves()); m.SetFloat("_BumpScale", 0.9f); m.EnableKeyword("_NORMALMAP");
+        padMats[hex] = m; return m;
+    }
+
     public static GameObject Build(string id) => Build(BoardCatalog.Get(id));
 
     /// the whole board as one object: the deck mesh, the pad and the fins, nose toward -z
@@ -121,7 +161,8 @@ public static class BoardMesh
             var ranges = S.pads ?? new float[][] { new float[] { S.padU0, S.padU1 } };
             foreach (var rg in ranges)
             {
-                const int PU = 34, PV = 18; var pp = new List<Vector3>(); var pix = new List<int>();
+                const int PU = 34, PV = 18; var pp = new List<Vector3>(); var pix = new List<int>(); var puv = new List<Vector2>();
+                bool tailPad = S.pads == null;                       // a single pad at the tail gets a kick; a twin-tip's two do not
                 for (int i = 0; i <= PU; i++)
                 {
                     float f = i / (float)PU, d = Mathf.Min(f, 1 - f) / 0.12f;
@@ -131,7 +172,13 @@ public static class BoardMesh
                     {
                         float v = -1 + 2f * j / PV, sv = k * v;
                         float prof = Mathf.Pow(Mathf.Max(0, 1 - sv * sv), S.deckPow);
-                        pp.Add(new Vector3(w * v * sh.AsW(v), r + T * t * prof + 0.010f, (u - 0.5f) * L + sh.Notch(u, sv)));
+                        // a real traction pad: a low arch down its middle under the back foot, and at
+                        // the tail end a raised kick to brace against, both tapering off at the edges
+                        float edgeK = Mathf.Clamp01((1f - Mathf.Abs(v)) / 0.18f) * e;
+                        float arch = 0.016f * Mathf.Exp(-(v / 0.28f) * (v / 0.28f)) * Mathf.Sin(Mathf.Clamp01(f) * Mathf.PI);
+                        float kick = tailPad ? 0.075f * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.80f, 0.97f, f)) : 0f;
+                        pp.Add(new Vector3(w * v * sh.AsW(v), r + T * t * prof + 0.010f + (arch + kick) * edgeK, (u - 0.5f) * L + sh.Notch(u, sv)));
+                        puv.Add(new Vector2((v + 1f) * 0.5f * (w * 2f) / 0.5f, f * Mathf.Abs(rg[1] - rg[0]) * L / 0.5f));   // in half-feet, so the grooves keep one size on every board
                     }
                 }
                 for (int i = 0; i < PU; i++) for (int j = 0; j < PV; j++)
@@ -139,9 +186,9 @@ public static class BoardMesh
                     int A = i * (PV + 1) + j, B = A + 1, C = A + PV + 1, D = C + 1;
                     pix.Add(A); pix.Add(C); pix.Add(B); pix.Add(B); pix.Add(C); pix.Add(D);   // facing up out of the deck in Unity, as the shell now does
                 }
-                var pm = new Mesh { name = "pad" }; pm.SetVertices(pp); pm.SetTriangles(pix, 0); pm.RecalculateNormals(); pm.RecalculateBounds();
+                var pm = new Mesh { name = "pad" }; pm.SetVertices(pp); pm.SetUVs(0, puv); pm.SetTriangles(pix, 0); pm.RecalculateNormals(); pm.RecalculateTangents(); pm.RecalculateBounds();
                 var pad = new GameObject("pad", typeof(MeshFilter), typeof(MeshRenderer)); pad.transform.SetParent(root.transform, false);
-                pad.GetComponent<MeshFilter>().sharedMesh = pm; pad.GetComponent<MeshRenderer>().sharedMaterial = Flat(S.padCol, 0.22f);
+                pad.GetComponent<MeshFilter>().sharedMesh = pm; pad.GetComponent<MeshRenderer>().sharedMaterial = PadMat(S.padCol);
             }
         }
 
