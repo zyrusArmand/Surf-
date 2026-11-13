@@ -316,8 +316,10 @@ public class Fx : MonoBehaviour
                 position = tail + fwd * along + new Vector3(outward * Random.value * 0.25f, 0.05f + Random.value * 0.2f, 0f),
                 velocity = new Vector3(outward * (2.0f + 4.5f * Random.value) * kk, (3.0f + 4.0f * Random.value) * (0.6f + 0.4f * k),
                                        flow * 0.3f + 1.5f + 3.5f * Random.value + (offTail ? 2f : 0f)),
-                startSize = (0.85f + 0.9f * Random.value) * (0.6f + 0.4f * k) * (fastFx ? 1.2f : 1f),
-                startLifetime = 0.5f + 0.7f * Random.value,
+                // smaller and shorter-lived: a burst of spray in the air off the rail, gone before it
+                // lies on the water (where a sprite meets the sea it shows a hard cut edge)
+                startSize = (0.45f + 0.5f * Random.value) * (0.6f + 0.4f * k) * (fastFx ? 1.2f : 1f),
+                startLifetime = 0.35f + 0.4f * Random.value,
                 startColor = new Color(1f, 1f, 1f, 0.85f + 0.15f * Random.value),
                 rotation = 0f
             };
@@ -625,7 +627,9 @@ public class Fx : MonoBehaviour
                 }
             }
         }
-        if (onWater && tailOk) RailPuffs(dt);
+        // the rails' foam is drawn into the sea itself now (Surf/Ocean, along the wake's path): as
+        // puffs it stood up off the water as white domes cut flat where they met it, blobby, not foam
+        // if (onWater && tailOk) RailPuffs(dt);
         else { trailAcc = 0f; fizzAcc = 0f; wakeAcc[0] = wakeAcc[1] = 0f; }
         if (puffMat != null) { SkyKit.LightPuffs(puffMat); SkyKit.LightPuffs(flatMat); PuffSoft(); }
         Settle(puffs, puffSize, true, dt);

@@ -703,8 +703,10 @@ public class Bootstrap : MonoBehaviour
         else wakeHist.Clear();
         {
             float sp = Mathf.Max(6f, rider.eff);        // the water runs back past him at the run's speed
-            for (int i = 0; i < wakeP.Length; i++) wakeP[i] = WakeXAt(Time.time - i * 3f / sp);
+            // every 5 ft behind the tail, 35 ft in all: the rails' foam runs that far back (Surf/Ocean)
+            for (int i = 0; i < wakeP.Length; i++) wakeP[i] = WakeXAt(Time.time - i * 5f / sp);
             ocean.material.SetFloatArray("_WakeP", wakeP); ocean.material.SetFloat("_WakeC", rider.carve);
+            ocean.material.SetFloat("_Run", rider.dist);     // the run's own travel: a point fixed in the water is at z - _Run
         }
         ocean.Tick(rider.t, rider.dist * WaveField.Drift, WaveField.Amp, rider.px, rider.pz + BoardController.BoardHalfL, wakeA, beach.Showing ? beach.seaLevel : 0f, beach.Showing ? -88f : 100000f);   // a shoreline far behind the rider keeps the open sea at full swell
         day.Apply(rider.dist);

@@ -75,14 +75,16 @@ public class SkyLife : MonoBehaviour
         for (int i = 0; i < 16; i++)
         {
             float w = 48f + R() * 92f;
-            AddCloud(w, 0.62f + R() * 0.36f, new Vector3((R() - 0.5f) * CloudSpan, 46f + R() * 104f, -175f - R() * 95f),
+            // started at 46 ft, and a 140 ft cloud that low had its base down on the horizon line
+            AddCloud(w, 0.62f + R() * 0.36f, new Vector3((R() - 0.5f) * CloudSpan, 72f + R() * 90f, -175f - R() * 95f),
                      1.4f + R() * 3.6f, 0.020f, CloudSpan * 0.5f, -175f, -270f);
         }
         // the far band: smaller, lower and slower, kept inside the lens's far plane
         for (int i = 0; i < 10; i++)
         {
             float w = 40f + R() * 60f;
-            AddCloud(w, 0.70f + R() * 0.30f, new Vector3((R() - 0.5f) * 440f, 16f + R() * 34f, -330f - R() * 70f),
+            // clear of the sea's edge: at 16 ft their bases sat on the horizon, which reads as cloud on the water
+            AddCloud(w, 0.70f + R() * 0.30f, new Vector3((R() - 0.5f) * 440f, 48f + R() * 36f, -330f - R() * 70f),
                      0.6f + R() * 1.0f, 0.008f, 220f, -330f, -400f);
         }
     }

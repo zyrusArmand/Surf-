@@ -15,6 +15,7 @@ Shader "Surf/Ocean"
         _SunDir ("Sun direction", Vector) = (-0.45, 0.75, -0.5, 0)
         _Light ("Daylight", Float) = 1
         _Amp ("Swell amplitude", Float) = 1.35
+        _Run ("Run travel", Float) = 0
         _Grid ("Sea grid: x spacing, z spacing per unit of row slope (Ocean.cs)", Vector) = (0.75, 2.8235, 0, 0)
         _Peak ("Peak height", Float) = 2.85
         _Dist ("Field offset", Float) = 0
@@ -79,6 +80,7 @@ Shader "Surf/Ocean"
             float _SkiX, _SkiZ, _SkiA;                      // the jet ski's wake: lateral centre, centre in field z, height (JetSki.cs)
             float4 _CloudShade;                             // the cloud layer's shadows: drift offset (xy), strength, scale per foot (DayCycle.cs)
             float4 _Grid;                                   // the sea mesh's spacing (Ocean.cs): across, and along per unit of the rows' slope
+            float _Run;                                     // the run's travel in feet (Bootstrap): a point fixed in the water sits at z - _Run
             CBUFFER_END
             TEXTURE2D(_Chop); SAMPLER(sampler_Chop); float _ChopK;
             TEXTURE2D(_CloudShadeTex); SAMPLER(sampler_CloudShadeTex);
@@ -145,7 +147,7 @@ Shader "Surf/Ocean"
             float _WakeP[8]; float _WakeC;
             float wakeCx(float dz)
             {
-                float u = clamp(dz / 3.0, 0.0, 6.999); int i0 = (int)u;
+                float u = clamp(dz / 5.0, 0.0, 6.999); int i0 = (int)u;      // samples 5 ft apart (Bootstrap)
                 return lerp(_WakeP[i0], _WakeP[i0 + 1], u - i0);
             }
             float wakeH(float2 p)
@@ -536,6 +538,36 @@ Shader "Surf/Ocean"
                     foam = max(foam, wf * (0.6 + 0.4 * lace));
                 }
                 col = lerp(col, float3(0.94, 0.97, 1.0), foam * 0.66);
+                // ---- the rails' foam: a band off each rail, along the path that rail took ----
+                // Drawn into the water rather than stood on it, so it lies on the surface as real foam
+                // does. Each band starts dense and white where its rail meets the water, widens behind
+                // (the outside rail of a carve the more) and tears into lace and bubbles as it ages,
+                // gone by about 35 ft; its pattern is pinned to the water (z - _Run), so the foam stays
+                // where it was laid while the board runs on.
+                if (_WakeA > 0.001)
+                {
+                    float dzr = (i.w.z + _Dist) - (_Dist + _WakeZ);
+                    float age = saturate(dzr / 35.0), back = max(dzr, 0.0);
+                    float cxr = wakeCx(dzr);
+                    float2 q = float2(i.w.x, i.w.z - _Run);
+                    float n1 = fbm(q * 1.15), n2 = fbm(q * 3.4 + 7.1);
+                    float rails = 0.0;
+                    [unroll] for (int sd = 0; sd < 2; sd++)
+                    {
+                        float sgn = sd == 0 ? -1.0 : 1.0;
+                        float outside = saturate(sgn * _WakeC);
+                        float rx = cxr + sgn * (0.58 + back * 0.15 * (1.0 + 0.7 * outside));
+                        float bw = 0.28 + back * 0.075;
+                        float dd = (i.w.x - rx) / bw;
+                        rails += exp(-dd * dd) * (0.85 + 0.45 * outside);
+                    }
+                    float startF = smoothstep(-1.2, 0.3, dzr), life = exp(-back / 17.0);
+                    float breakT = lerp(0.22, 0.60, age);
+                    float froth = smoothstep(breakT, breakT + 0.24, n1 * 0.62 + n2 * 0.48 + (saturate(rails) - 0.75) * 0.35);
+                    float rf = saturate(rails) * startF * life * froth * saturate(_WakeA * 2.6);
+                    col = lerp(col, float3(0.95, 0.975, 1.0) * lerp(0.80, 1.0, saturate(_Light)), rf * 0.88);
+                    foam = max(foam, rf);
+                }
                 // the set wave's face: a darker band low on the wall, green light through it, foam
                 // along the crest, and the sections behind the break collapsed to whitewater
                 if (_SwA > 0.0015)
