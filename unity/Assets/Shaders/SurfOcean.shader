@@ -15,6 +15,7 @@ Shader "Surf/Ocean"
         _SunDir ("Sun direction", Vector) = (-0.45, 0.75, -0.5, 0)
         _Light ("Daylight", Float) = 1
         _Amp ("Swell amplitude", Float) = 1.35
+        _Grid ("Sea grid: x spacing, z spacing per unit of row slope (Ocean.cs)", Vector) = (0.75, 2.8235, 0, 0)
         _Peak ("Peak height", Float) = 2.85
         _Dist ("Field offset", Float) = 0
         _T ("Time", Float) = 0
@@ -77,6 +78,7 @@ Shader "Surf/Ocean"
             float _BtX, _BtZ, _BtSn, _BtCs, _BtA;           // the tow boat's stern, heading and how hard it is making way (Boat.cs)
             float _SkiX, _SkiZ, _SkiA;                      // the jet ski's wake: lateral centre, centre in field z, height (JetSki.cs)
             float4 _CloudShade;                             // the cloud layer's shadows: drift offset (xy), strength, scale per foot (DayCycle.cs)
+            float4 _Grid;                                   // the sea mesh's spacing (Ocean.cs): across, and along per unit of the rows' slope
             CBUFFER_END
             TEXTURE2D(_Chop); SAMPLER(sampler_Chop); float _ChopK;
             TEXTURE2D(_CloudShadeTex); SAMPLER(sampler_CloudShadeTex);
@@ -84,7 +86,7 @@ Shader "Surf/Ocean"
             float4 _WaveB[7];   // ek, ep, w, -
 
             struct A { float4 pos : POSITION; float2 uv : TEXCOORD0; };
-            struct V { float4 pos : SV_POSITION; float3 w : TEXCOORD0; float3 n : TEXCOORD1; float h : TEXCOORD2; float4 sw : TEXCOORD3; float4 sp : TEXCOORD4; };
+            struct V { float4 pos : SV_POSITION; float3 w : TEXCOORD0; float3 n : TEXCOORD1; float h : TEXCOORD2; float4 sw : TEXCOORD3; float4 sp : TEXCOORD4; float2 gs : TEXCOORD5; };
 
             // the field: height and its two slopes at a field point p (x, dist*drift+z)
             // the chute: the web's fallDip, the lane tipping down a fall, anchored at the rider
@@ -172,7 +174,20 @@ Shader "Surf/Ocean"
                 return _SkiA * sez * sax * sax * (3.0 - 2.0 * sax);
             }
 
-            void field(float2 p, out float h, out float dhx, out float dhz)
+            // ---- how much of a wave the mesh can carry ----
+            // The sea's rows are packed toward the rider and stretched toward the horizon: under half a
+            // foot apart at the near edge, two to three feet out in the middle distance. A wave a couple
+            // of feet long, sampled that coarsely, is drawn as a false coarser pattern (aliasing) that
+            // races about far faster than any real wave -- the thing seen "moving super fast" across the
+            // water. So each wave is carried by the mesh only where it gets five or more vertices along
+            // its length, faded out by three; what the mesh drops, the pixels add back as slope (frag).
+            float GridFade(float4 a, float2 gs)
+            {
+                float sAlong = sqrt(a.x * a.x * gs.x * gs.x + a.y * a.y * gs.y * gs.y);
+                return saturate(((6.2831853 / a.z) / max(sAlong, 1e-3) - 3.0) * 0.5);
+            }
+
+            void field(float2 p, float2 gs, out float h, out float dhx, out float dhz)
             {
                 h = 0; dhx = 0; dhz = 0;
                 [unroll] for (int i = 0; i < 7; i++)
@@ -181,6 +196,7 @@ Shader "Surf/Ocean"
                     float u = a.x * p.x + a.y * p.y;
                     float e = 0.32 + 0.68 * sin(u * a.z * b.x - _T * b.z * b.x * 0.5 + b.y);
                     float ph = u * a.z - _T * b.z;
+                    e *= GridFade(a, gs);
                     h += a.w * e * sin(ph);
                     float c = a.w * e * a.z * cos(ph);
                     dhx += c * a.x; dhz += c * a.y;
@@ -228,7 +244,11 @@ Shader "Surf/Ocean"
                 V o;
                 float3 wp = TransformObjectToWorld(i.pos.xyz);
                 float h, dhx, dhz;
-                field(float2(wp.x, wp.z + _Dist), h, dhx, dhz);
+                // this vertex's grid spacing: across fixed, along the rows' own slope at this row (uv.y
+                // is the row's place from near to far, the rows laid by a quadratic in it, Ocean.cs)
+                float2 gs = float2(_Grid.x, _Grid.y * (1.7 * i.uv.y + 0.15));
+                o.gs = gs;
+                field(float2(wp.x, wp.z + _Dist), gs, h, dhx, dhz);
                 // the set wave: steep front face, long shoulder, its height falling away behind
                 // the break into whitewater. sw = (face 0..1, broken 0..1, thrown 0..1, metres out)
                 o.sw = float4(0, 0, 0, 999);
@@ -308,6 +328,26 @@ Shader "Surf/Ocean"
                     if (_HullW2L[1][1] > 0.5 && qz < 1.0 && abs(hq.x) < qw && hq.y > _HullS.z + _HullC.z * qz * qz + _HullC.w * 0.8) discard;
                 }
                 float3 N = normalize(i.n);
+                // ---- the short waves the mesh could not carry, per pixel ----
+                // Their slope is added to the normal here instead, at the pixel's own resolution, and
+                // faded out in turn once a wave is shorter than a few pixels: near the board the water
+                // keeps every ripple it had, and nothing anywhere aliases into a racing pattern.
+                {
+                    float2 fp = float2(i.w.x, i.w.z + _Dist);
+                    float pf = max(max(fwidth(i.w.x), fwidth(i.w.z)), 1e-3);
+                    float sx = 0.0, sz = 0.0;
+                    [unroll] for (int kw = 3; kw < 7; kw++)
+                    {
+                        float4 a = _WaveA[kw], b = _WaveB[kw];
+                        float wgt = (1.0 - GridFade(a, i.gs)) * saturate(((6.2831853 / a.z) / pf - 3.0) / 3.0);
+                        float u = a.x * fp.x + a.y * fp.y;
+                        float e = 0.32 + 0.68 * sin(u * a.z * b.x - _T * b.z * b.x * 0.5 + b.y);
+                        float c = a.w * e * a.z * cos(u * a.z - _T * b.z) * wgt;
+                        sx += c * a.x; sz += c * a.y;
+                    }
+                    sx *= _Amp * _Calm; sz *= _Amp * _Calm;
+                    N = normalize(N + float3(-sx, 0.0, -sz));
+                }
                 // the wake's slope, per pixel: lit as water standing up along the rails and peeling off
                 // the tail, not painted on a flat sea
                 if (_WakeA > 0.001)

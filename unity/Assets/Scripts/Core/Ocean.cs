@@ -23,6 +23,8 @@ public class Ocean : MonoBehaviour
         WaveField.FillShaderArrays(wa, wb);
         material.SetVectorArray("_WaveA", wa);
         material.SetVectorArray("_WaveB", wb);
+        // the grid's spacing, for the shader to keep each wave to what the mesh can draw
+        material.SetVector("_Grid", new Vector4(width / cols, (nearZ - farZ) / rows, 0f, 0f));
     }
 
     void Build()
