@@ -23,6 +23,10 @@ public class PlanarReflection : MonoBehaviour
     Camera rc; RenderTexture rt;
     static readonly int TexId = Shader.PropertyToID("_ReflTex"), VpId = Shader.PropertyToID("_ReflVP"), OnId = Shader.PropertyToID("_ReflOn"), YId = Shader.PropertyToID("_ReflY");
     public const int WaterLayer = 4, UiLayer = 5, StageLayer = 30;
+    // the clouds stand on their own layer and stay out of the mirror: big, bright and right overhead,
+    // mirrored they laid sheets of white across the sea that the web's water never has (its sea
+    // reflects only its sky colours), and they washed the sea out to grey
+    public const int SkyLayer = 28;
 
     void OnEnable()
     {
@@ -58,7 +62,7 @@ public class PlanarReflection : MonoBehaviour
     }
 
     // whatever the main camera sees, less the sea itself, the UI and the shop's preview stages
-    int Mask() => (main != null ? main.cullingMask : ~0) & ~((1 << WaterLayer) | (1 << UiLayer) | (1 << StageLayer));
+    int Mask() => (main != null ? main.cullingMask : ~0) & ~((1 << WaterLayer) | (1 << UiLayer) | (1 << StageLayer) | (1 << SkyLayer));
 
     void Ensure()
     {

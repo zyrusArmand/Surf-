@@ -112,6 +112,7 @@ public static class SkyKit
         if (mat == null) return null;
         var go = new GameObject(name, typeof(MeshFilter), typeof(MeshRenderer));
         go.transform.SetParent(parent, false);
+        go.layer = PlanarReflection.SkyLayer;                 // seen by the lens, not by the sea's mirror
         var mr = go.GetComponent<MeshRenderer>(); mr.sharedMaterial = mat;
         mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; mr.receiveShadows = false;
         mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off; mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
