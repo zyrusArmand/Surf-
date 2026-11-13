@@ -116,22 +116,44 @@ public static class SkyKit
         var mr = go.GetComponent<MeshRenderer>(); mr.sharedMaterial = mat;
         mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; mr.receiveShadows = false;
         mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off; mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+        var m = new Mesh { name = "cumulus" };
+        Fill(m, w, shape, opacity);
+        go.GetComponent<MeshFilter>().sharedMesh = m;
+        return go;
+    }
+
+    /// give a cloud made by Cloud() a new size and shape, so a pool of them can be reused
+    public static void Reshape(GameObject cloud, float w, int shape, float opacity)
+    {
+        if (cloud == null) return;
+        var mf = cloud.GetComponent<MeshFilter>(); if (mf == null || mf.sharedMesh == null) return;
+        Fill(mf.sharedMesh, w, shape, opacity);
+    }
+
+    static readonly Vector3[] fillV = new Vector3[4];
+    static readonly Vector2[] fillUV = new Vector2[4];
+    static readonly List<Vector4> fillTile = new List<Vector4> { Vector4.zero, Vector4.zero, Vector4.zero, Vector4.zero };
+    static readonly int[] fillTri = { 0, 2, 1, 1, 2, 3 };
+
+    static void Fill(Mesh m, float w, int shape, float opacity)
+    {
         shape = ((shape % Shapes) + Shapes) % Shapes;
         bool mirror = shape >= Baked; int k = shape % Baked;
         float us = 1f / Cols, vs = 1f / Rows, u0 = (k % Cols) * us, v0 = (k / Cols) * vs;
         float uL = mirror ? u0 + us : u0, uR = mirror ? u0 : u0 + us;
         float hw = w * 0.5f, hh = w * 0.25f;
-        var m = new Mesh { name = "cumulus" };
-        m.vertices = new[] { new Vector3(-hw, -hh, 0), new Vector3(hw, -hh, 0), new Vector3(-hw, hh, 0), new Vector3(hw, hh, 0) };
-        m.uv = new[] { new Vector2(uL, v0), new Vector2(uR, v0), new Vector2(uL, v0 + vs), new Vector2(uR, v0 + vs) };
+        fillV[0] = new Vector3(-hw, -hh, 0); fillV[1] = new Vector3(hw, -hh, 0); fillV[2] = new Vector3(-hw, hh, 0); fillV[3] = new Vector3(hw, hh, 0);
+        fillUV[0] = new Vector2(uL, v0); fillUV[1] = new Vector2(uR, v0); fillUV[2] = new Vector2(uL, v0 + vs); fillUV[3] = new Vector2(uR, v0 + vs);
         var tile = new Vector4(u0, v0, mirror ? -us : us, vs);
-        m.SetUVs(1, new List<Vector4> { tile, tile, tile, tile });
+        for (int i = 0; i < 4; i++) fillTile[i] = tile;
+        m.vertices = fillV;
+        m.uv = fillUV;
+        m.SetUVs(1, fillTile);
         var c = new Color(1f, 1f, 1f, opacity);
-        m.colors = new[] { c, c, c, c };
-        m.triangles = new[] { 0, 2, 1, 1, 2, 3 };
+        opBuf[0] = opBuf[1] = opBuf[2] = opBuf[3] = c;
+        m.colors = opBuf;
+        if (m.triangles.Length != 6) m.triangles = fillTri;
         m.RecalculateBounds();
-        go.GetComponent<MeshFilter>().sharedMesh = m;
-        return go;
     }
 
     /// set a cloud's opacity (the fade at the ends of its drift)

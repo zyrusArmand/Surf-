@@ -138,14 +138,13 @@ public class DayCycle : MonoBehaviour
             bool moonPath = !beachLook && sy < 0.02f && moonUp > 0.02f;
             ocean.SetVector("_SunDir", moonPath ? moonDir : sunDir); ocean.SetFloat("_Light", light);
             // the cumulus' shadows on the water: the high cloud's noise, read blurred a few hundred
-            // feet to a tile, carried on the clouds' own wind (they drift along +x at 1.4 to 5 a
-            // second, 3.2 on average) and creeping in with the run as the near ones do (SkyLife's
-            // 0.020 of the travel). Gone after dark, faint with the sun on the sea's edge.
+            // feet to a tile, carried on the clouds' own wind (SkyLife.Wind, the one they all ride)
+            // and creeping in with the run as the near ones do (SkyLife's 0.020 of the travel). Gone after dark, faint with the sun on the sea's edge.
             if (ocean.HasProperty("_CloudShade"))
             {
                 if (ocean.GetTexture("_CloudShadeTex") != SkyKit.SkyNoise()) ocean.SetTexture("_CloudShadeTex", SkyKit.SkyNoise());
                 const float Tile = 620f;
-                shadeWind = Mathf.Repeat(shadeWind + Time.deltaTime * 3.2f, Tile);
+                shadeWind = Mathf.Repeat(shadeWind + Time.deltaTime * SkyLife.Wind, Tile);
                 float creep = Mathf.Repeat(distM * 0.020f, Tile);
                 // subtle: the web's sea has no cloud shadows at all, and at full strength they greyed
                 // the water in broad patches and put out the sun's glitter; the ramp also reached full

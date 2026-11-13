@@ -5,11 +5,15 @@
 // however far the run goes; it is scenery a long way off. Into it:
 //
 // CLOUDS, in two layers, each a lit cumulus from SkyKit's atlas (Surf/Cumulus) turned to the
-// lens. The near layer is the web's sixteen by the web's own rule (48 to 140 feet across, 46 to
-// 150 up, 175 to 270 out, drifting 1.4 to 5 a second, high cloud faster); behind it a band of
-// smaller ones low over the horizon, slower, sunk in the haze. Both creep toward the lens a
-// little with the run's speed, the far band less than the near, which is the parallax that says
-// the board is going somewhere. Each fades out at the ends of its drift rather than popping.
+// lens: a near layer (48 to 140 feet across, 72 to 162 up, 175 to 270 out) and behind it a band
+// of smaller ones lower over the horizon, sunk in the haze. The sky is never the same twice:
+// the weather runs in spells (near clear, a few, scattered, busy) and clouds come in off the
+// upwind edge one at a time or in loose bunches, at random gaps, until the spell's count is up,
+// then sail out the far side. They all ride one wind, so whatever is on screen moves together;
+// the wind wanders between a breath and a breeze over half a minute or more, and blows one way
+// for a run (each run off the beach gets a new sky). Both layers creep toward the lens a little
+// with the run's speed, the far band less, which is the parallax that says the board is going
+// somewhere. Each fades in and out at the ends of its drift rather than popping.
 // Above both, the dome's own high cirrus (Surf/Sky) slides back slower still.
 //
 // GULLS: first the web's own FLIGHTS (two skeins of five, a loose three, two solos), each laid
@@ -35,7 +39,8 @@ public class SkyLife : MonoBehaviour
     class Cloud
     {
         public GameObject go; public Transform t;
-        public float v, bob, par, xHalf, zNear, zFar, op, shownA = -1f;
+        public float bob, op, age, shownA = -1f;
+        public bool alive, far;
     }
     class Flock
     {
@@ -54,7 +59,7 @@ public class SkyLife : MonoBehaviour
     System.Random rng = new System.Random(7741);
     float R() => (float)rng.NextDouble();
     float t, extraT = 3f;
-    bool built, shown = true;
+    bool built, shown = true, cameFromBeach;
 
     public void Build()
     {
@@ -65,60 +70,167 @@ public class SkyLife : MonoBehaviour
     }
 
     // ---------------------------------------------------------------- clouds
+    // the two layers' boxes, in the sky root's frame (it rides with the lens on x and z)
+    const int NearN = 22, FarN = 12;                    // the pool: the most either layer can show
+    const float NearHalf = CloudSpan * 0.5f, NearZ0 = -175f, NearZ1 = -270f, NearPar = 0.020f;
+    const float FarHalf = 220f, FarZ0 = -330f, FarZ1 = -400f, FarPar = 0.008f;
+    const float WindMin = 1.2f, WindMax = 4.5f;         // feet a second: a breath to a breeze, never a gale
+
+    /// the clouds' wind along x, feet a second (signed): DayCycle drifts their shadows on it
+    public static float Wind = 3.2f;
+    float windDir = 1f, windTarget = 3.2f, windT, cover = 0.5f, spellT, spawnT;
+
     void BuildClouds()
     {
         if (SkyKit.CloudMaterial() == null) return;
         cloudRoot = new GameObject("Clouds").transform; cloudRoot.SetParent(root, false);
-        // the web's sixteen (web 29223-29235). Their opacity there, 0.30 to 0.72, was for a flat
-        // cut-out that had to stay faint to pass; a lit cloud is solid in the core and soft at the
-        // rim on its own, so the range sits higher and the variety is kept.
-        for (int i = 0; i < 16; i++)
+        for (int i = 0; i < NearN + FarN; i++)
         {
-            float w = 48f + R() * 92f;
-            // started at 46 ft, and a 140 ft cloud that low had its base down on the horizon line
-            AddCloud(w, 0.62f + R() * 0.36f, new Vector3((R() - 0.5f) * CloudSpan, 72f + R() * 90f, -175f - R() * 95f),
-                     1.4f + R() * 3.6f, 0.020f, CloudSpan * 0.5f, -175f, -270f);
+            var go = SkyKit.Cloud(cloudRoot, 100f, 0, 0f);
+            if (go == null) return;
+            go.SetActive(false);
+            clouds.Add(new Cloud { go = go, t = go.transform, far = i >= NearN });
         }
-        // the far band: smaller, lower and slower, kept inside the lens's far plane
-        for (int i = 0; i < 10; i++)
-        {
-            float w = 40f + R() * 60f;
-            // clear of the sea's edge: at 16 ft their bases sat on the horizon, which reads as cloud on the water
-            AddCloud(w, 0.70f + R() * 0.30f, new Vector3((R() - 0.5f) * 440f, 48f + R() * 36f, -330f - R() * 70f),
-                     0.6f + R() * 1.0f, 0.008f, 220f, -330f, -400f);
-        }
+        NewSky();
     }
 
-    void AddCloud(float w, float op, Vector3 at, float v, float par, float xHalf, float zNear, float zFar)
+    // a fresh sky: a new wind and spell, and the spell's clouds already strewn across it, so a
+    // run never opens on an empty sky waiting for the first to blow in
+    void NewSky()
     {
-        var go = SkyKit.Cloud(cloudRoot, w, (int)(R() * SkyKit.Shapes), op);
-        if (go == null) return;
-        go.transform.localPosition = at;
-        clouds.Add(new Cloud { go = go, t = go.transform, v = v, bob = R() * Mathf.PI * 2f, par = par, xHalf = xHalf, zNear = zNear, zFar = zFar, op = op });
+        windDir = R() < 0.5f ? -1f : 1f;
+        windTarget = Mathf.Lerp(WindMin, WindMax, R());
+        Wind = windDir * windTarget;
+        windT = 20f + R() * 30f;
+        NewSpell();
+        foreach (var c in clouds) Retire(c);
+        int nN = Want(false), nF = Want(true);
+        for (int i = 0; i < nN; i++) Spawn(false, (R() - 0.5f) * 2f * NearHalf * 0.85f, true);
+        for (int i = 0; i < nF; i++) Spawn(true, (R() - 0.5f) * 2f * FarHalf * 0.85f, true);
+        spawnT = 2f + R() * 6f;
+    }
+
+    // the weather's spells, weighted toward a few and scattered, now and then near clear or busy
+    void NewSpell()
+    {
+        float r = R();
+        cover = r < 0.12f ? 0.05f + R() * 0.12f      // near clear: none to two
+              : r < 0.45f ? 0.25f + R() * 0.20f      // a few
+              : r < 0.85f ? 0.50f + R() * 0.25f      // scattered
+              : 0.80f + R() * 0.20f;                 // busy
+        spellT = 40f + R() * 60f;
+    }
+
+    int Want(bool far) => Mathf.RoundToInt(cover * (far ? FarN * 0.85f : NearN * 0.8f));
+
+    int Alive(bool far)
+    {
+        int n = 0;
+        foreach (var c in clouds) if (c.alive && c.far == far) n++;
+        return n;
+    }
+
+    void Retire(Cloud c) { c.alive = false; c.shownA = -1f; c.go.SetActive(false); }
+
+    // one cloud out of the pool at x (the upwind edge, or anywhere when the sky is being laid)
+    Cloud Spawn(bool far, float x, bool settled, float yNear = float.NaN, float zNear = float.NaN)
+    {
+        Cloud c = null;
+        foreach (var k in clouds) if (!k.alive && k.far == far) { c = k; break; }
+        if (c == null) return null;
+        float w = far ? 40f + R() * 60f : 48f + R() * 92f;
+        c.op = far ? 0.70f + R() * 0.30f : 0.62f + R() * 0.36f;
+        SkyKit.Reshape(c.go, w, (int)(R() * SkyKit.Shapes), 0f);
+        float y = far ? 48f + R() * 36f : 72f + R() * 90f;
+        float z = far ? FarZ0 - R() * (FarZ0 - FarZ1) : NearZ0 - R() * (NearZ0 - NearZ1);
+        if (!float.IsNaN(yNear)) y = Mathf.Clamp(yNear + (R() - 0.5f) * 30f, far ? 48f : 72f, far ? 84f : 162f);
+        if (!float.IsNaN(zNear)) z = Mathf.Clamp(zNear + (R() - 0.5f) * 40f, far ? FarZ1 : NearZ1, far ? FarZ0 : NearZ0);
+        c.t.localPosition = new Vector3(x, y, z);
+        c.bob = R() * Mathf.PI * 2f;
+        c.age = settled ? 99f : 0f;
+        c.shownA = -1f;
+        c.alive = true;
+        c.go.SetActive(true);
+        return c;
+    }
+
+    // clouds in off the upwind edge, at random gaps, until the spell's count is up: a single, or
+    // a loose bunch of two or three trailing one another
+    void SpawnFromEdge(bool far)
+    {
+        float half = far ? FarHalf : NearHalf;
+        float x = -windDir * half;
+        var lead = Spawn(far, x, false);
+        if (lead == null || R() > 0.3f) return;
+        int more = R() < 0.6f ? 1 : 2;
+        var p = lead.t.localPosition;
+        for (int i = 0; i < more; i++)
+            Spawn(far, x - windDir * (35f + R() * 60f) * (i + 1), false, p.y, p.z);
     }
 
     void StepClouds(float dt, float speed)
     {
         if (cloudRoot == null) return;
         SkyKit.LightClouds();
+
+        // the wind wanders: a new strength every half minute or so, eased in over many seconds,
+        // so the clouds on screen speed up and slow down together and never jerk
+        windT -= dt;
+        if (windT <= 0f) { windTarget = Mathf.Lerp(WindMin, WindMax, R()); windT = 25f + R() * 35f; }
+        float mag = Mathf.MoveTowards(Mathf.Abs(Wind), windTarget, 0.06f * dt);
+        Wind = windDir * mag;
+
+        spellT -= dt;
+        if (spellT <= 0f) NewSpell();
+
+        // a new cloud whenever the gap is up and the spell wants more; the gap shortens the
+        // further short the sky is, so a busy spell fills in and a clear one stays clear
+        spawnT -= dt;
+        if (spawnT <= 0f)
+        {
+            int wN = Want(false), wF = Want(true), aN = Alive(false), aF = Alive(true);
+            float shortN = wN > 0 ? (wN - aN) / (float)wN : 0f, shortF = wF > 0 ? (wF - aF) / (float)wF : 0f;
+            if (shortN > 0f && (shortN >= shortF || R() < 0.6f)) SpawnFromEdge(false);
+            else if (shortF > 0f) SpawnFromEdge(true);
+            float lack = Mathf.Max(shortN, shortF);
+            // at a breeze a cloud crosses in about a minute; at a breath, in several
+            float pace = Mathf.Lerp(1.6f, 0.7f, Mathf.InverseLerp(WindMin, WindMax, mag));
+            spawnT = (lack > 0f ? Mathf.Lerp(16f, 3f, lack) : 6f) * pace * (0.5f + R());
+        }
+
         var look = cam.transform.rotation;
         foreach (var c in clouds)
         {
+            if (!c.alive) continue;
+            float half = c.far ? FarHalf : NearHalf, z0 = c.far ? FarZ0 : NearZ0, z1 = c.far ? FarZ1 : NearZ1;
             var p = c.t.localPosition;
-            p.x += c.v * dt;
-            if (p.x > c.xHalf) p.x -= c.xHalf * 2f;
-            p.z += speed * c.par * dt;                  // the run's own travel, a sliver of it
-            if (p.z > c.zNear) p.z -= c.zNear - c.zFar;
+            p.x += Wind * dt;                           // one wind for all: the group moves as one
+            p.z += speed * (c.far ? FarPar : NearPar) * dt;   // the run's own travel, a sliver of it
             c.bob += dt * 0.28f;
             p.y += Mathf.Sin(c.bob) * dt * 0.7f;
+            c.age += dt;
+            // gone out the downwind side: back to the pool
+            if (p.x * windDir > half) { Retire(c); continue; }
+            // crept in past the near edge of its band (unseen there, as at the far edge): back to
+            // the pool if the spell has thinned, else out to the far edge as a new cloud, so the
+            // downwind half of the sky is as full as the upwind
+            if (p.z > z0)
+            {
+                if (Alive(c.far) > Want(c.far)) { Retire(c); continue; }
+                p.z -= z0 - z1;
+                c.op = c.far ? 0.70f + R() * 0.30f : 0.62f + R() * 0.36f;
+                SkyKit.Reshape(c.go, c.far ? 40f + R() * 60f : 48f + R() * 92f, (int)(R() * SkyKit.Shapes), 0f);
+                c.shownA = -1f;
+            }
             c.t.localPosition = p;
             c.t.rotation = look;
-            // out at the ends of the drift and in at the start, rather than a pop
-            float fx = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(c.xHalf, c.xHalf * 0.82f, Mathf.Abs(p.x)));
-            float span = c.zNear - c.zFar;
-            float fz = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(c.zNear, c.zNear - span * 0.18f, p.z))
-                     * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(c.zFar, c.zFar + span * 0.18f, p.z));
-            float a = c.op * fx * fz;
+            // in and out at the ends of the drift, rather than a pop
+            float fx = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(half, half * 0.82f, Mathf.Abs(p.x)));
+            float span = z0 - z1;
+            float fz = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(z0, z0 - span * 0.18f, p.z))
+                     * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(z1, z1 + span * 0.18f, p.z));
+            float fa = Mathf.SmoothStep(0f, 1f, c.age / 4f);
+            float a = c.op * fx * fz * fa;
             if (Mathf.Abs(a - c.shownA) > 0.01f) { c.shownA = a; SkyKit.SetOpacity(c.go, a); }
         }
     }
@@ -323,6 +435,8 @@ public class SkyLife : MonoBehaviour
     {
         if (shown == on) return;
         shown = on;
+        // back on the water from the beach: a new run, a new sky (a dive comes back to the same one)
+        if (on && cameFromBeach && clouds.Count > 0) NewSky();
         if (cloudRoot != null) cloudRoot.gameObject.SetActive(on);
         foreach (var f in flocks) foreach (var b in f.birds) SkyKit.Show(b, on);
     }
@@ -330,8 +444,11 @@ public class SkyLife : MonoBehaviour
     void LateUpdate()
     {
         if (!built || cam == null) return;
-        bool on = !(beach != null && beach.Showing) && !(dive != null && dive.On);
+        bool onBeach = beach != null && beach.Showing;
+        bool on = !onBeach && !(dive != null && dive.On);
+        if (onBeach) cameFromBeach = true;
         SetShown(on);
+        if (on) cameFromBeach = false;
         if (!on) return;
         float dt = Mathf.Min(0.033f, Time.deltaTime);
         t += dt;
