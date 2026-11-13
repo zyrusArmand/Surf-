@@ -4,6 +4,15 @@
 // the camera comes back up out of a dive. All particles, all soft (they fade where they meet the
 // sea instead of cutting through it), and all carried toward the camera at the run's speed,
 // because the world scrolls past the rider rather than him moving through it.
+//
+// The white water a board throws is drawn as little lit clouds (Surf/Puff, its atlas baked by
+// unity/Tools~/cloudbake --puffs): a carve bursts puffs off the outside rail and the tail that
+// swell as they fly, slow, settle back onto the sea and fade; and each rail leaves a heavy band
+// of the same foam lying flat on the water along the track it took, densest at the rail,
+// widening and tearing into lace behind. Each has a sun side and a soft grey shade side wherever
+// the sun is, where a flat white sprite read as a paper cut-out. Without the shader or its atlas, the torn whitewater
+// clumps stand in for them as before.
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -21,6 +30,13 @@ public class Fx : MonoBehaviour
     static readonly Vector4 Round = new Vector4(0.35f, 0.35f, 0f, 1f);   // anything that is not the board: a small round splash
     RectTransform lens; RawImage[] drops; float[] dropT, dropV; float lensT;
     bool wasUnder; float trailAcc, mistAcc;
+    ParticleSystem puffs, wake;                     // the carve's puffs, in the air; the rails' puffs, on the water
+    Material puffMat, flatMat; bool fastFx, softSet;     // upright puffs; the same lying flat on the water
+    float puffAcc; readonly float[] wakeAcc = new float[2];
+    AnimationCurve puffSize, wakeSize;              // their swell over a life, kept to read sizes back each frame
+    readonly List<Vector4> puffData = new List<Vector4>();
+    ParticleSystem.Particle[] pbuf;
+    const int PuffMax = 240, PuffMaxFast = 110, WakeMax = 320, WakeMaxFast = 160;
 
     public void Build()
     {
@@ -30,7 +46,128 @@ public class Fx : MonoBehaviour
         carveMist = MakeCarveMist();
         clumps = MakeClumps();
         sparkle = MakeSparkle();
+        puffMat = MakePuffMaterial();
+        if (puffMat != null) { flatMat = new Material(puffMat) { name = "rail foam" }; flatMat.SetFloat("_Flat", 1f); }
+        puffSize = new AnimationCurve(new Keyframe(0, 0.38f), new Keyframe(0.3f, 0.78f), new Keyframe(1, 1f));
+        wakeSize = new AnimationCurve(new Keyframe(0, 0.55f), new Keyframe(0.4f, 0.85f), new Keyframe(1, 1f));
+        puffs = MakePuffs("SprayPuffs", PuffMax, puffSize, false,
+            new[] { new GradientAlphaKey(0f, 0), new GradientAlphaKey(1f, 0.06f), new GradientAlphaKey(0.75f, 0.5f), new GradientAlphaKey(0f, 1) });
+        wake = MakePuffs("RailFoam", WakeMax, wakeSize, true,
+            new[] { new GradientAlphaKey(0.6f, 0), new GradientAlphaKey(1f, 0.04f), new GradientAlphaKey(0.7f, 0.4f), new GradientAlphaKey(0f, 1) });
+        SetFast(SaveData.S.fastFx);
         BuildLens();
+    }
+
+    /// Settings > Graphics: Fast keeps fewer puffs alive and throws fewer of them
+    public void SetFast(bool fast)
+    {
+        fastFx = fast;
+        if (puffs != null) { var m = puffs.main; m.maxParticles = fast ? PuffMaxFast : PuffMax; }
+        if (wake != null) { var m = wake.main; m.maxParticles = fast ? WakeMaxFast : WakeMax; }
+    }
+
+    // ---- the whitewater puffs ----
+    // the lit-cloud material every puff shares; null when the shader or its baked atlas is missing
+    static Material MakePuffMaterial()
+    {
+        var sh = Shader.Find("Surf/Puff");
+        var pos = Resources.Load<Texture2D>("Clouds/puff_pos");
+        var neg = Resources.Load<Texture2D>("Clouds/puff_neg");
+        if (sh == null || !sh.isSupported || pos == null || neg == null) return null;
+        var m = new Material(sh) { name = "spray puffs" };
+        m.SetTexture("_PuffPos", pos); m.SetTexture("_PuffNeg", neg);
+        m.SetVector("_Albedo", new Vector4(0.93f, 0.96f, 1.0f, 1f));
+        // x: soft against the solid world over 0.6 ft; y, z: gone half a foot from the lens,
+        // whole by two; w: the forward-scatter glow toward the sun
+        m.SetVector("_Fade", new Vector4(0.6f, 0.5f, 1.5f, 1f));
+        m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+        return m;
+    }
+
+    // A billboard per puff, turned square to the lens (the shader lights it in the camera's own
+    // frame, so it is never rotated or flipped), or for the rails' foam lying flat on the water
+    // (lit in the world's frame); one of the eight tiles of the atlas at random, held for its life. Moved by Settle each frame rather than by the system's own gravity and
+    // drag, since the drag that matters is toward the water's speed, not toward standing still.
+    ParticleSystem MakePuffs(string name, int max, AnimationCurve size, bool flat, GradientAlphaKey[] alpha)
+    {
+        if (puffMat == null) return null;
+        var go = new GameObject(name); go.transform.SetParent(transform, false);
+        // seen by the lens, not by the sea's mirror: that camera keeps no depth to soften them against
+        go.layer = PlanarReflection.SkyLayer;
+        var ps = go.AddComponent<ParticleSystem>();
+        var main = ps.main; main.startSpeed = 0f; main.maxParticles = max; main.playOnAwake = false;
+        main.simulationSpace = ParticleSystemSimulationSpace.World; main.gravityModifier = 0f;
+        main.startRotation = 0f;
+        var em = ps.emission; em.enabled = false;
+        var sh = ps.shape; sh.enabled = false;
+        var ts = ps.textureSheetAnimation; ts.enabled = true; ts.mode = ParticleSystemAnimationMode.Grid;
+        ts.numTilesX = 4; ts.numTilesY = 2; ts.animation = ParticleSystemAnimationType.WholeSheet; ts.cycleCount = 1;
+        ts.frameOverTime = new ParticleSystem.MinMaxCurve(0f, 0.999f);   // a random tile per puff, held for its life (normalised over the sheet)
+        var sz = ps.sizeOverLifetime; sz.enabled = true; sz.size = new ParticleSystem.MinMaxCurve(1f, size);
+        var col = ps.colorOverLifetime; col.enabled = true;
+        var g = new Gradient();
+        g.SetKeys(new[] { new GradientColorKey(Color.white, 0), new GradientColorKey(Color.white, 1) }, alpha);
+        col.color = g;
+        var r = go.GetComponent<ParticleSystemRenderer>();
+        r.renderMode = flat ? ParticleSystemRenderMode.HorizontalBillboard : ParticleSystemRenderMode.Billboard;
+        if (!flat) r.alignment = ParticleSystemRenderSpace.View;
+        r.sortMode = ParticleSystemSortMode.Distance; r.maxParticleSize = 0.6f;
+        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows = false;
+        r.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off; r.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+        r.material = flat ? flatMat : puffMat;
+        // custom1.xy: the sea's height under the puff and the band over it the puff thins out through
+        r.SetActiveVertexStreams(new List<ParticleSystemVertexStream> {
+            ParticleSystemVertexStream.Position, ParticleSystemVertexStream.Color,
+            ParticleSystemVertexStream.UV, ParticleSystemVertexStream.Custom1XY });
+        return ps;
+    }
+
+    // Each frame, every puff: those in the air slow toward the drift of the air the run carries
+    // past (half again slower than the water), fall, and settle onto the sea, each told the sea's
+    // height under it so it thins out into the water rather than being cut off by it; the foam
+    // lying flat sits on the swell and goes with the water.
+    void Settle(ParticleSystem ps, AnimationCurve size, bool air, float dt)
+    {
+        if (ps == null || rider == null) return;
+        int n = ps.particleCount; if (n == 0) return;
+        if (pbuf == null || pbuf.Length < ps.main.maxParticles) pbuf = new ParticleSystem.Particle[Mathf.Max(PuffMax, WakeMax)];
+        n = ps.GetParticles(pbuf);
+        puffData.Clear();
+        float flow = Flow(), t = rider.t, fz0 = WaveField.Scroll;
+        float drag = Mathf.Exp(-2.2f * dt), lift = Mathf.Exp(-1.2f * dt), land = Mathf.Exp(-4f * dt), carry = Mathf.Exp(-1f * dt);
+        for (int i = 0; i < n; i++)
+        {
+            var q = pbuf[i];
+            float f = 1f - q.remainingLifetime / Mathf.Max(1e-3f, q.startLifetime);
+            float sz = q.startSize * size.Evaluate(f);
+            Vector3 p = q.position, v = q.velocity;
+            float sea = WaveField.Height(p.x, fz0 + p.z, t);
+            if (air)
+            {
+                v.x *= drag; v.z = flow * 0.65f + (v.z - flow * 0.65f) * drag;
+                v.y = v.y * lift - 7f * dt;
+                float rest = sea + sz * 0.2f;
+                if (p.y <= rest && v.y <= 0f) { p.y = rest; v.y = 0f; v.x *= land; v.z = flow + (v.z - flow) * land; }
+            }
+            else { p.y = sea + 0.07f; v.y = 0f; v.z = flow + (v.z - flow) * carry; }
+            q.position = p; q.velocity = v; pbuf[i] = q;
+            puffData.Add(new Vector4(sea, air ? sz * 0.32f : 0f, 0f, 0f));       // flat on the water: no fade into it
+        }
+        ps.SetParticles(pbuf, n);
+        ps.SetCustomParticleData(puffData, ParticleSystemCustomData.Custom1);
+    }
+
+    // soft against the board and the rider only where the lens keeps a depth texture to read
+    void PuffSoft()
+    {
+        if (softSet || puffMat == null) return;
+        var cam = Camera.main; if (cam == null) return;
+        softSet = true;
+        // (the getter falls back to the pipeline's own setting when the camera does not say)
+        var ud = cam.GetComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>();
+        bool depth = ud != null && ud.requiresDepthTexture;
+        foreach (var m in new[] { puffMat, flatMat })
+            if (m != null) { if (depth) m.EnableKeyword("_PUFF_SOFT"); else m.DisableKeyword("_PUFF_SOFT"); }
     }
 
     // ---- the systems ----
@@ -96,6 +233,7 @@ public class Fx : MonoBehaviour
         // drops make the sheet and a fifth are heavy ones that arc higher and longer; clumps of
         // whitewater make its solid core; a mist hangs in it; glints sparkle through it.
         float back = (rider != null ? rider.eff : 20f) * 0.22f;     // the water he leaves runs back past the lens with the run
+        CarvePuffs(tail, outward, k, dt);
         carveAcc += dt * 420f * Mathf.Pow(k, 1.5f);
         while (carveAcc >= 1f)
         {
@@ -116,9 +254,10 @@ public class Fx : MonoBehaviour
             };
             carve.Emit(ep, 1);
             float r = Random.value;
-            if (clumps != null && r < 0.20f)
+            if (clumps != null && puffs == null && r < 0.20f)
             {
                 // the curtain's solid white core: whitewater thrown with it, slower, bigger, nearer the rail
+                // (the puffs are that core when the lit shader is there)
                 var ec = new ParticleSystem.EmitParams
                 {
                     position = tail + new Vector3(outward * (0.2f + Random.value * 0.6f), 0.15f + Random.value * 0.5f, Random.value * 0.6f),
@@ -152,6 +291,109 @@ public class Fx : MonoBehaviour
                     startColor = new Color(1f, 1f, 1f, 0.18f + 0.12f * k)
                 };
                 carveMist.Emit(em, 1);
+            }
+        }
+    }
+
+    // The curtain's white core, as little clouds: puffs burst off the outside rail over the back
+    // third of the board and off the tail (never out of the middle of it), thrown out, up and back
+    // toward the lens, swelling two and a half times as they go, then slowing, settling onto the
+    // water and fading. More and bigger the harder he turns and the faster he goes.
+    void CarvePuffs(Vector3 tail, float outward, float k, float dt)
+    {
+        if (puffs == null || rider == null) return;
+        float flow = Flow(), sp = Mathf.InverseLerp(14f, 50f, flow);
+        puffAcc += dt * (fastFx ? 0.5f : 1f) * 80f * Mathf.Pow(k, 1.3f) * (0.6f + 0.4f * sp);
+        Vector3 fwd = tailFwd.sqrMagnitude > 0.5f ? tailFwd : Vector3.forward * -1f;
+        while (puffAcc >= 1f)
+        {
+            puffAcc -= 1f;
+            bool offTail = Random.value < 0.3f;
+            float along = offTail ? -0.35f * Random.value : 1.3f * Random.value;   // up the rail toward the nose, or just off the tail
+            float kk = 0.5f + 0.5f * k;
+            var ep = new ParticleSystem.EmitParams
+            {
+                position = tail + fwd * along + new Vector3(outward * Random.value * 0.25f, 0.05f + Random.value * 0.2f, 0f),
+                velocity = new Vector3(outward * (2.0f + 4.5f * Random.value) * kk, (3.0f + 4.0f * Random.value) * (0.6f + 0.4f * k),
+                                       flow * 0.3f + 1.5f + 3.5f * Random.value + (offTail ? 2f : 0f)),
+                startSize = (0.85f + 0.9f * Random.value) * (0.6f + 0.4f * k) * (fastFx ? 1.2f : 1f),
+                startLifetime = 0.5f + 0.7f * Random.value,
+                startColor = new Color(1f, 1f, 1f, 0.85f + 0.15f * Random.value),
+                rotation = 0f
+            };
+            puffs.Emit(ep, 1);
+        }
+    }
+
+    // The two bands of foam the rails leave, one off each, from just ahead of the tail: heavy,
+    // white and plain from the chase camera. Each patch is laid flat on the water where the rail is
+    // and goes with the water, so the band it makes is the track that rail took -- the same
+    // history the sea's wake V is drawn from (Bootstrap _WakeP), but per rail and exact, curving
+    // with every carve. Big soft patches overlapping, rather than many small ones: densest and
+    // whitest at the rail, drifting outward at a fixed angle to the run so each band widens behind
+    // (the outside rail of a carve the more), most living a few yards and some running 20 to 35 ft
+    // back, tearing into lace as they fade. Stronger with speed and on the outside of a carve, a
+    // slow noise per rail varying it so it is never a regular chain. A few taller puffs burst up
+    // right at the rail, more on the outside of a hard carve.
+    void RailPuffs(float dt)
+    {
+        if (wake == null) return;
+        float flow = Flow(), sp = Mathf.InverseLerp(14f, 50f, flow), cv = Mathf.Abs(rider.carve), outS = -Mathf.Sign(rider.carve);
+        int room = wake.main.maxParticles - wake.particleCount;
+        int roomUp = puffs != null ? puffs.main.maxParticles - puffs.particleCount : 0;
+        for (int s = 0; s < 2; s++)
+        {
+            float side = s == 0 ? -1f : 1f;
+            Vector3 rail = tailRight * side;
+            bool outer = cv > 0.05f && Mathf.Sign(rail.x) == outS;
+            float str = (0.5f + 0.8f * sp) * (1f + cv * (outer ? 1.2f : -0.3f));
+            float gate = 0.6f + 0.7f * Mathf.PerlinNoise(Time.time * 1.9f, 20f + side * 7.3f);
+            wakeAcc[s] += dt * flow * (fastFx ? 3.2f : 6f) * str * gate;
+            while (wakeAcc[s] >= 1f)
+            {
+                wakeAcc[s] -= 0.4f + 1.2f * Random.value;          // uneven spacing
+                float jw = tailHalfW * (0.85f + 0.2f * Random.value) + 0.35f * Random.value * Random.value, ja = Random.value * 0.8f - 0.1f;
+                // when in the frame it left the rail: the water has carried it on since, so a
+                // frame's worth do not all start in one clump
+                var at = tail + rail * jw + tailFwd * ja + new Vector3(0f, 0f, flow * dt * Random.value);
+                float drift = flow * (0.02f + 0.08f * Random.value) * (outer ? 1f + 1.2f * cv : 1f - 0.4f * cv);
+                if (puffs != null && roomUp > 0 && Random.value < 0.06f + 0.3f * cv * (outer ? 1f : 0f))
+                {
+                    roomUp--;
+                    puffs.Emit(new ParticleSystem.EmitParams
+                    {
+                        position = new Vector3(at.x, rider.waterY + 0.1f, at.z),
+                        velocity = new Vector3(rail.x * (1f + 2f * Random.value), 1f + 2f * Random.value, flow * 0.7f),
+                        startSize = (0.8f + 0.6f * Random.value) * (fastFx ? 1.2f : 1f),
+                        startLifetime = 0.35f + 0.4f * Random.value,
+                        startColor = new Color(1f, 1f, 1f, 0.9f),
+                        rotation = 0f
+                    }, 1);
+                }
+                if (room-- <= 0) continue;
+                float r2 = Random.value; r2 *= r2;
+                wake.Emit(new ParticleSystem.EmitParams
+                {
+                    position = new Vector3(at.x, rider.waterY + 0.07f, at.z),
+                    velocity = new Vector3(rail.x * drift, 0f, flow + rail.z * drift),
+                    startSize = (1.3f + 1.2f * Random.value) * (0.75f + 0.25f * Mathf.Min(str, 2f)) * (fastFx ? 1.2f : 1f),
+                    startLifetime = Mathf.Clamp((5f + 30f * r2) / Mathf.Max(flow, 8f), 0.12f, 3f),
+                    startColor = new Color(1f, 1f, 1f, (0.85f + 0.15f * Random.value) * Mathf.Clamp01(0.75f + 0.3f * str)),
+                    rotation = 0f
+                }, 1);
+                // and lace under it, flat on the water, the whole way back
+                if (trail != null && Random.value < (fastFx ? 0.6f : 0.9f))
+                {
+                    trail.Emit(new ParticleSystem.EmitParams
+                    {
+                        position = new Vector3(at.x, rider.waterY + 0.05f, at.z),
+                        velocity = new Vector3(rail.x * drift, 0f, flow),
+                        startSize = 1.2f + 1.2f * Random.value,
+                        startLifetime = Mathf.Clamp((18f + 17f * Random.value) / Mathf.Max(flow, 8f), 0.4f, 3f),
+                        startColor = new Color(1f, 1f, 1f, (0.6f + 0.3f * Random.value) * Mathf.Clamp01(0.6f + 0.4f * str)),
+                        rotation = Random.value * 360f
+                    }, 1);
+                }
             }
         }
     }
@@ -383,7 +625,11 @@ public class Fx : MonoBehaviour
                 }
             }
         }
-        else { trailAcc = 0f; fizzAcc = 0f; }
+        if (onWater && tailOk) RailPuffs(dt);
+        else { trailAcc = 0f; fizzAcc = 0f; wakeAcc[0] = wakeAcc[1] = 0f; }
+        if (puffMat != null) { SkyKit.LightPuffs(puffMat); SkyKit.LightPuffs(flatMat); PuffSoft(); }
+        Settle(puffs, puffSize, true, dt);
+        Settle(wake, wakeSize, false, dt);
         // mist hanging in the barrel while the ring has him
         if (setWave != null && setWave.tubeRide)
         {

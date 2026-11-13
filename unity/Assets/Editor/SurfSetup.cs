@@ -81,7 +81,7 @@ public static class SurfSetup
         const string Lit = "Universal Render Pipeline/Lit", Unlit = "Universal Render Pipeline/Unlit", PUnlit = "Universal Render Pipeline/Particles/Unlit";
         var want = new (string shader, string[] kw, bool clear)[] {
             ("Surf/Ocean", null, false), ("Surf/Sky", null, false), ("Surf/Sand", null, false), ("Surf/Glass", null, false),
-            ("Surf/Cumulus", null, false), ("Surf/Cloud", null, false), ("Surf/Curl", null, false), ("Surf/FoamBank", null, false),
+            ("Surf/Cumulus", null, false), ("Surf/Puff", null, false), ("Surf/Cloud", null, false), ("Surf/Curl", null, false), ("Surf/FoamBank", null, false),
             ("Surf/Beam", null, false), ("Surf/Whirl", null, false), ("Surf/Character", null, false), ("Surf/TractorBeam", null, false), ("Surf/BeamPool", null, false),
             (Lit, null, false), (Lit, new[] { "_NORMALMAP" }, false), (Lit, new[] { "_EMISSION" }, false), (Lit, new[] { "_NORMALMAP", "_EMISSION" }, false),
             (Lit, new[] { "_NORMALMAP", "_ENVIRONMENTREFLECTIONS_OFF" }, false), (Lit, new[] { "_SPECULARHIGHLIGHTS_OFF" }, false),

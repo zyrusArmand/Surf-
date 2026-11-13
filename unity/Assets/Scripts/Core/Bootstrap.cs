@@ -508,7 +508,7 @@ public class Bootstrap : MonoBehaviour
         foreach (var f in Resources.FindObjectsOfTypeAll<UnityEngine.Rendering.Universal.ScriptableRendererFeature>())
             if (f != null && f.GetType().Name == "ScreenSpaceAmbientOcclusion") f.SetActive(on);
     }
-    void ApplyGfx() { Ssao(!SaveData.S.fastFx); }
+    void ApplyGfx() { Ssao(!SaveData.S.fastFx); if (fx != null) fx.SetFast(SaveData.S.fastFx); }   // Fast: fewer spray puffs too
     void OnApplicationQuit() { Ssao(true); }
 
     void Update()

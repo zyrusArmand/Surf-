@@ -1,6 +1,6 @@
 // Offline bake of the cumulus atlas for Surf/Cumulus: real 3D clouds, lit from six directions.
 //
-//   node bake.mjs [outDir] [--bin dir] [--preview file.png] [--only k]
+//   node bake.mjs [outDir] [--bin dir] [--preview file.png] [--only k] [--puffs]
 //
 // outDir defaults to ../../Assets/Resources/Clouds next to this script. It writes two 512x512
 // RGBA PNGs, eight 256x128 tiles each (two across, four down, tile 0 at the bottom left, the
@@ -39,6 +39,14 @@
 //     than glowing like a lit surface (which is what reads as an outline).
 // Then each pixel marches front to back through its column, gathering what each voxel sends
 // toward the viewer through the cloud in front of it.
+//
+// SPRAY PUFFS (--puffs): the same bake for the whitewater a board throws when it carves and
+// leaves bubbling in its wake (Surf/Puff, Fx.cs). Eight small round puffs, 128 px tiles four
+// across and two down, written as puff_pos.png and puff_neg.png (512x256, same channels as
+// above). A puff is a dense lumpy ball of foam -- a core with lobes boiling out of it and a few
+// torn-off bits round it -- with no flat base (it is thrown, not floating on a condensation
+// level), its fringe eaten into wisps. Lit exactly as the clouds are, so the shader's sun side,
+// shade side and through-light read the same way at any sun.
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { dirname, join } from 'node:path';
@@ -46,12 +54,15 @@ import { fileURLToPath } from 'node:url';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { cpus } from 'node:os';
 
-const TW = 256, TH = 128, COLS = 2, ROWS = 4, AW = TW * COLS, AH = TH * ROWS, SHAPES = COLS * ROWS;
-const NZ = 112;                 // depth of the volume, in the same voxels as the pixels
-const SIG = 0.45;               // extinction per voxel at full density
+// the workers are told the mode; the main thread reads it off the command line
+const PUFF = isMainThread ? process.argv.includes('--puffs') : !!workerData.puff;
+const TW = PUFF ? 128 : 256, TH = 128, COLS = PUFF ? 4 : 2, ROWS = PUFF ? 2 : 4, AW = TW * COLS, AH = TH * ROWS, SHAPES = COLS * ROWS;
+const NZ = PUFF ? 128 : 112;    // depth of the volume, in the same voxels as the pixels (a puff is as deep as it is wide)
+const SIG = PUFF ? 0.40 : 0.45; // extinction per voxel at full density
 const OCT = 6, OA = 0.45, OB = 0.55;   // multiple-scattering octaves: extinction and weight per octave
 const ENC = 2.4;                // stored light = sqrt(radiance / ENC)
-const MSK = 3.0;                // how quickly multiple scattering builds up with the cloud round a point
+const MSK = PUFF ? 6.0 : 3.0;   // how quickly multiple scattering builds up with the cloud round a point (foam's wisps are
+                                // nearly as bright as its body: dark fringes read as grit against the sea)
 const hg = (c, g) => (1 - g * g) / Math.pow(1 + g * g - 2 * g * c, 1.5);
 const phase = c => 0.7 * hg(c, 0.8) + 0.3 * hg(c, -0.3);
 const PH90 = phase(0), PHBACK = phase(-1);
@@ -193,6 +204,90 @@ function density(seed) {
   return D;
 }
 
+// ------------------------------------------------------------------ one spray puff's density
+// A ball of whitewater as it bursts off a rail: a dense core, lobes boiling out of it all round
+// (it has no up or down of its own, so no base), a few torn-off bits hanging just outside it,
+// the lot drawn out a little along a random line as thrown water is. Kept well inside the tile
+// so nothing ever touches its edge: a puff must never show the square it is drawn on.
+function puffDensity(seed) {
+  const R = rngOf(seed * 6151 + 29);
+  const cx = TW / 2 + (R() - 0.5) * 6, cy = TH / 2 + (R() - 0.5) * 6, cz = NZ / 2;
+  const R0 = TW * (0.16 + 0.03 * R());                  // the core's radius
+  const ang = R() * Math.PI, st = 1 + 0.22 * R();       // drawn out along (cos, sin) by st
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  const at = (dx, dy, dz) => {                          // an offset from the centre, stretched along the throw
+    const a = dx * ca + dy * sa, b = -dx * sa + dy * ca, s = a * st;
+    return [s * ca - b * sa, s * sa + b * ca, dz];
+  };
+  const dir = () => { const u = R() * 2 - 1, t = R() * Math.PI * 2, q = Math.sqrt(1 - u * u); return [q * Math.cos(t), q * Math.sin(t), u]; };
+  const S = [[0, 0, 0, R0]];
+  // the lobes: big ones standing well out of the core, so the outline is lumpy all the way
+  // round, and a second ring of smaller ones boiling out of those
+  const nl = 6 + ((R() * 4) | 0);
+  for (let k = 0; k < nl; k++) {
+    const d = dir(), r = R0 * (0.42 + 0.30 * R()), m = R0 * (0.62 + 0.40 * R());
+    const c = at(d[0] * m, d[1] * m, d[2] * m * 0.8);
+    S.push([...c, r]);
+    const nb = 1 + ((R() * 3) | 0);
+    for (let j = 0; j < nb; j++) {
+      const e = dir(), rr = r * (0.38 + 0.25 * R()), mm = r * (0.75 + 0.25 * R());
+      S.push([c[0] + e[0] * mm, c[1] + e[1] * mm, c[2] + e[2] * mm * 0.8, rr]);
+    }
+  }
+  // torn-off bits: small, just clear of the body or barely joined to it
+  const ns = 3 + ((R() * 5) | 0);
+  for (let k = 0; k < ns; k++) {
+    const d = dir(), r = R0 * (0.12 + 0.14 * R()), m = R0 * (1.25 + 0.35 * R());
+    S.push([...at(d[0] * m, d[1] * m, d[2] * m * 0.6), r]);
+  }
+  // fitted to the tile: shrunk about the centre until the farthest lump clears its edge by a
+  // margin the surface's boiling cannot cross
+  let ext = 1, extZ = 1;
+  for (const [x, y, z, r] of S) { ext = Math.max(ext, Math.hypot(x, y) + r); extZ = Math.max(extZ, Math.abs(z) + r); }
+  const fit = Math.min(1, (TW / 2 - 15) / ext, (NZ / 2 - 15) / extZ);
+  for (const q of S) { q[0] = cx + q[0] * fit; q[1] = cy + q[1] * fit; q[2] = cz + q[2] * fit; q[3] *= fit; }
+  const N = TW * TH * NZ, K = 2.4, MARGIN = 12;
+  const sum = new Float32Array(N);
+  for (const [sx, sy, sz, r] of S) {
+    const e = r + MARGIN;
+    const x0 = Math.max(0, Math.floor(sx - e)), x1 = Math.min(TW - 1, Math.ceil(sx + e));
+    const y0 = Math.max(0, Math.floor(sy - e)), y1 = Math.min(TH - 1, Math.ceil(sy + e));
+    const z0 = Math.max(0, Math.floor(sz - e)), z1 = Math.min(NZ - 1, Math.ceil(sz + e));
+    for (let z = z0; z <= z1; z++) for (let y = y0; y <= y1; y++) {
+      const row = (z * TH + y) * TW;
+      for (let x = x0; x <= x1; x++) {
+        const dx = x + 0.5 - sx, dy = y + 0.5 - sy, dz = z + 0.5 - sz;
+        const dd = Math.sqrt(dx * dx + dy * dy + dz * dz) - r;
+        if (dd < MARGIN) sum[row + x] += Math.exp(-dd / K);
+      }
+    }
+  }
+  const sd = seed * 131 + 977;
+  const D = new Float32Array(N);
+  const win = (v, n, m) => sstep(0, m, v) * sstep(n, n - m, v);
+  for (let z = 0; z < NZ; z++) for (let y = 0; y < TH; y++) for (let x = 0; x < TW; x++) {
+    const i = (z * TH + y) * TW + x, s = sum[i];
+    if (s <= 0) continue;
+    let d = -K * Math.log(s);
+    if (d > MARGIN - 1) continue;
+    const px = x + 0.5, py = y + 0.5, pz = z + 0.5;
+    const wx = px + 5 * fbm(px / 22, py / 22, pz / 22, sd + 1, 2);
+    const wy = py + 5 * fbm(px / 22 + 5.2, py / 22, pz / 22, sd + 2, 2);
+    const wz = pz + 5 * fbm(px / 22, py / 22 + 3.1, pz / 22, sd + 3, 2);
+    // cauliflower all over: foam boils on every side
+    d -= (billow(wx / 9, wy / 9, wz / 9, sd + 11) - 0.42) * 2 * 4.0;
+    if (d > 7) continue;
+    let dens = sstep(7, -5, d);
+    // the fringe torn into wisps, most where it is thinnest: rags at one scale, fuzz at another
+    const ero = (0.5 + 0.5 * fbm(wx / 4.2, wy / 4.2, wz / 4.2, sd + 31, 3)) * (0.40 + 0.38 * (0.5 + 0.5 * fbm(wx / 10, wy / 10, wz / 10, sd + 51, 2)));
+    dens = clamp01((dens - ero * (1 - dens * 0.6)) / (1 - ero * 0.4));
+    dens *= 0.84 + 0.16 * (0.5 + 0.5 * fbm(px / 12, py / 12, pz / 12, sd + 41, 2));
+    dens *= win(px, TW, 8) * win(py, TH, 8) * win(pz, NZ, 8);
+    D[i] = dens;
+  }
+  return D;
+}
+
 // ------------------------------------------------------------------ lighting
 // optical depth toward the light along one axis: what the light crosses to reach each voxel
 function tauToward(D, axis, sign) {
@@ -246,7 +341,7 @@ function view(D, src) {
 }
 function bakeShape(seed) {
   const t0 = Date.now();
-  const D = density(seed);
+  const D = PUFF ? puffDensity(seed) : density(seed);
   // how much cloud is round each point: light only scatters many times where there is depth
   // for it to do so, so a lone wisp gets the single bounce and little else (the powder effect)
   const Db = blur3(D, 4);
@@ -265,7 +360,7 @@ function bakeShape(seed) {
     const ms = new Float32Array(D.length);
     // light from below meets the flat base all along one straight edge; its first bounce
     // diffuses with the rest, so the base glows softly instead of drawing a lit skin
-    const flat = ax === 1 && sg < 0 ? ph : 0;
+    const flat = ax === 1 && sg < 0 && !PUFF ? ph : 0;   // a puff has no flat base
     for (let i = 0; i < D.length; i++) {
       if (D[i] <= 0) continue;
       let s = flat * Math.exp(-T[i]), a = OA, b = OB;
@@ -287,7 +382,7 @@ function bakeShape(seed) {
     if (ax === 2 && sg < 0) {
       // the silver lining's raw stuff; not along the flat base, where the cut is so sharp it
       // would draw a hard bright line (the base's glow at either end of the day is its own term)
-      for (let i = 0; i < D.length; i++) { const y = ((i / TW) | 0) % TH; src[i] = D[i] > 0 ? Math.exp(-T[i]) * sstep(BASE + 2, BASE + 12, y) : 0; }
+      for (let i = 0; i < D.length; i++) { const y = ((i / TW) | 0) % TH; src[i] = D[i] > 0 ? Math.exp(-T[i]) * (PUFF ? 1 : sstep(BASE + 2, BASE + 12, y)) : 0; }
       single = view(D, src).L;
     }
   }
@@ -344,7 +439,8 @@ if (!isMainThread) {
   const here = dirname(fileURLToPath(import.meta.url));
   let outDir = join(here, '../../Assets/Resources/Clouds'), binDir = null, preview = null, only = -1;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--bin') binDir = args[++i];
+    if (args[i] === '--puffs') continue;
+    else if (args[i] === '--bin') binDir = args[++i];
     else if (args[i] === '--preview') preview = args[++i];
     else if (args[i] === '--only') only = +args[++i];
     else outDir = args[i];
@@ -357,7 +453,7 @@ if (!isMainThread) {
     const next = () => {
       if (!queue.length) { if (!running) done(); return; }
       const k = queue.shift(); running++;
-      const w = new Worker(fileURLToPath(import.meta.url), { workerData: { seed: k + 1 } });
+      const w = new Worker(fileURLToPath(import.meta.url), { workerData: { seed: k + 1, puff: PUFF } });
       w.on('message', m => { if (m.log) console.log(m.log); if (m.done) { res[k] = m; } });
       w.on('error', fail);
       w.on('exit', () => { running--; next(); });
@@ -380,9 +476,10 @@ if (!isMainThread) {
   }
   console.log(`baked in ${((Date.now() - t0) / 1000).toFixed(1)}s, brightest light ${peak.toFixed(2)} (encoded up to ${ENC})`);
   mkdirSync(outDir, { recursive: true });
-  writeFileSync(join(outDir, 'cumulus_pos.png'), png(pos, AW, AH));
-  writeFileSync(join(outDir, 'cumulus_neg.png'), png(neg, AW, AH));
-  if (binDir) { mkdirSync(binDir, { recursive: true }); writeFileSync(join(binDir, 'cumulus_pos.bin'), pos); writeFileSync(join(binDir, 'cumulus_neg.bin'), neg); }
+  const stem = PUFF ? 'puff' : 'cumulus';
+  writeFileSync(join(outDir, stem + '_pos.png'), png(pos, AW, AH));
+  writeFileSync(join(outDir, stem + '_neg.png'), png(neg, AW, AH));
+  if (binDir) { mkdirSync(binDir, { recursive: true }); writeFileSync(join(binDir, stem + '_pos.bin'), pos); writeFileSync(join(binDir, stem + '_neg.bin'), neg); }
   if (preview) {
     // each tile lit three ways over a sky blue: from the upper right in front, from the side,
     // and from behind; a quick look at the shapes without the game's shader

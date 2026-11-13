@@ -156,22 +156,50 @@ public static class SkyKit
         if (day == null) return;
         m.SetVector("_SunDir", day.cloudKey.normalized);
         // the day cycle's raw colours turned to light here, once, rather than in every pixel
-        Vector3 sun = Lin(day.cloudSun), top = day.skyTop, mid = day.skyMid, hz = day.skyHz;
+        Vector3 sun = Lin(day.cloudSun);
+        SkyLight(sun, 1f, out var up, out var dn);
+        m.SetVector("_SunLin", V4(sun, 1f));
+        m.SetVector("_AmbUp", V4(up, 1f));
+        m.SetVector("_AmbDn", V4(dn, 1f));
+        m.SetVector("_UnderLin", V4(Lin(day.cloudUnder), day.cloudUnder.w));
+        m.SetVector("_HzLin", V4(Lin(day.skyHz), 1f));
+    }
+
+    /// The whitewater puffs a carve throws and the rails leave on the water (Surf/Puff, Fx.cs)
+    /// take the clouds' light from the same day cycle, every frame, so the sun side and shade
+    /// side of each turn with the sky. But they are at sea level: the sun leaves them as it
+    /// leaves the sea, not a while later as it leaves the clouds overhead. And foam scatters
+    /// back more of the sky's light than a cloud's flank does, so its shade stays a soft grey.
+    public static void LightPuffs(Material m)
+    {
+        if (m == null) return;
+        if (day == null) day = Object.FindFirstObjectByType<DayCycle>();
+        if (day == null) return;
+        m.SetVector("_SunDir", day.cloudKey.normalized);
+        float seaSun = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(-0.04f, 0.10f, day.sunDir.y));
+        Vector3 sun = Lin(day.cloudSun) * (0.3f + 0.7f * seaSun);
+        SkyLight(sun, 1.25f, out var up, out var dn);
+        m.SetVector("_SunLin", V4(sun, 1f));
+        m.SetVector("_AmbUp", V4(up, 1f));
+        m.SetVector("_AmbDn", V4(dn, 1f));
+        m.SetVector("_HzLin", V4(Lin(day.skyHz), 1f));
+    }
+
+    // the sky's light on something white out in the open, as linear colour: from the dome above
+    // and off the sea below, scaled by how much light there is about
+    static void SkyLight(Vector3 sun, float boost, out Vector3 up, out Vector3 dn)
+    {
+        Vector3 top = day.skyTop, mid = day.skyMid, hz = day.skyHz;
         // how low and golden the sun is (the underside glow's amount): the sky round a cloud is
         // brightest and warmest then, though the day's light is at its least
         float low = day.cloudUnder.w;
-        float amb = (0.40f + 0.60f * day.cloudLight + 0.45f * low) * 0.55f;
+        float amb = (0.40f + 0.60f * day.cloudLight + 0.45f * low) * 0.55f * boost;
         // the dome above a cloud: mostly the blue overhead, a little greyed, and a touch of the
         // sun's own scatter; with the sun low, more of the warm glow low down in it
         Vector3 sky = Vector3.Lerp(Vector3.Lerp(mid, top, 0.75f - 0.45f * low), hz, 0.55f * low);
-        Vector3 up = Lin(Vector3.Lerp(sky, new Vector3(0.86f, 0.88f, 0.92f), 0.25f * (1f - low))) * 0.85f + sun * 0.06f;
+        up = (Lin(Vector3.Lerp(sky, new Vector3(0.86f, 0.88f, 0.92f), 0.25f * (1f - low))) * 0.85f + sun * 0.06f) * amb;
         // and below it the sea, darker, with the horizon's colour in it
-        Vector3 dn = Lin(Vector3.Lerp(hz, new Vector3(0.10f, 0.34f, 0.50f), 0.55f)) * 0.45f;
-        m.SetVector("_SunLin", V4(sun, 1f));
-        m.SetVector("_AmbUp", V4(up * amb, 1f));
-        m.SetVector("_AmbDn", V4(dn * amb, 1f));
-        m.SetVector("_UnderLin", V4(Lin(day.cloudUnder), day.cloudUnder.w));
-        m.SetVector("_HzLin", V4(Lin(hz), 1f));
+        dn = Lin(Vector3.Lerp(hz, new Vector3(0.10f, 0.34f, 0.50f), 0.55f)) * 0.45f * amb;
     }
 
     static Vector3 Lin(Vector4 c) => new Vector3(Mathf.Pow(Mathf.Max(0f, c.x), 2.2f), Mathf.Pow(Mathf.Max(0f, c.y), 2.2f), Mathf.Pow(Mathf.Max(0f, c.z), 2.2f));
