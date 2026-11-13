@@ -147,7 +147,10 @@ public class DayCycle : MonoBehaviour
                 const float Tile = 620f;
                 shadeWind = Mathf.Repeat(shadeWind + Time.deltaTime * 3.2f, Tile);
                 float creep = Mathf.Repeat(distM * 0.020f, Tile);
-                float str = beachLook ? 0.8f : Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(-0.05f, 0.15f, sy)) * (1f - nightAmt);
+                // subtle: the web's sea has no cloud shadows at all, and at full strength they greyed
+                // the water in broad patches and put out the sun's glitter; the ramp also reached full
+                // already at the low sun every run starts under, so it climbs on to the day's height
+                float str = 0.35f * (beachLook ? 0.8f : Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.05f, 0.45f, sy)) * (1f - nightAmt));
                 ocean.SetVector("_CloudShade", new Vector4(Mathf.Repeat(-shadeWind / Tile, 1f), Mathf.Repeat(-creep / Tile, 1f), str, 1f / Tile));
             }
         }

@@ -413,7 +413,7 @@ Shader "Surf/Ocean"
                     wob = ca + cb * 0.78 * (1.0 - 0.75 * smoothstep(25.0, 80.0, dCam));
                     float2 cc = SAMPLE_TEXTURE2D_BIAS(_Chop, sampler_Chop, gw*0.52 + float2( _T*0.021, -_T*0.017), -1.0).xy * 2.0 - 1.0;
                     wob += cc * 0.45 * (1.0 - smoothstep(6.0, 42.0, dCam));
-                    wob *= lerp(1.0, 0.55, smoothstep(30.0, 140.0, dCam)) * lerp(0.62, 1.30, smoothstep(0.25, 0.75, patch));
+                    wob *= lerp(1.0, 0.55, smoothstep(30.0, 140.0, dCam)) * lerp(0.84, 1.12, smoothstep(0.25, 0.75, patch));      // gusts and slicks, gently: wider swings read as blotches
                 }
                 else
                 {
