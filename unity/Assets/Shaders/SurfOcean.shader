@@ -339,7 +339,11 @@ Shader "Surf/Ocean"
                     [unroll] for (int kw = 3; kw < 7; kw++)
                     {
                         float4 a = _WaveA[kw], b = _WaveB[kw];
-                        float wgt = (1.0 - GridFade(a, i.gs)) * saturate(((6.2831853 / a.z) / pf - 3.0) / 3.0);
+                        // only a faint share, and only near the board: a short wave drawn exactly is a pure
+                        // sine, a set of perfectly straight even stripes across the sea, and no real sea has
+                        // that; the chop map below carries the fine texture, and is not a sine
+                        float wgt = (1.0 - GridFade(a, i.gs)) * saturate(((6.2831853 / a.z) / pf - 3.0) / 3.0)
+                                  * 0.30 * (1.0 - smoothstep(8.0, 30.0, length(i.w - _WorldSpaceCameraPos)));
                         float u = a.x * fp.x + a.y * fp.y;
                         float e = 0.32 + 0.68 * sin(u * a.z * b.x - _T * b.z * b.x * 0.5 + b.y);
                         float c = a.w * e * a.z * cos(u * a.z - _T * b.z) * wgt;
