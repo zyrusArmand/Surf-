@@ -3,6 +3,7 @@
 // world units, which are the same feet and the same axes this project uses (-z is out to
 // sea). The camera stands almost on the sand four feet from the signpost with a 92-degree
 // lens looking slightly up, which is why the sign, the board and the palm tower over it.
+using System.Collections.Generic;
 using UnityEngine;
 
 public class Beach : MonoBehaviour
@@ -360,15 +361,59 @@ public class Beach : MonoBehaviour
         if (tanIn != null && tanIn.Length == v.Length) for (int i = 0; i < tanIn.Length; i++) { var t3 = rel.MultiplyVector(new Vector3(tanIn[i].x, tanIn[i].y, tanIn[i].z)).normalized; tanIn[i] = new Vector4(t3.x, t3.y, t3.z, tanIn[i].w); }
         Vector3 mn = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue), mx = -mn;
         foreach (var p in v) { mn = Vector3.Min(mn, p); mx = Vector3.Max(mx, p); }
+        var tris = srcMesh.triangles;
+        if (rel.determinant < 0) for (int i = 0; i < tris.Length; i += 3) { int a0 = tris[i + 1]; tris[i + 1] = tris[i + 2]; tris[i + 2] = a0; }
+
+        // ---- the scanned edge is cut off, and the cut edge pressed down (web sandPrepare 11390-11477) ----
+        // A scanned slab does not end at a clean line: its outer band curls up into a lip, with
+        // near-vertical sides. Laid as it came, every tile's lip and side stood proud of whatever
+        // it overlapped, and the beach was covered in pale flat planks with straight edges crossing
+        // at angles -- the grey slabs behind the props. As the web does: the outer eighth is cut
+        // away (a triangle is kept only if all three corners are inside, so nothing hangs off), and
+        // the outer band of what is left is lowered, hard at the rim and easing to nothing inland,
+        // so every tile is a shallow dish and every rim lies buried under its neighbour's middle.
+        {
+            const float Edge = 0.125f;
+            float ix = (mx.x - mn.x) * Edge, iz = (mx.z - mn.z) * Edge;
+            float lx0 = mn.x + ix, lx1 = mx.x - ix, lz0 = mn.z + iz, lz1 = mx.z - iz;
+            bool Inside(int k) => v[k].x >= lx0 && v[k].x <= lx1 && v[k].z >= lz0 && v[k].z <= lz1;
+            var keep = new List<int>(tris.Length);
+            for (int t3 = 0; t3 + 2 < tris.Length; t3 += 3)
+                if (Inside(tris[t3]) && Inside(tris[t3 + 1]) && Inside(tris[t3 + 2])) { keep.Add(tris[t3]); keep.Add(tris[t3 + 1]); keep.Add(tris[t3 + 2]); }
+            if (keep.Count >= 3)
+            {
+                tris = keep.ToArray();
+                // measured off the vertices still in use, not the whole file
+                var used = new bool[v.Length];
+                float x0 = float.MaxValue, x1 = float.MinValue, z0 = float.MaxValue, z1 = float.MinValue, y0 = float.MaxValue, y1 = float.MinValue;
+                foreach (int k in tris) { if (used[k]) continue; used[k] = true; var q = v[k]; x0 = Mathf.Min(x0, q.x); x1 = Mathf.Max(x1, q.x); y0 = Mathf.Min(y0, q.y); y1 = Mathf.Max(y1, q.y); z0 = Mathf.Min(z0, q.z); z1 = Mathf.Max(z1, q.z); }
+                float fcx = (x0 + x1) * 0.5f, fcz = (z0 + z1) * 0.5f, yDrop = (y1 - y0) * 1.15f;
+                // once per vertex: a welded vertex belongs to five or six triangles
+                for (int k = 0; k < v.Length; k++)
+                {
+                    if (!used[k]) continue;
+                    float tx = Mathf.Abs(v[k].x - fcx) / Mathf.Max(1e-4f, (x1 - x0) * 0.5f);
+                    float tz = Mathf.Abs(v[k].z - fcz) / Mathf.Max(1e-4f, (z1 - z0) * 0.5f);
+                    float tt = Mathf.Max(tx, tz);
+                    if (tt <= 0.55f) continue;
+                    float kk = (tt - 0.55f) / 0.45f, e = kk * kk * (3f - 2f * kk);
+                    v[k].y -= yDrop * e;
+                }
+                // and the box measured again, after the feather, over what is in use
+                mn = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue); mx = -mn;
+                foreach (int k in tris) { mn = Vector3.Min(mn, v[k]); mx = Vector3.Max(mx, v[k]); }
+            }
+        }
+
         float cx = (mn.x + mx.x) * 0.5f, cz = (mn.z + mx.z) * 0.5f, sy = 0f;
-        for (int i = 0; i < v.Length; i++) { v[i] = new Vector3(v[i].x - cx, v[i].y, v[i].z - cz); sy += v[i].y; }
-        float mid = sy / Mathf.Max(1, v.Length), maxY = mx.y;
+        for (int i = 0; i < v.Length; i++) v[i] = new Vector3(v[i].x - cx, v[i].y, v[i].z - cz);
+        { var seen = new bool[v.Length]; int nUsed = 0; foreach (int k in tris) if (!seen[k]) { seen[k] = true; sy += v[k].y; nUsed++; } sy /= Mathf.Max(1, nUsed); }
+        float mid = sy, maxY = mx.y;
+        mn.x -= cx; mx.x -= cx; mn.z -= cz; mx.z -= cz;
         var mesh = new Mesh { name = "sandTile", indexFormat = srcMesh.indexFormat };
         mesh.vertices = v; mesh.uv = srcMesh.uv;
         if (nrmIn != null && nrmIn.Length == v.Length) mesh.normals = nrmIn;
         if (tanIn != null && tanIn.Length == v.Length) mesh.tangents = tanIn;
-        var tris = srcMesh.triangles;
-        if (rel.determinant < 0) for (int i = 0; i < tris.Length; i += 3) { int a0 = tris[i + 1]; tris[i + 1] = tris[i + 2]; tris[i + 2] = a0; }
         mesh.triangles = tris;
         if (nrmIn == null || nrmIn.Length != v.Length) mesh.RecalculateNormals();
         mesh.RecalculateBounds();

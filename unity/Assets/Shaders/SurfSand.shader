@@ -87,9 +87,14 @@ Shader "Surf/Sand"
                 float fw = max(fwidth(g.x), fwidth(g.y));
                 float kFine = keep(0.035, fw) * _Detail, kMid = keep(0.11, fw) * _Detail, kRip = keep(0.30, fw) * _Detail;
                 // grains: light and dark specks at three sizes
-                float s1 = h21(floor(g / 0.035)), s2 = vnoise(g / 0.11), s3 = vnoise(g / 0.55 + 7.3);
+                // Grains are round, not cells: a hash per grid cell drew every speck as a little square,
+                // and close to the lens those squares were the size of a fingernail. The fine layer is
+                // smooth value noise; the odd dark grain is a soft dot at a jittered point in its cell.
+                float s1 = vnoise(g / 0.035 + 3.7), s2 = vnoise(g / 0.11), s3 = vnoise(g / 0.55 + 7.3);
                 float speck = (s1 - 0.5) * 0.16 * kFine + (s2 - 0.5) * 0.12 * kMid + (s3 - 0.5) * 0.10 * keep(0.55, fw);
-                float dark = step(0.965, h21(floor(g / 0.05) + 3.1)) * 0.30 * keep(0.05, fw) * _Detail;   // the odd dark grain
+                float2 dc = floor(g / 0.05), dfr = frac(g / 0.05);
+                float2 dp = float2(h21(dc + 1.7), h21(dc + 4.3)) * 0.5 + 0.25;
+                float dark = step(0.965, h21(dc + 3.1)) * smoothstep(0.30, 0.12, length(dfr - dp)) * 0.30 * keep(0.05, fw) * _Detail;   // the odd dark grain
                 albedo *= 1.0 + speck - dark;
                 // wind ripples: long low ridges a few inches apart, wandering
                 float warp = vnoise(g * 0.35) * 2.6;
@@ -129,7 +134,8 @@ Shader "Surf/Sand"
 
                 // the odd grain of quartz catching the sun
                 float3 Vw = normalize(GetWorldSpaceViewDir(i.w));
-                float gh = h21(floor(g / 0.04) + 11.7);
+                float2 gc = floor(g / 0.04), gfr = frac(g / 0.04);
+                float gh = h21(gc + 11.7) * smoothstep(0.32, 0.14, length(gfr - (float2(h21(gc + 2.9), h21(gc + 6.1)) * 0.5 + 0.25)));
                 float3 gn = normalize(float3(gh - 0.5, 1.2, frac(gh * 7.31) - 0.5));
                 float glint = step(0.975, gh) * pow(saturate(dot(gn, normalize(Ld + Vw))), 60.0) * shadow * keep(0.04, fw) * _Glint;
 
