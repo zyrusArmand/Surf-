@@ -341,14 +341,19 @@ Shader "Surf/Ocean"
                 float2 wob;
                 if (_ChopK > 0.5)
                 {
-                    // the web's tiled chop map at three scales, the finest only close in; one mip sharper
-                    // than the sampler would pick, as the web samples it, or at this grazing angle the
-                    // ripple averages out to flat a few feet from the board
-                    float2 ca = SAMPLE_TEXTURE2D_BIAS(_Chop, sampler_Chop, gp*0.055 + float2( _T*0.0063, -_T*0.0052), -1.0).xy * 2.0 - 1.0;
-                    float2 cb = SAMPLE_TEXTURE2D_BIAS(_Chop, sampler_Chop, gp*0.168 + float2(-_T*0.0116,  _T*0.0097), -1.0).xy * 2.0 - 1.0;
-                    wob = ca + cb * 0.78;
+                    // The web's tiled chop map at three scales, the finest only close in. Out in the
+                    // middle distance, at this grazing angle, the ripple's little crests are drawn out
+                    // into long thin streaks, and as they slide in toward the lens the eye reads them as
+                    // racing sideways across the sea (the barber's-pole effect) -- the "thing moving left
+                    // super fast". So: the sharpened lookup is kept only for the fine layer close to the
+                    // board, the middle layer fades out past about thirty feet, and the whole ripple
+                    // calms with distance, leaving the far sea smooth water with soft glints.
+                    float2 ca = SAMPLE_TEXTURE2D(_Chop, sampler_Chop, gp*0.055 + float2( _T*0.0063, -_T*0.0052)).xy * 2.0 - 1.0;
+                    float2 cb = SAMPLE_TEXTURE2D(_Chop, sampler_Chop, gp*0.168 + float2(-_T*0.0116,  _T*0.0097)).xy * 2.0 - 1.0;
+                    wob = ca + cb * 0.78 * (1.0 - 0.75 * smoothstep(25.0, 80.0, dCam));
                     float2 cc = SAMPLE_TEXTURE2D_BIAS(_Chop, sampler_Chop, gp*0.52 + float2( _T*0.021, -_T*0.017), -1.0).xy * 2.0 - 1.0;
                     wob += cc * 0.45 * (1.0 - smoothstep(6.0, 42.0, dCam));
+                    wob *= lerp(1.0, 0.55, smoothstep(30.0, 140.0, dCam));
                 }
                 else
                 {
