@@ -350,7 +350,7 @@ public class Fx : MonoBehaviour
             bool outer = cv > 0.05f && Mathf.Sign(rail.x) == outS;
             float str = (0.5f + 0.8f * sp) * (1f + cv * (outer ? 1.2f : -0.3f));
             float gate = 0.6f + 0.7f * Mathf.PerlinNoise(Time.time * 1.9f, 20f + side * 7.3f);
-            wakeAcc[s] += dt * flow * (fastFx ? 3.2f : 6f) * str * gate;
+            wakeAcc[s] += dt * flow * (fastFx ? 1.6f : 3f) * str * gate;           // half what it was: froth over the drawn foam
             while (wakeAcc[s] >= 1f)
             {
                 wakeAcc[s] -= 0.4f + 1.2f * Random.value;          // uneven spacing
@@ -359,16 +359,16 @@ public class Fx : MonoBehaviour
                 // frame's worth do not all start in one clump
                 var at = tail + rail * jw + tailFwd * ja + new Vector3(0f, 0f, flow * dt * Random.value);
                 float drift = flow * (0.02f + 0.08f * Random.value) * (outer ? 1f + 1.2f * cv : 1f - 0.4f * cv);
-                if (puffs != null && roomUp > 0 && Random.value < 0.06f + 0.3f * cv * (outer ? 1f : 0f))
+                if (puffs != null && roomUp > 0 && outer && cv > 0.4f && Random.value < 0.18f * cv)
                 {
                     roomUp--;
                     puffs.Emit(new ParticleSystem.EmitParams
                     {
                         position = new Vector3(at.x, rider.waterY + 0.1f, at.z),
                         velocity = new Vector3(rail.x * (1f + 2f * Random.value), 1f + 2f * Random.value, flow * 0.7f),
-                        startSize = (0.8f + 0.6f * Random.value) * (fastFx ? 1.2f : 1f),
-                        startLifetime = 0.35f + 0.4f * Random.value,
-                        startColor = new Color(1f, 1f, 1f, 0.9f),
+                        startSize = (0.55f + 0.45f * Random.value) * (fastFx ? 1.2f : 1f),
+                        startLifetime = 0.30f + 0.3f * Random.value,
+                        startColor = new Color(1f, 1f, 1f, 0.7f),
                         rotation = 0f
                     }, 1);
                 }
@@ -378,9 +378,9 @@ public class Fx : MonoBehaviour
                 {
                     position = new Vector3(at.x, rider.waterY + 0.07f, at.z),
                     velocity = new Vector3(rail.x * drift, 0f, flow + rail.z * drift),
-                    startSize = (1.3f + 1.2f * Random.value) * (0.75f + 0.25f * Mathf.Min(str, 2f)) * (fastFx ? 1.2f : 1f),
+                    startSize = (1.0f + 0.9f * Random.value) * (0.75f + 0.25f * Mathf.Min(str, 2f)) * (fastFx ? 1.2f : 1f),
                     startLifetime = Mathf.Clamp((5f + 30f * r2) / Mathf.Max(flow, 8f), 0.12f, 3f),
-                    startColor = new Color(1f, 1f, 1f, (0.85f + 0.15f * Random.value) * Mathf.Clamp01(0.75f + 0.3f * str)),
+                    startColor = new Color(1f, 1f, 1f, (0.38f + 0.20f * Random.value) * Mathf.Clamp01(0.75f + 0.3f * str)),
                     rotation = 0f
                 }, 1);
                 // and lace under it, flat on the water, the whole way back
@@ -627,9 +627,10 @@ public class Fx : MonoBehaviour
                 }
             }
         }
-        // the rails' foam is drawn into the sea itself now (Surf/Ocean, along the wake's path): as
-        // puffs it stood up off the water as white domes cut flat where they met it, blobby, not foam
-        // if (onWater && tailOk) RailPuffs(dt);
+        // the rails' foam itself is drawn into the sea (Surf/Ocean, along the wake's path); these are
+        // only a light froth over it -- fewer, smaller, fainter patches lying on the water, and an
+        // upright puff only now and then in a hard carve -- for the cloudy feel, not as the trail
+        if (onWater && tailOk) RailPuffs(dt);
         else { trailAcc = 0f; fizzAcc = 0f; wakeAcc[0] = wakeAcc[1] = 0f; }
         if (puffMat != null) { SkyKit.LightPuffs(puffMat); SkyKit.LightPuffs(flatMat); PuffSoft(); }
         Settle(puffs, puffSize, true, dt);
