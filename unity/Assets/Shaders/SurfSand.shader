@@ -91,10 +91,12 @@ Shader "Surf/Sand"
                 // and close to the lens those squares were the size of a fingernail. The fine layer is
                 // smooth value noise; the odd dark grain is a soft dot at a jittered point in its cell.
                 float s1 = vnoise(g / 0.035 + 3.7), s2 = vnoise(g / 0.11), s3 = vnoise(g / 0.55 + 7.3);
-                float speck = (s1 - 0.5) * 0.16 * kFine + (s2 - 0.5) * 0.12 * kMid + (s3 - 0.5) * 0.10 * keep(0.55, fw);
+                // (measured against the web's title: the near sand there varies about half as much as
+                // this did, so every layer of grain is about half what it was)
+                float speck = (s1 - 0.5) * 0.08 * kFine + (s2 - 0.5) * 0.06 * kMid + (s3 - 0.5) * 0.06 * keep(0.55, fw);
                 float2 dc = floor(g / 0.05), dfr = frac(g / 0.05);
                 float2 dp = float2(h21(dc + 1.7), h21(dc + 4.3)) * 0.5 + 0.25;
-                float dark = step(0.965, h21(dc + 3.1)) * smoothstep(0.30, 0.12, length(dfr - dp)) * 0.30 * keep(0.05, fw) * _Detail;   // the odd dark grain
+                float dark = step(0.965, h21(dc + 3.1)) * smoothstep(0.30, 0.12, length(dfr - dp)) * 0.18 * keep(0.05, fw) * _Detail;   // the odd dark grain
                 albedo *= 1.0 + speck - dark;
                 // wind ripples: long low ridges a few inches apart, wandering
                 float warp = vnoise(g * 0.35) * 2.6;
@@ -104,7 +106,7 @@ Shader "Surf/Sand"
                 float e = 0.045;
                 float2 gr = float2(vnoise((g + float2(e, 0)) / 0.09) - vnoise((g - float2(e, 0)) / 0.09),
                                    vnoise((g + float2(0, e)) / 0.09) - vnoise((g - float2(0, e)) / 0.09));
-                float2 tilt = gr * 0.55 * kMid + ripD * rip * 0.10 * kRip;
+                float2 tilt = gr * 0.25 * kMid + ripD * rip * 0.06 * kRip;
                 N = normalize(N + float3(-tilt.x, 0.0, -tilt.y));
 
                 // ---- the light ----
@@ -119,8 +121,10 @@ Shader "Surf/Sand"
                 float shadow = lerp(L.shadowAttenuation, 1.0, GetMainLightShadowFade(i.w));
                 float3 Ld = normalize(L.direction);
                 // raking light: the flat beach is the reference, slopes toward the sun lighter, away darker
-                float k = saturate(dot(N, Ld) * 2.2 + 0.55);
-                float shade = 0.70 + 0.40 * k;
+                // the rake: slopes toward the sun lighter, away darker -- gentler than it was, which
+                // with the sun this low turned every ripple of the normal map into hard light and dark
+                float k = saturate(dot(N, Ld) * 1.5 + 0.60);
+                float shade = 0.83 + 0.24 * k;                 // flat sand comes out where it was (it matched the web)
                 shade *= lerp(1.0 - _ShadowK, 1.0, shadow);
                 #if defined(_SCREEN_SPACE_OCCLUSION)
                     AmbientOcclusionFactor ao = GetScreenSpaceAmbientOcclusion(i.sp.xy / max(1e-4, i.sp.w));
