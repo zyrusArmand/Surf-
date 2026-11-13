@@ -20,6 +20,13 @@
 // the world's -- right +X, up +Z, toward the viewer straight up -- so it is lit as foam seen from
 // above, and a line of it running away from the lens stays a band on the sea rather than a stack
 // of upright sprites piled on each other.
+// Three knobs shape the outline and the shading (their defaults are the original look):
+//   - _Edge.x: how far a fading puff erodes (its thin parts going first) rather than just thinning;
+//     _Edge.y, .z: a blurrier mip of the outline, and how much of it to use, so overlapping puffs
+//     melt into one mass instead of each showing its own rim; _Edge.w: a round falloff toward the
+//     tile's border so no straight sprite edge can ever show (_Tiles gives the atlas grid);
+//   - _Lift evens the sun and sky weights out toward light from all round: whitewater scatters so
+//     much light inside itself that its shade side is far brighter than a cloud's.
 // Per particle: vertex colour alpha the opacity (rgb a tint, white as a rule), uv the atlas
 // tile from the texture sheet module, custom1.xy the sea's height under it and how tall a band
 // over that height it fades through (0 there switches the fade off).
@@ -39,6 +46,9 @@ Shader "Surf/Puff"
         _Albedo ("Foam albedo (linear)", Vector) = (0.93, 0.96, 1.0, 1)
         _Fade ("Soft distance, near fade start, near fade length, glow", Vector) = (0.6, 0.5, 1.5, 1)
         _Flat ("Lies flat on the water (0: faces the lens)", Float) = 0
+        _Edge ("Erosion, outline mip bias, its share, round falloff", Vector) = (0.75, 0, 0, 0)
+        _Lift ("Shading evened toward all-round light", Float) = 0
+        _Tiles ("Atlas tiles across, down", Vector) = (4, 2, 0, 0)
     }
     SubShader
     {
@@ -59,8 +69,8 @@ Shader "Surf/Puff"
 
             CBUFFER_START(UnityPerMaterial)
             float4 _PuffPos_ST, _PuffNeg_ST;
-            float4 _SunDir, _SunLin, _AmbUp, _AmbDn, _HzLin, _Albedo, _Fade;
-            float _Flat;
+            float4 _SunDir, _SunLin, _AmbUp, _AmbDn, _HzLin, _Albedo, _Fade, _Edge, _Tiles;
+            float _Flat, _Lift;
             CBUFFER_END
             TEXTURE2D(_PuffPos); SAMPLER(sampler_PuffPos);
             TEXTURE2D(_PuffNeg); SAMPLER(sampler_PuffNeg);
@@ -111,6 +121,9 @@ Shader "Surf/Puff"
                 float3 cb = lerp(UNITY_MATRIX_V[2].xyz, float3(0.0, 1.0, 0.0), _Flat);
                 float3 L = normalize(_SunDir.xyz);
                 Basis(float3(dot(L, cr), dot(L, cu), dot(L, cb)), i.col.a, o.wp, o.wn, o.wl);
+                float3 even = float3(1.0 / 6.0, 1.0 / 6.0, 1.0 / 6.0);
+                o.wp.xyz = lerp(o.wp.xyz, even, _Lift);
+                o.wn.xyz = lerp(o.wn.xyz, even, _Lift);
                 float3 toP = wpos - GetCameraPositionWS();
                 float dist = length(toP);
                 float cs = dot(toP / max(dist, 1e-4), L);
@@ -126,9 +139,16 @@ Shader "Surf/Puff"
             {
                 float4 p = SAMPLE_TEXTURE2D(_PuffPos, sampler_PuffPos, i.uv);
                 float4 q = SAMPLE_TEXTURE2D(_PuffNeg, sampler_PuffNeg, i.uv);
-                // fading, the thin parts go first: the foam tears into lace rather than turning to glass
-                float er = (1.0 - i.wn.w) * 0.75;
-                float a = saturate((p.a - er) / (1.0 - er)) * sqrt(i.wn.w);
+                // the outline, partly from a blurrier mip so where puffs overlap they run together
+                float cov = lerp(p.a, SAMPLE_TEXTURE2D_BIAS(_PuffPos, sampler_PuffPos, i.uv, _Edge.y).a, _Edge.z);
+                // and a round falloff toward the tile's border (the tile's own -1..1 square)
+                float2 lq = frac(i.uv * _Tiles.xy) * 2.0 - 1.0;
+                float rim = 1.0 - smoothstep(0.55, 1.0, length(lq));
+                cov *= lerp(1.0, rim, _Edge.w);
+                // fading, the thin parts can go first (the foam tearing into lace) or the whole
+                // puff can just thin out evenly, by _Edge.x
+                float er = (1.0 - i.wn.w) * _Edge.x;
+                float a = saturate((cov - er) / max(1.0 - er, 1e-3)) * lerp(i.wn.w, sqrt(i.wn.w), saturate(_Edge.x / 0.75));
                 // the six lightmaps, back to radiance (stored square-rooted over 2.4)
                 float3 P = p.rgb * p.rgb * 2.4;
                 float3 Q = q.rgb * q.rgb * 2.4;

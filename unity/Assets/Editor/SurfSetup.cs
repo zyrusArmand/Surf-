@@ -88,6 +88,8 @@ public static class SurfSetup
             (Lit, new[] { "_SURFACE_TYPE_TRANSPARENT" }, true), (Lit, new[] { "_SURFACE_TYPE_TRANSPARENT", "_EMISSION" }, true),
             (Unlit, null, false), (Unlit, new[] { "_SURFACE_TYPE_TRANSPARENT" }, true),
             (PUnlit, new[] { "_SURFACE_TYPE_TRANSPARENT" }, true), (PUnlit, new[] { "_SURFACE_TYPE_TRANSPARENT", "_SOFTPARTICLES_ON" }, true),
+            // the spray's drops, mist and glints also fade out toward the lens (Fx.NearFade)
+            (PUnlit, new[] { "_SURFACE_TYPE_TRANSPARENT", "_SOFTPARTICLES_ON", "_FADING_ON" }, true), (PUnlit, new[] { "_SURFACE_TYPE_TRANSPARENT", "_FADING_ON" }, true),
         };
         bool made = false;
         foreach (var w in want)
@@ -100,6 +102,10 @@ public static class SurfSetup
             Directory.CreateDirectory(KeepDir);
             var m = new Material(sh) { name = name };
             if (w.kw != null) foreach (var k in w.kw) m.EnableKeyword(k);
+            // the particle shaders' own switches for those keywords, so the editor's material checks
+            // keep the keywords on instead of clearing them
+            if (w.kw != null && System.Array.IndexOf(w.kw, "_SOFTPARTICLES_ON") >= 0 && m.HasProperty("_SoftParticlesEnabled")) m.SetFloat("_SoftParticlesEnabled", 1f);
+            if (w.kw != null && System.Array.IndexOf(w.kw, "_FADING_ON") >= 0 && m.HasProperty("_CameraFadingEnabled")) m.SetFloat("_CameraFadingEnabled", 1f);
             if (w.clear)
             {
                 if (m.HasProperty("_Surface")) m.SetFloat("_Surface", 1f);
