@@ -67,6 +67,7 @@ public class DayCycle : MonoBehaviour
     [HideInInspector] public Vector4 cloudSun = Vector4.one, cloudUnder;
     [HideInInspector] public float cloudLight = 1f;
     float cloudDrift;                                // the high cloud's wind, accumulated
+    float shadeWind;                                 // the cumulus' wind, accumulated, for their shadows on the sea
 
     public void Apply(float distM)
     {
@@ -120,6 +121,8 @@ public class DayCycle : MonoBehaviour
                 if (sky.GetTexture("_CloudNoise") != SkyKit.SkyNoise()) sky.SetTexture("_CloudNoise", SkyKit.SkyNoise());
                 sky.SetFloat("_CloudsOn", 1f);
                 sky.SetVector("_CloudSun", cloudKey); sky.SetVector("_CloudLit", cloudSun); sky.SetFloat("_CloudLight", cloudLight);
+                // soft sun rays off the same noise when the sun is low; the title's sky has no sun to cast them
+                sky.SetFloat("_Rays", beachLook ? 0f : 1f);
                 // the wind, plus a sliver of the run's own travel: the high sky slides back overhead
                 // far slower than anything below it. Wrapped at 200, where every scale the shader
                 // reads the noise at lands on a whole tile (at 100 two of them were half a tile out,
@@ -134,6 +137,19 @@ public class DayCycle : MonoBehaviour
             // the path on the water belongs to whatever is up: a moonpath once the sun is gone
             bool moonPath = !beachLook && sy < 0.02f && moonUp > 0.02f;
             ocean.SetVector("_SunDir", moonPath ? moonDir : sunDir); ocean.SetFloat("_Light", light);
+            // the cumulus' shadows on the water: the high cloud's noise, read blurred a few hundred
+            // feet to a tile, carried on the clouds' own wind (they drift along +x at 1.4 to 5 a
+            // second, 3.2 on average) and creeping in with the run as the near ones do (SkyLife's
+            // 0.020 of the travel). Gone after dark, faint with the sun on the sea's edge.
+            if (ocean.HasProperty("_CloudShade"))
+            {
+                if (ocean.GetTexture("_CloudShadeTex") != SkyKit.SkyNoise()) ocean.SetTexture("_CloudShadeTex", SkyKit.SkyNoise());
+                const float Tile = 620f;
+                shadeWind = Mathf.Repeat(shadeWind + Time.deltaTime * 3.2f, Tile);
+                float creep = Mathf.Repeat(distM * 0.020f, Tile);
+                float str = beachLook ? 0.8f : Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(-0.05f, 0.15f, sy)) * (1f - nightAmt);
+                ocean.SetVector("_CloudShade", new Vector4(Mathf.Repeat(-shadeWind / Tile, 1f), Mathf.Repeat(-creep / Tile, 1f), str, 1f / Tile));
+            }
         }
         if (sun != null)
         {

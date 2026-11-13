@@ -12,7 +12,8 @@
 //
 // Above the glow sits a high veil of cirrus (HighCloud), the one cloud layer that belongs to the
 // dome itself; the cumulus below it are sprites (Surf/Cumulus). It is off until SkyKit's noise
-// is handed in, so the dome looks exactly as before without it.
+// is handed in, so the dome looks exactly as before without it. The same noise, read round the
+// sun, makes soft sun rays when the sun is low (SunRays), off until _Rays is set.
 Shader "Surf/Sky"
 {
     Properties
@@ -38,6 +39,7 @@ Shader "Surf/Sky"
         _CloudSun ("Light the clouds catch (direction)", Vector) = (0, 0.5, -0.8, 0)
         _CloudLit ("Light the clouds catch (raw colour)", Vector) = (1, 1, 1, 1)
         _CloudLight ("Light amount", Float) = 1
+        _Rays ("Sun rays (0..1)", Float) = 0
     }
     SubShader
     {
@@ -48,13 +50,14 @@ Shader "Surf/Sky"
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            #pragma target 3.0
             #include "UnityCG.cginc"
             float4 _Top, _Mid, _Horizon, _Glow, _SunDir, _MoonDir;
             float _SunOn;
             float _GlowAmt, _SunX, _SunSize, _Blend, _MoonUp, _MoonSize, _Night, _StarSize;
             sampler2D _CloudNoise;
             float4 _CloudScroll, _CloudSun, _CloudLit;
-            float _CloudsOn, _CloudLight;
+            float _CloudsOn, _CloudLight, _Rays;
             struct A { float4 pos : POSITION; };
             struct V { float4 pos : SV_POSITION; float3 d : TEXCOORD0; };
             V vert(A i){ V o; o.pos = UnityObjectToClipPos(i.pos); o.d = i.pos.xyz; return o; }
@@ -157,6 +160,30 @@ Shader "Surf/Sky"
                 return c * (1.0 - m * 0.18) + caught * m * 0.36;
             }
 
+            // Sun rays, at either end of the day: soft shafts fanning out from a low sun, the light let
+            // through the gaps in the cloud and the shadow lanes behind them. Painted by direction: the
+            // angle round the sun reads the tiling noise along a circle (so the pattern has no seam), two
+            // circles for broad and narrow shafts, drifting slowly with the high cloud; strongest a little
+            // way out from the disc and gone some forty degrees on, and only with the sun near the sea.
+            float3 SunRays(float3 vP, float3 c)
+            {
+                float3 L = normalize(_SunDir.xyz);
+                float low = smoothstep(0.34, 0.06, L.y) * smoothstep(-0.20, -0.03, L.y);
+                float3 ex = normalize(cross(float3(0.0, 1.0, 0.0), L) + float3(1e-4, 0.0, 0.0));
+                float3 ey = cross(L, ex);
+                float2 q = float2(dot(vP, ex), dot(vP, ey));
+                float2 d = q / max(length(q), 1e-4);
+                float off = 1.0 - dot(vP, L);
+                float n1 = tex2Dlod(_CloudNoise, float4(d * 0.24 + float2(0.37 + _CloudScroll.x * 0.6, 0.61), 0.0, 1.0)).r;
+                float n2 = tex2Dlod(_CloudNoise, float4(d * 0.55 + float2(0.13, 0.29 + _CloudScroll.x * 0.9), 0.0, 1.0)).g;
+                float shaft = smoothstep(0.40, 0.68, n1 * 0.75 + n2 * 0.25);
+                float reach = exp(-off * 4.5) * smoothstep(0.003, 0.04, off);
+                float k = reach * low * _Rays * saturate(_GlowAmt * 1.6) * step(0.0, vP.y + 0.02);
+                c = lerp(c, _Glow.rgb, shaft * k * 0.20);
+                c *= 1.0 - (1.0 - shaft) * k * 0.06;
+                return c;
+            }
+
             fixed4 frag(V i) : SV_Target
             {
                 float3 vP = normalize(i.d);
@@ -176,6 +203,7 @@ Shader "Surf/Sky"
                 c = lerp(c, _Glow.rgb, lowband);
                 // the high cloud, over the glow and under the stars, moon and sun
                 c = HighCloud(vP, c, h);
+                c = SunRays(vP, c);
                 // the stars: behind the sun's glow, in front of the dome (web renderOrder 4)
                 c += float3(0.992, 0.984, 0.941) * stars(vP) * _Night;
                 // the moon: the web's two shells (19 wide at 0.50, pow 1.3; 46 wide at 0.16, pow 3.2,

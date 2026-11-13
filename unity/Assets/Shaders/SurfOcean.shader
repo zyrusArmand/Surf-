@@ -46,6 +46,8 @@ Shader "Surf/Ocean"
         _ChopK ("Chop from texture", Float) = 0
         _Shore ("Shore line (-z)", Float) = 100000
         _ShoreW ("Shore taper width", Float) = 60
+        _CloudShadeTex ("Cloud shadow noise (linear, tiling)", 2D) = "black" {}
+        _CloudShade ("Cloud shadows: drift offset xy, strength, scale", Vector) = (0, 0, 0, 0.0016)
     }
     SubShader
     {
@@ -74,8 +76,10 @@ Shader "Surf/Ocean"
             float4 _HullS, _HullC; float4x4 _HullW2L;      // _HullC: the plan's centre (x, z) and the rocker (how far the underside rises to the ends), in the board's frame
             float _BtX, _BtZ, _BtSn, _BtCs, _BtA;           // the tow boat's stern, heading and how hard it is making way (Boat.cs)
             float _SkiX, _SkiZ, _SkiA;                      // the jet ski's wake: lateral centre, centre in field z, height (JetSki.cs)
+            float4 _CloudShade;                             // the cloud layer's shadows: drift offset (xy), strength, scale per foot (DayCycle.cs)
             CBUFFER_END
             TEXTURE2D(_Chop); SAMPLER(sampler_Chop); float _ChopK;
+            TEXTURE2D(_CloudShadeTex); SAMPLER(sampler_CloudShadeTex);
             float4 _WaveA[7];   // dx, dz, k, a
             float4 _WaveB[7];   // ek, ep, w, -
 
@@ -361,6 +365,14 @@ Shader "Surf/Ocean"
                 float lowSun = smoothstep(0.46, 0.04, L.y);
                 float gl = pow(max(dot(Ng, H), 0.0), lerp(78.0, 22.0, lowSun)) * 0.62;
                 gl *= smoothstep(-0.10, 0.05, L.y) * lerp(0.55, 1.0, lowSun);
+                // the cumulus overhead throw big soft shadows that drift with them: a tiling noise read
+                // very blurred at a few hundred feet a tile and scrolled with the cloud layer's wind
+                // (DayCycle). Where one lies, the sun's glint and sparkle mostly go and the water and
+                // the sky in it dim a little; faded out before the haze, and nothing after dark.
+                float2 cn2 = SAMPLE_TEXTURE2D_LOD(_CloudShadeTex, sampler_CloudShadeTex, i.w.xz * _CloudShade.w + _CloudShade.xy, 1.5).rg;
+                float cshd = smoothstep(0.48, 0.68, lerp(cn2.x, cn2.y, 0.35)) * _CloudShade.z * (1.0 - smoothstep(90.0, 260.0, dCam));
+                spec *= 1.0 - cshd * 0.80;
+                gl *= 1.0 - cshd * 0.85;
                 float hS = i.h - i.sw.x * _SwA;      // the swell's own height, the wall taken out
                 float3 base = lerp(_Deep.rgb, _Shallow.rgb, saturate(hS * 0.28 + 0.5));
                 // what stands between the sun and this bit of sea: the rider, the palm, the buoys, the lip
@@ -422,6 +434,9 @@ Shader "Surf/Ocean"
                     skyRefl = lerp(skyRefl, seen, inside * (rc.w > 0.0 ? 0.94 : 0.0));
                 }
                 skyRefl += _Glow.rgb * pow(max(dot(R, L), 0.0), 40.0) * 0.55 * smoothstep(-0.12, 0.06, L.y);
+                // under a cloud's shadow the sky in the water and the water itself are a shade duller
+                skyRefl *= 1.0 - cshd * 0.18;
+                lit *= 1.0 - cshd * 0.14;
                 float3 col = lerp(lit, skyRefl, fres * 0.88) + spec * shade;
                 col += _Glow.rgb * gl * lerp(1.0, shade, 0.5);
                 // light through the crests

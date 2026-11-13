@@ -2,12 +2,11 @@
 //
 // CLOUDS. The web draws each cumulus as a canvas cut-out with one colour on it, tinted per
 // cloud by the hour. That reads as a sticker at any distance: there is nothing in it for the
-// light to do. Here a cloud is one tile of a baked atlas holding what a lit cloud needs --
-// how solid it is, how thick it is front to back, and the slope of its front surface -- and
-// Surf/Cumulus lights that every frame from the day cycle: the sun marched through it for
-// self-shadow, a silver lining when it is backlit, grey flat bases, the underside burning at
-// either end of the day. The atlas is built once at start from a heap of overlapping spheres
-// per cloud (summed thickness), cut flat at the base and billowed with noise.
+// light to do. Here a cloud is one tile of a pair of baked textures (Resources/Clouds): eight
+// real 3D cumulus, raymarched offline and lit from six directions (unity/Tools~/cloudbake), so
+// Surf/Cumulus can light each as a volume every frame from the day cycle -- sun side and shade
+// side wherever the sun is, a silver lining only toward the sun, flat grey bases, the
+// undersides burning at either end of the day. Each is also used mirrored, so sixteen shapes.
 //
 // The sky dome gets its own high layer, a veil of cirrus (Surf/Sky HighCloud), read off a
 // tiling noise made here.
@@ -31,16 +30,6 @@ public static class SkyKit
         }
     }
 
-    static float VNoise(float x, float y, int s)
-    {
-        int ix = Mathf.FloorToInt(x), iy = Mathf.FloorToInt(y);
-        float fx = x - ix, fy = y - iy;
-        fx = fx * fx * (3f - 2f * fx); fy = fy * fy * (3f - 2f * fy);
-        float a = HashU(ix, iy, s), b = HashU(ix + 1, iy, s), c = HashU(ix, iy + 1, s), d = HashU(ix + 1, iy + 1, s);
-        float ab = a + (b - a) * fx, cd = c + (d - c) * fx;
-        return ab + (cd - ab) * fy;
-    }
-
     // value noise whose lattice wraps every p cells, so the texture made of it tiles
     static float VNoiseP(float x, float y, int p, int s)
     {
@@ -53,164 +42,25 @@ public static class SkyKit
         return ab + (cd - ab) * fy;
     }
 
-    static float Fbm(float x, float y, int s, int oct)
+    // ---------------------------------------------------------------- the cumulus maps
+    // Two 512 square textures, eight 256 x 128 tiles each (two across, four down), baked by
+    // unity/Tools~/cloudbake and imported as linear data. Per pixel, in the sprite's frame:
+    //   pos: R G B the light arriving from +X +Y +Z, A the cloud's coverage
+    //   neg: R G B the light arriving from -X -Y -Z, A the light straight through from behind
+    public const int TileW = 256, TileH = 128, Cols = 2, Rows = 4, Baked = Cols * Rows;
+    public const int Shapes = Baked * 2;     // and each mirrored
+    static Texture2D mapPos, mapNeg;
+
+    /// the baked lightmaps, or false when they are not in the build
+    public static bool CloudMaps(out Texture2D pos, out Texture2D neg)
     {
-        float v = 0f, a = 0.5f, n = 0f;
-        for (int k = 0; k < oct; k++) { v += a * VNoise(x, y, s + k * 17); n += a; x = x * 2.03f + 11.7f; y = y * 2.03f + 5.3f; a *= 0.5f; }
-        return v / n;
-    }
-
-    static float SStep(float a, float b, float x) { float t = Mathf.Clamp01((x - a) / (b - a)); return t * t * (3f - 2f * t); }
-
-    /// a small xorshift, so a shape comes out the same on every device
-    class Rng
-    {
-        uint st;
-        public Rng(int seed) { unchecked { st = (uint)seed * 2654435761u + 1013904223u; } if (st == 0) st = 1; }
-        public float Next() { st ^= st << 13; st ^= st >> 17; st ^= st << 5; return st / 4294967296f; }
-    }
-
-    // ---------------------------------------------------------------- the cumulus atlas
-    public const int TileW = 256, TileH = 128, Cols = 2, Rows = 4, Shapes = Cols * Rows;
-    const int AtlasW = TileW * Cols, AtlasH = TileH * Rows;
-    static Texture2D atlas;
-
-    /// eight cumulus, two across and four down; R solid, G thick, B and A the front surface's slope
-    public static Texture2D CloudAtlas()
-    {
-        if (atlas != null) return atlas;
-        var px = new Color32[AtlasW * AtlasH];
-        for (int k = 0; k < Shapes; k++)
-        {
-            var s = Shape(k + 1);
-            int ox = (k % Cols) * TileW, oy = (k / Cols) * TileH;
-            for (int y = 0; y < TileH; y++)
-                System.Array.Copy(s, y * TileW, px, (oy + y) * AtlasW + ox, TileW);
-        }
-        // linear: these are numbers for the shader, not colours
-        atlas = new Texture2D(AtlasW, AtlasH, TextureFormat.RGBA32, true, true)
-        { name = "cumulus atlas", wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Trilinear, anisoLevel = 0 };
-        atlas.SetPixels32(px); atlas.Apply(true, true);
-        return atlas;
-    }
-
-    // One cumulus: a heap of overlapping spheres whose summed thickness is the cloud. The body is
-    // big spheres filling the space under a profile of one or two towers, the crowns are medium
-    // puffs standing proud of that profile (which is what makes the cauliflower edge), and a row
-    // of wide lumps makes the base, which is then cut flat. Noise billows the rim.
-    static Color32[] Shape(int seed)
-    {
-        var rng = new Rng(seed); System.Func<float> R = rng.Next;
-        int kind = seed % 4;
-        const float bas = 24f;
-        float cw = TileW * (0.64f + R() * 0.12f);
-        float hk = kind == 0 ? 0.30f : kind == 1 ? 0.40f : kind == 2 ? 0.46f : 0.24f;
-        float ch = Mathf.Min(cw * hk, TileH - bas - 12f);
-        float cx = TileW / 2f + (R() - 0.5f) * 12f;
-        var tw = new List<Vector3>();   // (x, height, half width)
-        if (kind == 2) { float o = cw * (0.15f + R() * 0.07f); tw.Add(new Vector3(cx - o, ch, cw * 0.30f)); tw.Add(new Vector3(cx + o, ch * (0.66f + R() * 0.2f), cw * 0.28f)); }
-        else tw.Add(new Vector3(cx + (R() - 0.5f) * cw * 0.20f, ch, cw * (0.44f + R() * 0.08f)));
-        tw.Add(new Vector3(cx, ch * 0.42f, cw * 0.52f));        // the shoulders, so the ends are not bare
-        System.Func<float, float> prof = x =>
-        {
-            float m = 0f;
-            foreach (var t in tw) { float q = (x - t.x) / t.z; m = Mathf.Max(m, t.y * Mathf.Pow(Mathf.Max(0f, 1f - q * q), 0.55f)); }
-            return m;
-        };
-        var S = new List<Vector3>();    // (x, y, r)
-        for (int i = 0; i < 26; i++)
-        {
-            float u = (R() + R()) / 2f - 0.5f, x = cx + u * cw * 0.85f;
-            float top = prof(x); if (top < 6f) continue;
-            float r = Mathf.Max(8f, Mathf.Min(top * 0.62f, cw * (0.10f + 0.05f * R())));
-            float y = bas + R() * Mathf.Max(0f, top - r * 1.05f);
-            S.Add(new Vector3(x, y, r));
-        }
-        int nc = 18 + (int)(R() * 8f);
-        for (int i = 0; i < nc; i++)
-        {
-            float x = cx + (R() - 0.5f) * cw * 0.92f, top = prof(x); if (top < 5f) continue;
-            float r = Mathf.Max(7f, cw * (0.04f + 0.045f * R()) * (0.6f + 0.4f * top / ch));
-            S.Add(new Vector3(x, bas + top - r * (0.70f + 0.25f * R()), r));
-        }
-        int nb = 6 + (int)(R() * 3f);
-        for (int k = 0; k < nb; k++)
-        {
-            float t = (k + 0.5f) / nb * 2f - 1f, x = cx + t * cw * 0.40f + (R() - 0.5f) * 6f;
-            float r = cw * (0.08f + 0.03f * R()) * (1f - 0.30f * Mathf.Abs(t));
-            S.Add(new Vector3(x, bas + r * 0.25f, r));
-        }
-        const int N = TileW * TileH;
-        var T = new float[N];
-        // each sphere adds its own thickness, over its own box only
-        foreach (var s in S)
-        {
-            int x0 = Mathf.Max(0, Mathf.FloorToInt(s.x - s.z)), x1 = Mathf.Min(TileW - 1, Mathf.CeilToInt(s.x + s.z));
-            int y0 = Mathf.Max(0, Mathf.FloorToInt(s.y - s.z)), y1 = Mathf.Min(TileH - 1, Mathf.CeilToInt(s.y + s.z));
-            float r2 = s.z * s.z;
-            for (int y = y0; y <= y1; y++)
-            for (int x = x0; x <= x1; x++)
-            {
-                float dx = x + 0.5f - s.x, dy = y + 0.5f - s.y, q = 1f - (dx * dx + dy * dy) / r2;
-                if (q > 0f) T[y * TileW + x] += s.z * Mathf.Sqrt(q);
-            }
-        }
-        int sd = seed * 7 + 3;
-        for (int y = 0; y < TileH; y++)
-        for (int x = 0; x < TileW; x++)
-        {
-            int i = y * TileW + x;
-            // the flat base, soft and a little ragged: a knife-straight cut drew a hard line across
-            // whatever cloud stood behind it
-            float jb = (Fbm(x / 9f, 3.7f, sd + 90, 2) - 0.5f) * 7f;
-            float t = T[i] * SStep(bas - 5f + jb, bas + 13f + jb, y + 0.5f);
-            if (t > 0f)
-            {
-                float b1 = 1f - Mathf.Abs(2f * Fbm(x / 11f, y / 11f, sd, 3) - 1f);   // rounded lumps
-                float n2 = Fbm(x / 4.5f, y / 4.5f, sd + 50, 2);
-                float edge = 1f - SStep(8f, 30f, t);
-                t = t * (0.86f + 0.22f * b1) + (b1 - 0.6f) * 7f * edge + (n2 - 0.5f) * 6f * edge;
-                t = Mathf.Max(0f, t);
-            }
-            T[i] = t;
-        }
-        // the slope off a blurred copy: the big shapes, not every sphere's rim
-        var Ts = Blur(Blur(T, 2), 2);
-        var outPx = new Color32[N];
-        for (int y = 0; y < TileH; y++)
-        for (int x = 0; x < TileW; x++)
-        {
-            int i = y * TileW + x; float t = T[i];
-            float a = SStep(2.5f, 13f, t), g = Mathf.Min(1f, t / 70f);
-            float xl = Ts[y * TileW + Mathf.Max(0, x - 1)], xr = Ts[y * TileW + Mathf.Min(TileW - 1, x + 1)];
-            float yd = Ts[Mathf.Max(0, y - 1) * TileW + x], yu = Ts[Mathf.Min(TileH - 1, y + 1) * TileW + x];
-            var n = new Vector3(-(xr - xl) * 0.5f * 0.55f, -(yu - yd) * 0.5f * 0.55f, 1f).normalized;
-            outPx[i] = new Color32(B(a), B(g), B(n.x * 0.5f + 0.5f), B(n.y * 0.5f + 0.5f));
-        }
-        return outPx;
+        if (mapPos == null) mapPos = Resources.Load<Texture2D>("Clouds/cumulus_pos");
+        if (mapNeg == null) mapNeg = Resources.Load<Texture2D>("Clouds/cumulus_neg");
+        pos = mapPos; neg = mapNeg;
+        return pos != null && neg != null;
     }
 
     static byte B(float v) => (byte)Mathf.Clamp(Mathf.RoundToInt(v * 255f), 0, 255);
-
-    static float[] Blur(float[] T, int r)
-    {
-        var o = new float[T.Length]; var o2 = new float[T.Length];
-        for (int y = 0; y < TileH; y++)
-        for (int x = 0; x < TileW; x++)
-        {
-            float s = 0f; int n = 0;
-            for (int i = -r; i <= r; i++) { int xx = x + i; if (xx < 0 || xx >= TileW) continue; s += T[y * TileW + xx]; n++; }
-            o[y * TileW + x] = s / n;
-        }
-        for (int y = 0; y < TileH; y++)
-        for (int x = 0; x < TileW; x++)
-        {
-            float s = 0f; int n = 0;
-            for (int i = -r; i <= r; i++) { int yy = y + i; if (yy < 0 || yy >= TileH) continue; s += o[yy * TileW + x]; n++; }
-            o2[y * TileW + x] = s / n;
-        }
-        return o2;
-    }
 
     // ---------------------------------------------------------------- the high cloud's noise
     static Texture2D skyNoise;
@@ -244,16 +94,18 @@ public static class SkyKit
     {
         if (cloudMat != null) return cloudMat;
         var sh = Shader.Find("Surf/Cumulus");
-        if (sh == null) return null;
+        if (sh == null || !CloudMaps(out var pos, out var neg)) return null;
         cloudMat = new Material(sh) { name = "cumulus" };
-        cloudMat.SetTexture("_Atlas", CloudAtlas());
+        cloudMat.SetTexture("_CloudPos", pos); cloudMat.SetTexture("_CloudNeg", neg);
         cloudMat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent - 20;   // after the opaque world, which covers it by depth
         return cloudMat;
     }
 
     /// A cloud: a quad w across and w/2 high (the web's PlaneGeometry(w, w*0.5)) centred on its
-    /// object, mapped onto one atlas tile. Opacity rides in the vertex colour so a fade is a
-    /// colour write and every cloud can share the one material.
+    /// object, mapped onto one tile of the maps (shapes from Baked up are the same tiles
+    /// mirrored, marked by a negative tile width so the shader swaps the light's left and right).
+    /// Opacity rides in the vertex colour so a fade is a colour write and every cloud can share
+    /// the one material.
     public static GameObject Cloud(Transform parent, float w, int shape, float opacity, string name = "cloud")
     {
         var mat = CloudMaterial();
@@ -264,12 +116,14 @@ public static class SkyKit
         mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; mr.receiveShadows = false;
         mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off; mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
         shape = ((shape % Shapes) + Shapes) % Shapes;
-        float us = 1f / Cols, vs = 1f / Rows, u0 = (shape % Cols) * us, v0 = (shape / Cols) * vs;
+        bool mirror = shape >= Baked; int k = shape % Baked;
+        float us = 1f / Cols, vs = 1f / Rows, u0 = (k % Cols) * us, v0 = (k / Cols) * vs;
+        float uL = mirror ? u0 + us : u0, uR = mirror ? u0 : u0 + us;
         float hw = w * 0.5f, hh = w * 0.25f;
         var m = new Mesh { name = "cumulus" };
         m.vertices = new[] { new Vector3(-hw, -hh, 0), new Vector3(hw, -hh, 0), new Vector3(-hw, hh, 0), new Vector3(hw, hh, 0) };
-        m.uv = new[] { new Vector2(u0, v0), new Vector2(u0 + us, v0), new Vector2(u0, v0 + vs), new Vector2(u0 + us, v0 + vs) };
-        var tile = new Vector4(u0, v0, us, vs);
+        m.uv = new[] { new Vector2(uL, v0), new Vector2(uR, v0), new Vector2(uL, v0 + vs), new Vector2(uR, v0 + vs) };
+        var tile = new Vector4(u0, v0, mirror ? -us : us, vs);
         m.SetUVs(1, new List<Vector4> { tile, tile, tile, tile });
         var c = new Color(1f, 1f, 1f, opacity);
         m.colors = new[] { c, c, c, c };
@@ -299,12 +153,29 @@ public static class SkyKit
         var m = CloudMaterial(); if (m == null) return;
         if (day == null) day = Object.FindFirstObjectByType<DayCycle>();
         if (day == null) return;
-        m.SetVector("_SunDir", day.cloudKey);
-        m.SetVector("_SunCol", day.cloudSun);
-        m.SetVector("_Top", day.skyTop); m.SetVector("_Mid", day.skyMid); m.SetVector("_Hz", day.skyHz);
-        m.SetVector("_Under", day.cloudUnder);
-        m.SetFloat("_Light", day.cloudLight);
+        m.SetVector("_SunDir", day.cloudKey.normalized);
+        // the day cycle's raw colours turned to light here, once, rather than in every pixel
+        Vector3 sun = Lin(day.cloudSun), top = day.skyTop, mid = day.skyMid, hz = day.skyHz;
+        // how low and golden the sun is (the underside glow's amount): the sky round a cloud is
+        // brightest and warmest then, though the day's light is at its least
+        float low = day.cloudUnder.w;
+        float amb = (0.40f + 0.60f * day.cloudLight + 0.45f * low) * 0.55f;
+        // the dome above a cloud: mostly the blue overhead, a little greyed, and a touch of the
+        // sun's own scatter; with the sun low, more of the warm glow low down in it
+        Vector3 sky = Vector3.Lerp(Vector3.Lerp(mid, top, 0.75f - 0.45f * low), hz, 0.55f * low);
+        Vector3 up = Lin(Vector3.Lerp(sky, new Vector3(0.86f, 0.88f, 0.92f), 0.25f * (1f - low))) * 0.85f + sun * 0.06f;
+        // and below it the sea, darker, with the horizon's colour in it
+        Vector3 dn = Lin(Vector3.Lerp(hz, new Vector3(0.10f, 0.34f, 0.50f), 0.55f)) * 0.45f;
+        m.SetVector("_SunLin", V4(sun, 1f));
+        m.SetVector("_AmbUp", V4(up * amb, 1f));
+        m.SetVector("_AmbDn", V4(dn * amb, 1f));
+        m.SetVector("_UnderLin", V4(Lin(day.cloudUnder), day.cloudUnder.w));
+        m.SetVector("_HzLin", V4(Lin(hz), 1f));
     }
+
+    static Vector3 Lin(Vector4 c) => new Vector3(Mathf.Pow(Mathf.Max(0f, c.x), 2.2f), Mathf.Pow(Mathf.Max(0f, c.y), 2.2f), Mathf.Pow(Mathf.Max(0f, c.z), 2.2f));
+    static Vector3 Lin(Vector3 c) => Lin(new Vector4(c.x, c.y, c.z, 1f));
+    static Vector4 V4(Vector3 v, float w) => new Vector4(v.x, v.y, v.z, w);
 
     // ---------------------------------------------------------------- gulls
     public class Gull
