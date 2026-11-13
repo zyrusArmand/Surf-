@@ -83,7 +83,15 @@ public class Quests : MonoBehaviour
     {
         var gs = Ensure();
         for (int i = 0; i < gs.Count; i++) if (gs[i].done) gs[i] = Fresh(gs);
+        atStart.Clear();
+        foreach (var g in gs) atStart[g.id] = g.n;
     }
+
+    // what each goal stood at when the run began, so the run card can run its bar on from there
+    // rather than from nothing; a revive carries on the same run, so it is not taken again
+    static readonly Dictionary<string, int> atStart = new Dictionary<string, int>();
+    /// the goal's count when this run began, or -1 when no run has begun since the game opened
+    public static int StartN(string id) => atStart.TryGetValue(id, out var n) ? n : -1;
 
     // ---- the run's messages, read for what they announce ----
     // The water (Spawner, Crate, SetWave) tells the rider what happened with Say(), and that is

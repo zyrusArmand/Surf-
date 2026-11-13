@@ -412,6 +412,7 @@ public class Bootstrap : MonoBehaviour
         ski.Reset();
         if (questBoard != null) questBoard.Reset();      // the lens home and the board put away (web 27353)
         Quests.Roll();
+        runBest = SaveData.Best; runBestDist = SaveData.BestDist;      // the bests this run has to beat, before it moves them
         if (Wheel.RunStart() | loanBack) { loanBack = false; BuildRider(); } if (Wheel.ConsumeChest()) crate.Soon(); bankedDist = bankedScore = bankedCoins = 0;
         rider.Begin(); runSecs = 0;
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
@@ -423,6 +424,7 @@ public class Bootstrap : MonoBehaviour
     }
 
     bool loanBack;        // a wheel loan ended with the run; the board goes back at the title or the next run
+    int runBest = -1, runBestDist = -1;    // the bests as they stood when the run began (a revive does not reset them), for the card's NEW BEST
 
     /// the title: the ride stops, he floats in the lane, the dial comes up
     void Menu()
@@ -576,7 +578,7 @@ public class Bootstrap : MonoBehaviour
                 Stats.Bump("dist", dd); Stats.Bump("score", ds); Stats.Bump("earned", earned); Stats.Bump("secs", Mathf.RoundToInt(runSecs));
                 int was = Progress.Level, xpGain = dd + Mathf.RoundToInt(ds / 10f), lvPay = Progress.AddXp(xpGain), now = Progress.Level;
                 int rkPay = Rungs.RankPayBetween(was, now); SaveData.Coins += rkPay;
-                var rc = new Hud.RunCard { dist = d, score = rider.score, earned = earned, doubled = dbl, lvUp = now - was, level = now, pay = lvPay + rkPay, rankUp = Rungs.RankIdx(now) > Rungs.RankIdx(was), rider = Hud.RiderName() };
+                var rc = new Hud.RunCard { dist = d, score = rider.score, earned = earned, doubled = dbl, lvUp = now - was, level = now, pay = lvPay + rkPay, rankUp = Rungs.RankIdx(now) > Rungs.RankIdx(was), rider = Hud.RiderName(), bestBefore = runBest, bestDistBefore = runBestDist };
                 for (int L = was + 1; L <= now; L++) rc.unlocked.AddRange(Rungs.UnlocksAt(L));
                 loanBack |= Wheel.RunEnd(); SaveData.Flush();      // the loan is over; the board goes back at the title or the next run
                 // a chest caught on the run is opened first, and the card waits its turn behind it (web 28615)

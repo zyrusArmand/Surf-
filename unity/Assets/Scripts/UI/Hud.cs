@@ -501,6 +501,9 @@ public class Hud : MonoBehaviour
         public int lvUp, level, pay; public bool rankUp;          // levels crossed, where that left you, what the levels and the title paid
         public List<string> unlocked = new List<string>();        // what the promotion opened, by name
         public string rider = "Astro";                            // whose run it was, first name
+        // the bests as they stood when the run began, read before the run-end moves them; -1 when
+        // not known, and then no NEW BEST is shown
+        public int bestBefore = -1, bestDistBefore = -1;
     }
     RunCard shown, pendingRc;
     int cardToken; bool cardPending; float cardAskedT;
@@ -567,6 +570,7 @@ public class Hud : MonoBehaviour
         if (cardRoot != null) Pane.Clear(cardRoot);
         foreach (var o in cardMade) if (o != null) Destroy(o);
         cardMade.Clear();
+        greyWas.Clear();
     }
 
     void BuildCardNow(CardArt.Backdrop bd)
@@ -583,6 +587,8 @@ public class Hud : MonoBehaviour
         var scrimTex = CardArt.ScrimTexture(bd); cardMade.Add(scrimTex);
         var scrim = UiKit.Rect(cardRoot, "scrim", Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero).gameObject.AddComponent<RawImage>();
         scrim.texture = scrimTex; scrim.raycastTarget = false;
+        // what moves on the card (the Again halo, NEW BEST, the goals' bars), on unscaled time
+        var fx = UiKit.Rect(cardRoot, "fx", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero).gameObject.AddComponent<CardFx>();
 
         // ---- the card's rows, top to bottom, in card px (its 1px border and 16px padding included) ----
         var goals = Quests.Ensure();
@@ -599,11 +605,17 @@ public class Hud : MonoBehaviour
         for (int i = 0; i < goals.Count; i++) { y += 7f; goalTop[i] = y; y += 53.7f; }
         float cardH = y + 14f + 1f;
 
-        // #overlay.over: padding 6vh over, max(9vh, 62px) under, the block centred in what is left
-        // ("safe": packed from the top when it does not fit)
+        // The whole block (title, card, row, offers) centred in the screen's safe area. The web's
+        // 6vh over and max(9vh, 62px) under left a fifth of a tall phone empty below it, so the
+        // margins are now only floors: clear of the notch above and of the version line below.
+        // When it does not fit it is packed from the top ("safe"), as the web's is.
         float total = 26.5f + 2f + 10f + cardH + 20f + 12f + DiscD + 22f + OfferH;
-        float padTop = 0.06f * H, padBot = Mathf.Max(0.09f * H, 62f);
-        float top = padTop + Mathf.Max(0f, (H - padTop - padBot - total) * 0.5f);
+        float k2 = Screen.height > 0 ? H / Screen.height : 1f;
+        var sa = Screen.safeArea;
+        float safeTop = Mathf.Max(0f, (Screen.height - sa.yMax) * k2), safeBot = Mathf.Max(0f, sa.yMin * k2);
+        float minTop = safeTop + 14f, maxBot = H - Mathf.Max(safeBot + 16f, 46f);    // 46: the version's 24 off the foot and its line
+        float top = safeTop + (H - safeTop - safeBot - total) * 0.5f;
+        top = Mathf.Max(minTop, Mathf.Min(top, maxBot - total));
         float Y = top + 26.5f + 2f + 10f;
 
         // h1#ovTitle: clamp(15px, 5.6vw, 30px) -- 24 on a phone -- gold, a soft seat of a shadow
@@ -614,26 +626,31 @@ public class Hud : MonoBehaviour
         var cardBox = new CardArt.Box { x = 0, y = 0, w = CardW, h = cardH, r = 20, c0 = Solid.Rgba(255, 246, 228, 0.20f), c1 = Solid.Rgba(255, 236, 208, 0.08f), p1 = 0.46f, c2 = Solid.Rgba(226, 242, 255, 0.10f), edge = Solid.Rgba(255, 244, 222, 0.32f), hi = Solid.Rgba(255, 250, 236, 0.40f) };
         var boxes = new List<CardArt.Box>();
         float tw = (InW - 12f) / 2f;
+        // a figure that beat the best the run started with: its tile edged in gold and a NEW BEST
+        // ribbon on it (not on a first run, when there was no best to beat)
+        var newBest = new[] { rc.bestDistBefore > 0 && rc.dist > rc.bestDistBefore, rc.bestBefore > 0 && rc.score > rc.bestBefore };
         for (int i = 0; i < 2; i++)                               // .rstat
-            boxes.Add(new CardArt.Box { x = In + i * (tw + 12f), y = In, w = tw, h = 77.2f, r = 14, c0 = new Color(Ink.r, Ink.g, Ink.b, 0.20f), c1 = new Color(Ink.r, Ink.g, Ink.b, 0.20f), edge = new Color(1, 1, 1, 0.14f), hi = new Color(1, 1, 1, 0.10f) });
+            boxes.Add(newBest[i]
+                ? new CardArt.Box { x = In + i * (tw + 12f), y = In, w = tw, h = 77.2f, r = 14, c0 = Solid.Rgba(255, 214, 90, 0.14f), c1 = new Color(Ink.r, Ink.g, Ink.b, 0.16f), edge = Solid.Rgba(255, 228, 150, 0.62f), hi = Solid.Rgba(255, 244, 210, 0.22f), glow = Solid.Rgba(255, 196, 70, 0.22f), glowBlur = 12f }
+                : new CardArt.Box { x = In + i * (tw + 12f), y = In, w = tw, h = 77.2f, r = 14, c0 = new Color(Ink.r, Ink.g, Ink.b, 0.20f), c1 = new Color(Ink.r, Ink.g, Ink.b, 0.20f), edge = new Color(1, 1, 1, 0.14f), hi = new Color(1, 1, 1, 0.10f) });
         if (lvlTop >= 0f)                                         // .rlvl, and .rlvl.up on a promotion
             boxes.Add(rc.rankUp
                 ? new CardArt.Box { x = In, y = lvlTop, w = InW, h = 43.35f, r = 11, c0 = Solid.Rgba(255, 236, 160, 0.34f), c1 = Solid.Rgba(255, 196, 52, 0.16f), edge = Solid.Rgba(255, 238, 182, 0.62f), ring = Solid.Rgba(255, 226, 140, 0.22f), glow = Solid.Rgba(255, 182, 40, 0.18f), glowY = 3f, glowBlur = 14f, hi = Solid.Rgba(255, 250, 226, 0.34f) }
                 : new CardArt.Box { x = In, y = lvlTop, w = InW, h = 43.35f, r = 11, c0 = Solid.Rgba(255, 222, 120, 0.20f), c1 = Solid.Rgba(255, 190, 60, 0.10f), edge = Solid.Rgba(255, 224, 150, 0.38f) });
         boxes.Add(new CardArt.Box { x = In + 2f, y = ruleTop, w = InW - 4f, h = 1f, r = 0, across = true, c0 = new Color(1, 1, 1, 0f), c1 = new Color(1, 1, 1, 0.26f), p1 = 0.5f, c2 = new Color(1, 1, 1, 0f) });
-        var fracs = new float[goals.Count];
+        // the goals' bars: the track is painted into the glass, a dim glass line; the fill goes over
+        // it live, so it can run on from where the goal stood when the run began
+        var fracs = new float[goals.Count]; var fracs0 = new float[goals.Count]; var tracks = new CardArt.Box[goals.Count];
         for (int i = 0; i < goals.Count; i++)
         {
             var g = goals[i]; var d = Quests.Def(g.id);
             fracs[i] = g.done ? 1f : Mathf.Clamp01(Mathf.Min(g.n, d.target) / (float)Mathf.Max(1, d.target));
+            int n0 = Quests.StartN(g.id);                         // -1: not known, so it runs up from nothing
+            fracs0[i] = n0 < 0 ? 0f : Mathf.Min(fracs[i], Mathf.Clamp01(Mathf.Min(n0, d.target) / (float)Mathf.Max(1, d.target)));
             boxes.Add(new CardArt.Box { x = In, y = goalTop[i], w = InW, h = 53.7f, r = 12, c0 = g.done ? Solid.Rgba(255, 214, 90, 0.14f) : new Color(Ink.r, Ink.g, Ink.b, 0.18f), c1 = g.done ? Solid.Rgba(255, 214, 90, 0.14f) : new Color(Ink.r, Ink.g, Ink.b, 0.18f), edge = g.done ? Solid.Rgba(255, 230, 160, 0.34f) : new Color(1, 1, 1, 0.11f) });
-            // .bar: 6 tall, 7 under the line; the fill runs blue to gold across its own width and its glow stays in the track
-            var track = new CardArt.Box { x = In + 12f, y = goalTop[i] + 1f + 8f + 21.7f + 7f, w = InW - 24f, h = 6f, r = 3f, c0 = new Color(Ink.r, Ink.g, Ink.b, 0.34f), c1 = new Color(Ink.r, Ink.g, Ink.b, 0.34f), hi = Solid.Rgba(0, 16, 34, 0.35f), hiY = 1f, hiBlur = 1f, under = new Color(1, 1, 1, 0.12f) };
-            boxes.Add(track);
-            if (fracs[i] > 0f)
-                boxes.Add(new CardArt.Box { x = track.x, y = track.y, w = track.w * fracs[i], h = 6f, r = 3f, across = true, clip = track,
-                    c0 = g.done ? Gilt : Solid.Rgba(111, 220, 255), c1 = g.done ? Gilt : Earn,
-                    glow = g.done ? Solid.Rgba(255, 220, 120, 0.45f) : Solid.Rgba(120, 220, 255, 0.5f), glowBlur = 8f });
+            // 6 tall and fully round, 7 under the line
+            var track = new CardArt.Box { x = In + 12f, y = goalTop[i] + 1f + 8f + 21.7f + 7f, w = InW - 24f, h = 6f, r = 3f, c0 = new Color(1, 1, 1, 0.10f), c1 = new Color(1, 1, 1, 0.07f), edge = new Color(1, 1, 1, 0.16f), hi = Solid.Rgba(0, 16, 34, 0.30f), hiY = 1f, hiBlur = 1f };
+            boxes.Add(track); tracks[i] = track;
         }
         System.Func<float, float, Color> seen;
         var cardSp = CardArt.Bake(cardBox, boxes, X, Y, bd, out seen);
@@ -655,6 +672,7 @@ public class Hud : MonoBehaviour
             var wd = Txt(c, word, 12, ShopArt.Mix(seen(tx + tw * 0.5f, wy), Color.white, 0.72f), tx, wy, tw, TextAnchor.MiddleCenter);
             ShopArt.Shade(wd, ShopArt.Rgb(0, 20, 40), 0.3f, new Vector2(0f, -1f));
             Tracking.On(wd, 0.12f);
+            if (newBest[i]) NewBest(c, fx, tx + tw * 0.5f, In, i == 0 ? 1.0f : 1.1f);   // as its figure finishes counting
         }
         // .rearn: the shell 1.45em, 9px, "EARNED: 21 SHELLS" 22px gold tracked .05em, and the wheel's x2 when it doubled
         {
@@ -724,14 +742,30 @@ public class Hud : MonoBehaviour
         {
             var g = goals[i]; var d = Quests.Def(g.id);
             float cy = goalTop[i] + 1f + 8f + 10.85f, lx = In + 1f + 11f, rx = In + InW - 1f - 11f;
-            Pic(c, "goal_" + GoalIcon(g.id), 18f, lx, cy, g.done ? Gilt : ShopArt.Mix(seen(lx + 9f, cy), Mist, 0.9f));
+            Pic(c, "goal_" + GoalIcon(g.id), 19f, lx, cy, g.done ? Gilt : ShopArt.Mix(seen(lx + 9f, cy), Solid.Rgba(226, 240, 250), 0.96f));
+            // the count, or a green tick and DONE +100 (the reward the quest sheet shows, Quests.Pay)
             string count = g.done ? "DONE +" + Quests.Pay : Pane.N(Mathf.Min(g.n, d.target)) + " / " + Pane.N(d.target);
-            var b = Txt(c, count, 12.5f, g.done ? Gilt : Mist, rx - 120f, cy + 0.6f, 120f, TextAnchor.MiddleRight);
+            var b = Txt(c, count, 13f, g.done ? Gilt : Solid.Rgba(226, 240, 250), rx - 120f, cy + 0.6f, 120f, TextAnchor.MiddleRight);
             Tracking.On(b, 0.03f);
-            float bW = b.preferredWidth + Tracking.Extra(count, 12.5f, 0.03f);
+            float bW = b.preferredWidth + Tracking.Extra(count, 13f, 0.03f);
+            bool advanced = fracs[i] > fracs0[i] + 0.001f;
+            if (g.done)
+            {
+                const float TickD = 15f;
+                var tick = Solid.Pic(c, "tick", CardFx.Tick(TickD, cardMade), Color.white, TL, TL, new Vector2(0.5f, 0.5f), new Vector2(rx - bW - 5f - TickD * 0.5f, -(cy + 0.3f)), new Vector2(TickD, TickD));
+                if (advanced) fx.Pop(tick.rectTransform, BarAt(i) + BarDur - 0.05f, 0.32f);     // when its bar arrives
+                bW += 5f + TickD;
+            }
             float sx = lx + 20f + 9f, sw = rx - bW - 9f - sx;
-            var s = Txt(c, d.text, 14, ShopArt.Mix(seen(sx + 20f, cy), g.done ? Gilt : Solid.Rgba(244, 248, 252), 0.95f), sx, cy, sw, TextAnchor.MiddleLeft);
+            var s = Txt(c, d.text, 15, g.done ? Gilt : Solid.Rgba(248, 251, 255), sx, cy, sw, TextAnchor.MiddleLeft);
             Ellipsize(s, d.text, sw);
+            // the fill: blue to gold across its own width (all gold once done), run on from where the run found it
+            var tr = tracks[i];
+            var fillSp = g.done ? CardFx.BarFill(tr.h, Gilt, Solid.Rgba(255, 204, 64), cardMade) : CardFx.BarFill(tr.h, Solid.Rgba(111, 220, 255), Earn, cardMade);
+            var fill = Solid.Pic(c, "fill", fillSp, Color.white, TL, TL, TL, new Vector2(tr.x, -tr.y), new Vector2(tr.w * fracs[i], tr.h));
+            fill.type = Image.Type.Sliced;
+            if (advanced) fx.Grow(fill, BarAt(i), BarDur, tr.w * fracs0[i], tr.w * fracs[i]);
+            else fill.enabled = fracs[i] > 0f;
         }
 
         // ---- the row: Again, then the dial's discs ----
@@ -744,14 +778,28 @@ public class Hud : MonoBehaviour
         float againW = CardW - discs.Count * (DiscD + DiscGap);
         {
             float ay = rowTop + DiscD - AgainH;                    // the row aligns its items to the foot
-            var again = Glass(ShopArt.Glass.Again, X, ay, againW, AgainH, under(X, ay), -1f);
-            // the play triangle 18px in #f2d391, 8px, "Again" 16px tracked .6px
-            var t = UiKit.Label(again.transform, "Again", 16, Color.white, FontStyle.Bold, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(200, 24), TextAnchor.MiddleCenter, 0f);
-            ShopArt.Shade(t, ShopArt.TextShade, 0.6f, new Vector2(0f, -1f));
-            Tracking.On(t, 0.6f / 16f);
-            float tW = t.preferredWidth + Tracking.Extra("Again", 16, 0.6f / 16f), grp = 18f + 8f + tW;
+            // The one filled button on the card, so it reads as the way on: a warm gold pill, light
+            // at the top to amber at the foot, with dark type, and a halo behind it that breathes
+            // slowly. The halo and the pill's hair of growth are on children, so the press's own
+            // scale on the button (PressAnim) is left alone.
+            var again = ShopArt.Hit(cardRoot, "Again", TL, TL, TL, new Vector2(X, -ay), new Vector2(againW, AgainH));
+            var halo = UiKit.Pic(again.transform, "halo", CardFx.Halo(againW, AgainH, 16f, cardMade), Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(ShopArt.Pad * 2f, ShopArt.Pad * 2f));
+            halo.raycastTarget = false; halo.color = Solid.Rgba(255, 196, 72, 0.18f);
+            var art = ShopArt.Art(again.transform, CardFx.GoldPill(againW, AgainH, under(X, ay), cardMade));
+            fx.Breathe(halo, art.rectTransform, 2.8f, 0.14f, 0.42f, 0.012f);
+            // the play triangle 18px, 8px, "Again" 17px tracked .6px, in the card's ink with a light seat under it
+            var t = UiKit.Label(art.transform, "Again", 17, Ink, FontStyle.Bold, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(200, 24), TextAnchor.MiddleCenter, 0f);
+            ShopArt.Shade(t, Solid.Rgba(255, 246, 214), 0.45f, new Vector2(0f, -1f));
+            Tracking.On(t, 0.6f / 17f);
+            float tW = t.preferredWidth + Tracking.Extra("Again", 17, 0.6f / 17f), grp = 18f + 8f + tW;
             t.rectTransform.anchoredPosition = new Vector2(-grp * 0.5f + 26f + tW * 0.5f, 0f);
-            Glyph(again.transform, "ob_play", 18f, new Vector2(-grp * 0.5f + 9f, 0f));
+            var play = UiKit.Icon("ob_play");
+            if (play != null)
+            {
+                var pi = UiKit.Pic(art.transform, "ob_play", play, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-grp * 0.5f + 9f, 0f), new Vector2(18f, 18f));
+                pi.color = Ink; pi.raycastTarget = false; pi.preserveAspect = true;
+                ShopArt.Shade(pi, Solid.Rgba(255, 246, 214), 0.45f, new Vector2(0f, -1f));
+            }
             UiKit.Pressable(again.gameObject, null, () => { Sfx.Buzz(12); onPlay?.Invoke(); });
         }
         for (int i = 0; i < discs.Count; i++)
@@ -768,8 +816,8 @@ public class Hud : MonoBehaviour
         }
         // ---- the offers: one quiet strip under the row ----
         float offY = rowTop + DiscD + 22f, offW = (CardW - OfferGap) * 0.5f;
-        Offer(bd, X, offY, offW, "Double coins", !(runEarned > 0 && !runDoubled), DoubleCoins);     // .rwd[disabled] when there is nothing to double
-        Offer(bd, X + offW + OfferGap, offY, offW, "Second life", false, SecondLife);
+        Offer(bd, X, offY, offW, "Double coins", "puka", Color.white, !(runEarned > 0 && !runDoubled), DoubleCoins);     // .rwd[disabled] when there is nothing to double
+        Offer(bd, X + offW + OfferGap, offY, offW, "Second life", "ob_life", Solid.Rgba(255, 128, 150), false, SecondLife);
 
         // #ver: the version, 13px at .55, 24px off the foot
         string vs = "v" + UiKit.Version;
@@ -790,24 +838,38 @@ public class Hud : MonoBehaviour
         return hit;
     }
 
-    /// .rwd: the offer's name 13.5px, and under it a small arrow and WATCH AD in gold caps tracked .14em
-    void Offer(CardArt.Backdrop bd, float x, float y, float w, string label, bool off, System.Action<GameObject> tap)
+    /// .rwd: what it gives as a picture (the puka for coins, the heart for a life), and beside it the
+    /// offer's name 13.5px over a small arrow and WATCH AD in gold caps tracked .14em, centred as one
+    void Offer(CardArt.Backdrop bd, float x, float y, float w, string label, string icon, Color iconTint, bool off, System.Action<GameObject> tap)
     {
         var im = Glass(ShopArt.Glass.Offer, x, y, w, OfferH, (px, py) => bd.Under(x + px, y + py), 14f);
-        var t = UiKit.Label(im.transform, label, 13.5f, Color.white, FontStyle.Bold, TL, new Vector2(1, 1), new Vector2(0.5f, 0.5f), new Vector2(0f, -16.4f), new Vector2(0f, 18f), TextAnchor.MiddleCenter, 0f);
+        const float IconD = 23f, IconGap = 9f;
+        var pivL = new Vector2(0f, 0.5f);
+        var t = UiKit.Label(im.transform, label, 13.5f, Color.white, FontStyle.Bold, TL, TL, pivL, new Vector2(0f, -16.4f), new Vector2(160f, 18f), TextAnchor.MiddleLeft, 0f);
         ShopArt.Shade(t, ShopArt.TextShade, 0.7f, new Vector2(0f, -1f));
         Tracking.On(t, 0.02f);
+        float lW = t.preferredWidth + Tracking.Extra(label, 13.5f, 0.02f);
         // the arrow and the words share the em's .85; the arrow its own .9 on top
         Color back = ShopArt.Saturate(bd.Under(x + w * 0.5f, y + 31.6f), 1.35f);
         const string ad = "WATCH AD";
-        var e = UiKit.Label(im.transform, ad, 10.5f, ShopArt.Mix(back, Gilt, 0.85f), FontStyle.Bold, TL, new Vector2(1, 1), new Vector2(0.5f, 0.5f), new Vector2(0f, -31.6f), new Vector2(0f, 14f), TextAnchor.MiddleCenter, 0f);
+        var e = UiKit.Label(im.transform, ad, 10.5f, ShopArt.Mix(back, Gilt, 0.85f), FontStyle.Bold, TL, TL, pivL, new Vector2(0f, -31.6f), new Vector2(120f, 14f), TextAnchor.MiddleLeft, 0f);
         Tracking.On(e, 0.14f);
         float eW = e.preferredWidth + Tracking.Extra(ad, 10.5f, 0.14f), grp = 6f + 4f + eW;
-        e.rectTransform.anchoredPosition = new Vector2(-grp * 0.5f + 10f + eW * 0.5f, -31.6f);
+        var ic = UiKit.Icon(icon);
+        float iconW = ic != null ? IconD + IconGap : 0f;
+        float x0 = Mathf.Max(10f, (w - (iconW + Mathf.Max(lW, grp))) * 0.5f), tx = x0 + iconW;
+        if (ic != null)
+        {
+            var p = UiKit.Pic(im.transform, icon, ic, TL, TL, new Vector2(0.5f, 0.5f), new Vector2(x0 + IconD * 0.5f, -OfferH * 0.5f), new Vector2(IconD, IconD));
+            p.color = iconTint; p.raycastTarget = false; p.preserveAspect = true;
+            ShopArt.Shade(p, ShopArt.TextShade, 0.45f, new Vector2(0f, -1f));
+        }
+        t.rectTransform.anchoredPosition = new Vector2(tx, -16.4f); t.rectTransform.sizeDelta = new Vector2(lW + 4f, 18f);
+        e.rectTransform.anchoredPosition = new Vector2(tx + 10f, -31.6f); e.rectTransform.sizeDelta = new Vector2(eW + 4f, 14f);
         var tri = UiKit.Icon("ob_tri");
         if (tri != null)
         {
-            var a = UiKit.Pic(im.transform, "arrow", tri, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 0.5f), new Vector2(-grp * 0.5f + 3f, -31.6f), new Vector2(6f, 8f));
+            var a = UiKit.Pic(im.transform, "arrow", tri, TL, TL, new Vector2(0.5f, 0.5f), new Vector2(tx + 3f, -31.6f), new Vector2(6f, 8f));
             a.color = ShopArt.Mix(back, Gilt, 0.85f * 0.9f); a.raycastTarget = false;
         }
         if (off) Grey(im.gameObject, true);
@@ -821,10 +883,51 @@ public class Hud : MonoBehaviour
     int runEarned; bool runDoubled, clipOn;
     Text earnT, earnBadge; Image earnPk, earnPill; float earnCy, earnBadgeW;
 
-    static void Grey(GameObject g, bool on)
+    // A spent or unavailable offer is greyed as well as faded, so it cannot be mistaken for one
+    // that is only sitting on a dark patch of sea: every picture and word in it is taken to grey
+    // (the colours it had are kept, for an offer that comes back) and the whole is drawn at .38.
+    readonly Dictionary<Graphic, Color> greyWas = new Dictionary<Graphic, Color>();
+    void Grey(GameObject g, bool on)
     {
         var cg = g.GetComponent<CanvasGroup>(); if (cg == null) cg = g.AddComponent<CanvasGroup>();
-        cg.alpha = on ? 0.45f : 1f; cg.interactable = !on;
+        cg.alpha = on ? 0.38f : 1f; cg.interactable = !on;
+        foreach (var gr in g.GetComponentsInChildren<Graphic>(true))
+        {
+            if (on)
+            {
+                if (greyWas.ContainsKey(gr)) continue;
+                var c = gr.color; if (c.a <= 0f) continue;       // the clear rect that takes the finger
+                greyWas[gr] = c;
+                float l = c.r * 0.299f + c.g * 0.587f + c.b * 0.114f;
+                float k = gr is Text ? 0.85f : 0.62f;            // the glass and the pictures darker than the words, so the words still read
+                gr.color = new Color(l * k, l * k, l * k, c.a);
+            }
+            else if (greyWas.TryGetValue(gr, out var was)) { gr.color = was; greyWas.Remove(gr); }
+        }
+    }
+
+    // the goals' bars run in one after another once the card is up, each over BarDur seconds
+    const float BarDur = 0.6f;
+    static float BarAt(int i) => 0.55f + 0.12f * i;
+
+    /// NEW BEST: a small gold ribbon straddling the top edge of a figure's tile, centred at (cx, cy)
+    /// in card px, that pops in at `at` seconds, as its figure finishes counting, and has a shine
+    /// cross it once
+    void NewBest(Transform c, CardFx fx, float cx, float cy, float at)
+    {
+        const float RW = 76f, RH = 16f;
+        const string word = "NEW BEST";
+        var sp = CardFx.Capsule(RW, RH, Solid.Rgba(255, 240, 170), Solid.Rgba(255, 210, 92), Solid.Rgba(244, 168, 44), Solid.Rgba(150, 84, 10, 0.65f),
+                                0.30f, 0f, 0f, null, cardMade, "new best");
+        var rib = Solid.Pic(c, "newBest", sp, Color.white, TL, TL, new Vector2(0.5f, 0.5f), new Vector2(cx, -cy), new Vector2(RW, RH));
+        var mask = rib.gameObject.AddComponent<Mask>(); mask.showMaskGraphic = true;      // the shine stays inside the ribbon's shape
+        var shine = Solid.Pic(rib.transform, "shine", CardFx.ShineBand(cardMade), new Color(1f, 1f, 1f, 0.85f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(16f, RH * 2.2f));
+        shine.rectTransform.localRotation = Quaternion.Euler(0f, 0f, -22f);
+        var t = UiKit.Label(rib.transform, word, 9.5f, Ink, FontStyle.Bold, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 0.5f), new Vector2(RW, RH), TextAnchor.MiddleCenter, 0f);
+        ShopArt.Shade(t, Solid.Rgba(255, 248, 220), 0.5f, new Vector2(0f, -1f));
+        Tracking.On(t, 0.1f);
+        fx.Pop(rib.rectTransform, at, 0.38f);
+        fx.Sweep(shine.rectTransform, at + 0.32f, 0.6f, -RW * 0.5f - 14f, RW * 0.5f + 14f);
     }
     static bool Greyed(GameObject g) { var cg = g.GetComponent<CanvasGroup>(); return cg != null && !cg.interactable; }
 
