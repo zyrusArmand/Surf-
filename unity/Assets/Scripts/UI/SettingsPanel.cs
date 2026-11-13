@@ -45,9 +45,7 @@ public class SettingsPanel : MonoBehaviour
         Pane.Button(tc, "Test", 72, false, () =>
         {
             global::Sfx.Play("btn", 0.50f, 1f);
-#if UNITY_ANDROID || UNITY_IOS
-            try { Handheld.Vibrate(); } catch { }
-#endif
+            Haptics.Pattern(new[] { 25, 35, 90 });        // the web's test (14143), felt even with Vibration off
         });
         // the picture: High is everything; Fast keeps the look but drops the costly extras for an older phone
         var g = Pane.Card(content, "sw:Graphics", 48);

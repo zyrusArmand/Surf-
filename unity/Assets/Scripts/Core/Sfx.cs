@@ -332,21 +332,14 @@ public static class Sfx
     {
         Ensure();
         Play("btn", ms >= 30 ? 0.46f : ms >= 18 ? 0.38f : 0.30f, 0.97f + Random.value * 0.08f);
-        Vibrate();
+        if (HapticsOn) Haptics.Pulse(ms);           // the length asked for, as the web's buzz(ms)
     }
-    /// a pattern, e.g. Buzz(60, 50, 80) for the wipeout: the heaviest click, one vibration
+    /// a pattern, e.g. Buzz(60, 50, 80) for the wipeout: the heaviest click, and the pattern felt
     public static void Buzz(params int[] pattern)
     {
         Ensure();
         Play("btn", 0.50f, 0.97f + Random.value * 0.08f);
-        Vibrate();
-    }
-    static void Vibrate()
-    {
-        if (!HapticsOn) return;
-#if UNITY_ANDROID || UNITY_IOS
-        try { Handheld.Vibrate(); } catch { }
-#endif
+        if (HapticsOn) Haptics.Pattern(pattern);    // on, off, on ... as the web's buzz([..])
     }
 
     // =====================================================================================
