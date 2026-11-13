@@ -388,12 +388,26 @@ Shader "Surf/Ocean"
                     // super fast". So: the sharpened lookup is kept only for the fine layer close to the
                     // board, the middle layer fades out past about thirty feet, and the whole ripple
                     // calms with distance, leaving the far sea smooth water with soft glints.
-                    float2 ca = SAMPLE_TEXTURE2D(_Chop, sampler_Chop, gp*0.055 + float2( _T*0.0063, -_T*0.0052)).xy * 2.0 - 1.0;
-                    float2 cb = SAMPLE_TEXTURE2D(_Chop, sampler_Chop, gp*0.168 + float2(-_T*0.0116,  _T*0.0097)).xy * 2.0 - 1.0;
+                    // No tile may show. Each layer is read at its own angle (so the three grids never
+                    // line up into a lattice), through a slow large warp (so even one layer's repeat is
+                    // bent out of true), and the sea's roughness itself wanders in broad soft patches,
+                    // the gusts and slicks a real sea has -- a single map read straight at one scale
+                    // laid a regular mottled grid over the water, and the sun's glitter drew it again.
+                    float2 wq = gp * 0.0105;
+                    float2 warp = float2(vn(wq + 3.1), vn(wq * 1.37 + 7.7)) - 0.5;
+                    float patch = vn(gp * 0.0062 + 11.3);
+                    float2 gw = gp + warp * 22.0;
+                    float2 ra = float2(gw.x * 0.921 - gw.y * 0.391, gw.x * 0.391 + gw.y * 0.921);     // turned 23 degrees
+                    float2 rb = float2(gw.x * 0.799 + gw.y * 0.602, -gw.x * 0.602 + gw.y * 0.799);    // turned -37 degrees
+                    float2 ca = SAMPLE_TEXTURE2D(_Chop, sampler_Chop, ra*0.055 + float2( _T*0.0063, -_T*0.0052)).xy * 2.0 - 1.0;
+                    float2 cb = SAMPLE_TEXTURE2D(_Chop, sampler_Chop, rb*0.168 + float2(-_T*0.0116,  _T*0.0097)).xy * 2.0 - 1.0;
+                    // the layers were drawn for the map's own axes; turned back, their slopes point true
+                    ca = float2(ca.x * 0.921 + ca.y * 0.391, -ca.x * 0.391 + ca.y * 0.921);
+                    cb = float2(cb.x * 0.799 - cb.y * 0.602, cb.x * 0.602 + cb.y * 0.799);
                     wob = ca + cb * 0.78 * (1.0 - 0.75 * smoothstep(25.0, 80.0, dCam));
-                    float2 cc = SAMPLE_TEXTURE2D_BIAS(_Chop, sampler_Chop, gp*0.52 + float2( _T*0.021, -_T*0.017), -1.0).xy * 2.0 - 1.0;
+                    float2 cc = SAMPLE_TEXTURE2D_BIAS(_Chop, sampler_Chop, gw*0.52 + float2( _T*0.021, -_T*0.017), -1.0).xy * 2.0 - 1.0;
                     wob += cc * 0.45 * (1.0 - smoothstep(6.0, 42.0, dCam));
-                    wob *= lerp(1.0, 0.55, smoothstep(30.0, 140.0, dCam));
+                    wob *= lerp(1.0, 0.55, smoothstep(30.0, 140.0, dCam)) * lerp(0.62, 1.30, smoothstep(0.25, 0.75, patch));
                 }
                 else
                 {
