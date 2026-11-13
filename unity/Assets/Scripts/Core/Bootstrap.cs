@@ -35,7 +35,7 @@ public class Bootstrap : MonoBehaviour
     }
     float riderReflShift;
     Vector3 pugBase = Vector3.one; GltfClips riderClips;   // the rider's fitted scale; the clip a rig-less rider plays
-    Vector3 hullMin, hullMax; bool hullOk; float hullRise, hullThick = 0.2f, floatLift;
+    Vector3 hullMin, hullMax; bool hullOk; float hullRise, hullThick = 0.2f, floatLift, boardSink;
     // where the hull is checked against the sea: the middle, both rails, the rails fore and aft, the tail
     static readonly Vector2[] FloatPts = { new Vector2(0f, 0f), new Vector2(0.9f, 0f), new Vector2(-0.9f, 0f), new Vector2(0.75f, 0.45f), new Vector2(-0.75f, 0.45f), new Vector2(0.75f, -0.45f), new Vector2(-0.75f, -0.45f), new Vector2(0f, 0.8f) }; PlanarReflection reflect;
     UnityEngine.Rendering.Universal.DepthOfField dof; UnityEngine.Rendering.Universal.ScreenSpaceLensFlare flare;      // the board's own box, in its frame, for the sea's dry-hull rule
@@ -623,7 +623,10 @@ public class Bootstrap : MonoBehaviour
             {
                 var bt = boardGo.transform; float tw = rider.t, fz0 = WaveField.Scroll;
                 float hcx = (hullMin.x + hullMax.x) * 0.5f, hcz = (hullMin.z + hullMax.z) * 0.5f, hhw = (hullMax.x - hullMin.x) * 0.5f, hhl = (hullMax.z - hullMin.z) * 0.5f;
-                float dC = 0.06f, dR = 0.06f + 0.10f * Mathf.Abs(rider.carve);
+                // how deep the hull may sit before he is lifted: a real board floats IN the water,
+                // a couple of inches of hull under (more on the rails in a carve) -- at 0.06 it rode
+                // on top, the sea curving away under most of it, and read as perched on the water
+                float dC = 0.20f, dR = 0.20f + 0.12f * Mathf.Abs(rider.carve);
                 for (int i = 0; i < FloatPts.Length; i++)
                 {
                     float lx = FloatPts[i].x, lz = FloatPts[i].y, q = Mathf.Abs(lz);      // across and along, as fractions of the half-width and half-length (+z the tail)
@@ -639,9 +642,12 @@ public class Bootstrap : MonoBehaviour
             }
             need = Mathf.Clamp(need, 0f, 1.2f);
             floatLift = need > floatLift ? need : Mathf.MoveTowards(floatLift, need, dt * 1.5f);
-            rider.transform.position += Vector3.up * floatLift;
+            // and settled into it: the ride's height is the highest of the water under the board, so
+            // without this the hull sat on the crest of every ripple; eased in and out with the water
+            boardSink = Mathf.MoveTowards(boardSink, onWater ? 0.14f : 0f, dt * 0.8f);
+            rider.transform.position += Vector3.up * (floatLift - boardSink);
         }
-        else floatLift = 0f;
+        else { floatLift = 0f; boardSink = 0f; }
         // a board trick: the board turns under him and drops a hand's width while he tucks (web 27016-27026).
         // glTF turns are mirrored into Unity, so the yaw and the roll change sign
         if (boardGo != null)
