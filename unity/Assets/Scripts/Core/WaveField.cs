@@ -14,6 +14,20 @@ public static class WaveField
     public static float Drift = 0.46f;     // climbs slightly with distance, see BoardController
     public static float Amp = 1.35f;       // the set's current size, 0.34 .. 2.6
     public static float Scroll;            // dist * Drift: the field coordinate's offset this frame
+    // How far the swell has been carried across with him (web seaSX). Fore and aft it rolls past
+    // at only Drift of his speed; sideways the lens slid across at his full speed over a swell
+    // standing still, so every steer threw the sea across the screen twice as fast as it comes
+    // toward the lens. Carried by the same share, the two agree. Swell only: the set wave, the
+    // whirlpool, the wakes and the fall stay where they are in the world.
+    public static float SX;
+    static float sxPx = float.NaN;
+    /// once a frame while riding, with his x: a jump of more than a few feet is him being put
+    /// somewhere, not riding there, and carries nothing
+    public static void CarrySideways(float px)
+    {
+        if (!float.IsNaN(sxPx) && Mathf.Abs(px - sxPx) < 3f) SX += (px - sxPx) * (1f - Drift);
+        sxPx = px;
+    }
     public static float Calm = 1f;         // the swell dies down inside the tube
 
     // ---- the set wave: a wall standing across the lane, steep front face, long shoulder ----
@@ -101,7 +115,7 @@ public static class WaveField
 
     static float Comp(in Wave W, float x, float z, float t)
     {
-        float u = W.dx * x + W.dz * z;
+        float u = W.dx * (x - SX) + W.dz * z;
         float env = EnvBase + EnvSwing * Mathf.Sin(u * W.k * W.ek - t * W.w * W.ek * 0.5f + W.ep);
         return W.a * env * Mathf.Sin(u * W.k - t * W.w);
     }

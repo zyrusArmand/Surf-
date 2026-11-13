@@ -578,6 +578,7 @@ public class BoardController : MonoBehaviour
         if (!ashore) dist += eff * dt;
         WaveField.Drift = 0.46f + Mathf.Min(1f, dist / 9000f) * 0.16f;
         WaveField.Scroll = dist * WaveField.Drift;
+        WaveField.CarrySideways(px);
         float stage = Mathf.Min(1f, dist / 9000f);
         // sets roll through small, medium, large and the odd extra-large (web 4058, 46754): three slow
         // sines, not one, so the size wanders instead of breathing on a single beat

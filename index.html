@@ -4060,8 +4060,17 @@ function setNoise(t){
 }
 const ZSTRETCH=1.0;                     // natural wave shape again
 let WAVE_DRIFT=0.46;                    // how fast the swell rolls past — climbs slightly as you go
+// ---- AND IT GOES WITH HIM SIDEWAYS BY THE SAME SHARE ----
+// Fore and aft the swell only rolls past at WAVE_DRIFT of his speed: the sea is written as
+// going his way at the rest of it. Sideways it was not -- the camera slides across with him at
+// his full speed and the swell stood still in the world -- so every steer threw the whole sea
+// across the screen at twice the rate it comes toward the lens, which reads as the water being
+// yanked sideways rather than him carving over it. seaSX is how far the swell has been carried
+// across with him; the shaders take it as uSX and waveComp below, so the board still rides
+// the water that is drawn.
+let seaSX=0, _seaPx=null;
 function waveComp(W,x,z,t){
-  const u=W.dx*x+W.dz*z*ZSTRETCH;
+  const u=W.dx*(x-seaSX)+W.dz*z*ZSTRETCH;
   const env=ENV_BASE+ENV_SWING*Math.sin(u*W.k*W.ek - t*W.w*W.ek*0.5 + W.ep);
   return W.a*env*Math.sin(u*W.k - t*W.w);
 }
@@ -4091,7 +4100,7 @@ let dist=0;
 // ---------- GPU ocean ----------
 const ZS=1.0;
 const glslWaves=WAVES.map(W=>{
-  const u=`(${W.dx.toFixed(2)}*p.x+${(W.dz*ZS).toFixed(4)}*p.y)`;
+  const u=`(${W.dx.toFixed(2)}*(p.x-uSX)+${(W.dz*ZS).toFixed(4)}*p.y)`;
   const ph=`${u}*${W.k.toFixed(3)}-uT*${W.w.toFixed(4)}`;
   const en=`(${ENV_BASE.toFixed(2)}+${ENV_SWING.toFixed(2)}*sin(${u}*${(W.k*W.ek).toFixed(5)}-uT*${(W.w*W.ek*0.5).toFixed(5)}+${W.ep.toFixed(2)}))`;
   // the envelope varies far more slowly than the wave, so the normals treat it as
@@ -4102,7 +4111,7 @@ dhx+=${W.a.toFixed(3)}*e*${W.k.toFixed(3)}*${W.dx.toFixed(2)}*cos(${ph});
 dhz+=${W.a.toFixed(3)}*e*${W.k.toFixed(3)}*${(W.dz*ZS).toFixed(4)}*cos(${ph});`;
 }).join('\n');
 const oceanUniforms={
-  uT:{value:0}, uDist:{value:0}, uAmp:{value:1.35}, uPeak:{value:2.85},
+  uT:{value:0}, uDist:{value:0}, uSX:{value:0}, uAmp:{value:1.35}, uPeak:{value:2.85},
   // The swell dies as it shoals. Only the title screen's beach uses this — the game's own
   // ocean has no shore in it and leaves uShore at -1, which switches the whole term off.
   uShore:{value:-1}, uShoreW:{value:1},
@@ -4172,7 +4181,7 @@ const oceanUniforms={
 const oceanMat=new THREE.ShaderMaterial({
   uniforms:oceanUniforms,
   vertexShader:`
-    uniform float uT; uniform float uDist; uniform float uAmp; uniform float uPeak;
+    uniform float uT; uniform float uDist; uniform float uSX; uniform float uAmp; uniform float uPeak;
     uniform float uFallW; uniform float uFallZ; uniform float uFallLane;
     uniform float uShore; uniform float uShoreW;
     uniform float uWakeZ; uniform float uWakeA; uniform float uWakeX;
@@ -4350,7 +4359,7 @@ const oceanMat=new THREE.ShaderMaterial({
     uniform vec3 uSun; uniform vec3 uSky; uniform vec3 uSkyHi;
     uniform vec3 uDeep; uniform vec3 uShallow;
     uniform vec3 uGlow; uniform vec3 uGlitL;
-    uniform float uT; uniform float uDist; uniform float uAmp; uniform float uPeak;
+    uniform float uT; uniform float uDist; uniform float uSX; uniform float uAmp; uniform float uPeak;
     uniform float uFallW; uniform float uFallZ; uniform float uFallLane;
     uniform float uLight; uniform float uSwA;
     uniform float uRdX; uniform float uRdZ; uniform float uRdA; uniform float uRdT;
@@ -4398,7 +4407,7 @@ const oceanMat=new THREE.ShaderMaterial({
       // up and shared: the specular and the Fresnel now sit on a rippled surface for no extra
       // samples at all.
       // A gentler tilt than the glitter's, which wants sparkle; this wants texture.
-      vec2 gp = vec2(vW.x, vW.z + uDist*0.22);
+      vec2 gp = vec2(vW.x - uSX, vW.z + uDist*0.22);
       // TWO TEXTURE LOOKUPS, where this was four fbm calls — twelve noise evaluations and
       // forty-eight hashes, per pixel, over the whole sea. The map is tileable by
       // construction: every octave in it sits on a lattice whose cell count divides the
@@ -4530,9 +4539,9 @@ const oceanMat=new THREE.ShaderMaterial({
       // stepping more than a whole cycle between frames once the speed came up, which
       // reads as the sea running backwards. The coarse foam keeps the real drift, so
       // the water still travels; only the detail is held back.
-      vec2 fpC = vec2(vW.x, vW.z + uDist*0.55);
-      vec2 fpM = vec2(vW.x, vW.z + uDist*0.30);
-      vec2 fpF = vec2(vW.x, vW.z + uDist*0.12);
+      vec2 fpC = vec2(vW.x - uSX, vW.z + uDist*0.55);
+      vec2 fpM = vec2(vW.x - uSX, vW.z + uDist*0.30);
+      vec2 fpF = vec2(vW.x - uSX, vW.z + uDist*0.12);
       float shimmer = fbm(fpC*0.55 + vec2(uT*0.05,-uT*0.04))*2.0 - 1.0;
       // ---- foam is where the water TEARS, not where it is high ----
       // The gate was height alone, at four tenths of peak, and on open chop that is most of
@@ -22009,7 +22018,7 @@ const fmGeo=new THREE.BufferGeometry();
   fmGeo.boundingSphere=new THREE.Sphere(new THREE.Vector3(0,0,0),4000);
 }
 const fmUniforms={
-  uT:{value:0}, uDist:{value:0}, uAmp:{value:1.35}, uNT:{value:0},
+  uT:{value:0}, uDist:{value:0}, uSX:{value:0}, uAmp:{value:1.35}, uNT:{value:0},
   uPX:{value:0}, uPZ:{value:0}, uStr:{value:0},
   // ---- narrower, and with more gaps in it ----
   // At 0.62 opening by 0.30 a foot it covered the whole lower half of the frame as one white
@@ -22039,7 +22048,7 @@ const foamMound=new THREE.Mesh(fmGeo,new THREE.ShaderMaterial({
   uniforms:fmUniforms, side:THREE.FrontSide, transparent:true, depthWrite:true,
   vertexShader:`
     attribute vec2 aG;
-    uniform float uT; uniform float uDist; uniform float uAmp; uniform float uNT;
+    uniform float uT; uniform float uDist; uniform float uSX; uniform float uAmp; uniform float uNT;
     uniform float uPX; uniform float uPZ; uniform float uStr;
     uniform float uTail; uniform float uLen; uniform float uW0; uniform float uSpread;
     uniform float uH;
@@ -22196,7 +22205,7 @@ function updateFoamMound(dt,on,strength){
   foamMound.visible=true;
   fmUniforms.uNT.value=fmT;
   fmUniforms.uT.value=oceanUniforms.uT.value;
-  fmUniforms.uDist.value=oceanUniforms.uDist.value;
+  fmUniforms.uDist.value=oceanUniforms.uDist.value; fmUniforms.uSX.value=oceanUniforms.uSX.value;
   fmUniforms.uAmp.value=oceanUniforms.uAmp.value;
   fmUniforms.uLight.value=oceanUniforms.uLight.value;
   fmUniforms.uSky.value=oceanUniforms.uSky.value;
@@ -46759,6 +46768,11 @@ function update(dt){
   waveClock += dt*(1.0 + 0.55*Math.sin(tNow*0.045) + 0.28*Math.sin(tNow*0.017+1.3));
   oceanUniforms.uT.value=waveClock;
   oceanUniforms.uDist.value=dist*WAVE_DRIFT;
+  // the swell carried across with him (see seaSX); a jump of more than a few feet in a frame
+  // is him being put somewhere, not riding there, and carries nothing
+  if(_seaPx!==null&&Math.abs(px-_seaPx)<3)seaSX+=(px-_seaPx)*(1-WAVE_DRIFT);
+  _seaPx=px;
+  oceanUniforms.uSX.value=seaSX;
   // The chute, fed from the MAIN loop. The first cut of this line went into
   // updateWorldDuringWipeout, which is the copy of the uniform feed that only runs while he
   // is being thrown -- so the shader was told about the fall exactly when nobody was riding

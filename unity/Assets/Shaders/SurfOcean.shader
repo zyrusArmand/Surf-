@@ -19,6 +19,7 @@ Shader "Surf/Ocean"
         _Grid ("Sea grid: x spacing, z spacing per unit of row slope (Ocean.cs)", Vector) = (0.75, 2.8235, 0, 0)
         _Peak ("Peak height", Float) = 2.85
         _Dist ("Field offset", Float) = 0
+        _SX ("Swell carried across", Float) = 0
         _T ("Time", Float) = 0
         _WakeX ("Wake x", Float) = 0
         _WakeZ ("Wake z", Float) = 0
@@ -74,7 +75,7 @@ Shader "Surf/Ocean"
 
             CBUFFER_START(UnityPerMaterial)
             float4 _Deep, _Shallow, _SkyLo, _SkyHi, _Glow, _SunDir;
-            float _Light, _Amp, _Peak, _Dist, _T, _WakeX, _WakeZ, _WakeA, _Lift, _Shore, _ShoreW, _Calm, _SwA, _SwX, _SwS, _WhX, _WhZ, _WhA, _FallW, _FallZF, _FallT, _FallLane;
+            float _Light, _Amp, _Peak, _Dist, _SX, _T, _WakeX, _WakeZ, _WakeA, _Lift, _Shore, _ShoreW, _Calm, _SwA, _SwX, _SwS, _WhX, _WhZ, _WhA, _FallW, _FallZF, _FallT, _FallLane;
             float4 _HullS, _HullC; float4x4 _HullW2L;      // _HullC: the plan's centre (x, z) and the rocker (how far the underside rises to the ends), in the board's frame
             float _BtX, _BtZ, _BtSn, _BtCs, _BtA;           // the tow boat's stern, heading and how hard it is making way (Boat.cs)
             float _SkiX, _SkiZ, _SkiA;                      // the jet ski's wake: lateral centre, centre in field z, height (JetSki.cs)
@@ -195,7 +196,7 @@ Shader "Surf/Ocean"
                 [unroll] for (int i = 0; i < 7; i++)
                 {
                     float4 a = _WaveA[i], b = _WaveB[i];
-                    float u = a.x * p.x + a.y * p.y;
+                    float u = a.x * (p.x - _SX) + a.y * p.y;
                     float e = 0.32 + 0.68 * sin(u * a.z * b.x - _T * b.z * b.x * 0.5 + b.y);
                     float ph = u * a.z - _T * b.z;
                     e *= GridFade(a, gs);
@@ -346,7 +347,7 @@ Shader "Surf/Ocean"
                         // that; the chop map below carries the fine texture, and is not a sine
                         float wgt = (1.0 - GridFade(a, i.gs)) * saturate(((6.2831853 / a.z) / pf - 3.0) / 3.0)
                                   * 0.30 * (1.0 - smoothstep(8.0, 30.0, length(i.w - _WorldSpaceCameraPos)));
-                        float u = a.x * fp.x + a.y * fp.y;
+                        float u = a.x * (fp.x - _SX) + a.y * fp.y;
                         float e = 0.32 + 0.68 * sin(u * a.z * b.x - _T * b.z * b.x * 0.5 + b.y);
                         float c = a.w * e * a.z * cos(u * a.z - _T * b.z) * wgt;
                         sx += c * a.x; sz += c * a.y;
@@ -383,7 +384,7 @@ Shader "Surf/Ocean"
                 float diff = max(dot(N, L), 0.0);
                 float3 H = normalize(L + V);
                 // chop: a centimetre-scale tilt on the normal, at three scales, the finest only close in
-                float2 gp = float2(i.w.x, i.w.z + _Dist * 0.22);
+                float2 gp = float2(i.w.x - _SX, i.w.z + _Dist * 0.22);
                 float2 wob;
                 if (_ChopK > 0.5)
                 {
@@ -510,9 +511,9 @@ Shader "Surf/Ocean"
                 float sss = thin * (0.35 + 0.65 * toSun) * (1.0 - fres * 0.5);
                 col += float3(0.08, 0.42, 0.40) * sss * 0.55 * sunLit;
                 // foam: high AND steep, torn by drifting noise
-                float2 fpC = float2(i.w.x, i.w.z + _Dist * 0.55);
-                float2 fpM = float2(i.w.x, i.w.z + _Dist * 0.30);
-                float2 fpF = float2(i.w.x, i.w.z + _Dist * 0.12);
+                float2 fpC = float2(i.w.x - _SX, i.w.z + _Dist * 0.55);
+                float2 fpM = float2(i.w.x - _SX, i.w.z + _Dist * 0.30);
+                float2 fpF = float2(i.w.x - _SX, i.w.z + _Dist * 0.12);
                 float shimmer = fbm(fpC * 0.55 + float2(_T*0.05, -_T*0.04)) * 2.0 - 1.0;
                 float steep = smoothstep(0.09, 0.28, 1.0 - saturate(N.y));
                 float crest = smoothstep(0.62 * _Peak, 0.92 * _Peak, hS + shimmer * 0.10) * (0.30 + 0.70 * steep);
