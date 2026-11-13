@@ -20,10 +20,16 @@
 // self-shadowing of a thick cloud, the light diffusing through it, its thin fringes and the
 // dark creases between its billows.
 //
-// What each cloud is: a cluster of turrets (columns of spheres, each topped by a dome boiling
-// with smaller puffs), merged with a smooth minimum, cut flat at the condensation level, its
-// surface displaced into cauliflower lumps by domain-warped cellular noise, and its fringe
-// eaten into wisps by finer noise, more down the flanks than on the crowns.
+// What each cloud is: one of eight hand-laid shapes (CLOUDS: flat fair-weather heaps, middling
+// ones, towering congestus, a broken one, a wind-torn one), each a few clumps -- a squat heap,
+// or a column narrowing up to a crown -- merged low down with a smooth minimum. Big lobes boil
+// out of each clump and smaller ones out of those, of mixed sizes, so it reads as billows on
+// billows rather than one size of ball; then a two-scale domain warp bends them all out of
+// round and soft cellular noise roughens the surface below them. The base is only roughly
+// level: each thermal condenses at its own height, the level wanders and is lumpy, lobes sag
+// below it and ragged vapour hangs under it, and it is softer than the crowns. The fringe is
+// eaten into wisps by finer noise, more down the flanks and under the base than on the
+// crowns, and a torn cloud's downwind side is drawn out into streaks.
 //
 // How it is lit, per voxel and per direction:
 //   - single scattering: the sun's beam after the optical depth between it and the voxel
@@ -67,7 +73,6 @@ const hg = (c, g) => (1 - g * g) / Math.pow(1 + g * g - 2 * g * c, 1.5);
 const phase = c => 0.7 * hg(c, 0.8) + 0.3 * hg(c, -0.3);
 const PH90 = phase(0), PHBACK = phase(-1);
 const PHTHRU = 0.16;            // light from behind: the forward peak is the shader's (see above)
-const BASE = 15;               // the flat base, in voxels up from the tile's bottom
 const DIFF = 4;                 // how far the scattered light diffuses, in voxels
 
 // ------------------------------------------------------------------ noise
@@ -111,93 +116,316 @@ const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
 const sstep = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
 
 // ------------------------------------------------------------------ one cloud's density
+// The eight shapes, drawn from photographs of fair-weather cumulus and cumulus congestus rather
+// than from one recipe, so the sky is not one cauliflower repeated. Each is a few clumps (a
+// thermal, or a few that have merged): x across the tile from its middle as a share of its
+// width, hw its half-width and h its height above the base in voxels, db how far its own base
+// sits above or below the cloud's (neighbouring thermals do not condense at quite one level),
+// lean how far its top is carried sideways by the wind, as a share of its height.
+//   boil: how hard the tops churn (a growing turret is crisp and lumpy, an old one smoother)
+//   tear: how much of the fringe is torn into wisps; tearX leans that to one side (downwind)
+//   hang: how many lobes sag below the base; scud: how much ragged vapour trails under it
+//   join: how high up neighbouring clumps are merged (gaps: which neighbours stay apart)
+const CLOUDS = [
+  // wide, flat fair-weather cumulus (humilis): low heaps of different sizes, some in front of
+  // others, the downwind end a little ragged
+  { base: 22, boil: 0.75, tear: 1.0, tearX: 0.5, hang: 3, scud: 0.8, c: [
+    { x: -0.33, hw: 14, h: 14, db: 3, z: -6 }, { x: -0.17, hw: 30, h: 30, db: 0 }, { x: 0.02, hw: 17, h: 21, db: 1, z: 12 },
+    { x: 0.15, hw: 27, h: 26, db: -1, z: -8 }, { x: 0.33, hw: 16, h: 15, db: 3, z: 4 }] },
+  // a middling heap (mediocris): a few turrets, one standing above the rest
+  { base: 21, boil: 1.0, tear: 1.0, tearX: 0.0, hang: 3, scud: 1.0, c: [
+    { x: -0.29, hw: 16, h: 24, db: 3, z: 6 }, { x: -0.11, hw: 28, h: 36, db: 0 }, { x: 0.06, hw: 26, h: 62, db: -2, lean: 0.06, z: -8 },
+    { x: 0.20, hw: 20, h: 40, db: 1, z: 12 }, { x: 0.32, hw: 14, h: 20, db: 2 }] },
+  // towering congestus: one great tower off the middle, shoulders stepping down either side
+  { base: 19, boil: 1.25, tear: 0.8, tearX: 0.0, hang: 4, scud: 1.0, join: 1.4, c: [
+    { x: -0.35, hw: 13, h: 20, db: 4, z: 6 }, { x: -0.20, hw: 24, h: 50, db: 1, z: -8 }, { x: 0.02, hw: 34, h: 98, db: -2, lean: 0.07 },
+    { x: 0.20, hw: 20, h: 58, db: 0, z: 10 }, { x: 0.34, hw: 14, h: 26, db: 3 }] },
+  // broken: a main heap, a smaller one with clear sky between, and torn-off fragments
+  { base: 24, boil: 1.0, tear: 1.2, tearX: 0.4, hang: 2, scud: 0.7, gaps: [0, 1, 3], c: [
+    { x: -0.20, hw: 29, h: 40, db: 0 }, { x: -0.38, hw: 9, h: 13, db: 3 }, { x: 0.13, hw: 18, h: 30, db: 3, z: 6 },
+    { x: 0.27, hw: 11, h: 17, db: 6, z: -6 }, { x: 0.40, hw: 7, h: 9, db: 8 }] },
+  // torn by the wind: a heap sheared over, its downwind side drawn out and shredded into wisps
+  { base: 23, boil: 0.85, tear: 1.7, tearX: 1.0, hang: 2, scud: 1.4, c: [
+    { x: -0.27, hw: 16, h: 22, db: 2 }, { x: -0.10, hw: 27, h: 42, db: 0, lean: 0.35 }, { x: 0.10, hw: 20, h: 28, db: 1, lean: 0.45, z: 8 },
+    { x: 0.27, hw: 14, h: 14, db: 3, lean: 0.5 }, { x: 0.38, hw: 9, h: 8, db: 5 }] },
+  // a broad heap with one turret pushing up well off its middle
+  { base: 21, boil: 1.1, tear: 1.0, tearX: -0.3, hang: 3, scud: 1.0, c: [
+    { x: -0.36, hw: 13, h: 22, db: 3 }, { x: -0.19, hw: 32, h: 80, db: -1, lean: -0.05 }, { x: 0.0, hw: 20, h: 44, db: 0, z: 10 },
+    { x: 0.15, hw: 24, h: 28, db: 2, z: -8 }, { x: 0.33, hw: 15, h: 18, db: 4 }] },
+  // congestus, two towers leaning downwind, a heavy sagging base
+  { base: 20, boil: 1.2, tear: 0.9, tearX: 0.0, hang: 5, scud: 1.2, join: 1.7, c: [
+    { x: -0.33, hw: 15, h: 34, db: 2, z: -6 }, { x: -0.12, hw: 34, h: 88, db: -2, lean: 0.10 }, { x: 0.18, hw: 25, h: 58, db: 0, lean: 0.06, z: 4 },
+    { x: 0.34, hw: 13, h: 26, db: 3 }] },
+  // two heaps joined low down, a notch of sky between their tops, ragged vapour under both
+  { base: 22, boil: 1.0, tear: 1.1, tearX: -0.5, hang: 5, scud: 1.3, c: [
+    { x: -0.22, hw: 28, h: 52, db: -1 }, { x: -0.38, hw: 10, h: 18, db: 3, z: 6 }, { x: -0.01, hw: 15, h: 18, db: 2, z: -8 },
+    { x: 0.19, hw: 23, h: 42, db: 1, lean: 0.08, z: 6 }, { x: 0.35, hw: 12, h: 20, db: 4 }] },
+];
+// cellular noise with the creases between cells rounded off (a soft minimum over the cells'
+// points): plain cellular noise folds sharply where two cells meet, which in a cloud draws thin
+// dark scratches between the billows
+function sworley(x, y, z, s) {
+  const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
+  let acc = 0;
+  for (let k = -1; k <= 1; k++) for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+    const h = hash3(ix + i, iy + j, iz + k, s);
+    const dx = ix + i + (h & 1023) / 1023 - x, dy = iy + j + ((h >>> 10) & 1023) / 1023 - y, dz = iz + k + ((h >>> 20) & 1023) / 1023 - z;
+    acc += Math.exp(-7 * Math.sqrt(dx * dx + dy * dy + dz * dz));
+  }
+  return Math.min(1, Math.max(0, -Math.log(acc) / 7));
+}
+const smin = (a, b, k) => { const h = clamp01(0.5 + 0.5 * (b - a) / k); return b + (a - b) * h - k * h * (1 - h); };
+const smax = (a, b, k) => -smin(-a, -b, k);
 function density(seed) {
-  const R = rngOf(seed * 7919 + 17);
-  const kind = seed % 4;
-  const B = BASE;                                       // the condensation level: the flat base
-  const cw = TW * (0.60 + R() * 0.12);                  // the heap's width
-  const hk = [0.32, 0.42, 0.50, 0.22][kind];
-  const ch = Math.min(cw * hk, TH - B - 14);            // the tallest turret above the base
-  const cx = TW / 2 + (R() - 0.5) * 10, cz = NZ / 2;
-  const dzH = Math.min(NZ / 2 - 14, cw * 0.30);         // half its depth
-  const S = [];
+  // a stream of random numbers per clump and one for the rest, so retuning one part of a
+  // shape does not reshuffle all the others
+  const stream = k => rngOf(seed * 7919 + 17 + k * 104729);
+  let R = stream(0);
+  const spec = CLOUDS[(seed - 1) % CLOUDS.length];
+  const B = spec.base;                                   // the condensation level, roughly
+  const cz = NZ / 2;
   const tri = () => (R() + R()) - 1;
-  // Turrets: a cumulus is a cluster of rising thermals, each a column topped by a dome, the
-  // middle ones tallest. A congestus has a few tall ones, a fair-weather cloud more and lower.
-  const nT = [4, 4, 3, 6][kind] + ((R() * 2) | 0);
-  for (let t = 0; t < nT; t++) {
-    const u = nT === 1 ? 0 : (t / (nT - 1)) * 2 - 1;
-    const x = cx + u * cw * 0.30 + (R() - 0.5) * cw * 0.08;
-    const z = cz + (R() - 0.5) * dzH * 1.1;
-    const env = Math.exp(-u * u * (kind === 2 ? 0.9 : 1.6));
-    const h = Math.max(14, ch * env * (0.62 + 0.38 * R()));
-    const r = Math.min(h * 0.62, cw / nT * (0.52 + 0.26 * R()) + 6);
-    // the column, overlapping spheres from the base up to the dome
-    for (let y = B + r * 0.5; y < B + h - r; y += r * 0.6) S.push([x + (R() - 0.5) * r * 0.3, y, z + (R() - 0.5) * r * 0.3, r * (0.85 + 0.15 * R())]);
-    const dy = B + Math.max(r * 0.5, h - r * 1.15);
-    S.push([x, dy, z, r]);
-    // its dome boils: puffs on the upper half, each standing half out of it
-    const np = 5 + ((R() * 4) | 0);
-    for (let p = 0; p < np; p++) {
-      const th = R() * Math.PI * 2, el = 0.25 + R() * 1.1;
-      const pr = r * (0.34 + 0.22 * R());
-      const k = r * 0.86;
-      S.push([x + Math.cos(th) * Math.cos(el) * k, dy + Math.sin(el) * k * 0.92, z + Math.sin(th) * Math.cos(el) * k * 0.8, pr]);
+  // each clump a little different every bake of the same spec
+  const cl = spec.c.map((c, ci) => {
+    R = stream(ci + 1);
+    const hw = c.hw * (0.92 + 0.16 * R());
+    return { x: TW / 2 + c.x * TW + tri() * 4, z: cz + (c.z || 0) + tri() * 6, hw, hd: Math.min(NZ / 2 - 16, hw * (0.80 + 0.25 * R())),
+             h: c.h * (0.93 + 0.14 * R()), b: B + (c.db || 0) * 1.4 + tri() * 2.5, lean: c.lean || 0, ci };
+  });
+  const top = Math.max(...cl.map(c => c.b + c.h));
+  const ch = Math.max(20, top - B);
+  // Primitives, as ellipsoids [x, y, z, rx, ry, rz]: the body (S, cut soft at the base) and the
+  // lobes that sag below it (Hg, not cut).
+  const S = [], Hg = [];
+  const lobes = (px, py, pz, r, ox, oy, oz, depth, list) => {
+    // lobes boiling out of a lobe: each smaller than its parent by a random share (a few big,
+    // more small, never one size), standing about half out of it on the side turned outward
+    // and up, the same again on them: large billows carrying smaller ones
+    if (depth <= 0 || r < 4) return;
+    const n = 1 + ((R() * (depth > 1 ? 4 : 3)) | 0);
+    for (let k = 0; k < n; k++) {
+      // a direction near the outward one, tipped up: billows climb
+      let dx = ox + tri() * 1.2, dy = oy + 0.45 + tri() * 0.9, dz = (oz + tri() * 1.2) * 0.6;
+      const l = Math.hypot(dx, dy, dz) || 1; dx /= l; dy /= l; dz /= l;
+      const rr = r * (0.32 + 0.30 * Math.pow(R(), 1.5)) * (1 - 0.4 * Math.abs(dz));
+      const m = r * (0.85 + 0.20 * R());
+      const qx = px + dx * m, qy = py + dy * m, qz = pz + dz * m * 0.85;
+      list.push([qx, qy, qz, rr, rr * (0.82 + 0.22 * R()), rr]);
+      lobes(qx, qy, qz, rr, dx, dy, dz, depth - 1, list);
     }
-  }
-  const nb = 7 + ((R() * 3) | 0);                       // the base: wide lumps the length of it
-  for (let k = 0; k < nb; k++) {
-    const t = (k + 0.5) / nb * 2 - 1, x = cx + t * cw * 0.40 + (R() - 0.5) * 6;
-    const r = cw * (0.085 + 0.03 * R()) * (1 - 0.30 * Math.abs(t));
-    S.push([x, B + r * 0.35, cz + tri() * dzH * 0.5, r]);
-  }
-  // the heap's distance field, a smooth minimum over the spheres (soft unions, no creases)
-  const N = TW * TH * NZ, K = 4.5, MARGIN = 16;
-  const sum = new Float32Array(N);
-  for (const [sx, sy, sz, r] of S) {
-    const e = r + MARGIN;
-    const x0 = Math.max(0, Math.floor(sx - e)), x1 = Math.min(TW - 1, Math.ceil(sx + e));
-    const y0 = Math.max(0, Math.floor(sy - e)), y1 = Math.min(TH - 1, Math.ceil(sy + e));
-    const z0 = Math.max(0, Math.floor(sz - e)), z1 = Math.min(NZ - 1, Math.ceil(sz + e));
-    for (let z = z0; z <= z1; z++) for (let y = y0; y <= y1; y++) {
-      const row = (z * TH + y) * TW;
-      for (let x = x0; x <= x1; x++) {
-        const dx = x + 0.5 - sx, dy = y + 0.5 - sy, dz = z + 0.5 - sz;
-        const d = Math.sqrt(dx * dx + dy * dy + dz * dz) - r;
-        if (d < MARGIN) sum[row + x] += Math.exp(-d / K);
+  };
+  for (const c of cl) {
+    R = stream(c.ci + 21);
+    // the core: a squat rounded heap, or for a tall thermal a column of them narrowing upward
+    // to the dome, its top carried along by the wind; its foot rounded, at its own level
+    const segs = [];
+    if (c.h < c.hw * 1.2) {
+      const ry = c.h * 0.50;
+      segs.push([c.x, c.b + ry, c.z, c.hw, ry, c.hd]);
+    } else {
+      const ry0 = c.hw * 0.55;
+      segs.push([c.x, c.b + ry0, c.z, c.hw, ry0, c.hd]);
+      let y = c.b + ry0;
+      // a bell: broad at the foot where it spreads into the body, narrowing toward the top,
+      // so the flanks step in rather than standing as straight walls
+      const taper = y => c.hw * Math.max(0.38, 1.0 - 0.72 * Math.pow(clamp01((y - c.b) / c.h), 1.3));
+      for (;;) {
+        const ny = Math.min(y + taper(y) * 0.5, c.b + c.h - taper(y) * 0.85);
+        if (ny <= y + 1) break;
+        y = ny;
+        const r2 = taper(y) * (0.86 + 0.24 * R());
+        segs.push([c.x + c.lean * (y - c.b) + tri() * r2 * 0.25, y, c.z + tri() * r2 * 0.1, r2, r2 * 0.9, Math.min(r2, c.hd)]);
       }
     }
+    for (const s of segs) S.push(s);
+    // a tower's column bulges out in lobes down its flanks too, so it does not stand as a
+    // straight-sided block
+    for (let si = 1; si < segs.length; si++) {
+      const [sx, sy, sz, rx, ry, rz] = segs[si];
+      for (const sideX of [-1, 1]) {
+        if (R() < 0.25) continue;
+        const ox0 = sideX * (0.75 + 0.25 * R()), oy0 = tri() * 0.5, oz0 = tri() * 0.6;
+        const l = Math.hypot(ox0, oy0, oz0), ox = ox0 / l, oy = oy0 / l, oz = oz0 / l;
+        const rr = rx * (0.35 + 0.30 * R());
+        const qx = sx + ox * rx * 0.85, qy = sy + oy * ry * 0.85, qz = sz + oz * rz * 0.85;
+        S.push([qx, qy, qz, rr, rr * (0.8 + 0.25 * R()), rr]);
+        lobes(qx, qy, qz, rr, ox, oy, oz, 1, S);
+      }
+    }
+    // the crown: a few lobes heaped on the top, so a turret ends in a rounded head of
+    // billows rather than a flat lid
+    {
+      const [sx, sy, sz, rx, ry, rz] = segs[segs.length - 1];
+      const nc = 2 + ((R() * 3) | 0);
+      for (let k = 0; k < nc; k++) {
+        const th = R() * Math.PI * 2, el = 0.75 + 0.75 * R();
+        const ox0 = Math.cos(th) * Math.cos(el), oy0 = Math.sin(el), oz0 = Math.sin(th) * Math.cos(el) * 0.6;
+        const ol = Math.hypot(ox0, oy0, oz0), ox = ox0 / ol, oy = oy0 / ol, oz = oz0 / ol;
+        const rr = Math.min(rx, ry) * (0.38 + 0.30 * R());
+        const qx = sx + ox * rx * 0.75, qy = sy + oy * ry * 0.75, qz = sz + oz * rz * 0.75;
+        S.push([qx, qy, qz, rr, rr * (0.85 + 0.2 * R()), rr]);
+        lobes(qx, qy, qz, rr, ox, oy, oz, 2, S);
+      }
+    }
+    // the billows: big lobes over the top and down the flanks of the core, carrying smaller
+    // ones (three levels); how many and how far they stand out is the clump's boil
+    const n1 = Math.round((4 + (c.hw + c.h) / 8) * (0.7 + 0.3 * spec.boil));
+    for (let k = 0; k < n1; k++) {
+      // most on the upper segments: a tower boils at its top, its column is smoother
+      const si = Math.min(segs.length - 1, Math.floor(Math.pow(R(), 0.8) * segs.length));
+      const [sx, sy, sz, rx, ry, rz] = segs[si];
+      const th = R() * Math.PI * 2, el = -0.35 + 1.9 * Math.pow(R(), 0.85);
+      // round the sides and over the top rather than straight at the lens, where a big lobe
+      // adds nothing to the outline and reads as a ball stuck on the front
+      const ox0 = Math.cos(th) * Math.cos(el), oy0 = Math.sin(el), oz0 = Math.sin(th) * Math.cos(el) * 0.45;
+      const ol = Math.hypot(ox0, oy0, oz0), ox = ox0 / ol, oy = oy0 / ol, oz = oz0 / ol;
+      const rr = Math.min(rx, ry * 1.4) * (0.22 + 0.50 * Math.pow(R(), 1.8)) * (0.85 + 0.15 * spec.boil) * (1 - 0.5 * Math.abs(oz));
+      const m = 0.92 + 0.16 * R();
+      const qx = sx + ox * rx * m, qy = sy + oy * ry * m, qz = sz + oz * rz * m;
+      // a lobe low on the flank may bulge out below the base: it goes with the sagging ones
+      const list = qy - rr < c.b + 2 && R() < 0.6 ? Hg : S;
+      list.push([qx, qy, qz, rr, rr * (0.8 + 0.25 * R()), rr]);
+      lobes(qx, qy, qz, rr, ox, oy, oz, 2, S);
+    }
   }
+  R = stream(41);
+  // the clumps merged low down into one body, as thermals spread out under the inversion;
+  // a broken cloud keeps clear sky between some of them
+  const byX = [...cl].sort((a, b) => a.x - b.x);
+  for (let k = 0; k + 1 < byX.length; k++) {
+    const a = byX[k], b = byX[k + 1];
+    if (spec.gaps && spec.gaps.includes(k)) continue;
+    const lo = Math.min(a.h, b.h, a.hw * 1.2, b.hw * 1.2);
+    const ry = lo * (0.35 + 0.1 * R()) * (spec.join || 1), rx = (b.x - a.x) * 0.5 + Math.min(a.hw, b.hw) * 0.35;
+    S.push([(a.x + b.x) * 0.5 + tri() * 3, (a.b + b.b) * 0.5 + ry * 1.05, (a.z + b.z) * 0.5, rx, ry, Math.min(a.hd, b.hd) * 0.85]);
+  }
+  // kept inside the tile: a congestus whose billows would reach its top is pressed down a
+  // little rather than cut off flat
+  {
+    let hi = 0;
+    for (const [, sy, , , ry] of S) hi = Math.max(hi, sy + ry);
+    const k = Math.min(1, (TH - 14 - B) / Math.max(1, hi - B));
+    if (k < 1) for (const q of S) { q[1] = B + (q[1] - B) * k; q[4] *= k; }
+  }
+  // lobes sagging under the base: a thermal's foot is not cut level, it bulges down in places.
+  // Spread along the whole base (not left to chance, or one cloud in four is flat again),
+  // each under whichever clump stands over it, of mixed sizes, some hanging lower than others.
+  {
+    const x0 = Math.min(...cl.map(c => c.x - c.hw * 0.8)), x1 = Math.max(...cl.map(c => c.x + c.hw * 0.8));
+    const n = spec.hang * 2;
+    for (let k = 0; k < n; k++) {
+      const x = x0 + (x1 - x0) * (k + 0.2 + 0.6 * R()) / n;
+      let c = cl[0];
+      for (const q of cl) if (Math.abs(q.x - x) / q.hw < Math.abs(c.x - x) / c.hw) c = q;
+      if (Math.abs(c.x - x) > c.hw * 0.9) continue;      // clear sky here: nothing to sag
+      const rx = c.hw * (0.22 + 0.35 * Math.pow(R(), 1.3)), ry = rx * (0.45 + 0.2 * R());
+      Hg.push([x, c.b + ry * (0.3 * R() - 0.15), c.z + tri() * c.hd * 0.25, rx, ry, Math.min(rx * 1.2, c.hd * 0.8)]);
+    }
+  }
+  // the smooth union of each set: soft unions, no creases where lobes meet
+  const N = TW * TH * NZ, K = 3.2, MARGIN = 14;
+  const field = list => {
+    const sum = new Float32Array(N);
+    for (const [sx, sy, sz, rx, ry, rz] of list) {
+      const e = Math.max(rx, ry, rz) + MARGIN, rm = Math.min(rx, ry, rz);
+      const x0 = Math.max(0, Math.floor(sx - e)), x1 = Math.min(TW - 1, Math.ceil(sx + e));
+      const y0 = Math.max(0, Math.floor(sy - e)), y1 = Math.min(TH - 1, Math.ceil(sy + e));
+      const z0 = Math.max(0, Math.floor(sz - e)), z1 = Math.min(NZ - 1, Math.ceil(sz + e));
+      for (let z = z0; z <= z1; z++) for (let y = y0; y <= y1; y++) {
+        const row = (z * TH + y) * TW;
+        for (let x = x0; x <= x1; x++) {
+          const dx = (x + 0.5 - sx) / rx, dy = (y + 0.5 - sy) / ry, dz = (z + 0.5 - sz) / rz;
+          const d = (Math.sqrt(dx * dx + dy * dy + dz * dz) - 1) * rm;
+          if (d < MARGIN) sum[row + x] += Math.exp(-d / K);
+        }
+      }
+    }
+    return sum;
+  };
+  const sumB = field(S), sumH = field(Hg);
+  // where the cloud stands over the sea, for the base's level and the vapour trailing under it
+  const foot = (x, z, grow) => {
+    let f = 0;
+    for (const c of cl) { const u = (x - c.x) / (c.hw * grow), v = (z - c.z) / (c.hd * grow); f += Math.exp(-(u * u + v * v) * 1.6); }
+    return Math.min(1, f);
+  };
+  const baseAt = (x, z) => {                             // each thermal's own condensation level, blended
+    let s = 0, w = 0;
+    for (const c of cl) { const u = (x - c.x) / c.hw, v = (z - c.z) / c.hd, q = Math.exp(-(u * u + v * v)) + 1e-6; s += q * c.b; w += q; }
+    return s / w;
+  };
   const sd = seed * 101 + 7;
   const D = new Float32Array(N);
   const win = (v, n, m) => sstep(0, m, v) * sstep(n, n - m, v);   // nothing at the tile's edges
   for (let z = 0; z < NZ; z++) for (let y = 0; y < TH; y++) for (let x = 0; x < TW; x++) {
-    const i = (z * TH + y) * TW + x, s = sum[i];
-    if (s <= 0) continue;
-    let d = -K * Math.log(s);
-    if (d > MARGIN - 1) continue;
+    const i = (z * TH + y) * TW + x, sB = sumB[i], sH = sumH[i];
     const px = x + 0.5, py = y + 0.5, pz = z + 0.5;
-    // domain warp: the lumps lean and stream instead of sitting on a grid
-    const wx = px + 9 * fbm(px / 38, py / 38, pz / 38, sd + 1, 2);
-    const wy = py + 6 * fbm(px / 38 + 5.2, py / 38, pz / 38, sd + 2, 2);
-    const wz = pz + 9 * fbm(px / 38, py / 38 + 3.1, pz / 38, sd + 3, 2);
-    const hgt = clamp01((py - B) / Math.max(1, ch));
-    // cauliflower: the tops boil, the sides less, the base hardly at all
-    const bl = billow(wx / 15, wy / 15, wz / 15, sd + 11);
-    const amp = 2.5 + 7.5 * sstep(0.05, 0.55, hgt);
-    d -= (bl - 0.42) * 2 * amp;
-    // the flat base, fading out over a few feet and a little ragged: a knife cut, lit from
-    // below at either end of the day, drew a bright straight line along the bottom
-    const base = B - py + 2.6 * fbm(px / 11, py / 5, pz / 11, sd + 21, 2);
-    d = Math.max(d, base * 1.15);
-    if (d > 6) continue;
-    let dens = sstep(6, -5, d);
-    // the fringe eaten into wisps: finer noise takes away most where the cloud is thinnest, and
-    // more down the flanks than on the crowns, which stay crisp where the thermals are rising
-    const ero = (0.5 + 0.5 * fbm(wx / 6.5, wy / 6.5, wz / 6.5, sd + 31, 3)) * (0.55 + 0.22 * (1 - sstep(0.35, 0.85, hgt)));
-    dens = clamp01((dens - ero * (1 - dens * 0.6)) / (1 - ero * 0.4));
+    const nearBase = py < B + 14 && py > B - 20;
+    if (sB <= 0 && sH <= 0 && !nearBase) continue;
+    let d = sB > 0 ? -K * Math.log(sB) : 99;
+    const dh = sH > 0 ? -K * Math.log(sH) : 99;
+    let dens = 0;
+    if (Math.min(d, dh) < MARGIN - 1) {
+      const hgt = clamp01((py - B) / ch);
+      // domain warp, at two scales: the billows lean, stretch and run into one another
+      // instead of sitting as balls on a grid
+      const wx = px + 10 * fbm(px / 34, py / 34, pz / 34, sd + 1, 2);
+      const wy = py + 7 * fbm(px / 34 + 5.2, py / 34, pz / 34, sd + 2, 2);
+      const wz = pz + 10 * fbm(px / 34, py / 34 + 3.1, pz / 34, sd + 3, 2);
+      const vx = wx + 6 * fbm(wx / 12, wy / 12, wz / 12, sd + 4, 2);
+      const vy = wy + 6 * fbm(wx / 12 + 7.7, wy / 12, wz / 12, sd + 5, 2);
+      const vz = wz + 6 * fbm(wx / 12, wy / 12 + 1.3, wz / 12, sd + 6, 2);
+      // the surface detail below the lobes: cellular billows at two scales, the smaller
+      // carried on the larger, how hard they stand out itself varying across the cloud so some
+      // parts boil and some are smooth vapour; the crowns boil most, the base least
+      const bl = 0.70 * (1 - sworley(vx / 12, vy / 12, vz / 12, sd + 11)) + 0.30 * (1 - sworley(vx / 6, vy / 6, vz / 6, sd + 13));
+      const patch = 0.45 + 0.9 * (0.5 + 0.5 * fbm(px / 26, py / 26, pz / 26, sd + 17, 2));
+      const amp = (2.0 + 4.2 * sstep(0.04, 0.5, hgt)) * patch * spec.boil;
+      d -= (bl - 0.53) * 2 * amp + 1.2 * fbm(vx / 9, vy / 9, vz / 9, sd + 19, 2);
+      // the base: soft and only roughly level, rising and falling from thermal to thermal and
+      // lumpy within each, rounded off where it meets the flanks rather than cut square
+      const bz = baseAt(px, pz) + 11 * fbm(px / 24, 0.5, pz / 70, sd + 23, 2) + 2.6 * fbm(wx / 10, 1.5, wz / 24, sd + 25, 2) - 3.5 * (1 - sworley(wx / 15, 0.5, wz / 15, sd + 26));
+      d = smax(d, (bz - 2.5 - wy) * 0.9, 6);
+      // and the lobes that sag below it, lumpy like the rest
+      const dl = dh - (bl - 0.53) * 4 - 2.2 * fbm(vx / 7, vy / 7, vz / 7, sd + 27, 2);
+      d = smin(d, dl, 4);
+      // where the wind tears at it, the edge is drawn out into streaks: stretched noise pulls
+      // strands out and opens gaps between them, most on a torn cloud's downwind side
+      const side = (px - TW / 2) / (TW * 0.4);
+      const tw = clamp01((spec.tear - 0.7) * (0.5 + spec.tearX * side) * (0.6 + 0.8 * (0.5 + 0.5 * fbm(px / 30, py / 30, pz / 30, sd + 45, 2))));
+      if (tw > 0) d += tw * 7 * (0.15 - fbm(vx / 18, vy / 6, vz / 10, sd + 43, 3));
+      if (d < 8) {
+        // the edge is soft, softest under the base where the vapour is only just condensing,
+        // and where it is torn
+        const soft = 1 - sstep(-2, 12, py - bz);
+        dens = sstep(2.5 + 4 * soft + 6 * tw, -4 - 1 * soft, d) * (1 - 0.35 * tw);
+        // the fringe eaten into wisps: finer noise takes away most where the cloud is thinnest,
+        // more down the flanks and under the base than on the crowns, which stay crisp where the
+        // thermals are rising; a torn cloud more so, and most on its downwind side
+        const tear = spec.tear * Math.max(0.3, 1 + spec.tearX * side) * (0.75 + 0.5 * (0.5 + 0.5 * fbm(px / 18, py / 18, pz / 18, sd + 29, 2)));
+        const ero = (0.5 + 0.5 * fbm(vx / 8, vy / 8, vz / 8, sd + 31, 2)) * Math.min(0.92, (0.12 + 0.40 * (1 - sstep(0.15, 0.6, hgt)) + 0.2 * soft) * tear);
+        dens = clamp01((dens - ero * (1 - dens * 0.6)) / (1 - ero * 0.4));
+      }
+    }
+    // ragged vapour under the base: soft tatters hanging from it, torn and drawn out sideways
+    // by the wind under the cloud, fewer and thinner the further down, only where the cloud
+    // stands over them
+    if (nearBase && spec.scud > 0) {
+      const f = foot(px, pz, 0.9);
+      if (f > 0.04) {
+        const yb = baseAt(px, pz);
+        const below = clamp01((yb + 2 - py) / 13);       // 0 at the base, 1 well under it
+        if (below > 0 && below < 1) {
+          const qx = px + 7 * fbm(px / 22, py / 10, pz / 22, sd + 33, 2), qz = pz + 7 * fbm(px / 22 + 3.3, py / 10, pz / 22, sd + 35, 2);
+          const n = fbm(qx / 15, py / 8, qz / 15, sd + 37, 3) + 0.25 * fbm(qx / 6, py / 5, qz / 6, sd + 39, 2);
+          const w = sstep(0.02 + 0.40 * below, 0.30 + 0.40 * below, n) * f * (1 - below * below) * 0.38 * spec.scud;
+          dens = Math.max(dens, Math.min(0.5, w));
+        }
+      }
+    }
+    if (dens <= 0) continue;
     // and a little variation inside, so the shadows are not smooth as plaster
-    dens *= 0.82 + 0.18 * (0.5 + 0.5 * fbm(px / 20, py / 20, pz / 20, sd + 41, 2));
+    dens *= 0.80 + 0.20 * (0.5 + 0.5 * fbm(px / 20, py / 20, pz / 20, sd + 41, 2));
     dens *= win(px, TW, 10) * win(py, TH, 6) * win(pz, NZ, 8);
     D[i] = dens;
   }
@@ -339,6 +567,13 @@ function view(D, src) {
   }
   return { L, A };
 }
+// the lowest voxel with any body to it in each vertical column (x, z), for the silver lining
+function cloudBottom(D) {
+  const bot = new Float32Array(TW * NZ).fill(TH);
+  for (let z = 0; z < NZ; z++) for (let x = 0; x < TW; x++)
+    for (let y = 0; y < TH; y++) if (D[(z * TH + y) * TW + x] > 0.25) { bot[z * TW + x] = y; break; }
+  return bot;
+}
 function bakeShape(seed) {
   const t0 = Date.now();
   const D = PUFF ? puffDensity(seed) : density(seed);
@@ -358,9 +593,9 @@ function bakeShape(seed) {
     const T = tauToward(D, ax, sg);
     // the octaves, for the light scattered round inside: each sees the cloud thinner and adds less
     const ms = new Float32Array(D.length);
-    // light from below meets the flat base all along one straight edge; its first bounce
-    // diffuses with the rest, so the base glows softly instead of drawing a lit skin
-    const flat = ax === 1 && sg < 0 && !PUFF ? ph : 0;   // a puff has no flat base
+    // light from below meets the whole broad base at once; its first bounce diffuses with
+    // the rest, so the base glows softly instead of drawing a lit skin
+    const flat = ax === 1 && sg < 0 && !PUFF ? ph : 0;   // a puff has no base
     for (let i = 0; i < D.length; i++) {
       if (D[i] <= 0) continue;
       let s = flat * Math.exp(-T[i]), a = OA, b = OB;
@@ -380,9 +615,15 @@ function bakeShape(seed) {
     const v = view(D, src);
     maps.push(v.L); alpha = v.A;
     if (ax === 2 && sg < 0) {
-      // the silver lining's raw stuff; not along the flat base, where the cut is so sharp it
-      // would draw a hard bright line (the base's glow at either end of the day is its own term)
-      for (let i = 0; i < D.length; i++) { const y = ((i / TW) | 0) % TH; src[i] = D[i] > 0 ? Math.exp(-T[i]) * (PUFF ? 1 : sstep(BASE + 2, BASE + 12, y)) : 0; }
+      // the silver lining's raw stuff; not along the base, where it would draw a bright line
+      // under the cloud (the base's glow at either end of the day is its own term). The base is
+      // not level, so that is measured up from the cloud's lowest point in each column.
+      const bot = PUFF ? null : cloudBottom(D);
+      for (let i = 0; i < D.length; i++) {
+        if (D[i] <= 0) { src[i] = 0; continue; }
+        const y = ((i / TW) | 0) % TH, col = (i % TW) + ((i / (TW * TH)) | 0) * TW;
+        src[i] = Math.exp(-T[i]) * (PUFF ? 1 : sstep(bot[col] + 1, bot[col] + 10, y));
+      }
       single = view(D, src).L;
     }
   }
