@@ -45,7 +45,12 @@ public class PlanarReflection : MonoBehaviour
         rc.enabled = true;
         rc.depth = (main != null ? main.depth : 0f) - 10f;
         rc.cullingMask = Mask();
-        rc.clearFlags = CameraClearFlags.Skybox;
+        // Cleared to nothing rather than to the sky: the sea paints the sky in itself (the web's own
+        // sky-reflection colours, which this port matched to the web), and the mirror only carries what
+        // stands in it -- the rider, the buoys, the clouds -- with how much of each pixel they cover in
+        // alpha. Mirroring the real sky as well laid the sunrise's warm haze over the whole sea at 94%
+        // and turned it olive-grey: measured (81,90,88) against the web's blue (89,111,118).
+        rc.clearFlags = CameraClearFlags.SolidColor; rc.backgroundColor = new Color(0f, 0f, 0f, 0f);
         rc.allowHDR = true; rc.allowMSAA = false;
         var ud = go.AddComponent<UniversalAdditionalCameraData>();
         ud.renderPostProcessing = false; ud.renderShadows = false; ud.requiresDepthTexture = false; ud.requiresColorTexture = false;

@@ -408,11 +408,18 @@ Shader "Surf/Ocean"
                     // picture's mips, and gathered from three taps down the line
                     ruv += float2(Nr.x * 0.010 + wob.x * 0.002, Nr.z * 0.024 + wob.y * 0.004);
                     float lod = 0.6 + 0.9 * saturate(dCam / 90.0);
-                    float3 rs = SAMPLE_TEXTURE2D_LOD(_ReflTex, sampler_ReflTex, saturate(ruv), lod).rgb * 0.5
-                              + SAMPLE_TEXTURE2D_LOD(_ReflTex, sampler_ReflTex, saturate(ruv + float2(0.0, 0.007)), lod).rgb * 0.25
-                              + SAMPLE_TEXTURE2D_LOD(_ReflTex, sampler_ReflTex, saturate(ruv - float2(0.0, 0.007)), lod).rgb * 0.25;
-                    rs = pow(max(rs, 0.0), 1.0 / 2.2);                       // back to the plain numbers this shader works in
-                    skyRefl = lerp(skyRefl, rs, inside * (rc.w > 0.0 ? 0.94 : 0.0));
+                    float4 rs4 = SAMPLE_TEXTURE2D_LOD(_ReflTex, sampler_ReflTex, saturate(ruv), lod) * 0.5
+                               + SAMPLE_TEXTURE2D_LOD(_ReflTex, sampler_ReflTex, saturate(ruv + float2(0.0, 0.007)), lod) * 0.25
+                               + SAMPLE_TEXTURE2D_LOD(_ReflTex, sampler_ReflTex, saturate(ruv - float2(0.0, 0.007)), lod) * 0.25;
+                    // the mirror holds only what stands in it, over nothing (PlanarReflection clears to
+                    // transparent): laid over the painted sky by how much of the pixel it covers
+                    float3 rs = pow(max(rs4.rgb, 0.0), 1.0 / 2.2);           // back to the plain numbers this shader works in
+                    // and an empty pixel is black as well as clear: should the pipeline hand the mirror
+                    // back with its alpha forced to 1, black still reads as nothing there, rather than
+                    // turning the open sea black (only a near-black object is lost from the mirror)
+                    float rsA = min(saturate(rs4.a), saturate(max(rs4.r, max(rs4.g, rs4.b)) * 40.0));
+                    float3 seen = rs + skyRefl * (1.0 - rsA);
+                    skyRefl = lerp(skyRefl, seen, inside * (rc.w > 0.0 ? 0.94 : 0.0));
                 }
                 skyRefl += _Glow.rgb * pow(max(dot(R, L), 0.0), 40.0) * 0.55 * smoothstep(-0.12, 0.06, L.y);
                 float3 col = lerp(lit, skyRefl, fres * 0.88) + spec * shade;

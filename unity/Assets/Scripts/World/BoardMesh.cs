@@ -162,7 +162,6 @@ public static class BoardMesh
             foreach (var rg in ranges)
             {
                 const int PU = 34, PV = 18; var pp = new List<Vector3>(); var pix = new List<int>(); var puv = new List<Vector2>();
-                bool tailPad = S.pads == null;                       // a single pad at the tail gets a kick; a twin-tip's two do not
                 for (int i = 0; i <= PU; i++)
                 {
                     float f = i / (float)PU, d = Mathf.Min(f, 1 - f) / 0.12f;
@@ -172,12 +171,9 @@ public static class BoardMesh
                     {
                         float v = -1 + 2f * j / PV, sv = k * v;
                         float prof = Mathf.Pow(Mathf.Max(0, 1 - sv * sv), S.deckPow);
-                        // a real traction pad: a low arch down its middle under the back foot, and at
-                        // the tail end a raised kick to brace against, both tapering off at the edges
-                        float edgeK = Mathf.Clamp01((1f - Mathf.Abs(v)) / 0.18f) * e;
-                        float arch = 0.016f * Mathf.Exp(-(v / 0.28f) * (v / 0.28f)) * Mathf.Sin(Mathf.Clamp01(f) * Mathf.PI);
-                        float kick = tailPad ? 0.075f * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.80f, 0.97f, f)) : 0f;
-                        pp.Add(new Vector3(w * v * sh.AsW(v), r + T * t * prof + 0.010f + (arch + kick) * edgeK, (u - 0.5f) * L + sh.Notch(u, sv)));
+                        // flat on the deck, as the web lays it: a raised kick at the tail was tried, and seen
+                        // from behind the board it stood up as a dark box; the grooves carry the texture
+                        pp.Add(new Vector3(w * v * sh.AsW(v), r + T * t * prof + 0.010f, (u - 0.5f) * L + sh.Notch(u, sv)));
                         puv.Add(new Vector2((v + 1f) * 0.5f * (w * 2f) / 0.5f, f * Mathf.Abs(rg[1] - rg[0]) * L / 0.5f));   // in half-feet, so the grooves keep one size on every board
                     }
                 }
