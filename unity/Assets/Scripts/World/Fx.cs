@@ -6,10 +6,10 @@
 // run's speed, because the world scrolls past the rider rather than him moving through it.
 //
 // What a carve throws, as real ones do (worked out in a browser mock of this same code):
-//   - at the root, a dense mass of whitewater hugging the outside rail and the tail: lit,
-//     cloud-like puffs (Surf/Puff, its atlas baked by unity/Tools~/cloudbake --puffs), many and
-//     overlapping, soft-edged so they run together into one body, low on the water, swelling,
-//     rolling back and spreading flat as they settle onto the sea;
+//   - whitewater shed off the back of the rails onto the water: lit, cloud-like puffs (Surf/Puff,
+//     its atlas baked by unity/Tools~/cloudbake --puffs), many and overlapping, soft-edged so they
+//     run together, left behind with the water as two lines along the rails' tracks (the arms of
+//     the V, the outside one heavier and opening wider), swelling and spreading flat as they go;
 //   - off it, a curtain of spray: fine drops drawn as thin streaks along their own flight, every
 //     one thrown on one fan-shaped sheet (out-and-up at one edge, back-and-up at the other) so they
 //     make a curtain rather than a cloud of dots, arcing under gravity and blown back by the air
@@ -44,7 +44,7 @@ public class Fx : MonoBehaviour
     readonly List<Vector4> puffData = new List<Vector4>();
     ParticleSystem.Particle[] pbuf;
     DayCycle day;
-    const int PuffMax = 240, PuffMaxFast = 110, DropMax = 1600, DropMaxFast = 700, MistMax = 260, MistMaxFast = 120, LaceMax = 500, LaceMaxFast = 260;
+    const int PuffMax = 300, PuffMaxFast = 130, DropMax = 1600, DropMaxFast = 700, MistMax = 260, MistMaxFast = 120, LaceMax = 500, LaceMaxFast = 260;
     // the drag of the air on a drop and on mist, toward the air's own drift (the run's speed, back
     // past him); the same numbers go to the systems' drag and to the push that stands in for the wind
     const float DropDrag = 0.9f, MistDrag = 2.4f;
@@ -157,7 +157,7 @@ public class Fx : MonoBehaviour
         puffData.Clear();
         float flow = Flow(), t = rider.t, fz0 = WaveField.Scroll;
         float drag = Mathf.Exp(-1.3f * dt), lift = Mathf.Exp(-1.2f * dt), land = Mathf.Exp(-4f * dt);
-        float spread = Mathf.Exp(0.9f * dt), squash = Mathf.Exp(-1.6f * dt);
+        float spread = Mathf.Exp(0.6f * dt), squash = Mathf.Exp(-1.6f * dt);
         for (int i = 0; i < n; i++)
         {
             var q = pbuf[i];
@@ -166,7 +166,9 @@ public class Fx : MonoBehaviour
             float h = s3.y * size.Evaluate(f);
             Vector3 p = q.position, v = q.velocity;
             float sea = WaveField.Height(p.x, fz0 + p.z, t);
-            v.x *= drag; v.z = flow * 0.65f + (v.z - flow * 0.65f) * drag;
+            // low over the sea a puff is still in the water's skin and goes with it; higher, the air's
+            float with = p.y - sea < 1.2f ? flow : flow * 0.65f;
+            v.x *= drag; v.z = with + (v.z - with) * drag;
             v.y = v.y * lift - 7f * dt;
             float rest = sea + h * 0.2f;
             if (p.y <= rest && v.y <= 0f)
@@ -284,30 +286,42 @@ public class Fx : MonoBehaviour
         float reach = 0.4f + 0.6f * power;                   // and how high and far
         float rate = fastFx ? 0.5f : 1f;
         Vector3 fwd = tailFwd.sqrMagnitude > 0.5f ? tailFwd.normalized : Vector3.forward * -1f;   // toward the nose
-        // ---- the whitewater at the root: overlapping puffs low along the back of the outside rail
-        // and off the tail, rolling out and back, never out of the middle of the board ----
+        // ---- the whitewater: overlapping puffs shed off the back of the rails onto the water. Foam
+        // stays with the water, and the water runs back past him at the run's speed, so what the
+        // rails shed is left behind as two lines along their tracks -- the arms of the V, the
+        // outside one the heavier and opening the wider -- never a heap riding along beside him ----
         if (puffs != null)
         {
-            frothAcc += dt * rate * 150f * (0.35f + 0.65f * k) * (0.7f + 0.3f * sp);
+            frothAcc += dt * rate * 170f * (0.35f + 0.65f * k) * (0.7f + 0.3f * sp);
             float kk = 0.4f + 0.6f * k;
+            Vector3 rOut = tailRight.sqrMagnitude > 0.01f ? tailRight.normalized : Vector3.right;
+            if (Mathf.Sign(rOut.x) != Mathf.Sign(outward)) rOut = -rOut;   // toward the outside of the turn
+            float railGap = 2f * tailHalfW * 0.85f;                          // the outside rail to the inside one
             while (frothAcc >= 1f)
             {
                 frothAcc -= 1f;
-                float along = Random.value < 0.3f ? -0.7f * Random.value : 1.9f * Random.value;   // up the rail toward the nose, or just off the tail
-                float w = (1.2f + 0.9f * Random.value) * (0.7f + 0.45f * k) * (fastFx ? 1.25f : 1f);
+                bool inner = Random.value < 0.3f;
+                Vector3 side = inner ? -rOut : rOut;
+                float along = -0.3f + 1.3f * Random.value;                  // just off the tail, up the back of the rail
+                float w = (0.9f + 0.7f * Random.value) * (0.7f + 0.45f * k) * (inner ? 0.75f : 1f) * (fastFx ? 1.25f : 1f);
+                // the arms open outward as they run back, the outside one the more the harder he turns
+                float drift = flow * (0.05f + 0.07f * Random.value) * (inner ? 0.7f : 1f + 0.8f * k);
+                var at = (inner ? tail - rOut * railGap : tail) + fwd * along + side * (0.25f * Random.value);
+                // spread through the frame: the water has carried each on since it left the rail
+                at.z += flow * dt * Random.value;
                 puffs.Emit(new ParticleSystem.EmitParams
                 {
-                    position = tail + fwd * along + new Vector3(outward * Random.value * 0.35f, 0.05f + Random.value * 0.15f, 0f),
-                    velocity = new Vector3(outward * (0.6f + 2.2f * Random.value) * kk, (0.6f + 1.8f * Random.value) * kk, flow * 0.05f + 0.5f + 2.0f * Random.value),
-                    startSize3D = new Vector3(w, w * (0.6f + 0.2f * Random.value), 1f),   // wider than tall: a mound of foam, not a cloud
-                    startLifetime = 0.3f + 0.3f * Random.value,
-                    startColor = new Color(1f, 1f, 1f, 0.85f + 0.15f * Random.value),
+                    position = new Vector3(at.x, Mathf.Max(at.y, rider.waterY) + 0.05f + 0.1f * Random.value, at.z),
+                    velocity = side * drift + new Vector3(0f, (0.3f + 0.8f * Random.value) * kk, flow),
+                    startSize3D = new Vector3(w, w * (0.55f + 0.2f * Random.value), 1f),   // wider than tall: foam lying on the water
+                    startLifetime = (inner ? 0.5f : 0.7f) + 0.6f * Random.value,
+                    startColor = new Color(1f, 1f, 1f, (inner ? 0.6f : 0.85f) + 0.15f * Random.value),
                     rotation = 0f
                 }, 1);
             }
             // and the curtain's white root: smaller, fainter puffs rising a little way up it, kept slow
             // and short-lived so none breaks away as a ball of its own; they thin out into its mist
-            rootAcc += dt * rate * 45f * Mathf.Pow(power, 1.2f);
+            rootAcc += dt * rate * 30f * Mathf.Pow(power, 1.2f);
             while (rootAcc >= 1f)
             {
                 rootAcc -= 1f;
@@ -316,7 +330,7 @@ public class Fx : MonoBehaviour
                 puffs.Emit(new ParticleSystem.EmitParams
                 {
                     position = tail + fwd * along + new Vector3(outward * 0.15f, 0.25f + 0.2f * Random.value, 0f),
-                    velocity = FanDir(Random.value, outward, fwd) * spd + new Vector3(0f, 0f, flow * 0.1f),
+                    velocity = FanDir(Random.value, outward, fwd) * spd + new Vector3(0f, 0f, flow * 0.45f),   // blown back along the trail
                     startSize3D = new Vector3(w, w, 1f),
                     startLifetime = 0.3f + 0.2f * Random.value,
                     startColor = new Color(1f, 1f, 1f, 0.5f + 0.2f * Random.value),
