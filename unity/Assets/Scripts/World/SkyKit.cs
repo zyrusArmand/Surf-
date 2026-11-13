@@ -237,6 +237,9 @@ public static class SkyKit
         b.up = 0.92f + R() * 0.42f; b.dn = -0.52f - R() * 0.34f; b.dwK = 0.82f + R() * 0.40f;
         b.glide = R() < 0.35f; b.gT = 1.5f + R() * 4.5f; b.wF = b.glide ? 0f : 1f;
         if (b.clips != null) { b.clips.SetWeight(0, b.wF); b.clips.SetWeight(1, 1f - b.wF); }
+        // out of the sea's mirror with the clouds: a gull crossing low over the swell, mirrored,
+        // was a dark shape sliding across the water that read as something moving in the sea
+        if (b.t != null) foreach (var tr in b.t.GetComponentsInChildren<Transform>(true)) tr.gameObject.layer = PlanarReflection.SkyLayer;
         return b;
     }
 
