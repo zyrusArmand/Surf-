@@ -16,8 +16,9 @@ Shader "Surf/Sand"
         _NrmTex ("Normal", 2D) = "bump" {}
         _NrmK ("Normal strength", Float) = 1.35
         // a Vector, not a Color: in a linear project Unity converts a Color property to linear before
-        // the shader sees it, and this is a plain multiplier on sRGB numbers (1.13 would arrive as 1.31)
-        _Grade ("Grade (sRGB multiplier on the texture)", Vector) = (1.04, 1.07, 1.13, 1)
+        // the shader sees it, and this is a plain multiplier on sRGB numbers. Set by measuring the
+        // title's near sand against the web's screenshot: (158, 142, 112) there.
+        _Grade ("Grade (sRGB multiplier on the texture)", Vector) = (0.984, 1.0, 1.02, 1)
         _Gain ("Gain", Float) = 1.0
         _ShadowK ("Shadow darkness", Float) = 0.42
         _Detail ("Close-up detail", Float) = 1.0
@@ -124,7 +125,7 @@ Shader "Surf/Sand"
                 // the rake: slopes toward the sun lighter, away darker -- gentler than it was, which
                 // with the sun this low turned every ripple of the normal map into hard light and dark
                 float k = saturate(dot(N, Ld) * 1.5 + 0.60);
-                float shade = 0.83 + 0.24 * k;                 // flat sand comes out where it was (it matched the web)
+                float shade = 0.88 + 0.18 * k;                 // flat sand at about 1.02; the colour itself is set by _Grade
                 shade *= lerp(1.0 - _ShadowK, 1.0, shadow);
                 #if defined(_SCREEN_SPACE_OCCLUSION)
                     AmbientOcclusionFactor ao = GetScreenSpaceAmbientOcclusion(i.sp.xy / max(1e-4, i.sp.w));
