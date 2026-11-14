@@ -89,7 +89,7 @@ Shader "Surf/Ocean"
             float4 _WaveB[7];   // ek, ep, w, -
 
             struct A { float4 pos : POSITION; float2 uv : TEXCOORD0; };
-            struct V { float4 pos : SV_POSITION; float3 w : TEXCOORD0; float3 n : TEXCOORD1; float h : TEXCOORD2; float4 sw : TEXCOORD3; float4 sp : TEXCOORD4; float2 gs : TEXCOORD5; };
+            struct V { float4 pos : SV_POSITION; float3 w : TEXCOORD0; float3 n : TEXCOORD1; float h : TEXCOORD2; float4 sw : TEXCOORD3; float4 sp : TEXCOORD4; float2 gs : TEXCOORD5; float pk : TEXCOORD6; };
 
             // the field: height and its two slopes at a field point p (x, dist*drift+z)
             // the chute: the web's fallDip, the lane tipping down a fall, anchored at the rider
@@ -252,6 +252,23 @@ Shader "Surf/Ocean"
                 float2 gs = float2(_Grid.x, _Grid.y * (1.7 * i.uv.y + 0.15));
                 o.gs = gs;
                 field(float2(wp.x, wp.z + _Dist), gs, h, dhx, dhz);
+                // How sharply the sea is peaking here: where the bigger waves crest at the same spot
+                // the water piles up into a peak, and that -- not mere height -- is where a real sea
+                // whitecaps and where its top is thin enough to glow. The swell and the mid waves
+                // only (the chop would speckle it), each crest's lobe drawn out a little behind it so
+                // the foam trails the moving crest rather than sitting on it.
+                {
+                    float pk = 0.0;
+                    [unroll] for (int w = 0; w < 5; w++)
+                    {
+                        float4 a = _WaveA[w], b = _WaveB[w];
+                        float u = a.x * (wp.x - _SX) + a.y * (wp.z + _Dist);
+                        float e = (0.32 + 0.68 * sin(u * a.z * b.x - _T * b.z * b.x * 0.5 + b.y)) * GridFade(a, gs);
+                        float ph = u * a.z - _T * b.z;
+                        pk += a.w * e * a.z * a.z * max(sin(ph), 0.75 * sin(ph + 0.9));
+                    }
+                    o.pk = pk;
+                }
                 // the set wave: steep front face, long shoulder, its height falling away behind
                 // the break into whitewater. sw = (face 0..1, broken 0..1, thrown 0..1, metres out)
                 o.sw = float4(0, 0, 0, 999);
@@ -505,11 +522,20 @@ Shader "Surf/Ocean"
                 lit *= 1.0 - cshd * 0.14;
                 float3 col = lerp(lit, skyRefl, fres * 0.88) + spec * shade;
                 col += _Glow.rgb * gl * lerp(1.0, shade, 0.5);
-                // light through the crests
-                float thin = smoothstep(0.25 * _Peak, 0.95 * _Peak, hS);
-                float toSun = pow(max(dot(V, -L), 0.0), 2.6);
-                float sss = thin * (0.35 + 0.65 * toSun) * (1.0 - fres * 0.5);
-                col += float3(0.08, 0.42, 0.40) * sss * 0.55 * sunLit;
+                // how far the water here is peaking (vert), stronger the bigger the sea
+                float peak = smoothstep(0.075, 0.16, i.pk * sqrt(max(_Amp, 0.1) / 1.35) * _Calm);
+                // ---- light through the wave tops ----
+                // A wave's top is thin water. With the sun behind it, the face turned toward you lights
+                // up sea-green from inside, tinted by the sun's own colour (gold low, white high); the
+                // rest of the time there is only a faint green in the crests from the sky. Thinnest
+                // where the water is high or peaking, and lit on the face leaning away from the sun.
+                float thin = max(smoothstep(0.20 * _Peak, 0.90 * _Peak, hS) * (0.6 + 0.4 * smoothstep(0.04, 0.20, 1.0 - saturate(N.y))), peak * 0.8);
+                float2 lh = normalize(L.xz + float2(1e-4, 0.0));
+                float away = saturate(dot(N.xz, -lh) * 6.0 + 0.5);                      // flat water reads as half
+                float behind = pow(saturate(dot(V, -L) * 0.5 + 0.5), 5.0) * smoothstep(-0.06, 0.10, L.y);   // looking toward a risen sun
+                float3 glowC = float3(0.07, 0.50, 0.44) * lerp(float3(1.0, 1.0, 1.0), saturate(_Glow.rgb * 1.25), 0.45);
+                float sss = thin * (0.22 + 1.5 * behind * away) * (1.0 - fres * 0.55);
+                col += glowC * sss * 0.30 * sunLit;
                 // foam: high AND steep, torn by drifting noise
                 float2 fpC = float2(i.w.x - _SX, i.w.z + _Dist * 0.55);
                 float2 fpM = float2(i.w.x - _SX, i.w.z + _Dist * 0.30);
@@ -517,6 +543,8 @@ Shader "Surf/Ocean"
                 float shimmer = fbm(fpC * 0.55 + float2(_T*0.05, -_T*0.04)) * 2.0 - 1.0;
                 float steep = smoothstep(0.09, 0.28, 1.0 - saturate(N.y));
                 float crest = smoothstep(0.62 * _Peak, 0.92 * _Peak, hS + shimmer * 0.10) * (0.30 + 0.70 * steep);
+                // and whitecaps where the sea peaks, broken up by the same lace and flecks below
+                crest = max(crest, peak * (0.55 + 0.45 * steep) * (0.75 + 0.25 * shimmer));
                 float lace = smoothstep(0.40, 0.84, fbm(fpM * 1.45 + float2(-_T*0.07, _T*0.06))) * crest;
                 float fleck = smoothstep(0.56, 0.93, fbm(fpF * 3.90 + float2(_T*0.11, _T*0.09))) * crest;
                 float slope = 1.0 - saturate(N.y);
