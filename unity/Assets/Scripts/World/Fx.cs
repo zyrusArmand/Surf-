@@ -589,8 +589,11 @@ public class Fx : MonoBehaviour
                     };
                     trail.Emit(ep, 1);
                 }
-            // and the ring of wave
-            AddRipple(p.x, WaveField.Scroll + p.z, 0.04f + 0.16f * k, shape.x > 0f ? shape : Round);
+            // and the ring of wave -- but not while the jet ski's wake is up: the launch off it and
+            // the landing after both splash, and their rings sat on the face of that ridge as a set
+            // of little circles round the board
+            if (WaveField.SkiA <= 0.02f)
+                AddRipple(p.x, WaveField.Scroll + p.z, 0.04f + 0.16f * k, shape.x > 0f ? shape : Round);
         }
         if (n >= 60) Splash();            // a wipeout: the lens takes some of it
     }
