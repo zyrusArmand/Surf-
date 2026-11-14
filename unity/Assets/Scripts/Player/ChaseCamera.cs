@@ -63,15 +63,20 @@ public class ChaseCamera : MonoBehaviour
         bool diveShot = dive != null && (dive.On || dive.Launch > Dive.LaunchLoad);   // the handover is the moment he leaves, not the crouch
         bool isle = island != null && island.Ashore;
         float airH = Mathf.Max(0f, r.py - r.waterY);
-        camX += (r.px - camX) * Mathf.Min(1f, dt * 7f);
-        lookX += (r.px - lookX) * Mathf.Min(1f, dt * 7f);
+        // a camera that follows and nothing else (web 46836): the eye locked on his line, the aim a
+        // fixed offset from wherever the eye is, so easing the eye only ever translates the shot --
+        // he does not slide about the frame and the sea does not swing or pitch under him
+        camX = r.px;
+        lookX = r.px;
+        float eyeUp = 4.9f - swCam * 2.15f + airH * (0.62f + 0.38f * glide);
+        float aimUp = 1.05f + swCam * 1.5f + airH * (0.62f + 0.38f * glide) + glide * 7.5f;
         if (!isle)
         {
             // ...and it stands down entirely once he is ashore: one owner of the camera at a time (web 46862)
             // under the canopy the eye tracks his height one for one, or the wing renders off the top
             // of the frame for the whole flight; and it sits further back, the wing is seventeen
             // feet across (web 46831-46873)
-            float wantY = r.waterY + 4.9f - swCam * 2.15f + airH * (0.62f + 0.38f * glide);
+            float wantY = r.waterY + eyeUp;
             camY += (wantY - camY) * Mathf.Min(1f, dt * (airH > 0.5f ? 4f : 2.5f));
             if (!under) camY = Mathf.Max(camY, r.waterY + 2.3f);     // a rising face cannot close over the lens; wrong for a dive (web 46870)
             camZ += ((11.0f + swCam * 4.6f + r.eff * 0.05f + airH * 0.22f + r.pz * 0.42f + glide * 16f) - camZ) * Mathf.Min(1f, dt * 2.4f);
@@ -105,7 +110,9 @@ public class ChaseCamera : MonoBehaviour
             camY += ((g + IsleCamUp) - camY) * k;
         }
         transform.position = new Vector3(camX, camY, camZ);
-        var aim = new Vector3(lookX, r.waterY + 1.05f + swCam * 1.5f + airH * (0.62f + 0.38f * glide) + glide * 7.5f, -14f - swCam * 10f);   // a little past him under the wing (web 46894)
+        // the aim rides with the eye at the drop and distance of its rest place (4.9 up and 11 back,
+        // looking at 1.05 up 14 ahead of the origin), so the pitch never changes (web 46894)
+        var aim = new Vector3(lookX, camY - eyeUp + aimUp, camZ - 25f - swCam * 14.6f - glide * 16f);
         if (isle) { aim.y = island.Ground() + IsleAimUp; aim.z = r.pz - IsleAimAhead; }   // at HIM, not at a point fourteen feet in front of the origin (web 46898)
         if (diveShot)
         {

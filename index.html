@@ -46833,8 +46833,15 @@ function update(dt){
   placeCurl(dt);
 
   // camera: level horizon, smoothed follow, pulls back with speed
-  camX+=(px-camX)*Math.min(1,dt*7);     // camera sits directly behind him
-  lookX+=(px-lookX)*Math.min(1,dt*7);   // and looks straight down the line
+  // ---- A CAMERA THAT FOLLOWS, AND NOTHING ELSE ----
+  // "It should stay still and just follow the character, not tilt and turn." Three things were
+  // moving the picture besides him: the eye eased across after him (so he slid about the frame
+  // and the sea swung under him on every steer), the aim point was not eased with the eye (so
+  // each bob of the swell pitched the shot up and down), and the lens rolled into each carve.
+  // Now the eye is locked on his line, the aim is a fixed offset from the eye so the shot only
+  // ever translates, and there is no roll: the horizon does not move.
+  camX=px;                               // camera sits directly behind him
+  lookX=px;                              // and looks straight down the line
   camera.up.set(0,1,0);
   // On the water the camera only loosely tracks the swell, so the board visibly
   // rises and drops against it. Off the water it follows most of the way up —
@@ -46874,8 +46881,12 @@ function update(dt){
   // pz -- so the further up the island he walked the further behind him the camera settled,
   // which is exactly what it looked like. One of them has to own the camera at a time.
   const _isle=forkOn&&(forkPh===3||forkPh===4);
+  // how far over the water the eye wants to be, and the aim's height over the water; the aim is
+  // set from where the eye actually IS (below), so easing the eye never changes the angle
+  const _eyeUp=4.9-swCam*2.15+airH*(0.80+0.20*glCam);
+  const _aimUp=1.05+swCam*1.5+airH*(0.62+0.38*glCam)+glCam*7.5;
   if(!_isle){
-  camY+=((waterY+4.9-swCam*2.15+airH*(0.80+0.20*glCam))-camY)*Math.min(1,dt*(flying?4.6:1.6));
+  camY+=((waterY+_eyeUp)-camY)*Math.min(1,dt*(flying?4.6:1.6));
   // ---- ...unless he is UNDER it ----
   // This one line is what made underwater impossible. It is here so a fast-building face cannot
   // close over the lens, which is right for every second of surfing and exactly wrong for a
@@ -46905,7 +46916,10 @@ function update(dt){
   // The lock captures that finished pose, and from the first barrel frame nothing changes.
   // the modelled canopy sits about sixteen feet over him rather than nine, so the aim goes up
   // with it -- the wing is the thing worth framing and it is now higher above the pilot
-  let aimX=lookX, aimY=waterY+1.05+swCam*1.5+airH*(0.62+0.38*glCam)+glCam*7.5, aimZ=-14-swCam*10;
+  // the aim rides with the eye: same height drop and the same distance ahead as when the eye
+  // sits at its rest place (4.9 up and 11 back, looking at 1.05 up 14 ahead of the origin), so
+  // the pitch is the one the shot was framed at whatever the eye's easing is doing
+  let aimX=lookX, aimY=camY-_eyeUp+_aimUp, aimZ=camZ-25-swCam*14.6-glCam*16;
   // ...and it looks at HIM rather than at a point fourteen feet in front of the origin, which
   // is where the aim sits for the whole of the rest of the game and is a hundred and fifty feet
   // behind him by the time he reaches the top of the island.
@@ -47172,7 +47186,8 @@ function update(dt){
     if(Math.abs(camera.fov-fovT)>0.02){ camera.fov=fovT; camera.updateProjectionMatrix(); }
     // a few degrees into the turn, more of them the faster he is going; rotateZ about the
     // view axis is a roll of the picture and nothing else
-    camRoll=ease(camRoll,held?0:-carve*0.07*(0.45+0.55*camSpd),dt,4.5);
+    // (it used to lean a few degrees into each carve; the horizon now stays level, as asked)
+    camRoll=0;
     if(Math.abs(camRoll)>0.0005)camera.rotateZ(camRoll);
     // the streaks come in over the top third of the range and never go fully opaque
     const st=held?0:Math.max(0,Math.min(1,(camSpd-0.42)/0.58));
