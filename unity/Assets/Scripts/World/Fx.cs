@@ -182,6 +182,8 @@ public class Fx : MonoBehaviour
             {
                 p.y = rest; v.y = 0f; v.x *= land; v.z = flow + (v.z - flow) * land;
                 s3.x *= spread; s3.y *= squash; q.startSize3D = s3;
+                // and melts into it, into the churned foam the sea draws there, rather than lying on it as a blob
+                q.remainingLifetime = Mathf.Min(q.remainingLifetime, 0.15f);
             }
             q.position = p; q.velocity = v; pbuf[i] = q;
             puffData.Add(new Vector4(sea, h * 0.32f, 0f, 0f));
@@ -265,7 +267,7 @@ public class Fx : MonoBehaviour
                   new[] { new GradientAlphaKey(0.95f, 0), new GradientAlphaKey(0.8f, 0.45f), new GradientAlphaKey(0f, 1) });
         col.color = g;
         var r = go.GetComponent<ParticleSystemRenderer>();
-        r.renderMode = ParticleSystemRenderMode.Stretch; r.velocityScale = 0.01f; r.lengthScale = 1.0f;   // short: a long bright streak reads as a spark
+        r.renderMode = ParticleSystemRenderMode.Billboard;   // round droplets: a stretched bright streak reads as a spark
         r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows = false;
         var m = Bootstrap.SoftParticles(Bootstrap.DropTex());
         if (m != null) { Soften(m, 0.3f); NearFade(m, 3f, 9f); r.material = m; }
@@ -287,7 +289,8 @@ public class Fx : MonoBehaviour
     /// k how hard he is turning (0..1)
     public void Carve(Vector3 tail, float outward, float k, float dt)
     {
-        if (rider == null || !CarveParticles) return;
+        if (rider == null) return;
+        if (!CarveParticles) { Spray(tail, outward, k, dt); return; }
         float flow = Flow(), sp = Mathf.InverseLerp(14f, 50f, flow);
         float power = k * (0.55f + 0.45f * sp);              // how much water the rail throws
         float reach = 0.4f + 0.6f * power;                   // and how high and far
@@ -389,6 +392,64 @@ public class Fx : MonoBehaviour
                     startSize = (1.1f + 1.6f * Random.value) * (0.6f + 0.5f * power),
                     startLifetime = 0.45f + 0.4f * Random.value,
                     startColor = new Color(1f, 1f, 1f, (0.4f + 0.2f * Random.value) * (0.5f + 0.5f * power))
+                }, 1);
+            }
+        }
+    }
+
+    // ---- the spray of a hard turn, as reference footage shows it ----
+    // A dense white mass bursting off the tail, thick and lumpy like cloud: many lit puffs packed so
+    // close they read as one body, flung up and out along the fan and blown back with the air, gone
+    // before they come down (one that does reach the water melts into it at once, into the churned
+    // arc the sea draws there, rather than lying on it as a blob). Round its edges, fine round
+    // droplets, dots at the brightness of the sky, not streaks. Only on a hard turn: a gentle one
+    // throws nothing, and the spray grows in with how hard he is turning.
+    float sprayAcc, dotAcc;
+    void Spray(Vector3 tail, float outward, float k, float dt)
+    {
+        float flow = Flow(), sp = Mathf.InverseLerp(14f, 50f, flow);
+        float power = k * (0.55f + 0.45f * sp);
+        float m = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.25f, 0.75f, power));
+        if (m <= 0.001f) { sprayAcc = dotAcc = 0f; return; }
+        float reach = 0.5f + 0.5f * power, rate = fastFx ? 0.5f : 1f;
+        Vector3 fwd = tailFwd.sqrMagnitude > 0.5f ? tailFwd.normalized : Vector3.forward * -1f;
+        if (puffs != null)
+        {
+            sprayAcc += dt * rate * 230f * m;
+            while (sprayAcc >= 1f)
+            {
+                sprayAcc -= 1f;
+                // most of it in the middle of the fan, thinning to its edges
+                float fan = Mathf.Clamp01(0.5f + (Random.value + Random.value - 1f) * 0.6f);
+                float spd = (3f + 5f * Random.value) * reach;
+                float w = (1.0f + 0.8f * Random.value) * (0.7f + 0.5f * m) * (fastFx ? 1.25f : 1f);
+                puffs.Emit(new ParticleSystem.EmitParams
+                {
+                    position = tail + fwd * (-0.2f + 0.8f * Random.value) + new Vector3(outward * 0.3f * Random.value, 0.15f + 0.3f * Random.value, flow * dt * Random.value),
+                    velocity = FanDir(fan, outward, fwd) * spd + new Vector3(0f, 0f, flow * 0.55f),
+                    startSize3D = new Vector3(w, w * (0.85f + 0.2f * Random.value), 1f),
+                    startLifetime = 0.35f + 0.25f * Random.value,
+                    startColor = new Color(1f, 1f, 1f, 0.75f + 0.2f * Random.value),
+                    rotation = 0f
+                }, 1);
+            }
+        }
+        if (carve != null)
+        {
+            dotAcc += dt * rate * 260f * m;
+            while (dotAcc >= 1f)
+            {
+                dotAcc -= 1f;
+                // thrown off the outside of the mass, faster and further than it goes
+                float fan = Random.value;
+                float spd = (6f + 10f * Random.value) * reach;
+                carve.Emit(new ParticleSystem.EmitParams
+                {
+                    position = tail + fwd * (0.6f * Random.value) + new Vector3(outward * 0.3f * Random.value, 0.2f + 0.4f * Random.value, flow * dt * Random.value),
+                    velocity = FanDir(fan, outward, fwd) * spd + new Vector3(0f, 0f, flow * 0.3f),
+                    startSize = 0.035f + 0.045f * Random.value,
+                    startLifetime = 0.5f + 0.4f * Random.value,
+                    startColor = new Color(1f, 1f, 1f, 0.55f + 0.3f * Random.value)
                 }, 1);
             }
         }
@@ -500,7 +561,9 @@ public class Fx : MonoBehaviour
                 float into = Mathf.Clamp01(Vector3.Dot(cam.transform.forward, day.sunDir));
                 back = into * into * into * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(-0.05f, 0.12f, day.sunDir.y));
             }
-            drop = hz * (1.3f * sky) + glow * (3.0f * back);
+            drop = hz * (1.1f * sky) + glow * (1.2f * back);
+            // never past white: brighter, and the bloom made sparks of them
+            float dm = Mathf.Max(drop.r, Mathf.Max(drop.g, drop.b)); if (dm > 1.0f) drop /= dm;
             haze = hz * (0.95f * (0.6f + 0.4f * day.daylight)) + glow * (1.4f * back);   // mist sees the whole sky, never as dim as the drops
             hazeA = Mathf.Min(1f, 0.7f + 0.5f * back);
         }
