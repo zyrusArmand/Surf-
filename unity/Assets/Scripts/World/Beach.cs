@@ -211,6 +211,7 @@ public class Beach : MonoBehaviour
         }
         LiftPost(postGo);
         LoadLayout();
+        EditHandles();
         // the coconuts in the crown and the split shells on the sand
         Coconuts();
         // the clouds and the gulls, far out over the water
@@ -721,10 +722,13 @@ public class Beach : MonoBehaviour
     [System.Serializable] class LayoutItem { public string name; public Vector3 pos, rot, scale; }
     [System.Serializable] class Layout { public List<LayoutItem> items = new List<LayoutItem>(); public Vector3 camAt, camTurn; public float camFov, focusDist, pugFace, pugScale; }
 
+    const string LayoutPref = "beach_layout";
     void LoadLayout()
     {
-        var ta = Resources.Load<TextAsset>(LayoutFile); if (ta == null) return;
-        Layout l; try { l = JsonUtility.FromJson<Layout>(ta.text); } catch { return; }
+        // this device's own arrangement first (moved by hand on it), else the project's
+        string json = PlayerPrefs.GetString(LayoutPref, "");
+        if (string.IsNullOrEmpty(json)) { var ta = Resources.Load<TextAsset>(LayoutFile); if (ta == null) return; json = ta.text; }
+        Layout l; try { l = JsonUtility.FromJson<Layout>(json); } catch { return; }
         if (l == null) return;
         if (l.camFov > 1f) { camAt = l.camAt; camTurn = l.camTurn; camFov = l.camFov; }
         if (l.focusDist > 0f) focusDist = l.focusDist;
@@ -738,9 +742,44 @@ public class Beach : MonoBehaviour
         if (palmGo != null && leanBoard != null) SetBoard(SaveData.S.equipped);   // the board back against the trunk where it now is
     }
 
-#if UNITY_EDITOR
+    // ---- held and dragged (BeachEdit) ----
+    // Each movable thing gets a grab box on the Ignore Raycast layer: the signpost's own taps use
+    // the default mask and never meet them, and only a held finger looks for them.
+    const int GrabLayer = 2;
+    void EditHandles()
+    {
+        foreach (var n in Movable)
+        {
+            var t = root.transform.Find(n); if (t == null) continue;
+            Bounds b;
+            if (n == "PugSpot") b = new Bounds(t.position + Vector3.up * 1.4f * pugScale, new Vector3(1.6f, 2.8f, 1.6f) * pugScale);
+            else if (n == "Palm") b = new Bounds(t.position + Vector3.up * 4.5f, new Vector3(2.0f, 9f, 2.0f));   // the trunk, not the whole crown
+            else
+            {
+                var rs = t.GetComponentsInChildren<Renderer>(); if (rs.Length == 0) continue;
+                b = rs[0].bounds; foreach (var r in rs) b.Encapsulate(r.bounds);
+            }
+            var h = new GameObject("grab", typeof(BoxCollider)); h.layer = GrabLayer;
+            h.transform.SetParent(t, false);
+            h.transform.position = b.center; h.transform.rotation = Quaternion.identity;
+            var s = t.lossyScale; float k = Mathf.Max(1e-4f, Mathf.Abs(s.x));
+            h.GetComponent<BoxCollider>().size = b.size / k;
+        }
+    }
+
+    static readonly string[] Labels = { "the shop", "the signpost", "the chest", "the palm", "the surfer" };
+    /// what a held finger is on, if it is something that can be moved
+    public Transform EditTarget(Camera cam, Vector2 screen, out string label)
+    {
+        label = null;
+        if (root == null || !Physics.Raycast(cam.ScreenPointToRay(screen), out var hit, 300f, 1 << GrabLayer)) return null;
+        var t = hit.collider.transform.parent; if (t == null) return null;
+        int i = System.Array.IndexOf(Movable, t.name); if (i < 0) return null;
+        label = Labels[i]; return t;
+    }
+
     [ContextMenu("Save layout")]
-    void SaveLayout()
+    public void SaveLayout()
     {
         if (root == null) { Debug.LogWarning("Surf: press Play first, then set the beach out and save it"); return; }
         var l = new Layout { camAt = camAt, camTurn = camTurn, camFov = camFov, focusDist = focusDist, pugFace = pugFace, pugScale = pugScale };
@@ -749,19 +788,26 @@ public class Beach : MonoBehaviour
             var t = root.transform.Find(n); if (t == null) continue;
             l.items.Add(new LayoutItem { name = n, pos = t.position, rot = t.eulerAngles, scale = t.localScale });
         }
+        var json = JsonUtility.ToJson(l, true);
+        PlayerPrefs.SetString(LayoutPref, json); PlayerPrefs.Save();             // kept on this device
+#if UNITY_EDITOR
+        // and in the editor, into the project, so it can be committed and every build gets it
         System.IO.Directory.CreateDirectory("Assets/Resources");
-        System.IO.File.WriteAllText("Assets/Resources/" + LayoutFile + ".json", JsonUtility.ToJson(l, true));
+        System.IO.File.WriteAllText("Assets/Resources/" + LayoutFile + ".json", json);
         UnityEditor.AssetDatabase.Refresh();
         Debug.Log("Surf: beach layout saved to Assets/Resources/" + LayoutFile + ".json -- commit it in GitHub Desktop to keep it");
+#endif
     }
 
     [ContextMenu("Forget saved layout")]
-    void ForgetLayout()
+    public void ForgetLayout()
     {
+        PlayerPrefs.DeleteKey(LayoutPref); PlayerPrefs.Save();
+#if UNITY_EDITOR
         UnityEditor.AssetDatabase.DeleteAsset("Assets/Resources/" + LayoutFile + ".json");
         Debug.Log("Surf: saved beach layout removed; the next Play uses the built-in one");
-    }
 #endif
+    }
 
     // ---- the signpost stands clear of the sand ----
     // Placed at the web's height, its bottom arm went into the dune here (the sand under it stands

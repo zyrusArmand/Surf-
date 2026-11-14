@@ -5,7 +5,7 @@ using UnityEngine;
 
 public class Bootstrap : MonoBehaviour
 {
-    BoardController rider; Spawner spawner; ChaseCamera chase; Hud hud; DayCycle day; Ocean ocean; Intro intro;
+    BoardController rider; Spawner spawner; ChaseCamera chase; Hud hud; DayCycle day; Ocean ocean; Intro intro; BeachEdit beachEdit;
     Fx fx;
     ParticleSystem spray; Transform rig, pug; RiderRig riderRig; ProcRig procRig; float wakeA;
     Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop; Coconuts cocos; Ufo ufo; Dive dive; Island island; Chute chute;
@@ -187,6 +187,7 @@ public class Bootstrap : MonoBehaviour
         spawner.onSplat = c => splat.Show(c);
         spawner.onClearSplat = () => splat.Hide();
         hud.Build();
+        beachEdit = gameObject.AddComponent<BeachEdit>(); beachEdit.beach = beach; beachEdit.cam = cam; beachEdit.hud = hud;
         intro = gameObject.AddComponent<Intro>(); intro.logo = hud.Logo; intro.menu = hud.Menu;   // the opening, once the world is up
         crate.ceremony = new GameObject("ChestCeremony").AddComponent<ChestCeremony>(); crate.ceremony.cam = cam; crate.ceremony.ui = hud.UiRoot;
         boat = new GameObject("Boat").AddComponent<Boat>(); boat.rider = rider; boat.spawner = spawner; boat.chase = chase; boat.dive = dive;
@@ -609,13 +610,9 @@ public class Bootstrap : MonoBehaviour
             if (intro != null && intro.Busy) paneOpen = true;          // a tap through the opening skips it, and does nothing else
             // a phone reports every touch as a mouse click as well: the mouse is read only when there
             // is no touch, or one tap pressed the arm twice and a pill over an arm pressed both
-            if (Input.touchCount == 0 && Input.GetMouseButtonDown(0) && !UiKit.OverUI(Input.mousePosition) && !paneOpen) beach.Tap(cam, Input.mousePosition);
-            for (int i = 0; i < Input.touchCount; i++)
-            {
-                var tc = Input.GetTouch(i);
-                bool overT = UiKit.OverUI(tc.position);
-                if (tc.phase == TouchPhase.Began && !overT && !paneOpen) beach.Tap(cam, tc.position);
-            }
+            // (the signpost presses on release now, and a two-second hold on the shop, the post, the
+            // chest, the palm or the surfer picks it up to move: BeachEdit has the pointer here)
+            beachEdit.Step(paneOpen);
         }
         // ---- the board rides ON the water ----
         // The ride floats him on the waves' height under a handful of points, then leans the whole
