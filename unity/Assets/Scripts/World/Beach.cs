@@ -15,8 +15,8 @@ public class Beach : MonoBehaviour
     // framing the top left, the signpost bottom right and the rider and chest bottom left.
     // (The web's own shot was 4.84 up, turned 19.8 up and 13.6 left, at 92 degrees.)
     public Vector3 camAt = new Vector3(-11.75f, 6.3f, -40.69f);
-    public Vector3 camTurn = new Vector3(-8f, -5f, 0f);         // pitch up, yaw, roll (web YXZ)
-    public float camFov = 78f;
+    public Vector3 camTurn = new Vector3(-6f, -5f, 0f);         // pitch up, yaw, roll (web YXZ)
+    public float camFov = 86f;                                   // (78 cut the shop, the signpost and the chest off at the sides on a phone)
     public float focusDist = 6.5f;                               // the lens's focus: the signs near, the shop far, both sharp
 
     [Header("The props (world feet)")]
@@ -24,11 +24,11 @@ public class Beach : MonoBehaviour
     public Vector3 palmBoxCentre = new Vector3(-20.97f, 0, -54.8f);
     public float palmHeight = 19.7f; public Vector3 palmTurn = new Vector3(0, 173.1f, 7.8f);
     public Vector3 signAt = new Vector3(-14.06f, 8.90f, -50.77f); public Vector3 signTurn = new Vector3(19.8f, 13.6f, -1.4f); public float signHeight = 1.35f;
-    public Vector3 postAt = new Vector3(-10.4f, 5.0f, -44.2f); public Vector3 postTurn = new Vector3(3.39f, -6.82f, -6.2f); public float postHeight = 1.48f;
-    public Vector3 chestBottom = new Vector3(-13.6f, 3.0f, -46.6f); public float chestTurn = 20f, chestHeight = 2.65f;
-    public Vector3 pugAt = new Vector3(-12.4f, 3.0f, -45.6f); public float pugFace = 64f, pugScale = 1.32f;   // pugFace: his yaw in Unity, toward the lens
+    public Vector3 postAt = new Vector3(-10.9f, 5.0f, -44.2f); public Vector3 postTurn = new Vector3(3.39f, -6.82f, -6.2f); public float postHeight = 1.48f;
+    public Vector3 chestBottom = new Vector3(-13.0f, 3.0f, -46.6f); public float chestTurn = 20f, chestHeight = 2.65f;
+    public Vector3 pugAt = new Vector3(-12.0f, 3.0f, -45.6f); public float pugFace = 64f, pugScale = 1.32f;   // pugFace: his yaw in Unity, toward the lens
     public Vector3 boardAt = new Vector3(-14.62f, 4.84f, -50.92f); public Vector3 boardTurn = new Vector3(72.5f, -54.3f, -20.9f);
-    public Vector3 shopAt = new Vector3(-12f, 3.8f, -66f); public Vector3 shopTurn = new Vector3(0f, 20f, 0f); public float shopHeight = 12f;   // the surf shop: where its foot stands, its turn, how tall
+    public Vector3 shopAt = new Vector3(-12.5f, 3.8f, -70f); public Vector3 shopTurn = new Vector3(0f, 20f, 0f); public float shopHeight = 11f;   // the surf shop: where its foot stands, its turn, how tall
     [Header("Mirror switches, in case a model imports facing the other way")]
     public bool flipSign, flipPost, flipPalm, flipChest;
     [Header("The small stuff")]
