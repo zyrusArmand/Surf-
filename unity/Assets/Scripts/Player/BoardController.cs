@@ -1035,6 +1035,11 @@ public class BoardController : MonoBehaviour
             {
                 brx += (0f - brx) * Mathf.Min(1f, dt * 3f);
                 brz += (0f - brz) * Mathf.Min(1f, dt * 3f);
+                // ...and the water takes the spin and the drift out of it: this added the crash's spin
+                // at a quarter rate for ever, so the board lying on the sea went on turning like a
+                // record; a board in the water is dragged still within a second or two
+                float wd = Mathf.Exp(-2.2f * dt);
+                bsz *= wd; bvx *= wd; bvz *= wd;
                 bry += bsz * dt * 0.25f;
                 boardAt.y = bsea + 0.02f;
             }
