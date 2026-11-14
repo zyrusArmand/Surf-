@@ -710,7 +710,7 @@ public class Bootstrap : MonoBehaviour
         // Off while the lens walks to the quest board and while it stands there: the web drops its
         // blur for the pan, and at the board its focus band (25 ft either side of the title's
         // surfboard) leaves everything in that shot sharp, which a lens focused on the title cannot.
-        if (dof != null) { dof.active = beach.Showing && !fast && (questBoard == null || questBoard.Away < 0.002f); if (beach.Showing) dof.focusDistance.value = Vector3.Distance(beach.camAt, beach.boardAt); }
+        if (dof != null) { dof.active = beach.Showing && !fast && (questBoard == null || questBoard.Away < 0.002f); if (beach.Showing) dof.focusDistance.value = beach.focusDist; }
         if (flare != null) flare.active = !beach.Showing && !fast;
         if (reflect != null) { reflect.planeY = beach.Showing ? beach.seaLevel : 0f; reflect.on = !fast && !(dive != null && dive.On); }
         // where the board has been across the lane, so the wake follows the path he drew (Surf/Ocean _WakeP)

@@ -9,19 +9,26 @@ using UnityEngine;
 public class Beach : MonoBehaviour
 {
     [Header("The shot, as measured")]
-    public Vector3 camAt = new Vector3(-11.75f, 4.84f, -40.69f);
-    public Vector3 camTurn = new Vector3(19.8f, 13.6f, 0f);     // pitch up, yaw, roll (web YXZ)
-    public float camFov = 92f;
+    // The title as laid out for the surf shop (worked out in a stand-in of this scene with the same
+    // lens): the eye a foot and a half higher and tipped a little down, so the sea shows over the
+    // dunes; turned a little right, toward the open water, with the shop on the left, the palm
+    // framing the top left, the signpost bottom right and the rider and chest bottom left.
+    // (The web's own shot was 4.84 up, turned 19.8 up and 13.6 left, at 92 degrees.)
+    public Vector3 camAt = new Vector3(-11.75f, 6.3f, -40.69f);
+    public Vector3 camTurn = new Vector3(-8f, -5f, 0f);         // pitch up, yaw, roll (web YXZ)
+    public float camFov = 78f;
+    public float focusDist = 6.5f;                               // the lens's focus: the signs near, the shop far, both sharp
 
     [Header("The props (world feet)")]
-    public Vector3 palmFoot = new Vector3(-12.87f, -0.44f, -51.53f);
-    public Vector3 palmBoxCentre = new Vector3(-14.97f, 0, -51.8f);
+    public Vector3 palmFoot = new Vector3(-18.87f, -0.44f, -54.53f);           // the web's, 6 ft left and 3 back: it frames the shop now
+    public Vector3 palmBoxCentre = new Vector3(-20.97f, 0, -54.8f);
     public float palmHeight = 19.7f; public Vector3 palmTurn = new Vector3(0, 173.1f, 7.8f);
     public Vector3 signAt = new Vector3(-14.06f, 8.90f, -50.77f); public Vector3 signTurn = new Vector3(19.8f, 13.6f, -1.4f); public float signHeight = 1.35f;
-    public Vector3 postAt = new Vector3(-11.88f, 4.37f, -44.75f); public Vector3 postTurn = new Vector3(3.39f, -6.82f, -6.2f); public float postHeight = 1.48f;
-    public Vector3 chestBottom = new Vector3(-17.02f, 2.95f, -50.22f); public float chestTurn = 37.4f, chestHeight = 2.65f;
-    public Vector3 pugAt = new Vector3(-15.29f, 2.85f, -49.62f); public float pugFace = 64f, pugScale = 1.32f;   // pugFace: his yaw in Unity, toward the lens
+    public Vector3 postAt = new Vector3(-10.4f, 5.0f, -44.2f); public Vector3 postTurn = new Vector3(3.39f, -6.82f, -6.2f); public float postHeight = 1.48f;
+    public Vector3 chestBottom = new Vector3(-13.6f, 3.0f, -46.6f); public float chestTurn = 20f, chestHeight = 2.65f;
+    public Vector3 pugAt = new Vector3(-12.4f, 3.0f, -45.6f); public float pugFace = 64f, pugScale = 1.32f;   // pugFace: his yaw in Unity, toward the lens
     public Vector3 boardAt = new Vector3(-14.62f, 4.84f, -50.92f); public Vector3 boardTurn = new Vector3(72.5f, -54.3f, -20.9f);
+    public Vector3 shopAt = new Vector3(-12f, 3.8f, -66f); public Vector3 shopTurn = new Vector3(0f, 20f, 0f); public float shopHeight = 12f;   // the surf shop: where its foot stands, its turn, how tall
     [Header("Mirror switches, in case a model imports facing the other way")]
     public bool flipSign, flipPost, flipPalm, flipChest;
     [Header("The small stuff")]
@@ -172,6 +179,14 @@ public class Beach : MonoBehaviour
         Settle(sign, sAt.x, sAt.y, sAt.z, true);
         // the board propped into the crook of the trunk
         SetBoard(SaveData.S.equipped);
+        // the surf shop, standing on the sand on the left, its own patch of sand sunk a little into the beach's
+        var shop = Models.Spawn("surfshop", root.transform, shopHeight, PrimitiveType.Cube);
+        if (shop != null && !shop.name.EndsWith("(stand-in)"))
+        {
+            Prop("SurfShop", shop, R(shopTurn), false);
+            Settle(shop, -shopAt.x, GroundTop(-shopAt.x, shopAt.z) - 0.15f, shopAt.z, false);
+        }
+        else if (shop != null) Destroy(shop);
         // the chest
         var chest = Prop("Chest", Models.Spawn("chest", root.transform, chestHeight, PrimitiveType.Cube), new Vector3(0, -chestTurn, 0), flipChest);
         Settle(chest, -chestBottom.x, SandY(-chestBottom.x, chestBottom.z) - 0.04f, chestBottom.z, false);
