@@ -628,6 +628,27 @@ Shader "Surf/Ocean"
                         col = lerp(col, float3(0.95, 0.98, 1.0), saturate(ring) * 0.85 * (1.0 - smoothstep(60.0, 140.0, dCam)));
                     }
                 }
+                // ...and the same ring round the board. It rides too shallow for the depth above to find
+                // much of it under the water (a log's flank goes down past the surface; a board's rail
+                // is a few inches deep), so its outline comes from the hull's own plan instead: a broken
+                // band of foam hugging the rails where the water meets them, gone once it is off the water
+                if (_HullS.w > 0.5)
+                {
+                    float3 hp = mul(_HullW2L, float4(i.w, 1.0)).xyz; hp.xz -= _HullC.xy;
+                    float toFt = 1.0 / max(1e-4, length(_HullW2L[0].xyz));      // the board's frame is scaled; this is feet
+                    float hz = saturate(abs(hp.z) / max(0.01, _HullS.y));
+                    float hw = _HullS.x * sqrt(saturate(1.0 - hz * hz * hz * hz));
+                    float2 out2 = float2(max(0.0, abs(hp.x) - hw), max(0.0, abs(hp.z) - _HullS.y));
+                    float d = length(out2) * toFt;                                // feet out from the outline
+                    float gap = max(0.0, _HullS.z - hp.y) * toFt;                 // feet the water is below the hull
+                    if (d < 0.6 && gap < 0.6)                                     // the noise only near the board, not over the whole sea
+                    {
+                        float tear = fbm(fpF * 2.6 + float2(_T * 0.13, -_T * 0.10));
+                        float ring = (1.0 - smoothstep(0.0, 0.30 + 0.30 * tear, d)) * smoothstep(0.30, 0.65, tear + 0.25)
+                                   * (1.0 - smoothstep(0.05, 0.6, gap));
+                        col = lerp(col, float3(0.95, 0.98, 1.0), saturate(ring) * 0.85);
+                    }
+                }
                 // aerial perspective: into the horizon's own colour
                 float fog = smoothstep(70.0, 230.0, dCam);
                 col = lerp(col, _SkyLo.rgb, fog);
