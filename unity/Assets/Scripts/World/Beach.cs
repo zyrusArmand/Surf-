@@ -14,21 +14,24 @@ public class Beach : MonoBehaviour
     // dunes; turned a little right, toward the open water, with the shop on the left, the palm
     // framing the top left, the signpost bottom right and the rider and chest bottom left.
     // (The web's own shot was 4.84 up, turned 19.8 up and 13.6 left, at 92 degrees.)
-    public Vector3 camAt = new Vector3(-11.75f, 6.3f, -40.69f);
-    public Vector3 camTurn = new Vector3(-6f, -5f, 0f);         // pitch up, yaw, roll (web YXZ)
-    public float camFov = 86f;                                   // (78 cut the shop, the signpost and the chest off at the sides on a phone)
-    public float focusDist = 6.5f;                               // the lens's focus: the signs near, the shop far, both sharp
+    // (after the mockup: the eye 8.4 ft up looking level, so the sea sits mid-screen and the near
+    // things sit low in the frame, as the painting has them)
+    public Vector3 camAt = new Vector3(-11.75f, 8.4f, -40.69f);
+    public Vector3 camTurn = new Vector3(1f, -5f, 0f);          // pitch up, yaw, roll (web YXZ)
+    public float camFov = 88f;
+    public float focusDist = 7f;                               // the lens's focus: the signs near, the shop far, both sharp
 
     [Header("The props (world feet)")]
-    public Vector3 palmFoot = new Vector3(-18.87f, -0.44f, -54.53f);           // the web's, 6 ft left and 3 back: it frames the shop now
-    public Vector3 palmBoxCentre = new Vector3(-20.97f, 0, -54.8f);
+    public Vector3 palmFoot = new Vector3(-20.87f, -0.44f, -59.53f);           // the web's, 8 ft left and 8 back: it frames the shop from behind
+    public Vector3 palmBoxCentre = new Vector3(-22.97f, 0, -59.8f);
+    public Vector3 palm2At = new Vector3(0f, 0f, -68f); public float palm2Height = 17f; public Vector3 palm2Turn = new Vector3(0f, 60f, -8f);   // a second palm, right, by the water
     public float palmHeight = 19.7f; public Vector3 palmTurn = new Vector3(0, 173.1f, 7.8f);
     public Vector3 signAt = new Vector3(-14.06f, 8.90f, -50.77f); public Vector3 signTurn = new Vector3(19.8f, 13.6f, -1.4f); public float signHeight = 1.35f;
-    public Vector3 postAt = new Vector3(-10.9f, 5.0f, -44.2f); public Vector3 postTurn = new Vector3(3.39f, -6.82f, -6.2f); public float postHeight = 1.48f;
-    public Vector3 chestBottom = new Vector3(-13.0f, 3.0f, -46.6f); public float chestTurn = 20f, chestHeight = 2.65f;
-    public Vector3 pugAt = new Vector3(-12.0f, 3.0f, -45.6f); public float pugFace = 64f, pugScale = 1.32f;   // pugFace: his yaw in Unity, toward the lens
+    public Vector3 postAt = new Vector3(-10.4f, 6.3f, -44.4f); public Vector3 postTurn = new Vector3(3.39f, -6.82f, -6.2f); public float postHeight = 1.7f;
+    public Vector3 chestBottom = new Vector3(-13.3f, 3.0f, -44.8f); public float chestTurn = 35f, chestHeight = 1.4f;
+    public Vector3 pugAt = new Vector3(-12.4f, 3.0f, -46.4f); public float pugFace = 64f, pugScale = 0.95f;   // pugFace: his yaw in Unity, toward the lens
     public Vector3 boardAt = new Vector3(-14.62f, 4.84f, -50.92f); public Vector3 boardTurn = new Vector3(72.5f, -54.3f, -20.9f);
-    public Vector3 shopAt = new Vector3(-12.5f, 3.8f, -70f); public Vector3 shopTurn = new Vector3(0f, 20f, 0f); public float shopHeight = 11f;   // the surf shop: where its foot stands, its turn, how tall
+    public Vector3 shopAt = new Vector3(-17f, 3.8f, -65f); public Vector3 shopTurn = new Vector3(0f, 40f, 0f); public float shopHeight = 12f;   // the surf shop: where its foot stands, its turn, how tall
     [Header("Mirror switches, in case a model imports facing the other way")]
     public bool flipSign, flipPost, flipPalm, flipChest;
     [Header("The small stuff")]
@@ -183,6 +186,15 @@ public class Beach : MonoBehaviour
         sign.transform.SetParent(palm.transform, true);                 // moves with the palm
         // the board propped into the crook of the trunk
         SetBoard(SaveData.S.equipped);
+        // a second palm, on the right by the water, framing the sea as the mockup's does
+        var palm2 = Models.Spawn("palm2", root.transform, palm2Height, PrimitiveType.Cylinder);
+        if (palm2 != null && !palm2.name.EndsWith("(stand-in)"))
+        {
+            Prop("Palm2", palm2, R(palm2Turn), false);
+            Settle(palm2, -palm2At.x, GroundTop(-palm2At.x, palm2At.z) - 0.3f, palm2At.z, false);
+            BarkTrunk(palm2);
+        }
+        else if (palm2 != null) Destroy(palm2);
         // the surf shop, standing on the sand on the left, its own patch of sand sunk a little into the beach's
         var shop = Models.Spawn("surfshop", root.transform, shopHeight, PrimitiveType.Cube);
         if (shop != null && !shop.name.EndsWith("(stand-in)"))
@@ -549,6 +561,7 @@ public class Beach : MonoBehaviour
     // leave, each with a raised lip, wobbling a little round the trunk, fibrous streaks between them,
     // weathered grey-brown, with a normal map from the same relief. The crown keeps its texture.
     static Texture2D barkTex, barkNrm;
+    static readonly Dictionary<Mesh, (Mesh crown, Mesh trunk)> barkMade = new Dictionary<Mesh, (Mesh, Mesh)>();
     void BarkTrunk(GameObject palm)
     {
         var lit = Shader.Find("Universal Render Pipeline/Lit"); if (lit == null) return;
@@ -556,6 +569,7 @@ public class Beach : MonoBehaviour
         {
             var mr = mf.GetComponent<MeshRenderer>(); var src = mf.sharedMesh;
             if (mr == null || src == null || !src.isReadable || src.subMeshCount != 1) continue;
+            if (barkMade.TryGetValue(src, out var made)) { AttachTrunk(mf, mr, made.crown, made.trunk, lit); continue; }   // a second palm of the same mesh: the same split
             var v = src.vertices; var nrm = src.normals; var tri = src.triangles; var bb = src.bounds;
             float H = bb.size.y, y0 = bb.min.y;
             var trunk = new List<int>(); var rest = new List<int>(tri.Length);
@@ -593,19 +607,29 @@ public class Beach : MonoBehaviour
             tm.vertices = tv; tm.normals = tn; tm.uv = tuv; tm.triangles = tt;
             tm.RecalculateTangents(); tm.RecalculateBounds();
             var crown = Instantiate(src); crown.name = src.name + " (crown)"; crown.SetTriangles(rest, 0);
-            mf.sharedMesh = crown;
-            var go = new GameObject("trunk", typeof(MeshFilter), typeof(MeshRenderer));
-            go.transform.SetParent(mf.transform, false);
-            go.layer = mf.gameObject.layer;
-            go.GetComponent<MeshFilter>().sharedMesh = tm;
-            if (barkTex == null) Bark(out barkTex, out barkNrm);
-            var m = new Material(lit) { name = "palm bark" };
-            m.SetTexture("_BaseMap", barkTex); m.SetColor("_BaseColor", Color.white);
-            m.SetTexture("_BumpMap", barkNrm); m.SetFloat("_BumpScale", 1.2f); m.EnableKeyword("_NORMALMAP");
-            m.SetFloat("_Smoothness", 0.12f);
-            var r = go.GetComponent<MeshRenderer>(); r.sharedMaterial = m;
-            r.shadowCastingMode = mr.shadowCastingMode; r.receiveShadows = mr.receiveShadows;
+            barkMade[src] = (crown, tm);
+            AttachTrunk(mf, mr, crown, tm, lit);
         }
+    }
+
+    static Material barkMat;
+    static void AttachTrunk(MeshFilter mf, MeshRenderer mr, Mesh crown, Mesh trunk, Shader lit)
+    {
+        mf.sharedMesh = crown;
+        var go = new GameObject("trunk", typeof(MeshFilter), typeof(MeshRenderer));
+        go.transform.SetParent(mf.transform, false);
+        go.layer = mf.gameObject.layer;
+        go.GetComponent<MeshFilter>().sharedMesh = trunk;
+        if (barkTex == null) Bark(out barkTex, out barkNrm);
+        if (barkMat == null)
+        {
+            barkMat = new Material(lit) { name = "palm bark" };
+            barkMat.SetTexture("_BaseMap", barkTex); barkMat.SetColor("_BaseColor", Color.white);
+            barkMat.SetTexture("_BumpMap", barkNrm); barkMat.SetFloat("_BumpScale", 1.2f); barkMat.EnableKeyword("_NORMALMAP");
+            barkMat.SetFloat("_Smoothness", 0.12f);
+        }
+        var r = go.GetComponent<MeshRenderer>(); r.sharedMaterial = barkMat;
+        r.shadowCastingMode = mr.shadowCastingMode; r.receiveShadows = mr.receiveShadows;
     }
 
     // the bark: 512 square, seamless both ways, eight ring scars to a repeat
@@ -718,9 +742,10 @@ public class Beach : MonoBehaviour
     // Then "Save layout" from this component's menu writes it all to Resources/beach_layout.json, which
     // is loaded on every build of the beach, the phone's included. Commit the file to keep it.
     const string LayoutFile = "beach_layout";
-    static readonly string[] Movable = { "SurfShop", "Signpost", "Chest", "Palm", "PugSpot" };
+    static readonly string[] Movable = { "SurfShop", "Signpost", "Chest", "Palm", "PugSpot", "Palm2" };
+    const int LayoutVersion = 2;        // a layout saved against an older set of defaults is not loaded over newer ones
     [System.Serializable] class LayoutItem { public string name; public Vector3 pos, rot, scale; }
-    [System.Serializable] class Layout { public List<LayoutItem> items = new List<LayoutItem>(); public Vector3 camAt, camTurn; public float camFov, focusDist, pugFace, pugScale; }
+    [System.Serializable] class Layout { public int version; public List<LayoutItem> items = new List<LayoutItem>(); public Vector3 camAt, camTurn; public float camFov, focusDist, pugFace, pugScale; }
 
     const string LayoutPref = "beach_layout";
     void LoadLayout()
@@ -729,7 +754,7 @@ public class Beach : MonoBehaviour
         string json = PlayerPrefs.GetString(LayoutPref, "");
         if (string.IsNullOrEmpty(json)) { var ta = Resources.Load<TextAsset>(LayoutFile); if (ta == null) return; json = ta.text; }
         Layout l; try { l = JsonUtility.FromJson<Layout>(json); } catch { return; }
-        if (l == null) return;
+        if (l == null || l.version != LayoutVersion) return;
         if (l.camFov > 1f) { camAt = l.camAt; camTurn = l.camTurn; camFov = l.camFov; }
         if (l.focusDist > 0f) focusDist = l.focusDist;
         if (l.pugScale > 0f) { pugFace = l.pugFace; pugScale = l.pugScale; }
@@ -753,7 +778,7 @@ public class Beach : MonoBehaviour
             var t = root.transform.Find(n); if (t == null) continue;
             Bounds b;
             if (n == "PugSpot") b = new Bounds(t.position + Vector3.up * 1.4f * pugScale, new Vector3(1.6f, 2.8f, 1.6f) * pugScale);
-            else if (n == "Palm") b = new Bounds(t.position + Vector3.up * 4.5f, new Vector3(2.0f, 9f, 2.0f));   // the trunk, not the whole crown
+            else if (n == "Palm" || n == "Palm2") b = new Bounds(t.position + Vector3.up * 4.5f, new Vector3(2.0f, 9f, 2.0f));   // the trunk, not the whole crown
             else
             {
                 var rs = t.GetComponentsInChildren<Renderer>(); if (rs.Length == 0) continue;
@@ -767,7 +792,7 @@ public class Beach : MonoBehaviour
         }
     }
 
-    static readonly string[] Labels = { "the shop", "the signpost", "the chest", "the palm", "the surfer" };
+    static readonly string[] Labels = { "the shop", "the signpost", "the chest", "the palm", "the surfer", "the far palm" };
     /// what a held finger is on, if it is something that can be moved
     public Transform EditTarget(Camera cam, Vector2 screen, out string label)
     {
@@ -782,7 +807,7 @@ public class Beach : MonoBehaviour
     public void SaveLayout()
     {
         if (root == null) { Debug.LogWarning("Surf: press Play first, then set the beach out and save it"); return; }
-        var l = new Layout { camAt = camAt, camTurn = camTurn, camFov = camFov, focusDist = focusDist, pugFace = pugFace, pugScale = pugScale };
+        var l = new Layout { version = LayoutVersion, camAt = camAt, camTurn = camTurn, camFov = camFov, focusDist = focusDist, pugFace = pugFace, pugScale = pugScale };
         foreach (var n in Movable)
         {
             var t = root.transform.Find(n); if (t == null) continue;
@@ -821,9 +846,28 @@ public class Beach : MonoBehaviour
             for (int j = 0; j <= 2; j++)
                 top = Mathf.Max(top, GroundTop(Mathf.Lerp(b.min.x, b.max.x, i / 4f), Mathf.Lerp(b.min.z, b.max.z, j / 2f)));
         float lift = top + 0.12f - b.min.y;
-        if (lift <= 0f || lift > 3f) return;                                     // clear already, or the sand read is not to be trusted
-        postGo.transform.position += Vector3.up * lift;              // its tap areas are its children
-        postAt.y += lift;
+        if (lift > 0f && lift <= 3f)                                              // (more and the sand read is not to be trusted)
+        {
+            postGo.transform.position += Vector3.up * lift;          // its tap areas are its children
+            postAt.y += lift;
+            b = Models.Bounds(postGo);
+        }
+        // and if it stands well clear of the sand (set high in the frame), its pole is carried on
+        // down into the sand, so it is planted rather than floating
+        float ground = GroundTop(b.center.x, b.center.z);
+        if (b.min.y - ground > 0.15f)
+        {
+            var pole = GameObject.CreatePrimitive(PrimitiveType.Cylinder); pole.name = "pole";
+            Destroy(pole.GetComponent<Collider>());
+            pole.transform.SetParent(postGo.transform, true);
+            float len = b.min.y - ground + 0.6f, r = Mathf.Max(0.06f, postHeight * 0.045f);
+            pole.transform.position = new Vector3(b.center.x, ground - 0.4f + len * 0.5f, b.center.z);
+            pole.transform.rotation = Quaternion.identity;
+            var ls = postGo.transform.lossyScale; float k = Mathf.Max(1e-4f, Mathf.Abs(ls.x));
+            pole.transform.localScale = new Vector3(r * 2f, len * 0.5f, r * 2f) / k;   // a cylinder is two units tall
+            var lit = Shader.Find("Universal Render Pipeline/Lit");
+            if (lit != null) { var m = new Material(lit) { name = "post wood" }; m.SetColor("_BaseColor", new Color(0.36f, 0.24f, 0.14f)); m.SetFloat("_Smoothness", 0.15f); pole.GetComponent<Renderer>().sharedMaterial = m; }
+        }
     }
 
     // move a prop so its world box sits where the web one was: centred in x and z, and either
