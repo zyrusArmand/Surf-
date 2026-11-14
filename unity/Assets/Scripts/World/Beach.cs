@@ -17,7 +17,7 @@ public class Beach : MonoBehaviour
     public Vector3 palmFoot = new Vector3(-12.87f, -0.44f, -51.53f);
     public Vector3 palmBoxCentre = new Vector3(-14.97f, 0, -51.8f);
     public float palmHeight = 19.7f; public Vector3 palmTurn = new Vector3(0, 173.1f, 7.8f);
-    public Vector3 signAt = new Vector3(-14.06f, 8.90f, -50.77f); public Vector3 signTurn = new Vector3(19.8f, 13.6f, -1.4f); public float signHeight = 1.15f;
+    public Vector3 signAt = new Vector3(-14.06f, 8.90f, -50.77f); public Vector3 signTurn = new Vector3(19.8f, 13.6f, -1.4f); public float signHeight = 1.35f;
     public Vector3 postAt = new Vector3(-11.88f, 4.37f, -44.75f); public Vector3 postTurn = new Vector3(3.39f, -6.82f, -6.2f); public float postHeight = 1.48f;
     public Vector3 chestBottom = new Vector3(-17.02f, 2.95f, -50.22f); public float chestTurn = 37.4f, chestHeight = 2.65f;
     public Vector3 pugAt = new Vector3(-15.29f, 2.85f, -49.62f); public float pugFace = 64f, pugScale = 1.32f;   // pugFace: his yaw in Unity, toward the lens
@@ -166,6 +166,7 @@ public class Beach : MonoBehaviour
         MeasureTrunk(palm);
         palmGo = palm;
         var sign = Prop("Sign", Models.Spawn("sign", root.transform, signHeight, PrimitiveType.Cube), R(signTurn), flipSign);
+        PaintSign(sign);
         var sAt = OnTrunk(8.797f, new Vector3(0.045f, 0.116f, 0.842f));
         Settle(sign, sAt.x, sAt.y, sAt.z, true);
         // the board propped into the crook of the trunk
@@ -187,6 +188,7 @@ public class Beach : MonoBehaviour
             arm.transform.rotation = post.rotation;
             var bc = arm.AddComponent<BoxCollider>(); bc.size = new Vector3(Mathf.Max(b.size.x, 1.2f), postHeight / 3f, Mathf.Max(b.size.z, 0.8f));
         }
+        LiftPost(postGo);
         // the coconuts in the crown and the split shells on the sand
         Coconuts();
         // the clouds and the gulls, far out over the water
@@ -513,6 +515,75 @@ public class Beach : MonoBehaviour
         go.name = n;
         go.transform.rotation = Quaternion.Euler(turn) * (flip ? Quaternion.Euler(0, 180f, 0) : Quaternion.identity);
         return go;
+    }
+
+    // ---- the Surf sign on the palm, made to read ----
+    // Its letters are carved into the plank, the same wood as the rest, so in the palm's shade the
+    // word all but vanished. They are painted the signpost's yellow here: the triangles of the cut
+    // (between the face and the floor of the carving, inside the plank's margin -- measured on the
+    // model, they are exactly the word) go to a second part of the mesh with a painted material,
+    // and the wood itself is lifted a little so the plank reads as the signposts' wood does.
+    static void PaintSign(GameObject sign)
+    {
+        var lit = Shader.Find("Universal Render Pipeline/Lit");
+        foreach (var mf in sign.GetComponentsInChildren<MeshFilter>())
+        {
+            var mr = mf.GetComponent<MeshRenderer>(); var src = mf.sharedMesh;
+            if (mr == null || src == null || !src.isReadable || src.subMeshCount != 1) continue;
+            foreach (var m in mr.materials)
+                foreach (var p in new[] { "_BaseColor", "baseColorFactor", "_Color" })
+                    if (m.HasProperty(p)) { var c = m.GetColor(p); m.SetColor(p, new Color(Mathf.Min(1f, c.r * 1.18f), Mathf.Min(1f, c.g * 1.14f), Mathf.Min(1f, c.b * 1.08f), c.a)); }
+            if (lit == null) continue;
+            var v = src.vertices; var tri = src.triangles; var bb = src.bounds; var ext = bb.size;
+            int thin = ext.x < ext.y ? (ext.x < ext.z ? 0 : 2) : (ext.y < ext.z ? 1 : 2);
+            int a0 = (thin + 1) % 3, a1 = (thin + 2) % 3; if (ext[a1] > ext[a0]) { int s = a0; a0 = a1; a1 = s; }
+            // the carving is cut in from one face: whichever side finds the word is that face
+            var front = new List<int>(); var back = new List<int>(); var rest = new List<int>();
+            var side = new int[tri.Length / 3];
+            for (int t = 0; t < tri.Length; t += 3)
+            {
+                var c = (v[tri[t]] + v[tri[t + 1]] + v[tri[t + 2]]) / 3f;
+                float dn = (c[thin] - bb.min[thin]) / Mathf.Max(1e-5f, ext[thin]);
+                float u0 = (c[a0] - bb.min[a0]) / Mathf.Max(1e-5f, ext[a0]), u1 = (c[a1] - bb.min[a1]) / Mathf.Max(1e-5f, ext[a1]);
+                bool inside = u0 > 0.14f && u0 < 0.86f && u1 > 0.12f && u1 < 0.90f;
+                side[t / 3] = !inside ? 0 : (dn >= 0.5f && dn <= 0.93f) ? 1 : (dn >= 0.07f && dn < 0.5f) ? 2 : 0;
+                if (side[t / 3] == 1) front.Add(t); else if (side[t / 3] == 2) back.Add(t);
+            }
+            int pick = front.Count >= back.Count ? 1 : 2;
+            if ((pick == 1 ? front.Count : back.Count) < 200) continue;          // not the carved sign after all
+            var letters = new List<int>();
+            for (int t = 0; t < tri.Length; t += 3)
+            {
+                var into = side[t / 3] == pick ? letters : rest;
+                into.Add(tri[t]); into.Add(tri[t + 1]); into.Add(tri[t + 2]);
+            }
+            var mesh = Instantiate(src); mesh.name = src.name + " (painted)";
+            mesh.subMeshCount = 2; mesh.SetTriangles(rest, 0); mesh.SetTriangles(letters, 1);
+            mf.sharedMesh = mesh;
+            var paint = new Material(lit) { name = "sign letters" };
+            paint.SetColor("_BaseColor", new Color(1f, 0.84f, 0.30f)); paint.SetFloat("_Smoothness", 0.35f);
+            // a little light of its own, so the word still reads in the shade of the crown
+            paint.EnableKeyword("_EMISSION"); paint.SetColor("_EmissionColor", new Color(0.22f, 0.16f, 0.03f));
+            mr.sharedMaterials = new[] { mr.sharedMaterial, paint };
+        }
+    }
+
+    // ---- the signpost stands clear of the sand ----
+    // Placed at the web's height, its bottom arm went into the dune here (the sand under it stands
+    // higher than the web's did). The arms are the whole post, so it is lifted, colliders and all,
+    // until the bottom of the lowest arm clears the highest sand under it.
+    void LiftPost(GameObject postGo)
+    {
+        var b = Models.Bounds(postGo);
+        float top = float.MinValue;
+        for (int i = 0; i <= 4; i++)
+            for (int j = 0; j <= 2; j++)
+                top = Mathf.Max(top, GroundTop(Mathf.Lerp(b.min.x, b.max.x, i / 4f), Mathf.Lerp(b.min.z, b.max.z, j / 2f)));
+        float lift = top + 0.12f - b.min.y;
+        if (lift <= 0f || lift > 3f) return;                                     // clear already, or the sand read is not to be trusted
+        postGo.transform.position += Vector3.up * lift;
+        foreach (Transform c in root.transform) if (c.name.StartsWith("arm:")) c.position += Vector3.up * lift;
+        postAt.y += lift;
     }
 
     // move a prop so its world box sits where the web one was: centred in x and z, and either

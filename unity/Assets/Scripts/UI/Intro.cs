@@ -20,24 +20,25 @@ public class Intro : MonoBehaviour
 
     public void Begin()
     {
-        if (logo == null) return;
-        logoHome = logo.anchoredPosition;
-        logoCg = Group(logo.gameObject);
-        logoCg.blocksRaycasts = false;
+        if (logo != null)
+        {
+            logoHome = logo.anchoredPosition;
+            logoCg = Group(logo.gameObject);
+            logoCg.blocksRaycasts = false;
+        }
         t = 0f; landed = false;
         Apply();
     }
 
     void Update()
     {
-        if (logo == null) return;
         if (Busy)
         {
             bool tap = Input.GetMouseButtonDown(0) || (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began);
             t = tap && t > 0.2f ? End : t + Time.unscaledDeltaTime;
             Apply();
         }
-        else if (t >= End)
+        else if (t >= End && logo != null)
         {
             // settled: the logo rides a slow swell of its own
             float s = Time.unscaledTime;
@@ -48,14 +49,17 @@ public class Intro : MonoBehaviour
 
     void Apply()
     {
-        // the logo: dropped from above, a touch big and tipped, landing with a bounce
+        // the logo, if there is one: dropped from above, a touch big and tipped, landing with a bounce
         float u = Mathf.Clamp01((t - LogoAt) / LogoFor);
-        float back = u >= 1f ? 1f : 1f + 2.7f * Mathf.Pow(u - 1f, 3f) + 1.7f * Mathf.Pow(u - 1f, 2f);   // ease out, overshooting a little
-        logoCg.alpha = Mathf.Clamp01(u * 3f);
-        logo.anchoredPosition = logoHome + new Vector2(0f, (1f - back) * 140f);
-        logo.localScale = Vector3.one * Mathf.LerpUnclamped(1.35f, 1f, back);
-        logo.localRotation = Quaternion.Euler(0f, 0f, Mathf.LerpUnclamped(-8f, 0f, back));
-        if (!landed && u >= 0.62f) { landed = true; Sfx.Land(0.6f); Sfx.Buzz(14); }
+        if (logo != null)
+        {
+            float back = u >= 1f ? 1f : 1f + 2.7f * Mathf.Pow(u - 1f, 3f) + 1.7f * Mathf.Pow(u - 1f, 2f);   // ease out, overshooting a little
+            logoCg.alpha = Mathf.Clamp01(u * 3f);
+            logo.anchoredPosition = logoHome + new Vector2(0f, (1f - back) * 140f);
+            logo.localScale = Vector3.one * Mathf.LerpUnclamped(1.35f, 1f, back);
+            logo.localRotation = Quaternion.Euler(0f, 0f, Mathf.LerpUnclamped(-8f, 0f, back));
+            if (!landed && u >= 0.62f) { landed = true; Sfx.Land(0.6f); Sfx.Buzz(14); }
+        }
         // the bar and the rest of the title's overlay, last
         float b = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((t - BarAt) / BarFor));
         if (menu != null)

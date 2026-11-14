@@ -25,7 +25,8 @@ public class Hud : MonoBehaviour
 
     Canvas canvas;
     GameObject menu, ride, card, bar, jump;
-    /// the carved SURF logo over the title, and the title's overlay it sits in (the Intro drops it in)
+    /// a logo over the title, if there is one (none now: the name is the sign on the palm), and the
+    /// title's overlay, which the Intro fades in
     public RectTransform Logo; public GameObject Menu => menu;
     CanvasGroup jumpCg;                                   // JUMP dims to a quarter once a trick is live
     Text tScore, tDist, tMph, tCoins, tBestS, tBestD, tMsg, tMenuBest, tMenuCoins, tToast;
@@ -68,14 +69,6 @@ public class Hud : MonoBehaviour
             verTaps = now - verTapT < 1.2f ? verTaps + 1 : 1; verTapT = now;
             if (verTaps >= 5) { verTaps = 0; Sfx.Buzz(20); onSecret?.Invoke(); }
         });
-        // ---- the logo: the game's name, carved, across the top of the title under the bar ----
-        var logoSp = UiKit.Icon("logo");
-        if (logoSp != null)
-        {
-            float lw = 330f, lh = lw * logoSp.rect.height / logoSp.rect.width;
-            var li = UiKit.Pic(m, "logo", logoSp, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -92), new Vector2(lw, lh));
-            li.raycastTarget = false; Logo = li.rectTransform;
-        }
         // ---- the bar, the web's #homeBar: 10 from the top, 12 in from each side ----
         Color pillTop = Solid.Rgba(0x3c, 0x60, 0x99), pillBot = Solid.Rgba(0x2a, 0x44, 0x72), rim = Solid.Rgba(160, 196, 240, 0.26f);
         // the purse: navy pill, 30 tall, the shell, the count, and the green + inside it
