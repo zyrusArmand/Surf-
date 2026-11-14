@@ -48,6 +48,11 @@ public class Fx : MonoBehaviour
     // the drag of the air on a drop and on mist, toward the air's own drift (the run's speed, back
     // past him); the same numbers go to the systems' drag and to the push that stands in for the wind
     const float DropDrag = 0.9f, MistDrag = 2.4f;
+    // A carve throws three things and no more: the whitewater left behind along the rails, a light
+    // curtain of spray, and its mist. The glints (drops brighter than white, for the bloom), the
+    // constant fizz of drops off both rails, the puffs up the curtain's root and a second lace of
+    // foam on top of the rails' own all read as sparks and clutter round the board, so they are off.
+    static readonly bool Glints = false, RailFizz = false, RootPuffs = false, ExtraLace = false;   // readonly, not const: no unreachable-code warnings
 
     public void Build()
     {
@@ -258,7 +263,7 @@ public class Fx : MonoBehaviour
                   new[] { new GradientAlphaKey(0.95f, 0), new GradientAlphaKey(0.8f, 0.45f), new GradientAlphaKey(0f, 1) });
         col.color = g;
         var r = go.GetComponent<ParticleSystemRenderer>();
-        r.renderMode = ParticleSystemRenderMode.Stretch; r.velocityScale = 0.02f; r.lengthScale = 1.0f;
+        r.renderMode = ParticleSystemRenderMode.Stretch; r.velocityScale = 0.01f; r.lengthScale = 1.0f;   // short: a long bright streak reads as a spark
         r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows = false;
         var m = Bootstrap.SoftParticles(Bootstrap.DropTex());
         if (m != null) { Soften(m, 0.3f); NearFade(m, 3f, 9f); r.material = m; }
@@ -321,7 +326,7 @@ public class Fx : MonoBehaviour
             }
             // and the curtain's white root: smaller, fainter puffs rising a little way up it, kept slow
             // and short-lived so none breaks away as a ball of its own; they thin out into its mist
-            rootAcc += dt * rate * 30f * Mathf.Pow(power, 1.2f);
+            if (RootPuffs) rootAcc += dt * rate * 30f * Mathf.Pow(power, 1.2f);
             while (rootAcc >= 1f)
             {
                 rootAcc -= 1f;
@@ -341,7 +346,7 @@ public class Fx : MonoBehaviour
         // ---- the curtain: fine drops, each on the fan at its own speed, a few heavier; glints ----
         if (carve != null)
         {
-            dropAcc += dt * (fastFx ? 0.45f : 1f) * 2000f * Mathf.Pow(power, 1.2f);
+            dropAcc += dt * (fastFx ? 0.45f : 1f) * 750f * Mathf.Pow(power, 1.2f);
             while (dropAcc >= 1f)
             {
                 dropAcc -= 1f;
@@ -354,10 +359,10 @@ public class Fx : MonoBehaviour
                     velocity = FanDir(Random.value + (Random.value - 0.5f) * 0.15f, outward, fwd) * spd + new Vector3(0f, 0f, flow * 0.06f),
                     startSize = heavy ? 0.04f + 0.03f * Random.value : 0.014f + 0.022f * Random.value,
                     startLifetime = 0.45f + 0.4f * Random.value + (heavy ? 0.2f : 0f),
-                    startColor = new Color(1f, 1f, 1f, 0.7f + 0.3f * Random.value)
+                    startColor = new Color(1f, 1f, 1f, 0.35f + 0.25f * Random.value)
                 };
                 carve.Emit(ep, 1);
-                if (sparkle != null && Random.value < 0.05f)
+                if (Glints && sparkle != null && Random.value < 0.05f)
                     sparkle.Emit(new ParticleSystem.EmitParams
                     {
                         position = ep.position, velocity = ep.velocity * (0.9f + 0.2f * Random.value),
@@ -629,7 +634,7 @@ public class Fx : MonoBehaviour
             // as a thin sheet, low and drifting back, and settles behind as lace along each side.
             float sp = Mathf.InverseLerp(14f, 50f, rider.eff), cv = Mathf.Abs(rider.carve);
             // the lace it leaves on the surface, along both rails: few, big, faint and overlapping
-            trailAcc += dt * Mathf.Lerp(8f, 22f, sp) * (fastFx ? 0.6f : 1f);
+            if (ExtraLace) trailAcc += dt * Mathf.Lerp(8f, 22f, sp) * (fastFx ? 0.6f : 1f);
             while (trailAcc >= 1f)
             {
                 trailAcc -= 1f;
@@ -647,7 +652,7 @@ public class Fx : MonoBehaviour
                 trail.Emit(ep, 1);
             }
             // the sheet off the rails: a few fine drops, low, peeling outward and back
-            if (carve != null)
+            if (RailFizz && carve != null)
             {
                 fizzAcc += dt * (12f + 30f * sp + 30f * cv) * (fastFx ? 0.6f : 1f);
                 while (fizzAcc >= 1f)
