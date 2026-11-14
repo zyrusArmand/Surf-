@@ -79,6 +79,12 @@ Shader "Surf/Sand"
             {
                 float3 albedo = SAMPLE_TEXTURE2D(_BaseTex, sampler_BaseTex, i.uv).rgb;
                 albedo = pow(max(albedo, 0.0), 1.0 / 2.2);                  // the texture's own sRGB numbers
+                // The photo's big dark blotches read as dirt on the beach: pulled halfway to the sand's
+                // own average colour (its smallest mip), so the fine variation stays and the patches go;
+                // then warmed toward golden sand, which the grey-beige of the photo was not.
+                float3 avgC = pow(max(SAMPLE_TEXTURE2D_BIAS(_BaseTex, sampler_BaseTex, i.uv, 8.0).rgb, 0.0), 1.0 / 2.2);
+                albedo = avgC + (albedo - avgC) * 0.5;
+                albedo *= float3(1.05, 1.0, 0.91);
                 float3 tn = UnpackNormalScale(SAMPLE_TEXTURE2D(_NrmTex, sampler_NrmTex, i.uv), _NrmK);
                 float3 N0 = normalize(i.n), T = normalize(i.t.xyz - N0 * dot(i.t.xyz, N0)), B = cross(N0, T) * i.t.w;
                 float3 N = normalize(T * tn.x + B * tn.y + N0 * max(0.05, tn.z));
@@ -94,7 +100,7 @@ Shader "Surf/Sand"
                 float s1 = vnoise(g / 0.035 + 3.7), s2 = vnoise(g / 0.11), s3 = vnoise(g / 0.55 + 7.3);
                 // (measured against the web's title: the near sand there varies about half as much as
                 // this did, so every layer of grain is about half what it was)
-                float speck = (s1 - 0.5) * 0.08 * kFine + (s2 - 0.5) * 0.06 * kMid + (s3 - 0.5) * 0.06 * keep(0.55, fw);
+                float speck = (s1 - 0.5) * 0.11 * kFine + (s2 - 0.5) * 0.08 * kMid + (s3 - 0.5) * 0.06 * keep(0.55, fw);
                 float2 dc = floor(g / 0.05), dfr = frac(g / 0.05);
                 float2 dp = float2(h21(dc + 1.7), h21(dc + 4.3)) * 0.5 + 0.25;
                 float dark = step(0.965, h21(dc + 3.1)) * smoothstep(0.30, 0.12, length(dfr - dp)) * 0.18 * keep(0.05, fw) * _Detail;   // the odd dark grain
@@ -107,7 +113,9 @@ Shader "Surf/Sand"
                 float e = 0.045;
                 float2 gr = float2(vnoise((g + float2(e, 0)) / 0.09) - vnoise((g - float2(e, 0)) / 0.09),
                                    vnoise((g + float2(0, e)) / 0.09) - vnoise((g - float2(0, e)) / 0.09));
-                float2 tilt = gr * 0.25 * kMid + ripD * rip * 0.06 * kRip;
+                // the ripples strong enough to see: close to the lens the near sand was a flat smear
+                float2 tilt = gr * 0.25 * kMid + ripD * rip * 0.14 * kRip;
+                albedo *= 1.0 + rip * 0.03 * kRip;                          // their crests a shade paler, dried by the wind
                 N = normalize(N + float3(-tilt.x, 0.0, -tilt.y));
 
                 // ---- the light ----
