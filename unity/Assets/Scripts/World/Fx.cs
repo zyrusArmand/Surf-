@@ -48,10 +48,12 @@ public class Fx : MonoBehaviour
     // the drag of the air on a drop and on mist, toward the air's own drift (the run's speed, back
     // past him); the same numbers go to the systems' drag and to the push that stands in for the wind
     const float DropDrag = 0.9f, MistDrag = 2.4f;
-    // A carve throws three things and no more: the whitewater left behind along the rails, a light
-    // curtain of spray, and its mist. The glints (drops brighter than white, for the bloom), the
-    // constant fizz of drops off both rails, the puffs up the curtain's root and a second lace of
-    // foam on top of the rails' own all read as sparks and clutter round the board, so they are off.
+    // What a carve throws is drawn by the sea itself now: the V of foam along both rails (Surf/Ocean).
+    // Every particle a carve used to add on top of it is off -- the whitewater puffs and the lace
+    // patches lay on the water as round blobs, the spray curtain's drops read as streaks of sparks,
+    // its mist hung on the side of the board as a white smear, and the glints, rail fizz and root
+    // puffs were more of the same. Each is one flag here, so any can be brought back.
+    static readonly bool CarveParticles = false, RailLace = false;
     static readonly bool Glints = false, RailFizz = false, RootPuffs = false, ExtraLace = false;   // readonly, not const: no unreachable-code warnings
 
     public void Build()
@@ -285,7 +287,7 @@ public class Fx : MonoBehaviour
     /// k how hard he is turning (0..1)
     public void Carve(Vector3 tail, float outward, float k, float dt)
     {
-        if (rider == null) return;
+        if (rider == null || !CarveParticles) return;
         float flow = Flow(), sp = Mathf.InverseLerp(14f, 50f, flow);
         float power = k * (0.55f + 0.45f * sp);              // how much water the rail throws
         float reach = 0.4f + 0.6f * power;                   // and how high and far
@@ -400,7 +402,7 @@ public class Fx : MonoBehaviour
     // slow noise per rail varying it so it is never a regular chain.
     void RailPuffs(float dt)
     {
-        if (trail == null) return;
+        if (trail == null || !RailLace) return;
         float flow = Flow(), sp = Mathf.InverseLerp(14f, 50f, flow), cv = Mathf.Abs(rider.carve), outS = -Mathf.Sign(rider.carve);
         for (int s = 0; s < 2; s++)
         {
