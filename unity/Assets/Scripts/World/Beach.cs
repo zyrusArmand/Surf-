@@ -164,6 +164,7 @@ public class Beach : MonoBehaviour
         var palm = Prop("Palm", Models.Spawn("palm2", root.transform, palmHeight, PrimitiveType.Cylinder), R(palmTurn), flipPalm);
         Settle(palm, -palmBoxCentre.x, palmFoot.y, palmBoxCentre.z, false);
         MeasureTrunk(palm);
+        BarkTrunk(palm);
         palmGo = palm;
         var sign = Prop("Sign", Models.Spawn("sign", root.transform, signHeight, PrimitiveType.Cube), R(signTurn), flipSign);
         PaintSign(sign);
@@ -515,6 +516,125 @@ public class Beach : MonoBehaviour
         go.name = n;
         go.transform.rotation = Quaternion.Euler(turn) * (flip ? Quaternion.Euler(0, 180f, 0) : Quaternion.identity);
         return go;
+    }
+
+    // ---- the palm's trunk, in bark of its own ----
+    // The palm's one baked texture gives the trunk only a few small brown patches, so close to the
+    // lens it was a blur. Its triangles (the thin tube below the crown: under 56% of the model's
+    // height and within 0.065 of its axis, as measured on the model) come out into a mesh of their
+    // own, wrapped round the trunk with a bark made here: the ring scars a coconut palm's old fronds
+    // leave, each with a raised lip, wobbling a little round the trunk, fibrous streaks between them,
+    // weathered grey-brown, with a normal map from the same relief. The crown keeps its texture.
+    static Texture2D barkTex, barkNrm;
+    void BarkTrunk(GameObject palm)
+    {
+        var lit = Shader.Find("Universal Render Pipeline/Lit"); if (lit == null) return;
+        foreach (var mf in palm.GetComponentsInChildren<MeshFilter>())
+        {
+            var mr = mf.GetComponent<MeshRenderer>(); var src = mf.sharedMesh;
+            if (mr == null || src == null || !src.isReadable || src.subMeshCount != 1) continue;
+            var v = src.vertices; var nrm = src.normals; var tri = src.triangles; var bb = src.bounds;
+            float H = bb.size.y, y0 = bb.min.y;
+            var trunk = new List<int>(); var rest = new List<int>(tri.Length);
+            float top = y0;
+            for (int t = 0; t < tri.Length; t += 3)
+            {
+                var c = (v[tri[t]] + v[tri[t + 1]] + v[tri[t + 2]]) / 3f;
+                bool isTrunk = (c.y - y0) < 0.56f * H && new Vector2(c.x, c.z).magnitude < 0.065f * H;
+                var into = isTrunk ? trunk : rest;
+                into.Add(tri[t]); into.Add(tri[t + 1]); into.Add(tri[t + 2]);
+                if (isTrunk) top = Mathf.Max(top, c.y);
+            }
+            if (trunk.Count < 60 * 3) continue;                                  // not the palm this was measured on
+            // the trunk on its own, every triangle with vertices of its own so the wrap can be mended
+            int n = trunk.Count;
+            var tv = new Vector3[n]; var tn = new Vector3[n]; var tuv = new Vector2[n]; var tt = new int[n];
+            float span = Mathf.Max(1e-4f, top - y0);
+            for (int k = 0; k < n; k += 3)
+            {
+                for (int q = 0; q < 3; q++)
+                {
+                    var p = v[trunk[k + q]];
+                    tv[k + q] = p; tn[k + q] = nrm != null && nrm.Length == v.Length ? nrm[trunk[k + q]] : new Vector3(p.x, 0f, p.z).normalized;
+                    float ang = Mathf.Atan2(p.z, p.x) / (2f * Mathf.PI) + 0.5f;
+                    tuv[k + q] = new Vector2(ang * 2f, (p.y - y0) / span * 4f);    // twice round, four times up: some thirty rings
+                    tt[k + q] = k + q;
+                }
+                // a triangle across the wrap: its low side taken round once more
+                float a = tuv[k].x, b = tuv[k + 1].x, c2 = tuv[k + 2].x;
+                if (Mathf.Max(a, Mathf.Max(b, c2)) - Mathf.Min(a, Mathf.Min(b, c2)) > 1f)
+                    for (int q = 0; q < 3; q++) if (tuv[k + q].x < 1f) tuv[k + q].x += 2f;
+            }
+            var tm = new Mesh { name = "palm trunk" };
+            if (n > 65000) tm.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+            tm.vertices = tv; tm.normals = tn; tm.uv = tuv; tm.triangles = tt;
+            tm.RecalculateTangents(); tm.RecalculateBounds();
+            var crown = Instantiate(src); crown.name = src.name + " (crown)"; crown.SetTriangles(rest, 0);
+            mf.sharedMesh = crown;
+            var go = new GameObject("trunk", typeof(MeshFilter), typeof(MeshRenderer));
+            go.transform.SetParent(mf.transform, false);
+            go.layer = mf.gameObject.layer;
+            go.GetComponent<MeshFilter>().sharedMesh = tm;
+            if (barkTex == null) Bark(out barkTex, out barkNrm);
+            var m = new Material(lit) { name = "palm bark" };
+            m.SetTexture("_BaseMap", barkTex); m.SetColor("_BaseColor", Color.white);
+            m.SetTexture("_BumpMap", barkNrm); m.SetFloat("_BumpScale", 1.2f); m.EnableKeyword("_NORMALMAP");
+            m.SetFloat("_Smoothness", 0.12f);
+            var r = go.GetComponent<MeshRenderer>(); r.sharedMaterial = m;
+            r.shadowCastingMode = mr.shadowCastingMode; r.receiveShadows = mr.receiveShadows;
+        }
+    }
+
+    // the bark: 512 square, seamless both ways, eight ring scars to a repeat
+    static void Bark(out Texture2D col, out Texture2D nrm)
+    {
+        const int N = 512, Rings = 8;
+        var h = new float[N * N]; var c = new Color32[N * N]; var nn = new Color32[N * N];
+        // value noise on a lattice that wraps after px cells across and py up, so the bark tiles both ways
+        System.Func<int, int, int, int, int, float> hs = (i, j, px, py, seed) =>
+        {
+            i = ((i % px) + px) % px; j = ((j % py) + py) % py;
+            uint q = (uint)(i * 374761393 + j * 668265263 + seed * unchecked((int)2246822519u));
+            q = (q ^ (q >> 13)) * 1274126177u; return ((q ^ (q >> 16)) & 0xffff) / 65535f;
+        };
+        System.Func<float, float, int, int, int, float> vn = (x, y, px, py, seed) =>
+        {
+            int x0 = Mathf.FloorToInt(x), y0 = Mathf.FloorToInt(y); float fx = x - x0, fy = y - y0;
+            fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+            float l1 = Mathf.Lerp(hs(x0, y0, px, py, seed), hs(x0 + 1, y0, px, py, seed), fx);
+            float l2 = Mathf.Lerp(hs(x0, y0 + 1, px, py, seed), hs(x0 + 1, y0 + 1, px, py, seed), fx);
+            return Mathf.Lerp(l1, l2, fy);
+        };
+        for (int y = 0; y < N; y++)
+            for (int x = 0; x < N; x++)
+            {
+                float u = x / (float)N, w = y / (float)N;
+                // the scars wobble round the trunk; each band between two of them is its own shade
+                float wob = (vn(u * 6f, w * Rings, 6, Rings, 3) - 0.5f) * 0.45f + (vn(u * 17f, w * Rings * 2f, 17, Rings * 2, 9) - 0.5f) * 0.16f;
+                float rr = w * Rings + wob; int ring = Mathf.FloorToInt(rr); float r = rr - ring;
+                float ringTone = hs(ring, 0, Rings, 1, 21) - 0.5f;
+                float groove = Mathf.Exp(-Mathf.Pow((r - 0.10f) / 0.06f, 2f));      // the scar: a wide, soft cut
+                float lip = Mathf.Exp(-Mathf.Pow((r - 0.22f) / 0.09f, 2f));         // and a rough raised band above it
+                float fibre = vn(u * 140f, w * 6f, 140, 6, 5) * 0.6f + vn(u * 60f, w * 3f, 60, 3, 7) * 0.4f;   // long streaks up the trunk
+                float crack = Mathf.Pow(Mathf.Max(0f, vn(u * 90f, w * Rings * 1.5f, 90, 12, 13) - 0.72f) / 0.28f, 1.5f);   // short vertical cracks
+                float rough = vn(u * 40f, w * 40f, 40, 40, 17), blot = vn(u * 5f, w * 5f, 5, 5, 11);
+                h[y * N + x] = 0.55f + lip * 0.30f - groove * 0.6f + (fibre - 0.5f) * 0.22f - crack * 0.35f + (rough - 0.5f) * 0.12f * lip;
+                float tone = 0.86f + (fibre - 0.5f) * 0.26f + (blot - 0.5f) * 0.16f + ringTone * 0.16f + lip * 0.08f - groove * 0.36f - crack * 0.30f + (rough - 0.5f) * 0.14f * lip;
+                var bc = new Color(0.50f, 0.43f, 0.35f) * tone;                      // weathered grey-brown
+                c[y * N + x] = new Color(Mathf.Clamp01(bc.r), Mathf.Clamp01(bc.g), Mathf.Clamp01(bc.b), 1f);
+            }
+        for (int y = 0; y < N; y++)
+            for (int x = 0; x < N; x++)
+            {
+                float dx = h[y * N + (x + 1) % N] - h[y * N + (x + N - 1) % N];
+                float dy = h[((y + 1) % N) * N + x] - h[((y + N - 1) % N) * N + x];
+                var v3 = new Vector3(-dx * 6f, -dy * 6f, 1f).normalized;
+                nn[y * N + x] = new Color(v3.x * 0.5f + 0.5f, v3.y * 0.5f + 0.5f, v3.z * 0.5f + 0.5f, 1f);   // alpha 1: read as plain xy everywhere
+            }
+        col = new Texture2D(N, N, TextureFormat.RGBA32, true, false) { name = "palm bark", wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Trilinear, anisoLevel = 8 };
+        col.SetPixels32(c); col.Apply(true, true);
+        nrm = new Texture2D(N, N, TextureFormat.RGBA32, true, true) { name = "palm bark relief", wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Trilinear, anisoLevel = 8 };
+        nrm.SetPixels32(nn); nrm.Apply(true, true);
     }
 
     // ---- the Surf sign on the palm, made to read ----
