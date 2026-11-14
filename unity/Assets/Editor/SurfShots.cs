@@ -51,8 +51,8 @@ public static class SurfShots
             if (t > at)
             {
                 // the start again too (it does nothing once a run is going), in case the world was slow to build
-                if (!shoot && surf != null) { surf.SendMessage("ShotPlay", SendMessageOptions.DontRequireReceiver); surf.SendMessage("ShotDay", Hours[k].hour, SendMessageOptions.DontRequireReceiver); }
-                else Shot(Hours[k].name);
+                if (shoot) Shot(Hours[k].name);
+                else if (surf != null) { surf.SendMessage("ShotPlay", SendMessageOptions.DontRequireReceiver); surf.SendMessage("ShotDay", Hours[k].hour, SendMessageOptions.DontRequireReceiver); }
                 step++;
             }
         }
