@@ -71,6 +71,9 @@ public class Beach : MonoBehaviour
     /// where something sits that, on the web, sits `webOff` (web world axes) from its trunk at web height webY
     Vector3 OnTrunk(float webY, Vector3 webOff)
     {
+        // measured off the palm as it stands now, so a palm moved by hand (or by a saved layout)
+        // takes its sign and its board with it
+        if (palmGo != null && trunkOk) { trunkA = palmGo.transform.TransformPoint(Vector3.zero); trunkB = palmGo.transform.TransformPoint(new Vector3(0f, 0.5f, 0f)); }
         var off = new Vector3(-webOff.x, webOff.y, webOff.z) * trunkK;      // the set is mirrored across x here
         if (!trunkOk) return new Vector3(0f, webY, 0f) + off;
         float y = trunkA.y + (webY - WebFootY) * trunkK;
@@ -177,6 +180,7 @@ public class Beach : MonoBehaviour
         PaintSign(sign);
         var sAt = OnTrunk(8.797f, new Vector3(0.045f, 0.116f, 0.842f));
         Settle(sign, sAt.x, sAt.y, sAt.z, true);
+        sign.transform.SetParent(palm.transform, true);                 // moves with the palm
         // the board propped into the crook of the trunk
         SetBoard(SaveData.S.equipped);
         // the surf shop, standing on the sand on the left, its own patch of sand sunk a little into the beach's
@@ -203,8 +207,10 @@ public class Beach : MonoBehaviour
             arm.transform.position = new Vector3(-postAt.x, postAt.y - postHeight / 2f + postHeight * (i + 0.5f) / 3f, postAt.z);
             arm.transform.rotation = post.rotation;
             var bc = arm.AddComponent<BoxCollider>(); bc.size = new Vector3(Mathf.Max(b.size.x, 1.2f), postHeight / 3f, Mathf.Max(b.size.z, 0.8f));
+            arm.transform.SetParent(post, true);                         // the tap areas go wherever the post goes
         }
         LiftPost(postGo);
+        LoadLayout();
         // the coconuts in the crown and the split shells on the sand
         Coconuts();
         // the clouds and the gulls, far out over the water
@@ -247,7 +253,7 @@ public class Beach : MonoBehaviour
             go.transform.rotation = turn;
             go.transform.localScale = new Vector3(cocoHeight * 0.86f, cocoHeight, cocoHeight * 0.86f);   // a husked nut is an egg, not a ball
             go.transform.position = OnTrunk(10.891f, nutAt[i]);
-            cocos[i] = go.transform; cocoHome[i] = go.transform.position; cocoTurn[i] = turn; cocoPhase[i] = a2;
+            cocos[i] = go.transform; cocoHome[i] = palmGo != null ? palmGo.transform.InverseTransformPoint(go.transform.position) : go.transform.position; cocoTurn[i] = turn; cocoPhase[i] = a2;
         }
         // on the sand: two half shells, one open to the sky and one mouth down, as the web lays them
         var bowlAt = new[] { new Vector3(-15.42f, 3.58f, -46.89f), new Vector3(-12.55f, 3.76f, -46.06f) };
@@ -322,7 +328,7 @@ public class Beach : MonoBehaviour
             float s1 = Mathf.Sin(t * 0.83f + a2 * 2.1f), s2 = Mathf.Sin(t * 1.45f + a2 * 3.7f);
             float amp = cocoHeight * 0.15f * gu;
             // the web's offsets, with x and the z-turn mirrored like everything else on the set
-            cocos[i].position = cocoHome[i] + new Vector3(-amp * (s1 * 0.80f + s2 * 0.30f), -amp * Mathf.Abs(s1) * 0.22f, amp * (s2 * 0.70f - s1 * 0.25f));
+            cocos[i].position = (palmGo != null ? palmGo.transform.TransformPoint(cocoHome[i]) : cocoHome[i]) + new Vector3(-amp * (s1 * 0.80f + s2 * 0.30f), -amp * Mathf.Abs(s1) * 0.22f, amp * (s2 * 0.70f - s1 * 0.25f));
             cocos[i].rotation = Quaternion.Euler(0.11f * gu * s1 * Mathf.Rad2Deg, 0, -0.11f * gu * s2 * Mathf.Rad2Deg) * cocoTurn[i];
         }
         for (int i = 0; i < bowls.Length; i++)
@@ -524,6 +530,7 @@ public class Beach : MonoBehaviour
         leanBoard.transform.rotation = Quaternion.Euler(R(boardTurn));
         var bAt = OnTrunk(4.625f, new Vector3(-1.186f, 0.215f, 0.653f));   // propped against the trunk, as on the web
         Settle(leanBoard, bAt.x, bAt.y, bAt.z, true);
+        if (palmGo != null) leanBoard.transform.SetParent(palmGo.transform, true);
     }
 
     GameObject Prop(string n, GameObject go, Vector3 turn, bool flip)
@@ -703,6 +710,59 @@ public class Beach : MonoBehaviour
         }
     }
 
+    // ---- a layout set by hand ----
+    // In the editor, while the game plays: move the shop, the signpost, the chest, the palm (its sign,
+    // nuts and board go with it) or PugSpot (where the rider stands) with the scene view's tools, and
+    // set the lens here in the inspector (camAt, camTurn, camFov, focusDist: the shot follows live).
+    // Then "Save layout" from this component's menu writes it all to Resources/beach_layout.json, which
+    // is loaded on every build of the beach, the phone's included. Commit the file to keep it.
+    const string LayoutFile = "beach_layout";
+    static readonly string[] Movable = { "SurfShop", "Signpost", "Chest", "Palm", "PugSpot" };
+    [System.Serializable] class LayoutItem { public string name; public Vector3 pos, rot, scale; }
+    [System.Serializable] class Layout { public List<LayoutItem> items = new List<LayoutItem>(); public Vector3 camAt, camTurn; public float camFov, focusDist, pugFace, pugScale; }
+
+    void LoadLayout()
+    {
+        var ta = Resources.Load<TextAsset>(LayoutFile); if (ta == null) return;
+        Layout l; try { l = JsonUtility.FromJson<Layout>(ta.text); } catch { return; }
+        if (l == null) return;
+        if (l.camFov > 1f) { camAt = l.camAt; camTurn = l.camTurn; camFov = l.camFov; }
+        if (l.focusDist > 0f) focusDist = l.focusDist;
+        if (l.pugScale > 0f) { pugFace = l.pugFace; pugScale = l.pugScale; }
+        if (l.items != null)
+            foreach (var it in l.items)
+            {
+                var t = root.transform.Find(it.name); if (t == null) continue;
+                t.position = it.pos; t.eulerAngles = it.rot; if (it.scale != Vector3.zero) t.localScale = it.scale;
+            }
+        if (palmGo != null && leanBoard != null) SetBoard(SaveData.S.equipped);   // the board back against the trunk where it now is
+    }
+
+#if UNITY_EDITOR
+    [ContextMenu("Save layout")]
+    void SaveLayout()
+    {
+        if (root == null) { Debug.LogWarning("Surf: press Play first, then set the beach out and save it"); return; }
+        var l = new Layout { camAt = camAt, camTurn = camTurn, camFov = camFov, focusDist = focusDist, pugFace = pugFace, pugScale = pugScale };
+        foreach (var n in Movable)
+        {
+            var t = root.transform.Find(n); if (t == null) continue;
+            l.items.Add(new LayoutItem { name = n, pos = t.position, rot = t.eulerAngles, scale = t.localScale });
+        }
+        System.IO.Directory.CreateDirectory("Assets/Resources");
+        System.IO.File.WriteAllText("Assets/Resources/" + LayoutFile + ".json", JsonUtility.ToJson(l, true));
+        UnityEditor.AssetDatabase.Refresh();
+        Debug.Log("Surf: beach layout saved to Assets/Resources/" + LayoutFile + ".json -- commit it in GitHub Desktop to keep it");
+    }
+
+    [ContextMenu("Forget saved layout")]
+    void ForgetLayout()
+    {
+        UnityEditor.AssetDatabase.DeleteAsset("Assets/Resources/" + LayoutFile + ".json");
+        Debug.Log("Surf: saved beach layout removed; the next Play uses the built-in one");
+    }
+#endif
+
     // ---- the signpost stands clear of the sand ----
     // Placed at the web's height, its bottom arm went into the dune here (the sand under it stands
     // higher than the web's did). The arms are the whole post, so it is lifted, colliders and all,
@@ -716,8 +776,7 @@ public class Beach : MonoBehaviour
                 top = Mathf.Max(top, GroundTop(Mathf.Lerp(b.min.x, b.max.x, i / 4f), Mathf.Lerp(b.min.z, b.max.z, j / 2f)));
         float lift = top + 0.12f - b.min.y;
         if (lift <= 0f || lift > 3f) return;                                     // clear already, or the sand read is not to be trusted
-        postGo.transform.position += Vector3.up * lift;
-        foreach (Transform c in root.transform) if (c.name.StartsWith("arm:")) c.position += Vector3.up * lift;
+        postGo.transform.position += Vector3.up * lift;              // its tap areas are its children
         postAt.y += lift;
     }
 
