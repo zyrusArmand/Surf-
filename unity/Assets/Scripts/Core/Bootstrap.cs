@@ -406,6 +406,12 @@ public class Bootstrap : MonoBehaviour
         if (beach != null) beach.SetBoard(b.id);
     }
 
+    // ---- hooks for the automatic screenshots (CI's WebGL build, driven from a test page with
+    // unityInstance.SendMessage("Surf", ...)): start a run as the title's tap does, and pin the
+    // hour so a shot can be taken at sunrise, noon or sunset. Nothing in the game calls them.
+    void ShotPlay() { if (ready && !rider.running) Play(); }
+    void ShotDay(float t) { if (day != null) day.pin = t; }     // 0..2, the cycle's own clock; below 0 follows the run again
+
     void Play()
     {
         spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset(); island.Reset(); chute.Reset(); boat.Reset();

@@ -21,6 +21,19 @@ public static class SurfSetup
         EditorApplication.delayCall += Run;
     }
 
+    /// the same set-up, run straight through and allowed to fail loudly: for a build on a machine
+    /// that has never opened the project (SurfCI), where nothing waits for the editor's delayCall
+    public static void Prepare()
+    {
+        EnsurePipeline();
+        EnsureAmbientOcclusion();
+        EnsureShaderKeep();
+        EnsurePlayerSettings();
+        EnsureScene();
+        EnsureModels();
+        EnsureTextures();
+    }
+
     [MenuItem("Surf/Set up project")]
     public static void Run()
     {

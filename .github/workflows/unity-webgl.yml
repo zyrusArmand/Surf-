@@ -1,0 +1,101 @@
+name: Unity WebGL build
+
+# Builds the Unity port (unity/) as a WebGL player and publishes it as the asset of one
+# rolling pre-release, tag "unity-webgl", replaced on every build. A headless browser can then
+# download it, run the real game and take screenshots at sunrise, noon and sunset without anyone
+# opening Unity. Uses GameCI (game-ci/unity-builder), which needs a Unity licence in the repo's
+# Actions secrets: UNITY_LICENSE (the whole .ulf file), UNITY_EMAIL and UNITY_PASSWORD. Until
+# those are there every run stops at the first step, green, with a note saying so.
+#
+# Not part of the Pages deploy (pages.yml): a Unity build takes many minutes and the web game
+# should keep shipping in one.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'unity/**'
+      - '.github/workflows/unity-webgl.yml'
+
+permissions:
+  contents: write
+
+# a newer push already contains the older one; only the newest build is worth finishing
+concurrency:
+  group: unity-webgl
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Check for the Unity licence
+        id: lic
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        run: |
+          if [ -n "$UNITY_LICENSE" ]; then echo "ok=true" >> "$GITHUB_OUTPUT";
+          else echo "ok=false" >> "$GITHUB_OUTPUT"; echo "::notice::No UNITY_LICENSE secret yet, so no Unity build. Add UNITY_LICENSE, UNITY_EMAIL and UNITY_PASSWORD under Settings > Secrets and variables > Actions."; fi
+
+      # the Unity editor image is large; the runner's preinstalled SDKs are not needed here
+      - name: Free disk space
+        if: steps.lic.outputs.ok == 'true'
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+
+      - uses: actions/checkout@v4
+        if: steps.lic.outputs.ok == 'true'
+
+      # the imported project (Library) is most of a build's time; kept between runs
+      - uses: actions/cache@v4
+        if: steps.lic.outputs.ok == 'true'
+        with:
+          path: unity/Library
+          key: Library-WebGL-${{ hashFiles('unity/Assets/**', 'unity/Packages/**', 'unity/ProjectSettings/**') }}
+          restore-keys: |
+            Library-WebGL-
+
+      - name: Build
+        if: steps.lic.outputs.ok == 'true'
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: unity
+          targetPlatform: WebGL
+          buildName: surf
+          buildMethod: SurfCI.BuildWebGL
+          versioning: None
+          # the project's own set-up writes its settings during the build
+          allowDirtyBuild: true
+
+      - name: Package
+        if: steps.lic.outputs.ok == 'true'
+        run: |
+          cd build/WebGL/surf
+          echo "${GITHUB_SHA}" | sudo tee commit.txt > /dev/null
+          zip -qr "$GITHUB_WORKSPACE/surf-webgl.zip" .
+          ls -la "$GITHUB_WORKSPACE/surf-webgl.zip"
+
+      - name: Publish
+        if: steps.lic.outputs.ok == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: unity-webgl
+          name: Unity WebGL build (latest)
+          body: Built from ${{ github.sha }}. Replaced on every build.
+          prerelease: true
+          make_latest: false
+          overwrite_files: true
+          files: surf-webgl.zip
