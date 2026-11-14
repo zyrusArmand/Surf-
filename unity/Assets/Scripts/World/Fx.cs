@@ -98,8 +98,10 @@ public class Fx : MonoBehaviour
         // fading evenly rather than eroding into torn pieces; the outline mostly from a mip two
         // steps blurrier and rounded off well inside the tile, so the puffs melt into one mass;
         // the shading evened out a good way toward all-round light, as whitewater's is
-        m.SetVector("_Edge", new Vector4(0f, 2f, 0.8f, 1f));
-        m.SetFloat("_Lift", 0.6f);
+        // spray, not cloud: lit nearly evenly from all round (water scatters light; a cloud's dark
+        // underside on each puff made a row of little cumulus), and its thin parts wisping away as it fades
+        m.SetVector("_Edge", new Vector4(0.45f, 2f, 0.8f, 1f));
+        m.SetFloat("_Lift", 0.9f);
         m.SetVector("_Tiles", new Vector4(4f, 2f, 0f, 0f));
         m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
         return m;
@@ -415,28 +417,31 @@ public class Fx : MonoBehaviour
         Vector3 fwd = tailFwd.sqrMagnitude > 0.5f ? tailFwd.normalized : Vector3.forward * -1f;
         if (puffs != null)
         {
-            sprayAcc += dt * rate * 230f * m;
+            sprayAcc += dt * rate * 380f * m;
             while (sprayAcc >= 1f)
             {
                 sprayAcc -= 1f;
                 // most of it in the middle of the fan, thinning to its edges
                 float fan = Mathf.Clamp01(0.5f + (Random.value + Random.value - 1f) * 0.6f);
-                float spd = (3f + 5f * Random.value) * reach;
-                float w = (1.0f + 0.8f * Random.value) * (0.7f + 0.5f * m) * (fastFx ? 1.25f : 1f);
+                float spd = (2f + 8f * Random.value) * reach;
+                // mostly small, a few big: a mass with a ragged edge, not a row of even balls
+                float rs = Random.value;
+                float w = (0.45f + 1.1f * rs * rs) * (0.7f + 0.5f * m) * (fastFx ? 1.25f : 1f);
+                var jit = Random.insideUnitSphere * 0.45f;
                 puffs.Emit(new ParticleSystem.EmitParams
                 {
-                    position = tail + fwd * (-0.2f + 0.8f * Random.value) + new Vector3(outward * 0.3f * Random.value, 0.15f + 0.3f * Random.value, flow * dt * Random.value),
-                    velocity = FanDir(fan, outward, fwd) * spd + new Vector3(0f, 0f, flow * 0.55f),
+                    position = tail + fwd * (-0.2f + 0.8f * Random.value) + jit + new Vector3(outward * 0.3f * Random.value, 0.15f + 0.3f * Random.value, flow * dt * Random.value),
+                    velocity = FanDir(fan, outward, fwd) * spd + jit * 2f + new Vector3(0f, 0f, flow * 0.55f),
                     startSize3D = new Vector3(w, w * (0.85f + 0.2f * Random.value), 1f),
-                    startLifetime = 0.35f + 0.25f * Random.value,
-                    startColor = new Color(1f, 1f, 1f, 0.75f + 0.2f * Random.value),
+                    startLifetime = 0.3f + 0.25f * Random.value,
+                    startColor = new Color(1f, 1f, 1f, 0.45f + 0.3f * Random.value),   // see-through: dense only where many overlap
                     rotation = 0f
                 }, 1);
             }
         }
         if (carve != null)
         {
-            dotAcc += dt * rate * 260f * m;
+            dotAcc += dt * rate * 420f * m;
             while (dotAcc >= 1f)
             {
                 dotAcc -= 1f;

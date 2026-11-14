@@ -563,7 +563,9 @@ Shader "Surf/Ocean"
                     float arms = exp(-(ax - armF) * (ax - armF) / (0.30 + 0.07 * max(dz, 0.0)));
                     // the arms are mostly glassy ridges, the light off their shape; the foam is the churn
                     // close behind the board, with only a little lace out along the arms
-                    float wf = along * max(churn, arms * 0.45 * exp(-max(dz, 0.0) / 7.0)) * _WakeA * 1.6;
+                    // (the arms' own faint foam is gone: at half strength it drew two grey stripes, like ski
+                    // tracks, beside the rails' foam; the arms stay as ridges, lit by their shape)
+                    float wf = along * churn * _WakeA * 1.6;
                     foam = max(foam, wf * (0.6 + 0.4 * lace));
                 }
                 col = lerp(col, float3(0.94, 0.97, 1.0), foam * 0.66);
@@ -583,8 +585,9 @@ Shader "Surf/Ocean"
                     {
                         float age = saturate(back / 45.0);
                         float2 q = float2(i.w.x, i.w.z - _Run);
-                        float2 qs = float2(q.x, q.y * 0.32);                       // drawn out along the track
+                        float2 qs = float2(q.x, q.y * 0.6);                        // drawn out a little along the track
                         float n1 = fbm(qs * 1.3), n2 = fbm(qs * 3.6 + 7.1), n3 = fbm(q * 9.0 + 3.3);
+                        float holes = smoothstep(0.34, 0.52, fbm(q * 5.5 + 1.7));    // the bubbles foam is made of, open between them
                         float startF = smoothstep(-1.2, 0.3, dzr), wk = saturate(_WakeA * 2.6);
                         float lineF = 0.0, laceF = 0.0;
                         [unroll] for (int sd = 0; sd < 2; sd++)
@@ -603,13 +606,14 @@ Shader "Surf/Ocean"
                         float fray = 0.55 * age;
                         float lineV = lineF * smoothstep(fray, fray + 0.18, n2 * 0.7 + n1 * 0.5) * exp(-back / 40.0);
                         float breakT = lerp(0.30, 0.66, age);
-                        float laceV = laceF * smoothstep(breakT, breakT + 0.20, n1 * 0.6 + n2 * 0.5) * exp(-back / 24.0);
+                        float laceV = laceF * smoothstep(breakT, breakT + 0.20, n1 * 0.6 + n2 * 0.5) * holes * exp(-back / 24.0);
                         float speck = smoothstep(0.80, 0.90, n3) * saturate(laceF * 1.6) * exp(-back / 18.0);
-                        float rf = saturate(max(lineV, laceV * 0.85) + speck * 0.6) * startF * wk;
+                        // foam is there or it is not: no half-strength grey film
+                        float rf = smoothstep(0.18, 0.55, saturate(max(lineV, laceV * 0.85) + speck * 0.6)) * startF * wk;
                         // the slick between the lines, from a few feet back (the churn right behind the tail stays white)
                         float halfL = 0.58 + back * 0.06;
                         float slick = (1.0 - smoothstep(halfL - 0.25, halfL, abs(i.w.x - cxr))) * smoothstep(2.0, 6.0, back) * exp(-back / 30.0) * wk;
-                        col = lerp(col, col * float3(0.80, 0.86, 0.88), slick * 0.45);
+                        col = lerp(col, col * float3(0.80, 0.86, 0.88), slick * 0.18);
                         col = lerp(col, float3(0.95, 0.975, 1.0) * lerp(0.80, 1.0, saturate(_Light)), rf * 0.92);
                         foam = max(foam, rf);
                     }
