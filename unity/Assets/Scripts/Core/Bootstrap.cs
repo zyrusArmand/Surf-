@@ -5,7 +5,7 @@ using UnityEngine;
 
 public class Bootstrap : MonoBehaviour
 {
-    BoardController rider; Spawner spawner; ChaseCamera chase; Hud hud; DayCycle day; Ocean ocean;
+    BoardController rider; Spawner spawner; ChaseCamera chase; Hud hud; DayCycle day; Ocean ocean; Intro intro;
     Fx fx;
     ParticleSystem spray; Transform rig, pug; RiderRig riderRig; ProcRig procRig; float wakeA;
     Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop; Coconuts cocos; Ufo ufo; Dive dive; Island island; Chute chute;
@@ -187,6 +187,7 @@ public class Bootstrap : MonoBehaviour
         spawner.onSplat = c => splat.Show(c);
         spawner.onClearSplat = () => splat.Hide();
         hud.Build();
+        intro = gameObject.AddComponent<Intro>(); intro.logo = hud.Logo; intro.menu = hud.Menu;   // the opening, once the world is up
         crate.ceremony = new GameObject("ChestCeremony").AddComponent<ChestCeremony>(); crate.ceremony.cam = cam; crate.ceremony.ui = hud.UiRoot;
         boat = new GameObject("Boat").AddComponent<Boat>(); boat.rider = rider; boat.spawner = spawner; boat.chase = chase; boat.dive = dive;
         boat.rig = rig; boat.ui = hud.UiRoot; boat.sea = ocean.material; boat.onSplash = rider.onSplash;
@@ -253,6 +254,7 @@ public class Bootstrap : MonoBehaviour
         Menu();
         ApplyGfx();
         ready = true; load.Hide();
+        intro.Begin();
     }
 
     /// the rider's (and what he wears') opaque materials onto Surf/Character, keeping their
@@ -604,6 +606,7 @@ public class Bootstrap : MonoBehaviour
             bool paneOpen = shop.Open || quests.Open || stats.Open || settings.Open || school.Open || profile.Open || guide.Open || wheel.Open || levelInfo.Open || puka.Open || secret.Open;
             // the signpost is the title's; once the lens has turned toward the board it is not in shot
             if (questBoard != null && questBoard.Away > 0.01f) paneOpen = true;
+            if (intro != null && intro.Busy) paneOpen = true;          // a tap through the opening skips it, and does nothing else
             // a phone reports every touch as a mouse click as well: the mouse is read only when there
             // is no touch, or one tap pressed the arm twice and a pill over an arm pressed both
             if (Input.touchCount == 0 && Input.GetMouseButtonDown(0) && !UiKit.OverUI(Input.mousePosition) && !paneOpen) beach.Tap(cam, Input.mousePosition);
@@ -735,7 +738,7 @@ public class Bootstrap : MonoBehaviour
             fx.tailHalfW = (hullMax.x - hullMin.x) * 0.5f * Mathf.Abs(bt.lossyScale.x);
         }
         fx.Step(dt, pm.startColor.color);
-        if (beach.Showing) { beach.PlaceCamera(cam, dt); if (questBoard != null) questBoard.Step(cam, dt); }
+        if (beach.Showing) { beach.PlaceCamera(cam, dt); intro.Place(cam); if (questBoard != null) questBoard.Step(cam, dt); }
         else chase.Step(dt);
     }
 }
