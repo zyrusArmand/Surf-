@@ -20,12 +20,16 @@ public class DayCycle : MonoBehaviour
     static Key K(float t, uint top, uint mid, uint hz, uint glow, float g, float sx, float sy, float mx = 0f, float my = -0.5f)
         => new Key { t = t, top = C(top), mid = C(mid), hz = C(hz), glow = C(glow), gAmt = g, sunX = sx, sunY = sy, mX = mx, mY = my };
 
+    // The sunrise (0 to 0.34, where every run starts) from reference photographs of beach sunrises:
+    // indigo overhead, pink and lavender through the middle, coral to gold along the horizon, a
+    // strong glow round the sun. It was the web's paler set -- grey-lilac, a cream horizon -- which
+    // read washed out, and since the sea mirrors the middle and horizon colours, left the water slate.
     static readonly Key[] Keys = {
-        K(0.00f, 0x3a3f6e, 0x8f7f9e, 0xd7b6b8, 0xe0ab8c, 0.26f, -0.66f, -0.205f),
-        K(0.05f, 0x4a5480, 0xac96a8, 0xf0c9a8, 0xffb877, 0.40f, -0.63f, -0.088f),
-        K(0.11f, 0x3f6ea8, 0xc7a98f, 0xffcf8a, 0xffc061, 0.62f, -0.58f,  0.038f),
-        K(0.20f, 0x357ec0, 0xbfc9d8, 0xffdda8, 0xffd489, 0.44f, -0.47f,  0.190f),
-        K(0.34f, 0x3a86cc, 0xc3d3ea, 0xf2f0e4, 0xfff2d6, 0.22f, -0.30f,  0.520f),
+        K(0.00f, 0x262c66, 0x76569a, 0xe98a86, 0xff9a6a, 0.34f, -0.66f, -0.205f),
+        K(0.05f, 0x30407e, 0xa8689e, 0xff9a72, 0xffa860, 0.52f, -0.63f, -0.088f),
+        K(0.11f, 0x35589e, 0xc886a6, 0xffaa6c, 0xffb350, 0.74f, -0.58f,  0.038f),
+        K(0.20f, 0x3a72b6, 0xd4a2b4, 0xffc488, 0xffc464, 0.56f, -0.47f,  0.190f),
+        K(0.34f, 0x3a86cc, 0xb9cfea, 0xf6e8d2, 0xfff0d0, 0.24f, -0.30f,  0.520f),
         K(0.50f, 0x3f8fd6, 0x8fd2f5, 0xe6f4fd, 0xfff8ea, 0.09f, -0.03f,  0.930f),
         K(0.66f, 0x4088cf, 0xa9d6ef, 0xffe6bd, 0xffd287, 0.22f,  0.26f,  0.520f),
         K(0.80f, 0x3d6fb4, 0xc9a6c0, 0xffa863, 0xff8f3c, 0.46f,  0.45f,  0.190f),
@@ -36,7 +40,7 @@ public class DayCycle : MonoBehaviour
         K(1.35f, 0x02040e, 0x06091a, 0x0e1226, 0x18203a, 0.03f,  0.95f, -0.64f,  -0.34f,  0.52f),
         K(1.62f, 0x03060f, 0x080d1e, 0x14182e, 0x1c2440, 0.04f, -0.95f, -0.64f,   0.10f,  0.72f),
         K(1.86f, 0x101a3c, 0x2c2856, 0x4e3458, 0x8a4442, 0.16f, -0.78f, -0.40f,   0.52f,  0.31f),
-        K(2.00f, 0x3a3f6e, 0x8f7f9e, 0xd7b6b8, 0xe0ab8c, 0.26f, -0.66f, -0.205f,  0.70f, -0.10f),
+        K(2.00f, 0x262c66, 0x76569a, 0xe98a86, 0xff9a6a, 0.34f, -0.66f, -0.205f,  0.70f, -0.10f),
     };
 
     const float DayM = 5600f, NightM = 3400f, CycleM = DayM + NightM, DayStart = 0.18f;
@@ -93,8 +97,9 @@ public class DayCycle : MonoBehaviour
         float light = 0.18f + 0.82f * daylight + 0.22f * moonUp * (1f - daylight);
         if (beachLook)
         {
-            // the web title screen: deep blue zenith to a warm horizon, the sun low and left
-            top = C(0x123a63); mid = C(0x577593); hz = C(0xd9a463); glow = C(0xffc073); glowAmt = 0.74f;
+            // the title: a beach sunrise as the ride's now is, indigo to pink to a coral-gold horizon
+            // (was the web title's deep blue to grey-blue to sand)
+            top = C(0x2a3a82); mid = C(0xb07aa8); hz = C(0xffa86a); glow = C(0xffb35c); glowAmt = 0.78f;
             sunDir = new Vector3(-0.3f * 130f, 0.08f * 118f, -195f).normalized; daylight = 1f; light = 1f;   // mirrored with the set
             moonUp = 0f; moonAmt = 0f; nightAmt = 0f;
         }
