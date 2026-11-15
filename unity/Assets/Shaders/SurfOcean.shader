@@ -558,8 +558,8 @@ Shader "Surf/Ocean"
                     // straight edge across the water behind the board), and following the wake's V: a
                     // churned strip straight behind, and foam along the two arms as they open
                     float ax = abs(i.w.x - wakeCx(dz)), armF = 0.55 + 0.30 * max(dz, 0.0);
-                    float along = smoothstep(-1.6, -0.2, dz) * exp(-max(dz, 0.0) / 14.0);   // from where the rails meet the water, as the ridges do
-                    float churn = saturate(1.0 - ax / (0.6 + 0.12 * max(dz, 0.0))) * 0.75 * smoothstep(-0.3, 0.8, dz);
+                    float along = smoothstep(-1.6, -0.2, dz) * exp(-max(dz, 0.0) / 8.0);    // from where the rails meet the water, as the ridges do
+                    float churn = saturate(1.0 - ax / (0.45 + 0.08 * max(dz, 0.0))) * 0.6 * smoothstep(-0.3, 0.8, dz);
                     float arms = exp(-(ax - armF) * (ax - armF) / (0.30 + 0.07 * max(dz, 0.0)));
                     // the arms are mostly glassy ridges, the light off their shape; the foam is the churn
                     // close behind the board, with only a little lace out along the arms
@@ -581,39 +581,41 @@ Shader "Surf/Ocean"
                     float dzr = (i.w.z + _Dist) - (_Dist + _WakeZ);
                     float back = max(dzr, 0.0);
                     float cxr = wakeCx(dzr);
-                    if (dzr > -2.0 && dzr < 60.0 && abs(i.w.x - cxr) < 3.6 + back * 0.20)
+                    if (dzr > -2.0 && dzr < 60.0 && abs(i.w.x - cxr) < 3.6 + back * 0.25)
                     {
+                        // (worked out in a browser test bed of this same code, from the chase camera's
+                        // view, against reference footage: two thin crisp lines, and off the outside of
+                        // each the wash the rail throws, fine and streaky, fading outward -- wide on the
+                        // outside of a turn. Big holes cut through a broad band read as camouflage.)
                         float age = saturate(back / 45.0);
                         float2 q = float2(i.w.x, i.w.z - _Run);
-                        float2 qs = float2(q.x, q.y * 0.6);                        // drawn out a little along the track
-                        float n1 = fbm(qs * 1.3), n2 = fbm(qs * 3.6 + 7.1), n3 = fbm(q * 9.0 + 3.3);
-                        float holes = smoothstep(0.34, 0.52, fbm(q * 5.5 + 1.7));    // the bubbles foam is made of, open between them
+                        float nC = fbm(float2(q.x, q.y * 0.25) * 1.1);                 // broad, drawn out along the track
+                        float nF = fbm(float2(q.x * 7.0, q.y * 2.0) + 3.1);            // fine streaks along it
+                        float nB = fbm(q * 16.0 + 1.7);                                // bubbles
                         float startF = smoothstep(-1.2, 0.3, dzr), wk = saturate(_WakeA * 2.6);
-                        float lineF = 0.0, laceF = 0.0;
+                        float lineF = 0.0, washF = 0.0;
                         [unroll] for (int sd = 0; sd < 2; sd++)
                         {
                             float sgn = sd == 0 ? -1.0 : 1.0;
                             float outside = saturate(sgn * _WakeC);
-                            float ax = abs(i.w.x - (cxr + sgn * (0.58 + back * 0.06 * (1.0 + 1.6 * outside))));
-                            // the line: narrow and crisp-edged, right on the rail's track
-                            float cw = 0.09 + back * 0.010;
-                            lineF = max(lineF, (1.0 - smoothstep(cw * 0.55, cw, ax)) * (0.9 + 0.3 * outside));
-                            // the lace round it, widest on the outside of a hard turn
-                            float fw = (0.30 + back * 0.045) * (1.0 + 2.2 * outside * outside);
-                            laceF = max(laceF, exp(-ax * ax / (fw * fw)) * (0.75 + 0.5 * outside));
+                            float rx = cxr + sgn * (0.58 + back * 0.06 * (1.0 + 1.6 * outside));
+                            float ax = abs(i.w.x - rx);
+                            // the line: thin and crisp, right on the rail's track
+                            float cw = 0.09 + back * 0.008;
+                            lineF = max(lineF, 1.0 - smoothstep(cw * 0.5, cw, ax + (nF - 0.5) * 0.05));
+                            // the wash off its outer side, fading outward, widest off the outside of a turn
+                            float side = sgn * (i.w.x - rx);
+                            float ww = (0.22 + back * 0.05) * (0.5 + 2.6 * outside);
+                            float wash = smoothstep(-0.08, 0.04, side) * exp(-max(side, 0.0) / ww);
+                            washF = max(washF, wash * (0.30 + 0.70 * outside));
                         }
-                        // whole close behind the board, frayed into pieces further back
-                        float fray = 0.55 * age;
-                        float lineV = lineF * smoothstep(fray, fray + 0.18, n2 * 0.7 + n1 * 0.5) * exp(-back / 40.0);
-                        float breakT = lerp(0.30, 0.66, age);
-                        float laceV = laceF * smoothstep(breakT, breakT + 0.20, n1 * 0.6 + n2 * 0.5) * holes * exp(-back / 24.0);
-                        float speck = smoothstep(0.80, 0.90, n3) * saturate(laceF * 1.6) * exp(-back / 18.0);
-                        // foam is there or it is not: no half-strength grey film
-                        float rf = smoothstep(0.18, 0.55, saturate(max(lineV, laceV * 0.85) + speck * 0.6)) * startF * wk;
-                        // the slick between the lines, from a few feet back (the churn right behind the tail stays white)
+                        float lineV = lineF * smoothstep(0.55 * age, 0.55 * age + 0.2, nC * 0.6 + nF * 0.5) * exp(-back / 45.0);
+                        float washV = washF * smoothstep(0.28, 0.52, nF * 0.55 + nB * 0.45 + (washF - 0.5) * 0.55) * exp(-back / 26.0);
+                        float speck = smoothstep(0.78, 0.88, nB) * washF * exp(-back / 14.0) * 0.6;
+                        float rf = saturate(max(lineV, washV) + speck) * startF * wk;
                         float halfL = 0.58 + back * 0.06;
                         float slick = (1.0 - smoothstep(halfL - 0.25, halfL, abs(i.w.x - cxr))) * smoothstep(2.0, 6.0, back) * exp(-back / 30.0) * wk;
-                        col = lerp(col, col * float3(0.80, 0.86, 0.88), slick * 0.18);
+                        col = lerp(col, col * float3(0.82, 0.88, 0.90), slick * 0.25);
                         col = lerp(col, float3(0.95, 0.975, 1.0) * lerp(0.80, 1.0, saturate(_Light)), rf * 0.92);
                         foam = max(foam, rf);
                     }

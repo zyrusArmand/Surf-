@@ -1,0 +1,116 @@
+<!doctype html><html><body style="margin:0;background:#000;position:relative">
+<script src="three.min.js"></script>
+<script>
+const P=new URLSearchParams(location.search), carve=+(P.get('carve')||0), ver=P.get('v')||'old';
+const W=390,H=844;
+const r=new THREE.WebGLRenderer({antialias:true}); r.setSize(W,H); document.body.appendChild(r.domElement);
+const s=new THREE.Scene(); s.background=new THREE.Color(0xf3c99a);
+const cam=new THREE.PerspectiveCamera(66,W/H,0.1,500); cam.position.set(0,4.9,11); cam.lookAt(0,1.05,-14);
+const common=`
+uniform float uCarve, uRun, uWakeZ, uWakeA;
+varying vec3 vW;
+float h21(vec2 p){ p=fract(p*vec2(123.34,345.45)); p+=dot(p,p+34.345); return fract(p.x*p.y); }
+float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f); return mix(mix(h21(i),h21(i+vec2(1,0)),f.x),mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x),f.y); }
+float fbm(vec2 p){ float v=0.0,a=0.5; mat2 m=mat2(1.62,-1.18,1.18,1.62); for(int k=0;k<3;k++){ v+=a*vn(p); p=m*p; a*=0.5;} return v/0.875; }
+float wakeCx(float dz){ return -uCarve*0.30*max(dz,0.0); }   // the board's path behind it: a carve's line
+`;
+const SRC={ old:`
+  float foam=0.0;
+  { float dz=vW.z-uWakeZ; float ax=abs(vW.x-wakeCx(dz));
+    float along=smoothstep(-1.6,-0.2,dz)*exp(-max(dz,0.0)/14.0);
+    float churn=clamp(1.0-ax/(0.6+0.12*max(dz,0.0)),0.0,1.0)*0.75*smoothstep(-0.3,0.8,dz);
+    float wf=along*churn*uWakeA*1.6; foam=max(foam,wf*0.6); }
+  col=mix(col,vec3(0.94,0.97,1.0),foam*0.66);
+  { float dzr=vW.z-uWakeZ; float back=max(dzr,0.0); float cxr=wakeCx(dzr);
+    if(dzr>-2.0&&dzr<60.0&&abs(vW.x-cxr)<3.6+back*0.20){
+      float age=clamp(back/45.0,0.0,1.0); vec2 q=vec2(vW.x,vW.z-uRun); vec2 qs=vec2(q.x,q.y*0.6);
+      float n1=fbm(qs*1.3), n2=fbm(qs*3.6+7.1), n3=fbm(q*9.0+3.3);
+      float holes=smoothstep(0.34,0.52,fbm(q*5.5+1.7));
+      float startF=smoothstep(-1.2,0.3,dzr), wk=clamp(uWakeA*2.6,0.0,1.0);
+      float lineF=0.0, laceF=0.0;
+      for(int sd=0;sd<2;sd++){ float sgn=sd==0?-1.0:1.0; float outside=clamp(sgn*uCarve,0.0,1.0);
+        float ax=abs(vW.x-(cxr+sgn*(0.58+back*0.06*(1.0+1.6*outside))));
+        float cw=0.09+back*0.010; lineF=max(lineF,(1.0-smoothstep(cw*0.55,cw,ax))*(0.9+0.3*outside));
+        float fw=(0.30+back*0.045)*(1.0+2.2*outside*outside); laceF=max(laceF,exp(-ax*ax/(fw*fw))*(0.75+0.5*outside)); }
+      float fray=0.55*age; float lineV=lineF*smoothstep(fray,fray+0.18,n2*0.7+n1*0.5)*exp(-back/40.0);
+      float breakT=mix(0.30,0.66,age); float laceV=laceF*smoothstep(breakT,breakT+0.20,n1*0.6+n2*0.5)*holes*exp(-back/24.0);
+      float speck=smoothstep(0.80,0.90,n3)*clamp(laceF*1.6,0.0,1.0)*exp(-back/18.0);
+      float rf=smoothstep(0.18,0.55,clamp(max(lineV,laceV*0.85)+speck*0.6,0.0,1.0))*startF*wk;
+      float halfL=0.58+back*0.06; float slick=(1.0-smoothstep(halfL-0.25,halfL,abs(vW.x-cxr)))*smoothstep(2.0,6.0,back)*exp(-back/30.0)*wk;
+      col=mix(col,col*vec3(0.80,0.86,0.88),slick*0.18);
+      col=mix(col,vec3(0.95,0.975,1.0),rf*0.92); } }
+`, nu: `  float foam=0.0;
+  { float dz=vW.z-uWakeZ; float ax=abs(vW.x-wakeCx(dz));
+    float along=smoothstep(-1.6,-0.2,dz)*exp(-max(dz,0.0)/8.0);
+    float churn=clamp(1.0-ax/(0.45+0.08*max(dz,0.0)),0.0,1.0)*0.6*smoothstep(-0.3,0.8,dz);
+    float wf=along*churn*uWakeA*1.6; foam=max(foam,wf*0.6); }
+  col=mix(col,vec3(0.94,0.97,1.0),foam*0.66);
+  { float dzr=vW.z-uWakeZ; float back=max(dzr,0.0); float cxr=wakeCx(dzr);
+    if(dzr>-2.0&&dzr<60.0&&abs(vW.x-cxr)<3.6+back*0.25){
+      float age=clamp(back/45.0,0.0,1.0); vec2 q=vec2(vW.x,vW.z-uRun);
+      float nC=fbm(vec2(q.x,q.y*0.25)*1.1);                 // broad, drawn out along the track
+      float nF=fbm(vec2(q.x*7.0,q.y*2.0)+3.1);              // fine streaks along it
+      float nB=fbm(q*16.0+1.7);                             // bubbles
+      float startF=smoothstep(-1.2,0.3,dzr), wk=clamp(uWakeA*2.6,0.0,1.0);
+      float lineF=0.0, washF=0.0;
+      for(int sd=0;sd<2;sd++){ float sgn=sd==0?-1.0:1.0; float outside=clamp(sgn*uCarve,0.0,1.0);
+        float rx=cxr+sgn*(0.58+back*0.06*(1.0+1.6*outside));
+        float ax=abs(vW.x-rx);
+        float cw=0.09+back*0.008;
+        lineF=max(lineF,1.0-smoothstep(cw*0.5,cw,ax+(nF-0.5)*0.05));
+        float side=sgn*(vW.x-rx);                               // feet out from the line, outward
+        float ww=(0.22+back*0.05)*(0.5+2.6*outside);
+        float wash=smoothstep(-0.08,0.04,side)*exp(-max(side,0.0)/ww);
+        washF=max(washF,wash*(0.30+0.70*outside)); }
+      float lineV=lineF*smoothstep(0.55*age,0.55*age+0.2,nC*0.6+nF*0.5)*exp(-back/45.0);
+      float washV=washF*smoothstep(0.28,0.52,nF*0.55+nB*0.45+(washF-0.5)*0.55)*exp(-back/26.0);
+      float speck=smoothstep(0.78,0.88,nB)*washF*exp(-back/14.0)*0.6;
+      float rf=clamp(max(lineV,washV)+speck,0.0,1.0)*startF*wk;
+      float halfL=0.58+back*0.06; float slick=(1.0-smoothstep(halfL-0.25,halfL,abs(vW.x-cxr)))*smoothstep(2.0,6.0,back)*exp(-back/30.0)*wk;
+      col=mix(col,col*vec3(0.82,0.88,0.90),slick*0.25);
+      col=mix(col,vec3(0.95,0.975,1.0),rf*0.92); } }
+` };
+const mat=new THREE.ShaderMaterial({uniforms:{uCarve:{value:carve},uRun:{value:+(P.get('run')||37.3)},uWakeZ:{value:2.6},uWakeA:{value:0.35}},
+ vertexShader:`varying vec3 vW; void main(){ vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz; gl_Position=projectionMatrix*viewMatrix*w; }`,
+ fragmentShader:common+`void main(){
+   // the sea: its deep colour, a little ripple, brighter with distance as the sky's reflection grows
+   float d=length(vW-cameraPosition); float rip=fbm(vW.xz*vec2(0.9,1.6))-0.5;
+   vec3 col=mix(vec3(0.10,0.27,0.34),vec3(0.55,0.62,0.66),smoothstep(5.0,60.0,d))+rip*0.05;
+   ${SRC[ver]}
+   gl_FragColor=vec4(col,1.0); }`});
+const sea=new THREE.Mesh(new THREE.PlaneGeometry(200,300,1,1),mat); sea.rotation.x=-Math.PI/2; sea.position.z=-100; s.add(sea);
+const board=new THREE.Mesh(new THREE.BoxGeometry(1.2,0.25,5.6),new THREE.MeshBasicMaterial({color:0x7a3a8a})); board.position.set(0,0.12,0); board.rotation.y=carve*0.35; s.add(board);
+
+r.render(s,cam);
+// ---- the spray: a second of a hard carve, simulated with the game's own fan, gravity and drag,
+// drawn over the frame as soft streaks (the sheet) and round drops ----
+if(P.get('spray')){
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H; cv.style.cssText='position:absolute;left:0;top:0'; document.body.appendChild(cv);
+  const g=cv.getContext('2d');
+  let seed=7; const R=()=>{seed=(seed*16807)%2147483647; return seed/2147483647;};
+  const k=+(P.get('k')||0.9), flow=40, power=k*0.9, reach=0.5+0.5*power, outward=-Math.sign(carve)||1;
+  const fwd=new THREE.Vector3(-Math.sin(carve*0.35),0,-Math.cos(carve*0.35));   // toward the nose
+  const tail=new THREE.Vector3(outward*0.5,0.15,2.6);
+  function fan(f){ const elev=1.0+0.3*f, outW=0.95-0.55*f, backW=0.35+0.6*f, hl=Math.hypot(outW,backW), hz=Math.cos(elev);
+    const ax=outward*outW/hl - fwd.x*(backW/hl), az=-fwd.z*(backW/hl); return new THREE.Vector3(ax*hz,Math.sin(elev),az*hz); }
+  const parts=[]; const T=1.0, dt=1/60;
+  const sheetRate=+(P.get('sheet')||120)*power, dropRate=+(P.get('drops')||420)*power;
+  for(let t=0;t<T;t+=dt){
+    for(let n=0;n<sheetRate*dt;n++){ const f=Math.min(1,Math.max(0,0.5+(R()+R()-1)*0.6)); const sp=(3+9*R())*reach;
+      const al=R()*2.6; parts.push({k:'s',p:tail.clone().addScaledVector(fwd,al).add(new THREE.Vector3(0,0.05+0.15*R(),0)),v:fan(f).multiplyScalar(sp).add(new THREE.Vector3(0,0,flow*0.25)),age:-(T-t),life:0.35+0.3*R(),size:(0.25+0.4*R())*(0.7+0.5*power),a:+(P.get('sa')||0.07)*(0.7+0.6*R())}); }
+    for(let n=0;n<dropRate*dt;n++){ const sp=(6+10*R())*reach;
+      const ad=R()*2.0; parts.push({k:'d',p:tail.clone().addScaledVector(fwd,ad).add(new THREE.Vector3(0,0.1+0.3*R(),0)),v:fan(R()).multiplyScalar(sp).add(new THREE.Vector3(0,0,flow*0.3)),age:-(T-t),life:0.5+0.4*R(),size:0.03+0.035*R(),a:0.35+0.3*R()}); }
+  }
+  // move each on to the moment of the frame: gravity, and drag toward the air drifting back past him
+  for(const q of parts){ let a=q.age+T; if(a>q.life||a<0){q.dead=1;continue;} q.t=a;
+    const steps=Math.ceil(a/dt); for(let i=0;i<steps;i++){ q.v.y-=(q.k=='d'?9.81*0.85:9.81*0.12)*dt; const dr=q.k=='d'?0.9:2.4; q.v.x-=q.v.x*dr*dt; q.v.z+=(flow*0.65-q.v.z)*dr*dt*0.6; q.p.addScaledVector(q.v,dt); } }
+  const prj=v=>{const c=v.clone().project(cam); return [(c.x*0.5+0.5)*W,(-c.y*0.5+0.5)*H,c.z];};
+  for(const q of parts){ if(q.dead)continue; const u=q.t/q.life; const fade=Math.min(1,u/0.12)*(1-u);
+    const [x,y,z]=prj(q.p); if(z>1)continue; const ppf=H/(2*Math.tan(33*Math.PI/180)*q.p.distanceTo(cam.position));
+    if(q.k=='s'){ const [x2,y2]=prj(q.p.clone().addScaledVector(q.v,+(P.get('st')||0.12))); const L=Math.hypot(x2-x,y2-y); const rr=Math.max(2,q.size*(0.6+1.2*u)*ppf*0.5);
+      g.save(); g.translate(x,y); g.rotate(Math.atan2(y2-y,x2-x)); g.scale((rr+L)/rr,1);
+      const gr=g.createRadialGradient(0,0,0,0,0,rr); gr.addColorStop(0,`rgba(245,248,252,${q.a*fade})`); gr.addColorStop(1,'rgba(245,248,252,0)'); g.fillStyle=gr; g.beginPath(); g.arc(0,0,rr,0,7); g.fill(); g.restore(); }
+    else { const rr=Math.max(0.8,q.size*ppf*0.5); g.fillStyle=`rgba(250,252,255,${q.a*fade})`; g.beginPath(); g.arc(x,y,rr,0,7); g.fill(); } }
+}
+window.done=1;
+</script></body></html>

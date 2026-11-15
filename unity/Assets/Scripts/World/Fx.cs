@@ -44,7 +44,7 @@ public class Fx : MonoBehaviour
     readonly List<Vector4> puffData = new List<Vector4>();
     ParticleSystem.Particle[] pbuf;
     DayCycle day;
-    const int PuffMax = 300, PuffMaxFast = 130, DropMax = 1600, DropMaxFast = 700, MistMax = 260, MistMaxFast = 120, LaceMax = 500, LaceMaxFast = 260;
+    const int PuffMax = 300, PuffMaxFast = 130, DropMax = 1600, DropMaxFast = 700, MistMax = 420, MistMaxFast = 200, LaceMax = 500, LaceMaxFast = 260;
     // the drag of the air on a drop and on mist, toward the air's own drift (the run's speed, back
     // past him); the same numbers go to the systems' drag and to the push that stands in for the wind
     const float DropDrag = 0.9f, MistDrag = 2.4f;
@@ -415,33 +415,31 @@ public class Fx : MonoBehaviour
         if (m <= 0.001f) { sprayAcc = dotAcc = 0f; return; }
         float reach = 0.5f + 0.5f * power, rate = fastFx ? 0.5f : 1f;
         Vector3 fwd = tailFwd.sqrMagnitude > 0.5f ? tailFwd.normalized : Vector3.forward * -1f;
-        if (puffs != null)
+        // the curtain: a see-through sheet of spray thrown off the whole outside rail, from the tail
+        // to the middle of the board, each part drawn out along its flight (the mist system, stretched)
+        // and faint, so it is white only where many overlap. Lit cloud puffs read as cotton balls here,
+        // whatever their number: worked out in a browser test bed of this same fan, against footage.
+        if (carveMist != null)
         {
-            sprayAcc += dt * rate * 380f * m;
+            sprayAcc += dt * rate * 420f * m;
             while (sprayAcc >= 1f)
             {
                 sprayAcc -= 1f;
-                // most of it in the middle of the fan, thinning to its edges
                 float fan = Mathf.Clamp01(0.5f + (Random.value + Random.value - 1f) * 0.6f);
-                float spd = (2f + 8f * Random.value) * reach;
-                // mostly small, a few big: a mass with a ragged edge, not a row of even balls
-                float rs = Random.value;
-                float w = (0.45f + 1.1f * rs * rs) * (0.7f + 0.5f * m) * (fastFx ? 1.25f : 1f);
-                var jit = Random.insideUnitSphere * 0.45f;
-                puffs.Emit(new ParticleSystem.EmitParams
+                float spd = (3f + 9f * Random.value) * reach;
+                carveMist.Emit(new ParticleSystem.EmitParams
                 {
-                    position = tail + fwd * (-0.2f + 0.8f * Random.value) + jit + new Vector3(outward * 0.3f * Random.value, 0.15f + 0.3f * Random.value, flow * dt * Random.value),
-                    velocity = FanDir(fan, outward, fwd) * spd + jit * 2f + new Vector3(0f, 0f, flow * 0.55f),
-                    startSize3D = new Vector3(w, w * (0.85f + 0.2f * Random.value), 1f),
-                    startLifetime = 0.3f + 0.25f * Random.value,
-                    startColor = new Color(1f, 1f, 1f, 0.45f + 0.3f * Random.value),   // see-through: dense only where many overlap
-                    rotation = 0f
+                    position = tail + fwd * (2.6f * Random.value) + new Vector3(0f, 0.05f + 0.15f * Random.value, flow * dt * Random.value),
+                    velocity = FanDir(fan, outward, fwd) * spd + new Vector3(0f, 0f, flow * 0.25f),
+                    startSize = (0.25f + 0.4f * Random.value) * (0.7f + 0.5f * m),
+                    startLifetime = 0.35f + 0.3f * Random.value,
+                    startColor = new Color(1f, 1f, 1f, 0.06f * (0.7f + 0.6f * Random.value))
                 }, 1);
             }
         }
         if (carve != null)
         {
-            dotAcc += dt * rate * 420f * m;
+            dotAcc += dt * rate * 160f * m;
             while (dotAcc >= 1f)
             {
                 dotAcc -= 1f;
@@ -450,11 +448,11 @@ public class Fx : MonoBehaviour
                 float spd = (6f + 10f * Random.value) * reach;
                 carve.Emit(new ParticleSystem.EmitParams
                 {
-                    position = tail + fwd * (0.6f * Random.value) + new Vector3(outward * 0.3f * Random.value, 0.2f + 0.4f * Random.value, flow * dt * Random.value),
+                    position = tail + fwd * (2.0f * Random.value) + new Vector3(0f, 0.1f + 0.3f * Random.value, flow * dt * Random.value),
                     velocity = FanDir(fan, outward, fwd) * spd + new Vector3(0f, 0f, flow * 0.3f),
-                    startSize = 0.035f + 0.045f * Random.value,
+                    startSize = 0.03f + 0.035f * Random.value,
                     startLifetime = 0.5f + 0.4f * Random.value,
-                    startColor = new Color(1f, 1f, 1f, 0.55f + 0.3f * Random.value)
+                    startColor = new Color(1f, 1f, 1f, 0.35f + 0.3f * Random.value)
                 }, 1);
             }
         }
@@ -541,7 +539,8 @@ public class Fx : MonoBehaviour
                   new[] { new GradientAlphaKey(0f, 0), new GradientAlphaKey(1f, 0.12f), new GradientAlphaKey(0.45f, 0.5f), new GradientAlphaKey(0f, 1) });
         col.color = g;
         var r = go.GetComponent<ParticleSystemRenderer>();
-        r.renderMode = ParticleSystemRenderMode.Billboard;
+        // drawn out along its flight: a spray curtain, not round puffs (a slow splash mist barely stretches)
+        r.renderMode = ParticleSystemRenderMode.Stretch; r.velocityScale = 0.2f; r.lengthScale = 1f;
         r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows = false;
         var m = Bootstrap.SoftParticles(Bootstrap.DropTex());
         if (m != null) { Soften(m, 0.8f); NearFade(m, 4f, 12f); r.material = m; }
