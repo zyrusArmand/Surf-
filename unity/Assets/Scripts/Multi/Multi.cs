@@ -42,6 +42,10 @@ public class Surfer
     public Save outfit; public string faceKind = "rider", faceId = "";
     // a player online: the last word from him, when it came, and whether he has gone
     public float netDist, netPx, netT; public bool left;
+    // a punch or kick being thrown: time since it was let go (-1: none), the wind-up held before it,
+    // which it is, and which way across (+1 toward +x); a player's swings are counted so a new one shows
+    public float strikeT = -1f, strikeHold, strikeDir = 1f; public bool strikeKick; public int strikeN;
+    public float bumpCd;
 }
 
 /// one line of the standings: the leaderboard during a round, the scoreboard after it
@@ -73,6 +77,8 @@ public class Multi : MonoBehaviour
     float startGrace, localImmune;
     // the local surfer's own tally; his distance kept while the ocean follows someone he watches
     public int localDeaths, localElims; float keptDist; bool wasWipe;
+    // your own swing, for your rider's pose and for everyone else to see
+    float localStrikeT = -1f, localStrikeDir = 1f; bool localStrikeKick; int localStrikeN; float localBumpCd;
     public int round;                                      // a new number each round: the HUD rebuilds its rows
     public static readonly Color YouTint = new Color(1f, 0.86f, 0.3f);
     public float LocalDist => Watching ? keptDist : rider.dist;
@@ -232,6 +238,7 @@ public class Multi : MonoBehaviour
         w.Write(tricks ? rider.spinRot * Mathf.Rad2Deg : 0f); w.Write(tricks ? rider.pitchRot * Mathf.Rad2Deg : 0f); w.Write(tricks ? rider.flipRot * Mathf.Rad2Deg : 0f);
         w.Write((byte)((down ? 1 : 0) | (localOut ? 2 : 0) | (localFinished ? 4 : 0)));
         w.Write((byte)Mathf.Clamp(localHearts, 0, 255)); w.Write(rider.tricksLanded); w.Write(localDeaths); w.Write(localElims); w.Write(localFinishT);
+        w.Write((byte)((localStrikeN & 63) | (localStrikeKick ? 64 : 0) | (localStrikeDir < 0f ? 128 : 0)));
     }
 
     /// another player's state, as he sent it
@@ -247,6 +254,9 @@ public class Multi : MonoBehaviour
         int tricks = r.ReadInt32();
         if (tricks > s.tricks && s.tricks >= 0 && Running) { s.call = "TRICK!"; s.callT = 1.2f; }
         s.tricks = tricks; s.deaths = r.ReadInt32(); s.elims = r.ReadInt32(); s.finishT = r.ReadSingle();
+        // a new swing: shown from the start
+        int st = r.ReadByte();
+        if ((st & 63) != s.strikeN) { s.strikeN = st & 63; s.strikeT = 0f; s.strikeKick = (st & 64) != 0; s.strikeDir = (st & 128) != 0 ? -1f : 1f; }
         s.netT = Time.time;
         // in the water: a splash where he went in
         if (s.down && !wasDown && splash != null) { float z = -(s.dist - rider.dist); if (z > -220f && z < 40f) splash(new Vector3(s.px, 0f, z), 30); }
@@ -273,6 +283,7 @@ public class Multi : MonoBehaviour
         rider.vx += dir * (kick ? 16f : 9f);
         localHearts -= 1; localImmune = HitImmune;
         Sfx.Buzz(kick ? 40 : 20);
+        PopAt(rider.transform.position, kick);
         if (hud != null) hud.Toast((s != null ? s.name : "Someone") + (kick ? " kicked you!" : " punched you!"));
         if (splash != null) splash(new Vector3(rider.px, rider.waterY, 0f), kick ? 18 : 10);
         if (localHearts <= 0) { localHearts = 0; rider.Wipeout("buoy"); if (net != null) net.SendKO(myNet, by); }
@@ -330,8 +341,151 @@ public class Multi : MonoBehaviour
         if (Watching) Follow();
         foreach (var s in others) { if (s.bot) StepBot(s, dt); else StepRemote(s, dt); }
         if (mode == MpMode.Brawl) BotAttacks(dt);
+        // the swings run their course
+        if (localStrikeT >= 0f) { localStrikeT += dt; if (localStrikeT > StrikeLen) localStrikeT = -1f; }
+        foreach (var s in others) if (s.strikeT >= 0f) { s.strikeT += dt; if (s.strikeT > StrikeLen) s.strikeT = -1f; }
+        Bumps(dt);
         Rules(dt);
-        if (view != null) view.Step(others, mode, dt);
+        if (view != null)
+        {
+            view.Step(others, mode, dt);
+            view.StepYou(mode, localHearts, !LocalDown && !Watching && !localOut);
+            view.StepPops(dt);
+        }
+    }
+
+    // =====================================================================================
+    // ---- punches and kicks, seen ----
+    public const float StrikeLen = 0.5f;
+
+    /// how much of the strike pose is on (w) and how far it is thrown out (ext), from the time since
+    /// it was let go and any wind-up still being held: drawn back, snapped out, held, and back
+    public static void StrikeCurve(float t, float hold, out float w, out float ext)
+    {
+        w = 0f; ext = 0f;
+        if (hold > 0f) { w = Mathf.Clamp01(hold); return; }
+        if (t < 0f) return;
+        if (t < 0.1f) { w = t / 0.1f; ext = 0f; }
+        else if (t < 0.2f) { w = 1f; ext = (t - 0.1f) / 0.1f; }
+        else if (t < 0.3f) { w = 1f; ext = 1f; }
+        else if (t < StrikeLen) { w = 1f - (t - 0.3f) / (StrikeLen - 0.3f); ext = 1f; }
+    }
+
+    /// your rider's swing, laid over his riding pose (Bootstrap, after the rig's Stance)
+    public void PoseLocal(RiderRig rr, ProcRig pr)
+    {
+        if (!Running || localStrikeT < 0f) return;
+        StrikeCurve(localStrikeT, 0f, out float w, out float e);
+        if (w <= 0f) return;
+        var toward = new Vector3(localStrikeDir, 0f, 0f);
+        if (rr != null && rr.Ready) rr.StrikePose(w, e, localStrikeKick, Vector3.Dot(rr.Facing(), toward) >= 0f);
+        else if (pr != null && pr.Ready) pr.StrikePose(w, e, localStrikeKick, Vector3.Dot(pr.Facing(), toward) >= 0f);
+    }
+
+    Vector3 At(Surfer s) => new Vector3(s.px, rider.waterY, -(s.dist - rider.dist));
+    void PopAt(Vector3 at, bool kick) { if (view != null) view.Pop(at, kick ? "WHAM!" : "POW!", kick ? new Color(1f, 0.55f, 0.2f) : UiKit.TrickYellow); }
+
+    // =====================================================================================
+    // ---- boards bumping ----
+    // Two boards on the water knock into each other and slide apart instead of passing through:
+    // nobody falls for it. The one doing the pushing (coming in faster) gives way less than the one
+    // pushed, and some of his speed goes into the other. Side by side they shove apart across the
+    // lane; nose to tail the one behind loses speed and the one in front is nudged on.
+    const float BumpW = 2.1f, BumpL = 5.6f, PusherShare = 0.35f;
+
+    class Body { public Surfer s; public bool you; public float px, dist, vx, eff; }
+    readonly List<Body> bodies = new List<Body>();
+
+    void Bumps(float dt)
+    {
+        localBumpCd = Mathf.Max(0f, localBumpCd - dt);
+        bodies.Clear();
+        bool youIn = rider.running && !rider.wipe && !rider.airborne && !Watching;
+        if (youIn) bodies.Add(new Body { you = true, px = rider.px, dist = rider.dist, vx = rider.vx, eff = rider.eff });
+        foreach (var o in others)
+        {
+            if (o.down || o.outOfGame || o.left || o.py > 0.4f) continue;
+            bodies.Add(new Body { s = o, px = o.px, dist = o.dist, vx = o.vx, eff = o.eff });
+        }
+        for (int i = 0; i < bodies.Count; i++)
+            for (int j = i + 1; j < bodies.Count; j++) Bump(bodies[i], bodies[j], dt);
+    }
+
+    // a player online: each phone moves only its own surfer, so he is never moved here
+    static bool Fixed(Body b) => b.s != null && !b.s.bot;
+
+    void Bump(Body a, Body b, float dt)
+    {
+        bool aFixed = Fixed(a), bFixed = Fixed(b);
+        if (aFixed && bFixed) return;
+        float dx = b.px - a.px, dz = b.dist - a.dist;
+        if (Mathf.Abs(dx) >= BumpW || Mathf.Abs(dz) >= BumpL) return;
+        float penX = BumpW - Mathf.Abs(dx), penZ = BumpL - Mathf.Abs(dz);
+        float strength = 0f;
+        float sg = dx >= 0f ? 1f : -1f;
+        if (penX / BumpW <= penZ / BumpL)
+        {
+            // side by side: apart across the lane
+            float ca = a.vx * sg, cb = -b.vx * sg;                     // how fast each is coming at the other
+            float shA = ca >= cb ? PusherShare : 1f - PusherShare;   // the pusher gives way less
+            if (aFixed) shA = 0f; else if (bFixed) shA = 1f;
+            Move(a, -sg * penX * shA, 0f); Move(b, sg * penX * (1f - shA), 0f);
+            float rel = ca + cb;
+            if (rel > 0f)
+            {
+                float J = rel * 0.9f;
+                Push(a, -sg * J * shA, 0f); Push(b, sg * J * (1f - shA), 0f);
+                strength = rel;
+            }
+        }
+        else
+        {
+            // nose to tail: the one behind is the pusher if he is catching up
+            var front = dz >= 0f ? b : a; var rear = dz >= 0f ? a : b;
+            float closing = rear.eff - front.eff;
+            float shR = closing > 0f ? PusherShare : 1f - PusherShare;
+            if (Fixed(rear)) shR = 0f; else if (Fixed(front)) shR = 1f;
+            Move(rear, 0f, -penZ * shR); Move(front, 0f, penZ * (1f - shR));
+            if (closing > 0f)
+            {
+                Push(rear, 0f, -closing * 0.6f * shR - closing * 0.3f); Push(front, 0f, closing * 0.6f * (1f - shR));
+                strength = closing;
+            }
+            // and a little apart sideways, so they do not ride stuck nose to tail
+            if (Mathf.Abs(dx) < 0.05f) sg = rear.you ? -1f : 1f;
+            float side = dz >= 0f ? -sg : sg;                          // which way the rear one steps aside
+            Move(rear, side * 1.2f * dt, 0f); Move(front, -side * 1.2f * dt, 0f);
+        }
+        // a knock you can feel and see, not on every frame they touch
+        if (strength > 3f && (a.you || b.you) && localBumpCd <= 0f)
+        {
+            localBumpCd = 0.35f; Sfx.Buzz(8);
+            if (splash != null) splash(new Vector3((a.px + b.px) * 0.5f, rider.waterY, -(((a.dist + b.dist) * 0.5f) - rider.dist)), 8);
+        }
+    }
+
+    // a body moved across (x) or along (z, distance)
+    void Move(Body b, float x, float z)
+    {
+        if (b.you) { rider.px = Mathf.Clamp(rider.px + x, -16.5f, 16.5f); rider.dist += z; b.px = rider.px; b.dist = rider.dist; return; }
+        if (b.s == null || !b.s.bot) return;
+        b.s.px = Mathf.Clamp(b.s.px + x, -16.5f, 16.5f); b.s.dist += z; b.px = b.s.px; b.dist = b.s.dist;
+    }
+
+    // and given a shove: sideways speed, or speed along (a boost, or the loss of one)
+    void Push(Body b, float vx, float along)
+    {
+        if (b.you)
+        {
+            rider.vx += vx;
+            rider.boost = along > 0f ? Mathf.Min(16f, rider.boost + along) : Mathf.Max(0f, rider.boost + along);
+            return;
+        }
+        if (b.s == null || !b.s.bot) return;
+        b.s.vx += vx;
+        if (Mathf.Abs(vx) > 0.5f) { b.s.wantX = Mathf.Clamp(b.s.px + Mathf.Sign(vx) * 2.5f, -15f, 15f); b.s.mindT = 0.8f; }
+        if (along > 0f) b.s.boost = Mathf.Min(16f, b.s.boost + along);
+        else { b.s.boost = Mathf.Max(0f, b.s.boost + along); b.s.eff = Mathf.Max(16f, b.s.eff + along * 0.5f); }
     }
 
     void StepBot(Surfer s, float dt)
@@ -516,6 +670,7 @@ public class Multi : MonoBehaviour
     {
         if (!Running || mode != MpMode.Brawl || localOut || LocalDown || localAtkCd > 0f || startGrace > 0f) return;
         localAtkCd = kick ? 0.9f : 0.45f;
+        localStrikeT = 0f; localStrikeKick = kick; localStrikeN++;
         Surfer best = null; float bd = float.MaxValue;
         foreach (var o in others)
         {
@@ -526,21 +681,32 @@ public class Multi : MonoBehaviour
             if (d < bd) { bd = d; best = o; }
         }
         Sfx.Buzz(kick ? 25 : 12);
-        if (best == null) { if (hud != null) hud.Toast(kick ? "KICK!" : "PUNCH!"); return; }
+        if (best == null)
+        {
+            // a swing at the air, thrown toward whoever is nearest: the pose shows it
+            float nd = float.MaxValue;
+            foreach (var o in others)
+            {
+                if (o.down || o.outOfGame) continue;
+                float d = Mathf.Abs(o.dist - rider.dist) + Mathf.Abs(o.px - rider.px);
+                if (d < nd) { nd = d; localStrikeDir = o.px >= rider.px ? 1f : -1f; }
+            }
+            return;
+        }
         float dir = Mathf.Sign(best.px - rider.px); if (dir == 0f) dir = 1f;
+        localStrikeDir = dir;
+        PopAt(At(best), kick);
         if (!best.bot)
         {
             // a player: the hit is his to take (NetHit on his phone), and his knockout comes back as a KO
             if (net != null) net.SendHit(best.id, kick, dir);
             best.lunge = 0.5f;
-            if (hud != null) hud.Toast(kick ? "KICK!" : "POW!");
             if (splash != null) splash(new Vector3(best.px, 0f, -(best.dist - rider.dist)), kick ? 18 : 10);
             return;
         }
         best.vx += dir * (kick ? 17f : 10f); best.wantX = best.px + dir * 5f; best.mindT = 1.2f;
         best.hearts -= 1;                                                  // every hit is one heart; a kick shoves harder
-        best.windup = 0f;                                                  // a hit spoils their swing
-        if (hud != null) hud.Toast(kick ? "KICK!" : "POW!");
+        best.windup = 0f; best.strikeHold = 0f;                            // a hit spoils their swing
         if (splash != null) splash(new Vector3(best.px, 0f, -(best.dist - rider.dist)), kick ? 18 : 10);
         // knocking someone off the board is an elimination, the last heart or a kick into the water
         if (best.hearts <= 0) { best.hearts = 0; Down(best, false); best.outOfGame = true; localElims++; }
@@ -554,12 +720,17 @@ public class Multi : MonoBehaviour
         foreach (var s in others)
         {
             if (!s.bot) continue;                                     // a player swings for himself
-            if (s.down || s.outOfGame) { s.windup = 0f; continue; }
+            if (s.down || s.outOfGame) { s.windup = 0f; s.strikeHold = 0f; continue; }
             // a swing wound up: it lands only if the one it was aimed at is still in reach
             if (s.windup > 0f)
             {
                 s.windup -= dt;
-                if (s.windup <= 0f) { s.windup = 0f; Land(s); s.atkCd = 2.5f + Random.value * 1.5f; }
+                // drawn back while it winds up, toward whoever it means to hit
+                s.strikeHold = Mathf.Clamp01(1f - s.windup / 0.35f) + 0.01f; s.strikeKick = s.windKick;
+                var wt = s.windTarget == 0 ? null : ById(s.windTarget);
+                float tx = s.windTarget == 0 ? rider.px : (wt != null ? wt.px : s.px + s.strikeDir);
+                s.strikeDir = tx >= s.px ? 1f : -1f;
+                if (s.windup <= 0f) { s.windup = 0f; s.strikeHold = 0f; s.strikeT = 0.1f; Land(s); s.atkCd = 2.5f + Random.value * 1.5f; }
                 continue;
             }
             s.atkCd -= dt; if (s.atkCd > 0f) continue;
@@ -597,6 +768,7 @@ public class Multi : MonoBehaviour
             rider.vx += dir * (kick ? 16f : 9f);
             localHearts -= 1; localImmune = HitImmune;
             Sfx.Buzz(kick ? 40 : 20);
+            PopAt(rider.transform.position, kick);
             if (hud != null) hud.Toast(s.name + (kick ? " kicked you!" : " punched you!"));
             if (splash != null) splash(new Vector3(rider.px, rider.waterY, 0f), kick ? 18 : 10);
             if (localHearts <= 0) { localHearts = 0; rider.Wipeout("buoy"); s.elims++; }
@@ -607,7 +779,8 @@ public class Multi : MonoBehaviour
             if (o.id != s.windTarget) continue;
             if (o.down || o.outOfGame || Mathf.Abs(o.dist - s.dist) > AlongReach || Mathf.Abs(o.px - s.px) > reach) return;
             float dir = Mathf.Sign(o.px - s.px); if (dir == 0f) dir = 1f;
-            o.vx += dir * (kick ? 16f : 9f); o.hearts -= 1; o.windup = 0f;
+            o.vx += dir * (kick ? 16f : 9f); o.hearts -= 1; o.windup = 0f; o.strikeHold = 0f;
+            PopAt(At(o), kick);
             if (o.hearts <= 0) { o.hearts = 0; Down(o, false); o.outOfGame = true; s.elims++; }
             return;
         }
