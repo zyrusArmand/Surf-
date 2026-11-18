@@ -7,15 +7,13 @@
 // the others are drawn from what they send (Multi, CrewView), as the bots are.
 //
 // Unity's own Relay calls are made over the web (UnityWebRequest), so the only package this needs
-// is Unity Transport. The project needs a Unity Cloud project with Relay switched on: link it in
+// is Unity Transport -- and the wire itself sits behind SurfNet.IPipe (NetApi), built only when that
+// package is there, so without it the game still runs and the room says what is missing. The project needs a Unity Cloud project with Relay switched on: link it in
 // Edit > Project Settings > Services, or put the project's id in Resources/online_project.txt.
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using Unity.Collections;
-
-using Unity.Networking.Transport.Relay;
 using UnityEngine;
 using UnityEngine.Networking;
 
@@ -36,15 +34,14 @@ public class Net : MonoBehaviour
     public readonly List<NetPlayer> players = new List<NetPlayer>();
     public int MyId { get; private set; }
     public bool IsHost { get; private set; }
-    public bool Connected => driver.IsCreated && MyId > 0;
+    public bool Connected => Open && MyId > 0;
+    bool Open => pipe != null && pipe.IsCreated;
     public bool Busy { get; private set; }         // signing in, asking Relay, connecting
     public string Code { get; private set; } = "";
     public string Status { get; private set; } = "";
 
-    NetworkDriver driver; NetworkPipeline reliable;
-    readonly List<NetworkConnection> conns = new List<NetworkConnection>();   // host: everyone connected to him
-    readonly Dictionary<int, int> connOf = new Dictionary<int, int>();         // host: player id -> index in conns
-    NetworkConnection toHost;                                                  // a client: his one connection
+    SurfNet.IPipe pipe;
+    readonly Dictionary<int, int> connOf = new Dictionary<int, int>();         // host: player id -> his peer number
     string token; float sendT;
     readonly byte[] buf = new byte[1024];
 
@@ -58,28 +55,31 @@ public class Net : MonoBehaviour
     // ---- the room ----
 
     /// host a room: sign in, ask Relay for an allocation and its join code, and wait for friends
-    public void Host() { if (!Busy && !driver.IsCreated) StartCoroutine(HostRoutine()); }
+    public void Host() { if (!Busy && !Open && HavePipe()) StartCoroutine(HostRoutine()); }
+
+    // the wire: there only when the Unity Transport package is installed
+    bool HavePipe()
+    {
+        if (pipe == null && SurfNet.Pipes.Make != null) pipe = SurfNet.Pipes.Make();
+        if (pipe != null) return true;
+        Say("Online needs the Unity Transport package: Window > Package Manager > + > Add package by name > com.unity.transport");
+        return false;
+    }
 
     /// join a friend's room by its code
     public void Join(string code)
     {
         code = (code ?? "").Trim().ToUpperInvariant();
         if (code.Length < 4) { Say("Type the room code your friend sees"); return; }
-        if (!Busy && !driver.IsCreated) StartCoroutine(JoinRoutine(code));
+        if (!Busy && !Open && HavePipe()) StartCoroutine(JoinRoutine(code));
     }
 
     /// leave the room (and close it, for the host)
     public void Leave()
     {
         StopAllCoroutines(); Busy = false;
-        if (driver.IsCreated)
-        {
-            if (IsHost) { foreach (var c in conns) if (c.IsCreated) driver.Disconnect(c); }
-            else if (toHost.IsCreated) driver.Disconnect(toHost);
-            driver.ScheduleUpdate().Complete();
-            driver.Dispose();
-        }
-        driver = default; conns.Clear(); connOf.Clear(); toHost = default;
+        if (pipe != null) pipe.Close();
+        connOf.Clear();
         players.Clear(); MyId = 0; IsHost = false; Code = ""; Status = "";
         onChanged?.Invoke();
     }
@@ -97,7 +97,7 @@ public class Net : MonoBehaviour
     /// everyone in the room but you, for the round (Multi.PrepareOnline)
     public List<NetPlayer> Others() { var l = new List<NetPlayer>(); foreach (var p in players) if (p.id != MyId) l.Add(p); return l; }
 
-    void OnDestroy() { if (driver.IsCreated) { driver.ScheduleUpdate().Complete(); driver.Dispose(); } }
+    void OnDestroy() { if (pipe != null) pipe.Close(); }
 
     void Say(string s) { Status = s; onChanged?.Invoke(); }
 
@@ -180,8 +180,7 @@ public class Net : MonoBehaviour
         yield return Post(RelayUrl + "joincode", "{\"allocationId\":\"" + alloc.allocationId + "\"}", t => res = t, true);
         var code = res != null ? JsonUtility.FromJson<Resp>(res)?.data?.joinCode : null;
         if (string.IsNullOrEmpty(code)) { Fail("Couldn't get a room code (" + err + ")"); yield break; }
-        if (!MakeDriver(alloc, false)) yield break;
-        if (driver.Bind(NetworkEndpoint.AnyIpv4) < 0 || driver.Listen() < 0) { Fail("Couldn't open the connection"); yield break; }
+        if (!OpenPipe(alloc, false)) yield break;
         IsHost = true; MyId = 1; Code = code;
         var me = Me(); me.id = 1; players.Clear(); players.Add(me);
         Busy = false; Say("Tell your friends the code");
@@ -197,14 +196,12 @@ public class Net : MonoBehaviour
         yield return Post(RelayUrl + "join", "{\"joinCode\":\"" + code + "\"}", t => res = t, true);
         var alloc = res != null ? JsonUtility.FromJson<Resp>(res)?.data?.allocation : null;
         if (alloc == null) { Fail("No room with that code (" + err + ")"); yield break; }
-        if (!MakeDriver(alloc, true)) yield break;
-        toHost = driver.Connect();
-        if (!toHost.IsCreated) { Fail("Couldn't connect to the room"); yield break; }
+        if (!OpenPipe(alloc, true)) yield break;
         IsHost = false; Code = code;
         Say("Connecting...");
         // Busy until the host welcomes him (Receive)
         float t0 = Time.unscaledTime;
-        while (MyId == 0 && driver.IsCreated)
+        while (MyId == 0 && Open)
         {
             if (Time.unscaledTime - t0 > 15f) { Fail("The room didn't answer"); yield break; }
             yield return null;
@@ -212,28 +209,22 @@ public class Net : MonoBehaviour
         Busy = false;
     }
 
-    bool MakeDriver(Alloc a, bool joining)
+    bool OpenPipe(Alloc a, bool joining)
     {
         Endpoint ep = null;
         if (a.serverEndpoints != null) foreach (var e in a.serverEndpoints) if (e.connectionType == Kind) ep = e;
         if (ep == null) { Fail("Relay offered no " + Kind + " connection"); return false; }
+        string why;
         try
         {
-            var data = new RelayServerData(ep.host, (ushort)ep.port,
+            why = pipe.Open(ep.host, ep.port,
                 System.Convert.FromBase64String(a.allocationIdBytes), System.Convert.FromBase64String(a.connectionData),
                 System.Convert.FromBase64String(joining ? a.hostConnectionData : a.connectionData), System.Convert.FromBase64String(a.key),
-                ep.secure, Kind == "wss");
-            var settings = new NetworkSettings(Allocator.Temp);
-            settings.WithRelayParameters(ref data);
-#if UNITY_WEBGL && !UNITY_EDITOR
-            driver = NetworkDriver.Create(new WebSocketNetworkInterface(), settings);
-#else
-            driver = NetworkDriver.Create(settings);
-#endif
-            reliable = driver.CreatePipeline(typeof(ReliableSequencedPipelineStage));
-            return true;
+                ep.secure, Kind == "wss", !joining);
         }
-        catch (System.Exception ex) { Fail("Couldn't set up the connection: " + ex.Message); return false; }
+        catch (System.Exception ex) { why = ex.Message; }
+        if (why != null) { Fail("Couldn't set up the connection: " + why); return false; }
+        return true;
     }
 
     void Fail(string why)
@@ -246,44 +237,8 @@ public class Net : MonoBehaviour
     // ---- each frame ----
     void Update()
     {
-        if (!driver.IsCreated) return;
-        driver.ScheduleUpdate().Complete();
-        if (IsHost)
-        {
-            NetworkConnection c;
-            while ((c = driver.Accept()).IsCreated) conns.Add(c);
-            for (int i = 0; i < conns.Count; i++)
-            {
-                var cn = conns[i]; if (!cn.IsCreated) continue;
-                NetworkEvent.Type ev;
-                while ((ev = driver.PopEventForConnection(cn, out var reader)) != NetworkEvent.Type.Empty)
-                {
-                    if (ev == NetworkEvent.Type.Data) { int n = Read(ref reader); Receive(n, i); }
-                    else if (ev == NetworkEvent.Type.Disconnect) { Dropped(i); break; }
-                }
-            }
-        }
-        else if (toHost.IsCreated)
-        {
-            NetworkEvent.Type ev;
-            while ((ev = driver.PopEventForConnection(toHost, out var reader)) != NetworkEvent.Type.Empty)
-            {
-                if (ev == NetworkEvent.Type.Connect)
-                {
-                    var me = Me(); var w = Begin(Hello); WritePlayer(w, me); SendHost(w, true);
-                }
-                else if (ev == NetworkEvent.Type.Data) { int n = Read(ref reader); Receive(n, -1); }
-                else if (ev == NetworkEvent.Type.Disconnect)
-                {
-                    bool wasIn = MyId > 0;
-                    if (mp != null) mp.NetAllLeft();
-                    Leave();
-                    Status = wasIn ? "The host closed the room" : "Couldn't reach the room";
-                    onLost?.Invoke(Status); onChanged?.Invoke();
-                    return;
-                }
-            }
-        }
+        if (!Open) return;
+        pipe.Pump(Connected_, Data_, Gone_);
         // where you are, about fifteen times a second, while a round is on
         if (Connected && mp != null && mp.Running && mp.Online)
         {
@@ -292,17 +247,34 @@ public class Net : MonoBehaviour
         }
     }
 
-    int Read(ref DataStreamReader r)
+    // a connection made: a client says hello to the host (the host waits for that hello)
+    void Connected_(int peer)
     {
-        int n = Mathf.Min(r.Length, buf.Length);
-        for (int i = 0; i < n; i++) buf[i] = r.ReadByte();
-        return n;
+        if (peer >= 0) return;
+        var w = Begin(Hello); WritePlayer(w, Me()); SendHost(w, true);
+    }
+
+    void Data_(int peer, byte[] bytes, int n)
+    {
+        int m = Mathf.Min(n, buf.Length);
+        System.Array.Copy(bytes, buf, m);
+        Receive(m, peer);
+    }
+
+    void Gone_(int peer)
+    {
+        if (peer >= 0) { Dropped(peer); return; }
+        // the host is gone
+        bool wasIn = MyId > 0;
+        if (mp != null) mp.NetAllLeft();
+        Leave();
+        Status = wasIn ? "The host closed the room" : "Couldn't reach the room";
+        onLost?.Invoke(Status); onChanged?.Invoke();
     }
 
     // a client gone: out of the room and out of the round
     void Dropped(int i)
     {
-        conns[i] = default;
         int gone = 0; foreach (var kv in connOf) if (kv.Value == i) gone = kv.Key;
         if (gone == 0) return;
         connOf.Remove(gone);
@@ -332,23 +304,15 @@ public class Net : MonoBehaviour
     static NetPlayer ReadPlayer(BinaryReader r) =>
         new NetPlayer { id = r.ReadByte(), name = ReadStr(r), rider = ReadStr(r), board = ReadStr(r), eyes = ReadStr(r), head = ReadStr(r), neck = ReadStr(r), body = ReadStr(r) };
 
-    void Send(NetworkConnection c, byte[] b, int n, bool rel)
-    {
-        if (!c.IsCreated) return;
-        if (driver.BeginSend(rel ? reliable : NetworkPipeline.Null, c, out var w) < 0) return;
-        for (int i = 0; i < n; i++) w.WriteByte(b[i]);
-        driver.EndSend(w);
-    }
-
     static byte[] Bytes(BinaryWriter w, out int n) { var ms = (MemoryStream)w.BaseStream; n = (int)ms.Length; return ms.GetBuffer(); }
 
     void SendAll(BinaryWriter w, bool rel, int except = -1)
     {
         var b = Bytes(w, out int n);
-        if (IsHost) { for (int i = 0; i < conns.Count; i++) if (i != except) Send(conns[i], b, n, rel); }
-        else Send(toHost, b, n, rel);
+        if (IsHost) { foreach (var kv in connOf) if (kv.Value != except) pipe.Send(kv.Value, b, n, rel); }
+        else pipe.Send(-1, b, n, rel);
     }
-    void SendHost(BinaryWriter w, bool rel) { var b = Bytes(w, out int n); Send(toHost, b, n, rel); }
+    void SendHost(BinaryWriter w, bool rel) { var b = Bytes(w, out int n); pipe.Send(-1, b, n, rel); }
 
     void BroadcastRoster()
     {
@@ -373,9 +337,9 @@ public class Net : MonoBehaviour
                         if (!IsHost || from < 0) return;
                         var p = ReadPlayer(r);
                         int id = 0; for (int k = 2; k <= MaxPlayers && id == 0; k++) if (!connOf.ContainsKey(k)) id = k;
-                        if (id == 0 || (mp != null && mp.Running && mp.Online)) { driver.Disconnect(conns[from]); conns[from] = default; return; }   // full, or mid-round
+                        if (id == 0 || (mp != null && mp.Running && mp.Online)) { pipe.Disconnect(from); return; }   // full, or mid-round
                         p.id = id; connOf[id] = from; players.Add(p);
-                        var w = Begin(Welcome); w.Write((byte)id); var b = Bytes(w, out int bn); Send(conns[from], b, bn, true);
+                        var w = Begin(Welcome); w.Write((byte)id); var b = Bytes(w, out int bn); pipe.Send(from, b, bn, true);
                         BroadcastRoster();
                         onChanged?.Invoke();
                         break;
@@ -431,7 +395,7 @@ public class Net : MonoBehaviour
     void Forward(int n, int from, bool rel)
     {
         if (from < 0) return;
-        for (int i = 0; i < conns.Count; i++) if (i != from) Send(conns[i], buf, n, rel);
+        foreach (var kv in connOf) if (kv.Value != from) pipe.Send(kv.Value, buf, n, rel);
     }
 
     // ---- what Multi sends ----
