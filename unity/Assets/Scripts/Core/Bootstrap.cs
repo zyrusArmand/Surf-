@@ -275,6 +275,12 @@ public class Bootstrap : MonoBehaviour
         settings.onChange = () => { Sfx.Refresh(); ApplyGfx(); };
         quests.onClose = settings.onClose = profile.onClose = stats.onClose = school.onClose = guide.onClose = wheel.onClose = levelInfo.onClose = puka.onClose = secret.onClose = () => { if (!rider.running && !rider.wipe) hud.ShowMenu(); };
         Menu();
+#if UNITY_WEBGL && !UNITY_EDITOR
+        // the phone web version starts on Fast graphics (Settings can still turn High back on): a phone
+        // browser can't keep up with the sea's reflection, depth of field, flare and ambient occlusion
+        if (Application.isMobilePlatform && PlayerPrefs.GetInt("webFastDefault", 0) == 0)
+        { SaveData.S.fastFx = true; SaveData.Flush(); PlayerPrefs.SetInt("webFastDefault", 1); PlayerPrefs.Save(); }
+#endif
         ApplyGfx();
         ready = true; load.Hide();
         intro.Begin();

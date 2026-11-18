@@ -96,6 +96,7 @@ public static class SurfCI
         // GitHub refuses any one file over 100 MB: the game's data is cut into parts under that, and
         // the page fetches them and joins them back before the game starts
         string split = SplitData(System.IO.Path.Combine(path, "Build"), path);
+        PhoneResolution(path);
         string big = "";
         long all = 0;
         foreach (var f in System.IO.Directory.GetFiles(path, "*", System.IO.SearchOption.AllDirectories))
@@ -249,6 +250,17 @@ public static class SurfCI
             }
         }
         return o;
+    }
+
+    // a phone draws the page at 1x rather than its 3x screen: far fewer pixels, and the game keeps up
+    static void PhoneResolution(string path)
+    {
+        string page = System.IO.Path.Combine(path, "index.html");
+        if (!System.IO.File.Exists(page)) return;
+        string html = System.IO.File.ReadAllText(page);
+        const string Off = "// config.devicePixelRatio = 1;";
+        if (html.Contains(Off)) System.IO.File.WriteAllText(page, html.Replace(Off, "config.devicePixelRatio = 1;"));
+        else Debug.LogWarning("Web build: the page had no devicePixelRatio line to switch on");
     }
 
     // the data file, if it is over the limit, in parts of 90 MB, and the page taught to put them together
