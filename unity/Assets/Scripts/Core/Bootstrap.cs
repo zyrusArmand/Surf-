@@ -280,6 +280,7 @@ public class Bootstrap : MonoBehaviour
         // browser can't keep up with the sea's reflection, depth of field, flare and ambient occlusion
         if (Application.isMobilePlatform && PlayerPrefs.GetInt("webFastDefault", 0) == 0)
         { SaveData.S.fastFx = true; SaveData.Flush(); PlayerPrefs.SetInt("webFastDefault", 1); PlayerPrefs.Save(); }
+        if (Application.isMobilePlatform) WebPhone.Apply(hud);
 #endif
         ApplyGfx();
         ready = true; load.Hide();

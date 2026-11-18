@@ -30,6 +30,10 @@ public class Ocean : MonoBehaviour
     void Build()
     {
         built = true;
+#if UNITY_WEBGL && !UNITY_EDITOR
+        // a phone browser can't move 136,000 points of sea a frame: a coarser grid for the phone web version only
+        if (Application.isMobilePlatform) { cols = 180; rows = 150; }
+#endif
         var mf = GetComponent<MeshFilter>();
         var mr = GetComponent<MeshRenderer>();
         var m = new Mesh { name = "ocean" };
