@@ -49,6 +49,49 @@ public class Multi : MonoBehaviour
     // leave the local surfer a moment no one can hit him in
     public const float BrawlGrace = 3f, HitImmune = 1.5f, BackImmune = 3f;
     float startGrace, localImmune;
+
+    // ---- going down: the choice ----
+    // Down and not coming back on his own (Race, a brawl lost), he chooses: pay to get straight back
+    // on, watch until the round is won (the ocean follows the surfer he watches), or go home. In
+    // Together he is back for free after the wait, or sooner for a fee.
+    public const int RespawnCost = 25, BrawlRespawnCost = 50;
+    public bool Choosing { get; private set; }
+    public bool Watching { get; private set; }
+    public bool Waiting => Running && mode == MpMode.Together && LocalDown && !ended;
+    public float WaitLeft => Mathf.Max(0f, TogetherWait - localDownT);
+    public int Cost => mode == MpMode.Brawl ? BrawlRespawnCost : RespawnCost;
+    public System.Action onHome;                           // go home: back to the beach
+    Surfer watched;
+
+    /// pay and get straight back on the board
+    public bool PayRespawn()
+    {
+        if (!Running || SaveData.Coins < Cost) return false;
+        SaveData.Coins -= Cost; SaveData.Flush();
+        Choosing = false; Watching = false; watched = null; spawner.castAnyway = false;
+        if (mode == MpMode.Brawl) { localOut = false; localHearts = 1; }
+        localDownT = 0f; localImmune = BackImmune;
+        reviveLocal?.Invoke();
+        return true;
+    }
+
+    /// sit it out and watch until the round is won
+    public void Watch() { if (!Running) return; Choosing = false; Watching = true; watched = null; }
+
+    public void GoHome() { Choosing = false; Watching = false; onHome?.Invoke(); }
+
+    // watching: the ocean follows the surfer being watched, as it follows him when he rides
+    void Follow()
+    {
+        if (watched == null || watched.down || watched.outOfGame)
+        {
+            watched = null; float best = float.MinValue;
+            foreach (var o in others) if (!o.down && !o.outOfGame && o.dist > best) { best = o.dist; watched = o; }
+        }
+        spawner.castAnyway = true;                              // his ocean goes on being cast for the one he watches
+        if (watched == null) return;
+        rider.dist = watched.dist; rider.px = watched.px; rider.eff = watched.eff;
+    }
     CrewView view;
 
     public bool On => mode != MpMode.None;
@@ -94,6 +137,7 @@ public class Multi : MonoBehaviour
     public void Stop()
     {
         running = false; ended = false; mode = MpMode.None;
+        Choosing = false; Watching = false; watched = null; if (spawner != null) spawner.castAnyway = false;
         others.Clear();
         if (view != null) view.Clear();
     }
@@ -109,6 +153,7 @@ public class Multi : MonoBehaviour
             if (hud != null && (now != was || clock <= dt)) hud.Toast(startGrace > 0f ? now.ToString() : "FIGHT!");
         }
         localImmune = Mathf.Max(0f, localImmune - dt);
+        if (Watching) Follow();
         foreach (var s in others) StepBot(s, dt);
         if (mode == MpMode.Brawl) BotAttacks(dt);
         Rules(dt);
@@ -305,7 +350,8 @@ public class Multi : MonoBehaviour
     {
         if (mode == MpMode.Race)
         {
-            if (!localFinished && rider.dist >= RaceGoal) { localFinished = true; localFinishT = clock; End(); }
+            if (!localFinished && !Watching && rider.dist >= RaceGoal) { localFinished = true; localFinishT = clock; End(); }
+            if (Watching) foreach (var o in others) if (o.finished) { End(); break; }   // the race is won
         }
         else if (mode == MpMode.Together)
         {
@@ -314,8 +360,9 @@ public class Multi : MonoBehaviour
         }
         else if (mode == MpMode.Brawl)
         {
-            int left = localOut ? 0 : 1; foreach (var o in others) if (!o.outOfGame) left++;
-            if (localOut || left <= 1) End();
+            int bots = 0; foreach (var o in others) if (!o.outOfGame) bots++;
+            if (!localOut && bots == 0) End();                         // last one standing: you
+            else if (localOut && bots <= 1) End();                     // out, and the brawl is won by someone else
         }
     }
 
@@ -327,11 +374,12 @@ public class Multi : MonoBehaviour
         switch (mode)
         {
             case MpMode.Race:
-                reviveLocal?.Invoke(); return true;
+                if (!Watching) Choosing = true;                        // respawn for puka, watch, or go home
+                return true;
             case MpMode.Together:
                 {
                     bool partnerUp = false; foreach (var o in others) if (!o.down) partnerUp = true;
-                    if (!partnerUp) { End(); return false; }
+                    if (!partnerUp) { Choosing = false; End(); return false; }
                     localDownT += dt;
                     if (hud != null && Mathf.FloorToInt(localDownT * 4f) != Mathf.FloorToInt((localDownT - dt) * 4f))
                         hud.Toast("Back in " + Mathf.CeilToInt(TogetherWait - localDownT) + "...");
@@ -339,8 +387,15 @@ public class Multi : MonoBehaviour
                     return true;
                 }
             case MpMode.Brawl:
+                if (localOut) return true;                              // choosing or watching already
                 if (localHearts > 0) localHearts--;              // a crash costs a heart (one lost to a last hit is already gone)
-                if (localHearts <= 0) { localOut = true; End(); return false; }
+                if (localHearts <= 0)
+                {
+                    localOut = true;
+                    int bots = 0; foreach (var o in others) if (!o.outOfGame) bots++;
+                    if (bots <= 1) { End(); return false; }             // nobody left to watch fight
+                    Choosing = true; return true;                        // rejoin for puka, watch, or go home
+                }
                 localImmune = BackImmune;
                 reviveLocal?.Invoke(); return true;
         }
@@ -350,7 +405,7 @@ public class Multi : MonoBehaviour
     void End()
     {
         if (ended) return;
-        ended = true;
+        ended = true; Choosing = false; Watching = false; spawner.castAnyway = false;
         var res = new MpResult { mode = mode, dist = Mathf.RoundToInt(rider.dist), coins = rider.coins };
         if (mode == MpMode.Race)
         {

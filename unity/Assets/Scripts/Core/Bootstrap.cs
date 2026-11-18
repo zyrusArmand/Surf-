@@ -196,6 +196,8 @@ public class Bootstrap : MonoBehaviour
         mpHud.onStart = (m, n) => { mp.Prepare(m, n, Random.Range(1, 1 << 30)); spawner.seed = mp.seed; mpPending = true; Play(); };
         mp.onEnd = res => { SaveData.Coins += res.coins; SaveData.Flush(); mpHud.ShowResult(res); };
         mpHud.onDone = () => { mp.Stop(); spawner.seed = -1; Menu(); };
+        // going home mid-round: the puka picked up are kept
+        mp.onHome = () => { SaveData.Coins += rider.coins; SaveData.Flush(); mp.Stop(); spawner.seed = -1; rig.gameObject.SetActive(true); Menu(); };
         beachEdit = gameObject.AddComponent<BeachEdit>(); beachEdit.beach = beach; beachEdit.cam = cam; beachEdit.hud = hud;
         intro = gameObject.AddComponent<Intro>(); intro.logo = hud.Logo; intro.menu = hud.Menu;   // the opening, once the world is up
         crate.ceremony = new GameObject("ChestCeremony").AddComponent<ChestCeremony>(); crate.ceremony.cam = cam; crate.ceremony.ui = hud.UiRoot;
@@ -452,6 +454,7 @@ public class Bootstrap : MonoBehaviour
     void Menu()
     {
         if (mp != null && mp.On) { mp.Stop(); spawner.seed = -1; }
+        if (rig != null && !rig.gameObject.activeSelf) rig.gameObject.SetActive(true);   // hidden while he watched a round out
         if (Wheel.RunEnd() | loanBack) { loanBack = false; BuildRider(); }        // a loan from the wheel is given back
         spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset(); island.Reset(); chute.Reset(); boat.Reset();
         ski.Reset();
@@ -564,6 +567,7 @@ public class Bootstrap : MonoBehaviour
                 boat.Step(dt);                               // after the spawner: the bow shoves what it has just placed
             }
             mp.Step(dt); mpHud.Step(true);
+            if (!rig.gameObject.activeSelf) rig.gameObject.SetActive(true);
             if (Input.GetKeyDown(KeyCode.U)) ufo.summon = true;           // debug: the saucer now
             if (Input.GetKeyDown(KeyCode.N)) dive.summon = true;          // debug: a jetpack now
             if (Input.GetKeyDown(KeyCode.I)) island.summon = true;        // debug: the island fork now
@@ -592,6 +596,7 @@ public class Bootstrap : MonoBehaviour
             if (spawner.eater != null && spawner.eater.at < Spawner.ShkChew) { rider.WipeHeld(dt); spawner.Step(dt); }   // in the shark's mouth
             else { rider.WipeStep(dt); spawner.Step(dt); }
             mp.Step(dt); mpHud.Step(false);                  // the others ride on while he is in the water
+            if (rig.gameObject.activeSelf == mp.Watching) rig.gameObject.SetActive(!mp.Watching);   // watching someone else: he is not in the shot
             if (mp.On && rider.wipeReal >= BoardController.WipeShow) mp.LocalWipeDone(dt);   // back on, waiting, or out: the mode's call, not the card
             wakeA = Mathf.Lerp(wakeA, 0f, dt * 4f);
             if (rider.wipeReal >= BoardController.WipeShow && !over && !mp.On)

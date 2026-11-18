@@ -11,7 +11,8 @@ public class MpHud : MonoBehaviour
     public System.Action<MpMode, int> onStart;      // the picker's choice: the round starts
     public System.Action onDone;                    // the result closed: back to the title
 
-    RectTransform root; GameObject titleBtn, picker, result, brawl; Text status, resTitle, resRows;
+    RectTransform root; GameObject titleBtn, picker, result, brawl, downPanel; Text status, resTitle, resRows, downTitle, payLabel;
+    Image payBtn, watchBtn;
     int count = 3;
     Text countLabel;
 
@@ -42,6 +43,15 @@ public class MpHud : MonoBehaviour
         AttackButton(brawl.transform, "KICK", 0f, true);
         AttackButton(brawl.transform, "PUNCH", 88f, false);
         brawl.SetActive(false);
+        // ---- down: respawn for puka, watch till the end, or go home ----
+        downPanel = UiKit.Rect(root, "down", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -20), new Vector2(340, 300)).gameObject;
+        var dbg = downPanel.AddComponent<Image>(); dbg.sprite = UiKit.Rounded(340, 300, 22, 22, 22, 22, UiKit.Body.Glass, 2.5f); dbg.color = new Color(1f, 1f, 1f, 0.97f);
+        downTitle = UiKit.Label(downPanel.transform, "", 22, UiKit.TrickYellow, FontStyle.Bold, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -18), new Vector2(320, 34));
+        payBtn = Button(downPanel.transform, "", new Vector2(0.5f, 1f), new Vector2(0, -66), new Vector2(280, 58), () => { if (mp.PayRespawn()) Sfx.Buy(); else Sfx.Buzz(30); }, 18);
+        payLabel = UiKit.Label(payBtn.transform, "", 18, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+        watchBtn = Button(downPanel.transform, "Watch till the end", new Vector2(0.5f, 1f), new Vector2(0, -134), new Vector2(280, 54), () => { Sfx.Buzz(10); mp.Watch(); }, 18);
+        Button(downPanel.transform, "Go home", new Vector2(0.5f, 1f), new Vector2(0, -198), new Vector2(280, 54), () => { Sfx.Buzz(10); mp.GoHome(); }, 18);
+        downPanel.SetActive(false);
         // ---- the result ----
         result = UiKit.Rect(root, "result", Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero).gameObject;
         var rdim = result.AddComponent<Image>(); rdim.color = new Color(0.02f, 0.08f, 0.16f, 0.88f);
@@ -90,11 +100,36 @@ public class MpHud : MonoBehaviour
         resRows.text = string.Join("\n", r.rows) + "\n\n+" + r.coins + " puka";
         result.SetActive(true);
         brawl.SetActive(false); status.text = "";
+        if (downPanel != null) downPanel.SetActive(false);
+    }
+
+    // the down panel: shown while he chooses, or waits to be back in Together
+    void Down()
+    {
+        bool choose = mp != null && mp.Running && mp.Choosing, wait = mp != null && mp.Waiting && !mp.Choosing;
+        bool on = choose || wait;
+        if (downPanel.activeSelf != on) downPanel.SetActive(on);
+        if (!on) return;
+        bool afford = SaveData.Coins >= mp.Cost;
+        if (wait)
+        {
+            downTitle.text = "Back in " + Mathf.CeilToInt(mp.WaitLeft) + "...";
+            payLabel.text = afford ? "Back now  (" + mp.Cost + " puka)" : "Back now (need " + mp.Cost + " puka)";
+            watchBtn.gameObject.SetActive(false);
+        }
+        else
+        {
+            downTitle.text = mp.mode == MpMode.Brawl ? "You're out!" : "Wiped out!";
+            payLabel.text = (mp.mode == MpMode.Brawl ? "Back in with 1 heart" : "Back on your board") + (afford ? "  (" + mp.Cost + " puka)" : " (need " + mp.Cost + ")");
+            watchBtn.gameObject.SetActive(true);
+        }
+        payBtn.color = afford ? Color.white : new Color(1f, 1f, 1f, 0.45f);
     }
 
     public void Step(bool riding)
     {
         if (titleBtn != null && titleBtn.activeSelf) titleBtn.SetActive(false);
+        Down();
         bool live = mp != null && mp.Running && riding;
         if (brawl.activeSelf != (live && mp.mode == MpMode.Brawl && !mp.localOut)) brawl.SetActive(live && mp.mode == MpMode.Brawl && !mp.localOut);
         if (!live) { if (status.text.Length > 0) status.text = ""; return; }
