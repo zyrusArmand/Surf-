@@ -34,13 +34,19 @@ public class Surfer
     public float spd = 1f, top, glide = 1f, boost;
     // the scoreboard
     public int deaths, elims, tricks;
+    // a trick in the air: its turns so far and how fast each goes, what it scores, what it is called;
+    // the callout over their tag for a moment after they land it; the clock to the next hop
+    public float flip, roll, spinRate, flipRate, rollRate, spinEnd, flipEnd, rollEnd, callT, hopCd = 2f; public int trickPts;
+    public string trickName = "", call = "";
+    // what they wear: their own outfit, and the photograph of them in it ("outfit" preview)
+    public Save outfit; public string faceKind = "rider", faceId = "";
 }
 
 /// one line of the standings: the leaderboard during a round, the scoreboard after it
 public class Standing
 {
     public int key;                       // 0 for you, else the surfer's id
-    public string name, riderId; public Color tint; public bool you;
+    public string name, riderId, faceKind, faceId; public Color tint; public bool you;
     public float dist, finishT; public bool finished, down, outOfGame;
     public int hearts, tricks, deaths, elims, place;
     public Standing Copy() => (Standing)MemberwiseClone();
@@ -116,6 +122,13 @@ public class Multi : MonoBehaviour
     public bool On => mode != MpMode.None;
     public bool Running => running && !ended;
 
+    static string PickGear(System.Random rng, string slot, double chance)
+    {
+        if (rng.NextDouble() > chance) return "";
+        var pool = new List<string>(); foreach (var g in GearCatalog.All) if (g.slot == slot) pool.Add(g.id);
+        return pool.Count > 0 ? pool[rng.Next(pool.Count)] : "";
+    }
+
     static readonly string[] BotNames = { "Kai", "Lani", "Nalu", "Koa", "Moana", "Iki" };
     static readonly float[] Hues = { 0.98f, 0.36f, 0.58f, 0.80f };      // red, green, blue, violet: none of them your gold
 
@@ -147,13 +160,17 @@ public class Multi : MonoBehaviour
             };
             s.wantX = s.px;
             var st = RideStats.For(s.boardId, s.riderId); s.spd = st.speed; s.top = st.top; s.glide = Mathf.Max(0.3f, st.glide);
+            // their own clothes: a piece or none in each slot, picked from the whole rack
+            s.outfit = new Save { rider = s.riderId, gearEyes = PickGear(rng, "eyes", 0.45), gearHead = PickGear(rng, "head", 0.5), gearNeck = PickGear(rng, "neck", 0.3), gearBody = PickGear(rng, "body", 0.75) };
+            s.faceKind = "outfit"; s.faceId = s.riderId + "|" + s.outfit.gearEyes + "|" + s.outfit.gearHead + "|" + s.outfit.gearNeck + "|" + s.outfit.gearBody;
+            s.hopCd = 2f + (float)rng.NextDouble() * 4f;
             others.Add(s);
         }
         // the standings: you, then everyone else; their portraits asked for now so they are ready sooner
         table.Clear();
-        table.Add(new Standing { key = 0, name = "You", riderId = SaveData.S.rider, tint = YouTint, you = true });
-        foreach (var o in others) table.Add(new Standing { key = o.id, name = o.name, riderId = o.riderId, tint = o.tint });
-        foreach (var t in table) Previews.Rider(t.riderId);
+        table.Add(new Standing { key = 0, name = "You", riderId = SaveData.S.rider, faceKind = "rider", faceId = SaveData.S.rider, tint = YouTint, you = true });
+        foreach (var o in others) table.Add(new Standing { key = o.id, name = o.name, riderId = o.riderId, faceKind = o.faceKind, faceId = o.faceId, tint = o.tint });
+        foreach (var t in table) Previews.Get(t.faceKind, t.faceId);
         if (view == null) view = gameObject.AddComponent<CrewView>();
         view.Build(others, rider, cam, hud);
     }
@@ -245,15 +262,38 @@ public class Multi : MonoBehaviour
         s.carve = Mathf.Clamp(s.vx / 9f, -1f, 1f);
         s.lunge = Mathf.MoveTowards(s.lunge, 0f, dt * 4f);
         // the air: off a ramp, a spin on the way, and down again
+        s.callT = Mathf.Max(0f, s.callT - dt);
         if (s.py > 0f || s.vy > 0f)
         {
             s.vy -= 32f * dt; s.py += s.vy * dt;
-            if (s.spinning) s.spin += 540f * dt;
+            if (s.spinning)
+            {
+                // each turn runs to its full count and stops there, so it lands square
+                s.spin = Turn(s.spin, s.spinRate, s.spinEnd, dt); s.flip = Turn(s.flip, s.flipRate, s.flipEnd, dt); s.roll = Turn(s.roll, s.rollRate, s.rollEnd, dt);
+            }
             if (s.py <= 0f)
             {
                 s.py = 0f; s.vy = 0f;
-                if (s.spinning) { s.score += 120; s.tricks++; s.boost = Mathf.Min(16f, s.boost + 6f); }   // a landed trick pays as yours does
-                s.spinning = false; s.spin = 0f;
+                if (s.spinning)
+                {
+                    // now and then one goes wrong and puts them in (not in a brawl: a heart is too dear)
+                    if (mode != MpMode.Brawl && Random.value < 0.05f) { s.spinning = false; s.spin = s.flip = s.roll = 0f; Down(s, true); return; }
+                    s.score += s.trickPts; s.tricks++;                                                     // a landed trick pays as yours does
+                    s.boost = Mathf.Min(16f, s.boost + 3f + Mathf.Min(5f, s.trickPts / 120f));
+                    s.call = s.trickName + "!"; s.callT = 1.2f;
+                }
+                s.spinning = false; s.spin = s.flip = s.roll = 0f;
+            }
+        }
+        // on the flat: a hop now and then, mostly with a spin in it
+        else if (!s.down)
+        {
+            s.hopCd -= dt;
+            if (s.hopCd <= 0f)
+            {
+                s.hopCd = (mode == MpMode.Brawl ? 6f : 3.5f) + Random.value * 5f;
+                s.vy = 10f + Random.value * 1.5f; s.py = 0.05f;
+                if (Random.value < 0.85f) Trick(s, false); else s.spinning = false;
             }
         }
         // far ahead of you or well behind, the ocean round them is not cast (it is cast round you):
@@ -283,9 +323,34 @@ public class Multi : MonoBehaviour
     // off a ramp: up, maybe a spin, and the same burst of speed off the lip the local rider gets
     static void Launch(Surfer s)
     {
-        s.vy = 13f + Random.value * 4f; s.py = 0.05f; s.spinning = Random.value < 0.7f;
+        s.vy = 13f + Random.value * 4f; s.py = 0.05f;
+        if (Random.value < 0.9f) Trick(s, true); else s.spinning = false;
         s.boost = Mathf.Min(16f, s.boost + 7f);
     }
+
+    // a trick for the air ahead: timed to finish just before they come down. Off the flat only a
+    // spin fits; off a ramp there is height for a flip, a roll, a 720 or a flip with a spin in it
+    static void Trick(Surfer s, bool big)
+    {
+        float air = 2f * s.vy / 32f, T = Mathf.Max(0.3f, air * 0.85f);
+        float dir = Random.value < 0.5f ? 1f : -1f;
+        s.spin = s.flip = s.roll = 0f; s.spinRate = s.flipRate = s.rollRate = 0f;
+        float r = big ? Random.value : 0f;
+        if (r < 0.40f)
+        {
+            int turns = big && Random.value < 0.4f ? 2 : 1;
+            s.spinRate = dir * 360f * turns / T; s.trickName = turns == 2 ? "720" : "360"; s.trickPts = turns == 2 ? 260 : 120;
+        }
+        else if (r < 0.65f) { s.flipRate = 360f / T; s.trickName = "BACKFLIP"; s.trickPts = 220; }
+        else if (r < 0.85f) { s.rollRate = dir * 360f / T; s.trickName = "BARREL ROLL"; s.trickPts = 200; }
+        else { s.flipRate = 360f / T; s.spinRate = dir * 360f / T; s.trickName = "FLIP 360"; s.trickPts = 320; }
+        // where each turn stops: a whole number of turns at the rate it was given for the time it has
+        s.spinEnd = s.spinRate * T; s.flipEnd = s.flipRate * T; s.rollEnd = s.rollRate * T;
+        s.spinning = true;
+    }
+
+    // toward the trick's full count, and no further
+    static float Turn(float at, float rate, float end, float dt) => Mathf.MoveTowards(at, end, Mathf.Abs(rate) * dt);
 
     bool LocalDown => rider.wipe || !rider.running;
     bool AnyBotUp(Surfer except) { foreach (var o in others) if (o != except && !o.down && !o.outOfGame) return true; return false; }
@@ -308,6 +373,7 @@ public class Multi : MonoBehaviour
     {
         if (s.down) return;
         s.down = true; s.downT = 0f; s.vx = 0f; s.py = 0f; s.vy = 0f; s.spinning = false; s.boost = 0f; s.deaths++;
+        s.spin = s.flip = s.roll = 0f; s.callT = 0f;
         if (mode == MpMode.Brawl && crash) s.hearts--;
         if (mode == MpMode.Brawl && s.hearts <= 0) s.outOfGame = true;
         float z = -(s.dist - rider.dist);

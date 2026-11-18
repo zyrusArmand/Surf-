@@ -29,12 +29,19 @@ public static class Gear
 
     // =====================================================================================
     /// takes off what is on and puts on what the save says is worn
-    public static void Dress(Transform riderRoot, Save s)
+    /// `anyone`: the outfit is someone else's (a multiplayer rival), worn whatever your rank has granted
+    public static void Dress(Transform riderRoot, Save s, bool anyone = false)
     {
         if (riderRoot == null || s == null) return;
         Undress(riderRoot);
-        var E = GearCatalog.Worn(s, "eyes"); var H = GearCatalog.Worn(s, "head");
-        var B = GearCatalog.Worn(s, "neck"); var S = GearCatalog.Worn(s, "body");
+        System.Func<string, GearCatalog.Gear> W = slot =>
+        {
+            if (!anyone) return GearCatalog.Worn(s, slot);
+            var g = GearCatalog.Get(GearCatalog.On(s, slot));
+            return g != null && g.slot == slot ? g : null;
+        };
+        var E = W("eyes"); var H = W("head");
+        var B = W("neck"); var S = W("body");
         if (E == null && H == null && B == null && S == null) return;
         var bones = new Dictionary<string, Transform>();
         foreach (var t in riderRoot.GetComponentsInChildren<Transform>(true)) if (!bones.ContainsKey(t.name)) bones[t.name] = t;

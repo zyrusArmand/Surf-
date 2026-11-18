@@ -29,6 +29,9 @@ public class CrewView : MonoBehaviour
                 foreach (var a in body.GetComponentsInChildren<Animation>(true)) { a.Stop(); a.enabled = false; }
                 foreach (var a in body.GetComponentsInChildren<Animator>(true)) a.enabled = false;
                 look.body = body.transform;
+                // in their own clothes (the riders built in code ride bare, as yours does)
+                if (!proc && s.outfit != null)
+                    try { Gear.Dress(body.transform, s.outfit, true); } catch (System.Exception ex) { Debug.LogWarning("CrewView: could not dress " + s.name + ": " + ex.Message); }
             }
             if (canvas != null)
             {
@@ -61,7 +64,8 @@ public class CrewView : MonoBehaviour
             float sea = WaveField.Height(s.px, WaveField.Scroll + z, rider.t);
             l.root.transform.position = new Vector3(s.px, sea + 0.06f + s.py, z);
             float yaw = -Mathf.Atan2(s.vx, Mathf.Max(8f, s.eff)) * Mathf.Rad2Deg;
-            l.root.transform.rotation = Quaternion.Euler(0f, yaw - s.spin, -s.carve * 8f);
+            // the trick in the air: spin about up, flip end over end, roll along the board
+            l.root.transform.rotation = Quaternion.Euler(0f, yaw - s.spin, 0f) * Quaternion.Euler(-s.flip, 0f, 0f) * Quaternion.Euler(0f, 0f, s.roll - s.carve * 8f);
             // a lunge at someone: a quick shove of the whole surfer sideways and back
             if (l.body != null) l.body.localPosition = new Vector3(s.lunge * 0.35f * Mathf.Sign(s.vx == 0 ? 1 : s.vx), 0.19f, 0.2f);
             if (l.tag != null)
@@ -72,6 +76,8 @@ public class CrewView : MonoBehaviour
                 // in a brawl: hearts, and a "!" in red while it winds up a swing, so it can be dodged
                 l.tag.text = mode == MpMode.Brawl ? (s.windup > 0f ? "! " : "") + s.name + " " + new string('♥', Mathf.Max(0, s.hearts)) : s.name;
                 l.tag.color = mode == MpMode.Brawl && s.windup > 0f ? new Color(1f, 0.35f, 0.25f) : s.tint;
+                // a trick just landed: called out over them for a moment
+                if (s.callT > 0f && !(mode == MpMode.Brawl && s.windup > 0f)) { l.tag.text = s.name + "  " + s.call; l.tag.color = UiKit.TrickYellow; }
             }
         }
     }

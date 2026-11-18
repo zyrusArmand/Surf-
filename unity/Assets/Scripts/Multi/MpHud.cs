@@ -24,7 +24,7 @@ public class MpHud : MonoBehaviour
     readonly List<Row> rows = new List<Row>();
     RectTransform board, arrows, scoreTable;
     readonly List<Image> arrowPics = new List<Image>();
-    readonly List<(Image img, string id)> pending = new List<(Image, string)>();
+    readonly List<(Image img, string kind, string id)> pending = new List<(Image, string, string)>();
     int builtRound = -1;
     static Sprite arrowSprite;
     const float RowH = 40f, RowGap = 4f, RowW = 182f;
@@ -142,12 +142,11 @@ public class MpHud : MonoBehaviour
         float y = -24f;
         foreach (var t in r.table)
         {
-            var line = UiKit.Pic(scoreTable, "row", UiKit.Rounded(ColW, 40, 12, 12, 12, 12, UiKit.Body.Glass, t.you ? 2.5f : 1.5f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0, y), new Vector2(ColW, 40));
+            var line = Solid.Pic(scoreTable, "row", Solid.VGradient(ColW, 40, 12, new Color(0.08f, 0.15f, 0.26f, 0.95f), new Color(0.04f, 0.09f, 0.17f, 0.95f), t.you ? new Color(1f, 0.86f, 0.3f, 0.9f) : new Color(1f, 1f, 1f, 0.2f), t.you ? 1.6f : 1f), Color.white, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0, y), new Vector2(ColW, 40));
             line.raycastTarget = false;
-            if (t.you) line.color = new Color(1f, 0.95f, 0.8f, 1f);
             Cell(line.transform, t.place.ToString(), 0, 0f, 40f, 17, Color.white, TextAnchor.MiddleCenter);
             Portrait(line.transform, t, new Vector2(ColX[1] + 1f, -4f), 32f);
-            Cell(line.transform, t.name, 2, 0f, 40f, 15, t.tint, TextAnchor.MiddleLeft);
+            Cell(line.transform, t.name, 2, 0f, 40f, 15, Lift(t.tint), TextAnchor.MiddleLeft);
             string d = Mathf.RoundToInt(t.dist) + " m";
             if (r.mode == MpMode.Race && t.finished) d = t.finishT.ToString("0.0") + "s";
             Cell(line.transform, d, 3, 0f, 40f, 14, Color.white, TextAnchor.MiddleCenter);
@@ -175,8 +174,8 @@ public class MpHud : MonoBehaviour
         disc.gameObject.AddComponent<Mask>().showMaskGraphic = true;           // the portrait cut to the disc
         var pic = UiKit.Pic(disc.transform, "pic", null, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
         pic.preserveAspect = true; pic.raycastTarget = false; pic.enabled = false;
-        var sp = Face(t.riderId);
-        if (sp != null) { pic.sprite = sp; pic.enabled = true; } else pending.Add((pic, t.riderId));
+        var sp = Face(t.faceKind, t.faceId);
+        if (sp != null) { pic.sprite = sp; pic.enabled = true; } else pending.Add((pic, t.faceKind, t.faceId));
         return pic;
     }
 
@@ -187,25 +186,28 @@ public class MpHud : MonoBehaviour
         Previews.Pump();
         for (int i = pending.Count - 1; i >= 0; i--)
         {
-            var (img, id) = pending[i];
+            var (img, kind, id) = pending[i];
             if (img == null) { pending.RemoveAt(i); continue; }
-            var sp = Face(id);
+            var sp = Face(kind, id);
             if (sp != null) { img.sprite = sp; img.enabled = true; pending.RemoveAt(i); }
-            else if (Previews.Done("rider", id)) pending.RemoveAt(i);       // could not be taken: the disc stays
+            else if (Previews.Done(kind, id)) pending.RemoveAt(i);          // could not be taken: the disc stays
         }
     }
 
     // the shop's whole-body photograph cut down to a head and shoulders: the top square of it
+    // (you: "rider", in what you wear; a rival: "outfit", in theirs)
     static readonly Dictionary<string, (Sprite from, Sprite face)> faces = new Dictionary<string, (Sprite, Sprite)>();
-    static Sprite Face(string id)
+    static Sprite Face(string kind, string id)
     {
-        var sp = Previews.Rider(id);
+        if (string.IsNullOrEmpty(kind)) return null;
+        var sp = Previews.Get(kind, id);
         if (sp == null) return null;
-        if (faces.TryGetValue(id, out var f) && f.from == sp && f.face != null) return f.face;
+        string key = kind + ":" + id;
+        if (faces.TryGetValue(key, out var f) && f.from == sp && f.face != null) return f.face;
         var r = sp.rect; float side = Mathf.Min(r.width, r.height) * 0.78f;
         var crop = new Rect(r.x + (r.width - side) * 0.5f, r.y + r.height - side - r.height * 0.03f, side, side);
         var face = Sprite.Create(sp.texture, crop, new Vector2(0.5f, 0.5f), 100f);
-        faces[id] = (sp, face);
+        faces[key] = (sp, face);
         return face;
     }
 
@@ -216,19 +218,25 @@ public class MpHud : MonoBehaviour
         rows.Clear();
         foreach (var t in mp.Standings())
         {
-            var bg = UiKit.Pic(board, "row", UiKit.Rounded(RowW, RowH, 13, 13, 13, 13, UiKit.Body.Glass, t.you ? 2.5f : 1.5f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), Vector2.zero, new Vector2(RowW, RowH));
-            bg.raycastTarget = false; bg.color = new Color(1f, 1f, 1f, 0.92f);
+            // dark behind the lettering so it reads against a bright sky; a stripe of their colour down the left
+            var bg = Solid.Pic(board, "row", Solid.VGradient(RowW, RowH, 12, new Color(0.06f, 0.11f, 0.2f, 0.84f), new Color(0.03f, 0.07f, 0.14f, 0.84f), t.you ? new Color(1f, 0.86f, 0.3f, 0.9f) : new Color(1f, 1f, 1f, 0.22f), t.you ? 1.6f : 1f), Color.white, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), Vector2.zero, new Vector2(RowW, RowH));
+            bg.raycastTarget = false;
+            var stripe = Solid.Pic(bg.transform, "stripe", Solid.VGradient(4, RowH - 12, 2, t.tint, t.tint, t.tint, 0f), Color.white, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(3, 0), new Vector2(4, RowH - 12));
+            stripe.raycastTarget = false;
             var row = new Row { key = t.key, rt = bg.rectTransform, cg = bg.gameObject.AddComponent<CanvasGroup>() };
             row.cg.blocksRaycasts = false;
-            row.place = UiKit.Label(bg.transform, "", 16, Color.white, FontStyle.Bold, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(4, 0), new Vector2(18, 0), TextAnchor.MiddleCenter, 0.6f);
-            row.pic = Portrait(bg.transform, t, new Vector2(24f, -4f), 32f);
-            row.name = UiKit.Label(bg.transform, t.name, 13, t.tint, FontStyle.Bold, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(62, -3), new Vector2(RowW - 66, 18), TextAnchor.MiddleLeft, 0.6f);
-            row.line = UiKit.Label(bg.transform, "", 11, Color.white, FontStyle.Bold, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(62, -20), new Vector2(RowW - 66, 16), TextAnchor.MiddleLeft, 0.6f);
+            row.place = UiKit.Label(bg.transform, "", 17, Color.white, FontStyle.Bold, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(8, 0), new Vector2(16, 0), TextAnchor.MiddleCenter, 0.9f);
+            row.pic = Portrait(bg.transform, t, new Vector2(26f, -4f), 32f);
+            row.name = UiKit.Label(bg.transform, t.name, 14, Lift(t.tint), FontStyle.Bold, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(63, -3), new Vector2(RowW - 66, 18), TextAnchor.MiddleLeft, 0.9f);
+            row.line = UiKit.Label(bg.transform, "", 12, new Color(0.92f, 0.95f, 1f), FontStyle.Bold, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(63, -20), new Vector2(RowW - 66, 16), TextAnchor.MiddleLeft, 0.9f);
             row.place.raycastTarget = row.name.raycastTarget = row.line.raycastTarget = false;
             rows.Add(row);
         }
         builtRound = mp.round;
     }
+
+    // a colour lifted toward white so a name in it reads on the dark rows
+    static Color Lift(Color c) => Color.Lerp(c, Color.white, 0.25f);
 
     void Standings(bool on)
     {
@@ -249,7 +257,7 @@ public class MpHud : MonoBehaviour
             row.place.text = t.place.ToString();
             row.name.text = mp.mode == MpMode.Brawl ? t.name + " " + new string('♥', Mathf.Max(0, t.hearts)) : t.name;
             string trick = t.tricks == 1 ? "1 trick" : t.tricks + " tricks";
-            row.line.text = (mp.mode == MpMode.Race && t.finished ? "FINISHED" : Mathf.RoundToInt(t.dist) + " m") + "  ·  " + trick;
+            row.line.text = (mp.mode == MpMode.Race && t.finished ? "FINISHED" : Mathf.RoundToInt(t.dist) + " m") + " · " + trick;
             // down or out: faded until they are back up
             row.cg.alpha = t.outOfGame ? 0.4f : t.down ? 0.6f : 1f;
         }

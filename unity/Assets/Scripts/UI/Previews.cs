@@ -387,6 +387,14 @@ public static class Previews
             if (g != null) GearCatalog.SetOn(dress, g.slot, id);
             BuildRider(holder.transform, rid, dress, g != null ? id : null);
         }
+        else if (kind == "outfit")
+        {
+            // someone else's rider in their own clothes: "rider|eyes|head|neck|body" (a multiplayer rival)
+            var p = id.Split('|');
+            string At(int i) => i < p.Length ? p[i] : "";
+            var dress = new Save { rider = At(0), gearEyes = At(1), gearHead = At(2), gearNeck = At(3), gearBody = At(4) };
+            BuildRider(holder.transform, dress.rider, dress, null, true);
+        }
         else
         {
             var w = SaveData.S;
@@ -405,7 +413,7 @@ public static class Previews
         return !string.IsNullOrEmpty(r) && Resources.Load<GameObject>("Models/" + r) != null ? r : "pug";
     }
 
-    static void BuildRider(Transform holder, string rid, Save dress, string grant)
+    static void BuildRider(Transform holder, string rid, Save dress, string grant, bool anyone = false)
     {
         bool proc = Resources.Load<GameObject>("Models/" + rid) == null && ProcRider.Has(rid);
         var go = proc ? ProcRider.Build(rid, holder) : Models.Spawn(rid, holder, ProcRider.RiderFt, PrimitiveType.Capsule);
@@ -420,7 +428,7 @@ public static class Previews
         // web's gearPreviewAll); the grant is lent for the length of the dressing and taken back
         bool lent = false;
         if (grant != null && !GearCatalog.Have(grant)) { SaveData.S.ownedGear.Add(grant); lent = true; }
-        try { global::Gear.Dress(go.transform, dress); }
+        try { global::Gear.Dress(go.transform, dress, anyone); }
         catch (System.Exception ex) { Debug.LogWarning("Previews: could not dress " + rid + ": " + ex.Message); }
         finally { if (lent) SaveData.S.ownedGear.Remove(grant); }
         Face(go.transform);
