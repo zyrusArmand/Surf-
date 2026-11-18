@@ -28,6 +28,37 @@ public static class SurfCI
         if (sum.result != BuildResult.Succeeded) EditorApplication.Exit(1);
     }
 
+    // ---- the same player, built from the editor into the repo's play/ folder: GitHub Pages
+    // serves the whole repo, so once it is committed and pushed it is at <site>/play/ for a phone
+    [MenuItem("Surf/Build web version for phone (GitHub Pages)")]
+    public static void BuildPages()
+    {
+        string path = System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath, "../../play"));
+        if (!EditorUtility.DisplayDialog("Build the web version",
+            "Builds the game for the web into\n" + path + "\n\nThe first time, Unity switches to the Web platform, which takes a while. Then commit and push the play folder, and it opens on a phone at your GitHub Pages address + /play/",
+            "Build", "Cancel")) return;
+        PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Gzip;
+        PlayerSettings.WebGL.decompressionFallback = true;           // GitHub Pages sends no Content-Encoding: the page unpacks it
+        PlayerSettings.WebGL.dataCaching = true;                     // a phone keeps the data between visits
+        if (System.IO.Directory.Exists(path)) System.IO.Directory.Delete(path, true);
+        var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+        {
+            scenes = new[] { "Assets/Scenes/Main.unity" },
+            locationPathName = path,
+            target = BuildTarget.WebGL,
+            options = BuildOptions.None,
+        });
+        var sum = report.summary;
+        if (sum.result != BuildResult.Succeeded) { EditorUtility.DisplayDialog("Build failed", "See the Console for why.", "OK"); return; }
+        // GitHub refuses any one file over 100 MB
+        string big = "";
+        foreach (var f in System.IO.Directory.GetFiles(path, "*", System.IO.SearchOption.AllDirectories))
+            if (new System.IO.FileInfo(f).Length > 95L * 1024 * 1024) big += "\n" + System.IO.Path.GetFileName(f);
+        EditorUtility.DisplayDialog("Built", "Web version built (" + sum.totalSize / (1024 * 1024) + " MB).\n\n" +
+            (big.Length > 0 ? "Too big for GitHub (over 100 MB):" + big : "Now commit and push the play folder in GitHub Desktop."), "OK");
+        EditorUtility.RevealInFinder(path);
+    }
+
     static string Arg(string name)
     {
         var a = System.Environment.GetCommandLineArgs();
