@@ -11,6 +11,11 @@ public class BoardController : MonoBehaviour
     // ---- the speed curve ----
     const float SpdLo = 16.2f, SpdHi = 52f;
     const float SpdK = 210f * (SpdHi - SpdLo);
+    /// the cruising speed a board gives at a distance, before carving and boosts: the formula the
+    /// ride itself uses (Step), for the multiplayer bots to ride by the same rules
+    public static float Pace(float dist, float statSpeed, float statTop) =>
+        Mathf.Min(100f + statTop, (SpdLo + (SpdHi - SpdLo) * dist / (dist + SpdK)) * statSpeed + statTop);
+    public static float PaceCap(float statTop) => 113f + statTop;
     public const float BoardHalfL = 2.45f, BoardHalfW = 0.55f;
     public float laneLim = 17f;             // the lane's half-width this frame: the island widens it, the chute squeezes it (web 44899)
     const float LandYaw = 0.88f, LandFlip = 0.72f;
@@ -20,6 +25,7 @@ public class BoardController : MonoBehaviour
     // ---- state ----
     public float px, py, pz, vx, vy;
     public float speed, eff, dist, boost, trim;
+    public int tricksLanded;                 // every trick landed this run (multiplayer's leaderboard and scoreboard)
     public bool airborne, running, wipe;
     public float wipeT;
     public int score;
@@ -195,7 +201,7 @@ public class BoardController : MonoBehaviour
 
     public void Begin()
     {
-        px = 0; py = 0; pz = 0; vx = 0; vy = 0; dist = 0; speed = SpdLo; eff = SpdLo; boost = 0; trim = 0;
+        px = 0; py = 0; pz = 0; vx = 0; vy = 0; dist = 0; speed = SpdLo; eff = SpdLo; boost = 0; trim = 0; tricksLanded = 0;
         msgT = 0f; lastMsg = ""; prevWaterY = float.NaN;                   // the last run's crash line does not open this one, nor its water the spring
         airborne = false; running = true; wipe = false; wipeT = 0; score = 0; coins = 0; bonusCoins = 0;
         spinRot = flipRot = pitchRot = 0; spinHeld = flipHeld = pitchHeld = false;
@@ -274,7 +280,7 @@ public class BoardController : MonoBehaviour
     {
         int p = Mathf.RoundToInt(kf.pts * statTrick);
         score += p;
-        boost = Mathf.Min(16f, boost + 3f + Mathf.Min(5f, p / 120f));
+        boost = Mathf.Min(16f, boost + 3f + Mathf.Min(5f, p / 120f)); tricksLanded++;
         Say(kf.name.ToUpper() + "! +" + p);
         Sfx.Buzz(p >= 400 ? 30 : 16);
     }
@@ -443,7 +449,7 @@ public class BoardController : MonoBehaviour
     {
         if (!dragOn) return;
         int p = Mathf.RoundToInt(dragPts);
-        if (p >= 25 && running && !wipe) { score += p; boost = Mathf.Min(16f, boost + 2.5f); Say("HAND DRAG! +" + p); }
+        if (p >= 25 && running && !wipe) { score += p; boost = Mathf.Min(16f, boost + 2.5f); tricksLanded++; Say("HAND DRAG! +" + p); }
         dragOn = false; dragPts = 0f; releaseKick = 0.30f;
     }
     /// web endGrab (26913-26919): 30 or more is paid and named by the rail he had
@@ -451,7 +457,7 @@ public class BoardController : MonoBehaviour
     {
         if (!grabOn) return;
         int p = Mathf.RoundToInt(grabPts);
-        if (p >= 30 && running && !wipe) { score += p; boost = Mathf.Min(16f, boost + 3f); Say((grabSide > 0 ? "INDY" : "MELON") + " GRAB! +" + p); }
+        if (p >= 30 && running && !wipe) { score += p; boost = Mathf.Min(16f, boost + 3f); tricksLanded++; Say((grabSide > 0 ? "INDY" : "MELON") + " GRAB! +" + p); }
         grabOn = false; grabPts = 0f; releaseKick = 0.35f;
     }
 
@@ -548,7 +554,7 @@ public class BoardController : MonoBehaviour
             if (handPts >= 30f)
             {
                 int p = Mathf.RoundToInt(handPts);
-                score += Mathf.RoundToInt(p * 0.35f); boost = Mathf.Min(16f, boost + 3.5f);
+                score += Mathf.RoundToInt(p * 0.35f); boost = Mathf.Min(16f, boost + 3.5f); tricksLanded++;
                 Say("HANDSTAND! +" + Mathf.RoundToInt(p * 1.35f));
                 Sfx.Trick("handstand");                  // web noteTrick (44827): the stand's sound is the bank
             }
@@ -775,7 +781,7 @@ public class BoardController : MonoBehaviour
         if (supT >= 0f)
         {
             supT += dt; sup = Mathf.Min(1f, supT / SupDur);
-            if (sup >= 1f) { score += SupPts; boost = Mathf.Min(16f, boost + 6f); Say("SUPERMAN BACKFLIP! +" + SupPts); supT = -1f; sup = 0f; }
+            if (sup >= 1f) { score += SupPts; boost = Mathf.Min(16f, boost + 6f); tricksLanded++; Say("SUPERMAN BACKFLIP! +" + SupPts); supT = -1f; sup = 0f; }
         }
 
         // coins: a shell a few metres, the web game's pace
@@ -839,7 +845,7 @@ public class BoardController : MonoBehaviour
             else if (off < 0.45f * tight) { pts = Mathf.RoundToInt(pts * 1.4f); label += "CLEAN "; names++; }
             pts = Mathf.RoundToInt(pts * statTrick);      // the rider's trick perk
             score += pts;
-            boost = Mathf.Min(16f, boost + 5f + Mathf.Min(7f, pts / 110f));
+            boost = Mathf.Min(16f, boost + 5f + Mathf.Min(7f, pts / 110f)); tricksLanded++;
             // the web's line: the names joined with " + ", PERFECT and CLEAN counted among them, so a
             // clean single spin reads "360° SPIN + CLEAN COMBO! +126" (web 26950)
             var parts = System.Text.RegularExpressions.Regex.Split(label.Trim(), @"(?<=SPIN|ROLL|FLIP|HELICOPTER|INDY|MELON|PERFECT|CLEAN) ");

@@ -30,6 +30,20 @@ public class Surfer
     // a brawl swing: wound up for a moment first (its tag shows "!"), so the one it is aimed at can
     // steer out of reach; the target is 0 for the local surfer, else a bot's id
     public float windup; public bool windKick; public int windTarget;
+    // the board under them, as the ride reads it (RideStats): pace, top end, how long a boost lasts
+    public float spd = 1f, top, glide = 1f, boost;
+    // the scoreboard
+    public int deaths, elims, tricks;
+}
+
+/// one line of the standings: the leaderboard during a round, the scoreboard after it
+public class Standing
+{
+    public int key;                       // 0 for you, else the surfer's id
+    public string name, riderId; public Color tint; public bool you;
+    public float dist, finishT; public bool finished, down, outOfGame;
+    public int hearts, tricks, deaths, elims, place;
+    public Standing Copy() => (Standing)MemberwiseClone();
 }
 
 public class Multi : MonoBehaviour
@@ -49,6 +63,11 @@ public class Multi : MonoBehaviour
     // leave the local surfer a moment no one can hit him in
     public const float BrawlGrace = 3f, HitImmune = 1.5f, BackImmune = 3f;
     float startGrace, localImmune;
+    // the local surfer's own tally; his distance kept while the ocean follows someone he watches
+    public int localDeaths, localElims; float keptDist; bool wasWipe;
+    public int round;                                      // a new number each round: the HUD rebuilds its rows
+    public static readonly Color YouTint = new Color(1f, 0.86f, 0.3f);
+    public float LocalDist => Watching ? keptDist : rider.dist;
 
     // ---- going down: the choice ----
     // Down and not coming back on his own (Race, a brawl lost), he chooses: pay to get straight back
@@ -76,7 +95,7 @@ public class Multi : MonoBehaviour
     }
 
     /// sit it out and watch until the round is won
-    public void Watch() { if (!Running) return; Choosing = false; Watching = true; watched = null; }
+    public void Watch() { if (!Running) return; if (!Watching) keptDist = rider.dist; Choosing = false; Watching = true; watched = null; }
 
     public void GoHome() { Choosing = false; Watching = false; onHome?.Invoke(); }
 
@@ -98,6 +117,7 @@ public class Multi : MonoBehaviour
     public bool Running => running && !ended;
 
     static readonly string[] BotNames = { "Kai", "Lani", "Nalu", "Koa", "Moana", "Iki" };
+    static readonly float[] Hues = { 0.98f, 0.36f, 0.58f, 0.80f };      // red, green, blue, violet: none of them your gold
 
     /// set up a round before the run starts: the mode, how many bots, and the ocean's seed
     public void Prepare(MpMode m, int bots, int oceanSeed)
@@ -105,6 +125,7 @@ public class Multi : MonoBehaviour
         Stop();
         mode = m; seed = oceanSeed; ended = false; running = false; clock = 0f;
         localHearts = 3; localOut = false; localFinished = false; localDownT = 0f;
+        localDeaths = 0; localElims = 0; wasWipe = false; round++;
         var rng = new System.Random(oceanSeed ^ 0x5f3759df);
         var riders = new List<string>(); foreach (var r in RiderCatalog.All) if (r.id != SaveData.S.rider) riders.Add(r.id);
         var boards = new List<string>(); foreach (var b in BoardCatalog.All) boards.Add(b.id);
@@ -115,8 +136,9 @@ public class Multi : MonoBehaviour
                 id = i + 1, name = BotNames[i % BotNames.Length], bot = true,
                 riderId = riders.Count > 0 ? riders[rng.Next(riders.Count)] : SaveData.S.rider,
                 boardId = boards.Count > 0 ? boards[rng.Next(boards.Count)] : SaveData.S.equipped,
-                tint = Color.HSVToRGB((0.08f + i * 0.27f) % 1f, 0.75f, 1f),
-                skill = (float)(rng.NextDouble() - 0.5) * 0.10f,
+                tint = Color.HSVToRGB(Hues[i % Hues.Length], 0.72f, 1f),
+                // a race is the board's to win: only a little temperament on top of it
+                skill = (float)(rng.NextDouble() - 0.5) * (m == MpMode.Race ? 0.05f : 0.10f),
                 px = (i % 2 == 0 ? 1f : -1f) * (m == MpMode.Brawl ? 6f + 5f * (i / 2) : 3.5f + 3f * (i / 2)),
                 // in a brawl spread out round you, not on top of you
                 dist = m == MpMode.Brawl ? (i == 0 ? 14f : i == 1 ? -12f : 24f) : 0f,
@@ -124,14 +146,20 @@ public class Multi : MonoBehaviour
                 atkCd = BrawlGrace + 1f + (float)rng.NextDouble() * 2f
             };
             s.wantX = s.px;
+            var st = RideStats.For(s.boardId, s.riderId); s.spd = st.speed; s.top = st.top; s.glide = Mathf.Max(0.3f, st.glide);
             others.Add(s);
         }
+        // the standings: you, then everyone else; their portraits asked for now so they are ready sooner
+        table.Clear();
+        table.Add(new Standing { key = 0, name = "You", riderId = SaveData.S.rider, tint = YouTint, you = true });
+        foreach (var o in others) table.Add(new Standing { key = o.id, name = o.name, riderId = o.riderId, tint = o.tint });
+        foreach (var t in table) Previews.Rider(t.riderId);
         if (view == null) view = gameObject.AddComponent<CrewView>();
         view.Build(others, rider, cam, hud);
     }
 
     /// the run has started (Bootstrap.Play)
-    public void Begin() { if (On) { running = true; clock = 0f; startGrace = mode == MpMode.Brawl ? BrawlGrace : 0f; localImmune = 0f; } }
+    public void Begin() { if (On) { running = true; clock = 0f; startGrace = mode == MpMode.Brawl ? BrawlGrace : 0f; localImmune = 0f; wasWipe = false; } }
 
     /// back to the title: everyone gone
     public void Stop()
@@ -153,6 +181,8 @@ public class Multi : MonoBehaviour
             if (hud != null && (now != was || clock <= dt)) hud.Toast(startGrace > 0f ? now.ToString() : "FIGHT!");
         }
         localImmune = Mathf.Max(0f, localImmune - dt);
+        if (rider.wipe && !wasWipe) localDeaths++;              // each time he goes in, once
+        wasWipe = rider.wipe;
         if (Watching) Follow();
         foreach (var s in others) StepBot(s, dt);
         if (mode == MpMode.Brawl) BotAttacks(dt);
@@ -176,11 +206,24 @@ public class Multi : MonoBehaviour
         if (s.finished) { s.dist += s.eff * dt; return; }
         // pace: about yours, a little faster or slower by temperament, eased back toward you when far
         // off so the field stays together; in a brawl, toward whoever it is after
-        float you = rider.dist, gap = s.dist - you;
-        float baseV = Mathf.Max(22f, rider.running ? rider.eff : 30f);
-        float rubber = Mathf.Clamp(-gap / 60f, -0.25f, 0.25f);
-        float targetV = baseV * (1f + s.skill + rubber);
-        if (mode == MpMode.Brawl) { var t = Target(s); if (t.HasValue) targetV = baseV * (1f + Mathf.Clamp((t.Value.y - s.dist) / 25f, -0.3f, 0.3f)); }
+        float you = LocalDist, gap = s.dist - you;
+        s.boost = Mathf.Max(0f, s.boost - dt * 3f / s.glide);   // a boost wears off as yours does
+        float targetV;
+        if (mode == MpMode.Race)
+        {
+            // a race rides by the ride's own rules: the board's pace at this distance, carving and
+            // boosts on top, so a faster board really is faster; only one left far behind gets a hand
+            targetV = Mathf.Max(16.2f, Mathf.Min(BoardController.PaceCap(s.top), BoardController.Pace(s.dist, s.spd, s.top) + Mathf.Abs(s.vx) * 0.3f + s.boost)) * (1f + s.skill);
+            if (gap < -150f) targetV *= 1f + Mathf.Min(0.08f, (-gap - 150f) / 1500f);
+        }
+        else
+        {
+            // together and in a brawl the field stays round you: about your pace, eased back when far off
+            float baseV = Mathf.Max(22f, rider.running ? rider.eff : 30f);
+            float rubber = Mathf.Clamp(-gap / 60f, -0.25f, 0.25f);
+            targetV = baseV * (1f + s.skill + rubber) + s.boost * 0.5f;
+            if (mode == MpMode.Brawl) { var t = Target(s); if (t.HasValue) targetV = baseV * (1f + Mathf.Clamp((t.Value.y - s.dist) / 25f, -0.3f, 0.3f)); }
+        }
         s.eff = Mathf.MoveTowards(s.eff, targetV, 18f * dt);
         s.dist += s.eff * dt;
         // across: wander, steer round what is in the way, line up a ramp now and then, and in a brawl
@@ -206,7 +249,20 @@ public class Multi : MonoBehaviour
         {
             s.vy -= 32f * dt; s.py += s.vy * dt;
             if (s.spinning) s.spin += 540f * dt;
-            if (s.py <= 0f) { s.py = 0f; s.vy = 0f; if (s.spinning) s.score += 120; s.spinning = false; s.spin = 0f; }
+            if (s.py <= 0f)
+            {
+                s.py = 0f; s.vy = 0f;
+                if (s.spinning) { s.score += 120; s.tricks++; s.boost = Mathf.Min(16f, s.boost + 6f); }   // a landed trick pays as yours does
+                s.spinning = false; s.spin = 0f;
+            }
+        }
+        // far ahead of you or well behind, the ocean round them is not cast (it is cast round you):
+        // the same odds of a ramp and of a wipeout, rolled instead of met
+        float cast = s.dist - rider.dist;                         // against where the ocean is being cast
+        if (mode == MpMode.Race && (cast > 140f || cast < -25f) && s.py <= 0f)
+        {
+            if (Random.value < dt * 0.012f) { Down(s, true); return; }
+            if (Random.value < dt * 0.035f) Launch(s);
         }
         // what it meets: a ramp throws it, anything else puts it in the water
         foreach (var o in spawner.obstacles)
@@ -216,12 +272,19 @@ public class Multi : MonoBehaviour
             if (Mathf.Abs(at) > 1.3f) continue;
             float half = Mathf.Max(0.9f, o.hx + 0.4f);
             if (Mathf.Abs(o.x - s.px) > half) continue;
-            if (o.ramp) { if (s.py <= 0.1f) { s.vy = 13f + Random.value * 4f; s.py = 0.05f; s.spinning = Random.value < 0.7f; } }
+            if (o.ramp) { if (s.py <= 0.1f) Launch(s); }
             else if (s.py < 1.0f && o.kind != "coin") Down(s, true);
             break;
         }
         s.score += Mathf.RoundToInt(s.eff * dt * 0.5f);
         if (mode == MpMode.Race && !s.finished && s.dist >= RaceGoal) { s.finished = true; s.finishT = clock; }
+    }
+
+    // off a ramp: up, maybe a spin, and the same burst of speed off the lip the local rider gets
+    static void Launch(Surfer s)
+    {
+        s.vy = 13f + Random.value * 4f; s.py = 0.05f; s.spinning = Random.value < 0.7f;
+        s.boost = Mathf.Min(16f, s.boost + 7f);
     }
 
     bool LocalDown => rider.wipe || !rider.running;
@@ -244,10 +307,11 @@ public class Multi : MonoBehaviour
     void Down(Surfer s, bool crash)
     {
         if (s.down) return;
-        s.down = true; s.downT = 0f; s.vx = 0f; s.py = 0f; s.vy = 0f; s.spinning = false;
+        s.down = true; s.downT = 0f; s.vx = 0f; s.py = 0f; s.vy = 0f; s.spinning = false; s.boost = 0f; s.deaths++;
         if (mode == MpMode.Brawl && crash) s.hearts--;
         if (mode == MpMode.Brawl && s.hearts <= 0) s.outOfGame = true;
-        if (splash != null) splash(new Vector3(s.px, 0f, -(s.dist - rider.dist)), 30);
+        float z = -(s.dist - rider.dist);
+        if (splash != null && z > -220f && z < 40f) splash(new Vector3(s.px, 0f, z), 30);
     }
 
     // ---------------------------------------------------------------- brawl
@@ -276,8 +340,9 @@ public class Multi : MonoBehaviour
         best.windup = 0f;                                                  // a hit spoils their swing
         if (hud != null) hud.Toast(kick ? "KICK!" : "POW!");
         if (splash != null) splash(new Vector3(best.px, 0f, -(best.dist - rider.dist)), kick ? 18 : 10);
-        if (best.hearts <= 0) { best.hearts = 0; Down(best, false); best.outOfGame = true; }
-        else if (kick && Mathf.Abs(best.vx) > 14f) Down(best, false);           // a big enough kick puts them in the water
+        // knocking someone off the board is an elimination, the last heart or a kick into the water
+        if (best.hearts <= 0) { best.hearts = 0; Down(best, false); best.outOfGame = true; localElims++; }
+        else if (kick && Mathf.Abs(best.vx) > 14f) { Down(best, false); localElims++; }
     }
 
     void BotAttacks(float dt)
@@ -331,7 +396,7 @@ public class Multi : MonoBehaviour
             Sfx.Buzz(kick ? 40 : 20);
             if (hud != null) hud.Toast(s.name + (kick ? " kicked you!" : " punched you!"));
             if (splash != null) splash(new Vector3(rider.px, rider.waterY, 0f), kick ? 18 : 10);
-            if (localHearts <= 0) { localHearts = 0; rider.Wipeout("buoy"); }
+            if (localHearts <= 0) { localHearts = 0; rider.Wipeout("buoy"); s.elims++; }
             return;
         }
         foreach (var o in others)
@@ -340,7 +405,7 @@ public class Multi : MonoBehaviour
             if (o.down || o.outOfGame || Mathf.Abs(o.dist - s.dist) > AlongReach || Mathf.Abs(o.px - s.px) > reach) return;
             float dir = Mathf.Sign(o.px - s.px); if (dir == 0f) dir = 1f;
             o.vx += dir * (kick ? 16f : 9f); o.hearts -= 1; o.windup = 0f;
-            if (o.hearts <= 0) { o.hearts = 0; Down(o, false); o.outOfGame = true; }
+            if (o.hearts <= 0) { o.hearts = 0; Down(o, false); o.outOfGame = true; s.elims++; }
             return;
         }
     }
@@ -402,33 +467,71 @@ public class Multi : MonoBehaviour
         return false;
     }
 
+    // ---------------------------------------------------------------- the standings
+    readonly List<Standing> table = new List<Standing>();
+    System.Comparison<Standing> order;
+
+    /// everyone in place order, kept up to date: the race by who finished first, then who is furthest;
+    /// together by distance; a brawl by who is still in, then hearts, then knockouts
+    public List<Standing> Standings()
+    {
+        foreach (var t in table)
+        {
+            if (t.you)
+            {
+                t.dist = LocalDist; t.finished = localFinished; t.finishT = localFinishT; t.down = LocalDown;
+                t.outOfGame = localOut; t.hearts = localHearts; t.tricks = rider.tricksLanded; t.deaths = localDeaths; t.elims = localElims;
+                continue;
+            }
+            foreach (var o in others)
+            {
+                if (o.id != t.key) continue;
+                t.dist = o.dist; t.finished = o.finished; t.finishT = o.finishT; t.down = o.down; t.outOfGame = o.outOfGame;
+                t.hearts = o.hearts; t.tricks = o.tricks; t.deaths = o.deaths; t.elims = o.elims;
+                break;
+            }
+        }
+        if (order == null) order = (a, b) =>
+        {
+            if (mode == MpMode.Race)
+            {
+                if (a.finished != b.finished) return a.finished ? -1 : 1;
+                if (a.finished) return a.finishT.CompareTo(b.finishT);
+            }
+            else if (mode == MpMode.Brawl)
+            {
+                if (a.outOfGame != b.outOfGame) return a.outOfGame ? 1 : -1;
+                if (a.hearts != b.hearts) return b.hearts.CompareTo(a.hearts);
+                if (a.elims != b.elims) return b.elims.CompareTo(a.elims);
+            }
+            int c = b.dist.CompareTo(a.dist);
+            return c != 0 ? c : a.key.CompareTo(b.key);
+        };
+        table.Sort(order);
+        for (int i = 0; i < table.Count; i++) table[i].place = i + 1;
+        return table;
+    }
+
     void End()
     {
         if (ended) return;
+        // the standings first, while his own distance is still told apart from the one he watches
+        var rows = Standings(); float mine = LocalDist;
         ended = true; Choosing = false; Watching = false; spawner.castAnyway = false;
-        var res = new MpResult { mode = mode, dist = Mathf.RoundToInt(rider.dist), coins = rider.coins };
+        var res = new MpResult { mode = mode, dist = Mathf.RoundToInt(mine), coins = rider.coins };
+        foreach (var t in rows) { var c = t.Copy(); if (c.you) res.place = c.place; res.table.Add(c); }
         if (mode == MpMode.Race)
-        {
-            // finished first by time, then the rest by how far they got
-            var rows = new List<(string name, bool you, bool fin, float t, float d)> { ("You", true, localFinished, localFinishT, rider.dist) };
-            foreach (var o in others) rows.Add((o.name, false, o.finished, o.finishT, o.dist));
-            rows.Sort((a, b) => a.fin != b.fin ? (a.fin ? -1 : 1) : a.fin ? a.t.CompareTo(b.t) : b.d.CompareTo(a.d));
-            for (int i = 0; i < rows.Count; i++) { res.rows.Add((i + 1) + ". " + rows[i].name + (rows[i].fin ? "  " + rows[i].t.ToString("0.0") + "s" : "  " + Mathf.RoundToInt(rows[i].d) + " m")); if (rows[i].you) res.place = i + 1; }
             res.title = res.place == 1 ? "YOU WON THE RACE!" : "Race over: " + Ordinal(res.place);
-        }
         else if (mode == MpMode.Together)
         {
-            res.title = "Together: " + res.dist + " m";
-            res.rows.Add("The crew got " + res.dist + " m before everyone went down");
-            foreach (var o in others) res.rows.Add(o.name + ": " + o.score + " pts");
+            float far = 0f; foreach (var t in rows) far = Mathf.Max(far, t.dist);
+            res.title = "Together: " + Mathf.RoundToInt(far) + " m";
+            res.rows.Add("The crew got " + Mathf.RoundToInt(far) + " m before everyone went down");
         }
         else
         {
             int left = 0; Surfer last = null; foreach (var o in others) if (!o.outOfGame) { left++; last = o; }
-            res.place = localOut ? left + 1 : 1;
             res.title = !localOut ? "LAST ONE STANDING!" : (last != null && left == 1 ? last.name + " wins the brawl" : "You're out: " + Ordinal(res.place));
-            res.rows.Add("You: " + (localOut ? "out" : localHearts + " hearts left"));
-            foreach (var o in others) res.rows.Add(o.name + ": " + (o.outOfGame ? "out" : o.hearts + " hearts"));
         }
         onEnd?.Invoke(res);
     }
@@ -439,5 +542,6 @@ public class Multi : MonoBehaviour
 public class MpResult
 {
     public MpMode mode; public string title; public int place, dist, coins;
-    public readonly List<string> rows = new List<string>();
+    public readonly List<string> rows = new List<string>();          // a line or two under the table
+    public readonly List<Standing> table = new List<Standing>();      // the scoreboard, in place order
 }

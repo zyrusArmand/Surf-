@@ -198,6 +198,8 @@ public class Spawner : MonoBehaviour
             onRamp = null; r.airborne = true; r.poseTake = 1f;
             r.vy = Mathf.Max(r.vy, Mathf.Min(28f, Mathf.Max(rampExitV, RampMinVy * rampExitL)));
             rampExitV = 0f; rampExitL = 1f; r.rampPitch = 0f;
+            // and a burst of speed off the lip: it wears off as a trick's does, so it buys distance, not top speed
+            r.boost = Mathf.Min(16f, r.boost + 7f);
         }
         else r.rampPitch = 0f;
     }
