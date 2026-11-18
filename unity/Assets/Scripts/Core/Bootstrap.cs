@@ -712,10 +712,12 @@ public class Bootstrap : MonoBehaviour
         if (procRig != null && procRig.Ready)
         {
             if (rider.running || rider.wipe) procRig.Stance(dt, 1f); else procRig.Idle(dt, Mathf.Min(1f, dt * 4f));
+            if (mp != null) mp.PoseLocal(null, procRig);         // a brawl's punch or kick, over the stance
         }
         else if (riderRig != null && riderRig.Ready)
         {
             if (rider.running || rider.wipe) riderRig.Stance(dt, 1f); else riderRig.Idle(dt, Mathf.Min(1f, dt * 4f));
+            if (mp != null) mp.PoseLocal(riderRig, null);
         }
         else
         {

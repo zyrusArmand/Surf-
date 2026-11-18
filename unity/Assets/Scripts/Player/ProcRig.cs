@@ -268,6 +268,33 @@ public class ProcRig : MonoBehaviour
 
     static void Set(Transform t, Quaternion q, float w) { t.localRotation = w >= 1f ? q : Quaternion.Slerp(t.localRotation, q, w); }
 
+    /// the way he faces, flat: with no turn on him he faces the nose (-z), as the helicopter's square-up shows
+    public Vector3 Facing() { var f = transform.TransformDirection(Vector3.back); f.y = 0f; return f.sqrMagnitude > 1e-6f ? f.normalized : Vector3.back; }
+
+    /// a punch or a kick laid over whatever pose he is in (see RiderRig.StrikePose), in the web
+    /// joint terms this rig is posed in; the visible limbs are swept again afterwards
+    public void StrikePose(float w, float ext, bool kick, bool fwd)
+    {
+        if (!ready || w <= 0.001f) return;
+        float e = ext * ext * (3f - 2f * ext);
+        if (!kick)
+        {
+            Set(b.armF.sh, ProcRider.RotXYZ(Mathf.Lerp(fwd ? -0.55f : 0.35f, fwd ? -1.50f : 0.95f, e), 0f, Mathf.Lerp(-0.40f, -0.12f, e)), w);
+            Set(b.armF.el, ProcRider.RotXYZ(Mathf.Lerp(1.75f, 0.05f, e), 0f, 0f), w);
+            Set(b.armB.sh, ProcRider.RotXYZ(-0.35f, 0f, 0.35f), w * 0.6f);
+            Set(b.armB.el, ProcRider.RotXYZ(1.6f, 0f, 0f), w * 0.6f);
+            Set(b.chest, ProcRider.RotXYZ(0f, (fwd ? 0.30f : -0.30f) * e, 0f), w * 0.8f);
+        }
+        else
+        {
+            Set(b.legF.hip, ProcRider.RotYXZ(Mathf.Lerp(fwd ? 0.95f : -0.45f, fwd ? 1.40f : -0.95f, e), 0f, 0f), w);
+            Set(b.legF.knee, ProcRider.RotYXZ(Mathf.Lerp(1.45f, 0.06f, e), 0f, 0f), w);
+            Set(b.armF.sh, ProcRider.RotXYZ(0.2f, 0f, -0.9f), w * 0.7f);
+            Set(b.armB.sh, ProcRider.RotXYZ(0.2f, 0f, 0.9f), w * 0.7f);
+        }
+        b.Sweep();
+    }
+
     // The rider group itself (web 44394-44415, 44792-44793). The handstand turns him over about
     // the deck line and lifts him onto his paws; the helicopter turns him to face the nose, lays
     // him flat along the deck and slides him up it. Both pivot at his feet.

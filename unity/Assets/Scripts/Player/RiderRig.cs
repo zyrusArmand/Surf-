@@ -421,4 +421,33 @@ public class RiderRig : MonoBehaviour
     }
 
     public bool Ready => ready;
+
+    /// the way he faces, flat: with no turn on him he faces the nose (-z), as the helicopter's
+    /// square-up shows, so it is his own back axis
+    public Vector3 Facing() { var f = transform.TransformDirection(Vector3.back); f.y = 0f; return f.sqrMagnitude > 1e-6f ? f.normalized : Vector3.back; }
+
+    /// a punch or a kick laid over whatever pose he is in, in by w. `ext` runs from the wind-up
+    /// (0: fist drawn back, knee chambered) to the hit (1: arm or leg thrown out straight); `fwd`
+    /// says whether the one he is hitting is in front of him or behind (a back-fist, a back kick)
+    public void StrikePose(float w, float ext, bool kick, bool fwd)
+    {
+        if (!ready || w <= 0.001f) return;
+        float e = ext * ext * (3f - 2f * ext);
+        if (!kick)
+        {
+            float ax = Mathf.Lerp(fwd ? -0.55f : 0.35f, fwd ? -1.50f : 0.95f, e), az = Mathf.Lerp(0.40f, 0.12f, e);
+            Set("RightArm", ax, 0f, az, w);
+            Set("RightForeArm", Mathf.Lerp(1.75f, 0.05f, e), 0f, 0f, w);
+            Set("Spine01", 0f, (fwd ? 0.30f : -0.30f) * e, 0f, w * 0.8f);       // the shoulder goes in behind it
+            Set("LeftArm", 0.35f, 0f, -0.35f, w * 0.6f);                         // the other fist up, guarding
+            Set("LeftForeArm", 1.6f, 0f, 0f, w * 0.6f);
+        }
+        else
+        {
+            Set("RightUpLeg", Mathf.Lerp(fwd ? 0.95f : -0.45f, fwd ? 1.40f : -0.95f, e), 0f, 0f, w);
+            Set("RightLeg", Mathf.Lerp(1.45f, 0.06f, e), 0f, 0f, w);
+            Set("Spine", (fwd ? -0.25f : 0.30f) * e, 0f, 0f, w * 0.8f);         // leaning away from the leg for balance
+            Set("LeftArm", 0.2f, 0f, -0.9f, w * 0.7f); Set("RightArm", 0.2f, 0f, 0.9f, w * 0.7f);
+        }
+    }
 }
