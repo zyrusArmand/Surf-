@@ -69,7 +69,9 @@ public class CrewView : MonoBehaviour
                 var sp = cam.WorldToScreenPoint(l.root.transform.position + Vector3.up * 3.0f);
                 if (sp.z <= 0f) { l.tag.gameObject.SetActive(false); continue; }
                 ((RectTransform)l.tag.transform).anchoredPosition = new Vector2(sp.x, sp.y) / scale;
-                l.tag.text = mode == MpMode.Brawl ? s.name + " " + new string('♥', Mathf.Max(0, s.hearts)) : s.name;
+                // in a brawl: hearts, and a "!" in red while it winds up a swing, so it can be dodged
+                l.tag.text = mode == MpMode.Brawl ? (s.windup > 0f ? "! " : "") + s.name + " " + new string('♥', Mathf.Max(0, s.hearts)) : s.name;
+                l.tag.color = mode == MpMode.Brawl && s.windup > 0f ? new Color(1f, 0.35f, 0.25f) : s.tint;
             }
         }
     }
