@@ -6,7 +6,7 @@ using UnityEngine;
 public class Bootstrap : MonoBehaviour
 {
     BoardController rider; Spawner spawner; ChaseCamera chase; Hud hud; DayCycle day; Ocean ocean; Intro intro; BeachEdit beachEdit;
-    Multi mp; MpHud mpHud; bool mpPending;          // the shared ocean and its modes (Multi); the round about to start
+    Multi mp; MpHud mpHud; Net net; bool mpPending;          // the shared ocean and its modes (Multi); the round about to start
     Fx fx;
     ParticleSystem spray; Transform rig, pug; RiderRig riderRig; ProcRig procRig; float wakeA;
     Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop; Coconuts cocos; Ufo ufo; Dive dive; Island island; Chute chute;
@@ -194,10 +194,21 @@ public class Bootstrap : MonoBehaviour
         mp.splash = (p, n) => fx.Hit(p, n);
         mpHud = gameObject.AddComponent<MpHud>(); mpHud.mp = mp; mpHud.hud = hud; mpHud.rider = rider; mpHud.Build();
         mpHud.onStart = (m, n) => { mp.Prepare(m, n, Random.Range(1, 1 << 30)); spawner.seed = mp.seed; mpPending = true; Play(); };
+        // online: a room through Unity Relay (Net); the host's start puts everyone in the same ocean
+        net = gameObject.AddComponent<Net>(); net.mp = mp; net.rider = rider; mp.net = net; mpHud.net = net;
+        net.onChanged = () => mpHud.RefreshLobby();
+        net.onStart = (m, oceanSeed) =>
+        {
+            mpHud.HideLobby(); mpHud.CloseResult();
+            if (mp.Running) { SaveData.Coins += rider.coins; SaveData.Flush(); }     // pulled out of a round still going: keep its puka
+            if (mp.On) { mp.Stop(); spawner.seed = -1; }
+            mp.PrepareOnline(m, oceanSeed, net.Others(), net.MyId); spawner.seed = oceanSeed; mpPending = true; Play();
+        };
+        net.onLost = why => { if (mp.Running) hud.Toast(why); };
         mp.onEnd = res => { SaveData.Coins += res.coins; SaveData.Flush(); mpHud.ShowResult(res); };
         mpHud.onDone = () => { mp.Stop(); spawner.seed = -1; Menu(); };
         // going home mid-round: the puka picked up are kept
-        mp.onHome = () => { SaveData.Coins += rider.coins; SaveData.Flush(); mp.Stop(); spawner.seed = -1; rig.gameObject.SetActive(true); Menu(); };
+        mp.onHome = () => { SaveData.Coins += rider.coins; SaveData.Flush(); mp.Stop(); spawner.seed = -1; rig.gameObject.SetActive(true); Menu(); if (net.Connected) mpHud.ShowLobby(false); };
         beachEdit = gameObject.AddComponent<BeachEdit>(); beachEdit.beach = beach; beachEdit.cam = cam; beachEdit.hud = hud;
         intro = gameObject.AddComponent<Intro>(); intro.logo = hud.Logo; intro.menu = hud.Menu;   // the opening, once the world is up
         crate.ceremony = new GameObject("ChestCeremony").AddComponent<ChestCeremony>(); crate.ceremony.cam = cam; crate.ceremony.ui = hud.UiRoot;

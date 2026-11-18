@@ -10,7 +10,7 @@ using UnityEngine.UI;
 
 public class MpHud : MonoBehaviour
 {
-    public Multi mp; public Hud hud; public BoardController rider;
+    public Multi mp; public Hud hud; public BoardController rider; public Net net;
     public System.Action<MpMode, int> onStart;      // the picker's choice: the round starts
     public System.Action onDone;                    // the result closed: back to the title
 
@@ -38,7 +38,7 @@ public class MpHud : MonoBehaviour
         picker = UiKit.Rect(root, "picker", Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero).gameObject;
         var dim = picker.AddComponent<Image>(); dim.color = new Color(0.02f, 0.08f, 0.16f, 0.86f);
         UiKit.Label(picker.transform, "PLAY WITH FRIENDS", 26, UiKit.TrickYellow, FontStyle.Bold, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -110), new Vector2(400, 40));
-        UiKit.Label(picker.transform, "Bots ride with you for now. Online friends are coming next.", 14, Pane.Faint, FontStyle.Normal, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -150), new Vector2(380, 40));
+        UiKit.Label(picker.transform, "Ride with bots here, or with friends online below.", 14, Pane.Faint, FontStyle.Normal, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -150), new Vector2(380, 40));
         ModeButton("RACE", "First to 1000 m wins. Wipe out and you're back on your board.", -230, MpMode.Race);
         ModeButton("TOGETHER", "One team. A fallen surfer is back in 8 s while anyone's still up. Go as far as you can.", -360, MpMode.Together);
         ModeButton("BRAWL", "Punch and kick rivals off their boards. Three hearts each. Last one standing wins.", -490, MpMode.Brawl);
@@ -47,8 +47,12 @@ public class MpHud : MonoBehaviour
         Button(picker.transform, "-", new Vector2(0.5f, 1f), new Vector2(-120, -640), new Vector2(54, 44), () => { count = Mathf.Max(1, count - 1); Count(); }, 24);
         Button(picker.transform, "+", new Vector2(0.5f, 1f), new Vector2(120, -640), new Vector2(54, 44), () => { count = Mathf.Min(3, count + 1); Count(); }, 24);
         Count();
+        // online: host a room, or join a friend's
+        Button(picker.transform, "Host online", new Vector2(0.5f, 0f), new Vector2(-92, 130), new Vector2(170, 54), () => { Sfx.Buzz(10); ShowPicker(false); ShowLobby(false); if (net != null) net.Host(); }, 17);
+        Button(picker.transform, "Join online", new Vector2(0.5f, 0f), new Vector2(92, 130), new Vector2(170, 54), () => { Sfx.Buzz(10); ShowPicker(false); ShowLobby(true); }, 17);
         Button(picker.transform, "Back", new Vector2(0.5f, 0f), new Vector2(0, 60), new Vector2(160, 46), () => ShowPicker(false), 17);
         picker.SetActive(false);
+        BuildLobby();
         // ---- during a round ----
         // the status line on the right under the band; the standings take the left
         status = UiKit.Label(root, "", 14, Color.white, FontStyle.Bold, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-10, -86), new Vector2(220, 24), TextAnchor.MiddleRight, 0.8f);
@@ -74,7 +78,11 @@ public class MpHud : MonoBehaviour
         resTitle = UiKit.Label(result.transform, "", 28, UiKit.TrickYellow, FontStyle.Bold, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 170), new Vector2(400, 44));
         scoreTable = UiKit.Rect(result.transform, "scoreboard", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 1f), new Vector2(0, 136), new Vector2(ColW, 220));
         resRows = UiKit.Label(result.transform, "", 16, Color.white, FontStyle.Bold, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 1f), new Vector2(0, -84), new Vector2(380, 90), TextAnchor.UpperCenter);
-        Button(result.transform, "Back to the beach", new Vector2(0.5f, 0.5f), new Vector2(0, -190), new Vector2(240, 54), () => { result.SetActive(false); onDone?.Invoke(); }, 18);
+        Button(result.transform, "Back", new Vector2(0.5f, 0.5f), new Vector2(0, -190), new Vector2(240, 54), () =>
+        {
+            result.SetActive(false); onDone?.Invoke();
+            if (net != null && net.Connected) ShowLobby(false);           // still in the room: back to it for another round
+        }, 18);
         result.SetActive(false);
     }
 
@@ -105,7 +113,83 @@ public class MpHud : MonoBehaviour
     }
 
     public void ShowPicker(bool on) { if (picker != null) picker.SetActive(on); }
-    public bool PickerOpen => picker != null && picker.activeSelf;
+    public bool PickerOpen => (picker != null && picker.activeSelf) || LobbyOpen;
+    public bool LobbyOpen => lobby != null && lobby.activeSelf;
+
+    // ---------------------------------------------------------------- the online room
+    GameObject lobby, joinRow, hostBtns; Text lobbyStatus, lobbyCode, lobbyPlayers, lobbyWait; InputField codeField;
+
+    void BuildLobby()
+    {
+        lobby = UiKit.Rect(root, "lobby", Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero).gameObject;
+        var dim = lobby.AddComponent<Image>(); dim.color = new Color(0.02f, 0.08f, 0.16f, 0.9f);
+        var T = lobby.transform; var top = new Vector2(0.5f, 1f);
+        UiKit.Label(T, "PLAY ONLINE", 26, UiKit.TrickYellow, FontStyle.Bold, top, top, top, new Vector2(0, -100), new Vector2(400, 40));
+        lobbyStatus = UiKit.Label(T, "", 15, Color.white, FontStyle.Normal, top, top, top, new Vector2(0, -144), new Vector2(380, 40), TextAnchor.MiddleCenter, 0.6f);
+        lobbyStatus.horizontalOverflow = HorizontalWrapMode.Wrap;
+        lobbyCode = UiKit.Label(T, "", 46, UiKit.TrickYellow, FontStyle.Bold, top, top, top, new Vector2(0, -196), new Vector2(380, 60));
+        // joining: the code, typed in
+        joinRow = UiKit.Rect(T, "join", top, top, top, new Vector2(0, -190), new Vector2(360, 60)).gameObject;
+        var pill = UiKit.Pic(joinRow.transform, "code", UiKit.Rounded(210, 56, 16, 16, 16, 16, UiKit.Body.Glass, 2.5f), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), Vector2.zero, new Vector2(210, 56));
+        pill.raycastTarget = true;
+        var txt = UiKit.Label(pill.transform, "", 26, Color.white, FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-20, 0), TextAnchor.MiddleCenter, 0f);
+        txt.supportRichText = false; txt.horizontalOverflow = HorizontalWrapMode.Wrap;
+        var ph = UiKit.Label(pill.transform, "CODE", 22, new Color(1f, 1f, 1f, 0.35f), FontStyle.Bold, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, 0f);
+        codeField = pill.gameObject.AddComponent<InputField>();
+        codeField.textComponent = txt; codeField.placeholder = ph; codeField.targetGraphic = pill;
+        codeField.characterLimit = 8; codeField.lineType = InputField.LineType.SingleLine;
+        codeField.contentType = InputField.ContentType.Alphanumeric;
+        codeField.onValidateInput = (text, i, c) => char.IsLetterOrDigit(c) ? char.ToUpperInvariant(c) : '\0';
+        Button(joinRow.transform, "Join", new Vector2(1f, 0.5f), new Vector2(-66, 0), new Vector2(132, 56), () => { Sfx.Buzz(10); if (net != null) net.Join(codeField.text); }, 19);
+        lobbyPlayers = UiKit.Label(T, "", 18, Color.white, FontStyle.Bold, top, top, top, new Vector2(0, -262), new Vector2(380, 150), TextAnchor.UpperCenter, 0.6f);
+        // the host starts the round
+        hostBtns = UiKit.Rect(T, "start", top, top, top, new Vector2(0, -430), new Vector2(320, 220)).gameObject;
+        StartButton("Start a RACE", 0f, MpMode.Race);
+        StartButton("Start TOGETHER", -72f, MpMode.Together);
+        StartButton("Start a BRAWL", -144f, MpMode.Brawl);
+        lobbyWait = UiKit.Label(T, "Waiting for the host to start...", 16, Pane.Faint, FontStyle.Normal, top, top, top, new Vector2(0, -440), new Vector2(380, 30));
+        Button(T, "Leave", new Vector2(0.5f, 0f), new Vector2(0, 60), new Vector2(160, 46), () => { Sfx.Buzz(10); if (net != null) net.Leave(); lobby.SetActive(false); ShowPicker(true); }, 17);
+        lobby.SetActive(false);
+    }
+
+    void StartButton(string label, float y, MpMode m)
+    {
+        Button(hostBtns.transform, label, new Vector2(0.5f, 1f), new Vector2(0, y), new Vector2(300, 60), () => { Sfx.Buzz(12); if (net != null) net.StartRound(m); }, 20);
+    }
+
+    /// the room's screen; `join` for one still to type a code into
+    public void ShowLobby(bool join)
+    {
+        if (lobby == null) return;
+        if (join && codeField != null && (net == null || !net.Connected)) codeField.text = "";
+        lobby.SetActive(true);
+        RefreshLobby();
+    }
+
+    public void CloseResult() { if (result != null) result.SetActive(false); }
+
+    public void HideLobby() { if (lobby != null) lobby.SetActive(false); }
+
+    /// the room changed: who is in, its code, what is happening
+    public void RefreshLobby()
+    {
+        if (lobby == null || !lobby.activeSelf || net == null) return;
+        bool inRoom = net.Connected;
+        lobbyStatus.text = net.Status;
+        lobbyCode.text = inRoom && net.IsHost ? net.Code : "";
+        joinRow.SetActive(!inRoom && !net.Busy && !net.IsHost);
+        var sb = new System.Text.StringBuilder();
+        if (inRoom)
+        {
+            sb.Append(net.players.Count).Append(net.players.Count == 1 ? " surfer in the room\n" : " surfers in the room\n");
+            foreach (var p in net.players) sb.Append(p.name).Append(p.id == net.MyId ? " (you)" : "").Append(p.id == 1 ? "  - host" : "").Append('\n');
+            if (net.IsHost && net.players.Count < 2) sb.Append("\nWaiting for friends to join...");
+        }
+        lobbyPlayers.text = sb.ToString();
+        hostBtns.SetActive(inRoom && net.IsHost && net.players.Count >= 2);
+        lobbyWait.gameObject.SetActive(inRoom && !net.IsHost);
+    }
+
     public bool ResultOpen => result != null && result.activeSelf;
 
     /// on the title (true) the button shows; in a round, the status line and, in a brawl, the buttons

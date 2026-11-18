@@ -40,6 +40,8 @@ public class Surfer
     public string trickName = "", call = "";
     // what they wear: their own outfit, and the photograph of them in it ("outfit" preview)
     public Save outfit; public string faceKind = "rider", faceId = "";
+    // a player online: the last word from him, when it came, and whether he has gone
+    public float netDist, netPx, netT; public bool left;
 }
 
 /// one line of the standings: the leaderboard during a round, the scoreboard after it
@@ -103,7 +105,7 @@ public class Multi : MonoBehaviour
     /// sit it out and watch until the round is won
     public void Watch() { if (!Running) return; if (!Watching) keptDist = rider.dist; Choosing = false; Watching = true; watched = null; }
 
-    public void GoHome() { Choosing = false; Watching = false; onHome?.Invoke(); }
+    public void GoHome() { Choosing = false; Watching = false; if (Online && net != null) net.SendLeftRound(); onHome?.Invoke(); }
 
     // watching: the ocean follows the surfer being watched, as it follows him when he rides
     void Follow()
@@ -166,7 +168,13 @@ public class Multi : MonoBehaviour
             s.hopCd = 2f + (float)rng.NextDouble() * 4f;
             others.Add(s);
         }
-        // the standings: you, then everyone else; their portraits asked for now so they are ready sooner
+        Ready();
+    }
+
+    // the standings (you, then everyone else; their portraits asked for now so they are ready
+    // sooner) and the surfers drawn in the water
+    void Ready()
+    {
         table.Clear();
         table.Add(new Standing { key = 0, name = "You", riderId = SaveData.S.rider, faceKind = "rider", faceId = SaveData.S.rider, tint = YouTint, you = true });
         foreach (var o in others) table.Add(new Standing { key = o.id, name = o.name, riderId = o.riderId, faceKind = o.faceKind, faceId = o.faceId, tint = o.tint });
@@ -175,13 +183,132 @@ public class Multi : MonoBehaviour
         view.Build(others, rider, cam, hud);
     }
 
+    // =====================================================================================
+    // ---- online (Net) ----
+    public Net net;
+    public bool Online { get; private set; }
+    int myNet;
+    static readonly float[] Lanes = { -4.5f, -1.5f, 1.5f, 4.5f };
+    static float Lane(int id) => Lanes[Mathf.Clamp(id - 1, 0, Lanes.Length - 1)];
+
+    /// a round with the players in the room: everyone starts in his own lane, in the same ocean
+    public void PrepareOnline(MpMode m, int oceanSeed, List<NetPlayer> players, int myId)
+    {
+        Stop();
+        mode = m; seed = oceanSeed; ended = false; running = false; clock = 0f;
+        localHearts = 3; localOut = false; localFinished = false; localDownT = 0f;
+        localDeaths = 0; localElims = 0; wasWipe = false; round++;
+        Online = true; myNet = myId;
+        foreach (var p in players)
+        {
+            var s = new Surfer
+            {
+                id = p.id, name = string.IsNullOrEmpty(p.name) ? "Surfer" : p.name, bot = false,
+                riderId = KnownRider(p.rider), boardId = KnownBoard(p.board),
+                tint = Color.HSVToRGB(Hues[(p.id - 1) % Hues.Length], 0.72f, 1f),
+                px = Lane(p.id), hearts = 3, eff = 0f
+            };
+            s.netPx = s.px; s.netT = Time.time;
+            s.outfit = new Save { rider = s.riderId, gearEyes = p.eyes, gearHead = p.head, gearNeck = p.neck, gearBody = p.body };
+            s.faceKind = "outfit"; s.faceId = s.riderId + "|" + p.eyes + "|" + p.head + "|" + p.neck + "|" + p.body;
+            others.Add(s);
+        }
+        Ready();
+    }
+
+    static string KnownRider(string id) { foreach (var r in RiderCatalog.All) if (r.id == id) return id; return "pug"; }
+    static string KnownBoard(string id) { foreach (var b in BoardCatalog.All) if (b.id == id) return id; return "astro"; }
+
+    Surfer ById(int id) { foreach (var o in others) if (o.id == id) return o; return null; }
+
+    /// what the local surfer sends, about fifteen times a second
+    public void WriteLocalState(System.IO.BinaryWriter w)
+    {
+        bool down = LocalDown || Watching || Choosing;
+        float air = rider.airborne ? Mathf.Max(0f, rider.py - rider.waterY) : 0f;
+        w.Write(LocalDist); w.Write(Watching ? 0f : rider.px); w.Write(down ? 0f : air); w.Write(down ? 0f : rider.vx); w.Write(down ? 0f : rider.eff);
+        w.Write(Mathf.Clamp(rider.vx / 9f, -1f, 1f));
+        bool tricks = rider.airborne && !down;
+        w.Write(tricks ? rider.spinRot * Mathf.Rad2Deg : 0f); w.Write(tricks ? rider.pitchRot * Mathf.Rad2Deg : 0f); w.Write(tricks ? rider.flipRot * Mathf.Rad2Deg : 0f);
+        w.Write((byte)((down ? 1 : 0) | (localOut ? 2 : 0) | (localFinished ? 4 : 0)));
+        w.Write((byte)Mathf.Clamp(localHearts, 0, 255)); w.Write(rider.tricksLanded); w.Write(localDeaths); w.Write(localElims); w.Write(localFinishT);
+    }
+
+    /// another player's state, as he sent it
+    public void NetState(int id, System.IO.BinaryReader r)
+    {
+        var s = ById(id); if (s == null || s.left) return;
+        s.netDist = r.ReadSingle(); s.netPx = r.ReadSingle(); s.py = r.ReadSingle(); s.vx = r.ReadSingle(); s.eff = r.ReadSingle();
+        s.carve = r.ReadSingle(); s.spin = r.ReadSingle(); s.flip = r.ReadSingle(); s.roll = r.ReadSingle();
+        int f = r.ReadByte();
+        bool wasDown = s.down;
+        s.down = (f & 1) != 0; s.outOfGame = (f & 2) != 0; s.finished = (f & 4) != 0;
+        s.hearts = r.ReadByte();
+        int tricks = r.ReadInt32();
+        if (tricks > s.tricks && s.tricks >= 0 && Running) { s.call = "TRICK!"; s.callT = 1.2f; }
+        s.tricks = tricks; s.deaths = r.ReadInt32(); s.elims = r.ReadInt32(); s.finishT = r.ReadSingle();
+        s.netT = Time.time;
+        // in the water: a splash where he went in
+        if (s.down && !wasDown && splash != null) { float z = -(s.dist - rider.dist); if (z > -220f && z < 40f) splash(new Vector3(s.px, 0f, z), 30); }
+    }
+
+    // between messages: carried on at his speed, and eased onto where he says he is
+    void StepRemote(Surfer s, float dt)
+    {
+        if (s.left) return;
+        float since = Mathf.Min(0.5f, Time.time - s.netT);
+        float want = s.netDist + (s.down || s.finished ? 0f : s.eff * since);
+        s.dist = Mathf.Abs(want - s.dist) > 40f ? want : Mathf.Lerp(s.dist, want, 1f - Mathf.Exp(-10f * dt));
+        float wantX = s.netPx + (s.down ? 0f : s.vx * Mathf.Min(since, 0.25f));
+        s.px = Mathf.Lerp(s.px, wantX, 1f - Mathf.Exp(-12f * dt));
+        s.callT = Mathf.Max(0f, s.callT - dt);
+        s.lunge = Mathf.MoveTowards(s.lunge, 0f, dt * 4f);
+    }
+
+    /// another player's swing has landed on you (he saw you in reach on his screen)
+    public void NetHit(int by, bool kick, float dir)
+    {
+        if (!Running || mode != MpMode.Brawl || localOut || LocalDown || localImmune > 0f || startGrace > 0f) return;
+        var s = ById(by);
+        rider.vx += dir * (kick ? 16f : 9f);
+        localHearts -= 1; localImmune = HitImmune;
+        Sfx.Buzz(kick ? 40 : 20);
+        if (hud != null) hud.Toast((s != null ? s.name : "Someone") + (kick ? " kicked you!" : " punched you!"));
+        if (splash != null) splash(new Vector3(rider.px, rider.waterY, 0f), kick ? 18 : 10);
+        if (localHearts <= 0) { localHearts = 0; rider.Wipeout("buoy"); if (net != null) net.SendKO(myNet, by); }
+    }
+
+    /// someone was knocked out: the one who did it gets the elimination
+    public void NetKO(int victim, int by)
+    {
+        if (!Running) return;
+        if (by == myNet) { localElims++; if (hud != null) { var v = ById(victim); hud.Toast("You knocked out " + (v != null ? v.name : "someone") + "!"); } }
+        else { var s = ById(by); if (s != null) s.elims++; }
+    }
+
+    /// a player has left the round (or the room)
+    public void NetLeft(int id)
+    {
+        var s = ById(id); if (s == null) return;
+        s.left = true; s.down = true; s.outOfGame = true;
+        if (hud != null && Running) hud.Toast(s.name + " left");
+    }
+
+    /// the room is gone: everyone else with it
+    public void NetAllLeft() { foreach (var o in others) { o.left = true; o.down = true; o.outOfGame = true; } }
+
     /// the run has started (Bootstrap.Play)
-    public void Begin() { if (On) { running = true; clock = 0f; startGrace = mode == MpMode.Brawl ? BrawlGrace : 0f; localImmune = 0f; wasWipe = false; } }
+    public void Begin()
+    {
+        if (!On) return;
+        running = true; clock = 0f; startGrace = mode == MpMode.Brawl ? BrawlGrace : 0f; localImmune = 0f; wasWipe = false;
+        if (Online) rider.px = Lane(myNet);                     // online everyone starts in his own lane
+    }
 
     /// back to the title: everyone gone
     public void Stop()
     {
-        running = false; ended = false; mode = MpMode.None;
+        running = false; ended = false; mode = MpMode.None; Online = false;
         Choosing = false; Watching = false; watched = null; if (spawner != null) spawner.castAnyway = false;
         others.Clear();
         if (view != null) view.Clear();
@@ -201,7 +328,7 @@ public class Multi : MonoBehaviour
         if (rider.wipe && !wasWipe) localDeaths++;              // each time he goes in, once
         wasWipe = rider.wipe;
         if (Watching) Follow();
-        foreach (var s in others) StepBot(s, dt);
+        foreach (var s in others) { if (s.bot) StepBot(s, dt); else StepRemote(s, dt); }
         if (mode == MpMode.Brawl) BotAttacks(dt);
         Rules(dt);
         if (view != null) view.Step(others, mode, dt);
@@ -401,6 +528,15 @@ public class Multi : MonoBehaviour
         Sfx.Buzz(kick ? 25 : 12);
         if (best == null) { if (hud != null) hud.Toast(kick ? "KICK!" : "PUNCH!"); return; }
         float dir = Mathf.Sign(best.px - rider.px); if (dir == 0f) dir = 1f;
+        if (!best.bot)
+        {
+            // a player: the hit is his to take (NetHit on his phone), and his knockout comes back as a KO
+            if (net != null) net.SendHit(best.id, kick, dir);
+            best.lunge = 0.5f;
+            if (hud != null) hud.Toast(kick ? "KICK!" : "POW!");
+            if (splash != null) splash(new Vector3(best.px, 0f, -(best.dist - rider.dist)), kick ? 18 : 10);
+            return;
+        }
         best.vx += dir * (kick ? 17f : 10f); best.wantX = best.px + dir * 5f; best.mindT = 1.2f;
         best.hearts -= 1;                                                  // every hit is one heart; a kick shoves harder
         best.windup = 0f;                                                  // a hit spoils their swing
@@ -417,6 +553,7 @@ public class Multi : MonoBehaviour
         if (startGrace > 0f) return;
         foreach (var s in others)
         {
+            if (!s.bot) continue;                                     // a player swings for himself
             if (s.down || s.outOfGame) { s.windup = 0f; continue; }
             // a swing wound up: it lands only if the one it was aimed at is still in reach
             if (s.windup > 0f)
