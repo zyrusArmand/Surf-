@@ -198,6 +198,8 @@ public class Spawner : MonoBehaviour
             onRamp = null; r.airborne = true; r.poseTake = 1f;
             r.vy = Mathf.Max(r.vy, Mathf.Min(28f, Mathf.Max(rampExitV, RampMinVy * rampExitL)));
             rampExitV = 0f; rampExitL = 1f; r.rampPitch = 0f;
+            // and a burst of speed off the lip: it wears off as a trick's does, so it buys distance, not top speed
+            r.boost = Mathf.Min(16f, r.boost + 7f);
         }
         else r.rampPitch = 0f;
     }
@@ -316,6 +318,7 @@ public class Spawner : MonoBehaviour
     // of by the clock, the dice and his own position: every player passing the same metre meets the
     // same thing in the same lane, whatever their speed or frame rate. -1 is the ordinary game.
     public int seed = -1;
+    public bool castAnyway;              // cast while he is not riding: he is watching someone else ride his ocean (Multi)
     System.Random srng; float nextAt; int finCdN, octCdN;
     float Roll() => seed >= 0 && srng != null ? (float)srng.NextDouble() : Random.value;
     /// the next obstacle's distance, for the bots that ride the same ocean
@@ -357,7 +360,7 @@ public class Spawner : MonoBehaviour
         if (holdCast) spawnT = Mathf.Max(spawnT, 0.5f);
         bool shared = seed >= 0 && srng != null;
         bool due = shared ? distM >= nextAt : spawnT <= 0f;
-        if (r.running && due && !holdCast)
+        if ((r.running || castAnyway) && due && !holdCast)
         {
             float wantGap = Mathf.Max(15f, 24f - distM / 300f) * (1f - 0.30f * chuteW);
             float castAt = nextAt;                                       // the metre this cast belongs to
