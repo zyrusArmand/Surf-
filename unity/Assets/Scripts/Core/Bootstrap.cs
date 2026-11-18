@@ -6,6 +6,7 @@ using UnityEngine;
 public class Bootstrap : MonoBehaviour
 {
     BoardController rider; Spawner spawner; ChaseCamera chase; Hud hud; DayCycle day; Ocean ocean; Intro intro; BeachEdit beachEdit;
+    Multi mp; MpHud mpHud; bool mpPending;          // the shared ocean and its modes (Multi); the round about to start
     Fx fx;
     ParticleSystem spray; Transform rig, pug; RiderRig riderRig; ProcRig procRig; float wakeA;
     Beach beach; Camera cam; GameObject boardGo; SetWave setWave; Whirlpool whirl; Crate crate; Shop shop; Coconuts cocos; Ufo ufo; Dive dive; Island island; Chute chute;
@@ -187,6 +188,14 @@ public class Bootstrap : MonoBehaviour
         spawner.onSplat = c => splat.Show(c);
         spawner.onClearSplat = () => splat.Hide();
         hud.Build();
+        // multiplayer: the other surfers and the rules (Multi), and its screens (MpHud)
+        mp = gameObject.AddComponent<Multi>(); mp.rider = rider; mp.spawner = spawner; mp.cam = cam; mp.hud = hud;
+        mp.reviveLocal = () => hud.onRevive?.Invoke();
+        mp.splash = (p, n) => fx.Hit(p, n);
+        mpHud = gameObject.AddComponent<MpHud>(); mpHud.mp = mp; mpHud.hud = hud; mpHud.rider = rider; mpHud.Build();
+        mpHud.onStart = (m, n) => { mp.Prepare(m, n, Random.Range(1, 1 << 30)); spawner.seed = mp.seed; mpPending = true; Play(); };
+        mp.onEnd = res => { SaveData.Coins += res.coins; SaveData.Flush(); mpHud.ShowResult(res); };
+        mpHud.onDone = () => { mp.Stop(); spawner.seed = -1; Menu(); };
         beachEdit = gameObject.AddComponent<BeachEdit>(); beachEdit.beach = beach; beachEdit.cam = cam; beachEdit.hud = hud;
         intro = gameObject.AddComponent<Intro>(); intro.logo = hud.Logo; intro.menu = hud.Menu;   // the opening, once the world is up
         crate.ceremony = new GameObject("ChestCeremony").AddComponent<ChestCeremony>(); crate.ceremony.cam = cam; crate.ceremony.ui = hud.UiRoot;
@@ -417,13 +426,17 @@ public class Bootstrap : MonoBehaviour
 
     void Play()
     {
+        // an ordinary run is never a multiplayer one: only the picker's start keeps the round and its seed
+        if (!mpPending && mp != null && mp.On) { mp.Stop(); spawner.seed = -1; }
+        if (!mpPending) spawner.seed = -1;
+        mpPending = false;
         spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset(); island.Reset(); chute.Reset(); boat.Reset();
         ski.Reset();
         if (questBoard != null) questBoard.Reset();      // the lens home and the board put away (web 27353)
         Quests.Roll();
         runBest = SaveData.Best; runBestDist = SaveData.BestDist;      // the bests this run has to beat, before it moves them
         if (Wheel.RunStart() | loanBack) { loanBack = false; BuildRider(); } if (Wheel.ConsumeChest()) crate.Soon(); bankedDist = bankedScore = bankedCoins = 0;
-        rider.Begin(); runSecs = 0;
+        rider.Begin(); runSecs = 0; mp.Begin();
         rider.transform.rotation = Quaternion.identity; rig.localRotation = Quaternion.identity;
         over = false;
         beach.Show(false); boardGo.SetActive(true); day.pin = -1f; day.keyFrom = Vector3.zero; day.beachLook = false;
@@ -438,6 +451,7 @@ public class Bootstrap : MonoBehaviour
     /// the title: the ride stops, he floats in the lane, the dial comes up
     void Menu()
     {
+        if (mp != null && mp.On) { mp.Stop(); spawner.seed = -1; }
         if (Wheel.RunEnd() | loanBack) { loanBack = false; BuildRider(); }        // a loan from the wheel is given back
         spawner.Clear(); setWave.Reset(); whirl.Reset(); crate.Reset(); cocos.Reset(); ufo.Reset(); dive.Reset(); island.Reset(); chute.Reset(); boat.Reset();
         ski.Reset();
@@ -538,12 +552,18 @@ public class Bootstrap : MonoBehaviour
             rider.Step(dt); runSecs += dt;
             Sfx.RideBed(rider.speed, rider.carve, rider.airborne, Mathf.Max(dive.Sub, rider.Submerged ? 1f : 0f), ufo.Duck);
             spawner.Step(dt);
-            setWave.Step(dt);
-            dive.Step(dt);                                   // after the set wave: the launch assigns pz over its trim
-            island.Step(dt); chute.Step(dt);
-            whirl.Step(dt); crate.Step(dt); cocos.Step(dt); ufo.Step(dt);
-            ski.Step(dt);                                    // after the ride, as the web's updateJetSki: the launch it fires is his next frame's
-            boat.Step(dt);                                   // after the spawner: the bow shoves what it has just placed
+            // the shared ocean has the obstacles alone: the set wave, the island, the saucer and the
+            // rest each come at their own time and place, and would come for one surfer and not the others
+            if (!mp.On)
+            {
+                setWave.Step(dt);
+                dive.Step(dt);                               // after the set wave: the launch assigns pz over its trim
+                island.Step(dt); chute.Step(dt);
+                whirl.Step(dt); crate.Step(dt); cocos.Step(dt); ufo.Step(dt);
+                ski.Step(dt);                                // after the ride, as the web's updateJetSki: the launch it fires is his next frame's
+                boat.Step(dt);                               // after the spawner: the bow shoves what it has just placed
+            }
+            mp.Step(dt); mpHud.Step(true);
             if (Input.GetKeyDown(KeyCode.U)) ufo.summon = true;           // debug: the saucer now
             if (Input.GetKeyDown(KeyCode.N)) dive.summon = true;          // debug: a jetpack now
             if (Input.GetKeyDown(KeyCode.I)) island.summon = true;        // debug: the island fork now
@@ -571,8 +591,10 @@ public class Bootstrap : MonoBehaviour
             rider.wipeReal += Time.deltaTime;                // the card waits on the real clock, not the slowed one (web 28224)
             if (spawner.eater != null && spawner.eater.at < Spawner.ShkChew) { rider.WipeHeld(dt); spawner.Step(dt); }   // in the shark's mouth
             else { rider.WipeStep(dt); spawner.Step(dt); }
+            mp.Step(dt); mpHud.Step(false);                  // the others ride on while he is in the water
+            if (mp.On && rider.wipeReal >= BoardController.WipeShow) mp.LocalWipeDone(dt);   // back on, waiting, or out: the mode's call, not the card
             wakeA = Mathf.Lerp(wakeA, 0f, dt * 4f);
-            if (rider.wipeReal >= BoardController.WipeShow && !over)
+            if (rider.wipeReal >= BoardController.WipeShow && !over && !mp.On)
             {
                 over = true; ufo.RunEnd();
                 // the card, as the web fills it: what this run (since any revive) earned, doubled by the
@@ -608,6 +630,8 @@ public class Bootstrap : MonoBehaviour
             // the signpost is the title's; once the lens has turned toward the board it is not in shot
             if (questBoard != null && questBoard.Away > 0.01f) paneOpen = true;
             if (intro != null && intro.Busy) paneOpen = true;          // a tap through the opening skips it, and does nothing else
+            if (mpHud.PickerOpen || mpHud.ResultOpen) paneOpen = true;
+            mpHud.Title(beach.Showing && !paneOpen);                   // "Play with friends": the plain title only
             // a phone reports every touch as a mouse click as well: the mouse is read only when there
             // is no touch, or one tap pressed the arm twice and a pill over an arm pressed both
             // (the signpost presses on release now, and a two-second hold on the shop, the post, the

@@ -311,6 +311,16 @@ public class Spawner : MonoBehaviour
         }
     }
 
+    // ---- the shared ocean (multiplayer) ----
+    // With a seed set, what is cast and where is decided by distance and one seeded sequence instead
+    // of by the clock, the dice and his own position: every player passing the same metre meets the
+    // same thing in the same lane, whatever their speed or frame rate. -1 is the ordinary game.
+    public int seed = -1;
+    System.Random srng; float nextAt; int finCdN, octCdN;
+    float Roll() => seed >= 0 && srng != null ? (float)srng.NextDouble() : Random.value;
+    /// the next obstacle's distance, for the bots that ride the same ocean
+    public float NextAt => nextAt;
+
     public void Clear()
     {
         Hull.Reset();
@@ -319,6 +329,7 @@ public class Spawner : MonoBehaviour
         // off six seconds, a random lane
         obstacles.Clear(); spawnT = 2.0f; eater = null; bigFinCd = 6f; octCd = 0; holdCast = false; chuteW = 0;
         lastKind = ""; sameRun = 0; laneSlot = Random.Range(0, 5);
+        if (seed >= 0) { srng = new System.Random(seed); laneSlot = srng.Next(0, 5); nextAt = 40f; finCdN = 0; octCdN = 0; }
         // the first tow comes 34 to 60 s into a run (web reset 27114)
         towOn = false; towT = 34f + Random.value * 26f; if (tow != null) tow.gameObject.SetActive(false);
         if (towRope != null) towRope.gameObject.SetActive(false);
@@ -344,10 +355,14 @@ public class Spawner : MonoBehaviour
         TowPlane(dt, eff);                 // it only sets off while he is riding; one already out flies on through a crash
         if (setWave != null && setWave.ph != SetWave.Phase.Idle) spawnT = Mathf.Max(spawnT, 0.6f);   // nothing new is cast while the set wave is up (web 46170)
         if (holdCast) spawnT = Mathf.Max(spawnT, 0.5f);
-        if (r.running && spawnT <= 0f && !holdCast)
+        bool shared = seed >= 0 && srng != null;
+        bool due = shared ? distM >= nextAt : spawnT <= 0f;
+        if (r.running && due && !holdCast)
         {
             float wantGap = Mathf.Max(15f, 24f - distM / 300f) * (1f - 0.30f * chuteW);
-            spawnT = Mathf.Max(0.40f, wantGap / Mathf.Max(16f, eff)) * (0.75f + Random.value * 0.5f);
+            float castAt = nextAt;                                       // the metre this cast belongs to
+            if (shared) nextAt += wantGap * (0.75f + Roll() * 0.5f);      // the next one a gap of road on, not of time
+            else spawnT = Mathf.Max(0.40f, wantGap / Mathf.Max(16f, eff)) * (0.75f + Random.value * 0.5f);
             // buoys and logs are the whole game to begin with; ramps, then jellyfish
             var weights = new List<(string, float)>();
             if (chuteW > 0.5f)
@@ -369,25 +384,29 @@ public class Spawner : MonoBehaviour
             for (int tries = 0; tries < 8; tries++)
             {
                 float total = 0; foreach (var w in weights) total += w.Item2;
-                float roll = Random.value * total; string cand = weights[0].Item1;
+                float roll = Roll() * total; string cand = weights[0].Item1;
                 foreach (var w in weights) { roll -= w.Item2; if (roll <= 0) { cand = w.Item1; break; } }
                 if (cand == lastKind && sameRun >= 2) continue;
-                if (cand == "bigfin" && bigFinCd > 0f) continue;
+                if (cand == "bigfin" && (shared ? finCdN > 0 : bigFinCd > 0f)) continue;   // shared: counted in casts, not seconds
                 if (cand == "octopus" && octCd > 0) continue;
                 pick = cand; break;
             }
             if (pick == null) pick = "buoy";
             sameRun = pick == lastKind ? sameRun + 1 : 1; lastKind = pick;
             if (pick == "bigfin") bigFinCd = 9f;
+            if (shared) { finCdN = Mathf.Max(0, finCdN - 1); if (pick == "bigfin") finCdN = 3; }
             octCd = Mathf.Max(0, octCd - 1); if (pick == "octopus") octCd = 3;
-            laneSlot = (laneSlot + 1 + Random.Range(0, 3)) % 7;
-            float laneX = (-3 + laneSlot) * 4.9f + (Random.value - 0.5f) * 3.0f;
+            laneSlot = (laneSlot + 1 + (shared ? srng.Next(0, 3) : Random.Range(0, 3))) % 7;
+            float laneX = (-3 + laneSlot) * 4.9f + (Roll() - 0.5f) * 3.0f;
             float lim = Mathf.Min(17f, r.laneLim);
-            Make(pick, Mathf.Clamp(r.px * 0.55f + laneX, -lim, lim), -170f);
-            if (distM > 600 && Random.value < 0.30f)
+            // shared: in a lane of the ocean itself, not drawn toward wherever he happens to be
+            // 170 ft past the metre it belongs to, whatever this frame overshot it by, so every player has it at the same spot
+            float ahead = shared ? -170f + (distM - castAt) : -170f;
+            Make(pick, Mathf.Clamp((shared ? 0f : r.px * 0.55f) + laneX, -lim, lim), ahead);
+            if (distM > 600 && Roll() < 0.30f)
             {
-                float edge = (Random.value < 0.5f ? -1 : 1) * (11.5f + Random.value * 4.5f);
-                Make(Random.value < 0.5f ? "buoy" : "log", edge, -176f);
+                float edge = (Roll() < 0.5f ? -1 : 1) * (11.5f + Roll() * 4.5f);
+                Make(Roll() < 0.5f ? "buoy" : "log", edge, ahead - 6f);
             }
         }
         bigFinCd = Mathf.Max(0f, bigFinCd - dt);
